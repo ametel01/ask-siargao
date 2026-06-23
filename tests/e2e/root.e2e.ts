@@ -49,6 +49,16 @@ test("shows processing state after checkout return", async ({ page }) => {
   await expect(page.getByText(/Verified Stripe webhook marks the audit paid/i)).toBeVisible();
 });
 
+test("renders final report with evidence and limitations", async ({ page }) => {
+  await page.goto("/audits/audit_123/report");
+
+  await expect(page.getByRole("heading", { name: "Siargao trip risk audit" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Top risks" })).toBeVisible();
+  await expect(page.getByText("ev_route", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Notes and limitations" })).toBeVisible();
+  await expect(page.getByText(/Exact room noise level is not verified/i)).toBeVisible();
+});
+
 for (const width of [390, 768, 1024, 1366]) {
   test(`does not create horizontal overflow at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

@@ -25,7 +25,7 @@ Source plan: `PLAN.md`
 - [x] Step 5: Audit Intake, Accommodation Resolution, and Completeness Gate
 - [x] Step 6: Risk Engine, Evidence Bundles, and Report Schema Validation
 - [x] Step 7: Stripe Checkout, Webhook Unlock, and Audit Job States
-- [ ] Step 8: LLM Generator, Reviewer Pass, and Final Report UI
+- [x] Step 8: LLM Generator, Reviewer Pass, and Final Report UI
 - [ ] Step 9: Admin and Operator Diagnostics
 - [ ] Step 10: Public Pages, Agent-Readable Surfaces, Sitemap, and llms.txt
 - [ ] Step 11: Observability, Privacy, Rate Limiting, and Security Hardening
@@ -33,7 +33,7 @@ Source plan: `PLAN.md`
 
 ## Current Status
 
-Step 7 is complete. Next step: Step 8, LLM Generator, Reviewer Pass, and Final Report UI.
+Step 8 is complete. Next step: Step 9, Admin and Operator Diagnostics.
 
 ## Update Rule
 
@@ -234,4 +234,28 @@ Validation:
 - Passed: `bun run db:migrate:test`
 
 Commit:
-- Pending: `feat: add payment-gated audit lifecycle`
+- `bdcc0ed` - `feat: add payment-gated audit lifecycle`
+
+### 2026-06-23 - Step 8: LLM Generator, Reviewer Pass, and Final Report UI
+
+Summary:
+- Added a server-side OpenAI Responses API adapter with structured-output request boundaries, server-only API key handling, and mocked client injection for tests.
+- Added controlled read-only retrieval tools for user constraints, accommodation facts, reviews, weather, routes, area profile, service/policy facts, source credibility, official-source checks, event/closure signals, environmental/local fees, and operator trust signals.
+- Enforced retrieval tool budgets and filtered unsupported, disallowed, internal-only, and uncited facts before model context.
+- Added reviewer validation with separate reviewer instructions, structured correction/block results, deterministic validator blocking, and publication approval checks.
+- Added a final paid report page at `/audits/[auditRequestId]/report` with overall rating, top risks, category breakdown, recommendations, evidence snapshot, limitations, host questions, and source/freshness notes.
+- Added sample report data for the report page until persisted report loading is wired in later steps.
+- Added mocked LLM/reviewer tests for structured report parsing, unsupported data filtering, tool budgets, deterministic validator failures, reviewer revision/block paths, and publication gating.
+- Added Playwright coverage for final report rendering with evidence IDs and limitations.
+
+Validation:
+- Passed: `bun run format`
+- Passed: `bun test src/server/llm/report-generation.test.ts`
+- Passed: `bun run lint`
+- Passed: `bun run typecheck`
+- Passed: `bun test`
+- Passed: `bun run build`
+- Passed: `bun run test:e2e`
+
+Commit:
+- Pending: `feat: generate reviewed audit reports`
