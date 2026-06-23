@@ -1,5 +1,6 @@
 import { CheckCircle2, FileJson, FileText, LinkIcon } from "lucide-react";
 
+import { serializeJsonForHtmlScript } from "@/server/public-pages/html-json";
 import {
   type PublicKnowledgePage as PublicKnowledgePageData,
   buildPublicJsonLd,
@@ -10,7 +11,9 @@ import { pageShell } from "../../../styled-system/recipes/page-shell";
 export function PublicKnowledgePage({ page }: { page: PublicKnowledgePageData }) {
   return (
     <main className={pageShell()}>
-      <script type="application/ld+json">{JSON.stringify(buildPublicJsonLd(page))}</script>
+      <script type="application/ld+json">
+        {serializeJsonForHtmlScript(buildPublicJsonLd(page))}
+      </script>
       <section
         className={css({
           display: "grid",

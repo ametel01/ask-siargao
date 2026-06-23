@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { serializeJsonForHtmlScript } from "@/server/public-pages/html-json";
 import {
   type PublicFactRecord,
   buildLlmsTxt,
@@ -35,6 +36,17 @@ describe("public knowledge surfaces", () => {
     expect(markdown).toContain(page.canonicalUrl);
     expect(page.generationSourceFactIds).toEqual(page.facts.map((fact) => fact.id));
     expect(json.evidenceBundle.evidenceIds).toEqual(page.facts.map((fact) => fact.evidenceId));
+  });
+
+  test("serializes JSON-LD safely for inline script markup", () => {
+    const serialized = serializeJsonForHtmlScript({
+      text: "</script><script>alert('xss')</script>&",
+    });
+
+    expect(serialized).not.toContain("<");
+    expect(serialized).not.toContain(">");
+    expect(serialized).not.toContain("&");
+    expect(serialized).toContain("\\u003c/script\\u003e");
   });
 
   test("blocks private paid report, raw provider, unsupported, and low-confidence facts", () => {

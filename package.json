@@ -31,7 +31,7 @@
     "@pandacss/dev": "^1.4.0",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^0.468.0",
-    "next": "15.1.6",
+    "next": "15.5.18",
     "openai": "^6.44.0",
     "postgres": "^3.4.9",
     "react": "^19.0.0",
