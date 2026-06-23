@@ -70,6 +70,29 @@ test("renders local admin diagnostics without leaking sample secrets", async ({ 
   await expect(page.getByText(/sk_test_should_not_render/i)).toHaveCount(0);
 });
 
+test("renders public human, markdown, JSON, sitemap, and llms surfaces", async ({ page }) => {
+  await page.goto("/accommodations/example-surf-stay");
+
+  await expect(page.getByRole("heading", { exact: true, name: "Example Surf Stay" })).toBeVisible();
+  await expect(page.getByText("public_ev_example_surf_stay_area", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Room-level noise, private bookings/i)).toBeVisible();
+
+  const markdown = await page.request.get("/accommodations/example-surf-stay/llm.md");
+  expect(await markdown.text()).toContain(
+    "Example Surf Stay is listed as a General Luna accommodation.",
+  );
+
+  const json = await page.request.get("/api/public/accommodations/example-surf-stay.json");
+  const body = await json.json();
+  expect(body.claims[0].claim).toBe("Example Surf Stay is listed as a General Luna accommodation.");
+
+  const sitemap = await page.request.get("/sitemap.xml");
+  expect(await sitemap.text()).toContain("/accommodations/example-surf-stay");
+
+  const llms = await page.request.get("/llms.txt");
+  expect(await llms.text()).toContain("/api/public/entities");
+});
+
 for (const width of [390, 768, 1024, 1366]) {
   test(`does not create horizontal overflow at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

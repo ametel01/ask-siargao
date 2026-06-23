@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added source-backed public knowledge surfaces for accommodations, areas, routes, operators, and risks, with human pages, LLM Markdown, JSON APIs, JSON-LD, sitemap, and `llms.txt`.
+- Added public-surface tests proving human, Markdown, JSON, and JSON-LD outputs share the same facts and block private, raw, restricted, low-confidence, or weak-match content from publication.
 - Added an environment-gated admin diagnostics console, diagnostics aggregation, redaction utilities, structured diagnostic log events, and operator drill-down views.
 - Added admin diagnostics tests for production access gating, sensitive value redaction, blocked audit summaries, stale facts, provider errors, reviewer blocks, LLM cost estimates, job failures, and browser rendering without sample secret leaks.
 - Added OpenAI Responses API adapter boundaries, controlled read-only retrieval tools, reviewer validation, mocked LLM coverage, and the final paid report page.
