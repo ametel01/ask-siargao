@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added deterministic risk contracts, risk ranking, evidence bundle creation, stricter report schemas, and report publication validators.
+- Added report validation tests for missing sections, invalid evidence, uncited accommodation claims, stale facts, payment-state violations, and low-confidence consequential claims.
 - Added audit intake UI, `/api/audit/intake`, accommodation resolution, completeness gating, preview-risk generation, targeted refresh hooks, and checkout eligibility blocking.
 - Added intake/completeness tests and a browser e2e submission for the minimum viable intake flow.
 - Added source registry, provider adapter contracts, fact graph normalization, source/fact scoring, and conflict detection foundations.

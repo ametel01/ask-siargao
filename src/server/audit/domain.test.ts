@@ -89,6 +89,8 @@ describe("audit validation schemas", () => {
       reportOutputSchema.parse({
         overallRisk: "yellow",
         confidenceSummary: "High confidence for route timing, medium for accommodation noise.",
+        sourceQualitySummary:
+          "Official route sources are high authority; host details need confirmation.",
         topRisks: [risk],
         fullRiskTable: [risk],
         accommodationAssessment: "Accommodation is plausible but needs host confirmation.",
@@ -99,9 +101,12 @@ describe("audit validation schemas", () => {
         transportNotes: "Avoid assuming scooter use at night.",
         cashSimServiceNotes: "Bring cash buffer and confirm SIM plan.",
         healthSafetyAdminNotes: "Know the nearest clinic and emergency route.",
+        officialAccreditationNotes: "No accreditation claim is made without official evidence.",
+        eventClosureFeeNotes: "No event, closure, or local-fee claim is made without evidence.",
         recommendedFixes: ["Book a transfer before arrival."],
         hostQuestions: ["Do you have generator backup?"],
         evidence: [evidence],
+        evidenceFreshnessNotes: ["Route evidence is fresh."],
         limitations: ["Exact room noise level could not be verified."],
       }).overallRisk,
     ).toBe("yellow");

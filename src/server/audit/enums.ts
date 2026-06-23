@@ -93,5 +93,10 @@ export const optionalRiskModules = [
   "accessibility",
   "nightlife",
   "food_restrictions",
+  "sustainability",
+  "local_fees",
+  "live_events",
+  "closures",
+  "operator_trust_signals",
 ] as const;
 export type OptionalRiskModule = (typeof optionalRiskModules)[number];

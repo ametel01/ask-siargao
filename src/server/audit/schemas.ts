@@ -70,6 +70,7 @@ export const completenessCheckResultSchema = z.object({
 export const reportOutputSchema = z.object({
   overallRisk: z.enum(riskLevels),
   confidenceSummary: z.string().min(1),
+  sourceQualitySummary: z.string().min(1),
   topRisks: z.array(riskItemSchema).min(1).max(3),
   fullRiskTable: z.array(riskItemSchema).min(1),
   accommodationAssessment: z.string().min(1),
@@ -80,9 +81,12 @@ export const reportOutputSchema = z.object({
   transportNotes: z.string().min(1),
   cashSimServiceNotes: z.string().min(1),
   healthSafetyAdminNotes: z.string().min(1),
+  officialAccreditationNotes: z.string().min(1),
+  eventClosureFeeNotes: z.string().min(1),
   recommendedFixes: z.array(z.string()).min(1),
   hostQuestions: z.array(z.string()).min(1),
   evidence: z.array(evidenceReferenceSchema).min(1),
+  evidenceFreshnessNotes: z.array(z.string()).min(1),
   limitations: z.array(z.string()),
 });
 

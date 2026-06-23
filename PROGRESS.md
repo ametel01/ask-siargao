@@ -23,7 +23,7 @@ Source plan: `PLAN.md`
 - [x] Step 3: Domain Model, Database Schema, and Seed Taxonomy
 - [x] Step 4: Source Registry, Provider Policy, and Fact Graph Foundations
 - [x] Step 5: Audit Intake, Accommodation Resolution, and Completeness Gate
-- [ ] Step 6: Risk Engine, Evidence Bundles, and Report Schema Validation
+- [x] Step 6: Risk Engine, Evidence Bundles, and Report Schema Validation
 - [ ] Step 7: Stripe Checkout, Webhook Unlock, and Audit Job States
 - [ ] Step 8: LLM Generator, Reviewer Pass, and Final Report UI
 - [ ] Step 9: Admin and Operator Diagnostics
@@ -33,7 +33,7 @@ Source plan: `PLAN.md`
 
 ## Current Status
 
-Step 5 is complete. Next step: Step 6, Risk Engine, Evidence Bundles, and Report Schema Validation.
+Step 6 is complete. Next step: Step 7, Stripe Checkout, Webhook Unlock, and Audit Job States.
 
 ## Update Rule
 
@@ -187,4 +187,25 @@ Validation:
 - Passed: `bun run test:e2e`
 
 Commit:
-- Pending: `feat: add audit intake and completeness gate`
+- `5c3a7cc` - `feat: add audit intake and completeness gate`
+
+### 2026-06-23 - Step 6: Risk Engine, Evidence Bundles, and Report Schema Validation
+
+Summary:
+- Added risk evaluation contracts for all mandatory audit categories and optional modules, including sustainability, local fees, live events, closures, and operator trust signals.
+- Added deterministic risk ranking by impact, likelihood, fixability, and traveler relevance.
+- Expanded the final report schema with source quality, official/accreditation notes, event/closure/fee notes, and evidence freshness notes.
+- Added evidence bundle creation with private/public visibility handling, valid evidence ID enforcement, and restricted evidence tracking.
+- Added deterministic report validation for required sections, valid evidence IDs, cited accommodation claims, critical fact freshness, stale non-critical caveats, payment unlock state, restricted public evidence, and low-confidence consequential claims.
+- Added tests for stale critical facts, stale non-critical caveats, invalid evidence IDs, uncited accommodation claims, missing sections, payment-state violations, and low-credibility consequential claims.
+
+Validation:
+- Passed: `bun run format`
+- Passed: `bun run lint`
+- Passed: `bun run typecheck`
+- Passed: `bun test`
+- Passed: `bun run build`
+- Passed: `bun run test:e2e`
+
+Commit:
+- Pending: `feat: validate risk reports and evidence`
