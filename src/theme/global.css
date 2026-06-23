@@ -1,0 +1,34 @@
+@layer reset, base, tokens, recipes, utilities;
+
+@import "../../styled-system/styles.css";
+
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  color: var(--colors-text-on-dark);
+  background: linear-gradient(
+      180deg,
+      rgba(6, 10, 48, 0.94) 0%,
+      rgba(22, 15, 76, 0.86) 45%,
+      rgba(10, 14, 54, 0.96) 100%
+    ), radial-gradient(circle at top right, rgba(135, 92, 246, 0.32), transparent 34%),
+    var(--colors-navy-950);
+  font-family: var(--fonts-sans);
+  letter-spacing: 0;
+}
+
+a {
+  color: inherit;
+}
