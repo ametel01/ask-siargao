@@ -23,6 +23,7 @@ export type PublicFactRecord = {
 };
 
 export type PublicKnowledgePage = {
+  publicPageId: string;
   family: PublicPageFamily;
   slug: string;
   title: string;
@@ -35,7 +36,20 @@ export type PublicKnowledgePage = {
   visibility: PublicVisibilityState;
   indexingStatus: "index" | "noindex";
   updatedAt: string;
+  evidenceBundle: {
+    id: string;
+    slug: string;
+    evidenceIds: string[];
+    allowedUse: "public_republish";
+  };
+  generationSourceFactIds: string[];
   facts: PublicFactRecord[];
+};
+
+export type PublicPageRepository = {
+  getPage(family: PublicPageFamily, slug: string): PublicKnowledgePage | undefined;
+  listPages(): PublicKnowledgePage[];
+  listEligiblePages(): PublicKnowledgePage[];
 };
 
 export type PublicEligibilityResult =
@@ -45,7 +59,9 @@ export type PublicEligibilityResult =
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://siargao.example").replace(/\/$/, "");
 
 export const publicKnowledgePages: PublicKnowledgePage[] = [
-  createPage({
+  createPersistedPublicPage({
+    publicPageId: "public_page_example_surf_stay",
+    evidenceBundleId: "public_bundle_example_surf_stay",
     family: "accommodations",
     slug: "example-surf-stay",
     title: "Example Surf Stay",
@@ -70,7 +86,9 @@ export const publicKnowledgePages: PublicKnowledgePage[] = [
       },
     ],
   }),
-  createPage({
+  createPersistedPublicPage({
+    publicPageId: "public_page_general_luna",
+    evidenceBundleId: "public_bundle_general_luna",
     family: "areas",
     slug: "general-luna",
     title: "General Luna",
@@ -96,7 +114,9 @@ export const publicKnowledgePages: PublicKnowledgePage[] = [
       },
     ],
   }),
-  createPage({
+  createPersistedPublicPage({
+    publicPageId: "public_page_surigao_to_dapa",
+    evidenceBundleId: "public_bundle_surigao_to_dapa",
     family: "routes",
     slug: "surigao-to-dapa",
     title: "Surigao to Dapa route",
@@ -120,7 +140,9 @@ export const publicKnowledgePages: PublicKnowledgePage[] = [
       },
     ],
   }),
-  createPage({
+  createPersistedPublicPage({
+    publicPageId: "public_page_licensed_van_transfer",
+    evidenceBundleId: "public_bundle_licensed_van_transfer",
     family: "operators",
     slug: "licensed-van-transfer",
     title: "Licensed van transfer",
@@ -147,7 +169,9 @@ export const publicKnowledgePages: PublicKnowledgePage[] = [
       },
     ],
   }),
-  createPage({
+  createPersistedPublicPage({
+    publicPageId: "public_page_late_arrival_transfer_risk",
+    evidenceBundleId: "public_bundle_late_arrival_transfer_risk",
     family: "risks",
     slug: "late-arrival-transfer-risk",
     title: "Late arrival transfer risk",
@@ -175,12 +199,36 @@ export const publicKnowledgePages: PublicKnowledgePage[] = [
   }),
 ];
 
-export function getPublicPage(family: PublicPageFamily, slug: string) {
-  return publicKnowledgePages.find((page) => page.family === family && page.slug === slug);
+export function createFixturePublicPageRepository(
+  pages: readonly PublicKnowledgePage[] = publicKnowledgePages,
+): PublicPageRepository {
+  return {
+    getPage(family, slug) {
+      return pages.find((page) => page.family === family && page.slug === slug);
+    },
+    listPages() {
+      return [...pages];
+    },
+    listEligiblePages() {
+      return pages.filter((page) => evaluatePublicEligibility(page).eligible);
+    },
+  };
 }
 
-export function publicPagesForIndex() {
-  return publicKnowledgePages.filter((page) => evaluatePublicEligibility(page).eligible);
+const defaultPublicPageRepository = createFixturePublicPageRepository();
+
+export function getPublicPage(
+  family: PublicPageFamily,
+  slug: string,
+  repository: PublicPageRepository = defaultPublicPageRepository,
+) {
+  return repository.getPage(family, slug);
+}
+
+export function publicPagesForIndex(
+  repository: PublicPageRepository = defaultPublicPageRepository,
+) {
+  return repository.listEligiblePages();
 }
 
 export function evaluatePublicEligibility(
@@ -252,9 +300,9 @@ export function buildPublicPageJson(page: PublicKnowledgePage) {
       sourceProfileId: fact.sourceProfileId,
     })),
     evidenceBundle: {
-      slug: `${page.family}-${page.slug}`,
-      evidenceIds: page.facts.map((fact) => fact.evidenceId),
-      allowedUse: "public_republish",
+      slug: page.evidenceBundle.slug,
+      evidenceIds: page.evidenceBundle.evidenceIds,
+      allowedUse: page.evidenceBundle.allowedUse,
     },
     limitations: page.limitations,
   };
@@ -338,9 +386,10 @@ export function normalizeJsonSlug(value: string) {
   return value.endsWith(".json") ? value.slice(0, -5) : value;
 }
 
-function createPage(
+function createPersistedPublicPage(
   input: Omit<
     PublicKnowledgePage,
+    | "evidenceBundle"
     | "canonicalUrl"
     | "humanPath"
     | "llmMarkdownPath"
@@ -348,11 +397,19 @@ function createPage(
     | "visibility"
     | "indexingStatus"
     | "updatedAt"
-  >,
+    | "generationSourceFactIds"
+  > & { evidenceBundleId: string },
 ): PublicKnowledgePage {
   const humanPath = `/${input.family}/${input.slug}`;
+  const { evidenceBundleId, ...pageInput } = input;
   const page = {
-    ...input,
+    ...pageInput,
+    evidenceBundle: {
+      id: evidenceBundleId,
+      slug: `${input.family}-${input.slug}`,
+      evidenceIds: input.facts.map((fact) => fact.evidenceId),
+      allowedUse: "public_republish" as const,
+    },
     canonicalUrl: `${appUrl}${humanPath}`,
     humanPath,
     llmMarkdownPath: `${humanPath}/llm.md`,
@@ -360,6 +417,7 @@ function createPage(
     visibility: "eligible" as const,
     indexingStatus: "index" as const,
     updatedAt: "2026-06-23T00:00:00.000Z",
+    generationSourceFactIds: input.facts.map((fact) => fact.id),
   };
 
   return evaluatePublicEligibility(page).eligible

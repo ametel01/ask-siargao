@@ -13,7 +13,7 @@ Release-candidate QA uses synthetic or permitted local fixtures.
 ## UI Fixtures
 
 - `/audits/demo/report` renders `sampleReport` from `src/server/audit/sample-report.ts`.
-- Public pages use `publicKnowledgePages` from `src/server/public-pages/public-content.ts`.
+- Public pages use the fixture `PublicPageRepository` from `src/server/public-pages/public-content.ts`, built from persisted-page-shaped records with public evidence bundle IDs and source fact IDs.
 - Admin diagnostics use `createSampleDiagnosticsSnapshot` from `src/server/admin/diagnostics.ts`.
 - `releaseCandidateDemoScenario` in `src/server/qa/release-candidate-demo.ts` lists the release-candidate QA paths and fixture boundaries.
 

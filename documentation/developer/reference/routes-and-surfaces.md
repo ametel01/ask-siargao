@@ -20,7 +20,7 @@
 
 ## Public Knowledge Surfaces
 
-Each public page family is generated from the same `PublicKnowledgePage` fact records.
+Each public page family is generated from the same repository-backed `PublicKnowledgePage` governed facts. The local demo repository is built from persisted-page-shaped fixtures, while production should read the same shape from governed public page and evidence rows.
 
 | Family | Human Route | LLM Markdown Route | JSON Route |
 | --- | --- | --- | --- |

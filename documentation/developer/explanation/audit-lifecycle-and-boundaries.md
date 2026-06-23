@@ -12,7 +12,7 @@ Report generation uses controlled read-only retrieval tools and the OpenAI Respo
 
 ## Public Knowledge Flow
 
-Public accommodation, area, route, operator, and risk pages are generated from normalized public fact records. Human HTML, LLM Markdown, JSON APIs, JSON-LD, sitemap entries, and `llms.txt` must not materially diverge because they share the same source facts.
+Public accommodation, area, route, operator, and risk pages are generated from normalized public fact records through the public-page repository boundary. The local release-candidate repository uses persisted-table-shaped page records with public evidence bundles and source fact IDs; production should back the same interface with `public_pages`, `public_evidence_bundles`, facts, and evidence rows. Human HTML, LLM Markdown, JSON APIs, JSON-LD, sitemap entries, and `llms.txt` must not materially diverge because they share the same source facts.
 
 Public eligibility requires republishable facts, non-low confidence, critical public evidence, no private user data, no raw provider payloads, and a confident or probable canonical entity match.
 

@@ -7,6 +7,7 @@ import {
   buildPublicPageJson,
   buildPublicPageMarkdown,
   buildSitemapXml,
+  createFixturePublicPageRepository,
   evaluatePublicEligibility,
   getPublicPage,
   publicPagesForIndex,
@@ -32,6 +33,8 @@ describe("public knowledge surfaces", () => {
     expect(JSON.stringify(jsonLd)).toContain(firstClaim as string);
     expect(json.canonicalUrl).toBe(page.canonicalUrl);
     expect(markdown).toContain(page.canonicalUrl);
+    expect(page.generationSourceFactIds).toEqual(page.facts.map((fact) => fact.id));
+    expect(json.evidenceBundle.evidenceIds).toEqual(page.facts.map((fact) => fact.evidenceId));
   });
 
   test("blocks private paid report, raw provider, unsupported, and low-confidence facts", () => {
@@ -102,6 +105,7 @@ describe("public knowledge surfaces", () => {
     const citationOnlyResult = evaluatePublicEligibility({ facts: [citationOnlyOfficial] });
     const publicResult = evaluatePublicEligibility({ facts: [publicRepublishFact] });
     const page = {
+      publicPageId: "public_page_public_source_policy",
       family: "risks" as const,
       slug: "public-source-policy",
       title: "Public source policy",
@@ -114,6 +118,13 @@ describe("public knowledge surfaces", () => {
       visibility: "eligible" as const,
       indexingStatus: "index" as const,
       updatedAt: "2026-06-23T00:00:00.000Z",
+      evidenceBundle: {
+        id: "public_bundle_public_source_policy",
+        slug: "risks-public-source-policy",
+        evidenceIds: [publicRepublishFact.evidenceId],
+        allowedUse: "public_republish" as const,
+      },
+      generationSourceFactIds: [publicRepublishFact.id],
       facts: [publicRepublishFact],
     };
 
@@ -141,5 +152,54 @@ describe("public knowledge surfaces", () => {
     expect(llms).toContain("/accommodations/example-surf-stay/llm.md");
     expect(sitemap).not.toContain("audit_");
     expect(llms).not.toContain("paid report");
+  });
+
+  test("repository-backed pages exclude ineligible persisted records from outputs", () => {
+    const blockedFact: PublicFactRecord = {
+      id: "fact_blocked_private",
+      claim: "Private traveler notes must not publish.",
+      factType: "private_paid_report",
+      sourceProfileId: "source_public_tourism_directory",
+      sourceType: "official",
+      sourceName: "Public tourism directory",
+      evidenceId: "ev_blocked_private",
+      fetchedAt: "2026-06-23T00:00:00.000Z",
+      confidence: "high",
+      freshness: "fresh",
+      publicRepublishAllowed: true,
+      criticalPublicEvidence: true,
+      containsPrivateUserData: true,
+      canonicalEntityMatch: "confident",
+    };
+    const repository = createFixturePublicPageRepository([
+      {
+        publicPageId: "public_page_blocked",
+        family: "risks",
+        slug: "blocked-private",
+        title: "Blocked private",
+        summary: "Blocked fixture.",
+        limitations: ["Fixture only."],
+        canonicalUrl: "https://siargao.example/risks/blocked-private",
+        humanPath: "/risks/blocked-private",
+        llmMarkdownPath: "/risks/blocked-private/llm.md",
+        jsonApiPath: "/api/public/risks/blocked-private.json",
+        visibility: "blocked",
+        indexingStatus: "noindex",
+        updatedAt: "2026-06-23T00:00:00.000Z",
+        evidenceBundle: {
+          id: "public_bundle_blocked",
+          slug: "risks-blocked-private",
+          evidenceIds: [blockedFact.evidenceId],
+          allowedUse: "public_republish",
+        },
+        generationSourceFactIds: [blockedFact.id],
+        facts: [blockedFact],
+      },
+    ]);
+
+    expect(repository.getPage("risks", "blocked-private")?.visibility).toBe("blocked");
+    expect(publicPagesForIndex(repository)).toEqual([]);
+    expect(buildSitemapXml(publicPagesForIndex(repository))).not.toContain("blocked-private");
+    expect(buildLlmsTxt(publicPagesForIndex(repository))).not.toContain("blocked-private");
   });
 });
