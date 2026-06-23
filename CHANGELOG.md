@@ -46,6 +46,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Derived public-page republication eligibility from registered source policy, blocking citation-only official facts from public answer-engine surfaces.
 - Scoped controlled retrieval evidence IDs to the facts selected by each tool so unrelated evidence cannot be returned with route or accommodation facts.
 - Required signed-token access plus paid, published, reviewer-approved state before rendering private audit reports, with the sample report moved to an explicit demo route.
 - Applied verified Stripe checkout webhooks to the persisted audit/payment lifecycle with duplicate-event idempotency and generation job enqueueing.

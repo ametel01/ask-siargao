@@ -104,6 +104,7 @@ describe("source registry and fact governance", () => {
     expect(canPublishFactPublicly(userFact, "high")).toBe(false);
     expect(canPublishFactPublicly(weatherFact, "medium")).toBe(true);
     expect(canPublishFactPublicly(officialFact, "high")).toBe(false);
+    expect(registry.decide("source_public_tourism_directory").publicRepublishAllowed).toBe(true);
   });
 
   test("stores source credibility and fact confidence separately", () => {

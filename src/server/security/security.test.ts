@@ -76,6 +76,7 @@ describe("public and private data boundaries", () => {
           id: "fact_private_paid_report",
           claim: "Private paid report says the guest arrives late.",
           factType: "private_paid_report",
+          sourceProfileId: "source_user_submitted",
           sourceType: "user_submitted",
           sourceName: "Private paid audit",
           evidenceId: "ev_private",

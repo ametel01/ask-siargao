@@ -73,6 +73,32 @@ export const openMeteoAdapter: ProviderAdapterContract = {
   freshnessWindowDays: 1,
 };
 
+export const publicTourismDirectoryAdapter: ProviderAdapterContract = {
+  id: "adapter_public_tourism_directory",
+  kind: "official_public_sector",
+  profile: {
+    id: "source_public_tourism_directory",
+    sourceName: "Public tourism directory",
+    sourceType: "official",
+    accessMethod: "official_page",
+    allowedUse: "public_republish",
+    robotsPolicy: "respect_robots_and_terms",
+    termsUrl: "https://siargao.example/public-directory-terms",
+    rateLimit: "static public directory fixtures",
+    freshnessWindowDays: 30,
+    authorityLevel: 4,
+    storesRawAllowed: false,
+    publishesRawAllowed: true,
+    requiresPartnerApproval: false,
+    knownStaleRisk: "medium",
+    knownAiOrSeoContentRisk: "low",
+    notes: "Permitted public directory facts for static public knowledge fixtures.",
+  },
+  retryPolicy: { maxAttempts: 2, backoffMs: 1_000 },
+  rateLimit: "static public directory fixtures",
+  freshnessWindowDays: 30,
+};
+
 export const userSubmittedEvidenceAdapter: ProviderAdapterContract = {
   id: "adapter_user_submitted_evidence",
   kind: "user_submitted",
@@ -125,6 +151,7 @@ export function createDefaultSourceRegistry() {
   return new SourceRegistry([
     officialTransportAdapter.profile,
     openMeteoAdapter.profile,
+    publicTourismDirectoryAdapter.profile,
     userSubmittedEvidenceAdapter.profile,
     disallowedScrapeAdapter.profile,
   ]);

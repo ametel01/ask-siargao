@@ -1,4 +1,6 @@
 import type { ConfidenceLabel, PublicVisibilityState, SourceType } from "@/server/audit/enums";
+import { createDefaultSourceRegistry } from "@/server/providers/adapters";
+import type { SourceRegistry } from "@/server/providers/source-registry";
 
 export type PublicPageFamily = "accommodations" | "areas" | "routes" | "operators" | "risks";
 
@@ -6,6 +8,7 @@ export type PublicFactRecord = {
   id: string;
   claim: string;
   factType: string;
+  sourceProfileId: string;
   sourceType: SourceType;
   sourceName: string;
   evidenceId: string;
@@ -54,6 +57,7 @@ export const publicKnowledgePages: PublicKnowledgePage[] = [
         id: "public_fact_example_surf_stay_area",
         claim: "Example Surf Stay is listed as a General Luna accommodation.",
         factType: "area",
+        sourceProfileId: "source_public_tourism_directory",
         sourceType: "official",
         sourceName: "Local accommodation registry",
         evidenceId: "public_ev_example_surf_stay_area",
@@ -79,6 +83,7 @@ export const publicKnowledgePages: PublicKnowledgePage[] = [
         id: "public_fact_general_luna_area",
         claim: "General Luna is the primary tourism base for many Siargao visitors.",
         factType: "area_profile",
+        sourceProfileId: "source_public_tourism_directory",
         sourceType: "official",
         sourceName: "Municipal tourism source",
         evidenceId: "public_ev_general_luna_area",
@@ -102,6 +107,7 @@ export const publicKnowledgePages: PublicKnowledgePage[] = [
         id: "public_fact_surigao_dapa_route",
         claim: "The Surigao to Dapa route is a common ferry arrival path to Siargao.",
         factType: "route_profile",
+        sourceProfileId: "source_public_tourism_directory",
         sourceType: "official",
         sourceName: "Official transport source",
         evidenceId: "public_ev_surigao_dapa_route",
@@ -128,6 +134,7 @@ export const publicKnowledgePages: PublicKnowledgePage[] = [
         claim:
           "Licensed van transfer operators should expose verifiable permit or accreditation signals.",
         factType: "operator_trust",
+        sourceProfileId: "source_public_tourism_directory",
         sourceType: "official",
         sourceName: "Public-sector operator guidance",
         evidenceId: "public_ev_operator_license",
@@ -153,6 +160,7 @@ export const publicKnowledgePages: PublicKnowledgePage[] = [
         id: "public_fact_late_arrival_risk",
         claim: "Late arrivals can reduce normal transfer options and increase fallback costs.",
         factType: "risk_preview",
+        sourceProfileId: "source_public_tourism_directory",
         sourceType: "official",
         sourceName: "Official transport source",
         evidenceId: "public_ev_late_arrival_risk",
@@ -175,7 +183,10 @@ export function publicPagesForIndex() {
   return publicKnowledgePages.filter((page) => evaluatePublicEligibility(page).eligible);
 }
 
-export function evaluatePublicEligibility(page: Pick<PublicKnowledgePage, "facts">) {
+export function evaluatePublicEligibility(
+  page: Pick<PublicKnowledgePage, "facts">,
+  registry: SourceRegistry = createDefaultSourceRegistry(),
+) {
   const reasons: string[] = [];
 
   if (!page.facts.some((fact) => fact.criticalPublicEvidence)) {
@@ -183,7 +194,15 @@ export function evaluatePublicEligibility(page: Pick<PublicKnowledgePage, "facts
   }
 
   for (const fact of page.facts) {
-    if (!fact.publicRepublishAllowed) {
+    const decision = registry.get(fact.sourceProfileId)
+      ? registry.decide(fact.sourceProfileId)
+      : undefined;
+
+    if (!decision) {
+      reasons.push(`fact:${fact.id}:source_profile_missing`);
+      continue;
+    }
+    if (!decision.publicRepublishAllowed || !fact.publicRepublishAllowed) {
       reasons.push(`fact:${fact.id}:public_republish_not_allowed`);
     }
     if (fact.confidence === "low") {
@@ -222,6 +241,7 @@ export function buildPublicPageJson(page: PublicKnowledgePage) {
       factId: fact.id,
       confidence: fact.confidence,
       sourceType: fact.sourceType,
+      sourceProfileId: fact.sourceProfileId,
     })),
     claims: page.facts.map((fact) => ({
       factId: fact.id,
@@ -229,6 +249,7 @@ export function buildPublicPageJson(page: PublicKnowledgePage) {
       evidenceId: fact.evidenceId,
       sourceName: fact.sourceName,
       sourceType: fact.sourceType,
+      sourceProfileId: fact.sourceProfileId,
     })),
     evidenceBundle: {
       slug: `${page.family}-${page.slug}`,
