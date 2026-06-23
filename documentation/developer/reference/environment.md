@@ -15,7 +15,8 @@ The app reads these environment variables.
 | `OPENAI_REVIEWER_MODEL` | Server only | Reviewer model override | Defaults to `gpt-5.5`. |
 | `INNGEST_EVENT_KEY` | Server only | Future job worker integration | Placeholder until the production worker backend is wired. |
 | `INNGEST_SIGNING_KEY` | Server only | Future job worker integration | Placeholder until the production worker backend is wired. |
-| `REDIS_URL` | Server only | Future worker/rate-limit infrastructure | In-memory rate limiting is used in the current app code. |
+| `REDIS_URL` | Server only | Future worker/rate-limit infrastructure | Production rate limiting must be backed by an injected shared `RateLimitStore` configured through `configureRateLimitStore`; no Redis adapter is bundled yet. |
+| `TRUST_PROXY_HEADERS` | Server only | Rate-limit request identity | Defaults to `false`. Set to `true` only when a trusted edge/proxy owns `x-forwarded-for` or `x-real-ip`; otherwise requests share the local fallback identity. |
 | `ADMIN_ACCESS_TOKEN` | Server only | Production admin diagnostics access | Send the same value in the `x-admin-token` request header. |
 | `SENTRY_DSN` | Server only | Observability sink configuration | Current event helper records whether it is configured. |
 | `NEXT_PUBLIC_POSTHOG_KEY` | Public/client-safe | PostHog sink configuration | Current event helper records whether it is configured. |

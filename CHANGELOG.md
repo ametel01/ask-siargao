@@ -47,6 +47,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Added an injectable rate-limit store path, local expiry cleanup, and opt-in trusted-proxy identity handling so spoofed forwarding headers do not bypass limits by default.
 - Allowed audit intake to use a selected arrival route when the free-text origin is absent.
 - Moved API route test helpers out of Next route modules so production builds validate App Router exports.
 - Derived public-page republication eligibility from registered source policy, blocking citation-only official facts from public answer-engine surfaces.
