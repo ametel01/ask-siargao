@@ -26,14 +26,14 @@ Source plan: `PLAN.md`
 - [x] Step 6: Risk Engine, Evidence Bundles, and Report Schema Validation
 - [x] Step 7: Stripe Checkout, Webhook Unlock, and Audit Job States
 - [x] Step 8: LLM Generator, Reviewer Pass, and Final Report UI
-- [ ] Step 9: Admin and Operator Diagnostics
+- [x] Step 9: Admin and Operator Diagnostics
 - [ ] Step 10: Public Pages, Agent-Readable Surfaces, Sitemap, and llms.txt
 - [ ] Step 11: Observability, Privacy, Rate Limiting, and Security Hardening
 - [ ] Step 12: End-to-End Release Candidate QA and Documentation
 
 ## Current Status
 
-Step 8 is complete. Next step: Step 9, Admin and Operator Diagnostics.
+Step 9 is complete. Next step: Step 10, Public Pages, Agent-Readable Surfaces, Sitemap, and llms.txt.
 
 ## Update Rule
 
@@ -258,4 +258,28 @@ Validation:
 - Passed: `bun run test:e2e`
 
 Commit:
-- Pending: `feat: generate reviewed audit reports`
+- `bd2b253` - `feat: generate reviewed audit reports`
+
+### 2026-06-23 - Step 9: Admin and Operator Diagnostics
+
+Summary:
+- Added an environment-gated admin diagnostics route at `/admin/diagnostics` with local development access and production token enforcement through `ADMIN_ACCESS_TOKEN` plus `x-admin-token`.
+- Added diagnostics aggregation for blocked audits, failed accommodation matches, provider errors, stale facts, completeness failures, reviewer rejections, LLM cost estimates, and job failures.
+- Added drill-down views for audit requests, evidence summaries, source profiles, fact confidence, tool-call logs, and reviewer results.
+- Added sensitive value redaction for emails, API keys, Stripe-like IDs, auth tokens, raw payloads, and raw events before traces or UI rendering.
+- Added structured diagnostic log event helpers for provider calls, audit runs, LLM tool calls, reviewer results, and public page generation failures.
+- Added admin diagnostics UI cards and metrics for operator review without exposing raw non-republishable provider payloads.
+- Added unit tests for production access gating, token validation, redaction, diagnostic summaries, structured log redaction, empty inputs, and redacted drilldowns.
+- Added Playwright coverage for the diagnostics route and checks that sample secrets/emails do not render.
+
+Validation:
+- Passed: `bun run format`
+- Passed: `bun test src/server/admin/diagnostics.test.ts`
+- Passed: `bun run lint`
+- Passed: `bun run typecheck`
+- Passed: `bun test`
+- Passed: `bun run build`
+- Passed: `bun run test:e2e`
+
+Commit:
+- Pending: `feat: add audit diagnostics console`

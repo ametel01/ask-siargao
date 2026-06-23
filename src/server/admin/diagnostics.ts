@@ -1,0 +1,306 @@
+import { redactDiagnosticValue } from "@/server/admin/redaction";
+import type { AuditLifecycleRecord } from "@/server/audit/lifecycle";
+import type { GovernedFact } from "@/server/facts/types";
+import type { QueuedAuditJob } from "@/server/jobs/audit-jobs";
+
+export type CompletenessDiagnostic = {
+  auditRequestId: string;
+  canComplete: boolean;
+  blockingReasons: string[];
+  evidenceSummary: string[];
+};
+
+export type AccommodationMatchDiagnostic = {
+  auditRequestId: string;
+  query: string;
+  status: "confident" | "probable" | "ambiguous" | "rejected";
+  score: number;
+  followups: string[];
+};
+
+export type ProviderErrorDiagnostic = {
+  providerId: string;
+  providerName: string;
+  status: "ok" | "degraded" | "failed";
+  lastError?: string;
+  checkedAt: string;
+};
+
+export type ReviewerDiagnostic = {
+  auditRequestId: string;
+  verdict: "approved" | "needs_revision" | "blocked";
+  corrections: string[];
+  blockedReasons: string[];
+};
+
+export type LlmRunDiagnostic = {
+  auditRequestId: string;
+  runId: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+};
+
+export type ToolCallDiagnostic = {
+  auditRequestId: string;
+  toolName: string;
+  argumentsJson: Record<string, unknown>;
+  resultJson: Record<string, unknown>;
+  evidenceIds: string[];
+};
+
+export type SourceProfileDiagnostic = {
+  id: string;
+  name: string;
+  sourceType: string;
+  allowedUse: string;
+  freshnessWindowDays: number;
+};
+
+export type AuditDiagnosticsInput = {
+  audits: AuditLifecycleRecord[];
+  completenessChecks: CompletenessDiagnostic[];
+  accommodationMatches: AccommodationMatchDiagnostic[];
+  providerErrors: ProviderErrorDiagnostic[];
+  facts: GovernedFact[];
+  jobs: QueuedAuditJob[];
+  reviewerResults: ReviewerDiagnostic[];
+  llmRuns: LlmRunDiagnostic[];
+  toolCalls: ToolCallDiagnostic[];
+  sourceProfiles: SourceProfileDiagnostic[];
+  now: Date;
+};
+
+export type AdminDiagnosticsSnapshot = ReturnType<typeof buildAuditDiagnostics>;
+
+export function buildAuditDiagnostics(input: AuditDiagnosticsInput) {
+  const blockedAuditIds = new Set(
+    input.audits
+      .filter((audit) => ["blocked", "failed", "needs_user_input"].includes(audit.state))
+      .map((audit) => audit.id),
+  );
+
+  return {
+    generatedAt: input.now.toISOString(),
+    blockedAudits: input.audits
+      .filter((audit) => blockedAuditIds.has(audit.id))
+      .map((audit) => ({
+        auditRequestId: audit.id,
+        state: audit.state,
+        diagnostics: redactDiagnosticValue(audit.diagnostics),
+      })),
+    failedAccommodationMatches: input.accommodationMatches.filter(
+      (match) => match.status === "ambiguous" || match.status === "rejected",
+    ),
+    providerErrors: input.providerErrors.filter((provider) => provider.status !== "ok"),
+    sourceFreshnessIssues: input.facts
+      .filter((fact) => fact.expiresAt && new Date(fact.expiresAt).getTime() < input.now.getTime())
+      .map((fact) => ({
+        factId: fact.id,
+        factType: fact.factType,
+        expiresAt: fact.expiresAt,
+        confidence: fact.confidenceLabel,
+      })),
+    completenessFailures: input.completenessChecks.filter((check) => !check.canComplete),
+    reviewerRejections: input.reviewerResults.filter((review) => review.verdict !== "approved"),
+    llmCostEstimates: input.llmRuns.map((run) => ({
+      auditRequestId: run.auditRequestId,
+      runId: run.runId,
+      model: run.model,
+      estimatedUsd: estimateLlmCost(run),
+      tokenDrivers: {
+        inputTokens: run.inputTokens,
+        outputTokens: run.outputTokens,
+      },
+    })),
+    jobFailures: input.jobs
+      .filter((job) => job.state === "failed")
+      .map((job) => ({
+        auditRequestId: job.auditRequestId,
+        jobId: job.id,
+        kind: job.kind,
+        attempts: job.attempts,
+        lastError: job.lastError,
+        diagnostics: redactDiagnosticValue(job.diagnostics),
+      })),
+    drilldowns: {
+      auditRequests: input.audits.map((audit) => ({
+        id: audit.id,
+        state: audit.state,
+        stateHistory: audit.stateHistory,
+      })),
+      evidenceSummary: input.completenessChecks.flatMap((check) => check.evidenceSummary),
+      sourceProfiles: input.sourceProfiles,
+      factConfidence: input.facts.map((fact) => ({
+        factId: fact.id,
+        confidence: fact.confidenceLabel,
+        sourceAuthority: fact.sourceAuthority,
+      })),
+      toolCallLogs: redactDiagnosticValue(input.toolCalls) as ToolCallDiagnostic[],
+      reviewerResults: input.reviewerResults,
+    },
+  };
+}
+
+export function createDiagnosticLogEvent(input: {
+  type:
+    | "provider_call"
+    | "audit_run"
+    | "llm_tool_call"
+    | "reviewer_result"
+    | "public_page_generation_failure";
+  at: Date;
+  payload: Record<string, unknown>;
+}) {
+  return {
+    type: input.type,
+    at: input.at.toISOString(),
+    payload: redactDiagnosticValue(input.payload),
+  };
+}
+
+export function createSampleDiagnosticsSnapshot(now = new Date("2026-06-23T08:00:00.000Z")) {
+  return buildAuditDiagnostics({
+    now,
+    audits: [
+      {
+        id: "audit_blocked_001",
+        state: "needs_user_input",
+        checkoutEligible: false,
+        priceUsd: 9.99,
+        diagnostics: [
+          {
+            at: now.toISOString(),
+            phase: "checkout",
+            message: "Accommodation match below payment threshold.",
+            context: { travelerEmail: "traveler@example.com" },
+          },
+        ],
+        stateHistory: [
+          { state: "needs_user_input", at: now.toISOString(), reason: "match_failed" },
+        ],
+      },
+      {
+        id: "audit_review_002",
+        state: "blocked",
+        checkoutEligible: true,
+        priceUsd: 9.99,
+        diagnostics: [
+          {
+            at: now.toISOString(),
+            phase: "review",
+            message: "Reviewer blocked stale weather caveat.",
+          },
+        ],
+        stateHistory: [{ state: "blocked", at: now.toISOString(), reason: "reviewer_blocked" }],
+      },
+    ],
+    completenessChecks: [
+      {
+        auditRequestId: "audit_blocked_001",
+        canComplete: false,
+        blockingReasons: ["Accommodation match confidence is below the payment threshold."],
+        evidenceSummary: ["ev_route"],
+      },
+    ],
+    accommodationMatches: [
+      {
+        auditRequestId: "audit_blocked_001",
+        query: "Unverified Beach Stay",
+        status: "ambiguous",
+        score: 0.42,
+        followups: ["Ask traveler for booking link or exact area."],
+      },
+    ],
+    providerErrors: [
+      {
+        providerId: "provider_weather",
+        providerName: "Weather source",
+        status: "degraded",
+        lastError: "Timeout refreshing rainfall window.",
+        checkedAt: now.toISOString(),
+      },
+    ],
+    facts: [
+      {
+        id: "fact_weather_stale",
+        claim: "Rainfall window last refreshed last week.",
+        factType: "weather",
+        fetchedAt: "2026-06-10T00:00:00.000Z",
+        expiresAt: "2026-06-20T00:00:00.000Z",
+        sourceProfileId: "source_weather",
+        sourceRecordId: "record_weather",
+        sourceType: "licensed_api",
+        allowedUse: "audit_only",
+        confidenceLabel: "medium",
+        sourceAuthority: 3,
+        publicRepublishAllowed: false,
+        auditUseAllowed: true,
+        rawEvidenceAllowed: false,
+      },
+    ],
+    jobs: [
+      {
+        id: "job_generate_001",
+        auditRequestId: "audit_review_002",
+        kind: "generate_audit",
+        state: "failed",
+        attempts: 3,
+        maxAttempts: 3,
+        queuedAt: now.toISOString(),
+        failedAt: now.toISOString(),
+        lastError: "Provider refresh exhausted.",
+        diagnostics: [
+          {
+            at: now.toISOString(),
+            phase: "generate_audit",
+            message: "Provider refresh exhausted.",
+            context: { apiKey: "sk_test_should_not_render" },
+          },
+        ],
+      },
+    ],
+    reviewerResults: [
+      {
+        auditRequestId: "audit_review_002",
+        verdict: "blocked",
+        corrections: ["Add stale weather caveat."],
+        blockedReasons: ["stale_critical_fact"],
+      },
+    ],
+    llmRuns: [
+      {
+        auditRequestId: "audit_review_002",
+        runId: "llm_run_001",
+        model: "gpt-5.5",
+        inputTokens: 5_000,
+        outputTokens: 1_000,
+      },
+    ],
+    toolCalls: [
+      {
+        auditRequestId: "audit_review_002",
+        toolName: "weather",
+        argumentsJson: { area: "General Luna" },
+        resultJson: { rawPayload: { secret: "should not render" }, summary: "Stale weather fact" },
+        evidenceIds: ["ev_weather"],
+      },
+    ],
+    sourceProfiles: [
+      {
+        id: "source_weather",
+        name: "Weather source",
+        sourceType: "licensed_api",
+        allowedUse: "audit_only",
+        freshnessWindowDays: 1,
+      },
+    ],
+  });
+}
+
+function estimateLlmCost(run: LlmRunDiagnostic) {
+  const inputCost = (run.inputTokens / 1_000_000) * 2;
+  const outputCost = (run.outputTokens / 1_000_000) * 8;
+
+  return Number((inputCost + outputCost).toFixed(4));
+}
