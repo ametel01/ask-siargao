@@ -152,6 +152,48 @@ describe("risk engine", () => {
   });
 });
 
+describe("evidence bundle freshness", () => {
+  test("labels evidence freshness from fact expiry against a deterministic clock", () => {
+    const staleFact = { ...baseFact, id: "fact_stale", expiresAt: "2026-06-22T00:00:00.000Z" };
+    const unknownFact = { ...baseFact, id: "fact_unknown", expiresAt: undefined };
+    const freshnessBundle = createEvidenceBundle({
+      id: "bundle_freshness",
+      visibility: "private_report",
+      facts: [baseFact, staleFact, unknownFact],
+      evidence: [
+        { ...evidence[0], id: "ev_fresh", factId: baseFact.id },
+        { ...evidence[0], id: "ev_stale", factId: staleFact.id },
+        { ...evidence[0], id: "ev_unknown", factId: unknownFact.id },
+      ],
+      now,
+    });
+
+    expect(freshnessBundle.evidence.map((item) => [item.evidenceId, item.freshness])).toEqual([
+      ["ev_fresh", "fresh"],
+      ["ev_stale", "stale"],
+      ["ev_unknown", "unknown"],
+    ]);
+    expect(freshnessBundle.evidenceFactIds).toMatchObject({
+      ev_fresh: "fact_route",
+      ev_stale: "fact_stale",
+      ev_unknown: "fact_unknown",
+    });
+  });
+
+  test("does not label invalid expiry values as fresh", () => {
+    const invalidExpiryFact = { ...baseFact, id: "fact_invalid_expiry", expiresAt: "not-a-date" };
+    const freshnessBundle = createEvidenceBundle({
+      id: "bundle_invalid_expiry",
+      visibility: "private_report",
+      facts: [invalidExpiryFact],
+      evidence: [{ ...evidence[0], id: "ev_invalid_expiry", factId: invalidExpiryFact.id }],
+      now,
+    });
+
+    expect(freshnessBundle.evidence[0]?.freshness).toBe("unknown");
+  });
+});
+
 describe("report validation", () => {
   test("accepts a paid report with valid evidence", () => {
     const result = validateReportForPublication({

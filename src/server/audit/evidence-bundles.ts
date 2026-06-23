@@ -23,14 +23,15 @@ export function createEvidenceBundle({
   evidence,
   facts,
   id,
+  now = new Date(),
   visibility,
 }: {
   id: string;
+  now?: Date;
   visibility: EvidenceBundleVisibility;
   facts: readonly GovernedFact[];
   evidence: readonly GovernedEvidence[];
 }): EvidenceBundle {
-  const factsById = new Set(facts.map((fact) => fact.id));
   const factById = new Map(facts.map((fact) => [fact.id, fact]));
   const evidenceFactIds: Record<string, string> = {};
   const restrictedEvidenceIds: string[] = [];
@@ -39,7 +40,7 @@ export function createEvidenceBundle({
   for (const item of evidence) {
     const fact = factById.get(item.factId);
 
-    if (!fact || !factsById.has(item.factId)) {
+    if (!fact) {
       throw new EvidenceBundleError(`Evidence ${item.id} references missing fact ${item.factId}.`);
     }
     if (visibility === "public" && !item.publicRepublishAllowed) {
@@ -54,7 +55,7 @@ export function createEvidenceBundle({
       url: item.citationUrl,
       fetchedAt: fact.fetchedAt,
       confidence: fact.confidenceLabel,
-      freshness: fact.expiresAt ? "fresh" : "unknown",
+      freshness: evidenceFreshness(fact, now),
     });
   }
 
@@ -66,4 +67,17 @@ export function createEvidenceBundle({
     factIds: facts.map((fact) => fact.id),
     restrictedEvidenceIds,
   };
+}
+
+function evidenceFreshness(fact: GovernedFact | undefined, now: Date) {
+  if (!fact?.expiresAt) {
+    return "unknown" as const;
+  }
+
+  const expiresAtMs = new Date(fact.expiresAt).getTime();
+  if (Number.isNaN(expiresAtMs)) {
+    return "unknown" as const;
+  }
+
+  return expiresAtMs < now.getTime() ? "stale" : "fresh";
 }

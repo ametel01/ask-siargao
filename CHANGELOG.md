@@ -49,6 +49,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Computed evidence freshness against the current clock so expired facts become stale and invalid expiry values remain unknown.
 - Required paid report validation to cover every mandatory risk category in the full risk table while keeping top risks as a ranked subset.
 - Added an injectable rate-limit store path, local expiry cleanup, and opt-in trusted-proxy identity handling so spoofed forwarding headers do not bypass limits by default.
 - Allowed audit intake to use a selected arrival route when the free-text origin is absent.
