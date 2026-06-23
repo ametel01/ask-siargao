@@ -35,6 +35,7 @@ Public index routes:
 - `/api/public/entities`
 - `/api/public/evidence`
 - `/api/public/risk-preview`
+- `/api/public/weather/siargao`
 - `/sitemap.xml`
 - `/llms.txt`
 - `/robots.txt`

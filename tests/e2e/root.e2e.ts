@@ -8,6 +8,9 @@ test("renders the scaffold landing shell", async ({ page }) => {
   ).toBeVisible();
   await expect(page.getByRole("link", { name: /start trip audit/i })).toBeVisible();
   await expect(page.getByLabel("Trip risk preview card")).toContainText("LOW RISK");
+  await expect(
+    page.getByRole("heading", { name: /forecast facts now enter the audit/i }),
+  ).toBeVisible();
   await expect(page.getByRole("heading", { name: "What we check" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "How it works" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "A report that shows its work" })).toBeVisible();

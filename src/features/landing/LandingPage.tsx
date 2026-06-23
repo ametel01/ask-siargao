@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 
 import { IntakeForm } from "@/features/intake/IntakeForm";
+import { WeatherTelemetryPanel } from "@/features/weather/WeatherTelemetryPanel";
+import type { WeatherSnapshot } from "@/server/public-pages/weather-snapshot";
 import {
   AccordionItem,
   Badge,
@@ -176,11 +178,12 @@ const riskRows = [
   { label: "Scooter dependence", status: "Medium", tone: "medium" as const },
 ];
 
-export function LandingPage() {
+export function LandingPage({ weatherSnapshot }: { weatherSnapshot: WeatherSnapshot }) {
   return (
     <main className={pageShell()}>
       <Header />
       <Hero />
+      <WeatherTelemetryPanel initialSnapshot={weatherSnapshot} />
       <IntakeForm />
       <WhatWeCheck />
       <HowItWorks />
@@ -239,7 +242,7 @@ function Header() {
           ml: "auto",
         })}
       >
-        {["Checks", "Process", "Report", "Pricing"].map((item) => (
+        {["Weather", "Checks", "Process", "Report", "Pricing"].map((item) => (
           <a
             className={css({
               color: "text.onDarkMuted",
