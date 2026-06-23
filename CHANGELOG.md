@@ -47,6 +47,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Allowed audit intake to use a selected arrival route when the free-text origin is absent.
 - Moved API route test helpers out of Next route modules so production builds validate App Router exports.
 - Derived public-page republication eligibility from registered source policy, blocking citation-only official facts from public answer-engine surfaces.
 - Scoped controlled retrieval evidence IDs to the facts selected by each tool so unrelated evidence cannot be returned with route or accommodation facts.

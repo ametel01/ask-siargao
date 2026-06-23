@@ -6,8 +6,10 @@ import { type FormEvent, useState } from "react";
 import { siargaoTaxonomy } from "@/server/audit/destinations/siargao/taxonomy";
 import { optionalRiskModules } from "@/server/audit/enums";
 import type { AuditIntakeResult } from "@/server/audit/intake-service";
-import { css, cx } from "../../../styled-system/css";
-import { button, sectionPanel } from "../../../styled-system/recipes";
+import { css } from "../../../styled-system/css/css";
+import { cx } from "../../../styled-system/css/cx";
+import { button } from "../../../styled-system/recipes/button";
+import { sectionPanel } from "../../../styled-system/recipes/section-panel";
 
 type SubmitState =
   | { status: "idle" }
@@ -27,7 +29,8 @@ export function IntakeForm() {
     const groupSizeValue = form.get("groupSize")?.toString();
     const payload = {
       travelMonth: form.get("travelMonth")?.toString() || undefined,
-      arrivalOrigin: form.get("arrivalOrigin")?.toString() || "",
+      arrivalOrigin: form.get("arrivalOrigin")?.toString() || undefined,
+      arrivalRouteSlug: form.get("arrivalRouteSlug")?.toString() || undefined,
       accommodationName: form.get("accommodationName")?.toString() || undefined,
       accommodationPlatformUrl: form.get("accommodationPlatformUrl")?.toString() || undefined,
       stayAreaSlug: form.get("stayAreaSlug")?.toString() || undefined,
@@ -86,11 +89,21 @@ export function IntakeForm() {
             <Field
               label="Arrival origin"
               name="arrivalOrigin"
-              placeholder="Manila or Surigao City"
-              required
+              placeholder="Manila or Surigao City, if route is not selected"
             />
           </div>
           <div className={fieldGrid()}>
+            <label className={labelClass()}>
+              Arrival route
+              <select className={inputClass()} name="arrivalRouteSlug">
+                <option value="">Select route if known</option>
+                {siargaoTaxonomy.routes.map((route) => (
+                  <option key={route.slug} value={route.slug}>
+                    {route.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <Field
               label="Accommodation name"
               name="accommodationName"

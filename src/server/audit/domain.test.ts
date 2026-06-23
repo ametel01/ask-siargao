@@ -65,6 +65,25 @@ describe("audit validation schemas", () => {
     expect(parsed.travelerContext.riskTolerance).toBe("balanced");
   });
 
+  test("accepts route-only intake and rejects missing route context", () => {
+    const routeOnly = intakeInputSchema.parse({
+      travelMonth: "2026-08",
+      arrivalOrigin: "",
+      arrivalRouteSlug: "surigao-city-to-dapa-ferry",
+      topConstraint: "quiet sleep",
+    });
+
+    expect(routeOnly.arrivalOrigin).toBeUndefined();
+    expect(routeOnly.arrivalRouteSlug).toBe("surigao-city-to-dapa-ferry");
+    expect(() =>
+      intakeInputSchema.parse({
+        travelMonth: "2026-08",
+        arrivalOrigin: "",
+        topConstraint: "remote work",
+      }),
+    ).toThrow("Provide either an arrival origin or arrival route.");
+  });
+
   test("requires dates or travel month before completeness", () => {
     expect(() =>
       intakeInputSchema.parse({

@@ -7,6 +7,12 @@ import {
   riskLevels,
 } from "@/server/audit/enums";
 
+const optionalString = (minimumLength: number) =>
+  z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.string().min(minimumLength).optional(),
+  );
+
 export const evidenceReferenceSchema = z.object({
   evidenceId: z.string().min(1),
   label: z.string().min(1),
@@ -22,8 +28,8 @@ export const intakeInputSchema = z
     travelMonth: z.string().min(4).optional(),
     startDate: z.string().date().optional(),
     endDate: z.string().date().optional(),
-    arrivalOrigin: z.string().min(2),
-    arrivalRouteSlug: z.string().min(1).optional(),
+    arrivalOrigin: optionalString(2),
+    arrivalRouteSlug: optionalString(1),
     accommodationName: z.string().min(2).optional(),
     accommodationPlatformUrl: z.string().url().optional(),
     stayAreaSlug: z.string().min(1).optional(),
@@ -41,6 +47,10 @@ export const intakeInputSchema = z
   .refine((value) => value.travelMonth || (value.startDate && value.endDate), {
     message: "Provide either a travel month or concrete start/end dates.",
     path: ["travelMonth"],
+  })
+  .refine((value) => value.arrivalOrigin || value.arrivalRouteSlug, {
+    message: "Provide either an arrival origin or arrival route.",
+    path: ["arrivalOrigin"],
   });
 
 export const riskItemSchema = z.object({

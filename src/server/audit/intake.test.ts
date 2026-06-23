@@ -48,6 +48,28 @@ describe("audit intake and completeness gate", () => {
     expect(result.completeness.evidenceSummary.length).toBeGreaterThan(0);
   });
 
+  test("allows route-only intake when origin is absent", () => {
+    const { arrivalOrigin: _arrivalOrigin, ...routeOnlyInput } = baseInput;
+    const result = createAuditIntake({
+      ...routeOnlyInput,
+      arrivalRouteSlug: "surigao-city-to-dapa-ferry",
+      accommodationName: "Example Surf Stay",
+    });
+
+    expect(result.auditRequest.status).toBe("complete_for_payment");
+    expect(result.completeness.checkoutEligible).toBe(true);
+    expect(result.auditInput.arrivalOrigin).toBeUndefined();
+    expect(result.auditInput.arrivalRouteSlug).toBe("surigao-city-to-dapa-ferry");
+  });
+
+  test("blocks intake with neither origin nor route", () => {
+    const { arrivalOrigin: _arrivalOrigin, ...missingRouteInput } = baseInput;
+
+    expect(() => createAuditIntake(missingRouteInput)).toThrow(
+      "Provide either an arrival origin or arrival route.",
+    );
+  });
+
   test("activates optional modules in the completeness result", () => {
     const result = createAuditIntake({
       ...baseInput,

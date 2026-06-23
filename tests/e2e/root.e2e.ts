@@ -28,7 +28,7 @@ test("submits minimum viable intake and shows a preview risk", async ({ page }) 
   await page.goto("/");
 
   await page.getByLabel("Travel month").fill("2026-08");
-  await page.getByLabel("Arrival origin").fill("Manila");
+  await page.getByLabel("Arrival route").selectOption("surigao-city-to-dapa-ferry");
   await page.getByLabel("Accommodation name").fill("Example Surf Stay");
   await page.getByLabel("Planned stay area").selectOption("general-luna");
   await page.getByLabel("Top constraint").fill("quiet sleep");
