@@ -29,11 +29,11 @@ Source plan: `PLAN.md`
 - [x] Step 9: Admin and Operator Diagnostics
 - [x] Step 10: Public Pages, Agent-Readable Surfaces, Sitemap, and llms.txt
 - [x] Step 11: Observability, Privacy, Rate Limiting, and Security Hardening
-- [ ] Step 12: End-to-End Release Candidate QA and Documentation
+- [x] Step 12: End-to-End Release Candidate QA and Documentation
 
 ## Current Status
 
-Step 11 is complete. Next step: Step 12, End-to-End Release Candidate QA and Documentation.
+All planned implementation steps are complete. Recommended next phase: wire production provider integrations, shared infrastructure for rate limiting/jobs, and deployment secrets.
 
 ## Update Rule
 
@@ -332,4 +332,30 @@ Validation:
 - Not applicable: no configured dependency/security audit script in `package.json`.
 
 Commit:
-- Pending: `feat: add observability and security controls`
+- `04292fe` - `feat: add observability and security controls`
+
+### 2026-06-23 - Step 12: End-to-End Release Candidate QA and Documentation
+
+Summary:
+- Added a root README with local setup, documentation links, and quality gates.
+- Added developer documentation under `documentation/developer/` for first local run, release-candidate QA, environment variables, scripts, routes/surfaces, demo data, and audit lifecycle boundaries.
+- Updated `.env.example` with `OPENAI_MODEL`, `OPENAI_REVIEWER_MODEL`, and `ADMIN_ACCESS_TOKEN`, matching runtime code paths.
+- Added a typed release-candidate demo scenario manifest for synthetic/permitted local QA paths.
+- Added tests validating the demo scenario does not rely on restricted public evidence.
+- Documented provider-access limitations for Stripe, OpenAI, worker infrastructure, Agoda, Tripadvisor/Terra, social, marketplace, and partner integrations.
+- Captured manual release QA screenshots for landing desktop/mobile, report desktop, public page mobile, and admin desktop.
+
+Validation:
+- Passed: `bun run format`
+- Passed: `bun run lint`
+- Passed: `bun run typecheck`
+- Passed: `bun test` (54 tests)
+- Passed: `bun run db:migrate:test`
+- Passed: `bun run db:seed:test`
+- Passed: `bun run build`
+- Passed: `bun run test:e2e` (12 tests)
+- Passed: manual `bun run dev` screenshot capture to `test-results/release-qa/`.
+- Not applicable: no configured dependency/security audit script in `package.json`.
+
+Commit:
+- This commit: `docs: prepare release candidate QA notes`
