@@ -1,12 +1,19 @@
+import { trackServerEvent } from "@/server/observability/events";
 import {
   buildVerifiedPaymentEventRecord,
   extractVerifiedCheckoutPayment,
   verifyStripeWebhookPayload,
 } from "@/server/payments/stripe";
+import { rateLimitRequest, rateLimitedJson } from "@/server/security/rate-limit";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const rateLimit = rateLimitRequest(request, "provider_call");
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
   const signature = request.headers.get("stripe-signature");
 
   if (!signature) {
@@ -25,6 +32,15 @@ export async function POST(request: Request) {
     if (!payment) {
       return Response.json({ received: true, ignored: true });
     }
+
+    trackServerEvent({
+      name: "payment_succeeded",
+      payload: {
+        auditRequestId: payment.auditRequestId,
+        stripeEventId: payment.stripeEventId,
+        eventType: payment.eventType,
+      },
+    });
 
     return Response.json({
       received: true,

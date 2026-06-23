@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added sanitized observability events, privacy helpers, server-only secret handling, endpoint rate limits, security/noindex headers, and robots crawl rules.
+- Added security tests for rate limiting, telemetry redaction, server-only secrets, public/private boundary enforcement, client-side secret absence, and crawl/noindex behavior.
 - Added source-backed public knowledge surfaces for accommodations, areas, routes, operators, and risks, with human pages, LLM Markdown, JSON APIs, JSON-LD, sitemap, and `llms.txt`.
 - Added public-surface tests proving human, Markdown, JSON, and JSON-LD outputs share the same facts and block private, raw, restricted, low-confidence, or weak-match content from publication.
 - Added an environment-gated admin diagnostics console, diagnostics aggregation, redaction utilities, structured diagnostic log events, and operator drill-down views.

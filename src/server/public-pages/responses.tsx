@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { PublicKnowledgePage } from "@/features/public-pages/PublicKnowledgePage";
+import { trackServerEvent } from "@/server/observability/events";
 import {
   type PublicPageFamily,
   buildPublicPageJson,
@@ -8,6 +9,7 @@ import {
   getPublicPage,
   normalizeJsonSlug,
 } from "@/server/public-pages/public-content";
+import { rateLimitRequest, rateLimitedJson } from "@/server/security/rate-limit";
 
 export function renderPublicHumanPage(family: PublicPageFamily, slug: string) {
   const page = getPublicPage(family, slug);
@@ -31,12 +33,28 @@ export function publicMarkdownResponse(family: PublicPageFamily, slug: string) {
   });
 }
 
-export function publicJsonResponse(family: PublicPageFamily, slug: string) {
+export function publicJsonResponse(family: PublicPageFamily, slug: string, request?: Request) {
+  if (request) {
+    const rateLimit = rateLimitRequest(request, "public_api");
+    if (!rateLimit.allowed) {
+      return rateLimitedJson(rateLimit);
+    }
+  }
+
   const page = getPublicPage(family, normalizeJsonSlug(slug));
 
   if (!page || page.visibility !== "eligible") {
     return Response.json({ error: "not_found" }, { status: 404 });
   }
+
+  trackServerEvent({
+    name: "public_api_used",
+    payload: {
+      family,
+      slug: page.slug,
+      evidenceIds: page.facts.map((fact) => fact.evidenceId),
+    },
+  });
 
   return Response.json(buildPublicPageJson(page), {
     headers: { "cache-control": "public, max-age=300" },

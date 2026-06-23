@@ -2,7 +2,9 @@ import { z } from "zod";
 
 import { auditJobStates } from "@/server/audit/enums";
 import { createAuditLifecycleRecord, startCheckoutLifecycle } from "@/server/audit/lifecycle";
+import { trackServerEvent } from "@/server/observability/events";
 import { createCheckoutSessionForAudit } from "@/server/payments/stripe";
+import { rateLimitRequest, rateLimitedJson } from "@/server/security/rate-limit";
 
 const checkoutRequestSchema = z.object({
   auditRequestId: z.string().min(1),
@@ -12,6 +14,11 @@ const checkoutRequestSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const rateLimit = rateLimitRequest(request, "checkout");
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
   const body: unknown = await request.json();
   const parsed = checkoutRequestSchema.safeParse(body);
 
@@ -41,13 +48,23 @@ export async function POST(request: Request) {
       customerEmail: parsed.data.customerEmail,
     });
     const nextAudit = startCheckoutLifecycle(audit, checkout);
-
-    return Response.json({
-      auditRequestId: nextAudit.id,
-      state: nextAudit.state,
-      checkoutUrl: checkout.url,
-      stripeCheckoutSessionId: checkout.id,
+    trackServerEvent({
+      name: "preview_to_payment_started",
+      payload: {
+        auditRequestId: nextAudit.id,
+        state: nextAudit.state,
+      },
     });
+
+    return Response.json(
+      {
+        auditRequestId: nextAudit.id,
+        state: nextAudit.state,
+        checkoutUrl: checkout.url,
+        stripeCheckoutSessionId: checkout.id,
+      },
+      { headers: rateLimit.headers },
+    );
   } catch (error) {
     return Response.json(
       {

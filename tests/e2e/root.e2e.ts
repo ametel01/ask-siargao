@@ -93,6 +93,17 @@ test("renders public human, markdown, JSON, sitemap, and llms surfaces", async (
   expect(await llms.text()).toContain("/api/public/entities");
 });
 
+test("publishes crawl rules that keep private audit surfaces out of indexes", async ({ page }) => {
+  const robots = await page.request.get("/robots.txt");
+  const robotsText = await robots.text();
+
+  expect(robotsText).toContain("Disallow: /audits/");
+  expect(robotsText).toContain("Disallow: /admin/");
+
+  const report = await page.goto("/audits/audit_123/report");
+  expect(report?.headers()["x-robots-tag"]).toContain("noindex");
+});
+
 for (const width of [390, 768, 1024, 1366]) {
   test(`does not create horizontal overflow at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

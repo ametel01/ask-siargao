@@ -28,12 +28,12 @@ Source plan: `PLAN.md`
 - [x] Step 8: LLM Generator, Reviewer Pass, and Final Report UI
 - [x] Step 9: Admin and Operator Diagnostics
 - [x] Step 10: Public Pages, Agent-Readable Surfaces, Sitemap, and llms.txt
-- [ ] Step 11: Observability, Privacy, Rate Limiting, and Security Hardening
+- [x] Step 11: Observability, Privacy, Rate Limiting, and Security Hardening
 - [ ] Step 12: End-to-End Release Candidate QA and Documentation
 
 ## Current Status
 
-Step 10 is complete. Next step: Step 11, Observability, Privacy, Rate Limiting, and Security Hardening.
+Step 11 is complete. Next step: Step 12, End-to-End Release Candidate QA and Documentation.
 
 ## Update Rule
 
@@ -307,4 +307,29 @@ Validation:
 - Passed: `bun run test:e2e`
 
 Commit:
-- Pending: `feat: publish source-backed public knowledge surfaces`
+- `71de880` - `feat: publish source-backed public knowledge surfaces`
+
+### 2026-06-23 - Step 11: Observability, Privacy, Rate Limiting, and Security Hardening
+
+Summary:
+- Added sanitized observability event helpers for product viability metrics without private trip details.
+- Added privacy helpers for sanitized intake metrics and server-only secret access.
+- Added in-memory rate limit policies for intake, checkout, public APIs, provider/webhook calls, and report access.
+- Applied rate limits to intake, checkout, Stripe webhook, public JSON APIs, public indexes, and report access.
+- Added security headers and noindex headers for private/admin/audit surfaces in `next.config.ts`.
+- Added `robots.txt` disallowing private/admin/audit/stripe endpoints and allowing public API and sitemap access.
+- Added tests for rate limiting, telemetry redaction, server-only secrets, public/private boundary enforcement, client-side secret absence, and crawl/noindex rules.
+- Confirmed there is no configured dependency/security audit script in `package.json`.
+
+Validation:
+- Passed: `bun run format`
+- Passed: `bun test src/server/security/security.test.ts`
+- Passed: `bun run lint`
+- Passed: `bun run typecheck`
+- Passed: `bun test`
+- Passed: `bun run build`
+- Passed: `bun run test:e2e`
+- Not applicable: no configured dependency/security audit script in `package.json`.
+
+Commit:
+- Pending: `feat: add observability and security controls`
