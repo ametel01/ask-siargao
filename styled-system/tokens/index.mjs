@@ -1516,7 +1516,7 @@ const tokens = {
     "variable": "var(--fonts-mono)"
   },
   "fonts.sans": {
-    "value": "\"Manrope\", \"Inter\", \"Avenir Next\", system-ui, sans-serif",
+    "value": "\"Avenir Next\", \"Segoe UI\", system-ui, sans-serif",
     "variable": "var(--fonts-sans)"
   },
   "fontSizes.5xl": {
