@@ -14,6 +14,7 @@ Scripts are defined in `package.json`.
 | `bun run build` | `panda codegen && panda cssgen && next build` | Generate Panda artifacts and build the production Next.js app. |
 | `bun run db:migrate` | `bun run src/server/db/migrate.ts` | Apply the SQL migration to the Postgres database at `DATABASE_URL`. |
 | `bun run db:seed` | `bun run src/server/db/seed.ts` | Seed Siargao taxonomy and source profiles into the Postgres database at `DATABASE_URL`. |
+| `bun run db:ingest:open-meteo` | `bun run src/server/providers/ingest-open-meteo.ts` | Fetch the Siargao Open-Meteo forecast and persist source records, weather facts, evidence, scores, and a refresh job into Postgres at `DATABASE_URL`. |
 | `bun run db:migrate:test` | `bun run src/server/db/migrate-test.ts` | Apply the SQL migration to a PGlite test database. |
 | `bun run db:seed:test` | `bun run src/server/db/seed-test.ts` | Seed Siargao taxonomy and source profiles into a PGlite test database. |
 | `bun run format` | `biome format --write .` | Write Biome formatting fixes. |

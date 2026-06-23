@@ -14,6 +14,7 @@
     "build": "panda codegen && panda cssgen && next build",
     "db:migrate": "bun run src/server/db/migrate.ts",
     "db:seed": "bun run src/server/db/seed.ts",
+    "db:ingest:open-meteo": "bun run src/server/providers/ingest-open-meteo.ts",
     "db:migrate:test": "bun run src/server/db/migrate-test.ts",
     "db:seed:test": "bun run src/server/db/seed-test.ts",
     "format": "biome format --write .",

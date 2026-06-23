@@ -16,10 +16,8 @@ The codebase already has these pieces:
 - Seed source profiles for official transport, Open-Meteo, and user-submitted evidence.
 - Fact governance, scoring, conflict detection, and a completeness gate skeleton.
 
-The local Compose stack is now available. The remaining production-readiness pieces are:
+The local Compose stack, Postgres migration command, baseline seed command, and Open-Meteo ingestion runner are now available. The remaining production-readiness pieces are:
 
-- A production migration command wired to `DATABASE_URL`.
-- A local ingestion runner that persists normalized source records, facts, evidence, candidates, matches, scores, conflicts, and refresh jobs into Postgres.
 - A cloud Postgres promotion process.
 
 ## Step 1: Set Up Docker Compose Postgres Locally
@@ -149,9 +147,9 @@ Expected result: the local Postgres database contains the stable Siargao taxonom
 
 Start with one low-risk adapter. Do not begin with broad web scraping or OTA pages.
 
-Recommended first adapter:
+Implemented first adapter:
 
-- Open-Meteo for weather facts, because it is already represented by `openMeteoAdapter` and is suitable for forecast or historical weather facts.
+- Open-Meteo forecast ingestion for Siargao weather facts. The pure adapter lives in `src/server/providers/open-meteo.ts`, the Postgres ingestion runner lives in `src/server/providers/ingest-open-meteo.ts`, and the package script is `bun run db:ingest:open-meteo`.
 
 Alternative first adapter:
 
@@ -185,6 +183,7 @@ Verification:
 Useful current tests:
 
 ```sh
+bun test src/server/providers/open-meteo.test.ts
 bun test src/server/providers/source-governance.test.ts
 ```
 
@@ -192,22 +191,21 @@ bun test src/server/providers/source-governance.test.ts
 
 Run ingestion against Compose Postgres after migrations and seed data are in place. The first ingestion runner should be explicit and narrow. Avoid background scheduling until the insert path is understandable.
 
-Implementation task:
+Implemented first ingestion command:
 
-- Add a command such as `db:ingest:local` or `ingest:open-meteo`.
-- Insert one batch into these tables in this order where applicable:
+- `bun run db:ingest:open-meteo`
+
+It inserts one Open-Meteo batch into these tables:
+
   - `raw_snapshots`
   - `source_records`
-  - `candidate_entities`
-  - `entity_matches`
   - `facts`
   - `evidence`
   - `source_credibility_scores`
   - `fact_confidence_scores`
-  - `fact_conflicts`
   - `refresh_jobs`
-- Use deterministic IDs for seed and fixture-style data so reruns are idempotent.
-- Use provider IDs for API-backed data when available.
+
+The first weather slice does not create `candidate_entities`, `entity_matches`, or `fact_conflicts` because it is not resolving a business/entity listing and the generated facts are all from one source record. IDs are deterministic so reruns update the same logical records.
 
 Inspect the local database after each run:
 
