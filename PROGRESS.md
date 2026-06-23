@@ -24,7 +24,7 @@ Source plan: `PLAN.md`
 - [x] Step 4: Source Registry, Provider Policy, and Fact Graph Foundations
 - [x] Step 5: Audit Intake, Accommodation Resolution, and Completeness Gate
 - [x] Step 6: Risk Engine, Evidence Bundles, and Report Schema Validation
-- [ ] Step 7: Stripe Checkout, Webhook Unlock, and Audit Job States
+- [x] Step 7: Stripe Checkout, Webhook Unlock, and Audit Job States
 - [ ] Step 8: LLM Generator, Reviewer Pass, and Final Report UI
 - [ ] Step 9: Admin and Operator Diagnostics
 - [ ] Step 10: Public Pages, Agent-Readable Surfaces, Sitemap, and llms.txt
@@ -33,7 +33,7 @@ Source plan: `PLAN.md`
 
 ## Current Status
 
-Step 6 is complete. Next step: Step 7, Stripe Checkout, Webhook Unlock, and Audit Job States.
+Step 7 is complete. Next step: Step 8, LLM Generator, Reviewer Pass, and Final Report UI.
 
 ## Update Rule
 
@@ -208,4 +208,30 @@ Validation:
 - Passed: `bun run test:e2e`
 
 Commit:
-- Pending: `feat: validate risk reports and evidence`
+- `2e8b83e` - `feat: validate risk reports and evidence`
+
+### 2026-06-23 - Step 7: Stripe Checkout, Webhook Unlock, and Audit Job States
+
+Summary:
+- Added Stripe Checkout session construction for complete, eligible audits only, priced at USD 9.99 with dynamic payment methods left enabled.
+- Added server-side Stripe helpers for Checkout Session creation, async webhook signature verification, verified payment extraction, and payment event records.
+- Added audit lifecycle guards for `complete_for_payment`, `awaiting_payment`, `paid`, `generating`, `reviewing`, `published`, `blocked`, and `failed`, including publication requirements for verified payment and reviewer approval.
+- Added background job primitives for audit generation, reviewer pass, report publication, retry metadata, and preserved diagnostic failure context.
+- Added `/api/audit/checkout`, `/api/stripe/webhook`, and a post-payment processing/status page at `/audits/[auditRequestId]/status`.
+- Extended the database schema and initial migration with Stripe event IDs, diagnostic payment context, and a `payment_events` table for verified webhook event persistence.
+- Added Stripe lifecycle tests for checkout gating, checkout return behavior, webhook fixture verification, generation enqueueing, impossible state prevention, job sequencing, and failure diagnostics.
+- Added Playwright coverage for the processing state users see after returning from checkout.
+
+Validation:
+- Passed: `bun run format`
+- Passed: `bun test src/server/payments/stripe-lifecycle.test.ts`
+- Passed: `bun run lint`
+- Passed: `bun run typecheck`
+- Passed: `bun test`
+- Passed: Stripe webhook verification tests with fixture payloads in `src/server/payments/stripe-lifecycle.test.ts`
+- Passed: `bun run build`
+- Passed: `bun run test:e2e`
+- Passed: `bun run db:migrate:test`
+
+Commit:
+- Pending: `feat: add payment-gated audit lifecycle`

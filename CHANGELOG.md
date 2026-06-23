@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added Stripe Checkout session creation, verified webhook extraction, payment event records, audit lifecycle guards, background job primitives, and processing status UI.
+- Added payment lifecycle tests proving checkout is gated, checkout returns do not unlock reports, webhook signatures are verified, generation starts only after verified payment, impossible publication states are rejected, and job failures preserve diagnostics.
 - Added deterministic risk contracts, risk ranking, evidence bundle creation, stricter report schemas, and report publication validators.
 - Added report validation tests for missing sections, invalid evidence, uncited accommodation claims, stale facts, payment-state violations, and low-confidence consequential claims.
 - Added audit intake UI, `/api/audit/intake`, accommodation resolution, completeness gating, preview-risk generation, targeted refresh hooks, and checkout eligibility blocking.

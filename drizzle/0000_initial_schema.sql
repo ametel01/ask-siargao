@@ -264,10 +264,23 @@ CREATE TABLE IF NOT EXISTS payments (
   audit_request_id text NOT NULL REFERENCES audit_requests(id),
   stripe_checkout_session_id text UNIQUE,
   stripe_payment_intent_id text,
+  stripe_event_id text UNIQUE,
   amount_usd numeric NOT NULL,
   status text NOT NULL,
   webhook_verified_at timestamptz,
+  diagnostic_context jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS payment_events (
+  id text PRIMARY KEY,
+  audit_request_id text NOT NULL REFERENCES audit_requests(id),
+  stripe_event_id text NOT NULL UNIQUE,
+  stripe_checkout_session_id text NOT NULL,
+  stripe_payment_intent_id text,
+  event_type text NOT NULL,
+  verified_at timestamptz NOT NULL,
+  raw_event jsonb NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS audit_reports (

@@ -21,6 +21,7 @@ describe("Step 3 database migration", () => {
       "audit_completeness_checks",
       "audit_reports",
       "payments",
+      "payment_events",
       "entities",
       "accommodations",
       "areas",

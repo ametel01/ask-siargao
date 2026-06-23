@@ -231,10 +231,28 @@ export const payments = pgTable("payments", {
     .references(() => auditRequests.id),
   stripeCheckoutSessionId: text("stripe_checkout_session_id").unique(),
   stripePaymentIntentId: text("stripe_payment_intent_id"),
+  stripeEventId: text("stripe_event_id").unique(),
   amountUsd: numeric("amount_usd").notNull(),
   status: text("status").notNull(),
   webhookVerifiedAt: timestamp("webhook_verified_at", { withTimezone: true }),
+  diagnosticContext: jsonb("diagnostic_context")
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const paymentEvents = pgTable("payment_events", {
+  id: text("id").primaryKey(),
+  auditRequestId: text("audit_request_id")
+    .notNull()
+    .references(() => auditRequests.id),
+  stripeEventId: text("stripe_event_id").notNull().unique(),
+  stripeCheckoutSessionId: text("stripe_checkout_session_id").notNull(),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  eventType: text("event_type").notNull(),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }).notNull(),
+  rawEvent: jsonb("raw_event").$type<Record<string, unknown>>().notNull(),
 });
 
 export const auditReports = pgTable("audit_reports", {

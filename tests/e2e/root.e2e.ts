@@ -39,6 +39,16 @@ test("submits minimum viable intake and shows a preview risk", async ({ page }) 
   await expect(page.getByText(/Arrival timing is the first thing to verify/i)).toBeVisible();
 });
 
+test("shows processing state after checkout return", async ({ page }) => {
+  await page.goto("/audits/audit_123/status?state=awaiting_payment");
+
+  await expect(
+    page.getByRole("heading", { name: "Waiting for Stripe confirmation" }),
+  ).toBeVisible();
+  await expect(page.getByText(/does not unlock the report/i)).toBeVisible();
+  await expect(page.getByText(/Verified Stripe webhook marks the audit paid/i)).toBeVisible();
+});
+
 for (const width of [390, 768, 1024, 1366]) {
   test(`does not create horizontal overflow at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
