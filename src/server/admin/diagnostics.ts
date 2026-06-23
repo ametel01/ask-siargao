@@ -73,10 +73,12 @@ export type AuditDiagnosticsInput = {
 
 export type AdminDiagnosticsSnapshot = ReturnType<typeof buildAuditDiagnostics>;
 
+const blockedAuditStates = new Set(["blocked", "failed", "needs_user_input"]);
+
 export function buildAuditDiagnostics(input: AuditDiagnosticsInput) {
   const blockedAuditIds = new Set<string>();
   for (const audit of input.audits) {
-    if (["blocked", "failed", "needs_user_input"].includes(audit.state)) {
+    if (blockedAuditStates.has(audit.state)) {
       blockedAuditIds.add(audit.id);
     }
   }

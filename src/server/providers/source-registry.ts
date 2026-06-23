@@ -1,6 +1,6 @@
 import type { AllowedUseState, ConfidenceLabel, SourceType } from "@/server/audit/enums";
 
-export const accessMethods = [
+const accessMethods = [
   "api",
   "sitemap",
   "rss",
@@ -98,7 +98,7 @@ export class SourceRegistry {
   }
 }
 
-export function decideSourcePermissions(profile: SourceProfile): SourcePermissionDecision {
+function decideSourcePermissions(profile: SourceProfile): SourcePermissionDecision {
   if (profile.allowedUse === "disallowed") {
     return {
       canFetch: false,

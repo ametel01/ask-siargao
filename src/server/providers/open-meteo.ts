@@ -27,7 +27,7 @@ const rawSnapshotId = "raw_open_meteo_siargao_forecast";
 const forecastProviderEntityId = "open_meteo_siargao_forecast";
 const timezone = "Asia/Manila";
 
-export const siargaoForecastLocation = {
+const siargaoForecastLocation = {
   name: "Siargao forecast near General Luna",
   latitude: 9.784,
   longitude: 126.158,
@@ -117,7 +117,7 @@ export function buildOpenMeteoForecastUrl(location = siargaoForecastLocation) {
   return url.toString();
 }
 
-export async function fetchOpenMeteoForecast(
+async function fetchOpenMeteoForecast(
   fetcher: FetchLike = fetch,
 ): Promise<{ requestUrl: string; payload: OpenMeteoForecastResponse }> {
   const requestUrl = buildOpenMeteoForecastUrl();

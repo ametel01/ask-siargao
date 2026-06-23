@@ -6,7 +6,7 @@ import type { ReportOutput } from "@/server/audit/schemas";
 import type { GovernedFact } from "@/server/facts/types";
 import { type ResponsesClient, createOpenAIResponsesClient } from "@/server/llm/openai-adapter";
 
-export const reviewerResultSchema = z.object({
+const reviewerResultSchema = z.object({
   verdict: z.enum(["approved", "needs_revision", "blocked"]),
   corrections: z.array(z.string()).default([]),
   blockedReasons: z.array(z.string()).default([]),

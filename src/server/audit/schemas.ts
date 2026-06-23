@@ -13,7 +13,7 @@ const optionalString = (minimumLength: number) =>
     z.string().min(minimumLength).optional(),
   );
 
-export const evidenceReferenceSchema = z.object({
+const evidenceReferenceSchema = z.object({
   evidenceId: z.string().min(1),
   label: z.string().min(1),
   sourceName: z.string().min(1),
@@ -53,7 +53,7 @@ export const intakeInputSchema = z
     path: ["arrivalOrigin"],
   });
 
-export const riskItemSchema = z.object({
+const riskItemSchema = z.object({
   id: z.string().min(1),
   category: z.enum(riskCategories),
   level: z.enum(riskLevels),

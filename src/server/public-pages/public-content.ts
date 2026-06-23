@@ -57,6 +57,7 @@ export type PublicEligibilityResult =
   | { eligible: false; reasons: string[] };
 
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://siargao.example").replace(/\/$/, "");
+const publicEntityMatchStates = new Set(["confident", "probable"]);
 
 export const publicKnowledgePages: PublicKnowledgePage[] = [
   createPersistedPublicPage({
@@ -262,7 +263,7 @@ export function evaluatePublicEligibility(
     if (fact.includesRawProviderPayload) {
       reasons.push(`fact:${fact.id}:raw_provider_payload`);
     }
-    if (!["confident", "probable"].includes(fact.canonicalEntityMatch)) {
+    if (!publicEntityMatchStates.has(fact.canonicalEntityMatch)) {
       reasons.push(`fact:${fact.id}:weak_entity_match`);
     }
   }

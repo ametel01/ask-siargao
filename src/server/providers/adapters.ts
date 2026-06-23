@@ -22,7 +22,7 @@ export type ProviderAdapterContract = {
   freshnessWindowDays: number;
 };
 
-export const officialTransportAdapter: ProviderAdapterContract = {
+const officialTransportAdapter: ProviderAdapterContract = {
   id: "adapter_official_transport",
   kind: "official_public_sector",
   profile: {
@@ -48,7 +48,7 @@ export const officialTransportAdapter: ProviderAdapterContract = {
   freshnessWindowDays: 1,
 };
 
-export const openMeteoAdapter: ProviderAdapterContract = {
+const openMeteoAdapter: ProviderAdapterContract = {
   id: "adapter_open_meteo",
   kind: "weather",
   profile: {
@@ -73,7 +73,7 @@ export const openMeteoAdapter: ProviderAdapterContract = {
   freshnessWindowDays: 1,
 };
 
-export const publicTourismDirectoryAdapter: ProviderAdapterContract = {
+const publicTourismDirectoryAdapter: ProviderAdapterContract = {
   id: "adapter_public_tourism_directory",
   kind: "official_public_sector",
   profile: {
@@ -99,7 +99,7 @@ export const publicTourismDirectoryAdapter: ProviderAdapterContract = {
   freshnessWindowDays: 30,
 };
 
-export const userSubmittedEvidenceAdapter: ProviderAdapterContract = {
+const userSubmittedEvidenceAdapter: ProviderAdapterContract = {
   id: "adapter_user_submitted_evidence",
   kind: "user_submitted",
   profile: {
@@ -123,7 +123,7 @@ export const userSubmittedEvidenceAdapter: ProviderAdapterContract = {
   freshnessWindowDays: 30,
 };
 
-export const disallowedScrapeAdapter: ProviderAdapterContract = {
+const disallowedScrapeAdapter: ProviderAdapterContract = {
   id: "adapter_disallowed_scrape",
   kind: "review_poi_api",
   profile: {

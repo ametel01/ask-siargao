@@ -9,7 +9,7 @@ export type RiskEvaluationContract = {
   evaluatorScope: "mandatory" | "optional";
 };
 
-export const mandatoryRiskContracts: Record<RiskCategory, RiskEvaluationContract> = {
+const mandatoryRiskContracts: Record<RiskCategory, RiskEvaluationContract> = {
   arrival_departure_logistics: {
     id: "arrival_departure_logistics",
     label: "Arrival and departure logistics",
@@ -53,19 +53,6 @@ export const mandatoryRiskContracts: Record<RiskCategory, RiskEvaluationContract
     evaluatorScope: "mandatory",
   },
 };
-
-export const optionalModuleContracts: Record<OptionalRiskModule, RiskEvaluationContract> =
-  Object.fromEntries(
-    optionalRiskModules.map((module) => [
-      module,
-      {
-        id: module,
-        label: module.replaceAll("_", " "),
-        requiredEvidenceTypes: [module],
-        evaluatorScope: "optional",
-      },
-    ]),
-  ) as Record<OptionalRiskModule, RiskEvaluationContract>;
 
 export function rankRisks(risks: readonly RiskItem[]) {
   return [...risks].sort((left, right) => riskRankScore(right) - riskRankScore(left));

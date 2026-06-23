@@ -56,8 +56,8 @@ export function resolveAccommodation(
 
     const names = [candidate.name, ...candidate.aliases].map(normalize);
     const exact = names.some((name) => name === normalizedName);
-    const partial = names.some(
-      (name) => name.includes(normalizedName) || normalizedName.includes(name),
+    const partial = names.some((candidateName) =>
+      isPartialNameMatch(candidateName, normalizedName),
     );
     const score = exact ? 0.96 : partial ? 0.74 : tokenOverlapScore(normalizedName, names);
     if (!best || score > best.score) {
@@ -105,6 +105,10 @@ function normalize(value: string) {
     .toLowerCase()
     .replaceAll(/[^a-z0-9]+/g, " ")
     .replaceAll(/\s+/g, " ");
+}
+
+function isPartialNameMatch(candidateName: string, normalizedName: string) {
+  return candidateName.includes(normalizedName) || normalizedName.includes(candidateName);
 }
 
 function tokenOverlapScore(inputName: string, candidateNames: readonly string[]) {

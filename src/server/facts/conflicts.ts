@@ -58,7 +58,7 @@ export function detectFactConflicts(facts: readonly GovernedFact[]): FactConflic
   return conflicts;
 }
 
-export function choosePreferredFact(left: GovernedFact, right: GovernedFact) {
+function choosePreferredFact(left: GovernedFact, right: GovernedFact) {
   if (!officialPrecedenceFactTypes.has(left.factType)) {
     return left.sourceAuthority === right.sourceAuthority
       ? undefined

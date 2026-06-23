@@ -88,7 +88,7 @@ export async function applyVerifiedCheckoutPayment(
   };
 }
 
-export function createDatabasePaymentApplicationStore(
+function createDatabasePaymentApplicationStore(
   db: Database = createDatabaseClient(),
 ): PaymentApplicationStore {
   return {

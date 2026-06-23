@@ -12,7 +12,7 @@ export type EvidenceBundle = {
   restrictedEvidenceIds: string[];
 };
 
-export class EvidenceBundleError extends Error {
+class EvidenceBundleError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "EvidenceBundleError";

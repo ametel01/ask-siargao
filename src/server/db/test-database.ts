@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { PGlite } from "@electric-sql/pglite";
 
-export const testDatabaseDir = path.join(process.cwd(), ".tmp", "pglite-step3");
+const testDatabaseDir = path.join(process.cwd(), ".tmp", "pglite-step3");
 export const migrationPath = path.join(process.cwd(), "drizzle", "0000_initial_schema.sql");
 
 export async function resetTestDatabase() {

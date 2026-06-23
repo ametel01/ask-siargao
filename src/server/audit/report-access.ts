@@ -111,7 +111,7 @@ export function createReportAccessToken(input: {
   return `${encodedPayload}.${signature}`;
 }
 
-export function verifyReportAccessToken(input: {
+function verifyReportAccessToken(input: {
   auditRequestId: string;
   token: string;
   secret: string;
@@ -147,9 +147,7 @@ export function verifyReportAccessToken(input: {
   return { valid: true, payload };
 }
 
-export function createDatabaseReportAccessStore(
-  db: Database = createDatabaseClient(),
-): ReportAccessStore {
+function createDatabaseReportAccessStore(db: Database = createDatabaseClient()): ReportAccessStore {
   return {
     async loadReportAccessState(auditRequestId) {
       const reportRows = await db
@@ -169,31 +167,33 @@ export function createDatabaseReportAccessStore(
         return null;
       }
 
-      const auditRows = await db
-        .select({ status: auditRequests.status })
-        .from(auditRequests)
-        .where(eq(auditRequests.id, auditRequestId))
-        .limit(1);
-      const paymentRows = await db
-        .select({
-          status: payments.status,
-          webhookVerifiedAt: payments.webhookVerifiedAt,
-        })
-        .from(payments)
-        .where(eq(payments.auditRequestId, auditRequestId))
-        .orderBy(desc(payments.createdAt))
-        .limit(1);
-      const reviewerRows = report.auditRunId
-        ? await db
-            .select({
-              verdict: reviewerResults.verdict,
-              blockedReasons: reviewerResults.blockedReasons,
-            })
-            .from(reviewerResults)
-            .where(eq(reviewerResults.auditRunId, report.auditRunId))
-            .orderBy(desc(reviewerResults.createdAt))
-            .limit(1)
-        : [];
+      const [auditRows, paymentRows, reviewerRows] = await Promise.all([
+        db
+          .select({ status: auditRequests.status })
+          .from(auditRequests)
+          .where(eq(auditRequests.id, auditRequestId))
+          .limit(1),
+        db
+          .select({
+            status: payments.status,
+            webhookVerifiedAt: payments.webhookVerifiedAt,
+          })
+          .from(payments)
+          .where(eq(payments.auditRequestId, auditRequestId))
+          .orderBy(desc(payments.createdAt))
+          .limit(1),
+        report.auditRunId
+          ? db
+              .select({
+                verdict: reviewerResults.verdict,
+                blockedReasons: reviewerResults.blockedReasons,
+              })
+              .from(reviewerResults)
+              .where(eq(reviewerResults.auditRunId, report.auditRunId))
+              .orderBy(desc(reviewerResults.createdAt))
+              .limit(1)
+          : Promise.resolve([]),
+      ]);
 
       return {
         auditRequestId: report.auditRequestId,

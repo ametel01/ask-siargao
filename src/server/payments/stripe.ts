@@ -7,7 +7,6 @@ import {
 } from "@/server/audit/lifecycle";
 
 export const AUDIT_PRICE_CENTS = 999;
-export const AUDIT_PRICE_USD = 9.99;
 
 export type StripeCheckoutClient = {
   createCheckoutSession: (
@@ -15,11 +14,11 @@ export type StripeCheckoutClient = {
   ) => Promise<{ id: string; url: string | null }>;
 };
 
-export function createStripeClient(apiKey = stripeApiKeyFromEnv()) {
+function createStripeClient(apiKey = stripeApiKeyFromEnv()) {
   return new Stripe(apiKey);
 }
 
-export function createStripeCheckoutClient(stripe = createStripeClient()): StripeCheckoutClient {
+function createStripeCheckoutClient(stripe = createStripeClient()): StripeCheckoutClient {
   return {
     createCheckoutSession: (params) => stripe.checkout.sessions.create(params),
   };

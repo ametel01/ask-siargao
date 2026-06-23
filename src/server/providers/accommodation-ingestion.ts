@@ -39,7 +39,7 @@ export type AccommodationIngestionResult = {
   candidate: GovernedAccommodationCandidate;
 };
 
-export const localVerifiedAccommodationInputs: readonly LocalVerifiedAccommodationInput[] = [
+const localVerifiedAccommodationInputs: readonly LocalVerifiedAccommodationInput[] = [
   {
     entityId: "entity_example_surf_stay",
     name: "Example Surf Stay",

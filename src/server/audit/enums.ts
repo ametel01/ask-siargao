@@ -14,7 +14,7 @@ export const auditJobStates = [
 
 export type AuditJobState = (typeof auditJobStates)[number];
 
-export const auditJobStateTransitions: Record<AuditJobState, readonly AuditJobState[]> = {
+const auditJobStateTransitions: Record<AuditJobState, readonly AuditJobState[]> = {
   created: ["resolving", "needs_user_input", "blocked", "failed"],
   resolving: ["needs_user_input", "complete_for_payment", "blocked", "failed"],
   needs_user_input: ["resolving", "blocked"],
@@ -35,7 +35,7 @@ export function canTransitionAuditJob(from: AuditJobState, to: AuditJobState) {
 export const riskLevels = ["green", "yellow", "red"] as const;
 export type RiskLevel = (typeof riskLevels)[number];
 
-export const sourceTypes = [
+const sourceTypes = [
   "official",
   "partner_api",
   "licensed_api",
@@ -46,7 +46,7 @@ export const sourceTypes = [
 ] as const;
 export type SourceType = (typeof sourceTypes)[number];
 
-export const allowedUseStates = [
+const allowedUseStates = [
   "internal_only",
   "audit_only",
   "citation_only",
@@ -55,16 +55,10 @@ export const allowedUseStates = [
 ] as const;
 export type AllowedUseState = (typeof allowedUseStates)[number];
 
-export const matchStates = ["confident", "probable", "ambiguous", "rejected"] as const;
+const matchStates = ["confident", "probable", "ambiguous", "rejected"] as const;
 export type MatchState = (typeof matchStates)[number];
 
-export const publicVisibilityStates = [
-  "internal",
-  "eligible",
-  "published",
-  "noindex",
-  "blocked",
-] as const;
+const publicVisibilityStates = ["internal", "eligible", "published", "noindex", "blocked"] as const;
 export type PublicVisibilityState = (typeof publicVisibilityStates)[number];
 
 export const confidenceLabels = ["low", "medium", "high"] as const;

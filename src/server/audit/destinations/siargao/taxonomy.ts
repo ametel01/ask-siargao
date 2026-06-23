@@ -1,6 +1,6 @@
 import { optionalRiskModules, riskCategories } from "@/server/audit/enums";
 
-export const siargaoAreas = [
+const siargaoAreas = [
   {
     id: "area_general_luna",
     slug: "general-luna",
@@ -39,7 +39,7 @@ export const siargaoAreas = [
   },
 ] as const;
 
-export const siargaoRoutes = [
+const siargaoRoutes = [
   {
     id: "route_iaopuerto_to_general_luna",
     slug: "sayak-airport-to-general-luna",
@@ -75,12 +75,12 @@ export const siargaoRoutes = [
   },
 ] as const;
 
-export const siargaoRiskCategories = riskCategories.map((slug) => ({
+const siargaoRiskCategories = riskCategories.map((slug) => ({
   slug,
   destination: "siargao",
 }));
 
-export const siargaoProviderCategories = [
+const siargaoProviderCategories = [
   "official_transport",
   "weather_api",
   "accommodation_partner",
@@ -89,7 +89,7 @@ export const siargaoProviderCategories = [
   "user_submitted_evidence",
 ] as const;
 
-export const siargaoServiceCategories = [
+const siargaoServiceCategories = [
   "airport_transfer",
   "ferry",
   "medical_clinic",
@@ -101,7 +101,7 @@ export const siargaoServiceCategories = [
   "island_hopping_operator",
 ] as const;
 
-export const siargaoOptionalModules = optionalRiskModules.map((slug) => ({
+const siargaoOptionalModules = optionalRiskModules.map((slug) => ({
   slug,
   destination: "siargao",
 }));

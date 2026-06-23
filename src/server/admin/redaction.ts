@@ -21,7 +21,7 @@ export function redactDiagnosticValue(value: unknown): unknown {
   return value;
 }
 
-export function redactString(value: string) {
+function redactString(value: string) {
   return value
     .replace(emailPattern, "[redacted-email]")
     .replace(secretStringPattern, "[redacted-secret]");

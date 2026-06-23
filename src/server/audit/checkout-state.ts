@@ -62,30 +62,32 @@ export async function getCheckoutAuditState(
     return null;
   }
 
-  const completenessRows = await db
-    .select({
-      canComplete: auditCompletenessChecks.canComplete,
-    })
-    .from(auditCompletenessChecks)
-    .where(eq(auditCompletenessChecks.auditRequestId, auditRequestId))
-    .orderBy(desc(auditCompletenessChecks.checkedAt))
-    .limit(1);
-  const paymentRows = await db
-    .select({
-      id: payments.id,
-      auditRequestId: payments.auditRequestId,
-      stripeCheckoutSessionId: payments.stripeCheckoutSessionId,
-      stripePaymentIntentId: payments.stripePaymentIntentId,
-      stripeEventId: payments.stripeEventId,
-      status: payments.status,
-      webhookVerifiedAt: payments.webhookVerifiedAt,
-      diagnosticContext: payments.diagnosticContext,
-      createdAt: payments.createdAt,
-    })
-    .from(payments)
-    .where(eq(payments.auditRequestId, auditRequestId))
-    .orderBy(desc(payments.createdAt))
-    .limit(1);
+  const [completenessRows, paymentRows] = await Promise.all([
+    db
+      .select({
+        canComplete: auditCompletenessChecks.canComplete,
+      })
+      .from(auditCompletenessChecks)
+      .where(eq(auditCompletenessChecks.auditRequestId, auditRequestId))
+      .orderBy(desc(auditCompletenessChecks.checkedAt))
+      .limit(1),
+    db
+      .select({
+        id: payments.id,
+        auditRequestId: payments.auditRequestId,
+        stripeCheckoutSessionId: payments.stripeCheckoutSessionId,
+        stripePaymentIntentId: payments.stripePaymentIntentId,
+        stripeEventId: payments.stripeEventId,
+        status: payments.status,
+        webhookVerifiedAt: payments.webhookVerifiedAt,
+        diagnosticContext: payments.diagnosticContext,
+        createdAt: payments.createdAt,
+      })
+      .from(payments)
+      .where(eq(payments.auditRequestId, auditRequestId))
+      .orderBy(desc(payments.createdAt))
+      .limit(1),
+  ]);
 
   const paymentRow = paymentRows[0];
   const paymentStatus = paymentRow ? paymentStatusSchema.parse(paymentRow.status) : undefined;

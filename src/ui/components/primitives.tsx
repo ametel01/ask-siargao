@@ -152,15 +152,6 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
   );
 }
 
-export function Separator({ className }: { className?: string }) {
-  return (
-    <div
-      aria-hidden="true"
-      className={cx(css({ bg: "border", h: "1px", width: "100%" }), className)}
-    />
-  );
-}
-
 export function Table({
   rows,
 }: {
@@ -214,8 +205,4 @@ export function Tooltip({ children, label }: { children: ReactNode; label: strin
       {children}
     </span>
   );
-}
-
-export function Sheet({ children }: { children: ReactNode }) {
-  return <div>{children}</div>;
 }

@@ -69,7 +69,7 @@ export function createAuditLifecycleRecord(input: {
   };
 }
 
-export function canStartCheckoutForAudit(audit: AuditLifecycleRecord) {
+function canStartCheckoutForAudit(audit: AuditLifecycleRecord) {
   return (
     audit.state === "complete_for_payment" && audit.checkoutEligible && audit.priceUsd === 9.99
   );

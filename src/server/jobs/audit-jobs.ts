@@ -33,7 +33,7 @@ export function enqueueAuditGenerationJob(auditRequestId: string, now = new Date
   return createAuditJob("generate_audit", auditRequestId, now);
 }
 
-export function createAuditJob(kind: AuditJobKind, auditRequestId: string, now = new Date()) {
+function createAuditJob(kind: AuditJobKind, auditRequestId: string, now = new Date()) {
   return {
     id: `job_${randomUUID()}`,
     auditRequestId,
@@ -68,7 +68,7 @@ export async function runAuditJob(
   }
 }
 
-export function startAuditJob(job: QueuedAuditJob, now = new Date()) {
+function startAuditJob(job: QueuedAuditJob, now = new Date()) {
   return {
     ...job,
     state: "running" as const,
@@ -77,7 +77,7 @@ export function startAuditJob(job: QueuedAuditJob, now = new Date()) {
   };
 }
 
-export function completeAuditJob(job: QueuedAuditJob, now = new Date()) {
+function completeAuditJob(job: QueuedAuditJob, now = new Date()) {
   return {
     ...job,
     state: "succeeded" as const,
@@ -112,7 +112,7 @@ export function recordAuditJobFailure(
   };
 }
 
-export function nextAuditJobAfterSuccess(job: QueuedAuditJob, now = new Date()) {
+function nextAuditJobAfterSuccess(job: QueuedAuditJob, now = new Date()) {
   if (job.kind === "generate_audit") {
     return createAuditJob("review_audit", job.auditRequestId, now);
   }
