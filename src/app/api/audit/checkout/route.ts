@@ -1,17 +1,29 @@
 import { z } from "zod";
 
-import { auditJobStates } from "@/server/audit/enums";
-import { createAuditLifecycleRecord, startCheckoutLifecycle } from "@/server/audit/lifecycle";
+import { getCheckoutAuditState } from "@/server/audit/checkout-state";
+import { assertCanStartCheckout, startCheckoutLifecycle } from "@/server/audit/lifecycle";
 import { trackServerEvent } from "@/server/observability/events";
 import { createCheckoutSessionForAudit } from "@/server/payments/stripe";
 import { rateLimitRequest, rateLimitedJson } from "@/server/security/rate-limit";
 
-const checkoutRequestSchema = z.object({
-  auditRequestId: z.string().min(1),
-  status: z.enum(auditJobStates),
-  checkoutEligible: z.boolean().optional(),
-  customerEmail: z.string().email().optional(),
-});
+const checkoutRequestSchema = z
+  .object({
+    auditRequestId: z.string().min(1),
+    customerEmail: z.string().email().optional(),
+  })
+  .strip();
+
+export type CheckoutRouteDependencies = {
+  getCheckoutAuditState: typeof getCheckoutAuditState;
+  createCheckoutSessionForAudit: typeof createCheckoutSessionForAudit;
+  trackServerEvent: typeof trackServerEvent;
+};
+
+const defaultDependencies: CheckoutRouteDependencies = {
+  getCheckoutAuditState,
+  createCheckoutSessionForAudit,
+  trackServerEvent,
+};
 
 export async function POST(request: Request) {
   const rateLimit = rateLimitRequest(request, "checkout");
@@ -19,36 +31,47 @@ export async function POST(request: Request) {
     return rateLimitedJson(rateLimit);
   }
 
-  const body: unknown = await request.json();
+  return checkoutResponse(request, defaultDependencies, rateLimit.headers);
+}
+
+export async function checkoutResponse(
+  request: Request,
+  dependencies: CheckoutRouteDependencies = defaultDependencies,
+  headers?: HeadersInit,
+) {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return invalidCheckoutRequest([{ path: "", message: "Expected a valid JSON request body." }]);
+  }
+
   const parsed = checkoutRequestSchema.safeParse(body);
 
   if (!parsed.success) {
-    return Response.json(
-      {
-        error: "invalid_checkout_request",
-        issues: parsed.error.issues.map((issue) => ({
-          path: issue.path.join("."),
-          message: issue.message,
-        })),
-      },
-      { status: 400 },
+    return invalidCheckoutRequest(
+      parsed.error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        message: issue.message,
+      })),
     );
   }
 
-  const audit = createAuditLifecycleRecord({
-    id: parsed.data.auditRequestId,
-    state: parsed.data.status,
-    checkoutEligible: parsed.data.checkoutEligible,
-  });
+  const audit = await dependencies.getCheckoutAuditState(parsed.data.auditRequestId);
+
+  if (!audit) {
+    return Response.json({ error: "audit_not_found" }, { status: 404 });
+  }
 
   try {
-    const checkout = await createCheckoutSessionForAudit({
+    assertCanStartCheckout(audit);
+    const checkout = await dependencies.createCheckoutSessionForAudit({
       audit,
       appUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin,
       customerEmail: parsed.data.customerEmail,
     });
     const nextAudit = startCheckoutLifecycle(audit, checkout);
-    trackServerEvent({
+    dependencies.trackServerEvent({
       name: "preview_to_payment_started",
       payload: {
         auditRequestId: nextAudit.id,
@@ -63,7 +86,7 @@ export async function POST(request: Request) {
         checkoutUrl: checkout.url,
         stripeCheckoutSessionId: checkout.id,
       },
-      { headers: rateLimit.headers },
+      { headers },
     );
   } catch (error) {
     return Response.json(
@@ -74,4 +97,14 @@ export async function POST(request: Request) {
       { status: 409 },
     );
   }
+}
+
+function invalidCheckoutRequest(issues: Array<{ path: string; message: string }>) {
+  return Response.json(
+    {
+      error: "invalid_checkout_request",
+      issues,
+    },
+    { status: 400 },
+  );
 }

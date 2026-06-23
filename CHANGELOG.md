@@ -46,6 +46,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Loaded audit checkout eligibility from persisted server-side audit, completeness, and payment state instead of trusting client-supplied lifecycle fields.
 - Kept the typed Drizzle schema exports in parity with the initial SQL migration, including candidate matching, scoring, refresh, LLM tool-call, provider-health, and public-page generation tables.
 
 ### Security
