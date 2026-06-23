@@ -140,7 +140,7 @@ function evidenceIdsForFacts(context: RetrievalContext, facts: readonly Governed
   const factIds = new Set(facts.map((fact) => fact.id));
 
   return context.evidenceBundle.evidence
-    .filter((evidence) => context.evidenceBundle.factIds.some((factId) => factIds.has(factId)))
+    .filter((evidence) => factIds.has(context.evidenceBundle.evidenceFactIds[evidence.evidenceId]))
     .map((evidence) => evidence.evidenceId);
 }
 

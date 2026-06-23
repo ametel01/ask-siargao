@@ -134,6 +134,23 @@ describe("controlled LLM retrieval tools", () => {
       }),
     ).toThrow("tool budget exceeded");
   });
+
+  test("scopes returned evidence IDs to the facts selected by each tool", () => {
+    const context = { input: intake, facts, evidenceBundle, maxToolCalls: 4 };
+    const routeRisks = callAuditRetrievalTool({
+      context,
+      toolName: "route_risks",
+    });
+    const accommodationFacts = callAuditRetrievalTool({
+      context,
+      toolName: "accommodation_facts",
+    });
+
+    expect(routeRisks.evidenceIds).toEqual(["ev_route"]);
+    expect(accommodationFacts.evidenceIds).toEqual(["ev_accommodation"]);
+    expect(routeRisks.evidenceIds).not.toContain("ev_accommodation");
+    expect(accommodationFacts.evidenceIds).not.toContain("ev_route");
+  });
 });
 
 describe("OpenAI report generation and reviewer pass", () => {
