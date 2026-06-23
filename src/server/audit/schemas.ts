@@ -17,8 +17,8 @@ export const evidenceReferenceSchema = z.object({
   evidenceId: z.string().min(1),
   label: z.string().min(1),
   sourceName: z.string().min(1),
-  url: z.string().url().optional(),
-  fetchedAt: z.string().datetime(),
+  url: z.url().optional(),
+  fetchedAt: z.iso.datetime(),
   confidence: z.enum(confidenceLabels),
   freshness: z.enum(["fresh", "stale", "unknown"]),
 });
@@ -26,12 +26,12 @@ export const evidenceReferenceSchema = z.object({
 export const intakeInputSchema = z
   .object({
     travelMonth: z.string().min(4).optional(),
-    startDate: z.string().date().optional(),
-    endDate: z.string().date().optional(),
+    startDate: z.iso.date().optional(),
+    endDate: z.iso.date().optional(),
     arrivalOrigin: optionalString(2),
     arrivalRouteSlug: optionalString(1),
     accommodationName: z.string().min(2).optional(),
-    accommodationPlatformUrl: z.string().url().optional(),
+    accommodationPlatformUrl: z.url().optional(),
     stayAreaSlug: z.string().min(1).optional(),
     topConstraint: z.string().min(3),
     optionalModules: z.array(z.enum(optionalRiskModules)).default([]),

@@ -5,12 +5,10 @@ import { assertCanStartCheckout, startCheckoutLifecycle } from "@/server/audit/l
 import { trackServerEvent } from "@/server/observability/events";
 import { createCheckoutSessionForAudit } from "@/server/payments/stripe";
 
-const checkoutRequestSchema = z
-  .object({
-    auditRequestId: z.string().min(1),
-    customerEmail: z.string().email().optional(),
-  })
-  .strip();
+const checkoutRequestSchema = z.object({
+  auditRequestId: z.string().min(1),
+  customerEmail: z.email().optional(),
+});
 
 export type CheckoutRouteDependencies = {
   getCheckoutAuditState: typeof getCheckoutAuditState;
