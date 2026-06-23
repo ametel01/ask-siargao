@@ -11,7 +11,7 @@
     "stack:down:volumes": "docker compose down --volumes",
     "stack:logs": "docker compose logs -f",
     "stack:ps": "docker compose ps",
-    "build": "./node_modules/.bin/panda codegen && ./node_modules/.bin/panda cssgen && ./node_modules/.bin/next build",
+    "build": "./node_modules/.bin/panda codegen && ./node_modules/.bin/panda cssgen && NEXT_PRIVATE_BUILD_WORKER=0 ./node_modules/.bin/next build",
     "db:migrate": "bun run src/server/db/migrate.ts",
     "db:seed": "bun run src/server/db/seed.ts",
     "db:ingest:open-meteo": "bun run src/server/providers/ingest-open-meteo.ts",
