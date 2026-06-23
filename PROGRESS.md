@@ -21,7 +21,7 @@ Source plan: `PLAN.md`
 - [x] Step 1: Project Scaffold and Quality Gates Setup
 - [x] Step 2: Landing Page Visual System and Static First Screen
 - [x] Step 3: Domain Model, Database Schema, and Seed Taxonomy
-- [ ] Step 4: Source Registry, Provider Policy, and Fact Graph Foundations
+- [x] Step 4: Source Registry, Provider Policy, and Fact Graph Foundations
 - [ ] Step 5: Audit Intake, Accommodation Resolution, and Completeness Gate
 - [ ] Step 6: Risk Engine, Evidence Bundles, and Report Schema Validation
 - [ ] Step 7: Stripe Checkout, Webhook Unlock, and Audit Job States
@@ -33,7 +33,7 @@ Source plan: `PLAN.md`
 
 ## Current Status
 
-Step 3 is complete. Next step: Step 4, Source Registry, Provider Policy, and Fact Graph Foundations.
+Step 4 is complete. Next step: Step 5, Audit Intake, Accommodation Resolution, and Completeness Gate.
 
 ## Update Rule
 
@@ -145,4 +145,25 @@ Validation:
 - Passed: `bun run test:e2e`
 
 Commit:
-- Pending: `feat: add audit domain schema and taxonomy`
+- `ea3ec09` - `feat: add audit domain schema and taxonomy`
+
+### 2026-06-23 - Step 4: Source Registry, Provider Policy, and Fact Graph Foundations
+
+Summary:
+- Added a machine-readable source registry with access method, allowed-use policy, authority level, freshness windows, storage permissions, republication permissions, and known stale/SEO risk.
+- Added provider adapter contracts and initial low-risk/stub profiles for official public-sector transport sources, Open-Meteo-style weather data, user-submitted evidence, and a disallowed scrape fixture.
+- Added fact graph types and normalization helpers for source records, atomic facts, evidence records, raw snapshot references, and allowed-use metadata.
+- Added source credibility and fact confidence scoring utilities with separate score-record builders.
+- Added conflict detection primitives for area/location mismatch, stale policy conflicts, route/schedule conflicts, and contradictory accommodation facts.
+- Added tests proving unknown/disallowed sources are rejected before fact cache insertion, allowed-use states behave differently, source/fact scores remain separate, and official sources take precedence for route conflicts.
+
+Validation:
+- Passed: `bun run format`
+- Passed: `bun run lint`
+- Passed: `bun run typecheck`
+- Passed: `bun test`
+- Passed: `bun run build`
+- Passed: `bun run test:e2e`
+
+Commit:
+- Pending: `feat: add source registry and fact governance`
