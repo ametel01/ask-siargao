@@ -46,6 +46,26 @@ export const tokens = {
       strong: { value: "#c8bee9" },
       onDark: { value: "rgba(255, 255, 255, 0.34)" },
     },
+    shadow: {
+      DEFAULT: { value: "rgba(14, 12, 56, 0.16)" },
+      strong: { value: "rgba(8, 8, 38, 0.32)" },
+    },
+  },
+  gradients: {
+    heroOverlay: {
+      value:
+        "linear-gradient(90deg, rgba(5, 8, 42, 0.96) 0%, rgba(16, 18, 74, 0.72) 46%, rgba(93, 62, 209, 0.22) 100%)",
+    },
+    cta: {
+      value: "linear-gradient(135deg, #875cf6 0%, #6c46e8 52%, #5d3ed1 100%)",
+    },
+    priceCard: {
+      value: "linear-gradient(145deg, #271776 0%, #17105a 56%, #0c103f 100%)",
+    },
+    panel: {
+      value:
+        "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 246, 255, 0.96) 100%)",
+    },
   },
   fonts: {
     sans: { value: '"Manrope", "Inter", "Avenir Next", system-ui, sans-serif' },
@@ -62,14 +82,18 @@ export const tokens = {
     "4xl": { value: "3rem" },
   },
   radii: {
+    xs: { value: "0.25rem" },
     sm: { value: "0.375rem" },
     md: { value: "0.5rem" },
-    lg: { value: "0.75rem" },
-    xl: { value: "1rem" },
+    lg: { value: "0.625rem" },
+    xl: { value: "0.75rem" },
+    pill: { value: "999px" },
   },
   shadows: {
+    card: { value: "0 14px 36px rgba(14, 12, 56, 0.12)" },
     panel: { value: "0 18px 48px rgba(14, 12, 56, 0.16)" },
-    strong: { value: "0 22px 70px rgba(8, 8, 38, 0.32)" },
+    strong: { value: "0 22px 54px rgba(8, 8, 38, 0.28)" },
+    cta: { value: "0 10px 24px rgba(108, 70, 232, 0.35)" },
   },
   spacing: {
     1: { value: "0.25rem" },
@@ -82,5 +106,13 @@ export const tokens = {
     10: { value: "2.5rem" },
     12: { value: "3rem" },
     16: { value: "4rem" },
+  },
+  easings: {
+    standard: { value: "cubic-bezier(0.2, 0, 0, 1)" },
+  },
+  durations: {
+    fast: { value: "140ms" },
+    normal: { value: "220ms" },
+    slow: { value: "360ms" },
   },
 };

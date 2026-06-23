@@ -8,7 +8,8 @@ const buttonFn = /* @__PURE__ */ createRecipe('button', {
 const buttonVariantMap = {
   "variant": [
     "primary",
-    "secondary"
+    "secondary",
+    "ghost"
   ]
 }
 

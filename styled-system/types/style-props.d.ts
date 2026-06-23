@@ -7578,7 +7578,7 @@ bgBlendMode?: ConditionalValue<CssProperties["backgroundBlendMode"] | AnyString>
 bgSize?: ConditionalValue<CssProperties["backgroundSize"] | AnyString>
  bgGradient?: ConditionalValue<UtilityValues["backgroundGradient"] | CssVars | AnyString>
  bgLinear?: ConditionalValue<UtilityValues["backgroundLinear"] | CssVars | AnyString>
- bgRadial?: ConditionalValue<string | number | AnyString>
+ bgRadial?: ConditionalValue<UtilityValues["backgroundRadial"] | CssVars | AnyString>
  bgConic?: ConditionalValue<string | number | AnyString>
  /**
    * This feature is well established and works across many devices and browser versions. It’s been available across browsers since July 2015.
@@ -7962,7 +7962,7 @@ scrollPaddingX?: ConditionalValue<UtilityValues["scrollPaddingInline"] | CssVars
  truncate?: ConditionalValue<UtilityValues["truncate"] | CssVars | AnyString>
  backgroundGradient?: ConditionalValue<UtilityValues["backgroundGradient"] | CssVars | AnyString>
  backgroundLinear?: ConditionalValue<UtilityValues["backgroundLinear"] | CssVars | AnyString>
- backgroundRadial?: ConditionalValue<string | number | AnyString>
+ backgroundRadial?: ConditionalValue<UtilityValues["backgroundRadial"] | CssVars | AnyString>
  backgroundConic?: ConditionalValue<string | number | AnyString>
  textGradient?: ConditionalValue<UtilityValues["textGradient"] | CssVars | AnyString>
  gradientFromPosition?: ConditionalValue<string | number | AnyString>

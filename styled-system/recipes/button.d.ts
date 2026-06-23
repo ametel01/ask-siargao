@@ -6,7 +6,7 @@ interface ButtonVariant {
   /**
  * @default "primary"
  */
-variant: "primary" | "secondary"
+variant: "primary" | "secondary" | "ghost"
 }
 
 type ButtonVariantMap = {

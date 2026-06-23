@@ -19,7 +19,7 @@ Source plan: `PLAN.md`
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Project Scaffold and Quality Gates Setup
-- [ ] Step 2: Landing Page Visual System and Static First Screen
+- [x] Step 2: Landing Page Visual System and Static First Screen
 - [ ] Step 3: Domain Model, Database Schema, and Seed Taxonomy
 - [ ] Step 4: Source Registry, Provider Policy, and Fact Graph Foundations
 - [ ] Step 5: Audit Intake, Accommodation Resolution, and Completeness Gate
@@ -33,7 +33,7 @@ Source plan: `PLAN.md`
 
 ## Current Status
 
-Step 1 is complete. Next step: Step 2, Landing Page Visual System and Static First Screen.
+Step 2 is complete. Next step: Step 3, Domain Model, Database Schema, and Seed Taxonomy.
 
 ## Update Rule
 
@@ -88,4 +88,32 @@ Validation:
 - Checked: `.env.example` contains placeholders only; no real secret values were added.
 
 Commit:
-- Pending: `chore: scaffold app and quality gates`
+- `18029ef` - `chore: scaffold app and quality gates`
+
+### 2026-06-23 - Step 2: Landing Page Visual System and Static First Screen
+
+Summary:
+- Added a project-local generated coastal dusk bitmap asset at `public/images/siargao-sunset.png`.
+- Expanded Panda tokens for landing colors, gradients, radii, shadows, and motion values.
+- Added shared Panda recipes for the landing shell, header, cards, risk preview, report preview, pricing, FAQ, and footer.
+- Added local shadcn-derived UI primitives for buttons, badges, cards, accordion rows, inputs, tables, tooltips, and sheet structure.
+- Replaced the scaffold root page with the static landing experience: header, hero, risk preview, check grid, process section, trust band, sample report, testimonials, pricing/FAQ, and footer newsletter form.
+- Added Playwright coverage for key rendered sections, accessible FAQ keyboard behavior, and absence of horizontal overflow at 390px, 768px, 1024px, and 1366px.
+
+Visual QA:
+- Captured desktop screenshot: `test-results/visual/landing-desktop.png`.
+- Captured tablet screenshot: `test-results/visual/landing-tablet.png`.
+- Captured mobile screenshot: `test-results/visual/landing-mobile.png`.
+- Compared the screenshots against `landing.png` and `docs/LANDING_STYLE_REQUIREMENTS.md`; the implemented page follows the dark coastal hero, white analytical panels, violet CTA system, labeled green/yellow risk states, and responsive stacked mobile layout.
+
+Validation:
+- Passed: `bun run format`
+- Passed: `bun run lint`
+- Passed: `bun run typecheck`
+- Passed: `bun test`
+- Passed: `bun run build`
+- Passed: `bun run test:e2e`
+- Passed: manual `bun run dev` screenshot capture for desktop/tablet/mobile visual QA.
+
+Commit:
+- Pending: `feat: build landing page visual system`

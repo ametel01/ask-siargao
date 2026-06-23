@@ -9,6 +9,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Built the static Siargao Trip Risk Audit landing page with header, hero, risk preview, check grid, process section, trust band, sample report, testimonials, pricing/FAQ, and footer.
+- Added a generated coastal dusk background image under `public/images/` and wired it into the global page background.
+- Added landing-focused Panda tokens, recipes, local UI primitives, and Playwright checks for key sections, FAQ keyboard interaction, and responsive overflow.
 - Scaffolded the Next.js App Router application with TypeScript, React, Panda CSS, and a minimal root page.
 - Added Biome formatting and linting, Bun unit tests, Playwright e2e smoke tests, production build scripts, and development scripts.
 - Added environment variable placeholders, dependency/build/test ignore rules, and generated Panda styling output.
