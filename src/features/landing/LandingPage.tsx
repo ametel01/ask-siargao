@@ -21,6 +21,7 @@ import {
   Wifi,
 } from "lucide-react";
 
+import { IntakeForm } from "@/features/intake/IntakeForm";
 import {
   AccordionItem,
   Badge,
@@ -181,6 +182,7 @@ export function LandingPage() {
     <main className={pageShell()}>
       <Header />
       <Hero />
+      <IntakeForm />
       <WhatWeCheck />
       <HowItWorks />
       <TrustBand />

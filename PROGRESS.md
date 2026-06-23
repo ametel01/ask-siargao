@@ -22,7 +22,7 @@ Source plan: `PLAN.md`
 - [x] Step 2: Landing Page Visual System and Static First Screen
 - [x] Step 3: Domain Model, Database Schema, and Seed Taxonomy
 - [x] Step 4: Source Registry, Provider Policy, and Fact Graph Foundations
-- [ ] Step 5: Audit Intake, Accommodation Resolution, and Completeness Gate
+- [x] Step 5: Audit Intake, Accommodation Resolution, and Completeness Gate
 - [ ] Step 6: Risk Engine, Evidence Bundles, and Report Schema Validation
 - [ ] Step 7: Stripe Checkout, Webhook Unlock, and Audit Job States
 - [ ] Step 8: LLM Generator, Reviewer Pass, and Final Report UI
@@ -33,7 +33,7 @@ Source plan: `PLAN.md`
 
 ## Current Status
 
-Step 4 is complete. Next step: Step 5, Audit Intake, Accommodation Resolution, and Completeness Gate.
+Step 5 is complete. Next step: Step 6, Risk Engine, Evidence Bundles, and Report Schema Validation.
 
 ## Update Rule
 
@@ -166,4 +166,25 @@ Validation:
 - Passed: `bun run test:e2e`
 
 Commit:
-- Pending: `feat: add source registry and fact governance`
+- `3ce3689` - `feat: add source registry and fact governance`
+
+### 2026-06-23 - Step 5: Audit Intake, Accommodation Resolution, and Completeness Gate
+
+Summary:
+- Added a landing-page intake form for travel month, arrival origin, accommodation name/link, stay area, top constraint, traveler context, risk tolerance, and optional modules.
+- Added `/api/audit/intake` to validate intake payloads and return deterministic audit request state, stored input shape, accommodation resolution, and completeness-gate results.
+- Added accommodation resolution with local/permitted source fixtures, a confidence threshold, and actionable follow-up prompts for below-threshold matches.
+- Added a deterministic completeness gate that blocks checkout eligibility when critical input, stay area, accommodation match confidence, or required facts are insufficient.
+- Added preview-risk generation only after the completeness gate passes, with evidence summary labels and targeted refresh hooks for weather, routes, and accommodation matches.
+- Added tests for incomplete audits, below-threshold accommodation matches, preview risk visibility, optional module activation, risk tolerance behavior, and browser submission of the minimum viable intake.
+
+Validation:
+- Passed: `bun run format`
+- Passed: `bun run lint`
+- Passed: `bun run typecheck`
+- Passed: `bun test`
+- Passed: `bun run build`
+- Passed: `bun run test:e2e`
+
+Commit:
+- Pending: `feat: add audit intake and completeness gate`
