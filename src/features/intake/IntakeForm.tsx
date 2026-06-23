@@ -63,27 +63,75 @@ export function IntakeForm() {
 
   return (
     <section
-      className={cx(sectionPanel(), css({ mt: "4", p: { base: "5", md: "6" } }))}
+      className={cx(
+        sectionPanel(),
+        css({
+          mt: 0,
+          overflow: "hidden",
+          p: { base: "5", md: "8" },
+          position: "relative",
+        }),
+      )}
       id="audit-start"
     >
       <div
+        aria-hidden="true"
         className={css({
+          background: "url('/images/siargao-sunset.png') left bottom / 440px auto no-repeat",
+          bottom: 0,
+          h: "210px",
+          left: 0,
+          opacity: { base: 0.12, lg: 0.3 },
+          position: "absolute",
+          width: "420px",
+        })}
+      />
+      <div
+        className={css({
+          alignItems: "start",
           display: "grid",
-          gap: "6",
-          gridTemplateColumns: { base: "1fr", lg: "0.9fr 1.1fr" },
+          gap: { base: "7", lg: "9" },
+          gridTemplateColumns: { base: "1fr", lg: "0.72fr 1.28fr" },
+          position: "relative",
         })}
       >
         <div>
           <p className={eyebrow()}>Start the audit</p>
-          <h2 className={heading()}>Check payment eligibility before checkout exists.</h2>
+          <h2 className={heading()}>Check eligibility in seconds.</h2>
           <p className={bodyText()}>
-            Submit the minimum plan details. The system returns either clear blockers or one preview
-            risk with evidence labels. Checkout stays locked until the completeness gate passes.
+            Tell us your plan and we will run a free risk preview. You only pay if we can complete
+            the full audit.
           </p>
+          <div className={css({ display: "grid", gap: "2", mt: "5" })}>
+            {[
+              "Free risk preview first",
+              "No charge until audit is completed",
+              "Evidence, confidence, and freshness included",
+            ].map((item) => (
+              <span
+                className={css({
+                  alignItems: "center",
+                  color: "text",
+                  display: "flex",
+                  fontSize: "sm",
+                  fontWeight: "800",
+                  gap: "2",
+                })}
+                key={item}
+              >
+                <CheckCircle2
+                  aria-hidden="true"
+                  className={css({ color: "violet.600" })}
+                  size={17}
+                />
+                {item}
+              </span>
+            ))}
+          </div>
           <ResultPanel state={state} />
         </div>
 
-        <form className={css({ display: "grid", gap: "4" })} onSubmit={onSubmit}>
+        <form className={formShell()} onSubmit={onSubmit}>
           <div className={fieldGrid()}>
             <Field label="Travel month" name="travelMonth" placeholder="2026-08" />
             <Field
@@ -147,18 +195,23 @@ export function IntakeForm() {
           </label>
           <fieldset
             className={css({
-              borderColor: "border",
-              borderRadius: "md",
-              borderWidth: "1px",
-              display: "grid",
+              borderWidth: 0,
+              display: "flex",
+              flexWrap: "wrap",
               gap: "2",
-              gridTemplateColumns: { base: "1fr", sm: "repeat(2, 1fr)" },
               m: 0,
-              p: "4",
+              p: 0,
             })}
           >
             <legend
-              className={css({ color: "text.strong", fontSize: "sm", fontWeight: "800", px: "2" })}
+              className={css({
+                color: "text.strong",
+                display: "block",
+                flexBasis: "100%",
+                fontSize: "xs",
+                fontWeight: "900",
+                mb: "1",
+              })}
             >
               Optional modules
             </legend>
@@ -166,11 +219,17 @@ export function IntakeForm() {
               <label
                 className={css({
                   alignItems: "center",
+                  bg: "surface.tint",
+                  borderColor: "border",
+                  borderRadius: "md",
+                  borderWidth: "1px",
                   color: "text.muted",
                   display: "flex",
                   fontSize: "xs",
-                  fontWeight: "700",
+                  fontWeight: "800",
                   gap: "2",
+                  minH: "32px",
+                  px: "3",
                 })}
                 key={module}
               >
@@ -180,11 +239,17 @@ export function IntakeForm() {
             <label
               className={css({
                 alignItems: "center",
+                bg: "surface.tint",
+                borderColor: "border",
+                borderRadius: "md",
+                borderWidth: "1px",
                 color: "text.muted",
                 display: "flex",
                 fontSize: "xs",
-                fontWeight: "700",
+                fontWeight: "800",
                 gap: "2",
+                minH: "32px",
+                px: "3",
               })}
             >
               <input name="hasChildren" type="checkbox" /> family or children
@@ -285,8 +350,21 @@ function ResultPanel({ state }: { state: SubmitState }) {
 function fieldGrid() {
   return css({
     display: "grid",
-    gap: "4",
+    gap: "3",
     gridTemplateColumns: { base: "1fr", md: "repeat(2, 1fr)" },
+  });
+}
+
+function formShell() {
+  return css({
+    bg: "rgba(255,255,255,0.88)",
+    borderColor: "rgba(204, 198, 229, 0.8)",
+    borderRadius: "xl",
+    borderWidth: "1px",
+    boxShadow: "0 24px 70px rgba(23, 24, 79, 0.16)",
+    display: "grid",
+    gap: "4",
+    p: { base: "4", md: "5" },
   });
 }
 
@@ -302,8 +380,8 @@ function labelClass() {
 
 function inputClass() {
   return css({
-    bg: "surface",
-    borderColor: "border",
+    bg: "rgba(255,255,255,0.88)",
+    borderColor: "#d9d5ea",
     borderRadius: "md",
     borderWidth: "1px",
     color: "text",
@@ -317,7 +395,7 @@ function inputClass() {
 
 function resultBox() {
   return css({
-    bg: "surface.tint",
+    bg: "rgba(255,255,255,0.68)",
     borderColor: "border",
     borderRadius: "md",
     borderWidth: "1px",
@@ -332,7 +410,8 @@ function eyebrow() {
   return css({
     color: "violet.650",
     fontSize: "xs",
-    fontWeight: "800",
+    fontWeight: "900",
+    mb: "3",
     textTransform: "uppercase",
   });
 }
@@ -340,10 +419,12 @@ function eyebrow() {
 function heading() {
   return css({
     color: "text.strong",
-    fontSize: { base: "xl", md: "2xl" },
+    fontFamily: "Georgia, 'Times New Roman', serif",
+    fontSize: { base: "2xl", md: "3xl" },
     fontWeight: "800",
-    lineHeight: "1.2",
+    lineHeight: "1.05",
     m: 0,
+    maxW: "360px",
   });
 }
 

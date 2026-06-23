@@ -17,14 +17,8 @@ html {
 body {
   min-height: 100vh;
   margin: 0;
-  color: var(--colors-text-on-dark);
-  background: linear-gradient(
-      180deg,
-      rgba(6, 10, 48, 0.92) 0%,
-      rgba(22, 15, 76, 0.82) 42%,
-      rgba(10, 14, 54, 0.96) 100%
-    ), linear-gradient(90deg, rgba(5, 8, 42, 0.58), rgba(93, 62, 209, 0.18)),
-    url("/images/siargao-sunset.png") center top / cover fixed no-repeat, var(--colors-navy-950);
+  color: var(--colors-text);
+  background: #f7f9ff;
   font-family: var(--fonts-sans);
   letter-spacing: 0;
 }
@@ -45,12 +39,6 @@ summary {
 
 summary::-webkit-details-marker {
   display: none;
-}
-
-@media (max-width: 767px) {
-  body {
-    background-attachment: scroll;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

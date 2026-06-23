@@ -15,6 +15,26 @@ const normalizedPayload = {
   maxRainSum: 8.6,
   maxWindGust: 42.7,
   maxWindGustDate: "2026-06-25",
+  todayForecast: {
+    date: "2026-06-24",
+    precipitationProbability: 44,
+    precipitationSum: 2.1,
+    rainSum: 1.8,
+    weatherCode: 61,
+    windGust: 33.5,
+    windSpeed: 18.2,
+  },
+};
+const rawPayload = {
+  daily: {
+    precipitation_probability_max: [44, 82, 19],
+    precipitation_sum: [2.1, 9.4, 0.3],
+    rain_sum: [1.8, 8.6, 0.1],
+    time: ["2026-06-24", "2026-06-25", "2026-06-26"],
+    weather_code: [61, 80, 3],
+    wind_gusts_10m_max: [33.5, 42.7, 30.2],
+    wind_speed_10m_max: [18.2, 21.4, 17.1],
+  },
 };
 
 describe("weather public snapshot", () => {
@@ -57,6 +77,13 @@ describe("weather public snapshot", () => {
       evidenceId: "ev_precipitation",
     });
     expect(snapshot.summary).toContain("82%");
+    expect(snapshot.today).toMatchObject({
+      condition: "Rain",
+      date: "2026-06-24",
+      precipitationProbability: 44,
+      rainSum: 1.8,
+      windGust: 33.5,
+    });
     expect(snapshot.evidenceIds).toEqual(["ev_forecast", "ev_precipitation", "ev_rain", "ev_wind"]);
   });
 
@@ -86,5 +113,6 @@ function weatherRow({
     sourceName: "Open-Meteo weather API",
     recordName: "Siargao Island forecast",
     normalizedPayload,
+    rawPayload,
   };
 }

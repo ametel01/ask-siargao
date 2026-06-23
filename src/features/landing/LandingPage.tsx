@@ -1,22 +1,19 @@
 import {
   ArrowRight,
+  BedDouble,
   CalendarDays,
   Check,
-  CheckCircle2,
   ClipboardCheck,
   CloudSun,
   FilePenLine,
   FileText,
-  House,
   Menu,
+  Plane,
   Play,
-  Quote,
   Search,
   ShieldCheck,
   ShieldPlus,
-  Sparkles,
   TrendingUp,
-  Truck,
   Users,
   Wifi,
 } from "lucide-react";
@@ -47,39 +44,38 @@ import { reportPreview } from "../../../styled-system/recipes/report-preview";
 import { riskGauge } from "../../../styled-system/recipes/risk-gauge";
 import { riskPreviewCard } from "../../../styled-system/recipes/risk-preview-card";
 import { sectionPanel } from "../../../styled-system/recipes/section-panel";
-import { testimonialCard } from "../../../styled-system/recipes/testimonial-card";
 import { trustCard } from "../../../styled-system/recipes/trust-card";
 
 const checks = [
   {
-    icon: Truck,
-    title: "Arrival logistics",
-    body: "Ferry, airport transfer, late arrival, and route timing risks.",
-  },
-  {
     icon: CloudSun,
     title: "Weather exposure",
-    body: "Seasonal rain, surf windows, and backup-day pressure.",
+    body: "Rain, wind, swell, typhoons, and heat.",
   },
   {
-    icon: House,
+    icon: Plane,
+    title: "Arrival logistics",
+    body: "Ferries, flights, transfers, and timing risks.",
+  },
+  {
+    icon: BedDouble,
     title: "Accommodation reality",
-    body: "Area fit, access constraints, and host questions to ask.",
+    body: "Location, reviews, noise, comfort, and reliability.",
   },
   {
     icon: Wifi,
-    title: "Remote work basics",
-    body: "Internet, power, quiet sleep, and workspace assumptions.",
+    title: "Internet and power",
+    body: "Mobile signal, Wi-Fi, and generator backup.",
   },
   {
     icon: ShieldPlus,
     title: "Safety and health",
-    body: "Clinic access, scooter exposure, and night transport gaps.",
+    body: "Crime, road safety, clinic access, and medical gaps.",
   },
   {
     icon: ClipboardCheck,
     title: "Rules and fees",
-    body: "Environmental fees, operator policies, and verification gaps.",
+    body: "Local rules, permits, and extra costs.",
   },
 ];
 
@@ -87,22 +83,27 @@ const steps = [
   {
     icon: FilePenLine,
     title: "Enter details",
-    body: "Paste your current plan, dates, stay, and constraints.",
+    body: "Share dates, stay, route, and constraints.",
   },
   {
     icon: Search,
     title: "Verify sources",
-    body: "We check permitted sources before asking for payment.",
+    body: "We check live data and trusted records.",
   },
   {
     icon: ShieldCheck,
     title: "Score risk",
-    body: "Each finding gets severity, confidence, freshness, and evidence.",
+    body: "Every category gets confidence labels.",
   },
   {
     icon: FileText,
+    title: "Build audit",
+    body: "If completable, we compile your report.",
+  },
+  {
+    icon: TrendingUp,
     title: "Read report",
-    body: "You get recommendations, host questions, and explicit limitations.",
+    body: "Get recommendations and next steps.",
   },
 ];
 
@@ -110,43 +111,22 @@ const trustItems = [
   {
     icon: FileText,
     title: "Cited evidence",
-    body: "Every claim is tied to source records and evidence IDs.",
+    body: "Every claim links to source records and timestamps.",
   },
   {
     icon: CalendarDays,
     title: "Freshness windows",
-    body: "Outdated facts are flagged instead of quietly reused.",
-  },
-  {
-    icon: Users,
-    title: "Local signals",
-    body: "Official, partner, and permitted public sources stay separated.",
+    body: "Each data point shows when it was last updated.",
   },
   {
     icon: TrendingUp,
     title: "Confidence labels",
-    body: "Source credibility and fact confidence are scored separately.",
-  },
-];
-
-const testimonials = [
-  {
-    quote:
-      "It caught the late ferry issue before we paid for the room. The host questions were the useful part.",
-    name: "Maya R.",
-    location: "Singapore",
+    body: "High, medium, or low confidence is never a guess.",
   },
   {
-    quote:
-      "The report was less dreamy than a guide, which is exactly what I needed before traveling solo.",
-    name: "Evan T.",
-    location: "Melbourne",
-  },
-  {
-    quote:
-      "Clear green, yellow, red risks with sources. I changed one transfer and kept the rest of the trip.",
-    name: "Sofia L.",
-    location: "Manila",
+    icon: Users,
+    title: "Local signals",
+    body: "On-the-ground and community signals where they matter.",
   },
 ];
 
@@ -176,20 +156,23 @@ const riskRows = [
   { label: "Accommodation area fit", status: "Medium", tone: "medium" as const },
   { label: "Weather buffer", status: "Low", tone: "low" as const },
   { label: "Scooter dependence", status: "Medium", tone: "medium" as const },
+  { label: "Power and internet reliability", status: "Low", tone: "low" as const },
+  { label: "Safety and health", status: "Low", tone: "low" as const },
 ];
 
 export function LandingPage({ weatherSnapshot }: { weatherSnapshot: WeatherSnapshot }) {
   return (
     <main className={pageShell()}>
-      <Header />
-      <Hero />
-      <WeatherTelemetryPanel initialSnapshot={weatherSnapshot} />
+      <div className={heroBackdrop()}>
+        <Header />
+        <Hero />
+        <WeatherTelemetryPanel initialSnapshot={weatherSnapshot} />
+      </div>
       <IntakeForm />
       <WhatWeCheck />
       <HowItWorks />
       <TrustBand />
       <SampleReport />
-      <Testimonials />
       <PricingFaq />
       <Footer />
     </main>
@@ -202,6 +185,7 @@ function Header() {
       <a
         className={css({
           alignItems: "center",
+          color: "text.onDark",
           display: "flex",
           gap: "3",
           textDecoration: "none",
@@ -212,42 +196,47 @@ function Header() {
           aria-hidden="true"
           className={css({
             alignItems: "center",
-            bg: "rgba(255,255,255,0.14)",
-            borderColor: "border.onDark",
-            borderRadius: "md",
-            borderWidth: "1px",
+            borderColor: "rgba(255,255,255,0.76)",
+            borderRadius: "pill",
+            borderWidth: "2px",
             display: "inline-flex",
-            h: "10",
+            fontFamily: "Georgia, serif",
+            fontSize: "xl",
+            fontWeight: "800",
+            h: "9",
             justifyContent: "center",
-            width: "10",
+            lineHeight: "1",
+            width: "9",
           })}
         >
-          <ShieldCheck size={23} />
+          C
         </span>
-        <span>
-          <span className={css({ display: "block", fontSize: "sm", fontWeight: "800" })}>
-            SIARGAO AUDIT
-          </span>
-          <span className={css({ color: "text.onDarkMuted", display: "block", fontSize: "2xs" })}>
-            Evidence-led trip checks
-          </span>
+        <span className={css({ fontFamily: "Georgia, serif", fontSize: "lg", fontWeight: "800" })}>
+          Siargao Audit
         </span>
       </a>
 
       <nav
         aria-label="Main navigation"
         className={css({
-          display: { base: "none", md: "flex" },
-          gap: { md: "7", lg: "10" },
+          display: { base: "none", lg: "flex" },
+          gap: "8",
           ml: "auto",
         })}
       >
-        {["Weather", "Checks", "Process", "Report", "Pricing"].map((item) => (
+        {[
+          ["Why it matters", "checks"],
+          ["What we check", "checks"],
+          ["How it works", "process"],
+          ["Sample report", "report"],
+          ["Pricing", "pricing"],
+          ["FAQ", "faq"],
+        ].map(([item, target]) => (
           <a
             className={css({
-              color: "text.onDarkMuted",
-              fontSize: "sm",
-              fontWeight: "700",
+              color: "rgba(255,255,255,0.78)",
+              fontSize: "xs",
+              fontWeight: "800",
               textDecoration: "none",
               _hover: { color: "text.onDark" },
               _focusVisible: {
@@ -255,7 +244,7 @@ function Header() {
                 outlineOffset: "4px",
               },
             })}
-            href={`#${item.toLowerCase()}`}
+            href={`#${target}`}
             key={item}
           >
             {item}
@@ -266,14 +255,18 @@ function Header() {
       <Tooltip label="Open compact mobile menu">
         <Button
           aria-label="Open navigation"
-          className={css({ display: { base: "inline-flex", md: "none" }, px: "3" })}
+          className={css({ display: { base: "inline-flex", lg: "none" }, px: "3" })}
           variant="ghost"
         >
           <Menu size={19} />
         </Button>
       </Tooltip>
       <LinkButton
-        className={css({ display: { base: "none", sm: "inline-flex" } })}
+        className={css({
+          display: { base: "none", sm: "inline-flex" },
+          minH: "40px",
+          px: "4",
+        })}
         href="#audit-start"
       >
         Start audit
@@ -288,44 +281,41 @@ function Hero() {
       className={css({
         alignItems: "center",
         display: "grid",
-        gap: { base: "8", lg: "12" },
-        gridTemplateColumns: { base: "1fr", lg: "1.1fr 0.9fr" },
+        gap: { base: "8", lg: "14" },
+        gridTemplateColumns: { base: "1fr", lg: "1.08fr 0.92fr" },
         maxW: "1220px",
         mx: "auto",
         pb: { base: "8", lg: "10" },
-        pt: { base: "9", md: "12", lg: "16" },
+        pt: { base: "8", md: "12", lg: "16" },
       })}
       id="top"
     >
       <div>
-        <Badge tone="dark">
-          <Sparkles aria-hidden="true" size={15} /> One free preview risk before payment
-        </Badge>
         <h1
           className={css({
             color: "text.onDark",
-            fontSize: { base: "3xl", md: "4xl" },
+            fontFamily: "Georgia, 'Times New Roman', serif",
+            fontSize: { base: "3xl", sm: "4xl", lg: "4.25rem" },
             fontWeight: "800",
-            lineHeight: "1.08",
-            maxW: "760px",
+            lineHeight: "0.98",
+            maxW: "710px",
             mb: "5",
-            mt: "5",
+            mt: 0,
           })}
         >
           Know if your Siargao plan works before you book the risky parts.
         </h1>
         <p
           className={css({
-            color: "text.onDarkMuted",
-            fontSize: { base: "md", md: "lg" },
-            lineHeight: "1.58",
-            maxW: "650px",
-            mb: "6",
+            color: "rgba(255,255,255,0.76)",
+            fontSize: { base: "sm", md: "md" },
+            lineHeight: "1.65",
+            maxW: "620px",
+            mb: "7",
           })}
         >
-          A focused trip feasibility audit that checks logistics, accommodation fit, weather
-          exposure, local constraints, and source confidence. Pay USD 9.99 only after the
-          completeness gate passes.
+          Evidence-backed trip feasibility audit that checks weather, logistics, accommodation,
+          internet, safety, and rules so you only pay if we can complete the audit.
         </p>
         <div
           className={css({
@@ -333,31 +323,49 @@ function Hero() {
             display: "flex",
             flexDirection: { base: "column", sm: "row" },
             gap: "4",
-            mb: "5",
+            mb: "6",
           })}
-          id="audit-start"
         >
-          <LinkButton className={css({ minW: { sm: "206px" } })} href="#pricing">
+          <LinkButton className={css({ minW: { sm: "218px" } })} href="#audit-start">
             Start trip audit <ArrowRight aria-hidden="true" size={18} />
           </LinkButton>
-          <strong className={css({ color: "text.onDark", fontSize: "xl" })}>USD 9.99</strong>
+          <LinkButton
+            className={css({
+              bg: "rgba(255,255,255,0.08)",
+              borderColor: "rgba(255,255,255,0.28)",
+              color: "text.onDark",
+              minW: { sm: "210px" },
+            })}
+            href="#report"
+            variant="ghost"
+          >
+            See sample report
+          </LinkButton>
         </div>
-        <div className={css({ display: "grid", gap: "2" })}>
+        <div
+          className={css({
+            display: "grid",
+            gap: "3",
+            gridTemplateColumns: { base: "1fr", md: "repeat(3, max-content)" },
+          })}
+        >
           {[
-            "No charge if the full audit cannot be completed",
-            "Evidence, confidence, and freshness labels included",
+            "One free preview risk before payment",
+            "Pay only if we can complete the full audit",
+            "USD 9.99 one-time",
           ].map((note) => (
             <span
               className={css({
                 alignItems: "center",
-                color: "text.onDarkMuted",
+                color: "rgba(255,255,255,0.82)",
                 display: "flex",
-                fontSize: "sm",
+                fontSize: "xs",
+                fontWeight: "800",
                 gap: "2",
               })}
               key={note}
             >
-              <CheckCircle2 aria-hidden="true" size={17} /> {note}
+              <ShieldCheck aria-hidden="true" size={17} /> {note}
             </span>
           ))}
         </div>
@@ -378,69 +386,134 @@ function RiskPreviewCard() {
           mb: "4",
         })}
       >
-        <h2 className={css({ color: "text.strong", fontSize: "lg", fontWeight: "800", m: 0 })}>
+        <h2
+          className={css({
+            color: "text.onDark",
+            fontFamily: "Georgia, serif",
+            fontSize: "lg",
+            fontWeight: "800",
+            m: 0,
+          })}
+        >
           Trip risk preview
         </h2>
-        <Badge tone="sample">Sample</Badge>
+        <Badge className={css({ bg: "rgba(255,255,255,0.16)", color: "text.onDark" })} tone="dark">
+          Sample
+        </Badge>
       </div>
       <div aria-label="Overall preview rating is low risk" className={riskGauge()}>
         <div
           className={css({
-            bg: "conic-gradient(from 270deg, token(colors.risk.low) 0deg 128deg, token(colors.lavender.200) 128deg 180deg, transparent 180deg 360deg)",
+            bg: "conic-gradient(from 270deg, #70c66f 0deg 124deg, #cdb7ff 124deg 180deg, transparent 180deg 360deg)",
             borderRadius: "999px 999px 0 0",
+            filter: "drop-shadow(0 18px 24px rgba(0,0,0,0.24))",
             h: "100%",
             position: "absolute",
             top: 0,
-            width: "84%",
+            width: "86%",
           })}
         />
         <div
           className={css({
             alignItems: "center",
-            bg: "surface",
+            bg: "rgba(26,26,63,0.82)",
             borderRadius: "999px 999px 0 0",
             bottom: "-2px",
+            boxShadow: "inset 0 18px 28px rgba(255,255,255,0.1)",
+            color: "text.onDark",
             display: "flex",
             flexDirection: "column",
-            h: "72%",
+            h: "70%",
             justifyContent: "center",
             position: "absolute",
             width: "64%",
           })}
         >
-          <span className={css({ color: "risk.lowDark", fontSize: "xl", fontWeight: "800" })}>
+          <span className={css({ color: "#93e68e", fontSize: "xl", fontWeight: "900" })}>
             LOW RISK
           </span>
-          <span className={css({ color: "text.muted", fontSize: "xs", fontWeight: "700" })}>
-            4 source checks passed
+          <span
+            className={css({ color: "rgba(255,255,255,0.84)", fontSize: "xs", fontWeight: "800" })}
+          >
+            4 of 6 areas look good
+          </span>
+          <span className={css({ color: "rgba(255,255,255,0.62)", fontSize: "2xs", mt: "2" })}>
+            Looks solid. Keep a few medium-risk areas in mind.
           </span>
         </div>
       </div>
-      <Table rows={riskRows} />
-      <LinkButton className={css({ mt: "5", width: "100%" })} href="#report" variant="secondary">
-        View sample report
+      <div className={css({ mt: "5" })}>
+        <RiskList />
+      </div>
+      <LinkButton
+        className={css({
+          borderColor: "rgba(255,255,255,0.26)",
+          color: "text.onDark",
+          mt: "5",
+          width: "100%",
+        })}
+        href="#report"
+        variant="secondary"
+      >
+        View sample report <ArrowRight aria-hidden="true" size={16} />
       </LinkButton>
     </aside>
   );
 }
 
+function RiskList() {
+  return (
+    <div className={css({ display: "grid" })}>
+      {riskRows.map((row) => (
+        <div
+          className={css({
+            alignItems: "center",
+            borderTopColor: "rgba(255,255,255,0.16)",
+            borderTopWidth: "1px",
+            color: "rgba(255,255,255,0.82)",
+            display: "flex",
+            fontSize: "xs",
+            fontWeight: "800",
+            gap: "3",
+            justifyContent: "space-between",
+            minH: "36px",
+          })}
+          key={row.label}
+        >
+          <span>{row.label}</span>
+          <strong
+            className={css({
+              color:
+                row.tone === "low"
+                  ? "#91e88d"
+                  : row.tone === "medium"
+                    ? "risk.medium"
+                    : "risk.high",
+              fontSize: "xs",
+            })}
+          >
+            {row.status}
+          </strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function WhatWeCheck() {
   return (
-    <section
-      className={cx(sectionPanel(), css({ mt: "4", p: { base: "5", md: "6" } }))}
-      id="checks"
-    >
-      <h2 className={sectionTitle()}>What we check</h2>
+    <section className={cx(sectionPanel(), css({ mt: 0, p: { base: "5", md: "7" } }))} id="checks">
+      <h2 className={cx(sectionTitle(), css({ textAlign: "center" }))}>What we check</h2>
       <div
         className={css({
           display: "grid",
-          gap: "3",
+          gap: "4",
           gridTemplateColumns: { base: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(6, 1fr)" },
         })}
       >
         {checks.map(({ body, icon: Icon, title }) => (
           <Card className={miniFeatureCard()} key={title}>
-            <Icon aria-hidden="true" className={css({ color: "violet.600", mb: "3" })} size={25} />
+            <Icon aria-hidden="true" className={css({ color: "violet.600", mb: "3" })} size={28} />
             <h3 className={cardTitle()}>{title}</h3>
             <p className={cardBody()}>{body}</p>
           </Card>
@@ -452,69 +525,56 @@ function WhatWeCheck() {
 
 function HowItWorks() {
   return (
-    <section
-      className={cx(sectionPanel(), css({ mt: "4", p: { base: "5", md: "6" } }))}
-      id="process"
-    >
-      <h2 className={cx(sectionTitle(), css({ textAlign: "center" }))}>How it works</h2>
-      <div
-        className={css({
-          alignItems: "stretch",
-          display: "grid",
-          gap: "4",
-          gridTemplateColumns: { base: "1fr", md: "repeat(2, 1fr)", lg: "repeat(4, 1fr) 1.25fr" },
-        })}
-      >
-        {steps.map(({ body, icon: Icon, title }, index) => (
-          <Card className={processCard()} key={title}>
-            <span
-              className={css({
-                alignItems: "center",
-                bg: "violet.600",
-                borderRadius: "pill",
-                color: "text.onDark",
-                display: "inline-flex",
-                fontSize: "xs",
-                fontWeight: "800",
-                h: "6",
-                justifyContent: "center",
-                left: "50%",
-                position: "absolute",
-                top: "-12px",
-                transform: "translateX(-50%)",
-                width: "6",
-              })}
-            >
-              {index + 1}
-            </span>
-            <Icon
-              aria-hidden="true"
-              className={css({ color: "violet.600", mb: "3", mt: "2" })}
-              size={29}
-            />
-            <h3 className={cardTitle()}>{title}</h3>
-            <p className={cardBody()}>{body}</p>
-          </Card>
-        ))}
+    <section className={processBand()} id="process">
+      <div className={css({ maxW: "1220px", mx: "auto" })}>
+        <h2 className={cx(sectionTitle(), css({ color: "text.onDark", mb: "6" }))}>How it works</h2>
         <div
           className={css({
-            alignItems: "center",
-            background:
-              "linear-gradient(rgba(5,8,42,0.34), rgba(5,8,42,0.64)), url('/images/siargao-sunset.png') center / cover",
-            borderRadius: "md",
-            color: "text.onDark",
-            display: "flex",
-            justifyContent: "center",
-            minH: "166px",
-            position: "relative",
+            alignItems: "stretch",
+            display: "grid",
+            gap: "4",
+            gridTemplateColumns: { base: "1fr", md: "repeat(2, 1fr)", lg: "repeat(5, 1fr) 1.45fr" },
           })}
         >
-          <Button
-            aria-label="Play audit walkthrough"
-            className={css({ borderRadius: "pill", h: "14", px: "0", width: "14" })}
-          >
-            <Play aria-hidden="true" size={24} />
-          </Button>
+          {steps.map(({ body, icon: Icon, title }, index) => (
+            <Card className={processCard()} key={title}>
+              <span
+                className={css({
+                  alignItems: "center",
+                  bg: "violet.550",
+                  borderRadius: "pill",
+                  color: "text.onDark",
+                  display: "inline-flex",
+                  fontSize: "xs",
+                  fontWeight: "900",
+                  h: "7",
+                  justifyContent: "center",
+                  mb: "3",
+                  width: "7",
+                })}
+              >
+                {index + 1}
+              </span>
+              <Icon
+                aria-hidden="true"
+                className={css({ color: "text.onDark", mb: "3" })}
+                size={22}
+              />
+              <h3 className={cx(cardTitle(), css({ color: "text.onDark" }))}>{title}</h3>
+              <p className={cx(cardBody(), css({ color: "rgba(255,255,255,0.72)" }))}>{body}</p>
+            </Card>
+          ))}
+          <div className={videoCard()}>
+            <Button
+              aria-label="Play audit walkthrough"
+              className={css({ borderRadius: "pill", h: "14", px: "0", width: "14" })}
+            >
+              <Play aria-hidden="true" size={26} />
+            </Button>
+            <span className={css({ color: "text.onDark", fontSize: "xs", fontWeight: "800" })}>
+              30-sec overview
+            </span>
+          </div>
         </div>
       </div>
     </section>
@@ -523,25 +583,36 @@ function HowItWorks() {
 
 function TrustBand() {
   return (
-    <section className={cx(sectionPanel(), css({ mt: "4", overflow: "hidden" }))}>
+    <section
+      className={cx(sectionPanel(), css({ mt: 0, overflow: "hidden", p: { base: "5", md: "7" } }))}
+    >
       <div
-        className={css({ display: "grid", gridTemplateColumns: { base: "1fr", lg: "280px 1fr" } })}
+        className={css({
+          alignItems: "center",
+          display: "grid",
+          gap: "6",
+          gridTemplateColumns: { base: "1fr", lg: "1.42fr 0.58fr" },
+        })}
       >
-        <div
-          aria-hidden="true"
-          className={css({
-            background: "url('/images/siargao-sunset.png') left center / cover",
-            minH: { base: "120px", lg: "100%" },
-          })}
-        />
-        <div className={css({ p: { base: "5", md: "6" } })}>
+        <div>
           <h2 className={cx(sectionTitle(), css({ textAlign: "center" }))}>
             Built as a trust layer
           </h2>
+          <p
+            className={css({
+              color: "text.muted",
+              fontSize: "sm",
+              mb: "6",
+              mt: "-3",
+              textAlign: "center",
+            })}
+          >
+            We turn messy, scattered data into clear answers you can trust.
+          </p>
           <div
             className={css({
               display: "grid",
-              gap: "3",
+              gap: "4",
               gridTemplateColumns: { base: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(4, 1fr)" },
             })}
           >
@@ -550,13 +621,17 @@ function TrustBand() {
                 <Icon
                   aria-hidden="true"
                   className={css({ color: "violet.600", mb: "3" })}
-                  size={24}
+                  size={25}
                 />
                 <h3 className={cardTitle()}>{title}</h3>
                 <p className={cardBody()}>{body}</p>
               </Card>
             ))}
           </div>
+        </div>
+        <div className={conditionsCard()}>
+          <strong>Real conditions. Right now.</strong>
+          <span>We monitor changes daily so your plans match the island's reality.</span>
         </div>
       </div>
     </section>
@@ -565,146 +640,130 @@ function TrustBand() {
 
 function SampleReport() {
   return (
-    <section
-      className={cx(sectionPanel(), css({ mt: "4", p: { base: "5", md: "6" } }))}
-      id="report"
-    >
+    <section className={cx(sectionPanel(), css({ mt: 0, p: { base: "5", md: "7" } }))} id="report">
       <div
         className={css({
           display: "grid",
           gap: "6",
-          gridTemplateColumns: { base: "1fr", lg: "0.8fr 1.2fr" },
+          gridTemplateColumns: { base: "1fr", lg: "0.72fr 1.36fr 0.66fr" },
         })}
       >
         <div>
           <h2 className={sectionTitle()}>A report that shows its work</h2>
+          <h3
+            className={css({
+              color: "text.strong",
+              fontFamily: "Georgia, serif",
+              fontSize: "2xl",
+              lineHeight: "1.08",
+              mb: "5",
+              mt: 0,
+            })}
+          >
+            Sample audit report
+          </h3>
           {[
-            "Top risks with severity and confidence",
-            "Evidence references and source freshness",
-            "Specific recommendations and host questions",
+            "Overall risk rating and summary",
+            "Detailed scores by category",
+            "Evidence, confidence, and freshness",
+            "Clear recommendations",
+            "What to watch and alternatives",
           ].map((item) => (
             <p
               className={css({
                 alignItems: "center",
                 color: "text",
                 display: "flex",
-                fontWeight: "700",
+                fontSize: "sm",
+                fontWeight: "800",
                 gap: "3",
-                mb: "4",
+                mb: "3",
               })}
               key={item}
             >
-              <Check aria-hidden="true" className={css({ color: "violet.600" })} size={19} />
+              <Check aria-hidden="true" className={css({ color: "violet.600" })} size={18} />
               {item}
             </p>
           ))}
-          <LinkButton href="#pricing" variant="secondary">
-            Unlock full audit
-          </LinkButton>
         </div>
         <Card className={reportPreview()}>
           <div
             className={css({
-              alignItems: "center",
-              display: "flex",
-              justifyContent: "space-between",
-              mb: "4",
-            })}
-          >
-            <h3 className={css({ color: "text.strong", fontSize: "lg", fontWeight: "800", m: 0 })}>
-              Siargao audit sample
-            </h3>
-            <Badge tone="sample">Preview</Badge>
-          </div>
-          <div
-            className={css({
               display: "grid",
-              gap: "3",
-              gridTemplateColumns: { base: "1fr", md: "1fr 1fr" },
+              gap: "5",
+              gridTemplateColumns: { base: "1fr", md: "0.9fr 1.1fr" },
             })}
           >
-            <div className={reportTile()}>
-              <span className={eyebrow()}>Overall rating</span>
+            <div>
+              <span className={eyebrow()}>Overall risk</span>
               <strong className={css({ color: "risk.lowDark", display: "block", fontSize: "2xl" })}>
-                Green
+                Low
               </strong>
-              <p className={cardBody()}>Main plan works with two yellow watch items.</p>
+              <p className={cardBody()}>Good conditions for your plan.</p>
+              <Table rows={riskRows.slice(0, 6)} />
             </div>
-            <div className={reportTile()}>
-              <span className={eyebrow()}>Recommendations</span>
-              <p className={cardBody()}>
-                Book airport transfer before 6 PM and ask the host about generator backup.
-              </p>
+            <div>
+              <span className={eyebrow()}>Evidence spotlight</span>
+              {[
+                "PAGASA forecast",
+                "Phivolcs advisories",
+                "DOT and PCG announcements",
+                "Local community signals",
+              ].map((source, index) => (
+                <p className={reportEvidenceRow()} key={source}>
+                  <span>{source}</span>
+                  <span>Updated {index + 2}h ago</span>
+                </p>
+              ))}
+              <span className={cx(eyebrow(), css({ mt: "5" }))}>Recommendations</span>
+              <p className={cardBody()}>Book with flexible ferry options.</p>
+              <p className={cardBody()}>Consider areas with generator backup.</p>
             </div>
           </div>
-          <Table
-            rows={[
-              { label: "Ferry fallback", status: "Cited", tone: "low" },
-              { label: "Power reliability", status: "Ask host", tone: "medium" },
-              { label: "Scooter assumption", status: "Verify", tone: "medium" },
-            ]}
-          />
-          <p
-            className={css({
-              color: "text.soft",
-              fontSize: "2xs",
-              lineHeight: "1.5",
-              mb: 0,
-              mt: "4",
-            })}
-          >
-            Could not verify: exact room noise level. Generated timestamp and evidence IDs appear in
-            the paid report.
-          </p>
         </Card>
-      </div>
-    </section>
-  );
-}
-
-function Testimonials() {
-  return (
-    <section className={cx(sectionPanel(), css({ mt: "4", p: { base: "5", md: "6" } }))}>
-      <h2 className={cx(sectionTitle(), css({ textAlign: "center" }))}>
-        Used before money is at risk
-      </h2>
-      <div
-        className={css({
-          display: "grid",
-          gap: "4",
-          gridTemplateColumns: { base: "1fr", md: "repeat(3, 1fr)" },
-        })}
-      >
-        {testimonials.map((testimonial) => (
-          <Card className={testimonialCard()} key={testimonial.name}>
-            <Quote aria-hidden="true" className={css({ color: "violet.600", mb: "3" })} size={22} />
-            <p className={css({ color: "text", fontSize: "sm", lineHeight: "1.6" })}>
-              {testimonial.quote}
-            </p>
-            <strong className={css({ color: "text.strong", display: "block", fontSize: "sm" })}>
-              {testimonial.name}
-            </strong>
-            <span className={css({ color: "text.soft", fontSize: "xs" })}>
-              {testimonial.location}
-            </span>
-          </Card>
-        ))}
-      </div>
-      <div
-        aria-hidden="true"
-        className={css({ display: "flex", gap: "2", justifyContent: "center", mt: "5" })}
-      >
-        {[0, 1, 2].map((dot) => (
-          <span
-            className={css({
-              bg: dot === 0 ? "violet.600" : "lavender.200",
-              borderRadius: "pill",
-              h: "2",
-              width: dot === 0 ? "6" : "2",
-            })}
-            key={dot}
-          />
-        ))}
+        <Card className={reportMiniCard()}>
+          <span className={css({ color: "text.strong", fontSize: "xs", fontWeight: "900" })}>
+            Siargao Audit
+          </span>
+          <strong
+            className={css({ color: "text.strong", display: "block", fontSize: "lg", mt: "3" })}
+          >
+            Your trip audit
+          </strong>
+          <div className={cx(riskGauge(), css({ my: "4" }))}>
+            <div
+              className={css({
+                bg: "conic-gradient(from 270deg, #70c66f 0deg 124deg, #cdb7ff 124deg 180deg, transparent 180deg 360deg)",
+                borderRadius: "999px 999px 0 0",
+                h: "100%",
+                position: "absolute",
+                top: 0,
+                width: "90%",
+              })}
+            />
+            <div
+              className={css({
+                alignItems: "center",
+                bg: "surface",
+                borderRadius: "999px 999px 0 0",
+                bottom: "-2px",
+                display: "flex",
+                flexDirection: "column",
+                h: "70%",
+                justifyContent: "center",
+                position: "absolute",
+                width: "64%",
+              })}
+            >
+              <span className={css({ color: "risk.lowDark", fontSize: "sm", fontWeight: "900" })}>
+                LOW RISK
+              </span>
+            </div>
+          </div>
+          <LinkButton className={css({ width: "100%" })} href="#pricing">
+            View full sample report
+          </LinkButton>
+        </Card>
       </div>
     </section>
   );
@@ -718,27 +777,33 @@ function PricingFaq() {
         gap: "4",
         gridTemplateColumns: { base: "1fr", lg: "0.9fr 1.1fr" },
         maxW: "1220px",
-        mt: "4",
+        mt: 0,
         mx: "auto",
       })}
       id="pricing"
     >
       <Card className={pricingCard()}>
-        <Badge tone="dark">One simple price</Badge>
-        <h2 className={css({ fontSize: "4xl", lineHeight: "1", mb: "2", mt: "5" })}>USD 9.99</h2>
-        <p className={css({ color: "text.onDarkMuted", mb: "5" })}>per trip risk audit</p>
-        {["Free preview risk", "Pay only after completeness check", "Secure report link"].map(
-          (item) => (
-            <p className={css({ alignItems: "center", display: "flex", gap: "2" })} key={item}>
-              <CheckCircle2 aria-hidden="true" size={18} /> {item}
-            </p>
-          ),
-        )}
-        <LinkButton className={css({ mt: "5", width: "100%" })} href="#audit-start">
-          Start audit
+        <p
+          className={css({
+            fontFamily: "Georgia, serif",
+            fontSize: "2xl",
+            fontWeight: "800",
+            m: 0,
+          })}
+        >
+          Clarity before commitment.
+        </p>
+        <p className={css({ color: "text.onDarkMuted", lineHeight: "1.6", mb: "5", mt: "2" })}>
+          Start with a free risk preview. Pay only if we can complete your audit.
+        </p>
+        <strong className={css({ display: "block", fontSize: "2xl", mb: "4" })}>
+          USD 9.99 <span className={css({ fontSize: "xs", fontWeight: "700" })}>one-time</span>
+        </strong>
+        <LinkButton className={css({ maxW: "320px", width: "100%" })} href="#audit-start">
+          Start free preview <ArrowRight aria-hidden="true" size={18} />
         </LinkButton>
       </Card>
-      <div className={faqAccordion()}>
+      <div className={faqAccordion()} id="faq">
         <h2 className={cx(sectionTitle(), css({ mb: "2", p: "5", pb: "2", textAlign: "center" }))}>
           FAQ
         </h2>
@@ -752,36 +817,37 @@ function PricingFaq() {
 
 function Footer() {
   return (
-    <footer className={cx(footer(), css({ mt: "4" }))}>
+    <footer className={cx(footer(), css({ mt: 0 }))}>
       <div
         className={css({
           display: "grid",
           gap: "6",
-          gridTemplateColumns: { base: "1fr", md: "1.1fr 1fr 1fr" },
+          gridTemplateColumns: { base: "1fr", md: "1.3fr 1fr 1fr 1.15fr" },
         })}
       >
         <div>
-          <h2 className={css({ fontSize: "lg", mb: "2" })}>Siargao Trip Risk Audit</h2>
-          <p className={css({ color: "text.onDarkMuted", lineHeight: "1.6", maxW: "330px" })}>
-            A practical trust layer for travelers who need a current, cited view of what may break.
+          <h2 className={css({ fontFamily: "Georgia, serif", fontSize: "lg", mb: "2" })}>
+            Siargao Audit
+          </h2>
+          <p
+            className={css({
+              color: "text.onDarkMuted",
+              fontSize: "sm",
+              lineHeight: "1.6",
+              maxW: "300px",
+            })}
+          >
+            Data-powered trip reliability for Siargao and beyond.
           </p>
         </div>
-        <div
-          className={css({
-            display: "grid",
-            gap: "3",
-            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-          })}
-        >
-          {["Product", "Report", "Company", "Legal"].map((link) => (
-            <a className={footerLink()} href="#top" key={link}>
-              {link}
-            </a>
-          ))}
-        </div>
+        <FooterColumn
+          heading="Product"
+          links={["Why it matters", "What we check", "How it works", "Pricing"]}
+        />
+        <FooterColumn heading="Help" links={["FAQ", "Contact", "Status", "Terms"]} />
         <form className={css({ display: "grid", gap: "3" })}>
           <label className={css({ fontSize: "sm", fontWeight: "800" })} htmlFor="newsletter-email">
-            Freshness notes
+            Stay updated on conditions
           </label>
           <div
             className={css({
@@ -809,39 +875,140 @@ function Footer() {
           pt: "4",
         })}
       >
-        <span>Copyright 2026 Siargao Trip Risk Audit</span>
-        <span>Made with care in Siargao</span>
+        <span>Copyright 2026 Siargao Audit. All rights reserved.</span>
+        <span>Made for smart travelers.</span>
       </div>
     </footer>
   );
 }
 
+function FooterColumn({ heading, links }: { heading: string; links: string[] }) {
+  return (
+    <div>
+      <h3 className={css({ color: "text.onDark", fontSize: "xs", fontWeight: "900", mb: "3" })}>
+        {heading}
+      </h3>
+      {links.map((link) => (
+        <a className={footerLink()} href="#top" key={link}>
+          {link}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function heroBackdrop() {
+  return css({
+    background:
+      "linear-gradient(180deg, rgba(4,7,36,0.78) 0%, rgba(9,13,58,0.74) 47%, rgba(19,17,76,0.82) 100%), linear-gradient(90deg, rgba(4,7,36,0.92), rgba(63,42,151,0.22)), url('/images/siargao-sunset.png') center top / cover no-repeat",
+    borderBottomColor: "rgba(255,255,255,0.12)",
+    borderBottomWidth: "1px",
+    boxShadow: "0 28px 70px rgba(7, 8, 38, 0.28)",
+    color: "text.onDark",
+    mx: { base: "-4", md: "-5" },
+    pb: { base: "5", md: "8" },
+    px: { base: "4", md: "5" },
+    position: "relative",
+  });
+}
+
+function processBand() {
+  return css({
+    background:
+      "linear-gradient(90deg, rgba(26,16,99,0.96), rgba(88,54,195,0.86)), url('/images/siargao-sunset.png') center / cover",
+    color: "text.onDark",
+    mt: 0,
+    mx: { base: "-4", md: "-5" },
+    px: { base: "4", md: "5" },
+    py: { base: "7", md: "8" },
+  });
+}
+
+function videoCard() {
+  return css({
+    alignItems: "center",
+    background:
+      "linear-gradient(rgba(5,8,42,0.16), rgba(5,8,42,0.44)), url('/images/siargao-sunset.png') center / cover",
+    borderColor: "rgba(255,255,255,0.32)",
+    borderRadius: "md",
+    borderWidth: "1px",
+    boxShadow: "0 18px 48px rgba(0,0,0,0.24)",
+    display: "flex",
+    flexDirection: "column",
+    gap: "3",
+    justifyContent: "center",
+    minH: "156px",
+  });
+}
+
+function conditionsCard() {
+  return css({
+    alignSelf: "stretch",
+    background:
+      "linear-gradient(180deg, rgba(5,8,42,0.1), rgba(5,8,42,0.78)), url('/images/siargao-sunset.png') center / cover",
+    borderRadius: "md",
+    color: "text.onDark",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "end",
+    minH: "190px",
+    overflow: "hidden",
+    p: "5",
+    "& strong": {
+      fontSize: "md",
+      fontWeight: "900",
+    },
+    "& span": {
+      color: "rgba(255,255,255,0.82)",
+      fontSize: "xs",
+      lineHeight: "1.5",
+      mt: "1",
+    },
+  });
+}
+
 function sectionTitle() {
   return css({
     color: "text.strong",
-    fontSize: { base: "xl", md: "2xl" },
+    fontFamily: "Georgia, 'Times New Roman', serif",
+    fontSize: { base: "2xl", md: "3xl" },
     fontWeight: "800",
-    lineHeight: "1.2",
+    lineHeight: "1.1",
     mb: "5",
     mt: 0,
   });
 }
 
 function cardTitle() {
-  return css({ color: "text.strong", fontSize: "sm", fontWeight: "800", lineHeight: "1.25", m: 0 });
+  return css({ color: "text.strong", fontSize: "sm", fontWeight: "900", lineHeight: "1.25", m: 0 });
 }
 
 function cardBody() {
   return css({ color: "text.muted", fontSize: "xs", lineHeight: "1.55", mb: 0, mt: "2" });
 }
 
-function reportTile() {
+function reportEvidenceRow() {
   return css({
-    bg: "surface.tint",
+    borderBottomColor: "border",
+    borderBottomWidth: "1px",
+    color: "text.muted",
+    display: "flex",
+    fontSize: "xs",
+    gap: "3",
+    justifyContent: "space-between",
+    m: 0,
+    py: "2",
+  });
+}
+
+function reportMiniCard() {
+  return css({
+    bg: "surface",
     borderColor: "border",
     borderRadius: "md",
     borderWidth: "1px",
-    p: "4",
+    boxShadow: "card",
+    p: "5",
   });
 }
 
@@ -850,7 +1017,7 @@ function eyebrow() {
     color: "text.soft",
     display: "block",
     fontSize: "2xs",
-    fontWeight: "800",
+    fontWeight: "900",
     mb: "2",
     textTransform: "uppercase",
   });
@@ -859,8 +1026,10 @@ function eyebrow() {
 function footerLink() {
   return css({
     color: "text.onDarkMuted",
+    display: "block",
     fontSize: "sm",
     fontWeight: "700",
+    mb: "2",
     textDecoration: "none",
     _hover: { color: "text.onDark" },
   });

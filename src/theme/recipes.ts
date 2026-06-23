@@ -3,9 +3,10 @@ import { defineRecipe } from "@pandacss/dev";
 const pageShell = defineRecipe({
   className: "page-shell",
   base: {
+    bg: "#f7f9ff",
     minH: "100vh",
     px: { base: "4", md: "5" },
-    py: { base: "3", md: "5" },
+    pb: { base: "4", md: "5" },
   },
 });
 
@@ -17,7 +18,7 @@ const header = defineRecipe({
     gap: "6",
     justifyContent: "space-between",
     maxW: "1220px",
-    minH: { base: "60px", md: "68px" },
+    minH: { base: "62px", md: "76px" },
     mx: "auto",
     position: "relative",
     zIndex: 2,
@@ -83,9 +84,8 @@ const sectionPanel = defineRecipe({
     background:
       "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 246, 255, 0.96) 100%)",
     borderColor: "border",
-    borderRadius: "xl",
+    borderRadius: "0",
     borderWidth: "1px",
-    boxShadow: "panel",
     color: "text",
     maxW: "1220px",
     mx: "auto",
@@ -110,17 +110,23 @@ const miniFeatureCard = defineRecipe({
   className: "mini-feature-card",
   base: {
     ...cardBase,
-    minH: "88px",
+    alignItems: "center",
+    display: "grid",
+    justifyItems: "center",
+    minH: "132px",
     p: "4",
+    textAlign: "center",
   },
 });
 
 const processCard = defineRecipe({
   className: "process-card",
   base: {
-    ...cardBase,
-    minH: "166px",
-    p: "5",
+    bg: "transparent",
+    borderWidth: "0",
+    color: "text.onDark",
+    minH: "150px",
+    p: "2",
     position: "relative",
     textAlign: "center",
   },
@@ -138,13 +144,14 @@ const trustCard = defineRecipe({
 const riskPreviewCard = defineRecipe({
   className: "risk-preview-card",
   base: {
-    bg: "surface.glass",
-    borderColor: "rgba(255,255,255,0.68)",
-    borderRadius: "xl",
+    bg: "rgba(255,255,255,0.16)",
+    backdropFilter: "blur(20px)",
+    borderColor: "rgba(255,255,255,0.42)",
+    borderRadius: "md",
     borderWidth: "1px",
     boxShadow: "strong",
-    color: "text",
-    maxW: { base: "100%", md: "410px" },
+    color: "text.onDark",
+    maxW: { base: "100%", md: "430px" },
     p: { base: "5", md: "6" },
     width: "100%",
   },
@@ -167,6 +174,7 @@ const reportPreview = defineRecipe({
   base: {
     ...cardBase,
     boxShadow: "card",
+    minH: "100%",
     minW: 0,
     p: { base: "4", md: "5" },
   },
@@ -184,12 +192,17 @@ const testimonialCard = defineRecipe({
 const pricingCard = defineRecipe({
   className: "pricing-card",
   base: {
-    background: "linear-gradient(145deg, #271776 0%, #17105a 56%, #0c103f 100%)",
+    alignItems: { base: "start", md: "center" },
+    background:
+      "linear-gradient(90deg, rgba(5,8,42,0.9), rgba(43,28,115,0.78)), url('/images/siargao-sunset.png') center / cover",
     borderColor: "rgba(255,255,255,0.22)",
-    borderRadius: "xl",
+    borderRadius: "0",
     borderWidth: "1px",
     boxShadow: "strong",
     color: "text.onDark",
+    display: { base: "grid", md: "flex" },
+    gap: "6",
+    justifyContent: "space-between",
     p: { base: "5", md: "6" },
   },
 });
@@ -199,7 +212,7 @@ const faqAccordion = defineRecipe({
   base: {
     bg: "surface",
     borderColor: "border",
-    borderRadius: "xl",
+    borderRadius: "0",
     borderWidth: "1px",
     boxShadow: "card",
     color: "text",
@@ -212,7 +225,7 @@ const footer = defineRecipe({
   base: {
     bg: "rgba(5, 8, 42, 0.94)",
     borderColor: "rgba(255,255,255,0.12)",
-    borderRadius: "xl",
+    borderRadius: "0",
     borderWidth: "1px",
     color: "text.onDark",
     maxW: "1220px",

@@ -55,6 +55,15 @@ describe("Open-Meteo adapter", () => {
     const summary = summarizeOpenMeteoForecast(fixture);
 
     expect(summary.forecastDays).toBe(3);
+    expect(summary.todayForecast).toEqual({
+      date: "2026-06-24",
+      precipitationProbability: 44,
+      precipitationSum: 2.1,
+      rainSum: 1.8,
+      weatherCode: 61,
+      windGust: 33.5,
+      windSpeed: 18.2,
+    });
     expect(summary.maxPrecipitationProbability).toBe(82);
     expect(summary.maxPrecipitationDate).toBe("2026-06-25");
     expect(summary.maxRainSum).toBe(8.6);
@@ -72,6 +81,15 @@ describe("Open-Meteo adapter", () => {
 
     expect(batch.rawSnapshot.contentHash).toHaveLength(64);
     expect(batch.sourceRecord.id).toBe("record_open_meteo_siargao_forecast");
+    expect(batch.sourceRecord.normalizedPayload.todayForecast).toEqual({
+      date: "2026-06-24",
+      precipitationProbability: 44,
+      precipitationSum: 2.1,
+      rainSum: 1.8,
+      weatherCode: 61,
+      windGust: 33.5,
+      windSpeed: 18.2,
+    });
     expect(batch.sourceRecord.allowedUse).toBe("public_republish");
     expect(batch.sourceRecord.rawStorageAllowed).toBe(true);
     expect(batch.facts).toHaveLength(4);

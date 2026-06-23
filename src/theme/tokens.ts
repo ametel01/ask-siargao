@@ -68,7 +68,7 @@ export const tokens = {
     },
   },
   fonts: {
-    sans: { value: '"Manrope", "Inter", "Avenir Next", system-ui, sans-serif' },
+    sans: { value: '"Avenir Next", "Segoe UI", system-ui, sans-serif' },
   },
   fontSizes: {
     "2xs": { value: "0.6875rem" },

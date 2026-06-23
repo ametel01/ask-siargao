@@ -68,6 +68,15 @@ export type OpenMeteoForecastResponse = {
 
 export type OpenMeteoWeatherSummary = {
   forecastDays: number;
+  todayForecast: {
+    date: string;
+    weatherCode: number;
+    precipitationProbability: number;
+    precipitationSum: number;
+    rainSum: number;
+    windSpeed: number;
+    windGust: number;
+  };
   maxPrecipitationProbability: number;
   maxPrecipitationDate: string;
   maxRainSum: number;
@@ -181,6 +190,7 @@ export function createOpenMeteoIngestionBatch(input: {
       maxWindGust: summary.maxWindGust,
       maxWindGustDate: summary.maxWindGustDate,
       timezone: payload.timezone ?? timezone,
+      todayForecast: summary.todayForecast,
     },
     rawSnapshot,
   });
@@ -338,6 +348,15 @@ export function summarizeOpenMeteoForecast(
 
   return {
     forecastDays: parsed.daily.time.length,
+    todayForecast: {
+      date: parsed.daily.time[0] ?? "unknown",
+      weatherCode: parsed.daily.weather_code[0] ?? 0,
+      precipitationProbability: parsed.daily.precipitation_probability_max[0] ?? 0,
+      precipitationSum: parsed.daily.precipitation_sum[0] ?? 0,
+      rainSum: parsed.daily.rain_sum[0] ?? 0,
+      windSpeed: parsed.daily.wind_speed_10m_max[0] ?? 0,
+      windGust: parsed.daily.wind_gusts_10m_max[0] ?? 0,
+    },
     maxPrecipitationProbability: maxPrecipitation.value,
     maxPrecipitationDate: maxPrecipitation.date,
     maxRainSum: maxRain.value,

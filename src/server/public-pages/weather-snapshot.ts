@@ -17,6 +17,19 @@ export type WeatherRiskMetric = {
   evidenceId: string;
 };
 
+export type WeatherTodayForecast = {
+  date: string;
+  weatherCode: number | null;
+  condition: string;
+  precipitationProbability: number | null;
+  precipitationSum: number | null;
+  rainSum: number | null;
+  windSpeed: number | null;
+  windGust: number | null;
+  level: WeatherRiskLevel;
+  evidenceId: string;
+};
+
 export type WeatherSnapshot = {
   status: WeatherSnapshotStatus;
   locationName: string;
@@ -29,6 +42,7 @@ export type WeatherSnapshot = {
   citationUrl: string | null;
   evidenceIds: string[];
   summary: string;
+  today: WeatherTodayForecast;
   metrics: WeatherRiskMetric[];
 };
 
@@ -44,6 +58,7 @@ type WeatherFactRow = {
   sourceName: string;
   recordName: string;
   normalizedPayload: unknown;
+  rawPayload: unknown;
 };
 
 type MetricDefinition = {
@@ -102,6 +117,18 @@ export const fallbackWeatherSnapshot: WeatherSnapshot = {
   citationUrl: null,
   evidenceIds: ["ev_open_meteo_profile"],
   summary: "Open-Meteo is configured, but no live forecast snapshot has been loaded yet.",
+  today: {
+    date: "pending",
+    weatherCode: null,
+    condition: "Forecast unavailable",
+    precipitationProbability: null,
+    precipitationSum: null,
+    rainSum: null,
+    windSpeed: null,
+    windGust: null,
+    level: "medium",
+    evidenceId: "ev_open_meteo_profile",
+  },
   metrics: [
     {
       id: "precipitation_probability",
@@ -162,11 +189,13 @@ export async function getLatestSiargaoWeatherSnapshot({
         evidence.citation_url as "citationUrl",
         source_profiles.source_name as "sourceName",
         source_records.name as "recordName",
-        source_records.normalized_payload as "normalizedPayload"
+        source_records.normalized_payload as "normalizedPayload",
+        raw_snapshots.raw_payload as "rawPayload"
       from facts
       left join evidence on evidence.fact_id = facts.id
       left join source_profiles on source_profiles.id = facts.source_profile_id
       left join source_records on source_records.id = facts.source_record_id
+      left join raw_snapshots on raw_snapshots.id = source_records.raw_snapshot_id
       where facts.source_profile_id = 'source_open_meteo'
         and facts.public_republish_allowed = true
         and facts.fact_type in (
@@ -203,6 +232,7 @@ export function buildWeatherSnapshotFromRows(
   }
 
   const normalizedPayload = asRecord(firstRow.normalizedPayload);
+  const rawPayload = asRecord(firstRow.rawPayload);
   const metrics = metricDefinitions
     .map((definition) => metricFromRows(definition, latestRows, normalizedPayload))
     .filter((metric): metric is WeatherRiskMetric => Boolean(metric));
@@ -236,7 +266,59 @@ export function buildWeatherSnapshotFromRows(
     citationUrl: latestRows.find((row) => row.citationUrl)?.citationUrl ?? null,
     evidenceIds,
     summary: buildSummary(metrics),
+    today: todayForecastFromPayload({
+      evidenceId: evidenceIds[0] ?? "ev_open_meteo_profile",
+      normalizedPayload,
+      now,
+      rawPayload,
+    }),
     metrics,
+  };
+}
+
+function todayForecastFromPayload({
+  evidenceId,
+  normalizedPayload,
+  now,
+  rawPayload,
+}: {
+  evidenceId: string;
+  normalizedPayload: Record<string, unknown>;
+  now: Date;
+  rawPayload: Record<string, unknown>;
+}): WeatherTodayForecast {
+  const normalizedToday = asRecord(normalizedPayload.todayForecast);
+  const rawDaily = asRecord(rawPayload.daily);
+  const dates = stringArray(rawDaily.time);
+  const todayDate = manilaDate(now);
+  const todayIndex = Math.max(0, dates.indexOf(todayDate));
+  const date = dates[todayIndex] ?? stringValue(normalizedToday.date) ?? todayDate;
+  const precipitationProbability =
+    numberArray(rawDaily.precipitation_probability_max)[todayIndex] ??
+    numericValue(normalizedToday.precipitationProbability);
+  const precipitationSum =
+    numberArray(rawDaily.precipitation_sum)[todayIndex] ??
+    numericValue(normalizedToday.precipitationSum);
+  const rainSum =
+    numberArray(rawDaily.rain_sum)[todayIndex] ?? numericValue(normalizedToday.rainSum);
+  const windSpeed =
+    numberArray(rawDaily.wind_speed_10m_max)[todayIndex] ?? numericValue(normalizedToday.windSpeed);
+  const windGust =
+    numberArray(rawDaily.wind_gusts_10m_max)[todayIndex] ?? numericValue(normalizedToday.windGust);
+  const weatherCode =
+    numberArray(rawDaily.weather_code)[todayIndex] ?? numericValue(normalizedToday.weatherCode);
+
+  return {
+    date,
+    weatherCode: weatherCode ?? null,
+    condition: weatherCondition(weatherCode),
+    precipitationProbability: precipitationProbability ?? null,
+    precipitationSum: precipitationSum ?? null,
+    rainSum: rainSum ?? null,
+    windSpeed: windSpeed ?? null,
+    windGust: windGust ?? null,
+    level: todayRiskLevel({ precipitationProbability, rainSum, windGust }),
+    evidenceId,
   };
 }
 
@@ -291,6 +373,24 @@ function riskRank(level: WeatherRiskLevel) {
   return { low: 0, medium: 1, high: 2 }[level];
 }
 
+function todayRiskLevel({
+  precipitationProbability,
+  rainSum,
+  windGust,
+}: {
+  precipitationProbability?: number;
+  rainSum?: number;
+  windGust?: number;
+}): WeatherRiskLevel {
+  if ((precipitationProbability ?? 0) >= 75 || (rainSum ?? 0) >= 18 || (windGust ?? 0) >= 55) {
+    return "high";
+  }
+  if ((precipitationProbability ?? 0) >= 45 || (rainSum ?? 0) >= 6 || (windGust ?? 0) >= 35) {
+    return "medium";
+  }
+  return "low";
+}
+
 function lowestConfidence(labels: readonly string[]): ConfidenceLabel {
   if (labels.includes("low")) {
     return "low";
@@ -318,8 +418,60 @@ function numericValue(value: unknown) {
   return undefined;
 }
 
+function numberArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is number => typeof item === "number" && Number.isFinite(item))
+    : [];
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
 function stringValue(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function weatherCondition(code: number | undefined) {
+  if (code === undefined) {
+    return "Forecast unavailable";
+  }
+  if (code === 0) {
+    return "Clear";
+  }
+  if (code <= 3) {
+    return "Cloudy breaks";
+  }
+  if (code === 45 || code === 48) {
+    return "Fog";
+  }
+  if (code >= 51 && code <= 57) {
+    return "Drizzle";
+  }
+  if (code >= 61 && code <= 67) {
+    return "Rain";
+  }
+  if (code >= 71 && code <= 77) {
+    return "Heavy cloud";
+  }
+  if (code >= 80 && code <= 82) {
+    return "Showers";
+  }
+  if (code >= 95) {
+    return "Thunderstorm";
+  }
+  return "Variable";
+}
+
+function manilaDate(date: Date) {
+  return new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "Asia/Manila",
+    year: "numeric",
+  }).format(date);
 }
 
 function dateTime(value: Date | string) {
