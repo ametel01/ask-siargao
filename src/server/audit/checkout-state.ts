@@ -17,6 +17,32 @@ export type CheckoutAuditStateReader = (
   auditRequestId: string,
 ) => Promise<AuditLifecycleRecord | null>;
 
+export async function recordCheckoutStarted(
+  audit: AuditLifecycleRecord,
+  db: Database = createDatabaseClient(),
+) {
+  if (!audit.payment) {
+    throw new Error("A checkout payment record is required before persisting checkout state.");
+  }
+
+  await db.insert(payments).values({
+    id: audit.payment.id,
+    auditRequestId: audit.payment.auditRequestId,
+    stripeCheckoutSessionId: audit.payment.stripeCheckoutSessionId,
+    amountUsd: "9.99",
+    status: audit.payment.status,
+    diagnosticContext: audit.payment.diagnosticContext,
+    createdAt: new Date(audit.payment.createdAt),
+  });
+  await db
+    .update(auditRequests)
+    .set({
+      status: audit.state,
+      updatedAt: new Date(),
+    })
+    .where(eq(auditRequests.id, audit.id));
+}
+
 export async function getCheckoutAuditState(
   auditRequestId: string,
   db: Database = createDatabaseClient(),

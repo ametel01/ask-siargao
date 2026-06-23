@@ -1,12 +1,26 @@
 import { trackServerEvent } from "@/server/observability/events";
 import {
-  buildVerifiedPaymentEventRecord,
   extractVerifiedCheckoutPayment,
   verifyStripeWebhookPayload,
 } from "@/server/payments/stripe";
+import { applyVerifiedCheckoutPayment } from "@/server/payments/webhook-application";
 import { rateLimitRequest, rateLimitedJson } from "@/server/security/rate-limit";
 
 export const runtime = "nodejs";
+
+export type StripeWebhookRouteDependencies = {
+  applyVerifiedCheckoutPayment: typeof applyVerifiedCheckoutPayment;
+  stripeWebhookSecretFromEnv: typeof stripeWebhookSecretFromEnv;
+  trackServerEvent: typeof trackServerEvent;
+  verifyStripeWebhookPayload: typeof verifyStripeWebhookPayload;
+};
+
+const defaultDependencies: StripeWebhookRouteDependencies = {
+  applyVerifiedCheckoutPayment,
+  stripeWebhookSecretFromEnv,
+  trackServerEvent,
+  verifyStripeWebhookPayload,
+};
 
 export async function POST(request: Request) {
   const rateLimit = rateLimitRequest(request, "provider_call");
@@ -14,6 +28,13 @@ export async function POST(request: Request) {
     return rateLimitedJson(rateLimit);
   }
 
+  return stripeWebhookResponse(request, defaultDependencies);
+}
+
+export async function stripeWebhookResponse(
+  request: Request,
+  dependencies: StripeWebhookRouteDependencies = defaultDependencies,
+) {
   const signature = request.headers.get("stripe-signature");
 
   if (!signature) {
@@ -22,10 +43,10 @@ export async function POST(request: Request) {
 
   try {
     const payload = await request.text();
-    const event = await verifyStripeWebhookPayload({
+    const event = await dependencies.verifyStripeWebhookPayload({
       payload,
       signature,
-      webhookSecret: stripeWebhookSecretFromEnv(),
+      webhookSecret: dependencies.stripeWebhookSecretFromEnv(),
     });
     const payment = extractVerifiedCheckoutPayment(event);
 
@@ -33,22 +54,24 @@ export async function POST(request: Request) {
       return Response.json({ received: true, ignored: true });
     }
 
-    trackServerEvent({
+    const result = await dependencies.applyVerifiedCheckoutPayment(payment, event);
+
+    dependencies.trackServerEvent({
       name: "payment_succeeded",
       payload: {
         auditRequestId: payment.auditRequestId,
         stripeEventId: payment.stripeEventId,
         eventType: payment.eventType,
+        applicationStatus: result.status,
       },
     });
 
     return Response.json({
       received: true,
-      paymentEvent: buildVerifiedPaymentEventRecord({
-        payment,
-        rawEvent: event,
-        verifiedAt: new Date(),
-      }),
+      applicationStatus: result.status,
+      auditRequestId: payment.auditRequestId,
+      stripeEventId: payment.stripeEventId,
+      generationJobId: result.status === "applied" ? result.job.id : undefined,
     });
   } catch (error) {
     return Response.json(

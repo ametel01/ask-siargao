@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { getCheckoutAuditState } from "@/server/audit/checkout-state";
+import { getCheckoutAuditState, recordCheckoutStarted } from "@/server/audit/checkout-state";
 import { assertCanStartCheckout, startCheckoutLifecycle } from "@/server/audit/lifecycle";
 import { trackServerEvent } from "@/server/observability/events";
 import { createCheckoutSessionForAudit } from "@/server/payments/stripe";
@@ -15,12 +15,14 @@ const checkoutRequestSchema = z
 
 export type CheckoutRouteDependencies = {
   getCheckoutAuditState: typeof getCheckoutAuditState;
+  recordCheckoutStarted: typeof recordCheckoutStarted;
   createCheckoutSessionForAudit: typeof createCheckoutSessionForAudit;
   trackServerEvent: typeof trackServerEvent;
 };
 
 const defaultDependencies: CheckoutRouteDependencies = {
   getCheckoutAuditState,
+  recordCheckoutStarted,
   createCheckoutSessionForAudit,
   trackServerEvent,
 };
@@ -71,6 +73,7 @@ export async function checkoutResponse(
       customerEmail: parsed.data.customerEmail,
     });
     const nextAudit = startCheckoutLifecycle(audit, checkout);
+    await dependencies.recordCheckoutStarted(nextAudit);
     dependencies.trackServerEvent({
       name: "preview_to_payment_started",
       payload: {

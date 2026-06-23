@@ -81,6 +81,8 @@ describe("audit checkout route", () => {
     expect(dependencies.checkoutCalls).toHaveLength(1);
     expect(dependencies.checkoutCalls[0]?.audit.state).toBe("complete_for_payment");
     expect(dependencies.checkoutCalls[0]?.customerEmail).toBe("traveler@example.com");
+    expect(dependencies.persistedAudits[0]?.state).toBe("awaiting_payment");
+    expect(dependencies.persistedAudits[0]?.payment?.stripeCheckoutSessionId).toBe("cs_test_123");
     expect(dependencies.events).toEqual(["preview_to_payment_started"]);
   });
 });
@@ -88,12 +90,17 @@ describe("audit checkout route", () => {
 function checkoutDependencies(input: { audit?: AuditLifecycleRecord | null } = {}) {
   const checkoutCalls: Parameters<CheckoutRouteDependencies["createCheckoutSessionForAudit"]>[0][] =
     [];
+  const persistedAudits: AuditLifecycleRecord[] = [];
   const events: string[] = [];
   const dependencies: CheckoutRouteDependencies & {
     checkoutCalls: typeof checkoutCalls;
+    persistedAudits: typeof persistedAudits;
     events: typeof events;
   } = {
     getCheckoutAuditState: async () => input.audit ?? null,
+    recordCheckoutStarted: async (audit) => {
+      persistedAudits.push(audit);
+    },
     createCheckoutSessionForAudit: async (checkoutInput) => {
       checkoutCalls.push(checkoutInput);
       return {
@@ -115,6 +122,7 @@ function checkoutDependencies(input: { audit?: AuditLifecycleRecord | null } = {
       };
     },
     checkoutCalls,
+    persistedAudits,
     events,
   };
 
