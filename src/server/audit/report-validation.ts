@@ -1,3 +1,4 @@
+import { riskCategories } from "@/server/audit/enums";
 import type { EvidenceBundle } from "@/server/audit/evidence-bundles";
 import { type ReportOutput, type RiskItem, reportOutputSchema } from "@/server/audit/schemas";
 import type { GovernedFact } from "@/server/facts/types";
@@ -41,6 +42,13 @@ export function validateReportForPublication(input: ReportValidationInput): Repo
     input.evidenceBundle.evidence.map((evidence) => evidence.evidenceId),
   );
   const factIds = new Set(input.facts.map((fact) => fact.id));
+  const reportCategories = new Set(report.fullRiskTable.map((risk) => risk.category));
+
+  for (const category of riskCategories) {
+    if (!reportCategories.has(category)) {
+      errors.push(`category:${category}:missing mandatory report category.`);
+    }
+  }
 
   for (const risk of report.fullRiskTable) {
     validateRisk(risk, bundleEvidenceIds, errors);

@@ -1,3 +1,4 @@
+import { type RiskCategory, riskCategories } from "@/server/audit/enums";
 import type { EvidenceReference, ReportOutput, RiskItem } from "@/server/audit/schemas";
 
 export const sampleEvidenceReferences: EvidenceReference[] = [
@@ -35,27 +36,35 @@ export const sampleRouteRisk: RiskItem = {
   evidence: sampleEvidenceReferences,
 };
 
+function sampleRiskForCategory(category: RiskCategory): RiskItem {
+  if (category === "arrival_departure_logistics") {
+    return sampleRouteRisk;
+  }
+
+  return {
+    ...sampleRouteRisk,
+    id: `risk_${category}`,
+    category,
+    level: category === "area_fit" ? "green" : "yellow",
+    title: `${category.replaceAll("_", " ")} check`,
+    whatMightBreak: `The ${category.replaceAll("_", " ")} check can change if source facts become stale.`,
+    whyItMatters: "The paid audit promises this mandatory category is evaluated.",
+    recommendedFix: "Refresh supporting evidence before relying on this category.",
+    confidence: category === "area_fit" ? "medium" : "high",
+    evidence:
+      category === "area_fit"
+        ? [sampleEvidenceReferences[1] as EvidenceReference]
+        : sampleEvidenceReferences,
+  };
+}
+
 export const sampleReport: ReportOutput = {
   overallRisk: "yellow",
   confidenceSummary: "Route facts are high confidence; accommodation area is medium confidence.",
   sourceQualitySummary:
     "Official transport evidence is authoritative; accommodation details are user-submitted and should be confirmed with the host.",
   topRisks: [sampleRouteRisk],
-  fullRiskTable: [
-    sampleRouteRisk,
-    {
-      ...sampleRouteRisk,
-      id: "risk_area_fit",
-      category: "area_fit",
-      level: "green",
-      title: "Area fit is likely workable",
-      whatMightBreak: "Exact noise and walkability can vary by block.",
-      whyItMatters: "The top constraint is quiet sleep.",
-      recommendedFix: "Ask the host for the nearest landmark and night-noise context.",
-      confidence: "medium",
-      evidence: [sampleEvidenceReferences[1] as EvidenceReference],
-    },
-  ],
+  fullRiskTable: riskCategories.map(sampleRiskForCategory),
   accommodationAssessment: "Example Surf Stay appears to be in General Luna.",
   areaFitAssessment: "General Luna fits the stated constraint if the host confirms quiet hours.",
   logisticsNotes: "Arrival logistics need a verified transfer window before relying on the plan.",

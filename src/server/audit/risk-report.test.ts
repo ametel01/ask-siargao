@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { riskCategories } from "@/server/audit/enums";
 import { createEvidenceBundle } from "@/server/audit/evidence-bundles";
 import { validateReportForPublication } from "@/server/audit/report-validation";
 import { buildMandatoryRiskSkeletons, rankRisks, riskRankScore } from "@/server/audit/risk-engine";
@@ -88,14 +89,20 @@ function risk(overrides: Partial<RiskItem> = {}): RiskItem {
 }
 
 function validReport(overrides: Partial<ReportOutput> = {}): ReportOutput {
-  const routeRisk = risk();
+  const fullRiskTable = riskCategories.map((category) =>
+    risk({
+      id: `risk_${category}`,
+      category,
+      title: `${category.replaceAll("_", " ")} check`,
+    }),
+  );
   return {
     overallRisk: "yellow",
     confidenceSummary: "Route facts are high confidence; accommodation area is medium confidence.",
     sourceQualitySummary:
       "Official transport evidence is authoritative; accommodation evidence is private.",
-    topRisks: [routeRisk],
-    fullRiskTable: [routeRisk],
+    topRisks: [fullRiskTable[0] as RiskItem],
+    fullRiskTable,
     accommodationAssessment: "Example Surf Stay appears to be in General Luna.",
     areaFitAssessment: "General Luna fits the stated constraint.",
     logisticsNotes: "Arrival logistics need a verified transfer window.",
@@ -157,6 +164,38 @@ describe("report validation", () => {
     });
 
     expect(result.valid).toBe(true);
+    expect(new Set(result.report?.fullRiskTable.map((item) => item.category))).toEqual(
+      new Set(riskCategories),
+    );
+    expect(result.report?.topRisks).toHaveLength(1);
+  });
+
+  test("fails when mandatory report categories are omitted from the full risk table", () => {
+    const result = validateReportForPublication({
+      report: validReport({
+        fullRiskTable: [risk()],
+      }),
+      evidenceBundle: bundle,
+      facts: [baseFact, accommodationFact],
+      paymentState: "paid",
+      now,
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      "category:weather_seasonality:missing mandatory report category.",
+    );
+    expect(result.errors).toContain("category:area_fit:missing mandatory report category.");
+    expect(result.errors).toContain("category:internet_power:missing mandatory report category.");
+    expect(result.errors).toContain(
+      "category:on_island_transport:missing mandatory report category.",
+    );
+    expect(result.errors).toContain(
+      "category:cash_sim_basic_services:missing mandatory report category.",
+    );
+    expect(result.errors).toContain(
+      "category:health_safety_admin:missing mandatory report category.",
+    );
   });
 
   test("fails on missing required sections", () => {
