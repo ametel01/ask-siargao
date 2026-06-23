@@ -977,20 +977,16 @@
     background: risk.lowBg;
 }
 
-  .bg_url\(\'\/images\/siargao-sunset\.png\'\)_left_bottom_\/_440px_auto_no-repeat {
-    background: url('/images/siargao-sunset.png') left bottom / 440px auto no-repeat;
+  .bg_rgba\(255\,255\,255\,0\.94\) {
+    background: rgba(255,255,255,0.94);
 }
 
-  .p_0 {
-    padding: var(--spacing-0);
+  .bg_transparent {
+    background: var(--colors-transparent);
 }
 
-  .bg_rgba\(255\,255\,255\,0\.88\) {
-    background: rgba(255,255,255,0.88);
-}
-
-  .bg_rgba\(255\,255\,255\,0\.68\) {
-    background: rgba(255,255,255,0.68);
+  .bg_rgba\(255\,255\,255\,0\.8\) {
+    background: rgba(255,255,255,0.8);
 }
 
   .bg_rgba\(255\,255\,255\,0\.08\) {
@@ -1013,8 +1009,8 @@
     background: var(--colors-violet-550);
 }
 
-  .bg_linear-gradient\(180deg\,_rgba\(4\,7\,36\,0\.78\)_0\%\,_rgba\(9\,13\,58\,0\.74\)_47\%\,_rgba\(19\,17\,76\,0\.82\)_100\%\)\,_linear-gradient\(90deg\,_rgba\(4\,7\,36\,0\.92\)\,_rgba\(63\,42\,151\,0\.22\)\)\,_url\(\'\/images\/siargao-sunset\.png\'\)_center_top_\/_cover_no-repeat {
-    background: linear-gradient(180deg, rgba(4,7,36,0.78) 0%, rgba(9,13,58,0.74) 47%, rgba(19,17,76,0.82) 100%), linear-gradient(90deg, rgba(4,7,36,0.92), rgba(63,42,151,0.22)), url('/images/siargao-sunset.png') center top / cover no-repeat;
+  .bg_linear-gradient\(90deg\,_rgba\(4\,7\,36\,0\.82\)_0\%\,_rgba\(10\,12\,58\,0\.46\)_48\%\,_rgba\(21\,13\,68\,0\.16\)_100\%\)\,_linear-gradient\(180deg\,_rgba\(4\,7\,36\,0\.18\)_0\%\,_rgba\(7\,9\,44\,0\.42\)_100\%\)\,_url\(\'\/images\/hero-bg\.png\'\)_center_\/_cover_no-repeat {
+    background: linear-gradient(90deg, rgba(4,7,36,0.82) 0%, rgba(10,12,58,0.46) 48%, rgba(21,13,68,0.16) 100%), linear-gradient(180deg, rgba(4,7,36,0.18) 0%, rgba(7,9,44,0.42) 100%), url('/images/hero-bg.png') center / cover no-repeat;
 }
 
   .bg_linear-gradient\(90deg\,_rgba\(26\,16\,99\,0\.96\)\,_rgba\(88\,54\,195\,0\.86\)\)\,_url\(\'\/images\/siargao-sunset\.png\'\)_center_\/_cover {
@@ -1031,10 +1027,6 @@
 
   .bg_rgba\(255\,255\,255\,0\.14\) {
     background: rgba(255,255,255,0.14);
-}
-
-  .bg_rgba\(255\,255\,255\,0\.94\) {
-    background: rgba(255,255,255,0.94);
 }
 
   .bg_linear-gradient\(135deg\,_rgba\(7\,_10\,_45\,_0\.94\)\,_rgba\(36\,_24\,_105\,_0\.88\)\)\,_url\(\'\/images\/siargao-sunset\.png\'\)_center_\/_cover {
@@ -1117,28 +1109,20 @@
     overflow: hidden;
 }
 
-  .gap_7 {
-    gap: var(--spacing-7);
+  .bd-c_rgba\(124\,_92\,_246\,_0\.42\) {
+    border-color: rgba(124, 92, 246, 0.42);
 }
 
   .bd-w_0 {
     border-width: 0;
 }
 
+  .ring_none {
+    outline: var(--borders-none);
+}
+
   .px_3 {
     padding-inline: var(--spacing-3);
-}
-
-  .bd-c_rgba\(204\,_198\,_229\,_0\.8\) {
-    border-color: rgba(204, 198, 229, 0.8);
-}
-
-  .bdr_xl {
-    border-radius: var(--radii-xl);
-}
-
-  .bd-c_\#d9d5ea {
-    border-color: #d9d5ea;
 }
 
   .td_none {
@@ -1329,16 +1313,16 @@
     position: relative;
 }
 
-  .op_0\.12 {
-    opacity: 0.12;
-}
-
-  .pos_absolute {
-    position: absolute;
-}
-
   .ai_start {
     align-items: start;
+}
+
+  .flex-d_column {
+    flex-direction: column;
+}
+
+  .jc_space-between {
+    justify-content: space-between;
 }
 
   .c_text {
@@ -1349,28 +1333,45 @@
     color: var(--colors-violet-600);
 }
 
+  .ai_stretch {
+    align-items: stretch;
+}
+
   .flex-wrap_wrap {
     flex-wrap: wrap;
 }
 
-  .d_block {
-    display: block;
-}
-
-  .flex-b_100\% {
-    flex-basis: 100%;
-}
-
-  .fw_900 {
-    font-weight: 900;
+  .pos_absolute {
+    position: absolute;
 }
 
   .c_risk\.high {
     color: var(--colors-risk-high);
 }
 
-  .bx-sh_0_24px_70px_rgba\(23\,_24\,_79\,_0\.16\) {
-    box-shadow: 0 24px 70px rgba(23, 24, 79, 0.16);
+  .bx-sh_0_24px_70px_rgba\(23\,_24\,_79\,_0\.14\) {
+    box-shadow: 0 24px 70px rgba(23, 24, 79, 0.14);
+}
+
+  .fw_900 {
+    font-weight: 900;
+}
+
+  .lh_1\.75 {
+    line-height: 1.75;
+}
+
+  .resize_vertical {
+    resize: vertical;
+}
+
+  .ap_none {
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+  .cursor_pointer {
+    cursor: pointer;
 }
 
   .ff_Georgia\,_\'Times_New_Roman\'\,_serif {
@@ -1409,20 +1410,8 @@
     color: rgba(255,255,255,0.76);
 }
 
-  .ai_stretch {
-    align-items: stretch;
-}
-
-  .flex-d_column {
-    flex-direction: column;
-}
-
   .c_rgba\(255\,255\,255\,0\.82\) {
     color: rgba(255,255,255,0.82);
-}
-
-  .jc_space-between {
-    justify-content: space-between;
 }
 
   .filter_drop-shadow\(0_18px_24px_rgba\(0\,0\,0\,0\.24\)\) {
@@ -1463,6 +1452,10 @@
 
   .lh_1\.08 {
     line-height: 1.08;
+}
+
+  .d_block {
+    display: block;
 }
 
   .lh_1\.6 {
@@ -1519,10 +1512,6 @@
 
   .white-space_nowrap {
     white-space: nowrap;
-}
-
-  .cursor_pointer {
-    cursor: pointer;
 }
 
   .bd-cl_collapse {
@@ -1585,48 +1574,32 @@
     margin-top: var(--spacing-0);
 }
 
-  .bottom_0 {
-    bottom: var(--spacing-0);
+  .max-w_520px {
+    max-width: 520px;
 }
 
-  .h_210px {
-    height: 210px;
+  .h_1px {
+    height: 1px;
 }
 
-  .left_0 {
-    left: var(--spacing-0);
+  .w_1px {
+    width: 1px;
 }
 
-  .w_420px {
-    width: 420px;
-}
-
-  .mt_5 {
-    margin-top: var(--spacing-5);
-}
-
-  .mb_1 {
-    margin-bottom: var(--spacing-1);
-}
-
-  .min-h_32px {
-    min-height: 32px;
-}
-
-  .min-h_44px {
-    min-height: 44px;
-}
-
-  .min-w_0 {
-    min-width: var(--sizes-0);
+  .min-h_150px {
+    min-height: 150px;
 }
 
   .w_100\% {
     width: 100%;
 }
 
-  .max-w_360px {
-    max-width: 360px;
+  .min-h_38px {
+    min-height: 38px;
+}
+
+  .pr_2 {
+    padding-right: var(--spacing-2);
 }
 
   .h_9 {
@@ -1703,6 +1676,10 @@
 
   .mt_2 {
     margin-top: var(--spacing-2);
+}
+
+  .mt_5 {
+    margin-top: var(--spacing-5);
 }
 
   .bd-t-c_rgba\(255\,255\,255\,0\.16\) {
@@ -1841,8 +1818,16 @@
     padding-bottom: var(--spacing-4);
 }
 
-  .h_1px {
-    height: 1px;
+  .min-h_44px {
+    min-height: 44px;
+}
+
+  .min-w_0 {
+    min-width: var(--sizes-0);
+}
+
+  .placeholder\:c_text\.soft::placeholder,.placeholder\:c_text\.soft[data-placeholder] {
+    color: var(--colors-text-soft);
 }
 
   .\[\&_strong\]\:fs_md strong {
@@ -1881,16 +1866,16 @@
     outline: 3px solid var(--colors-violet-400);
 }
 
-  .focusVisible\:ring-o_2px:is(:focus-visible, [data-focus-visible]) {
-    outline-offset: 2px;
-}
-
   .focusVisible\:ring-o_4px:is(:focus-visible, [data-focus-visible]) {
     outline-offset: 4px;
 }
 
   .focusVisible\:ring-o_-3px:is(:focus-visible, [data-focus-visible]) {
     outline-offset: -3px;
+}
+
+  .focusVisible\:ring-o_2px:is(:focus-visible, [data-focus-visible]) {
+    outline-offset: 2px;
 }
 
   .hover\:c_text\.onDark:is(:hover, [data-hover]) {
@@ -1958,14 +1943,20 @@
     .md\:fs_3xl {
       font-size: var(--font-sizes-3xl);
 }
-    .md\:grid-tc_repeat\(2\,_1fr\) {
-      grid-template-columns: repeat(2, 1fr);
+    .md\:ai_center {
+      align-items: center;
+}
+    .md\:flex-d_row {
+      flex-direction: row;
 }
     .md\:fs_md {
       font-size: var(--font-sizes-md);
 }
     .md\:grid-tc_repeat\(3\,_max-content\) {
       grid-template-columns: repeat(3, max-content);
+}
+    .md\:grid-tc_repeat\(2\,_1fr\) {
+      grid-template-columns: repeat(2, 1fr);
 }
     .md\:grid-tc_0\.9fr_1\.1fr {
       grid-template-columns: 0.9fr 1.1fr;
@@ -1979,6 +1970,9 @@
     .md\:grid-tc_repeat\(4\,_1fr\) {
       grid-template-columns: repeat(4, 1fr);
 }
+    .md\:min-h_132px {
+      min-height: 132px;
+}
     .md\:pt_12 {
       padding-top: var(--spacing-12);
 }
@@ -1988,9 +1982,6 @@
 }
 
   @media screen and (min-width: 64rem) {
-    .lg\:gap_9 {
-      gap: var(--spacing-9);
-}
     .lg\:gap_14 {
       gap: var(--spacing-14);
 }
@@ -2000,11 +1991,11 @@
     .lg\:grid-tc_repeat\(2\,_1fr\) {
       grid-template-columns: repeat(2, 1fr);
 }
-    .lg\:op_0\.3 {
-      opacity: 0.3;
+    .lg\:ai_end {
+      align-items: end;
 }
-    .lg\:grid-tc_0\.72fr_1\.28fr {
-      grid-template-columns: 0.72fr 1.28fr;
+    .lg\:flex-d_row {
+      flex-direction: row;
 }
     .lg\:d_flex {
       display: flex;
