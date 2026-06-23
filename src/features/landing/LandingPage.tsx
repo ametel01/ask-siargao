@@ -900,7 +900,7 @@ function FooterColumn({ heading, links }: { heading: string; links: string[] }) 
 function heroBackdrop() {
   return css({
     background:
-      "linear-gradient(180deg, rgba(4,7,36,0.78) 0%, rgba(9,13,58,0.74) 47%, rgba(19,17,76,0.82) 100%), linear-gradient(90deg, rgba(4,7,36,0.92), rgba(63,42,151,0.22)), url('/images/siargao-sunset.png') center top / cover no-repeat",
+      "linear-gradient(90deg, rgba(4,7,36,0.82) 0%, rgba(10,12,58,0.46) 48%, rgba(21,13,68,0.16) 100%), linear-gradient(180deg, rgba(4,7,36,0.18) 0%, rgba(7,9,44,0.42) 100%), url('/images/hero-bg.png') center / cover no-repeat",
     borderBottomColor: "rgba(255,255,255,0.12)",
     borderBottomWidth: "1px",
     boxShadow: "0 28px 70px rgba(7, 8, 38, 0.28)",
