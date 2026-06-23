@@ -46,4 +46,6 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Kept the typed Drizzle schema exports in parity with the initial SQL migration, including candidate matching, scoring, refresh, LLM tool-call, provider-health, and public-page generation tables.
+
 ### Security

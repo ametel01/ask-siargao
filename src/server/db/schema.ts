@@ -53,11 +53,16 @@ export const sourceProfiles = pgTable("source_profiles", {
   sourceType: text("source_type").notNull(),
   accessMethod: text("access_method").notNull(),
   allowedUse: text("allowed_use").notNull(),
+  robotsPolicy: text("robots_policy"),
+  termsUrl: text("terms_url"),
+  rateLimit: text("rate_limit"),
   freshnessWindowDays: integer("freshness_window_days").notNull(),
   authorityLevel: integer("authority_level").notNull(),
   storesRawAllowed: boolean("stores_raw_allowed").notNull().default(false),
   publishesRawAllowed: boolean("publishes_raw_allowed").notNull().default(false),
   requiresPartnerApproval: boolean("requires_partner_approval").notNull().default(false),
+  knownStaleRisk: text("known_stale_risk").notNull().default("medium"),
+  knownAiOrSeoContentRisk: text("known_ai_or_seo_content_risk").notNull().default("medium"),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -132,6 +137,38 @@ export const sourceRecords = pgTable("source_records", {
   allowedUse: text("allowed_use").notNull(),
 });
 
+export const candidateEntities = pgTable("candidate_entities", {
+  id: text("id").primaryKey(),
+  candidateName: text("candidate_name").notNull(),
+  candidateType: text("candidate_type").notNull(),
+  sourceProfileId: text("source_profile_id")
+    .notNull()
+    .references(() => sourceProfiles.id),
+  sourceRecordId: text("source_record_id").references(() => sourceRecords.id),
+  rawLocation: text("raw_location"),
+  rawCategory: text("raw_category"),
+  rawContact: text("raw_contact"),
+  discoveryConfidence: numeric("discovery_confidence").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const entityMatches = pgTable("entity_matches", {
+  id: text("id").primaryKey(),
+  entityId: text("entity_id").references(() => entities.id),
+  candidateEntityId: text("candidate_entity_id")
+    .notNull()
+    .references(() => candidateEntities.id),
+  matchStatus: text("match_status").notNull(),
+  matchScore: numeric("match_score").notNull(),
+  matchedSourceRecordIds: jsonb("matched_source_record_ids")
+    .$type<string[]>()
+    .notNull()
+    .default([]),
+  conflictReasons: jsonb("conflict_reasons").$type<string[]>().notNull().default([]),
+  requiresUserFollowup: boolean("requires_user_followup").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const facts = pgTable("facts", {
   id: text("id").primaryKey(),
   entityId: text("entity_id").references(() => entities.id),
@@ -165,6 +202,53 @@ export const evidence = pgTable("evidence", {
   allowedUse: text("allowed_use").notNull(),
   publicRepublishAllowed: boolean("public_republish_allowed").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const reviews = pgTable("reviews", {
+  id: text("id").primaryKey(),
+  entityId: text("entity_id").references(() => entities.id),
+  sourceRecordId: text("source_record_id").references(() => sourceRecords.id),
+  rating: numeric("rating"),
+  reviewCount: integer("review_count"),
+  themes: jsonb("themes").$type<string[]>().notNull().default([]),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
+  allowedUse: text("allowed_use").notNull(),
+});
+
+export const factConfidenceScores = pgTable("fact_confidence_scores", {
+  id: text("id").primaryKey(),
+  factId: text("fact_id")
+    .notNull()
+    .references(() => facts.id),
+  score: numeric("score").notNull(),
+  label: text("label").notNull(),
+  drivers: jsonb("drivers").$type<string[]>().notNull().default([]),
+  scoredAt: timestamp("scored_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const sourceCredibilityScores = pgTable("source_credibility_scores", {
+  id: text("id").primaryKey(),
+  sourceProfileId: text("source_profile_id")
+    .notNull()
+    .references(() => sourceProfiles.id),
+  score: numeric("score").notNull(),
+  label: text("label").notNull(),
+  drivers: jsonb("drivers").$type<string[]>().notNull().default([]),
+  scoredAt: timestamp("scored_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const factConflicts = pgTable("fact_conflicts", {
+  id: text("id").primaryKey(),
+  primaryFactId: text("primary_fact_id")
+    .notNull()
+    .references(() => facts.id),
+  conflictingFactId: text("conflicting_fact_id")
+    .notNull()
+    .references(() => facts.id),
+  conflictType: text("conflict_type").notNull(),
+  severity: text("severity").notNull(),
+  resolutionStatus: text("resolution_status").notNull().default("open"),
+  detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const auditRequests = pgTable("audit_requests", {
@@ -270,6 +354,20 @@ export const auditReports = pgTable("audit_reports", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const refreshJobs = pgTable("refresh_jobs", {
+  id: text("id").primaryKey(),
+  factId: text("fact_id").references(() => facts.id),
+  sourceProfileId: text("source_profile_id").references(() => sourceProfiles.id),
+  entityId: text("entity_id").references(() => entities.id),
+  refreshReason: text("refresh_reason").notNull(),
+  priority: integer("priority").notNull(),
+  providerBudget: jsonb("provider_budget").$type<Record<string, unknown>>().notNull().default({}),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  lastError: text("last_error"),
+  resultStatus: text("result_status").notNull().default("scheduled"),
+});
+
 export const publicEvidenceBundles = pgTable("public_evidence_bundles", {
   id: text("id").primaryKey(),
   slug: text("slug").notNull().unique(),
@@ -301,6 +399,17 @@ export const publicPages = pgTable("public_pages", {
     .default([]),
 });
 
+export const agentReadableSnapshots = pgTable("agent_readable_snapshots", {
+  id: text("id").primaryKey(),
+  publicPageId: text("public_page_id")
+    .notNull()
+    .references(() => publicPages.id),
+  format: text("format").notNull(),
+  path: text("path").notNull(),
+  contentHash: text("content_hash").notNull(),
+  generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const llmRuns = pgTable("llm_runs", {
   id: text("id").primaryKey(),
   auditRunId: text("audit_run_id").references(() => auditRuns.id),
@@ -313,6 +422,18 @@ export const llmRuns = pgTable("llm_runs", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });
 
+export const llmToolCalls = pgTable("llm_tool_calls", {
+  id: text("id").primaryKey(),
+  llmRunId: text("llm_run_id")
+    .notNull()
+    .references(() => llmRuns.id),
+  toolName: text("tool_name").notNull(),
+  argumentsJson: jsonb("arguments_json").$type<Record<string, unknown>>().notNull(),
+  resultJson: jsonb("result_json").$type<Record<string, unknown>>(),
+  evidenceIds: jsonb("evidence_ids").$type<string[]>().notNull().default([]),
+  calledAt: timestamp("called_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const reviewerResults = pgTable("reviewer_results", {
   id: text("id").primaryKey(),
   auditRunId: text("audit_run_id").references(() => auditRuns.id),
@@ -321,4 +442,25 @@ export const reviewerResults = pgTable("reviewer_results", {
   corrections: jsonb("corrections").$type<string[]>().notNull().default([]),
   blockedReasons: jsonb("blocked_reasons").$type<string[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const providerHealthChecks = pgTable("provider_health_checks", {
+  id: text("id").primaryKey(),
+  providerId: text("provider_id")
+    .notNull()
+    .references(() => providers.id),
+  status: text("status").notNull(),
+  latencyMs: integer("latency_ms"),
+  checkedAt: timestamp("checked_at", { withTimezone: true }).notNull().defaultNow(),
+  lastError: text("last_error"),
+});
+
+export const publicPageGenerationJobs = pgTable("public_page_generation_jobs", {
+  id: text("id").primaryKey(),
+  publicPageId: text("public_page_id").references(() => publicPages.id),
+  status: text("status").notNull(),
+  reason: text("reason").notNull(),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  lastError: text("last_error"),
 });

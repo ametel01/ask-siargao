@@ -1,7 +1,47 @@
+import { readFile } from "node:fs/promises";
+
 import { describe, expect, test } from "bun:test";
+import { getTableName } from "drizzle-orm";
 
 import { siargaoTaxonomy } from "@/server/audit/destinations/siargao/taxonomy";
 import {
+  accommodations,
+  agentReadableSnapshots,
+  areas,
+  auditCompletenessChecks,
+  auditInputs,
+  auditReports,
+  auditRequests,
+  auditRuns,
+  candidateEntities,
+  entities,
+  entityMatches,
+  evidence,
+  factConfidenceScores,
+  factConflicts,
+  facts,
+  llmRuns,
+  llmToolCalls,
+  paymentEvents,
+  payments,
+  providerHealthChecks,
+  providers,
+  publicEvidenceBundles,
+  publicPageGenerationJobs,
+  publicPages,
+  rawSnapshots,
+  refreshJobs,
+  reviewerResults,
+  reviews,
+  routes,
+  sourceCredibilityScores,
+  sourcePermissions,
+  sourceProfiles,
+  sourceRecords,
+  users,
+} from "@/server/db/schema";
+import {
+  migrationPath,
   openTestDatabase,
   resetTestDatabase,
   runInitialMigration,
@@ -67,5 +107,52 @@ describe("Step 3 database migration", () => {
     expect(seeded.rows[0]?.count).toBe("1");
 
     await db.close();
+  });
+
+  test("keeps typed Drizzle schema exports in parity with migrated tables", async () => {
+    const migrationSql = await readFile(migrationPath, "utf8");
+    const migratedTables = [
+      ...migrationSql.matchAll(/CREATE TABLE IF NOT EXISTS\s+([a-z_]+)/g),
+    ].map((match) => match[1]);
+
+    const schemaTables = [
+      users,
+      areas,
+      routes,
+      providers,
+      sourceProfiles,
+      sourcePermissions,
+      entities,
+      accommodations,
+      rawSnapshots,
+      sourceRecords,
+      candidateEntities,
+      entityMatches,
+      facts,
+      evidence,
+      reviews,
+      factConfidenceScores,
+      sourceCredibilityScores,
+      factConflicts,
+      auditRequests,
+      auditInputs,
+      auditRuns,
+      auditCompletenessChecks,
+      payments,
+      paymentEvents,
+      auditReports,
+      refreshJobs,
+      publicEvidenceBundles,
+      publicPages,
+      agentReadableSnapshots,
+      llmRuns,
+      llmToolCalls,
+      reviewerResults,
+      providerHealthChecks,
+      publicPageGenerationJobs,
+    ];
+    const schemaTableNames: string[] = schemaTables.map((table) => getTableName(table));
+
+    expect(schemaTableNames.toSorted()).toEqual(migratedTables.toSorted());
   });
 });
