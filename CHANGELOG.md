@@ -46,6 +46,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Required signed-token access plus paid, published, reviewer-approved state before rendering private audit reports, with the sample report moved to an explicit demo route.
 - Applied verified Stripe checkout webhooks to the persisted audit/payment lifecycle with duplicate-event idempotency and generation job enqueueing.
 - Loaded audit checkout eligibility from persisted server-side audit, completeness, and payment state instead of trusting client-supplied lifecycle fields.
 - Kept the typed Drizzle schema exports in parity with the initial SQL migration, including candidate matching, scoring, refresh, LLM tool-call, provider-health, and public-page generation tables.

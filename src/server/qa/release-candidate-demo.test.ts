@@ -12,7 +12,7 @@ describe("release-candidate demo scenario", () => {
     expect(validation.errors).toEqual([]);
     expect(validation.valid).toBe(true);
     expect(releaseCandidateDemoScenario.paths.map((entry) => entry.path)).toContain(
-      "/audits/audit_123/report",
+      "/audits/demo/report",
     );
     expect(releaseCandidateDemoScenario.publicEvidenceIds.length).toBeGreaterThanOrEqual(5);
   });

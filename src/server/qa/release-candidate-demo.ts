@@ -29,7 +29,7 @@ export const releaseCandidateDemoScenario: ReleaseCandidateDemoScenario = {
     },
     {
       label: "Paid report fixture",
-      path: "/audits/audit_123/report",
+      path: "/audits/demo/report",
       purpose: "Verify evidence-backed report rendering and limitations.",
     },
     {

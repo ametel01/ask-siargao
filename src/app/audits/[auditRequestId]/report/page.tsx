@@ -1,18 +1,31 @@
+import { notFound } from "next/navigation";
+
+import { resolveAuditReportRoute } from "@/app/audits/report-route";
 import { FinalReportPage } from "@/features/report/FinalReportPage";
-import { sampleReport } from "@/server/audit/sample-report";
-import { checkRateLimit } from "@/server/security/rate-limit";
 
 export default async function AuditReportRoute({
   params,
+  searchParams,
 }: {
   params: Promise<{ auditRequestId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { auditRequestId } = await params;
-  const rateLimit = checkRateLimit({ key: auditRequestId, policy: "report_access" });
+  const [{ auditRequestId }, query] = await Promise.all([params, searchParams]);
+  const result = await resolveAuditReportRoute({
+    auditRequestId,
+    token: firstQueryValue(query?.token),
+  });
 
-  if (!rateLimit.allowed) {
+  if (result.status === "rate_limited") {
     throw new Error("Report access rate limit exceeded.");
   }
+  if (result.status !== "authorized") {
+    notFound();
+  }
 
-  return <FinalReportPage auditRequestId={auditRequestId} report={sampleReport} />;
+  return <FinalReportPage auditRequestId={auditRequestId} report={result.report} />;
+}
+
+function firstQueryValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
 }

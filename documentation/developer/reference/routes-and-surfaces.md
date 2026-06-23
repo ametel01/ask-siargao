@@ -6,7 +6,8 @@
 | --- | --- | --- |
 | `/` | Landing page and audit intake form | Public |
 | `/audits/[auditRequestId]/status` | Post-checkout processing/status page | Private audit surface |
-| `/audits/[auditRequestId]/report` | Paid report UI with evidence and limitations | `x-robots-tag: noindex, nofollow` |
+| `/audits/[auditRequestId]/report?token=...` | Signed-token paid report delivery for published, paid, reviewer-approved audits | `x-robots-tag: noindex, nofollow` |
+| `/audits/demo/report` | Synthetic report fixture for local QA only | `x-robots-tag: noindex, nofollow` |
 | `/admin/diagnostics` | Operator diagnostics console | `x-robots-tag: noindex, nofollow` |
 
 ## Audit APIs

@@ -50,7 +50,7 @@ test("shows processing state after checkout return", async ({ page }) => {
 });
 
 test("renders final report with evidence and limitations", async ({ page }) => {
-  await page.goto("/audits/audit_123/report");
+  await page.goto("/audits/demo/report");
 
   await expect(page.getByRole("heading", { name: "Siargao trip risk audit" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Top risks" })).toBeVisible();
@@ -102,6 +102,7 @@ test("publishes crawl rules that keep private audit surfaces out of indexes", as
 
   const report = await page.goto("/audits/audit_123/report");
   expect(report?.headers()["x-robots-tag"]).toContain("noindex");
+  await expect(page.getByRole("heading", { name: "Siargao trip risk audit" })).toHaveCount(0);
 });
 
 for (const width of [390, 768, 1024, 1366]) {

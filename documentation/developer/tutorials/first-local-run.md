@@ -43,7 +43,7 @@ bun run dev
 
 - `/`
 - `/audits/audit_123/status?state=awaiting_payment`
-- `/audits/audit_123/report`
+- `/audits/demo/report`
 - `/admin/diagnostics`
 - `/accommodations/example-surf-stay`
 - `/accommodations/example-surf-stay/llm.md`
