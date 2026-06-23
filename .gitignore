@@ -6,6 +6,7 @@ node_modules/
 out/
 dist/
 tsconfig.tsbuildinfo
+.tmp/
 
 # environment files
 .env

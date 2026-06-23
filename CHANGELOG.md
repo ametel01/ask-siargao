@@ -9,6 +9,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added the initial audit domain model with typed job states, risk/source/public visibility enums, report/intake validation schemas, and Siargao seed taxonomy.
+- Added Drizzle/Postgres database setup, an initial SQL migration for the core fact graph and audit tables, and PGlite-backed migration/seed validation commands.
+- Added tests for audit state transitions, schema validation, taxonomy coverage, and migration table coverage.
 - Built the static Siargao Trip Risk Audit landing page with header, hero, risk preview, check grid, process section, trust band, sample report, testimonials, pricing/FAQ, and footer.
 - Added a generated coastal dusk background image under `public/images/` and wired it into the global page background.
 - Added landing-focused Panda tokens, recipes, local UI primitives, and Playwright checks for key sections, FAQ keyboard interaction, and responsive overflow.

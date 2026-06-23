@@ -20,7 +20,7 @@ Source plan: `PLAN.md`
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Project Scaffold and Quality Gates Setup
 - [x] Step 2: Landing Page Visual System and Static First Screen
-- [ ] Step 3: Domain Model, Database Schema, and Seed Taxonomy
+- [x] Step 3: Domain Model, Database Schema, and Seed Taxonomy
 - [ ] Step 4: Source Registry, Provider Policy, and Fact Graph Foundations
 - [ ] Step 5: Audit Intake, Accommodation Resolution, and Completeness Gate
 - [ ] Step 6: Risk Engine, Evidence Bundles, and Report Schema Validation
@@ -33,7 +33,7 @@ Source plan: `PLAN.md`
 
 ## Current Status
 
-Step 2 is complete. Next step: Step 3, Domain Model, Database Schema, and Seed Taxonomy.
+Step 3 is complete. Next step: Step 4, Source Registry, Provider Policy, and Fact Graph Foundations.
 
 ## Update Rule
 
@@ -116,4 +116,33 @@ Validation:
 - Passed: manual `bun run dev` screenshot capture for desktop/tablet/mobile visual QA.
 
 Commit:
-- Pending: `feat: build landing page visual system`
+- `de6a220` - `feat: build landing page visual system`
+
+### 2026-06-23 - Step 3: Domain Model, Database Schema, and Seed Taxonomy
+
+Summary:
+- Added Drizzle/Postgres dependencies, Drizzle config, and a production database client factory under `src/server/db/`.
+- Added the initial SQL migration with the required audit, payment, report, source governance, fact/evidence, public page, LLM, reviewer, refresh, provider health, and public-page generation tables.
+- Added typed audit job states, explicit state transitions, risk levels, source types, allowed-use states, match states, public visibility states, confidence labels, mandatory risk categories, and optional modules.
+- Added Zod schemas for intake input, completeness check results, evidence references, risk items, and final report output.
+- Added Siargao-specific seed taxonomy under `src/server/audit/destinations/siargao/` for areas, arrival routes, risk categories, provider categories, service categories, and optional modules.
+- Added local PGlite migration and seed commands: `bun run db:migrate:test` and `bun run db:seed:test`.
+- Added regression tests for domain transitions, validation schemas, taxonomy coverage, migration table coverage, and seed insert compatibility.
+
+Decisions:
+- Used Drizzle for the ORM layer, matching the plan's default assumption.
+- Used PGlite for local/test database validation so the migration and seed commands are runnable without a separately managed Postgres service.
+- Kept destination-specific taxonomy isolated under `src/server/audit/destinations/siargao/`.
+
+Validation:
+- Passed: `bun run format`
+- Passed: `bun run lint`
+- Passed: `bun run typecheck`
+- Passed: `bun test`
+- Passed: `bun run db:migrate:test`
+- Passed: `bun run db:seed:test`
+- Passed: `bun run build`
+- Passed: `bun run test:e2e`
+
+Commit:
+- Pending: `feat: add audit domain schema and taxonomy`
