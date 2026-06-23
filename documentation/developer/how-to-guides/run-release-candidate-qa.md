@@ -40,7 +40,7 @@ bun run test:e2e
 
 ## Operations QA
 
-- `/admin/diagnostics` is available locally without a token and requires `ADMIN_ACCESS_TOKEN` plus `x-admin-token` in production.
+- `/admin/diagnostics` is available locally without a token only when `ADMIN_ACCESS_TOKEN` is unset. If it is configured, send the same value as the `x-admin-token` header.
 - Diagnostics show blocked audits, provider errors, stale facts, reviewer rejections, LLM cost estimates, and job failures without rendering sample secrets or traveler emails.
 - Observability events sanitize payloads before reporting sink configuration for Sentry and PostHog.
 - Rate limits are applied to intake, checkout, public APIs, Stripe webhook/provider calls, and report access.

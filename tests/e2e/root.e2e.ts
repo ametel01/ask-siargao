@@ -60,6 +60,9 @@ test("renders final report with evidence and limitations", async ({ page }) => {
 });
 
 test("renders local admin diagnostics without leaking sample secrets", async ({ page }) => {
+  await page.setExtraHTTPHeaders({
+    "x-admin-token": process.env.ADMIN_ACCESS_TOKEN ?? "replace-me",
+  });
   await page.goto("/admin/diagnostics");
 
   await expect(page.getByRole("heading", { name: "Audit diagnostics" })).toBeVisible();

@@ -11,7 +11,7 @@ Scripts are defined in `package.json`.
 | `bun run stack:down:volumes` | `docker compose down --volumes` | Stop the local Compose stack and remove its named volumes for a clean reset. |
 | `bun run stack:logs` | `docker compose logs -f` | Follow logs from the local Compose app and database services. |
 | `bun run stack:ps` | `docker compose ps` | Show local Compose service status. |
-| `bun run build` | `panda codegen && panda cssgen && next build` | Generate Panda artifacts and build the production Next.js app. |
+| `bun run build` | `./node_modules/.bin/panda codegen && ./node_modules/.bin/panda cssgen && ./node_modules/.bin/next build` | Generate Panda artifacts and build the production Next.js app. |
 | `bun run db:migrate` | `bun run src/server/db/migrate.ts` | Apply the SQL migration to the Postgres database at `DATABASE_URL`. |
 | `bun run db:seed` | `bun run src/server/db/seed.ts` | Seed Siargao taxonomy and source profiles into the Postgres database at `DATABASE_URL`. |
 | `bun run db:ingest:open-meteo` | `bun run src/server/providers/ingest-open-meteo.ts` | Fetch the Siargao Open-Meteo forecast and persist source records, weather facts, evidence, scores, and a refresh job into Postgres at `DATABASE_URL`. |

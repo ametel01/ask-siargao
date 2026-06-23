@@ -2,8 +2,8 @@ import {
   stripeWebhookResponseFromEvent,
   stripeWebhookSecretFromEnv,
 } from "@/app/api/stripe/webhook/webhook-route";
-import { rateLimitRequest, rateLimitedJson } from "@/server/security/rate-limit";
 import { verifyStripeWebhookPayload } from "@/server/payments/stripe";
+import { rateLimitRequest, rateLimitedJson } from "@/server/security/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
       webhookSecret: stripeWebhookSecretFromEnv(),
     });
 
-    return stripeWebhookResponseFromEvent(event);
+    return await stripeWebhookResponseFromEvent(event);
   } catch (error) {
     return Response.json(
       {
