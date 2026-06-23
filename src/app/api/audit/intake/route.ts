@@ -10,7 +10,16 @@ export async function POST(request: Request) {
     return rateLimitedJson(rateLimit);
   }
 
-  const body: unknown = await request.json();
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json(
+      { error: "invalid_json", message: "Request body must be valid JSON." },
+      { status: 400, headers: rateLimit.headers },
+    );
+  }
+
   const parsed = intakeInputSchema.safeParse(body);
 
   if (!parsed.success) {
