@@ -10,8 +10,8 @@ import {
 
 import type { AdminAccessResult } from "@/server/admin/access";
 import type { AdminDiagnosticsSnapshot } from "@/server/admin/diagnostics";
-import { css } from "../../../styled-system/css";
-import { pageShell } from "../../../styled-system/recipes";
+import { css } from "../../../styled-system/css/css";
+import { pageShell } from "../../../styled-system/recipes/page-shell";
 
 export function AdminDiagnosticsPage({
   access,

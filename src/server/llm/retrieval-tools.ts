@@ -138,10 +138,15 @@ export function permittedFacts(context: RetrievalContext) {
 
 function evidenceIdsForFacts(context: RetrievalContext, facts: readonly GovernedFact[]) {
   const factIds = new Set(facts.map((fact) => fact.id));
+  const evidenceIds: string[] = [];
 
-  return context.evidenceBundle.evidence
-    .filter((evidence) => factIds.has(context.evidenceBundle.evidenceFactIds[evidence.evidenceId]))
-    .map((evidence) => evidence.evidenceId);
+  for (const evidence of context.evidenceBundle.evidence) {
+    if (factIds.has(context.evidenceBundle.evidenceFactIds[evidence.evidenceId])) {
+      evidenceIds.push(evidence.evidenceId);
+    }
+  }
+
+  return evidenceIds;
 }
 
 function isAuditRetrievalToolName(value: string): value is AuditRetrievalToolName {

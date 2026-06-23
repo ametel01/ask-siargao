@@ -4,8 +4,8 @@ import {
   type PublicKnowledgePage as PublicKnowledgePageData,
   buildPublicJsonLd,
 } from "@/server/public-pages/public-content";
-import { css } from "../../../styled-system/css";
-import { pageShell } from "../../../styled-system/recipes";
+import { css } from "../../../styled-system/css/css";
+import { pageShell } from "../../../styled-system/recipes/page-shell";
 
 export function PublicKnowledgePage({ page }: { page: PublicKnowledgePageData }) {
   return (

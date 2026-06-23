@@ -1,8 +1,8 @@
 import { AlertTriangle, CheckCircle2, ClipboardList, FileText, HelpCircle } from "lucide-react";
 
 import type { ReportOutput, RiskItem } from "@/server/audit/schemas";
-import { css } from "../../../styled-system/css";
-import { pageShell } from "../../../styled-system/recipes";
+import { css } from "../../../styled-system/css/css";
+import { pageShell } from "../../../styled-system/recipes/page-shell";
 
 const categoryLabels: Record<RiskItem["category"], string> = {
   arrival_departure_logistics: "Arrival logistics",

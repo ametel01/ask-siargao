@@ -7,9 +7,14 @@ export function GET(request: Request) {
     return rateLimitedJson(rateLimit);
   }
 
+  const risks = [];
+  for (const page of publicPagesForIndex()) {
+    if (page.family === "risks") {
+      risks.push(buildPublicPageJson(page));
+    }
+  }
+
   return Response.json({
-    risks: publicPagesForIndex()
-      .filter((page) => page.family === "risks")
-      .map((page) => buildPublicPageJson(page)),
+    risks,
   });
 }

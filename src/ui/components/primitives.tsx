@@ -1,7 +1,8 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
 
-import { css, cx } from "../../../styled-system/css";
-import { button as buttonRecipe } from "../../../styled-system/recipes";
+import { css } from "../../../styled-system/css/css";
+import { cx } from "../../../styled-system/css/cx";
+import { button as buttonRecipe } from "../../../styled-system/recipes/button";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "secondary" | "ghost";

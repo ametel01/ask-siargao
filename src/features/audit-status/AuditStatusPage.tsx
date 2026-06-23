@@ -1,8 +1,8 @@
 import { CheckCircle2, Clock3, FileSearch, TriangleAlert } from "lucide-react";
 
 import { type AuditJobState, auditJobStates } from "@/server/audit/enums";
-import { css } from "../../../styled-system/css";
-import { pageShell } from "../../../styled-system/recipes";
+import { css } from "../../../styled-system/css/css";
+import { pageShell } from "../../../styled-system/recipes/page-shell";
 
 const statusCopy: Record<
   AuditJobState,

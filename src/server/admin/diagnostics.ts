@@ -74,33 +74,70 @@ export type AuditDiagnosticsInput = {
 export type AdminDiagnosticsSnapshot = ReturnType<typeof buildAuditDiagnostics>;
 
 export function buildAuditDiagnostics(input: AuditDiagnosticsInput) {
-  const blockedAuditIds = new Set(
-    input.audits
-      .filter((audit) => ["blocked", "failed", "needs_user_input"].includes(audit.state))
-      .map((audit) => audit.id),
-  );
+  const blockedAuditIds = new Set<string>();
+  for (const audit of input.audits) {
+    if (["blocked", "failed", "needs_user_input"].includes(audit.state)) {
+      blockedAuditIds.add(audit.id);
+    }
+  }
 
-  return {
-    generatedAt: input.now.toISOString(),
-    blockedAudits: input.audits
-      .filter((audit) => blockedAuditIds.has(audit.id))
-      .map((audit) => ({
+  const blockedAudits: { auditRequestId: string; state: string; diagnostics: unknown }[] = [];
+  for (const audit of input.audits) {
+    if (blockedAuditIds.has(audit.id)) {
+      blockedAudits.push({
         auditRequestId: audit.id,
         state: audit.state,
         diagnostics: redactDiagnosticValue(audit.diagnostics),
-      })),
-    failedAccommodationMatches: input.accommodationMatches.filter(
-      (match) => match.status === "ambiguous" || match.status === "rejected",
-    ),
-    providerErrors: input.providerErrors.filter((provider) => provider.status !== "ok"),
-    sourceFreshnessIssues: input.facts
-      .filter((fact) => fact.expiresAt && new Date(fact.expiresAt).getTime() < input.now.getTime())
-      .map((fact) => ({
+      });
+    }
+  }
+
+  const sourceFreshnessIssues: {
+    factId: string;
+    factType: string;
+    expiresAt: string | undefined | null;
+    confidence: string;
+  }[] = [];
+  for (const fact of input.facts) {
+    if (fact.expiresAt && new Date(fact.expiresAt).getTime() < input.now.getTime()) {
+      sourceFreshnessIssues.push({
         factId: fact.id,
         factType: fact.factType,
         expiresAt: fact.expiresAt,
         confidence: fact.confidenceLabel,
-      })),
+      });
+    }
+  }
+
+  const jobFailures: {
+    auditRequestId: string;
+    jobId: string;
+    kind: string;
+    attempts: number;
+    lastError: string | null | undefined;
+    diagnostics: unknown;
+  }[] = [];
+  for (const job of input.jobs) {
+    if (job.state === "failed") {
+      jobFailures.push({
+        auditRequestId: job.auditRequestId,
+        jobId: job.id,
+        kind: job.kind,
+        attempts: job.attempts,
+        lastError: job.lastError,
+        diagnostics: redactDiagnosticValue(job.diagnostics),
+      });
+    }
+  }
+
+  return {
+    generatedAt: input.now.toISOString(),
+    blockedAudits,
+    failedAccommodationMatches: input.accommodationMatches.filter(
+      (match) => match.status === "ambiguous" || match.status === "rejected",
+    ),
+    providerErrors: input.providerErrors.filter((provider) => provider.status !== "ok"),
+    sourceFreshnessIssues,
     completenessFailures: input.completenessChecks.filter((check) => !check.canComplete),
     reviewerRejections: input.reviewerResults.filter((review) => review.verdict !== "approved"),
     llmCostEstimates: input.llmRuns.map((run) => ({
@@ -113,16 +150,7 @@ export function buildAuditDiagnostics(input: AuditDiagnosticsInput) {
         outputTokens: run.outputTokens,
       },
     })),
-    jobFailures: input.jobs
-      .filter((job) => job.state === "failed")
-      .map((job) => ({
-        auditRequestId: job.auditRequestId,
-        jobId: job.id,
-        kind: job.kind,
-        attempts: job.attempts,
-        lastError: job.lastError,
-        diagnostics: redactDiagnosticValue(job.diagnostics),
-      })),
+    jobFailures,
     drilldowns: {
       auditRequests: input.audits.map((audit) => ({
         id: audit.id,

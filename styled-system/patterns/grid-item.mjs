@@ -1,5 +1,5 @@
 import { getPatternStyles, patternFns } from '../helpers.mjs';
-import { css } from '../css/index.mjs';
+import { css } from '../css/css.mjs';
 
 const gridItemConfig = {
 transform(props, { map }) {

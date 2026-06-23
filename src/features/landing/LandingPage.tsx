@@ -32,22 +32,21 @@ import {
   Table,
   Tooltip,
 } from "@/ui/components/primitives";
-import { css, cx } from "../../../styled-system/css";
-import {
-  faqAccordion,
-  footer,
-  header,
-  miniFeatureCard,
-  pageShell,
-  pricingCard,
-  processCard,
-  reportPreview,
-  riskGauge,
-  riskPreviewCard,
-  sectionPanel,
-  testimonialCard,
-  trustCard,
-} from "../../../styled-system/recipes";
+import { css } from "../../../styled-system/css/css";
+import { cx } from "../../../styled-system/css/cx";
+import { faqAccordion } from "../../../styled-system/recipes/faq-accordion";
+import { footer } from "../../../styled-system/recipes/footer";
+import { header } from "../../../styled-system/recipes/header";
+import { miniFeatureCard } from "../../../styled-system/recipes/mini-feature-card";
+import { pageShell } from "../../../styled-system/recipes/page-shell";
+import { pricingCard } from "../../../styled-system/recipes/pricing-card";
+import { processCard } from "../../../styled-system/recipes/process-card";
+import { reportPreview } from "../../../styled-system/recipes/report-preview";
+import { riskGauge } from "../../../styled-system/recipes/risk-gauge";
+import { riskPreviewCard } from "../../../styled-system/recipes/risk-preview-card";
+import { sectionPanel } from "../../../styled-system/recipes/section-panel";
+import { testimonialCard } from "../../../styled-system/recipes/testimonial-card";
+import { trustCard } from "../../../styled-system/recipes/trust-card";
 
 const checks = [
   {

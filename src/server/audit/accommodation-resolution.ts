@@ -48,20 +48,22 @@ export function resolveAccommodation(
   }
 
   const normalizedName = normalize(input.accommodationName);
-  const matches = candidates
-    .filter((candidate) => candidate.auditUseAllowed && candidate.confidenceLabel !== "low")
-    .map((candidate) => {
-      const names = [candidate.name, ...candidate.aliases].map(normalize);
-      const exact = names.some((name) => name === normalizedName);
-      const partial = names.some(
-        (name) => name.includes(normalizedName) || normalizedName.includes(name),
-      );
-      return {
-        candidate,
-        score: exact ? 0.96 : partial ? 0.74 : tokenOverlapScore(normalizedName, names),
-      };
-    });
-  const best = matches.sort((left, right) => right.score - left.score)[0];
+  let best: { candidate: GovernedAccommodationCandidate; score: number } | undefined;
+  for (const candidate of candidates) {
+    if (!candidate.auditUseAllowed || candidate.confidenceLabel === "low") {
+      continue;
+    }
+
+    const names = [candidate.name, ...candidate.aliases].map(normalize);
+    const exact = names.some((name) => name === normalizedName);
+    const partial = names.some(
+      (name) => name.includes(normalizedName) || normalizedName.includes(name),
+    );
+    const score = exact ? 0.96 : partial ? 0.74 : tokenOverlapScore(normalizedName, names);
+    if (!best || score > best.score) {
+      best = { candidate, score };
+    }
+  }
 
   if (!best || best.score < accommodationMatchThreshold) {
     return {

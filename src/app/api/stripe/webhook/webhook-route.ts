@@ -19,6 +19,43 @@ const defaultDependencies: StripeWebhookRouteDependencies = {
   verifyStripeWebhookPayload,
 };
 
+type VerifiedWebhookEvent = ReturnType<
+  typeof verifyStripeWebhookPayload
+> extends Promise<infer T>
+  ? T
+  : never;
+
+export async function stripeWebhookResponseFromEvent(
+  event: VerifiedWebhookEvent,
+  dependencies: StripeWebhookRouteDependencies = defaultDependencies,
+) {
+  const payment = extractVerifiedCheckoutPayment(event);
+
+  if (!payment) {
+    return Response.json({ received: true, ignored: true });
+  }
+
+  const result = await dependencies.applyVerifiedCheckoutPayment(payment, event);
+
+  dependencies.trackServerEvent({
+    name: "payment_succeeded",
+    payload: {
+      auditRequestId: payment.auditRequestId,
+      stripeEventId: payment.stripeEventId,
+      eventType: payment.eventType,
+      applicationStatus: result.status,
+    },
+  });
+
+  return Response.json({
+    received: true,
+    applicationStatus: result.status,
+    auditRequestId: payment.auditRequestId,
+    stripeEventId: payment.stripeEventId,
+    generationJobId: result.status === "applied" ? result.job.id : undefined,
+  });
+}
+
 export async function stripeWebhookResponse(
   request: Request,
   dependencies: StripeWebhookRouteDependencies = defaultDependencies,
@@ -36,31 +73,7 @@ export async function stripeWebhookResponse(
       signature,
       webhookSecret: dependencies.stripeWebhookSecretFromEnv(),
     });
-    const payment = extractVerifiedCheckoutPayment(event);
-
-    if (!payment) {
-      return Response.json({ received: true, ignored: true });
-    }
-
-    const result = await dependencies.applyVerifiedCheckoutPayment(payment, event);
-
-    dependencies.trackServerEvent({
-      name: "payment_succeeded",
-      payload: {
-        auditRequestId: payment.auditRequestId,
-        stripeEventId: payment.stripeEventId,
-        eventType: payment.eventType,
-        applicationStatus: result.status,
-      },
-    });
-
-    return Response.json({
-      received: true,
-      applicationStatus: result.status,
-      auditRequestId: payment.auditRequestId,
-      stripeEventId: payment.stripeEventId,
-      generationJobId: result.status === "applied" ? result.job.id : undefined,
-    });
+    return stripeWebhookResponseFromEvent(event, dependencies);
   } catch (error) {
     return Response.json(
       {
@@ -72,7 +85,7 @@ export async function stripeWebhookResponse(
   }
 }
 
-function stripeWebhookSecretFromEnv() {
+export function stripeWebhookSecretFromEnv() {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   if (!webhookSecret) {
