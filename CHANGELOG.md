@@ -9,6 +9,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added the first governed provider ingestion slice for local verified public-directory accommodation records, producing governed facts, evidence, and checkout-safe accommodation candidates.
 - Added a GitHub Actions CI release gate for non-mutating Biome checks, TypeScript, Bun tests, database validation, production build, and Playwright e2e.
 - Added release-candidate developer documentation for local setup, quality gates, environment variables, routes, demo data, audit lifecycle boundaries, provider limitations, and manual QA.
 - Added a typed release-candidate demo scenario manifest and tests for synthetic or permitted local QA fixtures.

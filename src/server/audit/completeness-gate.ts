@@ -13,6 +13,13 @@ export type CompletenessGateResult = CompletenessCheckResult & {
   checkoutEligible: boolean;
   activatedModules: OptionalRiskModule[];
   targetedRefreshHooks: string[];
+  diagnostics: {
+    accommodationResolutionStatus: AccommodationResolution["status"];
+    accommodationSourceProfileId?: string;
+    accommodationSourceConfidence?: AccommodationResolution["sourceConfidence"];
+    blockingReasonCount: number;
+    completenessPassed: boolean;
+  };
 };
 
 const officialTransportEvidence: EvidenceReference = {
@@ -83,6 +90,13 @@ export function evaluateCompleteness(
     evidenceSummary,
     activatedModules: input.optionalModules,
     targetedRefreshHooks,
+    diagnostics: {
+      accommodationResolutionStatus: accommodation.status,
+      accommodationSourceProfileId: accommodation.sourceProfileId,
+      accommodationSourceConfidence: accommodation.sourceConfidence,
+      blockingReasonCount: blockingReasons.length,
+      completenessPassed: canComplete,
+    },
   };
 }
 

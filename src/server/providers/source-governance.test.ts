@@ -4,6 +4,7 @@ import { detectFactConflicts } from "@/server/facts/conflicts";
 import {
   canPublishFactPublicly,
   canUseFactInPaidAudit,
+  createGovernedEvidence,
   createGovernedFact,
   normalizeSourceRecord,
 } from "@/server/facts/fact-graph";
@@ -13,6 +14,7 @@ import {
   toFactConfidenceScoreRecord,
   toSourceCredibilityScoreRecord,
 } from "@/server/facts/scoring";
+import { ingestLocalVerifiedAccommodation } from "@/server/providers/accommodation-ingestion";
 import { createDefaultSourceRegistry } from "@/server/providers/adapters";
 import { SourcePolicyError } from "@/server/providers/source-registry";
 
@@ -184,5 +186,74 @@ describe("source registry and fact governance", () => {
     expect(conflicts[0]?.type).toBe("route_schedule_conflict");
     expect(conflicts[0]?.preferredFactId).toBe("fact_official_schedule");
     expect(conflicts[0]?.severity).toBe("high");
+  });
+
+  test("creates governed accommodation facts and evidence from local verified records", () => {
+    const registry = createDefaultSourceRegistry();
+    const result = ingestLocalVerifiedAccommodation(
+      {
+        entityId: "entity_verified_stay",
+        name: "Verified Stay",
+        aliases: ["Verified Guesthouse"],
+        areaSlug: "general-luna",
+        fetchedAt,
+        sourceUrl: "https://siargao.example/public-directory/verified-stay",
+      },
+      registry,
+    );
+
+    expect(result.sourceRecord.allowedUse).toBe("public_republish");
+    expect(result.sourceRecord.rawSnapshot).toBeUndefined();
+    expect(result.facts).toHaveLength(1);
+    expect(result.facts[0]?.sourceProfileId).toBe("source_public_tourism_directory");
+    expect(result.facts[0]?.auditUseAllowed).toBe(true);
+    expect(result.facts[0]?.publicRepublishAllowed).toBe(true);
+    expect(result.evidence[0]?.publicRepublishAllowed).toBe(true);
+    expect(result.candidate.evidenceIds).toEqual(["ev_entity_verified_stay_public_directory"]);
+  });
+
+  test("does not ingest local accommodation records from disallowed source profiles", () => {
+    const registry = createDefaultSourceRegistry();
+
+    expect(() =>
+      ingestLocalVerifiedAccommodation(
+        {
+          entityId: "entity_scraped_stay",
+          name: "Scraped Stay",
+          areaSlug: "general-luna",
+          fetchedAt,
+          sourceProfileId: "source_disallowed_scrape",
+        },
+        registry,
+      ),
+    ).toThrow(SourcePolicyError);
+  });
+
+  test("governed evidence inherits public republication policy", () => {
+    const registry = createDefaultSourceRegistry();
+    const userRecord = normalizeSourceRecord(registry, {
+      id: "record_user_private_evidence",
+      sourceProfileId: "source_user_submitted",
+      entityType: "accommodation",
+      name: "Host answer",
+      fetchedAt,
+      normalizedPayload: { area: "General Luna" },
+    });
+    const userFact = createGovernedFact(registry, userRecord, {
+      id: "fact_user_private_area",
+      entityId: "entity_user_stay",
+      claim: "Host says the stay is in General Luna.",
+      factType: "accommodation_area",
+      fetchedAt,
+    });
+    const evidence = createGovernedEvidence(registry, userFact, {
+      id: "ev_user_private_area",
+      factId: userFact.id,
+      sourceRecordId: userRecord.id,
+      label: "Host-provided area answer",
+    });
+
+    expect(evidence.publicRepublishAllowed).toBe(false);
+    expect(evidence.allowedUse).toBe("audit_only");
   });
 });

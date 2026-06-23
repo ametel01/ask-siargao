@@ -50,5 +50,6 @@ bun run test:e2e
 - Real Stripe Checkout requires `STRIPE_RESTRICTED_KEY` or `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and a configured webhook endpoint.
 - Real OpenAI generation requires `OPENAI_API_KEY`; `OPENAI_MODEL` and `OPENAI_REVIEWER_MODEL` default to `gpt-5.5` in code when unset.
 - Background jobs are represented by local job primitives. A production worker backend must still be wired to the chosen Redis/Inngest/worker infrastructure.
+- The first provider ingestion slice is local verified accommodation records from the public tourism directory source profile; it is permitted for public republication, does not store raw payloads, and emits governed accommodation-area facts only.
 - Agoda, Tripadvisor/Terra, social, marketplace, and partner-source integrations remain approval-dependent and must not be scraped unless terms allow it.
 - Public pages currently use synthetic or explicitly permitted fixture data for release-candidate QA.

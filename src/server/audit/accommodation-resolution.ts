@@ -1,6 +1,10 @@
 import { siargaoTaxonomy } from "@/server/audit/destinations/siargao/taxonomy";
-import type { MatchState } from "@/server/audit/enums";
+import type { ConfidenceLabel, MatchState } from "@/server/audit/enums";
 import type { IntakeInput } from "@/server/audit/schemas";
+import {
+  type GovernedAccommodationCandidate,
+  buildLocalVerifiedAccommodationCandidates,
+} from "@/server/providers/accommodation-ingestion";
 
 export const accommodationMatchThreshold = 0.82;
 
@@ -11,30 +15,17 @@ export type AccommodationResolution = {
   accommodationName?: string;
   areaSlug?: string;
   sourceProfileId?: string;
+  sourceRecordId?: string;
+  sourceConfidence?: ConfidenceLabel;
   evidenceIds: string[];
+  factIds: string[];
   requiredFollowups: string[];
 };
 
-const localAccommodationRecords = [
-  {
-    entityId: "entity_example_surf_stay",
-    name: "Example Surf Stay",
-    aliases: ["Example Surfstay", "Example Surf House"],
-    areaSlug: "general-luna",
-    sourceProfileId: "source_user_submitted",
-    evidenceIds: ["ev_local_example_surf_stay"],
-  },
-  {
-    entityId: "entity_cloud_nine_guesthouse",
-    name: "Cloud Nine Guesthouse",
-    aliases: ["Cloud 9 Guesthouse"],
-    areaSlug: "cloud-9",
-    sourceProfileId: "source_user_submitted",
-    evidenceIds: ["ev_local_cloud_nine_guesthouse"],
-  },
-] as const;
-
-export function resolveAccommodation(input: IntakeInput): AccommodationResolution {
+export function resolveAccommodation(
+  input: IntakeInput,
+  candidates: readonly GovernedAccommodationCandidate[] = buildLocalVerifiedAccommodationCandidates(),
+): AccommodationResolution {
   if (!input.accommodationName) {
     if (input.stayAreaSlug && knownArea(input.stayAreaSlug)) {
       return {
@@ -42,6 +33,7 @@ export function resolveAccommodation(input: IntakeInput): AccommodationResolutio
         score: 1,
         areaSlug: input.stayAreaSlug,
         evidenceIds: ["ev_user_no_named_accommodation"],
+        factIds: [],
         requiredFollowups: [],
       };
     }
@@ -50,23 +42,26 @@ export function resolveAccommodation(input: IntakeInput): AccommodationResolutio
       status: "ambiguous",
       score: 0,
       evidenceIds: [],
+      factIds: [],
       requiredFollowups: ["Provide either an accommodation name or a planned stay area."],
     };
   }
 
   const normalizedName = normalize(input.accommodationName);
-  const candidates = localAccommodationRecords.map((record) => {
-    const names = [record.name, ...record.aliases].map(normalize);
-    const exact = names.some((name) => name === normalizedName);
-    const partial = names.some(
-      (name) => name.includes(normalizedName) || normalizedName.includes(name),
-    );
-    return {
-      record,
-      score: exact ? 0.96 : partial ? 0.74 : tokenOverlapScore(normalizedName, names),
-    };
-  });
-  const best = candidates.sort((left, right) => right.score - left.score)[0];
+  const matches = candidates
+    .filter((candidate) => candidate.auditUseAllowed && candidate.confidenceLabel !== "low")
+    .map((candidate) => {
+      const names = [candidate.name, ...candidate.aliases].map(normalize);
+      const exact = names.some((name) => name === normalizedName);
+      const partial = names.some(
+        (name) => name.includes(normalizedName) || normalizedName.includes(name),
+      );
+      return {
+        candidate,
+        score: exact ? 0.96 : partial ? 0.74 : tokenOverlapScore(normalizedName, names),
+      };
+    });
+  const best = matches.sort((left, right) => right.score - left.score)[0];
 
   if (!best || best.score < accommodationMatchThreshold) {
     return {
@@ -74,6 +69,7 @@ export function resolveAccommodation(input: IntakeInput): AccommodationResolutio
       score: best?.score ?? 0,
       accommodationName: input.accommodationName,
       evidenceIds: [],
+      factIds: [],
       requiredFollowups: [
         "Add a listing link or platform URL.",
         "Paste listing text or host-provided address details.",
@@ -85,11 +81,14 @@ export function resolveAccommodation(input: IntakeInput): AccommodationResolutio
   return {
     status: "confident",
     score: best.score,
-    entityId: best.record.entityId,
-    accommodationName: best.record.name,
-    areaSlug: best.record.areaSlug,
-    sourceProfileId: best.record.sourceProfileId,
-    evidenceIds: [...best.record.evidenceIds],
+    entityId: best.candidate.entityId,
+    accommodationName: best.candidate.name,
+    areaSlug: best.candidate.areaSlug,
+    sourceProfileId: best.candidate.sourceProfileId,
+    sourceRecordId: best.candidate.sourceRecordId,
+    sourceConfidence: best.candidate.confidenceLabel,
+    evidenceIds: [...best.candidate.evidenceIds],
+    factIds: [...best.candidate.factIds],
     requiredFollowups: [],
   };
 }
