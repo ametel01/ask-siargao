@@ -9,6 +9,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added a GitHub Actions CI release gate for non-mutating Biome checks, TypeScript, Bun tests, database validation, production build, and Playwright e2e.
 - Added release-candidate developer documentation for local setup, quality gates, environment variables, routes, demo data, audit lifecycle boundaries, provider limitations, and manual QA.
 - Added a typed release-candidate demo scenario manifest and tests for synthetic or permitted local QA fixtures.
 - Added sanitized observability events, privacy helpers, server-only secret handling, endpoint rate limits, security/noindex headers, and robots crawl rules.
@@ -46,6 +47,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Moved API route test helpers out of Next route modules so production builds validate App Router exports.
 - Derived public-page republication eligibility from registered source policy, blocking citation-only official facts from public answer-engine surfaces.
 - Scoped controlled retrieval evidence IDs to the facts selected by each tool so unrelated evidence cannot be returned with route or accommodation facts.
 - Required signed-token access plus paid, published, reviewer-approved state before rendering private audit reports, with the sample report moved to an explicit demo route.

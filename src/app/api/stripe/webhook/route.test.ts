@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import Stripe from "stripe";
 
-import { stripeWebhookResponse } from "@/app/api/stripe/webhook/route";
+import { stripeWebhookResponse } from "@/app/api/stripe/webhook/webhook-route";
 import {
   type AuditLifecycleRecord,
   createAuditLifecycleRecord,

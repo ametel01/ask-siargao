@@ -7,9 +7,8 @@ Use this checklist before treating the current build as a release candidate.
 Run the full gate suite from a clean working tree or after reviewing intentional local changes.
 
 ```sh
-bun run format
 bun run lint
-bun run typecheck
+bun run typecheck --incremental false
 bun test
 bun run db:migrate:test
 bun run db:seed:test
@@ -17,7 +16,7 @@ bun run build
 bun run test:e2e
 ```
 
-`lint` runs Biome through `biome check .`. There is no configured dependency or security audit script in `package.json` yet.
+`lint` runs Biome through the non-mutating `biome check .` gate. Use `bun run format` only when you want Biome to write formatting fixes. React Doctor runs in a separate advisory GitHub workflow and is available locally with `bun run doctor`.
 
 ## Manual Product QA
 

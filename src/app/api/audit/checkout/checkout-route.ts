@@ -1,0 +1,103 @@
+import { z } from "zod";
+
+import { getCheckoutAuditState, recordCheckoutStarted } from "@/server/audit/checkout-state";
+import { assertCanStartCheckout, startCheckoutLifecycle } from "@/server/audit/lifecycle";
+import { trackServerEvent } from "@/server/observability/events";
+import { createCheckoutSessionForAudit } from "@/server/payments/stripe";
+
+const checkoutRequestSchema = z
+  .object({
+    auditRequestId: z.string().min(1),
+    customerEmail: z.string().email().optional(),
+  })
+  .strip();
+
+export type CheckoutRouteDependencies = {
+  getCheckoutAuditState: typeof getCheckoutAuditState;
+  recordCheckoutStarted: typeof recordCheckoutStarted;
+  createCheckoutSessionForAudit: typeof createCheckoutSessionForAudit;
+  trackServerEvent: typeof trackServerEvent;
+};
+
+const defaultDependencies: CheckoutRouteDependencies = {
+  getCheckoutAuditState,
+  recordCheckoutStarted,
+  createCheckoutSessionForAudit,
+  trackServerEvent,
+};
+
+export async function checkoutResponse(
+  request: Request,
+  dependencies: CheckoutRouteDependencies = defaultDependencies,
+  headers?: HeadersInit,
+) {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return invalidCheckoutRequest([{ path: "", message: "Expected a valid JSON request body." }]);
+  }
+
+  const parsed = checkoutRequestSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return invalidCheckoutRequest(
+      parsed.error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        message: issue.message,
+      })),
+    );
+  }
+
+  const audit = await dependencies.getCheckoutAuditState(parsed.data.auditRequestId);
+
+  if (!audit) {
+    return Response.json({ error: "audit_not_found" }, { status: 404 });
+  }
+
+  try {
+    assertCanStartCheckout(audit);
+    const checkout = await dependencies.createCheckoutSessionForAudit({
+      audit,
+      appUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin,
+      customerEmail: parsed.data.customerEmail,
+    });
+    const nextAudit = startCheckoutLifecycle(audit, checkout);
+    await dependencies.recordCheckoutStarted(nextAudit);
+    dependencies.trackServerEvent({
+      name: "preview_to_payment_started",
+      payload: {
+        auditRequestId: nextAudit.id,
+        state: nextAudit.state,
+      },
+    });
+
+    return Response.json(
+      {
+        auditRequestId: nextAudit.id,
+        state: nextAudit.state,
+        checkoutUrl: checkout.url,
+        stripeCheckoutSessionId: checkout.id,
+      },
+      { headers },
+    );
+  } catch (error) {
+    return Response.json(
+      {
+        error: "checkout_not_available",
+        message: error instanceof Error ? error.message : "Checkout could not be started.",
+      },
+      { status: 409 },
+    );
+  }
+}
+
+function invalidCheckoutRequest(issues: Array<{ path: string; message: string }>) {
+  return Response.json(
+    {
+      error: "invalid_checkout_request",
+      issues,
+    },
+    { status: 400 },
+  );
+}

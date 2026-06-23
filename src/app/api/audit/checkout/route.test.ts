@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type Stripe from "stripe";
 
-import { type CheckoutRouteDependencies, checkoutResponse } from "@/app/api/audit/checkout/route";
+import {
+  type CheckoutRouteDependencies,
+  checkoutResponse,
+} from "@/app/api/audit/checkout/checkout-route";
 import type { AuditJobState } from "@/server/audit/enums";
 import { type AuditLifecycleRecord, createAuditLifecycleRecord } from "@/server/audit/lifecycle";
 

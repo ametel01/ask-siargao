@@ -8,22 +8,24 @@ Scripts are defined in `package.json`.
 | `bun run build` | `panda codegen && panda cssgen && next build` | Generate Panda artifacts and build the production Next.js app. |
 | `bun run db:migrate:test` | `bun run src/server/db/migrate-test.ts` | Apply the SQL migration to a PGlite test database. |
 | `bun run db:seed:test` | `bun run src/server/db/seed-test.ts` | Seed Siargao taxonomy and source profiles into a PGlite test database. |
-| `bun run format` | `biome format --write .` | Format the repository with Biome. |
-| `bun run lint` | `biome check .` | Run Biome lint/checks. |
+| `bun run format` | `biome format --write .` | Write Biome formatting fixes. |
+| `bun run lint` | `biome check .` | Run the non-mutating Biome check used by CI. |
 | `bun run typecheck` | `tsc --noEmit` | Run TypeScript type checking. |
 | `bun test` | `bun test` | Run Bun unit and integration tests. |
 | `bun run test:e2e` | `playwright test` | Run Playwright browser tests. |
 | `bun run postinstall` | `panda codegen && panda cssgen` | Regenerate Panda artifacts after install. |
+| `bun run doctor` | `npx react-doctor@latest` | Run the advisory React Doctor scan locally. |
 
 The release-candidate gate is:
 
 ```sh
-bun run format
 bun run lint
-bun run typecheck
+bun run typecheck --incremental false
 bun test
 bun run db:migrate:test
 bun run db:seed:test
 bun run build
 bun run test:e2e
 ```
+
+`bun run format` is a fix command, not a verification gate.

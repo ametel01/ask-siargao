@@ -26,10 +26,13 @@ bun run dev
 Quality gates:
 
 ```sh
-bun run format
 bun run lint
-bun run typecheck
+bun run typecheck --incremental false
 bun test
+bun run db:migrate:test
+bun run db:seed:test
 bun run build
 bun run test:e2e
 ```
+
+`bun run lint` is the non-mutating Biome check used by CI. Run `bun run format` only when you want Biome to write formatting fixes.
