@@ -1,5 +1,6 @@
 export type RateLimitPolicy =
   | "intake"
+  | "chat"
   | "checkout"
   | "public_api"
   | "report_access"
@@ -58,6 +59,7 @@ type MemoryRateLimitStore = Omit<RateLimitStore, "reset"> & {
 
 const policies: Record<RateLimitPolicy, { limit: number; windowMs: number }> = {
   intake: { limit: 8, windowMs: 60_000 },
+  chat: { limit: 20, windowMs: 60_000 },
   checkout: { limit: 4, windowMs: 60_000 },
   public_api: { limit: 120, windowMs: 60_000 },
   report_access: { limit: 30, windowMs: 60_000 },

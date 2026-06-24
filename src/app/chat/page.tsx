@@ -1,5 +1,11 @@
 import { ChatWorkspace } from "@/features/chat/ChatWorkspace";
 
-export default function ChatPage() {
-  return <ChatWorkspace />;
+export default async function ChatPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ prompt?: string }>;
+}) {
+  const { prompt } = await searchParams;
+
+  return <ChatWorkspace initialPrompt={prompt} />;
 }

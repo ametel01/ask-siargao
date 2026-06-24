@@ -1,3 +1,5 @@
+"use client";
+
 import {
   ArrowRight,
   BedDouble,
@@ -20,7 +22,15 @@ import {
   Utensils,
 } from "lucide-react";
 import Link from "next/link";
-import type { CSSProperties, ReactNode } from "react";
+import {
+  type CSSProperties,
+  type FormEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -99,21 +109,148 @@ const restaurants = [
   },
 ];
 
-export function ChatWorkspace() {
+type InteractiveChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  timestamp: string;
+  status?: "pending" | "complete" | "error";
+  model?: string;
+};
+
+type ChatControllerProps = {
+  inputValue: string;
+  isSending: boolean;
+  messages: InteractiveChatMessage[];
+  onInputValueChange: (value: string) => void;
+  onSubmitPrompt: (prompt: string) => void;
+};
+
+export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }) {
+  const [inputValue, setInputValue] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [messages, setMessages] = useState<InteractiveChatMessage[]>([]);
+  const submittedInitialPromptRef = useRef(false);
+
+  const submitPrompt = useCallback(
+    async (prompt: string) => {
+      const trimmedPrompt = prompt.trim();
+      if (!trimmedPrompt || isSending) {
+        return;
+      }
+
+      const timestamp = formatTimestamp();
+      const userMessage: InteractiveChatMessage = {
+        id: createMessageId("user"),
+        role: "user",
+        text: trimmedPrompt,
+        timestamp,
+        status: "complete",
+      };
+      const pendingAssistantId = createMessageId("assistant");
+      const pendingAssistant: InteractiveChatMessage = {
+        id: pendingAssistantId,
+        role: "assistant",
+        text: "Thinking through that with Ask Siargao...",
+        timestamp,
+        status: "pending",
+      };
+      const requestMessages = [
+        ...messages
+          .filter((message) => message.status === "complete")
+          .slice(-8)
+          .map((message) => ({ role: message.role, content: message.text })),
+        { role: "user" as const, content: trimmedPrompt },
+      ];
+
+      setInputValue("");
+      setIsSending(true);
+      setMessages((currentMessages) => [...currentMessages, userMessage, pendingAssistant]);
+
+      try {
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ messages: requestMessages }),
+        });
+        const body = (await response.json()) as { message?: string; model?: string };
+
+        const responseMessage = body.message;
+        const responseModel = body.model;
+
+        if (!response.ok || !responseMessage) {
+          throw new Error(responseMessage ?? "Ask Siargao could not answer right now.");
+        }
+
+        setMessages((currentMessages) =>
+          currentMessages.map((message) =>
+            message.id === pendingAssistantId
+              ? {
+                  ...message,
+                  text: responseMessage,
+                  timestamp: formatTimestamp(),
+                  status: "complete",
+                  model: responseModel,
+                }
+              : message,
+          ),
+        );
+      } catch (error) {
+        setMessages((currentMessages) =>
+          currentMessages.map((message) =>
+            message.id === pendingAssistantId
+              ? {
+                  ...message,
+                  text:
+                    error instanceof Error
+                      ? error.message
+                      : "Ask Siargao could not answer right now.",
+                  timestamp: formatTimestamp(),
+                  status: "error",
+                }
+              : message,
+          ),
+        );
+      } finally {
+        setIsSending(false);
+      }
+    },
+    [isSending, messages],
+  );
+
+  useEffect(() => {
+    if (!initialPrompt || submittedInitialPromptRef.current) {
+      return;
+    }
+
+    submittedInitialPromptRef.current = true;
+    void submitPrompt(initialPrompt);
+  }, [initialPrompt, submitPrompt]);
+
+  const chatController = {
+    inputValue,
+    isSending,
+    messages,
+    onInputValueChange: setInputValue,
+    onSubmitPrompt: (prompt: string) => {
+      void submitPrompt(prompt);
+    },
+  };
+
   return (
     <main className="min-h-screen overflow-x-hidden bg-white lg:h-dvh">
       <section
         aria-label="Ask Siargao chat workspace"
         className="relative hidden h-dvh min-h-0 w-full overflow-hidden bg-white lg:block"
       >
-        <DesktopWorkspace />
+        <DesktopWorkspace {...chatController} />
       </section>
-      <MobileWorkspace />
+      <MobileWorkspace {...chatController} />
     </main>
   );
 }
 
-function DesktopWorkspace() {
+function DesktopWorkspace(props: ChatControllerProps) {
   return (
     <SidebarProvider
       className="h-dvh max-h-dvh min-h-0 overflow-hidden"
@@ -121,7 +258,7 @@ function DesktopWorkspace() {
     >
       <div className="grid h-full max-h-full min-h-0 w-full grid-cols-[400px_minmax(0,1fr)_416px] grid-rows-[minmax(0,1fr)] overflow-hidden">
         <LeftSidebar />
-        <ConversationColumn />
+        <ConversationColumn {...props} />
         <RightSidebar />
       </div>
     </SidebarProvider>
@@ -226,7 +363,7 @@ function SidebarRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ConversationColumn() {
+function ConversationColumn(props: ChatControllerProps) {
   return (
     <section
       aria-label="Ask Siargao conversation"
@@ -253,9 +390,10 @@ function ConversationColumn() {
             <RestaurantCards />
           </AssistantMessage>
           <UserMessage text="What weather changes should we expect today?" timestamp="10:49 AM" />
+          <DynamicConversationMessages messages={props.messages} />
         </div>
       </ScrollArea>
-      <Composer />
+      <Composer {...props} />
     </section>
   );
 }
@@ -401,14 +539,43 @@ function BadgeRow({ updated }: { updated: string }) {
   );
 }
 
-function Composer() {
+function DynamicConversationMessages({ messages }: { messages: InteractiveChatMessage[] }) {
+  return messages.map((message) =>
+    message.role === "user" ? (
+      <UserMessage key={message.id} text={message.text} timestamp={message.timestamp} />
+    ) : (
+      <AssistantMessage key={message.id} text={message.text} timestamp={message.timestamp}>
+        {message.status === "complete" && message.model ? (
+          <div className="flex flex-wrap gap-2">
+            <SignalBadge tone="local">{message.model}</SignalBadge>
+            <SignalBadge tone="high">GPT response</SignalBadge>
+          </div>
+        ) : null}
+      </AssistantMessage>
+    ),
+  );
+}
+
+function Composer({
+  inputValue,
+  isSending,
+  onInputValueChange,
+  onSubmitPrompt,
+}: ChatControllerProps) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmitPrompt(inputValue);
+  }
+
   return (
     <footer className="grid gap-4 border-t border-brand-lavender-300/65 bg-white px-9 pt-3 pb-4">
       <div className="flex flex-wrap justify-start gap-4">
         {["quiet hotels", "restaurants tonight", "weather now"].map((chip) => (
           <Button
             className="h-10 rounded-full border-brand-lavender-300 bg-surface-default px-6 text-base font-black text-brand-violet-650 hover:bg-brand-lavender-100"
+            disabled={isSending}
             key={chip}
+            onClick={() => onSubmitPrompt(chip)}
             size="sm"
             type="button"
             variant="outline"
@@ -417,43 +584,49 @@ function Composer() {
           </Button>
         ))}
       </div>
-      <InputGroup className="min-h-[68px] grid-cols-[56px_1fr_104px] rounded-lg border-brand-lavender-300 bg-surface-default p-2 shadow-card">
-        <InputGroupAddon>
-          <InputGroupButton
-            aria-label="Add attachment"
-            className="size-12 rounded-lg border border-brand-lavender-300 bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
-            size="icon-sm"
-            type="button"
-            variant="ghost"
-          >
-            <Plus aria-hidden="true" size={18} />
-          </InputGroupButton>
-        </InputGroupAddon>
-        <InputGroupInput
-          aria-label="Ask anything about your Siargao trip"
-          className="h-12 px-0 text-lg text-text-default placeholder:text-text-soft"
-          placeholder="Ask anything about Siargao..."
-        />
-        <InputGroupAddon align="inline-end">
-          <InputGroupButton
-            aria-label="Record voice question"
-            className="size-12 rounded-lg bg-transparent text-text-muted hover:bg-brand-lavender-100"
-            size="icon-sm"
-            type="button"
-            variant="ghost"
-          >
-            <Mic aria-hidden="true" size={22} />
-          </InputGroupButton>
-          <InputGroupButton
-            aria-label="Send question"
-            className="size-12 rounded-lg bg-brand-violet-650 text-white hover:bg-brand-violet-600"
-            size="icon-sm"
-            type="button"
-          >
-            <Send aria-hidden="true" size={18} />
-          </InputGroupButton>
-        </InputGroupAddon>
-      </InputGroup>
+      <form onSubmit={handleSubmit}>
+        <InputGroup className="min-h-[68px] grid-cols-[56px_1fr_104px] rounded-lg border-brand-lavender-300 bg-surface-default p-2 shadow-card">
+          <InputGroupAddon>
+            <InputGroupButton
+              aria-label="Add attachment"
+              className="size-12 rounded-lg border border-brand-lavender-300 bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+              size="icon-sm"
+              type="button"
+              variant="ghost"
+            >
+              <Plus aria-hidden="true" size={18} />
+            </InputGroupButton>
+          </InputGroupAddon>
+          <InputGroupInput
+            aria-label="Ask anything about your Siargao trip"
+            className="h-12 px-0 text-lg text-text-default placeholder:text-text-soft"
+            disabled={isSending}
+            onChange={(event) => onInputValueChange(event.target.value)}
+            placeholder="Ask anything about Siargao..."
+            value={inputValue}
+          />
+          <InputGroupAddon align="inline-end">
+            <InputGroupButton
+              aria-label="Record voice question"
+              className="size-12 rounded-lg bg-transparent text-text-muted hover:bg-brand-lavender-100"
+              size="icon-sm"
+              type="button"
+              variant="ghost"
+            >
+              <Mic aria-hidden="true" size={22} />
+            </InputGroupButton>
+            <InputGroupButton
+              aria-label="Send question"
+              className="size-12 rounded-lg bg-brand-violet-650 text-white hover:bg-brand-violet-600"
+              disabled={isSending}
+              size="icon-sm"
+              type="submit"
+            >
+              <Send aria-hidden="true" size={18} />
+            </InputGroupButton>
+          </InputGroupAddon>
+        </InputGroup>
+      </form>
     </footer>
   );
 }
@@ -560,7 +733,18 @@ function MetricGrid({ rows }: { rows: string[][] }) {
   );
 }
 
-function MobileWorkspace() {
+function MobileWorkspace({
+  inputValue,
+  isSending,
+  messages,
+  onInputValueChange,
+  onSubmitPrompt,
+}: ChatControllerProps) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmitPrompt(inputValue);
+  }
+
   return (
     <section
       aria-label="Ask Siargao mobile chat"
@@ -608,9 +792,13 @@ function MobileWorkspace() {
               </div>
             </div>
           </div>
+          <MobileDynamicMessages messages={messages} />
         </div>
       </ScrollArea>
-      <div className="grid grid-cols-[38px_1fr_38px_38px] items-center gap-2 border-t border-brand-lavender-400/20 bg-brand-navy-980/95 p-3">
+      <form
+        className="grid grid-cols-[38px_1fr_38px_38px] items-center gap-2 border-t border-brand-lavender-400/20 bg-brand-navy-980/95 p-3"
+        onSubmit={handleSubmit}
+      >
         <Button
           aria-label="Add detail"
           className="size-10 rounded-full border-white/15 bg-white/10 text-white hover:bg-white/15"
@@ -624,7 +812,10 @@ function MobileWorkspace() {
           <InputGroupInput
             aria-label="Ask Ask Siargao on mobile"
             className="h-10 px-4 text-sm text-white placeholder:text-text-on-dark-muted focus-visible:ring-brand-violet-400/35"
+            disabled={isSending}
+            onChange={(event) => onInputValueChange(event.target.value)}
             placeholder="Ask anything..."
+            value={inputValue}
           />
         </InputGroup>
         <Button
@@ -639,12 +830,13 @@ function MobileWorkspace() {
         <Button
           aria-label="Send mobile question"
           className="size-10 rounded-full border-brand-violet-650 bg-brand-violet-650 text-white hover:bg-brand-violet-600"
+          disabled={isSending}
           size="icon"
-          type="button"
+          type="submit"
         >
           <Send aria-hidden="true" size={18} />
         </Button>
-      </div>
+      </form>
     </section>
   );
 }
@@ -712,4 +904,41 @@ function MobileRecommendation({ subtitle, title }: { subtitle: string; title: st
       <SignalBadge>Fresh</SignalBadge>
     </article>
   );
+}
+
+function MobileDynamicMessages({ messages }: { messages: InteractiveChatMessage[] }) {
+  return messages.map((message) =>
+    message.role === "user" ? (
+      <div
+        className="max-w-[82%] justify-self-end rounded-md bg-[image:var(--gradient-cta)] p-4 text-sm leading-[1.45] font-extrabold text-text-on-dark"
+        key={message.id}
+      >
+        {message.text}
+      </div>
+    ) : (
+      <div className="grid grid-cols-[34px_minmax(0,1fr)] items-start gap-3" key={message.id}>
+        <PalmMark className="size-7" />
+        <div className="rounded-md border border-brand-lavender-400/30 bg-white/10 p-4">
+          <p className="m-0 text-sm leading-[1.55] text-text-on-dark-muted">{message.text}</p>
+          {message.status === "complete" && message.model ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <SignalBadge tone="local">{message.model}</SignalBadge>
+              <SignalBadge tone="high">GPT response</SignalBadge>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    ),
+  );
+}
+
+function createMessageId(prefix: string) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+function formatTimestamp() {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date());
 }

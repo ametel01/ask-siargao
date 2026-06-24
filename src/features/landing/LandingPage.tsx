@@ -44,12 +44,35 @@ const weatherRows: {
   { label: "Freshness", value: "Updated 12 min ago", icon: Waves },
 ];
 
+const examplePrompt =
+  "I'm staying near Cloud 9 for 10 days. We want quiet sleep, surfing, good restaurants, and easy airport transfer. What should we know?";
+
 const suggestionChips = [
-  ["quiet hotel?", BedDouble],
-  ["best restaurants nearby", Utensils],
-  ["airport transfer", Car],
-  ["parties this weekend", CalendarDays],
-  ["weather today", CloudSun],
+  {
+    label: "quiet hotel?",
+    prompt: "Is my accommodation near Cloud 9 quiet enough for sleep?",
+    icon: BedDouble,
+  },
+  {
+    label: "best restaurants nearby",
+    prompt: "What are the best restaurants near Cloud 9 tonight?",
+    icon: Utensils,
+  },
+  {
+    label: "airport transfer",
+    prompt: "What is the easiest airport transfer option to General Luna?",
+    icon: Car,
+  },
+  {
+    label: "parties this weekend",
+    prompt: "What parties or events are worth checking this weekend in Siargao?",
+    icon: CalendarDays,
+  },
+  {
+    label: "weather today",
+    prompt: "What should today's Siargao weather change about our plans?",
+    icon: CloudSun,
+  },
 ];
 
 const trustItems = [
@@ -199,8 +222,7 @@ function PromptCard() {
         <div className="flex items-start gap-3">
           <Sparkles aria-hidden="true" className="shrink-0 text-brand-violet-550" />
           <p className="m-0 max-w-[520px] text-sm leading-[1.48] font-bold text-text-strong md:text-lg">
-            I'm staying near Cloud 9 for 10 days. We want quiet sleep, surfing, good restaurants,
-            and easy airport transfer. What should we know?
+            {examplePrompt}
           </p>
         </div>
         <div className="flex w-full items-end gap-2 self-end">
@@ -222,7 +244,10 @@ function PromptCard() {
           >
             <Globe2 aria-hidden="true" size={18} />
           </Button>
-          <GradientLink className="ml-auto min-h-12 rounded-lg px-8 whitespace-nowrap" href="/chat">
+          <GradientLink
+            className="ml-auto min-h-12 rounded-lg px-8 whitespace-nowrap"
+            href={chatPromptHref(examplePrompt)}
+          >
             Ask Siargao <Send aria-hidden="true" size={16} />
           </GradientLink>
         </div>
@@ -269,16 +294,16 @@ function SuggestionChips() {
         Try asking about...
       </p>
       <div className="flex flex-wrap gap-3">
-        {suggestionChips.map(([label, Icon]) => (
+        {suggestionChips.map(({ icon: Icon, label, prompt }) => (
           <Button
             asChild
             className="min-h-9 rounded-full border border-brand-lavender-400/65 bg-brand-navy-980/36 px-5 text-xs font-bold text-white/92 shadow-[0_10px_30px_rgba(0,0,0,0.16)] hover:bg-brand-navy-900/60 hover:text-white"
-            key={label as string}
+            key={label}
             variant="outline"
           >
-            <Link href="/chat">
+            <Link href={chatPromptHref(prompt)}>
               <Icon aria-hidden="true" size={15} />
-              {label as string}
+              {label}
             </Link>
           </Button>
         ))}
@@ -351,4 +376,8 @@ function slug(value: string) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
+}
+
+function chatPromptHref(prompt: string) {
+  return `/chat?prompt=${encodeURIComponent(prompt)}`;
 }
