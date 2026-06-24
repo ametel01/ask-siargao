@@ -14,6 +14,8 @@
     "build": "zsh -lc 'rm -rf .next && NEXT_PRIVATE_BUILD_WORKER=0 ./node_modules/.bin/panda codegen && NEXT_PRIVATE_BUILD_WORKER=0 ./node_modules/.bin/panda cssgen && NEXT_PRIVATE_BUILD_WORKER=0 ./node_modules/.bin/next build'",
     "db:migrate": "bun run src/server/db/migrate.ts",
     "db:seed": "bun run src/server/db/seed.ts",
+    "db:discover:google-places": "bun run src/server/providers/discover-google-places.ts",
+    "db:enrich:google-places": "bun run src/server/providers/enrich-google-places.ts",
     "db:ingest:open-meteo": "bun run src/server/providers/ingest-open-meteo.ts",
     "db:migrate:test": "bun run src/server/db/migrate-test.ts",
     "db:seed:test": "bun run src/server/db/seed-test.ts",

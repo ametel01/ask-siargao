@@ -368,7 +368,7 @@ export function buildSitemapXml(pages = publicPagesForIndex()) {
 
 export function buildLlmsTxt(pages = publicPagesForIndex()) {
   return [
-    "# Siargao Portal public knowledge",
+    "# Ask Siargao public knowledge",
     "",
     "Public pages use only republishable facts with visible evidence, confidence, freshness, source type, canonical URL, and limitations.",
     "",

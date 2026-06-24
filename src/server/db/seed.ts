@@ -52,6 +52,7 @@ export async function seedSiargaoBaseline(query: QueryRunner) {
      values
        ('provider_official_transport', 'official-transport-sources', 'Official transport sources', 'official_transport'),
        ('provider_open_meteo', 'open-meteo', 'Open-Meteo', 'weather_api'),
+       ('provider_google_places', 'google-places', 'Google Places', 'places_api'),
        ('provider_user_evidence', 'user-submitted-evidence', 'User-submitted evidence', 'user_submitted_evidence')
      on conflict (id) do nothing`,
   );
@@ -99,6 +100,20 @@ export async function seedSiargaoBaseline(query: QueryRunner) {
          true,
          false,
          'Seed profile for weather forecast and historical weather facts.'
+       ),
+       (
+         'source_google_places',
+         'provider_google_places',
+         'Google Places API profile',
+         'licensed_api',
+         'api',
+         'citation_only',
+         30,
+         3,
+         false,
+         false,
+         false,
+         'Google Places API source for Place ID discovery and refreshable accommodation/POI evidence. Store durable Place IDs, not copied public directory content.'
        ),
        (
          'source_user_submitted',

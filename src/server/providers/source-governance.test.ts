@@ -107,6 +107,14 @@ describe("source registry and fact governance", () => {
     expect(canPublishFactPublicly(weatherFact, "medium")).toBe(true);
     expect(canPublishFactPublicly(officialFact, "high")).toBe(false);
     expect(registry.decide("source_public_tourism_directory").publicRepublishAllowed).toBe(true);
+    expect(registry.decide("source_google_places")).toMatchObject({
+      canFetch: true,
+      canStoreRaw: false,
+      canUseInPaidAudit: true,
+      canCitePublicly: true,
+      canExposeToAgents: false,
+      publicRepublishAllowed: false,
+    });
   });
 
   test("stores source credibility and fact confidence separately", () => {

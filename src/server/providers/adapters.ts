@@ -73,6 +73,32 @@ const openMeteoAdapter: ProviderAdapterContract = {
   freshnessWindowDays: 1,
 };
 
+const googlePlacesAdapter: ProviderAdapterContract = {
+  id: "adapter_google_places",
+  kind: "review_poi_api",
+  profile: {
+    id: "source_google_places",
+    sourceName: "Google Places API",
+    sourceType: "licensed_api",
+    accessMethod: "api",
+    allowedUse: "citation_only",
+    termsUrl: "https://cloud.google.com/maps-platform/terms",
+    rateLimit: "quota-controlled Google Maps Platform API",
+    freshnessWindowDays: 30,
+    authorityLevel: 3,
+    storesRawAllowed: false,
+    publishesRawAllowed: false,
+    requiresPartnerApproval: false,
+    knownStaleRisk: "medium",
+    knownAiOrSeoContentRisk: "low",
+    notes:
+      "Use for Place ID discovery and refreshable accommodation/POI evidence. Store durable Place IDs, not a copied public Google directory.",
+  },
+  retryPolicy: { maxAttempts: 2, backoffMs: 1_000 },
+  rateLimit: "quota-controlled Google Maps Platform API",
+  freshnessWindowDays: 30,
+};
+
 const publicTourismDirectoryAdapter: ProviderAdapterContract = {
   id: "adapter_public_tourism_directory",
   kind: "official_public_sector",
@@ -151,6 +177,7 @@ export function createDefaultSourceRegistry() {
   return new SourceRegistry([
     officialTransportAdapter.profile,
     openMeteoAdapter.profile,
+    googlePlacesAdapter.profile,
     publicTourismDirectoryAdapter.profile,
     userSubmittedEvidenceAdapter.profile,
     disallowedScrapeAdapter.profile,
