@@ -10,8 +10,8 @@ Sources:
 
 ## Status
 
-- Current status: Step 2 complete; shared Ask Siargao primitive migration pending.
-- Next step: Step 3, Migrate Shared Ask Siargao Primitives off Panda.
+- Current status: Step 3 complete; landing and chat surface migration pending.
+- Next step: Step 4, Migrate Landing and Chat Surfaces to shadcn/Tailwind.
 - Update rule: After each completed step, update this file with completion notes, validation results, commit reference if available, current status, and next step.
 
 ## Checklist
@@ -19,7 +19,7 @@ Sources:
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Baseline Inventory and Gate Run
 - [x] Step 2: Add shadcn Primitives and Brand CSS Variables
-- [ ] Step 3: Migrate Shared Ask Siargao Primitives off Panda
+- [x] Step 3: Migrate Shared Ask Siargao Primitives off Panda
 - [ ] Step 4: Migrate Landing and Chat Surfaces to shadcn/Tailwind
 - [ ] Step 5: Migrate Report, Admin, Public, and Status Surfaces
 - [ ] Step 6: Remove Panda Configuration, Generated Output, Scripts, and Docs
@@ -34,3 +34,4 @@ The migration removes Panda CSS from runtime code, generated assets, scripts, de
 - 2026-06-24: Reset progress tracking for the "Remove Panda and Expand shadcn Integration" plan. Validation confirmed `PROGRESS.md` contains the new migration checklist and `CHANGELOG.md` retains the Keep a Changelog structure with `# Changelog` and `## [Unreleased]`. Commit pending for Step 0.
 - 2026-06-24: Step 1 complete. Baseline inventory found Panda still active in `package.json`, `panda.config.ts`, `doctor.config.json`, `documentation/developer/reference/scripts.md`, `src/theme/global.css`, `src/theme/recipes.ts`, `src/ui/components/ask-siargao.tsx`, `src/features/landing/LandingPage.tsx`, `src/features/chat/ChatWorkspace.tsx`, `src/features/report/FinalReportPage.tsx`, `src/features/admin/AdminDiagnosticsPage.tsx`, `src/features/public-pages/PublicKnowledgePage.tsx`, and `src/features/audit-status/AuditStatusPage.tsx`. Current shadcn inventory contains accordion, alert, badge, button, card, checkbox, dialog, dropdown-menu, field, input, label, progress, radio-group, select, separator, sheet, skeleton, sonner, spinner, switch, table, tabs, textarea, and tooltip. Registry search confirmed `sidebar`, `scroll-area`, `avatar`, `input-group`, `button-group`, `toggle-group`, `item`, `empty`, `breadcrumb`, `collapsible`, and `navigation-menu` are available from `@shadcn`. Validation passed: `bun run lint`, `bun run typecheck --incremental false`, `bun test`, `bun run db:migrate:test`, `bun run db:seed:test`, `bun run build`, and `bun run test:e2e`. Commit pending for Step 1.
 - 2026-06-24: Step 2 complete. Added shadcn `sidebar`, `scroll-area`, `avatar`, `input-group`, `button-group`, `toggle`, `toggle-group`, `item`, `empty`, `breadcrumb`, `collapsible`, and `navigation-menu` primitives without overwriting existing local components. Moved the canonical Ask Siargao brand palette, surfaces, text colors, confidence and risk colors, borders, shadows, gradients, fonts, durations, and easing into `src/theme/global.css`; mapped shadcn sidebar, chart, background, foreground, card, popover, primary, secondary, muted, accent, border, input, and ring variables to the brand layer; and kept the generated Panda stylesheet import as a temporary fallback for unmigrated code. Validation passed: `bun run format`, `bun run lint`, `bun run typecheck --incremental false`, `bun test`, `bun run db:migrate:test`, `bun run db:seed:test`, `bun run build`, and `bun run test:e2e`. Commit pending for Step 2.
+- 2026-06-24: Step 3 complete. Refactored `src/ui/components/ask-siargao.tsx` off Panda `css()`, `cx()`, and token references while preserving `BrandLockup`, `PalmMark`, `GradientLink`, `SignalBadge`, and `BrowserDots` exports. The shared primitives now use `cn`, Tailwind utilities, CSS variables, `Button`, `Badge`, and `Avatar`; generated Panda CSS was refreshed to remove no-longer-referenced shared primitive classes. Validation passed: `bun run format`, `bun run lint`, `bun run typecheck --incremental false`, `bun test`, `bun run db:migrate:test`, `bun run db:seed:test`, `bun run build`, and `bun run test:e2e`. Commit pending for Step 3.
