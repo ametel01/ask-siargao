@@ -20,7 +20,7 @@ results, commit reference if available, current status, and next step.
 ## Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
-- [ ] Step 1: Replace Mock Chat Layout With A Focused Responsive Shell
+- [x] Step 1: Replace Mock Chat Layout With A Focused Responsive Shell
 - [ ] Step 2: Add Mocked Browser Coverage For Real Chat Interaction
 - [ ] Step 3: Harden Chat Error, Pending, And Accessibility States
 - [ ] Step 4: Align Landing Deep Links And Final Visual Smoke
@@ -28,10 +28,10 @@ results, commit reference if available, current status, and next step.
 
 ## Current Status
 
-Step 0 complete. Current status: ready for Step 1.
+Step 1 complete. Current status: ready for Step 2.
 
-Next step: Replace the `/chat` mock sidebar/context layout with one focused responsive
-chat shell.
+Next step: Add mocked browser coverage for real chat submission, assistant response
+rendering, and prompt auto-submit.
 
 ## Update Log
 
@@ -51,4 +51,30 @@ Validation:
 
 Commit:
 
-- Pending: `chore: track real chat replacement progress`
+- `dcc0148 chore: track real chat replacement progress`
+
+### Step 1: Replace Mock Chat Layout With A Focused Responsive Shell
+
+- Replaced the split desktop/mobile mock workspace with one responsive chat shell.
+- Removed fake sidebars, saved places, recent questions, trip context, weather, surf,
+  sample evidence, restaurant cards, freshness badges, and confidence badges from `/chat`.
+- Added small internal `ChatMessage`, `ChatComposer`, `SuggestedPromptBar`, and
+  `ChatEmptyState` components.
+- Kept the existing React-only message state, `/api/chat` submit flow, suggested prompts,
+  and `initialPrompt` support from `src/app/chat/page.tsx`.
+- Updated the existing chat e2e smoke coverage to assert the real shell and absence of
+  old fake layout content.
+
+Validation:
+
+- `bun run format` - passed
+- `bun run lint` - passed after replacing the ARIA-labelled prompt wrapper with a
+  semantic `fieldset` and removing the unnecessary effect dependency
+- `bun run typecheck` - passed
+- `bun test src/app/api/chat/route.test.ts` - passed
+- `bun run test:e2e -- tests/e2e/chat.e2e.ts` - passed
+- `bun run build` - passed
+
+Commit:
+
+- Pending: `feat: replace chat mockup with real chat shell`
