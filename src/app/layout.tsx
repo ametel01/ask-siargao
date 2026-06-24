@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Cormorant_Garamond, Nunito_Sans } from "next/font/google";
 import type { ReactNode } from "react";
 
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import "@/theme/global.css";
 
 const bodyFont = Nunito_Sans({
@@ -28,7 +30,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html className={`${bodyFont.variable} ${displayFont.variable}`} lang="en">
-      <body>{children}</body>
+      <body>
+        <TooltipProvider>{children}</TooltipProvider>
+        <Toaster position="top-center" richColors />
+      </body>
     </html>
   );
 }

@@ -1,5 +1,7 @@
 import { AlertTriangle, CheckCircle2, ClipboardList, FileText, HelpCircle } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import type { ReportOutput, RiskItem } from "@/server/audit/schemas";
 import { css } from "../../../styled-system/css/css";
 import { pageShell } from "../../../styled-system/recipes/page-shell";
@@ -106,15 +108,7 @@ export function FinalReportPage({
             })}
           >
             {report.fullRiskTable.map((risk) => (
-              <article className={compactCard()} key={risk.id}>
-                <p className={labelClass()}>{categoryLabels[risk.category]}</p>
-                <h3 className={smallTitle()}>{risk.title}</h3>
-                <p className={bodyClass()}>{risk.recommendedFix}</p>
-                <p className={metaClass()}>
-                  {risk.level.toUpperCase()} risk · {risk.confidence} confidence · Evidence{" "}
-                  {risk.evidence.map((item) => item.evidenceId).join(", ")}
-                </p>
-              </article>
+              <RiskSummary key={risk.id} risk={risk} />
             ))}
           </div>
         </section>
@@ -139,13 +133,16 @@ export function FinalReportPage({
             <PanelHeading icon={CheckCircle2} title="Evidence snapshot" />
             <div className={css({ display: "grid", gap: "3" })}>
               {report.evidence.map((evidence) => (
-                <article className={compactCard()} key={evidence.evidenceId}>
-                  <p className={labelClass()}>{evidence.evidenceId}</p>
-                  <h3 className={smallTitle()}>{evidence.label}</h3>
-                  <p className={bodyClass()}>
-                    {evidence.sourceName} · {evidence.confidence} confidence · {evidence.freshness}
-                  </p>
-                </article>
+                <Card className={compactCard()} key={evidence.evidenceId} size="sm">
+                  <CardContent className={compactCardContent()}>
+                    <p className={labelClass()}>{evidence.evidenceId}</p>
+                    <h3 className={smallTitle()}>{evidence.label}</h3>
+                    <p className={bodyClass()}>
+                      {evidence.sourceName} · {evidence.confidence} confidence ·{" "}
+                      {evidence.freshness}
+                    </p>
+                  </CardContent>
+                </Card>
               ))}
             </div>
           </section>
@@ -172,25 +169,57 @@ export function FinalReportPage({
 
 function RiskBlock({ risk }: { risk: RiskItem }) {
   return (
-    <article className={compactCard()}>
-      <p className={labelClass()}>{categoryLabels[risk.category]}</p>
+    <Card className={compactCard()} size="sm">
+      <CardContent className={compactCardContent()}>
+        <RiskHeading risk={risk} />
+        <p className={bodyClass()}>{risk.whatMightBreak}</p>
+        <p className={bodyClass()}>{risk.whyItMatters}</p>
+        <p className={metaClass()}>
+          Fix: {risk.recommendedFix} · Evidence{" "}
+          {risk.evidence.map((item) => item.evidenceId).join(", ")}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RiskSummary({ risk }: { risk: RiskItem }) {
+  return (
+    <Card className={compactCard()} size="sm">
+      <CardContent className={compactCardContent()}>
+        <RiskHeading risk={risk} />
+        <p className={bodyClass()}>{risk.recommendedFix}</p>
+        <p className={metaClass()}>
+          {risk.confidence} confidence · Evidence{" "}
+          {risk.evidence.map((item) => item.evidenceId).join(", ")}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RiskHeading({ risk }: { risk: RiskItem }) {
+  return (
+    <div className={css({ display: "grid", gap: "2" })}>
+      <div className={css({ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "2" })}>
+        <p className={labelClass()}>{categoryLabels[risk.category]}</p>
+        <Badge variant={risk.level === "red" ? "destructive" : "secondary"}>
+          {risk.level.toUpperCase()} risk
+        </Badge>
+      </div>
       <h3 className={smallTitle()}>{risk.title}</h3>
-      <p className={bodyClass()}>{risk.whatMightBreak}</p>
-      <p className={bodyClass()}>{risk.whyItMatters}</p>
-      <p className={metaClass()}>
-        Fix: {risk.recommendedFix} · Evidence{" "}
-        {risk.evidence.map((item) => item.evidenceId).join(", ")}
-      </p>
-    </article>
+    </div>
   );
 }
 
 function Note({ title, value }: { title: string; value: string }) {
   return (
-    <article className={compactCard()}>
-      <p className={labelClass()}>{title}</p>
-      <p className={bodyClass()}>{value}</p>
-    </article>
+    <Card className={compactCard()} size="sm">
+      <CardContent className={compactCardContent()}>
+        <p className={labelClass()}>{title}</p>
+        <p className={bodyClass()}>{value}</p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -239,6 +268,10 @@ function compactCard() {
     gap: "2",
     p: "4",
   });
+}
+
+function compactCardContent() {
+  return css({ display: "grid", gap: "2", p: "0" });
 }
 
 function listClass() {

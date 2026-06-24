@@ -1,5 +1,8 @@
 import { CheckCircle2, Clock3, FileSearch, TriangleAlert } from "lucide-react";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Card, CardContent } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { type AuditJobState, auditJobStates } from "@/server/audit/enums";
 import { css } from "../../../styled-system/css/css";
 import { pageShell } from "../../../styled-system/recipes/page-shell";
@@ -85,6 +88,7 @@ export function AuditStatusPage({
 }) {
   const copy = statusCopy[state];
   const Icon = copy.icon;
+  const progressValue = auditProgressValue(state);
 
   return (
     <main className={pageShell()}>
@@ -99,7 +103,7 @@ export function AuditStatusPage({
           py: { base: "10", md: "16" },
         })}
       >
-        <div
+        <Card
           className={css({
             bg: "surface",
             borderColor: "border",
@@ -111,79 +115,89 @@ export function AuditStatusPage({
             p: { base: "5", md: "8" },
           })}
         >
-          <div
-            className={css({
-              alignItems: "center",
-              display: "flex",
-              gap: "3",
-            })}
-          >
-            <span
+          <CardContent className={css({ display: "grid", gap: "5", p: "0" })}>
+            <div
               className={css({
                 alignItems: "center",
-                bg:
-                  copy.tone === "success"
-                    ? "risk.lowBg"
-                    : copy.tone === "warning"
-                      ? "risk.mediumBg"
-                      : "surface.tint",
-                borderRadius: "md",
-                color:
-                  copy.tone === "success"
-                    ? "risk.lowDark"
-                    : copy.tone === "warning"
-                      ? "risk.medium"
-                      : "violet.650",
-                display: "inline-flex",
-                h: "11",
-                justifyContent: "center",
-                width: "11",
+                display: "flex",
+                gap: "3",
               })}
             >
-              <Icon aria-hidden="true" size={23} />
-            </span>
-            <p
+              <span
+                className={css({
+                  alignItems: "center",
+                  bg:
+                    copy.tone === "success"
+                      ? "risk.lowBg"
+                      : copy.tone === "warning"
+                        ? "risk.mediumBg"
+                        : "surface.tint",
+                  borderRadius: "md",
+                  color:
+                    copy.tone === "success"
+                      ? "risk.lowDark"
+                      : copy.tone === "warning"
+                        ? "risk.medium"
+                        : "violet.650",
+                  display: "inline-flex",
+                  h: "11",
+                  justifyContent: "center",
+                  width: "11",
+                })}
+              >
+                <Icon aria-hidden="true" size={23} />
+              </span>
+              <p
+                className={css({
+                  color: "text.muted",
+                  fontSize: "xs",
+                  fontWeight: "800",
+                  m: 0,
+                  textTransform: "uppercase",
+                })}
+              >
+                Audit {auditRequestId}
+              </p>
+            </div>
+            <h1
+              className={css({
+                color: "text.strong",
+                fontSize: { base: "2xl", md: "3xl" },
+                fontWeight: "800",
+                lineHeight: "1.15",
+                m: 0,
+              })}
+            >
+              {copy.title}
+            </h1>
+            <Alert variant={copy.tone === "warning" ? "destructive" : "default"}>
+              <Icon aria-hidden="true" />
+              <AlertTitle>{copy.title}</AlertTitle>
+              <AlertDescription>{copy.body}</AlertDescription>
+            </Alert>
+            <div className={css({ display: "grid", gap: "2" })}>
+              <Progress aria-label="Audit progress" value={progressValue} />
+              <p className={css({ color: "text.muted", fontSize: "xs", fontWeight: "800", m: 0 })}>
+                {Math.round(progressValue)}% through the audit lifecycle
+              </p>
+            </div>
+            <ol
               className={css({
                 color: "text.muted",
-                fontSize: "xs",
-                fontWeight: "800",
+                display: "grid",
+                fontSize: "sm",
+                gap: "2",
+                lineHeight: "1.7",
                 m: 0,
-                textTransform: "uppercase",
+                pl: "5",
               })}
             >
-              Audit {auditRequestId}
-            </p>
-          </div>
-          <h1
-            className={css({
-              color: "text.strong",
-              fontSize: { base: "2xl", md: "3xl" },
-              fontWeight: "800",
-              lineHeight: "1.15",
-              m: 0,
-            })}
-          >
-            {copy.title}
-          </h1>
-          <p className={css({ color: "text.muted", fontSize: "md", lineHeight: "1.7", m: 0 })}>
-            {copy.body}
-          </p>
-          <ol
-            className={css({
-              color: "text.muted",
-              display: "grid",
-              fontSize: "sm",
-              gap: "2",
-              lineHeight: "1.7",
-              m: 0,
-              pl: "5",
-            })}
-          >
-            <li>Verified Stripe webhook marks the audit paid.</li>
-            <li>Generation starts after payment is verified server-side.</li>
-            <li>Publication requires both payment and reviewer approval.</li>
-          </ol>
-        </div>
+              <li>Verified Stripe webhook marks the audit paid.</li>
+              <li>Generation starts after payment is verified server-side.</li>
+              <li>Publication requires both payment and reviewer approval.</li>
+            </ol>
+          </CardContent>
+        </Card>
       </section>
     </main>
   );
@@ -193,4 +207,22 @@ export function parseAuditStatusState(value: string | undefined): AuditJobState 
   return auditJobStates.includes(value as AuditJobState)
     ? (value as AuditJobState)
     : "awaiting_payment";
+}
+
+function auditProgressValue(state: AuditJobState) {
+  const progressByState: Record<AuditJobState, number> = {
+    created: 8,
+    resolving: 18,
+    needs_user_input: 24,
+    complete_for_payment: 36,
+    awaiting_payment: 48,
+    paid: 60,
+    generating: 72,
+    reviewing: 86,
+    published: 100,
+    blocked: 24,
+    failed: 24,
+  };
+
+  return progressByState[state];
 }

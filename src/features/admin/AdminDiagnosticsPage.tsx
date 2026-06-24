@@ -8,6 +8,8 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import type { AdminAccessResult } from "@/server/admin/access";
 import type { AdminDiagnosticsSnapshot } from "@/server/admin/diagnostics";
 import { css } from "../../../styled-system/css/css";
@@ -163,24 +165,30 @@ export function AdminDiagnosticsPage({
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className={panelClass()}>
-      <p className={eyebrowLightClass()}>{label}</p>
-      <p className={css({ color: "text.strong", fontSize: "3xl", fontWeight: "800", m: 0 })}>
-        {value}
-      </p>
-    </div>
+    <Card className={panelClass()}>
+      <CardContent className={cardContentClass()}>
+        <p className={eyebrowLightClass()}>{label}</p>
+        <p className={css({ color: "text.strong", fontSize: "3xl", fontWeight: "800", m: 0 })}>
+          {value}
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
 function DiagnosticCard({ body, meta, title }: { title: string; meta: string; body: string }) {
   return (
-    <article className={cardClass()}>
-      <p className={eyebrowLightClass()}>{meta}</p>
-      <h3 className={css({ color: "text.strong", fontSize: "md", fontWeight: "800", m: 0 })}>
-        {title}
-      </h3>
-      <p className={bodyClass()}>{body || "No details recorded."}</p>
-    </article>
+    <Card className={cardClass()} size="sm">
+      <CardContent className={cardContentClass()}>
+        <Badge className={css({ width: "fit-content" })} variant={metaTone(meta)}>
+          {meta}
+        </Badge>
+        <h3 className={css({ color: "text.strong", fontSize: "md", fontWeight: "800", m: 0 })}>
+          {title}
+        </h3>
+        <p className={bodyClass()}>{body || "No details recorded."}</p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -267,6 +275,25 @@ function cardClass() {
     mb: "3",
     p: "4",
   });
+}
+
+function cardContentClass() {
+  return css({ display: "grid", gap: "2", p: "0" });
+}
+
+function metaTone(meta: string): "secondary" | "destructive" | "outline" {
+  const normalized = meta.toLowerCase();
+  if (
+    normalized.includes("error") ||
+    normalized.includes("failed") ||
+    normalized.includes("blocked")
+  ) {
+    return "destructive";
+  }
+  if (normalized.includes("complete") || normalized.includes("success")) {
+    return "secondary";
+  }
+  return "outline";
 }
 
 function eyebrowClass() {

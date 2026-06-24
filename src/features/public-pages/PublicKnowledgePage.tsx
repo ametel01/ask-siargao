@@ -1,5 +1,7 @@
 import { CheckCircle2, FileJson, FileText, LinkIcon } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { serializeJsonForHtmlScript } from "@/server/public-pages/html-json";
 import {
   type PublicKnowledgePage as PublicKnowledgePageData,
@@ -30,6 +32,9 @@ export function PublicKnowledgePage({ page }: { page: PublicKnowledgePageData })
           </p>
           <h1 className={titleClass()}>{page.title}</h1>
           <p className={introClass()}>{page.summary}</p>
+          <Badge className={css({ width: "fit-content" })} variant="secondary">
+            {page.indexingStatus}
+          </Badge>
           <div className={linkRowClass()}>
             <a className={pillLinkClass()} href={page.llmMarkdownPath}>
               <FileText aria-hidden="true" size={16} /> LLM Markdown
@@ -47,14 +52,25 @@ export function PublicKnowledgePage({ page }: { page: PublicKnowledgePageData })
           <PanelHeading title="Public claims" />
           <div className={css({ display: "grid", gap: "4" })}>
             {page.facts.map((fact) => (
-              <article className={cardClass()} key={fact.id}>
-                <p className={labelClass()}>{fact.evidenceId}</p>
-                <h2 className={cardTitleClass()}>{fact.claim}</h2>
-                <p className={bodyClass()}>
-                  {fact.sourceName} · {fact.sourceType} · {fact.confidence} confidence ·{" "}
-                  {fact.freshness}
-                </p>
-              </article>
+              <Card className={cardClass()} key={fact.id} size="sm">
+                <CardContent className={cardContentClass()}>
+                  <div
+                    className={css({
+                      alignItems: "center",
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "2",
+                    })}
+                  >
+                    <p className={labelClass()}>{fact.evidenceId}</p>
+                    <Badge variant="outline">{fact.confidence} confidence</Badge>
+                  </div>
+                  <h2 className={cardTitleClass()}>{fact.claim}</h2>
+                  <p className={bodyClass()}>
+                    {fact.sourceName} · {fact.sourceType} · {fact.freshness}
+                  </p>
+                </CardContent>
+              </Card>
             ))}
           </div>
         </section>
@@ -80,10 +96,12 @@ export function PublicKnowledgePage({ page }: { page: PublicKnowledgePageData })
 
 function Info({ title, value }: { title: string; value: string }) {
   return (
-    <article className={cardClass()}>
-      <p className={labelClass()}>{title}</p>
-      <p className={bodyClass()}>{value}</p>
-    </article>
+    <Card className={cardClass()} size="sm">
+      <CardContent className={cardContentClass()}>
+        <p className={labelClass()}>{title}</p>
+        <p className={bodyClass()}>{value}</p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -132,6 +150,10 @@ function cardClass() {
     gap: "2",
     p: "4",
   });
+}
+
+function cardContentClass() {
+  return css({ display: "grid", gap: "2", p: "0" });
 }
 
 function titleClass() {

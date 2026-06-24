@@ -24,6 +24,15 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
   BrandLockup,
   BrowserDots,
   GradientLink,
@@ -207,29 +216,36 @@ function ChatHeader() {
         </span>
       </div>
       <div className={headerActions()}>
-        <Button
-          aria-label="Refresh answer context"
-          className="h-9 w-9 rounded-lg border-[#c8bee9] bg-white text-[#5d3ed1] hover:bg-[#f5f3ff] hover:text-[#4c31b8]"
-          size="icon"
-          type="button"
-          variant="outline"
-        >
+        <HeaderIconButton label="Refresh answer context">
           <RefreshCw aria-hidden="true" size={17} />
-        </Button>
-        <Button
-          aria-label="Share trip chat"
-          className="h-9 w-9 rounded-lg border-[#c8bee9] bg-white text-[#5d3ed1] hover:bg-[#f5f3ff] hover:text-[#4c31b8]"
-          size="icon"
-          type="button"
-          variant="outline"
-        >
+        </HeaderIconButton>
+        <HeaderIconButton label="Share trip chat">
           <Share2 aria-hidden="true" size={17} />
-        </Button>
+        </HeaderIconButton>
         <span aria-label="Traveler profile" className={avatar()}>
           A
         </span>
       </div>
     </header>
+  );
+}
+
+function HeaderIconButton({ children, label }: { children: ReactNode; label: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          aria-label={label}
+          className="h-9 w-9 rounded-lg border-[#c8bee9] bg-white text-[#5d3ed1] hover:bg-[#f5f3ff] hover:text-[#4c31b8]"
+          size="icon"
+          type="button"
+          variant="outline"
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -453,9 +469,7 @@ function MobileWorkspace() {
   return (
     <section className={mobileWorkspace()} aria-label="Ask Siargao mobile chat">
       <header className={mobileHeader()}>
-        <Link aria-label="Open menu" href="/">
-          <Menu aria-hidden="true" size={22} />
-        </Link>
+        <MobileMenuSheet />
         <h1>Ask Siargao</h1>
         <Link aria-label="New chat" href="/chat">
           <MessageSquarePlus aria-hidden="true" size={22} />
@@ -523,6 +537,42 @@ function MobileWorkspace() {
         </Button>
       </div>
     </section>
+  );
+}
+
+function MobileMenuSheet() {
+  return (
+    <Sheet>
+      <SheetTrigger asChild>
+        <button aria-label="Open menu" className={mobileHeaderAction()} type="button">
+          <Menu aria-hidden="true" size={22} />
+        </button>
+      </SheetTrigger>
+      <SheetContent className={mobileSheetContent()} side="left">
+        <SheetHeader className={mobileSheetHeader()}>
+          <BrandLockup />
+          <SheetTitle className={css({ color: "text.onDark", fontSize: "lg", fontWeight: "900" })}>
+            Trip workspace
+          </SheetTitle>
+          <SheetDescription className={css({ color: "text.onDarkMuted", lineHeight: "1.6" })}>
+            Saved places, recent questions, and live trip context.
+          </SheetDescription>
+        </SheetHeader>
+        <div className={mobileSheetSection()}>
+          <h2>Saved places</h2>
+          {savedPlaces.map(([title, count]) => (
+            <SidebarRow key={title} label={title} value={count} />
+          ))}
+        </div>
+        <div className={mobileSheetSection()}>
+          <h2>Recent questions</h2>
+          {recentQuestions.map(([title, time]) => (
+            <SidebarRow key={title} label={title} value={time} />
+          ))}
+        </div>
+        <GradientLink href="/chat">New question</GradientLink>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -1172,6 +1222,57 @@ function mobileHeader() {
       justifyContent: "center",
       textDecoration: "none",
       width: "11",
+    },
+  });
+}
+
+function mobileHeaderAction() {
+  return css({
+    alignItems: "center",
+    appearance: "none",
+    bg: "transparent",
+    borderWidth: "0",
+    color: "text.onDark",
+    cursor: "pointer",
+    display: "inline-flex",
+    h: "11",
+    justifyContent: "center",
+    p: 0,
+    width: "11",
+  });
+}
+
+function mobileSheetContent() {
+  return css({
+    bg: "rgba(5,8,42,0.98)",
+    borderColor: "rgba(184,166,255,0.24)",
+    color: "text.onDark",
+    maxW: "320px",
+  });
+}
+
+function mobileSheetHeader() {
+  return css({
+    gap: "3",
+    p: "5",
+  });
+}
+
+function mobileSheetSection() {
+  return css({
+    borderTopColor: "rgba(184,166,255,0.18)",
+    borderTopWidth: "1px",
+    display: "grid",
+    gap: "1",
+    mx: "5",
+    py: "4",
+    "& h2": {
+      color: "rgba(226,220,247,0.58)",
+      fontSize: "2xs",
+      fontWeight: "900",
+      letterSpacing: "0",
+      m: 0,
+      textTransform: "uppercase",
     },
   });
 }
