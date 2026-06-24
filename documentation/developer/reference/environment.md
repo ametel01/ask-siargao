@@ -13,7 +13,7 @@ The app reads these environment variables.
 | `OPENAI_API_KEY` | Server only | OpenAI Responses API client | Required for real report generation and reviewer calls. |
 | `OPENAI_MODEL` | Server only | Audit generator model override | Defaults to `gpt-5.5`. |
 | `OPENAI_REVIEWER_MODEL` | Server only | Reviewer model override | Defaults to `gpt-5.5`. |
-| `GOOGLE_API_KEY` | Server only | Google Places chat lookup, discovery, and enrichment | Required for live Google Places chat context and by `bun run db:discover:google-places` and `bun run db:enrich:google-places`. Keep field masks narrow; chat lookup uses basic Text Search fields without reviews, ratings, hours, prices, or availability; discovery uses ID-only fields, enrichment uses Place Details Pro fields. |
+| `GOOGLE_API_KEY` | Server only | Google Places chat lookup, discovery, and enrichment | Required for live Google Places chat context and by `bun run db:discover:google-places` and `bun run db:enrich:google-places`. Keep field masks narrow; chat lookup uses Google Places Text Search Enterprise fields for rating signals, opening hours, price, website, phone, and map links, but still excludes review text, bookings, and availability; discovery uses ID-only fields, enrichment uses Place Details Pro fields. |
 | `INNGEST_EVENT_KEY` | Server only | Future job worker integration | Placeholder until the production worker backend is wired. |
 | `INNGEST_SIGNING_KEY` | Server only | Future job worker integration | Placeholder until the production worker backend is wired. |
 | `REDIS_URL` | Server only | Future worker/rate-limit infrastructure | Production rate limiting must be backed by an injected shared `RateLimitStore` configured through `configureRateLimitStore`; no Redis adapter is bundled yet. |

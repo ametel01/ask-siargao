@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import { type ChatRouteDependencies, chatResponse } from "@/app/api/chat/chat-route";
-import type { GooglePlacesChatSearch } from "@/server/providers/google-places-chat";
+import {
+  type GooglePlacesChatSearch,
+  googlePlacesChatSearchFieldMask,
+} from "@/server/providers/google-places-chat";
 import type { OpenMeteoForecastLocation } from "@/server/providers/open-meteo";
 import { fallbackWeatherSnapshot } from "@/server/public-pages/weather-snapshot";
 
@@ -172,9 +175,8 @@ function chatDependencies() {
         sourceProfileId: "source_google_places",
         fetchedAt: "2026-06-24T00:00:00.000Z",
         search,
-        fieldMask:
-          "places.id,places.name,places.displayName,places.formattedAddress,places.location,places.types,places.primaryType,places.businessStatus,places.googleMapsUri",
-        caveats: ["Basic chat lookup does not include reviews, ratings, or opening hours."],
+        fieldMask: googlePlacesChatSearchFieldMask,
+        caveats: ["Enhanced chat lookup does not include review text or availability."],
         places: [
           {
             placeId: "place_kermit",
@@ -185,6 +187,12 @@ function chatDependencies() {
             primaryType: "restaurant",
             businessStatus: "OPERATIONAL",
             googleMapsUri: "https://maps.google.com/?cid=123",
+            rating: 4.6,
+            userRatingCount: 1240,
+            currentOpeningHours: { openNow: true },
+            priceLevel: "PRICE_LEVEL_MODERATE",
+            websiteUri: "https://kermit.example",
+            internationalPhoneNumber: "+63 917 123 4567",
           },
         ],
       };

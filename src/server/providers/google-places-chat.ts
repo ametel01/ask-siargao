@@ -1,7 +1,24 @@
 import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
 
-export const googlePlacesChatSearchFieldMask =
-  "places.id,places.name,places.displayName,places.formattedAddress,places.location,places.types,places.primaryType,places.businessStatus,places.googleMapsUri";
+export const googlePlacesChatSearchFieldMask = [
+  "places.id",
+  "places.name",
+  "places.displayName",
+  "places.formattedAddress",
+  "places.location",
+  "places.types",
+  "places.primaryType",
+  "places.businessStatus",
+  "places.googleMapsUri",
+  "places.rating",
+  "places.userRatingCount",
+  "places.currentOpeningHours",
+  "places.regularOpeningHours",
+  "places.priceLevel",
+  "places.priceRange",
+  "places.websiteUri",
+  "places.internationalPhoneNumber",
+].join(",");
 
 export type GooglePlacesChatSearch = {
   label: string;
@@ -25,7 +42,33 @@ export type GooglePlacesChatPlace = {
   types: string[];
   primaryType?: string;
   businessStatus?: string;
-  googleMapsUri?: string;
+  googleMapsUri: string;
+  rating?: number;
+  userRatingCount?: number;
+  currentOpeningHours?: GooglePlacesOpeningHours;
+  regularOpeningHours?: GooglePlacesOpeningHours;
+  priceLevel?: string;
+  priceRange?: GooglePlacesPriceRange;
+  websiteUri?: string;
+  internationalPhoneNumber?: string;
+};
+
+export type GooglePlacesOpeningHours = {
+  openNow?: boolean;
+  weekdayDescriptions?: string[];
+  nextOpenTime?: string;
+  nextCloseTime?: string;
+};
+
+export type GooglePlacesPriceRange = {
+  startPrice?: GooglePlacesMoney;
+  endPrice?: GooglePlacesMoney;
+};
+
+export type GooglePlacesMoney = {
+  currencyCode?: string;
+  units?: string;
+  nanos?: number;
 };
 
 export type GooglePlacesChatContext = {
@@ -56,6 +99,14 @@ type GooglePlacesChatSearchResponse = {
     primaryType?: string;
     businessStatus?: string;
     googleMapsUri?: string;
+    rating?: number;
+    userRatingCount?: number;
+    currentOpeningHours?: GooglePlacesOpeningHours;
+    regularOpeningHours?: GooglePlacesOpeningHours;
+    priceLevel?: string;
+    priceRange?: GooglePlacesPriceRange;
+    websiteUri?: string;
+    internationalPhoneNumber?: string;
   }>;
   error?: {
     code?: number;
@@ -123,8 +174,8 @@ export async function getGooglePlacesChatContext({
     fieldMask: googlePlacesChatSearchFieldMask,
     places,
     caveats: [
-      "Basic chat lookup includes place identity, address, type, business status, and Google Maps link only.",
-      "It does not include reviews, ratings, prices, opening hours, bookings, or availability.",
+      "Enhanced chat lookup includes Google Places identity, address, type, business status, rating signals, opening hours, price, website, phone, and map link when available.",
+      "It does not include review text, bookings, table availability, room availability, or verified local quality checks.",
       "Do not store this raw provider response as reusable product data.",
     ],
   };
@@ -165,21 +216,125 @@ function parseGooglePlacesChatPlaces(
       return [];
     }
 
+    const latitude = place.location?.latitude;
+    const longitude = place.location?.longitude;
+
     return [
       {
         placeId: place.id,
         resourceName: place.name,
         displayName,
         formattedAddress: place.formattedAddress,
-        latitude: place.location?.latitude,
-        longitude: place.location?.longitude,
+        latitude,
+        longitude,
         types: place.types ?? [],
         primaryType: place.primaryType,
         businessStatus: place.businessStatus,
-        googleMapsUri: place.googleMapsUri,
+        googleMapsUri:
+          place.googleMapsUri ??
+          buildGoogleMapsSearchUri({
+            placeId: place.id,
+            displayName,
+            formattedAddress: place.formattedAddress,
+            latitude,
+            longitude,
+          }),
+        rating: place.rating,
+        userRatingCount: place.userRatingCount,
+        currentOpeningHours: normalizeOpeningHours(place.currentOpeningHours),
+        regularOpeningHours: normalizeOpeningHours(place.regularOpeningHours),
+        priceLevel: place.priceLevel,
+        priceRange: normalizePriceRange(place.priceRange),
+        websiteUri: place.websiteUri,
+        internationalPhoneNumber: place.internationalPhoneNumber,
       },
     ];
   });
+}
+
+function buildGoogleMapsSearchUri({
+  displayName,
+  formattedAddress,
+  latitude,
+  longitude,
+  placeId,
+}: {
+  displayName: string;
+  formattedAddress?: string;
+  latitude?: number;
+  longitude?: number;
+  placeId: string;
+}) {
+  const url = new URL("https://www.google.com/maps/search/");
+  const query = formattedAddress
+    ? `${displayName}, ${formattedAddress}`
+    : latitude === undefined || longitude === undefined
+      ? displayName
+      : `${latitude},${longitude}`;
+
+  url.searchParams.set("api", "1");
+  url.searchParams.set("query", query);
+  url.searchParams.set("query_place_id", placeId);
+
+  return url.toString();
+}
+
+function normalizeOpeningHours(
+  openingHours: GooglePlacesOpeningHours | undefined,
+): GooglePlacesOpeningHours | undefined {
+  if (!openingHours) {
+    return undefined;
+  }
+
+  const normalized: GooglePlacesOpeningHours = {};
+  if (typeof openingHours.openNow === "boolean") {
+    normalized.openNow = openingHours.openNow;
+  }
+  if (Array.isArray(openingHours.weekdayDescriptions)) {
+    normalized.weekdayDescriptions = openingHours.weekdayDescriptions;
+  }
+  if (typeof openingHours.nextOpenTime === "string") {
+    normalized.nextOpenTime = openingHours.nextOpenTime;
+  }
+  if (typeof openingHours.nextCloseTime === "string") {
+    normalized.nextCloseTime = openingHours.nextCloseTime;
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function normalizePriceRange(
+  priceRange: GooglePlacesPriceRange | undefined,
+): GooglePlacesPriceRange | undefined {
+  if (!priceRange) {
+    return undefined;
+  }
+
+  const normalized: GooglePlacesPriceRange = {
+    startPrice: normalizeMoney(priceRange.startPrice),
+    endPrice: normalizeMoney(priceRange.endPrice),
+  };
+
+  return normalized.startPrice || normalized.endPrice ? normalized : undefined;
+}
+
+function normalizeMoney(money: GooglePlacesMoney | undefined): GooglePlacesMoney | undefined {
+  if (!money) {
+    return undefined;
+  }
+
+  const normalized: GooglePlacesMoney = {};
+  if (typeof money.currencyCode === "string") {
+    normalized.currencyCode = money.currencyCode;
+  }
+  if (typeof money.units === "string") {
+    normalized.units = money.units;
+  }
+  if (typeof money.nanos === "number") {
+    normalized.nanos = money.nanos;
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

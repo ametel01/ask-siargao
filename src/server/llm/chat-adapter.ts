@@ -66,11 +66,44 @@ export async function generateAskSiargaoChatResponse(input: {
     throw new Error("OpenAI response did not include output_text.");
   }
 
+  const message = ensureGoogleMapsLinks(response.output_text.trim(), input.placesContext);
+
   return {
-    message: response.output_text.trim(),
+    message,
     model,
     requestId: response._request_id,
   };
+}
+
+function ensureGoogleMapsLinks(message: string, context: GooglePlacesChatContext | undefined) {
+  if (!context?.places.length) {
+    return message;
+  }
+
+  const lines = message.split("\n");
+  const missingLinkedPlaces: string[] = [];
+
+  for (const place of context.places) {
+    if (lines.join("\n").includes(place.googleMapsUri)) {
+      continue;
+    }
+
+    const displayName = place.displayName.toLowerCase();
+    const lineIndex = lines.findIndex((line) => line.toLowerCase().includes(displayName));
+
+    if (lineIndex >= 0) {
+      lines[lineIndex] = `${lines[lineIndex]} Maps: ${place.googleMapsUri}`;
+    } else {
+      missingLinkedPlaces.push(`- ${place.displayName} Maps: ${place.googleMapsUri}`);
+    }
+  }
+
+  const linkedMessage = lines.join("\n");
+  if (missingLinkedPlaces.length === 0) {
+    return linkedMessage;
+  }
+
+  return `${linkedMessage}\n\nGoogle Maps links:\n${missingLinkedPlaces.join("\n")}`;
 }
 
 function summarizeGooglePlacesContext(context: GooglePlacesChatContext) {
@@ -96,6 +129,14 @@ function summarizeGooglePlacesContext(context: GooglePlacesChatContext) {
       types: place.types,
       businessStatus: place.businessStatus,
       googleMapsUri: place.googleMapsUri,
+      rating: place.rating,
+      userRatingCount: place.userRatingCount,
+      currentOpeningHours: place.currentOpeningHours,
+      regularOpeningHours: place.regularOpeningHours,
+      priceLevel: place.priceLevel,
+      priceRange: place.priceRange,
+      websiteUri: place.websiteUri,
+      internationalPhoneNumber: place.internationalPhoneNumber,
     })),
   };
 }
@@ -126,10 +167,11 @@ const askSiargaoChatInstructions = [
   "If weatherContext.status is fallback, say the live forecast snapshot has not been loaded yet.",
   "When placesContext is present, use it for place, restaurant, cafe, bar, and nearby recommendation questions.",
   "Treat the order of placesContext.places as Google Places search relevance, not as a verified quality ranking.",
-  "Include Google Maps links from placesContext when useful.",
-  "Do not claim you checked Google reviews, ratings, opening hours, prices, bookings, or availability unless those exact fields are present in placesContext.",
+  "Use available rating, review count, opening hours, price, website, and phone fields from placesContext to make recommendations more complete.",
+  "Every place or finding from placesContext that you mention must include its Google Maps link as a raw URL after `Maps:` so the UI can make it clickable.",
+  "Do not imply absent rating, opening-hours, price, contact, review-text, booking, or availability data was checked.",
   "When placesContext.status is no_results, say the Google Places lookup did not return a useful shortlist.",
-  "Do not pretend you checked reviews, opening hours, events, prices, bookings, or availability.",
+  "Do not pretend you checked review text, events, bookings, room availability, table availability, or non-Google local validation.",
   "When other live or source-backed data would materially improve the answer, say what should be checked.",
   "Prefer concise, actionable answers with Siargao-specific tradeoffs.",
   "Do not frame the product as a trip risk audit or paid report.",

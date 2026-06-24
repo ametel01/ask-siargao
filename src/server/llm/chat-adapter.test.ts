@@ -4,7 +4,10 @@ import {
   type ChatResponsesClient,
   generateAskSiargaoChatResponse,
 } from "@/server/llm/chat-adapter";
-import type { GooglePlacesChatContext } from "@/server/providers/google-places-chat";
+import {
+  type GooglePlacesChatContext,
+  googlePlacesChatSearchFieldMask,
+} from "@/server/providers/google-places-chat";
 import { fallbackWeatherSnapshot } from "@/server/public-pages/weather-snapshot";
 
 describe("Ask Siargao chat adapter", () => {
@@ -45,7 +48,8 @@ describe("Ask Siargao chat adapter", () => {
         create: async (params) => {
           requests.push(params);
           return {
-            output_text: "Start with the Google Places shortlist near Cloud 9.",
+            output_text:
+              "Start with **Kermit Surf Resort and Restaurant** from the Google Places shortlist near Cloud 9.",
             _request_id: "req_places_context",
           };
         },
@@ -62,10 +66,42 @@ describe("Ask Siargao chat adapter", () => {
     const input = parseOpenAIInput(request?.input);
 
     expect(response.requestId).toBe("req_places_context");
+    expect(response.message).toContain("Maps: https://maps.google.com/?cid=123");
     expect(String(request?.instructions)).toContain("When placesContext is present");
+    expect(String(request?.instructions)).toContain("Use available rating");
+    expect(String(request?.instructions)).toContain("Every place or finding");
     expect(input.placesContext?.sourceProfileId).toBe("source_google_places");
     expect(input.placesContext?.places[0]?.displayName).toBe("Kermit Surf Resort and Restaurant");
-    expect(input.placesContext?.caveats?.join(" ")).toContain("does not include reviews");
+    expect(input.placesContext?.places[0]?.googleMapsUri).toBe("https://maps.google.com/?cid=123");
+    expect(input.placesContext?.places[0]?.rating).toBe(4.6);
+    expect(input.placesContext?.places[0]?.userRatingCount).toBe(1240);
+    expect(input.placesContext?.places[0]?.currentOpeningHours?.openNow).toBe(true);
+    expect(input.placesContext?.places[0]?.priceLevel).toBe("PRICE_LEVEL_MODERATE");
+    expect(input.placesContext?.places[0]?.websiteUri).toBe("https://kermit.example");
+    expect(input.placesContext?.places[0]?.internationalPhoneNumber).toBe("+63 917 123 4567");
+    expect(input.placesContext?.caveats?.join(" ")).toContain("does not include review text");
+  });
+
+  test("adds a fallback Maps link section when the model omits the exact place name", async () => {
+    const client: ChatResponsesClient = {
+      responses: {
+        create: async () => ({
+          output_text: "Short name: Kermit is the easiest pick near Cloud 9.",
+          _request_id: "req_places_fallback_link",
+        }),
+      },
+    };
+
+    const response = await generateAskSiargaoChatResponse({
+      client,
+      messages: [{ role: "user", content: "find me a restaurant around cloud9" }],
+      placesContext: googlePlacesContextFixture,
+    });
+
+    expect(response.message).toContain("Google Maps links:");
+    expect(response.message).toContain(
+      "- Kermit Surf Resort and Restaurant Maps: https://maps.google.com/?cid=123",
+    );
   });
 });
 
@@ -80,6 +116,15 @@ function parseOpenAIInput(input: unknown): {
     caveats?: string[];
     places: Array<{
       displayName?: string;
+      googleMapsUri?: string;
+      rating?: number;
+      userRatingCount?: number;
+      currentOpeningHours?: {
+        openNow?: boolean;
+      };
+      priceLevel?: string;
+      websiteUri?: string;
+      internationalPhoneNumber?: string;
     }>;
   };
 } {
@@ -99,9 +144,8 @@ const googlePlacesContextFixture: GooglePlacesChatContext = {
     radiusMeters: 4_000,
     pageSize: 8,
   },
-  fieldMask:
-    "places.id,places.name,places.displayName,places.formattedAddress,places.location,places.types,places.primaryType,places.businessStatus,places.googleMapsUri",
-  caveats: ["Basic chat lookup does not include reviews, ratings, prices, or opening hours."],
+  fieldMask: googlePlacesChatSearchFieldMask,
+  caveats: ["Enhanced chat lookup does not include review text, bookings, or availability."],
   places: [
     {
       placeId: "place_kermit",
@@ -112,6 +156,22 @@ const googlePlacesContextFixture: GooglePlacesChatContext = {
       primaryType: "restaurant",
       businessStatus: "OPERATIONAL",
       googleMapsUri: "https://maps.google.com/?cid=123",
+      rating: 4.6,
+      userRatingCount: 1240,
+      currentOpeningHours: {
+        openNow: true,
+        weekdayDescriptions: ["Wednesday: 8:00 AM - 10:00 PM"],
+      },
+      regularOpeningHours: {
+        weekdayDescriptions: ["Wednesday: 8:00 AM - 10:00 PM"],
+      },
+      priceLevel: "PRICE_LEVEL_MODERATE",
+      priceRange: {
+        startPrice: { currencyCode: "PHP", units: "300" },
+        endPrice: { currencyCode: "PHP", units: "600" },
+      },
+      websiteUri: "https://kermit.example",
+      internationalPhoneNumber: "+63 917 123 4567",
     },
   ],
 };

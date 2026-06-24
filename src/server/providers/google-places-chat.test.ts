@@ -21,7 +21,25 @@ describe("Google Places chat lookup", () => {
     const body = buildGooglePlacesChatSearchBody(cloud9RestaurantSearch);
 
     expect(googlePlacesChatSearchFieldMask).toBe(
-      "places.id,places.name,places.displayName,places.formattedAddress,places.location,places.types,places.primaryType,places.businessStatus,places.googleMapsUri",
+      [
+        "places.id",
+        "places.name",
+        "places.displayName",
+        "places.formattedAddress",
+        "places.location",
+        "places.types",
+        "places.primaryType",
+        "places.businessStatus",
+        "places.googleMapsUri",
+        "places.rating",
+        "places.userRatingCount",
+        "places.currentOpeningHours",
+        "places.regularOpeningHours",
+        "places.priceLevel",
+        "places.priceRange",
+        "places.websiteUri",
+        "places.internationalPhoneNumber",
+      ].join(","),
     );
     expect(body).toEqual({
       textQuery: "find me the best restaurant around Cloud 9 Siargao Philippines",
@@ -39,7 +57,7 @@ describe("Google Places chat lookup", () => {
     });
   });
 
-  test("returns compact Google Places context without review or rating fields", async () => {
+  test("returns enhanced Google Places context without review text or availability fields", async () => {
     const requests: RequestInit[] = [];
     const context = await getGooglePlacesChatContext({
       apiKey: "test-key",
@@ -50,6 +68,18 @@ describe("Google Places chat lookup", () => {
         return Response.json({
           places: [
             {
+              id: "place_no_uri",
+              name: "places/place_no_uri",
+              displayName: { text: "No URI Cafe" },
+              formattedAddress: "General Luna, Siargao",
+              location: { latitude: 9.81, longitude: 126.16 },
+              types: ["cafe", "food", "point_of_interest", "establishment"],
+              primaryType: "cafe",
+              businessStatus: "OPERATIONAL",
+              rating: 4.3,
+              userRatingCount: 42,
+            },
+            {
               id: "place_kermit",
               name: "places/place_kermit",
               displayName: { text: "Kermit Surf Resort and Restaurant" },
@@ -59,6 +89,23 @@ describe("Google Places chat lookup", () => {
               primaryType: "restaurant",
               businessStatus: "OPERATIONAL",
               googleMapsUri: "https://maps.google.com/?cid=123",
+              rating: 4.6,
+              userRatingCount: 1240,
+              currentOpeningHours: {
+                openNow: true,
+                weekdayDescriptions: ["Wednesday: 8:00 AM - 10:00 PM"],
+                nextCloseTime: "2026-06-24T14:00:00Z",
+              },
+              regularOpeningHours: {
+                weekdayDescriptions: ["Wednesday: 8:00 AM - 10:00 PM"],
+              },
+              priceLevel: "PRICE_LEVEL_MODERATE",
+              priceRange: {
+                startPrice: { currencyCode: "PHP", units: "300" },
+                endPrice: { currencyCode: "PHP", units: "600" },
+              },
+              websiteUri: "https://kermit.example",
+              internationalPhoneNumber: "+63 917 123 4567",
             },
           ],
         });
@@ -80,15 +127,48 @@ describe("Google Places chat lookup", () => {
       search: cloud9RestaurantSearch,
       places: [
         {
+          placeId: "place_no_uri",
+          displayName: "No URI Cafe",
+          primaryType: "cafe",
+          businessStatus: "OPERATIONAL",
+          rating: 4.3,
+          userRatingCount: 42,
+        },
+        {
           placeId: "place_kermit",
           displayName: "Kermit Surf Resort and Restaurant",
           primaryType: "restaurant",
           businessStatus: "OPERATIONAL",
           googleMapsUri: "https://maps.google.com/?cid=123",
+          rating: 4.6,
+          userRatingCount: 1240,
+          currentOpeningHours: {
+            openNow: true,
+            weekdayDescriptions: ["Wednesday: 8:00 AM - 10:00 PM"],
+            nextCloseTime: "2026-06-24T14:00:00Z",
+          },
+          regularOpeningHours: {
+            weekdayDescriptions: ["Wednesday: 8:00 AM - 10:00 PM"],
+          },
+          priceLevel: "PRICE_LEVEL_MODERATE",
+          priceRange: {
+            startPrice: { currencyCode: "PHP", units: "300" },
+            endPrice: { currencyCode: "PHP", units: "600" },
+          },
+          websiteUri: "https://kermit.example",
+          internationalPhoneNumber: "+63 917 123 4567",
         },
       ],
     });
-    expect(context.caveats.join(" ")).toContain("does not include reviews");
+    const fallbackMapsUrl = new URL(context.places[0]?.googleMapsUri ?? "");
+    expect(fallbackMapsUrl.origin + fallbackMapsUrl.pathname).toBe(
+      "https://www.google.com/maps/search/",
+    );
+    expect(fallbackMapsUrl.searchParams.get("api")).toBe("1");
+    expect(fallbackMapsUrl.searchParams.get("query")).toBe("No URI Cafe, General Luna, Siargao");
+    expect(fallbackMapsUrl.searchParams.get("query_place_id")).toBe("place_no_uri");
+    expect(context.places[1]?.googleMapsUri).toBe("https://maps.google.com/?cid=123");
+    expect(context.caveats.join(" ")).toContain("does not include review text");
   });
 
   test("surfaces Google API errors", async () => {
