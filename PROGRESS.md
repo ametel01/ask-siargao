@@ -9,8 +9,8 @@ Sources:
 
 ## Status
 
-- Current status: Step 6 complete; Panda config, generated output, scripts, dependency, theme token files, and active docs references have been removed.
-- Next step: Step 7, Final Regression, Visual Polish, and Handoff.
+- Current status: Step 7 complete; the Panda-to-shadcn migration is fully implemented and validated.
+- Next step: None for this migration. Follow-up opportunities are limited to optional pruning or deeper cleanup of unused shadcn primitives if product scope narrows.
 - Update rule: After each completed step, update this file with completion notes, validation results, commit reference if available, current status, and next step.
 
 ## Checklist
@@ -22,7 +22,7 @@ Sources:
 - [x] Step 4: Migrate Landing and Chat Surfaces to shadcn/Tailwind
 - [x] Step 5: Migrate Report, Admin, Public, and Status Surfaces
 - [x] Step 6: Remove Panda Configuration, Generated Output, Scripts, and Docs
-- [ ] Step 7: Final Regression, Visual Polish, and Handoff
+- [x] Step 7: Final Regression, Visual Polish, and Handoff
 
 ## Source Summary
 
@@ -37,3 +37,4 @@ The migration removes Panda CSS from runtime code, generated assets, scripts, de
 - 2026-06-24: Step 4 complete. Migrated `src/features/landing/LandingPage.tsx` and `src/features/chat/ChatWorkspace.tsx` from Panda helper functions to Tailwind/shadcn classes and primitives, including `NavigationMenu`, `ButtonGroup`, `Card`, `Sidebar`, `ScrollArea`, `Avatar`, and `InputGroup` usage while preserving the existing root and `/chat` copy, routing, desktop three-column chat layout, mobile chat surface, and responsive root overflow behavior. Refreshed generated Panda CSS to remove landing/chat extracted classes that are no longer referenced. Screenshot smoke checks were captured for root desktop/mobile and `/chat` desktop/mobile under `/tmp/siargao-step4-*.png`, with a follow-up desktop chat sidebar fit polish. Validation passed: `bun run format`, `bun run lint`, `bun run typecheck --incremental false`, `bun test`, `bun run db:migrate:test`, `bun run db:seed:test`, `bun run build`, `bun run test:e2e`, and `npx react-doctor@latest --verbose --scope changed` with score 100/100 and no issues. Commit pending for Step 4.
 - 2026-06-24: Step 5 complete. Migrated `src/features/report/FinalReportPage.tsx`, `src/features/admin/AdminDiagnosticsPage.tsx`, `src/features/public-pages/PublicKnowledgePage.tsx`, and `src/features/audit-status/AuditStatusPage.tsx` from Panda helpers to Tailwind/shadcn classes and primitives while preserving the paid report, diagnostics, public JSON-LD, public crawl surfaces, and checkout-return status copy. Added explicit admin diagnostics empty states for blocked audits, completeness failures, provider/job failures, reviewer rejections, LLM cost estimates, and drill-down data gaps. Refreshed generated Panda CSS to remove extracted classes from these surfaces. Validation passed: `bun run format`, `bun run lint`, `bun run typecheck --incremental false`, `bun test`, `bun run db:migrate:test`, sequential `bun run db:seed:test`, `bun run build`, `bun run test:e2e`, and `npx react-doctor@latest --verbose --scope changed` with score 100/100 and no issues. Commit pending for Step 5.
 - 2026-06-24: Step 6 complete. Removed `@pandacss/dev`, Panda codegen/cssgen scripts, `postinstall`, `panda.config.ts`, `src/theme/tokens.ts`, `src/theme/recipes.ts`, and the generated `styled-system/` directory. Removed the generated CSS import from `src/theme/global.css`, updated React Doctor and Biome config, refreshed `bun.lock`, and updated script/style documentation to describe the Tailwind/shadcn path. Validation passed: `bun install`, `bun run format`, `bun run lint`, `bun run typecheck --incremental false`, `bun test`, sequential `bun run db:migrate:test` and `bun run db:seed:test`, `bun run build`, `bun run test:e2e`, and `rg -n "styled-system|@pandacss|panda codegen|panda cssgen|pageShell|token\\(" package.json src tests docs documentation README.md doctor.config.json` with no matches. Commit pending for Step 6.
+- 2026-06-24: Step 7 complete. Ran final regression and visual smoke checks after Panda removal. Captured screenshots for root desktop/mobile, `/chat` desktop/mobile, populated admin diagnostics, audit status, public knowledge, and final report under `/tmp/siargao-step7-*.png`; no horizontal overflow was detected, and badge contrast was polished on admin/public outline badges. React Doctor full-scan advisory output was triaged, then high-confidence changed-scope fixes were applied for the sidebar rail button type and React 19 context read. Final validation passed: `bun run format`, `bun run lint`, `bun run typecheck --incremental false`, `bun test`, sequential `bun run db:migrate:test` and `bun run db:seed:test`, `bun run build`, `bun run test:e2e`, `npx react-doctor@latest --verbose --scope changed` with score 100/100 and no issues, and the Panda-removal `rg` check with no matches. Commit pending for Step 7.

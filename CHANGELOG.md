@@ -48,6 +48,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Completed final shadcn migration verification with Panda-free build/e2e gates and visual smoke checks across landing, chat, admin, status, public, and report surfaces.
 - Updated package scripts, React Doctor config, Biome config, and developer docs for the Panda-free Tailwind/shadcn styling path.
 - Migrated the paid report, admin diagnostics, public knowledge, and audit status surfaces from Panda helpers to shadcn/Tailwind classes and primitives.
 - Migrated the Ask Siargao landing and chat workspace surfaces from Panda helpers to shadcn/Tailwind components.
@@ -66,6 +67,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Improved admin and public outline badge contrast after final visual inspection.
+- Added explicit sidebar rail button type and migrated the sidebar context read to the React 19 `use(context)` API.
 - Returned stable `invalid_json` responses for malformed audit intake request bodies while preserving schema-level `invalid_intake` errors.
 - Computed evidence freshness against the current clock so expired facts become stale and invalid expiry values remain unknown.
 - Required paid report validation to cover every mandatory risk category in the full risk table while keeping top risks as a ranked subset.

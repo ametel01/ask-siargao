@@ -17,6 +17,7 @@ const cardClass = "grid gap-2 rounded-md border border-border-default bg-surface
 const cardContentClass = "grid gap-2 p-0";
 const labelClass = "m-0 text-xs font-extrabold text-brand-violet-650 uppercase";
 const bodyClass = "m-0 text-sm leading-[1.65] text-text-muted";
+const outlineBadgeClass = "border-border-strong bg-surface-default text-text-default";
 
 export function PublicKnowledgePage({ page }: { page: PublicKnowledgePageData }) {
   return (
@@ -57,7 +58,9 @@ export function PublicKnowledgePage({ page }: { page: PublicKnowledgePageData })
                 <CardContent className={cardContentClass}>
                   <div className="flex flex-wrap items-center gap-2">
                     <p className={labelClass}>{fact.evidenceId}</p>
-                    <Badge variant="outline">{fact.confidence} confidence</Badge>
+                    <Badge className={outlineBadgeClass} variant="outline">
+                      {fact.confidence} confidence
+                    </Badge>
                   </div>
                   <h2 className="m-0 text-base leading-[1.35] font-extrabold text-text-strong">
                     {fact.claim}

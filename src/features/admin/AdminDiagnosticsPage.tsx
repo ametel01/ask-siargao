@@ -32,6 +32,7 @@ const bodyClass = "m-0 text-sm leading-[1.65] text-text-muted";
 const eyebrowClass = "m-0 text-xs font-extrabold text-text-on-dark-muted uppercase";
 const eyebrowLightClass = "m-0 text-xs font-extrabold text-brand-violet-650 uppercase";
 const gridClass = "grid gap-4 lg:grid-cols-2";
+const outlineBadgeClass = "border-border-strong bg-surface-default text-text-default";
 
 export function AdminDiagnosticsPage({
   access,
@@ -250,7 +251,10 @@ function DiagnosticCard({ body, meta, title }: { title: string; meta: string; bo
   return (
     <Card className={cardClass} size="sm">
       <CardContent className={cardContentClass}>
-        <Badge className="w-fit" variant={metaTone(meta)}>
+        <Badge
+          className={`w-fit ${metaTone(meta) === "outline" ? outlineBadgeClass : ""}`}
+          variant={metaTone(meta)}
+        >
           {meta}
         </Badge>
         <h3 className="m-0 text-base font-extrabold text-text-strong">{title}</h3>
