@@ -3,20 +3,24 @@ import {
   BedDouble,
   CalendarDays,
   Car,
+  CloudRain,
   CloudSun,
   Compass,
   Globe2,
+  type LucideIcon,
   MapPinned,
   Menu,
   Plus,
   Send,
   Sparkles,
+  TreePalm,
   Utensils,
+  Waves,
+  Wind,
 } from "lucide-react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   NavigationMenu,
@@ -25,15 +29,19 @@ import {
   NavigationMenuList,
 } from "@/components/ui/navigation-menu";
 import { cn } from "@/lib/utils";
-import { BrandLockup, GradientLink, SignalBadge } from "@/ui/components/ask-siargao";
+import { GradientLink, SignalBadge } from "@/ui/components/ask-siargao";
 
 const navItems = ["How it works", "Where to stay", "What's happening", "Weather", "Saved places"];
 
-const weatherRows = [
-  ["Forecast", "Partly cloudy"],
-  ["Rain chance", "35%"],
-  ["Wind", "18 km/h"],
-  ["Freshness", "Updated 12 min ago"],
+const weatherRows: {
+  label: string;
+  value: string;
+  icon: LucideIcon;
+}[] = [
+  { label: "Forecast", value: "Partly cloudy", icon: CloudSun },
+  { label: "Rain chance", value: "35%", icon: CloudRain },
+  { label: "Wind", value: "18 km/h", icon: Wind },
+  { label: "Freshness", value: "Updated 12 min ago", icon: Waves },
 ];
 
 const suggestionChips = [
@@ -83,11 +91,11 @@ export function LandingPage() {
       <section
         aria-label="Ask Siargao landing page"
         className={cn(
-          "relative min-h-screen w-full overflow-hidden border-0 bg-[image:linear-gradient(90deg,rgba(5,8,42,0.96)_0%,rgba(7,10,48,0.86)_34%,rgba(43,24,106,0.34)_62%,rgba(5,8,42,0.52)_100%),linear-gradient(180deg,rgba(5,8,42,0.04)_0%,rgba(5,8,42,0.2)_46%,rgba(5,8,42,0.9)_100%),url('/images/hero-bg.png')] bg-[size:100%_100%,100%_100%,cover] bg-center bg-no-repeat",
-          "before:pointer-events-none before:absolute before:inset-0 before:z-0 before:bg-[image:radial-gradient(circle_at_61%_27%,rgba(255,155,131,0.14),transparent_25rem),radial-gradient(circle_at_84%_18%,rgba(135,92,246,0.12),transparent_26rem)] before:content-['']",
+          "relative min-h-screen w-full overflow-hidden bg-[image:linear-gradient(90deg,rgba(5,8,42,0.98)_0%,rgba(5,8,42,0.9)_27%,rgba(21,15,73,0.42)_53%,rgba(5,8,42,0.1)_100%),linear-gradient(180deg,rgba(5,8,42,0.1)_0%,rgba(5,8,42,0.08)_40%,rgba(5,8,42,0.85)_100%),url('/images/hero-bg.png')] bg-[position:center_center,center_center,center_center] bg-[size:100%_100%,100%_100%,cover] bg-no-repeat shadow-coastal-frame",
+          "before:pointer-events-none before:absolute before:inset-0 before:z-0 before:bg-[image:radial-gradient(circle_at_62%_26%,rgba(255,155,131,0.08),transparent_23rem),radial-gradient(circle_at_88%_15%,rgba(135,92,246,0.07),transparent_19rem)] before:content-['']",
         )}
       >
-        <div className="relative z-2 mx-auto flex min-h-screen w-full max-w-[1680px] flex-col">
+        <div className="relative z-2 flex min-h-screen w-full flex-col px-[clamp(1.25rem,5vw,5.5rem)]">
           <Header />
           <Hero />
           <SuggestionChips />
@@ -102,20 +110,17 @@ export function LandingPage() {
 
 function Header() {
   return (
-    <header className="flex min-h-[72px] items-center justify-between gap-5 px-5 pt-2 md:min-h-[94px] md:px-9 md:pt-4 xl:px-11">
-      <Link
-        className="no-underline [&_span:last-child]:text-sm md:[&_span:last-child]:text-base"
-        href="/"
-      >
-        <BrandLockup />
+    <header className="flex min-h-[80px] items-center justify-between gap-5 pt-1 lg:pt-0">
+      <Link className="no-underline" href="/">
+        <LandingBrand />
       </Link>
-      <NavigationMenu className="ml-auto hidden min-[900px]:flex" viewport={false}>
-        <NavigationMenuList className="gap-8">
+      <NavigationMenu className="ml-auto hidden min-[900px]:flex xl:ml-[12.5rem]" viewport={false}>
+        <NavigationMenuList className="gap-9 xl:gap-11">
           {navItems.map((item) => (
             <NavigationMenuItem key={item}>
               <NavigationMenuLink asChild>
                 <a
-                  className="text-xs font-extrabold text-white/75 no-underline transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:text-text-on-dark focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-brand-violet-400"
+                  className="text-xs font-extrabold text-white/88 no-underline transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:text-text-on-dark focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-brand-violet-400 xl:text-sm"
                   href={`#${slug(item)}`}
                 >
                   {item}
@@ -125,8 +130,11 @@ function Header() {
           ))}
         </NavigationMenuList>
       </NavigationMenu>
-      <GradientLink className="hidden shrink-0 md:inline-flex" href="/chat">
-        Open assistant
+      <GradientLink
+        className="hidden min-h-[54px] shrink-0 rounded-lg px-6 md:inline-flex"
+        href="/chat"
+      >
+        <Sparkles aria-hidden="true" size={17} /> Open assistant
       </GradientLink>
       <Button
         aria-label="Open navigation menu"
@@ -143,26 +151,37 @@ function Header() {
   );
 }
 
+function LandingBrand() {
+  return (
+    <span className="inline-flex items-center gap-4 text-text-on-dark">
+      <span className="inline-flex size-12 items-center justify-center rounded-full border-2 border-white/92 text-white shadow-[0_10px_26px_rgba(0,0,0,0.18)]">
+        <TreePalm aria-hidden="true" size={30} strokeWidth={2.1} />
+      </span>
+      <span className="font-heading text-2xl leading-none font-bold md:text-3xl">Ask Siargao</span>
+    </span>
+  );
+}
+
 function Hero() {
   return (
     <section
-      className="grid flex-1 content-start gap-7 px-5 pt-5 pb-6 md:min-h-[calc(100vh-112px)] md:content-between md:gap-12 md:px-9 md:pt-8 md:pb-9 lg:pt-10 xl:px-11 xl:pb-11"
+      className="grid content-start gap-4 pt-7 pb-3 md:pt-7 md:pb-4 xl:gap-3"
       id="how-it-works"
     >
-      <div className="max-w-[700px] self-start">
-        <h1 className="m-0 text-balance font-heading text-[3.25rem] leading-[0.88] font-semibold text-[#fff7df] sm:text-[4.25rem] md:text-[5.25rem] xl:text-[6.1rem]">
+      <div className="max-w-[620px] self-start">
+        <h1 className="m-0 text-balance font-heading text-[3.35rem] leading-[0.88] font-semibold text-[#fff9e9] sm:text-[4.35rem] md:text-[5rem] xl:text-[6rem]">
           Ask Siargao
           <br />
           anything about
           <br />
           <em className="font-semibold text-brand-violet-400 italic">your trip.</em>
         </h1>
-        <p className="mt-5 mb-0 max-w-[420px] text-sm leading-[1.55] font-bold text-text-on-dark-muted md:text-base">
+        <p className="mt-4 mb-0 max-w-[470px] text-sm leading-[1.45] font-bold text-text-on-dark-muted md:text-lg">
           Local answers for where to stay, what to do, how to get around, and what today's weather
           changes.
         </p>
       </div>
-      <div className="grid w-full max-w-[1360px] grid-cols-1 gap-4 self-start md:gap-5 md:self-end xl:gap-6 min-[900px]:grid-cols-[minmax(0,1.7fr)_minmax(280px,0.9fr)]">
+      <div className="grid w-full max-w-[1118px] grid-cols-1 gap-4 self-start md:gap-6 min-[900px]:grid-cols-[minmax(0,785px)_309px]">
         <PromptCard />
         <WeatherCard />
       </div>
@@ -174,17 +193,17 @@ function PromptCard() {
   return (
     <Card
       aria-label="Example Ask Siargao prompt"
-      className="relative grid min-h-[190px] gap-5 border-brand-violet-400/75 bg-white/95 p-5 text-text-default shadow-[0_0_0_1px_rgba(255,255,255,0.22),0_22px_68px_rgba(76,49,184,0.38)] md:min-h-[194px] md:p-6"
+      className="relative grid min-h-[186px] gap-5 rounded-xl border-brand-violet-400/75 bg-white/97 p-5 text-text-default shadow-[0_0_0_1px_rgba(255,255,255,0.24),0_20px_56px_rgba(76,49,184,0.38)] md:p-6"
     >
-      <CardContent className="grid gap-5 p-0">
+      <CardContent className="grid gap-3 p-0">
         <div className="flex items-start gap-3">
           <Sparkles aria-hidden="true" className="shrink-0 text-brand-violet-550" />
-          <p className="m-0 text-sm leading-[1.5] font-bold text-text-strong md:text-base">
+          <p className="m-0 max-w-[520px] text-sm leading-[1.48] font-bold text-text-strong md:text-lg">
             I'm staying near Cloud 9 for 10 days. We want quiet sleep, surfing, good restaurants,
             and easy airport transfer. What should we know?
           </p>
         </div>
-        <ButtonGroup className="self-end">
+        <div className="flex w-full items-end gap-2 self-end">
           <Button
             aria-label="Add trip detail"
             className="size-10 border-[rgba(8,47,57,0.16)] bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
@@ -203,10 +222,10 @@ function PromptCard() {
           >
             <Globe2 aria-hidden="true" size={18} />
           </Button>
-          <GradientLink className="ml-auto min-h-10 px-3 whitespace-nowrap sm:px-4" href="/chat">
+          <GradientLink className="ml-auto min-h-12 rounded-lg px-8 whitespace-nowrap" href="/chat">
             Ask Siargao <Send aria-hidden="true" size={16} />
           </GradientLink>
-        </ButtonGroup>
+        </div>
       </CardContent>
     </Card>
   );
@@ -215,20 +234,20 @@ function PromptCard() {
 function WeatherCard() {
   return (
     <Card
-      className="min-h-auto overflow-hidden border-brand-lavender-200/95 bg-white/95 p-0 text-text-default shadow-[0_20px_58px_rgba(8,8,38,0.24)] backdrop-blur-md lg:min-h-[194px]"
+      className="min-h-auto overflow-hidden rounded-xl border-brand-lavender-200/95 bg-white/96 p-0 text-text-default shadow-[0_20px_58px_rgba(8,8,38,0.24)] backdrop-blur-md min-[900px]:min-h-[193px]"
       id="weather"
     >
       <CardContent className="p-0">
-        <div className="flex items-center gap-2 border-b border-border-default p-4">
-          <CloudSun aria-hidden="true" className="text-brand-violet-650" size={22} />
+        <div className="flex items-center gap-2 border-b border-border-default px-6 py-3">
           <h2 className="m-0 text-base font-extrabold text-text-strong">Today in Siargao</h2>
         </div>
         <div className="grid">
-          {weatherRows.map(([label, value]) => (
+          {weatherRows.map(({ icon: Icon, label, value }) => (
             <div
-              className="flex min-h-[35px] items-center justify-between gap-3 px-4 text-xs text-text-muted"
+              className="grid min-h-[35px] grid-cols-[1.25rem_1fr_auto] items-center gap-3 px-6 text-xs text-text-muted"
               key={label}
             >
+              <Icon aria-hidden="true" className="text-brand-violet-650" size={17} />
               <span>{label}</span>
               {label === "Freshness" ? (
                 <SignalBadge tone="fresh">{value}</SignalBadge>
@@ -245,15 +264,15 @@ function WeatherCard() {
 
 function SuggestionChips() {
   return (
-    <section className="px-5 pb-5 md:px-9 md:pb-5 xl:px-11" id="where-to-stay">
+    <section className="w-full max-w-[1118px] pb-3 md:pb-4" id="where-to-stay">
       <p className="mt-0 mb-3 text-xs font-extrabold text-brand-lavender-200/85">
         Try asking about...
       </p>
-      <div className="flex flex-wrap gap-3 md:gap-4">
+      <div className="flex flex-wrap gap-3">
         {suggestionChips.map(([label, Icon]) => (
           <Button
             asChild
-            className="min-h-9 rounded-full border border-brand-lavender-400/55 bg-brand-navy-980/40 px-4 text-xs font-bold text-white/90 shadow-[0_10px_30px_rgba(0,0,0,0.16)] hover:bg-brand-navy-900/60 hover:text-white"
+            className="min-h-9 rounded-full border border-brand-lavender-400/65 bg-brand-navy-980/36 px-5 text-xs font-bold text-white/92 shadow-[0_10px_30px_rgba(0,0,0,0.16)] hover:bg-brand-navy-900/60 hover:text-white"
             key={label as string}
             variant="outline"
           >
@@ -271,12 +290,12 @@ function SuggestionChips() {
 function TrustRow() {
   return (
     <section
-      className="mx-5 flex flex-wrap items-center justify-center gap-3 border-t border-white/10 py-4 md:mx-9 md:gap-0 md:py-5 xl:mx-11"
+      className="mx-auto flex w-full max-w-[970px] flex-wrap items-center justify-center gap-3 px-5 py-2 md:gap-0 md:py-2"
       id="saved-places"
     >
       {trustItems.map(([label, Icon]) => (
         <div
-          className="inline-flex items-center gap-2 px-2 text-xs font-extrabold text-white/85 not-last:md:border-r not-last:md:border-white/20 md:px-6 [&_svg]:text-brand-violet-400"
+          className="inline-flex items-center gap-2 px-2 text-xs font-extrabold text-white/88 not-last:md:border-r not-last:md:border-white/22 md:px-12 [&_svg]:text-brand-violet-400"
           key={label as string}
         >
           <Icon aria-hidden="true" size={18} />
@@ -291,21 +310,21 @@ function FeatureCards() {
   return (
     <section
       aria-label="Ask Siargao feature cards"
-      className="grid grid-cols-1 gap-3 px-5 pb-5 sm:grid-cols-2 md:px-9 md:pb-9 xl:px-11 min-[900px]:grid-cols-4"
+      className="grid grid-cols-1 gap-3 pt-3 pb-6 sm:grid-cols-2 md:grid-cols-4 md:gap-5 md:pt-2 md:pb-5"
     >
       {featureCards.map(({ body, icon: Icon, link, title }) => (
         <Card
-          className="min-h-56 border-0 bg-white/95 p-5 shadow-[0_18px_48px_rgba(8,8,38,0.18)] transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-[#fff7df] md:min-h-[228px]"
+          className="min-h-56 rounded-xl border-0 bg-white/97 p-5 shadow-[0_18px_48px_rgba(8,8,38,0.18)] transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-[#fff7df] md:min-h-[162px] md:p-4 xl:min-h-[162px]"
           key={title}
         >
-          <CardContent className="p-0">
-            <span className="inline-flex size-11 items-center justify-center rounded-full bg-[rgba(108,70,232,0.1)] text-brand-violet-600">
-              <Icon aria-hidden="true" size={22} />
+          <CardContent className="grid grid-cols-[3.75rem_1fr] gap-x-4 p-0">
+            <span className="row-span-4 inline-flex size-14 items-center justify-center rounded-full bg-[rgba(108,70,232,0.1)] text-brand-violet-600">
+              <Icon aria-hidden="true" size={30} />
             </span>
-            <h2 className="mt-4 mb-2 text-base leading-tight font-extrabold text-text-strong">
+            <h2 className="mt-0 mb-2 text-lg leading-tight font-extrabold text-text-strong">
               {title}
             </h2>
-            <p className="mt-0 mb-5 text-sm leading-[1.55] text-text-muted">{body}</p>
+            <p className="mt-0 mb-3 text-sm leading-[1.55] text-text-muted">{body}</p>
             <Link
               className="inline-flex items-center gap-1 text-sm font-extrabold text-brand-violet-550 no-underline"
               href="/chat"
