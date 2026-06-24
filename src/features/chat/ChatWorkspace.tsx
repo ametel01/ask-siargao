@@ -17,6 +17,8 @@ const suggestedPrompts = [
   "Help me plan a quiet Siargao day",
 ];
 
+const chatErrorMessage = "Ask Siargao could not answer right now. Please try again.";
+
 type InteractiveChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -24,6 +26,7 @@ type InteractiveChatMessage = {
   timestamp: string;
   status?: "pending" | "complete" | "error";
   model?: string;
+  retryPrompt?: string;
 };
 
 type ChatComposerProps = {
@@ -87,7 +90,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
         const responseModel = body.model;
 
         if (!response.ok || !responseMessage) {
-          throw new Error(responseMessage ?? "Ask Siargao could not answer right now.");
+          throw new Error(chatErrorMessage);
         }
 
         setMessages((currentMessages) =>
@@ -103,18 +106,16 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
               : message,
           ),
         );
-      } catch (error) {
+      } catch {
         setMessages((currentMessages) =>
           currentMessages.map((message) =>
             message.id === pendingAssistantId
               ? {
                   ...message,
-                  text:
-                    error instanceof Error
-                      ? error.message
-                      : "Ask Siargao could not answer right now.",
+                  text: chatErrorMessage,
                   timestamp: formatTimestamp(),
                   status: "error",
+                  retryPrompt: trimmedPrompt,
                 }
               : message,
           ),
@@ -195,7 +196,12 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
                 />
                 <div className="grid gap-4" role="log" aria-label="Conversation messages">
                   {messages.map((message) => (
-                    <ChatMessage key={message.id} message={message} />
+                    <ChatMessage
+                      disabled={isSending}
+                      key={message.id}
+                      message={message}
+                      onRetryPrompt={handlePromptSubmit}
+                    />
                   ))}
                 </div>
               </>
@@ -221,7 +227,15 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
   );
 }
 
-function ChatMessage({ message }: { message: InteractiveChatMessage }) {
+function ChatMessage({
+  disabled,
+  message,
+  onRetryPrompt,
+}: {
+  disabled: boolean;
+  message: InteractiveChatMessage;
+  onRetryPrompt: (prompt: string) => void;
+}) {
   const isUser = message.role === "user";
   const isPending = message.status === "pending";
   const isError = message.status === "error";
@@ -273,6 +287,17 @@ function ChatMessage({ message }: { message: InteractiveChatMessage }) {
             </span>
           ) : null}
         </div>
+        {isError && message.retryPrompt ? (
+          <Button
+            className="mt-4 h-9 rounded-md border-[#ffd5ce]/45 bg-white/10 px-3 text-xs font-extrabold text-text-on-dark hover:bg-white/15"
+            disabled={disabled}
+            onClick={() => onRetryPrompt(message.retryPrompt ?? "")}
+            type="button"
+            variant="outline"
+          >
+            Retry last question
+          </Button>
+        ) : null}
       </div>
     </article>
   );
@@ -291,7 +316,7 @@ function ChatComposer({
 
   return (
     <footer className="border-white/12 border-t bg-brand-navy-980/92 px-4 py-3 backdrop-blur-md sm:px-6 lg:px-8">
-      <form className="mx-auto max-w-3xl" onSubmit={handleSubmit}>
+      <form aria-label="Ask Siargao composer" className="mx-auto max-w-3xl" onSubmit={handleSubmit}>
         <InputGroup className="min-h-[58px] grid-cols-[1fr_48px] rounded-lg border-white/18 bg-white/96 p-2 shadow-[0_22px_70px_rgba(0,0,0,0.28)]">
           <InputGroupInput
             aria-label="Ask anything about Siargao"

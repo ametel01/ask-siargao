@@ -29,12 +29,18 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect(page.getByText("High confidence")).toHaveCount(0);
 
   const composerInput = page.getByLabel("Ask anything about Siargao");
+  const sendButton = page.getByRole("button", { name: "Send question" });
   await expect(composerInput).toBeVisible();
   await composerInput.fill("Where should we eat near Cloud 9 tonight?");
-  await page.getByRole("button", { name: "Send question" }).click();
+  await sendButton.click();
 
   await expect(page.getByText("Where should we eat near Cloud 9 tonight?")).toBeVisible();
   await expect(page.getByText("Thinking through that with Ask Siargao...")).toBeVisible();
+  await expect(composerInput).toBeDisabled();
+  await expect(sendButton).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "What should I do near Cloud 9 today?" }),
+  ).toBeDisabled();
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(lastSubmittedContent(mockChat.requests[0])).toBe(
     "Where should we eat near Cloud 9 tonight?",
@@ -45,6 +51,7 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect(
     page.getByText("Mocked dinner answer: try Kermit or Bravo near Cloud 9 tonight."),
   ).toBeVisible();
+  await expect(composerInput).toBeEnabled();
 
   const composerBox = await composerInput.boundingBox();
   expect(composerBox).not.toBeNull();
@@ -93,6 +100,65 @@ test("auto-submits a prompt deep link once", async ({ page }) => {
   ).toBeVisible();
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(lastSubmittedContent(mockChat.requests[0])).toBe(prompt);
+});
+
+test("shows safe error copy and lets the user keep asking after a failed request", async ({
+  page,
+}) => {
+  const requests: ChatRequestBody[] = [];
+  let requestCount = 0;
+
+  await page.route("**/api/chat", async (route) => {
+    requests.push(route.request().postDataJSON() as ChatRequestBody);
+    requestCount += 1;
+
+    if (requestCount === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: "chat_not_configured",
+          message: "OPENAI_API_KEY is required for Ask Siargao chat.",
+        }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message: "Mocked follow-up answer: yes, keep the backup plan simple.",
+        model: "gpt-5.5-test",
+        requestId: "req_playwright_chat_retry",
+      }),
+    });
+  });
+
+  await page.goto("/chat");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("Will the power be reliable?");
+  await composerInput.press("Enter");
+
+  await expect(page.getByText("Will the power be reliable?")).toBeVisible();
+  await expect(
+    page.getByText("Ask Siargao could not answer right now. Please try again."),
+  ).toBeVisible();
+  await expect(page.getByText("OPENAI_API_KEY")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry last question" })).toBeVisible();
+  await expect(composerInput).toBeEnabled();
+
+  await composerInput.fill("Can I ask a follow-up?");
+  await composerInput.press("Enter");
+
+  await expect(page.getByText("Can I ask a follow-up?")).toBeVisible();
+  await expect(
+    page.getByText("Mocked follow-up answer: yes, keep the backup plan simple."),
+  ).toBeVisible();
+  await expect.poll(() => requests.length).toBe(2);
+  expect(lastSubmittedContent(requests[0])).toBe("Will the power be reliable?");
+  expect(lastSubmittedContent(requests[1])).toBe("Can I ask a follow-up?");
 });
 
 async function mockChatApi(

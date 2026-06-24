@@ -22,15 +22,15 @@ results, commit reference if available, current status, and next step.
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Replace Mock Chat Layout With A Focused Responsive Shell
 - [x] Step 2: Add Mocked Browser Coverage For Real Chat Interaction
-- [ ] Step 3: Harden Chat Error, Pending, And Accessibility States
+- [x] Step 3: Harden Chat Error, Pending, And Accessibility States
 - [ ] Step 4: Align Landing Deep Links And Final Visual Smoke
 - [ ] Step 5: Final Verification And Handoff
 
 ## Current Status
 
-Step 2 complete. Current status: ready for Step 3.
+Step 3 complete. Current status: ready for Step 4.
 
-Next step: Harden chat pending, error, retry, and accessibility states.
+Next step: Align landing deep links and run the final affected visual smoke checks.
 
 ## Update Log
 
@@ -101,4 +101,29 @@ Validation:
 
 Commit:
 
-- Pending: `test: cover real chat interactions`
+- `cedea7c test: cover real chat interactions`
+
+### Step 3: Harden Chat Error, Pending, And Accessibility States
+
+- Replaced surfaced request failures with concise user-facing error copy.
+- Added a retry affordance for failed prompts while keeping the original user message
+  visible.
+- Kept the composer and suggested prompts disabled while an assistant request is in
+  flight, then re-enabled the composer after completion or failure.
+- Added an accessible composer form label while preserving input and send-button labels.
+- Extended chat e2e coverage for pending disabled controls, sanitized 503 error copy,
+  retry visibility, and keyboard resubmission after a failed request.
+
+Validation:
+
+- `bun run format` - passed
+- `bun run lint` - passed
+- `bun run typecheck` - passed
+- `bun test src/app/api/chat/route.test.ts` - passed
+- `bun run test:e2e -- tests/e2e/chat.e2e.ts` - passed after clearing the reused
+  dev server with `bun run dev:kill`
+- `bun run build` - passed
+
+Commit:
+
+- Pending: `fix: harden chat request states`
