@@ -9,6 +9,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added explicit empty states to the admin diagnostics console for empty blocked-audit, completeness, provider/job, reviewer, LLM-cost, and drill-down datasets.
 - Added shadcn primitives for sidebar, scroll area, avatar, input groups, button groups, toggles, items, empty states, breadcrumbs, collapsibles, and navigation menus.
 - Established progress tracking for the shadcn/Panda migration plan.
 - Added the Ask Siargao `/chat` workspace with desktop three-column context layout, mobile chat layout, mock conversation cards, and Playwright coverage.
@@ -47,6 +48,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Migrated the paid report, admin diagnostics, public knowledge, and audit status surfaces from Panda helpers to shadcn/Tailwind classes and primitives.
 - Migrated the Ask Siargao landing and chat workspace surfaces from Panda helpers to shadcn/Tailwind components.
 - Migrated shared Ask Siargao primitives from Panda helpers to shadcn-backed Tailwind utilities.
 - Moved Ask Siargao brand tokens into the Tailwind/shadcn CSS variable layer while keeping Panda available as a temporary fallback.

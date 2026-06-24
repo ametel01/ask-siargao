@@ -4,8 +4,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { type AuditJobState, auditJobStates } from "@/server/audit/enums";
-import { css } from "../../../styled-system/css/css";
-import { pageShell } from "../../../styled-system/recipes/page-shell";
+
+const pageShell =
+  "min-h-screen bg-[radial-gradient(circle_at_18%_8%,rgba(135,92,246,0.2),transparent_32rem),linear-gradient(135deg,#05082a_0%,#090d3a_48%,#17105a_100%)] text-text-on-dark";
 
 const statusCopy: Record<
   AuditJobState,
@@ -91,83 +92,23 @@ export function AuditStatusPage({
   const progressValue = auditProgressValue(state);
 
   return (
-    <main className={pageShell()}>
-      <section
-        className={css({
-          alignItems: "center",
-          display: "grid",
-          maxW: "860px",
-          minH: "100vh",
-          mx: "auto",
-          px: { base: "5", md: "8" },
-          py: { base: "10", md: "16" },
-        })}
-      >
-        <Card
-          className={css({
-            bg: "surface",
-            borderColor: "border",
-            borderRadius: "lg",
-            borderWidth: "1px",
-            boxShadow: "card",
-            display: "grid",
-            gap: "5",
-            p: { base: "5", md: "8" },
-          })}
-        >
-          <CardContent className={css({ display: "grid", gap: "5", p: "0" })}>
-            <div
-              className={css({
-                alignItems: "center",
-                display: "flex",
-                gap: "3",
-              })}
-            >
+    <main className={pageShell}>
+      <section className="mx-auto grid min-h-screen max-w-[860px] items-center px-5 py-10 md:px-8 md:py-16">
+        <Card className="grid gap-5 rounded-lg border border-border-default bg-surface-default p-5 shadow-card md:p-8">
+          <CardContent className="grid gap-5 p-0">
+            <div className="flex items-center gap-3">
               <span
-                className={css({
-                  alignItems: "center",
-                  bg:
-                    copy.tone === "success"
-                      ? "risk.lowBg"
-                      : copy.tone === "warning"
-                        ? "risk.mediumBg"
-                        : "surface.tint",
-                  borderRadius: "md",
-                  color:
-                    copy.tone === "success"
-                      ? "risk.lowDark"
-                      : copy.tone === "warning"
-                        ? "risk.medium"
-                        : "violet.650",
-                  display: "inline-flex",
-                  h: "11",
-                  justifyContent: "center",
-                  width: "11",
-                })}
+                className={`inline-flex size-11 items-center justify-center rounded-md ${statusIconClass(
+                  copy.tone,
+                )}`}
               >
                 <Icon aria-hidden="true" size={23} />
               </span>
-              <p
-                className={css({
-                  color: "text.muted",
-                  fontSize: "xs",
-                  fontWeight: "800",
-                  m: 0,
-                  textTransform: "uppercase",
-                })}
-              >
+              <p className="m-0 text-xs font-extrabold text-text-muted uppercase">
                 Audit {auditRequestId}
               </p>
             </div>
-            <h1
-              className={css({
-                color: "text.strong",
-                fontSize: { base: "2xl", md: "3xl" },
-                fontWeight: "800",
-                lineHeight: "1.15",
-                m: 0,
-              })}
-            >
+            <h1 className="m-0 text-2xl leading-[1.15] font-extrabold text-text-strong md:text-3xl">
               {copy.title}
             </h1>
             <Alert variant={copy.tone === "warning" ? "destructive" : "default"}>
@@ -175,23 +116,13 @@ export function AuditStatusPage({
               <AlertTitle>{copy.title}</AlertTitle>
               <AlertDescription>{copy.body}</AlertDescription>
             </Alert>
-            <div className={css({ display: "grid", gap: "2" })}>
+            <div className="grid gap-2">
               <Progress aria-label="Audit progress" value={progressValue} />
-              <p className={css({ color: "text.muted", fontSize: "xs", fontWeight: "800", m: 0 })}>
+              <p className="m-0 text-xs font-extrabold text-text-muted">
                 {Math.round(progressValue)}% through the audit lifecycle
               </p>
             </div>
-            <ol
-              className={css({
-                color: "text.muted",
-                display: "grid",
-                fontSize: "sm",
-                gap: "2",
-                lineHeight: "1.7",
-                m: 0,
-                pl: "5",
-              })}
-            >
+            <ol className="m-0 grid gap-2 pl-5 text-sm leading-[1.7] text-text-muted">
               <li>Verified Stripe webhook marks the audit paid.</li>
               <li>Generation starts after payment is verified server-side.</li>
               <li>Publication requires both payment and reviewer approval.</li>
@@ -225,4 +156,14 @@ function auditProgressValue(state: AuditJobState) {
   };
 
   return progressByState[state];
+}
+
+function statusIconClass(tone: "neutral" | "success" | "warning") {
+  if (tone === "success") {
+    return "bg-emerald-100 text-emerald-800";
+  }
+  if (tone === "warning") {
+    return "bg-amber-100 text-amber-800";
+  }
+  return "bg-surface-tint text-brand-violet-650";
 }

@@ -10,8 +10,8 @@ Sources:
 
 ## Status
 
-- Current status: Step 4 complete; remaining report, admin, public, and status surface migration pending.
-- Next step: Step 5, Migrate Report, Admin, Public, and Status Surfaces.
+- Current status: Step 5 complete; Panda has been removed from the report, admin diagnostics, public knowledge, and audit status surfaces.
+- Next step: Step 6, Remove Panda Configuration, Generated Output, Scripts, and Docs.
 - Update rule: After each completed step, update this file with completion notes, validation results, commit reference if available, current status, and next step.
 
 ## Checklist
@@ -21,7 +21,7 @@ Sources:
 - [x] Step 2: Add shadcn Primitives and Brand CSS Variables
 - [x] Step 3: Migrate Shared Ask Siargao Primitives off Panda
 - [x] Step 4: Migrate Landing and Chat Surfaces to shadcn/Tailwind
-- [ ] Step 5: Migrate Report, Admin, Public, and Status Surfaces
+- [x] Step 5: Migrate Report, Admin, Public, and Status Surfaces
 - [ ] Step 6: Remove Panda Configuration, Generated Output, Scripts, and Docs
 - [ ] Step 7: Final Regression, Visual Polish, and Handoff
 
@@ -36,3 +36,4 @@ The migration removes Panda CSS from runtime code, generated assets, scripts, de
 - 2026-06-24: Step 2 complete. Added shadcn `sidebar`, `scroll-area`, `avatar`, `input-group`, `button-group`, `toggle`, `toggle-group`, `item`, `empty`, `breadcrumb`, `collapsible`, and `navigation-menu` primitives without overwriting existing local components. Moved the canonical Ask Siargao brand palette, surfaces, text colors, confidence and risk colors, borders, shadows, gradients, fonts, durations, and easing into `src/theme/global.css`; mapped shadcn sidebar, chart, background, foreground, card, popover, primary, secondary, muted, accent, border, input, and ring variables to the brand layer; and kept the generated Panda stylesheet import as a temporary fallback for unmigrated code. Validation passed: `bun run format`, `bun run lint`, `bun run typecheck --incremental false`, `bun test`, `bun run db:migrate:test`, `bun run db:seed:test`, `bun run build`, and `bun run test:e2e`. Commit pending for Step 2.
 - 2026-06-24: Step 3 complete. Refactored `src/ui/components/ask-siargao.tsx` off Panda `css()`, `cx()`, and token references while preserving `BrandLockup`, `PalmMark`, `GradientLink`, `SignalBadge`, and `BrowserDots` exports. The shared primitives now use `cn`, Tailwind utilities, CSS variables, `Button`, `Badge`, and `Avatar`; generated Panda CSS was refreshed to remove no-longer-referenced shared primitive classes. Validation passed: `bun run format`, `bun run lint`, `bun run typecheck --incremental false`, `bun test`, `bun run db:migrate:test`, `bun run db:seed:test`, `bun run build`, and `bun run test:e2e`. Commit pending for Step 3.
 - 2026-06-24: Step 4 complete. Migrated `src/features/landing/LandingPage.tsx` and `src/features/chat/ChatWorkspace.tsx` from Panda helper functions to Tailwind/shadcn classes and primitives, including `NavigationMenu`, `ButtonGroup`, `Card`, `Sidebar`, `ScrollArea`, `Avatar`, and `InputGroup` usage while preserving the existing root and `/chat` copy, routing, desktop three-column chat layout, mobile chat surface, and responsive root overflow behavior. Refreshed generated Panda CSS to remove landing/chat extracted classes that are no longer referenced. Screenshot smoke checks were captured for root desktop/mobile and `/chat` desktop/mobile under `/tmp/siargao-step4-*.png`, with a follow-up desktop chat sidebar fit polish. Validation passed: `bun run format`, `bun run lint`, `bun run typecheck --incremental false`, `bun test`, `bun run db:migrate:test`, `bun run db:seed:test`, `bun run build`, `bun run test:e2e`, and `npx react-doctor@latest --verbose --scope changed` with score 100/100 and no issues. Commit pending for Step 4.
+- 2026-06-24: Step 5 complete. Migrated `src/features/report/FinalReportPage.tsx`, `src/features/admin/AdminDiagnosticsPage.tsx`, `src/features/public-pages/PublicKnowledgePage.tsx`, and `src/features/audit-status/AuditStatusPage.tsx` from Panda helpers to Tailwind/shadcn classes and primitives while preserving the paid report, diagnostics, public JSON-LD, public crawl surfaces, and checkout-return status copy. Added explicit admin diagnostics empty states for blocked audits, completeness failures, provider/job failures, reviewer rejections, LLM cost estimates, and drill-down data gaps. Refreshed generated Panda CSS to remove extracted classes from these surfaces. Validation passed: `bun run format`, `bun run lint`, `bun run typecheck --incremental false`, `bun test`, `bun run db:migrate:test`, sequential `bun run db:seed:test`, `bun run build`, `bun run test:e2e`, and `npx react-doctor@latest --verbose --scope changed` with score 100/100 and no issues. Commit pending for Step 5.
