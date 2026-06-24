@@ -2,15 +2,15 @@
 
 ## Summary
 
-The Siargao travel information market is fragmented. There are roughly 10-12 discoverable Siargao-focused web properties, but only about half are strong traveler products. The strongest current resources solve pieces of the traveler problem: directories, booking, reviews, nightlife/events, accommodation inventory, or official context. None clearly owns the position defined in the PRD: a mobile-first, editorially independent Siargao trust and logistics platform with source-aware AI-assisted trip risk audits.
+The Siargao travel information market is fragmented. There are roughly 10-12 discoverable Siargao-focused web properties, but only about half are strong traveler products. The strongest current resources solve pieces of the traveler problem: directories, booking, reviews, nightlife/events, accommodation inventory, or official context. None clearly owns the new product position: a chat-first, editorially independent Siargao tour-operator assistant that answers practical traveler questions with fresh, source-aware local data.
 
-The main competitive gap is not a lack of Siargao content. It is the lack of a trusted, current, evidence-backed layer that combines official information, local directory data, booking/review signals, live logistics, operator credibility, and traveler-specific risk evaluation.
+The main competitive gap is not a lack of Siargao content. It is the lack of a trusted, current, evidence-backed assistant that combines official information, local directory data, booking/review signals, live logistics, operator credibility, weather, and the traveler's actual accommodation, dates, and constraints.
 
 ## Market Categories
 
 | Category | Examples | What They Do Well | Gaps We Can Exploit |
 |---|---|---|---|
-| Local directories | SiargaoLocal, Siargao Finder | Broad local discovery, listings, practical business information | Do not provide end-to-end trip risk evaluation, payment-gated audit workflow, or personalized source-aware recommendations |
+| Local directories | SiargaoLocal, Siargao Finder | Broad local discovery, listings, practical business information | Do not provide chat-first, trip-contextual answers or personalized source-aware recommendations |
 | Operator-led booking sites | Siargao Island Hopping, Siargao Island Tour, Suroy Siargao | Sell tours, transfers, packages, and direct contact | Narrow commercial scope, limited neutral trip advice, variable disclosure and editorial depth |
 | Content and SEO portals | Siargao.PH, Siargao Islands, Siargao Islands .NET, Siargao Island Tours | Search visibility, broad topic coverage, some legacy local information | Stale or generic content risk, weak provenance, thin editorial governance, limited trust for consequential planning |
 | Hybrid commerce portals | SiargaoHotels.ph, Discover Siargao | Accommodation/tour/rental aggregation, one-stop shopping | Commercial bias, mixed travel and non-travel content, stale policy risk, weak source hierarchy |
@@ -54,19 +54,19 @@ The main competitive gap is not a lack of Siargao content. It is the lack of a t
 
 **Weaknesses:**
 
-- Directory-first rather than audit-first.
-- Does not appear to provide a paid trip feasibility audit.
-- Does not appear to resolve a user's full trip plan against weather, logistics, accommodation fit, official rules, and personal constraints.
+- Directory-first rather than chat-first.
+- Does not appear to provide a paid contextual trip assistant.
+- Does not appear to resolve a user's live questions against weather, logistics, accommodation fit, official rules, and personal constraints.
 - Coverage is geographically concentrated in General Luna and nearby high-tourism zones, so island-wide completeness is uneven despite 16 listed locations.
 - Category depth is broad, but it is still mostly business discovery; it does not appear to synthesize official route, policy, fee, closure, accreditation, weather, and event risk into one decision workflow.
 - Review count presentation needs caution: the public homepage counter and REST review records appear to measure different things.
 - It is not an official source for rules, accreditation, transport notices, environmental fees, or government policy.
-- The business model includes featured placement and affiliate links, which are disclosed but still create a different incentive structure from a traveler-paid audit.
+- The business model includes featured placement and affiliate links, which are disclosed but still create a different incentive structure from a traveler-paid assistant.
 - The terms prohibit scraping and automated harvesting, so we should not treat the public site as a product data source without permission.
 
 **Implication for us:**
 
-Treat SiargaoLocal as a high-quality local directory, data-model, and UX benchmark, not as a direct replacement for the audit. Our differentiation must be reasoning, risk scoring, source hierarchy, official-source synthesis, traveler-specific constraints, and payment-gated audit completeness. If we want to use SiargaoLocal data operationally, pursue explicit permission, a partnership, or another compliant access path; otherwise use it only as a competitive reference and source-credibility example.
+Treat SiargaoLocal as a high-quality local directory, data-model, and UX benchmark, not as a direct replacement for the chatbot assistant. Our differentiation must be chat context, source hierarchy, official-source synthesis, traveler-specific constraints, live refreshes, and source-aware local judgment. If we want to use SiargaoLocal data operationally, pursue explicit permission, a partnership, or another compliant access path; otherwise use it only as a competitive reference and source-credibility example.
 
 ### Siargao Finder
 
@@ -109,7 +109,7 @@ Treat SiargaoLocal as a high-quality local directory, data-model, and UX benchma
 - Directory and discovery workflow rather than trip-risk workflow.
 - Public listings are contact-directory oriented and often sparse; many entries have no website, no email, no services, or only phone/address details.
 - No visible review corpus comparable to Tripadvisor or SiargaoLocal's aggregated review positioning.
-- It does not appear to produce evidence-backed trip audits, route risk checks, accommodation tradeoff analysis, or personalized risk ranking.
+- It does not appear to produce evidence-backed chat answers, route checks, accommodation tradeoff analysis, or personalized recommendation ranking.
 - The blog/guide layer is broader than SiargaoLocal's but much of it appears designed for SEO coverage rather than deeply sourced, claim-by-claim logistics intelligence.
 - Municipality/category page scale is strong for discoverability, but it can create many thin intersection pages if not maintained carefully.
 - It is not an official source for policy, fees, accreditation, route changes, or public advisories.
@@ -117,7 +117,7 @@ Treat SiargaoLocal as a high-quality local directory, data-model, and UX benchma
 
 **Implication for us:**
 
-Siargao Finder validates the demand for practical, trust-oriented local discovery, especially outside polished tourist categories. It is closer than SiargaoLocal to our "source-aware local operating layer" in spirit, because it covers government, emergency, supplier, jobs, and compliance surfaces. We should not compete by building only another directory. Our differentiation must be audit reasoning, source hierarchy, official-source conflict handling, trip-specific constraints, and report generation. If we use Finder operationally, treat it as a candidate local-directory source layer subject to permitted access, source credibility scoring, and source-type labeling rather than as an authoritative fact source.
+Siargao Finder validates the demand for practical, trust-oriented local discovery, especially outside polished tourist categories. It is closer than SiargaoLocal to our "source-aware local operating layer" in spirit, because it covers government, emergency, supplier, jobs, and compliance surfaces. We should not compete by building only another directory. Our differentiation must be conversational trip context, source hierarchy, official-source conflict handling, local recommendations relative to the stay, and live refreshes. If we use Finder operationally, treat it as a candidate local-directory source layer subject to permitted access, source credibility scoring, and source-type labeling rather than as an authoritative fact source.
 
 ### Siargao Island Hopping
 
@@ -164,7 +164,7 @@ Siargao Finder validates the demand for practical, trust-oriented local discover
 
 **Implication for us:**
 
-This is a strong benchmark for the operator-booking slice of the market and a potential partner, but not a direct replacement for the audit. Our product should treat it as an operator credibility signal and booking-flow reference, while independently checking weather, closures, official advisories, transport feasibility, price reasonableness, review provenance, and traveler-specific fit. Do not ingest its public product data into our cache without permission; use it as a competitive reference unless a compliant access path exists.
+This is a strong benchmark for the operator-booking slice of the market and a potential partner, but not a direct replacement for the assistant. Our product should treat it as an operator credibility signal and booking-flow reference, while independently checking weather, closures, official advisories, transport feasibility, price reasonableness, review provenance, and traveler-specific fit. Do not ingest its public product data into our cache without permission; use it as a competitive reference unless a compliant access path exists.
 
 ### Siargao Vibes
 
@@ -202,7 +202,7 @@ This is a strong benchmark for the operator-booking slice of the market and a po
 **Weaknesses:**
 
 - Editorial standards appear lighter than SiargaoLocal.
-- Event usefulness does not equal full trip feasibility coverage.
+- Event usefulness does not equal full contextual trip assistance.
 - Less strong for official policy, accreditation, and high-confidence logistics.
 - Business model mixes editorial discovery, directory listings, events, commerce, vendor surfaces, and listing publication, so recommendations may be shaped by marketplace incentives.
 - Public listing count is materially smaller than SiargaoLocal or Siargao Finder.
@@ -213,7 +213,7 @@ This is a strong benchmark for the operator-booking slice of the market and a po
 
 **Implication for us:**
 
-Live events and near-arrival checks should become part of our audit where relevant. Siargao Vibes is a benchmark for current local rhythm, listing UX, and mixed directory-commerce design, but our report should separate event/social signals from official or verified facts. Use it as a competitive reference and possible partner for event/listing signals; do not ingest its listings, reviews, or event corpus into our cache without permission or another compliant access path.
+Live events and near-arrival checks should become part of the assistant where relevant. Siargao Vibes is a benchmark for current local rhythm, listing UX, and mixed directory-commerce design, but our answers should separate event/social signals from official or verified facts. Use it as a competitive reference and possible partner for event/listing signals; do not ingest its listings, reviews, or event corpus into our cache without permission or another compliant access path.
 
 ### SiargaoHotels.ph
 
@@ -233,7 +233,7 @@ Live events and near-arrival checks should become part of our audit where releva
 
 **Implication for us:**
 
-The audit should not compete as another sales-led booking portal in v1. We should explicitly avoid commission-shaped recommendations and instead score accommodation and service claims by source credibility.
+The assistant should not compete as another sales-led booking portal in v1. We should explicitly avoid commission-shaped recommendations and instead explain accommodation and service recommendations by source credibility, freshness, traveler fit, and practical proximity.
 
 ### Discover Siargao
 
@@ -334,7 +334,7 @@ Tripadvisor should be treated as a major sentiment and trust-signal source where
 
 **Implication for us:**
 
-These platforms are important accommodation data sources, but the product should not become a booking-comparison clone. The audit should translate accommodation data into constraints: noise, work reliability, area fit, access, cancellation, transport, and confidence.
+These platforms are important accommodation data sources, but the product should not become a booking-comparison clone. The assistant should translate accommodation data into trip-contextual answers: quiet sleep, family fit, work reliability, area fit, beach access, transport, and confidence.
 
 ### Klook
 
@@ -371,7 +371,7 @@ Use Klook-style sources for activity availability and marketplace validation whe
 
 **Implication for us:**
 
-Official sources should have source-precedence in the audit for policy, accreditation, route, fee, and public-sector claims. The product opportunity exists partly because official information is fragmented.
+Official sources should have source-precedence in assistant answers for policy, accreditation, route, fee, and public-sector claims. The product opportunity exists partly because official information is fragmented.
 
 ## Positioning Map
 
@@ -387,7 +387,7 @@ Official sources should have source-precedence in the audit for policy, accredit
 | Booking.com / Agoda | High for inventory | High | Low | High | Low | Medium |
 | Klook | High-medium for activities | Medium-high | Low | High | Low | Low-medium |
 | Official/public-sector sources | High | Variable | Low | Low | High | Medium |
-| Siargao Trip Risk Audit | High if executed | High if governed | High | Low in v1 | High through synthesis | High |
+| Ask Siargao chat assistant | High if executed | High if governed | High | Redirects only in v1 | High through synthesis | High |
 
 ## Strategic Gaps
 
@@ -395,9 +395,9 @@ Official sources should have source-precedence in the audit for policy, accredit
 
 No competitor clearly separates official facts, local directory data, operator claims, booking-platform data, traveler sentiment, and stale or weak sources. This is the largest differentiation opportunity.
 
-### 2. Trip Feasibility Audit
+### 2. Chat-First Trip Context
 
-Competitors help travelers discover or book things. They do not appear to answer: "Will this specific trip plan break for my constraints?"
+Competitors help travelers discover or book things. They do not appear to answer arbitrary trip-contextual questions like: "Will my hotel be quiet?", "Where should we eat near our stay tonight?", "Do we need a scooter?", or "What should we do with today's weather?"
 
 ### 3. Official Context Synthesis
 
@@ -405,7 +405,7 @@ Official information exists but is fragmented across public-sector pages and tra
 
 ### 4. Fresh Logistics Intelligence
 
-Flights, ferries, closures, environmental fees, surf events, nightlife timing, and operator accreditation are not reliably consolidated. This should be part of the audit's risk engine.
+Flights, ferries, closures, environmental fees, surf events, nightlife timing, and operator accreditation are not reliably consolidated. These should be part of the assistant's source-aware answer context.
 
 ### 5. Segment-Specific Depth
 
@@ -413,7 +413,7 @@ Families, accessibility-conscious travelers, sustainability-minded travelers, re
 
 ### 6. Non-Website Trust Signals
 
-Some strong operators are validated mainly through Tripadvisor, Facebook, Instagram, and marketplaces rather than their own websites. The audit should be able to use permitted non-website signals without mistaking them for official facts.
+Some strong operators are validated mainly through Tripadvisor, Facebook, Instagram, and marketplaces rather than their own websites. The assistant should be able to use permitted non-website signals without mistaking them for official facts.
 
 ### 7. Transparent AI Use
 
@@ -428,7 +428,7 @@ The first product should not try to beat every resource at its own job.
 - Do not become an official government portal.
 - Do not publish high-volume generic SEO content.
 
-Instead, win by combining the market's scattered inputs into an evidence-backed trip risk decision:
+Instead, win by combining the market's scattered inputs into evidence-backed chat answers:
 
 1. Use official/public-sector sources for authority.
 2. Use local directories for practical local coverage.
@@ -440,15 +440,17 @@ Instead, win by combining the market's scattered inputs into an evidence-backed 
 
 ## Implications For PRD And Product
 
-- Keep the USD 9.99 Trip Risk Audit as the first monetized workflow.
-- Treat the larger product as a Siargao trust and logistics platform.
-- Add source credibility as a first-class product concept.
+- Make chat the primary product surface.
+- Replace the one-off USD 9.99 audit with a USD 14.99 two-week Siargao Trip Pass.
+- Use free preview answers as the hook, then paywall live evidence refreshes and heavier recommendations.
+- Treat risk as one answer type, not the product frame.
+- Add source credibility, freshness, and confidence as first-class answer concepts.
 - Add official-source precedence for policy, fees, accreditation, and transport.
-- Add stale-policy detection as a risk category.
-- Add event, closure, environmental-fee, and operator-trust modules.
+- Add live weather, event, closure, environmental-fee, and operator-trust modules when relevant to the user's question.
 - Treat social and marketplace signals as trust/sentiment evidence, not official facts.
 - Keep affiliate and booking recommendations out of v1 to preserve trust.
-- Build toward free trusted guides later, but do not include a full editorial content library in the first paid-audit release.
+- Redirect to maps, providers, booking pages, and contact methods when useful, without managing bookings directly.
+- Build public trusted pages later from facts that the chat product proves are repeatedly useful and legally publishable.
 
 ## Sources
 
@@ -457,3 +459,4 @@ This competitor landscape is synthesized from:
 - `deep-research-report.md`
 - `PRD.md`
 - `TECH.md`
+- `DATA_STRATEGY.md`

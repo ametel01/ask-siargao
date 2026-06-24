@@ -1,6 +1,6 @@
 # Developer Documentation
 
-Use these pages when working on the Siargao Portal codebase.
+Use these pages when working on the Ask Siargao codebase.
 
 - [First local run](tutorials/first-local-run.md): install dependencies, prepare local env, seed the test database, and start the app.
 - [Build the data pipeline with local Postgres](how-to-guides/build-the-data-pipeline-with-local-postgres.md): use Docker Compose Postgres before cloud Postgres to validate migrations, seed data, ingestion, confidence, freshness, and audit gating.
@@ -10,3 +10,4 @@ Use these pages when working on the Siargao Portal codebase.
 - [Routes and surfaces reference](reference/routes-and-surfaces.md): app pages, API routes, public machine-readable surfaces, and private surfaces.
 - [Demo data reference](reference/demo-data.md): synthetic and permitted local QA fixtures.
 - [Audit lifecycle and boundaries](explanation/audit-lifecycle-and-boundaries.md): how intake, payment, generation, public data, and privacy boundaries fit together.
+- [Siargao chatbot data pipeline](explanation/siargao-chatbot-data-pipeline.md): product direction and lazy fact acquisition model for the chat-first tour-operator assistant.

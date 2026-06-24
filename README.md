@@ -1,8 +1,8 @@
-# Siargao Portal
+# Ask Siargao
 
-Siargao Portal is a Next.js App Router application for the Siargao Trip Risk Audit: a paid, evidence-backed feasibility audit that charges only after the system can complete the report to the promised standard.
+Ask Siargao is a Next.js App Router application for a chat-first Siargao tour-operator assistant. Travelers paste a trip plan or ask practical questions, and the app answers with fresh local data, normalized facts, confidence, and source-aware constraints.
 
-Current implementation covers the landing and intake flow, completeness gating, Stripe Checkout boundaries, mocked audit generation and reviewer contracts, final report rendering, public knowledge pages, admin diagnostics, observability hooks, privacy controls, rate limits, and release-candidate QA notes.
+Current implementation still includes earlier audit/report surfaces while the product direction is shifting to Ask Siargao: a free preview chat plus a paid Siargao Trip Pass with bounded live data refreshes.
 
 ## Documentation
 
