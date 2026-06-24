@@ -51,6 +51,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Aligned landing-to-chat prompt links and copy with the GPT-only real chat surface, removing live-data and source-backed freshness claims from the landing shell.
 - Replaced the `/chat` mock sidebar/context workspace with one focused responsive real chat shell.
 - Completed final shadcn migration verification with Panda-free build/e2e gates and visual smoke checks across landing, chat, admin, status, public, and report surfaces.
 - Updated package scripts, React Doctor config, Biome config, and developer docs for the Panda-free Tailwind/shadcn styling path.

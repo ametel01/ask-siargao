@@ -23,14 +23,14 @@ results, commit reference if available, current status, and next step.
 - [x] Step 1: Replace Mock Chat Layout With A Focused Responsive Shell
 - [x] Step 2: Add Mocked Browser Coverage For Real Chat Interaction
 - [x] Step 3: Harden Chat Error, Pending, And Accessibility States
-- [ ] Step 4: Align Landing Deep Links And Final Visual Smoke
+- [x] Step 4: Align Landing Deep Links And Final Visual Smoke
 - [ ] Step 5: Final Verification And Handoff
 
 ## Current Status
 
-Step 3 complete. Current status: ready for Step 4.
+Step 4 complete. Current status: ready for Step 5.
 
-Next step: Align landing deep links and run the final affected visual smoke checks.
+Next step: Run final repository verification, review the worktree, and complete handoff.
 
 ## Update Log
 
@@ -126,4 +126,28 @@ Validation:
 
 Commit:
 
-- Pending: `fix: harden chat request states`
+- `de58dc3 fix: harden chat request states`
+
+### Step 4: Align Landing Deep Links And Final Visual Smoke
+
+- Kept landing prompt and suggestion-chip links pointed at encoded `/chat?prompt=...`
+  URLs.
+- Replaced landing copy that implied live local data, source-backed freshness, or live
+  weather feeds with GPT-only first-slice language.
+- Updated root e2e coverage to assert prompt deep-link hrefs and absence of old
+  live-data claims.
+- Ran affected chat and root responsive/browser smoke coverage.
+
+Validation:
+
+- `bun run format` - passed
+- `bun run lint` - passed
+- `bun run typecheck` - passed
+- `bun test src/app/api/chat/route.test.ts` - passed
+- `bun run test:e2e -- tests/e2e/chat.e2e.ts tests/e2e/root.e2e.ts` - passed after
+  tightening an exact text locator for repeated GPT-backed copy
+- `bun run build` - passed
+
+Commit:
+
+- Pending: `chore: align landing prompts with real chat`

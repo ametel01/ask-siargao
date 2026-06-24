@@ -38,10 +38,10 @@ const weatherRows: {
   value: string;
   icon: LucideIcon;
 }[] = [
-  { label: "Forecast", value: "Partly cloudy", icon: CloudSun },
-  { label: "Rain chance", value: "35%", icon: CloudRain },
-  { label: "Wind", value: "18 km/h", icon: Wind },
-  { label: "Freshness", value: "Updated 12 min ago", icon: Waves },
+  { label: "Forecast", value: "Ask in chat", icon: CloudSun },
+  { label: "Rain planning", value: "GPT-only", icon: CloudRain },
+  { label: "Wind planning", value: "No live feed", icon: Wind },
+  { label: "Data status", value: "Not source-backed yet", icon: Waves },
 ];
 
 const examplePrompt =
@@ -76,9 +76,9 @@ const suggestionChips = [
 ];
 
 const trustItems = [
-  ["Live local data", Globe2],
+  ["GPT-backed answers", Globe2],
   ["No booking bias", Compass],
-  ["Freshness + confidence shown", Sparkles],
+  ["No live-data claims", Sparkles],
 ];
 
 const featureCards = [
@@ -90,8 +90,8 @@ const featureCards = [
   },
   {
     icon: CloudSun,
-    title: "Live weather updates",
-    body: "Real-time conditions, rain chances, wind, and sea changes.",
+    title: "Weather-aware planning",
+    body: "Ask how weather could affect plans; live feeds are not connected in this first chat slice.",
     link: "Check weather",
   },
   {
@@ -200,8 +200,8 @@ function Hero() {
           <em className="font-semibold text-brand-violet-400 italic">your trip.</em>
         </h1>
         <p className="mt-4 mb-0 max-w-[470px] text-sm leading-[1.45] font-bold text-text-on-dark-muted md:text-lg">
-          Local answers for where to stay, what to do, how to get around, and what today's weather
-          changes.
+          GPT-backed answers for where to stay, what to do, how to get around, and how weather could
+          affect your plans.
         </p>
       </div>
       <div className="grid w-full max-w-[1118px] grid-cols-1 gap-4 self-start md:gap-6 min-[900px]:grid-cols-[minmax(0,785px)_309px]">
@@ -236,7 +236,7 @@ function PromptCard() {
             <Plus aria-hidden="true" size={18} />
           </Button>
           <Button
-            aria-label="Browse local sources"
+            aria-label="Source-backed local data is not connected yet"
             className="size-10 border-[rgba(8,47,57,0.16)] bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
             size="icon"
             type="button"
@@ -264,7 +264,9 @@ function WeatherCard() {
     >
       <CardContent className="p-0">
         <div className="flex items-center gap-2 border-b border-border-default px-6 py-3">
-          <h2 className="m-0 text-base font-extrabold text-text-strong">Today in Siargao</h2>
+          <h2 className="m-0 text-base font-extrabold text-text-strong">
+            Planning checks for Siargao
+          </h2>
         </div>
         <div className="grid">
           {weatherRows.map(({ icon: Icon, label, value }) => (
@@ -274,8 +276,8 @@ function WeatherCard() {
             >
               <Icon aria-hidden="true" className="text-brand-violet-650" size={17} />
               <span>{label}</span>
-              {label === "Freshness" ? (
-                <SignalBadge tone="fresh">{value}</SignalBadge>
+              {label === "Data status" ? (
+                <SignalBadge tone="medium">{value}</SignalBadge>
               ) : (
                 <strong className="font-extrabold text-text-strong">{value}</strong>
               )}
