@@ -1,7 +1,14 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.1/schema.json",
   "files": {
-    "ignore": [".next", "node_modules", "playwright-report", "styled-system", "test-results"]
+    "includes": [
+      "**",
+      "!**/.next",
+      "!**/node_modules",
+      "!**/playwright-report",
+      "!**/styled-system",
+      "!**/test-results"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -11,12 +18,11 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true
+      "preset": "recommended"
     }
   },
-  "organizeImports": {
-    "enabled": true
-  },
+  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "css": { "parser": { "tailwindDirectives": true } },
   "javascript": {
     "formatter": {
       "quoteStyle": "double",

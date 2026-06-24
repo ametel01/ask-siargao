@@ -3,7 +3,7 @@ import {
   stripeWebhookSecretFromEnv,
 } from "@/app/api/stripe/webhook/webhook-route";
 import { verifyStripeWebhookPayload } from "@/server/payments/stripe";
-import { rateLimitRequest, rateLimitedJson } from "@/server/security/rate-limit";
+import { rateLimitedJson, rateLimitRequest } from "@/server/security/rate-limit";
 
 export const runtime = "nodejs";
 

@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { desc, eq } from "drizzle-orm";
 
 import { type ReportOutput, reportOutputSchema } from "@/server/audit/schemas";
-import { type Database, createDatabaseClient } from "@/server/db";
+import { createDatabaseClient, type Database } from "@/server/db";
 import { auditReports, auditRequests, payments, reviewerResults } from "@/server/db/schema";
 
 export type ReportAccessStatus =

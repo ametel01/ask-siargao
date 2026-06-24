@@ -10,9 +10,9 @@ import {
 import type { QueuedAuditJob } from "@/server/jobs/audit-jobs";
 import { verifyStripeWebhookPayload } from "@/server/payments/stripe";
 import {
+  applyVerifiedCheckoutPayment,
   type PaymentApplicationStore,
   type VerifiedPaymentEventRecord,
-  applyVerifiedCheckoutPayment,
 } from "@/server/payments/webhook-application";
 
 const now = new Date("2026-06-23T08:00:00.000Z");
@@ -183,11 +183,7 @@ async function signedRequest(payload: string) {
 }
 
 function checkoutSessionPayload(
-  input: {
-    checkoutSessionId?: string;
-    eventId?: string;
-    paymentStatus?: "paid" | "unpaid";
-  } = {},
+  input: { checkoutSessionId?: string; eventId?: string; paymentStatus?: "paid" | "unpaid" } = {},
 ) {
   return JSON.stringify({
     id: input.eventId ?? "evt_test_checkout_completed",

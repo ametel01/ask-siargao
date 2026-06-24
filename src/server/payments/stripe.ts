@@ -2,8 +2,8 @@ import Stripe from "stripe";
 
 import {
   type AuditLifecycleRecord,
-  type VerifiedCheckoutPayment,
   assertCanStartCheckout,
+  type VerifiedCheckoutPayment,
 } from "@/server/audit/lifecycle";
 
 export const AUDIT_PRICE_CENTS = 999;

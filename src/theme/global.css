@@ -55,7 +55,8 @@ body {
   min-height: 100vh;
   margin: 0;
   color: var(--colors-text-on-dark);
-  background: radial-gradient(circle at 18% 8%, rgba(135, 92, 246, 0.2), transparent 32rem),
+  background:
+    radial-gradient(circle at 18% 8%, rgba(135, 92, 246, 0.2), transparent 32rem),
     linear-gradient(135deg, #05082a 0%, #090d3a 48%, #17105a 100%);
   font-family: var(--fonts-sans);
   letter-spacing: 0;
@@ -83,10 +84,10 @@ summary::-webkit-details-marker {
   *,
   *::before,
   *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    scroll-behavior: auto !important;
-    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms;
+    animation-iteration-count: 1;
+    scroll-behavior: auto;
+    transition-duration: 0.001ms;
   }
 }
 

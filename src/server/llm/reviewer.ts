@@ -4,7 +4,7 @@ import type { EvidenceBundle } from "@/server/audit/evidence-bundles";
 import type { ReportValidationResult } from "@/server/audit/report-validation";
 import type { ReportOutput } from "@/server/audit/schemas";
 import type { GovernedFact } from "@/server/facts/types";
-import { type ResponsesClient, createOpenAIResponsesClient } from "@/server/llm/openai-adapter";
+import { createOpenAIResponsesClient, type ResponsesClient } from "@/server/llm/openai-adapter";
 
 const reviewerResultSchema = z.object({
   verdict: z.enum(["approved", "needs_revision", "blocked"]),

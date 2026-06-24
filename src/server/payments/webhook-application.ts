@@ -4,10 +4,10 @@ import type Stripe from "stripe";
 import { getCheckoutAuditState } from "@/server/audit/checkout-state";
 import {
   type AuditLifecycleRecord,
-  type VerifiedCheckoutPayment,
   handleVerifiedPayment,
+  type VerifiedCheckoutPayment,
 } from "@/server/audit/lifecycle";
-import { type Database, createDatabaseClient } from "@/server/db";
+import { createDatabaseClient, type Database } from "@/server/db";
 import { auditRequests, paymentEvents, payments } from "@/server/db/schema";
 import type { QueuedAuditJob } from "@/server/jobs/audit-jobs";
 import { buildVerifiedPaymentEventRecord } from "@/server/payments/stripe";

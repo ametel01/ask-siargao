@@ -4,8 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { serializeJsonForHtmlScript } from "@/server/public-pages/html-json";
 import {
-  type PublicKnowledgePage as PublicKnowledgePageData,
   buildPublicJsonLd,
+  type PublicKnowledgePage as PublicKnowledgePageData,
 } from "@/server/public-pages/public-content";
 import { css } from "../../../styled-system/css/css";
 import { pageShell } from "../../../styled-system/recipes/page-shell";

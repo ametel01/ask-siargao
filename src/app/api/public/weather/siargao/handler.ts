@@ -1,5 +1,5 @@
 import { getLatestSiargaoWeatherSnapshot } from "@/server/public-pages/weather-snapshot";
-import { rateLimitRequest, rateLimitedJson } from "@/server/security/rate-limit";
+import { rateLimitedJson, rateLimitRequest } from "@/server/security/rate-limit";
 
 type WeatherSnapshotProvider = typeof getLatestSiargaoWeatherSnapshot;
 

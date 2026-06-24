@@ -2,7 +2,7 @@ import { createAuditIntake } from "@/server/audit/intake-service";
 import { intakeInputSchema } from "@/server/audit/schemas";
 import { trackServerEvent } from "@/server/observability/events";
 import { sanitizeIntakeForMetrics } from "@/server/security/privacy";
-import { rateLimitRequest, rateLimitedJson } from "@/server/security/rate-limit";
+import { rateLimitedJson, rateLimitRequest } from "@/server/security/rate-limit";
 
 export async function POST(request: Request) {
   const rateLimit = rateLimitRequest(request, "intake");

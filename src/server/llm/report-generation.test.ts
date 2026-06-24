@@ -5,7 +5,7 @@ import { validateReportForPublication } from "@/server/audit/report-validation";
 import { sampleReport } from "@/server/audit/sample-report";
 import type { IntakeInput } from "@/server/audit/schemas";
 import type { GovernedEvidence, GovernedFact } from "@/server/facts/types";
-import { type ResponsesClient, generateAuditReport } from "@/server/llm/openai-adapter";
+import { generateAuditReport, type ResponsesClient } from "@/server/llm/openai-adapter";
 import {
   callAuditRetrievalTool,
   permittedFacts,

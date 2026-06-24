@@ -40,7 +40,6 @@ import {
   SignalBadge,
 } from "@/ui/components/ask-siargao";
 import { css } from "../../../styled-system/css/css";
-import { cx } from "../../../styled-system/css/cx";
 
 const savedPlaces = [
   ["Cloud 9 shortlist", "4 places"],
@@ -222,7 +221,7 @@ function ChatHeader() {
         <HeaderIconButton label="Share trip chat">
           <Share2 aria-hidden="true" size={17} />
         </HeaderIconButton>
-        <span aria-label="Traveler profile" className={avatar()}>
+        <span aria-label="Traveler profile" className={avatar()} role="img">
           A
         </span>
       </div>

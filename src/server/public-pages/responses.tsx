@@ -3,18 +3,18 @@ import { notFound } from "next/navigation";
 import { PublicKnowledgePage } from "@/features/public-pages/PublicKnowledgePage";
 import { trackServerEvent } from "@/server/observability/events";
 import {
-  type PublicPageFamily,
   buildPublicPageJson,
   buildPublicPageMarkdown,
   getPublicPage,
   normalizeJsonSlug,
+  type PublicPageFamily,
 } from "@/server/public-pages/public-content";
-import { rateLimitRequest, rateLimitedJson } from "@/server/security/rate-limit";
+import { rateLimitedJson, rateLimitRequest } from "@/server/security/rate-limit";
 
 export function renderPublicHumanPage(family: PublicPageFamily, slug: string) {
   const page = getPublicPage(family, slug);
 
-  if (!page || page.visibility !== "eligible") {
+  if (page?.visibility !== "eligible") {
     notFound();
   }
 
@@ -24,7 +24,7 @@ export function renderPublicHumanPage(family: PublicPageFamily, slug: string) {
 export function publicMarkdownResponse(family: PublicPageFamily, slug: string) {
   const page = getPublicPage(family, slug);
 
-  if (!page || page.visibility !== "eligible") {
+  if (page?.visibility !== "eligible") {
     return new Response("Not found", { status: 404 });
   }
 
@@ -43,7 +43,7 @@ export function publicJsonResponse(family: PublicPageFamily, slug: string, reque
 
   const page = getPublicPage(family, normalizeJsonSlug(slug));
 
-  if (!page || page.visibility !== "eligible") {
+  if (page?.visibility !== "eligible") {
     return Response.json({ error: "not_found" }, { status: 404 });
   }
 

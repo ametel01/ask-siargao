@@ -2,8 +2,8 @@ import { siargaoTaxonomy } from "@/server/audit/destinations/siargao/taxonomy";
 import type { ConfidenceLabel, MatchState } from "@/server/audit/enums";
 import type { IntakeInput } from "@/server/audit/schemas";
 import {
-  type GovernedAccommodationCandidate,
   buildLocalVerifiedAccommodationCandidates,
+  type GovernedAccommodationCandidate,
 } from "@/server/providers/accommodation-ingestion";
 
 export const accommodationMatchThreshold = 0.82;

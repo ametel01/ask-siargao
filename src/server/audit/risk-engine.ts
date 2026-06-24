@@ -1,5 +1,5 @@
 import type { OptionalRiskModule, RiskCategory } from "@/server/audit/enums";
-import { optionalRiskModules, riskCategories } from "@/server/audit/enums";
+import { riskCategories } from "@/server/audit/enums";
 import type { EvidenceReference, IntakeInput, RiskItem } from "@/server/audit/schemas";
 
 export type RiskEvaluationContract = {

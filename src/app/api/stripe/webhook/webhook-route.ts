@@ -19,9 +19,8 @@ const defaultDependencies: StripeWebhookRouteDependencies = {
   verifyStripeWebhookPayload,
 };
 
-type VerifiedWebhookEvent = ReturnType<typeof verifyStripeWebhookPayload> extends Promise<infer T>
-  ? T
-  : never;
+type VerifiedWebhookEvent =
+  ReturnType<typeof verifyStripeWebhookPayload> extends Promise<infer T> ? T : never;
 
 export async function stripeWebhookResponseFromEvent(
   event: VerifiedWebhookEvent,

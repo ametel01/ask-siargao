@@ -17,7 +17,6 @@ import Link from "next/link";
 
 import { BrandLockup, GradientLink, SignalBadge } from "@/ui/components/ask-siargao";
 import { css } from "../../../styled-system/css/css";
-import { cx } from "../../../styled-system/css/cx";
 
 const navItems = ["How it works", "Where to stay", "What's happening", "Weather", "Saved places"];
 

@@ -4,10 +4,10 @@ import { z } from "zod";
 import { auditJobStates } from "@/server/audit/enums";
 import {
   type AuditLifecycleRecord,
-  type PaymentStatus,
   createAuditLifecycleRecord,
+  type PaymentStatus,
 } from "@/server/audit/lifecycle";
-import { type Database, createDatabaseClient } from "@/server/db";
+import { createDatabaseClient, type Database } from "@/server/db";
 import { auditCompletenessChecks, auditRequests, payments } from "@/server/db/schema";
 
 const paymentStatusSchema = z.enum(["not_started", "checkout_started", "paid", "failed"]);

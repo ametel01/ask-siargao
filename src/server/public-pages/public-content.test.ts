@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 
 import { serializeJsonForHtmlScript } from "@/server/public-pages/html-json";
 import {
-  type PublicFactRecord,
   buildLlmsTxt,
   buildPublicJsonLd,
   buildPublicPageJson,
@@ -11,6 +10,7 @@ import {
   createFixturePublicPageRepository,
   evaluatePublicEligibility,
   getPublicPage,
+  type PublicFactRecord,
   publicPagesForIndex,
 } from "@/server/public-pages/public-content";
 

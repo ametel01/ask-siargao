@@ -1,5 +1,5 @@
 import postgres from "postgres";
-
+import type { GooglePlacesDetails } from "@/server/providers/google-places-enrichment";
 import {
   createGooglePlacesCandidateEntityId,
   createGooglePlacesDetailsSourceRecordId,
@@ -8,7 +8,6 @@ import {
   googlePlacesDiscoverySourceProfileId,
   normalizeGooglePlacesDetailsPayload,
 } from "@/server/providers/google-places-enrichment";
-import type { GooglePlacesDetails } from "@/server/providers/google-places-enrichment";
 
 const args = new Set(process.argv.slice(2));
 const dryRun = args.has("--dry-run");
