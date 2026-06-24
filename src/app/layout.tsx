@@ -4,8 +4,9 @@ import type { ReactNode } from "react";
 import "@/theme/global.css";
 
 export const metadata: Metadata = {
-  title: "Siargao Trip Risk Audit",
-  description: "Evidence-backed checks for Siargao trip feasibility before you pay.",
+  title: "Ask Siargao",
+  description:
+    "A chat-first Siargao travel assistant for stays, food, weather, transfers, and local trip questions.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

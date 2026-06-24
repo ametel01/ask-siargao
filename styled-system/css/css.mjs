@@ -42,4 +42,4 @@ const cssFn = createCss(context)
 export const css = (...styles) => cssFn(mergeCss(...styles))
 css.raw = (...styles) => mergeCss(...styles)
 
-export const { mergeCss } = createMergeCss(context)
+export const { mergeCss, assignCss } = createMergeCss(context)

@@ -16,16 +16,30 @@ export const tokens = {
       400: { value: "#a486ff" },
     },
     lavender: {
+      50: { value: "#fbfaff" },
       100: { value: "#f5f3ff" },
       150: { value: "#eeeafd" },
       200: { value: "#e2dcf7" },
       300: { value: "#cbc3ec" },
+      400: { value: "#b8a6ff" },
+    },
+    sunset: {
+      coral: { value: "#ff9b83" },
+      peach: { value: "#ffc69a" },
+      gold: { value: "#ffd65a" },
+    },
+    confidence: {
+      high: { value: "#1e9f63" },
+      highSoft: { value: "#e6f8ee" },
+      medium: { value: "#d99b23" },
+      mediumSoft: { value: "#fff4cf" },
     },
     surface: {
       DEFAULT: { value: "#ffffff" },
       soft: { value: "#fbfaff" },
       tint: { value: "#f7f5ff" },
       glass: { value: "rgba(255, 255, 255, 0.94)" },
+      darkGlass: { value: "rgba(9, 13, 58, 0.72)" },
     },
     text: {
       strong: { value: "#0d104a" },
@@ -56,6 +70,10 @@ export const tokens = {
       value:
         "linear-gradient(90deg, rgba(5, 8, 42, 0.96) 0%, rgba(16, 18, 74, 0.72) 46%, rgba(93, 62, 209, 0.22) 100%)",
     },
+    coastalOverlay: {
+      value:
+        "linear-gradient(90deg, rgba(5, 8, 42, 0.94) 0%, rgba(9, 13, 58, 0.76) 48%, rgba(76, 49, 184, 0.34) 100%)",
+    },
     cta: {
       value: "linear-gradient(135deg, #875cf6 0%, #6c46e8 52%, #5d3ed1 100%)",
     },
@@ -69,6 +87,7 @@ export const tokens = {
   },
   fonts: {
     sans: { value: '"Avenir Next", "Segoe UI", system-ui, sans-serif' },
+    display: { value: 'Georgia, "Times New Roman", serif' },
   },
   fontSizes: {
     "2xs": { value: "0.6875rem" },
@@ -94,6 +113,8 @@ export const tokens = {
     panel: { value: "0 18px 48px rgba(14, 12, 56, 0.16)" },
     strong: { value: "0 22px 54px rgba(8, 8, 38, 0.28)" },
     cta: { value: "0 10px 24px rgba(108, 70, 232, 0.35)" },
+    violetGlow: { value: "0 18px 46px rgba(124, 81, 240, 0.38)" },
+    coastalFrame: { value: "0 24px 80px rgba(0, 0, 0, 0.42)" },
   },
   spacing: {
     1: { value: "0.25rem" },

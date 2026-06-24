@@ -44,6 +44,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Reframed the shared app shell metadata, dark coastal background, brand tokens, and reusable Ask Siargao UI primitives for the landing and chat mockups.
+
 ### Deprecated
 
 ### Removed

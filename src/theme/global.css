@@ -3,7 +3,7 @@
 @import "../../styled-system/styles.css";
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 * {
@@ -17,8 +17,9 @@ html {
 body {
   min-height: 100vh;
   margin: 0;
-  color: var(--colors-text);
-  background: #f7f9ff;
+  color: var(--colors-text-on-dark);
+  background: radial-gradient(circle at 18% 8%, rgba(135, 92, 246, 0.2), transparent 32rem),
+    linear-gradient(135deg, #05082a 0%, #090d3a 48%, #17105a 100%);
   font-family: var(--fonts-sans);
   letter-spacing: 0;
 }

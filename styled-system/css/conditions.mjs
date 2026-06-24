@@ -5,7 +5,7 @@ const conditions = new Set(conditionsStr.split(','))
 
 const conditionRegex = /^@|&|&$/
 
-function isCondition(value){
+export function isCondition(value){
   return conditions.has(value) || conditionRegex.test(value)
 }
 
