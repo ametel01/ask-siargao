@@ -21,6 +21,8 @@ import {
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   BrandLockup,
   BrowserDots,
@@ -205,12 +207,24 @@ function ChatHeader() {
         </span>
       </div>
       <div className={headerActions()}>
-        <button aria-label="Refresh answer context" type="button">
+        <Button
+          aria-label="Refresh answer context"
+          className="h-9 w-9 rounded-lg border-[#c8bee9] bg-white text-[#5d3ed1] hover:bg-[#f5f3ff] hover:text-[#4c31b8]"
+          size="icon"
+          type="button"
+          variant="outline"
+        >
           <RefreshCw aria-hidden="true" size={17} />
-        </button>
-        <button aria-label="Share trip chat" type="button">
+        </Button>
+        <Button
+          aria-label="Share trip chat"
+          className="h-9 w-9 rounded-lg border-[#c8bee9] bg-white text-[#5d3ed1] hover:bg-[#f5f3ff] hover:text-[#4c31b8]"
+          size="icon"
+          type="button"
+          variant="outline"
+        >
           <Share2 aria-hidden="true" size={17} />
-        </button>
+        </Button>
         <span aria-label="Traveler profile" className={avatar()}>
           A
         </span>
@@ -323,16 +337,28 @@ function Composer() {
         ))}
       </div>
       <div className={composer()}>
-        <button aria-label="Add attachment" type="button">
+        <Button
+          aria-label="Add attachment"
+          className="h-8 w-8 rounded-lg border-0 bg-[rgba(108,70,232,0.1)] text-[#5d3ed1] hover:bg-[rgba(108,70,232,0.16)]"
+          size="icon"
+          type="button"
+          variant="ghost"
+        >
           <Plus aria-hidden="true" size={18} />
-        </button>
-        <input
+        </Button>
+        <Input
           aria-label="Ask anything about your Siargao trip"
+          className="h-8 border-0 bg-transparent px-0 text-sm text-[#17184f] shadow-none placeholder:text-[#8483a8] focus-visible:border-transparent focus-visible:ring-0"
           placeholder="Ask anything about your Siargao trip..."
         />
-        <button aria-label="Send question" type="button">
+        <Button
+          aria-label="Send question"
+          className="h-8 w-8 rounded-lg border-0 bg-[#5d3ed1] text-white hover:bg-[#6c46e8]"
+          size="icon"
+          type="button"
+        >
           <Send aria-hidden="true" size={18} />
-        </button>
+        </Button>
       </div>
       <p>Answers use live local data. Check important details before you go.</p>
     </footer>
@@ -464,16 +490,37 @@ function MobileWorkspace() {
         </div>
       </div>
       <div className={mobileComposer()}>
-        <button aria-label="Add detail" type="button">
+        <Button
+          aria-label="Add detail"
+          className="h-10 w-10 rounded-full border border-white/15 bg-white/10 text-white hover:bg-white/15"
+          size="icon"
+          type="button"
+          variant="outline"
+        >
           <Plus aria-hidden="true" size={18} />
-        </button>
-        <input aria-label="Ask Ask Siargao on mobile" placeholder="Ask anything..." />
-        <button aria-label="Record voice question" type="button">
+        </Button>
+        <Input
+          aria-label="Ask Ask Siargao on mobile"
+          className="h-10 rounded-full border border-white/15 bg-white/10 px-4 text-sm text-white placeholder:text-[#d8d5f4] focus-visible:border-[#a486ff] focus-visible:ring-[#a486ff]/35"
+          placeholder="Ask anything..."
+        />
+        <Button
+          aria-label="Record voice question"
+          className="h-10 w-10 rounded-full border border-white/15 bg-white/10 text-white hover:bg-white/15"
+          size="icon"
+          type="button"
+          variant="outline"
+        >
           <Mic aria-hidden="true" size={18} />
-        </button>
-        <button aria-label="Send mobile question" type="button">
+        </Button>
+        <Button
+          aria-label="Send mobile question"
+          className="h-10 w-10 rounded-full border border-[#5d3ed1] bg-[#5d3ed1] text-white hover:bg-[#6c46e8]"
+          size="icon"
+          type="button"
+        >
           <Send aria-hidden="true" size={18} />
-        </button>
+        </Button>
       </div>
     </section>
   );
@@ -721,19 +768,6 @@ function headerActions() {
     alignItems: "center",
     display: "flex",
     gap: "2",
-    "& button": {
-      alignItems: "center",
-      bg: "surface",
-      borderColor: "rgba(200,190,233,0.88)",
-      borderRadius: "md",
-      borderWidth: "1px",
-      color: "violet.650",
-      cursor: "pointer",
-      display: "inline-flex",
-      h: "9",
-      justifyContent: "center",
-      width: "9",
-    },
   });
 }
 
@@ -981,32 +1015,6 @@ function composer() {
     gridTemplateColumns: "34px 1fr 34px",
     minH: "42px",
     p: "1",
-    "& button": {
-      alignItems: "center",
-      borderRadius: "md",
-      borderWidth: "0",
-      cursor: "pointer",
-      display: "inline-flex",
-      h: "8",
-      justifyContent: "center",
-      width: "8",
-    },
-    "& button:first-child": {
-      bg: "rgba(108,70,232,0.1)",
-      color: "violet.650",
-    },
-    "& button:last-child": {
-      bg: "violet.650",
-      color: "text.onDark",
-    },
-    "& input": {
-      borderWidth: "0",
-      color: "text",
-      fontSize: "sm",
-      minW: 0,
-      outline: "none",
-      width: "100%",
-    },
   });
 }
 
@@ -1266,33 +1274,5 @@ function mobileComposer() {
     gap: "2",
     gridTemplateColumns: "38px 1fr 38px 38px",
     p: "3",
-    "& button": {
-      alignItems: "center",
-      bg: "rgba(255,255,255,0.1)",
-      borderColor: "rgba(255,255,255,0.16)",
-      borderRadius: "pill",
-      borderWidth: "1px",
-      color: "text.onDark",
-      display: "inline-flex",
-      h: "10",
-      justifyContent: "center",
-      width: "10",
-    },
-    "& button:last-child": {
-      bg: "violet.650",
-      borderColor: "token(colors.violet.650)",
-    },
-    "& input": {
-      bg: "rgba(255,255,255,0.1)",
-      borderColor: "rgba(255,255,255,0.16)",
-      borderRadius: "pill",
-      borderWidth: "1px",
-      color: "text.onDark",
-      minH: "40px",
-      minW: 0,
-      px: "4",
-      width: "100%",
-      _placeholder: { color: "text.onDarkMuted" },
-    },
   });
 }
