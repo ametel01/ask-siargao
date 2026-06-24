@@ -9,6 +9,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added the Ask Siargao `/chat` workspace with desktop three-column context layout, mobile chat layout, mock conversation cards, and Playwright coverage.
 - Added the landing and chat mockup implementation plan with step-by-step progress tracking.
 - Added a repository-backed public-page generation boundary using persisted-page-shaped governed facts, public evidence bundles, and source fact IDs across human, Markdown, JSON, JSON-LD, sitemap, and `llms.txt` outputs.
 - Added the first governed provider ingestion slice for local verified public-directory accommodation records, producing governed facts, evidence, and checkout-safe accommodation candidates.
