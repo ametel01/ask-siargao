@@ -9,6 +9,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Established progress tracking for the real chat replacement plan.
 - Added a first GPT-backed Ask Siargao chat slice with a server-side OpenAI Responses API adapter, `/api/chat` endpoint, rate limiting, validation, landing prompt deep links, and interactive desktop/mobile composers.
 - Added explicit empty states to the admin diagnostics console for empty blocked-audit, completeness, provider/job, reviewer, LLM-cost, and drill-down datasets.
 - Added shadcn primitives for sidebar, scroll area, avatar, input groups, button groups, toggles, items, empty states, breadcrumbs, collapsibles, and navigation menus.
