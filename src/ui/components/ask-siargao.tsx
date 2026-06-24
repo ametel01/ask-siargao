@@ -1,3 +1,5 @@
+import Image from "next/image";
+import Link from "next/link";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 
 import { css } from "../../../styled-system/css/css";
@@ -46,19 +48,21 @@ export function BrowserDots() {
         position: "absolute",
         top: { base: "4", md: "5" },
         zIndex: 4,
+        "& span:nth-child(1)": { bg: "#ff6b6b" },
+        "& span:nth-child(2)": { bg: "#ffd65a" },
+        "& span:nth-child(3)": { bg: "#8b8aa7" },
       })}
     >
-      {["#ff6b6b", "#ffd65a", "#8b8aa7"].map((color) => (
+      {["close", "minimize", "zoom"].map((label) => (
         <span
           className={css({
-            bg: color,
             borderRadius: "pill",
             boxShadow: "0 0 0 1px rgba(255,255,255,0.2)",
             display: "block",
             h: "10px",
             width: "10px",
           })}
-          key={color}
+          key={label}
         />
       ))}
     </div>
@@ -72,26 +76,28 @@ export function PalmMark({ className }: { className?: string }) {
       className={cx(
         css({
           alignItems: "center",
-          bg: "rgba(255,255,255,0.92)",
+          bg: "transparent",
           borderColor: "rgba(255,255,255,0.5)",
           borderRadius: "pill",
-          borderWidth: "1px",
+          borderWidth: "0",
           boxShadow: "0 8px 20px rgba(0,0,0,0.22)",
-          color: "violet.650",
           display: "inline-flex",
           flexShrink: 0,
-          fontFamily: "display",
-          fontSize: "lg",
-          fontWeight: "800",
           h: "9",
           justifyContent: "center",
-          lineHeight: "1",
+          overflow: "hidden",
           width: "9",
+          "& img": {
+            display: "block",
+            h: "100%",
+            objectFit: "contain",
+            width: "100%",
+          },
         }),
         className,
       )}
     >
-      A
+      <Image alt="" height={36} src="/ask_siargao_palm_icon.svg" width={36} />
     </span>
   );
 }
@@ -105,8 +111,13 @@ export function BrandLockup({ className }: { className?: string }) {
           color: "text.onDark",
           display: "inline-flex",
           gap: "3",
-          fontWeight: "800",
           textDecoration: "none",
+          "& > span:last-child": {
+            fontFamily: "display",
+            fontSize: "lg",
+            fontWeight: "700",
+            lineHeight: "1",
+          },
         }),
         className,
       )}
@@ -127,7 +138,7 @@ export function GradientLink({
   href: string;
 }) {
   return (
-    <a
+    <Link
       className={cx(
         css({
           alignItems: "center",
@@ -160,7 +171,7 @@ export function GradientLink({
       {...props}
     >
       {children}
-    </a>
+    </Link>
   );
 }
 

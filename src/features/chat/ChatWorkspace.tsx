@@ -1,24 +1,33 @@
 import {
   ArrowRight,
+  BedDouble,
+  CalendarDays,
   ChevronDown,
+  Clock3,
   CloudSun,
-  Coffee,
-  Compass,
   ImageIcon,
   MapPin,
   Menu,
   MessageSquarePlus,
   Mic,
+  MoreHorizontal,
   Plus,
   RefreshCw,
   Send,
   Share2,
-  Sparkles,
+  Users,
   Utensils,
 } from "lucide-react";
+import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { BrandLockup, GradientLink, PalmMark, SignalBadge } from "@/ui/components/ask-siargao";
+import {
+  BrandLockup,
+  BrowserDots,
+  GradientLink,
+  PalmMark,
+  SignalBadge,
+} from "@/ui/components/ask-siargao";
 import { css } from "../../../styled-system/css/css";
 import { cx } from "../../../styled-system/css/cx";
 
@@ -36,31 +45,33 @@ const recentQuestions = [
 ];
 
 const tripRows = [
-  ["Accommodation", "Near Cloud 9 / Catangnan"],
-  ["Dates", "Jun 12-22"],
-  ["Traveler type", "Couple"],
-  ["Nearby area", "Cloud 9"],
-  ["Today's weather", "Partly cloudy, 28°C"],
-  ["Live refreshes remaining", "4"],
+  { icon: BedDouble, label: "Accommodation", value: "Near Cloud 9 / Catangnan" },
+  { icon: CalendarDays, label: "Dates", value: "Jun 12-22" },
+  { icon: Users, label: "Traveler type", value: "Couple" },
+  { icon: MapPin, label: "Nearby area", value: "Cloud 9" },
+  { icon: CloudSun, label: "Today's weather", value: "Partly cloudy, 28°C" },
+  { icon: Clock3, label: "Live refreshes remaining", value: "4" },
 ];
 
 const restaurants = [
   {
-    icon: Utensils,
+    image:
+      "linear-gradient(rgba(24,12,40,0.06), rgba(24,12,40,0.12)), url('/images/siargao-sunset.png')",
     title: "Kermit Siargao",
     meta: "Filipino · Seafood · Sunset views",
     body: "Grilled tuna, kinilaw, fresh prawns",
     updated: "Updated 18m ago",
   },
   {
-    icon: Coffee,
+    image: "linear-gradient(rgba(24,12,40,0.08), rgba(24,12,40,0.18)), url('/images/hero-bg.png')",
     title: "Shaka Cafe",
     meta: "Fusion · Healthy · Vegetarian options",
     body: "Bowls, tacos, smoothies",
     updated: "Updated 22m ago",
   },
   {
-    icon: Utensils,
+    image:
+      "linear-gradient(rgba(24,12,40,0.08), rgba(24,12,40,0.18)), url('/images/siargao-sunset.png')",
     title: "Bravo Restaurant",
     meta: "Italian · Wood-fired pizza · Pasta",
     body: "Pizza, handmade pasta, great wines",
@@ -72,6 +83,7 @@ export function ChatWorkspace() {
   return (
     <main className={page()}>
       <section aria-label="Ask Siargao chat workspace" className={desktopFrame()}>
+        <BrowserDots />
         <DesktopWorkspace />
       </section>
       <MobileWorkspace />
@@ -92,9 +104,9 @@ function DesktopWorkspace() {
 function LeftSidebar() {
   return (
     <aside className={leftSidebar()} aria-label="Trip sidebar">
-      <a className={logoLink()} href="/">
+      <Link className={logoLink()} href="/">
         <BrandLockup />
-      </a>
+      </Link>
       <GradientLink className={newQuestionButton()} href="/chat">
         + New question <ArrowRight aria-hidden="true" size={15} />
       </GradientLink>
@@ -111,22 +123,22 @@ function LeftSidebar() {
         {savedPlaces.map(([title, count]) => (
           <SidebarRow key={title} label={title} value={count} />
         ))}
-        <a className={sidebarLink()} href="/chat">
+        <Link className={sidebarLink()} href="/chat">
           View all saved places
-        </a>
+        </Link>
       </SidebarSection>
       <SidebarSection title="RECENT QUESTIONS">
         {recentQuestions.map(([title, time]) => (
           <SidebarRow key={title} label={title} value={time} />
         ))}
-        <a className={sidebarLink()} href="/chat">
+        <Link className={sidebarLink()} href="/chat">
           View all history
-        </a>
+        </Link>
       </SidebarSection>
       <div className={inviteCard()}>
         <strong>Love Ask Siargao?</strong>
         <span>Invite friends and unlock extra refreshes.</span>
-        <a href="/chat">Invite friends →</a>
+        <Link href="/chat">Invite friends →</Link>
       </div>
     </aside>
   );
@@ -255,15 +267,17 @@ function EvidenceCard() {
 function RestaurantCards() {
   return (
     <div className={restaurantGrid()}>
-      {restaurants.map(({ body, icon: Icon, meta, title, updated }) => (
+      {restaurants.map(({ body, image, meta, title, updated }) => (
         <article className={restaurantCard()} key={title}>
-          <span className={restaurantThumb()}>
-            <Icon aria-hidden="true" size={18} />
+          <span aria-hidden="true" className={restaurantPhoto()} style={{ backgroundImage: image }}>
+            <Utensils size={16} />
           </span>
-          <h2>{title}</h2>
-          <p>{meta}</p>
-          <strong>{body}</strong>
-          <BadgeRow updated={updated} />
+          <div>
+            <h2>{title}</h2>
+            <p>{meta}</p>
+            <strong>{body}</strong>
+            <BadgeRow updated={updated} />
+          </div>
         </article>
       ))}
     </div>
@@ -303,9 +317,9 @@ function Composer() {
     <footer className={composerWrap()}>
       <div className={quickChips()}>
         {["quiet hotels", "restaurants tonight", "weather now"].map((chip) => (
-          <a href="/chat" key={chip}>
+          <Link href="/chat" key={chip}>
             {chip}
-          </a>
+          </Link>
         ))}
       </div>
       <div className={composer()}>
@@ -329,10 +343,13 @@ function RightSidebar() {
   return (
     <aside className={rightSidebar()} aria-label="Trip context sidebar">
       <ContextCard title="Trip context">
-        {tripRows.map(([label, value]) => (
+        {tripRows.map(({ icon: Icon, label, value }) => (
           <div className={contextRow()} key={label}>
-            <span>{label}</span>
-            <strong>{value}</strong>
+            <Icon aria-hidden="true" size={16} />
+            <div>
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </div>
           </div>
         ))}
       </ContextCard>
@@ -361,10 +378,10 @@ function RightSidebar() {
         />
         <SignalBadge tone="local">Updated 20 min ago</SignalBadge>
       </ContextCard>
-      <a className={areaGuideCard()} href="/chat">
+      <Link className={areaGuideCard()} href="/chat">
         <span>General Luna, Siargao</span>
         <strong>View area guide →</strong>
-      </a>
+      </Link>
     </aside>
   );
 }
@@ -372,7 +389,10 @@ function RightSidebar() {
 function ContextCard({ children, title }: { children: ReactNode; title: string }) {
   return (
     <section className={contextCard()}>
-      <h2>{title}</h2>
+      <h2>
+        <span>{title}</span>
+        {title === "Trip context" ? <MoreHorizontal aria-hidden="true" size={15} /> : null}
+      </h2>
       {children}
     </section>
   );
@@ -407,13 +427,13 @@ function MobileWorkspace() {
   return (
     <section className={mobileWorkspace()} aria-label="Ask Siargao mobile chat">
       <header className={mobileHeader()}>
-        <a aria-label="Open menu" href="/">
+        <Link aria-label="Open menu" href="/">
           <Menu aria-hidden="true" size={22} />
-        </a>
+        </Link>
         <h1>Ask Siargao</h1>
-        <a aria-label="New chat" href="/chat">
+        <Link aria-label="New chat" href="/chat">
           <MessageSquarePlus aria-hidden="true" size={22} />
-        </a>
+        </Link>
       </header>
       <button className={tripPill()} type="button">
         <MapPin aria-hidden="true" size={15} />
@@ -474,7 +494,13 @@ function MobileRecommendation({ subtitle, title }: { subtitle: string; title: st
 
 function page() {
   return css({
-    background: "linear-gradient(180deg, #062f39 0%, #08232e 44%, #07141d 100%)",
+    alignItems: { lg: "center" },
+    background:
+      "linear-gradient(90deg, rgba(5,8,42,0.96) 0%, rgba(7,10,48,0.88) 34%, rgba(43,24,106,0.42) 68%, rgba(5,8,42,0.62) 100%), linear-gradient(180deg, rgba(5,8,42,0.08) 0%, rgba(5,8,42,0.28) 46%, rgba(5,8,42,0.94) 100%), url('/images/hero-bg.png')",
+    backgroundPosition: "center, center, center",
+    backgroundRepeat: "no-repeat, no-repeat, no-repeat",
+    backgroundSize: "100% 100%, 100% 100%, cover",
+    display: { lg: "grid" },
     minH: "100vh",
     overflowX: "hidden",
     p: { base: "0", lg: "5" },
@@ -484,36 +510,43 @@ function page() {
 function desktopFrame() {
   return css({
     background:
-      "linear-gradient(140deg, rgba(7,20,29,0.98), rgba(8,35,46,0.96) 52%, rgba(92,61,43,0.72))",
-    borderColor: "rgba(255,247,223,0.18)",
+      "linear-gradient(140deg, rgba(5,8,42,0.98), rgba(16,18,74,0.95) 54%, rgba(93,62,209,0.48))",
+    borderColor: "rgba(180,160,255,0.28)",
     borderRadius: "lg",
     borderWidth: "1px",
-    boxShadow: "0 28px 90px rgba(0,0,0,0.38)",
+    boxShadow: "coastalFrame",
     display: { base: "none", lg: "block" },
-    maxW: "1320px",
-    minH: "820px",
+    h: "calc(100vh - 40px)",
+    maxW: "1160px",
+    minH: "0",
     mx: "auto",
     overflow: "hidden",
+    position: "relative",
+    width: "100%",
   });
 }
 
 function desktopWorkspace() {
   return css({
     display: "grid",
-    gridTemplateColumns: "286px minmax(0, 1fr) 320px",
-    minH: "820px",
+    gridTemplateColumns: "230px minmax(0, 1fr) 284px",
+    h: "100%",
+    minH: 0,
   });
 }
 
 function leftSidebar() {
   return css({
-    bg: "rgba(5,22,28,0.94)",
-    borderRightColor: "rgba(255,247,223,0.12)",
+    bg: "rgba(5,8,42,0.9)",
+    borderRightColor: "rgba(184,166,255,0.22)",
     borderRightWidth: "1px",
     display: "flex",
     flexDirection: "column",
-    gap: "5",
-    p: "5",
+    gap: "4",
+    minH: 0,
+    overflow: "hidden",
+    p: "4",
+    pt: "12",
   });
 }
 
@@ -524,19 +557,20 @@ function logoLink() {
 function newQuestionButton() {
   return css({
     justifyContent: "space-between",
+    minH: "44px",
     width: "100%",
   });
 }
 
 function sidebarSection() {
   return css({
-    borderTopColor: "rgba(255,247,223,0.12)",
+    borderTopColor: "rgba(184,166,255,0.18)",
     borderTopWidth: "1px",
     display: "grid",
-    gap: "2",
-    pt: "4",
+    gap: "1",
+    pt: "3",
     "& h2": {
-      color: "rgba(255,247,223,0.5)",
+      color: "rgba(226,220,247,0.58)",
       fontSize: "2xs",
       fontWeight: "900",
       letterSpacing: "0.08em",
@@ -548,8 +582,8 @@ function sidebarSection() {
 function activeTripCard() {
   return css({
     alignItems: "center",
-    bg: "rgba(255,247,223,0.08)",
-    borderColor: "rgba(127,226,192,0.18)",
+    bg: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(184,166,255,0.28)",
     borderRadius: "md",
     borderWidth: "1px",
     display: "flex",
@@ -572,7 +606,7 @@ function activeTripCard() {
 function travelerCount() {
   return css({
     alignItems: "center",
-    bg: "rgba(127,226,192,0.18)",
+    bg: "rgba(164,134,255,0.24)",
     borderRadius: "pill",
     color: "text.onDark",
     display: "inline-flex",
@@ -601,7 +635,7 @@ function sidebarRow() {
 
 function sidebarLink() {
   return css({
-    color: "#7fe2c0",
+    color: "violet.400",
     fontSize: "xs",
     fontWeight: "900",
     mt: "1",
@@ -612,14 +646,15 @@ function sidebarLink() {
 function inviteCard() {
   return css({
     background:
-      "linear-gradient(180deg, rgba(6,47,57,0.08), rgba(6,47,57,0.88)), url('/images/siargao-sunset.png') center / cover",
-    borderColor: "rgba(255,255,255,0.16)",
+      "linear-gradient(180deg, rgba(5,8,42,0.08), rgba(5,8,42,0.88)), url('/images/siargao-sunset.png') center / cover",
+    borderColor: "rgba(184,166,255,0.24)",
     borderRadius: "md",
     borderWidth: "1px",
     display: "grid",
     gap: "2",
     mt: "auto",
-    p: "4",
+    minH: "134px",
+    p: "3",
     "& strong": { color: "text.onDark", fontSize: "sm" },
     "& span": { color: "text.onDarkMuted", fontSize: "xs", lineHeight: "1.45" },
     "& a": {
@@ -633,10 +668,11 @@ function inviteCard() {
 
 function conversationColumn() {
   return css({
-    bg: "#fff7df",
+    bg: "lavender.50",
     color: "text",
     display: "grid",
-    gridTemplateRows: "74px 1fr auto",
+    gridTemplateRows: "68px minmax(0, 1fr) auto",
+    minH: 0,
     minW: 0,
   });
 }
@@ -644,14 +680,14 @@ function conversationColumn() {
 function chatHeader() {
   return css({
     alignItems: "center",
-    bg: "rgba(255,247,223,0.9)",
-    borderBottomColor: "rgba(8,47,57,0.12)",
+    bg: "rgba(255,255,255,0.9)",
+    borderBottomColor: "rgba(200,190,233,0.72)",
     borderBottomWidth: "1px",
     display: "flex",
     justifyContent: "space-between",
-    px: "6",
+    px: "5",
     "& h1": {
-      color: "#08232e",
+      color: "text.strong",
       fontSize: "lg",
       fontWeight: "900",
       m: 0,
@@ -687,11 +723,11 @@ function headerActions() {
     gap: "2",
     "& button": {
       alignItems: "center",
-      bg: "#fffdf5",
-      borderColor: "rgba(8,47,57,0.14)",
+      bg: "surface",
+      borderColor: "rgba(200,190,233,0.88)",
       borderRadius: "md",
       borderWidth: "1px",
-      color: "#0a6574",
+      color: "violet.650",
       cursor: "pointer",
       display: "inline-flex",
       h: "9",
@@ -704,7 +740,7 @@ function headerActions() {
 function avatar() {
   return css({
     alignItems: "center",
-    bg: "#0a6574",
+    bg: "violet.650",
     borderRadius: "pill",
     color: "text.onDark",
     display: "inline-flex",
@@ -719,12 +755,13 @@ function avatar() {
 function messageList() {
   return css({
     background:
-      "linear-gradient(90deg, rgba(8,47,57,0.04) 1px, transparent 1px), linear-gradient(0deg, rgba(8,47,57,0.04) 1px, transparent 1px)",
+      "linear-gradient(90deg, rgba(108,70,232,0.05) 1px, transparent 1px), linear-gradient(0deg, rgba(108,70,232,0.05) 1px, transparent 1px)",
     backgroundSize: "54px 54px",
     display: "grid",
-    gap: "5",
+    gap: "2",
+    minH: 0,
     overflowY: "auto",
-    p: "6",
+    p: "3",
   });
 }
 
@@ -733,14 +770,15 @@ function userMessage() {
     justifySelf: "end",
     maxW: "74%",
     "& p": {
-      background: "linear-gradient(135deg, #0a6574, #083f4b)",
+      background: "token(gradients.cta)",
       borderRadius: "md",
       color: "text.onDark",
-      fontSize: "sm",
+      fontSize: "xs",
       fontWeight: "800",
       lineHeight: "1.45",
       m: 0,
-      p: "4",
+      px: "4",
+      py: "3",
     },
   });
 }
@@ -749,33 +787,33 @@ function assistantWrap() {
   return css({
     alignItems: "start",
     display: "grid",
-    gap: "3",
-    gridTemplateColumns: "36px minmax(0, 1fr)",
+    gap: "2",
+    gridTemplateColumns: "30px minmax(0, 1fr)",
     maxW: "86%",
   });
 }
 
 function assistantAvatar() {
   return css({
-    h: "8",
-    width: "8",
+    h: "7",
+    width: "7",
   });
 }
 
 function assistantMessage() {
   return css({
-    bg: "#fffdf5",
-    borderColor: "rgba(8,47,57,0.12)",
+    bg: "surface",
+    borderColor: "rgba(200,190,233,0.74)",
     borderRadius: "md",
     borderWidth: "1px",
-    boxShadow: "0 16px 42px rgba(8,47,57,0.1)",
+    boxShadow: "0 16px 42px rgba(76,49,184,0.1)",
     display: "grid",
-    gap: "4",
-    p: "4",
+    gap: "2",
+    p: "3",
     "& > p": {
       color: "text",
-      fontSize: "sm",
-      lineHeight: "1.55",
+      fontSize: "xs",
+      lineHeight: "1.42",
       m: 0,
     },
     "& small": {
@@ -788,19 +826,19 @@ function assistantMessage() {
 
 function evidenceCard() {
   return css({
-    bg: "rgba(10,101,116,0.06)",
-    borderColor: "rgba(8,47,57,0.14)",
+    bg: "rgba(108,70,232,0.06)",
+    borderColor: "rgba(200,190,233,0.82)",
     borderRadius: "md",
     borderWidth: "1px",
     display: "grid",
-    gap: "3",
-    gridTemplateColumns: "84px minmax(0, 1fr)",
-    p: "3",
-    "& h2": { color: "text.strong", fontSize: "sm", m: 0 },
-    "& p": { color: "text.muted", fontSize: "xs", m: 0 },
+    gap: "2",
+    gridTemplateColumns: "78px minmax(0, 1fr)",
+    p: "2",
+    "& h2": { color: "text.strong", fontSize: "xs", m: 0 },
+    "& p": { color: "text.muted", fontSize: "2xs", m: 0 },
     "& blockquote": {
       color: "text",
-      fontSize: "xs",
+      fontSize: "2xs",
       lineHeight: "1.45",
       m: "2 0",
     },
@@ -816,7 +854,7 @@ function thumb() {
     color: "text.onDark",
     display: "flex",
     justifyContent: "center",
-    minH: "96px",
+    minH: "74px",
   });
 }
 
@@ -824,57 +862,69 @@ function badgeRow() {
   return css({
     display: "flex",
     flexWrap: "wrap",
-    gap: "2",
+    gap: "1",
+    "& span": {
+      fontSize: "10px",
+      minH: "17px",
+      px: "1.5",
+    },
   });
 }
 
 function restaurantGrid() {
   return css({
     display: "grid",
-    gap: "3",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: "2",
   });
 }
 
 function restaurantCard() {
   return css({
-    bg: "rgba(255,255,255,0.64)",
-    borderColor: "rgba(8,47,57,0.14)",
+    alignItems: "center",
+    bg: "rgba(255,255,255,0.72)",
+    borderColor: "rgba(200,190,233,0.82)",
     borderRadius: "md",
     borderWidth: "1px",
-    display: "grid",
+    display: "flex",
     gap: "2",
-    p: "3",
+    p: "1.5",
     "& h2": { color: "text.strong", fontSize: "xs", m: 0 },
     "& p": { color: "text.muted", fontSize: "2xs", lineHeight: "1.35", m: 0 },
-    "& strong": { color: "text", fontSize: "2xs", lineHeight: "1.35" },
+    "& strong": { color: "text", display: "block", fontSize: "2xs", lineHeight: "1.25", mb: "1" },
   });
 }
 
-function restaurantThumb() {
+function restaurantPhoto() {
   return css({
     alignItems: "center",
-    bg: "#0a6574",
+    backgroundPosition: "center",
+    backgroundSize: "cover",
     borderRadius: "md",
     color: "text.onDark",
     display: "inline-flex",
-    h: "9",
+    flexShrink: 0,
+    h: "52px",
     justifyContent: "center",
-    width: "9",
+    overflow: "hidden",
+    width: "72px",
+    "& svg": {
+      filter: "drop-shadow(0 1px 5px rgba(5,8,42,0.5))",
+      opacity: 0.9,
+    },
   });
 }
 
 function weatherEvidence() {
   return css({
-    bg: "rgba(255,211,111,0.16)",
-    borderColor: "rgba(141,91,50,0.18)",
+    bg: "rgba(255,214,90,0.18)",
+    borderColor: "rgba(164,134,255,0.3)",
     borderRadius: "md",
     borderWidth: "1px",
     display: "grid",
-    gap: "3",
+    gap: "2",
     gridTemplateColumns: "32px minmax(0, 1fr)",
-    p: "3",
-    "& svg": { color: "#0a6574" },
+    p: "2",
+    "& svg": { color: "violet.650" },
     "& h2": { color: "text.strong", fontSize: "sm", m: 0 },
     "& p": { color: "text.muted", fontSize: "xs", m: 0 },
     "& ul": { color: "text", fontSize: "xs", lineHeight: "1.45", m: "2 0", pl: "4" },
@@ -883,12 +933,12 @@ function weatherEvidence() {
 
 function composerWrap() {
   return css({
-    bg: "rgba(255,247,223,0.94)",
-    borderTopColor: "rgba(8,47,57,0.12)",
+    bg: "rgba(245,243,255,0.94)",
+    borderTopColor: "rgba(200,190,233,0.74)",
     borderTopWidth: "1px",
     display: "grid",
-    gap: "3",
-    p: "5",
+    gap: "1",
+    p: "2",
     "& > p": {
       color: "text.soft",
       fontSize: "2xs",
@@ -904,15 +954,15 @@ function quickChips() {
     gap: "2",
     justifyContent: "center",
     "& a": {
-      bg: "#fffdf5",
-      borderColor: "rgba(8,47,57,0.14)",
+      bg: "surface",
+      borderColor: "rgba(200,190,233,0.88)",
       borderRadius: "pill",
       borderWidth: "1px",
-      color: "#0a6574",
+      color: "violet.650",
       fontSize: "xs",
       fontWeight: "900",
       px: "3",
-      py: "1",
+      py: "0.5",
       textDecoration: "none",
     },
   });
@@ -921,32 +971,32 @@ function quickChips() {
 function composer() {
   return css({
     alignItems: "center",
-    bg: "#fffdf5",
-    borderColor: "rgba(8,47,57,0.14)",
+    bg: "surface",
+    borderColor: "rgba(200,190,233,0.88)",
     borderRadius: "lg",
     borderWidth: "1px",
     boxShadow: "card",
     display: "grid",
     gap: "2",
-    gridTemplateColumns: "40px 1fr 40px",
-    minH: "56px",
-    p: "2",
+    gridTemplateColumns: "34px 1fr 34px",
+    minH: "42px",
+    p: "1",
     "& button": {
       alignItems: "center",
       borderRadius: "md",
       borderWidth: "0",
       cursor: "pointer",
       display: "inline-flex",
-      h: "10",
+      h: "8",
       justifyContent: "center",
-      width: "10",
+      width: "8",
     },
     "& button:first-child": {
-      bg: "rgba(10,101,116,0.1)",
-      color: "#0a6574",
+      bg: "rgba(108,70,232,0.1)",
+      color: "violet.650",
     },
     "& button:last-child": {
-      bg: "#0a6574",
+      bg: "violet.650",
       color: "text.onDark",
     },
     "& input": {
@@ -962,40 +1012,49 @@ function composer() {
 
 function rightSidebar() {
   return css({
-    bg: "#f6ead2",
-    borderLeftColor: "rgba(8,47,57,0.14)",
+    bg: "lavender.100",
+    borderLeftColor: "rgba(200,190,233,0.74)",
     borderLeftWidth: "1px",
     display: "grid",
-    gap: "4",
-    p: "5",
+    gap: "3",
+    minH: 0,
+    overflow: "hidden",
+    p: "4",
   });
 }
 
 function contextCard() {
   return css({
-    bg: "#fffdf5",
-    borderColor: "rgba(8,47,57,0.13)",
+    bg: "surface",
+    borderColor: "rgba(200,190,233,0.82)",
     borderRadius: "md",
     borderWidth: "1px",
-    boxShadow: "0 14px 36px rgba(8,47,57,0.09)",
+    boxShadow: "0 14px 36px rgba(76,49,184,0.1)",
     display: "grid",
     gap: "3",
-    p: "4",
+    p: "3",
     "& h2": {
+      alignItems: "center",
       color: "text.strong",
+      display: "flex",
       fontSize: "sm",
       fontWeight: "900",
+      justifyContent: "space-between",
       m: 0,
     },
+    "& h2 svg": { color: "text.soft" },
   });
 }
 
 function contextRow() {
   return css({
-    display: "grid",
+    alignItems: "start",
+    display: "flex",
     gap: "1",
+    "& > svg": { color: "violet.650", flexShrink: 0, mt: "0.5" },
+    "& div": { display: "grid", gap: "1" },
     "& span": { color: "text.soft", fontSize: "2xs", fontWeight: "900" },
-    "& strong": { color: "text", fontSize: "xs", lineHeight: "1.35" },
+    "& strong": { color: "text", fontSize: "2xs", lineHeight: "1.25" },
   });
 }
 
@@ -1004,9 +1063,9 @@ function weatherMetric() {
     alignItems: "center",
     display: "flex",
     gap: "3",
-    "& svg": { color: "#0a6574" },
-    "& strong": { color: "text.strong", display: "block", fontSize: "2xl" },
-    "& span": { color: "text.muted", fontSize: "xs" },
+    "& svg": { color: "violet.650" },
+    "& strong": { color: "text.strong", display: "block", fontSize: "xl" },
+    "& span": { color: "text.muted", fontSize: "2xs" },
   });
 }
 
@@ -1016,7 +1075,7 @@ function metricGrid() {
     gap: "2",
     gridTemplateColumns: "repeat(3, 1fr)",
     "& div": {
-      bg: "rgba(10,101,116,0.08)",
+      bg: "rgba(108,70,232,0.08)",
       borderRadius: "md",
       p: "2",
     },
@@ -1028,7 +1087,7 @@ function metricGrid() {
     },
     "& strong": {
       color: "text.strong",
-      fontSize: "xs",
+      fontSize: "2xs",
     },
   });
 }
@@ -1049,11 +1108,12 @@ function areaGuideCard() {
     borderRadius: "md",
     color: "text.onDark",
     display: "grid",
-    minH: "154px",
-    p: "4",
+    minH: "130px",
+    p: "3",
     textDecoration: "none",
     "& span": { alignSelf: "end", fontSize: "xs", fontWeight: "800" },
     "& strong": {
+      alignSelf: "start",
       bg: "surface",
       borderRadius: "md",
       color: "text.strong",
@@ -1061,16 +1121,19 @@ function areaGuideCard() {
       fontSize: "xs",
       fontWeight: "900",
       justifySelf: "start",
+      lineHeight: "1",
       mt: "2",
       px: "3",
       py: "2",
+      whiteSpace: "nowrap",
     },
   });
 }
 
 function mobileWorkspace() {
   return css({
-    bg: "#07141d",
+    background:
+      "linear-gradient(180deg, rgba(5,8,42,0.98) 0%, rgba(16,18,74,0.96) 54%, rgba(5,8,42,0.98) 100%), url('/images/hero-bg.png') center / cover",
     color: "text.onDark",
     display: { base: "grid", lg: "none" },
     gridTemplateRows: "auto auto 1fr auto",
@@ -1108,8 +1171,8 @@ function mobileHeader() {
 function tripPill() {
   return css({
     alignItems: "center",
-    bg: "rgba(255,247,223,0.08)",
-    borderColor: "rgba(127,226,192,0.2)",
+    bg: "rgba(255,255,255,0.1)",
+    borderColor: "rgba(184,166,255,0.34)",
     borderRadius: "pill",
     borderWidth: "1px",
     color: "text.onDarkMuted",
@@ -1123,13 +1186,14 @@ function tripPill() {
     mt: "3",
     px: "3",
     "& strong": {
-      color: "#67d889",
+      color: "violet.400",
     },
   });
 }
 
 function mobileMessages() {
   return css({
+    alignContent: "start",
     display: "grid",
     gap: "5",
     overflowY: "auto",
@@ -1139,7 +1203,7 @@ function mobileMessages() {
 
 function mobileUserMessage() {
   return css({
-    background: "linear-gradient(135deg, #0a6574, #083f4b)",
+    background: "token(gradients.cta)",
     borderRadius: "md",
     color: "text.onDark",
     fontSize: "sm",
@@ -1158,8 +1222,8 @@ function mobileAssistantMessage() {
     gap: "3",
     gridTemplateColumns: "34px minmax(0, 1fr)",
     "& > div": {
-      bg: "rgba(255,247,223,0.09)",
-      borderColor: "rgba(255,247,223,0.14)",
+      bg: "rgba(255,255,255,0.1)",
+      borderColor: "rgba(184,166,255,0.28)",
       borderRadius: "md",
       borderWidth: "1px",
       p: "4",
@@ -1179,14 +1243,14 @@ function mobileCards() {
     gap: "2",
     "& article": {
       alignItems: "center",
-      bg: "rgba(127,226,192,0.1)",
+      bg: "rgba(164,134,255,0.14)",
       borderRadius: "md",
       display: "grid",
       gap: "2",
       gridTemplateColumns: "24px 1fr auto",
       p: "3",
     },
-    "& svg": { color: "#7fe2c0" },
+    "& svg": { color: "violet.400" },
     "& strong": { color: "text.onDark", display: "block", fontSize: "xs" },
     "& span": { color: "text.onDarkMuted", display: "block", fontSize: "2xs" },
   });
@@ -1195,8 +1259,8 @@ function mobileCards() {
 function mobileComposer() {
   return css({
     alignItems: "center",
-    bg: "rgba(7,20,29,0.98)",
-    borderTopColor: "rgba(255,247,223,0.1)",
+    bg: "rgba(5,8,42,0.98)",
+    borderTopColor: "rgba(184,166,255,0.2)",
     borderTopWidth: "1px",
     display: "grid",
     gap: "2",
@@ -1215,8 +1279,8 @@ function mobileComposer() {
       width: "10",
     },
     "& button:last-child": {
-      bg: "#0a6574",
-      borderColor: "#0a6574",
+      bg: "violet.650",
+      borderColor: "token(colors.violet.650)",
     },
     "& input": {
       bg: "rgba(255,255,255,0.1)",

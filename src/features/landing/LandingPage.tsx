@@ -384,7 +384,7 @@ function hero() {
 function heroCopy() {
   return css({
     alignSelf: "start",
-    maxW: "660px",
+    maxW: "700px",
   });
 }
 
@@ -392,15 +392,15 @@ function heroTitle() {
   return css({
     color: "#fff7df",
     fontFamily: "display",
-    fontSize: { base: "3xl", sm: "4xl", md: "4.85rem", xl: "5.6rem" },
-    fontWeight: "800",
-    lineHeight: "0.96",
+    fontSize: { base: "3.25rem", sm: "4.25rem", md: "5.25rem", xl: "6.1rem" },
+    fontWeight: "600",
+    lineHeight: "0.88",
     m: 0,
     textWrap: "balance",
     "& em": {
       color: "violet.400",
       fontStyle: "italic",
-      fontWeight: "700",
+      fontWeight: "600",
     },
   });
 }
@@ -409,6 +409,7 @@ function heroBody() {
   return css({
     color: "text.onDarkMuted",
     fontSize: { base: "sm", md: "md" },
+    fontWeight: "700",
     lineHeight: "1.55",
     maxW: "420px",
     mb: 0,
@@ -458,8 +459,8 @@ function promptText() {
   return css({
     color: "text.strong",
     fontSize: { base: "sm", md: "md" },
-    fontWeight: "800",
-    lineHeight: "1.44",
+    fontWeight: "700",
+    lineHeight: "1.5",
     m: 0,
   });
 }
@@ -528,7 +529,7 @@ function weatherTitle() {
   return css({
     color: "text.strong",
     fontSize: "md",
-    fontWeight: "900",
+    fontWeight: "800",
     m: 0,
   });
 }
@@ -545,7 +546,7 @@ function weatherRow() {
     px: "4",
     "& strong": {
       color: "text.strong",
-      fontWeight: "900",
+      fontWeight: "800",
     },
   });
 }
@@ -561,7 +562,7 @@ function suggestionsLabel() {
   return css({
     color: "rgba(226,220,247,0.84)",
     fontSize: "xs",
-    fontWeight: "900",
+    fontWeight: "800",
     mb: "3",
     mt: 0,
   });
@@ -586,7 +587,7 @@ function chip() {
     color: "rgba(255,255,255,0.88)",
     display: "inline-flex",
     fontSize: "xs",
-    fontWeight: "800",
+    fontWeight: "700",
     gap: "2",
     minH: "36px",
     px: "4",
@@ -614,7 +615,7 @@ function trustItem() {
     color: "rgba(255,255,255,0.86)",
     display: "inline-flex",
     fontSize: "xs",
-    fontWeight: "900",
+    fontWeight: "800",
     gap: "2",
     px: { base: "2", md: "6" },
     "&:not(:last-child)": {
@@ -658,7 +659,7 @@ function featureCard() {
     "& h2": {
       color: "text.strong",
       fontSize: "md",
-      fontWeight: "900",
+      fontWeight: "800",
       lineHeight: "1.25",
       mb: "2",
       mt: "4",
@@ -678,7 +679,7 @@ function featureLink() {
     alignItems: "center",
     display: "inline-flex",
     fontSize: "sm",
-    fontWeight: "900",
+    fontWeight: "800",
     gap: "1",
     textDecoration: "none",
   });

@@ -1560,11 +1560,11 @@ const tokens = {
     "variable": "var(--fonts-mono)"
   },
   "fonts.sans": {
-    "value": "\"Avenir Next\", \"Segoe UI\", system-ui, sans-serif",
+    "value": "var(--font-sans), \"Avenir Next\", \"Segoe UI\", system-ui, sans-serif",
     "variable": "var(--fonts-sans)"
   },
   "fonts.display": {
-    "value": "Georgia, \"Times New Roman\", serif",
+    "value": "var(--font-display), \"Iowan Old Style\", Georgia, \"Times New Roman\", serif",
     "variable": "var(--fonts-display)"
   },
   "fontSizes.5xl": {

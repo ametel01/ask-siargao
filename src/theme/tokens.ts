@@ -86,8 +86,10 @@ export const tokens = {
     },
   },
   fonts: {
-    sans: { value: '"Avenir Next", "Segoe UI", system-ui, sans-serif' },
-    display: { value: 'Georgia, "Times New Roman", serif' },
+    sans: { value: 'var(--font-sans), "Avenir Next", "Segoe UI", system-ui, sans-serif' },
+    display: {
+      value: 'var(--font-display), "Iowan Old Style", Georgia, "Times New Roman", serif',
+    },
   },
   fontSizes: {
     "2xs": { value: "0.6875rem" },

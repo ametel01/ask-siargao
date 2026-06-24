@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "panda codegen && panda cssgen && next dev",
     "dev:container": "panda codegen && panda cssgen && next dev -H 0.0.0.0",
+    "dev:kill": "zsh -lc 'for port in 3000 3100; do for pid in $(lsof -ti tcp:$port 2>/dev/null); do kill $pid 2>/dev/null || true; sleep 0.2; kill -9 $pid 2>/dev/null || true; done; done'",
     "stack:up": "docker compose up -d",
     "stack:down": "docker compose down",
     "stack:down:volumes": "docker compose down --volumes",
