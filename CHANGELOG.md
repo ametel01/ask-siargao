@@ -72,6 +72,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Hoisted the chat timestamp formatter so message rendering does not rebuild `Intl.DateTimeFormat` for every timestamp.
 - Hardened chat pending and error states with disabled in-flight controls, safe failure copy, retry affordance, and keyboard resubmission coverage.
 - Improved admin and public outline badge contrast after final visual inspection.
 - Added explicit sidebar rail button type and migrated the sidebar context read to the React 19 `use(context)` API.

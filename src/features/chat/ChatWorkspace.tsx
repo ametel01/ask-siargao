@@ -18,6 +18,10 @@ const suggestedPrompts = [
 ];
 
 const chatErrorMessage = "Ask Siargao could not answer right now. Please try again.";
+const chatTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  hour: "numeric",
+  minute: "2-digit",
+});
 
 type InteractiveChatMessage = {
   id: string;
@@ -412,8 +416,5 @@ function createMessageId(prefix: string) {
 }
 
 function formatTimestamp() {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date());
+  return chatTimeFormatter.format(new Date());
 }
