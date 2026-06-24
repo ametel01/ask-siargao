@@ -238,7 +238,7 @@ export async function getLatestSiargaoWeatherSnapshot({
   }
 }
 
-export async function getLiveSiargaoWeatherSnapshot({
+async function getLiveSiargaoWeatherSnapshot({
   fetcher,
   location,
   now = new Date(),

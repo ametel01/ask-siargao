@@ -22,7 +22,7 @@ export type AskSiargaoChatResponse = {
   requestId?: string;
 };
 
-export function createOpenAIChatClient(apiKey = process.env.OPENAI_API_KEY): ChatResponsesClient {
+function createOpenAIChatClient(apiKey = process.env.OPENAI_API_KEY): ChatResponsesClient {
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is required for Ask Siargao chat.");
   }
