@@ -44,6 +44,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Replaced the audit-first root landing page with the Ask Siargao mockup landing experience, including the prompt card, weather card, suggestion chips, trust row, feature cards, and updated root e2e coverage.
 - Reframed the shared app shell metadata, dark coastal background, brand tokens, and reusable Ask Siargao UI primitives for the landing and chat mockups.
 
 ### Deprecated

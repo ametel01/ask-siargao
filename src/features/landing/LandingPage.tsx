@@ -2,179 +2,87 @@ import {
   ArrowRight,
   BedDouble,
   CalendarDays,
-  Check,
-  ClipboardCheck,
+  Car,
   CloudSun,
-  FilePenLine,
-  FileText,
+  Compass,
+  Globe2,
+  MapPinned,
   Menu,
-  Plane,
-  Play,
-  Search,
-  ShieldCheck,
-  ShieldPlus,
-  TrendingUp,
-  Users,
-  Wifi,
+  Plus,
+  Send,
+  Sparkles,
+  Utensils,
 } from "lucide-react";
 
-import { IntakeForm } from "@/features/intake/IntakeForm";
-import { WeatherTelemetryPanel } from "@/features/weather/WeatherTelemetryPanel";
-import type { WeatherSnapshot } from "@/server/public-pages/weather-snapshot";
-import {
-  AccordionItem,
-  Badge,
-  Button,
-  Card,
-  Input,
-  LinkButton,
-  Table,
-  Tooltip,
-} from "@/ui/components/primitives";
+import { BrandLockup, BrowserFrame, GradientLink, SignalBadge } from "@/ui/components/ask-siargao";
 import { css } from "../../../styled-system/css/css";
 import { cx } from "../../../styled-system/css/cx";
-import { faqAccordion } from "../../../styled-system/recipes/faq-accordion";
-import { footer } from "../../../styled-system/recipes/footer";
-import { header } from "../../../styled-system/recipes/header";
-import { miniFeatureCard } from "../../../styled-system/recipes/mini-feature-card";
-import { pageShell } from "../../../styled-system/recipes/page-shell";
-import { pricingCard } from "../../../styled-system/recipes/pricing-card";
-import { processCard } from "../../../styled-system/recipes/process-card";
-import { reportPreview } from "../../../styled-system/recipes/report-preview";
-import { riskGauge } from "../../../styled-system/recipes/risk-gauge";
-import { riskPreviewCard } from "../../../styled-system/recipes/risk-preview-card";
-import { sectionPanel } from "../../../styled-system/recipes/section-panel";
-import { trustCard } from "../../../styled-system/recipes/trust-card";
 
-const checks = [
-  {
-    icon: CloudSun,
-    title: "Weather exposure",
-    body: "Rain, wind, swell, typhoons, and heat.",
-  },
-  {
-    icon: Plane,
-    title: "Arrival logistics",
-    body: "Ferries, flights, transfers, and timing risks.",
-  },
-  {
-    icon: BedDouble,
-    title: "Accommodation reality",
-    body: "Location, reviews, noise, comfort, and reliability.",
-  },
-  {
-    icon: Wifi,
-    title: "Internet and power",
-    body: "Mobile signal, Wi-Fi, and generator backup.",
-  },
-  {
-    icon: ShieldPlus,
-    title: "Safety and health",
-    body: "Crime, road safety, clinic access, and medical gaps.",
-  },
-  {
-    icon: ClipboardCheck,
-    title: "Rules and fees",
-    body: "Local rules, permits, and extra costs.",
-  },
+const navItems = ["How it works", "Where to stay", "What's happening", "Weather", "Saved places"];
+
+const weatherRows = [
+  ["Forecast", "Partly cloudy"],
+  ["Rain chance", "35%"],
+  ["Wind", "18 km/h"],
+  ["Freshness", "Updated 12 min ago"],
 ];
 
-const steps = [
-  {
-    icon: FilePenLine,
-    title: "Enter details",
-    body: "Share dates, stay, route, and constraints.",
-  },
-  {
-    icon: Search,
-    title: "Verify sources",
-    body: "We check live data and trusted records.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "Score risk",
-    body: "Every category gets confidence labels.",
-  },
-  {
-    icon: FileText,
-    title: "Build audit",
-    body: "If completable, we compile your report.",
-  },
-  {
-    icon: TrendingUp,
-    title: "Read report",
-    body: "Get recommendations and next steps.",
-  },
+const suggestionChips = [
+  ["quiet hotel?", BedDouble],
+  ["best restaurants nearby", Utensils],
+  ["airport transfer", Car],
+  ["parties this weekend", CalendarDays],
+  ["weather today", CloudSun],
 ];
 
 const trustItems = [
+  ["Live local data", Globe2],
+  ["No booking bias", Compass],
+  ["Freshness + confidence shown", Sparkles],
+];
+
+const featureCards = [
   {
-    icon: FileText,
-    title: "Cited evidence",
-    body: "Every claim links to source records and timestamps.",
+    icon: MapPinned,
+    title: "Find the right areas",
+    body: "Compare Cloud 9, General Luna, Catangnan and more to match your vibe.",
+    link: "Explore areas",
   },
   {
-    icon: CalendarDays,
-    title: "Freshness windows",
-    body: "Each data point shows when it was last updated.",
+    icon: CloudSun,
+    title: "Live weather updates",
+    body: "Real-time conditions, rain chances, wind, and sea changes.",
+    link: "Check weather",
   },
   {
-    icon: TrendingUp,
-    title: "Confidence labels",
-    body: "High, medium, or low confidence is never a guess.",
+    icon: Utensils,
+    title: "Local food & drinks",
+    body: "Curated spots and hidden gems for every craving and budget.",
+    link: "See restaurants",
   },
   {
-    icon: Users,
-    title: "Local signals",
-    body: "On-the-ground and community signals where they matter.",
+    icon: Car,
+    title: "Get around easily",
+    body: "Airport transfers, scooters, tricycles, and local tips that save time.",
+    link: "Plan transport",
   },
 ];
 
-const faq = [
-  {
-    question: "When do I pay?",
-    answer: "Only after the system verifies it can complete the audit to the promised standard.",
-  },
-  {
-    question: "Is this an itinerary planner?",
-    answer: "No. It audits the plan you already have and explains what may break.",
-  },
-  {
-    question: "What if my stay cannot be matched?",
-    answer:
-      "You get the preview risk, but the full audit does not unlock checkout until confidence is sufficient.",
-  },
-  {
-    question: "Do you scrape Airbnb?",
-    answer:
-      "No. V1 uses permitted sources, user-submitted details, official sources, and partner or local records.",
-  },
-];
-
-const riskRows = [
-  { label: "Late arrival route", status: "Low", tone: "low" as const },
-  { label: "Accommodation area fit", status: "Medium", tone: "medium" as const },
-  { label: "Weather buffer", status: "Low", tone: "low" as const },
-  { label: "Scooter dependence", status: "Medium", tone: "medium" as const },
-  { label: "Power and internet reliability", status: "Low", tone: "low" as const },
-  { label: "Safety and health", status: "Low", tone: "low" as const },
-];
-
-export function LandingPage({ weatherSnapshot }: { weatherSnapshot: WeatherSnapshot }) {
+export function LandingPage() {
   return (
-    <main className={pageShell()}>
-      <div className={heroBackdrop()}>
-        <Header />
-        <Hero />
-        <WeatherTelemetryPanel initialSnapshot={weatherSnapshot} />
-      </div>
-      <IntakeForm />
-      <WhatWeCheck />
-      <HowItWorks />
-      <TrustBand />
-      <SampleReport />
-      <PricingFaq />
-      <Footer />
+    <main className={page()}>
+      <BrowserFrame className={frame()} label="Ask Siargao landing page">
+        <div className={imageLayer()} />
+        <div className={overlayLayer()} />
+        <div className={contentLayer()}>
+          <Header />
+          <Hero />
+          <SuggestionChips />
+          <TrustRow />
+        </div>
+      </BrowserFrame>
+      <FeatureCards />
+      <MobileFooter />
     </main>
   );
 }
@@ -182,855 +90,598 @@ export function LandingPage({ weatherSnapshot }: { weatherSnapshot: WeatherSnaps
 function Header() {
   return (
     <header className={header()}>
-      <a
-        className={css({
-          alignItems: "center",
-          color: "text.onDark",
-          display: "flex",
-          gap: "3",
-          textDecoration: "none",
-        })}
-        href="#top"
-      >
-        <span
-          aria-hidden="true"
-          className={css({
-            alignItems: "center",
-            borderColor: "rgba(255,255,255,0.76)",
-            borderRadius: "pill",
-            borderWidth: "2px",
-            display: "inline-flex",
-            fontFamily: "Georgia, serif",
-            fontSize: "xl",
-            fontWeight: "800",
-            h: "9",
-            justifyContent: "center",
-            lineHeight: "1",
-            width: "9",
-          })}
-        >
-          C
-        </span>
-        <span className={css({ fontFamily: "Georgia, serif", fontSize: "lg", fontWeight: "800" })}>
-          Siargao Audit
-        </span>
+      <a className={brandLink()} href="/">
+        <BrandLockup />
       </a>
-
-      <nav
-        aria-label="Main navigation"
-        className={css({
-          display: { base: "none", lg: "flex" },
-          gap: "8",
-          ml: "auto",
-        })}
-      >
-        {[
-          ["Why it matters", "checks"],
-          ["What we check", "checks"],
-          ["How it works", "process"],
-          ["Sample report", "report"],
-          ["Pricing", "pricing"],
-          ["FAQ", "faq"],
-        ].map(([item, target]) => (
-          <a
-            className={css({
-              color: "rgba(255,255,255,0.78)",
-              fontSize: "xs",
-              fontWeight: "800",
-              textDecoration: "none",
-              _hover: { color: "text.onDark" },
-              _focusVisible: {
-                outline: "3px solid token(colors.violet.400)",
-                outlineOffset: "4px",
-              },
-            })}
-            href={`#${target}`}
-            key={item}
-          >
+      <nav aria-label="Main navigation" className={nav()}>
+        {navItems.map((item) => (
+          <a className={navLink()} href={`#${slug(item)}`} key={item}>
             {item}
           </a>
         ))}
       </nav>
-
-      <Tooltip label="Open compact mobile menu">
-        <Button
-          aria-label="Open navigation"
-          className={css({ display: { base: "inline-flex", lg: "none" }, px: "3" })}
-          variant="ghost"
-        >
-          <Menu size={19} />
-        </Button>
-      </Tooltip>
-      <LinkButton
-        className={css({
-          display: { base: "none", sm: "inline-flex" },
-          minH: "40px",
-          px: "4",
-        })}
-        href="#audit-start"
-      >
-        Start audit
-      </LinkButton>
+      <GradientLink className={desktopCta()} href="/chat">
+        Open assistant
+      </GradientLink>
+      <a aria-label="Open navigation menu" className={mobileMenu()} href="/chat">
+        <Menu aria-hidden="true" size={20} />
+      </a>
     </header>
   );
 }
 
 function Hero() {
   return (
-    <section
-      className={css({
-        alignItems: "center",
-        display: "grid",
-        gap: { base: "8", lg: "14" },
-        gridTemplateColumns: { base: "1fr", lg: "1.08fr 0.92fr" },
-        maxW: "1220px",
-        mx: "auto",
-        pb: { base: "8", lg: "10" },
-        pt: { base: "8", md: "12", lg: "16" },
-      })}
-      id="top"
-    >
-      <div>
-        <h1
-          className={css({
-            color: "text.onDark",
-            fontFamily: "Georgia, 'Times New Roman', serif",
-            fontSize: { base: "3xl", sm: "4xl", lg: "4.25rem" },
-            fontWeight: "800",
-            lineHeight: "0.98",
-            maxW: "710px",
-            mb: "5",
-            mt: 0,
-          })}
-        >
-          Know if your Siargao plan works before you book the risky parts.
+    <section className={hero()} id="how-it-works">
+      <div className={heroCopy()}>
+        <h1 className={heroTitle()}>
+          Ask Siargao
+          <br />
+          anything about
+          <br />
+          <em>your trip.</em>
         </h1>
-        <p
-          className={css({
-            color: "rgba(255,255,255,0.76)",
-            fontSize: { base: "sm", md: "md" },
-            lineHeight: "1.65",
-            maxW: "620px",
-            mb: "7",
-          })}
-        >
-          Evidence-backed trip feasibility audit that checks weather, logistics, accommodation,
-          internet, safety, and rules so you only pay if we can complete the audit.
+        <p className={heroBody()}>
+          Local answers for where to stay, what to do, how to get around, and what today's weather
+          changes.
         </p>
-        <div
-          className={css({
-            alignItems: { base: "stretch", sm: "center" },
-            display: "flex",
-            flexDirection: { base: "column", sm: "row" },
-            gap: "4",
-            mb: "6",
-          })}
-        >
-          <LinkButton className={css({ minW: { sm: "218px" } })} href="#audit-start">
-            Start trip audit <ArrowRight aria-hidden="true" size={18} />
-          </LinkButton>
-          <LinkButton
-            className={css({
-              bg: "rgba(255,255,255,0.08)",
-              borderColor: "rgba(255,255,255,0.28)",
-              color: "text.onDark",
-              minW: { sm: "210px" },
-            })}
-            href="#report"
-            variant="ghost"
-          >
-            See sample report
-          </LinkButton>
-        </div>
-        <div
-          className={css({
-            display: "grid",
-            gap: "3",
-            gridTemplateColumns: { base: "1fr", md: "repeat(3, max-content)" },
-          })}
-        >
-          {[
-            "One free preview risk before payment",
-            "Pay only if we can complete the full audit",
-            "USD 9.99 one-time",
-          ].map((note) => (
-            <span
-              className={css({
-                alignItems: "center",
-                color: "rgba(255,255,255,0.82)",
-                display: "flex",
-                fontSize: "xs",
-                fontWeight: "800",
-                gap: "2",
-              })}
-              key={note}
-            >
-              <ShieldCheck aria-hidden="true" size={17} /> {note}
-            </span>
-          ))}
-        </div>
       </div>
-      <RiskPreviewCard />
+      <div className={promptWeatherRow()}>
+        <PromptCard />
+        <WeatherCard />
+      </div>
     </section>
   );
 }
 
-function RiskPreviewCard() {
+function PromptCard() {
   return (
-    <aside aria-label="Trip risk preview card" className={riskPreviewCard()}>
-      <div
-        className={css({
-          alignItems: "center",
-          display: "flex",
-          justifyContent: "space-between",
-          mb: "4",
-        })}
-      >
-        <h2
-          className={css({
-            color: "text.onDark",
-            fontFamily: "Georgia, serif",
-            fontSize: "lg",
-            fontWeight: "800",
-            m: 0,
-          })}
-        >
-          Trip risk preview
-        </h2>
-        <Badge className={css({ bg: "rgba(255,255,255,0.16)", color: "text.onDark" })} tone="dark">
-          Sample
-        </Badge>
+    <section aria-label="Example Ask Siargao prompt" className={promptCard()}>
+      <div className={promptTextRow()}>
+        <Sparkles aria-hidden="true" className={css({ color: "violet.600", flexShrink: 0 })} />
+        <p className={promptText()}>
+          I'm staying near Cloud 9 for 10 days. We want quiet sleep, surfing, good restaurants, and
+          easy airport transfer. What should we know?
+        </p>
       </div>
-      <div aria-label="Overall preview rating is low risk" className={riskGauge()}>
-        <div
-          className={css({
-            bg: "conic-gradient(from 270deg, #70c66f 0deg 124deg, #cdb7ff 124deg 180deg, transparent 180deg 360deg)",
-            borderRadius: "999px 999px 0 0",
-            filter: "drop-shadow(0 18px 24px rgba(0,0,0,0.24))",
-            h: "100%",
-            position: "absolute",
-            top: 0,
-            width: "86%",
-          })}
-        />
-        <div
-          className={css({
-            alignItems: "center",
-            bg: "rgba(26,26,63,0.82)",
-            borderRadius: "999px 999px 0 0",
-            bottom: "-2px",
-            boxShadow: "inset 0 18px 28px rgba(255,255,255,0.1)",
-            color: "text.onDark",
-            display: "flex",
-            flexDirection: "column",
-            h: "70%",
-            justifyContent: "center",
-            position: "absolute",
-            width: "64%",
-          })}
-        >
-          <span className={css({ color: "#93e68e", fontSize: "xl", fontWeight: "900" })}>
-            LOW RISK
-          </span>
-          <span
-            className={css({ color: "rgba(255,255,255,0.84)", fontSize: "xs", fontWeight: "800" })}
-          >
-            4 of 6 areas look good
-          </span>
-          <span className={css({ color: "rgba(255,255,255,0.62)", fontSize: "2xs", mt: "2" })}>
-            Looks solid. Keep a few medium-risk areas in mind.
-          </span>
-        </div>
+      <div className={promptControls()}>
+        <button aria-label="Add trip detail" className={squareButton()} type="button">
+          <Plus aria-hidden="true" size={18} />
+        </button>
+        <button aria-label="Browse local sources" className={squareButton()} type="button">
+          <Globe2 aria-hidden="true" size={18} />
+        </button>
+        <GradientLink className={askButton()} href="/chat">
+          Ask Siargao <Send aria-hidden="true" size={16} />
+        </GradientLink>
       </div>
-      <div className={css({ mt: "5" })}>
-        <RiskList />
+    </section>
+  );
+}
+
+function WeatherCard() {
+  return (
+    <aside className={weatherCard()} id="weather">
+      <div className={weatherTitleRow()}>
+        <CloudSun aria-hidden="true" className={css({ color: "violet.650" })} size={22} />
+        <h2 className={weatherTitle()}>Today in Siargao</h2>
       </div>
-      <LinkButton
-        className={css({
-          borderColor: "rgba(255,255,255,0.26)",
-          color: "text.onDark",
-          mt: "5",
-          width: "100%",
-        })}
-        href="#report"
-        variant="secondary"
-      >
-        View sample report <ArrowRight aria-hidden="true" size={16} />
-      </LinkButton>
+      <div className={css({ display: "grid" })}>
+        {weatherRows.map(([label, value]) => (
+          <div className={weatherRow()} key={label}>
+            <span>{label}</span>
+            {label === "Freshness" ? (
+              <SignalBadge tone="fresh">{value}</SignalBadge>
+            ) : (
+              <strong>{value}</strong>
+            )}
+          </div>
+        ))}
+      </div>
     </aside>
   );
 }
 
-function RiskList() {
+function SuggestionChips() {
   return (
-    <div className={css({ display: "grid" })}>
-      {riskRows.map((row) => (
-        <div
-          className={css({
-            alignItems: "center",
-            borderTopColor: "rgba(255,255,255,0.16)",
-            borderTopWidth: "1px",
-            color: "rgba(255,255,255,0.82)",
-            display: "flex",
-            fontSize: "xs",
-            fontWeight: "800",
-            gap: "3",
-            justifyContent: "space-between",
-            minH: "36px",
-          })}
-          key={row.label}
-        >
-          <span>{row.label}</span>
-          <strong
-            className={css({
-              color:
-                row.tone === "low"
-                  ? "#91e88d"
-                  : row.tone === "medium"
-                    ? "risk.medium"
-                    : "risk.high",
-              fontSize: "xs",
-            })}
-          >
-            {row.status}
-          </strong>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function WhatWeCheck() {
-  return (
-    <section className={cx(sectionPanel(), css({ mt: 0, p: { base: "5", md: "7" } }))} id="checks">
-      <h2 className={cx(sectionTitle(), css({ textAlign: "center" }))}>What we check</h2>
-      <div
-        className={css({
-          display: "grid",
-          gap: "4",
-          gridTemplateColumns: { base: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(6, 1fr)" },
-        })}
-      >
-        {checks.map(({ body, icon: Icon, title }) => (
-          <Card className={miniFeatureCard()} key={title}>
-            <Icon aria-hidden="true" className={css({ color: "violet.600", mb: "3" })} size={28} />
-            <h3 className={cardTitle()}>{title}</h3>
-            <p className={cardBody()}>{body}</p>
-          </Card>
+    <section className={suggestions()} id="where-to-stay">
+      <p className={suggestionsLabel()}>Try asking about...</p>
+      <div className={chipRow()}>
+        {suggestionChips.map(([label, Icon]) => (
+          <a className={chip()} href="/chat" key={label as string}>
+            <Icon aria-hidden="true" size={15} />
+            {label as string}
+          </a>
         ))}
       </div>
     </section>
   );
 }
 
-function HowItWorks() {
+function TrustRow() {
   return (
-    <section className={processBand()} id="process">
-      <div className={css({ maxW: "1220px", mx: "auto" })}>
-        <h2 className={cx(sectionTitle(), css({ color: "text.onDark", mb: "6" }))}>How it works</h2>
-        <div
-          className={css({
-            alignItems: "stretch",
-            display: "grid",
-            gap: "4",
-            gridTemplateColumns: { base: "1fr", md: "repeat(2, 1fr)", lg: "repeat(5, 1fr) 1.45fr" },
-          })}
-        >
-          {steps.map(({ body, icon: Icon, title }, index) => (
-            <Card className={processCard()} key={title}>
-              <span
-                className={css({
-                  alignItems: "center",
-                  bg: "violet.550",
-                  borderRadius: "pill",
-                  color: "text.onDark",
-                  display: "inline-flex",
-                  fontSize: "xs",
-                  fontWeight: "900",
-                  h: "7",
-                  justifyContent: "center",
-                  mb: "3",
-                  width: "7",
-                })}
-              >
-                {index + 1}
-              </span>
-              <Icon
-                aria-hidden="true"
-                className={css({ color: "text.onDark", mb: "3" })}
-                size={22}
-              />
-              <h3 className={cx(cardTitle(), css({ color: "text.onDark" }))}>{title}</h3>
-              <p className={cx(cardBody(), css({ color: "rgba(255,255,255,0.72)" }))}>{body}</p>
-            </Card>
-          ))}
-          <div className={videoCard()}>
-            <Button
-              aria-label="Play audit walkthrough"
-              className={css({ borderRadius: "pill", h: "14", px: "0", width: "14" })}
-            >
-              <Play aria-hidden="true" size={26} />
-            </Button>
-            <span className={css({ color: "text.onDark", fontSize: "xs", fontWeight: "800" })}>
-              30-sec overview
-            </span>
-          </div>
+    <section className={trustRow()} id="saved-places">
+      {trustItems.map(([label, Icon]) => (
+        <div className={trustItem()} key={label as string}>
+          <Icon aria-hidden="true" size={18} />
+          <span>{label as string}</span>
         </div>
-      </div>
+      ))}
     </section>
   );
 }
 
-function TrustBand() {
+function FeatureCards() {
   return (
-    <section
-      className={cx(sectionPanel(), css({ mt: 0, overflow: "hidden", p: { base: "5", md: "7" } }))}
-    >
-      <div
-        className={css({
-          alignItems: "center",
-          display: "grid",
-          gap: "6",
-          gridTemplateColumns: { base: "1fr", lg: "1.42fr 0.58fr" },
-        })}
-      >
-        <div>
-          <h2 className={cx(sectionTitle(), css({ textAlign: "center" }))}>
-            Built as a trust layer
-          </h2>
-          <p
-            className={css({
-              color: "text.muted",
-              fontSize: "sm",
-              mb: "6",
-              mt: "-3",
-              textAlign: "center",
-            })}
-          >
-            We turn messy, scattered data into clear answers you can trust.
-          </p>
-          <div
-            className={css({
-              display: "grid",
-              gap: "4",
-              gridTemplateColumns: { base: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(4, 1fr)" },
-            })}
-          >
-            {trustItems.map(({ body, icon: Icon, title }) => (
-              <Card className={trustCard()} key={title}>
-                <Icon
-                  aria-hidden="true"
-                  className={css({ color: "violet.600", mb: "3" })}
-                  size={25}
-                />
-                <h3 className={cardTitle()}>{title}</h3>
-                <p className={cardBody()}>{body}</p>
-              </Card>
-            ))}
-          </div>
-        </div>
-        <div className={conditionsCard()}>
-          <strong>Real conditions. Right now.</strong>
-          <span>We monitor changes daily so your plans match the island's reality.</span>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function SampleReport() {
-  return (
-    <section className={cx(sectionPanel(), css({ mt: 0, p: { base: "5", md: "7" } }))} id="report">
-      <div
-        className={css({
-          display: "grid",
-          gap: "6",
-          gridTemplateColumns: { base: "1fr", lg: "0.72fr 1.36fr 0.66fr" },
-        })}
-      >
-        <div>
-          <h2 className={sectionTitle()}>A report that shows its work</h2>
-          <h3
-            className={css({
-              color: "text.strong",
-              fontFamily: "Georgia, serif",
-              fontSize: "2xl",
-              lineHeight: "1.08",
-              mb: "5",
-              mt: 0,
-            })}
-          >
-            Sample audit report
-          </h3>
-          {[
-            "Overall risk rating and summary",
-            "Detailed scores by category",
-            "Evidence, confidence, and freshness",
-            "Clear recommendations",
-            "What to watch and alternatives",
-          ].map((item) => (
-            <p
-              className={css({
-                alignItems: "center",
-                color: "text",
-                display: "flex",
-                fontSize: "sm",
-                fontWeight: "800",
-                gap: "3",
-                mb: "3",
-              })}
-              key={item}
-            >
-              <Check aria-hidden="true" className={css({ color: "violet.600" })} size={18} />
-              {item}
-            </p>
-          ))}
-        </div>
-        <Card className={reportPreview()}>
-          <div
-            className={css({
-              display: "grid",
-              gap: "5",
-              gridTemplateColumns: { base: "1fr", md: "0.9fr 1.1fr" },
-            })}
-          >
-            <div>
-              <span className={eyebrow()}>Overall risk</span>
-              <strong className={css({ color: "risk.lowDark", display: "block", fontSize: "2xl" })}>
-                Low
-              </strong>
-              <p className={cardBody()}>Good conditions for your plan.</p>
-              <Table rows={riskRows.slice(0, 6)} />
-            </div>
-            <div>
-              <span className={eyebrow()}>Evidence spotlight</span>
-              {[
-                "PAGASA forecast",
-                "Phivolcs advisories",
-                "DOT and PCG announcements",
-                "Local community signals",
-              ].map((source, index) => (
-                <p className={reportEvidenceRow()} key={source}>
-                  <span>{source}</span>
-                  <span>Updated {index + 2}h ago</span>
-                </p>
-              ))}
-              <span className={cx(eyebrow(), css({ mt: "5" }))}>Recommendations</span>
-              <p className={cardBody()}>Book with flexible ferry options.</p>
-              <p className={cardBody()}>Consider areas with generator backup.</p>
-            </div>
-          </div>
-        </Card>
-        <Card className={reportMiniCard()}>
-          <span className={css({ color: "text.strong", fontSize: "xs", fontWeight: "900" })}>
-            Siargao Audit
+    <section className={features()} aria-label="Ask Siargao feature cards">
+      {featureCards.map(({ body, icon: Icon, link, title }) => (
+        <article className={featureCard()} key={title}>
+          <span className={featureIcon()}>
+            <Icon aria-hidden="true" size={22} />
           </span>
-          <strong
-            className={css({ color: "text.strong", display: "block", fontSize: "lg", mt: "3" })}
-          >
-            Your trip audit
-          </strong>
-          <div className={cx(riskGauge(), css({ my: "4" }))}>
-            <div
-              className={css({
-                bg: "conic-gradient(from 270deg, #70c66f 0deg 124deg, #cdb7ff 124deg 180deg, transparent 180deg 360deg)",
-                borderRadius: "999px 999px 0 0",
-                h: "100%",
-                position: "absolute",
-                top: 0,
-                width: "90%",
-              })}
-            />
-            <div
-              className={css({
-                alignItems: "center",
-                bg: "surface",
-                borderRadius: "999px 999px 0 0",
-                bottom: "-2px",
-                display: "flex",
-                flexDirection: "column",
-                h: "70%",
-                justifyContent: "center",
-                position: "absolute",
-                width: "64%",
-              })}
-            >
-              <span className={css({ color: "risk.lowDark", fontSize: "sm", fontWeight: "900" })}>
-                LOW RISK
-              </span>
-            </div>
-          </div>
-          <LinkButton className={css({ width: "100%" })} href="#pricing">
-            View full sample report
-          </LinkButton>
-        </Card>
-      </div>
-    </section>
-  );
-}
-
-function PricingFaq() {
-  return (
-    <section
-      className={css({
-        display: "grid",
-        gap: "4",
-        gridTemplateColumns: { base: "1fr", lg: "0.9fr 1.1fr" },
-        maxW: "1220px",
-        mt: 0,
-        mx: "auto",
-      })}
-      id="pricing"
-    >
-      <Card className={pricingCard()}>
-        <p
-          className={css({
-            fontFamily: "Georgia, serif",
-            fontSize: "2xl",
-            fontWeight: "800",
-            m: 0,
-          })}
-        >
-          Clarity before commitment.
-        </p>
-        <p className={css({ color: "text.onDarkMuted", lineHeight: "1.6", mb: "5", mt: "2" })}>
-          Start with a free risk preview. Pay only if we can complete your audit.
-        </p>
-        <strong className={css({ display: "block", fontSize: "2xl", mb: "4" })}>
-          USD 9.99 <span className={css({ fontSize: "xs", fontWeight: "700" })}>one-time</span>
-        </strong>
-        <LinkButton className={css({ maxW: "320px", width: "100%" })} href="#audit-start">
-          Start free preview <ArrowRight aria-hidden="true" size={18} />
-        </LinkButton>
-      </Card>
-      <div className={faqAccordion()} id="faq">
-        <h2 className={cx(sectionTitle(), css({ mb: "2", p: "5", pb: "2", textAlign: "center" }))}>
-          FAQ
-        </h2>
-        {faq.map((item) => (
-          <AccordionItem answer={item.answer} key={item.question} question={item.question} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function Footer() {
-  return (
-    <footer className={cx(footer(), css({ mt: 0 }))}>
-      <div
-        className={css({
-          display: "grid",
-          gap: "6",
-          gridTemplateColumns: { base: "1fr", md: "1.3fr 1fr 1fr 1.15fr" },
-        })}
-      >
-        <div>
-          <h2 className={css({ fontFamily: "Georgia, serif", fontSize: "lg", mb: "2" })}>
-            Siargao Audit
-          </h2>
-          <p
-            className={css({
-              color: "text.onDarkMuted",
-              fontSize: "sm",
-              lineHeight: "1.6",
-              maxW: "300px",
-            })}
-          >
-            Data-powered trip reliability for Siargao and beyond.
-          </p>
-        </div>
-        <FooterColumn
-          heading="Product"
-          links={["Why it matters", "What we check", "How it works", "Pricing"]}
-        />
-        <FooterColumn heading="Help" links={["FAQ", "Contact", "Status", "Terms"]} />
-        <form className={css({ display: "grid", gap: "3" })}>
-          <label className={css({ fontSize: "sm", fontWeight: "800" })} htmlFor="newsletter-email">
-            Stay updated on conditions
-          </label>
-          <div
-            className={css({
-              display: "flex",
-              flexDirection: { base: "column", sm: "row" },
-              gap: "2",
-            })}
-          >
-            <Input id="newsletter-email" placeholder="Email address" type="email" />
-            <Button className={css({ flex: "0 0 auto" })}>Subscribe</Button>
-          </div>
-        </form>
-      </div>
-      <div
-        className={css({
-          borderTopColor: "rgba(255,255,255,0.14)",
-          borderTopWidth: "1px",
-          color: "text.onDarkMuted",
-          display: "flex",
-          flexWrap: "wrap",
-          fontSize: "xs",
-          gap: "2",
-          justifyContent: "space-between",
-          mt: "6",
-          pt: "4",
-        })}
-      >
-        <span>Copyright 2026 Siargao Audit. All rights reserved.</span>
-        <span>Made for smart travelers.</span>
-      </div>
-    </footer>
-  );
-}
-
-function FooterColumn({ heading, links }: { heading: string; links: string[] }) {
-  return (
-    <div>
-      <h3 className={css({ color: "text.onDark", fontSize: "xs", fontWeight: "900", mb: "3" })}>
-        {heading}
-      </h3>
-      {links.map((link) => (
-        <a className={footerLink()} href="#top" key={link}>
-          {link}
-        </a>
+          <h2>{title}</h2>
+          <p>{body}</p>
+          <a href="/chat">
+            {link} <ArrowRight aria-hidden="true" size={15} />
+          </a>
+        </article>
       ))}
-    </div>
+    </section>
   );
 }
 
-function heroBackdrop() {
+function MobileFooter() {
+  return <p className={mobileFooter()}>Built for travelers · Loved by locals</p>;
+}
+
+function slug(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+function page() {
   return css({
     background:
-      "linear-gradient(90deg, rgba(4,7,36,0.82) 0%, rgba(10,12,58,0.46) 48%, rgba(21,13,68,0.16) 100%), linear-gradient(180deg, rgba(4,7,36,0.18) 0%, rgba(7,9,44,0.42) 100%), url('/images/hero-bg.png') center / cover no-repeat",
-    borderBottomColor: "rgba(255,255,255,0.12)",
-    borderBottomWidth: "1px",
-    boxShadow: "0 28px 70px rgba(7, 8, 38, 0.28)",
-    color: "text.onDark",
-    mx: { base: "-4", md: "-5" },
-    pb: { base: "5", md: "8" },
-    px: { base: "4", md: "5" },
+      "radial-gradient(circle at 12% 12%, rgba(255,155,131,0.12), transparent 28rem), linear-gradient(135deg, #05082a 0%, #090d3a 48%, #17105a 100%)",
+    minH: "100vh",
+    overflowX: "hidden",
+    px: { base: "3", md: "5" },
+    py: { base: "3", md: "5" },
+  });
+}
+
+function frame() {
+  return css({
+    maxW: "1240px",
+    minH: { base: "calc(100vh - 24px)", md: "760px" },
+    mx: "auto",
+  });
+}
+
+function imageLayer() {
+  return css({
+    background:
+      "linear-gradient(180deg, rgba(5,8,42,0.1), rgba(5,8,42,0.32)), url('/images/siargao-sunset.png') center / cover no-repeat",
+    inset: 0,
+    position: "absolute",
+    zIndex: 0,
+  });
+}
+
+function overlayLayer() {
+  return css({
+    background:
+      "linear-gradient(90deg, rgba(5,8,42,0.94) 0%, rgba(8,10,48,0.78) 44%, rgba(69,42,152,0.34) 100%)",
+    inset: 0,
+    position: "absolute",
+    zIndex: 1,
+  });
+}
+
+function contentLayer() {
+  return css({
+    display: "flex",
+    flexDirection: "column",
+    minH: { base: "calc(100vh - 24px)", md: "760px" },
     position: "relative",
+    zIndex: 2,
   });
 }
 
-function processBand() {
-  return css({
-    background:
-      "linear-gradient(90deg, rgba(26,16,99,0.96), rgba(88,54,195,0.86)), url('/images/siargao-sunset.png') center / cover",
-    color: "text.onDark",
-    mt: 0,
-    mx: { base: "-4", md: "-5" },
-    px: { base: "4", md: "5" },
-    py: { base: "7", md: "8" },
-  });
-}
-
-function videoCard() {
+function header() {
   return css({
     alignItems: "center",
-    background:
-      "linear-gradient(rgba(5,8,42,0.16), rgba(5,8,42,0.44)), url('/images/siargao-sunset.png') center / cover",
-    borderColor: "rgba(255,255,255,0.32)",
+    display: "flex",
+    gap: "5",
+    justifyContent: "space-between",
+    minH: { base: "72px", md: "86px" },
+    pl: { base: "14", md: "16" },
+    pr: { base: "4", md: "6" },
+    pt: "1",
+  });
+}
+
+function brandLink() {
+  return css({
+    textDecoration: "none",
+    "& span:last-child": {
+      fontSize: { base: "sm", md: "md" },
+    },
+  });
+}
+
+function nav() {
+  return css({
+    alignItems: "center",
+    display: { base: "none", lg: "flex" },
+    gap: "7",
+    ml: "auto",
+  });
+}
+
+function navLink() {
+  return css({
+    color: "rgba(255,255,255,0.74)",
+    fontSize: "xs",
+    fontWeight: "800",
+    textDecoration: "none",
+    transition: "color token(durations.fast) token(easings.standard)",
+    _focusVisible: {
+      outline: "3px solid token(colors.violet.400)",
+      outlineOffset: "4px",
+    },
+    _hover: {
+      color: "text.onDark",
+    },
+  });
+}
+
+function desktopCta() {
+  return css({
+    display: { base: "none", md: "inline-flex" },
+    flexShrink: 0,
+  });
+}
+
+function mobileMenu() {
+  return css({
+    alignItems: "center",
+    bg: "rgba(255,255,255,0.12)",
+    borderColor: "rgba(255,255,255,0.24)",
     borderRadius: "md",
     borderWidth: "1px",
-    boxShadow: "0 18px 48px rgba(0,0,0,0.24)",
-    display: "flex",
-    flexDirection: "column",
-    gap: "3",
-    justifyContent: "center",
-    minH: "156px",
-  });
-}
-
-function conditionsCard() {
-  return css({
-    alignSelf: "stretch",
-    background:
-      "linear-gradient(180deg, rgba(5,8,42,0.1), rgba(5,8,42,0.78)), url('/images/siargao-sunset.png') center / cover",
-    borderRadius: "md",
     color: "text.onDark",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "end",
-    minH: "190px",
-    overflow: "hidden",
-    p: "5",
-    "& strong": {
-      fontSize: "md",
-      fontWeight: "900",
-    },
-    "& span": {
-      color: "rgba(255,255,255,0.82)",
-      fontSize: "xs",
-      lineHeight: "1.5",
-      mt: "1",
+    display: { base: "inline-flex", md: "none" },
+    h: "10",
+    justifyContent: "center",
+    textDecoration: "none",
+    width: "10",
+  });
+}
+
+function hero() {
+  return css({
+    display: "grid",
+    flex: "1",
+    gap: { base: "8", lg: "10" },
+    gridTemplateColumns: { base: "1fr", lg: "minmax(0, 0.88fr) minmax(420px, 0.9fr)" },
+    pb: { base: "6", md: "8" },
+    pl: { base: "5", md: "10", xl: "16" },
+    pr: { base: "5", md: "10", xl: "14" },
+    pt: { base: "5", md: "8", lg: "12" },
+  });
+}
+
+function heroCopy() {
+  return css({
+    alignSelf: "start",
+    maxW: "560px",
+  });
+}
+
+function heroTitle() {
+  return css({
+    color: "text.onDark",
+    fontFamily: "display",
+    fontSize: { base: "3xl", sm: "4xl", md: "4.75rem", xl: "5.25rem" },
+    fontWeight: "800",
+    lineHeight: "0.96",
+    m: 0,
+    textWrap: "balance",
+    "& em": {
+      color: "lavender.400",
+      fontStyle: "italic",
+      fontWeight: "700",
     },
   });
 }
 
-function sectionTitle() {
+function heroBody() {
+  return css({
+    color: "rgba(226,220,247,0.9)",
+    fontSize: { base: "sm", md: "md" },
+    lineHeight: "1.55",
+    maxW: "430px",
+    mb: 0,
+    mt: "6",
+  });
+}
+
+function promptWeatherRow() {
+  return css({
+    alignSelf: { base: "stretch", lg: "end" },
+    display: "grid",
+    gap: "4",
+    gridTemplateColumns: { base: "1fr", md: "minmax(0, 1.3fr) minmax(240px, 0.7fr)" },
+  });
+}
+
+function promptCard() {
+  return css({
+    alignSelf: "end",
+    bg: "surface.glass",
+    borderColor: "rgba(255,255,255,0.64)",
+    borderRadius: "lg",
+    borderWidth: "1px",
+    boxShadow: "violetGlow",
+    color: "text",
+    display: "grid",
+    gap: "5",
+    minH: { base: "220px", md: "248px" },
+    p: { base: "5", md: "6" },
+  });
+}
+
+function promptTextRow() {
+  return css({
+    alignItems: "start",
+    display: "flex",
+    gap: "3",
+  });
+}
+
+function promptText() {
   return css({
     color: "text.strong",
-    fontFamily: "Georgia, 'Times New Roman', serif",
-    fontSize: { base: "2xl", md: "3xl" },
+    fontSize: { base: "md", md: "lg" },
     fontWeight: "800",
-    lineHeight: "1.1",
-    mb: "5",
-    mt: 0,
+    lineHeight: "1.44",
+    m: 0,
   });
 }
 
-function cardTitle() {
-  return css({ color: "text.strong", fontSize: "sm", fontWeight: "900", lineHeight: "1.25", m: 0 });
-}
-
-function cardBody() {
-  return css({ color: "text.muted", fontSize: "xs", lineHeight: "1.55", mb: 0, mt: "2" });
-}
-
-function reportEvidenceRow() {
+function promptControls() {
   return css({
-    borderBottomColor: "border",
-    borderBottomWidth: "1px",
+    alignItems: "center",
+    alignSelf: "end",
+    display: "flex",
+    gap: "3",
+  });
+}
+
+function squareButton() {
+  return css({
+    alignItems: "center",
+    bg: "lavender.100",
+    borderColor: "border",
+    borderRadius: "md",
+    borderWidth: "1px",
+    color: "violet.650",
+    cursor: "pointer",
+    display: "inline-flex",
+    h: "10",
+    justifyContent: "center",
+    width: "10",
+  });
+}
+
+function askButton() {
+  return css({
+    ml: "auto",
+    minH: "40px",
+    px: { base: "3", sm: "4" },
+    whiteSpace: "nowrap",
+  });
+}
+
+function weatherCard() {
+  return css({
+    alignSelf: "end",
+    bg: "rgba(255,255,255,0.92)",
+    borderColor: "rgba(255,255,255,0.7)",
+    borderRadius: "lg",
+    borderWidth: "1px",
+    boxShadow: "card",
+    color: "text",
+    minH: { base: "auto", md: "248px" },
+    p: "5",
+  });
+}
+
+function weatherTitleRow() {
+  return css({
+    alignItems: "center",
+    display: "flex",
+    gap: "2",
+    mb: "4",
+  });
+}
+
+function weatherTitle() {
+  return css({
+    color: "text.strong",
+    fontSize: "md",
+    fontWeight: "900",
+    m: 0,
+  });
+}
+
+function weatherRow() {
+  return css({
+    alignItems: "center",
+    borderTopColor: "rgba(13,16,74,0.12)",
+    borderTopWidth: "1px",
     color: "text.muted",
     display: "flex",
     fontSize: "xs",
     gap: "3",
     justifyContent: "space-between",
-    m: 0,
-    py: "2",
+    minH: "38px",
+    "& strong": {
+      color: "text.strong",
+      fontWeight: "900",
+    },
   });
 }
 
-function reportMiniCard() {
+function suggestions() {
   return css({
-    bg: "surface",
-    borderColor: "border",
-    borderRadius: "md",
+    px: { base: "5", md: "10", xl: "16" },
+    pb: { base: "5", md: "6" },
+  });
+}
+
+function suggestionsLabel() {
+  return css({
+    color: "rgba(226,220,247,0.84)",
+    fontSize: "xs",
+    fontWeight: "900",
+    mb: "3",
+    mt: 0,
+  });
+}
+
+function chipRow() {
+  return css({
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "3",
+  });
+}
+
+function chip() {
+  return css({
+    alignItems: "center",
+    bg: "rgba(9,13,58,0.52)",
+    borderColor: "rgba(180,160,255,0.52)",
+    borderRadius: "pill",
+    borderWidth: "1px",
+    color: "lavender.150",
+    display: "inline-flex",
+    fontSize: "xs",
+    fontWeight: "800",
+    gap: "2",
+    minH: "34px",
+    px: "3",
+    textDecoration: "none",
+  });
+}
+
+function trustRow() {
+  return css({
+    alignItems: "center",
+    borderTopColor: "rgba(255,255,255,0.12)",
+    borderTopWidth: "1px",
+    display: "flex",
+    flexWrap: "wrap",
+    gap: { base: "3", md: "0" },
+    justifyContent: "center",
+    mx: { base: "5", md: "10", xl: "16" },
+    py: { base: "4", md: "5" },
+  });
+}
+
+function trustItem() {
+  return css({
+    alignItems: "center",
+    color: "rgba(255,255,255,0.86)",
+    display: "inline-flex",
+    fontSize: "xs",
+    fontWeight: "900",
+    gap: "2",
+    px: { base: "2", md: "6" },
+    "&:not(:last-child)": {
+      borderRightColor: { base: "transparent", md: "rgba(255,255,255,0.2)" },
+      borderRightWidth: { base: "0", md: "1px" },
+    },
+    "& svg": {
+      color: "lavender.400",
+    },
+  });
+}
+
+function features() {
+  return css({
+    display: "grid",
+    gap: "4",
+    gridTemplateColumns: { base: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(4, 1fr)" },
+    maxW: "1180px",
+    mx: "auto",
+    px: { base: "1", md: "0" },
+    py: { base: "4", md: "5" },
+  });
+}
+
+function featureCard() {
+  return css({
+    bg: "surface.glass",
+    borderColor: "rgba(255,255,255,0.54)",
+    borderRadius: "lg",
     borderWidth: "1px",
     boxShadow: "card",
+    minH: "210px",
     p: "5",
+    "& h2": {
+      color: "text.strong",
+      fontSize: "md",
+      fontWeight: "900",
+      lineHeight: "1.25",
+      mb: "2",
+      mt: "4",
+    },
+    "& p": {
+      color: "text.muted",
+      fontSize: "sm",
+      lineHeight: "1.55",
+      mb: "5",
+      mt: 0,
+    },
+    "& a": {
+      alignItems: "center",
+      color: "violet.650",
+      display: "inline-flex",
+      fontSize: "sm",
+      fontWeight: "900",
+      gap: "1",
+      textDecoration: "none",
+    },
   });
 }
 
-function eyebrow() {
+function featureIcon() {
   return css({
-    color: "text.soft",
-    display: "block",
-    fontSize: "2xs",
-    fontWeight: "900",
-    mb: "2",
-    textTransform: "uppercase",
+    alignItems: "center",
+    bg: "violet.650",
+    borderRadius: "pill",
+    color: "text.onDark",
+    display: "inline-flex",
+    h: "11",
+    justifyContent: "center",
+    width: "11",
   });
 }
 
-function footerLink() {
+function mobileFooter() {
   return css({
-    color: "text.onDarkMuted",
-    display: "block",
-    fontSize: "sm",
-    fontWeight: "700",
-    mb: "2",
-    textDecoration: "none",
-    _hover: { color: "text.onDark" },
+    color: "rgba(255,255,255,0.72)",
+    display: { base: "block", md: "none" },
+    fontSize: "xs",
+    fontWeight: "800",
+    m: 0,
+    pb: "2",
+    pt: "1",
+    textAlign: "center",
   });
 }

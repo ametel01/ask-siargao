@@ -1,46 +1,23 @@
 import { expect, test } from "@playwright/test";
 
-test("renders the scaffold landing shell", async ({ page }) => {
+test("renders the Ask Siargao landing shell", async ({ page }) => {
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: /know if your siargao plan works/i }),
+    page.getByRole("heading", { name: /ask siargao anything about your trip/i }),
   ).toBeVisible();
-  await expect(page.getByRole("link", { name: /start trip audit/i })).toBeVisible();
-  await expect(page.getByLabel("Trip risk preview card")).toContainText("LOW RISK");
-  await expect(
-    page.getByRole("heading", {
-      name: /today in siargao|forecast unavailable|rain|showers|cloudy breaks|clear/i,
-    }),
-  ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "What we check" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "How it works" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "A report that shows its work" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "FAQ" })).toBeVisible();
-});
-
-test("FAQ rows are keyboard accessible", async ({ page }) => {
-  await page.goto("/");
-
-  const firstQuestion = page.getByText("When do I pay?");
-  await firstQuestion.focus();
-  await page.keyboard.press("Enter");
-
-  await expect(page.getByText(/Only after the system verifies/i)).toBeVisible();
-});
-
-test("submits minimum viable intake and shows a preview risk", async ({ page }) => {
-  await page.goto("/");
-
-  await page
-    .getByLabel("Trip prompt")
-    .fill(
-      "I'm going in August for 5 nights. Arriving from Surigao by ferry. Staying at Example Surf Stay in General Luna. I need quiet sleep and remote work.",
-    );
-  await page.getByRole("button", { name: /get my risk preview/i }).click();
-
-  await expect(page.getByRole("heading", { name: "Preview risk ready" })).toBeVisible();
-  await expect(page.getByText(/Arrival timing is the first thing to verify/i)).toBeVisible();
+  await expect(page.getByRole("link", { name: /open assistant/i })).toHaveAttribute(
+    "href",
+    "/chat",
+  );
+  await expect(page.getByLabel("Example Ask Siargao prompt")).toContainText(
+    "I'm staying near Cloud 9 for 10 days",
+  );
+  await expect(page.getByRole("heading", { name: "Today in Siargao" })).toBeVisible();
+  await expect(page.getByText("Try asking about...")).toBeVisible();
+  await expect(page.getByText("Live local data")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Find the right areas" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Live weather updates" })).toBeVisible();
 });
 
 test("shows processing state after checkout return", async ({ page }) => {
