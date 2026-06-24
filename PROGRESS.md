@@ -1,32 +1,34 @@
-# Landing and Chat Mockup Implementation Progress
+# Remove Panda and Expand shadcn Integration Progress
 
 Sources:
 - `PLAN.md`
-- `docs/LANDING_STYLE_REQUIREMENTS.md`
-- `docs/PRD.md`
-- `docs/TECH.md`
-- `docs/DATA_STRATEGY.md`
-- `documentation/developer/reference/routes-and-surfaces.md`
+- Inline user brief supplied in chat on 2026-06-24
+- `components.json`
+- `package.json`
+- `src/theme/tokens.ts`
+- `src/theme/global.css`
 
 ## Status
 
-- Current status: Plan complete.
-- Next step: None.
+- Current status: Step 0 complete; baseline inventory and gate run pending.
+- Next step: Step 1, Baseline Inventory and Gate Run.
 - Update rule: After each completed step, update this file with completion notes, validation results, commit reference if available, current status, and next step.
 
 ## Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
-- [x] Step 1: Reframe the Shared App Shell
-- [x] Step 2: Rebuild the Landing Page Mockup
-- [x] Step 3: Add the Chat Workspace and Mobile Layouts
-- [x] Step 4: Reconcile Docs and Regression Coverage
+- [ ] Step 1: Baseline Inventory and Gate Run
+- [ ] Step 2: Add shadcn Primitives and Brand CSS Variables
+- [ ] Step 3: Migrate Shared Ask Siargao Primitives off Panda
+- [ ] Step 4: Migrate Landing and Chat Surfaces to shadcn/Tailwind
+- [ ] Step 5: Migrate Report, Admin, Public, and Status Surfaces
+- [ ] Step 6: Remove Panda Configuration, Generated Output, Scripts, and Docs
+- [ ] Step 7: Final Regression, Visual Polish, and Handoff
+
+## Source Summary
+
+The migration removes Panda CSS from runtime code, generated assets, scripts, dependencies, and documentation while preserving the current Ask Siargao brand. shadcn source components, Tailwind v4 utilities, and CSS variables are the target styling foundation. The canonical color, gradient, surface, shadow, typography, spacing, duration, and easing values currently live in `src/theme/tokens.ts` and must be moved into `src/theme/global.css` before Panda is removed.
 
 ## Update Log
 
-- 2026-06-24: Created progress tracking for the landing and chat mockup implementation plan.
-- 2026-06-24: Step 0 complete. Validation confirmed `PROGRESS.md` exists with a step checklist and `CHANGELOG.md` contains `# Changelog`, `## [Unreleased]`, and the Step 0 changelog entry. Commit `d838eee`.
-- 2026-06-24: Step 1 complete. Updated app metadata, global dark coastal shell defaults, Ask Siargao brand tokens, Panda generated token output, and shared UI primitives. Validation passed: `bun run format`, `bun run lint`, `bun run typecheck --incremental false`, `bun test`, `bun run build`, and `bun run test:e2e`. The first build attempt failed while running concurrently with Playwright, then passed when rerun by itself. Commit `6c79656`.
-- 2026-06-24: Step 2 complete. Replaced the audit-first root page with the Ask Siargao landing mockup, updated the root page caller, regenerated Panda CSS, and adjusted root e2e coverage for the new prompt, weather, trust, feature, and CTA behavior. Validation passed: `bun run format`, `bun run lint`, `bun run typecheck --incremental false`, `bun test`, `bun run build`, and `bun run test:e2e`. Commit `21a283e`.
-- 2026-06-24: Step 3 complete. Added the `/chat` route, desktop three-column chat workspace, mobile chat layout, mock trip context, conversation evidence cards, weather/surf panels, composer states, regenerated Panda CSS, and desktop/mobile Playwright coverage. Validation passed: `bun run format`, `bun run lint`, `bun run typecheck --incremental false`, `bun test`, `bun run build`, and `bun run test:e2e`. Commit `ca941b6`.
-- 2026-06-24: Step 4 complete. Updated README, route reference, first-run tutorial, release-candidate QA guide, and site config regression coverage so `/` and `/chat` match the Ask Siargao landing/chat surfaces. Validation passed: `bun run format`, `bun run lint`, `bun run typecheck --incremental false`, `bun test`, `bun run db:migrate:test`, `bun run db:seed:test`, `bun run build`, and `bun run test:e2e`. The database gates initially failed when run in parallel against the same PGlite store, then passed sequentially after `db:migrate:test` reset the store. Commit `06c1e27`.
+- 2026-06-24: Reset progress tracking for the "Remove Panda and Expand shadcn Integration" plan. Validation confirmed `PROGRESS.md` contains the new migration checklist and `CHANGELOG.md` retains the Keep a Changelog structure with `# Changelog` and `## [Unreleased]`. Commit pending for Step 0.
