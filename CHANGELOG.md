@@ -48,6 +48,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Updated package scripts, React Doctor config, Biome config, and developer docs for the Panda-free Tailwind/shadcn styling path.
 - Migrated the paid report, admin diagnostics, public knowledge, and audit status surfaces from Panda helpers to shadcn/Tailwind classes and primitives.
 - Migrated the Ask Siargao landing and chat workspace surfaces from Panda helpers to shadcn/Tailwind components.
 - Migrated shared Ask Siargao primitives from Panda helpers to shadcn-backed Tailwind utilities.
@@ -60,6 +61,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 ### Deprecated
 
 ### Removed
+
+- Removed Panda CSS configuration, generated `styled-system` output, Panda theme token/recipe files, Panda codegen scripts, `postinstall`, and the `@pandacss/dev` dependency.
 
 ### Fixed
 

@@ -26,7 +26,7 @@ The LLM should not have direct unrestricted provider access. It may propose retr
 
 - Framework: Next.js App Router.
 - Language: TypeScript.
-- Styling: Panda CSS.
+- Styling: Tailwind CSS v4 with shadcn source components and Ask Siargao CSS variables.
 - Database: Postgres.
 - ORM: Drizzle, matching the current codebase direction.
 - Payments: Stripe Checkout.

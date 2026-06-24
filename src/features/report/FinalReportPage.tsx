@@ -14,7 +14,7 @@ const categoryLabels: Record<RiskItem["category"], string> = {
   health_safety_admin: "Health and admin",
 };
 
-const pageShell =
+const backdropClass =
   "min-h-screen bg-[radial-gradient(circle_at_18%_8%,rgba(135,92,246,0.2),transparent_32rem),linear-gradient(135deg,#05082a_0%,#090d3a_48%,#17105a_100%)] text-text-on-dark";
 const contentShell = "mx-auto grid max-w-[1180px] gap-6 px-5 py-8 md:px-8 md:py-12";
 const panelClass =
@@ -35,7 +35,7 @@ export function FinalReportPage({
   report: ReportOutput;
 }) {
   return (
-    <main className={pageShell}>
+    <main className={backdropClass}>
       <section className={contentShell}>
         <header className="grid max-w-[820px] gap-4 text-text-on-dark">
           <p className="m-0 text-xs font-extrabold text-text-on-dark-muted uppercase">

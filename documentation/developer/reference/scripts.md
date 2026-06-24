@@ -4,14 +4,14 @@ Scripts are defined in `package.json`.
 
 | Script | Command | Purpose |
 | --- | --- | --- |
-| `bun run dev` | `panda codegen && panda cssgen && next dev` | Generate Panda artifacts and run the local Next.js dev server. |
-| `bun run dev:container` | `panda codegen && panda cssgen && next dev -H 0.0.0.0` | Run the Next.js dev server inside the Compose app container. |
+| `bun run dev` | `next dev` | Run the local Next.js dev server. |
+| `bun run dev:container` | `next dev -H 0.0.0.0` | Run the Next.js dev server inside the Compose app container. |
 | `bun run stack:up` | `docker compose up -d` | Start the local full-stack Compose environment: Next.js app and Postgres. |
 | `bun run stack:down` | `docker compose down` | Stop and remove the local Compose app and database containers while keeping volumes. |
 | `bun run stack:down:volumes` | `docker compose down --volumes` | Stop the local Compose stack and remove its named volumes for a clean reset. |
 | `bun run stack:logs` | `docker compose logs -f` | Follow logs from the local Compose app and database services. |
 | `bun run stack:ps` | `docker compose ps` | Show local Compose service status. |
-| `bun run build` | `./node_modules/.bin/panda codegen && ./node_modules/.bin/panda cssgen && ./node_modules/.bin/next build` | Generate Panda artifacts and build the production Next.js app. |
+| `bun run build` | `rm -rf .next && NEXT_PRIVATE_BUILD_WORKER=0 ./node_modules/.bin/next build` | Build the production Next.js app from a clean Next output directory. |
 | `bun run db:migrate` | `bun run src/server/db/migrate.ts` | Apply the SQL migration to the Postgres database at `DATABASE_URL`. |
 | `bun run db:seed` | `bun run src/server/db/seed.ts` | Seed Siargao taxonomy and source profiles into the Postgres database at `DATABASE_URL`. |
 | `bun run db:discover:google-places` | `bun run src/server/providers/discover-google-places.ts` | Run the free Google Places Text Search ID-only discovery pass for Siargao accommodations and persist dedupable place candidates into `source_records` and `candidate_entities`. Requires `GOOGLE_API_KEY`, `DATABASE_URL`, and a seeded `source_google_places` profile. Add `-- --dry-run` to fetch and print a summary without writing rows. |
@@ -24,7 +24,6 @@ Scripts are defined in `package.json`.
 | `bun run typecheck` | `tsc --noEmit` | Run TypeScript type checking. |
 | `bun test` | `bun test` | Run Bun unit and integration tests. |
 | `bun run test:e2e` | `playwright test` | Run Playwright browser tests. |
-| `bun run postinstall` | `panda codegen && panda cssgen` | Regenerate Panda artifacts after install. |
 | `bun run doctor` | `npx react-doctor@latest` | Run the advisory React Doctor scan locally. |
 
 The release-candidate gate is:

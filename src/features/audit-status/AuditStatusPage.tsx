@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { type AuditJobState, auditJobStates } from "@/server/audit/enums";
 
-const pageShell =
+const backdropClass =
   "min-h-screen bg-[radial-gradient(circle_at_18%_8%,rgba(135,92,246,0.2),transparent_32rem),linear-gradient(135deg,#05082a_0%,#090d3a_48%,#17105a_100%)] text-text-on-dark";
 
 const statusCopy: Record<
@@ -92,7 +92,7 @@ export function AuditStatusPage({
   const progressValue = auditProgressValue(state);
 
   return (
-    <main className={pageShell}>
+    <main className={backdropClass}>
       <section className="mx-auto grid min-h-screen max-w-[860px] items-center px-5 py-10 md:px-8 md:py-16">
         <Card className="grid gap-5 rounded-lg border border-border-default bg-surface-default p-5 shadow-card md:p-8">
           <CardContent className="grid gap-5 p-0">

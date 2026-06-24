@@ -1,6 +1,3 @@
 {
-  "$schema": "https://react.doctor/schema/config.json",
-  "ignore": {
-    "files": ["styled-system/**", "src/theme/recipes.ts", "src/theme/tokens.ts"]
-  }
+  "$schema": "https://react.doctor/schema/config.json"
 }

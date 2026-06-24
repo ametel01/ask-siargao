@@ -8,7 +8,7 @@ import {
   type PublicKnowledgePage as PublicKnowledgePageData,
 } from "@/server/public-pages/public-content";
 
-const pageShell =
+const backdropClass =
   "min-h-screen bg-[radial-gradient(circle_at_18%_8%,rgba(135,92,246,0.2),transparent_32rem),linear-gradient(135deg,#05082a_0%,#090d3a_48%,#17105a_100%)] text-text-on-dark";
 const contentShell = "mx-auto grid max-w-[1120px] gap-6 px-5 py-8 md:px-8 md:py-12";
 const panelClass =
@@ -20,7 +20,7 @@ const bodyClass = "m-0 text-sm leading-[1.65] text-text-muted";
 
 export function PublicKnowledgePage({ page }: { page: PublicKnowledgePageData }) {
   return (
-    <main className={pageShell}>
+    <main className={backdropClass}>
       <script type="application/ld+json">
         {serializeJsonForHtmlScript(buildPublicJsonLd(page))}
       </script>

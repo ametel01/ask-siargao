@@ -21,7 +21,7 @@ import {
 import type { AdminAccessResult } from "@/server/admin/access";
 import type { AdminDiagnosticsSnapshot } from "@/server/admin/diagnostics";
 
-const pageShell =
+const backdropClass =
   "min-h-screen bg-[radial-gradient(circle_at_18%_8%,rgba(135,92,246,0.2),transparent_32rem),linear-gradient(135deg,#05082a_0%,#090d3a_48%,#17105a_100%)] text-text-on-dark";
 const shellClass = "mx-auto grid max-w-[1180px] gap-6 px-5 py-8 md:px-8 md:py-12";
 const panelClass =
@@ -42,7 +42,7 @@ export function AdminDiagnosticsPage({
 }) {
   if (!access.allowed) {
     return (
-      <main className={pageShell}>
+      <main className={backdropClass}>
         <section className={shellClass}>
           <div className={panelClass}>
             <PanelHeading icon={Lock} title="Admin access required" />
@@ -59,7 +59,7 @@ export function AdminDiagnosticsPage({
   const providerAndJobFailuresCount = snapshot.providerErrors.length + snapshot.jobFailures.length;
 
   return (
-    <main className={pageShell}>
+    <main className={backdropClass}>
       <section className={shellClass}>
         <header className="grid gap-3 text-text-on-dark">
           <p className={eyebrowClass}>Operator console · {access.mode} access</p>
