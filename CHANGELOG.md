@@ -47,6 +47,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Migrated the Ask Siargao landing and chat workspace surfaces from Panda helpers to shadcn/Tailwind components.
 - Migrated shared Ask Siargao primitives from Panda helpers to shadcn-backed Tailwind utilities.
 - Moved Ask Siargao brand tokens into the Tailwind/shadcn CSS variable layer while keeping Panda available as a temporary fallback.
 - Recorded the Panda-removal baseline inventory and confirmed planned shadcn migration primitives are available.

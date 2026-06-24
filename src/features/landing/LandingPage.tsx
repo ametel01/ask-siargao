@@ -15,8 +15,17 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  NavigationMenu,
+  NavigationMenuItem,
+  NavigationMenuLink,
+  NavigationMenuList,
+} from "@/components/ui/navigation-menu";
+import { cn } from "@/lib/utils";
 import { BrandLockup, GradientLink, SignalBadge } from "@/ui/components/ask-siargao";
-import { css } from "../../../styled-system/css/css";
 
 const navItems = ["How it works", "Where to stay", "What's happening", "Weather", "Saved places"];
 
@@ -70,9 +79,15 @@ const featureCards = [
 
 export function LandingPage() {
   return (
-    <main className={page()}>
-      <section aria-label="Ask Siargao landing page" className={frame()}>
-        <div className={contentLayer()}>
+    <main className="min-h-screen overflow-x-hidden bg-brand-navy-980">
+      <section
+        aria-label="Ask Siargao landing page"
+        className={cn(
+          "relative min-h-screen w-full overflow-hidden border-0 bg-[image:linear-gradient(90deg,rgba(5,8,42,0.96)_0%,rgba(7,10,48,0.86)_34%,rgba(43,24,106,0.34)_62%,rgba(5,8,42,0.52)_100%),linear-gradient(180deg,rgba(5,8,42,0.04)_0%,rgba(5,8,42,0.2)_46%,rgba(5,8,42,0.9)_100%),url('/images/hero-bg.png')] bg-[size:100%_100%,100%_100%,cover] bg-center bg-no-repeat",
+          "before:pointer-events-none before:absolute before:inset-0 before:z-0 before:bg-[image:radial-gradient(circle_at_61%_27%,rgba(255,155,131,0.14),transparent_25rem),radial-gradient(circle_at_84%_18%,rgba(135,92,246,0.12),transparent_26rem)] before:content-['']",
+        )}
+      >
+        <div className="relative z-2 mx-auto flex min-h-screen w-full max-w-[1680px] flex-col">
           <Header />
           <Hero />
           <SuggestionChips />
@@ -87,44 +102,67 @@ export function LandingPage() {
 
 function Header() {
   return (
-    <header className={header()}>
-      <Link className={brandLink()} href="/">
+    <header className="flex min-h-[72px] items-center justify-between gap-5 px-5 pt-2 md:min-h-[94px] md:px-9 md:pt-4 xl:px-11">
+      <Link
+        className="no-underline [&_span:last-child]:text-sm md:[&_span:last-child]:text-base"
+        href="/"
+      >
         <BrandLockup />
       </Link>
-      <nav aria-label="Main navigation" className={nav()}>
-        {navItems.map((item) => (
-          <a className={navLink()} href={`#${slug(item)}`} key={item}>
-            {item}
-          </a>
-        ))}
-      </nav>
-      <GradientLink className={desktopCta()} href="/chat">
+      <NavigationMenu className="ml-auto hidden min-[900px]:flex" viewport={false}>
+        <NavigationMenuList className="gap-8">
+          {navItems.map((item) => (
+            <NavigationMenuItem key={item}>
+              <NavigationMenuLink asChild>
+                <a
+                  className="text-xs font-extrabold text-white/75 no-underline transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:text-text-on-dark focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-brand-violet-400"
+                  href={`#${slug(item)}`}
+                >
+                  {item}
+                </a>
+              </NavigationMenuLink>
+            </NavigationMenuItem>
+          ))}
+        </NavigationMenuList>
+      </NavigationMenu>
+      <GradientLink className="hidden shrink-0 md:inline-flex" href="/chat">
         Open assistant
       </GradientLink>
-      <Link aria-label="Open navigation menu" className={mobileMenu()} href="/chat">
-        <Menu aria-hidden="true" size={20} />
-      </Link>
+      <Button
+        aria-label="Open navigation menu"
+        asChild
+        className="inline-flex size-10 border border-white/25 bg-white/10 text-text-on-dark hover:bg-white/15 md:hidden"
+        size="icon"
+        variant="outline"
+      >
+        <Link href="/chat">
+          <Menu aria-hidden="true" size={20} />
+        </Link>
+      </Button>
     </header>
   );
 }
 
 function Hero() {
   return (
-    <section className={hero()} id="how-it-works">
-      <div className={heroCopy()}>
-        <h1 className={heroTitle()}>
+    <section
+      className="grid flex-1 content-start gap-7 px-5 pt-5 pb-6 md:min-h-[calc(100vh-112px)] md:content-between md:gap-12 md:px-9 md:pt-8 md:pb-9 lg:pt-10 xl:px-11 xl:pb-11"
+      id="how-it-works"
+    >
+      <div className="max-w-[700px] self-start">
+        <h1 className="m-0 text-balance font-heading text-[3.25rem] leading-[0.88] font-semibold text-[#fff7df] sm:text-[4.25rem] md:text-[5.25rem] xl:text-[6.1rem]">
           Ask Siargao
           <br />
           anything about
           <br />
-          <em>your trip.</em>
+          <em className="font-semibold text-brand-violet-400 italic">your trip.</em>
         </h1>
-        <p className={heroBody()}>
+        <p className="mt-5 mb-0 max-w-[420px] text-sm leading-[1.55] font-bold text-text-on-dark-muted md:text-base">
           Local answers for where to stay, what to do, how to get around, and what today's weather
           changes.
         </p>
       </div>
-      <div className={heroPanels()}>
+      <div className="grid w-full max-w-[1360px] grid-cols-1 gap-4 self-start md:gap-5 md:self-end xl:gap-6 min-[900px]:grid-cols-[minmax(0,1.7fr)_minmax(280px,0.9fr)]">
         <PromptCard />
         <WeatherCard />
       </div>
@@ -134,62 +172,96 @@ function Hero() {
 
 function PromptCard() {
   return (
-    <section aria-label="Example Ask Siargao prompt" className={promptCard()}>
-      <div className={promptTextRow()}>
-        <Sparkles aria-hidden="true" className={css({ color: "violet.550", flexShrink: 0 })} />
-        <p className={promptText()}>
-          I'm staying near Cloud 9 for 10 days. We want quiet sleep, surfing, good restaurants, and
-          easy airport transfer. What should we know?
-        </p>
-      </div>
-      <div className={promptControls()}>
-        <button aria-label="Add trip detail" className={squareButton()} type="button">
-          <Plus aria-hidden="true" size={18} />
-        </button>
-        <button aria-label="Browse local sources" className={squareButton()} type="button">
-          <Globe2 aria-hidden="true" size={18} />
-        </button>
-        <GradientLink className={askButton()} href="/chat">
-          Ask Siargao <Send aria-hidden="true" size={16} />
-        </GradientLink>
-      </div>
-    </section>
+    <Card
+      aria-label="Example Ask Siargao prompt"
+      className="relative grid min-h-[190px] gap-5 border-brand-violet-400/75 bg-white/95 p-5 text-text-default shadow-[0_0_0_1px_rgba(255,255,255,0.22),0_22px_68px_rgba(76,49,184,0.38)] md:min-h-[194px] md:p-6"
+    >
+      <CardContent className="grid gap-5 p-0">
+        <div className="flex items-start gap-3">
+          <Sparkles aria-hidden="true" className="shrink-0 text-brand-violet-550" />
+          <p className="m-0 text-sm leading-[1.5] font-bold text-text-strong md:text-base">
+            I'm staying near Cloud 9 for 10 days. We want quiet sleep, surfing, good restaurants,
+            and easy airport transfer. What should we know?
+          </p>
+        </div>
+        <ButtonGroup className="self-end">
+          <Button
+            aria-label="Add trip detail"
+            className="size-10 border-[rgba(8,47,57,0.16)] bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+            size="icon"
+            type="button"
+            variant="outline"
+          >
+            <Plus aria-hidden="true" size={18} />
+          </Button>
+          <Button
+            aria-label="Browse local sources"
+            className="size-10 border-[rgba(8,47,57,0.16)] bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+            size="icon"
+            type="button"
+            variant="outline"
+          >
+            <Globe2 aria-hidden="true" size={18} />
+          </Button>
+          <GradientLink className="ml-auto min-h-10 px-3 whitespace-nowrap sm:px-4" href="/chat">
+            Ask Siargao <Send aria-hidden="true" size={16} />
+          </GradientLink>
+        </ButtonGroup>
+      </CardContent>
+    </Card>
   );
 }
 
 function WeatherCard() {
   return (
-    <aside className={weatherCard()} id="weather">
-      <div className={weatherTitleRow()}>
-        <CloudSun aria-hidden="true" className={css({ color: "violet.650" })} size={22} />
-        <h2 className={weatherTitle()}>Today in Siargao</h2>
-      </div>
-      <div className={css({ display: "grid" })}>
-        {weatherRows.map(([label, value]) => (
-          <div className={weatherRow()} key={label}>
-            <span>{label}</span>
-            {label === "Freshness" ? (
-              <SignalBadge tone="fresh">{value}</SignalBadge>
-            ) : (
-              <strong>{value}</strong>
-            )}
-          </div>
-        ))}
-      </div>
-    </aside>
+    <Card
+      className="min-h-auto overflow-hidden border-brand-lavender-200/95 bg-white/95 p-0 text-text-default shadow-[0_20px_58px_rgba(8,8,38,0.24)] backdrop-blur-md lg:min-h-[194px]"
+      id="weather"
+    >
+      <CardContent className="p-0">
+        <div className="flex items-center gap-2 border-b border-border-default p-4">
+          <CloudSun aria-hidden="true" className="text-brand-violet-650" size={22} />
+          <h2 className="m-0 text-base font-extrabold text-text-strong">Today in Siargao</h2>
+        </div>
+        <div className="grid">
+          {weatherRows.map(([label, value]) => (
+            <div
+              className="flex min-h-[35px] items-center justify-between gap-3 px-4 text-xs text-text-muted"
+              key={label}
+            >
+              <span>{label}</span>
+              {label === "Freshness" ? (
+                <SignalBadge tone="fresh">{value}</SignalBadge>
+              ) : (
+                <strong className="font-extrabold text-text-strong">{value}</strong>
+              )}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
 function SuggestionChips() {
   return (
-    <section className={suggestions()} id="where-to-stay">
-      <p className={suggestionsLabel()}>Try asking about...</p>
-      <div className={chipRow()}>
+    <section className="px-5 pb-5 md:px-9 md:pb-5 xl:px-11" id="where-to-stay">
+      <p className="mt-0 mb-3 text-xs font-extrabold text-brand-lavender-200/85">
+        Try asking about...
+      </p>
+      <div className="flex flex-wrap gap-3 md:gap-4">
         {suggestionChips.map(([label, Icon]) => (
-          <Link className={chip()} href="/chat" key={label as string}>
-            <Icon aria-hidden="true" size={15} />
-            {label as string}
-          </Link>
+          <Button
+            asChild
+            className="min-h-9 rounded-full border border-brand-lavender-400/55 bg-brand-navy-980/40 px-4 text-xs font-bold text-white/90 shadow-[0_10px_30px_rgba(0,0,0,0.16)] hover:bg-brand-navy-900/60 hover:text-white"
+            key={label as string}
+            variant="outline"
+          >
+            <Link href="/chat">
+              <Icon aria-hidden="true" size={15} />
+              {label as string}
+            </Link>
+          </Button>
         ))}
       </div>
     </section>
@@ -198,9 +270,15 @@ function SuggestionChips() {
 
 function TrustRow() {
   return (
-    <section className={trustRow()} id="saved-places">
+    <section
+      className="mx-5 flex flex-wrap items-center justify-center gap-3 border-t border-white/10 py-4 md:mx-9 md:gap-0 md:py-5 xl:mx-11"
+      id="saved-places"
+    >
       {trustItems.map(([label, Icon]) => (
-        <div className={trustItem()} key={label as string}>
+        <div
+          className="inline-flex items-center gap-2 px-2 text-xs font-extrabold text-white/85 not-last:md:border-r not-last:md:border-white/20 md:px-6 [&_svg]:text-brand-violet-400"
+          key={label as string}
+        >
           <Icon aria-hidden="true" size={18} />
           <span>{label as string}</span>
         </div>
@@ -211,29 +289,42 @@ function TrustRow() {
 
 function FeatureCards() {
   return (
-    <section className={features()} aria-label="Ask Siargao feature cards">
+    <section
+      aria-label="Ask Siargao feature cards"
+      className="grid grid-cols-1 gap-3 px-5 pb-5 sm:grid-cols-2 md:px-9 md:pb-9 xl:px-11 min-[900px]:grid-cols-4"
+    >
       {featureCards.map(({ body, icon: Icon, link, title }) => (
-        <article className={featureCard()} key={title}>
-          <span className={featureIcon()}>
-            <Icon aria-hidden="true" size={22} />
-          </span>
-          <h2>{title}</h2>
-          <p>{body}</p>
-          <Link
-            className={featureLink()}
-            href="/chat"
-            style={{ color: "var(--colors-violet-550)" }}
-          >
-            {link} <ArrowRight aria-hidden="true" size={15} />
-          </Link>
-        </article>
+        <Card
+          className="min-h-56 border-0 bg-white/95 p-5 shadow-[0_18px_48px_rgba(8,8,38,0.18)] transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-[#fff7df] md:min-h-[228px]"
+          key={title}
+        >
+          <CardContent className="p-0">
+            <span className="inline-flex size-11 items-center justify-center rounded-full bg-[rgba(108,70,232,0.1)] text-brand-violet-600">
+              <Icon aria-hidden="true" size={22} />
+            </span>
+            <h2 className="mt-4 mb-2 text-base leading-tight font-extrabold text-text-strong">
+              {title}
+            </h2>
+            <p className="mt-0 mb-5 text-sm leading-[1.55] text-text-muted">{body}</p>
+            <Link
+              className="inline-flex items-center gap-1 text-sm font-extrabold text-brand-violet-550 no-underline"
+              href="/chat"
+            >
+              {link} <ArrowRight aria-hidden="true" size={15} />
+            </Link>
+          </CardContent>
+        </Card>
       ))}
     </section>
   );
 }
 
 function MobileFooter() {
-  return <p className={mobileFooter()}>Built for travelers · Loved by locals</p>;
+  return (
+    <p className="m-0 block pt-1 pb-2 text-center text-xs font-extrabold text-white/70 md:hidden">
+      Built for travelers · Loved by locals
+    </p>
+  );
 }
 
 function slug(value: string) {
@@ -241,471 +332,4 @@ function slug(value: string) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
-}
-
-function page() {
-  return css({
-    background: "#05082a",
-    minH: "100vh",
-    overflowX: "hidden",
-    px: "0",
-    py: "0",
-  });
-}
-
-function frame() {
-  return css({
-    background:
-      "linear-gradient(90deg, rgba(5,8,42,0.96) 0%, rgba(7,10,48,0.86) 34%, rgba(43,24,106,0.34) 62%, rgba(5,8,42,0.52) 100%), linear-gradient(180deg, rgba(5,8,42,0.04) 0%, rgba(5,8,42,0.2) 46%, rgba(5,8,42,0.9) 100%), url('/images/hero-bg.png')",
-    backgroundPosition: "center, center, center",
-    backgroundRepeat: "no-repeat, no-repeat, no-repeat",
-    backgroundSize: "100% 100%, 100% 100%, cover",
-    borderColor: "transparent",
-    borderRadius: "0",
-    borderWidth: "0",
-    boxShadow: "none",
-    minH: "100vh",
-    overflow: "hidden",
-    position: "relative",
-    width: "100%",
-    _before: {
-      background:
-        "radial-gradient(circle at 61% 27%, rgba(255,155,131,0.14), transparent 25rem), radial-gradient(circle at 84% 18%, rgba(135,92,246,0.12), transparent 26rem)",
-      content: '""',
-      inset: 0,
-      pointerEvents: "none",
-      position: "absolute",
-      zIndex: 0,
-    },
-  });
-}
-
-function contentLayer() {
-  return css({
-    display: "flex",
-    flexDirection: "column",
-    maxW: "1680px",
-    minH: "100vh",
-    mx: "auto",
-    position: "relative",
-    width: "100%",
-    zIndex: 2,
-  });
-}
-
-function header() {
-  return css({
-    alignItems: "center",
-    display: "flex",
-    gap: "5",
-    justifyContent: "space-between",
-    minH: { base: "72px", md: "94px" },
-    px: { base: "5", md: "9", xl: "11" },
-    pt: { base: "2", md: "4" },
-  });
-}
-
-function brandLink() {
-  return css({
-    textDecoration: "none",
-    "& span:last-child": {
-      fontSize: { base: "sm", md: "md" },
-    },
-  });
-}
-
-function nav() {
-  return css({
-    alignItems: "center",
-    display: "none",
-    gap: "8",
-    ml: "auto",
-    "@media (min-width: 900px)": {
-      display: "flex",
-    },
-  });
-}
-
-function navLink() {
-  return css({
-    color: "rgba(255,255,255,0.74)",
-    fontSize: "xs",
-    fontWeight: "800",
-    textDecoration: "none",
-    transition: "color token(durations.fast) token(easings.standard)",
-    _focusVisible: {
-      outline: "3px solid token(colors.violet.400)",
-      outlineOffset: "4px",
-    },
-    _hover: {
-      color: "text.onDark",
-    },
-  });
-}
-
-function desktopCta() {
-  return css({
-    display: { base: "none", md: "inline-flex" },
-    flexShrink: 0,
-  });
-}
-
-function mobileMenu() {
-  return css({
-    alignItems: "center",
-    bg: "rgba(255,255,255,0.12)",
-    borderColor: "rgba(255,255,255,0.24)",
-    borderRadius: "md",
-    borderWidth: "1px",
-    color: "text.onDark",
-    display: { base: "inline-flex", md: "none" },
-    h: "10",
-    justifyContent: "center",
-    textDecoration: "none",
-    width: "10",
-  });
-}
-
-function hero() {
-  return css({
-    alignContent: { base: "start", md: "space-between" },
-    display: "grid",
-    flex: "1",
-    gap: { base: "7", md: "12" },
-    gridTemplateColumns: "1fr",
-    minH: { base: "auto", md: "calc(100vh - 112px)" },
-    pb: { base: "6", md: "9", xl: "11" },
-    px: { base: "5", md: "9", xl: "11" },
-    pt: { base: "5", md: "8", lg: "10" },
-  });
-}
-
-function heroCopy() {
-  return css({
-    alignSelf: "start",
-    maxW: "700px",
-  });
-}
-
-function heroTitle() {
-  return css({
-    color: "#fff7df",
-    fontFamily: "display",
-    fontSize: { base: "3.25rem", sm: "4.25rem", md: "5.25rem", xl: "6.1rem" },
-    fontWeight: "600",
-    lineHeight: "0.88",
-    m: 0,
-    textWrap: "balance",
-    "& em": {
-      color: "violet.400",
-      fontStyle: "italic",
-      fontWeight: "600",
-    },
-  });
-}
-
-function heroBody() {
-  return css({
-    color: "text.onDarkMuted",
-    fontSize: { base: "sm", md: "md" },
-    fontWeight: "700",
-    lineHeight: "1.55",
-    maxW: "420px",
-    mb: 0,
-    mt: "5",
-  });
-}
-
-function heroPanels() {
-  return css({
-    alignSelf: { base: "start", md: "end" },
-    display: "grid",
-    gap: { base: "4", md: "5", xl: "6" },
-    gridTemplateColumns: "1fr",
-    maxW: "1360px",
-    width: "100%",
-    "@media (min-width: 900px)": {
-      gridTemplateColumns: "minmax(0, 1.7fr) minmax(280px, 0.9fr)",
-    },
-  });
-}
-
-function promptCard() {
-  return css({
-    bg: "rgba(255,255,255,0.96)",
-    borderColor: "rgba(164,134,255,0.75)",
-    borderRadius: "lg",
-    borderWidth: "1px",
-    boxShadow: "0 0 0 1px rgba(255,255,255,0.22), 0 22px 68px rgba(76,49,184,0.38)",
-    color: "text",
-    display: "grid",
-    gap: { base: "5", md: "5" },
-    minH: { base: "190px", md: "194px" },
-    p: { base: "5", md: "6" },
-    position: "relative",
-  });
-}
-
-function promptTextRow() {
-  return css({
-    alignItems: "start",
-    display: "flex",
-    gap: "3",
-  });
-}
-
-function promptText() {
-  return css({
-    color: "text.strong",
-    fontSize: { base: "sm", md: "md" },
-    fontWeight: "700",
-    lineHeight: "1.5",
-    m: 0,
-  });
-}
-
-function promptControls() {
-  return css({
-    alignItems: "center",
-    alignSelf: "end",
-    display: "flex",
-    gap: "3",
-  });
-}
-
-function squareButton() {
-  return css({
-    alignItems: "center",
-    bg: "#ffffff",
-    borderColor: "rgba(8,47,57,0.16)",
-    borderRadius: "md",
-    borderWidth: "1px",
-    color: "violet.650",
-    cursor: "pointer",
-    display: "inline-flex",
-    h: "10",
-    justifyContent: "center",
-    width: "10",
-  });
-}
-
-function askButton() {
-  return css({
-    ml: "auto",
-    minH: "40px",
-    px: { base: "3", sm: "4" },
-    whiteSpace: "nowrap",
-  });
-}
-
-function weatherCard() {
-  return css({
-    bg: "rgba(255,255,255,0.94)",
-    backdropFilter: "blur(12px)",
-    borderColor: "rgba(226,220,247,0.94)",
-    borderRadius: "lg",
-    borderWidth: "1px",
-    boxShadow: "0 20px 58px rgba(8,8,38,0.24)",
-    color: "text",
-    minH: { base: "auto", lg: "194px" },
-    overflow: "hidden",
-    p: "0",
-  });
-}
-
-function weatherTitleRow() {
-  return css({
-    alignItems: "center",
-    borderBottomColor: "border",
-    borderBottomWidth: "1px",
-    display: "flex",
-    gap: "2",
-    p: "4",
-  });
-}
-
-function weatherTitle() {
-  return css({
-    color: "text.strong",
-    fontSize: "md",
-    fontWeight: "800",
-    m: 0,
-  });
-}
-
-function weatherRow() {
-  return css({
-    alignItems: "center",
-    color: "text.muted",
-    display: "flex",
-    fontSize: "xs",
-    gap: "3",
-    justifyContent: "space-between",
-    minH: "35px",
-    px: "4",
-    "& strong": {
-      color: "text.strong",
-      fontWeight: "800",
-    },
-  });
-}
-
-function suggestions() {
-  return css({
-    px: { base: "5", md: "9", xl: "11" },
-    pb: { base: "5", md: "5" },
-  });
-}
-
-function suggestionsLabel() {
-  return css({
-    color: "rgba(226,220,247,0.84)",
-    fontSize: "xs",
-    fontWeight: "800",
-    mb: "3",
-    mt: 0,
-  });
-}
-
-function chipRow() {
-  return css({
-    display: "flex",
-    flexWrap: "wrap",
-    gap: { base: "3", md: "4" },
-  });
-}
-
-function chip() {
-  return css({
-    alignItems: "center",
-    bg: "rgba(5,8,42,0.42)",
-    borderColor: "rgba(184,166,255,0.54)",
-    borderRadius: "pill",
-    borderWidth: "1px",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.16)",
-    color: "rgba(255,255,255,0.88)",
-    display: "inline-flex",
-    fontSize: "xs",
-    fontWeight: "700",
-    gap: "2",
-    minH: "36px",
-    px: "4",
-    textDecoration: "none",
-  });
-}
-
-function trustRow() {
-  return css({
-    alignItems: "center",
-    borderTopColor: "rgba(255,255,255,0.12)",
-    borderTopWidth: "1px",
-    display: "flex",
-    flexWrap: "wrap",
-    gap: { base: "3", md: "0" },
-    justifyContent: "center",
-    mx: { base: "5", md: "9", xl: "11" },
-    py: { base: "4", md: "5" },
-  });
-}
-
-function trustItem() {
-  return css({
-    alignItems: "center",
-    color: "rgba(255,255,255,0.86)",
-    display: "inline-flex",
-    fontSize: "xs",
-    fontWeight: "800",
-    gap: "2",
-    px: { base: "2", md: "6" },
-    "&:not(:last-child)": {
-      borderRightColor: { base: "transparent", md: "rgba(255,255,255,0.2)" },
-      borderRightWidth: { base: "0", md: "1px" },
-    },
-    "& svg": {
-      color: "violet.400",
-    },
-  });
-}
-
-function features() {
-  return css({
-    background: "transparent",
-    borderColor: "rgba(255,255,255,0.10)",
-    borderRadius: { base: "0", md: "lg" },
-    display: "grid",
-    gap: { base: "3", lg: "3" },
-    gridTemplateColumns: { base: "1fr", sm: "repeat(2, 1fr)" },
-    px: { base: "5", md: "9", xl: "11" },
-    pb: { base: "5", md: "9" },
-    "@media (min-width: 900px)": {
-      gridTemplateColumns: "repeat(4, 1fr)",
-    },
-  });
-}
-
-function featureCard() {
-  return css({
-    bg: "rgba(255,255,255,0.96)",
-    borderRightColor: "rgba(8,47,57,0.13)",
-    borderRadius: "lg",
-    boxShadow: "0 18px 48px rgba(8,8,38,0.18)",
-    minH: { base: "224px", md: "228px" },
-    p: { base: "5", md: "5" },
-    transition: "background token(durations.fast) token(easings.standard)",
-    _hover: {
-      bg: "#fff7df",
-    },
-    "& h2": {
-      color: "text.strong",
-      fontSize: "md",
-      fontWeight: "800",
-      lineHeight: "1.25",
-      mb: "2",
-      mt: "4",
-    },
-    "& p": {
-      color: "text.muted",
-      fontSize: "sm",
-      lineHeight: "1.55",
-      mb: "5",
-      mt: 0,
-    },
-  });
-}
-
-function featureLink() {
-  return css({
-    alignItems: "center",
-    display: "inline-flex",
-    fontSize: "sm",
-    fontWeight: "800",
-    gap: "1",
-    textDecoration: "none",
-  });
-}
-
-function featureIcon() {
-  return css({
-    alignItems: "center",
-    bg: "rgba(108,70,232,0.1)",
-    borderRadius: "pill",
-    color: "violet.600",
-    display: "inline-flex",
-    h: "11",
-    justifyContent: "center",
-    width: "11",
-  });
-}
-
-function mobileFooter() {
-  return css({
-    color: "rgba(255,255,255,0.72)",
-    display: { base: "block", md: "none" },
-    fontSize: "xs",
-    fontWeight: "800",
-    m: 0,
-    pb: "2",
-    pt: "1",
-    textAlign: "center",
-  });
 }
