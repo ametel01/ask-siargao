@@ -25,12 +25,10 @@ import type { CSSProperties, ReactNode } from "react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupInput,
-} from "@/components/ui/input-group";
+import { InputGroup } from "@/components/ui/input-group";
+import { InputGroupAddon } from "@/components/ui/input-group-addon";
+import { InputGroupButton } from "@/components/ui/input-group-button";
+import { InputGroupInput } from "@/components/ui/input-group-input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sheet,

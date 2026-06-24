@@ -7,26 +7,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export function BrowserDots() {
-  return (
-    <div aria-hidden="true" className="absolute top-4 left-4 z-4 flex gap-2 md:top-5 md:left-5">
-      {[
-        ["close", "bg-[#ff6b6b]"],
-        ["minimize", "bg-brand-sunset-gold"],
-        ["zoom", "bg-[#8b8aa7]"],
-      ].map(([label, colorClass]) => (
-        <span
-          className={cn(
-            "block size-[10px] rounded-full shadow-[0_0_0_1px_rgba(255,255,255,0.2)]",
-            colorClass,
-          )}
-          key={label}
-        />
-      ))}
-    </div>
-  );
-}
-
 export function PalmMark({ className }: { className?: string }) {
   return (
     <Avatar
