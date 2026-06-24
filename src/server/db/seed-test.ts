@@ -3,8 +3,14 @@ import { openTestDatabase } from "@/server/db/test-database";
 
 const db = await openTestDatabase();
 
-const counts = await seedSiargaoBaseline(async (query, params = []) => {
-  const result = await db.query(query, params);
+const counts = await seedSiargaoBaseline(async (query, ...params) => {
+  const text = query.reduce(
+    (statement, part, index) =>
+      `${statement}${part}${index < params.length ? `$${index + 1}` : ""}`,
+    "",
+  );
+
+  const result = await db.query(text, params);
   return result.rows as Record<string, unknown>[];
 });
 

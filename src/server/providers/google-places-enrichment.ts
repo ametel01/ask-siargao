@@ -57,21 +57,21 @@ export async function enrichGooglePlacesDetails({
     throw new Error("GOOGLE_API_KEY is required for Google Places enrichment.");
   }
 
-  const details: GooglePlacesDetails[] = [];
-
-  for (const placeId of [...new Set(placeIds)]) {
-    const response = await fetcher(
-      `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}?languageCode=en`,
-      {
-        headers: {
-          "X-Goog-Api-Key": apiKey,
-          "X-Goog-FieldMask": googlePlacesDetailsFieldMask,
+  const details = await Promise.all(
+    [...new Set(placeIds)].map(async (placeId): Promise<GooglePlacesDetails> => {
+      const response = await fetcher(
+        `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}?languageCode=en`,
+        {
+          headers: {
+            "X-Goog-Api-Key": apiKey,
+            "X-Goog-FieldMask": googlePlacesDetailsFieldMask,
+          },
         },
-      },
-    );
-    const payload = await parseGooglePlacesDetailsResponse(response);
-    details.push(parseGooglePlacesDetails(payload, placeId, fetchedAt));
-  }
+      );
+      const payload = await parseGooglePlacesDetailsResponse(response);
+      return parseGooglePlacesDetails(payload, placeId, fetchedAt);
+    }),
+  );
 
   return details;
 }

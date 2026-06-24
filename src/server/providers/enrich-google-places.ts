@@ -45,11 +45,12 @@ try {
       );
     }
 
-    for (const detail of details) {
-      const sourceRecordId = createGooglePlacesDetailsSourceRecordId(detail.placeId);
-      const candidateEntityId = createGooglePlacesCandidateEntityId(detail.placeId);
+    await Promise.all(
+      details.map(async (detail) => {
+        const sourceRecordId = createGooglePlacesDetailsSourceRecordId(detail.placeId);
+        const candidateEntityId = createGooglePlacesCandidateEntityId(detail.placeId);
 
-      await tx`
+        await tx`
         insert into source_records (
           id,
           source_profile_id,
@@ -80,7 +81,7 @@ try {
           allowed_use = excluded.allowed_use
       `;
 
-      await tx`
+        await tx`
         update candidate_entities
         set
           candidate_name = ${detail.displayName},
@@ -90,7 +91,8 @@ try {
           discovery_confidence = ${"0.55"}
         where id = ${candidateEntityId}
       `;
-    }
+      }),
+    );
   });
 
   printSummary({ persisted: true, placeIds, details });

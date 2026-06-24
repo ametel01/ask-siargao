@@ -38,7 +38,7 @@ try {
         allowed_use = excluded.allowed_use
     `;
 
-    await tx`
+    const writeSourceRecord = tx`
       insert into source_records (
         id,
         source_profile_id,
@@ -71,7 +71,7 @@ try {
         allowed_use = excluded.allowed_use
     `;
 
-    await tx`
+    const writeSourceCredibilityScore = tx`
       insert into source_credibility_scores (
         id,
         source_profile_id,
@@ -93,115 +93,125 @@ try {
         scored_at = now()
     `;
 
-    for (const fact of batch.facts) {
-      await tx`
-        insert into facts (
-          id,
-          entity_id,
-          claim,
-          fact_type,
-          source_type,
-          source_profile_id,
-          source_record_id,
-          fetched_at,
-          verified_at,
-          expires_at,
-          confidence_label,
-          source_authority,
-          public_republish_allowed,
-          audit_use_allowed,
-          raw_evidence_allowed,
-          conflicts_with_fact_ids,
-          notes
-        )
-        values (
-          ${fact.id},
-          ${fact.entityId ?? null},
-          ${fact.claim},
-          ${fact.factType},
-          ${fact.sourceType},
-          ${fact.sourceProfileId},
-          ${fact.sourceRecordId},
-          ${fact.fetchedAt},
-          ${fact.verifiedAt ?? null},
-          ${fact.expiresAt ?? null},
-          ${fact.confidenceLabel},
-          ${fact.sourceAuthority},
-          ${fact.publicRepublishAllowed},
-          ${fact.auditUseAllowed},
-          ${fact.rawEvidenceAllowed},
-          ${sql.json([] as never)},
-          ${fact.notes ?? null}
-        )
-        on conflict (id) do update set
-          claim = excluded.claim,
-          fetched_at = excluded.fetched_at,
-          verified_at = excluded.verified_at,
-          expires_at = excluded.expires_at,
-          confidence_label = excluded.confidence_label,
-          source_authority = excluded.source_authority,
-          public_republish_allowed = excluded.public_republish_allowed,
-          audit_use_allowed = excluded.audit_use_allowed,
-          raw_evidence_allowed = excluded.raw_evidence_allowed,
-          conflicts_with_fact_ids = excluded.conflicts_with_fact_ids,
-          notes = excluded.notes
-      `;
-    }
+    await Promise.all([writeSourceRecord, writeSourceCredibilityScore]);
 
-    for (const evidence of batch.evidence) {
-      await tx`
-        insert into evidence (
-          id,
-          fact_id,
-          source_record_id,
-          label,
-          citation_url,
-          citation_text,
-          allowed_use,
-          public_republish_allowed
-        )
-        values (
-          ${evidence.id},
-          ${evidence.factId},
-          ${evidence.sourceRecordId},
-          ${evidence.label},
-          ${evidence.citationUrl ?? null},
-          ${evidence.citationText ?? null},
-          ${evidence.allowedUse},
-          ${evidence.publicRepublishAllowed}
-        )
-        on conflict (id) do update set
-          label = excluded.label,
-          citation_url = excluded.citation_url,
-          citation_text = excluded.citation_text,
-          allowed_use = excluded.allowed_use,
-          public_republish_allowed = excluded.public_republish_allowed
-      `;
-    }
+    await Promise.all(
+      batch.facts.map(
+        (fact) => tx`
+          insert into facts (
+            id,
+            entity_id,
+            claim,
+            fact_type,
+            source_type,
+            source_profile_id,
+            source_record_id,
+            fetched_at,
+            verified_at,
+            expires_at,
+            confidence_label,
+            source_authority,
+            public_republish_allowed,
+            audit_use_allowed,
+            raw_evidence_allowed,
+            conflicts_with_fact_ids,
+            notes
+          )
+          values (
+            ${fact.id},
+            ${fact.entityId ?? null},
+            ${fact.claim},
+            ${fact.factType},
+            ${fact.sourceType},
+            ${fact.sourceProfileId},
+            ${fact.sourceRecordId},
+            ${fact.fetchedAt},
+            ${fact.verifiedAt ?? null},
+            ${fact.expiresAt ?? null},
+            ${fact.confidenceLabel},
+            ${fact.sourceAuthority},
+            ${fact.publicRepublishAllowed},
+            ${fact.auditUseAllowed},
+            ${fact.rawEvidenceAllowed},
+            ${sql.json([] as never)},
+            ${fact.notes ?? null}
+          )
+          on conflict (id) do update set
+            claim = excluded.claim,
+            fetched_at = excluded.fetched_at,
+            verified_at = excluded.verified_at,
+            expires_at = excluded.expires_at,
+            confidence_label = excluded.confidence_label,
+            source_authority = excluded.source_authority,
+            public_republish_allowed = excluded.public_republish_allowed,
+            audit_use_allowed = excluded.audit_use_allowed,
+            raw_evidence_allowed = excluded.raw_evidence_allowed,
+            conflicts_with_fact_ids = excluded.conflicts_with_fact_ids,
+            notes = excluded.notes
+        `,
+      ),
+    );
 
-    for (const score of batch.factConfidenceScores) {
-      await tx`
-        insert into fact_confidence_scores (
-          id,
-          fact_id,
-          score,
-          label,
-          drivers
-        )
-        values (
-          ${score.id},
-          ${score.factId},
-          ${score.score},
-          ${score.label},
-          ${sql.json(score.drivers as never)}
-        )
-        on conflict (id) do update set
-          score = excluded.score,
-          label = excluded.label,
-          drivers = excluded.drivers,
-          scored_at = now()
-      `;
-    }
+    const writeEvidence = Promise.all(
+      batch.evidence.map(
+        (evidence) => tx`
+          insert into evidence (
+            id,
+            fact_id,
+            source_record_id,
+            label,
+            citation_url,
+            citation_text,
+            allowed_use,
+            public_republish_allowed
+          )
+          values (
+            ${evidence.id},
+            ${evidence.factId},
+            ${evidence.sourceRecordId},
+            ${evidence.label},
+            ${evidence.citationUrl ?? null},
+            ${evidence.citationText ?? null},
+            ${evidence.allowedUse},
+            ${evidence.publicRepublishAllowed}
+          )
+          on conflict (id) do update set
+            label = excluded.label,
+            citation_url = excluded.citation_url,
+            citation_text = excluded.citation_text,
+            allowed_use = excluded.allowed_use,
+            public_republish_allowed = excluded.public_republish_allowed
+        `,
+      ),
+    );
+
+    const writeFactConfidenceScores = Promise.all(
+      batch.factConfidenceScores.map(
+        (score) => tx`
+          insert into fact_confidence_scores (
+            id,
+            fact_id,
+            score,
+            label,
+            drivers
+          )
+          values (
+            ${score.id},
+            ${score.factId},
+            ${score.score},
+            ${score.label},
+            ${sql.json(score.drivers as never)}
+          )
+          on conflict (id) do update set
+            score = excluded.score,
+            label = excluded.label,
+            drivers = excluded.drivers,
+            scored_at = now()
+        `,
+      ),
+    );
+
+    await Promise.all([writeEvidence, writeFactConfidenceScores]);
 
     await tx`
       insert into refresh_jobs (

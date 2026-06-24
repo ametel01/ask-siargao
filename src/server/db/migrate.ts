@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import postgres from "postgres";
@@ -10,15 +9,14 @@ if (!databaseUrl) {
 }
 
 const migrationPath = path.join(process.cwd(), "drizzle", "0000_initial_schema.sql");
-const migrationSql = await readFile(migrationPath, "utf8");
 const sql = postgres(databaseUrl, { max: 1, prepare: false });
 
 try {
-  await sql.unsafe(migrationSql);
+  await sql.file(migrationPath);
 
-  const tables = await sql.unsafe<{ table_name: string }[]>(
-    "select table_name from information_schema.tables where table_schema = 'public' order by table_name",
-  );
+  const tables = await sql<
+    { table_name: string }[]
+  >`select table_name from information_schema.tables where table_schema = 'public' order by table_name`;
 
   console.log(`Migrated ${tables.length} tables in ${databaseUrlForLog(databaseUrl)}.`);
 } finally {

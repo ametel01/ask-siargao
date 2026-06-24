@@ -55,7 +55,7 @@ const mandatoryRiskContracts: Record<RiskCategory, RiskEvaluationContract> = {
 };
 
 export function rankRisks(risks: readonly RiskItem[]) {
-  return [...risks].sort((left, right) => riskRankScore(right) - riskRankScore(left));
+  return risks.toSorted((left, right) => riskRankScore(right) - riskRankScore(left));
 }
 
 export function riskRankScore(risk: RiskItem) {

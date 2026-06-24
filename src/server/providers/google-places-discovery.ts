@@ -111,26 +111,26 @@ export async function discoverGooglePlacesAccommodationIds({
     throw new Error("GOOGLE_API_KEY is required for Google Places discovery.");
   }
 
-  const results: GooglePlacesDiscoverySearchResult[] = [];
+  const results = await Promise.all(
+    searches.map(async (search): Promise<GooglePlacesDiscoverySearchResult> => {
+      const response = await fetcher("https://places.googleapis.com/v1/places:searchText", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": apiKey,
+          "X-Goog-FieldMask": googlePlacesDiscoveryFieldMask,
+        },
+        body: JSON.stringify(buildGooglePlacesTextSearchBody(search)),
+      });
+      const payload = await parseGooglePlacesTextSearchResponse(response);
 
-  for (const search of searches) {
-    const response = await fetcher("https://places.googleapis.com/v1/places:searchText", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": googlePlacesDiscoveryFieldMask,
-      },
-      body: JSON.stringify(buildGooglePlacesTextSearchBody(search)),
-    });
-    const payload = await parseGooglePlacesTextSearchResponse(response);
-
-    results.push({
-      search,
-      places: parseGooglePlaces(payload),
-      nextPageToken: payload.nextPageToken,
-    });
-  }
+      return {
+        search,
+        places: parseGooglePlaces(payload),
+        nextPageToken: payload.nextPageToken,
+      };
+    }),
+  );
 
   const uniquePlaceIds = [...new Set(results.flatMap((result) => result.places.map((p) => p.id)))];
 

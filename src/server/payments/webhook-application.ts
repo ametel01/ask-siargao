@@ -123,7 +123,7 @@ function createDatabasePaymentApplicationStore(
         verifiedAt: input.verifiedAt,
         rawEvent: input.paymentEvent.rawEvent,
       });
-      await db
+      const updatePayment = db
         .update(payments)
         .set({
           stripePaymentIntentId: input.payment.stripePaymentIntentId,
@@ -133,13 +133,15 @@ function createDatabasePaymentApplicationStore(
           diagnosticContext: input.audit.payment?.diagnosticContext ?? {},
         })
         .where(eq(payments.stripeCheckoutSessionId, input.payment.stripeCheckoutSessionId));
-      await db
+      const updateAuditRequest = db
         .update(auditRequests)
         .set({
           status: input.audit.state,
           updatedAt: input.verifiedAt,
         })
         .where(eq(auditRequests.id, input.audit.id));
+
+      await Promise.all([updatePayment, updateAuditRequest]);
     },
   };
 }

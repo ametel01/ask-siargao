@@ -5,38 +5,6 @@ import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { css } from "../../../styled-system/css/css";
 import { cx } from "../../../styled-system/css/cx";
 
-export function BrowserFrame({
-  children,
-  className,
-  label,
-}: {
-  children: ReactNode;
-  className?: string;
-  label: string;
-}) {
-  return (
-    <section
-      aria-label={label}
-      className={cx(
-        css({
-          bg: "rgba(5, 8, 42, 0.62)",
-          borderColor: "rgba(180, 160, 255, 0.34)",
-          borderRadius: { base: "lg", md: "xl" },
-          borderWidth: "1px",
-          boxShadow: "coastalFrame",
-          color: "text.onDark",
-          overflow: "hidden",
-          position: "relative",
-        }),
-        className,
-      )}
-    >
-      <BrowserDots />
-      {children}
-    </section>
-  );
-}
-
 export function BrowserDots() {
   return (
     <div

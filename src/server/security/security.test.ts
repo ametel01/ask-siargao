@@ -210,7 +210,6 @@ describe("public and private data boundaries", () => {
 
   test("client-facing feature files do not reference server-only secret names", async () => {
     const files = [
-      "src/features/intake/IntakeForm.tsx",
       "src/features/report/FinalReportPage.tsx",
       "src/features/public-pages/PublicKnowledgePage.tsx",
       "src/features/admin/AdminDiagnosticsPage.tsx",

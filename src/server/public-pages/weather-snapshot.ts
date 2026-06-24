@@ -105,6 +105,13 @@ const metricDefinitions: MetricDefinition[] = [
   },
 ];
 
+const manilaDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  day: "2-digit",
+  month: "2-digit",
+  timeZone: "Asia/Manila",
+  year: "numeric",
+});
+
 export const fallbackWeatherSnapshot: WeatherSnapshot = {
   status: "fallback",
   locationName: "Siargao Island",
@@ -241,11 +248,13 @@ export function buildWeatherSnapshotFromRows(
     return fallbackWeatherSnapshot;
   }
 
-  const expiresAt = latestRows
+  const expiresAtTimes = latestRows
     .map((row) => row.expiresAt)
     .filter((value): value is Date | string => Boolean(value))
-    .map(toIsoString)
-    .sort()[0];
+    .map(dateTime);
+  const earliestExpiresAtTime = expiresAtTimes.length > 0 ? Math.min(...expiresAtTimes) : undefined;
+  const expiresAt =
+    earliestExpiresAtTime === undefined ? undefined : new Date(earliestExpiresAtTime).toISOString();
   const evidenceIds = Array.from(
     new Set(latestRows.map((row) => row.evidenceId).filter((id): id is string => Boolean(id))),
   );
@@ -466,12 +475,7 @@ function weatherCondition(code: number | undefined) {
 }
 
 function manilaDate(date: Date) {
-  return new Intl.DateTimeFormat("en-CA", {
-    day: "2-digit",
-    month: "2-digit",
-    timeZone: "Asia/Manila",
-    year: "numeric",
-  }).format(date);
+  return manilaDateFormatter.format(date);
 }
 
 function dateTime(value: Date | string) {
