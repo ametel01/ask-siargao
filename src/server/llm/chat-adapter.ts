@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 
+import type { GooglePlacesChatContext } from "@/server/providers/google-places-chat";
 import type { WeatherSnapshot } from "@/server/public-pages/weather-snapshot";
 
 export type AskSiargaoChatMessage = {
@@ -33,6 +34,7 @@ function createOpenAIChatClient(apiKey = process.env.OPENAI_API_KEY): ChatRespon
 export async function generateAskSiargaoChatResponse(input: {
   messages: readonly AskSiargaoChatMessage[];
   weatherContext?: WeatherSnapshot;
+  placesContext?: GooglePlacesChatContext;
   model?: string;
   client?: ChatResponsesClient;
 }): Promise<AskSiargaoChatResponse> {
@@ -49,10 +51,13 @@ export async function generateAskSiargaoChatResponse(input: {
       weatherContext: input.weatherContext
         ? summarizeWeatherContext(input.weatherContext)
         : undefined,
+      placesContext: input.placesContext
+        ? summarizeGooglePlacesContext(input.placesContext)
+        : undefined,
       responseContract: {
         tone: "practical local travel assistant",
         caveat:
-          "Use weatherContext when present. Say when other live local data has not been checked yet.",
+          "Use weatherContext and placesContext when present. Say when live local data needed for the answer has not been checked yet.",
       },
     }),
   });
@@ -65,6 +70,33 @@ export async function generateAskSiargaoChatResponse(input: {
     message: response.output_text.trim(),
     model,
     requestId: response._request_id,
+  };
+}
+
+function summarizeGooglePlacesContext(context: GooglePlacesChatContext) {
+  return {
+    status: context.status,
+    sourceName: context.sourceName,
+    sourceProfileId: context.sourceProfileId,
+    fetchedAt: context.fetchedAt,
+    search: {
+      label: context.search.label,
+      textQuery: context.search.textQuery,
+      includedType: context.search.includedType,
+      center: context.search.center,
+      radiusMeters: context.search.radiusMeters,
+    },
+    fieldMask: context.fieldMask,
+    caveats: context.caveats,
+    places: context.places.map((place) => ({
+      placeId: place.placeId,
+      displayName: place.displayName,
+      formattedAddress: place.formattedAddress,
+      primaryType: place.primaryType,
+      types: place.types,
+      businessStatus: place.businessStatus,
+      googleMapsUri: place.googleMapsUri,
+    })),
   };
 }
 
@@ -92,6 +124,11 @@ const askSiargaoChatInstructions = [
   "Use only general destination knowledge unless the prompt includes specific facts.",
   "When weatherContext is present, use it for Siargao weather, rain, wind, and forecast questions.",
   "If weatherContext.status is fallback, say the live forecast snapshot has not been loaded yet.",
+  "When placesContext is present, use it for place, restaurant, cafe, bar, and nearby recommendation questions.",
+  "Treat the order of placesContext.places as Google Places search relevance, not as a verified quality ranking.",
+  "Include Google Maps links from placesContext when useful.",
+  "Do not claim you checked Google reviews, ratings, opening hours, prices, bookings, or availability unless those exact fields are present in placesContext.",
+  "When placesContext.status is no_results, say the Google Places lookup did not return a useful shortlist.",
   "Do not pretend you checked reviews, opening hours, events, prices, bookings, or availability.",
   "When other live or source-backed data would materially improve the answer, say what should be checked.",
   "Prefer concise, actionable answers with Siargao-specific tradeoffs.",

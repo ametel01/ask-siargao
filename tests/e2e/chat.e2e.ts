@@ -90,6 +90,33 @@ test("sends a mobile suggested prompt through the same chat API path", async ({ 
   await expect(page.getByLabel("Ask anything about Siargao")).toBeVisible();
 });
 
+test("wraps long assistant links without rendering preview cards", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const kermitMapsLink =
+    "https://maps.google.com/?cid=1842727875883507531&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMuMjEuUGxhY2VzLk1hcHMtbG9uZy1wcmV2aWV3LXRlc3QtdXJsLXdpdGgtbG90cy1vZi1jaGFyYWN0ZXJz";
+  const shakaMapsLink =
+    "https://maps.google.com/?cid=9519252965585253672&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMuMjEuU2Vjb25kLWxvbmctcHJldmlldy10ZXN0LXVybC13aXRoLWxvdHMtb2YtY2hhcmFjdGVycw";
+  await mockChatApi(page, {
+    message: `Here are two map links: ${kermitMapsLink} and ${shakaMapsLink}`,
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Send a map link");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByRole("link", { name: "Open Google Maps link" })).toHaveCount(2);
+  await expect(page.getByTestId("assistant-link-preview")).toHaveCount(0);
+
+  await expect
+    .poll(async () =>
+      page
+        .getByTestId("assistant-message-bubble")
+        .last()
+        .evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+    )
+    .toBe(true);
+});
+
 test("auto-submits a prompt deep link once", async ({ page }) => {
   const prompt = "What should I do near Cloud 9?";
   const mockChat = await mockChatApi(page, {

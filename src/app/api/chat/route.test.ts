@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { type ChatRouteDependencies, chatResponse } from "@/app/api/chat/chat-route";
+import type { GooglePlacesChatSearch } from "@/server/providers/google-places-chat";
 import type { OpenMeteoForecastLocation } from "@/server/providers/open-meteo";
 import { fallbackWeatherSnapshot } from "@/server/public-pages/weather-snapshot";
 
@@ -37,6 +38,30 @@ describe("chat route", () => {
     expect(body.model).toBe("gpt-5.5");
     expect(dependencies.requests[0]?.messages[0]?.content).toBe(
       "Where should we eat near Cloud 9?",
+    );
+  });
+
+  test("passes Google Places context to restaurant recommendation questions", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "find me the best restaurant around cloud9" }],
+      }),
+      dependencies,
+    );
+
+    expect(response.status).toBe(200);
+    expect(dependencies.placesRequests).toHaveLength(1);
+    expect(dependencies.placesRequests[0]).toMatchObject({
+      label: "chat_restaurant_cloud_9",
+      textQuery: "find me the best restaurant around cloud9 Siargao Philippines",
+      includedType: "restaurant",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+      radiusMeters: 4_000,
+    });
+    expect(dependencies.requests[0]?.placesContext?.sourceProfileId).toBe("source_google_places");
+    expect(dependencies.requests[0]?.placesContext?.places[0]?.displayName).toBe(
+      "Kermit Surf Resort and Restaurant",
     );
   });
 
@@ -86,6 +111,20 @@ describe("chat route", () => {
     expect(dependencies.requests[0]?.weatherContext).toBeUndefined();
   });
 
+  test("does not fetch Google Places context for ordinary chat", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "How many nights should we stay in Siargao?" }],
+      }),
+      dependencies,
+    );
+
+    expect(response.status).toBe(200);
+    expect(dependencies.placesRequests).toHaveLength(0);
+    expect(dependencies.requests[0]?.placesContext).toBeUndefined();
+  });
+
   test("returns stable unavailable response when OpenAI is not configured", async () => {
     const response = await chatResponse(
       jsonRequest({ messages: [{ role: "user", content: "Hi" }] }),
@@ -106,6 +145,7 @@ function chatDependencies() {
   const requests: Parameters<ChatRouteDependencies["generateAskSiargaoChatResponse"]>[0][] = [];
   const dependencies: ChatRouteDependencies & {
     requests: typeof requests;
+    placesRequests: GooglePlacesChatSearch[];
     weatherLocations: OpenMeteoForecastLocation[];
     weatherRequests: number;
   } = {
@@ -124,7 +164,33 @@ function chatDependencies() {
       }
       return fallbackWeatherSnapshot;
     },
+    getGooglePlacesChatContext: async ({ search }) => {
+      dependencies.placesRequests.push(search);
+      return {
+        status: "available",
+        sourceName: "Google Places",
+        sourceProfileId: "source_google_places",
+        fetchedAt: "2026-06-24T00:00:00.000Z",
+        search,
+        fieldMask:
+          "places.id,places.name,places.displayName,places.formattedAddress,places.location,places.types,places.primaryType,places.businessStatus,places.googleMapsUri",
+        caveats: ["Basic chat lookup does not include reviews, ratings, or opening hours."],
+        places: [
+          {
+            placeId: "place_kermit",
+            resourceName: "places/place_kermit",
+            displayName: "Kermit Surf Resort and Restaurant",
+            formattedAddress: "Tourism Road, General Luna, Siargao",
+            types: ["restaurant", "food"],
+            primaryType: "restaurant",
+            businessStatus: "OPERATIONAL",
+            googleMapsUri: "https://maps.google.com/?cid=123",
+          },
+        ],
+      };
+    },
     requests,
+    placesRequests: [],
     weatherLocations: [],
     weatherRequests: 0,
   };

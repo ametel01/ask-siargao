@@ -5,6 +5,11 @@ import {
   generateAskSiargaoChatResponse,
 } from "@/server/llm/chat-adapter";
 import {
+  type GooglePlacesChatContext,
+  type GooglePlacesChatSearch,
+  getGooglePlacesChatContext,
+} from "@/server/providers/google-places-chat";
+import {
   type OpenMeteoForecastLocation,
   siargaoForecastLocations,
 } from "@/server/providers/open-meteo";
@@ -28,11 +33,13 @@ const chatRequestSchema = z.object({
 export type ChatRouteDependencies = {
   generateAskSiargaoChatResponse: typeof generateAskSiargaoChatResponse;
   getLatestSiargaoWeatherSnapshot?: typeof getLatestSiargaoWeatherSnapshot;
+  getGooglePlacesChatContext?: typeof getGooglePlacesChatContext;
 };
 
 const defaultDependencies: Required<ChatRouteDependencies> = {
   generateAskSiargaoChatResponse,
   getLatestSiargaoWeatherSnapshot,
+  getGooglePlacesChatContext,
 };
 
 export async function chatResponse(
@@ -67,9 +74,11 @@ export async function chatResponse(
 
   try {
     const weatherContext = await getWeatherContext(parsed.data.messages, dependencies);
+    const placesContext = await getPlacesContext(parsed.data.messages, dependencies);
     const result = await dependencies.generateAskSiargaoChatResponse({
       messages: parsed.data.messages satisfies AskSiargaoChatMessage[],
       ...(weatherContext ? { weatherContext } : {}),
+      ...(placesContext ? { placesContext } : {}),
     });
 
     return Response.json(result, { headers });
@@ -86,6 +95,28 @@ export async function chatResponse(
       },
       { status: missingConfiguration ? 503 : 502, headers },
     );
+  }
+}
+
+async function getPlacesContext(
+  messages: readonly AskSiargaoChatMessage[],
+  dependencies: ChatRouteDependencies,
+): Promise<GooglePlacesChatContext | undefined> {
+  const latestUserMessage = getLatestUserMessage(messages);
+  const search = latestUserMessage
+    ? buildGooglePlacesChatSearch(latestUserMessage.content)
+    : undefined;
+
+  if (!search) {
+    return undefined;
+  }
+
+  try {
+    const getContext =
+      dependencies.getGooglePlacesChatContext ?? defaultDependencies.getGooglePlacesChatContext;
+    return await getContext({ search });
+  } catch {
+    return undefined;
   }
 }
 
@@ -111,7 +142,7 @@ async function getWeatherContext(
 function detectWeatherLocation(
   messages: readonly AskSiargaoChatMessage[],
 ): OpenMeteoForecastLocation | undefined {
-  const latestUserMessage = [...messages].reverse().find((message) => message.role === "user");
+  const latestUserMessage = getLatestUserMessage(messages);
   const content = latestUserMessage?.content ?? "";
 
   if (/\bdel\s+carmen\b/i.test(content)) {
@@ -122,11 +153,90 @@ function detectWeatherLocation(
 }
 
 function isWeatherQuestion(messages: readonly AskSiargaoChatMessage[]) {
-  const latestUserMessage = [...messages].reverse().find((message) => message.role === "user");
+  const latestUserMessage = getLatestUserMessage(messages);
 
   return latestUserMessage
     ? /\b(weather|forecast|rain|raining|showers?|wind|windy|storm|cloudy|sunny|humidity|temperature|temp|tide|waves?|surf|sea conditions?)\b/i.test(
         latestUserMessage.content,
       )
     : false;
+}
+
+function buildGooglePlacesChatSearch(content: string): GooglePlacesChatSearch | undefined {
+  if (!isPlacesRecommendationQuestion(content)) {
+    return undefined;
+  }
+
+  const includedType = detectGooglePlacesIncludedType(content);
+  const area = detectGooglePlacesSearchArea(content);
+  return {
+    label: `chat_${includedType ?? "place"}_${area.slug}`,
+    textQuery: normalizeGooglePlacesTextQuery(content),
+    ...(includedType ? { includedType } : {}),
+    center: area.center,
+    radiusMeters: area.radiusMeters,
+    pageSize: 8,
+  };
+}
+
+function isPlacesRecommendationQuestion(content: string) {
+  return /\b(restaurants?|where\s+should\s+(we|i)\s+eat|eat|food|dinner|lunch|breakfast|brunch|cafes?|coffee|bars?|nightlife|places?\s+near|nearby\s+places?|best\s+.+\s+(near|around))\b/i.test(
+    content,
+  );
+}
+
+function detectGooglePlacesIncludedType(content: string) {
+  if (/\b(cafes?|coffee)\b/i.test(content)) {
+    return "cafe";
+  }
+
+  if (/\b(bars?|nightlife|cocktails?|drinks?)\b/i.test(content)) {
+    return "bar";
+  }
+
+  if (
+    /\b(restaurants?|where\s+should\s+(we|i)\s+eat|eat|food|dinner|lunch|breakfast|brunch)\b/i.test(
+      content,
+    )
+  ) {
+    return "restaurant";
+  }
+
+  return undefined;
+}
+
+function detectGooglePlacesSearchArea(content: string) {
+  if (/\b(cloud\s*9|cloud9|catangnan)\b/i.test(content)) {
+    return {
+      slug: "cloud_9",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+      radiusMeters: 4_000,
+    };
+  }
+
+  if (/\bgeneral\s+luna\b/i.test(content)) {
+    return {
+      slug: "general_luna",
+      center: { latitude: 9.8006, longitude: 126.1586 },
+      radiusMeters: 7_000,
+    };
+  }
+
+  return {
+    slug: "siargao",
+    center: { latitude: 9.8006, longitude: 126.1586 },
+    radiusMeters: 12_000,
+  };
+}
+
+function normalizeGooglePlacesTextQuery(content: string) {
+  const textQuery = content
+    .trim()
+    .replaceAll(/\s+/g, " ")
+    .replace(/[.?!]+$/g, "");
+  return /\bsiargao\b/i.test(textQuery) ? textQuery : `${textQuery} Siargao Philippines`;
+}
+
+function getLatestUserMessage(messages: readonly AskSiargaoChatMessage[]) {
+  return [...messages].reverse().find((message) => message.role === "user");
 }

@@ -43,6 +43,11 @@ type ChatComposerProps = {
 type AssistantMarkdownBlock =
   | {
       key: string;
+      type: "heading";
+      text: string;
+    }
+  | {
+      key: string;
       type: "paragraph";
       text: string;
     }
@@ -104,7 +109,10 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ messages: requestMessages }),
         });
-        const body = (await response.json()) as { message?: string; model?: string };
+        const body = (await response.json()) as {
+          message?: string;
+          model?: string;
+        };
 
         const responseMessage = body.message;
         const responseModel = body.model;
@@ -275,13 +283,14 @@ function ChatMessage({
     <article className="grid max-w-[min(92%,46rem)] grid-cols-[36px_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[44px_minmax(0,1fr)] sm:gap-4">
       <PalmMark className="mt-1 size-8 sm:size-10" />
       <div
+        data-testid="assistant-message-bubble"
         className={
           isError
-            ? "rounded-lg border border-[#ffb4a8]/45 bg-[#421915]/82 px-5 py-4 shadow-[0_18px_44px_rgba(0,0,0,0.18)]"
-            : "rounded-lg border border-white/14 bg-white/95 px-5 py-4 text-text-default shadow-[0_18px_44px_rgba(0,0,0,0.16)]"
+            ? "min-w-0 overflow-hidden rounded-lg border border-[#ffb4a8]/45 bg-[#421915]/82 px-5 py-4 shadow-[0_18px_44px_rgba(0,0,0,0.18)]"
+            : "min-w-0 overflow-hidden rounded-lg border border-white/14 bg-white/95 px-5 py-4 text-text-default shadow-[0_18px_44px_rgba(0,0,0,0.16)]"
         }
       >
-        <div className="flex items-start gap-3">
+        <div className="flex min-w-0 items-start gap-3">
           {isPending ? (
             <LoaderCircle
               aria-hidden="true"
@@ -320,33 +329,59 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
   const textClass = tone === "error" ? "text-text-on-dark" : "text-text-default";
   const strongClass =
     tone === "error" ? "font-extrabold text-white" : "font-extrabold text-text-strong";
+  const linkClass =
+    tone === "error"
+      ? "font-extrabold text-white underline decoration-white/45 underline-offset-4 break-words"
+      : "font-extrabold text-brand-violet-650 underline decoration-brand-violet-650/35 underline-offset-4 break-words";
 
   return (
-    <div className="grid min-w-0 gap-3">
-      {blocks.map((block) =>
-        block.type === "list" ? (
+    <div className="grid min-w-0 max-w-full flex-1 gap-3 overflow-hidden [overflow-wrap:anywhere]">
+      {blocks.map((block) => {
+        if (block.type === "heading") {
+          return (
+            <h3
+              className={`m-0 max-w-full text-sm leading-[1.35] font-black break-words sm:text-base ${strongClass}`}
+              key={block.key}
+            >
+              {block.text}
+            </h3>
+          );
+        }
+
+        return block.type === "list" ? (
           <ul
-            className={`m-0 list-disc space-y-1.5 pl-5 text-sm leading-[1.6] sm:text-base ${textClass}`}
+            className={`m-0 max-w-full list-disc space-y-1.5 pl-5 text-sm leading-[1.6] break-words sm:text-base ${textClass}`}
             key={block.key}
           >
             {block.items.map((item) => (
-              <li key={item.key}>
-                <InlineMarkdown strongClass={strongClass} value={item.text} />
+              <li className="min-w-0 break-words" key={item.key}>
+                <InlineMarkdown linkClass={linkClass} strongClass={strongClass} value={item.text} />
               </li>
             ))}
           </ul>
         ) : (
-          <p className={`m-0 text-sm leading-[1.6] sm:text-base ${textClass}`} key={block.key}>
-            <InlineMarkdown strongClass={strongClass} value={block.text} />
+          <p
+            className={`m-0 max-w-full text-sm leading-[1.6] break-words sm:text-base ${textClass}`}
+            key={block.key}
+          >
+            <InlineMarkdown linkClass={linkClass} strongClass={strongClass} value={block.text} />
           </p>
-        ),
-      )}
+        );
+      })}
     </div>
   );
 }
 
-function InlineMarkdown({ strongClass, value }: { strongClass: string; value: string }) {
-  return <>{buildInlineMarkdownNodes(value, strongClass)}</>;
+function InlineMarkdown({
+  linkClass,
+  strongClass,
+  value,
+}: {
+  linkClass: string;
+  strongClass: string;
+  value: string;
+}) {
+  return <>{buildInlineMarkdownNodes(value, strongClass, linkClass)}</>;
 }
 
 function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
@@ -402,6 +437,20 @@ function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
     }
 
     const bulletMatch = /^[-*]\s+(.+)$/.exec(line);
+    const headingMatch = /^#{1,3}\s+(.+)$/.exec(line);
+
+    if (headingMatch) {
+      flushParagraph();
+      flushList();
+      const headingText = headingMatch[1] ?? "";
+      blocks.push({
+        key: createAssistantMarkdownKey("heading", headingText, blockKeyCount),
+        type: "heading",
+        text: headingText,
+      });
+      blockKeyCount += 1;
+      continue;
+    }
 
     if (bulletMatch) {
       flushParagraph();
@@ -436,7 +485,11 @@ function createAssistantMarkdownKey(prefix: string, value: string, count: number
   return `${prefix}-${count}-${value.slice(0, 48)}`;
 }
 
-function buildInlineMarkdownNodes(value: string, strongClass: string): ReactNode[] {
+function buildInlineMarkdownNodes(
+  value: string,
+  strongClass: string,
+  linkClass: string,
+): ReactNode[] {
   const nodes: ReactNode[] = [];
   const boldPattern = /\*\*([^*]+)\*\*/g;
   let currentIndex = 0;
@@ -444,12 +497,12 @@ function buildInlineMarkdownNodes(value: string, strongClass: string): ReactNode
 
   while (match) {
     if (match.index > currentIndex) {
-      nodes.push(value.slice(currentIndex, match.index));
+      nodes.push(...buildLinkedTextNodes(value.slice(currentIndex, match.index), linkClass));
     }
 
     nodes.push(
       <strong className={strongClass} key={`strong-${match.index}`}>
-        {match[1]}
+        {buildLinkedTextNodes(match[1] ?? "", linkClass)}
       </strong>,
     );
     currentIndex = match.index + match[0].length;
@@ -457,10 +510,75 @@ function buildInlineMarkdownNodes(value: string, strongClass: string): ReactNode
   }
 
   if (currentIndex < value.length) {
+    nodes.push(...buildLinkedTextNodes(value.slice(currentIndex), linkClass));
+  }
+
+  return nodes;
+}
+
+function buildLinkedTextNodes(value: string, linkClass: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const urlPattern = /https?:\/\/[^\s<>"']+/gi;
+  let currentIndex = 0;
+  let match = urlPattern.exec(value);
+
+  while (match) {
+    const rawUrl = match[0] ?? "";
+    const normalizedUrl = normalizeAssistantUrl(rawUrl);
+
+    if (match.index > currentIndex) {
+      nodes.push(value.slice(currentIndex, match.index));
+    }
+
+    nodes.push(
+      <a
+        aria-label={`Open ${formatAssistantLinkText(normalizedUrl)} link`}
+        className={linkClass}
+        href={normalizedUrl}
+        key={`link-${match.index}-${normalizedUrl}`}
+        rel="noreferrer"
+        target="_blank"
+      >
+        {formatAssistantLinkText(normalizedUrl)}
+      </a>,
+    );
+
+    const trailingText = rawUrl.slice(normalizedUrl.length);
+    if (trailingText) {
+      nodes.push(trailingText);
+    }
+
+    currentIndex = match.index + rawUrl.length;
+    match = urlPattern.exec(value);
+  }
+
+  if (currentIndex < value.length) {
     nodes.push(value.slice(currentIndex));
   }
 
   return nodes;
+}
+
+function normalizeAssistantUrl(value: string) {
+  return value.replace(/[),.;:!?]+$/g, "");
+}
+
+function formatAssistantLinkText(value: string) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.replace(/^www\./, "");
+
+    if (
+      host === "maps.google.com" ||
+      (host.endsWith(".google.com") && url.pathname.startsWith("/maps"))
+    ) {
+      return "Google Maps";
+    }
+
+    return host;
+  } catch {
+    return value;
+  }
 }
 
 function ChatComposer({
@@ -482,7 +600,7 @@ function ChatComposer({
             aria-label="Ask anything about Siargao"
             className="h-11 px-3 text-base text-text-default placeholder:text-text-soft"
             disabled={isSending}
-            onChange={(event) => onInputValueChange(event.target.value)}
+            onInput={(event) => onInputValueChange(event.currentTarget.value)}
             placeholder="Ask anything about Siargao..."
             value={inputValue}
           />
