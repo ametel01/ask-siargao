@@ -51,6 +51,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Wired weather-related `/api/chat` requests to Siargao Open-Meteo weather context, including direct live fallback when stored forecast rows are unavailable and Del Carmen area detection.
 - Aligned landing-to-chat prompt links and copy with the GPT-only real chat surface, removing live-data and source-backed freshness claims from the landing shell.
 - Replaced the `/chat` mock sidebar/context workspace with one focused responsive real chat shell.
 - Completed final shadcn migration verification with Panda-free build/e2e gates and visual smoke checks across landing, chat, admin, status, public, and report surfaces.
@@ -72,6 +73,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Rendered assistant chat Markdown for bold text and bullet lists instead of collapsing formatted responses into a plain paragraph.
 - Hoisted the chat timestamp formatter so message rendering does not rebuild `Intl.DateTimeFormat` for every timestamp.
 - Hardened chat pending and error states with disabled in-flight controls, safe failure copy, retry affordance, and keyboard resubmission coverage.
 - Improved admin and public outline badge contrast after final visual inspection.

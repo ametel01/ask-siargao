@@ -4,6 +4,14 @@ import {
   type AskSiargaoChatMessage,
   generateAskSiargaoChatResponse,
 } from "@/server/llm/chat-adapter";
+import {
+  type OpenMeteoForecastLocation,
+  siargaoForecastLocations,
+} from "@/server/providers/open-meteo";
+import {
+  getLatestSiargaoWeatherSnapshot,
+  type WeatherSnapshot,
+} from "@/server/public-pages/weather-snapshot";
 
 const chatRequestSchema = z.object({
   messages: z
@@ -19,10 +27,12 @@ const chatRequestSchema = z.object({
 
 export type ChatRouteDependencies = {
   generateAskSiargaoChatResponse: typeof generateAskSiargaoChatResponse;
+  getLatestSiargaoWeatherSnapshot?: typeof getLatestSiargaoWeatherSnapshot;
 };
 
-const defaultDependencies: ChatRouteDependencies = {
+const defaultDependencies: Required<ChatRouteDependencies> = {
   generateAskSiargaoChatResponse,
+  getLatestSiargaoWeatherSnapshot,
 };
 
 export async function chatResponse(
@@ -56,8 +66,10 @@ export async function chatResponse(
   }
 
   try {
+    const weatherContext = await getWeatherContext(parsed.data.messages, dependencies);
     const result = await dependencies.generateAskSiargaoChatResponse({
       messages: parsed.data.messages satisfies AskSiargaoChatMessage[],
+      ...(weatherContext ? { weatherContext } : {}),
     });
 
     return Response.json(result, { headers });
@@ -75,4 +87,46 @@ export async function chatResponse(
       { status: missingConfiguration ? 503 : 502, headers },
     );
   }
+}
+
+async function getWeatherContext(
+  messages: readonly AskSiargaoChatMessage[],
+  dependencies: ChatRouteDependencies,
+): Promise<WeatherSnapshot | undefined> {
+  if (!isWeatherQuestion(messages)) {
+    return undefined;
+  }
+
+  try {
+    const getSnapshot =
+      dependencies.getLatestSiargaoWeatherSnapshot ??
+      defaultDependencies.getLatestSiargaoWeatherSnapshot;
+    const location = detectWeatherLocation(messages);
+    return await (location ? getSnapshot({ location }) : getSnapshot());
+  } catch {
+    return undefined;
+  }
+}
+
+function detectWeatherLocation(
+  messages: readonly AskSiargaoChatMessage[],
+): OpenMeteoForecastLocation | undefined {
+  const latestUserMessage = [...messages].reverse().find((message) => message.role === "user");
+  const content = latestUserMessage?.content ?? "";
+
+  if (/\bdel\s+carmen\b/i.test(content)) {
+    return siargaoForecastLocations.delCarmen;
+  }
+
+  return undefined;
+}
+
+function isWeatherQuestion(messages: readonly AskSiargaoChatMessage[]) {
+  const latestUserMessage = [...messages].reverse().find((message) => message.role === "user");
+
+  return latestUserMessage
+    ? /\b(weather|forecast|rain|raining|showers?|wind|windy|storm|cloudy|sunny|humidity|temperature|temp|tide|waves?|surf|sea conditions?)\b/i.test(
+        latestUserMessage.content,
+      )
+    : false;
 }

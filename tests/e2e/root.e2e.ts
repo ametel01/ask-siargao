@@ -16,7 +16,7 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Planning checks for Siargao" })).toBeVisible();
   await expect(page.getByText("Try asking about...")).toBeVisible();
   await expect(page.getByText("GPT-backed answers", { exact: true })).toBeVisible();
-  await expect(page.getByText("No live-data claims")).toBeVisible();
+  await expect(page.getByText("Weather snapshot support")).toBeVisible();
   await expect(page.getByText("Live local data")).toHaveCount(0);
   await expect(page.getByText("Freshness + confidence shown")).toHaveCount(0);
   await expect(page.getByText("Updated 12 min ago")).toHaveCount(0);

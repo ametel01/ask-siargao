@@ -39,9 +39,9 @@ const weatherRows: {
   icon: LucideIcon;
 }[] = [
   { label: "Forecast", value: "Ask in chat", icon: CloudSun },
-  { label: "Rain planning", value: "GPT-only", icon: CloudRain },
-  { label: "Wind planning", value: "No live feed", icon: Wind },
-  { label: "Data status", value: "Not source-backed yet", icon: Waves },
+  { label: "Rain planning", value: "Open-Meteo", icon: CloudRain },
+  { label: "Wind planning", value: "Snapshot", icon: Wind },
+  { label: "Data status", value: "Caveated in chat", icon: Waves },
 ];
 
 const examplePrompt =
@@ -78,7 +78,7 @@ const suggestionChips = [
 const trustItems = [
   ["GPT-backed answers", Globe2],
   ["No booking bias", Compass],
-  ["No live-data claims", Sparkles],
+  ["Weather snapshot support", Sparkles],
 ];
 
 const featureCards = [
@@ -91,7 +91,7 @@ const featureCards = [
   {
     icon: CloudSun,
     title: "Weather-aware planning",
-    body: "Ask how weather could affect plans; live feeds are not connected in this first chat slice.",
+    body: "Ask how weather could affect plans using the configured Open-Meteo snapshot when it is loaded.",
     link: "Check weather",
   },
   {
@@ -200,8 +200,8 @@ function Hero() {
           <em className="font-semibold text-brand-violet-400 italic">your trip.</em>
         </h1>
         <p className="mt-4 mb-0 max-w-[470px] text-sm leading-[1.45] font-bold text-text-on-dark-muted md:text-lg">
-          GPT-backed answers for where to stay, what to do, how to get around, and how weather could
-          affect your plans.
+          GPT-backed answers for where to stay, what to do, how to get around, and how the
+          configured weather snapshot could affect your plans.
         </p>
       </div>
       <div className="grid w-full max-w-[1118px] grid-cols-1 gap-4 self-start md:gap-6 min-[900px]:grid-cols-[minmax(0,785px)_309px]">
@@ -236,7 +236,7 @@ function PromptCard() {
             <Plus aria-hidden="true" size={18} />
           </Button>
           <Button
-            aria-label="Source-backed local data is not connected yet"
+            aria-label="Other source-backed local data is not connected yet"
             className="size-10 border-[rgba(8,47,57,0.16)] bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
             size="icon"
             type="button"

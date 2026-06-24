@@ -12,7 +12,8 @@ test("sends a desktop composer message to the chat API and renders the assistant
 }) => {
   await page.setViewportSize({ width: 2048, height: 1153 });
   const mockChat = await mockChatApi(page, {
-    message: "Mocked dinner answer: try Kermit or Bravo near Cloud 9 tonight.",
+    message:
+      "Mocked dinner answer:\n\n- **Kermit:** casual dinner near Cloud 9\n- **Bravo:** pizza nearby",
     waitForRelease: true,
   });
 
@@ -21,7 +22,8 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect(page.getByLabel("Ask Siargao chat workspace")).toBeVisible();
   await expect(page.getByRole("heading", { name: /Ask a real question/i })).toBeVisible();
   await expect(page.getByText("GPT-backed response")).toBeVisible();
-  await expect(page.getByText("does not check live weather")).toBeVisible();
+  await expect(page.getByText("Weather questions can use")).toBeVisible();
+  await expect(page.getByText("Open-Meteo snapshot")).toBeVisible();
   await expect(page.getByRole("link", { name: "Start a new chat" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Trip context" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Cloud 9 Weather" })).toHaveCount(0);
@@ -48,8 +50,10 @@ test("sends a desktop composer message to the chat API and renders the assistant
 
   mockChat.release();
 
+  await expect(page.getByText("Mocked dinner answer:")).toBeVisible();
+  await expect(page.locator("strong", { hasText: "Kermit:" })).toBeVisible();
   await expect(
-    page.getByText("Mocked dinner answer: try Kermit or Bravo near Cloud 9 tonight."),
+    page.getByRole("listitem").filter({ hasText: "Kermit: casual dinner near Cloud 9" }),
   ).toBeVisible();
   await expect(composerInput).toBeEnabled();
 

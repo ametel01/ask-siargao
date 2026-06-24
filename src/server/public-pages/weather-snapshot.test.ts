@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildWeatherSnapshotFromRows,
   fallbackWeatherSnapshot,
+  getLatestSiargaoWeatherSnapshot,
 } from "@/server/public-pages/weather-snapshot";
 
 const fetchedAt = "2026-06-24T04:00:00.000Z";
@@ -35,6 +36,12 @@ const rawPayload = {
     wind_gusts_10m_max: [33.5, 42.7, 30.2],
     wind_speed_10m_max: [18.2, 21.4, 17.1],
   },
+};
+const openMeteoResponseFixture = {
+  latitude: 9.75,
+  longitude: 126.125,
+  timezone: "Asia/Manila",
+  daily: rawPayload.daily,
 };
 
 describe("weather public snapshot", () => {
@@ -89,6 +96,36 @@ describe("weather public snapshot", () => {
 
   test("falls back when no public weather fact rows exist", () => {
     expect(buildWeatherSnapshotFromRows([])).toBe(fallbackWeatherSnapshot);
+  });
+
+  test("fetches a live Open-Meteo snapshot when no database is configured", async () => {
+    const snapshot = await getLatestSiargaoWeatherSnapshot({
+      databaseUrl: "",
+      fetcher: async () => Response.json(openMeteoResponseFixture),
+      now: new Date("2026-06-24T08:00:00.000Z"),
+    });
+
+    expect(snapshot.status).toBe("live");
+    expect(snapshot.sourceProfileId).toBe("source_open_meteo");
+    expect(snapshot.freshness).toBe("fresh");
+    expect(snapshot.today).toMatchObject({
+      condition: "Rain",
+      date: "2026-06-24",
+      precipitationProbability: 44,
+      windGust: 33.5,
+    });
+    expect(snapshot.summary).toContain("82%");
+    expect(snapshot.citationUrl).toContain("api.open-meteo.com");
+  });
+
+  test("keeps the safe fallback when direct Open-Meteo fetch fails", async () => {
+    const snapshot = await getLatestSiargaoWeatherSnapshot({
+      databaseUrl: "",
+      fetcher: async () => new Response("unavailable", { status: 503 }),
+      now: new Date("2026-06-24T08:00:00.000Z"),
+    });
+
+    expect(snapshot).toBe(fallbackWeatherSnapshot);
   });
 });
 

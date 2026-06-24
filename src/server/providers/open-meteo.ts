@@ -27,11 +27,30 @@ const rawSnapshotId = "raw_open_meteo_siargao_forecast";
 const forecastProviderEntityId = "open_meteo_siargao_forecast";
 const timezone = "Asia/Manila";
 
-const siargaoForecastLocation = {
-  name: "Siargao forecast near General Luna",
-  latitude: 9.784,
-  longitude: 126.158,
-} as const;
+export type OpenMeteoForecastLocation = {
+  id: "siargao_general_luna" | "siargao_del_carmen";
+  name: string;
+  latitude: number;
+  longitude: number;
+};
+
+export const siargaoForecastLocations = {
+  generalLuna: {
+    id: "siargao_general_luna",
+    name: "Siargao forecast near General Luna",
+    latitude: 9.784,
+    longitude: 126.158,
+  },
+  delCarmen: {
+    id: "siargao_del_carmen",
+    name: "Siargao forecast near Del Carmen",
+    latitude: 9.869,
+    longitude: 125.969,
+  },
+} as const satisfies Record<string, OpenMeteoForecastLocation>;
+
+const defaultSiargaoForecastLocation: OpenMeteoForecastLocation =
+  siargaoForecastLocations.generalLuna;
 
 const dailyVariables = [
   "weather_code",
@@ -42,7 +61,7 @@ const dailyVariables = [
   "wind_gusts_10m_max",
 ] as const;
 
-export type FetchLike = typeof fetch;
+export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export type OpenMeteoForecastDaily = {
   time: string[];
@@ -107,7 +126,7 @@ export type OpenMeteoIngestionBatch = {
   summary: OpenMeteoWeatherSummary;
 };
 
-export function buildOpenMeteoForecastUrl(location = siargaoForecastLocation) {
+export function buildOpenMeteoForecastUrl(location = defaultSiargaoForecastLocation) {
   const url = new URL(openMeteoForecastEndpoint);
   url.searchParams.set("latitude", String(location.latitude));
   url.searchParams.set("longitude", String(location.longitude));
@@ -119,8 +138,9 @@ export function buildOpenMeteoForecastUrl(location = siargaoForecastLocation) {
 
 async function fetchOpenMeteoForecast(
   fetcher: FetchLike = fetch,
+  location = defaultSiargaoForecastLocation,
 ): Promise<{ requestUrl: string; payload: OpenMeteoForecastResponse }> {
-  const requestUrl = buildOpenMeteoForecastUrl();
+  const requestUrl = buildOpenMeteoForecastUrl(location);
   const response = await fetcher(requestUrl, {
     headers: {
       accept: "application/json",
@@ -138,14 +158,17 @@ async function fetchOpenMeteoForecast(
 export async function buildOpenMeteoIngestionBatch(input: {
   fetchedAt?: Date;
   fetcher?: FetchLike;
+  location?: OpenMeteoForecastLocation;
   registry?: SourceRegistry;
 }) {
   const fetchedAt = input.fetchedAt ?? new Date();
   const fetchedAtIso = fetchedAt.toISOString();
   const registry = input.registry ?? createDefaultSourceRegistry();
-  const { requestUrl, payload } = await fetchOpenMeteoForecast(input.fetcher);
+  const location = input.location ?? defaultSiargaoForecastLocation;
+  const { requestUrl, payload } = await fetchOpenMeteoForecast(input.fetcher, location);
   return createOpenMeteoIngestionBatch({
     fetchedAt: fetchedAtIso,
+    location,
     payload,
     registry,
     requestUrl,
@@ -154,13 +177,15 @@ export async function buildOpenMeteoIngestionBatch(input: {
 
 export function createOpenMeteoIngestionBatch(input: {
   fetchedAt: string;
+  location?: OpenMeteoForecastLocation;
   payload: OpenMeteoForecastResponse;
   registry?: SourceRegistry;
   requestUrl?: string;
 }): OpenMeteoIngestionBatch {
   const registry = input.registry ?? createDefaultSourceRegistry();
   const profile = registry.require(sourceProfileId);
-  const requestUrl = input.requestUrl ?? buildOpenMeteoForecastUrl();
+  const location = input.location ?? defaultSiargaoForecastLocation;
+  const requestUrl = input.requestUrl ?? buildOpenMeteoForecastUrl(location);
   const fetchedAt = new Date(input.fetchedAt);
   const expiresAt = addDays(fetchedAt, profile.freshnessWindowDays).toISOString();
   const payload = parseOpenMeteoForecastResponse(input.payload);
@@ -177,12 +202,12 @@ export function createOpenMeteoIngestionBatch(input: {
     sourceProfileId,
     providerEntityId: forecastProviderEntityId,
     entityType: "weather",
-    name: siargaoForecastLocation.name,
+    name: location.name,
     sourceUrl: requestUrl,
     fetchedAt: input.fetchedAt,
     normalizedPayload: {
       forecastDays: summary.forecastDays,
-      location: siargaoForecastLocation,
+      location,
       maxPrecipitationDate: summary.maxPrecipitationDate,
       maxPrecipitationProbability: summary.maxPrecipitationProbability,
       maxRainDate: summary.maxRainDate,

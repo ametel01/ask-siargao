@@ -2,7 +2,7 @@
 
 import { Home, LoaderCircle, MessageSquarePlus, Send, Sparkles } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { InputGroup } from "@/components/ui/input-group";
@@ -39,6 +39,22 @@ type ChatComposerProps = {
   onInputValueChange: (value: string) => void;
   onSubmitPrompt: (prompt: string) => void;
 };
+
+type AssistantMarkdownBlock =
+  | {
+      key: string;
+      type: "paragraph";
+      text: string;
+    }
+  | {
+      key: string;
+      type: "list";
+      items: Array<{
+        key: string;
+        text: string;
+      }>;
+    };
+type AssistantMarkdownListItems = Extract<AssistantMarkdownBlock, { type: "list" }>["items"];
 
 export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }) {
   const [inputValue, setInputValue] = useState("");
@@ -273,15 +289,7 @@ function ChatMessage({
               size={18}
             />
           ) : null}
-          <p
-            className={
-              isError
-                ? "m-0 text-sm leading-[1.6] text-text-on-dark sm:text-base"
-                : "m-0 text-sm leading-[1.6] text-text-default sm:text-base"
-            }
-          >
-            {message.text}
-          </p>
+          <AssistantMarkdownText text={message.text} tone={isError ? "error" : "default"} />
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-extrabold">
           <time className={isError ? "text-[#ffd5ce]" : "text-text-soft"}>{message.timestamp}</time>
@@ -305,6 +313,154 @@ function ChatMessage({
       </div>
     </article>
   );
+}
+
+function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" | "error" }) {
+  const blocks = parseAssistantMarkdownBlocks(text);
+  const textClass = tone === "error" ? "text-text-on-dark" : "text-text-default";
+  const strongClass =
+    tone === "error" ? "font-extrabold text-white" : "font-extrabold text-text-strong";
+
+  return (
+    <div className="grid min-w-0 gap-3">
+      {blocks.map((block) =>
+        block.type === "list" ? (
+          <ul
+            className={`m-0 list-disc space-y-1.5 pl-5 text-sm leading-[1.6] sm:text-base ${textClass}`}
+            key={block.key}
+          >
+            {block.items.map((item) => (
+              <li key={item.key}>
+                <InlineMarkdown strongClass={strongClass} value={item.text} />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className={`m-0 text-sm leading-[1.6] sm:text-base ${textClass}`} key={block.key}>
+            <InlineMarkdown strongClass={strongClass} value={block.text} />
+          </p>
+        ),
+      )}
+    </div>
+  );
+}
+
+function InlineMarkdown({ strongClass, value }: { strongClass: string; value: string }) {
+  return <>{buildInlineMarkdownNodes(value, strongClass)}</>;
+}
+
+function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
+  const normalizedText = text
+    .replace(/\r\n?/g, "\n")
+    .replace(/\s+-\s+(\*\*[^*]+?\*\*:)/g, "\n- $1");
+  const blocks: AssistantMarkdownBlock[] = [];
+  let paragraphLines: string[] = [];
+  let listItems: AssistantMarkdownListItems = [];
+  let blockKeyCount = 0;
+  let itemKeyCount = 0;
+
+  const flushParagraph = () => {
+    if (paragraphLines.length === 0) {
+      return;
+    }
+
+    const paragraphText = paragraphLines.join(" ");
+    blocks.push({
+      key: createAssistantMarkdownKey("paragraph", paragraphText, blockKeyCount),
+      type: "paragraph",
+      text: paragraphText,
+    });
+    blockKeyCount += 1;
+    paragraphLines = [];
+  };
+
+  const flushList = () => {
+    if (listItems.length === 0) {
+      return;
+    }
+
+    blocks.push({
+      key: createAssistantMarkdownKey(
+        "list",
+        listItems.map((item) => item.text).join("|"),
+        blockKeyCount,
+      ),
+      type: "list",
+      items: listItems,
+    });
+    blockKeyCount += 1;
+    listItems = [];
+  };
+
+  for (const rawLine of normalizedText.split("\n")) {
+    const line = rawLine.trim();
+
+    if (!line) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const bulletMatch = /^[-*]\s+(.+)$/.exec(line);
+
+    if (bulletMatch) {
+      flushParagraph();
+      const itemText = bulletMatch[1] ?? "";
+      listItems.push({
+        key: createAssistantMarkdownKey("item", itemText, itemKeyCount),
+        text: itemText,
+      });
+      itemKeyCount += 1;
+      continue;
+    }
+
+    flushList();
+    paragraphLines.push(line);
+  }
+
+  flushParagraph();
+  flushList();
+
+  return blocks.length > 0
+    ? blocks
+    : [
+        {
+          key: "paragraph-fallback",
+          type: "paragraph",
+          text,
+        },
+      ];
+}
+
+function createAssistantMarkdownKey(prefix: string, value: string, count: number) {
+  return `${prefix}-${count}-${value.slice(0, 48)}`;
+}
+
+function buildInlineMarkdownNodes(value: string, strongClass: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const boldPattern = /\*\*([^*]+)\*\*/g;
+  let currentIndex = 0;
+  let match = boldPattern.exec(value);
+
+  while (match) {
+    if (match.index > currentIndex) {
+      nodes.push(value.slice(currentIndex, match.index));
+    }
+
+    nodes.push(
+      <strong className={strongClass} key={`strong-${match.index}`}>
+        {match[1]}
+      </strong>,
+    );
+    currentIndex = match.index + match[0].length;
+    match = boldPattern.exec(value);
+  }
+
+  if (currentIndex < value.length) {
+    nodes.push(value.slice(currentIndex));
+  }
+
+  return nodes;
 }
 
 function ChatComposer({
@@ -401,8 +557,9 @@ function ChatEmptyState({
             Ask a real question about your Siargao trip.
           </h1>
           <p className="m-0 max-w-xl text-base leading-[1.7] text-text-on-dark-muted">
-            This first chat version uses a GPT-backed response from Ask Siargao. It does not check
-            live weather, bookings, saved places, or local source evidence yet.
+            This first chat version uses a GPT-backed response from Ask Siargao. Weather questions
+            can use the configured Open-Meteo snapshot when available; bookings, saved places,
+            reviews, and other local source evidence are not connected yet.
           </p>
         </div>
       </div>

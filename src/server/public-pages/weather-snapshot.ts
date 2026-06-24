@@ -1,6 +1,11 @@
 import postgres from "postgres";
 
 import type { ConfidenceLabel } from "@/server/audit/enums";
+import {
+  buildOpenMeteoIngestionBatch,
+  type FetchLike,
+  type OpenMeteoForecastLocation,
+} from "@/server/providers/open-meteo";
 
 export type WeatherSnapshotStatus = "live" | "fallback";
 export type WeatherFreshness = "fresh" | "stale" | "unknown";
@@ -172,13 +177,21 @@ export const fallbackWeatherSnapshot: WeatherSnapshot = {
 
 export async function getLatestSiargaoWeatherSnapshot({
   databaseUrl = process.env.DATABASE_URL,
+  fetcher,
+  location,
   now = new Date(),
 }: {
   databaseUrl?: string;
+  fetcher?: FetchLike;
+  location?: OpenMeteoForecastLocation;
   now?: Date;
 } = {}): Promise<WeatherSnapshot> {
   if (!databaseUrl) {
-    return fallbackWeatherSnapshot;
+    return getLiveSiargaoWeatherSnapshot({ fetcher, location, now });
+  }
+
+  if (location) {
+    return getLiveSiargaoWeatherSnapshot({ fetcher, location, now });
   }
 
   const sql = postgres(databaseUrl, { max: 1, prepare: false });
@@ -214,11 +227,50 @@ export async function getLatestSiargaoWeatherSnapshot({
       order by facts.fetched_at desc, facts.fact_type asc
     `;
 
+    const storedSnapshot = buildWeatherSnapshotFromRows(rows, now);
+    return storedSnapshot.status === "live"
+      ? storedSnapshot
+      : getLiveSiargaoWeatherSnapshot({ fetcher, now });
+  } catch {
+    return getLiveSiargaoWeatherSnapshot({ fetcher, now });
+  } finally {
+    await sql.end({ timeout: 1 });
+  }
+}
+
+export async function getLiveSiargaoWeatherSnapshot({
+  fetcher,
+  location,
+  now = new Date(),
+}: {
+  fetcher?: FetchLike;
+  location?: OpenMeteoForecastLocation;
+  now?: Date;
+} = {}): Promise<WeatherSnapshot> {
+  try {
+    const batch = await buildOpenMeteoIngestionBatch({ fetchedAt: now, fetcher, location });
+    const rows: WeatherFactRow[] = batch.facts.map((fact) => {
+      const evidence = batch.evidence.find((candidate) => candidate.factId === fact.id);
+
+      return {
+        factId: fact.id,
+        factType: fact.factType,
+        claim: fact.claim,
+        fetchedAt: fact.fetchedAt,
+        expiresAt: fact.expiresAt ?? null,
+        confidenceLabel: fact.confidenceLabel,
+        evidenceId: evidence?.id ?? null,
+        citationUrl: evidence?.citationUrl ?? batch.requestUrl,
+        sourceName: "Open-Meteo weather API",
+        recordName: batch.sourceRecord.name,
+        normalizedPayload: batch.sourceRecord.normalizedPayload,
+        rawPayload: batch.rawPayload,
+      };
+    });
+
     return buildWeatherSnapshotFromRows(rows, now);
   } catch {
     return fallbackWeatherSnapshot;
-  } finally {
-    await sql.end({ timeout: 1 });
   }
 }
 

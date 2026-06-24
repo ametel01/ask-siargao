@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { type ChatRouteDependencies, chatResponse } from "@/app/api/chat/chat-route";
+import type { OpenMeteoForecastLocation } from "@/server/providers/open-meteo";
+import { fallbackWeatherSnapshot } from "@/server/public-pages/weather-snapshot";
 
 describe("chat route", () => {
   test("rejects malformed JSON request bodies", async () => {
@@ -38,6 +40,52 @@ describe("chat route", () => {
     );
   });
 
+  test("passes the Siargao weather snapshot to weather questions", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "What's the weather today in Siargao?" }],
+      }),
+      dependencies,
+    );
+
+    expect(response.status).toBe(200);
+    expect(dependencies.weatherRequests).toBe(1);
+    expect(dependencies.requests[0]?.weatherContext?.sourceProfileId).toBe("source_open_meteo");
+    expect(dependencies.requests[0]?.weatherContext?.summary).toContain("Open-Meteo");
+  });
+
+  test("uses the Del Carmen forecast location for Del Carmen weather questions", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          { role: "user", content: "What's the weather today in Siargao Del Carmen area?" },
+        ],
+      }),
+      dependencies,
+    );
+
+    expect(response.status).toBe(200);
+    expect(dependencies.weatherRequests).toBe(1);
+    expect(dependencies.weatherLocations[0]?.id).toBe("siargao_del_carmen");
+    expect(dependencies.weatherLocations[0]?.name).toContain("Del Carmen");
+  });
+
+  test("does not fetch weather context for non-weather questions", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Where should we eat near Cloud 9?" }],
+      }),
+      dependencies,
+    );
+
+    expect(response.status).toBe(200);
+    expect(dependencies.weatherRequests).toBe(0);
+    expect(dependencies.requests[0]?.weatherContext).toBeUndefined();
+  });
+
   test("returns stable unavailable response when OpenAI is not configured", async () => {
     const response = await chatResponse(
       jsonRequest({ messages: [{ role: "user", content: "Hi" }] }),
@@ -56,7 +104,11 @@ describe("chat route", () => {
 
 function chatDependencies() {
   const requests: Parameters<ChatRouteDependencies["generateAskSiargaoChatResponse"]>[0][] = [];
-  const dependencies: ChatRouteDependencies & { requests: typeof requests } = {
+  const dependencies: ChatRouteDependencies & {
+    requests: typeof requests;
+    weatherLocations: OpenMeteoForecastLocation[];
+    weatherRequests: number;
+  } = {
     generateAskSiargaoChatResponse: async (request) => {
       requests.push(request);
       return {
@@ -65,7 +117,16 @@ function chatDependencies() {
         requestId: "req_chat_test",
       };
     },
+    getLatestSiargaoWeatherSnapshot: async (options) => {
+      dependencies.weatherRequests += 1;
+      if (options?.location) {
+        dependencies.weatherLocations.push(options.location);
+      }
+      return fallbackWeatherSnapshot;
+    },
     requests,
+    weatherLocations: [],
+    weatherRequests: 0,
   };
 
   return dependencies;

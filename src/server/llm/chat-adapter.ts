@@ -1,5 +1,7 @@
 import OpenAI from "openai";
 
+import type { WeatherSnapshot } from "@/server/public-pages/weather-snapshot";
+
 export type AskSiargaoChatMessage = {
   role: "user" | "assistant";
   content: string;
@@ -30,6 +32,7 @@ export function createOpenAIChatClient(apiKey = process.env.OPENAI_API_KEY): Cha
 
 export async function generateAskSiargaoChatResponse(input: {
   messages: readonly AskSiargaoChatMessage[];
+  weatherContext?: WeatherSnapshot;
   model?: string;
   client?: ChatResponsesClient;
 }): Promise<AskSiargaoChatResponse> {
@@ -43,9 +46,13 @@ export async function generateAskSiargaoChatResponse(input: {
     input: JSON.stringify({
       product: "Ask Siargao",
       conversation: input.messages.slice(-10),
+      weatherContext: input.weatherContext
+        ? summarizeWeatherContext(input.weatherContext)
+        : undefined,
       responseContract: {
         tone: "practical local travel assistant",
-        caveat: "Say when live local data has not been checked yet.",
+        caveat:
+          "Use weatherContext when present. Say when other live local data has not been checked yet.",
       },
     }),
   });
@@ -61,12 +68,32 @@ export async function generateAskSiargaoChatResponse(input: {
   };
 }
 
+function summarizeWeatherContext(weather: WeatherSnapshot) {
+  return {
+    status: weather.status,
+    locationName: weather.locationName,
+    sourceName: weather.sourceName,
+    sourceProfileId: weather.sourceProfileId,
+    fetchedAt: weather.fetchedAt,
+    expiresAt: weather.expiresAt,
+    freshness: weather.freshness,
+    confidence: weather.confidence,
+    citationUrl: weather.citationUrl,
+    evidenceIds: weather.evidenceIds,
+    summary: weather.summary,
+    today: weather.today,
+    metrics: weather.metrics,
+  };
+}
+
 const askSiargaoChatInstructions = [
   "You are Ask Siargao, a practical Siargao travel assistant.",
   "Answer the traveler's latest question directly and conversationally.",
   "Use only general destination knowledge unless the prompt includes specific facts.",
-  "Do not pretend you checked live weather, reviews, opening hours, events, prices, or availability.",
-  "When live or source-backed data would materially improve the answer, say what should be checked.",
+  "When weatherContext is present, use it for Siargao weather, rain, wind, and forecast questions.",
+  "If weatherContext.status is fallback, say the live forecast snapshot has not been loaded yet.",
+  "Do not pretend you checked reviews, opening hours, events, prices, bookings, or availability.",
+  "When other live or source-backed data would materially improve the answer, say what should be checked.",
   "Prefer concise, actionable answers with Siargao-specific tradeoffs.",
   "Do not frame the product as a trip risk audit or paid report.",
 ].join("\n");
