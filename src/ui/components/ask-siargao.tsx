@@ -52,8 +52,8 @@ export function BrandLockup({ className }: { className?: string }) {
     <span
       className={cn("inline-flex items-center gap-3 text-text-on-dark no-underline", className)}
     >
-      <PalmMark />
-      <span className="font-heading text-lg leading-none font-bold">Ask Siargao</span>
+      <PalmMark className="size-12" />
+      <span className="font-heading text-[1.7rem] leading-none font-bold">Ask Siargao</span>
     </span>
   );
 }

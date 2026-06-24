@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("renders the desktop Ask Siargao chat workspace", async ({ page }) => {
+  await page.setViewportSize({ width: 2048, height: 1153 });
   await page.goto("/chat");
 
   await expect(page.getByLabel("Ask Siargao chat workspace")).toBeVisible();
@@ -10,7 +11,14 @@ test("renders the desktop Ask Siargao chat workspace", async ({ page }) => {
   await expect(page.getByText("Is this accommodation near Cloud 9 quiet at night?")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Trip context" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Cloud 9 Weather" })).toBeVisible();
-  await expect(page.getByLabel("Ask anything about your Siargao trip")).toBeVisible();
+
+  const composerInput = page.getByLabel("Ask anything about your Siargao trip");
+  await expect(composerInput).toBeVisible();
+
+  const composerBox = await composerInput.boundingBox();
+  expect(composerBox).not.toBeNull();
+  expect(composerBox?.y ?? 0).toBeGreaterThanOrEqual(0);
+  expect((composerBox?.y ?? 0) + (composerBox?.height ?? 0)).toBeLessThanOrEqual(1153);
 });
 
 test("renders the mobile Ask Siargao chat layout", async ({ page }) => {

@@ -5,16 +5,17 @@ import {
   ChevronDown,
   Clock3,
   CloudSun,
+  ExternalLink,
   ImageIcon,
   MapPin,
   Menu,
   MessageSquarePlus,
   Mic,
-  MoreHorizontal,
   Plus,
   RefreshCw,
   Send,
   Share2,
+  Sparkles,
   Users,
   Utensils,
 } from "lucide-react";
@@ -23,7 +24,6 @@ import type { CSSProperties, ReactNode } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   InputGroup,
@@ -51,13 +51,7 @@ import {
   SidebarProvider,
 } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import {
-  BrandLockup,
-  BrowserDots,
-  GradientLink,
-  PalmMark,
-  SignalBadge,
-} from "@/ui/components/ask-siargao";
+import { BrandLockup, GradientLink, PalmMark, SignalBadge } from "@/ui/components/ask-siargao";
 
 const savedPlaces = [
   ["Cloud 9 shortlist", "4 places"],
@@ -109,12 +103,11 @@ const restaurants = [
 
 export function ChatWorkspace() {
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[image:linear-gradient(90deg,rgba(5,8,42,0.96)_0%,rgba(7,10,48,0.88)_34%,rgba(43,24,106,0.42)_68%,rgba(5,8,42,0.62)_100%),linear-gradient(180deg,rgba(5,8,42,0.08)_0%,rgba(5,8,42,0.28)_46%,rgba(5,8,42,0.94)_100%),url('/images/hero-bg.png')] bg-[size:100%_100%,100%_100%,cover] bg-center bg-no-repeat lg:grid lg:items-center lg:p-5">
+    <main className="min-h-screen overflow-x-hidden bg-white lg:h-dvh">
       <section
         aria-label="Ask Siargao chat workspace"
-        className="relative mx-auto hidden h-[calc(100vh-40px)] min-h-0 w-full max-w-[1160px] overflow-hidden rounded-lg border border-brand-lavender-400/30 bg-[image:linear-gradient(140deg,rgba(5,8,42,0.98),rgba(16,18,74,0.95)_54%,rgba(93,62,209,0.48))] shadow-coastal-frame lg:block"
+        className="relative hidden h-dvh min-h-0 w-full overflow-hidden bg-white lg:block"
       >
-        <BrowserDots />
         <DesktopWorkspace />
       </section>
       <MobileWorkspace />
@@ -125,10 +118,10 @@ export function ChatWorkspace() {
 function DesktopWorkspace() {
   return (
     <SidebarProvider
-      className="h-full min-h-0"
-      style={{ "--sidebar-width": "230px" } as CSSProperties}
+      className="h-dvh max-h-dvh min-h-0 overflow-hidden"
+      style={{ "--sidebar-width": "400px" } as CSSProperties}
     >
-      <div className="grid h-full min-h-0 w-full grid-cols-[230px_minmax(0,1fr)_284px]">
+      <div className="grid h-full max-h-full min-h-0 w-full grid-cols-[400px_minmax(0,1fr)_416px] grid-rows-[minmax(0,1fr)] overflow-hidden">
         <LeftSidebar />
         <ConversationColumn />
         <RightSidebar />
@@ -141,25 +134,32 @@ function LeftSidebar() {
   return (
     <Sidebar
       aria-label="Trip sidebar"
-      className="w-[230px] border-r border-brand-lavender-400/20 bg-brand-navy-980/90"
+      className="w-[400px] border-r border-brand-lavender-400/20 bg-[#020a28]"
       collapsible="none"
     >
-      <SidebarHeader className="gap-4 p-4 pt-12">
+      <SidebarHeader className="gap-10 p-7 pt-9">
         <Link className="no-underline" href="/">
           <BrandLockup />
         </Link>
-        <GradientLink className="min-h-11 w-full justify-between" href="/chat">
-          + New question <ArrowRight aria-hidden="true" size={15} />
+        <GradientLink
+          className="min-h-[70px] w-full justify-between rounded-lg px-7 text-lg"
+          href="/chat"
+        >
+          <span className="inline-flex items-center gap-2">
+            <Plus aria-hidden="true" size={18} />
+            New question
+          </span>
+          <Sparkles aria-hidden="true" size={25} />
         </GradientLink>
       </SidebarHeader>
-      <SidebarContent className="gap-3 px-4">
+      <SidebarContent className="gap-5 px-7">
         <SidebarSection title="CURRENT TRIP">
-          <div className="flex items-center justify-between rounded-md border border-brand-lavender-400/30 bg-white/10 p-3">
+          <div className="flex min-h-[78px] items-center justify-between rounded-lg border border-brand-lavender-400/30 bg-white/10 px-5 py-4">
             <div>
               <strong className="block text-sm text-text-on-dark">June surf trip</strong>
-              <span className="mt-1 block text-xs text-text-on-dark-muted">Jun 12-22</span>
+              <span className="mt-1 block text-xs text-text-on-dark-muted">Jun 12 - 22</span>
             </div>
-            <span className="inline-flex size-7 items-center justify-center rounded-full bg-brand-violet-400/25 text-text-on-dark">
+            <span className="inline-flex size-10 items-center justify-center rounded-full bg-brand-violet-400/25 text-base font-black text-text-on-dark">
               2
             </span>
           </div>
@@ -168,27 +168,39 @@ function LeftSidebar() {
           {savedPlaces.map(([title, count]) => (
             <SidebarRow key={title} label={title} value={count} />
           ))}
-          <Link className="mt-1 text-xs font-black text-brand-violet-400 no-underline" href="/chat">
-            View all saved places
+          <Link
+            className="mt-2 inline-flex items-center justify-between text-sm font-extrabold text-text-on-dark no-underline"
+            href="/chat"
+          >
+            <span>View all saved places</span>
+            <ArrowRight aria-hidden="true" size={18} />
           </Link>
         </SidebarSection>
         <SidebarSection title="RECENT QUESTIONS">
           {recentQuestions.map(([title, time]) => (
             <SidebarRow key={title} label={title} value={time} />
           ))}
-          <Link className="mt-1 text-xs font-black text-brand-violet-400 no-underline" href="/chat">
-            View all history
+          <Link
+            className="mt-2 inline-flex items-center justify-between text-sm font-extrabold text-text-on-dark no-underline"
+            href="/chat"
+          >
+            <span>View all history</span>
+            <ArrowRight aria-hidden="true" size={18} />
           </Link>
         </SidebarSection>
       </SidebarContent>
-      <SidebarFooter className="p-3">
-        <div className="mt-auto grid min-h-[104px] gap-1.5 rounded-md border border-brand-lavender-400/25 bg-[image:linear-gradient(180deg,rgba(5,8,42,0.08),rgba(5,8,42,0.88)),url('/images/siargao-sunset.png')] bg-cover bg-center p-3">
+      <SidebarFooter className="p-7">
+        <div className="mt-auto grid min-h-[165px] gap-2 rounded-lg border border-brand-lavender-400/25 bg-[image:linear-gradient(180deg,rgba(5,8,42,0.05),rgba(5,8,42,0.76)),url('/images/siargao-sunset.png')] bg-cover bg-center p-5">
           <strong className="text-sm text-text-on-dark">Love Ask Siargao?</strong>
           <span className="text-xs leading-[1.45] text-text-on-dark-muted">
             Invite friends and unlock extra refreshes.
           </span>
-          <Link className="text-xs font-black text-text-on-dark no-underline" href="/chat">
-            Invite friends →
+          <Link
+            aria-label="Invite friends"
+            className="mt-auto inline-flex size-9 items-center justify-center rounded-md border border-white/70 text-text-on-dark no-underline"
+            href="/chat"
+          >
+            <ExternalLink aria-hidden="true" size={18} />
           </Link>
         </div>
       </SidebarFooter>
@@ -198,20 +210,20 @@ function LeftSidebar() {
 
 function SidebarSection({ children, title }: { children: ReactNode; title: string }) {
   return (
-    <SidebarGroup className="gap-1 border-t border-brand-lavender-400/20 p-0 pt-3">
-      <SidebarGroupLabel className="h-auto px-0 text-[0.6875rem] font-black tracking-[0.08em] text-brand-lavender-200/60">
+    <SidebarGroup className="gap-3 border-t border-brand-lavender-400/20 p-0 pt-6">
+      <SidebarGroupLabel className="h-auto px-0 text-xs font-black tracking-[0.08em] text-brand-lavender-200/65">
         {title}
       </SidebarGroupLabel>
-      <SidebarGroupContent className="grid gap-1">{children}</SidebarGroupContent>
+      <SidebarGroupContent className="grid gap-3">{children}</SidebarGroupContent>
     </SidebarGroup>
   );
 }
 
 function SidebarRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid gap-1 py-1">
-      <span className="text-xs font-extrabold text-text-on-dark">{label}</span>
-      <small className="text-[0.6875rem] text-brand-lavender-200/60">{value}</small>
+    <div className="grid gap-1 py-0.5">
+      <span className="text-sm font-extrabold text-text-on-dark">{label}</span>
+      <small className="text-xs text-brand-lavender-200/70">{value}</small>
     </div>
   );
 }
@@ -220,32 +232,29 @@ function ConversationColumn() {
   return (
     <section
       aria-label="Ask Siargao conversation"
-      className="grid min-h-0 min-w-0 grid-rows-[68px_minmax(0,1fr)_auto] bg-brand-lavender-50 text-text-default"
+      className="grid h-full min-h-0 min-w-0 overflow-hidden grid-rows-[114px_minmax(0,1fr)_auto] bg-white text-text-default"
     >
       <ChatHeader />
       <ScrollArea className="min-h-0">
-        <div className="grid min-h-full gap-2 bg-[image:linear-gradient(90deg,rgba(108,70,232,0.05)_1px,transparent_1px),linear-gradient(0deg,rgba(108,70,232,0.05)_1px,transparent_1px)] bg-[size:54px_54px] p-3">
-          <UserMessage text="Is this accommodation near Cloud 9 quiet at night?" />
+        <div className="grid min-h-full content-start gap-3 bg-white px-7 py-4">
+          <UserMessage
+            text="Is this accommodation near Cloud 9 quiet at night?"
+            timestamp="10:43 AM"
+          />
           <AssistantMessage
             text="Yes, it's generally quiet at night. It sits on a small lane set back from the main road, and most guests mention low noise after 10pm."
             timestamp="10:44 AM"
           >
             <EvidenceCard />
           </AssistantMessage>
-          <UserMessage text="Where should we eat tonight near Cloud 9?" />
+          <UserMessage text="Where should we eat tonight near Cloud 9?" timestamp="10:45 AM" />
           <AssistantMessage
             text="Here are great dinner spots within 10 minutes of Cloud 9 with good reviews tonight."
             timestamp="10:48 AM"
           >
             <RestaurantCards />
           </AssistantMessage>
-          <UserMessage text="What weather changes should we expect today?" />
-          <AssistantMessage
-            text="Expect more clouds and a higher chance of rain this afternoon, with stronger winds later. Best surf early morning."
-            timestamp="10:51 AM"
-          >
-            <WeatherEvidenceCard />
-          </AssistantMessage>
+          <UserMessage text="What weather changes should we expect today?" timestamp="10:49 AM" />
         </div>
       </ScrollArea>
       <Composer />
@@ -255,15 +264,15 @@ function ConversationColumn() {
 
 function ChatHeader() {
   return (
-    <header className="flex items-center justify-between border-b border-brand-lavender-300/70 bg-white/90 px-5">
+    <header className="flex items-center justify-between border-b border-brand-lavender-300/55 bg-white px-10">
       <div>
-        <h1 className="m-0 text-lg font-black text-text-strong">Ask Siargao</h1>
-        <span className="inline-flex items-center gap-2 text-xs font-extrabold text-text-muted">
+        <h1 className="m-0 text-[1.65rem] font-black text-text-strong">Ask Siargao</h1>
+        <span className="mt-2 inline-flex items-center gap-2 text-base font-extrabold text-text-muted">
           <span className="inline-block size-2 rounded-full bg-[#0f9f74]" />
           Local travel assistant
         </span>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
         <HeaderIconButton label="Refresh answer context">
           <RefreshCw aria-hidden="true" size={17} />
         </HeaderIconButton>
@@ -272,9 +281,9 @@ function ChatHeader() {
         </HeaderIconButton>
         <Avatar
           aria-label="Traveler profile"
-          className="size-9 bg-brand-violet-650 text-text-on-dark"
+          className="size-12 bg-brand-violet-650 text-text-on-dark"
         >
-          <AvatarFallback className="bg-brand-violet-650 text-xs font-black text-text-on-dark">
+          <AvatarFallback className="bg-brand-violet-650 text-base font-black text-text-on-dark">
             A
           </AvatarFallback>
         </Avatar>
@@ -289,7 +298,7 @@ function HeaderIconButton({ children, label }: { children: ReactNode; label: str
       <TooltipTrigger asChild>
         <Button
           aria-label={label}
-          className="size-9 rounded-lg border-border-strong bg-white text-brand-violet-650 hover:bg-brand-lavender-100 hover:text-brand-violet-700"
+          className="size-12 rounded-lg border-brand-lavender-300 bg-white text-brand-violet-650 shadow-[0_8px_22px_rgba(76,49,184,0.08)] hover:bg-brand-lavender-100 hover:text-brand-violet-700"
           size="icon"
           type="button"
           variant="outline"
@@ -302,11 +311,14 @@ function HeaderIconButton({ children, label }: { children: ReactNode; label: str
   );
 }
 
-function UserMessage({ text }: { text: string }) {
+function UserMessage({ text, timestamp }: { text: string; timestamp: string }) {
   return (
-    <div className="max-w-[74%] justify-self-end">
-      <p className="m-0 rounded-md bg-[image:var(--gradient-cta)] px-4 py-3 text-xs leading-[1.45] font-extrabold text-text-on-dark">
-        {text}
+    <div className="max-w-[62%] justify-self-end">
+      <p className="m-0 flex min-h-[54px] items-center gap-4 rounded-lg bg-[image:var(--gradient-cta)] px-6 py-3 text-base leading-[1.45] font-extrabold text-text-on-dark shadow-[0_14px_34px_rgba(76,49,184,0.2)]">
+        <span>{text}</span>
+        <span className="ml-auto whitespace-nowrap text-xs font-bold text-brand-lavender-200">
+          {timestamp} ✓✓
+        </span>
       </p>
     </div>
   );
@@ -322,13 +334,13 @@ function AssistantMessage({
   timestamp: string;
 }) {
   return (
-    <div className="grid max-w-[86%] grid-cols-[30px_minmax(0,1fr)] items-start gap-2">
-      <PalmMark className="size-7" />
-      <Card className="grid gap-2 border-brand-lavender-300/75 bg-surface-default p-3 shadow-[0_16px_42px_rgba(76,49,184,0.1)]">
-        <CardContent className="grid gap-2 p-0">
-          <p className="m-0 text-xs leading-[1.42] text-text-default">{text}</p>
+    <div className="grid max-w-[71%] grid-cols-[42px_minmax(0,1fr)] items-start gap-8">
+      <PalmMark className="mt-2 size-9" />
+      <Card className="grid gap-2 rounded-lg border-brand-lavender-300/70 bg-surface-default p-5 shadow-[0_18px_44px_rgba(76,49,184,0.09)]">
+        <CardContent className="grid gap-3 p-0">
+          <p className="m-0 text-base leading-[1.45] text-text-default">{text}</p>
           {children}
-          <small className="text-[0.6875rem] font-extrabold text-text-soft">{timestamp}</small>
+          <small className="text-sm font-extrabold text-text-soft">{timestamp}</small>
         </CardContent>
       </Card>
     </div>
@@ -337,14 +349,14 @@ function AssistantMessage({
 
 function EvidenceCard() {
   return (
-    <article className="grid grid-cols-[78px_minmax(0,1fr)] gap-2 rounded-md border border-brand-lavender-300/80 bg-brand-violet-600/5 p-2">
-      <div className="flex min-h-[74px] items-center justify-center rounded-md bg-[image:linear-gradient(rgba(5,8,42,0.1),rgba(5,8,42,0.2)),url('/images/siargao-sunset.png')] bg-cover bg-center text-text-on-dark">
+    <article className="grid grid-cols-[145px_minmax(0,1fr)] gap-4 rounded-lg border border-brand-lavender-300/80 bg-white p-4">
+      <div className="flex min-h-[138px] items-center justify-center rounded-lg bg-[image:linear-gradient(rgba(5,8,42,0.1),rgba(5,8,42,0.2)),url('/images/siargao-sunset.png')] bg-cover bg-center text-text-on-dark">
         <ImageIcon aria-hidden="true" size={20} />
       </div>
       <div>
-        <h2 className="m-0 text-xs text-text-strong">Harana Surf Resort</h2>
-        <p className="m-0 text-[0.6875rem] text-text-muted">Guest reviews (May 2024)</p>
-        <blockquote className="my-2 text-[0.6875rem] leading-[1.45] text-text-default">
+        <h2 className="m-0 text-base text-text-strong">Harana Surf Resort</h2>
+        <p className="m-0 text-sm text-text-muted">Guest reviews (May 2024)</p>
+        <blockquote className="my-3 text-sm leading-[1.45] font-extrabold text-text-default">
           "Very quiet at night, slept well every night." — Guest review
         </blockquote>
         <BadgeRow updated="Updated 12m ago" />
@@ -355,25 +367,23 @@ function EvidenceCard() {
 
 function RestaurantCards() {
   return (
-    <div className="grid gap-2">
+    <div className="grid gap-3">
       {restaurants.map(({ body, image, meta, title, updated }) => (
         <article
-          className="flex items-center gap-2 rounded-md border border-brand-lavender-300/80 bg-white/70 p-1.5"
+          className="flex items-center gap-3 rounded-lg border border-brand-lavender-300/80 bg-white p-2"
           key={title}
         >
           <span
             aria-hidden="true"
-            className="inline-flex h-[52px] w-[72px] shrink-0 items-center justify-center overflow-hidden rounded-md bg-cover bg-center text-text-on-dark [&_svg]:opacity-90 [&_svg]:drop-shadow-[0_1px_5px_rgba(5,8,42,0.5)]"
+            className="inline-flex h-[96px] w-[118px] shrink-0 items-center justify-center overflow-hidden rounded-lg bg-cover bg-center text-text-on-dark [&_svg]:opacity-90 [&_svg]:drop-shadow-[0_1px_5px_rgba(5,8,42,0.5)]"
             style={{ backgroundImage: image }}
           >
             <Utensils size={16} />
           </span>
           <div>
-            <h2 className="m-0 text-xs text-text-strong">{title}</h2>
-            <p className="m-0 text-[0.6875rem] leading-[1.35] text-text-muted">{meta}</p>
-            <strong className="mb-1 block text-[0.6875rem] leading-tight text-text-default">
-              {body}
-            </strong>
+            <h2 className="m-0 text-base text-text-strong">{title}</h2>
+            <p className="m-0 text-sm leading-[1.35] text-text-muted">{meta}</p>
+            <strong className="mb-2 block text-sm leading-tight text-text-default">{body}</strong>
             <BadgeRow updated={updated} />
           </div>
         </article>
@@ -382,26 +392,9 @@ function RestaurantCards() {
   );
 }
 
-function WeatherEvidenceCard() {
-  return (
-    <article className="grid grid-cols-[32px_minmax(0,1fr)] gap-2 rounded-md border border-brand-violet-400/30 bg-brand-sunset-gold/20 p-2 [&_svg]:text-brand-violet-650">
-      <CloudSun aria-hidden="true" size={24} />
-      <div>
-        <h2 className="m-0 text-sm text-text-strong">Siargao Weather Update</h2>
-        <p className="m-0 text-xs text-text-muted">PAGASA + Local Station Data</p>
-        <ul className="my-2 pl-4 text-xs leading-[1.45] text-text-default">
-          <li>Rain chance up to 60% after 2pm.</li>
-          <li>Winds increase to 22-25 km/h from the southwest.</li>
-        </ul>
-        <BadgeRow updated="Updated 12m ago" />
-      </div>
-    </article>
-  );
-}
-
 function BadgeRow({ updated }: { updated: string }) {
   return (
-    <div className="flex flex-wrap gap-1 [&_span]:min-h-[17px] [&_span]:px-1.5 [&_span]:text-[10px]">
+    <div className="flex flex-wrap gap-3 [&_span]:min-h-[24px] [&_span]:px-3 [&_span]:text-xs">
       <SignalBadge>Fresh</SignalBadge>
       <SignalBadge tone="high">High confidence</SignalBadge>
       <SignalBadge tone="local">{updated}</SignalBadge>
@@ -412,25 +405,25 @@ function BadgeRow({ updated }: { updated: string }) {
 
 function Composer() {
   return (
-    <footer className="grid gap-1 border-t border-brand-lavender-300/75 bg-brand-lavender-100/95 p-2 [&>p]:m-0 [&>p]:text-center [&>p]:text-[0.6875rem] [&>p]:text-text-soft">
-      <ButtonGroup className="justify-center gap-2 border-0">
+    <footer className="grid gap-4 border-t border-brand-lavender-300/65 bg-white px-9 pt-3 pb-4">
+      <div className="flex flex-wrap justify-start gap-4">
         {["quiet hotels", "restaurants tonight", "weather now"].map((chip) => (
           <Button
-            className="rounded-full border-brand-lavender-300 bg-surface-default px-3 py-0.5 text-xs font-black text-brand-violet-650 hover:bg-brand-lavender-100"
+            className="h-10 rounded-full border-brand-lavender-300 bg-surface-default px-6 text-base font-black text-brand-violet-650 hover:bg-brand-lavender-100"
             key={chip}
-            size="xs"
+            size="sm"
             type="button"
             variant="outline"
           >
             {chip}
           </Button>
         ))}
-      </ButtonGroup>
-      <InputGroup className="min-h-[42px] grid-cols-[34px_1fr_34px] rounded-lg border-brand-lavender-300 bg-surface-default p-1 shadow-card">
+      </div>
+      <InputGroup className="min-h-[68px] grid-cols-[56px_1fr_104px] rounded-lg border-brand-lavender-300 bg-surface-default p-2 shadow-card">
         <InputGroupAddon>
           <InputGroupButton
             aria-label="Add attachment"
-            className="size-8 rounded-lg bg-[rgba(108,70,232,0.1)] text-brand-violet-650 hover:bg-[rgba(108,70,232,0.16)]"
+            className="size-12 rounded-lg border border-brand-lavender-300 bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
             size="icon-sm"
             type="button"
             variant="ghost"
@@ -440,13 +433,22 @@ function Composer() {
         </InputGroupAddon>
         <InputGroupInput
           aria-label="Ask anything about your Siargao trip"
-          className="h-8 px-0 text-sm text-text-default placeholder:text-text-soft"
-          placeholder="Ask anything about your Siargao trip..."
+          className="h-12 px-0 text-lg text-text-default placeholder:text-text-soft"
+          placeholder="Ask anything about Siargao..."
         />
         <InputGroupAddon align="inline-end">
           <InputGroupButton
+            aria-label="Record voice question"
+            className="size-12 rounded-lg bg-transparent text-text-muted hover:bg-brand-lavender-100"
+            size="icon-sm"
+            type="button"
+            variant="ghost"
+          >
+            <Mic aria-hidden="true" size={22} />
+          </InputGroupButton>
+          <InputGroupButton
             aria-label="Send question"
-            className="size-8 rounded-lg bg-brand-violet-650 text-white hover:bg-brand-violet-600"
+            className="size-12 rounded-lg bg-brand-violet-650 text-white hover:bg-brand-violet-600"
             size="icon-sm"
             type="button"
           >
@@ -454,7 +456,6 @@ function Composer() {
           </InputGroupButton>
         </InputGroupAddon>
       </InputGroup>
-      <p>Answers use live local data. Check important details before you go.</p>
     </footer>
   );
 }
@@ -463,23 +464,21 @@ function RightSidebar() {
   return (
     <aside
       aria-label="Trip context sidebar"
-      className="min-h-0 border-l border-brand-lavender-300/75 bg-brand-lavender-100"
+      className="h-full min-h-0 overflow-hidden border-l border-brand-lavender-300/60 bg-[#fcfbff]"
     >
       <ScrollArea className="h-full">
-        <div className="grid gap-3 p-4">
+        <div className="grid gap-5 p-5">
           <ContextCard title="Trip context">
             {tripRows.map(({ icon: Icon, label, value }) => (
-              <div className="flex items-start gap-1" key={label}>
+              <div className="flex items-start gap-4" key={label}>
                 <Icon
                   aria-hidden="true"
                   className="mt-0.5 shrink-0 text-brand-violet-650"
-                  size={16}
+                  size={22}
                 />
                 <div className="grid gap-1">
-                  <span className="text-[0.6875rem] font-black text-text-soft">{label}</span>
-                  <strong className="text-[0.6875rem] leading-tight text-text-default">
-                    {value}
-                  </strong>
+                  <span className="text-xs font-black text-text-soft">{label}</span>
+                  <strong className="text-sm leading-tight text-text-default">{value}</strong>
                 </div>
               </div>
             ))}
@@ -497,7 +496,7 @@ function RightSidebar() {
           </ContextCard>
           <ContextCard title="Live surf conditions">
             <div className="flex items-center justify-between">
-              <strong className="text-base text-text-strong">Cloud 9</strong>
+              <strong className="text-lg text-text-strong">Cloud 9</strong>
               <SignalBadge>Good</SignalBadge>
             </div>
             <MetricGrid
@@ -507,17 +506,8 @@ function RightSidebar() {
                 ["Wind", "18 km/h SW"],
               ]}
             />
-            <SignalBadge tone="local">Updated 20 min ago</SignalBadge>
+            <SignalBadge>Updated 20 min ago</SignalBadge>
           </ContextCard>
-          <Link
-            className="grid min-h-[130px] rounded-md bg-[image:linear-gradient(180deg,rgba(5,8,42,0.1),rgba(5,8,42,0.72)),url('/images/siargao-sunset.png')] bg-cover bg-center p-3 text-text-on-dark no-underline"
-            href="/chat"
-          >
-            <span className="self-end text-xs font-extrabold">General Luna, Siargao</span>
-            <strong className="mt-2 inline-flex justify-self-start rounded-md bg-surface-default px-3 py-2 text-xs leading-none font-black text-text-strong whitespace-nowrap">
-              View area guide →
-            </strong>
-          </Link>
         </div>
       </ScrollArea>
     </aside>
@@ -526,12 +516,19 @@ function RightSidebar() {
 
 function ContextCard({ children, title }: { children: ReactNode; title: string }) {
   return (
-    <Card className="border-brand-lavender-300/80 bg-surface-default p-3 shadow-[0_14px_36px_rgba(76,49,184,0.1)]">
-      <CardContent className="grid gap-3 p-0">
-        <h2 className="m-0 flex items-center justify-between text-sm font-black text-text-strong">
+    <Card className="rounded-lg border-brand-lavender-300/75 bg-surface-default p-5 shadow-[0_14px_34px_rgba(76,49,184,0.07)]">
+      <CardContent className="grid gap-6 p-0">
+        <h2 className="m-0 flex items-center justify-between text-lg font-black text-text-strong">
           <span>{title}</span>
           {title === "Trip context" ? (
-            <MoreHorizontal aria-hidden="true" className="text-text-soft" size={15} />
+            <Button
+              className="h-9 rounded-lg border-brand-lavender-300 bg-white px-4 text-xs font-black text-brand-violet-650 hover:bg-brand-lavender-100"
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Edit
+            </Button>
           ) : null}
         </h2>
         {children}
@@ -542,11 +539,11 @@ function ContextCard({ children, title }: { children: ReactNode; title: string }
 
 function WeatherMetric({ temperature }: { temperature: string }) {
   return (
-    <div className="flex items-center gap-3 [&_svg]:text-brand-violet-650">
-      <CloudSun aria-hidden="true" size={24} />
+    <div className="flex items-center gap-5 [&_svg]:text-brand-violet-650">
+      <CloudSun aria-hidden="true" size={50} />
       <div>
-        <strong className="block text-xl text-text-strong">{temperature}</strong>
-        <span className="text-[0.6875rem] text-text-muted">Feels like 30°C</span>
+        <strong className="block text-3xl font-medium text-text-strong">{temperature}</strong>
+        <span className="text-sm text-text-muted">Feels like 30°C</span>
       </div>
     </div>
   );
@@ -556,9 +553,9 @@ function MetricGrid({ rows }: { rows: string[][] }) {
   return (
     <div className="grid grid-cols-3 gap-2">
       {rows.map(([label, value]) => (
-        <div className="rounded-md bg-brand-violet-600/10 p-2" key={label}>
-          <span className="block text-[0.6875rem] font-black text-text-soft">{label}</span>
-          <strong className="text-[0.6875rem] text-text-strong">{value}</strong>
+        <div className="min-h-[78px] rounded-lg bg-brand-violet-600/8 p-3" key={label}>
+          <span className="block text-xs font-black text-text-soft">{label}</span>
+          <strong className="mt-2 block text-sm text-text-strong">{value}</strong>
         </div>
       ))}
     </div>
