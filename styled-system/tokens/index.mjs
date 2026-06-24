@@ -1540,7 +1540,7 @@ const tokens = {
     "variable": "var(--gradients-coastal-overlay)"
   },
   "gradients.cta": {
-    "value": "linear-gradient(135deg, #875cf6 0%, #6c46e8 52%, #5d3ed1 100%)",
+    "value": "linear-gradient(135deg, #875cf6 0%, #6c46e8 56%, #4c31b8 100%)",
     "variable": "var(--gradients-cta)"
   },
   "gradients.priceCard": {
@@ -1716,7 +1716,7 @@ const tokens = {
     "variable": "var(--shadows-strong)"
   },
   "shadows.cta": {
-    "value": "0 10px 24px rgba(108, 70, 232, 0.35)",
+    "value": "0 10px 28px rgba(108, 70, 232, 0.34)",
     "variable": "var(--shadows-cta)"
   },
   "shadows.violetGlow": {

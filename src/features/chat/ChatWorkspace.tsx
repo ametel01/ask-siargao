@@ -18,13 +18,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
-import {
-  BrandLockup,
-  BrowserFrame,
-  GradientLink,
-  PalmMark,
-  SignalBadge,
-} from "@/ui/components/ask-siargao";
+import { BrandLockup, GradientLink, PalmMark, SignalBadge } from "@/ui/components/ask-siargao";
 import { css } from "../../../styled-system/css/css";
 import { cx } from "../../../styled-system/css/cx";
 
@@ -77,9 +71,9 @@ const restaurants = [
 export function ChatWorkspace() {
   return (
     <main className={page()}>
-      <BrowserFrame className={desktopFrame()} label="Ask Siargao chat workspace">
+      <section aria-label="Ask Siargao chat workspace" className={desktopFrame()}>
         <DesktopWorkspace />
-      </BrowserFrame>
+      </section>
       <MobileWorkspace />
     </main>
   );
@@ -480,8 +474,7 @@ function MobileRecommendation({ subtitle, title }: { subtitle: string; title: st
 
 function page() {
   return css({
-    background:
-      "radial-gradient(circle at 12% 10%, rgba(255,155,131,0.13), transparent 26rem), linear-gradient(135deg, #05082a 0%, #090d3a 50%, #17105a 100%)",
+    background: "linear-gradient(180deg, #062f39 0%, #08232e 44%, #07141d 100%)",
     minH: "100vh",
     overflowX: "hidden",
     p: { base: "0", lg: "5" },
@@ -490,32 +483,37 @@ function page() {
 
 function desktopFrame() {
   return css({
+    background:
+      "linear-gradient(140deg, rgba(7,20,29,0.98), rgba(8,35,46,0.96) 52%, rgba(92,61,43,0.72))",
+    borderColor: "rgba(255,247,223,0.18)",
+    borderRadius: "lg",
+    borderWidth: "1px",
+    boxShadow: "0 28px 90px rgba(0,0,0,0.38)",
     display: { base: "none", lg: "block" },
     maxW: "1320px",
     minH: "820px",
     mx: "auto",
+    overflow: "hidden",
   });
 }
 
 function desktopWorkspace() {
   return css({
     display: "grid",
-    gridTemplateColumns: "270px minmax(0, 1fr) 310px",
+    gridTemplateColumns: "286px minmax(0, 1fr) 320px",
     minH: "820px",
-    pt: "10",
   });
 }
 
 function leftSidebar() {
   return css({
-    bg: "rgba(5,8,42,0.9)",
-    borderRightColor: "rgba(255,255,255,0.12)",
+    bg: "rgba(5,22,28,0.94)",
+    borderRightColor: "rgba(255,247,223,0.12)",
     borderRightWidth: "1px",
     display: "flex",
     flexDirection: "column",
     gap: "5",
     p: "5",
-    pt: "8",
   });
 }
 
@@ -532,13 +530,13 @@ function newQuestionButton() {
 
 function sidebarSection() {
   return css({
-    borderTopColor: "rgba(255,255,255,0.1)",
+    borderTopColor: "rgba(255,247,223,0.12)",
     borderTopWidth: "1px",
     display: "grid",
     gap: "2",
     pt: "4",
     "& h2": {
-      color: "rgba(226,220,247,0.58)",
+      color: "rgba(255,247,223,0.5)",
       fontSize: "2xs",
       fontWeight: "900",
       letterSpacing: "0.08em",
@@ -550,8 +548,8 @@ function sidebarSection() {
 function activeTripCard() {
   return css({
     alignItems: "center",
-    bg: "rgba(255,255,255,0.08)",
-    borderColor: "rgba(255,255,255,0.14)",
+    bg: "rgba(255,247,223,0.08)",
+    borderColor: "rgba(127,226,192,0.18)",
     borderRadius: "md",
     borderWidth: "1px",
     display: "flex",
@@ -574,7 +572,7 @@ function activeTripCard() {
 function travelerCount() {
   return css({
     alignItems: "center",
-    bg: "rgba(135,92,246,0.22)",
+    bg: "rgba(127,226,192,0.18)",
     borderRadius: "pill",
     color: "text.onDark",
     display: "inline-flex",
@@ -603,7 +601,7 @@ function sidebarRow() {
 
 function sidebarLink() {
   return css({
-    color: "lavender.400",
+    color: "#7fe2c0",
     fontSize: "xs",
     fontWeight: "900",
     mt: "1",
@@ -614,7 +612,7 @@ function sidebarLink() {
 function inviteCard() {
   return css({
     background:
-      "linear-gradient(180deg, rgba(5,8,42,0.2), rgba(5,8,42,0.86)), url('/images/siargao-sunset.png') center / cover",
+      "linear-gradient(180deg, rgba(6,47,57,0.08), rgba(6,47,57,0.88)), url('/images/siargao-sunset.png') center / cover",
     borderColor: "rgba(255,255,255,0.16)",
     borderRadius: "md",
     borderWidth: "1px",
@@ -635,7 +633,7 @@ function inviteCard() {
 
 function conversationColumn() {
   return css({
-    bg: "#f6f3ff",
+    bg: "#fff7df",
     color: "text",
     display: "grid",
     gridTemplateRows: "74px 1fr auto",
@@ -646,14 +644,14 @@ function conversationColumn() {
 function chatHeader() {
   return css({
     alignItems: "center",
-    bg: "rgba(255,255,255,0.78)",
-    borderBottomColor: "rgba(13,16,74,0.1)",
+    bg: "rgba(255,247,223,0.9)",
+    borderBottomColor: "rgba(8,47,57,0.12)",
     borderBottomWidth: "1px",
     display: "flex",
     justifyContent: "space-between",
     px: "6",
     "& h1": {
-      color: "text.strong",
+      color: "#08232e",
       fontSize: "lg",
       fontWeight: "900",
       m: 0,
@@ -674,7 +672,7 @@ function statusLabel() {
 
 function statusDot() {
   return css({
-    bg: "confidence.high",
+    bg: "#0f9f74",
     borderRadius: "pill",
     display: "inline-block",
     h: "2",
@@ -689,11 +687,11 @@ function headerActions() {
     gap: "2",
     "& button": {
       alignItems: "center",
-      bg: "surface",
-      borderColor: "border",
+      bg: "#fffdf5",
+      borderColor: "rgba(8,47,57,0.14)",
       borderRadius: "md",
       borderWidth: "1px",
-      color: "violet.650",
+      color: "#0a6574",
       cursor: "pointer",
       display: "inline-flex",
       h: "9",
@@ -706,7 +704,7 @@ function headerActions() {
 function avatar() {
   return css({
     alignItems: "center",
-    bg: "violet.650",
+    bg: "#0a6574",
     borderRadius: "pill",
     color: "text.onDark",
     display: "inline-flex",
@@ -720,6 +718,9 @@ function avatar() {
 
 function messageList() {
   return css({
+    background:
+      "linear-gradient(90deg, rgba(8,47,57,0.04) 1px, transparent 1px), linear-gradient(0deg, rgba(8,47,57,0.04) 1px, transparent 1px)",
+    backgroundSize: "54px 54px",
     display: "grid",
     gap: "5",
     overflowY: "auto",
@@ -732,9 +733,9 @@ function userMessage() {
     justifySelf: "end",
     maxW: "74%",
     "& p": {
-      background: "linear-gradient(135deg, #eeeafd, #d9ccff)",
+      background: "linear-gradient(135deg, #0a6574, #083f4b)",
       borderRadius: "md",
-      color: "text.strong",
+      color: "text.onDark",
       fontSize: "sm",
       fontWeight: "800",
       lineHeight: "1.45",
@@ -763,11 +764,11 @@ function assistantAvatar() {
 
 function assistantMessage() {
   return css({
-    bg: "surface",
-    borderColor: "rgba(13,16,74,0.08)",
+    bg: "#fffdf5",
+    borderColor: "rgba(8,47,57,0.12)",
     borderRadius: "md",
     borderWidth: "1px",
-    boxShadow: "card",
+    boxShadow: "0 16px 42px rgba(8,47,57,0.1)",
     display: "grid",
     gap: "4",
     p: "4",
@@ -787,8 +788,8 @@ function assistantMessage() {
 
 function evidenceCard() {
   return css({
-    bg: "surface.soft",
-    borderColor: "border",
+    bg: "rgba(10,101,116,0.06)",
+    borderColor: "rgba(8,47,57,0.14)",
     borderRadius: "md",
     borderWidth: "1px",
     display: "grid",
@@ -837,8 +838,8 @@ function restaurantGrid() {
 
 function restaurantCard() {
   return css({
-    bg: "surface.soft",
-    borderColor: "border",
+    bg: "rgba(255,255,255,0.64)",
+    borderColor: "rgba(8,47,57,0.14)",
     borderRadius: "md",
     borderWidth: "1px",
     display: "grid",
@@ -853,7 +854,7 @@ function restaurantCard() {
 function restaurantThumb() {
   return css({
     alignItems: "center",
-    bg: "violet.650",
+    bg: "#0a6574",
     borderRadius: "md",
     color: "text.onDark",
     display: "inline-flex",
@@ -865,15 +866,15 @@ function restaurantThumb() {
 
 function weatherEvidence() {
   return css({
-    bg: "surface.soft",
-    borderColor: "border",
+    bg: "rgba(255,211,111,0.16)",
+    borderColor: "rgba(141,91,50,0.18)",
     borderRadius: "md",
     borderWidth: "1px",
     display: "grid",
     gap: "3",
     gridTemplateColumns: "32px minmax(0, 1fr)",
     p: "3",
-    "& svg": { color: "violet.650" },
+    "& svg": { color: "#0a6574" },
     "& h2": { color: "text.strong", fontSize: "sm", m: 0 },
     "& p": { color: "text.muted", fontSize: "xs", m: 0 },
     "& ul": { color: "text", fontSize: "xs", lineHeight: "1.45", m: "2 0", pl: "4" },
@@ -882,8 +883,8 @@ function weatherEvidence() {
 
 function composerWrap() {
   return css({
-    bg: "rgba(246,243,255,0.92)",
-    borderTopColor: "rgba(13,16,74,0.1)",
+    bg: "rgba(255,247,223,0.94)",
+    borderTopColor: "rgba(8,47,57,0.12)",
     borderTopWidth: "1px",
     display: "grid",
     gap: "3",
@@ -903,11 +904,11 @@ function quickChips() {
     gap: "2",
     justifyContent: "center",
     "& a": {
-      bg: "surface",
-      borderColor: "border",
+      bg: "#fffdf5",
+      borderColor: "rgba(8,47,57,0.14)",
       borderRadius: "pill",
       borderWidth: "1px",
-      color: "violet.650",
+      color: "#0a6574",
       fontSize: "xs",
       fontWeight: "900",
       px: "3",
@@ -920,8 +921,8 @@ function quickChips() {
 function composer() {
   return css({
     alignItems: "center",
-    bg: "surface",
-    borderColor: "border",
+    bg: "#fffdf5",
+    borderColor: "rgba(8,47,57,0.14)",
     borderRadius: "lg",
     borderWidth: "1px",
     boxShadow: "card",
@@ -941,11 +942,11 @@ function composer() {
       width: "10",
     },
     "& button:first-child": {
-      bg: "lavender.100",
-      color: "violet.650",
+      bg: "rgba(10,101,116,0.1)",
+      color: "#0a6574",
     },
     "& button:last-child": {
-      bg: "violet.650",
+      bg: "#0a6574",
       color: "text.onDark",
     },
     "& input": {
@@ -961,8 +962,8 @@ function composer() {
 
 function rightSidebar() {
   return css({
-    bg: "#fbfaff",
-    borderLeftColor: "rgba(13,16,74,0.1)",
+    bg: "#f6ead2",
+    borderLeftColor: "rgba(8,47,57,0.14)",
     borderLeftWidth: "1px",
     display: "grid",
     gap: "4",
@@ -972,11 +973,11 @@ function rightSidebar() {
 
 function contextCard() {
   return css({
-    bg: "surface",
-    borderColor: "border",
+    bg: "#fffdf5",
+    borderColor: "rgba(8,47,57,0.13)",
     borderRadius: "md",
     borderWidth: "1px",
-    boxShadow: "card",
+    boxShadow: "0 14px 36px rgba(8,47,57,0.09)",
     display: "grid",
     gap: "3",
     p: "4",
@@ -1003,7 +1004,7 @@ function weatherMetric() {
     alignItems: "center",
     display: "flex",
     gap: "3",
-    "& svg": { color: "violet.650" },
+    "& svg": { color: "#0a6574" },
     "& strong": { color: "text.strong", display: "block", fontSize: "2xl" },
     "& span": { color: "text.muted", fontSize: "xs" },
   });
@@ -1015,7 +1016,7 @@ function metricGrid() {
     gap: "2",
     gridTemplateColumns: "repeat(3, 1fr)",
     "& div": {
-      bg: "lavender.50",
+      bg: "rgba(10,101,116,0.08)",
       borderRadius: "md",
       p: "2",
     },
@@ -1069,7 +1070,7 @@ function areaGuideCard() {
 
 function mobileWorkspace() {
   return css({
-    bg: "rgba(5,8,42,0.98)",
+    bg: "#07141d",
     color: "text.onDark",
     display: { base: "grid", lg: "none" },
     gridTemplateRows: "auto auto 1fr auto",
@@ -1107,8 +1108,8 @@ function mobileHeader() {
 function tripPill() {
   return css({
     alignItems: "center",
-    bg: "rgba(255,255,255,0.08)",
-    borderColor: "rgba(255,255,255,0.14)",
+    bg: "rgba(255,247,223,0.08)",
+    borderColor: "rgba(127,226,192,0.2)",
     borderRadius: "pill",
     borderWidth: "1px",
     color: "text.onDarkMuted",
@@ -1138,7 +1139,7 @@ function mobileMessages() {
 
 function mobileUserMessage() {
   return css({
-    background: "linear-gradient(135deg, #875cf6, #5d3ed1)",
+    background: "linear-gradient(135deg, #0a6574, #083f4b)",
     borderRadius: "md",
     color: "text.onDark",
     fontSize: "sm",
@@ -1157,8 +1158,8 @@ function mobileAssistantMessage() {
     gap: "3",
     gridTemplateColumns: "34px minmax(0, 1fr)",
     "& > div": {
-      bg: "rgba(255,255,255,0.08)",
-      borderColor: "rgba(255,255,255,0.14)",
+      bg: "rgba(255,247,223,0.09)",
+      borderColor: "rgba(255,247,223,0.14)",
       borderRadius: "md",
       borderWidth: "1px",
       p: "4",
@@ -1178,14 +1179,14 @@ function mobileCards() {
     gap: "2",
     "& article": {
       alignItems: "center",
-      bg: "rgba(255,255,255,0.08)",
+      bg: "rgba(127,226,192,0.1)",
       borderRadius: "md",
       display: "grid",
       gap: "2",
       gridTemplateColumns: "24px 1fr auto",
       p: "3",
     },
-    "& svg": { color: "lavender.400" },
+    "& svg": { color: "#7fe2c0" },
     "& strong": { color: "text.onDark", display: "block", fontSize: "xs" },
     "& span": { color: "text.onDarkMuted", display: "block", fontSize: "2xs" },
   });
@@ -1194,8 +1195,8 @@ function mobileCards() {
 function mobileComposer() {
   return css({
     alignItems: "center",
-    bg: "rgba(5,8,42,0.98)",
-    borderTopColor: "rgba(255,255,255,0.1)",
+    bg: "rgba(7,20,29,0.98)",
+    borderTopColor: "rgba(255,247,223,0.1)",
     borderTopWidth: "1px",
     display: "grid",
     gap: "2",
@@ -1214,8 +1215,8 @@ function mobileComposer() {
       width: "10",
     },
     "& button:last-child": {
-      bg: "violet.650",
-      borderColor: "violet.650",
+      bg: "#0a6574",
+      borderColor: "#0a6574",
     },
     "& input": {
       bg: "rgba(255,255,255,0.1)",

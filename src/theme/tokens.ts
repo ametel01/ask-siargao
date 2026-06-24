@@ -75,7 +75,7 @@ export const tokens = {
         "linear-gradient(90deg, rgba(5, 8, 42, 0.94) 0%, rgba(9, 13, 58, 0.76) 48%, rgba(76, 49, 184, 0.34) 100%)",
     },
     cta: {
-      value: "linear-gradient(135deg, #875cf6 0%, #6c46e8 52%, #5d3ed1 100%)",
+      value: "linear-gradient(135deg, #875cf6 0%, #6c46e8 56%, #4c31b8 100%)",
     },
     priceCard: {
       value: "linear-gradient(145deg, #271776 0%, #17105a 56%, #0c103f 100%)",
@@ -112,7 +112,7 @@ export const tokens = {
     card: { value: "0 14px 36px rgba(14, 12, 56, 0.12)" },
     panel: { value: "0 18px 48px rgba(14, 12, 56, 0.16)" },
     strong: { value: "0 22px 54px rgba(8, 8, 38, 0.28)" },
-    cta: { value: "0 10px 24px rgba(108, 70, 232, 0.35)" },
+    cta: { value: "0 10px 28px rgba(108, 70, 232, 0.34)" },
     violetGlow: { value: "0 18px 46px rgba(124, 81, 240, 0.38)" },
     coastalFrame: { value: "0 24px 80px rgba(0, 0, 0, 0.42)" },
   },

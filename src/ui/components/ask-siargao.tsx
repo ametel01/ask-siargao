@@ -175,7 +175,7 @@ export function SignalBadge({
     fresh: { bg: "confidence.highSoft", color: "confidence.high" },
     high: { bg: "confidence.highSoft", color: "confidence.high" },
     medium: { bg: "confidence.mediumSoft", color: "confidence.medium" },
-    local: { bg: "lavender.100", color: "violet.650" },
+    local: { bg: "rgba(108,70,232,0.08)", color: "violet.650" },
   }[tone];
 
   return (

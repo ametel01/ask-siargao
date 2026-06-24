@@ -13,8 +13,9 @@ import {
   Sparkles,
   Utensils,
 } from "lucide-react";
+import Link from "next/link";
 
-import { BrandLockup, BrowserFrame, GradientLink, SignalBadge } from "@/ui/components/ask-siargao";
+import { BrandLockup, GradientLink, SignalBadge } from "@/ui/components/ask-siargao";
 import { css } from "../../../styled-system/css/css";
 import { cx } from "../../../styled-system/css/cx";
 
@@ -71,17 +72,15 @@ const featureCards = [
 export function LandingPage() {
   return (
     <main className={page()}>
-      <BrowserFrame className={frame()} label="Ask Siargao landing page">
-        <div className={imageLayer()} />
-        <div className={overlayLayer()} />
+      <section aria-label="Ask Siargao landing page" className={frame()}>
         <div className={contentLayer()}>
           <Header />
           <Hero />
           <SuggestionChips />
           <TrustRow />
+          <FeatureCards />
         </div>
-      </BrowserFrame>
-      <FeatureCards />
+      </section>
       <MobileFooter />
     </main>
   );
@@ -90,9 +89,9 @@ export function LandingPage() {
 function Header() {
   return (
     <header className={header()}>
-      <a className={brandLink()} href="/">
+      <Link className={brandLink()} href="/">
         <BrandLockup />
-      </a>
+      </Link>
       <nav aria-label="Main navigation" className={nav()}>
         {navItems.map((item) => (
           <a className={navLink()} href={`#${slug(item)}`} key={item}>
@@ -103,9 +102,9 @@ function Header() {
       <GradientLink className={desktopCta()} href="/chat">
         Open assistant
       </GradientLink>
-      <a aria-label="Open navigation menu" className={mobileMenu()} href="/chat">
+      <Link aria-label="Open navigation menu" className={mobileMenu()} href="/chat">
         <Menu aria-hidden="true" size={20} />
-      </a>
+      </Link>
     </header>
   );
 }
@@ -126,7 +125,7 @@ function Hero() {
           changes.
         </p>
       </div>
-      <div className={promptWeatherRow()}>
+      <div className={heroPanels()}>
         <PromptCard />
         <WeatherCard />
       </div>
@@ -138,7 +137,7 @@ function PromptCard() {
   return (
     <section aria-label="Example Ask Siargao prompt" className={promptCard()}>
       <div className={promptTextRow()}>
-        <Sparkles aria-hidden="true" className={css({ color: "violet.600", flexShrink: 0 })} />
+        <Sparkles aria-hidden="true" className={css({ color: "violet.550", flexShrink: 0 })} />
         <p className={promptText()}>
           I'm staying near Cloud 9 for 10 days. We want quiet sleep, surfing, good restaurants, and
           easy airport transfer. What should we know?
@@ -188,10 +187,10 @@ function SuggestionChips() {
       <p className={suggestionsLabel()}>Try asking about...</p>
       <div className={chipRow()}>
         {suggestionChips.map(([label, Icon]) => (
-          <a className={chip()} href="/chat" key={label as string}>
+          <Link className={chip()} href="/chat" key={label as string}>
             <Icon aria-hidden="true" size={15} />
             {label as string}
-          </a>
+          </Link>
         ))}
       </div>
     </section>
@@ -221,9 +220,13 @@ function FeatureCards() {
           </span>
           <h2>{title}</h2>
           <p>{body}</p>
-          <a href="/chat">
+          <Link
+            className={featureLink()}
+            href="/chat"
+            style={{ color: "var(--colors-violet-550)" }}
+          >
             {link} <ArrowRight aria-hidden="true" size={15} />
-          </a>
+          </Link>
         </article>
       ))}
     </section>
@@ -243,40 +246,38 @@ function slug(value: string) {
 
 function page() {
   return css({
-    background:
-      "radial-gradient(circle at 12% 12%, rgba(255,155,131,0.12), transparent 28rem), linear-gradient(135deg, #05082a 0%, #090d3a 48%, #17105a 100%)",
+    background: "#05082a",
     minH: "100vh",
     overflowX: "hidden",
-    px: { base: "3", md: "5" },
-    py: { base: "3", md: "5" },
+    px: "0",
+    py: "0",
   });
 }
 
 function frame() {
   return css({
-    maxW: "1240px",
-    minH: { base: "calc(100vh - 24px)", md: "760px" },
-    mx: "auto",
-  });
-}
-
-function imageLayer() {
-  return css({
     background:
-      "linear-gradient(180deg, rgba(5,8,42,0.1), rgba(5,8,42,0.32)), url('/images/siargao-sunset.png') center / cover no-repeat",
-    inset: 0,
-    position: "absolute",
-    zIndex: 0,
-  });
-}
-
-function overlayLayer() {
-  return css({
-    background:
-      "linear-gradient(90deg, rgba(5,8,42,0.94) 0%, rgba(8,10,48,0.78) 44%, rgba(69,42,152,0.34) 100%)",
-    inset: 0,
-    position: "absolute",
-    zIndex: 1,
+      "linear-gradient(90deg, rgba(5,8,42,0.96) 0%, rgba(7,10,48,0.86) 34%, rgba(43,24,106,0.34) 62%, rgba(5,8,42,0.52) 100%), linear-gradient(180deg, rgba(5,8,42,0.04) 0%, rgba(5,8,42,0.2) 46%, rgba(5,8,42,0.9) 100%), url('/images/hero-bg.png')",
+    backgroundPosition: "center, center, center",
+    backgroundRepeat: "no-repeat, no-repeat, no-repeat",
+    backgroundSize: "100% 100%, 100% 100%, cover",
+    borderColor: "transparent",
+    borderRadius: "0",
+    borderWidth: "0",
+    boxShadow: "none",
+    minH: "100vh",
+    overflow: "hidden",
+    position: "relative",
+    width: "100%",
+    _before: {
+      background:
+        "radial-gradient(circle at 61% 27%, rgba(255,155,131,0.14), transparent 25rem), radial-gradient(circle at 84% 18%, rgba(135,92,246,0.12), transparent 26rem)",
+      content: '""',
+      inset: 0,
+      pointerEvents: "none",
+      position: "absolute",
+      zIndex: 0,
+    },
   });
 }
 
@@ -284,8 +285,11 @@ function contentLayer() {
   return css({
     display: "flex",
     flexDirection: "column",
-    minH: { base: "calc(100vh - 24px)", md: "760px" },
+    maxW: "1680px",
+    minH: "100vh",
+    mx: "auto",
     position: "relative",
+    width: "100%",
     zIndex: 2,
   });
 }
@@ -296,10 +300,9 @@ function header() {
     display: "flex",
     gap: "5",
     justifyContent: "space-between",
-    minH: { base: "72px", md: "86px" },
-    pl: { base: "14", md: "16" },
-    pr: { base: "4", md: "6" },
-    pt: "1",
+    minH: { base: "72px", md: "94px" },
+    px: { base: "5", md: "9", xl: "11" },
+    pt: { base: "2", md: "4" },
   });
 }
 
@@ -315,9 +318,12 @@ function brandLink() {
 function nav() {
   return css({
     alignItems: "center",
-    display: { base: "none", lg: "flex" },
-    gap: "7",
+    display: "none",
+    gap: "8",
     ml: "auto",
+    "@media (min-width: 900px)": {
+      display: "flex",
+    },
   });
 }
 
@@ -363,35 +369,36 @@ function mobileMenu() {
 
 function hero() {
   return css({
+    alignContent: { base: "start", md: "space-between" },
     display: "grid",
     flex: "1",
-    gap: { base: "8", lg: "10" },
-    gridTemplateColumns: { base: "1fr", lg: "minmax(0, 0.88fr) minmax(420px, 0.9fr)" },
-    pb: { base: "6", md: "8" },
-    pl: { base: "5", md: "10", xl: "16" },
-    pr: { base: "5", md: "10", xl: "14" },
-    pt: { base: "5", md: "8", lg: "12" },
+    gap: { base: "7", md: "12" },
+    gridTemplateColumns: "1fr",
+    minH: { base: "auto", md: "calc(100vh - 112px)" },
+    pb: { base: "6", md: "9", xl: "11" },
+    px: { base: "5", md: "9", xl: "11" },
+    pt: { base: "5", md: "8", lg: "10" },
   });
 }
 
 function heroCopy() {
   return css({
     alignSelf: "start",
-    maxW: "560px",
+    maxW: "660px",
   });
 }
 
 function heroTitle() {
   return css({
-    color: "text.onDark",
+    color: "#fff7df",
     fontFamily: "display",
-    fontSize: { base: "3xl", sm: "4xl", md: "4.75rem", xl: "5.25rem" },
+    fontSize: { base: "3xl", sm: "4xl", md: "4.85rem", xl: "5.6rem" },
     fontWeight: "800",
     lineHeight: "0.96",
     m: 0,
     textWrap: "balance",
     "& em": {
-      color: "lavender.400",
+      color: "violet.400",
       fontStyle: "italic",
       fontWeight: "700",
     },
@@ -400,37 +407,42 @@ function heroTitle() {
 
 function heroBody() {
   return css({
-    color: "rgba(226,220,247,0.9)",
+    color: "text.onDarkMuted",
     fontSize: { base: "sm", md: "md" },
     lineHeight: "1.55",
-    maxW: "430px",
+    maxW: "420px",
     mb: 0,
-    mt: "6",
+    mt: "5",
   });
 }
 
-function promptWeatherRow() {
+function heroPanels() {
   return css({
-    alignSelf: { base: "stretch", lg: "end" },
+    alignSelf: { base: "start", md: "end" },
     display: "grid",
-    gap: "4",
-    gridTemplateColumns: { base: "1fr", md: "minmax(0, 1.3fr) minmax(240px, 0.7fr)" },
+    gap: { base: "4", md: "5", xl: "6" },
+    gridTemplateColumns: "1fr",
+    maxW: "1360px",
+    width: "100%",
+    "@media (min-width: 900px)": {
+      gridTemplateColumns: "minmax(0, 1.7fr) minmax(280px, 0.9fr)",
+    },
   });
 }
 
 function promptCard() {
   return css({
-    alignSelf: "end",
-    bg: "surface.glass",
-    borderColor: "rgba(255,255,255,0.64)",
+    bg: "rgba(255,255,255,0.96)",
+    borderColor: "rgba(164,134,255,0.75)",
     borderRadius: "lg",
     borderWidth: "1px",
-    boxShadow: "violetGlow",
+    boxShadow: "0 0 0 1px rgba(255,255,255,0.22), 0 22px 68px rgba(76,49,184,0.38)",
     color: "text",
     display: "grid",
-    gap: "5",
-    minH: { base: "220px", md: "248px" },
+    gap: { base: "5", md: "5" },
+    minH: { base: "190px", md: "194px" },
     p: { base: "5", md: "6" },
+    position: "relative",
   });
 }
 
@@ -445,7 +457,7 @@ function promptTextRow() {
 function promptText() {
   return css({
     color: "text.strong",
-    fontSize: { base: "md", md: "lg" },
+    fontSize: { base: "sm", md: "md" },
     fontWeight: "800",
     lineHeight: "1.44",
     m: 0,
@@ -464,8 +476,8 @@ function promptControls() {
 function squareButton() {
   return css({
     alignItems: "center",
-    bg: "lavender.100",
-    borderColor: "border",
+    bg: "#ffffff",
+    borderColor: "rgba(8,47,57,0.16)",
     borderRadius: "md",
     borderWidth: "1px",
     color: "violet.650",
@@ -488,24 +500,27 @@ function askButton() {
 
 function weatherCard() {
   return css({
-    alignSelf: "end",
-    bg: "rgba(255,255,255,0.92)",
-    borderColor: "rgba(255,255,255,0.7)",
+    bg: "rgba(255,255,255,0.94)",
+    backdropFilter: "blur(12px)",
+    borderColor: "rgba(226,220,247,0.94)",
     borderRadius: "lg",
     borderWidth: "1px",
-    boxShadow: "card",
+    boxShadow: "0 20px 58px rgba(8,8,38,0.24)",
     color: "text",
-    minH: { base: "auto", md: "248px" },
-    p: "5",
+    minH: { base: "auto", lg: "194px" },
+    overflow: "hidden",
+    p: "0",
   });
 }
 
 function weatherTitleRow() {
   return css({
     alignItems: "center",
+    borderBottomColor: "border",
+    borderBottomWidth: "1px",
     display: "flex",
     gap: "2",
-    mb: "4",
+    p: "4",
   });
 }
 
@@ -521,14 +536,13 @@ function weatherTitle() {
 function weatherRow() {
   return css({
     alignItems: "center",
-    borderTopColor: "rgba(13,16,74,0.12)",
-    borderTopWidth: "1px",
     color: "text.muted",
     display: "flex",
     fontSize: "xs",
     gap: "3",
     justifyContent: "space-between",
-    minH: "38px",
+    minH: "35px",
+    px: "4",
     "& strong": {
       color: "text.strong",
       fontWeight: "900",
@@ -538,8 +552,8 @@ function weatherRow() {
 
 function suggestions() {
   return css({
-    px: { base: "5", md: "10", xl: "16" },
-    pb: { base: "5", md: "6" },
+    px: { base: "5", md: "9", xl: "11" },
+    pb: { base: "5", md: "5" },
   });
 }
 
@@ -557,24 +571,25 @@ function chipRow() {
   return css({
     display: "flex",
     flexWrap: "wrap",
-    gap: "3",
+    gap: { base: "3", md: "4" },
   });
 }
 
 function chip() {
   return css({
     alignItems: "center",
-    bg: "rgba(9,13,58,0.52)",
-    borderColor: "rgba(180,160,255,0.52)",
+    bg: "rgba(5,8,42,0.42)",
+    borderColor: "rgba(184,166,255,0.54)",
     borderRadius: "pill",
     borderWidth: "1px",
-    color: "lavender.150",
+    boxShadow: "0 10px 30px rgba(0,0,0,0.16)",
+    color: "rgba(255,255,255,0.88)",
     display: "inline-flex",
     fontSize: "xs",
     fontWeight: "800",
     gap: "2",
-    minH: "34px",
-    px: "3",
+    minH: "36px",
+    px: "4",
     textDecoration: "none",
   });
 }
@@ -588,7 +603,7 @@ function trustRow() {
     flexWrap: "wrap",
     gap: { base: "3", md: "0" },
     justifyContent: "center",
-    mx: { base: "5", md: "10", xl: "16" },
+    mx: { base: "5", md: "9", xl: "11" },
     py: { base: "4", md: "5" },
   });
 }
@@ -607,32 +622,39 @@ function trustItem() {
       borderRightWidth: { base: "0", md: "1px" },
     },
     "& svg": {
-      color: "lavender.400",
+      color: "violet.400",
     },
   });
 }
 
 function features() {
   return css({
+    background: "transparent",
+    borderColor: "rgba(255,255,255,0.10)",
+    borderRadius: { base: "0", md: "lg" },
     display: "grid",
-    gap: "4",
-    gridTemplateColumns: { base: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(4, 1fr)" },
-    maxW: "1180px",
-    mx: "auto",
-    px: { base: "1", md: "0" },
-    py: { base: "4", md: "5" },
+    gap: { base: "3", lg: "3" },
+    gridTemplateColumns: { base: "1fr", sm: "repeat(2, 1fr)" },
+    px: { base: "5", md: "9", xl: "11" },
+    pb: { base: "5", md: "9" },
+    "@media (min-width: 900px)": {
+      gridTemplateColumns: "repeat(4, 1fr)",
+    },
   });
 }
 
 function featureCard() {
   return css({
-    bg: "surface.glass",
-    borderColor: "rgba(255,255,255,0.54)",
+    bg: "rgba(255,255,255,0.96)",
+    borderRightColor: "rgba(8,47,57,0.13)",
     borderRadius: "lg",
-    borderWidth: "1px",
-    boxShadow: "card",
-    minH: "210px",
-    p: "5",
+    boxShadow: "0 18px 48px rgba(8,8,38,0.18)",
+    minH: { base: "224px", md: "228px" },
+    p: { base: "5", md: "5" },
+    transition: "background token(durations.fast) token(easings.standard)",
+    _hover: {
+      bg: "#fff7df",
+    },
     "& h2": {
       color: "text.strong",
       fontSize: "md",
@@ -648,24 +670,26 @@ function featureCard() {
       mb: "5",
       mt: 0,
     },
-    "& a": {
-      alignItems: "center",
-      color: "violet.650",
-      display: "inline-flex",
-      fontSize: "sm",
-      fontWeight: "900",
-      gap: "1",
-      textDecoration: "none",
-    },
+  });
+}
+
+function featureLink() {
+  return css({
+    alignItems: "center",
+    display: "inline-flex",
+    fontSize: "sm",
+    fontWeight: "900",
+    gap: "1",
+    textDecoration: "none",
   });
 }
 
 function featureIcon() {
   return css({
     alignItems: "center",
-    bg: "violet.650",
+    bg: "rgba(108,70,232,0.1)",
     borderRadius: "pill",
-    color: "text.onDark",
+    color: "violet.600",
     display: "inline-flex",
     h: "11",
     justifyContent: "center",
