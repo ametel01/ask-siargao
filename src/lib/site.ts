@@ -1,6 +1,6 @@
 export const siteConfig = {
-  name: "Siargao Trip Risk Audit",
-  priceUsd: 9.99,
+  name: "Ask Siargao",
+  priceUsd: 14.99,
   promise:
-    "Get one free preview risk, then pay only when the system can complete a full evidence-backed audit to the promised standard.",
+    "Ask practical Siargao trip questions and get local answers with freshness and confidence shown.",
 } as const;

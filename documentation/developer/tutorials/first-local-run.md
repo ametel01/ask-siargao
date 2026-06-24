@@ -42,6 +42,7 @@ bun run dev
 5. Open the main QA surfaces.
 
 - `/`
+- `/chat`
 - `/audits/audit_123/status?state=awaiting_payment`
 - `/audits/demo/report`
 - `/admin/diagnostics`
@@ -54,4 +55,4 @@ bun run dev
 
 ## Expected Result
 
-The landing page renders the audit intake, the sample report renders with evidence IDs and limitations, public pages expose only republishable facts, and private audit/admin routes remain marked for noindex behavior.
+The landing page renders the Ask Siargao prompt, weather, suggestion, trust, and feature-card sections. The `/chat` workspace renders the assistant mockup with desktop and mobile layouts. The sample report renders with evidence IDs and limitations, public pages expose only republishable facts, and private audit/admin routes remain marked for noindex behavior.

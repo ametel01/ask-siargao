@@ -4,7 +4,8 @@
 
 | Route | Purpose | Indexing |
 | --- | --- | --- |
-| `/` | Landing page and audit intake form | Public |
+| `/` | Ask Siargao chat-first landing page | Public |
+| `/chat` | Ask Siargao assistant workspace mockup with trip context, chat, weather, and surf panels | Public |
 | `/audits/[auditRequestId]/status` | Post-checkout processing/status page | Private audit surface |
 | `/audits/[auditRequestId]/report?token=...` | Signed-token paid report delivery for published, paid, reviewer-approved audits | `x-robots-tag: noindex, nofollow` |
 | `/audits/demo/report` | Synthetic report fixture for local QA only | `x-robots-tag: noindex, nofollow` |

@@ -20,10 +20,11 @@ bun run test:e2e
 
 ## Manual Product QA
 
-- Landing page visually matches the dark coastal, analytical decision-tool direction in `landing.png` and `docs/LANDING_STYLE_REQUIREMENTS.md`.
+- Landing page visually matches the dark coastal Ask Siargao direction in `design/web-landing.png` and `docs/LANDING_STYLE_REQUIREMENTS.md`.
 - Landing page has no horizontal overflow at 390, 768, 1024, and 1366 pixel widths.
-- FAQ rows are keyboard accessible.
-- Minimum viable intake accepts travel month, origin, accommodation name, stay area, top constraint, and risk tolerance.
+- Landing page includes the Ask Siargao headline, example prompt card, `Today in Siargao` weather card, suggestion chips, trust row, and bottom feature cards.
+- `/chat` visually matches the desktop three-column assistant workspace in `design/web-chat-page.png`.
+- `/chat` renders the mobile chat layout with top bar, trip-context pill, conversation body, recommendation cards, and sticky composer.
 - Incomplete or low-confidence audits remain blocked from checkout.
 - Checkout handoff only starts from a complete, eligible audit state.
 - Returning from Checkout does not unlock a report by itself; the verified Stripe webhook is the unlock boundary.
