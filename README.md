@@ -1,6 +1,6 @@
 # Ask Siargao
 
-Ask Siargao is a Next.js App Router application for a chat-first Siargao tour-operator assistant. Travelers paste a trip plan or ask practical questions, and the app answers with fresh local data, normalized facts, confidence, and source-aware constraints.
+Ask Siargao is a Next.js App Router application for a chat-first Siargao tour-operator assistant. Travelers paste a trip plan or ask practical Siargao questions, and the app answers with fresh local data, normalized facts, confidence, and source-aware constraints. The chat scope guard politely declines clearly unrelated non-Siargao topics.
 
 The root experience now presents the Ask Siargao landing page and links into a static assistant workspace at `/chat`. The codebase still includes earlier audit/report surfaces while the broader product direction shifts toward a free preview chat plus a paid Siargao Trip Pass with bounded live data refreshes.
 

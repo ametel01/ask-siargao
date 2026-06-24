@@ -72,6 +72,10 @@ export async function chatResponse(
     );
   }
 
+  if (shouldDeclineNonSiargaoTopic(parsed.data.messages)) {
+    return Response.json({ message: siargaoScopeDeclineMessage }, { headers });
+  }
+
   try {
     const weatherContext = await getWeatherContext(parsed.data.messages, dependencies);
     const placesContext = await getPlacesContext(parsed.data.messages, dependencies);
@@ -162,6 +166,35 @@ function isWeatherQuestion(messages: readonly AskSiargaoChatMessage[]) {
     : false;
 }
 
+function shouldDeclineNonSiargaoTopic(messages: readonly AskSiargaoChatMessage[]) {
+  const latestUserMessage = getLatestUserMessage(messages);
+  const content = latestUserMessage?.content ?? "";
+
+  if (!content || hasSiargaoScopeSignal(content) || hasLikelySiargaoTravelSignal(content)) {
+    return false;
+  }
+
+  return hasClearlyUnrelatedTopicSignal(content);
+}
+
+function hasSiargaoScopeSignal(content: string) {
+  return /\b(siargao|general\s+luna|cloud\s*9|cloud9|catangnan|dapa|del\s+carmen|sayak|pacifico|malinao|pilar|santa\s+monica|bucas\s+grande|sugba\s+lagoon|magpupungko|maasin\s+river|daku|guyam|naked\s+island|sohoton)\b/i.test(
+    content,
+  );
+}
+
+function hasLikelySiargaoTravelSignal(content: string) {
+  return /\b(weather|forecast|rain|wind|waves?|surf|tides?|ferr(?:y|ies)|airport|flight|van|tricycle|scooter|motorbike|transfer|route|itinerary|trip|stay|stays|hotel|hostel|resort|villa|accommodation|restaurants?|cafes?|coffee|bars?|nightlife|food|dinner|lunch|breakfast|brunch|beach|island\s+hopping|tour|activity|activities|budget|cash|atm|sim|wifi|internet|power|brownout|quiet|safe|safety|pack|packing)\b/i.test(
+    content,
+  );
+}
+
+function hasClearlyUnrelatedTopicSignal(content: string) {
+  return /\b(capital\s+of|president\s+of|prime\s+minister|who\s+(is|was|won)|nba|nfl|mlb|nhl|olympics|stock|stocks|bitcoin|crypto|cryptocurrency|recipe|homework|essay|poem|song|lyrics|movie|netflix|celebrity|quantum|calculus|algebra|debug|code|coding|program|script|function|regex|sql|python|javascript|typescript|react|next\.?js)\b/i.test(
+    content,
+  );
+}
+
 function buildGooglePlacesChatSearch(content: string): GooglePlacesChatSearch | undefined {
   if (!isPlacesRecommendationQuestion(content)) {
     return undefined;
@@ -240,3 +273,6 @@ function normalizeGooglePlacesTextQuery(content: string) {
 function getLatestUserMessage(messages: readonly AskSiargaoChatMessage[]) {
   return [...messages].reverse().find((message) => message.role === "user");
 }
+
+const siargaoScopeDeclineMessage =
+  "I can only help with Siargao travel and local trip-planning questions. Ask me about stays, surf, food, weather, transport, activities, safety, budget, or logistics for Siargao.";

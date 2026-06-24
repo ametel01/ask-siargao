@@ -36,6 +36,8 @@ describe("Ask Siargao chat adapter", () => {
 
     expect(response.requestId).toBe("req_weather_context");
     expect(String(request?.instructions)).toContain("When weatherContext is present");
+    expect(String(request?.instructions)).toContain("politely decline");
+    expect(input.responseContract?.scope).toContain("Siargao-related");
     expect(input.weatherContext?.status).toBe("fallback");
     expect(input.weatherContext?.sourceProfileId).toBe("source_open_meteo");
     expect(input.weatherContext?.summary).toContain("Open-Meteo");
@@ -106,6 +108,9 @@ describe("Ask Siargao chat adapter", () => {
 });
 
 function parseOpenAIInput(input: unknown): {
+  responseContract?: {
+    scope?: string;
+  };
   weatherContext?: {
     status?: string;
     sourceProfileId?: string;

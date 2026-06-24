@@ -26,6 +26,23 @@ describe("chat route", () => {
     expect(body.issues[0].path).toBe("messages");
   });
 
+  test("politely declines clearly unrelated questions without calling the model", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Can you write Python code for a stock bot?" }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("I can only help with Siargao");
+    expect(dependencies.requests).toHaveLength(0);
+    expect(dependencies.weatherRequests).toBe(0);
+    expect(dependencies.placesRequests).toHaveLength(0);
+  });
+
   test("returns an Ask Siargao model response", async () => {
     const dependencies = chatDependencies();
     const response = await chatResponse(
