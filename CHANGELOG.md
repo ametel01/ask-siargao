@@ -9,6 +9,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added shadcn primitives for sidebar, scroll area, avatar, input groups, button groups, toggles, items, empty states, breadcrumbs, collapsibles, and navigation menus.
 - Established progress tracking for the shadcn/Panda migration plan.
 - Added the Ask Siargao `/chat` workspace with desktop three-column context layout, mobile chat layout, mock conversation cards, and Playwright coverage.
 - Added the landing and chat mockup implementation plan with step-by-step progress tracking.
@@ -46,6 +47,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Moved Ask Siargao brand tokens into the Tailwind/shadcn CSS variable layer while keeping Panda available as a temporary fallback.
 - Recorded the Panda-removal baseline inventory and confirmed planned shadcn migration primitives are available.
 - Aligned route documentation, local QA docs, release-candidate checks, and site config regression coverage with the Ask Siargao landing and `/chat` surfaces.
 - Replaced the audit-first root landing page with the Ask Siargao mockup landing experience, including the prompt card, weather card, suggestion chips, trust row, feature cards, and updated root e2e coverage.
