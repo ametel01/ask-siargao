@@ -1,7 +1,15 @@
 import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
-import { googlePlacesDetailsFieldMask } from "@/server/providers/google-places-policy";
+import {
+  googlePlacesAtmosphereDetailsFieldMask,
+  googlePlacesDetailsFieldMask,
+  googlePlacesEnterpriseDetailsFieldMask,
+} from "@/server/providers/google-places-policy";
 
-export { googlePlacesDetailsFieldMask };
+export {
+  googlePlacesAtmosphereDetailsFieldMask,
+  googlePlacesDetailsFieldMask,
+  googlePlacesEnterpriseDetailsFieldMask,
+};
 
 export type GooglePlacesDetails = {
   placeId: string;
@@ -17,22 +25,108 @@ export type GooglePlacesDetails = {
   fetchedAt: string;
 };
 
+export type GooglePlacesCaptureDetails = GooglePlacesDetails & {
+  displayNameJson?: GooglePlacesLocalizedText;
+  shortFormattedAddress?: string;
+  addressComponentsJson?: Record<string, unknown>[];
+  locationJson?: GooglePlacesLocation;
+  viewportJson?: Record<string, unknown>;
+  websiteUri?: string;
+  nationalPhoneNumber?: string;
+  internationalPhoneNumber?: string;
+  currentOpeningHoursJson?: GooglePlacesOpeningHours;
+  regularOpeningHoursJson?: GooglePlacesOpeningHours;
+  priceLevel?: string;
+  priceRangeJson?: GooglePlacesPriceRange;
+  rating?: number;
+  userRatingCount?: number;
+  paymentOptionsJson?: Record<string, unknown>;
+  parkingOptionsJson?: Record<string, unknown>;
+  amenitiesJson?: Record<string, unknown>;
+  attributionsJson?: Record<string, unknown>[];
+  reviews: GooglePlacesReview[];
+  fieldMask: string;
+};
+
+export type GooglePlacesReview = {
+  name?: string;
+  relativePublishTimeDescription?: string;
+  rating?: number;
+  text?: GooglePlacesLocalizedText;
+  originalText?: GooglePlacesLocalizedText;
+  authorAttribution?: Record<string, unknown>;
+  publishTime?: string;
+};
+
+type GooglePlacesLocalizedText = {
+  text?: string;
+  languageCode?: string;
+};
+
+type GooglePlacesLocation = {
+  latitude?: number;
+  longitude?: number;
+};
+
+type GooglePlacesOpeningHours = {
+  openNow?: boolean;
+  weekdayDescriptions?: string[];
+  nextOpenTime?: string;
+  nextCloseTime?: string;
+};
+
+type GooglePlacesPriceRange = {
+  startPrice?: Record<string, unknown>;
+  endPrice?: Record<string, unknown>;
+};
+
 type GooglePlacesDetailsResponse = {
   id?: string;
   name?: string;
-  displayName?: {
-    text?: string;
-    languageCode?: string;
-  };
+  displayName?: GooglePlacesLocalizedText;
   formattedAddress?: string;
-  location?: {
-    latitude?: number;
-    longitude?: number;
-  };
+  shortFormattedAddress?: string;
+  addressComponents?: Record<string, unknown>[];
+  location?: GooglePlacesLocation;
+  viewport?: Record<string, unknown>;
   types?: string[];
   primaryType?: string;
   businessStatus?: string;
   googleMapsUri?: string;
+  websiteUri?: string;
+  nationalPhoneNumber?: string;
+  internationalPhoneNumber?: string;
+  currentOpeningHours?: GooglePlacesOpeningHours;
+  regularOpeningHours?: GooglePlacesOpeningHours;
+  priceLevel?: string;
+  priceRange?: GooglePlacesPriceRange;
+  rating?: number;
+  userRatingCount?: number;
+  paymentOptions?: Record<string, unknown>;
+  parkingOptions?: Record<string, unknown>;
+  reviews?: GooglePlacesReview[];
+  attributions?: Record<string, unknown>[];
+  allowsDogs?: boolean;
+  curbsidePickup?: boolean;
+  delivery?: boolean;
+  dineIn?: boolean;
+  goodForChildren?: boolean;
+  goodForGroups?: boolean;
+  goodForWatchingSports?: boolean;
+  liveMusic?: boolean;
+  outdoorSeating?: boolean;
+  restroom?: boolean;
+  servesBeer?: boolean;
+  servesBreakfast?: boolean;
+  servesBrunch?: boolean;
+  servesCocktails?: boolean;
+  servesCoffee?: boolean;
+  servesDessert?: boolean;
+  servesDinner?: boolean;
+  servesLunch?: boolean;
+  servesVegetarianFood?: boolean;
+  servesWine?: boolean;
+  takeout?: boolean;
   error?: {
     code?: number;
     message?: string;
@@ -53,27 +147,67 @@ export async function enrichGooglePlacesDetails({
   fetchedAt?: string;
   fetcher?: Fetcher;
 }) {
+  const captureDetails = await enrichGooglePlacesCaptureDetails({
+    apiKey,
+    placeIds,
+    fetchedAt,
+    fetcher,
+    fieldMask: googlePlacesDetailsFieldMask,
+  });
+
+  return captureDetails.map(
+    (detail): GooglePlacesDetails => ({
+      placeId: detail.placeId,
+      resourceName: detail.resourceName,
+      displayName: detail.displayName,
+      formattedAddress: detail.formattedAddress,
+      latitude: detail.latitude,
+      longitude: detail.longitude,
+      types: detail.types,
+      primaryType: detail.primaryType,
+      businessStatus: detail.businessStatus,
+      googleMapsUri: detail.googleMapsUri,
+      fetchedAt: detail.fetchedAt,
+    }),
+  );
+}
+
+export async function enrichGooglePlacesCaptureDetails({
+  apiKey,
+  fieldMask = googlePlacesEnterpriseDetailsFieldMask,
+  placeIds,
+  fetchedAt = new Date().toISOString(),
+  fetcher = fetch,
+}: {
+  apiKey: string;
+  fieldMask?: string;
+  placeIds: readonly string[];
+  fetchedAt?: string;
+  fetcher?: Fetcher;
+}) {
   if (!apiKey) {
     throw new Error("GOOGLE_API_KEY is required for Google Places enrichment.");
   }
 
-  const details = await Promise.all(
-    [...new Set(placeIds)].map(async (placeId): Promise<GooglePlacesDetails> => {
+  if (fieldMask.includes("*")) {
+    throw new Error("Google Places enrichment field masks must be explicit.");
+  }
+
+  return Promise.all(
+    [...new Set(placeIds)].map(async (placeId): Promise<GooglePlacesCaptureDetails> => {
       const response = await fetcher(
         `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}?languageCode=en`,
         {
           headers: {
             "X-Goog-Api-Key": apiKey,
-            "X-Goog-FieldMask": googlePlacesDetailsFieldMask,
+            "X-Goog-FieldMask": fieldMask,
           },
         },
       );
       const payload = await parseGooglePlacesDetailsResponse(response);
-      return parseGooglePlacesDetails(payload, placeId, fetchedAt);
+      return parseGooglePlacesCaptureDetails(payload, placeId, fetchedAt, fieldMask);
     }),
   );
-
-  return details;
 }
 
 export function createGooglePlacesDetailsSourceRecordId(placeId: string) {
@@ -128,11 +262,12 @@ async function parseGooglePlacesDetailsResponse(
   return parsed;
 }
 
-function parseGooglePlacesDetails(
+function parseGooglePlacesCaptureDetails(
   payload: GooglePlacesDetailsResponse,
   requestedPlaceId: string,
   fetchedAt: string,
-): GooglePlacesDetails {
+  fieldMask: string,
+): GooglePlacesCaptureDetails {
   const placeId = payload.id ?? requestedPlaceId;
   const displayName = payload.displayName?.text;
   if (!displayName) {
@@ -146,11 +281,57 @@ function parseGooglePlacesDetails(
     formattedAddress: payload.formattedAddress,
     latitude: payload.location?.latitude,
     longitude: payload.location?.longitude,
+    displayNameJson: payload.displayName,
+    shortFormattedAddress: payload.shortFormattedAddress,
+    addressComponentsJson: payload.addressComponents,
+    locationJson: payload.location,
+    viewportJson: payload.viewport,
     types: payload.types ?? [],
     primaryType: payload.primaryType,
     businessStatus: payload.businessStatus,
     googleMapsUri: payload.googleMapsUri,
+    websiteUri: payload.websiteUri,
+    nationalPhoneNumber: payload.nationalPhoneNumber,
+    internationalPhoneNumber: payload.internationalPhoneNumber,
+    currentOpeningHoursJson: payload.currentOpeningHours,
+    regularOpeningHoursJson: payload.regularOpeningHours,
+    priceLevel: payload.priceLevel,
+    priceRangeJson: payload.priceRange,
+    rating: payload.rating,
+    userRatingCount: payload.userRatingCount,
+    paymentOptionsJson: payload.paymentOptions,
+    parkingOptionsJson: payload.parkingOptions,
+    amenitiesJson: buildAmenitiesJson(payload),
+    attributionsJson: payload.attributions,
+    reviews: payload.reviews ?? [],
+    fieldMask,
     fetchedAt,
+  };
+}
+
+function buildAmenitiesJson(payload: GooglePlacesDetailsResponse): Record<string, unknown> {
+  return {
+    allowsDogs: payload.allowsDogs,
+    curbsidePickup: payload.curbsidePickup,
+    delivery: payload.delivery,
+    dineIn: payload.dineIn,
+    goodForChildren: payload.goodForChildren,
+    goodForGroups: payload.goodForGroups,
+    goodForWatchingSports: payload.goodForWatchingSports,
+    liveMusic: payload.liveMusic,
+    outdoorSeating: payload.outdoorSeating,
+    restroom: payload.restroom,
+    servesBeer: payload.servesBeer,
+    servesBreakfast: payload.servesBreakfast,
+    servesBrunch: payload.servesBrunch,
+    servesCocktails: payload.servesCocktails,
+    servesCoffee: payload.servesCoffee,
+    servesDessert: payload.servesDessert,
+    servesDinner: payload.servesDinner,
+    servesLunch: payload.servesLunch,
+    servesVegetarianFood: payload.servesVegetarianFood,
+    servesWine: payload.servesWine,
+    takeout: payload.takeout,
   };
 }
 

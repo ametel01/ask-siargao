@@ -34,6 +34,33 @@ export type GooglePlacesChatPlace = {
   priceRange?: GooglePlacesPriceRange;
   websiteUri?: string;
   internationalPhoneNumber?: string;
+  captureJson?: GooglePlacesChatPlaceCapture;
+};
+
+export type GooglePlacesChatPlaceCapture = {
+  placeId: string;
+  resourceName: string;
+  displayNameJson?: {
+    text?: string;
+    languageCode?: string;
+  };
+  formattedAddress?: string;
+  locationJson?: {
+    latitude?: number;
+    longitude?: number;
+  };
+  typesJson: string[];
+  primaryType?: string;
+  businessStatus?: string;
+  googleMapsUri?: string;
+  rating?: number;
+  userRatingCount?: number;
+  currentOpeningHoursJson?: GooglePlacesOpeningHours;
+  regularOpeningHoursJson?: GooglePlacesOpeningHours;
+  priceLevel?: string;
+  priceRangeJson?: GooglePlacesPriceRange;
+  websiteUri?: string;
+  internationalPhoneNumber?: string;
 };
 
 export type GooglePlacesOpeningHours = {
@@ -201,6 +228,18 @@ function parseGooglePlacesChatPlaces(
 
     const latitude = place.location?.latitude;
     const longitude = place.location?.longitude;
+    const googleMapsUri =
+      place.googleMapsUri ??
+      buildGoogleMapsSearchUri({
+        placeId: place.id,
+        displayName,
+        formattedAddress: place.formattedAddress,
+        latitude,
+        longitude,
+      });
+    const currentOpeningHours = normalizeOpeningHours(place.currentOpeningHours);
+    const regularOpeningHours = normalizeOpeningHours(place.regularOpeningHours);
+    const priceRange = normalizePriceRange(place.priceRange);
 
     return [
       {
@@ -213,23 +252,34 @@ function parseGooglePlacesChatPlaces(
         types: place.types ?? [],
         primaryType: place.primaryType,
         businessStatus: place.businessStatus,
-        googleMapsUri:
-          place.googleMapsUri ??
-          buildGoogleMapsSearchUri({
-            placeId: place.id,
-            displayName,
-            formattedAddress: place.formattedAddress,
-            latitude,
-            longitude,
-          }),
+        googleMapsUri,
         rating: place.rating,
         userRatingCount: place.userRatingCount,
-        currentOpeningHours: normalizeOpeningHours(place.currentOpeningHours),
-        regularOpeningHours: normalizeOpeningHours(place.regularOpeningHours),
+        currentOpeningHours,
+        regularOpeningHours,
         priceLevel: place.priceLevel,
-        priceRange: normalizePriceRange(place.priceRange),
+        priceRange,
         websiteUri: place.websiteUri,
         internationalPhoneNumber: place.internationalPhoneNumber,
+        captureJson: {
+          placeId: place.id,
+          resourceName: place.name,
+          displayNameJson: place.displayName,
+          formattedAddress: place.formattedAddress,
+          locationJson: place.location,
+          typesJson: place.types ?? [],
+          primaryType: place.primaryType,
+          businessStatus: place.businessStatus,
+          googleMapsUri,
+          rating: place.rating,
+          userRatingCount: place.userRatingCount,
+          currentOpeningHoursJson: currentOpeningHours,
+          regularOpeningHoursJson: regularOpeningHours,
+          priceLevel: place.priceLevel,
+          priceRangeJson: priceRange,
+          websiteUri: place.websiteUri,
+          internationalPhoneNumber: place.internationalPhoneNumber,
+        },
       },
     ];
   });

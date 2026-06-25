@@ -58,6 +58,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Made Google Places chat and details adapters capture-ready while preserving existing chat context
+  compatibility.
 - Wired weather-related `/api/chat` requests to Siargao Open-Meteo weather context, including direct live fallback when stored forecast rows are unavailable and Del Carmen area detection.
 - Aligned landing-to-chat prompt links and copy with the GPT-only real chat surface, removing live-data and source-backed freshness claims from the landing shell.
 - Replaced the `/chat` mock sidebar/context workspace with one focused responsive real chat shell.

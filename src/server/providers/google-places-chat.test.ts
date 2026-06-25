@@ -157,6 +157,14 @@ describe("Google Places chat lookup", () => {
           },
           websiteUri: "https://kermit.example",
           internationalPhoneNumber: "+63 917 123 4567",
+          captureJson: {
+            displayNameJson: { text: "Kermit Surf Resort and Restaurant" },
+            locationJson: { latitude: 9.803, longitude: 126.161 },
+            typesJson: ["restaurant", "food", "point_of_interest", "establishment"],
+            rating: 4.6,
+            userRatingCount: 1240,
+            priceLevel: "PRICE_LEVEL_MODERATE",
+          },
         },
       ],
     });

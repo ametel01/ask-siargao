@@ -13,7 +13,7 @@
 - [x] Step 1: Google Places Schema And Migration
 - [x] Step 2: Google Places Freshness, Retention, And Field Policy Module
 - [x] Step 3: Google Places Capture Repository
-- [ ] Step 4: Google Provider Adapter Refactor
+- [x] Step 4: Google Provider Adapter Refactor
 - [ ] Step 5: Answer Context Store DB-First Retrieval
 - [ ] Step 6: LLM Adapter Answer Context Contract
 - [ ] Step 7: `/api/chat` Integration
@@ -23,7 +23,7 @@
 
 ## Current Status
 
-Step 3 is implemented. Step 4 is next.
+Step 4 is implemented. Step 5 is next.
 
 `PROGRESS.md` must be updated after every completed step with completion notes, validation
 results, commit reference if available, current status, and the next step.
@@ -115,5 +115,28 @@ results, commit reference if available, current status, and the next step.
   - `bun run db:seed:test`
   - `bun run build`
   - `bun run test:e2e`
-- Commit: pending.
+- Commit: `c920bfb feat: persist google places captures`
 - Next step: Step 4, Google Provider Adapter Refactor.
+
+### 2026-06-25 - Step 4: Google Provider Adapter Refactor
+
+- Added capture-ready Google Places chat parsing that preserves typed field data in `captureJson`
+  while keeping the existing chat context shape compatible.
+- Added a capture-ready Place Details enrichment path with injectable fetcher, timestamp, and
+  explicit enterprise/atmosphere field masks.
+- Added review-bearing details parsing for reviews, pricing, ratings, opening hours, contact
+  fields, location, amenities, payment/parking options, and attributions.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/providers/google-places-chat.test.ts`
+  - `bun test src/server/providers/google-places-enrichment.test.ts`
+  - `bun test src/server/providers/google-places-store.test.ts`
+  - `bun test`
+  - `bun run db:migrate:test`
+  - `bun run db:seed:test`
+  - `bun run build`
+  - `bun run test:e2e`
+- Commit: pending.
+- Next step: Step 5, Answer Context Store DB-First Retrieval.
