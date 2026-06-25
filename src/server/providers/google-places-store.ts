@@ -151,7 +151,7 @@ export async function findFreshPlacesForSearchRequirement(
       from google_place_details
       where stale_at > $1
         and retention_expires_at > $1
-        and ($2::text is null or primary_type = $2)
+        and ($2::text is null or primary_type = $2 or types_json ? $2)
       order by user_rating_count desc nulls last, rating desc nulls last, place_id asc
       limit $3
     `,

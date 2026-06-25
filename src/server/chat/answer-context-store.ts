@@ -51,7 +51,21 @@ export type SourceFreshness = {
   retentionExpiresAt?: string;
 };
 
+export type AnswerPlace = {
+  name: string;
+  placeId: string;
+  sourceName: "Google Places";
+  formattedAddress?: string;
+  primaryType?: string;
+  rating?: number;
+  userRatingCount?: number;
+  priceLevel?: string;
+  googleMapsUri?: string;
+  requiresGoogleAttribution: true;
+};
+
 export type AnswerContext = {
+  places: AnswerPlace[];
   facts: AnswerFact[];
   evidence: EvidenceSummary[];
   gaps: FactGap[];
@@ -110,7 +124,7 @@ export class AnswerContextStore {
     }
 
     const now = this.#clock().toISOString();
-    const freshRows = await this.#findFreshRows(requirement, now);
+    const freshRows = await this.#findFreshRowsOrEmpty(requirement, now);
     if (freshRows.length > 0) {
       return answerContextFromRows(freshRows, {
         liveRefreshCount: 0,
@@ -133,25 +147,7 @@ export class AnswerContextStore {
     }
 
     try {
-      const refreshedRows = await this.#refreshGooglePlacesContext(requirement, now);
-      if (refreshedRows.length > 0) {
-        return answerContextFromRows(refreshedRows, {
-          liveRefreshCount: 1,
-          sourceStatus: "refreshed",
-        });
-      }
-
-      return emptyAnswerContext({
-        gaps: [
-          {
-            type: "google_places",
-            reason: "missing",
-            message: "Google Places refresh completed but did not return reusable facts.",
-          },
-        ],
-        liveRefreshCount: 1,
-        sourceFreshness: [{ sourceName: "Google Places", status: "missing" }],
-      });
+      return await this.#refreshGooglePlacesContext(requirement, now);
     } catch {
       return emptyAnswerContext({
         gaps: [
@@ -174,13 +170,48 @@ export class AnswerContextStore {
     });
   }
 
+  async #findFreshRowsOrEmpty(requirement: PlannedGoogleRequirement, now: string) {
+    try {
+      return await this.#findFreshRows(requirement, now);
+    } catch {
+      return [];
+    }
+  }
+
   async #refreshGooglePlacesContext(requirement: PlannedGoogleRequirement, now: string) {
     const context = await this.#googlePlacesAdapter({
       fetchedAt: now,
       search: requirement.search,
     });
-    await this.#persistGooglePlacesContext(context);
-    return this.#findFreshRows(requirement, now);
+
+    try {
+      await this.#persistGooglePlacesContext(context);
+      const refreshedRows = await this.#findFreshRows(requirement, now);
+      if (refreshedRows.length > 0) {
+        return answerContextFromRows(refreshedRows, {
+          liveRefreshCount: 1,
+          sourceStatus: "refreshed",
+        });
+      }
+    } catch {
+      // Keep the answer useful from bounded provider facts even when local persistence is unavailable.
+    }
+
+    if (context.places.length > 0) {
+      return answerContextFromGooglePlacesContext(context);
+    }
+
+    return emptyAnswerContext({
+      gaps: [
+        {
+          type: "google_places",
+          reason: "missing",
+          message: "Google Places refresh completed but did not return reusable facts.",
+        },
+      ],
+      liveRefreshCount: 1,
+      sourceFreshness: [{ sourceName: "Google Places", status: "missing" }],
+    });
   }
 
   async #persistGooglePlacesContext(context: GooglePlacesChatContext) {
@@ -227,24 +258,67 @@ export function planGooglePlacesRequirement(
 ): PlannedGoogleRequirement | undefined {
   const latestUserMessage = [...messages].reverse().find((message) => message.role === "user");
   const content = latestUserMessage?.content ?? "";
+  const conversationContent = messages.map((message) => message.content).join(" ");
 
-  if (!isPlacesRecommendationQuestion(content)) {
+  if (!isPlacesRecommendationQuestion(content, conversationContent)) {
     return undefined;
   }
 
-  const primaryType = detectGooglePlacesIncludedType(content);
-  const area = detectGooglePlacesSearchArea(content);
+  const primaryType =
+    detectGooglePlacesIncludedType(content) ?? detectGooglePlacesIncludedType(conversationContent);
+  const area = detectGooglePlacesSearchArea(`${content} ${conversationContent}`);
+  const searchContent = contextualizeGooglePlacesSearchContent(
+    content,
+    primaryType,
+    conversationContent,
+  );
   return {
     kind: "google_places_search",
     primaryType,
     search: {
       label: `chat_${primaryType ?? "place"}_${area.slug}`,
-      textQuery: normalizeGooglePlacesTextQuery(content),
+      textQuery: normalizeGooglePlacesTextQuery(appendAreaToShortFollowUp(searchContent, area)),
       ...(primaryType ? { includedType: primaryType } : {}),
       center: area.center,
       radiusMeters: area.radiusMeters,
       pageSize: 8,
     },
+  };
+}
+
+function answerContextFromGooglePlacesContext(context: GooglePlacesChatContext): AnswerContext {
+  const places = context.places.map((place) =>
+    answerPlaceFromGooglePlace({
+      displayName: place.displayName,
+      formattedAddress: place.formattedAddress,
+      googleMapsUri: place.googleMapsUri,
+      placeId: place.placeId,
+      priceLevel: place.priceLevel,
+      primaryType: place.primaryType,
+      rating: place.rating,
+      userRatingCount: place.userRatingCount,
+    }),
+  );
+
+  return {
+    places,
+    facts: places.flatMap(answerFactsForPlace),
+    evidence: context.places.map((place) => ({
+      id: `evidence_google_places_${slugPart(place.placeId)}`,
+      sourceName: "Google Places",
+      citationUrl: place.googleMapsUri,
+      fetchedAt: context.fetchedAt,
+    })),
+    gaps: [],
+    sourceFreshness: [
+      {
+        sourceName: "Google Places",
+        status: "refreshed",
+        fetchedAt: context.fetchedAt,
+      },
+    ],
+    liveRefreshCount: 1,
+    estimatedProviderCostUsd: 0.017,
   };
 }
 
@@ -258,69 +332,27 @@ function answerContextFromRows(
     sourceStatus: "fresh" | "refreshed";
   },
 ): AnswerContext {
-  const facts = rows.flatMap((row): AnswerFact[] => {
-    const displayName = readDisplayName(row.display_name_json) ?? row.place_id;
-    return [
-      {
-        id: `answer_fact_${slugPart(row.place_id)}_place`,
-        type: "place_candidate",
-        claim: `${displayName} is a Google Places candidate for this request.`,
-        sourceRecordIds: [],
-        requiresGoogleAttribution: true,
-      },
-      ...(row.rating
-        ? [
-            {
-              id: `answer_fact_${slugPart(row.place_id)}_rating`,
-              type: "google_rating_signal",
-              claim: `${displayName} has a Google rating signal of ${row.rating}.`,
-              value: Number(row.rating),
-              sourceRecordIds: [],
-              requiresGoogleAttribution: true,
-            },
-          ]
-        : []),
-      ...(row.user_rating_count
-        ? [
-            {
-              id: `answer_fact_${slugPart(row.place_id)}_review_count`,
-              type: "google_review_count_signal",
-              claim: `${displayName} has ${row.user_rating_count} Google user rating signals.`,
-              value: row.user_rating_count,
-              sourceRecordIds: [],
-              requiresGoogleAttribution: true,
-            },
-          ]
-        : []),
-      ...(row.price_level
-        ? [
-            {
-              id: `answer_fact_${slugPart(row.place_id)}_price`,
-              type: "google_price_signal",
-              claim: `${displayName} has Google price information: ${row.price_level}.`,
-              value: row.price_level,
-              sourceRecordIds: [],
-              requiresGoogleAttribution: true,
-            },
-          ]
-        : []),
-      ...(row.google_maps_uri
-        ? [
-            {
-              id: `answer_fact_${slugPart(row.place_id)}_map_link`,
-              type: "map_link",
-              claim: `${displayName} has a Google Maps link.`,
-              value: row.google_maps_uri,
-              sourceRecordIds: [],
-              requiresGoogleAttribution: true,
-            },
-          ]
-        : []),
-    ];
+  const places = rows.flatMap((row) => {
+    const displayName = readDisplayName(row.display_name_json);
+    if (!displayName) {
+      return [];
+    }
+
+    return answerPlaceFromGooglePlace({
+      displayName,
+      formattedAddress: row.formatted_address ?? undefined,
+      googleMapsUri: row.google_maps_uri ?? undefined,
+      placeId: row.place_id,
+      priceLevel: row.price_level ?? undefined,
+      primaryType: row.primary_type ?? undefined,
+      rating: row.rating ? Number(row.rating) : undefined,
+      userRatingCount: row.user_rating_count ?? undefined,
+    });
   });
 
   return {
-    facts,
+    places,
+    facts: places.flatMap(answerFactsForPlace),
     evidence: rows.map((row) => ({
       id: `evidence_google_places_${slugPart(row.place_id)}`,
       sourceName: "Google Places",
@@ -342,6 +374,108 @@ function answerContextFromRows(
   };
 }
 
+function answerPlaceFromGooglePlace({
+  displayName,
+  formattedAddress,
+  googleMapsUri,
+  placeId,
+  priceLevel,
+  primaryType,
+  rating,
+  userRatingCount,
+}: {
+  displayName: string;
+  formattedAddress?: string;
+  placeId: string;
+  primaryType?: string;
+  rating?: number;
+  userRatingCount?: number;
+  priceLevel?: string;
+  googleMapsUri?: string;
+}): AnswerPlace {
+  return {
+    name: displayName,
+    placeId,
+    sourceName: "Google Places",
+    formattedAddress,
+    primaryType,
+    rating,
+    userRatingCount,
+    priceLevel,
+    googleMapsUri,
+    requiresGoogleAttribution: true,
+  };
+}
+
+function answerFactsForPlace({
+  googleMapsUri,
+  name,
+  placeId,
+  priceLevel,
+  rating,
+  userRatingCount,
+}: AnswerPlace): AnswerFact[] {
+  const slug = slugPart(placeId);
+
+  return [
+    {
+      id: `answer_fact_${slug}_place`,
+      type: "place_candidate",
+      claim: `${name} is a Google Places candidate for this request.`,
+      sourceRecordIds: [],
+      requiresGoogleAttribution: true,
+    },
+    ...(rating
+      ? [
+          {
+            id: `answer_fact_${slug}_rating`,
+            type: "google_rating_signal",
+            claim: `${name} has a Google rating signal of ${rating}.`,
+            value: rating,
+            sourceRecordIds: [],
+            requiresGoogleAttribution: true,
+          },
+        ]
+      : []),
+    ...(userRatingCount
+      ? [
+          {
+            id: `answer_fact_${slug}_review_count`,
+            type: "google_review_count_signal",
+            claim: `${name} has ${userRatingCount} Google user rating signals.`,
+            value: userRatingCount,
+            sourceRecordIds: [],
+            requiresGoogleAttribution: true,
+          },
+        ]
+      : []),
+    ...(priceLevel
+      ? [
+          {
+            id: `answer_fact_${slug}_price`,
+            type: "google_price_signal",
+            claim: `${name} has Google price information: ${priceLevel}.`,
+            value: priceLevel,
+            sourceRecordIds: [],
+            requiresGoogleAttribution: true,
+          },
+        ]
+      : []),
+    ...(googleMapsUri
+      ? [
+          {
+            id: `answer_fact_${slug}_map_link`,
+            type: "map_link",
+            claim: `${name} has a Google Maps link.`,
+            value: googleMapsUri,
+            sourceRecordIds: [],
+            requiresGoogleAttribution: true,
+          },
+        ]
+      : []),
+  ];
+}
+
 function emptyAnswerContext({
   gaps = [],
   liveRefreshCount = 0,
@@ -352,6 +486,7 @@ function emptyAnswerContext({
   sourceFreshness?: SourceFreshness[];
 }): AnswerContext {
   return {
+    places: [],
     facts: [],
     evidence: [],
     gaps,
@@ -407,13 +542,62 @@ function googlePlacePayload(place: GooglePlacesChatPlace) {
   };
 }
 
-function isPlacesRecommendationQuestion(content: string) {
-  return /\b(restaurants?|where\s+should\s+(we|i)\s+eat|eat|food|dinner|lunch|breakfast|brunch|cafes?|coffee|bars?|nightlife|places?\s+near|nearby\s+places?|best\s+.+\s+(near|around))\b/i.test(
-    content,
+function isPlacesRecommendationQuestion(content: string, conversationContent = content) {
+  if (
+    /\b(restaurants?|where\s+should\s+(we|i)\s+eat|eat|food|dinner|lunch|breakfast|brunch|date[-\s]?night|romantic|cafes?|coffee|bars?|nightlife|hotels?|hostels?|resorts?|villas?|lodging|accomm?odations?|where\s+to\s+stay|places?\s+to\s+stay|places?\s+near|nearby\s+places?|ratings?|rated|reviews?|best\s+.+\s+(near|around))\b/i.test(
+      content,
+    )
+  ) {
+    return true;
+  }
+
+  return (
+    hasPriorPlacesRecommendationQuestion(conversationContent) &&
+    /\b(quiet|lively|casual|nice|date[-\s]?night|romantic|seaside|beachfront|local|filipino|seafood|healthy|budget|cheap|fine\s+dining|cocktails?|open\s+now|tonight|nearby|best|good)\b/i.test(
+      content,
+    )
   );
 }
 
+function hasPriorPlacesRecommendationQuestion(conversationContent: string) {
+  return /\b(restaurants?|where\s+should\s+(we|i)\s+eat|food|dinner|lunch|breakfast|brunch|cafes?|coffee|bars?|nightlife|hotels?|hostels?|resorts?|villas?|lodging|accomm?odations?|where\s+to\s+stay|places?\s+to\s+stay)\b/i.test(
+    conversationContent,
+  );
+}
+
+function contextualizeGooglePlacesSearchContent(
+  content: string,
+  primaryType: string | undefined,
+  conversationContent: string,
+) {
+  if (!primaryType || detectGooglePlacesIncludedType(content)) {
+    return content;
+  }
+
+  const descriptorByPrimaryType: Record<string, string> = {
+    bar: "bar",
+    cafe: "cafe",
+    lodging: "accommodation",
+    restaurant: "restaurant",
+  };
+  const descriptor = descriptorByPrimaryType[primaryType];
+
+  if (!descriptor || !hasPriorPlacesRecommendationQuestion(conversationContent)) {
+    return content;
+  }
+
+  return `${content} ${descriptor}`;
+}
+
 function detectGooglePlacesIncludedType(content: string) {
+  if (
+    /\b(hotels?|hostels?|resorts?|villas?|lodging|accomm?odations?|where\s+to\s+stay|places?\s+to\s+stay)\b/i.test(
+      content,
+    )
+  ) {
+    return "lodging";
+  }
+
   if (/\b(cafes?|coffee)\b/i.test(content)) {
     return "cafe";
   }
@@ -423,7 +607,7 @@ function detectGooglePlacesIncludedType(content: string) {
   }
 
   if (
-    /\b(restaurants?|where\s+should\s+(we|i)\s+eat|eat|food|dinner|lunch|breakfast|brunch)\b/i.test(
+    /\b(restaurants?|where\s+should\s+(we|i)\s+eat|eat|food|dinner|lunch|breakfast|brunch|date[-\s]?night|romantic)\b/i.test(
       content,
     )
   ) {
@@ -437,6 +621,7 @@ function detectGooglePlacesSearchArea(content: string) {
   if (/\b(cloud\s*9|cloud9|catangnan)\b/i.test(content)) {
     return {
       slug: "cloud_9",
+      label: "Cloud 9",
       center: { latitude: 9.8116, longitude: 126.1651 },
       radiusMeters: 4_000,
     };
@@ -445,6 +630,7 @@ function detectGooglePlacesSearchArea(content: string) {
   if (/\bgeneral\s+luna\b/i.test(content)) {
     return {
       slug: "general_luna",
+      label: "General Luna",
       center: { latitude: 9.8006, longitude: 126.1586 },
       radiusMeters: 7_000,
     };
@@ -452,9 +638,21 @@ function detectGooglePlacesSearchArea(content: string) {
 
   return {
     slug: "siargao",
+    label: "Siargao",
     center: { latitude: 9.8006, longitude: 126.1586 },
     radiusMeters: 12_000,
   };
+}
+
+function appendAreaToShortFollowUp(
+  content: string,
+  area: ReturnType<typeof detectGooglePlacesSearchArea>,
+) {
+  if (/\b(siargao|general\s+luna|cloud\s*9|cloud9|catangnan)\b/i.test(content)) {
+    return content;
+  }
+
+  return `${content} near ${area.label}`;
 }
 
 function normalizeGooglePlacesTextQuery(content: string) {

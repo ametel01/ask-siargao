@@ -208,15 +208,30 @@ function summarizeGooglePlacesContext(context: GooglePlacesChatContext) {
 
 function summarizeAnswerContext(context: AnswerContext) {
   return {
+    places: context.places.map((place) => ({
+      name: place.name,
+      sourceName: place.sourceName,
+      formattedAddress: place.formattedAddress,
+      primaryType: place.primaryType,
+      rating: place.rating,
+      userRatingCount: place.userRatingCount,
+      priceLevel: place.priceLevel,
+      googleMapsUri: place.googleMapsUri,
+      requiresGoogleAttribution: place.requiresGoogleAttribution,
+    })),
     facts: context.facts.map((fact) => ({
-      id: fact.id,
       type: fact.type,
       claim: fact.claim,
       value: fact.value,
-      sourceRecordIds: fact.sourceRecordIds,
       requiresGoogleAttribution: fact.requiresGoogleAttribution,
     })),
-    evidence: context.evidence,
+    evidence: context.evidence.map((evidence) => ({
+      sourceName: evidence.sourceName,
+      citationUrl: evidence.citationUrl,
+      fetchedAt: evidence.fetchedAt,
+      staleAt: evidence.staleAt,
+      retentionExpiresAt: evidence.retentionExpiresAt,
+    })),
     gaps: context.gaps,
     sourceFreshness: context.sourceFreshness,
     liveRefreshCount: context.liveRefreshCount,
@@ -225,16 +240,22 @@ function summarizeAnswerContext(context: AnswerContext) {
 }
 
 function extractAnswerContextMapsLinks(context: AnswerContext | undefined) {
-  const links: Array<{ label: string; url: string }> = [];
+  const links = new Map<string, { label: string; url: string }>();
+  for (const place of context?.places ?? []) {
+    if (place.googleMapsUri) {
+      links.set(place.googleMapsUri, { label: place.name, url: place.googleMapsUri });
+    }
+  }
+
   for (const fact of context?.facts ?? []) {
     if (fact.type === "map_link" && typeof fact.value === "string") {
-      links.push({
+      links.set(fact.value, {
         label: labelFromMapLinkClaim(fact.claim),
         url: fact.value,
       });
     }
   }
-  return links;
+  return [...links.values()];
 }
 
 function labelFromMapLinkClaim(claim: string) {
@@ -266,13 +287,17 @@ const askSiargaoChatInstructions = [
   "If the latest question is not about Siargao or a plausible follow-up to Siargao trip planning, politely decline and invite the traveler to ask a Siargao-related question.",
   "Do not answer unrelated general knowledge, coding, entertainment, sports, finance, politics, or other-destination questions.",
   "If a short or ambiguous follow-up can reasonably be interpreted as Siargao-related from the conversation, answer it in that Siargao context.",
-  "Use only general destination knowledge unless the prompt includes specific facts.",
+  "Use general destination knowledge only for stable, non-provider-specific guidance.",
   "When weatherContext is present, use it for Siargao weather, rain, wind, and forecast questions.",
   "If weatherContext.status is fallback, say the live forecast snapshot has not been loaded yet.",
-  "When answerContext is present, use only answerContext facts for live or provider-specific claims.",
+  "For restaurant, cafe, bar, accommodation, nearby-place, rating, opening-hours, price, phone, website, or Maps-link questions, the server must prepare answerContext through the internal database first and Google Places live refresh only when fresh stored facts are unavailable.",
+  "When answerContext is present, treat it as the result of that DB-first lookup: sourceFreshness status `fresh` means the internal database answered it; `refreshed` means stored facts were unavailable or stale and Google Places was queried; `blocked` or gaps mean the lookup could not provide live provider facts.",
+  "When answerContext is present, use only answerContext facts for live, place-specific, or provider-specific claims.",
+  "When answerContext.places is present, treat each entry as one complete place. Use `name` as the display name; never use Place IDs, resource names, or map-link IDs as user-facing place names.",
   "Do not claim live Google data was checked unless answerContext.sourceFreshness says Google Places was refreshed or fetched fresh.",
   "If answerContext.gaps says required Google data is missing, stale, expired, blocked, or failed, state that gap instead of inventing the fact.",
-  "Never call or suggest calling Google directly; all provider decisions must already be reflected in answerContext.",
+  "If a place recommendation or place-detail question lacks answerContext, or answerContext.gaps says required Google data is missing, stale, expired, blocked, or failed, say the local DB/provider lookup has not produced fresh enough data instead of giving a generic shortlist.",
+  "Never call or suggest calling Google directly from the model; all internal DB and Google provider decisions must already be reflected in answerContext.",
   "Include Google Maps links and Google attribution requirements when answerContext marks them required.",
   "When placesContext is present, use it for place, restaurant, cafe, bar, and nearby recommendation questions.",
   "Treat the order of placesContext.places as Google Places search relevance, not as a verified quality ranking.",

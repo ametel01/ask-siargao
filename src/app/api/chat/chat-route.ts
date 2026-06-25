@@ -5,6 +5,7 @@ import {
   type AnswerContextStore,
   planGooglePlacesRequirement,
 } from "@/server/chat/answer-context-store";
+import { getDefaultAnswerContextStore } from "@/server/chat/default-answer-context-store";
 import {
   type AskSiargaoChatMessage,
   generateAskSiargaoChatResponse,
@@ -41,9 +42,16 @@ const defaultDependencies: ChatRouteDependencies = {
   getLatestSiargaoWeatherSnapshot,
 };
 
+export function createDefaultChatRouteDependencies(): ChatRouteDependencies {
+  return {
+    ...defaultDependencies,
+    answerContextStore: getDefaultAnswerContextStore(),
+  };
+}
+
 export async function chatResponse(
   request: Request,
-  dependencies: ChatRouteDependencies = defaultDependencies,
+  dependencies: ChatRouteDependencies = createDefaultChatRouteDependencies(),
   headers?: HeadersInit,
 ) {
   let body: unknown;

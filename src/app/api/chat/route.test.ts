@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 
-import { type ChatRouteDependencies, chatResponse } from "@/app/api/chat/chat-route";
+import {
+  type ChatRouteDependencies,
+  chatResponse,
+  createDefaultChatRouteDependencies,
+} from "@/app/api/chat/chat-route";
 import {
   type AnswerContext,
   type AnswerContextRequest,
@@ -91,6 +95,74 @@ describe("chat route", () => {
       "Google Places",
     );
     expect(dependencies.requests[0]?.answerContext?.facts[0]?.claim).toContain("Kermit");
+  });
+
+  test("passes Google answer context to accommodation rating follow-ups", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content:
+              "I'm staying near Cloud 9 for 10 days. We want quiet sleep, surfing, good restaurants, and easy airport transfer.",
+          },
+          {
+            role: "assistant",
+            content: "Cloud 9 is convenient for surf and General Luna restaurants.",
+          },
+          { role: "user", content: "what about accomodations? i want to know the rating also" },
+        ],
+      }),
+      dependencies,
+    );
+
+    expect(response.status).toBe(200);
+    expect(dependencies.answerContextRequests).toHaveLength(1);
+    expect(dependencies.requests[0]?.answerContext?.sourceFreshness[0]?.sourceName).toBe(
+      "Google Places",
+    );
+  });
+
+  test("passes DB-first answer context to short restaurant preference follow-ups", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          { role: "user", content: "Where should I eat in General Luna tonight?" },
+          {
+            role: "assistant",
+            content: "What kind of dinner are you after?",
+          },
+          { role: "user", content: "nice date-night" },
+        ],
+      }),
+      dependencies,
+    );
+
+    expect(response.status).toBe(200);
+    expect(dependencies.answerContextRequests).toHaveLength(1);
+    expect(dependencies.requests[0]?.answerContext?.sourceFreshness[0]).toMatchObject({
+      sourceName: "Google Places",
+      status: "fresh",
+    });
+  });
+
+  test("default dependencies wire the Google answer context store when DATABASE_URL exists", () => {
+    const previousDatabaseUrl = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = "postgres://user:password@localhost:5432/siargao_portal";
+
+    try {
+      const dependencies = createDefaultChatRouteDependencies();
+
+      expect(dependencies.answerContextStore).toBeDefined();
+    } finally {
+      if (previousDatabaseUrl === undefined) {
+        delete process.env.DATABASE_URL;
+      } else {
+        process.env.DATABASE_URL = previousDatabaseUrl;
+      }
+    }
   });
 
   test("uses fresh stored Google facts through AnswerContextStore without provider calls", async () => {
@@ -307,6 +379,19 @@ function chatDependencies() {
 }
 
 const answerContextFixture: AnswerContext = {
+  places: [
+    {
+      name: "Kermit Surf Resort and Restaurant",
+      placeId: "place_kermit",
+      sourceName: "Google Places",
+      formattedAddress: "Tourism Road, General Luna, Siargao",
+      primaryType: "restaurant",
+      rating: 4.6,
+      userRatingCount: 1240,
+      googleMapsUri: "https://maps.google.com/?cid=123",
+      requiresGoogleAttribution: true,
+    },
+  ],
   facts: [
     {
       id: "answer_fact_place_kermit_place",

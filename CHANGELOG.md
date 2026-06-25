@@ -64,6 +64,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Restored `/api/chat` Google Places answer-context wiring for live/stored place facts and expanded
+  recommendation detection to accommodation rating follow-ups near Cloud 9.
 - Runs the checked-in SQL database migration during Compose startup after Postgres is healthy and
   before the app container starts serving.
 - Routed `/api/chat` Google Places recommendation context through the DB-first

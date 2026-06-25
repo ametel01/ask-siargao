@@ -129,20 +129,32 @@ describe("Ask Siargao chat adapter", () => {
 
     const request = requests[0];
     const input = parseOpenAIInput(request?.input);
+    const serializedInput = String(request?.input);
 
     expect(response.requestId).toBe("req_answer_context");
     expect(response.message).toContain(
       "- Kermit Surf Resort and Restaurant Maps: https://maps.google.com/?cid=123",
     );
     expect(String(request?.instructions)).toContain("When answerContext is present");
+    expect(String(request?.instructions)).toContain("internal database first");
+    expect(String(request?.instructions)).toContain("DB-first lookup");
     expect(String(request?.instructions)).toContain("use only answerContext facts");
     expect(String(request?.instructions)).toContain(
-      "Never call or suggest calling Google directly",
+      "Never call or suggest calling Google directly from the model",
     );
     expect(input.answerContext?.facts[0]?.type).toBe("place_candidate");
     expect(input.answerContext?.facts[0]?.claim).toContain("Kermit");
+    expect(input.answerContext?.places[0]).toMatchObject({
+      name: "Kermit Surf Resort and Restaurant",
+      googleMapsUri: "https://maps.google.com/?cid=123",
+      rating: 4.6,
+      userRatingCount: 1240,
+    });
     expect(input.answerContext?.sourceFreshness[0]?.status).toBe("fresh");
     expect(input.answerContext?.gaps[0]?.reason).toBe("refresh_blocked");
+    expect(serializedInput).not.toContain("record_google_places_chat_place_kermit");
+    expect(serializedInput).not.toContain("answer_fact_place_kermit");
+    expect(serializedInput).not.toContain("evidence_google_places_place_kermit");
   });
 });
 
@@ -172,6 +184,12 @@ function parseOpenAIInput(input: unknown): {
     }>;
   };
   answerContext?: {
+    places: Array<{
+      name?: string;
+      googleMapsUri?: string;
+      rating?: number;
+      userRatingCount?: number;
+    }>;
     facts: Array<{ type?: string; claim?: string }>;
     gaps: Array<{ reason?: string; message?: string }>;
     sourceFreshness: Array<{ status?: string }>;
@@ -226,6 +244,20 @@ const googlePlacesContextFixture: GooglePlacesChatContext = {
 };
 
 const answerContextFixture: AnswerContext = {
+  places: [
+    {
+      name: "Kermit Surf Resort and Restaurant",
+      placeId: "place_kermit",
+      sourceName: "Google Places",
+      formattedAddress: "Tourism Road, General Luna, Siargao",
+      primaryType: "restaurant",
+      rating: 4.6,
+      userRatingCount: 1240,
+      priceLevel: "PRICE_LEVEL_MODERATE",
+      googleMapsUri: "https://maps.google.com/?cid=123",
+      requiresGoogleAttribution: true,
+    },
+  ],
   facts: [
     {
       id: "answer_fact_place_kermit_place",
