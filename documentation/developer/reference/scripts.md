@@ -6,7 +6,7 @@ Scripts are defined in `package.json`.
 | --- | --- | --- |
 | `bun run dev` | `next dev` | Run the local Next.js dev server. |
 | `bun run dev:container` | `next dev -H 0.0.0.0` | Run the Next.js dev server inside the Compose app container. |
-| `bun run stack:up` | `docker compose up -d` | Start the local full-stack Compose environment: Next.js app and Postgres. |
+| `bun run stack:up` | `docker compose up -d` | Start the local full-stack Compose environment: Postgres, the checked-in SQL migration, and the Next.js app. |
 | `bun run stack:down` | `docker compose down` | Stop and remove the local Compose app and database containers while keeping volumes. |
 | `bun run stack:down:volumes` | `docker compose down --volumes` | Stop the local Compose stack and remove its named volumes for a clean reset. |
 | `bun run stack:logs` | `docker compose logs -f` | Follow logs from the local Compose app and database services. |

@@ -32,7 +32,7 @@ services:
       - .:/app
       - app-node-modules:/app/node_modules
       - bun-cache:/root/.bun/install/cache
-    command: sh -lc "bun install --frozen-lockfile && bun run dev:container"
+    command: sh -lc "bun install --frozen-lockfile && bun run db:migrate && bun run dev:container"
 
 volumes:
   postgres-data:

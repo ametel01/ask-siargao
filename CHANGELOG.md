@@ -64,6 +64,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Runs the checked-in SQL database migration during Compose startup after Postgres is healthy and
+  before the app container starts serving.
 - Routed `/api/chat` Google Places recommendation context through the DB-first
   `AnswerContextStore` dependency instead of direct provider lookup.
 - Documented the Google Places persistence lifecycle, DB-first chat flow, retention pruning, and
