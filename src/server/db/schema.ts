@@ -1,6 +1,7 @@
 import {
   boolean,
   date,
+  index,
   integer,
   jsonb,
   numeric,
@@ -136,6 +137,121 @@ export const sourceRecords = pgTable("source_records", {
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
   allowedUse: text("allowed_use").notNull(),
 });
+
+export const googlePlaces = pgTable(
+  "google_places",
+  {
+    placeId: text("place_id").primaryKey(),
+    resourceName: text("resource_name"),
+    latestSourceRecordId: text("latest_source_record_id").references(() => sourceRecords.id),
+    canonicalEntityId: text("canonical_entity_id").references(() => entities.id),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastDetailsFetchedAt: timestamp("last_details_fetched_at", { withTimezone: true }),
+    detailsStaleAt: timestamp("details_stale_at", { withTimezone: true }),
+  },
+  (table) => [index("google_places_details_stale_at_idx").on(table.detailsStaleAt)],
+);
+
+export const googlePlaceSnapshots = pgTable(
+  "google_place_snapshots",
+  {
+    id: text("id").primaryKey(),
+    placeId: text("place_id")
+      .notNull()
+      .references(() => googlePlaces.placeId),
+    sourceRecordId: text("source_record_id")
+      .notNull()
+      .references(() => sourceRecords.id),
+    requestKind: text("request_kind").notNull(),
+    fieldMask: text("field_mask").notNull(),
+    payloadJson: jsonb("payload_json").$type<Record<string, unknown>>(),
+    payloadHash: text("payload_hash"),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
+    staleAt: timestamp("stale_at", { withTimezone: true }).notNull(),
+    retentionExpiresAt: timestamp("retention_expires_at", { withTimezone: true }),
+    storagePolicy: text("storage_policy").notNull(),
+    attributionJson: jsonb("attribution_json").$type<Record<string, unknown>>(),
+  },
+  (table) => [
+    index("google_place_snapshots_place_id_idx").on(table.placeId),
+    index("google_place_snapshots_stale_at_idx").on(table.staleAt),
+    index("google_place_snapshots_retention_expires_at_idx").on(table.retentionExpiresAt),
+  ],
+);
+
+export const googlePlaceDetails = pgTable(
+  "google_place_details",
+  {
+    placeId: text("place_id")
+      .primaryKey()
+      .references(() => googlePlaces.placeId),
+    displayNameJson: jsonb("display_name_json").$type<Record<string, unknown>>(),
+    formattedAddress: text("formatted_address"),
+    shortFormattedAddress: text("short_formatted_address"),
+    addressComponentsJson: jsonb("address_components_json").$type<Record<string, unknown>[]>(),
+    locationJson: jsonb("location_json").$type<Record<string, unknown>>(),
+    latitude: numeric("latitude"),
+    longitude: numeric("longitude"),
+    viewportJson: jsonb("viewport_json").$type<Record<string, unknown>>(),
+    typesJson: jsonb("types_json").$type<string[]>(),
+    primaryType: text("primary_type"),
+    businessStatus: text("business_status"),
+    googleMapsUri: text("google_maps_uri"),
+    websiteUri: text("website_uri"),
+    nationalPhoneNumber: text("national_phone_number"),
+    internationalPhoneNumber: text("international_phone_number"),
+    openingHoursJson: jsonb("opening_hours_json").$type<Record<string, unknown>>(),
+    priceLevel: text("price_level"),
+    priceRangeJson: jsonb("price_range_json").$type<Record<string, unknown>>(),
+    rating: numeric("rating"),
+    userRatingCount: integer("user_rating_count"),
+    paymentOptionsJson: jsonb("payment_options_json").$type<Record<string, unknown>>(),
+    parkingOptionsJson: jsonb("parking_options_json").$type<Record<string, unknown>>(),
+    amenitiesJson: jsonb("amenities_json").$type<Record<string, unknown>>(),
+    attributionsJson: jsonb("attributions_json").$type<Record<string, unknown>[]>(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
+    staleAt: timestamp("stale_at", { withTimezone: true }).notNull(),
+    retentionExpiresAt: timestamp("retention_expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("google_place_details_stale_at_idx").on(table.staleAt),
+    index("google_place_details_retention_expires_at_idx").on(table.retentionExpiresAt),
+  ],
+);
+
+export const googlePlaceReviews = pgTable(
+  "google_place_reviews",
+  {
+    id: text("id").primaryKey(),
+    placeId: text("place_id")
+      .notNull()
+      .references(() => googlePlaces.placeId),
+    snapshotId: text("snapshot_id")
+      .notNull()
+      .references(() => googlePlaceSnapshots.id),
+    reviewName: text("review_name"),
+    relativePublishTimeDescription: text("relative_publish_time_description"),
+    rating: numeric("rating"),
+    textJson: jsonb("text_json").$type<Record<string, unknown>>(),
+    originalTextJson: jsonb("original_text_json").$type<Record<string, unknown>>(),
+    authorAttributionJson: jsonb("author_attribution_json").$type<Record<string, unknown>>(),
+    publishTime: timestamp("publish_time", { withTimezone: true }),
+    flaggedContent: boolean("flagged_content").notNull().default(false),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
+    staleAt: timestamp("stale_at", { withTimezone: true }).notNull(),
+    retentionExpiresAt: timestamp("retention_expires_at", { withTimezone: true }).notNull(),
+    displayRequiresGoogleAttribution: boolean("display_requires_google_attribution")
+      .notNull()
+      .default(true),
+  },
+  (table) => [
+    index("google_place_reviews_place_id_idx").on(table.placeId),
+    index("google_place_reviews_snapshot_id_idx").on(table.snapshotId),
+    index("google_place_reviews_stale_at_idx").on(table.staleAt),
+    index("google_place_reviews_retention_expires_at_idx").on(table.retentionExpiresAt),
+  ],
+);
 
 export const candidateEntities = pgTable("candidate_entities", {
   id: text("id").primaryKey(),

@@ -114,6 +114,111 @@ CREATE TABLE IF NOT EXISTS source_records (
   allowed_use text NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS google_places (
+  place_id text PRIMARY KEY,
+  resource_name text,
+  latest_source_record_id text REFERENCES source_records(id),
+  canonical_entity_id text REFERENCES entities(id),
+  first_seen_at timestamptz NOT NULL DEFAULT now(),
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  last_details_fetched_at timestamptz,
+  details_stale_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS google_places_details_stale_at_idx
+  ON google_places(details_stale_at);
+
+CREATE TABLE IF NOT EXISTS google_place_snapshots (
+  id text PRIMARY KEY,
+  place_id text NOT NULL REFERENCES google_places(place_id),
+  source_record_id text NOT NULL REFERENCES source_records(id),
+  request_kind text NOT NULL,
+  field_mask text NOT NULL,
+  payload_json jsonb,
+  payload_hash text,
+  fetched_at timestamptz NOT NULL,
+  stale_at timestamptz NOT NULL,
+  retention_expires_at timestamptz,
+  storage_policy text NOT NULL,
+  attribution_json jsonb
+);
+
+CREATE INDEX IF NOT EXISTS google_place_snapshots_place_id_idx
+  ON google_place_snapshots(place_id);
+
+CREATE INDEX IF NOT EXISTS google_place_snapshots_stale_at_idx
+  ON google_place_snapshots(stale_at);
+
+CREATE INDEX IF NOT EXISTS google_place_snapshots_retention_expires_at_idx
+  ON google_place_snapshots(retention_expires_at);
+
+CREATE TABLE IF NOT EXISTS google_place_details (
+  place_id text PRIMARY KEY REFERENCES google_places(place_id),
+  display_name_json jsonb,
+  formatted_address text,
+  short_formatted_address text,
+  address_components_json jsonb,
+  location_json jsonb,
+  latitude numeric,
+  longitude numeric,
+  viewport_json jsonb,
+  types_json jsonb,
+  primary_type text,
+  business_status text,
+  google_maps_uri text,
+  website_uri text,
+  national_phone_number text,
+  international_phone_number text,
+  opening_hours_json jsonb,
+  price_level text,
+  price_range_json jsonb,
+  rating numeric,
+  user_rating_count integer,
+  payment_options_json jsonb,
+  parking_options_json jsonb,
+  amenities_json jsonb,
+  attributions_json jsonb,
+  fetched_at timestamptz NOT NULL,
+  stale_at timestamptz NOT NULL,
+  retention_expires_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS google_place_details_stale_at_idx
+  ON google_place_details(stale_at);
+
+CREATE INDEX IF NOT EXISTS google_place_details_retention_expires_at_idx
+  ON google_place_details(retention_expires_at);
+
+CREATE TABLE IF NOT EXISTS google_place_reviews (
+  id text PRIMARY KEY,
+  place_id text NOT NULL REFERENCES google_places(place_id),
+  snapshot_id text NOT NULL REFERENCES google_place_snapshots(id),
+  review_name text,
+  relative_publish_time_description text,
+  rating numeric,
+  text_json jsonb,
+  original_text_json jsonb,
+  author_attribution_json jsonb,
+  publish_time timestamptz,
+  flagged_content boolean NOT NULL DEFAULT false,
+  fetched_at timestamptz NOT NULL,
+  stale_at timestamptz NOT NULL,
+  retention_expires_at timestamptz NOT NULL,
+  display_requires_google_attribution boolean NOT NULL DEFAULT true
+);
+
+CREATE INDEX IF NOT EXISTS google_place_reviews_place_id_idx
+  ON google_place_reviews(place_id);
+
+CREATE INDEX IF NOT EXISTS google_place_reviews_snapshot_id_idx
+  ON google_place_reviews(snapshot_id);
+
+CREATE INDEX IF NOT EXISTS google_place_reviews_stale_at_idx
+  ON google_place_reviews(stale_at);
+
+CREATE INDEX IF NOT EXISTS google_place_reviews_retention_expires_at_idx
+  ON google_place_reviews(retention_expires_at);
+
 CREATE TABLE IF NOT EXISTS candidate_entities (
   id text PRIMARY KEY,
   candidate_name text NOT NULL,

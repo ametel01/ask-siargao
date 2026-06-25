@@ -10,6 +10,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 ### Added
 
 - Established progress tracking for the Google Places persistence implementation plan.
+- Added typed Google Places capture tables for identities, snapshots, details, reviews, freshness,
+  retention, attribution, and migration parity.
 - Added mocked browser coverage for real chat submission, assistant response rendering, and prompt auto-submit.
 - Established progress tracking for the real chat replacement plan.
 - Added a first GPT-backed Ask Siargao chat slice with a server-side OpenAI Responses API adapter, `/api/chat` endpoint, rate limiting, validation, landing prompt deep links, and interactive desktop/mobile composers.

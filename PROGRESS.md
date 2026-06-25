@@ -10,7 +10,7 @@
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
-- [ ] Step 1: Google Places Schema And Migration
+- [x] Step 1: Google Places Schema And Migration
 - [ ] Step 2: Google Places Freshness, Retention, And Field Policy Module
 - [ ] Step 3: Google Places Capture Repository
 - [ ] Step 4: Google Provider Adapter Refactor
@@ -23,7 +23,7 @@
 
 ## Current Status
 
-Step 0 is implemented. Step 1 is next.
+Step 1 is implemented. Step 2 is next.
 
 `PROGRESS.md` must be updated after every completed step with completion notes, validation
 results, commit reference if available, current status, and the next step.
@@ -46,5 +46,29 @@ results, commit reference if available, current status, and the next step.
   - `bun run db:seed:test`
   - `bun run build`
   - `bun run test:e2e`
-- Commit: pending.
+- Commit: `63dafe1 chore: track google places persistence plan progress`
 - Next step: Step 1, Google Places Schema And Migration.
+
+### 2026-06-25 - Step 1: Google Places Schema And Migration
+
+- Added Drizzle and SQL migration tables for Google Places identities, snapshots, typed details,
+  and reviews.
+- Added foreign keys to source records and canonical entities while leaving the existing fact graph
+  tables unchanged.
+- Added lookup indexes for place IDs, stale timestamps, and retention-expiry timestamps.
+- Updated the migration parity test to require the new table exports.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/db/migration.test.ts`
+  - `bun run db:migrate:test`
+  - `bun run db:seed:test`
+  - `bun test`
+  - `bun run build`
+  - `bun run test:e2e`
+- Note: An initial parallel run of `bun test`, `bun run db:migrate:test`, and
+  `bun run db:seed:test` failed because those commands share `.tmp/pglite-step3`; rerunning
+  database-affecting checks sequentially passed.
+- Commit: pending.
+- Next step: Step 2, Google Places Freshness, Retention, And Field Policy Module.
