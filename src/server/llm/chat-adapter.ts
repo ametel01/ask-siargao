@@ -83,17 +83,22 @@ function ensureGoogleMapsLinks(message: string, context: GooglePlacesChatContext
   }
 
   const lines = message.split("\n");
+  const linkedGoogleMapsUris = extractLinkedUris(message);
+  const lineIndexByDisplayName = indexLinesByDisplayName(
+    lines,
+    context.places.map((place) => place.displayName.toLowerCase()),
+  );
   const missingLinkedPlaces: string[] = [];
 
   for (const place of context.places) {
-    if (lines.join("\n").includes(place.googleMapsUri)) {
+    if (linkedGoogleMapsUris.has(place.googleMapsUri)) {
       continue;
     }
 
     const displayName = place.displayName.toLowerCase();
-    const lineIndex = lines.findIndex((line) => line.toLowerCase().includes(displayName));
+    const lineIndex = lineIndexByDisplayName.get(displayName);
 
-    if (lineIndex >= 0) {
+    if (lineIndex !== undefined) {
       lines[lineIndex] = `${lines[lineIndex]} Maps: ${place.googleMapsUri}`;
     } else {
       missingLinkedPlaces.push(`- ${place.displayName} Maps: ${place.googleMapsUri}`);
@@ -106,6 +111,41 @@ function ensureGoogleMapsLinks(message: string, context: GooglePlacesChatContext
   }
 
   return `${linkedMessage}\n\nGoogle Maps links:\n${missingLinkedPlaces.join("\n")}`;
+}
+
+function extractLinkedUris(message: string) {
+  const uriPattern = /https?:\/\/\S+/g;
+  return new Set((message.match(uriPattern) ?? []).map(normalizeLinkedUri));
+}
+
+function normalizeLinkedUri(uri: string) {
+  return uri.replace(/[),.;:!?]+$/u, "");
+}
+
+function indexLinesByDisplayName(lines: readonly string[], displayNames: readonly string[]) {
+  const lineIndexByDisplayName = new Map<string, number>();
+  const displayNameMatchers = new Map(
+    displayNames.map((displayName) => [displayName, new RegExp(escapeRegExp(displayName), "i")]),
+  );
+
+  for (const [lineIndex, line] of lines.entries()) {
+    for (const [displayName, matcher] of displayNameMatchers) {
+      if (matcher.test(line)) {
+        lineIndexByDisplayName.set(displayName, lineIndex);
+        displayNameMatchers.delete(displayName);
+      }
+    }
+
+    if (displayNameMatchers.size === 0) {
+      break;
+    }
+  }
+
+  return lineIndexByDisplayName;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function summarizeGooglePlacesContext(context: GooglePlacesChatContext) {
