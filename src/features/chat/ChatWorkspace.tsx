@@ -18,6 +18,9 @@ const suggestedPrompts = [
 ];
 
 const chatErrorMessage = "Ask Siargao could not answer right now. Please try again.";
+const initialPromptStoragePrefix = "ask-siargao:submitted-initial-prompt:";
+const maxChatRequestMessageLength = 2_000;
+const maxPriorChatRequestMessages = 6;
 const chatTimeFormatter = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
   minute: "2-digit",
@@ -91,13 +94,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
         timestamp,
         status: "pending",
       };
-      const requestMessages = [
-        ...messages
-          .filter((message) => message.status === "complete")
-          .slice(-8)
-          .map((message) => ({ role: message.role, content: message.text })),
-        { role: "user" as const, content: trimmedPrompt },
-      ];
+      const requestMessages = buildChatRequestMessages(messages, trimmedPrompt);
 
       setInputValue("");
       setIsSending(true);
@@ -160,7 +157,15 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
       return;
     }
 
+    if (hasSubmittedInitialPrompt(initialPrompt)) {
+      clearPromptSearchParam();
+      submittedInitialPromptRef.current = true;
+      return;
+    }
+
     submittedInitialPromptRef.current = true;
+    rememberSubmittedInitialPrompt(initialPrompt);
+    clearPromptSearchParam();
     void submitPrompt(initialPrompt);
   }, [initialPrompt, submitPrompt]);
 
@@ -692,4 +697,55 @@ function createMessageId(prefix: string) {
 
 function formatTimestamp() {
   return chatTimeFormatter.format(new Date());
+}
+
+function buildChatRequestMessages(messages: readonly InteractiveChatMessage[], prompt: string) {
+  return [
+    ...messages
+      .filter((message) => message.status === "complete")
+      .slice(-maxPriorChatRequestMessages)
+      .map((message) => ({
+        role: message.role,
+        content: truncateChatRequestMessage(message.text),
+      })),
+    { role: "user" as const, content: truncateChatRequestMessage(prompt) },
+  ];
+}
+
+function truncateChatRequestMessage(value: string) {
+  return value.length <= maxChatRequestMessageLength
+    ? value
+    : `${value.slice(0, maxChatRequestMessageLength - 3)}...`;
+}
+
+function initialPromptStorageKey(prompt: string) {
+  return `${initialPromptStoragePrefix}${prompt}`;
+}
+
+function hasSubmittedInitialPrompt(prompt: string) {
+  try {
+    return window.sessionStorage.getItem(initialPromptStorageKey(prompt)) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function rememberSubmittedInitialPrompt(prompt: string) {
+  try {
+    window.sessionStorage.setItem(initialPromptStorageKey(prompt), "true");
+  } catch {
+    // Storage can be unavailable in private or restricted browser contexts.
+  }
+}
+
+function clearPromptSearchParam() {
+  const url = new URL(window.location.href);
+
+  if (!url.searchParams.has("prompt")) {
+    return;
+  }
+
+  url.searchParams.delete("prompt");
+  const nextPath = `${url.pathname}${url.search}${url.hash}`;
+  window.history.replaceState(window.history.state, "", nextPath);
 }

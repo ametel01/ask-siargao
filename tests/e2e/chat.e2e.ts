@@ -122,6 +122,17 @@ test("auto-submits a prompt deep link once", async ({ page }) => {
   const mockChat = await mockChatApi(page, {
     message: "Mocked deep-link answer: start near the boardwalk, then pick a quiet cafe.",
   });
+  let promptDocumentRequests = 0;
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (
+      request.resourceType() === "document" &&
+      url.pathname === "/chat" &&
+      url.searchParams.has("prompt")
+    ) {
+      promptDocumentRequests += 1;
+    }
+  });
 
   await page.goto(`/chat?prompt=${encodeURIComponent(prompt)}`);
 
@@ -129,8 +140,66 @@ test("auto-submits a prompt deep link once", async ({ page }) => {
   await expect(
     page.getByText("Mocked deep-link answer: start near the boardwalk, then pick a quiet cafe."),
   ).toBeVisible();
+  await expect(page).toHaveURL("/chat");
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(lastSubmittedContent(mockChat.requests[0])).toBe(prompt);
+  expect(promptDocumentRequests).toBe(1);
+
+  await page.goto(`/chat?prompt=${encodeURIComponent(prompt)}`);
+
+  await expect(page).toHaveURL("/chat");
+  await expect
+    .poll(async () => {
+      await page.waitForTimeout(100);
+      return mockChat.requests.length;
+    })
+    .toBe(1);
+  expect(promptDocumentRequests).toBe(2);
+});
+
+test("truncates long prior assistant messages before follow-up requests", async ({ page }) => {
+  const requests: ChatRequestBody[] = [];
+  let requestCount = 0;
+
+  await page.route("**/api/chat", async (route) => {
+    requests.push(route.request().postDataJSON() as ChatRequestBody);
+    requestCount += 1;
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message:
+          requestCount === 1
+            ? `Long first answer: ${"quiet sleep, surf access, restaurants, transfer. ".repeat(70)}`
+            : "Mocked follow-up answer: choose General Luna for the widest dinner options.",
+        model: "gpt-5.5-test",
+        requestId: "req_playwright_chat_long_history",
+      }),
+    });
+  });
+
+  await page.goto("/chat");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill(
+    "I'm staying near Cloud 9 for 10 days. We want quiet sleep, surfing, good restaurants, and easy airport transfer.",
+  );
+  await composerInput.press("Enter");
+
+  await expect(page.getByText("Long first answer:")).toBeVisible();
+
+  await composerInput.fill("Where should I eat in General Luna tonight?");
+  await composerInput.press("Enter");
+
+  await expect(
+    page.getByText("Mocked follow-up answer: choose General Luna for the widest dinner options."),
+  ).toBeVisible();
+  await expect.poll(() => requests.length).toBe(2);
+
+  const followUpMessages = requests[1]?.messages ?? [];
+  expect(lastSubmittedContent(requests[1])).toBe("Where should I eat in General Luna tonight?");
+  expect(followUpMessages.every((message) => (message.content?.length ?? 0) <= 2_000)).toBe(true);
 });
 
 test("shows safe error copy and lets the user keep asking after a failed request", async ({
