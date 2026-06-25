@@ -19,11 +19,11 @@
 - [x] Step 7: `/api/chat` Integration
 - [x] Step 8: Retention Cleanup Job And Script
 - [x] Step 9: Documentation And Operator Guidance
-- [ ] Step 10: End-To-End Verification Slice
+- [x] Step 10: End-To-End Verification Slice
 
 ## Current Status
 
-Step 9 is implemented. Step 10 is next.
+All implementation plan steps are complete.
 
 `PROGRESS.md` must be updated after every completed step with completion notes, validation
 results, commit reference if available, current status, and the next step.
@@ -246,5 +246,29 @@ results, commit reference if available, current status, and the next step.
   - `bun run db:seed:test`
   - `bun run build`
   - `bun run test:e2e`
-- Commit: pending.
+- Commit: `18938f2 docs: document google places persistence lifecycle`
 - Next step: Step 10, End-To-End Verification Slice.
+
+### 2026-06-25 - Step 10: End-To-End Verification Slice
+
+- Added `/api/chat` integration coverage that runs a real PGlite-backed `AnswerContextStore`
+  against seeded fresh Google Places captures.
+- Proved fresh stored Google facts reach the LLM request as bounded `answerContext` without calling
+  the Google provider.
+- Proved missing Google data with blocked refresh passes source freshness and gap metadata through
+  `/api/chat` without provider calls.
+- Added leak checks proving raw Google snapshot payload sentinels and expired review text are not
+  sent to the LLM request.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/app/api/chat/route.test.ts`
+  - `bun test src/server/chat/answer-context-store.test.ts`
+  - `bun test`
+  - `bun run db:migrate:test`
+  - `bun run db:seed:test`
+  - `bun run build`
+  - `bun run test:e2e`
+- Commit: this commit, `test: verify db first google chat flow`
+- Next step: implementation plan complete.

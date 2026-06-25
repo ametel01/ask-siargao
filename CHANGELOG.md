@@ -20,6 +20,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
   support.
 - Added a DB-first `AnswerContextStore` for bounded Google Places answer facts, source freshness,
   refresh gating, and gap reporting.
+- Added end-to-end route coverage proving DB-first Google chat context, blocked-refresh gaps, and
+  restricted Google content filtering before LLM input.
 - Added mocked browser coverage for real chat submission, assistant response rendering, and prompt auto-submit.
 - Established progress tracking for the real chat replacement plan.
 - Added a first GPT-backed Ask Siargao chat slice with a server-side OpenAI Responses API adapter, `/api/chat` endpoint, rate limiting, validation, landing prompt deep links, and interactive desktop/mobile composers.
