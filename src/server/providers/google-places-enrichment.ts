@@ -5,11 +5,7 @@ import {
   googlePlacesEnterpriseDetailsFieldMask,
 } from "@/server/providers/google-places-policy";
 
-export {
-  googlePlacesAtmosphereDetailsFieldMask,
-  googlePlacesDetailsFieldMask,
-  googlePlacesEnterpriseDetailsFieldMask,
-};
+export { googlePlacesAtmosphereDetailsFieldMask, googlePlacesDetailsFieldMask };
 
 export type GooglePlacesDetails = {
   placeId: string;

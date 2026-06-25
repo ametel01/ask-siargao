@@ -1,6 +1,6 @@
 const daysToMs = 24 * 60 * 60 * 1000;
 
-export const googlePlacesFieldMaskGroups = {
+const googlePlacesFieldMaskGroups = {
   chatSearch: [
     "places.id",
     "places.name",

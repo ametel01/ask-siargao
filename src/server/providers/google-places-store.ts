@@ -3,7 +3,6 @@ import {
   computeGooglePlacesRequestWindows,
   type GooglePlacesRequestKind,
   type GooglePlacesStoragePolicy,
-  getGooglePlacesReuseState,
 } from "@/server/providers/google-places-policy";
 
 type QueryResult<T> = { rows: T[] };
@@ -200,7 +199,7 @@ export async function findFreshPlaceDetails(
   return result.rows[0] ?? null;
 }
 
-export async function upsertGoogleSearchSnapshot(
+async function upsertGoogleSearchSnapshot(
   db: GooglePlacesStoreDatabase,
   {
     place,
@@ -213,8 +212,7 @@ export async function upsertGoogleSearchSnapshot(
   },
 ) {
   await upsertSourceRecord(db, sourceRecord);
-  await upsertGooglePlaceIdentity(db, place, sourceRecord.id, snapshot.fetchedAt, snapshot.staleAt);
-  await upsertGooglePlaceSnapshot(db, place.placeId, sourceRecord.id, snapshot);
+  await upsertGooglePlaceSnapshotAfterIdentity(db, place, sourceRecord.id, snapshot);
 }
 
 export async function upsertGooglePlaceDetails(
@@ -613,20 +611,6 @@ export async function countExpiredGooglePlacesContent(
   };
 }
 
-export function isGooglePlacesRowReusable({
-  now,
-  retentionExpiresAt,
-  staleAt,
-  storagePolicy,
-}: {
-  now: string;
-  staleAt: string | null;
-  retentionExpiresAt: string | null;
-  storagePolicy: GooglePlacesStoragePolicy;
-}) {
-  return getGooglePlacesReuseState({ now, retentionExpiresAt, staleAt, storagePolicy }) === "fresh";
-}
-
 export function createGooglePlaceSnapshotInput({
   fetchedAt,
   fieldMask,
@@ -738,6 +722,16 @@ async function upsertGooglePlaceIdentity(
       staleAt,
     ],
   );
+}
+
+async function upsertGooglePlaceSnapshotAfterIdentity(
+  db: GooglePlacesStoreDatabase,
+  place: GooglePlaceIdentityInput,
+  sourceRecordId: string,
+  snapshot: GooglePlaceSnapshotInput,
+) {
+  await upsertGooglePlaceIdentity(db, place, sourceRecordId, snapshot.fetchedAt, snapshot.staleAt);
+  return upsertGooglePlaceSnapshot(db, place.placeId, sourceRecordId, snapshot);
 }
 
 async function upsertGooglePlaceSnapshot(

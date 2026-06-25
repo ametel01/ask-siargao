@@ -133,13 +133,7 @@ export class AnswerContextStore {
     }
 
     try {
-      const context = await this.#googlePlacesAdapter({
-        fetchedAt: now,
-        search: requirement.search,
-      });
-      await this.#persistGooglePlacesContext(context);
-
-      const refreshedRows = await this.#findFreshRows(requirement, now);
+      const refreshedRows = await this.#refreshGooglePlacesContext(requirement, now);
       if (refreshedRows.length > 0) {
         return answerContextFromRows(refreshedRows, {
           liveRefreshCount: 1,
@@ -178,6 +172,15 @@ export class AnswerContextStore {
       primaryType: requirement.primaryType,
       limit: requirement.search.pageSize,
     });
+  }
+
+  async #refreshGooglePlacesContext(requirement: PlannedGoogleRequirement, now: string) {
+    const context = await this.#googlePlacesAdapter({
+      fetchedAt: now,
+      search: requirement.search,
+    });
+    await this.#persistGooglePlacesContext(context);
+    return this.#findFreshRows(requirement, now);
   }
 
   async #persistGooglePlacesContext(context: GooglePlacesChatContext) {

@@ -96,9 +96,9 @@ function ensureGoogleMapsLinks(
 
   const lines = message.split("\n");
   const linkedGoogleMapsUris = extractLinkedUris(message);
-  const missingAnswerContextLinks = answerContextLinks
-    .filter((link) => !linkedGoogleMapsUris.has(link.url))
-    .map((link) => `- ${link.label} Maps: ${link.url}`);
+  const missingAnswerContextLinks = answerContextLinks.flatMap((link) =>
+    linkedGoogleMapsUris.has(link.url) ? [] : [`- ${link.label} Maps: ${link.url}`],
+  );
 
   if (!context?.places.length) {
     return missingAnswerContextLinks.length === 0
@@ -225,14 +225,16 @@ function summarizeAnswerContext(context: AnswerContext) {
 }
 
 function extractAnswerContextMapsLinks(context: AnswerContext | undefined) {
-  return (
-    context?.facts
-      .filter((fact) => fact.type === "map_link" && typeof fact.value === "string")
-      .map((fact) => ({
+  const links: Array<{ label: string; url: string }> = [];
+  for (const fact of context?.facts ?? []) {
+    if (fact.type === "map_link" && typeof fact.value === "string") {
+      links.push({
         label: labelFromMapLinkClaim(fact.claim),
-        url: String(fact.value),
-      })) ?? []
-  );
+        url: fact.value,
+      });
+    }
+  }
+  return links;
 }
 
 function labelFromMapLinkClaim(claim: string) {
