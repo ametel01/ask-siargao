@@ -16,14 +16,14 @@
 - [x] Step 4: Google Provider Adapter Refactor
 - [x] Step 5: Answer Context Store DB-First Retrieval
 - [x] Step 6: LLM Adapter Answer Context Contract
-- [ ] Step 7: `/api/chat` Integration
+- [x] Step 7: `/api/chat` Integration
 - [ ] Step 8: Retention Cleanup Job And Script
 - [ ] Step 9: Documentation And Operator Guidance
 - [ ] Step 10: End-To-End Verification Slice
 
 ## Current Status
 
-Step 6 is implemented. Step 7 is next.
+Step 7 is implemented. Step 8 is next.
 
 `PROGRESS.md` must be updated after every completed step with completion notes, validation
 results, commit reference if available, current status, and the next step.
@@ -181,5 +181,27 @@ results, commit reference if available, current status, and the next step.
   - `bun run db:seed:test`
   - `bun run build`
   - `bun run test:e2e`
-- Commit: pending.
+- Commit: `a9bdcdf feat: constrain chat generation to answer context`
 - Next step: Step 7, `/api/chat` Integration.
+
+### 2026-06-25 - Step 7: `/api/chat` Integration
+
+- Replaced direct Google Places chat lookup dependencies in `/api/chat` with injected
+  `AnswerContextStore.getOrRefresh` retrieval.
+- Added request-scoped user message IDs for answer-context calls while preserving existing weather
+  context behavior.
+- Updated chat route tests to prove restaurant recommendation questions receive DB-first bounded
+  answer context and ordinary chat does not request Google context.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/app/api/chat/route.test.ts`
+  - `bun test src/server/chat/answer-context-store.test.ts`
+  - `bun test`
+  - `bun run db:migrate:test`
+  - `bun run db:seed:test`
+  - `bun run build`
+  - `bun run test:e2e`
+- Commit: pending.
+- Next step: Step 8, Retention Cleanup Job And Script.

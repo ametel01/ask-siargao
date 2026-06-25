@@ -60,6 +60,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Routed `/api/chat` Google Places recommendation context through the DB-first
+  `AnswerContextStore` dependency instead of direct provider lookup.
 - Constrained chat generation with a bounded answer-context contract for provider-specific facts,
   source freshness, attribution, and gaps.
 - Made Google Places chat and details adapters capture-ready while preserving existing chat context

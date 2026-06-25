@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { type ChatRouteDependencies, chatResponse } from "@/app/api/chat/chat-route";
-import {
-  type GooglePlacesChatSearch,
-  googlePlacesChatSearchFieldMask,
-} from "@/server/providers/google-places-chat";
+import type { AnswerContext, AnswerContextRequest } from "@/server/chat/answer-context-store";
 import type { OpenMeteoForecastLocation } from "@/server/providers/open-meteo";
 import { fallbackWeatherSnapshot } from "@/server/public-pages/weather-snapshot";
 
@@ -40,7 +37,7 @@ describe("chat route", () => {
     expect(body.message).toContain("I can only help with Siargao");
     expect(dependencies.requests).toHaveLength(0);
     expect(dependencies.weatherRequests).toBe(0);
-    expect(dependencies.placesRequests).toHaveLength(0);
+    expect(dependencies.answerContextRequests).toHaveLength(0);
   });
 
   test("returns an Ask Siargao model response", async () => {
@@ -61,7 +58,7 @@ describe("chat route", () => {
     );
   });
 
-  test("passes Google Places context to restaurant recommendation questions", async () => {
+  test("passes DB-first answer context to restaurant recommendation questions", async () => {
     const dependencies = chatDependencies();
     const response = await chatResponse(
       jsonRequest({
@@ -71,18 +68,12 @@ describe("chat route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(dependencies.placesRequests).toHaveLength(1);
-    expect(dependencies.placesRequests[0]).toMatchObject({
-      label: "chat_restaurant_cloud_9",
-      textQuery: "find me the best restaurant around cloud9 Siargao Philippines",
-      includedType: "restaurant",
-      center: { latitude: 9.8116, longitude: 126.1651 },
-      radiusMeters: 4_000,
-    });
-    expect(dependencies.requests[0]?.placesContext?.sourceProfileId).toBe("source_google_places");
-    expect(dependencies.requests[0]?.placesContext?.places[0]?.displayName).toBe(
-      "Kermit Surf Resort and Restaurant",
+    expect(dependencies.answerContextRequests).toHaveLength(1);
+    expect(dependencies.answerContextRequests[0]?.userMessageId).toMatch(/^request_user_message_/);
+    expect(dependencies.requests[0]?.answerContext?.sourceFreshness[0]?.sourceName).toBe(
+      "Google Places",
     );
+    expect(dependencies.requests[0]?.answerContext?.facts[0]?.claim).toContain("Kermit");
   });
 
   test("passes the Siargao weather snapshot to weather questions", async () => {
@@ -131,7 +122,7 @@ describe("chat route", () => {
     expect(dependencies.requests[0]?.weatherContext).toBeUndefined();
   });
 
-  test("does not fetch Google Places context for ordinary chat", async () => {
+  test("does not fetch answer context for ordinary chat", async () => {
     const dependencies = chatDependencies();
     const response = await chatResponse(
       jsonRequest({
@@ -141,8 +132,8 @@ describe("chat route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(dependencies.placesRequests).toHaveLength(0);
-    expect(dependencies.requests[0]?.placesContext).toBeUndefined();
+    expect(dependencies.answerContextRequests).toHaveLength(0);
+    expect(dependencies.requests[0]?.answerContext).toBeUndefined();
   });
 
   test("returns stable unavailable response when OpenAI is not configured", async () => {
@@ -165,7 +156,7 @@ function chatDependencies() {
   const requests: Parameters<ChatRouteDependencies["generateAskSiargaoChatResponse"]>[0][] = [];
   const dependencies: ChatRouteDependencies & {
     requests: typeof requests;
-    placesRequests: GooglePlacesChatSearch[];
+    answerContextRequests: AnswerContextRequest[];
     weatherLocations: OpenMeteoForecastLocation[];
     weatherRequests: number;
   } = {
@@ -184,44 +175,45 @@ function chatDependencies() {
       }
       return fallbackWeatherSnapshot;
     },
-    getGooglePlacesChatContext: async ({ search }) => {
-      dependencies.placesRequests.push(search);
-      return {
-        status: "available",
-        sourceName: "Google Places",
-        sourceProfileId: "source_google_places",
-        fetchedAt: "2026-06-24T00:00:00.000Z",
-        search,
-        fieldMask: googlePlacesChatSearchFieldMask,
-        caveats: ["Enhanced chat lookup does not include review text or availability."],
-        places: [
-          {
-            placeId: "place_kermit",
-            resourceName: "places/place_kermit",
-            displayName: "Kermit Surf Resort and Restaurant",
-            formattedAddress: "Tourism Road, General Luna, Siargao",
-            types: ["restaurant", "food"],
-            primaryType: "restaurant",
-            businessStatus: "OPERATIONAL",
-            googleMapsUri: "https://maps.google.com/?cid=123",
-            rating: 4.6,
-            userRatingCount: 1240,
-            currentOpeningHours: { openNow: true },
-            priceLevel: "PRICE_LEVEL_MODERATE",
-            websiteUri: "https://kermit.example",
-            internationalPhoneNumber: "+63 917 123 4567",
-          },
-        ],
-      };
+    answerContextStore: {
+      getOrRefresh: async (request) => {
+        dependencies.answerContextRequests.push(request);
+        return answerContextFixture;
+      },
     },
     requests,
-    placesRequests: [],
+    answerContextRequests: [],
     weatherLocations: [],
     weatherRequests: 0,
   };
 
   return dependencies;
 }
+
+const answerContextFixture: AnswerContext = {
+  facts: [
+    {
+      id: "answer_fact_place_kermit_place",
+      type: "place_candidate",
+      claim: "Kermit Surf Resort and Restaurant is a Google Places candidate for this request.",
+      sourceRecordIds: ["record_google_places_chat_place_kermit"],
+      requiresGoogleAttribution: true,
+    },
+  ],
+  evidence: [],
+  gaps: [],
+  sourceFreshness: [
+    {
+      sourceName: "Google Places",
+      status: "fresh",
+      fetchedAt: "2026-06-24T00:00:00.000Z",
+      staleAt: "2026-07-01T00:00:00.000Z",
+      retentionExpiresAt: "2026-07-24T00:00:00.000Z",
+    },
+  ],
+  liveRefreshCount: 0,
+  estimatedProviderCostUsd: 0,
+};
 
 function jsonRequest(body: unknown) {
   return rawRequest(JSON.stringify(body));
