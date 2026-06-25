@@ -14,7 +14,7 @@
 - [x] Step 2: Google Places Freshness, Retention, And Field Policy Module
 - [x] Step 3: Google Places Capture Repository
 - [x] Step 4: Google Provider Adapter Refactor
-- [ ] Step 5: Answer Context Store DB-First Retrieval
+- [x] Step 5: Answer Context Store DB-First Retrieval
 - [ ] Step 6: LLM Adapter Answer Context Contract
 - [ ] Step 7: `/api/chat` Integration
 - [ ] Step 8: Retention Cleanup Job And Script
@@ -23,7 +23,7 @@
 
 ## Current Status
 
-Step 4 is implemented. Step 5 is next.
+Step 5 is implemented. Step 6 is next.
 
 `PROGRESS.md` must be updated after every completed step with completion notes, validation
 results, commit reference if available, current status, and the next step.
@@ -138,5 +138,27 @@ results, commit reference if available, current status, and the next step.
   - `bun run db:seed:test`
   - `bun run build`
   - `bun run test:e2e`
-- Commit: pending.
+- Commit: `ac1469c feat: make google places adapters capture ready`
 - Next step: Step 5, Answer Context Store DB-First Retrieval.
+
+### 2026-06-25 - Step 5: Answer Context Store DB-First Retrieval
+
+- Added `AnswerContextStore` with deterministic Google Places requirement planning, fresh DB lookup,
+  refresh-policy gating, injected Google adapter support, capture persistence, bounded answer facts,
+  evidence summaries, freshness labels, live-refresh counts, and gap reporting.
+- Added DB-backed tests proving fresh stored Google rating, review-count, price, and map facts avoid
+  provider calls; stale rows refresh and persist replacement data; expired rows are not sent forward;
+  and blocked live refreshes return gaps.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/chat/answer-context-store.test.ts`
+  - `bun test src/server/providers/google-places-store.test.ts`
+  - `bun test`
+  - `bun run db:migrate:test`
+  - `bun run db:seed:test`
+  - `bun run build`
+  - `bun run test:e2e`
+- Commit: pending.
+- Next step: Step 6, LLM Adapter Answer Context Contract.

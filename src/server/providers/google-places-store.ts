@@ -125,6 +125,8 @@ export async function findFreshPlacesForSearchRequirement(
     rating: string | null;
     user_rating_count: number | null;
     google_maps_uri: string | null;
+    price_level: string | null;
+    fetched_at: Date;
     stale_at: Date;
     retention_expires_at: Date;
   }>(
@@ -137,6 +139,8 @@ export async function findFreshPlacesForSearchRequirement(
         rating::text as rating,
         user_rating_count,
         google_maps_uri,
+        price_level,
+        fetched_at,
         stale_at,
         retention_expires_at
       from google_place_details
@@ -162,6 +166,8 @@ export async function findFreshPlaceDetails(
     formatted_address: string | null;
     rating: string | null;
     user_rating_count: number | null;
+    price_level: string | null;
+    fetched_at: Date;
     stale_at: Date;
     retention_expires_at: Date;
   }>(
@@ -172,6 +178,8 @@ export async function findFreshPlaceDetails(
         formatted_address,
         rating::text as rating,
         user_rating_count,
+        price_level,
+        fetched_at,
         stale_at,
         retention_expires_at
       from google_place_details
