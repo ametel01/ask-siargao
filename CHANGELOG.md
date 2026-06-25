@@ -14,6 +14,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
   retention, attribution, and migration parity.
 - Added central Google Places field-mask, freshness, retention, reuse-state, and attribution policy
   helpers.
+- Added a Google Places capture store for typed upserts, fresh lookups, normalized facts/evidence,
+  review governance, and expired-content deletion.
 - Added mocked browser coverage for real chat submission, assistant response rendering, and prompt auto-submit.
 - Established progress tracking for the real chat replacement plan.
 - Added a first GPT-backed Ask Siargao chat slice with a server-side OpenAI Responses API adapter, `/api/chat` endpoint, rate limiting, validation, landing prompt deep links, and interactive desktop/mobile composers.

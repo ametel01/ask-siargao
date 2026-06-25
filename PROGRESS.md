@@ -12,7 +12,7 @@
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Google Places Schema And Migration
 - [x] Step 2: Google Places Freshness, Retention, And Field Policy Module
-- [ ] Step 3: Google Places Capture Repository
+- [x] Step 3: Google Places Capture Repository
 - [ ] Step 4: Google Provider Adapter Refactor
 - [ ] Step 5: Answer Context Store DB-First Retrieval
 - [ ] Step 6: LLM Adapter Answer Context Contract
@@ -23,7 +23,7 @@
 
 ## Current Status
 
-Step 2 is implemented. Step 3 is next.
+Step 3 is implemented. Step 4 is next.
 
 `PROGRESS.md` must be updated after every completed step with completion notes, validation
 results, commit reference if available, current status, and the next step.
@@ -93,5 +93,27 @@ results, commit reference if available, current status, and the next step.
   - `bun run db:seed:test`
   - `bun run build`
   - `bun run test:e2e`
-- Commit: pending.
+- Commit: `9b3c062 feat: add google places freshness policy`
 - Next step: Step 3, Google Places Capture Repository.
+
+### 2026-06-25 - Step 3: Google Places Capture Repository
+
+- Added a Google Places store module for DB-first fresh lookup, deterministic source/snapshot/detail
+  upserts, review upserts, normalized facts/evidence, reuse checks, and expired content deletion.
+- Added deterministic snapshot/fact/evidence identifiers derived from place IDs, request kind, field
+  mask, and fetched window.
+- Added PGlite-backed tests proving idempotent capture writes, fresh lookup behavior, expired-content
+  hiding/deletion, review retention/attribution metadata, and durable `place_id` preservation.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/providers/google-places-store.test.ts`
+  - `bun test src/server/providers/google-places-policy.test.ts`
+  - `bun test`
+  - `bun run db:migrate:test`
+  - `bun run db:seed:test`
+  - `bun run build`
+  - `bun run test:e2e`
+- Commit: pending.
+- Next step: Step 4, Google Provider Adapter Refactor.
