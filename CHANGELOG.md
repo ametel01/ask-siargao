@@ -16,6 +16,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
   helpers.
 - Added a Google Places capture store for typed upserts, fresh lookups, normalized facts/evidence,
   review governance, and expired-content deletion.
+- Added a Google Places retention cleanup job and `db:prune:google-places` script with dry-run
+  support.
 - Added a DB-first `AnswerContextStore` for bounded Google Places answer facts, source freshness,
   refresh gating, and gap reporting.
 - Added mocked browser coverage for real chat submission, assistant response rendering, and prompt auto-submit.

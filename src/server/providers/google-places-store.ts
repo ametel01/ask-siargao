@@ -14,6 +14,12 @@ export type GooglePlacesStoreDatabase = {
 
 type JsonObject = Record<string, unknown>;
 
+export type GooglePlacesCleanupCounts = {
+  reviewsDeleted: number;
+  detailsDeleted: number;
+  snapshotsDeleted: number;
+};
+
 export type GooglePlacesSourceRecordInput = {
   id: string;
   sourceProfileId: string;
@@ -555,7 +561,7 @@ export function normalizeGooglePlaceFacts({
 export async function deleteExpiredGooglePlacesContent(
   db: GooglePlacesStoreDatabase,
   { now }: { now: string },
-) {
+): Promise<GooglePlacesCleanupCounts> {
   const reviews = await db.query<{ id: string }>(
     "delete from google_place_reviews where retention_expires_at < $1 returning id",
     [now],
@@ -573,6 +579,37 @@ export async function deleteExpiredGooglePlacesContent(
     reviewsDeleted: reviews.rows.length,
     detailsDeleted: details.rows.length,
     snapshotsDeleted: snapshots.rows.length,
+  };
+}
+
+export async function countExpiredGooglePlacesContent(
+  db: GooglePlacesStoreDatabase,
+  { now }: { now: string },
+): Promise<GooglePlacesCleanupCounts> {
+  const result = await db.query<{
+    reviews_deleted: number;
+    details_deleted: number;
+    snapshots_deleted: number;
+  }>(
+    `
+      select
+        (select count(*)::int from google_place_reviews where retention_expires_at < $1) as reviews_deleted,
+        (select count(*)::int from google_place_details where retention_expires_at < $1) as details_deleted,
+        (
+          select count(*)::int
+          from google_place_snapshots
+          where retention_expires_at is not null
+            and retention_expires_at < $1
+        ) as snapshots_deleted
+    `,
+    [now],
+  );
+  const row = result.rows[0];
+
+  return {
+    reviewsDeleted: row?.reviews_deleted ?? 0,
+    detailsDeleted: row?.details_deleted ?? 0,
+    snapshotsDeleted: row?.snapshots_deleted ?? 0,
   };
 }
 

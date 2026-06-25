@@ -17,13 +17,13 @@
 - [x] Step 5: Answer Context Store DB-First Retrieval
 - [x] Step 6: LLM Adapter Answer Context Contract
 - [x] Step 7: `/api/chat` Integration
-- [ ] Step 8: Retention Cleanup Job And Script
+- [x] Step 8: Retention Cleanup Job And Script
 - [ ] Step 9: Documentation And Operator Guidance
 - [ ] Step 10: End-To-End Verification Slice
 
 ## Current Status
 
-Step 7 is implemented. Step 8 is next.
+Step 8 is implemented. Step 9 is next.
 
 `PROGRESS.md` must be updated after every completed step with completion notes, validation
 results, commit reference if available, current status, and the next step.
@@ -203,5 +203,27 @@ results, commit reference if available, current status, and the next step.
   - `bun run db:seed:test`
   - `bun run build`
   - `bun run test:e2e`
-- Commit: pending.
+- Commit: `044857a feat: route chat through db first answer context`
 - Next step: Step 8, Retention Cleanup Job And Script.
+
+### 2026-06-25 - Step 8: Retention Cleanup Job And Script
+
+- Added a Google Places retention pruning job with dry-run count mode and destructive cleanup mode.
+- Added a `db:prune:google-places` package script that runs against `DATABASE_URL` and preserves
+  durable `google_places` identity rows.
+- Added PGlite coverage proving dry-run does not delete rows, destructive pruning removes only
+  expired reviews/details/snapshots, fresh Google content remains, and `place_id` rows survive.
+- Documented the prune script in the developer script reference.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/providers/google-places-store.test.ts`
+  - `bun test src/server/jobs/prune-google-places.test.ts`
+  - `bun test`
+  - `bun run db:migrate:test`
+  - `bun run db:seed:test`
+  - `bun run build`
+  - `bun run test:e2e`
+- Commit: pending.
+- Next step: Step 9, Documentation And Operator Guidance.

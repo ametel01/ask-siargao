@@ -17,6 +17,7 @@
     "db:seed": "bun run src/server/db/seed.ts",
     "db:discover:google-places": "bun run src/server/providers/discover-google-places.ts",
     "db:enrich:google-places": "bun run src/server/providers/enrich-google-places.ts",
+    "db:prune:google-places": "bun run src/server/jobs/prune-google-places.ts",
     "db:ingest:open-meteo": "bun run src/server/providers/ingest-open-meteo.ts",
     "db:migrate:test": "bun run src/server/db/migrate-test.ts",
     "db:seed:test": "bun run src/server/db/seed-test.ts",
