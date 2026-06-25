@@ -64,6 +64,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 - Routed `/api/chat` Google Places recommendation context through the DB-first
   `AnswerContextStore` dependency instead of direct provider lookup.
+- Documented the Google Places persistence lifecycle, DB-first chat flow, retention pruning, and
+  restricted-content operator limits.
 - Constrained chat generation with a bounded answer-context contract for provider-specific facts,
   source freshness, attribution, and gaps.
 - Made Google Places chat and details adapters capture-ready while preserving existing chat context

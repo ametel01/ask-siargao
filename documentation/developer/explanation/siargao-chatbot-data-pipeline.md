@@ -150,6 +150,55 @@ source_observations
 
 Provider payload storage must follow each source profile. For Google Places, store Place IDs as durable identifiers, but do not treat raw place content or reviews as a permanent reusable database. Keep raw payloads short-lived or trip-scoped unless the provider terms explicitly allow broader retention. Store derived Siargao facts separately with their own confidence, timestamp, and allowed reuse.
 
+The current Google Places implementation stores provider-specific captures in typed tables before
+normalizing reusable facts:
+
+```text
+google_places
+  place_id
+  resource_name
+  latest_source_record_id
+  canonical_entity_id
+  first_seen_at
+  last_seen_at
+  last_details_fetched_at
+  details_stale_at
+
+google_place_snapshots
+  id
+  place_id
+  source_record_id
+  request_kind
+  field_mask
+  payload_json
+  payload_hash
+  fetched_at
+  stale_at
+  retention_expires_at
+  storage_policy
+  attribution_json
+
+google_place_details
+  place_id
+  display/contact/location/rating/price/opening-hours fields
+  fetched_at
+  stale_at
+  retention_expires_at
+
+google_place_reviews
+  id
+  place_id
+  snapshot_id
+  review metadata and optional text JSON
+  fetched_at
+  stale_at
+  retention_expires_at
+  display_requires_google_attribution
+```
+
+`google_places.place_id` is the durable identifier. Expired snapshots, typed details, and review
+rows are cache content and must be pruned when `retention_expires_at` passes.
+
 ## Freshness Policy
 
 Freshness should vary by fact type:
@@ -175,11 +224,12 @@ Provider adapters should produce normalized observations, not final answers.
 For Google Places requests, the normal path is:
 
 ```text
-live search or details call
-  -> source observation with provider metadata and attribution
-  -> entity candidate or entity match
-  -> extracted facts with confidence and expiry
-  -> answer context for the current chat response
+chat request
+  -> AnswerContextStore plans a Google Places requirement
+  -> fresh typed Google rows are queried first
+  -> live Google adapter is called only when rows are missing, stale, expired, or insufficient and refresh is allowed
+  -> capture is persisted into Google tables and source_records/facts/evidence
+  -> bounded answer context is returned to the LLM
 ```
 
 The app should avoid one-off provider calls that only answer the immediate chat and then disappear. If a paid user asks for "best quiet hotels near General Luna", the system should keep useful derived outputs such as:
@@ -195,25 +245,29 @@ The app should avoid one-off provider calls that only answer the immediate chat 
 
 The next user who asks a similar question can then be answered from internal facts if the freshness and reuse policy allow it.
 
+Google field masks are centralized in `src/server/providers/google-places-policy.ts`. Production
+helpers use explicit chat-search, details, enterprise, and atmosphere/review masks rather than `*`.
+The policy module computes `stale_at` separately from `retention_expires_at`, and reuse checks must
+reject expired rows even if a durable Place ID remains.
+
 ## Answer Context Interface
 
 Callers should not know whether data came from Postgres, Google Places, Open-Meteo, manual curation, or another adapter. Keep that complexity behind a small fact-store interface.
 
 ```ts
 type AnswerContextRequest = {
-  tripId: string;
-  userMessageId: string;
-  intent: string;
-  requiredFactTypes: string[];
-  freshnessPolicy: Record<string, string>;
+  messages: readonly AskSiargaoChatMessage[];
+  tripId?: string;
+  userMessageId?: string;
 };
 
 type AnswerContext = {
-  facts: NormalizedFact[];
+  facts: AnswerFact[];
   evidence: EvidenceSummary[];
   gaps: FactGap[];
-  liveRefreshesUsed: number;
-  estimatedCostCents: number;
+  sourceFreshness: SourceFreshness[];
+  liveRefreshCount: number;
+  estimatedProviderCostUsd: number;
 };
 ```
 
@@ -228,6 +282,30 @@ The module behind this interface should:
 - return bounded context to the LLM
 
 The LLM should receive facts, evidence summaries, gaps, and confidence labels. It should not receive unrestricted provider payloads when a narrower answer context is enough.
+
+The `/api/chat` route injects an `AnswerContextStore` dependency for Google Places recommendation
+questions and passes only the returned `answerContext` into the chat adapter. The chat adapter's
+prompt rules require provider-specific claims to come from that bounded context, require gaps to be
+stated instead of invented, and require Google Maps links or attribution when the source context
+requires them.
+
+## Google Places Retention Operations
+
+Google Places cleanup is an explicit operator action:
+
+```sh
+bun run db:prune:google-places -- --dry-run
+bun run db:prune:google-places
+```
+
+The dry run counts expired `google_place_reviews`, `google_place_details`, and
+`google_place_snapshots` rows at the current time without deleting. The destructive run deletes in
+foreign-key-safe order: reviews first, details second, snapshots last. It does not delete
+`google_places`, so durable `place_id` rows survive and can be refreshed later.
+
+Run prune only after migrations and source policy are understood for the target database. Do not
+promote Google review text, raw Places payloads, or other restricted Google content to public pages
+or retain it indefinitely unless the project's Google agreement explicitly allows that use.
 
 ## Rate Limits And Profit Protection
 

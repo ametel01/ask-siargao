@@ -18,12 +18,12 @@
 - [x] Step 6: LLM Adapter Answer Context Contract
 - [x] Step 7: `/api/chat` Integration
 - [x] Step 8: Retention Cleanup Job And Script
-- [ ] Step 9: Documentation And Operator Guidance
+- [x] Step 9: Documentation And Operator Guidance
 - [ ] Step 10: End-To-End Verification Slice
 
 ## Current Status
 
-Step 8 is implemented. Step 9 is next.
+Step 9 is implemented. Step 10 is next.
 
 `PROGRESS.md` must be updated after every completed step with completion notes, validation
 results, commit reference if available, current status, and the next step.
@@ -225,5 +225,26 @@ results, commit reference if available, current status, and the next step.
   - `bun run db:seed:test`
   - `bun run build`
   - `bun run test:e2e`
-- Commit: pending.
+- Commit: `0cea30e feat: add google places retention cleanup`
 - Next step: Step 9, Documentation And Operator Guidance.
+
+### 2026-06-25 - Step 9: Documentation And Operator Guidance
+
+- Updated `docs/DATA_STRATEGY.md` with the concrete Google Places capture tables, DB-first
+  `AnswerContextStore` flow, freshness/retention distinction, prune command, and restricted-content
+  operator warning.
+- Updated the developer data-pipeline explanation with the implemented Google capture lifecycle,
+  explicit field-mask policy, answer-context contract, and retention cleanup order.
+- Updated the environment reference to clarify that Google retention pruning uses `DATABASE_URL` and
+  does not require `GOOGLE_API_KEY`.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test`
+  - `bun run db:migrate:test`
+  - `bun run db:seed:test`
+  - `bun run build`
+  - `bun run test:e2e`
+- Commit: pending.
+- Next step: Step 10, End-To-End Verification Slice.

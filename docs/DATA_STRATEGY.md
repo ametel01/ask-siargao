@@ -157,6 +157,39 @@ Avoid:
 
 Use field masks to control cost and scope. Rich review-bearing requests should be reserved for paid or paywall-triggering flows.
 
+The implemented Google Places capture model uses dedicated tables beside the generic fact graph:
+
+- `google_places` stores durable identity rows keyed by `place_id`. This row may survive cleanup
+  even when all cached Google content has expired.
+- `google_place_snapshots` stores request-scoped captures with the field mask, fetch time,
+  `stale_at`, `retention_expires_at`, storage policy, attribution metadata, and policy-limited
+  payload JSON.
+- `google_place_details` stores typed fields requested from Places, including display name,
+  address, location, type, business status, Maps URI, contact fields, opening hours, price fields,
+  rating, review count, amenities, payment or parking options, and attribution metadata.
+- `google_place_reviews` stores review metadata and text only while the retention policy allows it.
+  Review rows carry attribution and must not be treated as permanent public product content.
+
+Freshness and retention are separate decisions. A Google row can be stale before it must be deleted.
+The request path must only reuse rows that are both fresh and inside their retention window. Current
+policy keeps chat search/details fields on short windows, with ratings and review signals around
+seven days, price fields around fourteen days, and address/contact/location-derived Places content
+no longer than thirty days unless replaced by owned or otherwise permitted data.
+
+Chat recommendation requests now go through `AnswerContextStore`: plan the Google Places
+requirement, check fresh Postgres captures first, refresh through the Google adapter only when
+allowed, persist the capture, and return bounded facts, evidence summaries, freshness labels, and
+gaps to the LLM. The LLM should not receive unrestricted Google payloads or invent live-provider
+claims when the answer context reports missing, stale, blocked, or failed refreshes.
+
+Operators should run `bun run db:prune:google-places -- --dry-run` before destructive cleanup and
+`bun run db:prune:google-places` after validating the counts. Cleanup deletes expired reviews,
+details, and snapshots, but preserves durable `google_places.place_id` identity rows.
+
+Do not promote Google review text, raw Places payloads, or other restricted Google content to
+public pages or indefinite product data unless the project's Google agreement explicitly allows
+that use and the UI carries required Google attribution.
+
 ## Fact Acquisition Decision
 
 For each request:
