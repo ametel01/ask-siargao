@@ -8,8 +8,10 @@ import {
   type GooglePlacesChatContext,
   type GooglePlacesChatPlace,
   type GooglePlacesChatSearch,
+  type GooglePlacesOpeningHours,
   getGooglePlacesChatContext,
 } from "@/server/providers/google-places-chat";
+import { createDefaultCachedGooglePlacesChatContextAdapter } from "@/server/providers/google-places-chat-cache";
 
 export type RecommendationAgentResponse = {
   status: "answered" | "clarifying_question" | "unsupported";
@@ -67,11 +69,26 @@ export type PlaceCandidate = {
   types: string[];
   rating?: number;
   userRatingCount?: number;
+  currentOpeningHours?: GooglePlacesOpeningHours;
+  regularOpeningHours?: GooglePlacesOpeningHours;
   googleMapsUri: string;
   sourceQuery: string;
   latitude?: number;
   longitude?: number;
   score: number;
+};
+
+type MealIntent = "breakfast" | "lunch" | "dinner" | null;
+
+type FoodRequestIntent = {
+  category: "food" | null;
+  meal: MealIntent;
+  location: string | null;
+  areaScope: "nearby" | "in_area" | null;
+  constraints: string[];
+  avoid: string[];
+  latestUserTurn: string;
+  recentUserContext: string;
 };
 
 type ToolResult =
@@ -432,7 +449,9 @@ export class RecommendationAgent {
 }
 
 export function createDefaultRecommendationAgent() {
-  return new RecommendationAgent();
+  return new RecommendationAgent({
+    placesAdapter: createDefaultCachedGooglePlacesChatContextAdapter(),
+  });
 }
 
 function createDefaultRecommendationPlanner(
@@ -444,15 +463,15 @@ function createDefaultRecommendationPlanner(
 function inferDeterministicAction(
   input: RecommendationAgentPlannerInput,
 ): RecommendationAction | undefined {
-  const conversationContent = input.messages.map((message) => message.content).join(" ");
+  const intent = interpretFoodRequest(input.messages);
   const searchAttempts = input.previousActions.filter((action) => action.type === "search_places");
   const hasRanked = input.previousActions.some((action) => action.type === "rank_candidates");
 
   if (input.candidates.length > 0 && !hasRanked) {
     return {
       type: "rank_candidates",
-      preferredTerms: inferPreferredTerms(conversationContent),
-      excludedTerms: inferExcludedTerms(conversationContent),
+      preferredTerms: inferPreferredTerms(intent),
+      excludedTerms: inferExcludedTerms(intent),
     };
   }
 
@@ -460,19 +479,18 @@ function inferDeterministicAction(
     return { type: "final_answer" };
   }
 
-  if (!isPlaceRecommendationContent(conversationContent)) {
+  if (intent.category !== "food") {
     return undefined;
   }
 
-  const centerLabel = inferCenterLabel(conversationContent);
+  const centerLabel = intent.location;
   if (!centerLabel) {
     return undefined;
   }
 
-  const foodTerm = inferFoodSearchTerm(conversationContent);
-  const locationPhrase = /\bon\s+the\s+way|route|from\s+.+\s+to/i.test(conversationContent)
-    ? `near ${centerLabel}`
-    : `in ${centerLabel}`;
+  const foodTerm = inferFoodSearchTerm(intent);
+  const locationPhrase =
+    intent.areaScope === "nearby" ? `near ${centerLabel}` : `in ${centerLabel}`;
 
   return {
     type: "search_places",
@@ -574,6 +592,98 @@ function isPlaceRecommendationContent(content: string) {
   );
 }
 
+function interpretFoodRequest(messages: readonly AskSiargaoChatMessage[]): FoodRequestIntent {
+  const userTurns = messages.filter((message) => message.role === "user");
+  const latestUserTurn = userTurns.at(-1)?.content ?? "";
+  const recentUserContext = userTurns
+    .slice(0, -1)
+    .slice(-6)
+    .map((message) => message.content)
+    .join(" ");
+  const latestMeal = inferMeal(latestUserTurn);
+  const meal = latestMeal ?? inferMeal(recentUserContext);
+  const latestAsksForFood = isPlaceRecommendationContent(latestUserTurn);
+  const contextualFoodRequest =
+    latestAsksForFood ||
+    /\b(what\s+about|how\s+about|that\s+area|there|nearby|instead|options?)\b/i.test(
+      latestUserTurn,
+    );
+  const category =
+    latestAsksForFood || (contextualFoodRequest && isPlaceRecommendationContent(recentUserContext))
+      ? "food"
+      : null;
+  const explicitlyRequestedCafe = /\b(cafes?|coffee)\b/i.test(latestUserTurn);
+  const constraints = [...inferConstraints(recentUserContext), ...inferConstraints(latestUserTurn)];
+  const avoid = inferAvoidTerms({ explicitlyRequestedCafe, latestUserTurn, meal });
+
+  return {
+    category,
+    meal,
+    location: inferCenterLabel(latestUserTurn) ?? inferCenterLabel(recentUserContext) ?? null,
+    areaScope: inferAreaScope(latestUserTurn) ?? inferAreaScope(recentUserContext),
+    constraints: [...new Set(constraints)],
+    avoid,
+    latestUserTurn,
+    recentUserContext,
+  };
+}
+
+function inferMeal(content: string): MealIntent {
+  if (/\bbreakfast\b/i.test(content)) {
+    return "breakfast";
+  }
+  if (/\blunch\b/i.test(content)) {
+    return "lunch";
+  }
+  if (/\bdinner|evening\s+(?:meal|food|dining)\b/i.test(content)) {
+    return "dinner";
+  }
+  return null;
+}
+
+function inferAreaScope(content: string): FoodRequestIntent["areaScope"] {
+  if (/\bnear(?:by)?|around|close\s+to|that\s+area|in\s+that\s+area|by\s+/i.test(content)) {
+    return "nearby";
+  }
+  if (/\bon\s+the\s+way|route|from\s+.+\s+to/i.test(content)) {
+    return "nearby";
+  }
+  if (inferCenterLabel(content)) {
+    return "in_area";
+  }
+  return null;
+}
+
+function inferConstraints(content: string) {
+  const constraints: string[] = [];
+  if (/\brain(?:y|ing)?|downpour|storm/i.test(content)) {
+    constraints.push("rainy_day", "covered_seating");
+  }
+  if (/\bcovered|indoors?|inside\b/i.test(content)) {
+    constraints.push("covered_seating");
+  }
+  return constraints;
+}
+
+function inferAvoidTerms({
+  explicitlyRequestedCafe,
+  latestUserTurn,
+  meal,
+}: {
+  explicitlyRequestedCafe: boolean;
+  latestUserTurn: string;
+  meal: MealIntent;
+}) {
+  const avoid: string[] = [];
+  if (meal === "dinner" && !explicitlyRequestedCafe) {
+    avoid.push("brunch_only", "coffee_only");
+  }
+  if (/\bproper|sit[-\s]?down|not\s+car[ie]nderia\b/i.test(latestUserTurn)) {
+    avoid.push("carinderia", "canteen");
+  }
+  return avoid;
+}
+
 function inferCenterLabel(content: string) {
   const normalizedContent = normalizeKey(content);
   const sortedLocations = Object.values(gazetteer).sort((a, b) => b.label.length - a.label.length);
@@ -582,40 +692,68 @@ function inferCenterLabel(content: string) {
   )?.label;
 }
 
-function inferFoodSearchTerm(content: string) {
-  if (/\bseafood\b/i.test(content)) {
+function inferFoodSearchTerm(intent: FoodRequestIntent) {
+  const primaryIntentText = `${intent.latestUserTurn} ${intent.recentUserContext}`;
+  if (/\bseafood\b/i.test(primaryIntentText)) {
     return "seafood restaurant";
   }
-  if (/\b(cafes?|coffee)\b/i.test(content)) {
+  if (/\b(cafes?|coffee)\b/i.test(intent.latestUserTurn)) {
     return "cafe";
   }
-  if (/\b(bars?|nightlife|drinks?)\b/i.test(content)) {
+  if (/\b(bars?|nightlife|drinks?)\b/i.test(primaryIntentText)) {
     return "bar";
   }
-  if (/\bproper|sit[-\s]?down|not\s+car[ie]nderia\b/i.test(content)) {
+  if (/\bproper|sit[-\s]?down|not\s+car[ie]nderia\b/i.test(intent.latestUserTurn)) {
     return "sit down restaurant";
+  }
+  if (intent.meal === "breakfast") {
+    return "breakfast restaurants";
+  }
+  if (intent.meal === "lunch") {
+    return "lunch restaurants";
+  }
+  if (intent.meal === "dinner") {
+    return "dinner restaurants";
   }
   return "good restaurant";
 }
 
-function inferPreferredTerms(content: string) {
+function inferPreferredTerms(intent: FoodRequestIntent) {
   const terms = ["restaurant"];
-  if (/\bseafood\b/i.test(content)) {
+  const primaryIntentText = `${intent.latestUserTurn} ${intent.recentUserContext}`;
+  if (/\bseafood\b/i.test(primaryIntentText)) {
     terms.push("seafood");
   }
-  if (/\bproper|sit[-\s]?down|not\s+car[ie]nderia\b/i.test(content)) {
+  if (/\bproper|sit[-\s]?down|not\s+car[ie]nderia\b/i.test(intent.latestUserTurn)) {
     terms.push("restaurant", "grill");
   }
-  if (/\b(cafes?|coffee)\b/i.test(content)) {
+  if (/\b(cafes?|coffee)\b/i.test(intent.latestUserTurn)) {
     terms.push("cafe", "coffee");
+  }
+  if (intent.meal === "lunch") {
+    terms.push("lunch", "brunch", "cafe", "casual");
+  }
+  if (intent.meal === "dinner") {
+    terms.push("dinner", "grill", "seafood", "bar", "rooftop", "evening");
+  }
+  if (intent.constraints.includes("covered_seating")) {
+    terms.push("indoor", "covered", "restaurant");
   }
   return [...new Set(terms)];
 }
 
-function inferExcludedTerms(content: string) {
-  return /\bproper|sit[-\s]?down|not\s+car[ie]nderia\b/i.test(content)
-    ? ["carinderia", "canteen"]
-    : [];
+function inferExcludedTerms(intent: FoodRequestIntent) {
+  const terms = [...intent.avoid];
+  if (intent.avoid.includes("brunch_only")) {
+    terms.push("brunch");
+  }
+  if (intent.avoid.includes("coffee_only")) {
+    terms.push("coffee_shop", "coffee shop", "cafe");
+  }
+  if (/\bproper|sit[-\s]?down|not\s+car[ie]nderia\b/i.test(intent.latestUserTurn)) {
+    terms.push("carinderia", "canteen");
+  }
+  return [...new Set(terms)];
 }
 
 function buildSearch(
@@ -648,6 +786,8 @@ function placeCandidateFromGooglePlace(
     types: place.types,
     rating: place.rating,
     userRatingCount: place.userRatingCount,
+    currentOpeningHours: place.currentOpeningHours,
+    regularOpeningHours: place.regularOpeningHours,
     googleMapsUri: place.googleMapsUri,
     sourceQuery,
     latitude: place.latitude,
@@ -677,12 +817,18 @@ function rankCandidates(
         `${candidate.name} ${candidate.formattedAddress ?? ""} ${candidate.primaryType ?? ""} ${candidate.types.join(" ")}`.toLowerCase();
       const excludedPenalty = excludedTerms.some((term) => searchable.includes(term)) ? -1_000 : 0;
       const preferredBonus = preferredTerms.filter((term) => searchable.includes(term)).length * 75;
+      const openingHoursScore =
+        candidate.currentOpeningHours?.openNow === false
+          ? -300
+          : candidate.currentOpeningHours?.openNow === true
+            ? 40
+            : 0;
       const reviewScore = Math.min(candidate.userRatingCount ?? 0, 500) / 5;
       const ratingScore = (candidate.rating ?? 0) * 20;
 
       return {
         ...candidate,
-        score: excludedPenalty + preferredBonus + reviewScore + ratingScore,
+        score: excludedPenalty + preferredBonus + openingHoursScore + reviewScore + ratingScore,
       };
     })
     .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));

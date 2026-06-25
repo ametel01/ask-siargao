@@ -23,8 +23,8 @@ describe("Google Places capture store", () => {
     const db = await openGooglePlacesStoreTestDatabase();
     const capture = createDetailsCapture();
 
-    await upsertGooglePlaceDetails(db, capture);
-    await upsertGooglePlaceDetails(db, capture);
+    const firstSummary = await upsertGooglePlaceDetails(db, capture);
+    const secondSummary = await upsertGooglePlaceDetails(db, capture);
 
     const counts = await db.query<{
       google_places: number;
@@ -50,6 +50,23 @@ describe("Google Places capture store", () => {
       source_records: 1,
       facts: 6,
       evidence: 6,
+    });
+    expect(firstSummary).toMatchObject({
+      detailsUpserted: true,
+      evidenceUpserted: 6,
+      factsUpserted: 6,
+      placeId: "place_kermit",
+      placeIdentityUpserted: true,
+      requestKind: "details_enterprise",
+      snapshotUpserted: true,
+      sourceRecordId: "record_google_place_kermit",
+      sourceRecordUpserted: true,
+    });
+    expect(secondSummary).toMatchObject({
+      detailsUpserted: true,
+      evidenceUpserted: 6,
+      factsUpserted: 6,
+      placeId: "place_kermit",
     });
 
     await db.close();

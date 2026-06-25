@@ -19,6 +19,57 @@ export type GooglePlacesCleanupCounts = {
   snapshotsDeleted: number;
 };
 
+export type GooglePlacesStoreWritePhase =
+  | "source_record"
+  | "place_identity"
+  | "snapshot"
+  | "details"
+  | "facts_evidence";
+
+export type GooglePlaceDetailsWriteSummary = {
+  placeId: string;
+  sourceRecordId: string;
+  snapshotId?: string;
+  requestKind?: GooglePlacesRequestKind;
+  sourceRecordUpserted: boolean;
+  placeIdentityUpserted: boolean;
+  snapshotUpserted: boolean;
+  detailsUpserted: boolean;
+  factsUpserted: number;
+  evidenceUpserted: number;
+  fetchedAt: string;
+  staleAt: string;
+  retentionExpiresAt: string;
+};
+
+export class GooglePlacesStoreWriteError extends Error {
+  readonly phase: GooglePlacesStoreWritePhase;
+  readonly placeId: string;
+  readonly sourceRecordId: string;
+  readonly snapshotId?: string;
+
+  constructor({
+    cause,
+    phase,
+    placeId,
+    snapshotId,
+    sourceRecordId,
+  }: {
+    cause: unknown;
+    phase: GooglePlacesStoreWritePhase;
+    placeId: string;
+    sourceRecordId: string;
+    snapshotId?: string;
+  }) {
+    super(`Google Places store write failed during ${phase} for ${placeId}.`, { cause });
+    this.name = "GooglePlacesStoreWriteError";
+    this.phase = phase;
+    this.placeId = placeId;
+    this.sourceRecordId = sourceRecordId;
+    this.snapshotId = snapshotId;
+  }
+}
+
 export type GooglePlacesSourceRecordInput = {
   id: string;
   sourceProfileId: string;
@@ -167,17 +218,24 @@ async function upsertGoogleSearchSnapshot(
 export async function upsertGooglePlaceDetails(
   db: GooglePlacesStoreDatabase,
   input: UpsertGooglePlaceDetailsInput,
-) {
+): Promise<GooglePlaceDetailsWriteSummary> {
   const { details, place, snapshot, sourceRecord } = input;
 
-  await upsertSourceRecord(db, sourceRecord);
-  await upsertGooglePlaceIdentity(db, place, sourceRecord.id, details.fetchedAt, details.staleAt);
+  await runGooglePlacesStoreWritePhase("source_record", input, () =>
+    upsertSourceRecord(db, sourceRecord),
+  );
+  await runGooglePlacesStoreWritePhase("place_identity", input, () =>
+    upsertGooglePlaceIdentity(db, place, sourceRecord.id, details.fetchedAt, details.staleAt),
+  );
   if (snapshot) {
-    await upsertGooglePlaceSnapshot(db, place.placeId, sourceRecord.id, snapshot);
+    await runGooglePlacesStoreWritePhase("snapshot", input, () =>
+      upsertGooglePlaceSnapshot(db, place.placeId, sourceRecord.id, snapshot),
+    );
   }
 
-  await db.query(
-    `
+  await runGooglePlacesStoreWritePhase("details", input, () =>
+    db.query(
+      `
       insert into google_place_details (
         place_id,
         display_name_json,
@@ -267,44 +325,63 @@ export async function upsertGooglePlaceDetails(
         stale_at = excluded.stale_at,
         retention_expires_at = excluded.retention_expires_at
     `,
-    [
-      place.placeId,
-      jsonParam(details.displayNameJson),
-      details.formattedAddress ?? null,
-      details.shortFormattedAddress ?? null,
-      jsonParam(details.addressComponentsJson),
-      jsonParam(details.locationJson),
-      details.latitude?.toString() ?? null,
-      details.longitude?.toString() ?? null,
-      jsonParam(details.viewportJson),
-      jsonParam(details.typesJson),
-      details.primaryType ?? null,
-      details.businessStatus ?? null,
-      details.googleMapsUri ?? null,
-      details.websiteUri ?? null,
-      details.nationalPhoneNumber ?? null,
-      details.internationalPhoneNumber ?? null,
-      jsonParam(details.openingHoursJson),
-      details.priceLevel ?? null,
-      jsonParam(details.priceRangeJson),
-      details.rating?.toString() ?? null,
-      details.userRatingCount ?? null,
-      jsonParam(details.paymentOptionsJson),
-      jsonParam(details.parkingOptionsJson),
-      jsonParam(details.amenitiesJson),
-      jsonParam(details.attributionsJson),
-      details.fetchedAt,
-      details.staleAt,
-      details.retentionExpiresAt,
-    ],
+      [
+        place.placeId,
+        jsonParam(details.displayNameJson),
+        details.formattedAddress ?? null,
+        details.shortFormattedAddress ?? null,
+        jsonParam(details.addressComponentsJson),
+        jsonParam(details.locationJson),
+        details.latitude?.toString() ?? null,
+        details.longitude?.toString() ?? null,
+        jsonParam(details.viewportJson),
+        jsonParam(details.typesJson),
+        details.primaryType ?? null,
+        details.businessStatus ?? null,
+        details.googleMapsUri ?? null,
+        details.websiteUri ?? null,
+        details.nationalPhoneNumber ?? null,
+        details.internationalPhoneNumber ?? null,
+        jsonParam(details.openingHoursJson),
+        details.priceLevel ?? null,
+        jsonParam(details.priceRangeJson),
+        details.rating?.toString() ?? null,
+        details.userRatingCount ?? null,
+        jsonParam(details.paymentOptionsJson),
+        jsonParam(details.parkingOptionsJson),
+        jsonParam(details.amenitiesJson),
+        jsonParam(details.attributionsJson),
+        details.fetchedAt,
+        details.staleAt,
+        details.retentionExpiresAt,
+      ],
+    ),
   );
 
-  await upsertNormalizedGooglePlaceFacts(db, {
-    details,
-    fieldMask: snapshot?.fieldMask ?? "",
-    place,
-    sourceRecord,
-  });
+  const factsSummary = await runGooglePlacesStoreWritePhase("facts_evidence", input, () =>
+    upsertNormalizedGooglePlaceFacts(db, {
+      details,
+      fieldMask: snapshot?.fieldMask ?? "",
+      place,
+      sourceRecord,
+    }),
+  );
+
+  return {
+    placeId: place.placeId,
+    sourceRecordId: sourceRecord.id,
+    snapshotId: snapshot?.id,
+    requestKind: snapshot?.requestKind,
+    sourceRecordUpserted: true,
+    placeIdentityUpserted: true,
+    snapshotUpserted: snapshot !== undefined,
+    detailsUpserted: true,
+    factsUpserted: factsSummary.factsUpserted,
+    evidenceUpserted: factsSummary.evidenceUpserted,
+    fetchedAt: details.fetchedAt,
+    staleAt: details.staleAt,
+    retentionExpiresAt: details.retentionExpiresAt,
+  };
 }
 
 export async function upsertGooglePlaceReviews(
@@ -832,6 +909,29 @@ async function upsertNormalizedGooglePlaceFacts(
         record.evidence.publicRepublishAllowed,
       ],
     );
+  }
+
+  return {
+    factsUpserted: records.length,
+    evidenceUpserted: records.length,
+  };
+}
+
+async function runGooglePlacesStoreWritePhase<T>(
+  phase: GooglePlacesStoreWritePhase,
+  input: UpsertGooglePlaceDetailsInput,
+  write: () => Promise<T>,
+) {
+  try {
+    return await write();
+  } catch (cause) {
+    throw new GooglePlacesStoreWriteError({
+      cause,
+      phase,
+      placeId: input.place.placeId,
+      snapshotId: input.snapshot?.id,
+      sourceRecordId: input.sourceRecord.id,
+    });
   }
 }
 

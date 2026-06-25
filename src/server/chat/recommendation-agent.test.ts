@@ -44,6 +44,92 @@ describe("RecommendationAgent", () => {
     expect(response.message).toContain("Rating: 4.5 (95 reviews)");
   });
 
+  test("lets the latest meal request override earlier lunch context without assistant keyword leakage", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          places: [
+            {
+              placeId: "place_brunch_spot",
+              resourceName: "places/place_brunch_spot",
+              displayName: "Cloud 9 Brunch Spot",
+              formattedAddress: "Cloud 9, General Luna",
+              latitude: 9.8117,
+              longitude: 126.1652,
+              types: ["brunch_restaurant", "cafe", "food"],
+              primaryType: "brunch_restaurant",
+              businessStatus: "OPERATIONAL",
+              googleMapsUri: "https://maps.google.com/?cid=brunch",
+              rating: 4.9,
+              userRatingCount: 900,
+              currentOpeningHours: { openNow: false },
+            },
+            {
+              placeId: "place_dinner_grill",
+              resourceName: "places/place_dinner_grill",
+              displayName: "Cloud 9 Dinner Grill",
+              formattedAddress: "Cloud 9, General Luna",
+              latitude: 9.8118,
+              longitude: 126.1653,
+              types: ["restaurant", "seafood_restaurant", "bar", "food"],
+              primaryType: "restaurant",
+              businessStatus: "OPERATIONAL",
+              googleMapsUri: "https://maps.google.com/?cid=dinner",
+              rating: 4.5,
+              userRatingCount: 220,
+              currentOpeningHours: { openNow: true },
+            },
+            {
+              placeId: "place_coffee_only",
+              resourceName: "places/place_coffee_only",
+              displayName: "Cloud 9 Coffee Bar",
+              formattedAddress: "Cloud 9, General Luna",
+              latitude: 9.8119,
+              longitude: 126.1654,
+              types: ["coffee_shop", "cafe", "food"],
+              primaryType: "coffee_shop",
+              businessStatus: "OPERATIONAL",
+              googleMapsUri: "https://maps.google.com/?cid=coffee",
+              rating: 4.8,
+              userRatingCount: 700,
+              currentOpeningHours: { openNow: true },
+            },
+          ],
+        });
+      },
+    });
+
+    const response = await agent.answer({
+      messages: [
+        {
+          role: "user",
+          content: "We're near Cloud 9 and it is raining. Give me restaurant options for lunch.",
+        },
+        {
+          role: "assistant",
+          content: "A cafe in General Luna can be good for coffee if you want brunch.",
+        },
+        { role: "user", content: "What about dinner?" },
+      ],
+    });
+
+    expect(response.status).toBe("answered");
+    expect(searches).toHaveLength(1);
+    expect(searches[0]).toMatchObject({
+      textQuery: "dinner restaurants near Cloud 9 Siargao",
+      includedType: "restaurant",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+    });
+    expect(searches[0]?.textQuery).not.toMatch(/cafe|coffee|General Luna/i);
+    expect(response.message).toMatch(
+      /- \*\*1\. Cloud 9 Dinner Grill\*\*[\s\S]+- \*\*2\. Cloud 9 Coffee Bar\*\*[\s\S]+- \*\*3\. Cloud 9 Brunch Spot\*\*/,
+    );
+  });
+
   test("lets the planner choose search and ranking actions before rendering candidates", async () => {
     const actions: RecommendationAction[] = [
       { type: "resolve_location", text: "Dapa" },
