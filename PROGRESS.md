@@ -15,7 +15,7 @@
 - [x] Step 3: Google Places Capture Repository
 - [x] Step 4: Google Provider Adapter Refactor
 - [x] Step 5: Answer Context Store DB-First Retrieval
-- [ ] Step 6: LLM Adapter Answer Context Contract
+- [x] Step 6: LLM Adapter Answer Context Contract
 - [ ] Step 7: `/api/chat` Integration
 - [ ] Step 8: Retention Cleanup Job And Script
 - [ ] Step 9: Documentation And Operator Guidance
@@ -23,7 +23,7 @@
 
 ## Current Status
 
-Step 5 is implemented. Step 6 is next.
+Step 6 is implemented. Step 7 is next.
 
 `PROGRESS.md` must be updated after every completed step with completion notes, validation
 results, commit reference if available, current status, and the next step.
@@ -160,5 +160,26 @@ results, commit reference if available, current status, and the next step.
   - `bun run db:seed:test`
   - `bun run build`
   - `bun run test:e2e`
-- Commit: pending.
+- Commit: `86b915b feat: add db first answer context store`
 - Next step: Step 6, LLM Adapter Answer Context Contract.
+
+### 2026-06-25 - Step 6: LLM Adapter Answer Context Contract
+
+- Updated the Ask Siargao chat adapter to accept bounded `answerContext` facts, evidence,
+  source-freshness labels, refresh counts, cost estimates, and gaps.
+- Added prompt constraints requiring live/provider-specific claims to come only from
+  `answerContext`, requiring Google gaps to be stated, and forbidding direct Google bypasses.
+- Added Google Maps fallback-link support for map-link facts in `answerContext`.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/llm/chat-adapter.test.ts`
+  - `bun test src/server/chat/answer-context-store.test.ts`
+  - `bun test`
+  - `bun run db:migrate:test`
+  - `bun run db:seed:test`
+  - `bun run build`
+  - `bun run test:e2e`
+- Commit: pending.
+- Next step: Step 7, `/api/chat` Integration.

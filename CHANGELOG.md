@@ -60,6 +60,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Constrained chat generation with a bounded answer-context contract for provider-specific facts,
+  source freshness, attribution, and gaps.
 - Made Google Places chat and details adapters capture-ready while preserving existing chat context
   compatibility.
 - Wired weather-related `/api/chat` requests to Siargao Open-Meteo weather context, including direct live fallback when stored forecast rows are unavailable and Del Carmen area detection.

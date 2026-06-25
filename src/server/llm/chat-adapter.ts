@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 
+import type { AnswerContext } from "@/server/chat/answer-context-store";
 import type { GooglePlacesChatContext } from "@/server/providers/google-places-chat";
 import type { WeatherSnapshot } from "@/server/public-pages/weather-snapshot";
 
@@ -33,6 +34,7 @@ function createOpenAIChatClient(apiKey = process.env.OPENAI_API_KEY): ChatRespon
 
 export async function generateAskSiargaoChatResponse(input: {
   messages: readonly AskSiargaoChatMessage[];
+  answerContext?: AnswerContext;
   weatherContext?: WeatherSnapshot;
   placesContext?: GooglePlacesChatContext;
   model?: string;
@@ -48,6 +50,7 @@ export async function generateAskSiargaoChatResponse(input: {
     input: JSON.stringify({
       product: "Ask Siargao",
       conversation: input.messages.slice(-10),
+      answerContext: input.answerContext ? summarizeAnswerContext(input.answerContext) : undefined,
       weatherContext: input.weatherContext
         ? summarizeWeatherContext(input.weatherContext)
         : undefined,
@@ -59,7 +62,7 @@ export async function generateAskSiargaoChatResponse(input: {
         scope:
           "Answer only Siargao-related travel and local trip-planning questions. Politely decline unrelated questions.",
         caveat:
-          "Use weatherContext and placesContext when present. Say when live local data needed for the answer has not been checked yet.",
+          "Use answerContext, weatherContext, and placesContext when present. Say when live local data needed for the answer has not been checked yet.",
       },
     }),
   });
@@ -68,7 +71,11 @@ export async function generateAskSiargaoChatResponse(input: {
     throw new Error("OpenAI response did not include output_text.");
   }
 
-  const message = ensureGoogleMapsLinks(response.output_text.trim(), input.placesContext);
+  const message = ensureGoogleMapsLinks(
+    response.output_text.trim(),
+    input.placesContext,
+    input.answerContext,
+  );
 
   return {
     message,
@@ -77,13 +84,28 @@ export async function generateAskSiargaoChatResponse(input: {
   };
 }
 
-function ensureGoogleMapsLinks(message: string, context: GooglePlacesChatContext | undefined) {
-  if (!context?.places.length) {
+function ensureGoogleMapsLinks(
+  message: string,
+  context: GooglePlacesChatContext | undefined,
+  answerContext: AnswerContext | undefined,
+) {
+  const answerContextLinks = extractAnswerContextMapsLinks(answerContext);
+  if (!context?.places.length && answerContextLinks.length === 0) {
     return message;
   }
 
   const lines = message.split("\n");
   const linkedGoogleMapsUris = extractLinkedUris(message);
+  const missingAnswerContextLinks = answerContextLinks
+    .filter((link) => !linkedGoogleMapsUris.has(link.url))
+    .map((link) => `- ${link.label} Maps: ${link.url}`);
+
+  if (!context?.places.length) {
+    return missingAnswerContextLinks.length === 0
+      ? message
+      : `${message}\n\nGoogle Maps links:\n${missingAnswerContextLinks.join("\n")}`;
+  }
+
   const lineIndexByDisplayName = indexLinesByDisplayName(
     lines,
     context.places.map((place) => place.displayName.toLowerCase()),
@@ -106,11 +128,12 @@ function ensureGoogleMapsLinks(message: string, context: GooglePlacesChatContext
   }
 
   const linkedMessage = lines.join("\n");
-  if (missingLinkedPlaces.length === 0) {
+  const allMissingLinks = [...missingLinkedPlaces, ...missingAnswerContextLinks];
+  if (allMissingLinks.length === 0) {
     return linkedMessage;
   }
 
-  return `${linkedMessage}\n\nGoogle Maps links:\n${missingLinkedPlaces.join("\n")}`;
+  return `${linkedMessage}\n\nGoogle Maps links:\n${allMissingLinks.join("\n")}`;
 }
 
 function extractLinkedUris(message: string) {
@@ -183,6 +206,39 @@ function summarizeGooglePlacesContext(context: GooglePlacesChatContext) {
   };
 }
 
+function summarizeAnswerContext(context: AnswerContext) {
+  return {
+    facts: context.facts.map((fact) => ({
+      id: fact.id,
+      type: fact.type,
+      claim: fact.claim,
+      value: fact.value,
+      sourceRecordIds: fact.sourceRecordIds,
+      requiresGoogleAttribution: fact.requiresGoogleAttribution,
+    })),
+    evidence: context.evidence,
+    gaps: context.gaps,
+    sourceFreshness: context.sourceFreshness,
+    liveRefreshCount: context.liveRefreshCount,
+    estimatedProviderCostUsd: context.estimatedProviderCostUsd,
+  };
+}
+
+function extractAnswerContextMapsLinks(context: AnswerContext | undefined) {
+  return (
+    context?.facts
+      .filter((fact) => fact.type === "map_link" && typeof fact.value === "string")
+      .map((fact) => ({
+        label: labelFromMapLinkClaim(fact.claim),
+        url: String(fact.value),
+      })) ?? []
+  );
+}
+
+function labelFromMapLinkClaim(claim: string) {
+  return claim.replace(/\s+has a Google Maps link\.$/i, "");
+}
+
 function summarizeWeatherContext(weather: WeatherSnapshot) {
   return {
     status: weather.status,
@@ -211,6 +267,11 @@ const askSiargaoChatInstructions = [
   "Use only general destination knowledge unless the prompt includes specific facts.",
   "When weatherContext is present, use it for Siargao weather, rain, wind, and forecast questions.",
   "If weatherContext.status is fallback, say the live forecast snapshot has not been loaded yet.",
+  "When answerContext is present, use only answerContext facts for live or provider-specific claims.",
+  "Do not claim live Google data was checked unless answerContext.sourceFreshness says Google Places was refreshed or fetched fresh.",
+  "If answerContext.gaps says required Google data is missing, stale, expired, blocked, or failed, state that gap instead of inventing the fact.",
+  "Never call or suggest calling Google directly; all provider decisions must already be reflected in answerContext.",
+  "Include Google Maps links and Google attribution requirements when answerContext marks them required.",
   "When placesContext is present, use it for place, restaurant, cafe, bar, and nearby recommendation questions.",
   "Treat the order of placesContext.places as Google Places search relevance, not as a verified quality ranking.",
   "Use available rating, review count, opening hours, price, website, and phone fields from placesContext to make recommendations more complete.",
