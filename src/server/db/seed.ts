@@ -1,6 +1,7 @@
 import postgres from "postgres";
 
 import { siargaoTaxonomy } from "@/server/audit/destinations/siargao/taxonomy";
+import { createComponentLogger } from "@/server/observability/logger";
 
 type QueryRunner = (
   query: TemplateStringsArray,
@@ -150,25 +151,51 @@ export async function seedSiargaoBaseline(query: QueryRunner) {
 
 if (import.meta.main) {
   const databaseUrl = process.env.DATABASE_URL;
+  const seedLogger = createComponentLogger("db.seed");
 
   if (!databaseUrl) {
+    seedLogger.error("DATABASE_URL is required to seed the database.");
     throw new Error("DATABASE_URL is required to seed the database.");
   }
 
   const sql = postgres(databaseUrl, { max: 1, prepare: false });
+  const startedAt = performance.now();
 
   try {
+    seedLogger.info(
+      {
+        databaseUrl: databaseUrlForLog(databaseUrl),
+      },
+      "Database seed started.",
+    );
+
     const counts = await seedSiargaoBaseline((query, ...params) =>
       sql(query, ...(params as never[])),
     );
 
-    console.log(
-      `Seeded ${counts.areas} areas, ${counts.routes} routes, and ${counts.sources} source profiles in ${databaseUrlForLog(
-        databaseUrl,
-      )}.`,
+    seedLogger.info(
+      {
+        areaCount: Number(counts.areas),
+        databaseUrl: databaseUrlForLog(databaseUrl),
+        durationMs: Math.round(performance.now() - startedAt),
+        routeCount: Number(counts.routes),
+        sourceProfileCount: Number(counts.sources),
+      },
+      "Database seed completed.",
     );
+  } catch (error) {
+    seedLogger.error(
+      {
+        databaseUrl: databaseUrlForLog(databaseUrl),
+        durationMs: Math.round(performance.now() - startedAt),
+        err: error,
+      },
+      "Database seed failed.",
+    );
+    throw error;
   } finally {
     await sql.end();
+    seedLogger.debug("Database seed connection closed.");
   }
 }
 

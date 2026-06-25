@@ -1,5 +1,9 @@
 import { sanitizeForTelemetry } from "@/server/security/privacy";
 
+import { createComponentLogger } from "./logger";
+
+const telemetryLogger = createComponentLogger("telemetry");
+
 export type ObservabilityEventName =
   | "intake_completed"
   | "accommodation_resolution_completed"
@@ -36,7 +40,7 @@ export function trackServerEvent(input: {
 }): ObservabilityEvent {
   const env = input.env ?? process.env;
 
-  return {
+  const event = {
     name: input.name,
     at: (input.now ?? new Date()).toISOString(),
     payload: sanitizeForTelemetry(input.payload),
@@ -45,4 +49,15 @@ export function trackServerEvent(input: {
       posthogConfigured: Boolean(env.NEXT_PUBLIC_POSTHOG_KEY),
     },
   };
+
+  telemetryLogger.info(
+    {
+      event,
+      eventName: event.name,
+      sinkConfiguration: event.sinks,
+    },
+    "Telemetry event recorded.",
+  );
+
+  return event;
 }

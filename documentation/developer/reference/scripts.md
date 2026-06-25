@@ -5,8 +5,10 @@ Scripts are defined in `package.json`.
 | Script | Command | Purpose |
 | --- | --- | --- |
 | `bun run dev` | `next dev` | Run the local Next.js dev server. |
+| `bun run dev:up` | `docker compose up -d db && db:migrate && db:seed && next dev` | Start local Postgres in Docker, migrate/seed it, then run the host Next.js dev server. This is the preferred local chatbot workflow. |
 | `bun run dev:container` | `next dev -H 0.0.0.0` | Run the Next.js dev server inside the Compose app container. |
-| `bun run stack:up` | `docker compose up -d` | Start the local full-stack Compose environment: Postgres, the checked-in SQL migration, and the Next.js app. |
+| `bun run stack:up` | `docker compose up -d db` | Start only the local Postgres service. Use this before host `bun run dev` when database-backed chat behavior is needed. |
+| `bun run stack:app:up` | `docker compose --profile app up -d` | Start the opt-in full Compose app container as well as Postgres. Do not run this at the same time as host `bun run dev` on port `3000`. |
 | `bun run stack:down` | `docker compose down` | Stop and remove the local Compose app and database containers while keeping volumes. |
 | `bun run stack:down:volumes` | `docker compose down --volumes` | Stop the local Compose stack and remove its named volumes for a clean reset. |
 | `bun run stack:logs` | `docker compose logs -f` | Follow logs from the local Compose app and database services. |

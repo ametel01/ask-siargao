@@ -39,6 +39,12 @@ The seed command loads Siargao taxonomy, route records, and source profiles for 
 bun run dev
 ```
 
+For database-backed chat behavior, start Postgres, migrate/seed it, and run the host dev server:
+
+```sh
+bun run dev:up
+```
+
 5. Open the main QA surfaces.
 
 - `/`
