@@ -11,7 +11,7 @@
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Google Places Schema And Migration
-- [ ] Step 2: Google Places Freshness, Retention, And Field Policy Module
+- [x] Step 2: Google Places Freshness, Retention, And Field Policy Module
 - [ ] Step 3: Google Places Capture Repository
 - [ ] Step 4: Google Provider Adapter Refactor
 - [ ] Step 5: Answer Context Store DB-First Retrieval
@@ -23,7 +23,7 @@
 
 ## Current Status
 
-Step 1 is implemented. Step 2 is next.
+Step 2 is implemented. Step 3 is next.
 
 `PROGRESS.md` must be updated after every completed step with completion notes, validation
 results, commit reference if available, current status, and the next step.
@@ -70,5 +70,28 @@ results, commit reference if available, current status, and the next step.
 - Note: An initial parallel run of `bun test`, `bun run db:migrate:test`, and
   `bun run db:seed:test` failed because those commands share `.tmp/pglite-step3`; rerunning
   database-affecting checks sequentially passed.
-- Commit: pending.
+- Commit: `597450b feat: add google places capture schema`
 - Next step: Step 2, Google Places Freshness, Retention, And Field Policy Module.
+
+### 2026-06-25 - Step 2: Google Places Freshness, Retention, And Field Policy Module
+
+- Added a central Google Places policy module for explicit field-mask groups, request policies,
+  freshness windows, retention windows, reuse states, storage policy labels, and attribution
+  metadata.
+- Wired existing chat search and details enrichment field masks through the policy module without
+  changing provider parsing behavior.
+- Added tests proving masks are explicit, stale and retention windows are separate, stale rows can
+  still exist before deletion, expired and no-store rows are blocked, place IDs are durable, and
+  Places latitude/longitude is limited to 30 days.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/providers/google-places-policy.test.ts`
+  - `bun test`
+  - `bun run db:migrate:test`
+  - `bun run db:seed:test`
+  - `bun run build`
+  - `bun run test:e2e`
+- Commit: pending.
+- Next step: Step 3, Google Places Capture Repository.

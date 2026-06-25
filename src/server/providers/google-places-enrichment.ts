@@ -1,7 +1,7 @@
 import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
+import { googlePlacesDetailsFieldMask } from "@/server/providers/google-places-policy";
 
-export const googlePlacesDetailsFieldMask =
-  "id,name,displayName,formattedAddress,location,types,primaryType,businessStatus,googleMapsUri";
+export { googlePlacesDetailsFieldMask };
 
 export type GooglePlacesDetails = {
   placeId: string;

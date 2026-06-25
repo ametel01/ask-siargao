@@ -1,24 +1,7 @@
 import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
+import { googlePlacesChatSearchFieldMask } from "@/server/providers/google-places-policy";
 
-export const googlePlacesChatSearchFieldMask = [
-  "places.id",
-  "places.name",
-  "places.displayName",
-  "places.formattedAddress",
-  "places.location",
-  "places.types",
-  "places.primaryType",
-  "places.businessStatus",
-  "places.googleMapsUri",
-  "places.rating",
-  "places.userRatingCount",
-  "places.currentOpeningHours",
-  "places.regularOpeningHours",
-  "places.priceLevel",
-  "places.priceRange",
-  "places.websiteUri",
-  "places.internationalPhoneNumber",
-].join(",");
+export { googlePlacesChatSearchFieldMask };
 
 export type GooglePlacesChatSearch = {
   label: string;
