@@ -1,15 +1,18 @@
+import { createHash, randomUUID } from "node:crypto";
+
+import type { Logger } from "pino";
 import { z } from "zod";
 
 import {
-  type AnswerContext,
-  type AnswerContextStore,
-  planGooglePlacesRequirement,
-} from "@/server/chat/answer-context-store";
-import { getDefaultAnswerContextStore } from "@/server/chat/default-answer-context-store";
+  createDefaultRecommendationAgent,
+  type RecommendationAgent,
+  type RecommendationAgentResponse,
+} from "@/server/chat/recommendation-agent";
 import {
   type AskSiargaoChatMessage,
   generateAskSiargaoChatResponse,
 } from "@/server/llm/chat-adapter";
+import { createComponentLogger } from "@/server/observability/logger";
 import {
   type OpenMeteoForecastLocation,
   siargaoForecastLocations,
@@ -34,18 +37,22 @@ const chatRequestSchema = z.object({
 export type ChatRouteDependencies = {
   generateAskSiargaoChatResponse: typeof generateAskSiargaoChatResponse;
   getLatestSiargaoWeatherSnapshot?: typeof getLatestSiargaoWeatherSnapshot;
-  answerContextStore?: Pick<AnswerContextStore, "getOrRefresh">;
+  logger?: Logger;
+  recommendationAgent?: Pick<RecommendationAgent, "answer">;
 };
+
+const chatLogger = createComponentLogger("api.chat");
 
 const defaultDependencies: ChatRouteDependencies = {
   generateAskSiargaoChatResponse,
   getLatestSiargaoWeatherSnapshot,
+  logger: chatLogger,
 };
 
 export function createDefaultChatRouteDependencies(): ChatRouteDependencies {
   return {
     ...defaultDependencies,
-    answerContextStore: getDefaultAnswerContextStore(),
+    recommendationAgent: createDefaultRecommendationAgent(),
   };
 }
 
@@ -54,10 +61,18 @@ export async function chatResponse(
   dependencies: ChatRouteDependencies = createDefaultChatRouteDependencies(),
   headers?: HeadersInit,
 ) {
+  const startedAt = Date.now();
+  const requestId = randomUUID();
+  const logger = (dependencies.logger ?? chatLogger).child({
+    route: "/api/chat",
+    requestId,
+  });
+
   let body: unknown;
   try {
     body = await request.json();
   } catch {
+    logger.warn({ durationMs: Date.now() - startedAt }, "Chat request rejected: invalid JSON.");
     return Response.json(
       { error: "invalid_json", message: "Request body must be valid JSON." },
       { status: 400, headers },
@@ -67,6 +82,17 @@ export async function chatResponse(
   const parsed = chatRequestSchema.safeParse(body);
 
   if (!parsed.success) {
+    logger.warn(
+      {
+        durationMs: Date.now() - startedAt,
+        issueCount: parsed.error.issues.length,
+        issues: parsed.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
+      },
+      "Chat request rejected: schema validation failed.",
+    );
     return Response.json(
       {
         error: "invalid_chat_request",
@@ -79,59 +105,165 @@ export async function chatResponse(
     );
   }
 
+  const latestUserMessage = getLatestUserMessage(parsed.data.messages);
+  logger.info(
+    {
+      messageCount: parsed.data.messages.length,
+      latestUserMessage: latestUserMessage
+        ? summarizeMessageForLogs(latestUserMessage.content)
+        : null,
+      isRecommendationQuestion: isRecommendationQuestion(parsed.data.messages),
+      isWeatherQuestion: isWeatherQuestion(parsed.data.messages),
+    },
+    "Chat request received.",
+  );
+
   if (shouldDeclineNonSiargaoTopic(parsed.data.messages)) {
-    return Response.json({ message: siargaoScopeDeclineMessage }, { headers });
+    logger.info({ durationMs: Date.now() - startedAt }, "Chat request declined: outside scope.");
+    return Response.json({ message: siargaoScopeDeclineMessage, requestId }, { headers });
   }
 
   try {
-    const weatherContext = await getWeatherContext(parsed.data.messages, dependencies);
-    const answerContext = await getAnswerContext(parsed.data.messages, dependencies);
+    const recommendation = await getRecommendationResponse(parsed.data.messages, dependencies, {
+      logger,
+      requestId,
+    });
+    if (recommendation) {
+      logger.info(
+        {
+          branch: "recommendation",
+          recommendationStatus: recommendation.status,
+          model: recommendation.model,
+          upstreamRequestId: recommendation.requestId,
+          durationMs: Date.now() - startedAt,
+        },
+        "Chat request answered.",
+      );
+      return Response.json(
+        {
+          message: recommendation.message,
+          requestId,
+          ...(recommendation.requestId ? { upstreamRequestId: recommendation.requestId } : {}),
+        },
+        { headers },
+      );
+    }
+
+    const weatherContext = await getWeatherContext(parsed.data.messages, dependencies, logger);
+    logger.debug(
+      {
+        branch: "generic_llm",
+        hasWeatherContext: Boolean(weatherContext),
+      },
+      "Chat request falling through to generic LLM response.",
+    );
     const result = await dependencies.generateAskSiargaoChatResponse({
       messages: parsed.data.messages satisfies AskSiargaoChatMessage[],
-      ...(answerContext ? { answerContext } : {}),
       ...(weatherContext ? { weatherContext } : {}),
     });
 
-    return Response.json(result, { headers });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Chat response failed.";
-    const missingConfiguration = message.includes("OPENAI_API_KEY");
+    logger.info(
+      {
+        branch: weatherContext ? "weather_generic_llm" : "generic_llm",
+        model: result.model,
+        upstreamRequestId: result.requestId,
+        durationMs: Date.now() - startedAt,
+      },
+      "Chat request answered.",
+    );
 
     return Response.json(
       {
-        error: missingConfiguration ? "chat_not_configured" : "chat_generation_failed",
-        message: missingConfiguration
-          ? "OpenAI is not configured for chat responses."
-          : "Ask Siargao could not generate a response right now.",
+        message: result.message,
+        requestId,
+        ...(result.requestId ? { upstreamRequestId: result.requestId } : {}),
       },
-      { status: missingConfiguration ? 503 : 502, headers },
+      { headers },
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Chat response failed.";
+    const recommendationFailure = message.startsWith("RECOMMENDATION_AGENT_FAILED:");
+    const missingConfiguration =
+      message.includes("OPENAI_API_KEY") ||
+      message.includes("GOOGLE_API_KEY") ||
+      message.includes("GOOGLE_PLACES_API_KEY");
+    const status = missingConfiguration ? 503 : 502;
+    const errorCode = recommendationFailure
+      ? "recommendation_failed"
+      : missingConfiguration
+        ? "chat_not_configured"
+        : "chat_generation_failed";
+
+    logger.error(
+      {
+        error,
+        durationMs: Date.now() - startedAt,
+        errorCode,
+        status,
+      },
+      "Chat request failed.",
+    );
+
+    return Response.json(
+      {
+        error: errorCode,
+        message: missingConfiguration
+          ? "Ask Siargao is missing required provider configuration."
+          : recommendationFailure
+            ? "Ask Siargao could not search local places right now."
+            : "Ask Siargao could not generate a response right now.",
+      },
+      { status, headers },
     );
   }
 }
 
-async function getAnswerContext(
+async function getRecommendationResponse(
   messages: readonly AskSiargaoChatMessage[],
   dependencies: ChatRouteDependencies,
-): Promise<AnswerContext | undefined> {
-  if (!dependencies.answerContextStore || !planGooglePlacesRequirement(messages)) {
+  context: { logger: Logger; requestId: string },
+): Promise<RecommendationAgentResponse | undefined> {
+  const isRecommendation = isRecommendationQuestion(messages);
+  context.logger.debug(
+    {
+      hasRecommendationAgent: Boolean(dependencies.recommendationAgent),
+      isRecommendationQuestion: isRecommendation,
+    },
+    "Recommendation routing evaluated.",
+  );
+
+  if (!dependencies.recommendationAgent || !isRecommendation) {
     return undefined;
   }
 
   try {
-    return await dependencies.answerContextStore.getOrRefresh({
+    const result = await dependencies.recommendationAgent.answer({
       messages,
-      userMessageId: createRequestScopedUserMessageId(messages),
+      trace: { requestId: context.requestId },
     });
-  } catch {
-    return undefined;
+    if (result.status === "unsupported") {
+      context.logger.info(
+        { branch: "recommendation", recommendationStatus: result.status },
+        "Recommendation agent marked request unsupported.",
+      );
+      return undefined;
+    }
+    return result;
+  } catch (error) {
+    context.logger.error({ error }, "Recommendation agent failed.");
+    const message =
+      error instanceof Error ? error.message : "Recommendation agent failed with non-error value.";
+    throw new Error(`RECOMMENDATION_AGENT_FAILED: ${message}`, { cause: error });
   }
 }
 
 async function getWeatherContext(
   messages: readonly AskSiargaoChatMessage[],
   dependencies: ChatRouteDependencies,
+  logger: Logger,
 ): Promise<WeatherSnapshot | undefined> {
   if (!isWeatherQuestion(messages)) {
+    logger.debug("Weather routing skipped.");
     return undefined;
   }
 
@@ -140,12 +272,23 @@ async function getWeatherContext(
       dependencies.getLatestSiargaoWeatherSnapshot ??
       defaultDependencies.getLatestSiargaoWeatherSnapshot;
     if (!getSnapshot) {
+      logger.debug("Weather routing matched but no snapshot provider is configured.");
       return undefined;
     }
 
     const location = detectWeatherLocation(messages);
-    return await (location ? getSnapshot({ location }) : getSnapshot());
-  } catch {
+    const snapshot = await (location ? getSnapshot({ location }) : getSnapshot());
+    logger.debug(
+      {
+        locationId: location?.id,
+        sourceProfileId: snapshot.sourceProfileId,
+        fetchedAt: snapshot.fetchedAt,
+      },
+      "Weather context loaded.",
+    );
+    return snapshot;
+  } catch (error) {
+    logger.warn({ error }, "Weather context lookup failed; continuing without weather context.");
     return undefined;
   }
 }
@@ -171,6 +314,24 @@ function isWeatherQuestion(messages: readonly AskSiargaoChatMessage[]) {
         latestUserMessage.content,
       )
     : false;
+}
+
+function isRecommendationQuestion(messages: readonly AskSiargaoChatMessage[]) {
+  const latestUserMessage = getLatestUserMessage(messages);
+  const conversationContent = messages.map((message) => message.content).join(" ");
+  const content = latestUserMessage?.content ?? "";
+
+  return (
+    /\b(restaurants?|where\s+(?:can|should)\s+(?:we|i)\s+eat|food|dinner|lunch|breakfast|brunch|cafes?|coffee|bars?|nightlife|places?\s+to\s+(?:eat|go|stop)|stop\s+to\s+eat|food\s+stops?|car[ie]nderias?|seafood)\b/i.test(
+      content,
+    ) ||
+    (/\b(route|on\s+the\s+way|from\s+.+\s+to|proper|sit[-\s]?down|not\s+car[ie]nderia)\b/i.test(
+      content,
+    ) &&
+      /\b(restaurants?|eat|food|dinner|lunch|breakfast|car[ie]nderias?|seafood)\b/i.test(
+        conversationContent,
+      ))
+  );
 }
 
 function shouldDeclineNonSiargaoTopic(messages: readonly AskSiargaoChatMessage[]) {
@@ -206,14 +367,12 @@ function getLatestUserMessage(messages: readonly AskSiargaoChatMessage[]) {
   return [...messages].reverse().find((message) => message.role === "user");
 }
 
-function createRequestScopedUserMessageId(messages: readonly AskSiargaoChatMessage[]) {
-  const latestUserMessage = getLatestUserMessage(messages);
-  const content = latestUserMessage?.content ?? "empty";
-  let hash = 0;
-  for (let index = 0; index < content.length; index += 1) {
-    hash = (hash * 31 + content.charCodeAt(index)) >>> 0;
-  }
-  return `request_user_message_${hash.toString(16)}`;
+function summarizeMessageForLogs(content: string) {
+  return {
+    length: content.length,
+    hash: createHash("sha256").update(content).digest("hex").slice(0, 16),
+    preview: content.replaceAll(/\s+/g, " ").trim().slice(0, 160),
+  };
 }
 
 const siargaoScopeDeclineMessage =

@@ -32,7 +32,6 @@ type InteractiveChatMessage = {
   text: string;
   timestamp: string;
   status?: "pending" | "complete" | "error";
-  model?: string;
   retryPrompt?: string;
 };
 
@@ -108,11 +107,9 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
         });
         const body = (await response.json()) as {
           message?: string;
-          model?: string;
         };
 
         const responseMessage = body.message;
-        const responseModel = body.model;
 
         if (!response.ok || !responseMessage) {
           throw new Error(chatErrorMessage);
@@ -126,7 +123,6 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
                   text: responseMessage,
                   timestamp: formatTimestamp(),
                   status: "complete",
-                  model: responseModel,
                 }
               : message,
           ),
@@ -191,7 +187,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
           <div className="flex shrink-0 items-center gap-2">
             <span className="hidden items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-2 text-xs font-extrabold text-text-on-dark-muted sm:inline-flex">
               <span className="size-2 rounded-full bg-[#20d59b]" />
-              GPT-backed assistant
+              Siargao trip assistant
             </span>
             <Button
               aria-label="Go to home"
@@ -307,11 +303,6 @@ function ChatMessage({
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-extrabold">
           <time className={isError ? "text-[#ffd5ce]" : "text-text-soft"}>{message.timestamp}</time>
-          {message.status === "complete" && message.model ? (
-            <span className="rounded-full bg-brand-violet-600/8 px-2 py-1 text-brand-violet-650">
-              {message.model}
-            </span>
-          ) : null}
         </div>
         {isError && message.retryPrompt ? (
           <Button
@@ -359,7 +350,7 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
             key={block.key}
           >
             {block.items.map((item) => (
-              <li className="min-w-0 break-words" key={item.key}>
+              <li className="min-w-0 whitespace-pre-line break-words" key={item.key}>
                 <InlineMarkdown linkClass={linkClass} strongClass={strongClass} value={item.text} />
               </li>
             ))}
@@ -438,6 +429,14 @@ function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
     if (!line) {
       flushParagraph();
       flushList();
+      continue;
+    }
+
+    if (/^\s{2,}\S/.test(rawLine) && listItems.length > 0) {
+      listItems[listItems.length - 1] = {
+        ...listItems[listItems.length - 1],
+        text: `${listItems[listItems.length - 1]?.text ?? ""}\n${line}`,
+      };
       continue;
     }
 
@@ -680,9 +679,8 @@ function ChatEmptyState({
             Ask a real question about your Siargao trip.
           </h1>
           <p className="m-0 max-w-xl text-base leading-[1.7] text-text-on-dark-muted">
-            This first chat version uses a GPT-backed response from Ask Siargao. Weather questions
-            can use the configured Open-Meteo snapshot when available; bookings, saved places,
-            reviews, and other local source evidence are not connected yet.
+            Ask about food, weather, transfers, surf areas, quiet stays, and practical trip planning
+            around Siargao.
           </p>
         </div>
       </div>

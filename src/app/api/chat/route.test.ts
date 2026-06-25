@@ -1,28 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { PGlite } from "@electric-sql/pglite";
 
 import {
   type ChatRouteDependencies,
   chatResponse,
   createDefaultChatRouteDependencies,
 } from "@/app/api/chat/chat-route";
-import {
-  type AnswerContext,
-  type AnswerContextRequest,
-  AnswerContextStore,
-} from "@/server/chat/answer-context-store";
-import { runInitialMigration } from "@/server/db/test-database";
-import { googlePlacesChatSearchFieldMask } from "@/server/providers/google-places-chat";
-import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
-import {
-  createGooglePlaceSnapshotInput,
-  type GooglePlaceDetailsInput,
-  type GooglePlaceIdentityInput,
-  type GooglePlacesSourceRecordInput,
-  type GooglePlacesStoreDatabase,
-  upsertGooglePlaceDetails,
-  upsertGooglePlaceReviews,
-} from "@/server/providers/google-places-store";
 import type { OpenMeteoForecastLocation } from "@/server/providers/open-meteo";
 import { fallbackWeatherSnapshot } from "@/server/public-pages/weather-snapshot";
 
@@ -58,7 +40,6 @@ describe("chat route", () => {
     expect(body.message).toContain("I can only help with Siargao");
     expect(dependencies.requests).toHaveLength(0);
     expect(dependencies.weatherRequests).toBe(0);
-    expect(dependencies.answerContextRequests).toHaveLength(0);
   });
 
   test("returns an Ask Siargao model response", async () => {
@@ -73,89 +54,76 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expect(body.message).toContain("Cloud 9");
-    expect(body.model).toBe("gpt-5.5");
+    expect(body.model).toBeUndefined();
     expect(dependencies.requests[0]?.messages[0]?.content).toBe(
       "Where should we eat near Cloud 9?",
     );
   });
 
-  test("passes DB-first answer context to restaurant recommendation questions", async () => {
+  test("uses recommendation agent before generic model for place requests", async () => {
     const dependencies = chatDependencies();
-    const response = await chatResponse(
-      jsonRequest({
-        messages: [{ role: "user", content: "find me the best restaurant around cloud9" }],
-      }),
-      dependencies,
-    );
+    let agentCalls = 0;
+    dependencies.recommendationAgent = {
+      answer: async () => {
+        agentCalls += 1;
+        return {
+          status: "answered",
+          message: "Best verified options I found:\n1. Dapa Grill\nMaps: https://maps.example/dapa",
+          model: "gpt-5.5",
+        };
+      },
+    };
 
-    expect(response.status).toBe(200);
-    expect(dependencies.answerContextRequests).toHaveLength(1);
-    expect(dependencies.answerContextRequests[0]?.userMessageId).toMatch(/^request_user_message_/);
-    expect(dependencies.requests[0]?.answerContext?.sourceFreshness[0]?.sourceName).toBe(
-      "Google Places",
-    );
-    expect(dependencies.requests[0]?.answerContext?.facts[0]?.claim).toContain("Kermit");
-  });
-
-  test("passes Google answer context to accommodation rating follow-ups", async () => {
-    const dependencies = chatDependencies();
     const response = await chatResponse(
       jsonRequest({
         messages: [
-          {
-            role: "user",
-            content:
-              "I'm staying near Cloud 9 for 10 days. We want quiet sleep, surfing, good restaurants, and easy airport transfer.",
-          },
-          {
-            role: "assistant",
-            content: "Cloud 9 is convenient for surf and General Luna restaurants.",
-          },
-          { role: "user", content: "what about accomodations? i want to know the rating also" },
+          { role: "user", content: "where can I stop to eat on the way to Sugba Lagoon?" },
         ],
       }),
       dependencies,
     );
+    const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(dependencies.answerContextRequests).toHaveLength(1);
-    expect(dependencies.requests[0]?.answerContext?.sourceFreshness[0]?.sourceName).toBe(
-      "Google Places",
-    );
+    expect(body.message).toContain("Dapa Grill");
+    expect(body.model).toBeUndefined();
+    expect(agentCalls).toBe(1);
+    expect(dependencies.requests).toHaveLength(0);
   });
 
-  test("passes DB-first answer context to short restaurant preference follow-ups", async () => {
+  test("does not fall back to generic chat when recommendation agent fails", async () => {
     const dependencies = chatDependencies();
+    let agentCalls = 0;
+    dependencies.recommendationAgent = {
+      answer: async () => {
+        agentCalls += 1;
+        throw new Error("planner returned invalid JSON");
+      },
+    };
+
     const response = await chatResponse(
       jsonRequest({
-        messages: [
-          { role: "user", content: "Where should I eat in General Luna tonight?" },
-          {
-            role: "assistant",
-            content: "What kind of dinner are you after?",
-          },
-          { role: "user", content: "nice date-night" },
-        ],
+        messages: [{ role: "user", content: "suggest me good restaurant to eat near Dapa" }],
       }),
       dependencies,
     );
+    const body = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(dependencies.answerContextRequests).toHaveLength(1);
-    expect(dependencies.requests[0]?.answerContext?.sourceFreshness[0]).toMatchObject({
-      sourceName: "Google Places",
-      status: "fresh",
-    });
+    expect(response.status).toBe(502);
+    expect(body.error).toBe("recommendation_failed");
+    expect(body.message).toContain("could not search local places");
+    expect(agentCalls).toBe(1);
+    expect(dependencies.requests).toHaveLength(0);
   });
 
-  test("default dependencies wire the Google answer context store when DATABASE_URL exists", () => {
+  test("default dependencies wire the recommendation agent", () => {
     const previousDatabaseUrl = process.env.DATABASE_URL;
     process.env.DATABASE_URL = "postgres://user:password@localhost:5432/siargao_portal";
 
     try {
       const dependencies = createDefaultChatRouteDependencies();
 
-      expect(dependencies.answerContextStore).toBeDefined();
+      expect(dependencies.recommendationAgent).toBeDefined();
     } finally {
       if (previousDatabaseUrl === undefined) {
         delete process.env.DATABASE_URL;
@@ -163,105 +131,6 @@ describe("chat route", () => {
         process.env.DATABASE_URL = previousDatabaseUrl;
       }
     }
-  });
-
-  test("uses fresh stored Google facts through AnswerContextStore without provider calls", async () => {
-    const db = await openRouteGooglePlacesTestDatabase();
-    await seedRouteStoredPlace(db, {
-      fetchedAt: "2026-06-25T00:00:00.000Z",
-      retentionExpiresAt: "2026-07-25T00:00:00.000Z",
-      staleAt: "2026-07-02T00:00:00.000Z",
-    });
-    const requests: Parameters<ChatRouteDependencies["generateAskSiargaoChatResponse"]>[0][] = [];
-    let googleCalls = 0;
-    const response = await chatResponse(
-      jsonRequest({
-        messages: [{ role: "user", content: "Where should we eat near Cloud 9?" }],
-      }),
-      {
-        generateAskSiargaoChatResponse: async (request) => {
-          requests.push(request);
-          return {
-            message: "Use the fresh stored Google facts for Kermit near Cloud 9.",
-            model: "gpt-5.5",
-            requestId: "req_db_first_chat_test",
-          };
-        },
-        answerContextStore: new AnswerContextStore({
-          db,
-          clock: () => new Date("2026-06-28T00:00:00.000Z"),
-          googlePlacesAdapter: async () => {
-            googleCalls += 1;
-            throw new Error("Fresh DB data should avoid live Google calls.");
-          },
-        }),
-      },
-    );
-    const body = await response.json();
-    const serializedRequest = JSON.stringify(requests[0]);
-
-    expect(response.status).toBe(200);
-    expect(body.message).toContain("fresh stored Google facts");
-    expect(googleCalls).toBe(0);
-    expect(requests[0]?.answerContext?.liveRefreshCount).toBe(0);
-    expect(requests[0]?.answerContext?.sourceFreshness[0]).toMatchObject({
-      sourceName: "Google Places",
-      status: "fresh",
-    });
-    expect(requests[0]?.answerContext?.facts.map((fact) => fact.type)).toContain(
-      "google_rating_signal",
-    );
-    expect(serializedRequest).not.toContain("EXPIRED_REVIEW_TEXT_SHOULD_NOT_LEAK");
-    expect(serializedRequest).not.toContain("RAW_GOOGLE_PAYLOAD_SHOULD_NOT_LEAK");
-
-    await db.close();
-  });
-
-  test("passes Google Places gaps through /api/chat when stored data is missing and refresh is blocked", async () => {
-    const db = await openRouteGooglePlacesTestDatabase();
-    const requests: Parameters<ChatRouteDependencies["generateAskSiargaoChatResponse"]>[0][] = [];
-    let googleCalls = 0;
-    const response = await chatResponse(
-      jsonRequest({
-        messages: [{ role: "user", content: "find me the best restaurant around cloud9" }],
-      }),
-      {
-        generateAskSiargaoChatResponse: async (request) => {
-          requests.push(request);
-          return {
-            message:
-              "I could not refresh Google Places for this request, so I will avoid live claims.",
-            model: "gpt-5.5",
-            requestId: "req_gap_chat_test",
-          };
-        },
-        answerContextStore: new AnswerContextStore({
-          db,
-          canUseLiveRefresh: () => false,
-          clock: () => new Date("2026-06-28T00:00:00.000Z"),
-          googlePlacesAdapter: async () => {
-            googleCalls += 1;
-            throw new Error("Blocked refresh should not call Google.");
-          },
-        }),
-      },
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.message).toContain("could not refresh Google Places");
-    expect(googleCalls).toBe(0);
-    expect(requests[0]?.answerContext?.facts).toHaveLength(0);
-    expect(requests[0]?.answerContext?.gaps[0]).toMatchObject({
-      type: "google_places",
-      reason: "refresh_blocked",
-    });
-    expect(requests[0]?.answerContext?.sourceFreshness[0]).toMatchObject({
-      sourceName: "Google Places",
-      status: "blocked",
-    });
-
-    await db.close();
   });
 
   test("passes the Siargao weather snapshot to weather questions", async () => {
@@ -310,8 +179,15 @@ describe("chat route", () => {
     expect(dependencies.requests[0]?.weatherContext).toBeUndefined();
   });
 
-  test("does not fetch answer context for ordinary chat", async () => {
+  test("does not call recommendation agent for ordinary chat", async () => {
     const dependencies = chatDependencies();
+    let agentCalls = 0;
+    dependencies.recommendationAgent = {
+      answer: async () => {
+        agentCalls += 1;
+        return { status: "unsupported", message: "", model: "gpt-5.5" };
+      },
+    };
     const response = await chatResponse(
       jsonRequest({
         messages: [{ role: "user", content: "How many nights should we stay in Siargao?" }],
@@ -320,8 +196,7 @@ describe("chat route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(dependencies.answerContextRequests).toHaveLength(0);
-    expect(dependencies.requests[0]?.answerContext).toBeUndefined();
+    expect(agentCalls).toBe(0);
   });
 
   test("returns stable unavailable response when OpenAI is not configured", async () => {
@@ -344,7 +219,6 @@ function chatDependencies() {
   const requests: Parameters<ChatRouteDependencies["generateAskSiargaoChatResponse"]>[0][] = [];
   const dependencies: ChatRouteDependencies & {
     requests: typeof requests;
-    answerContextRequests: AnswerContextRequest[];
     weatherLocations: OpenMeteoForecastLocation[];
     weatherRequests: number;
   } = {
@@ -363,171 +237,12 @@ function chatDependencies() {
       }
       return fallbackWeatherSnapshot;
     },
-    answerContextStore: {
-      getOrRefresh: async (request) => {
-        dependencies.answerContextRequests.push(request);
-        return answerContextFixture;
-      },
-    },
     requests,
-    answerContextRequests: [],
     weatherLocations: [],
     weatherRequests: 0,
   };
 
   return dependencies;
-}
-
-const answerContextFixture: AnswerContext = {
-  places: [
-    {
-      name: "Kermit Surf Resort and Restaurant",
-      placeId: "place_kermit",
-      sourceName: "Google Places",
-      formattedAddress: "Tourism Road, General Luna, Siargao",
-      primaryType: "restaurant",
-      rating: 4.6,
-      userRatingCount: 1240,
-      googleMapsUri: "https://maps.google.com/?cid=123",
-      requiresGoogleAttribution: true,
-    },
-  ],
-  facts: [
-    {
-      id: "answer_fact_place_kermit_place",
-      type: "place_candidate",
-      claim: "Kermit Surf Resort and Restaurant is a Google Places candidate for this request.",
-      sourceRecordIds: ["record_google_places_chat_place_kermit"],
-      requiresGoogleAttribution: true,
-    },
-  ],
-  evidence: [],
-  gaps: [],
-  sourceFreshness: [
-    {
-      sourceName: "Google Places",
-      status: "fresh",
-      fetchedAt: "2026-06-24T00:00:00.000Z",
-      staleAt: "2026-07-01T00:00:00.000Z",
-      retentionExpiresAt: "2026-07-24T00:00:00.000Z",
-    },
-  ],
-  liveRefreshCount: 0,
-  estimatedProviderCostUsd: 0,
-};
-
-async function openRouteGooglePlacesTestDatabase() {
-  const db = new PGlite();
-  await runInitialMigration(db);
-  await db.query(`
-    insert into providers (id, slug, name, provider_type)
-    values ('provider_google_places', 'google-places', 'Google Places', 'places_api')
-  `);
-  await db.query(
-    `
-      insert into source_profiles (
-        id,
-        provider_id,
-        source_name,
-        source_type,
-        access_method,
-        allowed_use,
-        freshness_window_days,
-        authority_level,
-        stores_raw_allowed,
-        publishes_raw_allowed
-      )
-      values ($1, 'provider_google_places', 'Google Places', 'provider_api', 'api', 'citation_only', 7, 60, false, false)
-    `,
-    [googlePlacesDiscoverySourceProfileId],
-  );
-  return db;
-}
-
-async function seedRouteStoredPlace(
-  db: GooglePlacesStoreDatabase,
-  {
-    fetchedAt,
-    retentionExpiresAt,
-    staleAt,
-  }: {
-    fetchedAt: string;
-    staleAt: string;
-    retentionExpiresAt: string;
-  },
-) {
-  const place: GooglePlaceIdentityInput = {
-    placeId: "place_kermit",
-    resourceName: "places/place_kermit",
-  };
-  const sourceRecord: GooglePlacesSourceRecordInput = {
-    id: "record_google_places_chat_place_kermit",
-    sourceProfileId: googlePlacesDiscoverySourceProfileId,
-    providerEntityId: place.placeId,
-    entityType: "restaurant",
-    name: "Kermit Surf Resort and Restaurant",
-    normalizedPayload: { placeId: place.placeId },
-    sourceUrl: "https://maps.google.com/?cid=123",
-    fetchedAt,
-    allowedUse: "citation_only",
-  };
-  const snapshot = createGooglePlaceSnapshotInput({
-    placeId: place.placeId,
-    requestKind: "chat_search",
-    fieldMask: googlePlacesChatSearchFieldMask,
-    fetchedAt,
-    payloadJson: {
-      googleMapsUri: "https://maps.google.com/?cid=123",
-      rawPayloadSentinel: "RAW_GOOGLE_PAYLOAD_SHOULD_NOT_LEAK",
-    },
-  });
-  const details: GooglePlaceDetailsInput = {
-    displayNameJson: { text: "Kermit Surf Resort and Restaurant" },
-    formattedAddress: "Tourism Road, General Luna, Siargao",
-    latitude: 9.803,
-    longitude: 126.161,
-    locationJson: { latitude: 9.803, longitude: 126.161 },
-    typesJson: ["restaurant", "food"],
-    primaryType: "restaurant",
-    businessStatus: "OPERATIONAL",
-    googleMapsUri: "https://maps.google.com/?cid=123",
-    rating: 4.6,
-    userRatingCount: 1240,
-    priceLevel: "PRICE_LEVEL_MODERATE",
-    fetchedAt,
-    staleAt,
-    retentionExpiresAt,
-  };
-
-  await upsertGooglePlaceDetails(db, {
-    place,
-    sourceRecord,
-    snapshot: {
-      ...snapshot,
-      staleAt,
-      retentionExpiresAt,
-    },
-    details,
-  });
-  await upsertGooglePlaceReviews(db, {
-    place,
-    sourceRecord,
-    snapshot: {
-      ...snapshot,
-      staleAt,
-      retentionExpiresAt,
-    },
-    reviews: [
-      {
-        id: "review_expired_route_test",
-        fetchedAt: "2026-05-01T00:00:00.000Z",
-        rating: 1,
-        retentionExpiresAt: "2026-05-31T00:00:00.000Z",
-        staleAt: "2026-05-08T00:00:00.000Z",
-        textJson: { text: "EXPIRED_REVIEW_TEXT_SHOULD_NOT_LEAK" },
-      },
-    ],
-  });
 }
 
 function jsonRequest(body: unknown) {

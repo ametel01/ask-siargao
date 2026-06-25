@@ -1,3 +1,4 @@
+import { createComponentLogger } from "@/server/observability/logger";
 import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
 import { googlePlacesChatSearchFieldMask } from "@/server/providers/google-places-policy";
 
@@ -127,6 +128,12 @@ type GooglePlacesChatSearchResponse = {
 
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 
+type ProviderTraceContext = {
+  requestId?: string;
+};
+
+const googlePlacesChatLogger = createComponentLogger("provider.google_places.chat");
+
 export function buildGooglePlacesChatSearchBody(search: GooglePlacesChatSearch) {
   return {
     textQuery: search.textQuery,
@@ -153,42 +160,97 @@ export async function getGooglePlacesChatContext({
   fetchedAt = new Date().toISOString(),
   fetcher = fetch,
   search,
+  trace,
 }: {
   apiKey?: string;
   fetchedAt?: string;
   fetcher?: Fetcher;
   search: GooglePlacesChatSearch;
+  trace?: ProviderTraceContext;
 }): Promise<GooglePlacesChatContext> {
   if (!apiKey) {
     throw new Error("GOOGLE_API_KEY is required for Google Places chat lookup.");
   }
 
-  const response = await fetcher("https://places.googleapis.com/v1/places:searchText", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": googlePlacesChatSearchFieldMask,
+  const logger = googlePlacesChatLogger.child(
+    compactLogFields({
+      requestId: trace?.requestId,
+      provider: "google_places",
+      operation: "places.searchText",
+    }),
+  );
+  const startedAt = Date.now();
+  logger.info(
+    {
+      label: search.label,
+      query: search.textQuery,
+      includedType: search.includedType,
+      center: search.center,
+      radiusMeters: search.radiusMeters,
+      pageSize: search.pageSize,
+      fieldMask: googlePlacesChatSearchFieldMask,
     },
-    body: JSON.stringify(buildGooglePlacesChatSearchBody(search)),
-  });
-  const payload = await parseGooglePlacesChatSearchResponse(response);
-  const places = parseGooglePlacesChatPlaces(payload);
+    "Google Places chat lookup started.",
+  );
 
-  return {
-    status: places.length > 0 ? "available" : "no_results",
-    sourceName: "Google Places",
-    sourceProfileId: googlePlacesDiscoverySourceProfileId,
-    fetchedAt,
-    search,
-    fieldMask: googlePlacesChatSearchFieldMask,
-    places,
-    caveats: [
-      "Enhanced chat lookup includes Google Places identity, address, type, business status, rating signals, opening hours, price, website, phone, and map link when available.",
-      "It does not include review text, bookings, table availability, room availability, or verified local quality checks.",
-      "Do not store this raw provider response as reusable product data.",
-    ],
-  };
+  try {
+    const response = await fetcher("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": googlePlacesChatSearchFieldMask,
+      },
+      body: JSON.stringify(buildGooglePlacesChatSearchBody(search)),
+    });
+    const payload = await parseGooglePlacesChatSearchResponse(response);
+    const places = parseGooglePlacesChatPlaces(payload);
+
+    logger.info(
+      {
+        label: search.label,
+        httpStatus: response.status,
+        resultCount: places.length,
+        status: places.length > 0 ? "available" : "no_results",
+        placeSummaries: places.slice(0, 8).map((place) => ({
+          placeId: place.placeId,
+          displayName: place.displayName,
+          primaryType: place.primaryType,
+          businessStatus: place.businessStatus,
+          rating: place.rating,
+          userRatingCount: place.userRatingCount,
+        })),
+        durationMs: Date.now() - startedAt,
+      },
+      "Google Places chat lookup completed.",
+    );
+
+    return {
+      status: places.length > 0 ? "available" : "no_results",
+      sourceName: "Google Places",
+      sourceProfileId: googlePlacesDiscoverySourceProfileId,
+      fetchedAt,
+      search,
+      fieldMask: googlePlacesChatSearchFieldMask,
+      places,
+      caveats: [
+        "Enhanced chat lookup includes Google Places identity, address, type, business status, rating signals, opening hours, price, website, phone, and map link when available.",
+        "It does not include review text, bookings, table availability, room availability, or verified local quality checks.",
+        "Do not store this raw provider response as reusable product data.",
+      ],
+    };
+  } catch (error) {
+    logger.error(
+      {
+        error,
+        label: search.label,
+        query: search.textQuery,
+        durationMs: Date.now() - startedAt,
+      },
+      "Google Places chat lookup failed.",
+    );
+    throw error;
+  }
 }
 
 async function parseGooglePlacesChatSearchResponse(
@@ -372,4 +434,10 @@ function normalizeMoney(money: GooglePlacesMoney | undefined): GooglePlacesMoney
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function compactLogFields(input: Record<string, string | undefined>) {
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== undefined && value !== ""),
+  );
 }

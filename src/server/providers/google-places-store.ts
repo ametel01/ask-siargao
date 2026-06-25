@@ -110,57 +110,6 @@ export type UpsertGooglePlaceReviewsInput = {
   reviews: GooglePlaceReviewInput[];
 };
 
-export async function findFreshPlacesForSearchRequirement(
-  db: GooglePlacesStoreDatabase,
-  {
-    limit = 8,
-    now,
-    primaryType,
-  }: {
-    now: string;
-    primaryType?: string;
-    limit?: number;
-  },
-) {
-  const result = await db.query<{
-    place_id: string;
-    display_name_json: JsonObject | null;
-    formatted_address: string | null;
-    primary_type: string | null;
-    rating: string | null;
-    user_rating_count: number | null;
-    google_maps_uri: string | null;
-    price_level: string | null;
-    fetched_at: Date;
-    stale_at: Date;
-    retention_expires_at: Date;
-  }>(
-    `
-      select
-        place_id,
-        display_name_json,
-        formatted_address,
-        primary_type,
-        rating::text as rating,
-        user_rating_count,
-        google_maps_uri,
-        price_level,
-        fetched_at,
-        stale_at,
-        retention_expires_at
-      from google_place_details
-      where stale_at > $1
-        and retention_expires_at > $1
-        and ($2::text is null or primary_type = $2 or types_json ? $2)
-      order by user_rating_count desc nulls last, rating desc nulls last, place_id asc
-      limit $3
-    `,
-    [now, primaryType ?? null, limit],
-  );
-
-  return result.rows;
-}
-
 export async function findFreshPlaceDetails(
   db: GooglePlacesStoreDatabase,
   { now, placeId }: { placeId: string; now: string },

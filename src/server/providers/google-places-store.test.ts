@@ -11,7 +11,6 @@ import {
   createGooglePlaceSnapshotInput,
   deleteExpiredGooglePlacesContent,
   findFreshPlaceDetails,
-  findFreshPlacesForSearchRequirement,
   type GooglePlaceDetailsInput,
   type GooglePlaceIdentityInput,
   type GooglePlacesSourceRecordInput,
@@ -95,14 +94,9 @@ describe("Google Places capture store", () => {
       placeId: "place_expired",
       now: "2026-06-28T00:00:00.000Z",
     });
-    const freshRestaurants = await findFreshPlacesForSearchRequirement(db, {
-      now: "2026-06-28T00:00:00.000Z",
-      primaryType: "restaurant",
-    });
 
     expect(freshDetail?.place_id).toBe("place_kermit");
     expect(expiredDetail).toBeNull();
-    expect(freshRestaurants.map((row) => row.place_id)).toEqual(["place_kermit"]);
 
     await db.close();
   });

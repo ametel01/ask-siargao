@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-import type { AnswerContext } from "@/server/chat/answer-context-store";
 import {
   type ChatResponsesClient,
   generateAskSiargaoChatResponse,
@@ -106,56 +105,6 @@ describe("Ask Siargao chat adapter", () => {
       "- Kermit Surf Resort and Restaurant Maps: https://maps.google.com/?cid=123",
     );
   });
-
-  test("includes bounded answer context and no-bypass instructions", async () => {
-    const requests: Record<string, unknown>[] = [];
-    const client: ChatResponsesClient = {
-      responses: {
-        create: async (params) => {
-          requests.push(params);
-          return {
-            output_text: "Kermit is the best fit from the stored answer context.",
-            _request_id: "req_answer_context",
-          };
-        },
-      },
-    };
-
-    const response = await generateAskSiargaoChatResponse({
-      client,
-      messages: [{ role: "user", content: "find me a restaurant around cloud9" }],
-      answerContext: answerContextFixture,
-    });
-
-    const request = requests[0];
-    const input = parseOpenAIInput(request?.input);
-    const serializedInput = String(request?.input);
-
-    expect(response.requestId).toBe("req_answer_context");
-    expect(response.message).toContain(
-      "- Kermit Surf Resort and Restaurant Maps: https://maps.google.com/?cid=123",
-    );
-    expect(String(request?.instructions)).toContain("When answerContext is present");
-    expect(String(request?.instructions)).toContain("internal database first");
-    expect(String(request?.instructions)).toContain("DB-first lookup");
-    expect(String(request?.instructions)).toContain("use only answerContext facts");
-    expect(String(request?.instructions)).toContain(
-      "Never call or suggest calling Google directly from the model",
-    );
-    expect(input.answerContext?.facts[0]?.type).toBe("place_candidate");
-    expect(input.answerContext?.facts[0]?.claim).toContain("Kermit");
-    expect(input.answerContext?.places[0]).toMatchObject({
-      name: "Kermit Surf Resort and Restaurant",
-      googleMapsUri: "https://maps.google.com/?cid=123",
-      rating: 4.6,
-      userRatingCount: 1240,
-    });
-    expect(input.answerContext?.sourceFreshness[0]?.status).toBe("fresh");
-    expect(input.answerContext?.gaps[0]?.reason).toBe("refresh_blocked");
-    expect(serializedInput).not.toContain("record_google_places_chat_place_kermit");
-    expect(serializedInput).not.toContain("answer_fact_place_kermit");
-    expect(serializedInput).not.toContain("evidence_google_places_place_kermit");
-  });
 });
 
 function parseOpenAIInput(input: unknown): {
@@ -182,17 +131,6 @@ function parseOpenAIInput(input: unknown): {
       websiteUri?: string;
       internationalPhoneNumber?: string;
     }>;
-  };
-  answerContext?: {
-    places: Array<{
-      name?: string;
-      googleMapsUri?: string;
-      rating?: number;
-      userRatingCount?: number;
-    }>;
-    facts: Array<{ type?: string; claim?: string }>;
-    gaps: Array<{ reason?: string; message?: string }>;
-    sourceFreshness: Array<{ status?: string }>;
   };
 } {
   return typeof input === "string" ? JSON.parse(input) : {};
@@ -241,66 +179,4 @@ const googlePlacesContextFixture: GooglePlacesChatContext = {
       internationalPhoneNumber: "+63 917 123 4567",
     },
   ],
-};
-
-const answerContextFixture: AnswerContext = {
-  places: [
-    {
-      name: "Kermit Surf Resort and Restaurant",
-      placeId: "place_kermit",
-      sourceName: "Google Places",
-      formattedAddress: "Tourism Road, General Luna, Siargao",
-      primaryType: "restaurant",
-      rating: 4.6,
-      userRatingCount: 1240,
-      priceLevel: "PRICE_LEVEL_MODERATE",
-      googleMapsUri: "https://maps.google.com/?cid=123",
-      requiresGoogleAttribution: true,
-    },
-  ],
-  facts: [
-    {
-      id: "answer_fact_place_kermit_place",
-      type: "place_candidate",
-      claim: "Kermit Surf Resort and Restaurant is a Google Places candidate for this request.",
-      sourceRecordIds: ["record_google_places_chat_place_kermit"],
-      requiresGoogleAttribution: true,
-    },
-    {
-      id: "answer_fact_place_kermit_map_link",
-      type: "map_link",
-      claim: "Kermit Surf Resort and Restaurant has a Google Maps link.",
-      value: "https://maps.google.com/?cid=123",
-      sourceRecordIds: ["record_google_places_chat_place_kermit"],
-      requiresGoogleAttribution: true,
-    },
-  ],
-  evidence: [
-    {
-      id: "evidence_google_places_place_kermit",
-      sourceName: "Google Places",
-      citationUrl: "https://maps.google.com/?cid=123",
-      fetchedAt: "2026-06-25T00:00:00.000Z",
-      staleAt: "2026-07-02T00:00:00.000Z",
-      retentionExpiresAt: "2026-07-25T00:00:00.000Z",
-    },
-  ],
-  gaps: [
-    {
-      type: "google_places_reviews",
-      reason: "refresh_blocked",
-      message: "Review text was not available because live refresh was blocked.",
-    },
-  ],
-  sourceFreshness: [
-    {
-      sourceName: "Google Places",
-      status: "fresh",
-      fetchedAt: "2026-06-25T00:00:00.000Z",
-      staleAt: "2026-07-02T00:00:00.000Z",
-      retentionExpiresAt: "2026-07-25T00:00:00.000Z",
-    },
-  ],
-  liveRefreshCount: 0,
-  estimatedProviderCostUsd: 0,
 };
