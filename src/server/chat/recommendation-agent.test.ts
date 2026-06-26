@@ -49,6 +49,124 @@ describe("RecommendationAgent", () => {
     expect(response.message).not.toContain("search center");
   });
 
+  test("searches Google Places once for nearby open-now food requests", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "General Luna Grill",
+          rating: 4.6,
+          userRatingCount: 180,
+        });
+      },
+    });
+
+    const response = await agent.answer({
+      messages: [{ role: "user", content: "where can I eat nearby that is open now?" }],
+    });
+
+    expect(response.status).toBe("answered");
+    expect(searches).toHaveLength(1);
+    expect(searches[0]).toMatchObject({
+      textQuery: "good restaurant near General Luna Siargao",
+      includedType: "restaurant",
+      center: { latitude: 9.8006, longitude: 126.1586 },
+      radiusMeters: 6_000,
+    });
+    expect(response.message).toContain("General Luna Grill");
+  });
+
+  test("searches Google Places with bar included type for drinks requests", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "General Luna Beach Bar",
+          rating: 4.4,
+          userRatingCount: 210,
+        });
+      },
+    });
+
+    const response = await agent.answer({
+      messages: [{ role: "user", content: "Where can we get drinks near General Luna?" }],
+    });
+
+    expect(response.status).toBe("answered");
+    expect(searches).toHaveLength(1);
+    expect(searches[0]).toMatchObject({
+      textQuery: "bar near General Luna Siargao",
+      includedType: "bar",
+      radiusMeters: 6_000,
+    });
+    expect(response.message).toContain("General Luna Beach Bar");
+  });
+
+  test("searches Google Places deterministically for service-place requests", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "General Luna Pharmacy",
+          rating: 4.1,
+          userRatingCount: 45,
+        });
+      },
+    });
+
+    const response = await agent.answer({
+      messages: [{ role: "user", content: "Any pharmacy nearby that is open now?" }],
+    });
+
+    expect(response.status).toBe("answered");
+    expect(searches).toHaveLength(1);
+    expect(searches[0]).toMatchObject({
+      textQuery: "pharmacy near General Luna Siargao",
+      includedType: "pharmacy",
+      radiusMeters: 6_000,
+    });
+    expect(response.message).toContain("General Luna Pharmacy");
+  });
+
+  test("searches a narrow identity query for specific-place map-link requests", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "Shaka Siargao",
+          rating: 4.7,
+          userRatingCount: 500,
+        });
+      },
+    });
+
+    const response = await agent.answer({
+      messages: [{ role: "user", content: "Can you find a map link for Shaka Siargao?" }],
+    });
+
+    expect(response.status).toBe("answered");
+    expect(searches).toHaveLength(1);
+    expect(searches[0]).toMatchObject({
+      textQuery: "Shaka Siargao",
+      radiusMeters: 12_000,
+    });
+    expect(searches[0]?.textQuery).not.toMatch(/restaurant|cafe|bar/i);
+    expect(searches[0]?.includedType).toBeUndefined();
+    expect(response.message).toContain("Shaka Siargao");
+  });
+
   test("lets the latest meal request override earlier lunch context without assistant keyword leakage", async () => {
     const searches: GooglePlacesChatSearch[] = [];
     const agent = new RecommendationAgent({

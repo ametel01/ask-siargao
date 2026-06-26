@@ -5,7 +5,7 @@ Source roadmap: `/Users/alexmetelli/source/ask-siargao/docs/ASK_SIARGAO_ROADMAP.
 
 ## Current Status
 
-Step 2 is complete. Step 3 is next: Generalize The Recommendation Agent From Food To Places.
+Step 3 is complete. Step 4 is next: Normalize Candidates Into LocalRecommendation.
 
 This file must be updated after every completed step with the completed step, validation results,
 commit reference if available, current status, and next step.
@@ -15,7 +15,7 @@ commit reference if available, current status, and next step.
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Shared Place Intent Model
 - [x] Step 2: Route Priority 1 Requests Through The Recommendation Agent
-- [ ] Step 3: Generalize The Recommendation Agent From Food To Places
+- [x] Step 3: Generalize The Recommendation Agent From Food To Places
 - [ ] Step 4: Normalize Candidates Into LocalRecommendation
 - [ ] Step 5: Harden Cache-First Live Provider Behavior
 - [ ] Step 6: Render Priority 1 Answers With Checked And Not Checked Caveats
@@ -77,5 +77,29 @@ commit reference if available, current status, and next step.
   - `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
   - `bun run build`: passed.
   - `bun run test:e2e`: passed, 17 tests.
-- Commit: `feat: route live place requests through recommendations`.
+- Commit: `f2aa10d feat: route live place requests through recommendations`.
 - Next step: Step 3, Generalize The Recommendation Agent From Food To Places.
+
+### Step 3: Generalize The Recommendation Agent From Food To Places
+
+- Status: Complete.
+- Summary:
+  - Generalized deterministic recommendation-agent planning around `PlaceIntent` instead of
+    food-only request helpers.
+  - Added deterministic Places searches for open-now nearby food, cafes, bars/drinks,
+    activity-place prompts, service-place prompts, and specific-place identity/map-link prompts.
+  - Carried `PlaceIntent.radiusMeters` into Places searches and added category-aware search terms,
+    included types, and preferred ranking terms.
+  - Added focused recommendation-agent coverage for one-search open-now food behavior, bar
+    `includedType`, service-place routing, and narrow specific-place identity queries.
+- Validation:
+  - `bun run format`: passed; no fixes applied.
+  - `bun run lint`: passed.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed, 171 tests.
+  - `bun run db:migrate:test`: passed, migrated 38 tables.
+  - `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 17 tests.
+- Commit: `feat: generalize recommendations to local places`.
+- Next step: Step 4, Normalize Candidates Into LocalRecommendation.

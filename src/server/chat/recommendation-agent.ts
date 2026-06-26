@@ -225,10 +225,10 @@ export class RecommendationAgent {
       },
       "Recommendation agent started.",
     );
-    const interpretedIntent = interpretFoodRequest(messages);
+    const interpretedIntent = interpretPlaceRequest(messages);
     logger.debug(
       {
-        intent: summarizeFoodIntentForLogs(interpretedIntent),
+        intent: summarizePlaceIntentForLogs(interpretedIntent),
       },
       "Recommendation request intent interpreted.",
     );
@@ -470,7 +470,7 @@ function createDefaultRecommendationPlanner(
 function inferDeterministicAction(
   input: RecommendationAgentPlannerInput,
 ): RecommendationAction | undefined {
-  const intent = interpretFoodRequest(input.messages);
+  const intent = interpretPlaceRequest(input.messages);
   const searchAttempts = input.previousActions.filter((action) => action.type === "search_places");
   const hasRanked = input.previousActions.some((action) => action.type === "rank_candidates");
 
@@ -489,25 +489,16 @@ function inferDeterministicAction(
     return { type: "final_answer" };
   }
 
-  if (!intent || !["food", "coffee", "bar", "activity_place"].includes(intent.category)) {
+  if (!intent) {
     return undefined;
   }
 
-  const centerLabel = intent.location;
-  if (!centerLabel) {
+  const action = actionFromPlaceIntent(intent);
+  if (!action) {
     return undefined;
   }
 
-  const foodTerm = inferFoodSearchTerm(intent);
-  const locationPhrase =
-    intent.areaScope === "nearby" ? `near ${centerLabel}` : `in ${centerLabel}`;
-
-  return {
-    type: "search_places",
-    query: `${foodTerm} ${locationPhrase} Siargao`,
-    centerLabel,
-    includedType: inferIncludedType(foodTerm),
-  };
+  return action;
 }
 
 function createOpenAIRecommendationPlanner(
@@ -596,12 +587,69 @@ function parseRecommendationAction(outputText: string): RecommendationAction {
   return recommendationActionSchema.parse(parsed);
 }
 
-function interpretFoodRequest(messages: readonly AskSiargaoChatMessage[]) {
+function interpretPlaceRequest(messages: readonly AskSiargaoChatMessage[]) {
   return interpretPlaceIntent(messages);
 }
 
-function inferFoodSearchTerm(intent: PlaceIntent) {
+function actionFromPlaceIntent(intent: PlaceIntent): RecommendationAction | undefined {
+  if (intent.category === "specific_place") {
+    if (!intent.placeName) {
+      return undefined;
+    }
+    return {
+      type: "search_places",
+      query: specificPlaceSearchQuery(intent),
+      ...(intent.location ? { centerLabel: intent.location } : {}),
+      radiusMeters: intent.radiusMeters,
+    };
+  }
+
+  const centerLabel = intent.location;
+  if (!centerLabel) {
+    return undefined;
+  }
+
+  const searchTerm = inferPlaceSearchTerm(intent);
+  const locationPhrase =
+    intent.areaScope === "nearby" ? `near ${centerLabel}` : `in ${centerLabel}`;
+  const includedType = inferIncludedType(searchTerm);
+
+  return {
+    type: "search_places",
+    query: `${searchTerm} ${locationPhrase} Siargao`,
+    centerLabel,
+    radiusMeters: intent.radiusMeters,
+    ...(includedType ? { includedType } : {}),
+  };
+}
+
+function specificPlaceSearchQuery(intent: PlaceIntent) {
+  if (intent.location && intent.location !== "Siargao Island") {
+    return `${intent.placeName} ${intent.location} Siargao`;
+  }
+  return `${intent.placeName} Siargao`;
+}
+
+function inferPlaceSearchTerm(intent: PlaceIntent) {
   const primaryIntentText = `${intent.latestUserTurn} ${intent.recentUserContext}`;
+  if (intent.category === "service") {
+    return inferServiceSearchTerm(primaryIntentText);
+  }
+  if (intent.category === "bar") {
+    return "bar";
+  }
+  if (intent.category === "coffee") {
+    return /\bbeachfront\b/i.test(primaryIntentText) ? "beachfront cafe" : "cafe";
+  }
+  if (intent.category === "activity_place") {
+    if (/\bbeachfront\b/i.test(primaryIntentText)) {
+      return "beachfront places";
+    }
+    if (/\bcovered|indoors?|inside\b/i.test(primaryIntentText)) {
+      return "covered places";
+    }
+    return "places to go";
+  }
   if (/\bseafood\b/i.test(primaryIntentText)) {
     return "seafood restaurant";
   }
@@ -635,18 +683,49 @@ function inferFoodSearchTerm(intent: PlaceIntent) {
   return "good restaurant";
 }
 
-function inferIncludedType(foodTerm: string) {
-  if (/\bcafe\b/i.test(foodTerm)) {
+function inferServiceSearchTerm(content: string) {
+  if (/\bpharmac(?:y|ies)|drugstores?\b/i.test(content)) {
+    return "pharmacy";
+  }
+  if (/\bclinics?\b/i.test(content)) {
+    return "clinic";
+  }
+  if (/\batms?|cash\s+machines?\b/i.test(content)) {
+    return "atm";
+  }
+  if (/\blaundr(?:y|ies)\b/i.test(content)) {
+    return "laundry";
+  }
+  if (/\bscooter\s+rentals?|motorbike\s+rentals?\b/i.test(content)) {
+    return "scooter rental";
+  }
+  return "local service";
+}
+
+function inferIncludedType(searchTerm: string) {
+  if (/\bcafe\b/i.test(searchTerm)) {
     return "cafe";
   }
-  if (/\bbar\b/i.test(foodTerm)) {
+  if (/\bbar\b/i.test(searchTerm)) {
     return "bar";
+  }
+  if (/\bpharmacy\b/i.test(searchTerm)) {
+    return "pharmacy";
+  }
+  if (/\batm\b/i.test(searchTerm)) {
+    return "atm";
+  }
+  if (/\blaundry\b/i.test(searchTerm)) {
+    return "laundry";
+  }
+  if (!/\brestaurant|breakfast|lunch|dinner|seafood|sit down\b/i.test(searchTerm)) {
+    return undefined;
   }
   return "restaurant";
 }
 
 function inferPreferredTerms(intent: PlaceIntent) {
-  const terms = ["restaurant"];
+  const terms = [...basePreferredTerms(intent)];
   const primaryIntentText = `${intent.latestUserTurn} ${intent.recentUserContext}`;
   if (/\bseafood\b/i.test(primaryIntentText)) {
     terms.push("seafood");
@@ -670,6 +749,23 @@ function inferPreferredTerms(intent: PlaceIntent) {
     terms.push("indoor", "covered", "restaurant");
   }
   return [...new Set(terms)];
+}
+
+function basePreferredTerms(intent: PlaceIntent) {
+  switch (intent.category) {
+    case "bar":
+      return ["bar", "drinks", "nightlife"];
+    case "coffee":
+      return ["cafe", "coffee"];
+    case "service":
+      return [inferServiceSearchTerm(`${intent.latestUserTurn} ${intent.recentUserContext}`)];
+    case "activity_place":
+      return ["place", "spot"];
+    case "specific_place":
+      return intent.placeName ? [intent.placeName] : [];
+    case "food":
+      return ["restaurant"];
+  }
 }
 
 function inferExcludedTerms(intent: PlaceIntent) {
@@ -954,7 +1050,7 @@ function summarizeActionForLogs(action: RecommendationAction) {
   }
 }
 
-function summarizeFoodIntentForLogs(intent: PlaceIntent | null) {
+function summarizePlaceIntentForLogs(intent: PlaceIntent | null) {
   return intent
     ? {
         areaScope: intent.areaScope,

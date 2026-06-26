@@ -76,6 +76,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Generalized the recommendation agent from food-only deterministic searches to Priority 1 local
+  place searches, including open-now food, cafes, bars, activity places, service places, and
+  specific-place identity/map-link lookups.
 - Routed Priority 1 local-place chat requests through the recommendation agent with route coverage
   for open-now follow-ups, bar/drinks prompts, service-place prompts, covered/beachfront requests,
   and named-place map-link follow-ups.
