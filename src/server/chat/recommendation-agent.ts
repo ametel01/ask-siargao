@@ -649,6 +649,12 @@ function specificPlaceSearchQuery(intent: PlaceIntent) {
 
 function inferPlaceSearchTerm(intent: PlaceIntent) {
   const primaryIntentText = `${intent.latestUserTurn} ${intent.recentUserContext}`;
+  const budgetFocused =
+    intent.constraints.includes("cheaper") ||
+    intent.constraints.includes("budget") ||
+    intent.tripContext.temporaryModifiers.includes("cheaper");
+  const familyFocused = intent.constraints.includes("family_friendly");
+
   if (intent.category === "service") {
     return inferServiceSearchTerm(primaryIntentText);
   }
@@ -656,6 +662,12 @@ function inferPlaceSearchTerm(intent: PlaceIntent) {
     return "bar";
   }
   if (intent.category === "coffee") {
+    if (budgetFocused) {
+      return "budget cafe";
+    }
+    if (familyFocused) {
+      return "family cafe";
+    }
     return /\bbeachfront\b/i.test(primaryIntentText) ? "beachfront cafe" : "cafe";
   }
   if (intent.category === "activity_place") {
@@ -687,6 +699,12 @@ function inferPlaceSearchTerm(intent: PlaceIntent) {
   }
   if (/\bproper|sit[-\s]?down|not\s+car[ie]nderia\b/i.test(intent.latestUserTurn)) {
     return "sit down restaurant";
+  }
+  if (budgetFocused) {
+    return "cheap restaurant";
+  }
+  if (familyFocused) {
+    return "family restaurant";
   }
   if (intent.meal === "breakfast") {
     return "breakfast restaurants";
@@ -764,6 +782,16 @@ function inferPreferredTerms(intent: PlaceIntent) {
   }
   if (intent.constraints.includes("covered_seating")) {
     terms.push("indoor", "covered", "restaurant");
+  }
+  if (intent.constraints.includes("family_friendly")) {
+    terms.push("family", "kids", "casual");
+  }
+  if (
+    intent.constraints.includes("cheaper") ||
+    intent.constraints.includes("budget") ||
+    intent.tripContext.temporaryModifiers.includes("cheaper")
+  ) {
+    terms.push("budget", "affordable", "cheap");
   }
   return [...new Set(terms)];
 }
@@ -1053,6 +1081,11 @@ function summarizePlaceIntentForLogs(intent: PlaceIntent | null) {
         liveNeeds: intent.liveNeeds,
         location: intent.location,
         meal: intent.meal,
+        tripContext: {
+          activeGoal: intent.tripContext.activeGoal,
+          currentLocation: intent.tripContext.currentLocation?.label,
+          temporaryModifiers: intent.tripContext.temporaryModifiers,
+        },
       }
     : null;
 }

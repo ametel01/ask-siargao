@@ -1,7 +1,9 @@
 import {
+  deriveTripContext,
   getLatestUserTurn,
   getRecentUserContext,
   inferSiargaoLocationLabel,
+  type TripContext,
 } from "@/server/chat/intent";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 
@@ -31,6 +33,7 @@ export type PlaceIntent = {
   placeName: string | null;
   latestUserTurn: string;
   recentUserContext: string;
+  tripContext: TripContext;
 };
 
 const defaultNearbyLocation = "General Luna";
@@ -50,12 +53,15 @@ const knownPlaceLocationLabels = [
 export function interpretPlaceIntent(
   messages: readonly AskSiargaoChatMessage[],
 ): PlaceIntent | null {
+  const tripContext = deriveTripContext(messages);
   const latestUserTurn = getLatestUserTurn(messages);
   const recentUserContext = getRecentUserContext(messages);
   const latestCategory = inferPlaceCategory(latestUserTurn);
   const contextualRequest = isContextualPlaceFollowUp(latestUserTurn);
   const recentCategory = inferPlaceCategory(recentUserContext);
-  const category = latestCategory ?? (contextualRequest ? recentCategory : null);
+  const category =
+    latestCategory ??
+    (contextualRequest ? (recentCategory ?? inferContextualCategory(tripContext)) : null);
 
   if (!category) {
     return null;
@@ -66,10 +72,15 @@ export function interpretPlaceIntent(
   const areaScope = inferAreaScope(latestUserTurn) ?? inferAreaScope(recentUserContext);
   const location =
     inferPlaceLocationLabel(latestUserTurn) ??
+    tripContext.currentLocation?.label ??
     inferPlaceLocationLabel(recentUserContext) ??
     (areaScope === "nearby" ? defaultNearbyLocation : null);
   const constraints = [
-    ...new Set([...inferConstraints(recentUserContext), ...inferConstraints(latestUserTurn)]),
+    ...new Set([
+      ...inferConstraints(recentUserContext),
+      ...inferConstraints(latestUserTurn),
+      ...constraintsFromTripContext(tripContext),
+    ]),
   ];
   const explicitlyRequestedCafe = /\b(caf[eé]s?|coffee)\b/i.test(fullContext);
   const avoid = inferAvoidTerms({ explicitlyRequestedCafe, latestUserTurn, meal });
@@ -92,6 +103,7 @@ export function interpretPlaceIntent(
     placeName: inferSpecificPlaceName(latestUserTurn),
     latestUserTurn,
     recentUserContext,
+    tripContext,
   };
 }
 
@@ -167,6 +179,10 @@ function inferLiveNeeds({
   return [...needs];
 }
 
+function inferContextualCategory(tripContext: TripContext): PlaceCategory | null {
+  return tripContext.activeGoal === "food" ? "food" : null;
+}
+
 function inferPlaceLocationLabel(content: string): string | null {
   const label = inferSiargaoLocationLabel(content);
   return label && knownPlaceLocationLabels.includes(label) ? label : null;
@@ -212,6 +228,20 @@ function inferConstraints(content: string) {
   return constraints;
 }
 
+function constraintsFromTripContext(tripContext: TripContext) {
+  const constraints: string[] = [];
+  if (tripContext.durableConstraints.includes("with_kids")) {
+    constraints.push("family_friendly");
+  }
+  if (tripContext.travelerProfile.budget === "cheap") {
+    constraints.push("budget");
+  }
+  if (tripContext.temporaryModifiers.includes("cheaper")) {
+    constraints.push("cheaper");
+  }
+  return constraints;
+}
+
 function inferAvoidTerms({
   explicitlyRequestedCafe,
   latestUserTurn,
@@ -249,7 +279,7 @@ function inferSpecificPlaceName(content: string) {
 }
 
 function isContextualPlaceFollowUp(content: string) {
-  return /\b(what\s+about|how\s+about|that\s+area|there|nearby|instead|options?|open\s+now|open\s+today|currently\s+open|still\s+open|hours?)\b/i.test(
+  return /\b(what\s+about|how\s+about|that\s+area|there|nearby|instead|options?|open\s+now|open\s+today|currently\s+open|still\s+open|hours?|cheap(?:er)?|budget|affordable|kids?|children|family)\b/i.test(
     content,
   );
 }

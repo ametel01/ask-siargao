@@ -16,13 +16,13 @@ only; it does not add trip or chat persistence.
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Shared Trip Context And Intent Module
 - [x] Step 2: Route Chat Decisions Through TripContext
-- [ ] Step 3: Align Place Intent And Recommendation Planning With TripContext
+- [x] Step 3: Align Place Intent And Recommendation Planning With TripContext
 - [ ] Step 4: End-To-End Route Regressions For Priority 2 Follow-Ups
 - [ ] Step 5: Persistence-Ready Documentation And Final Verification
 
 ## Current Status
 
-Step 2 complete. Next: Step 3, Align Place Intent And Recommendation Planning With TripContext.
+Step 3 complete. Next: Step 4, End-To-End Route Regressions For Priority 2 Follow-Ups.
 
 ## Update Log
 
@@ -73,6 +73,24 @@ Step 2 complete. Next: Step 3, Align Place Intent And Recommendation Planning Wi
   - `bun run lint`: pass
   - `bun run typecheck --incremental false`: pass
   - `bun test src/server/chat/intent.test.ts src/app/api/chat/route.test.ts`: pass
+  - `bun test`: pass
+- Commit: `db8fc1f Route chat follow-ups through trip context`
+
+### 2026-06-26: Step 3 complete
+
+- Added derived `TripContext` to `PlaceIntent` so Google Places recommendation planning uses the
+  same stable context and latest-turn modifiers as `/api/chat`.
+- Preserved prior location context for "there" and "nearby" recommendation follow-ups.
+- Carried cheaper/budget and family/kids constraints into recommendation search terms and ranking
+  preferences.
+- Kept open-now follow-ups wired to live-status Google Places needs.
+- Expanded place-intent and recommendation-agent tests for prior-location, nearby, cheaper,
+  with-kids, and open-now follow-ups.
+- Validation:
+  - `bun run format`: pass
+  - `bun run lint`: pass
+  - `bun run typecheck --incremental false`: pass
+  - `bun test src/server/chat/intent.test.ts src/server/chat/place-intent.test.ts src/server/chat/recommendation-agent.test.ts`: pass
   - `bun test`: pass
 - Commit: pending
 

@@ -350,6 +350,169 @@ describe("RecommendationAgent", () => {
     expect(response.message).toContain("Maps: https://maps.google.com/?cid=place_dapa");
   });
 
+  test("uses prior location and cheaper modifier for there follow-ups", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "Cloud 9 Budget Grill",
+          rating: 4.3,
+          userRatingCount: 140,
+        });
+      },
+    });
+
+    const response = await agent.answer({
+      messages: [
+        { role: "user", content: "Where should we get dinner near Cloud 9?" },
+        { role: "assistant", content: "Here are dinner options near Cloud 9." },
+        { role: "user", content: "anything cheaper there?" },
+      ],
+    });
+
+    expect(response.status).toBe("answered");
+    expect(searches).toHaveLength(1);
+    expect(searches[0]).toMatchObject({
+      textQuery: "cheap restaurant near Cloud 9 Siargao",
+      includedType: "restaurant",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+      radiusMeters: 6_000,
+    });
+    expect(response.message).toContain("Cloud 9 Budget Grill");
+  });
+
+  test("uses prior Cloud 9 context for nearby cafe follow-ups", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "Cloud 9 Coffee Stop",
+          rating: 4.6,
+          userRatingCount: 320,
+        });
+      },
+    });
+
+    const response = await agent.answer({
+      messages: [
+        { role: "user", content: "We are staying near Cloud 9." },
+        { role: "assistant", content: "That keeps you close to Catangnan." },
+        { role: "user", content: "what cafes are nearby?" },
+      ],
+    });
+
+    expect(response.status).toBe("answered");
+    expect(searches[0]).toMatchObject({
+      textQuery: "cafe near Cloud 9 Siargao",
+      includedType: "cafe",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+      radiusMeters: 6_000,
+    });
+    expect(response.message).toContain("Cloud 9 Coffee Stop");
+  });
+
+  test("persists kids context into recommendation search and ranking", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          places: [
+            {
+              placeId: "place_fancy",
+              resourceName: "places/place_fancy",
+              displayName: "Cloud 9 Fine Dining",
+              formattedAddress: "Cloud 9, General Luna",
+              latitude: 9.8117,
+              longitude: 126.1652,
+              types: ["restaurant", "food"],
+              primaryType: "restaurant",
+              businessStatus: "OPERATIONAL",
+              googleMapsUri: "https://maps.google.com/?cid=fancy",
+              rating: 4.8,
+              userRatingCount: 400,
+            },
+            {
+              placeId: "place_family",
+              resourceName: "places/place_family",
+              displayName: "Cloud 9 Family Restaurant",
+              formattedAddress: "Cloud 9, General Luna",
+              latitude: 9.8118,
+              longitude: 126.1653,
+              types: ["family_restaurant", "restaurant", "kids", "food"],
+              primaryType: "family_restaurant",
+              businessStatus: "OPERATIONAL",
+              googleMapsUri: "https://maps.google.com/?cid=family",
+              rating: 4.2,
+              userRatingCount: 100,
+            },
+          ],
+        });
+      },
+    });
+
+    const response = await agent.answer({
+      messages: [
+        { role: "user", content: "We are with kids near Cloud 9." },
+        { role: "assistant", content: "Keep it casual and close." },
+        { role: "user", content: "where should we get dinner?" },
+      ],
+    });
+
+    expect(response.status).toBe("answered");
+    expect(searches[0]).toMatchObject({
+      textQuery: "family restaurant near Cloud 9 Siargao",
+      includedType: "restaurant",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+    });
+    expect(response.message.indexOf("Cloud 9 Family Restaurant")).toBeLessThan(
+      response.message.indexOf("Cloud 9 Fine Dining"),
+    );
+  });
+
+  test("keeps open-now live status on cafe follow-ups", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const requiresLiveStatuses: Array<boolean | undefined> = [];
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, requiresLiveStatus, search }) => {
+        searches.push(search);
+        requiresLiveStatuses.push(requiresLiveStatus);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "Open Cloud 9 Cafe",
+          rating: 4.5,
+          userRatingCount: 220,
+        });
+      },
+    });
+
+    const response = await agent.answer({
+      messages: [
+        { role: "user", content: "Where should we get coffee near Cloud 9?" },
+        { role: "assistant", content: "Try a cafe near Catangnan." },
+        { role: "user", content: "open now?" },
+      ],
+    });
+
+    expect(response.status).toBe("answered");
+    expect(requiresLiveStatuses).toEqual([true]);
+    expect(searches[0]).toMatchObject({
+      textQuery: "cafe near Cloud 9 Siargao",
+      includedType: "cafe",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+    });
+    expect(response.message).toContain("Open Cloud 9 Cafe");
+  });
+
   test("lets the planner choose search and ranking actions before rendering candidates", async () => {
     const actions: RecommendationAction[] = [
       { type: "resolve_location", text: "Dapa" },

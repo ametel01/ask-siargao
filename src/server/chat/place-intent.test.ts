@@ -72,4 +72,62 @@ describe("interpretPlaceIntent", () => {
     });
     expect(intent?.liveNeeds).toContain("identity");
   });
+
+  test("resolves there from prior place context", () => {
+    const intent = interpretPlaceIntent([
+      { role: "user", content: "Where should we get dinner near Cloud 9?" },
+      { role: "assistant", content: "Here are some dinner options near Cloud 9." },
+      { role: "user", content: "anything cheaper there?" },
+    ] satisfies AskSiargaoChatMessage[]);
+
+    expect(intent).toMatchObject({
+      category: "food",
+      areaScope: "nearby",
+      location: "Cloud 9",
+    });
+    expect(intent?.constraints).toContain("cheaper");
+  });
+
+  test("resolves nearby from prior General Luna context", () => {
+    const intent = interpretPlaceIntent([
+      { role: "user", content: "We are staying in General Luna." },
+      { role: "assistant", content: "That keeps you close to most food options." },
+      { role: "user", content: "what cafes are nearby?" },
+    ] satisfies AskSiargaoChatMessage[]);
+
+    expect(intent).toMatchObject({
+      category: "coffee",
+      areaScope: "nearby",
+      location: "General Luna",
+      radiusMeters: 6_000,
+    });
+  });
+
+  test("persists family context into place constraints", () => {
+    const intent = interpretPlaceIntent([
+      { role: "user", content: "We are with kids near Cloud 9." },
+      { role: "assistant", content: "Keep it casual and close." },
+      { role: "user", content: "where should we get dinner?" },
+    ] satisfies AskSiargaoChatMessage[]);
+
+    expect(intent).toMatchObject({
+      category: "food",
+      location: "Cloud 9",
+    });
+    expect(intent?.constraints).toContain("family_friendly");
+  });
+
+  test("keeps open-now needs on food follow-ups", () => {
+    const intent = interpretPlaceIntent([
+      { role: "user", content: "Where should we get coffee near Cloud 9?" },
+      { role: "assistant", content: "Try a cafe near Catangnan." },
+      { role: "user", content: "open now?" },
+    ] satisfies AskSiargaoChatMessage[]);
+
+    expect(intent).toMatchObject({
+      category: "coffee",
+      location: "Cloud 9",
+    });
+    expect(intent?.liveNeeds).toContain("open_now");
+  });
 });
