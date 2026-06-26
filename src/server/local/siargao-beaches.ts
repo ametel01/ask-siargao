@@ -1,3 +1,8 @@
+import {
+  type AnswerSourceSummary,
+  renderAnswerSourceLines,
+} from "@/server/chat/answer-source-summary";
+
 export type SiargaoBeachSurface = "sand" | "mixed" | "rocky";
 
 export type SiargaoBeach = {
@@ -121,6 +126,20 @@ const siargaoBeachGuide: SiargaoBeach[] = [
   },
 ];
 
+const beachGuideSourceSummary: AnswerSourceSummary = {
+  label: "curated_local_guide",
+  sourceName: "Ask Siargao curated local beach guide",
+  confidence: "medium",
+  checked: ["ride-time notes", "beach-surface notes"],
+  notChecked: [
+    "live road conditions",
+    "tide",
+    "currents",
+    "beach access changes",
+    "lifeguard or swimming safety",
+  ],
+};
+
 export function renderSiargaoBeachRecommendation(request: BeachRecommendationRequest) {
   const originLabel = request.originLabel === "Cloud 9" ? "Cloud 9 / General Luna" : "General Luna";
   const maxRideMinutes = request.maxRideMinutes ?? 30;
@@ -167,8 +186,7 @@ export function renderSiargaoBeachRecommendation(request: BeachRecommendationReq
     ...exclusions,
     ...tripContextNotes,
     "",
-    "Checked: Ask Siargao curated local beach guide with ride-time and beach-surface notes.",
-    "Not checked: live road conditions, tide, currents, beach access changes, or lifeguard/swimming safety.",
+    ...renderAnswerSourceLines([beachGuideSourceSummary]),
   ].join("\n");
 }
 

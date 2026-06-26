@@ -88,6 +88,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Routed curated beach and weather chat answers through shared trust/source labels,
+  including provider-unavailable caveats for fallback weather snapshots.
 - Routed `/api/chat` follow-up decisions through request-scoped trip context for weather planning,
   beach guidance, ride-time limits, missing-reference clarification, and kids/no-scooter beach fit
   notes.

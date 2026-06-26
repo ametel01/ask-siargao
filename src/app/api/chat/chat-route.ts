@@ -3,6 +3,10 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Logger } from "pino";
 import { z } from "zod";
 
+import {
+  type AnswerSourceSummary,
+  renderAnswerSourceLines,
+} from "@/server/chat/answer-source-summary";
 import { deriveTripContext, type TripContext } from "@/server/chat/intent";
 import { interpretPlaceIntent, type PlaceIntent } from "@/server/chat/place-intent";
 import {
@@ -605,30 +609,64 @@ function renderGroundedLocalPlan(
   }
 
   const location = intent.locationLabel ?? "Siargao";
-  const today = weatherContext?.today;
+  const hasAvailableWeatherSnapshot = weatherContext?.status === "live";
+  const today = hasAvailableWeatherSnapshot ? weatherContext.today : undefined;
   const weatherAssessment = assessTodayWeather(intent, today);
-  const sourceLine = weatherContext
-    ? `Checked: ${weatherContext.sourceName} forecast for ${weatherContext.locationName}.`
-    : "Checked: no live weather snapshot was available for this request.";
-  const weatherLine = today
-    ? `Weather signal: ${today.condition}; rain ${formatNullableWeatherMetric(
+  const weatherSignal = today
+    ? `${today.condition}; rain ${formatNullableWeatherMetric(
         today.rainSum,
         "mm",
       )}; precipitation chance ${formatNullableWeatherMetric(
         today.precipitationProbability,
         "%",
       )}; wind gust ${formatNullableWeatherMetric(today.windGust, "km/h")}.`
-    : "Weather signal: live conditions were not available.";
+    : "live conditions were not available";
 
   const plan = localPlanLines(location, weatherAssessment);
 
   return [
     ...plan,
     "",
-    sourceLine,
-    weatherLine,
-    "Not checked: Google Places open-now results, surf/swell reports, road flooding, bookings, or review text.",
+    ...renderAnswerSourceLines([weatherSourceSummary(weatherContext)], {
+      weatherSignal: weatherSignal.replace(/\.$/, ""),
+    }),
   ].join("\n");
+}
+
+function weatherSourceSummary(weatherContext: WeatherSnapshot | undefined): AnswerSourceSummary {
+  if (weatherContext?.status === "live") {
+    return {
+      label: "weather_checked",
+      sourceName: weatherContext.sourceName,
+      sourceProfileId: weatherContext.sourceProfileId,
+      fetchedAt: weatherContext.fetchedAt,
+      confidence: weatherContext.confidence,
+      checked: [`forecast for ${weatherContext.locationName}`],
+      notChecked: [
+        "Google Places open-now results",
+        "surf/swell reports",
+        "road flooding",
+        "bookings",
+        "review text",
+      ],
+    };
+  }
+
+  return {
+    label: "provider_unavailable",
+    sourceName: weatherContext?.sourceName ?? "Open-Meteo weather API",
+    sourceProfileId: weatherContext?.sourceProfileId ?? "source_open_meteo",
+    confidence: "low",
+    checked: [],
+    notChecked: [
+      "Open-Meteo weather snapshot for this request",
+      "Google Places open-now results",
+      "surf/swell reports",
+      "road flooding",
+      "bookings",
+      "review text",
+    ],
+  };
 }
 
 function renderGroundedBeachRecommendation(intent: ChatRequestIntent) {

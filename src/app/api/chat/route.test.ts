@@ -13,7 +13,10 @@ import {
 } from "@/server/providers/google-places-chat";
 import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
 import type { OpenMeteoForecastLocation } from "@/server/providers/open-meteo";
-import { fallbackWeatherSnapshot } from "@/server/public-pages/weather-snapshot";
+import {
+  fallbackWeatherSnapshot,
+  type WeatherSnapshot,
+} from "@/server/public-pages/weather-snapshot";
 
 describe("chat route", () => {
   test("rejects malformed JSON request bodies", async () => {
@@ -174,10 +177,39 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expect(body.message).toContain("forecast near Cloud 9");
-    expect(body.message).toContain("Checked: Open-Meteo weather API");
-    expect(body.message).toContain("Not checked: Google Places open-now results");
+    expect(body.message).toContain("Checked: Open-Meteo weather API (weather checked");
+    expect(body.message).toContain("profile source_open_meteo");
+    expect(body.message).toContain("Weather signal: Partly cloudy");
+    expect(body.message).toContain("Not checked: Open-Meteo weather API (weather checked");
+    expect(body.message).toContain("Google Places open-now results");
+    expect(body.message).not.toContain("provider unavailable");
     expect(body.message).not.toContain("ask for dinner places");
     expect(agentCalls).toBe(0);
+    expect(dependencies.weatherRequests).toBe(1);
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("marks fallback weather snapshots as provider unavailable", async () => {
+    const dependencies = chatDependencies();
+    dependencies.getLatestSiargaoWeatherSnapshot = async () => {
+      dependencies.weatherRequests += 1;
+      return fallbackWeatherSnapshot;
+    };
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "What should I do near Cloud 9 today?" }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).not.toContain("Checked: Open-Meteo weather API");
+    expect(body.message).toContain(
+      "Not checked: Open-Meteo weather API (provider unavailable; low confidence; profile source_open_meteo)",
+    );
+    expect(body.message).toContain("Open-Meteo weather snapshot for this request");
+    expect(body.message).toContain("Weather signal: live conditions were not available.");
     expect(dependencies.weatherRequests).toBe(1);
     expect(dependencies.requests).toHaveLength(0);
   });
@@ -194,7 +226,7 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expect(body.message).toContain("forecast near Cloud 9");
-    expect(body.message).toContain("Checked: Open-Meteo weather API");
+    expect(body.message).toContain("Checked: Open-Meteo weather API (weather checked");
     expect(dependencies.weatherRequests).toBe(1);
     expect(dependencies.requests).toHaveLength(0);
   });
@@ -215,7 +247,7 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expect(body.message).toContain("It looks stormy near Cloud 9 today");
-    expect(body.message).toContain("Checked: Open-Meteo weather API");
+    expect(body.message).toContain("Checked: Open-Meteo weather API (weather checked");
     expect(body.message).toContain("If you want dinner next, I can check open nearby restaurants");
     expect(dependencies.weatherRequests).toBe(1);
     expect(dependencies.requests).toHaveLength(0);
@@ -681,7 +713,12 @@ describe("chat route", () => {
     expect(body.message).toContain("Malinao Beach");
     expect(body.message).toContain("Secret Beach");
     expect(body.message).toContain("not include Pacifico or Alegria");
-    expect(body.message).toContain("Checked: Ask Siargao curated local beach guide");
+    expect(body.message).toContain(
+      "Checked: Ask Siargao curated local beach guide (curated local guide; medium confidence)",
+    );
+    expect(body.message).toContain("Not checked: Ask Siargao curated local beach guide");
+    expect(body.message).not.toContain("live checked");
+    expect(body.message).not.toContain("Google Places API");
     expect(agentCalls).toBe(0);
     expect(dependencies.requests).toHaveLength(0);
   });
@@ -877,7 +914,7 @@ function chatDependencies() {
       if (options?.location) {
         dependencies.weatherLocations.push(options.location);
       }
-      return fallbackWeatherSnapshot;
+      return liveWeatherSnapshot(options?.location?.name);
     },
     requests,
     weatherLocations: [],
@@ -885,6 +922,29 @@ function chatDependencies() {
   };
 
   return dependencies;
+}
+
+function liveWeatherSnapshot(locationName = "Siargao Island"): WeatherSnapshot {
+  return {
+    ...fallbackWeatherSnapshot,
+    status: "live",
+    locationName,
+    fetchedAt: "2026-06-26T00:00:00.000Z",
+    expiresAt: "2026-06-27T00:00:00.000Z",
+    freshness: "fresh",
+    confidence: "medium",
+    summary: `Open-Meteo live forecast for ${locationName}.`,
+    today: {
+      ...fallbackWeatherSnapshot.today,
+      date: "2026-06-26",
+      condition: "Partly cloudy",
+      precipitationProbability: 20,
+      precipitationSum: 1.1,
+      rainSum: 0.7,
+      windGust: 18,
+      level: "low",
+    },
+  };
 }
 
 function jsonRequest(body: unknown) {
