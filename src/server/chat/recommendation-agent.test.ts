@@ -39,9 +39,13 @@ describe("RecommendationAgent", () => {
       includedType: "restaurant",
       center: { latitude: 9.7594, longitude: 125.9761 },
     });
-    expect(response.message).toContain("Good options I found:");
+    expect(response.message).toContain("Good options I found from Google Places:");
+    expect(response.message).toContain("Checked: Google Places identity");
+    expect(response.message).toContain("Not checked: review text");
     expect(response.message).toContain("- **1. Dapa Food House**");
     expect(response.message).toContain("Rating: 4.5 (95 reviews)");
+    expect(response.message).toContain("Distance fit:");
+    expect(response.message).toContain("Opening signal:");
   });
 
   test("lets the latest meal request override earlier lunch context without assistant keyword leakage", async () => {
@@ -128,6 +132,8 @@ describe("RecommendationAgent", () => {
     expect(response.message).toMatch(
       /- \*\*1\. Cloud 9 Dinner Grill\*\*[\s\S]+- \*\*2\. Cloud 9 Coffee Bar\*\*[\s\S]+- \*\*3\. Cloud 9 Brunch Spot\*\*/,
     );
+    expect(response.message).toContain("Rain fit:");
+    expect(response.message).toContain("Google currently reports open.");
   });
 
   test("lets the planner choose search and ranking actions before rendering candidates", async () => {
@@ -177,7 +183,7 @@ describe("RecommendationAgent", () => {
       includedType: "restaurant",
       center: { latitude: 9.7594, longitude: 125.9761 },
     });
-    expect(response.message).toContain("Good options I found:");
+    expect(response.message).toContain("Good options I found from Google Places:");
     expect(response.message).toContain("- **1. Dapa Grill Restaurant**");
     expect(response.message).toContain("Rating: 4.4 (120 reviews)");
     expect(response.message).toContain("Maps: https://maps.google.com/?cid=place_dapa");

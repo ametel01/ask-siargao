@@ -211,6 +211,8 @@ const askSiargaoChatInstructions = [
   "Use general destination knowledge only for stable, non-provider-specific guidance.",
   "When weatherContext is present, use it for Siargao weather, rain, wind, and forecast questions.",
   "If weatherContext.status is fallback, say the live forecast snapshot has not been loaded yet.",
+  "For time-sensitive or weather-sensitive activity planning, use weatherContext proactively when present; do not tell the traveler to ask you to check weather again.",
+  "When live context is already present, answer with a concrete plan and source caveats instead of deferring to another prompt.",
   "When placesContext is present, use it for place, restaurant, cafe, bar, and nearby recommendation questions.",
   "Treat the order of placesContext.places as Google Places search relevance, not as a verified quality ranking.",
   "Use available rating, review count, opening hours, price, website, and phone fields from placesContext to make recommendations more complete.",

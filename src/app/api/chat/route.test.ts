@@ -148,6 +148,53 @@ describe("chat route", () => {
     expect(dependencies.requests[0]?.weatherContext?.summary).toContain("Open-Meteo");
   });
 
+  test("proactively loads weather for today activity planning near Cloud 9", async () => {
+    const dependencies = chatDependencies();
+    let agentCalls = 0;
+    dependencies.recommendationAgent = {
+      answer: async () => {
+        agentCalls += 1;
+        return { status: "unsupported", message: "", model: "gpt-5.5" };
+      },
+    };
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "What should I do near Cloud 9 today?" }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("For Cloud 9 today");
+    expect(body.message).toContain("Checked: Open-Meteo weather API");
+    expect(body.message).toContain("Not checked: Google Places open-now results");
+    expect(agentCalls).toBe(0);
+    expect(dependencies.weatherRequests).toBe(1);
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("loads weather for rainy-day follow-ups using prior Cloud 9 context", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          { role: "user", content: "What should I do near Cloud 9 today?" },
+          { role: "assistant", content: "Try the boardwalk and nearby cafes." },
+          { role: "user", content: "what if it's a rainy day?" },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("For Cloud 9 on a rainy day");
+    expect(body.message).toContain("Checked: Open-Meteo weather API");
+    expect(dependencies.weatherRequests).toBe(1);
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
   test("uses the Del Carmen forecast location for Del Carmen weather questions", async () => {
     const dependencies = chatDependencies();
     const response = await chatResponse(
@@ -177,6 +224,40 @@ describe("chat route", () => {
     expect(response.status).toBe(200);
     expect(dependencies.weatherRequests).toBe(0);
     expect(dependencies.requests[0]?.weatherContext).toBeUndefined();
+  });
+
+  test("routes dinner-place follow-ups to recommendation with carried Cloud 9 context", async () => {
+    const dependencies = chatDependencies();
+    let agentMessages: unknown;
+    dependencies.recommendationAgent = {
+      answer: async ({ messages }) => {
+        agentMessages = messages;
+        return {
+          status: "answered",
+          message:
+            "Good options I found from Google Places:\n- Dinner Grill\nMaps: https://maps.example/dinner",
+          model: "gpt-5.5",
+        };
+      },
+    };
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          { role: "user", content: "What should I do near Cloud 9 today?" },
+          { role: "assistant", content: "Try the boardwalk and nearby cafes." },
+          { role: "user", content: "what if it's a rainy day?" },
+          { role: "assistant", content: "Use indoor options around Cloud 9." },
+          { role: "user", content: "what about dinner places?" },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("Dinner Grill");
+    expect(Array.isArray(agentMessages)).toBe(true);
+    expect(dependencies.requests).toHaveLength(0);
   });
 
   test("does not call recommendation agent for ordinary chat", async () => {

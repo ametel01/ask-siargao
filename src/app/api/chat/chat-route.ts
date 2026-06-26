@@ -41,6 +41,18 @@ export type ChatRouteDependencies = {
   recommendationAgent?: Pick<RecommendationAgent, "answer">;
 };
 
+type ChatRequestIntent = {
+  latestUserTurn: string;
+  recentUserContext: string;
+  locationLabel?: "Cloud 9" | "Del Carmen" | "Siargao Island";
+  activityPlan: boolean;
+  food: boolean;
+  nearby: boolean;
+  today: boolean;
+  weatherSensitive: boolean;
+  weather: boolean;
+};
+
 const chatLogger = createComponentLogger("api.chat");
 
 const defaultDependencies: ChatRouteDependencies = {
@@ -105,6 +117,7 @@ export async function chatResponse(
     );
   }
 
+  const intent = interpretChatRequestIntent(parsed.data.messages);
   const latestUserMessage = getLatestUserMessage(parsed.data.messages);
   logger.info(
     {
@@ -112,10 +125,16 @@ export async function chatResponse(
       latestUserMessage: latestUserMessage
         ? summarizeMessageForLogs(latestUserMessage.content)
         : null,
-      isRecommendationQuestion: isRecommendationQuestion(parsed.data.messages),
-      isWeatherQuestion: isWeatherQuestion(parsed.data.messages),
+      isRecommendationQuestion: isRecommendationQuestion(intent),
+      isWeatherQuestion: isWeatherQuestion(intent),
     },
     "Chat request received.",
+  );
+  logger.debug(
+    {
+      intent: summarizeIntentForLogs(intent),
+    },
+    "Chat request intent interpreted.",
   );
 
   if (shouldDeclineNonSiargaoTopic(parsed.data.messages)) {
@@ -124,10 +143,15 @@ export async function chatResponse(
   }
 
   try {
-    const recommendation = await getRecommendationResponse(parsed.data.messages, dependencies, {
-      logger,
-      requestId,
-    });
+    const recommendation = await getRecommendationResponse(
+      parsed.data.messages,
+      intent,
+      dependencies,
+      {
+        logger,
+        requestId,
+      },
+    );
     if (recommendation) {
       logger.info(
         {
@@ -149,11 +173,26 @@ export async function chatResponse(
       );
     }
 
-    const weatherContext = await getWeatherContext(parsed.data.messages, dependencies, logger);
+    const weatherContext = await getWeatherContext(intent, dependencies, logger);
+    const localPlan = renderGroundedLocalPlan(intent, weatherContext);
+    if (localPlan) {
+      logger.info(
+        {
+          branch: "grounded_local_plan",
+          hasWeatherContext: Boolean(weatherContext),
+          intent: summarizeIntentForLogs(intent),
+          durationMs: Date.now() - startedAt,
+        },
+        "Chat request answered.",
+      );
+      return Response.json({ message: localPlan, requestId }, { headers });
+    }
+
     logger.debug(
       {
-        branch: "generic_llm",
+        branch: intent.activityPlan || intent.weatherSensitive ? "grounded_llm" : "generic_llm",
         hasWeatherContext: Boolean(weatherContext),
+        intent: summarizeIntentForLogs(intent),
       },
       "Chat request falling through to generic LLM response.",
     );
@@ -220,14 +259,16 @@ export async function chatResponse(
 
 async function getRecommendationResponse(
   messages: readonly AskSiargaoChatMessage[],
+  intent: ChatRequestIntent,
   dependencies: ChatRouteDependencies,
   context: { logger: Logger; requestId: string },
 ): Promise<RecommendationAgentResponse | undefined> {
-  const isRecommendation = isRecommendationQuestion(messages);
+  const isRecommendation = isRecommendationQuestion(intent);
   context.logger.debug(
     {
       hasRecommendationAgent: Boolean(dependencies.recommendationAgent),
       isRecommendationQuestion: isRecommendation,
+      intent: summarizeIntentForLogs(intent),
     },
     "Recommendation routing evaluated.",
   );
@@ -258,11 +299,11 @@ async function getRecommendationResponse(
 }
 
 async function getWeatherContext(
-  messages: readonly AskSiargaoChatMessage[],
+  intent: ChatRequestIntent,
   dependencies: ChatRouteDependencies,
   logger: Logger,
 ): Promise<WeatherSnapshot | undefined> {
-  if (!isWeatherQuestion(messages)) {
+  if (!isWeatherQuestion(intent)) {
     logger.debug("Weather routing skipped.");
     return undefined;
   }
@@ -276,7 +317,7 @@ async function getWeatherContext(
       return undefined;
     }
 
-    const location = detectWeatherLocation(messages);
+    const location = detectWeatherLocation(intent);
     const snapshot = await (location ? getSnapshot({ location }) : getSnapshot());
     logger.debug(
       {
@@ -293,45 +334,175 @@ async function getWeatherContext(
   }
 }
 
-function detectWeatherLocation(
-  messages: readonly AskSiargaoChatMessage[],
-): OpenMeteoForecastLocation | undefined {
-  const latestUserMessage = getLatestUserMessage(messages);
-  const content = latestUserMessage?.content ?? "";
-
-  if (/\bdel\s+carmen\b/i.test(content)) {
+function detectWeatherLocation(intent: ChatRequestIntent): OpenMeteoForecastLocation | undefined {
+  if (intent.locationLabel === "Del Carmen") {
     return siargaoForecastLocations.delCarmen;
   }
 
   return undefined;
 }
 
-function isWeatherQuestion(messages: readonly AskSiargaoChatMessage[]) {
-  const latestUserMessage = getLatestUserMessage(messages);
-
-  return latestUserMessage
-    ? /\b(weather|forecast|rain|raining|showers?|wind|windy|storm|cloudy|sunny|humidity|temperature|temp|tide|waves?|surf|sea conditions?)\b/i.test(
-        latestUserMessage.content,
-      )
-    : false;
+function isWeatherQuestion(intent: ChatRequestIntent) {
+  return intent.weather || intent.weatherSensitive || intent.activityPlan;
 }
 
-function isRecommendationQuestion(messages: readonly AskSiargaoChatMessage[]) {
-  const latestUserMessage = getLatestUserMessage(messages);
-  const conversationContent = messages.map((message) => message.content).join(" ");
-  const content = latestUserMessage?.content ?? "";
+function isRecommendationQuestion(intent: ChatRequestIntent) {
+  return intent.food;
+}
 
-  return (
-    /\b(restaurants?|where\s+(?:can|should)\s+(?:we|i)\s+eat|food|dinner|lunch|breakfast|brunch|cafes?|coffee|bars?|nightlife|places?\s+to\s+(?:eat|go|stop)|stop\s+to\s+eat|food\s+stops?|car[ie]nderias?|seafood)\b/i.test(
-      content,
-    ) ||
-    (/\b(route|on\s+the\s+way|from\s+.+\s+to|proper|sit[-\s]?down|not\s+car[ie]nderia)\b/i.test(
-      content,
-    ) &&
-      /\b(restaurants?|eat|food|dinner|lunch|breakfast|car[ie]nderias?|seafood)\b/i.test(
-        conversationContent,
-      ))
+function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]): ChatRequestIntent {
+  const userTurns = messages.filter((message) => message.role === "user");
+  const latestUserTurn = userTurns.at(-1)?.content ?? "";
+  const recentUserContext = userTurns
+    .slice(0, -1)
+    .slice(-6)
+    .map((message) => message.content)
+    .join(" ");
+  const fullUserContext = `${recentUserContext} ${latestUserTurn}`;
+  const latestFood = isFoodContent(latestUserTurn);
+  const contextualFood =
+    /\b(what\s+about|how\s+about|instead|nearby|there|that\s+area|places?)\b/i.test(
+      latestUserTurn,
+    ) && isFoodContent(recentUserContext);
+  const locationLabel =
+    inferChatLocationLabel(latestUserTurn) ?? inferChatLocationLabel(recentUserContext);
+  const today = /\btoday|right\s+now|now|this\s+(?:morning|afternoon|evening)\b/i.test(
+    fullUserContext,
   );
+  const nearby = /\bnear(?:by)?|around|close\s+to|that\s+area|in\s+that\s+area|by\s+/i.test(
+    fullUserContext,
+  );
+  const weather = isWeatherContent(latestUserTurn);
+  const weatherSensitive =
+    weather ||
+    /\brainy|rain(?:ing)?|showers?|storm|windy|surf|waves?|conditions?|cloudy\b/i.test(
+      latestUserTurn,
+    ) ||
+    ((today || nearby) &&
+      /\b(what\s+should|what\s+can|things?\s+to\s+do|activities?|plan|itinerary|beach|surf|walk|ride|island\s+hopping)\b/i.test(
+        latestUserTurn,
+      ));
+  const activityPlan =
+    !latestFood &&
+    /\b(what\s+should|what\s+can|things?\s+to\s+do|activities?|plan|itinerary)\b/i.test(
+      latestUserTurn,
+    ) &&
+    (Boolean(locationLabel) || /\bsiargao\b/i.test(fullUserContext));
+
+  return {
+    latestUserTurn,
+    recentUserContext,
+    ...(locationLabel ? { locationLabel } : {}),
+    activityPlan,
+    food: latestFood || contextualFood,
+    nearby,
+    today,
+    weatherSensitive,
+    weather,
+  };
+}
+
+function isFoodContent(content: string) {
+  return /\b(restaurants?|where\s+(?:can|should)\s+(?:we|i)\s+eat|food|dinner|lunch|breakfast|brunch|cafes?|coffee|bars?|nightlife|places?\s+to\s+(?:eat|go|stop)|stop\s+to\s+eat|food\s+stops?|car[ie]nderias?|seafood)\b/i.test(
+    content,
+  );
+}
+
+function isWeatherContent(content: string) {
+  return /\b(weather|forecast|rain|rainy|raining|showers?|wind|windy|storm|cloudy|sunny|humidity|temperature|temp|tide|waves?|surf|sea conditions?)\b/i.test(
+    content,
+  );
+}
+
+function inferChatLocationLabel(content: string): ChatRequestIntent["locationLabel"] {
+  if (/\bcloud\s*9|cloud9|catangnan\b/i.test(content)) {
+    return "Cloud 9";
+  }
+  if (/\bdel\s+carmen\b/i.test(content)) {
+    return "Del Carmen";
+  }
+  if (/\bsiargao\b/i.test(content)) {
+    return "Siargao Island";
+  }
+  return undefined;
+}
+
+function summarizeIntentForLogs(intent: ChatRequestIntent) {
+  return {
+    activityPlan: intent.activityPlan,
+    food: intent.food,
+    locationLabel: intent.locationLabel,
+    nearby: intent.nearby,
+    today: intent.today,
+    weather: intent.weather,
+    weatherSensitive: intent.weatherSensitive,
+  };
+}
+
+function renderGroundedLocalPlan(
+  intent: ChatRequestIntent,
+  weatherContext: WeatherSnapshot | undefined,
+) {
+  if (intent.food || intent.weather) {
+    const directWeatherQuestion =
+      /\b(weather|forecast|temperature|temp|humidity|wind|surf|waves?|sea conditions?)\b/i.test(
+        intent.latestUserTurn,
+      );
+    if (directWeatherQuestion) {
+      return undefined;
+    }
+  }
+  if (!intent.activityPlan && !intent.weatherSensitive) {
+    return undefined;
+  }
+
+  const location = intent.locationLabel ?? "Siargao";
+  const today = weatherContext?.today;
+  const rainLevel = today?.level ?? "medium";
+  const rainy =
+    /rainy|rain(?:ing)?|showers?|storm/i.test(intent.latestUserTurn) || rainLevel === "high";
+  const sourceLine = weatherContext
+    ? `Checked: ${weatherContext.sourceName} forecast for ${weatherContext.locationName}.`
+    : "Checked: no live weather snapshot was available for this request.";
+  const weatherLine = today
+    ? `Weather signal: ${today.condition}; rain ${formatNullableWeatherMetric(
+        today.rainSum,
+        "mm",
+      )}; precipitation chance ${formatNullableWeatherMetric(
+        today.precipitationProbability,
+        "%",
+      )}; wind gust ${formatNullableWeatherMetric(today.windGust, "km/h")}.`
+    : "Weather signal: live conditions were not available.";
+
+  const plan = rainy
+    ? [
+        `For ${location} on a rainy day, I would keep this flexible and covered:`,
+        "",
+        "1. Start with a covered cafe or brunch stop near Catangnan/General Luna.",
+        "2. Use a massage/spa, laundry, cash, SIM, or transfer-booking errand for the heaviest rain window.",
+        "3. Walk the Cloud 9 boardwalk only during a clear break and skip long exposed rides if roads are flooding.",
+        "4. For dinner, ask for dinner places and I will check Google Places instead of guessing.",
+      ]
+    : [
+        `For ${location} today, I would keep the plan close and weather-aware:`,
+        "",
+        "1. Check Cloud 9 boardwalk/viewing deck first while conditions are comfortable.",
+        "2. Add a surf lesson or board rental only if local surf conditions look suitable when you arrive.",
+        "3. Use a cafe or lunch stop near Catangnan/General Luna as your weather fallback.",
+        "4. Keep sunset flexible; switch to dinner nearby if rain or wind picks up.",
+      ];
+
+  return [
+    ...plan,
+    "",
+    sourceLine,
+    weatherLine,
+    "Not checked: Google Places open-now results, surf/swell reports, road flooding, bookings, or review text.",
+  ].join("\n");
+}
+
+function formatNullableWeatherMetric(value: number | null | undefined, unit: string) {
+  return value === null || value === undefined ? "unavailable" : `${value}${unit}`;
 }
 
 function shouldDeclineNonSiargaoTopic(messages: readonly AskSiargaoChatMessage[]) {

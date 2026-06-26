@@ -73,6 +73,7 @@ export type PlaceCandidate = {
   regularOpeningHours?: GooglePlacesOpeningHours;
   googleMapsUri: string;
   sourceQuery: string;
+  distanceMeters?: number;
   latitude?: number;
   longitude?: number;
   score: number;
@@ -232,6 +233,13 @@ export class RecommendationAgent {
       },
       "Recommendation agent started.",
     );
+    const interpretedIntent = interpretFoodRequest(messages);
+    logger.debug(
+      {
+        intent: summarizeFoodIntentForLogs(interpretedIntent),
+      },
+      "Recommendation request intent interpreted.",
+    );
 
     for (let step = 0; step < this.#maxSteps; step += 1) {
       const plannerStartedAt = Date.now();
@@ -336,7 +344,7 @@ export class RecommendationAgent {
             trace,
           });
           const candidates = context.places.map((place) =>
-            placeCandidateFromGooglePlace(place, search.textQuery),
+            placeCandidateFromGooglePlace(place, search.textQuery, search.center),
           );
           state.candidates = dedupeCandidates([...state.candidates, ...candidates]);
           logger.info(
@@ -769,7 +777,9 @@ function buildSearch(
     textQuery: normalizeSiargaoQuery(action.query),
     ...(action.includedType ? { includedType: action.includedType } : {}),
     center: centerLocation?.center ?? gazetteer["general luna"].center,
-    radiusMeters: action.radiusMeters ?? 12_000,
+    radiusMeters:
+      action.radiusMeters ??
+      (/\bnear(?:by)?|close\s+to|around\b/i.test(action.query) ? 6_000 : 12_000),
     pageSize: 8,
   };
 }
@@ -777,7 +787,16 @@ function buildSearch(
 function placeCandidateFromGooglePlace(
   place: GooglePlacesChatPlace,
   sourceQuery: string,
+  searchCenter: GooglePlacesChatSearch["center"],
 ): PlaceCandidate {
+  const distanceMeters =
+    place.latitude === undefined || place.longitude === undefined
+      ? undefined
+      : distanceMetersBetween(searchCenter, {
+          latitude: place.latitude,
+          longitude: place.longitude,
+        });
+
   return {
     placeId: place.placeId,
     name: place.displayName,
@@ -790,6 +809,7 @@ function placeCandidateFromGooglePlace(
     regularOpeningHours: place.regularOpeningHours,
     googleMapsUri: place.googleMapsUri,
     sourceQuery,
+    distanceMeters,
     latitude: place.latitude,
     longitude: place.longitude,
     score: 0,
@@ -823,12 +843,23 @@ function rankCandidates(
           : candidate.currentOpeningHours?.openNow === true
             ? 40
             : 0;
+      const nearQueryDistanceScore = /\bnear(?:by)?|close\s+to|around\b/i.test(
+        candidate.sourceQuery,
+      )
+        ? -Math.min(candidate.distanceMeters ?? 0, 8_000) / 80
+        : 0;
       const reviewScore = Math.min(candidate.userRatingCount ?? 0, 500) / 5;
       const ratingScore = (candidate.rating ?? 0) * 20;
 
       return {
         ...candidate,
-        score: excludedPenalty + preferredBonus + openingHoursScore + reviewScore + ratingScore,
+        score:
+          excludedPenalty +
+          preferredBonus +
+          openingHoursScore +
+          nearQueryDistanceScore +
+          reviewScore +
+          ratingScore,
       };
     })
     .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
@@ -859,7 +890,9 @@ function renderRecommendationAnswer(
   }
 
   return [
-    "Good options I found:",
+    "Good options I found from Google Places:",
+    "Checked: Google Places identity, address, ratings, map links, and opening-hours fields when Google returned them.",
+    "Not checked: review text, table availability, bookings, or independently verified covered seating.",
     "",
     ...candidates.slice(0, 4).map((candidate, index) => {
       const rating =
@@ -867,9 +900,61 @@ function renderRecommendationAnswer(
           ? `\n  Rating: ${candidate.rating} (${candidate.userRatingCount.toLocaleString()} reviews)`
           : "";
       const address = candidate.formattedAddress ? `\n  Area: ${candidate.formattedAddress}` : "";
-      return `- **${index + 1}. ${candidate.name}**${rating}${address}\n  Maps: ${candidate.googleMapsUri}`;
+      const distance =
+        candidate.distanceMeters !== undefined
+          ? `\n  Distance fit: ${distanceFitLabel(candidate.distanceMeters)}`
+          : "";
+      const opening = `\n  Opening signal: ${openingHoursLabel(candidate.currentOpeningHours)}`;
+      const rain = `\n  Rain fit: indoor/covered seating not verified; prefer this only if the Maps listing/photos look covered or call ahead.`;
+      return `- **${index + 1}. ${candidate.name}**${rating}${address}${distance}${opening}${rain}\n  Maps: ${candidate.googleMapsUri}`;
     }),
   ].join("\n");
+}
+
+function openingHoursLabel(hours: GooglePlacesOpeningHours | undefined) {
+  if (hours?.openNow === true) {
+    return "Google currently reports open.";
+  }
+  if (hours?.openNow === false) {
+    return "Google currently reports closed.";
+  }
+  return "Opening-hours status was not returned.";
+}
+
+function distanceFitLabel(distanceMeters: number) {
+  if (distanceMeters < 1_000) {
+    return `${formatDistance(distanceMeters)} from the search center, close to the requested area.`;
+  }
+  if (distanceMeters < 4_000) {
+    return `${formatDistance(distanceMeters)} from the search center, a short ride rather than a boardwalk stop.`;
+  }
+  return `${formatDistance(distanceMeters)} from the search center, broader General Luna/Siargao rather than the immediate requested area.`;
+}
+
+function formatDistance(distanceMeters: number) {
+  if (distanceMeters < 1_000) {
+    return `${Math.round(distanceMeters)} m`;
+  }
+  return `${(distanceMeters / 1_000).toFixed(1)} km`;
+}
+
+function distanceMetersBetween(
+  from: { latitude: number; longitude: number },
+  to: { latitude: number; longitude: number },
+) {
+  const earthRadiusMeters = 6_371_000;
+  const fromLatitude = degreesToRadians(from.latitude);
+  const toLatitude = degreesToRadians(to.latitude);
+  const latitudeDelta = degreesToRadians(to.latitude - from.latitude);
+  const longitudeDelta = degreesToRadians(to.longitude - from.longitude);
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(fromLatitude) * Math.cos(toLatitude) * Math.sin(longitudeDelta / 2) ** 2;
+  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function degreesToRadians(degrees: number) {
+  return (degrees * Math.PI) / 180;
 }
 
 function googleMapsSearchUri(query: string) {
@@ -910,6 +995,17 @@ function summarizeActionForLogs(action: RecommendationAction) {
     case "unsupported":
       return { type: action.type };
   }
+}
+
+function summarizeFoodIntentForLogs(intent: FoodRequestIntent) {
+  return {
+    areaScope: intent.areaScope,
+    avoid: intent.avoid,
+    category: intent.category,
+    constraints: intent.constraints,
+    location: intent.location,
+    meal: intent.meal,
+  };
 }
 
 function compactLogFields(input: Record<string, string | undefined>) {
