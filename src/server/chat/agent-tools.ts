@@ -6,6 +6,14 @@ import type {
   AskSiargaoAgentToolName,
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary, AnswerTrustLabel } from "@/server/chat/answer-source-summary";
+import {
+  type OpenMeteoForecastLocation,
+  siargaoForecastLocations,
+} from "@/server/providers/open-meteo";
+import {
+  getLatestSiargaoWeatherSnapshot,
+  type WeatherSnapshot,
+} from "@/server/public-pages/weather-snapshot";
 
 export type AgentToolDefinition = {
   type: "function";
@@ -23,6 +31,7 @@ export type AgentToolDefinition = {
 type ToolHandler<Arguments> = (
   args: Arguments,
   request: AgentToolExecutionRequest,
+  dependencies: AgentToolDependencies,
 ) => Promise<AgentToolResult> | AgentToolResult;
 
 type RegisteredTool<Arguments> = {
@@ -42,7 +51,26 @@ type SourcePolicyToolData = {
   policies: SourcePolicyDescription[];
 };
 
+export type AgentToolDependencies = {
+  getLatestSiargaoWeatherSnapshot?: typeof getLatestSiargaoWeatherSnapshot;
+};
+
+type WeatherForecastArguments = z.infer<typeof weatherForecastSchema>;
+
+const weatherForecastLocations = [
+  "Siargao Island",
+  "Cloud 9",
+  "General Luna",
+  "Del Carmen",
+] as const;
+
 const describeSourcePolicySchema = z.object({}).strict();
+const weatherForecastSchema = z
+  .object({
+    location: z.enum(weatherForecastLocations),
+    date_range: z.enum(["today", "next_7_days"]),
+  })
+  .strict();
 
 const sourcePolicyDescriptions: SourcePolicyDescription[] = [
   {
@@ -170,6 +198,35 @@ const sourcePolicySummaries: AnswerSourceSummary[] = [
 ];
 
 const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<unknown>>> = {
+  get_weather_forecast: {
+    definition: {
+      type: "function",
+      name: "get_weather_forecast",
+      description:
+        "Get the governed Open-Meteo weather forecast snapshot for a known Siargao location.",
+      parameters: {
+        type: "object",
+        properties: {
+          location: {
+            type: "string",
+            enum: weatherForecastLocations,
+            description: "Known Siargao forecast location label.",
+          },
+          date_range: {
+            type: "string",
+            enum: ["today", "next_7_days"],
+            description: "Forecast range to summarize.",
+          },
+        },
+        required: ["location", "date_range"],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+    schema: weatherForecastSchema,
+    execute: (args, _request, dependencies) =>
+      getWeatherForecastToolResult(args as WeatherForecastArguments, dependencies),
+  },
   describe_source_policy: {
     definition: {
       type: "function",
@@ -207,6 +264,7 @@ export function describeAvailableTools() {
 
 export async function executeAgentTool(
   request: AgentToolExecutionRequest,
+  dependencies: AgentToolDependencies = {},
 ): Promise<AgentToolResult> {
   const tool = registeredTools[request.name as AskSiargaoAgentToolName];
   if (!tool) {
@@ -233,7 +291,7 @@ export async function executeAgentTool(
   }
 
   try {
-    return await tool.execute(parsed.data, request);
+    return await tool.execute(parsed.data, request, dependencies);
   } catch (error) {
     return {
       name: request.name,
@@ -244,6 +302,160 @@ export async function executeAgentTool(
       sources: [],
     };
   }
+}
+
+async function getWeatherForecastToolResult(
+  args: WeatherForecastArguments,
+  dependencies: AgentToolDependencies,
+): Promise<AgentToolResult> {
+  const getSnapshot =
+    dependencies.getLatestSiargaoWeatherSnapshot ?? getLatestSiargaoWeatherSnapshot;
+
+  try {
+    const location = weatherForecastLocationForLabel(args.location);
+    const snapshot = await getSnapshot(location ? { location } : {});
+    const sourceSummary = weatherForecastSourceSummary(snapshot);
+    return {
+      name: "get_weather_forecast",
+      status: snapshot.status === "live" ? "success" : "error",
+      text: renderWeatherForecastText(snapshot, args),
+      ...(snapshot.status === "live" ? {} : { errorCode: "provider_unavailable" }),
+      data: normalizeWeatherSnapshot(snapshot, args),
+      sources: [sourceSummary],
+    };
+  } catch (error) {
+    return {
+      name: "get_weather_forecast",
+      status: "error",
+      text:
+        error instanceof Error
+          ? `Open-Meteo weather forecast lookup failed: ${error.message}`
+          : "Open-Meteo weather forecast lookup failed.",
+      errorCode: "provider_unavailable",
+      sources: [weatherProviderUnavailableSourceSummary(args.location)],
+    };
+  }
+}
+
+function weatherForecastLocationForLabel(
+  label: WeatherForecastArguments["location"],
+): OpenMeteoForecastLocation | undefined {
+  if (label === "Del Carmen") {
+    return siargaoForecastLocations.delCarmen;
+  }
+
+  if (label === "Cloud 9" || label === "General Luna") {
+    return siargaoForecastLocations.generalLuna;
+  }
+
+  return undefined;
+}
+
+function normalizeWeatherSnapshot(snapshot: WeatherSnapshot, args: WeatherForecastArguments) {
+  return {
+    requestedLocation: args.location,
+    dateRange: args.date_range,
+    status: snapshot.status,
+    locationName: snapshot.locationName,
+    sourceName: snapshot.sourceName,
+    sourceProfileId: snapshot.sourceProfileId,
+    fetchedAt: snapshot.fetchedAt,
+    expiresAt: snapshot.expiresAt,
+    freshness: snapshot.freshness,
+    confidence: snapshot.confidence,
+    citationUrl: snapshot.citationUrl,
+    evidenceIds: snapshot.evidenceIds,
+    summary: snapshot.summary,
+    signals: weatherSignals(snapshot),
+    today: snapshot.today,
+    metrics: args.date_range === "next_7_days" ? snapshot.metrics : [],
+  };
+}
+
+function renderWeatherForecastText(snapshot: WeatherSnapshot, args: WeatherForecastArguments) {
+  const signals = weatherSignals(snapshot);
+  if (snapshot.status !== "live") {
+    return [
+      `Open-Meteo weather forecast is unavailable for ${args.location}.`,
+      snapshot.summary,
+      signals.length ? `Signals: ${signals.join("; ")}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  const today = snapshot.today;
+  return [
+    `${snapshot.sourceName} forecast for ${snapshot.locationName}.`,
+    `Today: ${today.condition}; precipitation probability ${formatNullableNumber(
+      today.precipitationProbability,
+      "%",
+    )}; rain ${formatNullableNumber(today.rainSum, "mm")}; wind gust ${formatNullableNumber(
+      today.windGust,
+      "km/h",
+    )}.`,
+    args.date_range === "next_7_days" && snapshot.metrics.length
+      ? `Seven-day signals: ${snapshot.metrics
+          .map((metric) => `${metric.label} ${metric.value}${metric.unit} on ${metric.peakDate}`)
+          .join("; ")}.`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function weatherSignals(snapshot: WeatherSnapshot) {
+  const today = snapshot.today;
+  const signals = [today.condition];
+  if (today.precipitationProbability !== null) {
+    signals.push(`precipitation probability ${today.precipitationProbability}%`);
+  }
+  if (today.rainSum !== null) {
+    signals.push(`rain ${today.rainSum}mm`);
+  }
+  if (today.windGust !== null) {
+    signals.push(`wind gust ${today.windGust}km/h`);
+  }
+  signals.push(`${today.level} weather risk`);
+  return signals;
+}
+
+function weatherForecastSourceSummary(snapshot: WeatherSnapshot): AnswerSourceSummary {
+  if (snapshot.status === "live") {
+    return {
+      label: "weather_checked",
+      sourceName: snapshot.sourceName,
+      sourceProfileId: snapshot.sourceProfileId,
+      fetchedAt: snapshot.fetchedAt,
+      confidence: snapshot.confidence,
+      checked: [`forecast for ${snapshot.locationName}`],
+      notChecked: ["surf/swell reports", "tides", "road flooding", "bookings", "review text"],
+    };
+  }
+
+  return weatherProviderUnavailableSourceSummary(snapshot.locationName);
+}
+
+function weatherProviderUnavailableSourceSummary(locationName: string): AnswerSourceSummary {
+  return {
+    label: "provider_unavailable",
+    sourceName: "Open-Meteo weather API",
+    sourceProfileId: "source_open_meteo",
+    confidence: "low",
+    checked: [],
+    notChecked: [
+      `Open-Meteo forecast for ${locationName}`,
+      "surf/swell reports",
+      "tides",
+      "road flooding",
+      "bookings",
+      "review text",
+    ],
+  };
+}
+
+function formatNullableNumber(value: number | null, unit: string) {
+  return value === null ? "unavailable" : `${value}${unit}`;
 }
 
 function renderSourcePolicyText(policies: readonly SourcePolicyDescription[]) {

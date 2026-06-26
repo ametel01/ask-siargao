@@ -13,7 +13,7 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Agent Runtime Contracts and Test Doubles
 - [x] Step 2: Tool Registry and Source Policy Tool
-- [ ] Step 3: Weather Forecast Tool
+- [x] Step 3: Weather Forecast Tool
 - [ ] Step 4: Google Places Search and Details Tools
 - [ ] Step 5: Curated Local Guide Tool
 - [ ] Step 6: Responses API Tool Loop Runtime
@@ -23,8 +23,7 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 
 ## Current Status
 
-Step 2 is complete. The backend tool registry and source-policy tool are available, and
-Step 3 is next.
+Step 3 is complete. The weather forecast agent tool is available, and Step 4 is next.
 
 ## Update Rule
 
@@ -65,3 +64,17 @@ that step is committed.
   run build` passed; `bun run test:e2e` passed (17 tests).
   Commit: this commit (`Add chat agent tool registry`).
   Next step: Step 3, Weather Forecast Tool.
+- 2026-06-26: Completed Step 3 by adding the `get_weather_forecast` agent tool with
+  strict known-location/date-range arguments, Open-Meteo snapshot loading, Del Carmen and
+  General Luna/Cloud 9 forecast-location routing, normalized weather signals, live/fallback
+  source summaries, and provider-unavailable tool outputs for fallback or provider failure
+  cases.
+  Validation: `bun run format` passed; `bun test
+  src/server/chat/agent-tools.test.ts src/server/providers/open-meteo.test.ts
+  src/server/public-pages/weather-snapshot.test.ts` passed (20 tests); `bun run lint`
+  passed (`biome check .`, 182 files checked); `bun run typecheck --incremental false`
+  passed; `bun test` passed (236 tests); `bun run db:migrate:test && bun run
+  db:seed:test` passed (38 tables; 5 areas, 3 routes, 4 source profiles); `bun run build`
+  passed; `bun run test:e2e` passed (17 tests).
+  Commit: this commit (`Add weather forecast chat tool`).
+  Next step: Step 4, Google Places Search and Details Tools.
