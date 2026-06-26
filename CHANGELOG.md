@@ -25,6 +25,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added curated beach recommendation cards and prompt actions with estimated ride times, Maps
+  search links, source-backed fit reasons, and non-live caveats.
 - Added Google Places recommendation cards and prompt actions with map links, distance/open-status
   labels, fit reasons, caveats, and live/fresh-cache source labels.
 - Added tool-backed chat cards and actions to final agent turn results while keeping audit records

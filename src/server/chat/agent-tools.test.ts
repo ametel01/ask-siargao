@@ -716,6 +716,23 @@ describe("agent tools", () => {
     ]);
     expect(data.candidates.every((candidate) => candidate.surface === "sand")).toBe(true);
     expect(data.caveats.join(" ")).toContain("not a live tide");
+    expect(result.cards?.[0]).toMatchObject({
+      kind: "beach",
+      title: "Malinao Beach",
+      subtitle: "Malinao - 10-20 min estimated ride from General Luna",
+      mapsUrl:
+        "https://www.google.com/maps/search/?api=1&query=Malinao%20Beach%20Malinao%20Siargao",
+      distanceLabel: "Estimated 10-20 min ride from General Luna.",
+      sourceLabel: "Ask Siargao curated local beach guide - curated local guide",
+    });
+    expect(result.cards?.[0]?.openStatusLabel).toBeUndefined();
+    expect(result.cards?.[0]?.fitReasons.join(" ")).toContain("sandy shoreline");
+    expect(result.cards?.[0]?.caveats.join(" ")).toContain("not a live tide");
+    expect(result.cards?.[0]?.caveats.join(" ")).toContain("not a live Google Places identity");
+    expect(result.actions?.map((action) => action.label)).toEqual([
+      "Check weather first",
+      "Ask for alternatives",
+    ]);
   });
 
   test("prioritizes swimming follow-up local guide results", async () => {
@@ -739,6 +756,8 @@ describe("agent tools", () => {
     expect(data.candidates[1]?.name).toBe("Malinao Beach");
     expect(data.candidates[0]?.fitReasons.join(" ")).toContain("easier sandy options");
     expect(data.candidates[0]?.caveats.join(" ")).toContain("No live tide/current");
+    expect(result.cards?.[0]?.title).toBe("Doot Beach");
+    expect(result.cards?.[0]?.fitReasons.join(" ")).toContain("easier sandy options");
   });
 
   test("keeps strict 30-minute local guide filters and north-island exclusions", async () => {
@@ -765,6 +784,8 @@ describe("agent tools", () => {
     expect(
       data.excluded.find((candidate) => candidate.name === "Pacifico Beach")?.reason,
     ).toContain("outside the 30-minute filter");
+    expect(result.cards?.map((card) => card.title)).not.toContain("Cloud 9 beach access");
+    expect(result.cards?.map((card) => card.title)).not.toContain("Pacifico Beach");
   });
 
   test("carries kids and no-scooter caveats without safety overclaims", async () => {
@@ -788,6 +809,7 @@ describe("agent tools", () => {
     expect(data.candidates[0]?.fitReasons.join(" ")).toContain("Family/kids constraint");
     expect(data.candidates[0]?.caveats.join(" ")).toContain("Re-check conditions in person");
     expect(result.sources[0]?.notChecked.join(" ")).toContain("lifeguard or swimming safety");
+    expect(result.cards?.[0]?.caveats.join(" ")).toContain("lifeguard or swimming safety");
     expect(result.text).not.toContain("lifeguard checked");
   });
 

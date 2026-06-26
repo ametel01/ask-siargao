@@ -9,9 +9,9 @@
 
 ## Status
 
-- Current step: Step 4 - Beach Recommendation Cards
-- State: Step 3 complete
-- Next step: Step 4 - Beach Recommendation Cards
+- Current step: Step 5 - API Response Shape Tests
+- State: Step 4 complete
+- Next step: Step 5 - API Response Shape Tests
 
 ## Step Checklist
 
@@ -19,7 +19,7 @@
 - [x] Step 1: Structured Chat Artifact Contracts
 - [x] Step 2: Tool-Backed Card and Action Generation
 - [x] Step 3: Places Recommendation Cards
-- [ ] Step 4: Beach Recommendation Cards
+- [x] Step 4: Beach Recommendation Cards
 - [ ] Step 5: API Response Shape Tests
 - [ ] Step 6: ChatWorkspace Card Rendering
 - [ ] Step 7: End-to-End Card Coverage and Release Gates
@@ -90,5 +90,20 @@
   - `bun run lint` passed.
   - `bun run typecheck --incremental false` passed.
   - `bun test` passed.
-- Commit: Pending creation for Step 3.
+- Commit: `e5d2364` - Generate map-first Places cards.
 - Next step: Step 4 - Beach Recommendation Cards.
+
+### Step 4: Beach Recommendation Cards
+
+- Status: Complete.
+- Changes: Added curated local-guide beach cards and prompt actions with estimated ride-time
+  labels, Google Maps search links, source-backed fit reasons, caveats, and no live open-status
+  claims.
+- Validation:
+  - `bun test src/server/chat/agent-tools.test.ts` passed.
+  - `bun run format` passed.
+  - `bun run lint` passed.
+  - `bun run typecheck --incremental false` passed.
+  - `bun test` passed.
+- Commit: Pending creation for Step 4.
+- Next step: Step 5 - API Response Shape Tests.

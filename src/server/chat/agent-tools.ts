@@ -25,6 +25,7 @@ import {
   sourceEvidenceArgumentsSchema,
 } from "@/server/chat/local-data-tools";
 import {
+  type LocalGuideCandidate,
   type LocalGuideSearchResult,
   searchSiargaoLocalGuide,
 } from "@/server/local/siargao-beaches";
@@ -873,12 +874,16 @@ function searchLocalGuideToolResult(args: SearchLocalGuideArguments): AgentToolR
     },
   });
 
+  const cards = localGuideRecommendationCards(result);
+  const actions = localGuidePromptActions(cards, result.query);
   return {
     name: "search_local_guide",
     status: "success",
     text: renderLocalGuideText(result),
     data: normalizeLocalGuideSearchResult(result),
     sources: [result.sourceSummary],
+    ...(cards.length ? { cards } : {}),
+    ...(actions.length ? { actions } : {}),
   };
 }
 
@@ -965,6 +970,80 @@ function renderLocalGuideText(result: LocalGuideSearchResult) {
     ...exclusions,
     ...result.caveats,
   ].join("\n");
+}
+
+function localGuideRecommendationCards(result: LocalGuideSearchResult): RecommendationCard[] {
+  return result.candidates.slice(0, 4).map((candidate, index) =>
+    localGuideRecommendationCard({
+      candidate,
+      index,
+      resultCaveats: result.caveats,
+      sourceSummary: result.sourceSummary,
+    }),
+  );
+}
+
+function localGuideRecommendationCard({
+  candidate,
+  index,
+  resultCaveats,
+  sourceSummary,
+}: {
+  candidate: LocalGuideCandidate;
+  index: number;
+  resultCaveats: readonly string[];
+  sourceSummary: AnswerSourceSummary;
+}): RecommendationCard {
+  const rideTimeLabel = `${candidate.rideTimeFromGeneralLunaMinutes.min}-${candidate.rideTimeFromGeneralLunaMinutes.max} min`;
+  return {
+    id: `beach_${slugPart(candidate.name).toLowerCase()}`,
+    kind: "beach",
+    title: candidate.name,
+    subtitle: `${candidate.area} - ${rideTimeLabel} estimated ride from General Luna`,
+    mapsUrl: localGuideMapSearchUrl(candidate),
+    distanceLabel: `Estimated ${rideTimeLabel} ride from General Luna.`,
+    fitReasons: uniqueText([
+      `Ranked #${index + 1} by Ask Siargao curated guide for this request.`,
+      candidate.bestFor,
+      ...candidate.fitReasons,
+    ]),
+    caveats: uniqueText([
+      ...candidate.caveats,
+      ...resultCaveats,
+      ...sourceSummary.notChecked,
+      candidate.sourceNotes,
+      "Map link is a Google Maps search, not a live Google Places identity check.",
+    ]),
+    sourceLabel: cardSourceLabel(sourceSummary),
+  };
+}
+
+function localGuidePromptActions(
+  cards: readonly RecommendationCard[],
+  currentContext: string,
+): ChatAction[] {
+  const selected = cards[0];
+  if (!selected) {
+    return [];
+  }
+  const slug = slugPart(selected.id).toLowerCase();
+  return [
+    {
+      id: `beach_weather_${slug}`,
+      label: "Check weather first",
+      prompt: `Check the weather before going to ${selected.title} for this request: ${currentContext}.`,
+    },
+    {
+      id: `beach_alternatives_${slug}`,
+      label: "Ask for alternatives",
+      prompt: `Suggest alternatives to ${selected.title} for this request: ${currentContext}.`,
+    },
+  ];
+}
+
+function localGuideMapSearchUrl(candidate: LocalGuideCandidate) {
+  const query = `${candidate.name} ${candidate.area} Siargao`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
 function renderDatabaseSchemaText(schema: ReturnType<typeof describeDatabaseSchema>) {
@@ -1388,7 +1467,7 @@ function googlePlacesCardFromPlace({
         : []),
       "Google Places ordering is provider relevance, not an independent local quality ranking.",
     ]),
-    sourceLabel: googlePlacesCardSourceLabel(sourceSummary),
+    sourceLabel: cardSourceLabel(sourceSummary),
   };
 }
 
@@ -1532,7 +1611,7 @@ function googlePlacesPriceLabel(priceLevel: string | undefined) {
     .toLowerCase();
 }
 
-function googlePlacesCardSourceLabel(summary: AnswerSourceSummary) {
+function cardSourceLabel(summary: AnswerSourceSummary) {
   return `${summary.sourceName} - ${summary.label.replaceAll("_", " ")}`;
 }
 
