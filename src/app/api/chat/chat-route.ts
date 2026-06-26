@@ -23,6 +23,7 @@ import {
   renderSiargaoBeachRecommendation,
 } from "@/server/local/siargao-beaches";
 import { createComponentLogger } from "@/server/observability/logger";
+import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
 import {
   type OpenMeteoForecastLocation,
   siargaoForecastLocations,
@@ -247,7 +248,7 @@ export async function chatResponse(
 
     return Response.json(
       {
-        message: result.message,
+        message: appendSourceLines(result.message, [genericFallbackSourceSummary]),
         requestId,
         ...(result.requestId ? { upstreamRequestId: result.requestId } : {}),
       },
@@ -283,12 +284,51 @@ export async function chatResponse(
         message: missingConfiguration
           ? "Ask Siargao is missing required provider configuration."
           : recommendationFailure
-            ? "Ask Siargao could not search local places right now."
+            ? appendSourceLines("Ask Siargao could not search local places right now.", [
+                recommendationProviderUnavailableSourceSummary,
+              ])
             : "Ask Siargao could not generate a response right now.",
       },
       { status, headers },
     );
   }
+}
+
+const genericFallbackSourceSummary: AnswerSourceSummary = {
+  label: "not_verified",
+  sourceName: "Generic model reasoning",
+  checked: [],
+  notChecked: [
+    "live Google Places",
+    "fresh cached Google Places",
+    "Open-Meteo weather forecast",
+    "curated local guide checks",
+    "bookings",
+    "review text",
+  ],
+};
+
+const recommendationProviderUnavailableSourceSummary: AnswerSourceSummary = {
+  label: "provider_unavailable",
+  sourceName: "Google Places",
+  sourceProfileId: googlePlacesDiscoverySourceProfileId,
+  confidence: "low",
+  checked: [],
+  notChecked: [
+    "Google Places recommendation lookup",
+    "open-now status",
+    "bookings",
+    "review text",
+    "independent local validation",
+  ],
+};
+
+function appendSourceLines(message: string, summaries: readonly AnswerSourceSummary[]) {
+  const sourceLines = renderAnswerSourceLines(summaries);
+  if (sourceLines.length === 0) {
+    return message;
+  }
+  return [message.trimEnd(), "", ...sourceLines].join("\n");
 }
 
 async function getRecommendationResponse(

@@ -64,6 +64,11 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expect(body.message).toContain("Cloud 9");
+    expect(body.message).toContain("Not checked: Generic model reasoning (not verified)");
+    expect(body.message).toContain("live Google Places");
+    expect(body.message).not.toContain("Checked: Google Places");
+    expect(body.message).not.toContain("Checked: Open-Meteo");
+    expect(body.message).not.toContain("Checked: Ask Siargao curated local beach guide");
     expect(body.model).toBeUndefined();
     expect(dependencies.requests[0]?.messages[0]?.content).toBe(
       "Where should we eat near Cloud 9?",
@@ -122,6 +127,8 @@ describe("chat route", () => {
     expect(response.status).toBe(502);
     expect(body.error).toBe("recommendation_failed");
     expect(body.message).toContain("could not search local places");
+    expect(body.message).toContain("Not checked: Google Places (provider unavailable");
+    expect(body.message).toContain("Google Places recommendation lookup");
     expect(agentCalls).toBe(1);
     expect(dependencies.requests).toHaveLength(0);
   });
@@ -183,6 +190,9 @@ describe("chat route", () => {
     expect(body.message).toContain("Not checked: Open-Meteo weather API (weather checked");
     expect(body.message).toContain("Google Places open-now results");
     expect(body.message).not.toContain("provider unavailable");
+    expect(countSourceLines(body.message, "Checked")).toBe(1);
+    expect(countSourceLines(body.message, "Weather signal")).toBe(1);
+    expect(countSourceLines(body.message, "Not checked")).toBe(1);
     expect(body.message).not.toContain("ask for dinner places");
     expect(agentCalls).toBe(0);
     expect(dependencies.weatherRequests).toBe(1);
@@ -426,6 +436,8 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expect(body.message).toContain("Open Cloud 9 Cafe");
+    expect(countSourceLines(body.message, "Checked")).toBe(1);
+    expect(countSourceLines(body.message, "Not checked")).toBe(1);
     expect(requiresLiveStatuses).toEqual([true]);
     expect(searches[0]).toMatchObject({
       textQuery: "cafe near Cloud 9 Siargao",
@@ -719,6 +731,8 @@ describe("chat route", () => {
     expect(body.message).toContain("Not checked: Ask Siargao curated local beach guide");
     expect(body.message).not.toContain("live checked");
     expect(body.message).not.toContain("Google Places API");
+    expect(countSourceLines(body.message, "Checked")).toBe(1);
+    expect(countSourceLines(body.message, "Not checked")).toBe(1);
     expect(agentCalls).toBe(0);
     expect(dependencies.requests).toHaveLength(0);
   });
@@ -957,6 +971,10 @@ function rawRequest(body: string) {
     headers: { "content-type": "application/json" },
     body,
   });
+}
+
+function countSourceLines(message: string, label: "Checked" | "Weather signal" | "Not checked") {
+  return message.split("\n").filter((line) => line.startsWith(`${label}:`)).length;
 }
 
 function googlePlacesContext({

@@ -10,14 +10,14 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 - [x] Step 1: Shared Answer Source Summary Contract
 - [x] Step 2: Curated Beach And Weather Labels
 - [x] Step 3: Google Places Recommendation Labels
-- [ ] Step 4: Generic Fallback And Provider-Failure Labels
+- [x] Step 4: Generic Fallback And Provider-Failure Labels
 - [ ] Step 5: Frontend Parser Regression Coverage
 - [ ] Step 6: Final Verification And Documentation Alignment
 
 ## Current Status
 
-Step 3 is complete. Step 4 is next: add source transparency to generic fallback and
-recommendation-provider failure paths.
+Step 4 is complete. Step 5 is next: verify chat UI parsing/rendering for normalized
+source lines.
 
 ## Update Rule
 
@@ -67,5 +67,16 @@ that step is committed.
   test` passed (211 tests); `bun run db:migrate:test` passed (38 tables); `bun run
   db:seed:test` passed (5 areas, 3 routes, 4 source profiles); `bun run build` passed;
   `bun run test:e2e` passed (17 tests).
-  Commit: pending.
+  Commit: `52d8aad` (`Label Google Places recommendation freshness`).
   Next step: Step 4, Generic Fallback And Provider-Failure Labels.
+- 2026-06-26: Completed Step 4 by appending not-verified source caveats to generic LLM
+  fallback responses, adding provider-unavailable caveats to recommendation-provider
+  failures, and covering duplicate source-block regressions for grounded branches.
+  Validation: `bun run format` passed; `bun run lint` passed (`biome check .`, 178
+  files checked); `bun run typecheck --incremental false` passed; `bun test
+  src/app/api/chat/route.test.ts` passed (33 tests); `bun test` passed (211 tests);
+  `bun run db:migrate:test` passed (38 tables); `bun run db:seed:test` passed (5
+  areas, 3 routes, 4 source profiles); `bun run build` passed; `bun run test:e2e`
+  passed (17 tests).
+  Commit: pending.
+  Next step: Step 5, Frontend Parser Regression Coverage.
