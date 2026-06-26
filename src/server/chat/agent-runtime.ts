@@ -16,7 +16,7 @@ export type AgentToolCallStatus = "success" | "error";
 
 export type AgentToolResult = {
   toolCallId?: string;
-  name: AskSiargaoAgentToolName;
+  name: string;
   status: AgentToolCallStatus;
   text: string;
   data?: Record<string, unknown> | readonly unknown[];
@@ -27,7 +27,7 @@ export type AgentToolResult = {
 export type AgentToolCallAudit = {
   id: string;
   toolCallId?: string;
-  name: AskSiargaoAgentToolName;
+  name: string;
   arguments: Record<string, unknown>;
   status: AgentToolCallStatus;
   durationMs: number;
@@ -96,7 +96,7 @@ export type AgentResponsesClient = {
 
 export type AgentToolExecutionRequest = {
   toolCallId?: string;
-  name: AskSiargaoAgentToolName;
+  name: string;
   arguments: Record<string, unknown>;
   requestId: string;
 };
@@ -136,7 +136,7 @@ export function createAgentToolCallAudit({
 }: {
   auditId?: string;
   toolCallId?: string;
-  name: AskSiargaoAgentToolName;
+  name: string;
   arguments: Record<string, unknown>;
   result: AgentToolResult;
   startedAt: Date;

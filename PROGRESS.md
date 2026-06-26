@@ -12,7 +12,7 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Agent Runtime Contracts and Test Doubles
-- [ ] Step 2: Tool Registry and Source Policy Tool
+- [x] Step 2: Tool Registry and Source Policy Tool
 - [ ] Step 3: Weather Forecast Tool
 - [ ] Step 4: Google Places Search and Details Tools
 - [ ] Step 5: Curated Local Guide Tool
@@ -23,8 +23,8 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 
 ## Current Status
 
-Step 1 is complete. Runtime contracts and network-free test doubles are available, and
-Step 2 is next.
+Step 2 is complete. The backend tool registry and source-policy tool are available, and
+Step 3 is next.
 
 ## Update Rule
 
@@ -53,3 +53,15 @@ that step is committed.
   tests).
   Commit: this commit (`Define chat agent runtime contracts`).
   Next step: Step 2, Tool Registry and Source Policy Tool.
+- 2026-06-26: Completed Step 2 by adding the backend agent tool registry, strict
+  Responses-compatible source-policy tool definition, Zod argument validation, dispatcher
+  errors for invalid/unknown tools, and machine-readable source-policy output covering all
+  current source labels and caveats.
+  Validation: `bun run format` passed; `bun test
+  src/server/chat/agent-tools.test.ts src/server/chat/agent-runtime.test.ts` passed (12
+  tests); `bun run lint` passed (`biome check .`, 182 files checked); `bun run typecheck
+  --incremental false` passed; `bun test` passed (230 tests); `bun run db:migrate:test &&
+  bun run db:seed:test` passed (38 tables; 5 areas, 3 routes, 4 source profiles); `bun
+  run build` passed; `bun run test:e2e` passed (17 tests).
+  Commit: this commit (`Add chat agent tool registry`).
+  Next step: Step 3, Weather Forecast Tool.

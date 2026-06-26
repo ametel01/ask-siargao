@@ -12,6 +12,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Established progress tracking for the Priority 4 AI tool runtime implementation plan.
 - Added chat agent runtime contracts, audit/source aggregation helpers, future card/action
   metadata placeholders, and network-free test doubles for model/tool-loop tests.
+- Added the chat agent tool registry with a strict source-policy tool, Zod argument validation,
+  structured unknown/invalid tool errors, and machine-readable source label caveats.
 - Established progress tracking for the Priority 3 trust score and source labels implementation
   plan.
 - Added a shared answer source summary contract and compact markdown renderer for checked,
