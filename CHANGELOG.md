@@ -23,6 +23,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Added safe local data tool contracts, an approved schema dictionary, and zod argument
   validation for schema discovery, structured local fact queries, and display-safe source
   evidence lookup.
+- Added bounded structured local fact retrieval over curated beach guidance and approved
+  database fact surfaces with source/confidence metadata and raw/private field guards.
 - Added hosted file-search registration for synced agent memory plus a deterministic
   backend `search_agent_memory` fallback for local and test retrieval.
 - Added agent-memory vector-store synchronization with dry-run support, checksum-aware

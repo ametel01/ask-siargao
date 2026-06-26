@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { AnswerTrustLabel } from "@/server/chat/answer-source-summary";
+import { searchSiargaoLocalGuide } from "@/server/local/siargao-beaches";
 
 export const localFactsDefaultLimit = 10;
 export const localFactsMaxLimit = 20;
@@ -77,6 +78,12 @@ export type LocalFactResultItem = {
   caveats: readonly string[];
 };
 
+export type LocalFactsToolResult = {
+  query: LocalFactsQuery;
+  facts: readonly LocalFactResultItem[];
+  caveats: readonly string[];
+};
+
 export type SourceEvidenceResultItem = {
   factId: string;
   sourceName: string;
@@ -95,6 +102,17 @@ export type SourceEvidenceResultItem = {
 
 export type SourceEvidenceLookupQuery = {
   factIds: readonly string[];
+};
+
+export type LocalFactsDatabaseRow = Record<string, unknown>;
+
+export type LocalFactsQueryRunner = (
+  query: TemplateStringsArray,
+  ...params: unknown[]
+) => PromiseLike<LocalFactsDatabaseRow[]>;
+
+export type QueryLocalFactsOptions = {
+  queryRunner?: LocalFactsQueryRunner;
 };
 
 const localFactEntityTypes = [
@@ -278,6 +296,28 @@ export function describeDatabaseSchema(): DatabaseSchemaToolResult {
   return databaseSchemaToolResult;
 }
 
+export async function queryLocalFacts(
+  input: unknown,
+  options: QueryLocalFactsOptions = {},
+): Promise<LocalFactsToolResult> {
+  const query = localFactsQuerySchema.parse(input);
+  const facts = [
+    ...queryCuratedGuideFacts(query),
+    ...(options.queryRunner ? await queryDatabaseFacts(query, options.queryRunner) : []),
+  ]
+    .filter((fact) => localFactMatchesQuery(fact, query))
+    .slice(0, query.limit);
+
+  return {
+    query,
+    facts,
+    caveats: [
+      "Local facts are returned through approved serializers, not raw database rows.",
+      "Structured local fact queries do not perform live tide, surf, road, opening-hour, booking, or safety checks.",
+    ],
+  };
+}
+
 function field(
   name: string,
   type: DatabaseSchemaFieldDescription["type"],
@@ -285,4 +325,343 @@ function field(
   required: boolean,
 ): DatabaseSchemaFieldDescription {
   return { name, type, description, required };
+}
+
+function queryCuratedGuideFacts(query: LocalFactsQuery): LocalFactResultItem[] {
+  if (!query.entityTypes.some((entityType) => entityType === "beach" || entityType === "place")) {
+    return [];
+  }
+
+  const searchResult = searchSiargaoLocalGuide({
+    query: query.text ?? [...(query.tags ?? []), query.area ?? "Siargao beaches"].join(" "),
+    filters: {
+      beachSurface: query.tags?.includes("sandy") ? "sand" : "any",
+      maxRideMinutes: 180,
+      rainFit: query.tags?.includes("rain-fit"),
+      sunset: query.tags?.includes("sunset"),
+      swimming: query.tags?.includes("swimming"),
+    },
+  });
+
+  return searchResult.candidates.map((candidate) => {
+    const tags = uniqueCompact([
+      "beach",
+      candidate.surface,
+      candidate.surface === "sand" ? "sandy" : undefined,
+      tagFromText(candidate.area),
+      candidateHasFit(candidate, ["swim", "calm water"]) ? "swimming" : undefined,
+      candidateHasFit(candidate, ["sunset", "late afternoon"]) ? "sunset" : undefined,
+      candidateHasFit(candidate, ["rain", "bad weather"]) ? "rain-fit" : undefined,
+      ...candidate.fitReasons.flatMap(tagsFromText),
+      ...tagsFromText(candidate.bestFor),
+    ]);
+    const claim = `${candidate.bestFor}. ${candidate.fitReasons.join(" ")}`;
+
+    return {
+      id: `curated_local_guide:beach:${slugify(candidate.name)}`,
+      entityType: "beach",
+      name: candidate.name,
+      area: candidate.area,
+      tags,
+      claim,
+      confidence: candidate.confidence,
+      source: {
+        label: "curated_local_guide",
+        sourceName: "Ask Siargao curated local beach guide",
+      },
+      caveats: candidate.caveats,
+    };
+  });
+}
+
+async function queryDatabaseFacts(
+  query: LocalFactsQuery,
+  queryRunner: LocalFactsQueryRunner,
+): Promise<LocalFactResultItem[]> {
+  const facts: LocalFactResultItem[] = [];
+  const pattern = `%${[query.area, query.text, ...(query.tags ?? [])].filter(Boolean).join(" ")}%`;
+
+  if (query.entityTypes.includes("area")) {
+    const areaRows = await queryRunner`
+      select id, name, municipality, description
+      from areas
+      where ${pattern} = '%%'
+        or lower(name || ' ' || municipality || ' ' || description) like lower(${pattern})
+      order by name
+      limit ${query.limit}`;
+    facts.push(...areaRows.map(areaRowToLocalFact).filter(isLocalFactResultItem));
+  }
+
+  if (query.entityTypes.includes("route")) {
+    const routeRows = await queryRunner`
+      select id, name, origin, destination, transport_modes, risk_notes
+      from routes
+      where ${pattern} = '%%'
+        or lower(name || ' ' || origin || ' ' || destination) like lower(${pattern})
+      order by name
+      limit ${query.limit}`;
+    facts.push(...routeRows.map(routeRowToLocalFact).filter(isLocalFactResultItem));
+  }
+
+  const factEntityTypes = query.entityTypes.filter(
+    (entityType) => entityType !== "area" && entityType !== "route",
+  );
+  if (factEntityTypes.length > 0) {
+    const factRows = await queryRunner`
+      select
+        f.id,
+        coalesce(e.entity_type, f.fact_type) as entity_type,
+        coalesce(e.name, f.fact_type) as name,
+        a.name as area,
+        f.claim,
+        f.fact_type,
+        f.confidence_label,
+        f.source_profile_id,
+        sp.source_name,
+        sp.allowed_use,
+        f.fetched_at,
+        f.verified_at,
+        f.expires_at
+      from facts f
+      left join entities e on e.id = f.entity_id
+      left join areas a on a.id = e.area_id
+      left join source_profiles sp on sp.id = f.source_profile_id
+      where f.public_republish_allowed = true
+        and coalesce(e.entity_type, f.fact_type) = any(${factEntityTypes})
+        and (
+          ${pattern} = '%%'
+          or lower(coalesce(e.name, '') || ' ' || coalesce(a.name, '') || ' ' || f.claim || ' ' || f.fact_type) like lower(${pattern})
+        )
+      order by f.fetched_at desc, f.id
+      limit ${query.limit}`;
+    facts.push(...factRows.map(governedFactRowToLocalFact).filter(isLocalFactResultItem));
+  }
+
+  return facts;
+}
+
+function areaRowToLocalFact(row: LocalFactsDatabaseRow): LocalFactResultItem | undefined {
+  const id = readString(row.id);
+  const name = readString(row.name);
+  const municipality = readString(row.municipality);
+  const description = readString(row.description);
+  if (!id || !name || !municipality || !description) {
+    return undefined;
+  }
+
+  return {
+    id: `area:${id}`,
+    entityType: "area",
+    name,
+    area: municipality,
+    tags: uniqueCompact(["area", tagFromText(name), tagFromText(municipality), "orientation"]),
+    claim: description,
+    confidence: "medium",
+    source: {
+      label: "curated_local_guide",
+      sourceName: "Ask Siargao baseline area taxonomy",
+    },
+    caveats: ["Area taxonomy is local context, not a live transport, weather, or safety check."],
+  };
+}
+
+function routeRowToLocalFact(row: LocalFactsDatabaseRow): LocalFactResultItem | undefined {
+  const id = readString(row.id);
+  const name = readString(row.name);
+  const origin = readString(row.origin);
+  const destination = readString(row.destination);
+  if (!id || !name || !origin || !destination) {
+    return undefined;
+  }
+  const transportModes = readStringArray(row.transport_modes);
+  const riskNotes = readStringArray(row.risk_notes);
+
+  return {
+    id: `route:${id}`,
+    entityType: "route",
+    name,
+    area: `${origin} to ${destination}`,
+    tags: uniqueCompact(["route", "transport", ...transportModes.map(tagFromText)]),
+    claim: `${name} connects ${origin} to ${destination}${
+      transportModes.length ? ` by ${transportModes.join(", ")}` : ""
+    }.`,
+    confidence: "medium",
+    source: {
+      label: "curated_local_guide",
+      sourceName: "Ask Siargao baseline route taxonomy",
+    },
+    caveats: [
+      ...riskNotes,
+      "Route taxonomy is not a live ferry, road, traffic, weather, or schedule check.",
+    ],
+  };
+}
+
+function governedFactRowToLocalFact(row: LocalFactsDatabaseRow): LocalFactResultItem | undefined {
+  const id = readString(row.id);
+  const entityType = readLocalFactEntityType(row.entity_type);
+  const name = readString(row.name);
+  const claim = readString(row.claim);
+  const confidence = readConfidence(row.confidence_label);
+  if (!id || !entityType || !name || !claim || !confidence) {
+    return undefined;
+  }
+
+  const sourceProfileId = readString(row.source_profile_id);
+  const sourceName = readString(row.source_name) ?? "Governed local fact source";
+  const factType = readString(row.fact_type);
+  const area = readString(row.area);
+  const fetchedAt = readDateString(row.fetched_at);
+  const verifiedAt = readDateString(row.verified_at);
+  const expiresAt = readDateString(row.expires_at);
+
+  return {
+    id,
+    entityType,
+    name,
+    ...(area ? { area } : {}),
+    tags: uniqueCompact([entityType, factType, area].flatMap((value) => tagsFromText(value))),
+    claim,
+    confidence,
+    source: {
+      label: sourceLabelFromAllowedUse(readString(row.allowed_use)),
+      sourceName,
+      ...(sourceProfileId ? { sourceProfileId } : {}),
+      ...(fetchedAt ? { fetchedAt } : {}),
+      ...(verifiedAt ? { verifiedAt } : {}),
+      ...(expiresAt ? { expiresAt } : {}),
+    },
+    caveats: ["Governed fact output excludes restricted provider bodies and private records."],
+  };
+}
+
+function localFactMatchesQuery(fact: LocalFactResultItem, query: LocalFactsQuery) {
+  if (!query.entityTypes.includes(fact.entityType)) {
+    return false;
+  }
+
+  if (
+    query.area &&
+    !containsNormalized(`${fact.area ?? ""} ${fact.name} ${fact.claim}`, query.area)
+  ) {
+    return false;
+  }
+
+  if (query.tags?.length && !query.tags.every((tag) => fact.tags.includes(tag))) {
+    return false;
+  }
+
+  if (
+    query.text &&
+    !containsNormalized(`${fact.name} ${fact.area ?? ""} ${fact.claim}`, query.text)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function sourceLabelFromAllowedUse(allowedUse: string | undefined): AnswerTrustLabel {
+  if (allowedUse === "public_republish") {
+    return "fresh_cache";
+  }
+  if (allowedUse === "citation_only") {
+    return "not_verified";
+  }
+  return "curated_local_guide";
+}
+
+function readLocalFactEntityType(value: unknown): LocalFactEntityType | undefined {
+  const parsed = localFactEntityTypeSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function readConfidence(value: unknown): LocalFactConfidence | undefined {
+  return value === "high" || value === "medium" || value === "low" ? value : undefined;
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readStringArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+  if (typeof value === "string") {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return Array.isArray(parsed)
+        ? parsed.filter((item): item is string => typeof item === "string")
+        : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function readDateString(value: unknown) {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value;
+  }
+  return undefined;
+}
+
+function containsNormalized(haystack: string, needle: string) {
+  return normalizeSearchText(haystack).includes(normalizeSearchText(needle));
+}
+
+function tagsFromText(value: string | undefined) {
+  if (!value) {
+    return [];
+  }
+  const normalized = normalizeSearchText(value);
+  return [
+    ...normalized.split(" ").filter((part) => part.length >= 3),
+    normalized.includes("swim") ? "swimming" : undefined,
+    normalized.includes("sunset") || normalized.includes("late afternoon") ? "sunset" : undefined,
+    normalized.includes("rain") || normalized.includes("bad weather") ? "rain-fit" : undefined,
+    normalized.includes("sand") ? "sandy" : undefined,
+  ];
+}
+
+function tagFromText(value: string | undefined) {
+  if (!value) {
+    return undefined;
+  }
+  return normalizeSearchText(value).replaceAll(" ", "-");
+}
+
+function candidateHasFit(
+  candidate: { bestFor: string; fitReasons: readonly string[] },
+  needles: readonly string[],
+) {
+  const text = normalizeSearchText(`${candidate.bestFor} ${candidate.fitReasons.join(" ")}`);
+  return needles.some((needle) => text.includes(normalizeSearchText(needle)));
+}
+
+function normalizeSearchText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function slugify(value: string) {
+  return tagFromText(value) ?? "unknown";
+}
+
+function uniqueCompact(values: readonly (string | undefined)[]) {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
+}
+
+function isLocalFactResultItem(
+  value: LocalFactResultItem | undefined,
+): value is LocalFactResultItem {
+  return Boolean(value);
 }

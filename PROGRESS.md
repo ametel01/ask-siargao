@@ -16,15 +16,15 @@
 
 ## Current Status
 
-- Current step: Step 2, structured local fact query engine.
-- Next step: Implement bounded structured local fact retrieval over approved curated and
-  database fact surfaces.
+- Current step: Step 3, display-safe source evidence lookup.
+- Next step: Implement source evidence lookup for fact IDs without exposing restricted
+  provider payloads or private records.
 
 ## Step Checklist
 
 - [x] Step 0: Progress and changelog tracking setup.
 - [x] Step 1: Safe local data contracts and schema dictionary.
-- [ ] Step 2: Structured local fact query engine.
+- [x] Step 2: Structured local fact query engine.
 - [ ] Step 3: Display-safe source evidence lookup.
 - [ ] Step 4: Register safe database tools in the agent runtime.
 - [ ] Step 5: Align agent memory and tool-use documentation.
@@ -57,5 +57,22 @@
   - Passed: `bun run lint`.
   - Passed: `bun run typecheck --incremental false`.
   - Passed: `bun test src/server/chat/local-data-tools.test.ts`.
+  - Passed: `bun test`.
+- Commit: pending.
+
+### 2026-06-27 - Step 2 Complete
+
+- Added `queryLocalFacts` with strict structured query parsing, capped limits,
+  curated beach fact mapping, optional injected database access, approved SQL shapes
+  for areas/routes/governed facts, and allowlisted serializers.
+- Extended local-data tests for General Luna beach filtering, sandy/swimming/rain-fit/sunset
+  tags, entity-type filtering, text filtering, limit capping, injected route/fact rows,
+  and raw/private field leakage guards.
+- Validation:
+  - Passed: `bun run format`.
+  - Passed: `bun run lint`.
+  - Passed: `bun run typecheck --incremental false`.
+  - Passed: `bun test src/server/chat/local-data-tools.test.ts`.
+  - Passed: `bun run db:migrate:test && bun run db:seed:test`.
   - Passed: `bun test`.
 - Commit: pending.
