@@ -82,6 +82,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Routed `/api/chat` follow-up decisions through request-scoped trip context for weather planning,
+  beach guidance, ride-time limits, missing-reference clarification, and kids/no-scooter beach fit
+  notes.
 - Documented the completed Priority 1 local recommendation behavior, including cache-first Google
   Places lookups, markdown caveats, normalized recommendation objects, and the current e2e testing
   boundary.

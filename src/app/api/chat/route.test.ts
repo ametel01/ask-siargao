@@ -507,6 +507,54 @@ describe("chat route", () => {
     expect(dependencies.requests).toHaveLength(0);
   });
 
+  test("carries ride-time limits into beach follow-ups", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "Which beaches can I reach within 20 min ride from General Luna?",
+          },
+          {
+            role: "assistant",
+            content: "Doot and Malinao are the closest beach options.",
+          },
+          { role: "user", content: "best for swimming?" },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("about a 20-minute ride");
+    expect(body.message).toContain("good sandy shoreline candidate when conditions are calm");
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("keeps kids and no-scooter constraints in grounded beach routing", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content:
+              "We are with kids near General Luna and have no scooter. Which beaches are within 30 min ride?",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("Trip fit notes: travelling with kids");
+    expect(body.message).toContain("no scooter / walking constraint");
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
   test("lets sunset beach follow-ups override prior swimming modifier", async () => {
     const dependencies = chatDependencies();
     const response = await chatResponse(
@@ -544,6 +592,22 @@ describe("chat route", () => {
     expect(body.message).toContain("late-afternoon beach options");
     expect(body.message).toContain("classic Cloud 9 sunset vibe");
     expect(body.message).not.toContain("good sandy shoreline candidate when conditions are calm");
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("asks for clarification when there has no prior referent", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "What should I do there today?" }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("Which Siargao place or area do you mean by there?");
+    expect(dependencies.weatherRequests).toBe(0);
     expect(dependencies.requests).toHaveLength(0);
   });
 

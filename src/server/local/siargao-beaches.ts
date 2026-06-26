@@ -21,6 +21,9 @@ export type BeachRecommendationRequest = {
   avoidRocky?: boolean;
   swimming?: boolean;
   sunset?: boolean;
+  transportMode?: "walk" | "scooter" | "tricycle" | "van";
+  withKids?: boolean;
+  durableConstraints?: string[];
 };
 
 const siargaoBeachGuide: SiargaoBeach[] = [
@@ -147,6 +150,7 @@ export function renderSiargaoBeachRecommendation(request: BeachRecommendationReq
         "For a classic Cloud 9 sunset vibe, the boardwalk is still an easy option, but it does not match your sand-only beach filter.",
       ]
     : [];
+  const tripContextNotes = beachTripContextNotes(request);
   const exclusions =
     maxRideMinutes <= 30
       ? [
@@ -161,10 +165,25 @@ export function renderSiargaoBeachRecommendation(request: BeachRecommendationReq
     ...ranked,
     ...sunsetNote,
     ...exclusions,
+    ...tripContextNotes,
     "",
     "Checked: Ask Siargao curated local beach guide with ride-time and beach-surface notes.",
     "Not checked: live road conditions, tide, currents, beach access changes, or lifeguard/swimming safety.",
   ].join("\n");
+}
+
+function beachTripContextNotes(request: BeachRecommendationRequest) {
+  const notes: string[] = [];
+  if (request.withKids) {
+    notes.push("travelling with kids");
+  }
+  if (request.transportMode === "walk" || request.durableConstraints?.includes("no_scooter")) {
+    notes.push("no scooter / walking constraint");
+  }
+  if (notes.length === 0) {
+    return [];
+  }
+  return ["", `Trip fit notes: ${notes.join("; ")}.`];
 }
 
 function beachRecommendationHeader({

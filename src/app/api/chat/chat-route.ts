@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Logger } from "pino";
 import { z } from "zod";
 
+import { deriveTripContext, type TripContext } from "@/server/chat/intent";
 import { interpretPlaceIntent, type PlaceIntent } from "@/server/chat/place-intent";
 import {
   createDefaultRecommendationAgent,
@@ -49,6 +50,7 @@ export type ChatRouteDependencies = {
 type ChatRequestIntent = {
   latestUserTurn: string;
   recentUserContext: string;
+  tripContext: TripContext;
   locationLabel?: "Cloud 9" | "Del Carmen" | "General Luna" | "Siargao Island";
   activityPlan: boolean;
   beach: boolean;
@@ -147,6 +149,14 @@ export async function chatResponse(
   if (shouldDeclineNonSiargaoTopic(parsed.data.messages)) {
     logger.info({ durationMs: Date.now() - startedAt }, "Chat request declined: outside scope.");
     return Response.json({ message: siargaoScopeDeclineMessage, requestId }, { headers });
+  }
+
+  if (shouldAskForMissingContext(intent)) {
+    logger.info(
+      { durationMs: Date.now() - startedAt, intent: summarizeIntentForLogs(intent) },
+      "Chat request needs clarification for missing context.",
+    );
+    return Response.json({ message: missingContextClarificationMessage, requestId }, { headers });
   }
 
   try {
@@ -371,25 +381,23 @@ function isRecommendationQuestion(intent: ChatRequestIntent) {
 }
 
 function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]): ChatRequestIntent {
-  const userTurns = messages.filter((message) => message.role === "user");
-  const latestUserTurn = userTurns.at(-1)?.content ?? "";
-  const recentUserContext = userTurns
-    .slice(0, -1)
-    .slice(-6)
-    .map((message) => message.content)
-    .join(" ");
-  const fullUserContext = `${recentUserContext} ${latestUserTurn}`;
+  const tripContext = deriveTripContext(messages);
+  const { fullUserContext, latestUserTurn, recentUserContext } = tripContext;
   const placeIntent = interpretPlaceIntent(messages);
-  const latestBeach = isBeachContent(latestUserTurn);
+  const latestBeach =
+    isBeachContent(latestUserTurn) ||
+    tripContext.activeGoal === "beach_swimming" ||
+    tripContext.activeGoal === "beach_sunset";
   const contextualBeach =
     isBeachConstraintContent(latestUserTurn) && isBeachContent(recentUserContext);
   const locationLabel =
-    inferChatLocationLabel(latestUserTurn) ?? inferChatLocationLabel(recentUserContext);
+    inferChatLocationLabelFromTripContext(tripContext) ?? inferChatLocationLabel(fullUserContext);
   const beachRequest =
     latestBeach || contextualBeach
       ? inferBeachRequest({
           fullUserContext,
           latestUserTurn,
+          tripContext,
         })
       : null;
   const today = /\btoday|right\s+now|now|this\s+(?:morning|afternoon|evening)\b/i.test(
@@ -401,18 +409,20 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
   const weather = isWeatherContent(latestUserTurn);
   const weatherSensitive =
     weather ||
+    tripContext.activeGoal === "rain_plan" ||
     /\brainy|rain(?:ing)?|showers?|storm|windy|surf|waves?|conditions?|cloudy\b/i.test(
       latestUserTurn,
     ) ||
     ((today || nearby) && isActivityPlanContent(latestUserTurn));
   const activityPlan =
     !placeIntent &&
-    isActivityPlanContent(latestUserTurn) &&
+    (isActivityPlanContent(latestUserTurn) || tripContext.activeGoal === "itinerary") &&
     (Boolean(locationLabel) || /\bsiargao\b/i.test(fullUserContext));
 
   return {
     latestUserTurn,
     recentUserContext,
+    tripContext,
     ...(locationLabel ? { locationLabel } : {}),
     activityPlan,
     beach: latestBeach || contextualBeach,
@@ -468,20 +478,61 @@ function inferChatLocationLabel(content: string): ChatRequestIntent["locationLab
 function inferBeachRequest({
   fullUserContext,
   latestUserTurn,
+  tripContext,
 }: {
   fullUserContext: string;
   latestUserTurn: string;
+  tripContext: TripContext;
 }): BeachRecommendationRequest {
-  const latestSwimming = /\bswim(?:ming)?|calm\s+water\b/i.test(latestUserTurn);
-  const latestSunset = /\bsunset\b/i.test(latestUserTurn);
+  const latestSwimming =
+    tripContext.temporaryModifiers.includes("swimming") ||
+    /\bswim(?:ming)?|calm\s+water\b/i.test(latestUserTurn);
+  const latestSunset =
+    tripContext.activeGoal === "beach_sunset" ||
+    tripContext.temporaryModifiers.includes("sunset") ||
+    /\bsunset\b/i.test(latestUserTurn);
   return {
-    originLabel: inferBeachOriginLabel(fullUserContext),
-    maxRideMinutes: inferRideMinuteConstraint(fullUserContext),
+    originLabel:
+      inferBeachOriginLabelFromTripContext(tripContext) ?? inferBeachOriginLabel(fullUserContext),
+    maxRideMinutes: tripContext.rideTimeLimitMinutes ?? inferRideMinuteConstraint(fullUserContext),
     sandOnly: /\bsand(?:y)?(?:\s+beaches?)?\s+only|\bsandy\s+beaches?\b/i.test(fullUserContext),
-    avoidRocky: /\bnot\s+rocky|no\s+rocks?|avoid\s+rocks?|smooth\s+sand\b/i.test(fullUserContext),
+    avoidRocky:
+      tripContext.travelerProfile.avoidsRockyBeach ||
+      /\bnot\s+rocky|no\s+rocks?|avoid\s+rocks?|smooth\s+sand\b/i.test(fullUserContext),
     swimming: latestSwimming && !latestSunset,
     sunset: latestSunset,
+    ...(tripContext.transportMode !== "unknown"
+      ? { transportMode: tripContext.transportMode }
+      : {}),
+    ...(tripContext.travelerProfile.withKids ? { withKids: true } : {}),
+    ...(tripContext.durableConstraints.length
+      ? { durableConstraints: tripContext.durableConstraints }
+      : {}),
   };
+}
+
+function inferChatLocationLabelFromTripContext(
+  tripContext: TripContext,
+): ChatRequestIntent["locationLabel"] {
+  const label = tripContext.currentLocation?.label ?? tripContext.currentArea;
+  if (label === "Cloud 9" || label === "General Luna" || label === "Siargao Island") {
+    return label;
+  }
+  if (label === "Del Carmen" || label === "Del Carmen Port" || label === "Sugba Lagoon") {
+    return "Del Carmen";
+  }
+  return undefined;
+}
+
+function inferBeachOriginLabelFromTripContext(
+  tripContext: TripContext,
+): BeachRecommendationRequest["originLabel"] {
+  const label =
+    tripContext.origin?.label ?? tripContext.currentLocation?.label ?? tripContext.currentArea;
+  if (label === "Cloud 9" || label === "General Luna" || label === "Siargao Island") {
+    return label;
+  }
+  return undefined;
 }
 
 function inferBeachOriginLabel(content: string): BeachRecommendationRequest["originLabel"] {
@@ -512,6 +563,13 @@ function summarizeIntentForLogs(intent: ChatRequestIntent) {
     beachRequest: intent.beachRequest,
     locationLabel: intent.locationLabel,
     nearby: intent.nearby,
+    tripContext: {
+      activeGoal: intent.tripContext.activeGoal,
+      currentLocation: intent.tripContext.currentLocation?.label,
+      durableConstraints: intent.tripContext.durableConstraints,
+      temporaryModifiers: intent.tripContext.temporaryModifiers,
+      unresolvedReference: intent.tripContext.unresolvedReference,
+    },
     placeIntent: intent.placeIntent
       ? {
           category: intent.placeIntent.category,
@@ -523,6 +581,10 @@ function summarizeIntentForLogs(intent: ChatRequestIntent) {
     weather: intent.weather,
     weatherSensitive: intent.weatherSensitive,
   };
+}
+
+function shouldAskForMissingContext(intent: ChatRequestIntent) {
+  return intent.tripContext.unresolvedReference === "there";
 }
 
 function renderGroundedLocalPlan(
@@ -717,3 +779,6 @@ function summarizeMessageForLogs(content: string) {
 
 const siargaoScopeDeclineMessage =
   "I can only help with Siargao travel and local trip-planning questions. Ask me about stays, surf, food, weather, transport, activities, safety, budget, or logistics for Siargao.";
+
+const missingContextClarificationMessage =
+  "Which Siargao place or area do you mean by there? Tell me the spot, area, or where you are staying and I can tailor the answer.";

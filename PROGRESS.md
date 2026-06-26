@@ -15,14 +15,14 @@ only; it does not add trip or chat persistence.
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Shared Trip Context And Intent Module
-- [ ] Step 2: Route Chat Decisions Through TripContext
+- [x] Step 2: Route Chat Decisions Through TripContext
 - [ ] Step 3: Align Place Intent And Recommendation Planning With TripContext
 - [ ] Step 4: End-To-End Route Regressions For Priority 2 Follow-Ups
 - [ ] Step 5: Persistence-Ready Documentation And Final Verification
 
 ## Current Status
 
-Step 1 complete. Next: Step 2, Route Chat Decisions Through TripContext.
+Step 2 complete. Next: Step 3, Align Place Intent And Recommendation Planning With TripContext.
 
 ## Update Log
 
@@ -55,6 +55,24 @@ Step 1 complete. Next: Step 2, Route Chat Decisions Through TripContext.
   - `bun run lint`: pass
   - `bun run typecheck --incremental false`: pass
   - `bun test src/server/chat/intent.test.ts src/server/chat/place-intent.test.ts`: pass
+  - `bun test`: pass
+- Commit: `0f0d582 Add request-scoped trip context derivation`
+
+### 2026-06-26: Step 2 complete
+
+- Routed `/api/chat` intent interpretation through `deriveTripContext` while preserving the public
+  request and response shape.
+- Used trip context for weather/activity location labels, beach origins, ride-time limits,
+  swimming/sunset goal switching, transport mode, and kids/no-scooter beach fit notes.
+- Added an early clarification response when the latest turn says "there" without a prior Siargao
+  referent.
+- Expanded route tests for ride-time follow-ups, kids/no-scooter constraints, and missing "there"
+  context while preserving existing rainy, beach, recommendation, and scope-guardrail coverage.
+- Validation:
+  - `bun run format`: pass
+  - `bun run lint`: pass
+  - `bun run typecheck --incremental false`: pass
+  - `bun test src/server/chat/intent.test.ts src/app/api/chat/route.test.ts`: pass
   - `bun test`: pass
 - Commit: pending
 
