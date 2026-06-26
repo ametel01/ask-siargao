@@ -395,7 +395,11 @@ export class RecommendationAgent {
           );
           return {
             status: "answered",
-            message: renderRecommendationAnswer(state.candidates, state.previousActions),
+            message: renderRecommendationAnswer(
+              state.candidates,
+              state.previousActions,
+              interpretedIntent,
+            ),
             model: this.#model,
           };
       }
@@ -414,7 +418,7 @@ export class RecommendationAgent {
       status: state.candidates.length > 0 ? "answered" : "unsupported",
       message:
         state.candidates.length > 0
-          ? renderRecommendationAnswer(state.candidates, state.previousActions)
+          ? renderRecommendationAnswer(state.candidates, state.previousActions, interpretedIntent)
           : "",
       model: this.#model,
     };
@@ -504,7 +508,7 @@ function inferDeterministicAction(
     type: "search_places",
     query: `${foodTerm} ${locationPhrase} Siargao`,
     centerLabel,
-    includedType: "restaurant",
+    includedType: inferIncludedType(foodTerm),
   };
 }
 
@@ -595,7 +599,7 @@ function parseRecommendationAction(outputText: string): RecommendationAction {
 }
 
 function isPlaceRecommendationContent(content: string) {
-  return /\b(restaurants?|where\s+(?:can|should)\s+(?:we|i)\s+eat|food|dinner|lunch|breakfast|brunch|cafes?|coffee|bars?|nightlife|places?\s+to\s+(?:eat|go|stop)|stop\s+to\s+eat|food\s+stops?|car[ie]nderias?|seafood)\b/i.test(
+  return /\b(restaurants?|where\s+(?:can|should)\s+(?:we|i)\s+eat|food|dinner|lunch|breakfast|brunch|caf[eé]s?|coffee|bars?|nightlife|places?\s+to\s+(?:eat|go|stop)|stop\s+to\s+eat|food\s+stops?|car[ie]nderias?|seafood|covered\s+(?:caf[eé]s?|places?|spots?)|beachfront\s+(?:places?|caf[eé]s?|restaurants?|spots?)|specific\s+(?:places?|spots?|caf[eé]s?))\b/i.test(
     content,
   );
 }
@@ -613,14 +617,16 @@ function interpretFoodRequest(messages: readonly AskSiargaoChatMessage[]): FoodR
   const latestAsksForFood = isPlaceRecommendationContent(latestUserTurn);
   const contextualFoodRequest =
     latestAsksForFood ||
-    /\b(what\s+about|how\s+about|that\s+area|there|nearby|instead|options?)\b/i.test(
+    /\b(what\s+about|how\s+about|that\s+area|there|nearby|instead|options?|open\s+now|open\s+today|currently\s+open|still\s+open|hours?)\b/i.test(
       latestUserTurn,
     );
   const category =
     latestAsksForFood || (contextualFoodRequest && isPlaceRecommendationContent(recentUserContext))
       ? "food"
       : null;
-  const explicitlyRequestedCafe = /\b(cafes?|coffee)\b/i.test(latestUserTurn);
+  const explicitlyRequestedCafe = /\b(caf[eé]s?|coffee)\b/i.test(
+    `${latestUserTurn} ${recentUserContext}`,
+  );
   const constraints = [...inferConstraints(recentUserContext), ...inferConstraints(latestUserTurn)];
   const avoid = inferAvoidTerms({ explicitlyRequestedCafe, latestUserTurn, meal });
 
@@ -705,7 +711,16 @@ function inferFoodSearchTerm(intent: FoodRequestIntent) {
   if (/\bseafood\b/i.test(primaryIntentText)) {
     return "seafood restaurant";
   }
-  if (/\b(cafes?|coffee)\b/i.test(intent.latestUserTurn)) {
+  if (
+    /\bbeachfront\b/i.test(primaryIntentText) &&
+    /\b(caf[eé]s?|coffee)\b/i.test(primaryIntentText)
+  ) {
+    return "beachfront cafe";
+  }
+  if (/\bbeachfront\b/i.test(primaryIntentText)) {
+    return "beachfront restaurant";
+  }
+  if (/\b(caf[eé]s?|coffee)\b/i.test(primaryIntentText)) {
     return "cafe";
   }
   if (/\b(bars?|nightlife|drinks?)\b/i.test(primaryIntentText)) {
@@ -726,6 +741,16 @@ function inferFoodSearchTerm(intent: FoodRequestIntent) {
   return "good restaurant";
 }
 
+function inferIncludedType(foodTerm: string) {
+  if (/\bcafe\b/i.test(foodTerm)) {
+    return "cafe";
+  }
+  if (/\bbar\b/i.test(foodTerm)) {
+    return "bar";
+  }
+  return "restaurant";
+}
+
 function inferPreferredTerms(intent: FoodRequestIntent) {
   const terms = ["restaurant"];
   const primaryIntentText = `${intent.latestUserTurn} ${intent.recentUserContext}`;
@@ -735,8 +760,11 @@ function inferPreferredTerms(intent: FoodRequestIntent) {
   if (/\bproper|sit[-\s]?down|not\s+car[ie]nderia\b/i.test(intent.latestUserTurn)) {
     terms.push("restaurant", "grill");
   }
-  if (/\b(cafes?|coffee)\b/i.test(intent.latestUserTurn)) {
+  if (/\b(caf[eé]s?|coffee)\b/i.test(primaryIntentText)) {
     terms.push("cafe", "coffee");
+  }
+  if (/\bbeachfront\b/i.test(primaryIntentText)) {
+    terms.push("beachfront", "resort", "restaurant", "cafe");
   }
   if (intent.meal === "lunch") {
     terms.push("lunch", "brunch", "cafe", "casual");
@@ -831,43 +859,47 @@ function rankCandidates(
   const preferredTerms = criteria.preferredTerms.map((term) => term.toLowerCase());
   const excludedTerms = criteria.excludedTerms.map((term) => term.toLowerCase());
 
-  return candidates
-    .map((candidate) => {
-      const searchable =
-        `${candidate.name} ${candidate.formattedAddress ?? ""} ${candidate.primaryType ?? ""} ${candidate.types.join(" ")}`.toLowerCase();
-      const excludedPenalty = excludedTerms.some((term) => searchable.includes(term)) ? -1_000 : 0;
-      const preferredBonus = preferredTerms.filter((term) => searchable.includes(term)).length * 75;
-      const openingHoursScore =
-        candidate.currentOpeningHours?.openNow === false
-          ? -300
-          : candidate.currentOpeningHours?.openNow === true
-            ? 40
-            : 0;
-      const nearQueryDistanceScore = /\bnear(?:by)?|close\s+to|around\b/i.test(
-        candidate.sourceQuery,
-      )
-        ? -Math.min(candidate.distanceMeters ?? 0, 8_000) / 80
-        : 0;
-      const reviewScore = Math.min(candidate.userRatingCount ?? 0, 500) / 5;
-      const ratingScore = (candidate.rating ?? 0) * 20;
+  const scoredCandidates = candidates.map((candidate) => {
+    const searchable =
+      `${candidate.name} ${candidate.formattedAddress ?? ""} ${candidate.primaryType ?? ""} ${candidate.types.join(" ")}`.toLowerCase();
+    const excluded = excludedTerms.some((term) => searchable.includes(term));
+    const excludedPenalty = excluded ? -1_000 : 0;
+    const preferredBonus = preferredTerms.filter((term) => searchable.includes(term)).length * 75;
+    const openingHoursScore =
+      candidate.currentOpeningHours?.openNow === false
+        ? -300
+        : candidate.currentOpeningHours?.openNow === true
+          ? 40
+          : 0;
+    const nearQueryDistanceScore = /\bnear(?:by)?|close\s+to|around\b/i.test(candidate.sourceQuery)
+      ? -Math.min(candidate.distanceMeters ?? 0, 8_000) / 80
+      : 0;
+    const reviewScore = Math.min(candidate.userRatingCount ?? 0, 500) / 5;
+    const ratingScore = (candidate.rating ?? 0) * 20;
 
-      return {
-        ...candidate,
-        score:
-          excludedPenalty +
-          preferredBonus +
-          openingHoursScore +
-          nearQueryDistanceScore +
-          reviewScore +
-          ratingScore,
-      };
-    })
-    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+    return {
+      ...candidate,
+      excludedByRanking: excluded,
+      score:
+        excludedPenalty +
+        preferredBonus +
+        openingHoursScore +
+        nearQueryDistanceScore +
+        reviewScore +
+        ratingScore,
+    };
+  });
+  const candidatesToRender = scoredCandidates.some((candidate) => !candidate.excludedByRanking)
+    ? scoredCandidates.filter((candidate) => !candidate.excludedByRanking)
+    : scoredCandidates;
+
+  return candidatesToRender.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 }
 
 function renderRecommendationAnswer(
   candidates: readonly PlaceCandidate[],
   actions: readonly RecommendationAction[],
+  intent: FoodRequestIntent,
 ) {
   const searchActions = actions.filter((action) => action.type === "search_places");
 
@@ -889,10 +921,17 @@ function renderRecommendationAnswer(
     ].join("\n");
   }
 
+  const centerLabel = searchActions.at(-1)?.centerLabel ?? intent.location ?? "the requested area";
+  const caveats = compactMealFollowUpCaveat(intent)
+    ? ["Checked Google Places for open nearby options. Covered seating and bookings not verified."]
+    : [
+        "Checked: Google Places ratings, open-now signal, distance, addresses, and map links.",
+        "Not checked: covered seating, bookings, review text, or independent local validation.",
+      ];
+
   return [
     "Good options I found from Google Places:",
-    "Checked: Google Places identity, address, ratings, map links, and opening-hours fields when Google returned them.",
-    "Not checked: review text, table availability, bookings, or independently verified covered seating.",
+    ...caveats,
     "",
     ...candidates.slice(0, 4).map((candidate, index) => {
       const rating =
@@ -900,35 +939,58 @@ function renderRecommendationAnswer(
           ? `\n  Rating: ${candidate.rating} (${candidate.userRatingCount.toLocaleString()} reviews)`
           : "";
       const address = candidate.formattedAddress ? `\n  Area: ${candidate.formattedAddress}` : "";
-      const distance =
-        candidate.distanceMeters !== undefined
-          ? `\n  Distance fit: ${distanceFitLabel(candidate.distanceMeters)}`
-          : "";
-      const opening = `\n  Opening signal: ${openingHoursLabel(candidate.currentOpeningHours)}`;
-      const rain = `\n  Rain fit: indoor/covered seating not verified; prefer this only if the Maps listing/photos look covered or call ahead.`;
-      return `- **${index + 1}. ${candidate.name}**${rating}${address}${distance}${opening}${rain}\n  Maps: ${candidate.googleMapsUri}`;
+      return `${index + 1}. **${candidate.name}**\n  Best fit: ${candidateFitLabel(
+        candidate,
+        index,
+        centerLabel,
+      )}${rating}${address}\n  Maps: ${candidate.googleMapsUri}`;
     }),
   ].join("\n");
 }
 
 function openingHoursLabel(hours: GooglePlacesOpeningHours | undefined) {
   if (hours?.openNow === true) {
-    return "Google currently reports open.";
+    return "open now";
   }
   if (hours?.openNow === false) {
-    return "Google currently reports closed.";
+    return "currently closed";
   }
-  return "Opening-hours status was not returned.";
+  return "hours not returned";
 }
 
-function distanceFitLabel(distanceMeters: number) {
+function distanceFitLabel(distanceMeters: number, centerLabel: string, index: number) {
+  const distanceLabel = `${formatDistance(distanceMeters)} from ${centerLabel}`;
+  if (index === 0) {
+    return `closest strong match, ${distanceLabel}`;
+  }
   if (distanceMeters < 1_000) {
-    return `${formatDistance(distanceMeters)} from the search center, close to the requested area.`;
+    return `close option, ${distanceLabel}`;
   }
   if (distanceMeters < 4_000) {
-    return `${formatDistance(distanceMeters)} from the search center, a short ride rather than a boardwalk stop.`;
+    return `short ride, ${distanceLabel}`;
   }
-  return `${formatDistance(distanceMeters)} from the search center, broader General Luna/Siargao rather than the immediate requested area.`;
+  return `broader-area option, ${distanceLabel}`;
+}
+
+function candidateFitLabel(candidate: PlaceCandidate, index: number, centerLabel: string) {
+  const fitParts: string[] = [];
+  if (candidate.distanceMeters !== undefined) {
+    fitParts.push(distanceFitLabel(candidate.distanceMeters, centerLabel, index));
+  } else if (index === 0) {
+    fitParts.push("top-ranked match");
+  }
+  fitParts.push(openingHoursLabel(candidate.currentOpeningHours));
+  return `${fitParts.join(", ")}.`;
+}
+
+function compactMealFollowUpCaveat(intent: FoodRequestIntent) {
+  return (
+    intent.meal !== null &&
+    /\b(what\s+about|how\s+about|instead|also|and\s+(?:lunch|dinner|breakfast))\b/i.test(
+      intent.latestUserTurn,
+    ) &&
+    isPlaceRecommendationContent(intent.recentUserContext)
+  );
 }
 
 function formatDistance(distanceMeters: number) {

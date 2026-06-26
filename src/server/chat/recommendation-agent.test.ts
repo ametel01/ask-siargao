@@ -40,12 +40,13 @@ describe("RecommendationAgent", () => {
       center: { latitude: 9.7594, longitude: 125.9761 },
     });
     expect(response.message).toContain("Good options I found from Google Places:");
-    expect(response.message).toContain("Checked: Google Places identity");
-    expect(response.message).toContain("Not checked: review text");
-    expect(response.message).toContain("- **1. Dapa Food House**");
+    expect(response.message).toContain("Checked: Google Places ratings, open-now signal");
+    expect(response.message).toContain("Not checked: covered seating, bookings, review text");
+    expect(response.message).toContain("1. **Dapa Food House**");
     expect(response.message).toContain("Rating: 4.5 (95 reviews)");
-    expect(response.message).toContain("Distance fit:");
-    expect(response.message).toContain("Opening signal:");
+    expect(response.message).toContain("Best fit:");
+    expect(response.message).toContain("from Dapa");
+    expect(response.message).not.toContain("search center");
   });
 
   test("lets the latest meal request override earlier lunch context without assistant keyword leakage", async () => {
@@ -129,11 +130,105 @@ describe("RecommendationAgent", () => {
       center: { latitude: 9.8116, longitude: 126.1651 },
     });
     expect(searches[0]?.textQuery).not.toMatch(/cafe|coffee|General Luna/i);
-    expect(response.message).toMatch(
-      /- \*\*1\. Cloud 9 Dinner Grill\*\*[\s\S]+- \*\*2\. Cloud 9 Coffee Bar\*\*[\s\S]+- \*\*3\. Cloud 9 Brunch Spot\*\*/,
+    expect(response.message).toContain("1. **Cloud 9 Dinner Grill**");
+    expect(response.message).not.toContain("Cloud 9 Coffee Bar");
+    expect(response.message).not.toContain("Cloud 9 Brunch Spot");
+    expect(response.message).not.toContain("Rain fit:");
+    expect(response.message).toContain(
+      "Checked Google Places for open nearby options. Covered seating and bookings not verified.",
     );
-    expect(response.message).toContain("Rain fit:");
-    expect(response.message).toContain("Google currently reports open.");
+    expect(response.message).toContain("Best fit: closest strong match");
+    expect(response.message).toContain("from Cloud 9, open now.");
+    expect(response.message).not.toContain("Google currently reports open.");
+    expect(response.message).not.toContain("Not checked: covered seating");
+  });
+
+  test("keeps breakfast caveats full but compacts lunch meal follow-up caveats", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: search.textQuery.includes("breakfast") ? "SHAKA Siargao" : "Yugto Siargao",
+          rating: 4.7,
+          userRatingCount: 500,
+        });
+      },
+    });
+
+    const breakfastResponse = await agent.answer({
+      messages: [
+        { role: "user", content: "What should I do near Cloud 9 today?" },
+        { role: "assistant", content: "Keep it close around Cloud 9." },
+        { role: "user", content: "where should i go for breakfast?" },
+      ],
+    });
+    const lunchResponse = await agent.answer({
+      messages: [
+        { role: "user", content: "What should I do near Cloud 9 today?" },
+        { role: "assistant", content: "Keep it close around Cloud 9." },
+        { role: "user", content: "where should i go for breakfast?" },
+        { role: "assistant", content: breakfastResponse.message },
+        { role: "user", content: "what about lunch?" },
+      ],
+    });
+
+    expect(searches[0]).toMatchObject({
+      textQuery: "breakfast restaurants near Cloud 9 Siargao",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+    });
+    expect(searches[1]).toMatchObject({
+      textQuery: "lunch restaurants near Cloud 9 Siargao",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+    });
+    expect(breakfastResponse.message).toContain("Checked: Google Places ratings");
+    expect(breakfastResponse.message).toContain("Not checked: covered seating");
+    expect(lunchResponse.message).toContain(
+      "Checked Google Places for open nearby options. Covered seating and bookings not verified.",
+    );
+    expect(lunchResponse.message).not.toContain("Not checked: covered seating");
+  });
+
+  test("searches Google Places for covered cafe open-now follow-ups", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "Covered Beachfront Cafe",
+          rating: 4.6,
+          userRatingCount: 250,
+        });
+      },
+    });
+
+    const response = await agent.answer({
+      messages: [
+        {
+          role: "user",
+          content: "yes give me specific covered cafés or beachfront places near General Luna.",
+        },
+        {
+          role: "assistant",
+          content: "Here are a few covered cafes near General Luna.",
+        },
+        { role: "user", content: "open now?" },
+      ],
+    });
+
+    expect(response.status).toBe("answered");
+    expect(searches).toHaveLength(1);
+    expect(searches[0]).toMatchObject({
+      textQuery: "beachfront cafe near General Luna Siargao",
+      includedType: "cafe",
+      center: { latitude: 9.8006, longitude: 126.1586 },
+    });
+    expect(response.message).toContain("Covered Beachfront Cafe");
+    expect(response.message).toContain("Checked: Google Places ratings");
   });
 
   test("lets the planner choose search and ranking actions before rendering candidates", async () => {
@@ -184,7 +279,7 @@ describe("RecommendationAgent", () => {
       center: { latitude: 9.7594, longitude: 125.9761 },
     });
     expect(response.message).toContain("Good options I found from Google Places:");
-    expect(response.message).toContain("- **1. Dapa Grill Restaurant**");
+    expect(response.message).toContain("1. **Dapa Grill Restaurant**");
     expect(response.message).toContain("Rating: 4.4 (120 reviews)");
     expect(response.message).toContain("Maps: https://maps.google.com/?cid=place_dapa");
   });

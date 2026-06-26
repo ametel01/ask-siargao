@@ -12,6 +12,10 @@ import {
   type AskSiargaoChatMessage,
   generateAskSiargaoChatResponse,
 } from "@/server/llm/chat-adapter";
+import {
+  type BeachRecommendationRequest,
+  renderSiargaoBeachRecommendation,
+} from "@/server/local/siargao-beaches";
 import { createComponentLogger } from "@/server/observability/logger";
 import {
   type OpenMeteoForecastLocation,
@@ -44,8 +48,10 @@ export type ChatRouteDependencies = {
 type ChatRequestIntent = {
   latestUserTurn: string;
   recentUserContext: string;
-  locationLabel?: "Cloud 9" | "Del Carmen" | "Siargao Island";
+  locationLabel?: "Cloud 9" | "Del Carmen" | "General Luna" | "Siargao Island";
   activityPlan: boolean;
+  beach: boolean;
+  beachRequest?: BeachRecommendationRequest;
   food: boolean;
   nearby: boolean;
   today: boolean;
@@ -174,6 +180,19 @@ export async function chatResponse(
     }
 
     const weatherContext = await getWeatherContext(intent, dependencies, logger);
+    const beachRecommendation = renderGroundedBeachRecommendation(intent);
+    if (beachRecommendation) {
+      logger.info(
+        {
+          branch: "grounded_beach_recommendation",
+          intent: summarizeIntentForLogs(intent),
+          durationMs: Date.now() - startedAt,
+        },
+        "Chat request answered.",
+      );
+      return Response.json({ message: beachRecommendation, requestId }, { headers });
+    }
+
     const localPlan = renderGroundedLocalPlan(intent, weatherContext);
     if (localPlan) {
       logger.info(
@@ -364,8 +383,21 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
     /\b(what\s+about|how\s+about|instead|nearby|there|that\s+area|places?)\b/i.test(
       latestUserTurn,
     ) && isFoodContent(recentUserContext);
+  const contextualOpenNow =
+    /\bopen\s+now|open\s+today|currently\s+open|still\s+open|hours?\b/i.test(latestUserTurn) &&
+    isFoodContent(recentUserContext);
+  const latestBeach = isBeachContent(latestUserTurn);
+  const contextualBeach =
+    isBeachConstraintContent(latestUserTurn) && isBeachContent(recentUserContext);
   const locationLabel =
     inferChatLocationLabel(latestUserTurn) ?? inferChatLocationLabel(recentUserContext);
+  const beachRequest =
+    latestBeach || contextualBeach
+      ? inferBeachRequest({
+          fullUserContext,
+          latestUserTurn,
+        })
+      : null;
   const today = /\btoday|right\s+now|now|this\s+(?:morning|afternoon|evening)\b/i.test(
     fullUserContext,
   );
@@ -378,15 +410,10 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
     /\brainy|rain(?:ing)?|showers?|storm|windy|surf|waves?|conditions?|cloudy\b/i.test(
       latestUserTurn,
     ) ||
-    ((today || nearby) &&
-      /\b(what\s+should|what\s+can|things?\s+to\s+do|activities?|plan|itinerary|beach|surf|walk|ride|island\s+hopping)\b/i.test(
-        latestUserTurn,
-      ));
+    ((today || nearby) && isActivityPlanContent(latestUserTurn));
   const activityPlan =
     !latestFood &&
-    /\b(what\s+should|what\s+can|things?\s+to\s+do|activities?|plan|itinerary)\b/i.test(
-      latestUserTurn,
-    ) &&
+    isActivityPlanContent(latestUserTurn) &&
     (Boolean(locationLabel) || /\bsiargao\b/i.test(fullUserContext));
 
   return {
@@ -394,7 +421,9 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
     recentUserContext,
     ...(locationLabel ? { locationLabel } : {}),
     activityPlan,
-    food: latestFood || contextualFood,
+    beach: latestBeach || contextualBeach,
+    ...(beachRequest ? { beachRequest } : {}),
+    food: latestFood || contextualFood || contextualOpenNow,
     nearby,
     today,
     weatherSensitive,
@@ -403,7 +432,25 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
 }
 
 function isFoodContent(content: string) {
-  return /\b(restaurants?|where\s+(?:can|should)\s+(?:we|i)\s+eat|food|dinner|lunch|breakfast|brunch|cafes?|coffee|bars?|nightlife|places?\s+to\s+(?:eat|go|stop)|stop\s+to\s+eat|food\s+stops?|car[ie]nderias?|seafood)\b/i.test(
+  return /\b(restaurants?|where\s+(?:can|should)\s+(?:we|i)\s+eat|food|dinner|lunch|breakfast|brunch|caf[eé]s?|coffee|bars?|nightlife|places?\s+to\s+(?:eat|go|stop)|stop\s+to\s+eat|food\s+stops?|car[ie]nderias?|seafood|covered\s+(?:caf[eé]s?|places?|spots?)|beachfront\s+(?:places?|caf[eé]s?|restaurants?|spots?)|specific\s+(?:places?|spots?|caf[eé]s?))\b/i.test(
+    content,
+  );
+}
+
+function isActivityPlanContent(content: string) {
+  return /\b(w?hat\s+should|w?hat\s+can|things?\s+to\s+do|activities?|plan|itinerary)\b/i.test(
+    content,
+  );
+}
+
+function isBeachContent(content: string) {
+  return /\b(beaches?|beach\s+day|swim(?:ming)?|sand(?:y)?\s+beaches?|not\s+rocky|rocky|sunset\s+beach|within\s+\d+\s*(?:min|minutes?)\s+(?:ride|drive)|scooter\s+(?:ride|day|trip))\b/i.test(
+    content,
+  );
+}
+
+function isBeachConstraintContent(content: string) {
+  return /\b(sand(?:y)?|not\s+rocky|rocky|swim(?:ming)?|sunset|within\s+\d+\s*(?:min|minutes?)|ride|scooter|half[-\s]?day)\b/i.test(
     content,
   );
 }
@@ -421,15 +468,60 @@ function inferChatLocationLabel(content: string): ChatRequestIntent["locationLab
   if (/\bdel\s+carmen\b/i.test(content)) {
     return "Del Carmen";
   }
+  if (/\bgeneral\s+luna|\bgl\b/i.test(content)) {
+    return "General Luna";
+  }
   if (/\bsiargao\b/i.test(content)) {
     return "Siargao Island";
   }
   return undefined;
 }
 
+function inferBeachRequest({
+  fullUserContext,
+  latestUserTurn,
+}: {
+  fullUserContext: string;
+  latestUserTurn: string;
+}): BeachRecommendationRequest {
+  const latestSwimming = /\bswim(?:ming)?|calm\s+water\b/i.test(latestUserTurn);
+  const latestSunset = /\bsunset\b/i.test(latestUserTurn);
+  return {
+    originLabel: inferBeachOriginLabel(fullUserContext),
+    maxRideMinutes: inferRideMinuteConstraint(fullUserContext),
+    sandOnly: /\bsand(?:y)?(?:\s+beaches?)?\s+only|\bsandy\s+beaches?\b/i.test(fullUserContext),
+    avoidRocky: /\bnot\s+rocky|no\s+rocks?|avoid\s+rocks?|smooth\s+sand\b/i.test(fullUserContext),
+    swimming: latestSwimming && !latestSunset,
+    sunset: latestSunset,
+  };
+}
+
+function inferBeachOriginLabel(content: string): BeachRecommendationRequest["originLabel"] {
+  if (/\bcloud\s*9|cloud9|catangnan\b/i.test(content)) {
+    return "Cloud 9";
+  }
+  if (/\bgeneral\s+luna|\bgl\b/i.test(content)) {
+    return "General Luna";
+  }
+  if (/\bsiargao\b/i.test(content)) {
+    return "Siargao Island";
+  }
+  return undefined;
+}
+
+function inferRideMinuteConstraint(content: string) {
+  const match = /\bwithin\s+(\d{1,3})\s*(?:min|minutes?)\b/i.exec(content);
+  if (!match?.[1]) {
+    return undefined;
+  }
+  return Number(match[1]);
+}
+
 function summarizeIntentForLogs(intent: ChatRequestIntent) {
   return {
     activityPlan: intent.activityPlan,
+    beach: intent.beach,
+    beachRequest: intent.beachRequest,
     food: intent.food,
     locationLabel: intent.locationLabel,
     nearby: intent.nearby,
@@ -458,9 +550,7 @@ function renderGroundedLocalPlan(
 
   const location = intent.locationLabel ?? "Siargao";
   const today = weatherContext?.today;
-  const rainLevel = today?.level ?? "medium";
-  const rainy =
-    /rainy|rain(?:ing)?|showers?|storm/i.test(intent.latestUserTurn) || rainLevel === "high";
+  const weatherAssessment = assessTodayWeather(intent, today);
   const sourceLine = weatherContext
     ? `Checked: ${weatherContext.sourceName} forecast for ${weatherContext.locationName}.`
     : "Checked: no live weather snapshot was available for this request.";
@@ -474,23 +564,7 @@ function renderGroundedLocalPlan(
       )}; wind gust ${formatNullableWeatherMetric(today.windGust, "km/h")}.`
     : "Weather signal: live conditions were not available.";
 
-  const plan = rainy
-    ? [
-        `For ${location} on a rainy day, I would keep this flexible and covered:`,
-        "",
-        "1. Start with a covered cafe or brunch stop near Catangnan/General Luna.",
-        "2. Use a massage/spa, laundry, cash, SIM, or transfer-booking errand for the heaviest rain window.",
-        "3. Walk the Cloud 9 boardwalk only during a clear break and skip long exposed rides if roads are flooding.",
-        "4. For dinner, ask for dinner places and I will check Google Places instead of guessing.",
-      ]
-    : [
-        `For ${location} today, I would keep the plan close and weather-aware:`,
-        "",
-        "1. Check Cloud 9 boardwalk/viewing deck first while conditions are comfortable.",
-        "2. Add a surf lesson or board rental only if local surf conditions look suitable when you arrive.",
-        "3. Use a cafe or lunch stop near Catangnan/General Luna as your weather fallback.",
-        "4. Keep sunset flexible; switch to dinner nearby if rain or wind picks up.",
-      ];
+  const plan = localPlanLines(location, weatherAssessment);
 
   return [
     ...plan,
@@ -501,8 +575,109 @@ function renderGroundedLocalPlan(
   ].join("\n");
 }
 
+function renderGroundedBeachRecommendation(intent: ChatRequestIntent) {
+  if (!intent.beach || !intent.beachRequest) {
+    return undefined;
+  }
+
+  return renderSiargaoBeachRecommendation(intent.beachRequest);
+}
+
 function formatNullableWeatherMetric(value: number | null | undefined, unit: string) {
   return value === null || value === undefined ? "unavailable" : `${value}${unit}`;
+}
+
+function assessTodayWeather(
+  intent: ChatRequestIntent,
+  today: WeatherSnapshot["today"] | undefined,
+): {
+  headline: string;
+  planKind: "stormy" | "flexible" | "outdoor";
+} {
+  const condition = today?.condition ?? "Forecast unavailable";
+  const precipitationProbability = today?.precipitationProbability ?? 0;
+  const rainSum = today?.rainSum ?? 0;
+  const windGust = today?.windGust ?? 0;
+  const explicitRainPlan = /rainy|rain(?:ing)?|showers?|storm/i.test(intent.latestUserTurn);
+  const thunderstorm = /thunderstorm/i.test(condition);
+
+  if (explicitRainPlan || thunderstorm || precipitationProbability >= 70) {
+    return {
+      headline: `It looks stormy near ${intent.locationLabel ?? "Siargao"} today: ${condition.toLowerCase()}, ${precipitationProbability}% precipitation chance, ${weatherAmountLabel(
+        rainSum,
+        "rain",
+      )}, ${weatherAmountLabel(windGust, "gusts")}. I would keep the plan close and covered.`,
+      planKind: "stormy",
+    };
+  }
+
+  if (precipitationProbability >= 45 || rainSum >= 6 || windGust >= 35) {
+    return {
+      headline: `The forecast near ${intent.locationLabel ?? "Siargao"} is mixed today: ${condition.toLowerCase()}, ${precipitationProbability}% precipitation chance, ${weatherAmountLabel(
+        rainSum,
+        "rain",
+      )}. I would keep an outdoor plan, but make every stop easy to bail out of.`,
+      planKind: "flexible",
+    };
+  }
+
+  return {
+    headline: `The forecast near ${intent.locationLabel ?? "Siargao"} looks workable today: ${condition.toLowerCase()}, ${precipitationProbability}% precipitation chance, ${weatherAmountLabel(
+      rainSum,
+      "rain",
+    )}. I would start outdoors and keep one covered fallback.`,
+    planKind: "outdoor",
+  };
+}
+
+function localPlanLines(location: string, assessment: ReturnType<typeof assessTodayWeather>) {
+  if (assessment.planKind === "stormy") {
+    return [
+      assessment.headline,
+      "",
+      "1. Start with a covered cafe or brunch stop near Catangnan/General Luna while the rain is active.",
+      "2. Use the heaviest rain window for massage/spa time, laundry, cash, SIM, or transfer-booking errands.",
+      "3. Walk the Cloud 9 boardwalk only during a clear break and avoid long exposed scooter rides if roads are pooling.",
+      "4. If you want dinner next, I can check open nearby restaurants around Cloud 9 with Google Places.",
+    ];
+  }
+
+  if (assessment.planKind === "flexible") {
+    return [
+      assessment.headline,
+      "",
+      "1. Check the Cloud 9 boardwalk/viewing deck first, before conditions turn.",
+      "2. Keep lunch or coffee near Catangnan/General Luna so you have cover within a short ride.",
+      "3. Add surf or beach time only if the local conditions look comfortable when you arrive.",
+      "4. Keep dinner close to Cloud 9 or General Luna if showers return.",
+    ];
+  }
+
+  return [
+    assessment.headline,
+    "",
+    `1. Start at the ${location === "Cloud 9" ? "Cloud 9" : location} boardwalk/viewing area while conditions are good.`,
+    "2. Add a surf lesson or board rental only after checking local surf conditions at the beach.",
+    "3. Use a cafe or lunch stop near Catangnan/General Luna as your easy fallback.",
+    "4. Keep sunset flexible and switch to dinner nearby if rain or wind picks up.",
+  ];
+}
+
+function weatherAmountLabel(value: number, kind: "gusts" | "rain") {
+  if (kind === "gusts") {
+    if (value >= 35) {
+      return `gusts around ${value}km/h`;
+    }
+    return `moderate gusts around ${value}km/h`;
+  }
+
+  if (value >= 18) {
+    return `${value}mm heavy rain volume`;
+  }
+  if (value >= 6) {
+    return `${value}mm moderate rain volume`;
+  }
+  return `${value}mm light rain volume`;
 }
 
 function shouldDeclineNonSiargaoTopic(messages: readonly AskSiargaoChatMessage[]) {

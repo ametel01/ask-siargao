@@ -55,7 +55,14 @@ type AssistantMarkdownBlock =
     }
   | {
       key: string;
+      type: "source";
+      label: string;
+      text: string;
+    }
+  | {
+      key: string;
       type: "list";
+      ordered: boolean;
       items: Array<{
         key: string;
         text: string;
@@ -344,18 +351,44 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
           );
         }
 
-        return block.type === "list" ? (
-          <ul
-            className={`m-0 max-w-full list-disc space-y-1.5 pl-5 text-sm leading-[1.6] break-words sm:text-base ${textClass}`}
-            key={block.key}
-          >
-            {block.items.map((item) => (
-              <li className="min-w-0 whitespace-pre-line break-words" key={item.key}>
-                <InlineMarkdown linkClass={linkClass} strongClass={strongClass} value={item.text} />
-              </li>
-            ))}
-          </ul>
-        ) : (
+        if (block.type === "list") {
+          const listClass = `m-0 max-w-full space-y-1.5 pl-6 text-sm leading-[1.6] break-words sm:text-base ${textClass}`;
+          const items = block.items.map((item) => (
+            <li className="min-w-0 whitespace-pre-line break-words" key={item.key}>
+              <InlineMarkdown linkClass={linkClass} strongClass={strongClass} value={item.text} />
+            </li>
+          ));
+
+          return block.ordered ? (
+            <ol
+              className={`${listClass} list-outside list-decimal marker:font-black marker:text-brand-violet-650`}
+              key={block.key}
+            >
+              {items}
+            </ol>
+          ) : (
+            <ul className={`${listClass} list-disc`} key={block.key}>
+              {items}
+            </ul>
+          );
+        }
+
+        if (block.type === "source") {
+          return (
+            <p
+              className={`m-0 max-w-full rounded-md border border-black/5 bg-black/[0.035] px-3 py-2 text-xs leading-[1.45] break-words sm:text-sm ${
+                tone === "error" ? "text-[#ffd5ce]" : "text-text-soft"
+              }`}
+              data-testid="assistant-source-line"
+              key={block.key}
+            >
+              <span className={strongClass}>{block.label}:</span>{" "}
+              <InlineMarkdown linkClass={linkClass} strongClass={strongClass} value={block.text} />
+            </p>
+          );
+        }
+
+        return (
           <p
             className={`m-0 max-w-full text-sm leading-[1.6] break-words sm:text-base ${textClass}`}
             key={block.key}
@@ -383,10 +416,13 @@ function InlineMarkdown({
 function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
   const normalizedText = text
     .replace(/\r\n?/g, "\n")
-    .replace(/\s+-\s+(\*\*[^*]+?\*\*:)/g, "\n- $1");
+    .replace(/\s+-\s+(\*\*[^*]+?\*\*:)/g, "\n- $1")
+    .replace(/\s+(\d+\.\s+[A-Z][^:\n]{0,120})/g, "\n$1")
+    .replace(/\s+(Weather signal:|Checked:|Not checked:)/g, "\n$1");
   const blocks: AssistantMarkdownBlock[] = [];
   let paragraphLines: string[] = [];
   let listItems: AssistantMarkdownListItems = [];
+  let listOrdered = false;
   let blockKeyCount = 0;
   let itemKeyCount = 0;
 
@@ -417,10 +453,12 @@ function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
         blockKeyCount,
       ),
       type: "list",
+      ordered: listOrdered,
       items: listItems,
     });
     blockKeyCount += 1;
     listItems = [];
+    listOrdered = false;
   };
 
   for (const rawLine of normalizedText.split("\n")) {
@@ -441,7 +479,9 @@ function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
     }
 
     const bulletMatch = /^[-*]\s+(.+)$/.exec(line);
+    const orderedMatch = /^\d+\.\s+(.+)$/.exec(line);
     const headingMatch = /^#{1,3}\s+(.+)$/.exec(line);
+    const sourceMatch = /^(Checked|Weather signal|Not checked):\s*(.+)$/i.exec(line);
 
     if (headingMatch) {
       flushParagraph();
@@ -456,9 +496,43 @@ function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
       continue;
     }
 
+    if (sourceMatch) {
+      flushParagraph();
+      flushList();
+      const label = sourceMatch[1] ?? "";
+      const sourceText = sourceMatch[2] ?? "";
+      blocks.push({
+        key: createAssistantMarkdownKey("source", `${label}:${sourceText}`, blockKeyCount),
+        type: "source",
+        label,
+        text: sourceText,
+      });
+      blockKeyCount += 1;
+      continue;
+    }
+
     if (bulletMatch) {
       flushParagraph();
+      if (listItems.length > 0 && listOrdered) {
+        flushList();
+      }
+      listOrdered = false;
       const itemText = bulletMatch[1] ?? "";
+      listItems.push({
+        key: createAssistantMarkdownKey("item", itemText, itemKeyCount),
+        text: itemText,
+      });
+      itemKeyCount += 1;
+      continue;
+    }
+
+    if (orderedMatch) {
+      flushParagraph();
+      if (listItems.length > 0 && !listOrdered) {
+        flushList();
+      }
+      listOrdered = true;
+      const itemText = orderedMatch[1] ?? "";
       listItems.push({
         key: createAssistantMarkdownKey("item", itemText, itemKeyCount),
         text: itemText,

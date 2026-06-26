@@ -166,10 +166,28 @@ describe("chat route", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.message).toContain("For Cloud 9 today");
+    expect(body.message).toContain("forecast near Cloud 9");
     expect(body.message).toContain("Checked: Open-Meteo weather API");
     expect(body.message).toContain("Not checked: Google Places open-now results");
+    expect(body.message).not.toContain("ask for dinner places");
     expect(agentCalls).toBe(0);
+    expect(dependencies.weatherRequests).toBe(1);
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("tolerates a missing leading letter in Cloud 9 activity prompts", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "hat should I do near Cloud 9 today?" }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("forecast near Cloud 9");
+    expect(body.message).toContain("Checked: Open-Meteo weather API");
     expect(dependencies.weatherRequests).toBe(1);
     expect(dependencies.requests).toHaveLength(0);
   });
@@ -189,8 +207,9 @@ describe("chat route", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.message).toContain("For Cloud 9 on a rainy day");
+    expect(body.message).toContain("It looks stormy near Cloud 9 today");
     expect(body.message).toContain("Checked: Open-Meteo weather API");
+    expect(body.message).toContain("If you want dinner next, I can check open nearby restaurants");
     expect(dependencies.weatherRequests).toBe(1);
     expect(dependencies.requests).toHaveLength(0);
   });
@@ -257,6 +276,186 @@ describe("chat route", () => {
     expect(response.status).toBe(200);
     expect(body.message).toContain("Dinner Grill");
     expect(Array.isArray(agentMessages)).toBe(true);
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("routes covered cafe and beachfront place requests to recommendation", async () => {
+    const dependencies = chatDependencies();
+    let agentMessages: unknown;
+    dependencies.recommendationAgent = {
+      answer: async ({ messages }) => {
+        agentMessages = messages;
+        return {
+          status: "answered",
+          message:
+            "Good options I found from Google Places:\n1. **Covered Cafe**\n  Maps: https://maps.example/cafe",
+          model: "gpt-5.5",
+        };
+      },
+    };
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          { role: "user", content: "something covered" },
+          {
+            role: "assistant",
+            content: "A covered café or beachfront place near General Luna would fit.",
+          },
+          {
+            role: "user",
+            content: "yes give me specific covered cafés or beachfront places near General Luna.",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("Covered Cafe");
+    expect(Array.isArray(agentMessages)).toBe(true);
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("routes open-now follow-ups about prior place recommendations to recommendation", async () => {
+    const dependencies = chatDependencies();
+    let agentMessages: unknown;
+    dependencies.recommendationAgent = {
+      answer: async ({ messages }) => {
+        agentMessages = messages;
+        return {
+          status: "answered",
+          message:
+            "Good options I found from Google Places:\n1. **Open Cafe**\n  Best fit: closest strong match, 300 m from General Luna, open now.",
+          model: "gpt-5.5",
+        };
+      },
+    };
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "yes give me specific covered cafés or beachfront places near General Luna.",
+          },
+          {
+            role: "assistant",
+            content: "Good options I found from Google Places:\n1. **Covered Cafe**",
+          },
+          { role: "user", content: "open now?" },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("Open Cafe");
+    expect(Array.isArray(agentMessages)).toBe(true);
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("answers 30-minute General Luna beach questions from the grounded beach guide", async () => {
+    const dependencies = chatDependencies();
+    let agentCalls = 0;
+    dependencies.recommendationAgent = {
+      answer: async () => {
+        agentCalls += 1;
+        return { status: "unsupported", message: "", model: "gpt-5.5" };
+      },
+    };
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "which beaches can i reach within 30 min ride from general luna?",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("From General Luna");
+    expect(body.message).toContain("Doot Beach");
+    expect(body.message).toContain("Malinao Beach");
+    expect(body.message).toContain("Secret Beach");
+    expect(body.message).toContain("not include Pacifico or Alegria");
+    expect(body.message).toContain("Checked: Ask Siargao curated local beach guide");
+    expect(agentCalls).toBe(0);
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("inherits prior beach constraints for sandy-only follow-ups", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "which beaches can i reach within 30 min ride from general luna?",
+          },
+          {
+            role: "assistant",
+            content:
+              "From General Luna, Doot Beach, Malinao Beach, and Secret Beach are close options.",
+          },
+          { role: "user", content: "i'd like not rocky beaches, sand beaches only" },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("sandy, not-rocky beach options");
+    expect(body.message).toContain("Doot Beach");
+    expect(body.message).toContain("Malinao Beach");
+    expect(body.message).toContain("Secret Beach");
+    expect(body.message).not.toContain("Cloud 9 beach access");
+    expect(body.message).not.toContain("Union Beach area");
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("lets sunset beach follow-ups override prior swimming modifier", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "which beaches can i reach within 30 min ride from general luna?",
+          },
+          {
+            role: "assistant",
+            content:
+              "From General Luna, Doot Beach, Malinao Beach, and Secret Beach are close options.",
+          },
+          { role: "user", content: "i'd like not rocky beaches, sand beaches only" },
+          {
+            role: "assistant",
+            content:
+              "For sandy options, I would shortlist Malinao Beach, Doot Beach, and Secret Beach.",
+          },
+          { role: "user", content: "best for swimming?" },
+          {
+            role: "assistant",
+            content: "For swimming, Malinao and Doot are the easiest close sandy options.",
+          },
+          { role: "user", content: "what about sunset?" },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("For sunset with your sandy, not-rocky filter");
+    expect(body.message).toContain("late-afternoon beach options");
+    expect(body.message).toContain("classic Cloud 9 sunset vibe");
+    expect(body.message).not.toContain("good sandy shoreline candidate when conditions are calm");
     expect(dependencies.requests).toHaveLength(0);
   });
 

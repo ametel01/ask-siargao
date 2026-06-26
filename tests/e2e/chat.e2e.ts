@@ -21,9 +21,7 @@ test("sends a desktop composer message to the chat API and renders the assistant
 
   await expect(page.getByLabel("Ask Siargao chat workspace")).toBeVisible();
   await expect(page.getByRole("heading", { name: /Ask a real question/i })).toBeVisible();
-  await expect(page.getByText("GPT-backed response")).toBeVisible();
-  await expect(page.getByText("Weather questions can use")).toBeVisible();
-  await expect(page.getByText("Open-Meteo snapshot")).toBeVisible();
+  await expect(page.getByText("Ask about food, weather, transfers")).toBeVisible();
   await expect(page.getByRole("link", { name: "Start a new chat" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Trip context" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Cloud 9 Weather" })).toHaveCount(0);
@@ -88,6 +86,46 @@ test("sends a mobile suggested prompt through the same chat API path", async ({ 
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(lastSubmittedContent(mockChat.requests[0])).toBe("Help me plan a quiet Siargao day");
   await expect(page.getByLabel("Ask anything about Siargao")).toBeVisible();
+});
+
+test("renders numbered assistant plans and source caveats as separate blocks", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockChatApi(page, {
+    message: [
+      "It looks stormy near Cloud 9 today: thunderstorm, 75% precipitation chance. Keep it close.",
+      "",
+      "1. Start with a covered cafe near Catangnan.",
+      "2. Use the heaviest rain window for massage or errands.",
+      "3. Walk the Cloud 9 boardwalk only during a clear break.",
+      "",
+      "Checked: Open-Meteo weather API forecast. Weather signal: Thunderstorm; rain 0.7mm. Not checked: Google Places open-now results or road flooding.",
+    ].join("\n"),
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("What should I do near Cloud 9 today?");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByText("It looks stormy near Cloud 9 today")).toBeVisible();
+  await expect(
+    page.getByRole("listitem").filter({ hasText: "Start with a covered cafe near Catangnan." }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("listitem").filter({ hasText: "Use the heaviest rain window" }),
+  ).toBeVisible();
+  await expect(page.getByText("Checked: Open-Meteo weather API forecast.")).toBeVisible();
+  await expect(page.getByText("Weather signal:")).toBeVisible();
+  await expect(
+    page.getByText("Not checked: Google Places open-now results or road flooding."),
+  ).toBeVisible();
+
+  const orderedListCount = await page
+    .getByTestId("assistant-message-bubble")
+    .last()
+    .locator("ol")
+    .count();
+  expect(orderedListCount).toBe(1);
+  await expect(page.getByTestId("assistant-source-line")).toHaveCount(3);
 });
 
 test("wraps long assistant links without rendering preview cards", async ({ page }) => {
