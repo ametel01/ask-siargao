@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Logger } from "pino";
 import { z } from "zod";
 
+import type { AgentToolCallAudit } from "@/server/chat/agent-runtime";
 import {
   type AskSiargaoAgentDependencies,
   runAskSiargaoAgentTurn as defaultRunAskSiargaoAgentTurn,
@@ -167,7 +168,10 @@ export async function chatResponse(
       {
         branch: "agent_runtime",
         model: result.model,
+        providerFailure: result.toolCalls.some(isProviderFailureToolCall),
+        sourceLabels: [...new Set(result.sources.map((source) => source.label))],
         toolCallCount: result.toolCalls.length,
+        toolCalls: result.toolCalls.map(summarizeToolCallForLogs),
         sourceCount: result.sources.length,
         upstreamRequestIds: result.upstreamRequestIds,
         durationMs: Date.now() - startedAt,
@@ -230,6 +234,26 @@ export async function chatResponse(
 
 function isWeatherQuestion(intent: ChatRequestIntent) {
   return intent.weather || intent.weatherSensitive || intent.activityPlan;
+}
+
+function summarizeToolCallForLogs(toolCall: AgentToolCallAudit) {
+  return {
+    name: toolCall.name,
+    status: toolCall.status,
+    errorCode: toolCall.errorCode,
+    providerOperation: toolCall.providerOperation,
+    sourceLabels: toolCall.sources.map((source) => source.label),
+    sourceProfileIds: toolCall.sourceProfileIds,
+    durationMs: toolCall.durationMs,
+  };
+}
+
+function isProviderFailureToolCall(toolCall: AgentToolCallAudit) {
+  return (
+    toolCall.status === "error" ||
+    toolCall.errorCode === "provider_unavailable" ||
+    toolCall.sources.some((source) => source.label === "provider_unavailable")
+  );
 }
 
 function isRecommendationQuestion(intent: ChatRequestIntent) {

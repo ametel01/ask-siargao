@@ -98,6 +98,23 @@ describe("chat source consistency", () => {
     ]);
   });
 
+  test("rejects rendered checked source claims even when structured sources are omitted", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message:
+        "This was checked.\n\nChecked: Google Places (live checked; high confidence; profile source_google_places) - open-now status.",
+      sources: [],
+      toolCalls: [],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        code: "rendered_checked_line_not_verifiable",
+        label: "live_checked",
+      }),
+    ]);
+  });
+
   test("rejects generic model reasoning mislabeled as a live check", () => {
     const mislabeledGeneric: AnswerSourceSummary = {
       ...genericSourceSummary,

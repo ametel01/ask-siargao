@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import type { Logger } from "pino";
+
 import {
   type ChatRouteDependencies,
   chatResponse,
@@ -212,6 +214,51 @@ describe("chat route", () => {
     expect(dependencies.requests).toHaveLength(1);
   });
 
+  test("logs route metadata for tool calls and provider failures without restricted payloads", async () => {
+    const logs = captureLogger();
+    const failingToolCall = toolCall({
+      name: "search_places",
+      status: "error",
+      errorCode: "provider_unavailable",
+      sources: [providerUnavailableSourceSummary],
+    });
+    failingToolCall.arguments = { restrictedProviderPayload: "SECRET_TOKEN" };
+    const dependencies = chatDependencies({
+      message: "The model says live Google Places open-now status could not be checked.",
+      toolCalls: [failingToolCall],
+      sources: [providerUnavailableSourceSummary],
+    });
+    dependencies.logger = logs.logger;
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Restaurants open now near General Luna?" }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+    const answeredLog = logs.events.find((event) => event.message === "Chat request answered.");
+
+    expect(response.status).toBe(200);
+    expect(logs.childBindings[0]?.requestId).toBe(body.requestId);
+    expect(answeredLog?.payload).toMatchObject({
+      branch: "agent_runtime",
+      model: "gpt-test",
+      providerFailure: true,
+      sourceLabels: ["provider_unavailable"],
+      toolCallCount: 1,
+      toolCalls: [
+        expect.objectContaining({
+          name: "search_places",
+          status: "error",
+          errorCode: "provider_unavailable",
+          sourceLabels: ["provider_unavailable"],
+          sourceProfileIds: ["source_google_places"],
+        }),
+      ],
+    });
+    expect(JSON.stringify(answeredLog?.payload)).not.toContain("SECRET_TOKEN");
+  });
+
   test("returns a controlled error when agent source labels are not tool-backed", async () => {
     const dependencies = chatDependencies({
       message: "The model claims live Places were checked.",
@@ -304,6 +351,31 @@ function rawRequest(body: string) {
     headers: { "content-type": "application/json" },
     body,
   });
+}
+
+function captureLogger() {
+  const childBindings: Record<string, unknown>[] = [];
+  const events: Array<{ level: string; payload: Record<string, unknown>; message: string }> = [];
+  const logger = {
+    child: (bindings: Record<string, unknown>) => {
+      childBindings.push(bindings);
+      return logger;
+    },
+    debug: (payload: Record<string, unknown>, message: string) => {
+      events.push({ level: "debug", payload, message });
+    },
+    error: (payload: Record<string, unknown>, message: string) => {
+      events.push({ level: "error", payload, message });
+    },
+    info: (payload: Record<string, unknown>, message: string) => {
+      events.push({ level: "info", payload, message });
+    },
+    warn: (payload: Record<string, unknown>, message: string) => {
+      events.push({ level: "warn", payload, message });
+    },
+  } as unknown as Logger;
+
+  return { childBindings, events, logger };
 }
 
 function toolCall({

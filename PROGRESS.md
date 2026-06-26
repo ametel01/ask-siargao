@@ -19,12 +19,12 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 - [x] Step 6: Responses API Tool Loop Runtime
 - [x] Step 7: Source Consistency Validator
 - [x] Step 8: Rewire `/api/chat` to the Agent Runtime
-- [ ] Step 9: Regression, Observability, and Documentation Pass
+- [x] Step 9: Regression, Observability, and Documentation Pass
 
 ## Current Status
 
-Step 8 is complete. `/api/chat` now routes valid responses through the agent runtime, and
-Step 9 is next.
+All steps are complete. `/api/chat` now routes valid responses through the agent runtime with
+tool-loop source validation, observability, regression coverage, and developer documentation.
 
 ## Update Rule
 
@@ -158,3 +158,17 @@ that step is committed.
   passed; `bun run test:e2e` passed (17 tests).
   Commit: this commit (`Route chat through agent runtime`).
   Next step: Step 9, Regression, Observability, and Documentation Pass.
+- 2026-06-26: Completed Step 9 by adding final route/runtime/source-consistency regression
+  coverage, route and tool-loop observability assertions, metadata-only provider-failure logging,
+  and `docs/developer/reference/chat-agent-runtime.md` with the backend tool extension path,
+  argument validation rules, provider failure contract, source summary rules, observability
+  expectations, and remaining out-of-scope roadmap items.
+  Validation: `bun run format` passed; `bun test
+  src/app/api/chat/route.test.ts src/server/chat/ask-siargao-agent.test.ts
+  src/server/chat/source-consistency.test.ts src/server/chat/agent-tools.test.ts` passed (54
+  tests); `bun run lint` passed (`biome check .`, 186 files checked); `bun run typecheck
+  --incremental false` passed; `bun test` passed (246 tests); `bun run db:migrate:test && bun
+  run db:seed:test` passed (38 tables; 5 areas, 3 routes, 4 source profiles); `bun run build`
+  passed; `bun run test:e2e` passed (17 tests).
+  Commit: this commit (`Document and verify chat agent runtime`).
+  Final plan status: complete.

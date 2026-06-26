@@ -185,6 +185,7 @@ async function executeAndAuditTool({
       status: audit.status,
       errorCode: audit.errorCode,
       providerOperation: audit.providerOperation,
+      sourceLabels: audit.sources.map((source) => source.label),
       sourceProfileIds: audit.sourceProfileIds,
     },
     "Ask Siargao agent tool call completed.",

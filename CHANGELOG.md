@@ -26,6 +26,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Added chat source consistency validation for structured sources and rendered source lines so
   model-written answers cannot fabricate live, cached, weather, curated, or provider-unavailable
   source labels without matching tool evidence.
+- Added chat agent runtime developer documentation covering tool extension, argument validation,
+  provider-failure outputs, source summaries, observability, and remaining out-of-scope roadmap
+  items.
 - Established progress tracking for the Priority 3 trust score and source labels implementation
   plan.
 - Added a shared answer source summary contract and compact markdown renderer for checked,
@@ -108,6 +111,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Routed valid `/api/chat` requests through the Ask Siargao agent runtime so weather, Places,
   local guide, scope-decline, missing-context, and provider-failure responses are model-written
   with structured tool/source metadata and source consistency validation.
+- Expanded chat runtime regression coverage and observability so route/runtime logs include
+  request IDs, model/tool metadata, provider-failure status, source labels, and source profile IDs
+  without raw restricted provider payloads.
 - Verified the Priority 3 trust/source label rollout against the roadmap and full release gate.
 - Preserved normalized answer source lines in the chat UI, including metadata-rich Open-Meteo
   source lines that mention Cloud 9 without being split as numbered lists.

@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import type { Logger } from "pino";
+
 import type {
   AgentResponsesClient,
   AgentResponsesCreateResult,
@@ -310,6 +312,63 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(parseToolOutput(client.requests[1]?.input, 0).errorCode).toBe("provider_unavailable");
   });
 
+  test("logs tool-loop metadata without raw tool output payloads", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_failed_places_call",
+        requestId: "req_failed_places_call",
+        callId: "call_places",
+        name: "search_places",
+        arguments: {
+          query: "restaurants open now",
+          center: { latitude: 9.8, longitude: 126.16 },
+          radius_meters: 2500,
+        },
+      }),
+      {
+        id: "resp_failed_places_final",
+        output_text: "I could not check live Google Places open-now status.",
+        _request_id: "req_failed_places_final",
+      },
+    ]);
+    const logs = captureLogger();
+
+    await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Restaurants open now near General Luna?" }],
+        requestId: "agent_request_logged_failure",
+      },
+      {
+        client,
+        logger: logs.logger,
+        executeTool: async (request) => ({
+          name: request.name,
+          status: "error",
+          text: "Google Places search failed: raw provider payload SECRET_TOKEN.",
+          data: { restrictedProviderPayload: "SECRET_TOKEN" },
+          errorCode: "provider_unavailable",
+          sources: [providerUnavailableSourceSummary],
+        }),
+        model: "gpt-test",
+      },
+    );
+
+    const toolLog = logs.events.find(
+      (event) => event.message === "Ask Siargao agent tool call completed.",
+    );
+    expect(logs.childBindings[0]?.requestId).toBe("agent_request_logged_failure");
+    expect(toolLog?.payload).toMatchObject({
+      toolCallId: "call_places",
+      toolName: "search_places",
+      status: "error",
+      errorCode: "provider_unavailable",
+      providerOperation: "google_places.search",
+      sourceLabels: ["provider_unavailable"],
+      sourceProfileIds: ["source_google_places"],
+    });
+    expect(JSON.stringify(toolLog?.payload)).not.toContain("SECRET_TOKEN");
+  });
+
   test("protects the loop from excessive tool calls", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
@@ -471,6 +530,31 @@ function parseToolOutput(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function captureLogger() {
+  const childBindings: Record<string, unknown>[] = [];
+  const events: Array<{ level: string; payload: Record<string, unknown>; message: string }> = [];
+  const logger = {
+    child: (bindings: Record<string, unknown>) => {
+      childBindings.push(bindings);
+      return logger;
+    },
+    debug: (payload: Record<string, unknown>, message: string) => {
+      events.push({ level: "debug", payload, message });
+    },
+    error: (payload: Record<string, unknown>, message: string) => {
+      events.push({ level: "error", payload, message });
+    },
+    info: (payload: Record<string, unknown>, message: string) => {
+      events.push({ level: "info", payload, message });
+    },
+    warn: (payload: Record<string, unknown>, message: string) => {
+      events.push({ level: "warn", payload, message });
+    },
+  } as unknown as Logger;
+
+  return { childBindings, events, logger };
 }
 
 const weatherSourceSummary: AnswerSourceSummary = {
