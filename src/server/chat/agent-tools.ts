@@ -8,6 +8,10 @@ import type {
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary, AnswerTrustLabel } from "@/server/chat/answer-source-summary";
 import {
+  type LocalGuideSearchResult,
+  searchSiargaoLocalGuide,
+} from "@/server/local/siargao-beaches";
+import {
   type GooglePlacesChatContext,
   type GooglePlacesChatPlace,
   type GooglePlacesChatSearch,
@@ -87,6 +91,7 @@ export type AgentToolDependencies = {
 
 type SearchPlacesArguments = z.infer<typeof searchPlacesSchema>;
 type PlaceDetailsArguments = z.infer<typeof placeDetailsSchema>;
+type SearchLocalGuideArguments = z.infer<typeof searchLocalGuideSchema>;
 type WeatherForecastArguments = z.infer<typeof weatherForecastSchema>;
 
 const weatherForecastLocations = [
@@ -126,6 +131,24 @@ const placeDetailsSchema = z
       .min(2)
       .max(200)
       .regex(/^[A-Za-z0-9_.:-]+$/),
+  })
+  .strict();
+const searchLocalGuideSchema = z
+  .object({
+    query: z.string().trim().min(2).max(240),
+    filters: z
+      .object({
+        beach_surface: z.enum(["sand", "mixed", "rocky", "any"]).optional(),
+        swimming: z.boolean().optional(),
+        sunset: z.boolean().optional(),
+        rain_fit: z.boolean().optional(),
+        origin: z.enum(["Cloud 9", "General Luna", "Siargao Island"]).optional(),
+        max_ride_minutes: z.number().int().min(1).max(180).optional(),
+        transport_mode: z.enum(["walk", "scooter", "tricycle", "van"]).optional(),
+        with_kids: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 const weatherForecastSchema = z
@@ -371,6 +394,71 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
     execute: (args, _request, dependencies) =>
       getPlaceDetailsToolResult(args as PlaceDetailsArguments, dependencies),
   },
+  search_local_guide: {
+    definition: {
+      type: "function",
+      name: "search_local_guide",
+      description:
+        "Search Ask Siargao curated local guide facts for beaches and local trip-planning fit.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Natural-language local guide query.",
+          },
+          filters: {
+            type: "object",
+            properties: {
+              beach_surface: {
+                type: "string",
+                enum: ["sand", "mixed", "rocky", "any"],
+                description: "Preferred beach surface.",
+              },
+              swimming: {
+                type: "boolean",
+                description: "Whether swimming fit should be prioritized.",
+              },
+              sunset: {
+                type: "boolean",
+                description: "Whether sunset or late-afternoon fit should be prioritized.",
+              },
+              rain_fit: {
+                type: "boolean",
+                description: "Whether bad-weather or short-ride fit should be prioritized.",
+              },
+              origin: {
+                type: "string",
+                enum: ["Cloud 9", "General Luna", "Siargao Island"],
+                description: "Traveler origin context.",
+              },
+              max_ride_minutes: {
+                type: "integer",
+                minimum: 1,
+                maximum: 180,
+                description: "Maximum ride time from the General Luna side.",
+              },
+              transport_mode: {
+                type: "string",
+                enum: ["walk", "scooter", "tricycle", "van"],
+                description: "Traveler transport constraint.",
+              },
+              with_kids: {
+                type: "boolean",
+                description: "Whether the traveler is with kids.",
+              },
+            },
+            additionalProperties: false,
+          },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+    schema: searchLocalGuideSchema,
+    execute: (args) => searchLocalGuideToolResult(args as SearchLocalGuideArguments),
+  },
   describe_source_policy: {
     definition: {
       type: "function",
@@ -558,6 +646,69 @@ async function getPlaceDetailsToolResult(
       sources: [googlePlacesProviderUnavailableSourceSummary("Google Places details lookup")],
     };
   }
+}
+
+function searchLocalGuideToolResult(args: SearchLocalGuideArguments): AgentToolResult {
+  const result = searchSiargaoLocalGuide({
+    query: args.query,
+    filters: {
+      ...(args.filters?.beach_surface ? { beachSurface: args.filters.beach_surface } : {}),
+      ...(args.filters?.swimming !== undefined ? { swimming: args.filters.swimming } : {}),
+      ...(args.filters?.sunset !== undefined ? { sunset: args.filters.sunset } : {}),
+      ...(args.filters?.rain_fit !== undefined ? { rainFit: args.filters.rain_fit } : {}),
+      ...(args.filters?.origin ? { originLabel: args.filters.origin } : {}),
+      ...(args.filters?.max_ride_minutes ? { maxRideMinutes: args.filters.max_ride_minutes } : {}),
+      ...(args.filters?.transport_mode ? { transportMode: args.filters.transport_mode } : {}),
+      ...(args.filters?.with_kids !== undefined ? { withKids: args.filters.with_kids } : {}),
+    },
+  });
+
+  return {
+    name: "search_local_guide",
+    status: "success",
+    text: renderLocalGuideText(result),
+    data: normalizeLocalGuideSearchResult(result),
+    sources: [result.sourceSummary],
+  };
+}
+
+function renderLocalGuideText(result: LocalGuideSearchResult) {
+  const candidates = result.candidates
+    .slice(0, 5)
+    .map((candidate, index) =>
+      [
+        `${index + 1}. ${candidate.name}`,
+        candidate.area,
+        `${candidate.rideTimeFromGeneralLunaMinutes.min}-${candidate.rideTimeFromGeneralLunaMinutes.max} min from General Luna`,
+        `${candidate.surface} surface`,
+        candidate.bestFor,
+      ]
+        .filter(Boolean)
+        .join(" - "),
+    );
+  const exclusions = result.excluded
+    .filter(
+      (candidate) => candidate.name === "Pacifico Beach" || candidate.name === "Alegria Beach",
+    )
+    .map((candidate) => `Excluded: ${candidate.name} - ${candidate.reason}`);
+
+  return [
+    `Ask Siargao curated local guide results for "${result.query}".`,
+    ...candidates,
+    ...exclusions,
+    ...result.caveats,
+  ].join("\n");
+}
+
+function normalizeLocalGuideSearchResult(result: LocalGuideSearchResult) {
+  return {
+    status: "available",
+    query: result.query,
+    filters: result.filters,
+    candidates: result.candidates,
+    excluded: result.excluded,
+    caveats: result.caveats,
+  };
 }
 
 async function getGooglePlacesSearchContext(

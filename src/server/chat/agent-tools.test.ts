@@ -117,6 +117,67 @@ describe("agent tools", () => {
       },
       {
         type: "function",
+        name: "search_local_guide",
+        description:
+          "Search Ask Siargao curated local guide facts for beaches and local trip-planning fit.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Natural-language local guide query.",
+            },
+            filters: {
+              type: "object",
+              properties: {
+                beach_surface: {
+                  type: "string",
+                  enum: ["sand", "mixed", "rocky", "any"],
+                  description: "Preferred beach surface.",
+                },
+                swimming: {
+                  type: "boolean",
+                  description: "Whether swimming fit should be prioritized.",
+                },
+                sunset: {
+                  type: "boolean",
+                  description: "Whether sunset or late-afternoon fit should be prioritized.",
+                },
+                rain_fit: {
+                  type: "boolean",
+                  description: "Whether bad-weather or short-ride fit should be prioritized.",
+                },
+                origin: {
+                  type: "string",
+                  enum: ["Cloud 9", "General Luna", "Siargao Island"],
+                  description: "Traveler origin context.",
+                },
+                max_ride_minutes: {
+                  type: "integer",
+                  minimum: 1,
+                  maximum: 180,
+                  description: "Maximum ride time from the General Luna side.",
+                },
+                transport_mode: {
+                  type: "string",
+                  enum: ["walk", "scooter", "tricycle", "van"],
+                  description: "Traveler transport constraint.",
+                },
+                with_kids: {
+                  type: "boolean",
+                  description: "Whether the traveler is with kids.",
+                },
+              },
+              additionalProperties: false,
+            },
+          },
+          required: ["query"],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+      {
+        type: "function",
         name: "describe_source_policy",
         description:
           "Explain Ask Siargao source labels, checked/not-checked boundaries, and provider caveats.",
@@ -146,6 +207,11 @@ describe("agent tools", () => {
         name: "get_place_details",
         description:
           "Get governed Google Places identity details for one place ID using cache-first lookup and the allowed details field mask.",
+      },
+      {
+        name: "search_local_guide",
+        description:
+          "Search Ask Siargao curated local guide facts for beaches and local trip-planning fit.",
       },
       {
         name: "describe_source_policy",
@@ -430,6 +496,112 @@ describe("agent tools", () => {
     expect(result.errorCode).toBe("provider_unavailable");
     expect(result.sources[0]?.label).toBe("provider_unavailable");
     expect(result.text).toContain("PERMISSION_DENIED");
+  });
+
+  test("returns sand-only curated beach guide candidates", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_local",
+      name: "search_local_guide",
+      arguments: {
+        query: "sandy beaches near General Luna",
+        filters: {
+          beach_surface: "sand",
+          origin: "General Luna",
+          max_ride_minutes: 30,
+        },
+      },
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.sources[0]).toMatchObject({
+      label: "curated_local_guide",
+      sourceName: "Ask Siargao curated local beach guide",
+    });
+    const data = result.data as {
+      candidates: Array<{ name: string; surface: string }>;
+      caveats: string[];
+    };
+    expect(data.candidates.map((candidate) => candidate.name)).toEqual([
+      "Malinao Beach",
+      "Doot Beach",
+      "Secret Beach",
+    ]);
+    expect(data.candidates.every((candidate) => candidate.surface === "sand")).toBe(true);
+    expect(data.caveats.join(" ")).toContain("not a live tide");
+  });
+
+  test("prioritizes swimming follow-up local guide results", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_local",
+      name: "search_local_guide",
+      arguments: {
+        query: "best for swimming?",
+        filters: {
+          beach_surface: "sand",
+          swimming: true,
+          max_ride_minutes: 30,
+        },
+      },
+    });
+
+    const data = result.data as {
+      candidates: Array<{ name: string; fitReasons: string[]; caveats: string[] }>;
+    };
+    expect(data.candidates[0]?.name).toBe("Doot Beach");
+    expect(data.candidates[1]?.name).toBe("Malinao Beach");
+    expect(data.candidates[0]?.fitReasons.join(" ")).toContain("easier sandy options");
+    expect(data.candidates[0]?.caveats.join(" ")).toContain("No live tide/current");
+  });
+
+  test("keeps strict 30-minute local guide filters and north-island exclusions", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_local",
+      name: "search_local_guide",
+      arguments: {
+        query: "beaches within 30 min ride from General Luna",
+        filters: {
+          origin: "General Luna",
+          max_ride_minutes: 30,
+        },
+      },
+    });
+
+    expect(result.text).toContain("Excluded: Pacifico Beach");
+    expect(result.text).toContain("Excluded: Alegria Beach");
+    const data = result.data as {
+      candidates: Array<{ name: string; rideTimeFromGeneralLunaMinutes: { max: number } }>;
+      excluded: Array<{ name: string; reason: string }>;
+    };
+    expect(
+      data.candidates.every((candidate) => candidate.rideTimeFromGeneralLunaMinutes.max <= 30),
+    ).toBe(true);
+    expect(
+      data.excluded.find((candidate) => candidate.name === "Pacifico Beach")?.reason,
+    ).toContain("outside the 30-minute filter");
+  });
+
+  test("carries kids and no-scooter caveats without safety overclaims", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_local",
+      name: "search_local_guide",
+      arguments: {
+        query: "with kids and no scooter beach options",
+        filters: {
+          beach_surface: "sand",
+          max_ride_minutes: 30,
+          transport_mode: "walk",
+          with_kids: true,
+        },
+      },
+    });
+
+    const data = result.data as {
+      candidates: Array<{ fitReasons: string[]; caveats: string[] }>;
+    };
+    expect(data.candidates[0]?.fitReasons.join(" ")).toContain("Family/kids constraint");
+    expect(data.candidates[0]?.caveats.join(" ")).toContain("Re-check conditions in person");
+    expect(result.sources[0]?.notChecked.join(" ")).toContain("lifeguard or swimming safety");
+    expect(result.text).not.toContain("lifeguard checked");
   });
 
   test("returns a normalized live weather forecast tool output", async () => {

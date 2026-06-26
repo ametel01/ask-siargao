@@ -15,7 +15,7 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 - [x] Step 2: Tool Registry and Source Policy Tool
 - [x] Step 3: Weather Forecast Tool
 - [x] Step 4: Google Places Search and Details Tools
-- [ ] Step 5: Curated Local Guide Tool
+- [x] Step 5: Curated Local Guide Tool
 - [ ] Step 6: Responses API Tool Loop Runtime
 - [ ] Step 7: Source Consistency Validator
 - [ ] Step 8: Rewire `/api/chat` to the Agent Runtime
@@ -23,8 +23,7 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 
 ## Current Status
 
-Step 4 is complete. The governed Google Places search and details agent tools are
-available, and Step 5 is next.
+Step 5 is complete. The curated local guide agent tool is available, and Step 6 is next.
 
 ## Update Rule
 
@@ -97,3 +96,18 @@ that step is committed.
   passed; `bun run test:e2e` passed (17 tests).
   Commit: this commit (`Add governed Places chat tools`).
   Next step: Step 5, Curated Local Guide Tool.
+- 2026-06-26: Completed Step 5 by adding structured local guide search output for the
+  curated Siargao beach data, keeping the legacy prose renderer for route compatibility,
+  and exposing `search_local_guide` with filters for beach surface, swimming, sunset, rain
+  fit, origin, ride time, transport mode, and kids constraints. The tool returns curated
+  source summaries plus caveats for tide, currents, live road conditions, access changes,
+  and lifeguard/safety status.
+  Validation: `bun run format` passed; `bun test
+  src/server/chat/agent-tools.test.ts src/app/api/chat/route.test.ts
+  src/server/chat/local-recommendation.test.ts` passed (59 tests); `bun run lint` passed
+  (`biome check .`, 182 files checked); `bun run typecheck --incremental false` passed;
+  `bun test` passed (248 tests); `bun run db:migrate:test && bun run db:seed:test` passed
+  (38 tables; 5 areas, 3 routes, 4 source profiles); `bun run build` passed; `bun run
+  test:e2e` passed (17 tests).
+  Commit: this commit (`Add curated local guide chat tool`).
+  Next step: Step 6, Responses API Tool Loop Runtime.

@@ -32,6 +32,43 @@ export type BeachRecommendationRequest = {
   durableConstraints?: string[];
 };
 
+export type LocalGuideSearchFilters = {
+  beachSurface?: SiargaoBeachSurface | "any";
+  swimming?: boolean;
+  sunset?: boolean;
+  rainFit?: boolean;
+  originLabel?: "Cloud 9" | "General Luna" | "Siargao Island";
+  maxRideMinutes?: number;
+  transportMode?: "walk" | "scooter" | "tricycle" | "van";
+  withKids?: boolean;
+};
+
+export type LocalGuideCandidate = {
+  name: string;
+  area: string;
+  rideTimeFromGeneralLunaMinutes: { min: number; max: number };
+  surface: SiargaoBeachSurface;
+  confidence: SiargaoBeach["confidence"];
+  bestFor: string;
+  fitReasons: string[];
+  caveats: string[];
+  sourceNotes: string;
+};
+
+export type LocalGuideExcludedCandidate = {
+  name: string;
+  reason: string;
+};
+
+export type LocalGuideSearchResult = {
+  query: string;
+  filters: LocalGuideSearchFilters;
+  candidates: LocalGuideCandidate[];
+  excluded: LocalGuideExcludedCandidate[];
+  caveats: string[];
+  sourceSummary: AnswerSourceSummary;
+};
+
 const siargaoBeachGuide: SiargaoBeach[] = [
   {
     name: "Doot Beach",
@@ -127,7 +164,7 @@ const siargaoBeachGuide: SiargaoBeach[] = [
   },
 ];
 
-const beachGuideSourceSummary: AnswerSourceSummary = {
+export const beachGuideSourceSummary: AnswerSourceSummary = {
   label: "curated_local_guide",
   sourceName: "Ask Siargao curated local beach guide",
   confidence: "medium",
@@ -141,6 +178,51 @@ const beachGuideSourceSummary: AnswerSourceSummary = {
   ],
 };
 
+export function searchSiargaoLocalGuide({
+  filters = {},
+  query,
+}: {
+  query: string;
+  filters?: LocalGuideSearchFilters;
+}): LocalGuideSearchResult {
+  const normalizedFilters = normalizeLocalGuideFilters(query, filters);
+  const maxRideMinutes = normalizedFilters.maxRideMinutes ?? 45;
+  const selectedSurface = normalizedFilters.beachSurface ?? "any";
+  const excluded: LocalGuideExcludedCandidate[] = [];
+  const candidates = siargaoBeachGuide
+    .filter((beach) => {
+      const rideTimeFits = beach.distanceFromGeneralLunaMinutes.max <= maxRideMinutes;
+      const surfaceFits = selectedSurface === "any" || beach.surface === selectedSurface;
+      if (!rideTimeFits) {
+        excluded.push({
+          name: beach.name,
+          reason: `usually ${beach.distanceFromGeneralLunaMinutes.min}-${beach.distanceFromGeneralLunaMinutes.max} minutes from General Luna, outside the ${maxRideMinutes}-minute filter`,
+        });
+      } else if (!surfaceFits) {
+        excluded.push({
+          name: beach.name,
+          reason: `${beach.surface} surface does not match the ${selectedSurface} surface filter`,
+        });
+      }
+      return rideTimeFits && surfaceFits;
+    })
+    .sort((left, right) => localGuideRank(left, right, normalizedFilters))
+    .map((beach) => localGuideCandidate(beach, normalizedFilters));
+
+  return {
+    query,
+    filters: normalizedFilters,
+    candidates,
+    excluded,
+    caveats: [
+      "Curated local guide data is not a live tide, current, weather, road, access, or lifeguard check.",
+      "Ride times are estimates from the General Luna side and can change with exact origin, roadwork, weather, and transport.",
+    ],
+    sourceSummary: beachGuideSourceSummary,
+  };
+}
+
+// Legacy deterministic prose renderer kept until `/api/chat` is rewired to the agent runtime.
 export function renderSiargaoBeachRecommendation(request: BeachRecommendationRequest) {
   const originLabel = request.originLabel === "Cloud 9" ? "Cloud 9 / General Luna" : "General Luna";
   const maxRideMinutes = request.maxRideMinutes ?? 30;
@@ -193,6 +275,102 @@ export function renderSiargaoBeachRecommendation(request: BeachRecommendationReq
     "",
     ...renderAnswerSourceLines([beachGuideSourceSummary]),
   ].join("\n");
+}
+
+function normalizeLocalGuideFilters(
+  query: string,
+  filters: LocalGuideSearchFilters,
+): LocalGuideSearchFilters {
+  const wantsSand = /\bsand(?:y)?|not\s+rocky|avoid\s+rocks?|smooth\s+sand\b/i.test(query);
+  const wantsSwimming = /\bswim(?:ming)?|calm\s+water\b/i.test(query);
+  const wantsSunset = /\bsunset|late[-\s]?afternoon\b/i.test(query);
+  const wantsRain = /\brain|rainy|covered|bad\s+weather\b/i.test(query);
+  return {
+    ...filters,
+    ...(filters.beachSurface
+      ? {}
+      : {
+          beachSurface: wantsSand ? "sand" : "any",
+        }),
+    swimming: filters.swimming ?? wantsSwimming,
+    sunset: filters.sunset ?? wantsSunset,
+    rainFit: filters.rainFit ?? wantsRain,
+    originLabel: filters.originLabel ?? "General Luna",
+  };
+}
+
+function localGuideCandidate(
+  beach: SiargaoBeach,
+  filters: LocalGuideSearchFilters,
+): LocalGuideCandidate {
+  return {
+    name: beach.name,
+    area: beach.area,
+    rideTimeFromGeneralLunaMinutes: beach.distanceFromGeneralLunaMinutes,
+    surface: beach.surface,
+    confidence: beach.confidence,
+    bestFor: beachBestUse(beach, {
+      sunset: filters.sunset,
+      swimming: filters.swimming,
+    }),
+    fitReasons: localGuideFitReasons(beach, filters),
+    caveats: [
+      beach.tideNotes,
+      "No live tide/current/access/lifeguard check.",
+      ...(filters.withKids ? ["Re-check conditions in person before letting kids swim."] : []),
+      ...(filters.transportMode === "walk"
+        ? ["Walking/no-scooter fit depends on your exact accommodation and road conditions."]
+        : []),
+    ],
+    sourceNotes: beach.sourceNotes,
+  };
+}
+
+function localGuideFitReasons(beach: SiargaoBeach, filters: LocalGuideSearchFilters) {
+  const reasons = [
+    `${rideTimeLabel(beach)}.`,
+    `${beach.surface} surface.`,
+    filters.swimming ? beach.swimmingFit : undefined,
+    filters.sunset ? beach.sunsetFit : undefined,
+    filters.rainFit ? beach.rainFit : undefined,
+    filters.transportMode ? `Transport mode noted: ${filters.transportMode}.` : undefined,
+    filters.withKids ? "Family/kids constraint noted; keep conditions conservative." : undefined,
+  ];
+  return reasons.filter((reason): reason is string => Boolean(reason));
+}
+
+function localGuideRank(left: SiargaoBeach, right: SiargaoBeach, filters: LocalGuideSearchFilters) {
+  return (
+    localGuideScore(right, filters) - localGuideScore(left, filters) ||
+    left.distanceFromGeneralLunaMinutes.max - right.distanceFromGeneralLunaMinutes.max ||
+    left.name.localeCompare(right.name)
+  );
+}
+
+function localGuideScore(beach: SiargaoBeach, filters: LocalGuideSearchFilters) {
+  let score = 0;
+  if (filters.swimming && beach.name === "Doot Beach") {
+    score += 5;
+  }
+  if (filters.swimming && beach.name === "Malinao Beach") {
+    score += 4;
+  }
+  if (
+    filters.sunset &&
+    ["Cloud 9 beach access", "Malinao Beach", "Doot Beach"].includes(beach.name)
+  ) {
+    score += 3;
+  }
+  if (filters.rainFit && beach.distanceFromGeneralLunaMinutes.max <= 20) {
+    score += 2;
+  }
+  if (filters.withKids && beach.surface === "sand") {
+    score += 1;
+  }
+  if (beach.surface === "rocky") {
+    score -= 2;
+  }
+  return score;
 }
 
 function renderSwimmingBeachFollowUp({
