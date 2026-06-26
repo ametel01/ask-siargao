@@ -2,6 +2,11 @@ import OpenAI from "openai";
 import type { Logger } from "pino";
 import { z } from "zod";
 
+import {
+  interpretPlaceIntent,
+  isPlaceRecommendationContent,
+  type PlaceIntent,
+} from "@/server/chat/place-intent";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 import { createComponentLogger } from "@/server/observability/logger";
 import {
@@ -77,19 +82,6 @@ export type PlaceCandidate = {
   latitude?: number;
   longitude?: number;
   score: number;
-};
-
-type MealIntent = "breakfast" | "lunch" | "dinner" | null;
-
-type FoodRequestIntent = {
-  category: "food" | null;
-  meal: MealIntent;
-  location: string | null;
-  areaScope: "nearby" | "in_area" | null;
-  constraints: string[];
-  avoid: string[];
-  latestUserTurn: string;
-  recentUserContext: string;
 };
 
 type ToolResult =
@@ -483,6 +475,9 @@ function inferDeterministicAction(
   const hasRanked = input.previousActions.some((action) => action.type === "rank_candidates");
 
   if (input.candidates.length > 0 && !hasRanked) {
+    if (!intent) {
+      return { type: "rank_candidates", preferredTerms: [], excludedTerms: [] };
+    }
     return {
       type: "rank_candidates",
       preferredTerms: inferPreferredTerms(intent),
@@ -494,7 +489,7 @@ function inferDeterministicAction(
     return { type: "final_answer" };
   }
 
-  if (intent.category !== "food") {
+  if (!intent || !["food", "coffee", "bar", "activity_place"].includes(intent.category)) {
     return undefined;
   }
 
@@ -601,115 +596,11 @@ function parseRecommendationAction(outputText: string): RecommendationAction {
   return recommendationActionSchema.parse(parsed);
 }
 
-function isPlaceRecommendationContent(content: string) {
-  return /\b(restaurants?|where\s+(?:can|should)\s+(?:we|i)\s+eat|food|dinner|lunch|breakfast|brunch|caf[eé]s?|coffee|bars?|nightlife|places?\s+to\s+(?:eat|go|stop)|stop\s+to\s+eat|food\s+stops?|car[ie]nderias?|seafood|covered\s+(?:caf[eé]s?|places?|spots?)|beachfront\s+(?:places?|caf[eé]s?|restaurants?|spots?)|specific\s+(?:places?|spots?|caf[eé]s?))\b/i.test(
-    content,
-  );
+function interpretFoodRequest(messages: readonly AskSiargaoChatMessage[]) {
+  return interpretPlaceIntent(messages);
 }
 
-function interpretFoodRequest(messages: readonly AskSiargaoChatMessage[]): FoodRequestIntent {
-  const userTurns = messages.filter((message) => message.role === "user");
-  const latestUserTurn = userTurns.at(-1)?.content ?? "";
-  const recentUserContext = userTurns
-    .slice(0, -1)
-    .slice(-6)
-    .map((message) => message.content)
-    .join(" ");
-  const latestMeal = inferMeal(latestUserTurn);
-  const meal = latestMeal ?? inferMeal(recentUserContext);
-  const latestAsksForFood = isPlaceRecommendationContent(latestUserTurn);
-  const contextualFoodRequest =
-    latestAsksForFood ||
-    /\b(what\s+about|how\s+about|that\s+area|there|nearby|instead|options?|open\s+now|open\s+today|currently\s+open|still\s+open|hours?)\b/i.test(
-      latestUserTurn,
-    );
-  const category =
-    latestAsksForFood || (contextualFoodRequest && isPlaceRecommendationContent(recentUserContext))
-      ? "food"
-      : null;
-  const explicitlyRequestedCafe = /\b(caf[eé]s?|coffee)\b/i.test(
-    `${latestUserTurn} ${recentUserContext}`,
-  );
-  const constraints = [...inferConstraints(recentUserContext), ...inferConstraints(latestUserTurn)];
-  const avoid = inferAvoidTerms({ explicitlyRequestedCafe, latestUserTurn, meal });
-
-  return {
-    category,
-    meal,
-    location: inferCenterLabel(latestUserTurn) ?? inferCenterLabel(recentUserContext) ?? null,
-    areaScope: inferAreaScope(latestUserTurn) ?? inferAreaScope(recentUserContext),
-    constraints: [...new Set(constraints)],
-    avoid,
-    latestUserTurn,
-    recentUserContext,
-  };
-}
-
-function inferMeal(content: string): MealIntent {
-  if (/\bbreakfast\b/i.test(content)) {
-    return "breakfast";
-  }
-  if (/\blunch\b/i.test(content)) {
-    return "lunch";
-  }
-  if (/\bdinner|evening\s+(?:meal|food|dining)\b/i.test(content)) {
-    return "dinner";
-  }
-  return null;
-}
-
-function inferAreaScope(content: string): FoodRequestIntent["areaScope"] {
-  if (/\bnear(?:by)?|around|close\s+to|that\s+area|in\s+that\s+area|by\s+/i.test(content)) {
-    return "nearby";
-  }
-  if (/\bon\s+the\s+way|route|from\s+.+\s+to/i.test(content)) {
-    return "nearby";
-  }
-  if (inferCenterLabel(content)) {
-    return "in_area";
-  }
-  return null;
-}
-
-function inferConstraints(content: string) {
-  const constraints: string[] = [];
-  if (/\brain(?:y|ing)?|downpour|storm/i.test(content)) {
-    constraints.push("rainy_day", "covered_seating");
-  }
-  if (/\bcovered|indoors?|inside\b/i.test(content)) {
-    constraints.push("covered_seating");
-  }
-  return constraints;
-}
-
-function inferAvoidTerms({
-  explicitlyRequestedCafe,
-  latestUserTurn,
-  meal,
-}: {
-  explicitlyRequestedCafe: boolean;
-  latestUserTurn: string;
-  meal: MealIntent;
-}) {
-  const avoid: string[] = [];
-  if (meal === "dinner" && !explicitlyRequestedCafe) {
-    avoid.push("brunch_only", "coffee_only");
-  }
-  if (/\bproper|sit[-\s]?down|not\s+car[ie]nderia\b/i.test(latestUserTurn)) {
-    avoid.push("carinderia", "canteen");
-  }
-  return avoid;
-}
-
-function inferCenterLabel(content: string) {
-  const normalizedContent = normalizeKey(content);
-  const sortedLocations = Object.values(gazetteer).sort((a, b) => b.label.length - a.label.length);
-  return sortedLocations.find((location) =>
-    normalizedContent.includes(normalizeKey(location.label)),
-  )?.label;
-}
-
-function inferFoodSearchTerm(intent: FoodRequestIntent) {
+function inferFoodSearchTerm(intent: PlaceIntent) {
   const primaryIntentText = `${intent.latestUserTurn} ${intent.recentUserContext}`;
   if (/\bseafood\b/i.test(primaryIntentText)) {
     return "seafood restaurant";
@@ -754,7 +645,7 @@ function inferIncludedType(foodTerm: string) {
   return "restaurant";
 }
 
-function inferPreferredTerms(intent: FoodRequestIntent) {
+function inferPreferredTerms(intent: PlaceIntent) {
   const terms = ["restaurant"];
   const primaryIntentText = `${intent.latestUserTurn} ${intent.recentUserContext}`;
   if (/\bseafood\b/i.test(primaryIntentText)) {
@@ -781,7 +672,7 @@ function inferPreferredTerms(intent: FoodRequestIntent) {
   return [...new Set(terms)];
 }
 
-function inferExcludedTerms(intent: FoodRequestIntent) {
+function inferExcludedTerms(intent: PlaceIntent) {
   const terms = [...intent.avoid];
   if (intent.avoid.includes("brunch_only")) {
     terms.push("brunch");
@@ -902,7 +793,7 @@ function rankCandidates(
 function renderRecommendationAnswer(
   candidates: readonly PlaceCandidate[],
   actions: readonly RecommendationAction[],
-  intent: FoodRequestIntent,
+  intent: PlaceIntent | null,
 ) {
   const searchActions = actions.filter((action) => action.type === "search_places");
 
@@ -924,7 +815,7 @@ function renderRecommendationAnswer(
     ].join("\n");
   }
 
-  const centerLabel = searchActions.at(-1)?.centerLabel ?? intent.location ?? "the requested area";
+  const centerLabel = searchActions.at(-1)?.centerLabel ?? intent?.location ?? "the requested area";
   const caveats = compactMealFollowUpCaveat(intent)
     ? ["Checked Google Places for open nearby options. Covered seating and bookings not verified."]
     : [
@@ -986,8 +877,9 @@ function candidateFitLabel(candidate: PlaceCandidate, index: number, centerLabel
   return `${fitParts.join(", ")}.`;
 }
 
-function compactMealFollowUpCaveat(intent: FoodRequestIntent) {
+function compactMealFollowUpCaveat(intent: PlaceIntent | null) {
   return (
+    intent !== null &&
     intent.meal !== null &&
     /\b(what\s+about|how\s+about|instead|also|and\s+(?:lunch|dinner|breakfast))\b/i.test(
       intent.latestUserTurn,
@@ -1062,15 +954,18 @@ function summarizeActionForLogs(action: RecommendationAction) {
   }
 }
 
-function summarizeFoodIntentForLogs(intent: FoodRequestIntent) {
-  return {
-    areaScope: intent.areaScope,
-    avoid: intent.avoid,
-    category: intent.category,
-    constraints: intent.constraints,
-    location: intent.location,
-    meal: intent.meal,
-  };
+function summarizeFoodIntentForLogs(intent: PlaceIntent | null) {
+  return intent
+    ? {
+        areaScope: intent.areaScope,
+        avoid: intent.avoid,
+        category: intent.category,
+        constraints: intent.constraints,
+        liveNeeds: intent.liveNeeds,
+        location: intent.location,
+        meal: intent.meal,
+      }
+    : null;
 }
 
 function compactLogFields(input: Record<string, string | undefined>) {

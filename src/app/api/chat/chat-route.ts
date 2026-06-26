@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Logger } from "pino";
 import { z } from "zod";
 
+import { interpretPlaceIntent, type PlaceIntent } from "@/server/chat/place-intent";
 import {
   createDefaultRecommendationAgent,
   type RecommendationAgent,
@@ -52,8 +53,8 @@ type ChatRequestIntent = {
   activityPlan: boolean;
   beach: boolean;
   beachRequest?: BeachRecommendationRequest;
-  food: boolean;
   nearby: boolean;
+  placeIntent?: PlaceIntent;
   today: boolean;
   weatherSensitive: boolean;
   weather: boolean;
@@ -366,7 +367,7 @@ function isWeatherQuestion(intent: ChatRequestIntent) {
 }
 
 function isRecommendationQuestion(intent: ChatRequestIntent) {
-  return intent.food;
+  return Boolean(intent.placeIntent);
 }
 
 function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]): ChatRequestIntent {
@@ -378,14 +379,7 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
     .map((message) => message.content)
     .join(" ");
   const fullUserContext = `${recentUserContext} ${latestUserTurn}`;
-  const latestFood = isFoodContent(latestUserTurn);
-  const contextualFood =
-    /\b(what\s+about|how\s+about|instead|nearby|there|that\s+area|places?)\b/i.test(
-      latestUserTurn,
-    ) && isFoodContent(recentUserContext);
-  const contextualOpenNow =
-    /\bopen\s+now|open\s+today|currently\s+open|still\s+open|hours?\b/i.test(latestUserTurn) &&
-    isFoodContent(recentUserContext);
+  const placeIntent = interpretPlaceIntent(messages);
   const latestBeach = isBeachContent(latestUserTurn);
   const contextualBeach =
     isBeachConstraintContent(latestUserTurn) && isBeachContent(recentUserContext);
@@ -412,7 +406,7 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
     ) ||
     ((today || nearby) && isActivityPlanContent(latestUserTurn));
   const activityPlan =
-    !latestFood &&
+    !placeIntent &&
     isActivityPlanContent(latestUserTurn) &&
     (Boolean(locationLabel) || /\bsiargao\b/i.test(fullUserContext));
 
@@ -423,18 +417,12 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
     activityPlan,
     beach: latestBeach || contextualBeach,
     ...(beachRequest ? { beachRequest } : {}),
-    food: latestFood || contextualFood || contextualOpenNow,
     nearby,
+    ...(placeIntent ? { placeIntent } : {}),
     today,
     weatherSensitive,
     weather,
   };
-}
-
-function isFoodContent(content: string) {
-  return /\b(restaurants?|where\s+(?:can|should)\s+(?:we|i)\s+eat|food|dinner|lunch|breakfast|brunch|caf[eé]s?|coffee|bars?|nightlife|places?\s+to\s+(?:eat|go|stop)|stop\s+to\s+eat|food\s+stops?|car[ie]nderias?|seafood|covered\s+(?:caf[eé]s?|places?|spots?)|beachfront\s+(?:places?|caf[eé]s?|restaurants?|spots?)|specific\s+(?:places?|spots?|caf[eé]s?))\b/i.test(
-    content,
-  );
 }
 
 function isActivityPlanContent(content: string) {
@@ -522,9 +510,15 @@ function summarizeIntentForLogs(intent: ChatRequestIntent) {
     activityPlan: intent.activityPlan,
     beach: intent.beach,
     beachRequest: intent.beachRequest,
-    food: intent.food,
     locationLabel: intent.locationLabel,
     nearby: intent.nearby,
+    placeIntent: intent.placeIntent
+      ? {
+          category: intent.placeIntent.category,
+          liveNeeds: intent.placeIntent.liveNeeds,
+          location: intent.placeIntent.location,
+        }
+      : undefined,
     today: intent.today,
     weather: intent.weather,
     weatherSensitive: intent.weatherSensitive,
@@ -535,7 +529,7 @@ function renderGroundedLocalPlan(
   intent: ChatRequestIntent,
   weatherContext: WeatherSnapshot | undefined,
 ) {
-  if (intent.food || intent.weather) {
+  if (intent.placeIntent || intent.weather) {
     const directWeatherQuestion =
       /\b(weather|forecast|temperature|temp|humidity|wind|surf|waves?|sea conditions?)\b/i.test(
         intent.latestUserTurn,

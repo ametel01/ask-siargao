@@ -9,6 +9,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added a shared place-intent classifier for Priority 1 local recommendations, covering food,
+  cafes, bars, activity places, services, specific places, live open-now and hours needs, nearby
+  context, constraints, and named-place map-link prompts.
 - Established progress tracking for the Priority 1 live local recommendation implementation plan.
 - Established progress tracking for the Google Places persistence implementation plan.
 - Added typed Google Places capture tables for identities, snapshots, details, reviews, freshness,

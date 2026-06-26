@@ -5,7 +5,7 @@ Source roadmap: `/Users/alexmetelli/source/ask-siargao/docs/ASK_SIARGAO_ROADMAP.
 
 ## Current Status
 
-Step 0 is complete. Step 1 is next: Shared Place Intent Model.
+Step 1 is complete. Step 2 is next: Route Priority 1 Requests Through The Recommendation Agent.
 
 This file must be updated after every completed step with the completed step, validation results,
 commit reference if available, current status, and next step.
@@ -13,7 +13,7 @@ commit reference if available, current status, and next step.
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
-- [ ] Step 1: Shared Place Intent Model
+- [x] Step 1: Shared Place Intent Model
 - [ ] Step 2: Route Priority 1 Requests Through The Recommendation Agent
 - [ ] Step 3: Generalize The Recommendation Agent From Food To Places
 - [ ] Step 4: Normalize Candidates Into LocalRecommendation
@@ -30,5 +30,30 @@ commit reference if available, current status, and next step.
   - Confirmed `PROGRESS.md` exists and contains the full implementation step checklist.
   - Confirmed `CHANGELOG.md` exists, starts with `# Changelog`, includes the Keep a Changelog
     preamble, and has an `## [Unreleased]` section.
-- Commit: Pending.
+- Commit: `28c6734 chore: add progress and changelog tracking`.
 - Next step: Step 1, Shared Place Intent Model.
+
+### Step 1: Shared Place Intent Model
+
+- Status: Complete.
+- Summary:
+  - Added the shared `PlaceIntent` model and deterministic helper functions for Priority 1 place
+    categories, live needs, recent-context follow-ups, location inference, constraints, avoid
+    terms, radius defaults, and specific-place names.
+  - Routed chat-route place classification through the shared model while preserving weather,
+    beach, and activity-plan routing.
+  - Reused the shared model inside the recommendation agent so the prior food intent detection no
+    longer lives in multiple modules.
+  - Added focused unit coverage for open-now food, covered cafe, beachfront place, open-now
+    follow-up, and named-place map-link prompts.
+- Validation:
+  - `bun run format`: passed; no fixes applied.
+  - `bun run lint`: passed.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed, 164 tests.
+  - `bun run db:migrate:test`: passed, migrated 38 tables.
+  - `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 17 tests.
+- Commit: `feat: add shared place intent classification`.
+- Next step: Step 2, Route Priority 1 Requests Through The Recommendation Agent.
