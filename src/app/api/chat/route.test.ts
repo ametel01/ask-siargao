@@ -214,6 +214,36 @@ describe("chat route", () => {
     expect(dependencies.requests).toHaveLength(1);
   });
 
+  test("allows source-policy descriptions without treating policy labels as answer evidence", async () => {
+    const dependencies = chatDependencies({
+      message: "The source policy says live_checked is a label for successful live Places checks.",
+      toolCalls: [
+        toolCall({
+          name: "describe_source_policy",
+          status: "success",
+          sources: [],
+        }),
+      ],
+      sources: [],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "What do your source labels mean?" }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("live_checked");
+    expect(body.sources).toEqual([]);
+    expect(body.toolCalls[0]).toMatchObject({
+      name: "describe_source_policy",
+      status: "success",
+      sources: [],
+    });
+  });
+
   test("logs route metadata for tool calls and provider failures without restricted payloads", async () => {
     const logs = captureLogger();
     const failingToolCall = toolCall({

@@ -37,7 +37,6 @@ export type LocalGuideSearchFilters = {
   swimming?: boolean;
   sunset?: boolean;
   rainFit?: boolean;
-  originLabel?: "Cloud 9" | "General Luna" | "Siargao Island";
   maxRideMinutes?: number;
   transportMode?: "walk" | "scooter" | "tricycle" | "van";
   withKids?: boolean;
@@ -295,7 +294,6 @@ function normalizeLocalGuideFilters(
     swimming: filters.swimming ?? wantsSwimming,
     sunset: filters.sunset ?? wantsSunset,
     rainFit: filters.rainFit ?? wantsRain,
-    originLabel: filters.originLabel ?? "General Luna",
   };
 }
 

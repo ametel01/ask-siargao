@@ -55,6 +55,9 @@ Every tool-backed claim should return `AnswerSourceSummary` entries:
 `Not checked:` lines against actual audited tool calls. The route returns a controlled `502` if the
 model produces source labels that are not backed by tool evidence.
 
+`describe_source_policy` is descriptive policy metadata, not answer evidence. It should return the
+label explanations in `data.policies` and `text`, with an empty `sources` array.
+
 ## Observability
 
 Runtime logs include request ID bindings, model, tool names, tool status, provider operation,

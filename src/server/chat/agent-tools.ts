@@ -142,7 +142,6 @@ const searchLocalGuideSchema = z
         swimming: z.boolean().optional(),
         sunset: z.boolean().optional(),
         rain_fit: z.boolean().optional(),
-        origin: z.enum(["Cloud 9", "General Luna", "Siargao Island"]).optional(),
         max_ride_minutes: z.number().int().min(1).max(180).optional(),
         transport_mode: z.enum(["walk", "scooter", "tricycle", "van"]).optional(),
         with_kids: z.boolean().optional(),
@@ -213,73 +212,6 @@ const sourcePolicyDescriptions: SourcePolicyDescription[] = [
     caveats: [
       "Explain the missing check plainly and avoid fabricating provider-backed facts from model knowledge.",
     ],
-  },
-];
-
-const sourcePolicySummaries: AnswerSourceSummary[] = [
-  {
-    label: "live_checked",
-    sourceName: "Google Places",
-    sourceProfileId: "source_google_places",
-    confidence: "high",
-    checked: [
-      "allowed live place identity, address, rating, hours, price, contact, and map-link fields when returned",
-    ],
-    notChecked: [
-      "review text",
-      "bookings",
-      "table availability",
-      "room availability",
-      "independent local quality checks",
-    ],
-  },
-  {
-    label: "fresh_cache",
-    sourceName: "Google Places",
-    sourceProfileId: "source_google_places",
-    confidence: "medium",
-    checked: ["fresh cached allowed place fields inside retention windows"],
-    notChecked: ["live open-now status when absent from the cached row", "review text", "bookings"],
-  },
-  {
-    label: "curated_local_guide",
-    sourceName: "Ask Siargao curated local guide",
-    confidence: "medium",
-    checked: ["curated beach and local trip-planning notes"],
-    notChecked: [
-      "live tides",
-      "currents",
-      "road conditions",
-      "access changes",
-      "lifeguard or safety status",
-    ],
-  },
-  {
-    label: "weather_checked",
-    sourceName: "Open-Meteo weather API",
-    sourceProfileId: "source_open_meteo",
-    confidence: "medium",
-    checked: ["forecast snapshots for Siargao locations"],
-    notChecked: ["surf reports", "tides", "road flooding", "local closures"],
-  },
-  {
-    label: "not_verified",
-    sourceName: "Generic model reasoning",
-    confidence: "low",
-    checked: [],
-    notChecked: [
-      "live Google Places",
-      "fresh cached Google Places",
-      "Open-Meteo weather forecast",
-      "curated local guide checks",
-    ],
-  },
-  {
-    label: "provider_unavailable",
-    sourceName: "Backend provider",
-    confidence: "low",
-    checked: [],
-    notChecked: ["the requested provider lookup"],
   },
 ];
 
@@ -427,11 +359,6 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
                 type: "boolean",
                 description: "Whether bad-weather or short-ride fit should be prioritized.",
               },
-              origin: {
-                type: "string",
-                enum: ["Cloud 9", "General Luna", "Siargao Island"],
-                description: "Traveler origin context.",
-              },
               max_ride_minutes: {
                 type: "integer",
                 minimum: 1,
@@ -480,7 +407,7 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
       data: {
         policies: sourcePolicyDescriptions,
       } satisfies SourcePolicyToolData,
-      sources: sourcePolicySummaries,
+      sources: [],
     }),
   },
 };
@@ -656,7 +583,6 @@ function searchLocalGuideToolResult(args: SearchLocalGuideArguments): AgentToolR
       ...(args.filters?.swimming !== undefined ? { swimming: args.filters.swimming } : {}),
       ...(args.filters?.sunset !== undefined ? { sunset: args.filters.sunset } : {}),
       ...(args.filters?.rain_fit !== undefined ? { rainFit: args.filters.rain_fit } : {}),
-      ...(args.filters?.origin ? { originLabel: args.filters.origin } : {}),
       ...(args.filters?.max_ride_minutes ? { maxRideMinutes: args.filters.max_ride_minutes } : {}),
       ...(args.filters?.transport_mode ? { transportMode: args.filters.transport_mode } : {}),
       ...(args.filters?.with_kids !== undefined ? { withKids: args.filters.with_kids } : {}),

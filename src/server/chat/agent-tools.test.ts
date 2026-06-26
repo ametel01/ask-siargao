@@ -147,11 +147,6 @@ describe("agent tools", () => {
                   type: "boolean",
                   description: "Whether bad-weather or short-ride fit should be prioritized.",
                 },
-                origin: {
-                  type: "string",
-                  enum: ["Cloud 9", "General Luna", "Siargao Island"],
-                  description: "Traveler origin context.",
-                },
                 max_ride_minutes: {
                   type: "integer",
                   minimum: 1,
@@ -506,7 +501,6 @@ describe("agent tools", () => {
         query: "sandy beaches near General Luna",
         filters: {
           beach_surface: "sand",
-          origin: "General Luna",
           max_ride_minutes: 30,
         },
       },
@@ -560,7 +554,6 @@ describe("agent tools", () => {
       arguments: {
         query: "beaches within 30 min ride from General Luna",
         filters: {
-          origin: "General Luna",
           max_ride_minutes: 30,
         },
       },
@@ -602,6 +595,25 @@ describe("agent tools", () => {
     expect(data.candidates[0]?.caveats.join(" ")).toContain("Re-check conditions in person");
     expect(result.sources[0]?.notChecked.join(" ")).toContain("lifeguard or swimming safety");
     expect(result.text).not.toContain("lifeguard checked");
+  });
+
+  test("rejects local guide origin filters until origin-specific ride times exist", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_local",
+      name: "search_local_guide",
+      arguments: {
+        query: "beaches within 30 min ride from Cloud 9",
+        filters: {
+          origin: "Cloud 9",
+          max_ride_minutes: 30,
+        },
+      },
+    });
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("invalid_tool_arguments");
+    expect(result.text).toContain("Unrecognized key");
+    expect(result.sources).toEqual([]);
   });
 
   test("returns a normalized live weather forecast tool output", async () => {
@@ -765,16 +777,7 @@ describe("agent tools", () => {
     expect(result.text).toContain("not_verified");
     expect(result.text).toContain("provider_unavailable");
     expect(result.text).toContain("Never label generic model reasoning as live checked");
-    expect(result.sources.map((source) => source.label)).toEqual([
-      "live_checked",
-      "fresh_cache",
-      "curated_local_guide",
-      "weather_checked",
-      "not_verified",
-      "provider_unavailable",
-    ]);
-    expect(result.sources[0]?.checked.join(" ")).toContain("allowed live place identity");
-    expect(result.sources[0]?.notChecked.join(" ")).toContain("review text");
+    expect(result.sources).toEqual([]);
     const data = result.data as { policies: Array<{ label: string }> };
     expect(data.policies[0]?.label).toBe("live_checked");
   });

@@ -133,6 +133,13 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Documented the completed Priority 1 local recommendation behavior, including cache-first Google
   Places lookups, markdown caveats, normalized recommendation objects, and the current e2e testing
   boundary.
+
+### Fixed
+
+- Prevented `describe_source_policy` from returning policy label descriptions as answer evidence,
+  avoiding source-consistency failures when the policy tool is the only successful tool call.
+- Removed the unsupported `origin` argument from the local-guide chat tool until origin-specific
+  ride-time estimates exist; ride-time filtering now remains explicitly General Luna-side only.
 - Rendered Priority 1 local recommendation answers with explicit `Checked:` and `Not checked:`
   caveats for Google Places signals, covered seating, bookings, review text, and local validation.
 - Hardened Google Places chat-cache refresh behavior for partial fresh cache rows and live-status
