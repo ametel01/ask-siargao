@@ -9,9 +9,9 @@
 
 ## Status
 
-- Current step: Step 6 - ChatWorkspace Card Rendering
-- State: Step 5 complete
-- Next step: Step 6 - ChatWorkspace Card Rendering
+- Current step: Step 7 - End-to-End Card Coverage and Release Gates
+- State: Step 6 complete
+- Next step: Step 7 - End-to-End Card Coverage and Release Gates
 
 ## Step Checklist
 
@@ -21,7 +21,7 @@
 - [x] Step 3: Places Recommendation Cards
 - [x] Step 4: Beach Recommendation Cards
 - [x] Step 5: API Response Shape Tests
-- [ ] Step 6: ChatWorkspace Card Rendering
+- [x] Step 6: ChatWorkspace Card Rendering
 - [ ] Step 7: End-to-End Card Coverage and Release Gates
 
 ## Tracking Rules
@@ -120,5 +120,22 @@
   - `bun run lint` passed.
   - `bun run typecheck --incremental false` passed.
   - `bun test` passed.
-- Commit: Pending creation for Step 5.
+- Commit: `a0f938f` - Cover structured chat response shape.
 - Next step: Step 6 - ChatWorkspace Card Rendering.
+
+### Step 6: ChatWorkspace Card Rendering
+
+- Status: Complete.
+- Changes: Rendered recommendation cards and follow-up actions below assistant markdown, parsed
+  optional API artifacts into assistant messages, added accessible map links, and wired prompt
+  action buttons through the existing chat submit flow.
+- Validation:
+  - `bun run test:e2e -- tests/e2e/chat.e2e.ts` passed.
+  - `bun run format` passed.
+  - `bun run lint` passed.
+  - `bun run typecheck --incremental false` passed.
+  - `bun test` passed.
+  - `npx react-doctor@latest --verbose --scope changed` found no issues; the external score API
+    timed out, so no numeric score was available.
+- Commit: Pending creation for Step 6.
+- Next step: Step 7 - End-to-End Card Coverage and Release Gates.

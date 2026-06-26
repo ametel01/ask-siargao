@@ -25,6 +25,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added chat UI rendering for recommendation cards and follow-up actions beneath assistant
+  markdown, including accessible map links and prompt action buttons.
 - Added `/api/chat` response-shape coverage for structured cards, actions, markdown fallback
   compatibility, and optional artifact omission.
 - Added curated beach recommendation cards and prompt actions with estimated ride times, Maps

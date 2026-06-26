@@ -1,6 +1,16 @@
 "use client";
 
-import { Home, LoaderCircle, MessageSquarePlus, Send, Sparkles } from "lucide-react";
+import {
+  Clock,
+  ExternalLink,
+  Home,
+  LoaderCircle,
+  MapPin,
+  MessageSquarePlus,
+  Navigation,
+  Send,
+  Sparkles,
+} from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
@@ -32,6 +42,29 @@ type InteractiveChatMessage = {
   timestamp: string;
   status?: "pending" | "complete" | "error";
   retryPrompt?: string;
+  cards?: readonly RecommendationCardArtifact[];
+  actions?: readonly ChatActionArtifact[];
+};
+
+type RecommendationCardArtifact = {
+  id: string;
+  kind: "place" | "beach";
+  title: string;
+  subtitle?: string;
+  mapsUrl?: string;
+  distanceLabel?: string;
+  openStatusLabel?: string;
+  fitReasons: readonly string[];
+  caveats: readonly string[];
+  sourceLabel: string;
+};
+
+type ChatActionArtifact = {
+  id: string;
+  label: string;
+  type?: "link" | "prompt" | "navigation";
+  href?: string;
+  prompt?: string;
 };
 
 type ChatComposerProps = {
@@ -112,6 +145,8 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
         });
         const body = (await response.json()) as {
           message?: string;
+          cards?: RecommendationCardArtifact[];
+          actions?: ChatActionArtifact[];
         };
 
         const responseMessage = body.message;
@@ -128,6 +163,8 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
                   text: responseMessage,
                   timestamp: formatTimestamp(),
                   status: "complete",
+                  cards: body.cards,
+                  actions: body.actions,
                 }
               : message,
           ),
@@ -218,6 +255,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
                       key={message.id}
                       message={message}
                       onRetryPrompt={handlePromptSubmit}
+                      onSubmitPrompt={handlePromptSubmit}
                     />
                   ))}
                 </div>
@@ -248,10 +286,12 @@ function ChatMessage({
   disabled,
   message,
   onRetryPrompt,
+  onSubmitPrompt,
 }: {
   disabled: boolean;
   message: InteractiveChatMessage;
   onRetryPrompt: (prompt: string) => void;
+  onSubmitPrompt: (prompt: string) => void;
 }) {
   const isUser = message.role === "user";
   const isPending = message.status === "pending";
@@ -287,7 +327,19 @@ function ChatMessage({
               size={18}
             />
           ) : null}
-          <AssistantMarkdownText text={message.text} tone={isError ? "error" : "default"} />
+          <div className="grid min-w-0 flex-1 gap-4">
+            <AssistantMarkdownText text={message.text} tone={isError ? "error" : "default"} />
+            {!isError && !isPending && message.cards?.length ? (
+              <RecommendationCards cards={message.cards} />
+            ) : null}
+            {!isError && !isPending && message.actions?.length ? (
+              <ChatActionButtons
+                actions={message.actions}
+                disabled={disabled}
+                onSubmitPrompt={onSubmitPrompt}
+              />
+            ) : null}
+          </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-extrabold">
           <time className={isError ? "text-[#ffd5ce]" : "text-text-soft"}>{message.timestamp}</time>
@@ -305,6 +357,132 @@ function ChatMessage({
         ) : null}
       </div>
     </article>
+  );
+}
+
+function RecommendationCards({ cards }: { cards: readonly RecommendationCardArtifact[] }) {
+  return (
+    <div className="grid min-w-0 gap-3" data-testid="recommendation-cards">
+      {cards.map((card) => (
+        <article
+          className="grid min-w-0 gap-3 rounded-md border border-[#c9dfd4] bg-[#f7fbf8] p-3 shadow-[0_12px_28px_rgba(22,60,49,0.08)]"
+          data-testid="recommendation-card"
+          key={card.id}
+        >
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-[#d8f1e6] text-[#14624a]">
+              {card.kind === "beach" ? (
+                <Navigation aria-hidden="true" size={17} />
+              ) : (
+                <MapPin aria-hidden="true" size={17} />
+              )}
+            </div>
+            <div className="grid min-w-0 flex-1 gap-1">
+              <h3 className="m-0 text-sm leading-[1.25] font-black break-words text-text-strong sm:text-base">
+                {card.title}
+              </h3>
+              {card.subtitle ? (
+                <p className="m-0 text-xs leading-[1.45] break-words text-text-soft sm:text-sm">
+                  {card.subtitle}
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex min-w-0 flex-wrap gap-2">
+            {card.distanceLabel ? <CardSignal icon="distance" label={card.distanceLabel} /> : null}
+            {card.openStatusLabel ? <CardSignal icon="time" label={card.openStatusLabel} /> : null}
+            <CardSignal label={card.sourceLabel} />
+          </div>
+
+          {card.fitReasons.length ? (
+            <ul className="m-0 grid gap-1.5 pl-4 text-xs leading-[1.45] text-text-default sm:text-sm">
+              {card.fitReasons.map((reason) => (
+                <li className="break-words" key={reason}>
+                  {reason}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {card.caveats.length ? (
+            <p className="m-0 rounded-md border border-[#e4d8b8] bg-[#fff9e8] px-3 py-2 text-xs leading-[1.45] break-words text-[#66521c]">
+              {card.caveats.join(" ")}
+            </p>
+          ) : null}
+
+          {card.mapsUrl ? (
+            <a
+              aria-label={`Open ${card.title} in Google Maps`}
+              className="inline-flex min-h-9 w-fit max-w-full items-center gap-2 rounded-md border border-[#14624a]/25 bg-white px-3 py-2 text-xs font-extrabold text-[#14624a] no-underline hover:bg-[#edf8f2]"
+              href={card.mapsUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <MapPin aria-hidden="true" className="shrink-0" size={15} />
+              <span className="min-w-0 break-words">Open map</span>
+              <ExternalLink aria-hidden="true" className="shrink-0" size={14} />
+            </a>
+          ) : null}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function CardSignal({ icon, label }: { icon?: "distance" | "time"; label: string }) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-black/5 bg-white px-2.5 py-1.5 text-[0.72rem] leading-tight font-extrabold text-text-soft">
+      {icon === "distance" ? <MapPin aria-hidden="true" className="shrink-0" size={13} /> : null}
+      {icon === "time" ? <Clock aria-hidden="true" className="shrink-0" size={13} /> : null}
+      <span className="min-w-0 break-words">{label}</span>
+    </span>
+  );
+}
+
+function ChatActionButtons({
+  actions,
+  disabled,
+  onSubmitPrompt,
+}: {
+  actions: readonly ChatActionArtifact[];
+  disabled: boolean;
+  onSubmitPrompt: (prompt: string) => void;
+}) {
+  return (
+    <div className="flex min-w-0 flex-wrap gap-2" data-testid="chat-action-buttons">
+      {actions.map((action) =>
+        action.href ? (
+          <Button
+            asChild
+            className="h-auto min-h-9 rounded-md border-[#14624a]/25 bg-white px-3 py-2 text-xs font-extrabold text-[#14624a] hover:bg-[#edf8f2]"
+            key={action.id}
+            size="sm"
+            variant="outline"
+          >
+            <a href={action.href} rel="noreferrer" target="_blank">
+              {action.label}
+            </a>
+          </Button>
+        ) : (
+          <Button
+            className="h-auto min-h-9 rounded-md border-brand-violet-650/25 bg-brand-violet-650/10 px-3 py-2 text-xs font-extrabold text-brand-violet-650 hover:bg-brand-violet-650/15"
+            disabled={disabled || !action.prompt}
+            key={action.id}
+            onClick={() => {
+              if (action.prompt) {
+                onSubmitPrompt(action.prompt);
+              }
+            }}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            {action.label}
+          </Button>
+        ),
+      )}
+    </div>
   );
 }
 

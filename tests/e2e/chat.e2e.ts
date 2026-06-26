@@ -7,6 +7,25 @@ type ChatRequestBody = {
   }>;
 };
 
+type MockRecommendationCard = {
+  id: string;
+  kind: "place" | "beach";
+  title: string;
+  subtitle?: string;
+  mapsUrl?: string;
+  distanceLabel?: string;
+  openStatusLabel?: string;
+  fitReasons: string[];
+  caveats: string[];
+  sourceLabel: string;
+};
+
+type MockChatAction = {
+  id: string;
+  label: string;
+  prompt?: string;
+};
+
 test("sends a desktop composer message to the chat API and renders the assistant response", async ({
   page,
 }) => {
@@ -86,6 +105,55 @@ test("sends a mobile suggested prompt through the same chat API path", async ({ 
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(lastSubmittedContent(mockChat.requests[0])).toBe("Help me plan a quiet Siargao day");
   await expect(page.getByLabel("Ask anything about Siargao")).toBeVisible();
+});
+
+test("renders structured recommendation cards and submits action prompts", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 900 });
+  const actionPrompt = "Make Shaka Siargao into a short Siargao plan.";
+  const mockChat = await mockChatApi(page, {
+    message: "Mocked card answer: Shaka is a practical first stop.",
+    cards: [
+      {
+        id: "place_shaka",
+        kind: "place",
+        title: "Shaka Siargao",
+        subtitle: "Cafe - Cloud 9, General Luna",
+        mapsUrl: "https://maps.google.com/?cid=shaka",
+        distanceLabel: "About 50 m from search center.",
+        openStatusLabel: "Open now according to Google Places.",
+        fitReasons: ["Returned #1 by Google Places for this request."],
+        caveats: ["Review text and bookings were not checked."],
+        sourceLabel: "Google Places - live checked",
+      },
+    ],
+    actions: [
+      {
+        id: "places_plan_place_shaka",
+        label: "Make this into a short plan",
+        prompt: actionPrompt,
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Find a cafe near Cloud 9");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByText("Mocked card answer:")).toBeVisible();
+  await expect(
+    page.getByTestId("recommendation-card").filter({ hasText: "Shaka Siargao" }),
+  ).toBeVisible();
+  await expect(page.getByText("Google Places - live checked")).toBeVisible();
+  await expect(page.getByText("Review text and bookings were not checked.")).toBeVisible();
+
+  const mapLink = page.getByRole("link", { name: "Open Shaka Siargao in Google Maps" });
+  await expect(mapLink).toHaveAttribute("href", "https://maps.google.com/?cid=shaka");
+  await expect(mapLink).toHaveAttribute("target", "_blank");
+
+  await page.getByRole("button", { name: "Make this into a short plan" }).click();
+
+  await expect.poll(() => mockChat.requests.length).toBe(2);
+  expect(lastSubmittedContent(mockChat.requests[1])).toBe(actionPrompt);
 });
 
 test("renders numbered assistant plans and source caveats as separate blocks", async ({ page }) => {
@@ -317,9 +385,13 @@ test("shows safe error copy and lets the user keep asking after a failed request
 async function mockChatApi(
   page: Page,
   {
+    actions,
+    cards,
     message,
     waitForRelease = false,
   }: {
+    actions?: MockChatAction[];
+    cards?: MockRecommendationCard[];
     message: string;
     waitForRelease?: boolean;
   },
@@ -342,6 +414,8 @@ async function mockChatApi(
         message,
         model: "gpt-5.5-test",
         requestId: "req_playwright_chat",
+        ...(cards?.length ? { cards } : {}),
+        ...(actions?.length ? { actions } : {}),
       }),
     });
   });
