@@ -16,14 +16,14 @@
 
 ## Current Status
 
-- Current step: Step 1, safe local data contracts and schema dictionary.
-- Next step: Define the safe tool-facing data model, approved schema dictionary, zod
-  arguments, and schema-description tests.
+- Current step: Step 2, structured local fact query engine.
+- Next step: Implement bounded structured local fact retrieval over approved curated and
+  database fact surfaces.
 
 ## Step Checklist
 
 - [x] Step 0: Progress and changelog tracking setup.
-- [ ] Step 1: Safe local data contracts and schema dictionary.
+- [x] Step 1: Safe local data contracts and schema dictionary.
 - [ ] Step 2: Structured local fact query engine.
 - [ ] Step 3: Display-safe source evidence lookup.
 - [ ] Step 4: Register safe database tools in the agent runtime.
@@ -41,4 +41,21 @@
   - Passed: `test -f PROGRESS.md`.
   - Passed: `test -f CHANGELOG.md`.
   - Passed: manual inspection for required structure.
+- Commit: pending.
+
+### 2026-06-27 - Step 1 Complete
+
+- Added `src/server/chat/local-data-tools.ts` with the safe tool-facing schema
+  dictionary, local fact result contracts, display-safe evidence result contracts, and
+  zod argument schemas for `describe_database_schema`, `query_local_facts`, and
+  `get_source_evidence`.
+- Added `src/server/chat/local-data-tools.test.ts` coverage for approved surfaces,
+  field descriptions, query rules, restricted-name exclusion, and local fact query limit
+  capping.
+- Validation:
+  - Passed: `bun run format`.
+  - Passed: `bun run lint`.
+  - Passed: `bun run typecheck --incremental false`.
+  - Passed: `bun test src/server/chat/local-data-tools.test.ts`.
+  - Passed: `bun test`.
 - Commit: pending.

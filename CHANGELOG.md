@@ -20,6 +20,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 - Established progress and changelog tracking for the Priority 6 safe database and local
   knowledge tools implementation plan.
+- Added safe local data tool contracts, an approved schema dictionary, and zod argument
+  validation for schema discovery, structured local fact queries, and display-safe source
+  evidence lookup.
 - Added hosted file-search registration for synced agent memory plus a deterministic
   backend `search_agent_memory` fallback for local and test retrieval.
 - Added agent-memory vector-store synchronization with dry-run support, checksum-aware
