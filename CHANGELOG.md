@@ -78,6 +78,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Hardened Google Places chat-cache refresh behavior for partial fresh cache rows and live-status
+  requests whose cached rows lack opening-hour status.
 - Generalized the recommendation agent from food-only deterministic searches to Priority 1 local
   place searches, including open-now food, cafes, bars, activity places, service places, and
   specific-place identity/map-link lookups.

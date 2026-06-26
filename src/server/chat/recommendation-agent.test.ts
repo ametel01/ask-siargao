@@ -51,9 +51,11 @@ describe("RecommendationAgent", () => {
 
   test("searches Google Places once for nearby open-now food requests", async () => {
     const searches: GooglePlacesChatSearch[] = [];
+    const requiresLiveStatuses: Array<boolean | undefined> = [];
     const agent = new RecommendationAgent({
-      placesAdapter: async ({ fetchedAt, search }) => {
+      placesAdapter: async ({ fetchedAt, requiresLiveStatus, search }) => {
         searches.push(search);
+        requiresLiveStatuses.push(requiresLiveStatus);
         return googlePlacesContext({
           fetchedAt,
           search,
@@ -70,6 +72,7 @@ describe("RecommendationAgent", () => {
 
     expect(response.status).toBe("answered");
     expect(searches).toHaveLength(1);
+    expect(requiresLiveStatuses).toEqual([true]);
     expect(searches[0]).toMatchObject({
       textQuery: "good restaurant near General Luna Siargao",
       includedType: "restaurant",

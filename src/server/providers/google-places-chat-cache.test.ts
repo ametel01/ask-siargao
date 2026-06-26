@@ -143,6 +143,80 @@ describe("Google Places chat cache", () => {
 
     await db.close();
   });
+
+  test("treats partial fresh cache rows as a refreshable miss", async () => {
+    const db = await openGooglePlacesChatCacheTestDatabase();
+    let liveCalls = 0;
+    const adapter = createCachedGooglePlacesChatContextAdapter({
+      db,
+      liveAdapter: async ({ fetchedAt, search }) => {
+        liveCalls += 1;
+        return googlePlacesContext({
+          fetchedAt,
+          placeCount: liveCalls === 1 ? 2 : 8,
+          search,
+        });
+      },
+      minimumFreshCachePlaces: 4,
+    });
+
+    const first = await adapter({
+      fetchedAt: "2026-06-25T22:08:55.090Z",
+      search: generalLunaRestaurantSearch,
+    });
+    const second = await adapter({
+      fetchedAt: "2026-06-25T22:09:55.090Z",
+      search: generalLunaRestaurantSearch,
+    });
+
+    expect(liveCalls).toBe(2);
+    expect(first.places).toHaveLength(2);
+    expect(second.places).toHaveLength(8);
+    expect(second.freshness).toBe("live");
+
+    await db.close();
+  });
+
+  test("refreshes fresh cache rows that cannot answer required live status", async () => {
+    const db = await openGooglePlacesChatCacheTestDatabase();
+    const logs: TestLog[] = [];
+    let liveCalls = 0;
+    const adapter = createCachedGooglePlacesChatContextAdapter({
+      db,
+      liveAdapter: async ({ fetchedAt, search }) => {
+        liveCalls += 1;
+        return googlePlacesContext({ fetchedAt, placeCount: 4, search });
+      },
+      logger: createTestLogger(logs),
+      minimumFreshCachePlaces: 4,
+    });
+
+    await adapter({
+      fetchedAt: "2026-06-25T22:08:55.090Z",
+      search: generalLunaRestaurantSearch,
+    });
+    const liveStatusResponse = await adapter({
+      fetchedAt: "2026-06-25T22:09:55.090Z",
+      requiresLiveStatus: true,
+      search: generalLunaRestaurantSearch,
+    });
+
+    expect(liveCalls).toBe(2);
+    expect(liveStatusResponse.freshness).toBe("live");
+    expect(logs).toContainEqual(
+      expect.objectContaining({
+        message: "Google Places chat cache checked.",
+        payload: expect.objectContaining({
+          cacheCandidateCount: 4,
+          cacheStatus: "partial",
+          cacheSupportsLiveStatus: false,
+          requiresLiveStatus: true,
+        }),
+      }),
+    );
+
+    await db.close();
+  });
 });
 
 type TestLog = {
@@ -201,10 +275,12 @@ async function openGooglePlacesChatCacheTestDatabase() {
 
 function googlePlacesContext({
   fetchedAt,
+  openNow,
   placeCount = 2,
   search,
 }: {
   fetchedAt: string;
+  openNow?: boolean;
   placeCount?: number;
   search: GooglePlacesChatSearch;
 }): GooglePlacesChatContext {
@@ -292,6 +368,7 @@ function googlePlacesContext({
       latitude: 9.799 + index / 1000,
       longitude: 126.16 + index / 1000,
       businessStatus: "OPERATIONAL",
+      ...(openNow === undefined ? {} : { currentOpeningHours: { openNow } }),
       googleMapsUri: `https://maps.google.com/?cid=${place.placeId}`,
     })),
   };

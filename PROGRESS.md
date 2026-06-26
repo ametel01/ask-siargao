@@ -5,7 +5,7 @@ Source roadmap: `/Users/alexmetelli/source/ask-siargao/docs/ASK_SIARGAO_ROADMAP.
 
 ## Current Status
 
-Step 4 is complete. Step 5 is next: Harden Cache-First Live Provider Behavior.
+Step 5 is complete. Step 6 is next: Render Priority 1 Answers With Checked And Not Checked Caveats.
 
 This file must be updated after every completed step with the completed step, validation results,
 commit reference if available, current status, and next step.
@@ -17,7 +17,7 @@ commit reference if available, current status, and next step.
 - [x] Step 2: Route Priority 1 Requests Through The Recommendation Agent
 - [x] Step 3: Generalize The Recommendation Agent From Food To Places
 - [x] Step 4: Normalize Candidates Into LocalRecommendation
-- [ ] Step 5: Harden Cache-First Live Provider Behavior
+- [x] Step 5: Harden Cache-First Live Provider Behavior
 - [ ] Step 6: Render Priority 1 Answers With Checked And Not Checked Caveats
 - [ ] Step 7: End-To-End Priority 1 Verification And Documentation
 
@@ -125,5 +125,29 @@ commit reference if available, current status, and next step.
   - `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
   - `bun run build`: passed.
   - `bun run test:e2e`: passed, 17 tests.
-- Commit: `feat: normalize local recommendations`.
+- Commit: `c1b5663 feat: normalize local recommendations`.
 - Next step: Step 5, Harden Cache-First Live Provider Behavior.
+
+### Step 5: Harden Cache-First Live Provider Behavior
+
+- Status: Complete.
+- Summary:
+  - Preserved fresh-cache hit behavior while exposing cache freshness to callers.
+  - Added partial-cache refresh behavior when fresh cached rows are below the configured minimum.
+  - Added live-status refresh behavior for open-now and hours intents when cached rows do not carry
+    opening-hour status.
+  - Propagated the recommendation agent's open-now/hours requirement to the Google Places cache
+    adapter.
+  - Added cache tests for full fresh-cache hits, stale refreshes, partial refreshes, live-status
+    refreshes, persistence, and returned freshness labels.
+- Validation:
+  - `bun run format`: passed; no fixes applied.
+  - `bun run lint`: passed.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed, 176 tests.
+  - `bun run db:migrate:test`: passed, migrated 38 tables.
+  - `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 17 tests.
+- Commit: `feat: harden places cache refresh behavior`.
+- Next step: Step 6, Render Priority 1 Answers With Checked And Not Checked Caveats.

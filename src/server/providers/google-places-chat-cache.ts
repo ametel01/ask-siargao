@@ -26,12 +26,14 @@ type TraceContext = {
 
 type LiveGooglePlacesChatAdapter = (input: {
   fetchedAt: string;
+  requiresLiveStatus?: boolean;
   search: GooglePlacesChatSearch;
   trace?: TraceContext;
 }) => Promise<GooglePlacesChatContext>;
 
 type CachedGooglePlacesChatContextInput = {
   fetchedAt?: string;
+  requiresLiveStatus?: boolean;
   search: GooglePlacesChatSearch;
   trace?: TraceContext;
 };
@@ -71,7 +73,12 @@ export function createDefaultCachedGooglePlacesChatContextAdapter({
 }
 
 async function getCachedGooglePlacesChatContext(
-  { fetchedAt = new Date().toISOString(), search, trace }: CachedGooglePlacesChatContextInput,
+  {
+    fetchedAt = new Date().toISOString(),
+    requiresLiveStatus = false,
+    search,
+    trace,
+  }: CachedGooglePlacesChatContextInput,
   {
     db,
     liveAdapter = ({ fetchedAt: liveFetchedAt, search: liveSearch, trace: liveTrace }) =>
@@ -91,8 +98,11 @@ async function getCachedGooglePlacesChatContext(
     }),
   );
   const cachedContext = await findFreshGooglePlacesChatContext(db, { now: fetchedAt, search });
+  const cacheSupportsLiveStatus =
+    !requiresLiveStatus ||
+    cachedContext.places.every((place) => place.currentOpeningHours?.openNow !== undefined);
   const cacheStatus =
-    cachedContext.places.length >= minimumFreshCachePlaces
+    cachedContext.places.length >= minimumFreshCachePlaces && cacheSupportsLiveStatus
       ? "hit"
       : cachedContext.places.length > 0
         ? "partial"
@@ -102,7 +112,9 @@ async function getCachedGooglePlacesChatContext(
     {
       cacheStatus,
       cacheCandidateCount: cachedContext.places.length,
+      cacheSupportsLiveStatus,
       minimumFreshCachePlaces,
+      requiresLiveStatus,
       query: search.textQuery,
       includedType: search.includedType,
       radiusMeters: search.radiusMeters,
@@ -115,7 +127,7 @@ async function getCachedGooglePlacesChatContext(
     return cachedContext;
   }
 
-  const liveContext = await liveAdapter({ fetchedAt, search, trace });
+  const liveContext = await liveAdapter({ fetchedAt, requiresLiveStatus, search, trace });
   const persistStartedAt = Date.now();
   const writeSummaries = await persistGooglePlacesChatContext(db, liveContext, {
     logger: scopedLogger,

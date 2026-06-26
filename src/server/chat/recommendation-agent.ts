@@ -53,6 +53,7 @@ export type RecommendationAgentDependencies = {
   planner?: RecommendationAgentPlanner;
   placesAdapter?: (input: {
     fetchedAt: string;
+    requiresLiveStatus?: boolean;
     search: GooglePlacesChatSearch;
     trace?: RecommendationTraceContext;
   }) => Promise<GooglePlacesChatContext>;
@@ -341,6 +342,7 @@ export class RecommendationAgent {
           );
           const context = await this.#placesAdapter({
             fetchedAt: this.#clock().toISOString(),
+            requiresLiveStatus: requiresLiveStatus(interpretedIntent),
             search,
             trace,
           });
@@ -470,6 +472,10 @@ export function createDefaultRecommendationAgent() {
   return new RecommendationAgent({
     placesAdapter: createDefaultCachedGooglePlacesChatContextAdapter(),
   });
+}
+
+function requiresLiveStatus(intent: PlaceIntent | null) {
+  return intent?.liveNeeds.some((need) => need === "open_now" || need === "hours") ?? false;
 }
 
 function createDefaultRecommendationPlanner(
