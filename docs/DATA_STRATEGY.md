@@ -182,6 +182,18 @@ allowed, persist the capture, and return bounded facts, evidence summaries, fres
 gaps to the LLM. The LLM should not receive unrestricted Google payloads or invent live-provider
 claims when the answer context reports missing, stale, blocked, or failed refreshes.
 
+Priority 1 live local recommendations use the chat route's `PlaceIntent` classifier and the
+recommendation agent before generic LLM fallback. Food, cafe, bar, activity-place, service, and
+specific-place identity requests are searched through the cache-first Google Places chat adapter.
+Fresh cache rows are reused when they meet the configured minimum and can satisfy live-status
+needs; partial, stale, expired, or open-now/hour-insufficient cache rows refresh through the live
+adapter and are persisted through the same Google Places retention policy. Ranked candidates are
+normalized into `LocalRecommendation` objects before markdown rendering. The current renderer
+outputs numbered markdown recommendations with fit reasons, open/closed/unknown hour signals,
+ratings when available, addresses when available, map links, and explicit `Checked:` /
+`Not checked:` caveats. Priority 4 card UI remains a future surface; these normalized objects are
+card-ready but still rendered as markdown today.
+
 Operators should run `bun run db:prune:google-places -- --dry-run` before destructive cleanup and
 `bun run db:prune:google-places` after validating the counts. Cleanup deletes expired reviews,
 details, and snapshots, but preserves durable `google_places.place_id` identity rows.

@@ -78,6 +78,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Documented the completed Priority 1 local recommendation behavior, including cache-first Google
+  Places lookups, markdown caveats, normalized recommendation objects, and the current e2e testing
+  boundary.
 - Rendered Priority 1 local recommendation answers with explicit `Checked:` and `Not checked:`
   caveats for Google Places signals, covered seating, bookings, review text, and local validation.
 - Hardened Google Places chat-cache refresh behavior for partial fresh cache rows and live-status
