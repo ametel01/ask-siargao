@@ -302,6 +302,69 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.sources).toEqual([localGuideSourceSummary]);
   });
 
+  test("attaches tool-generated cards and actions to the final model-written answer", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_artifact_call",
+        requestId: "req_artifact_call",
+        callId: "call_local",
+        name: "search_local_guide",
+        arguments: {
+          query: "sandy swimming beaches within 30 minutes",
+          filters: { beach_surface: "sand", swimming: true, max_ride_minutes: 30 },
+        },
+      }),
+      {
+        id: "resp_artifact_final",
+        output_text: "The model wrote this final answer after reading the tool output.",
+        _request_id: "req_artifact_final",
+      },
+    ]);
+    const card = {
+      id: "card_doot",
+      kind: "beach" as const,
+      title: "Doot Beach",
+      subtitle: "General Luna-side sandy beach",
+      mapsUrl: "https://www.google.com/maps/search/?api=1&query=Doot%20Beach%20Siargao",
+      distanceLabel: "About 20 minutes by tricycle from General Luna",
+      fitReasons: ["Sandy shore", "Works for a quieter beach stop"],
+      caveats: ["Check tide and road conditions before leaving"],
+      sourceLabel: "Ask Siargao curated local beach guide",
+    };
+    const action = {
+      id: "ask_weather",
+      label: "Check weather",
+      prompt: "Check weather before going to Doot Beach.",
+    };
+    const executeTool = fakeToolExecutor({
+      search_local_guide: {
+        name: "search_local_guide",
+        status: "success",
+        text: "Curated local guide returned Doot Beach.",
+        data: { restrictedProviderPayload: "SECRET_CARD_PAYLOAD" },
+        sources: [localGuideSourceSummary],
+        cards: [card],
+        actions: [action],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Sandy beaches with kids near General Luna?" }],
+        requestId: "agent_request_artifacts",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toBe("The model wrote this final answer after reading the tool output.");
+    expect(result.cards).toEqual([card]);
+    expect(result.actions).toEqual([action]);
+    expect(result.sources).toEqual([localGuideSourceSummary]);
+    expect(JSON.stringify(result.toolCalls)).not.toContain("SECRET_CARD_PAYLOAD");
+    expect(parseToolOutput(client.requests[1]?.input, 0).cards).toBeUndefined();
+    expect(parseToolOutput(client.requests[1]?.input, 0).actions).toBeUndefined();
+  });
+
   test("executes safe local data tools through the tool loop", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
@@ -690,7 +753,7 @@ function parseToolOutput(
 ): {
   text?: string;
   errorCode?: string;
-} {
+} & Record<string, unknown> {
   if (!Array.isArray(input)) {
     return {};
   }

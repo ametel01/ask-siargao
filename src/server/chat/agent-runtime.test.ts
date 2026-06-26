@@ -199,6 +199,53 @@ describe("agent runtime contracts", () => {
     });
   });
 
+  test("merges and de-duplicates cards and actions from tool results", () => {
+    const turn = createAgentTurnResult({
+      message: "Use Doot first, then check a cafe near Cloud 9.",
+      requestId: "agent_request_artifacts",
+      model: "gpt-test",
+      toolResults: [
+        {
+          sources: [localGuideSourceSummary],
+          cards: [dootBeachCard],
+          actions: [weatherAction],
+        },
+        {
+          sources: [
+            { ...localGuideSourceSummary, sourceName: " Ask Siargao curated local beach guide " },
+          ],
+          cards: [{ ...dootBeachCard, title: "Duplicate Doot Beach" }],
+          actions: [{ ...weatherAction, label: "Duplicate weather action" }],
+        },
+        {
+          sources: [placesSourceSummary],
+          cards: [cloud9CafeCard],
+          actions: [planAction],
+        },
+      ],
+    });
+
+    expect(turn.sources).toEqual([localGuideSourceSummary, placesSourceSummary]);
+    expect(turn.cards?.map((card) => card.title)).toEqual(["Doot Beach", "Cloud 9 Cafe"]);
+    expect(turn.actions?.map((action) => action.label)).toEqual([
+      "Check weather",
+      "Make a short plan",
+    ]);
+  });
+
+  test("omits empty card and action arrays from turn results", () => {
+    const turn = createAgentTurnResult({
+      message: "No structured artifacts needed.",
+      requestId: "agent_request_no_artifacts",
+      model: "gpt-test",
+      toolResults: [{ sources: [providerUnavailableSourceSummary], cards: [], actions: [] }],
+    });
+
+    expect(turn.sources).toEqual([providerUnavailableSourceSummary]);
+    expect("cards" in turn).toBe(false);
+    expect("actions" in turn).toBe(false);
+  });
+
   test("supports fake Responses clients and tool executors for network-free tests", async () => {
     const client = fakeResponsesClient([
       { output_text: "Use the weather tool first.", _request_id: "req_tool_choice" },
@@ -300,4 +347,41 @@ const providerUnavailableSourceSummary: AnswerSourceSummary = {
   confidence: "low",
   checked: [],
   notChecked: ["Google Places lookup"],
+};
+
+const dootBeachCard = {
+  id: "card_doot",
+  kind: "beach" as const,
+  title: "Doot Beach",
+  subtitle: "General Luna-side sandy beach",
+  mapsUrl: "https://www.google.com/maps/search/?api=1&query=Doot%20Beach%20Siargao",
+  distanceLabel: "About 20 minutes by tricycle from General Luna",
+  fitReasons: ["Sandy shore", "Works for a quieter beach stop"],
+  caveats: ["Check tide and road conditions before leaving"],
+  sourceLabel: "Ask Siargao curated local beach guide",
+};
+
+const cloud9CafeCard = {
+  id: "card_cloud9_cafe",
+  kind: "place" as const,
+  title: "Cloud 9 Cafe",
+  subtitle: "Cafe near Cloud 9",
+  mapsUrl: "https://maps.example/cloud9-cafe",
+  distanceLabel: "About 500 m from Cloud 9",
+  openStatusLabel: "Open status checked",
+  fitReasons: ["Close to the surf tower"],
+  caveats: ["Bookings and review text were not checked"],
+  sourceLabel: "Google Places - live checked",
+};
+
+const weatherAction = {
+  id: "ask_weather",
+  label: "Check weather",
+  prompt: "Check the weather before I go.",
+};
+
+const planAction = {
+  id: "make_plan",
+  label: "Make a short plan",
+  prompt: "Make this into a short plan.",
 };

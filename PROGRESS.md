@@ -9,15 +9,15 @@
 
 ## Status
 
-- Current step: Step 2 - Tool-Backed Card and Action Generation
-- State: Step 1 complete
-- Next step: Step 2 - Tool-Backed Card and Action Generation
+- Current step: Step 3 - Places Recommendation Cards
+- State: Step 2 complete
+- Next step: Step 3 - Places Recommendation Cards
 
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Structured Chat Artifact Contracts
-- [ ] Step 2: Tool-Backed Card and Action Generation
+- [x] Step 2: Tool-Backed Card and Action Generation
 - [ ] Step 3: Places Recommendation Cards
 - [ ] Step 4: Beach Recommendation Cards
 - [ ] Step 5: API Response Shape Tests
@@ -59,5 +59,21 @@
   - `bun run lint` passed.
   - `bun run typecheck --incremental false` passed.
   - `bun test` passed.
-- Commit: Pending creation for Step 1.
+- Commit: `e71578e` - Define structured chat card contracts.
 - Next step: Step 2 - Tool-Backed Card and Action Generation.
+
+### Step 2: Tool-Backed Card and Action Generation
+
+- Status: Complete.
+- Changes: Added optional tool-result cards/actions, merged and de-duplicated them into final
+  agent turn results, and passed executed tool results through the Responses tool loop without
+  adding raw tool data to audit records.
+- Validation:
+  - `bun test src/server/chat/agent-runtime.test.ts src/server/chat/ask-siargao-agent.test.ts`
+    passed.
+  - `bun run format` passed.
+  - `bun run lint` passed.
+  - `bun run typecheck --incremental false` passed.
+  - `bun test` passed.
+- Commit: Pending creation for Step 2.
+- Next step: Step 3 - Places Recommendation Cards.

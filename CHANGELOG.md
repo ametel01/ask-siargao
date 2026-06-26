@@ -25,6 +25,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added tool-backed chat cards and actions to final agent turn results while keeping audit records
+  restricted to safe metadata.
 - Established progress tracking for the Priority 7 map-first recommendation cards implementation
   plan.
 - Established progress and changelog tracking for the Priority 6 safe database and local

@@ -72,6 +72,7 @@ export async function runAskSiargaoAgentTurn(
   const logger = (dependencies.logger ?? agentLogger).child({ requestId: resolved.requestId });
   const upstreamRequestIds: string[] = [];
   const toolCalls: AgentToolCallAudit[] = [];
+  const toolResults: AgentToolResult[] = [];
   const maxToolCalls = dependencies.maxToolCalls ?? defaultMaxToolCalls;
   const maxTurns = dependencies.maxTurns ?? defaultMaxTurns;
   const agentMemoryVectorStoreId =
@@ -132,6 +133,7 @@ export async function runAskSiargaoAgentTurn(
         memory,
         upstreamRequestIds,
         toolCalls,
+        toolResults,
       });
     }
 
@@ -156,6 +158,7 @@ export async function runAskSiargaoAgentTurn(
       ),
     );
     toolCalls.push(...toolOutputs.map((output) => output.audit));
+    toolResults.push(...toolOutputs.map((output) => output.result));
 
     response = await client.responses.create({
       model: resolved.model,

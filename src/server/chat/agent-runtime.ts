@@ -27,6 +27,8 @@ export type AgentToolResult = {
   data?: Record<string, unknown> | readonly unknown[];
   errorCode?: string;
   sources: readonly AnswerSourceSummary[];
+  cards?: readonly RecommendationCard[];
+  actions?: readonly ChatAction[];
 };
 
 export type AgentToolCallAudit = {
@@ -132,6 +134,12 @@ export type AgentToolExecutionRequest = {
 
 export type AgentToolExecutor = (request: AgentToolExecutionRequest) => Promise<AgentToolResult>;
 
+export type AgentArtifactCarrier = {
+  sources: readonly AnswerSourceSummary[];
+  cards?: readonly RecommendationCard[];
+  actions?: readonly ChatAction[];
+};
+
 export type AgentRuntimeDependencies = {
   client?: AgentResponsesClient;
   executeTool?: AgentToolExecutor;
@@ -199,6 +207,7 @@ export function createAgentTurnResult({
   requestId,
   sources,
   toolCalls = [],
+  toolResults,
   upstreamRequestIds,
 }: {
   message: string;
@@ -207,20 +216,32 @@ export function createAgentTurnResult({
   memory?: AgentMemoryMetadata;
   upstreamRequestIds?: readonly string[];
   toolCalls?: readonly AgentToolCallAudit[];
+  toolResults?: readonly AgentArtifactCarrier[];
   sources?: readonly AnswerSourceSummary[];
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
 }): AgentTurnResult {
+  const sourceCarriers = toolResults ?? toolCalls;
+  const artifactCarriers = toolResults ?? [];
+  const mergedCards = dedupeById([
+    ...(cards ?? []),
+    ...artifactCarriers.flatMap((result) => result.cards ?? []),
+  ]);
+  const mergedActions = dedupeById([
+    ...(actions ?? []),
+    ...artifactCarriers.flatMap((result) => result.actions ?? []),
+  ]);
+
   return {
     message,
     requestId,
     ...(upstreamRequestIds?.length ? { upstreamRequestIds: unique(upstreamRequestIds) } : {}),
     model,
     toolCalls,
-    sources: sources ?? aggregateAgentSourceSummaries(toolCalls),
+    sources: sources ?? aggregateAgentSourceSummaries(sourceCarriers),
     ...(memory ? { memory } : {}),
-    ...(cards?.length ? { cards } : {}),
-    ...(actions?.length ? { actions } : {}),
+    ...(mergedCards.length ? { cards: mergedCards } : {}),
+    ...(mergedActions.length ? { actions: mergedActions } : {}),
   };
 }
 
@@ -252,6 +273,21 @@ function extractSourceProfileIds(sources: readonly AnswerSourceSummary[]) {
 
 function unique(values: readonly string[]) {
   return [...new Set(values)];
+}
+
+function dedupeById<T extends { id: string }>(values: readonly T[]) {
+  const results: T[] = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    if (seen.has(value.id)) {
+      continue;
+    }
+    results.push(value);
+    seen.add(value.id);
+  }
+
+  return results;
 }
 
 function sourceSummaryKey(summary: AnswerSourceSummary) {
