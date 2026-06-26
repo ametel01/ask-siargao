@@ -398,7 +398,7 @@ function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
   const normalizedText = text
     .replace(/\r\n?/g, "\n")
     .replace(/\s+-\s+(\*\*[^*]+?\*\*:)/g, "\n- $1")
-    .replace(/\s+(\d+\.\s+[A-Z][^:\n]{0,120})/g, "\n$1")
+    .replace(/(?<![A-Za-z])\s+(\d+\.\s+[A-Z][^:\n]{0,120})/g, "\n$1")
     .replace(/\s+(Weather signal:|Checked:|Not checked:)/g, "\n$1");
   const blocks: AssistantMarkdownBlock[] = [];
   let paragraphLines: string[] = [];

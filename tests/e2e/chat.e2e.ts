@@ -98,7 +98,7 @@ test("renders numbered assistant plans and source caveats as separate blocks", a
       "2. Use the heaviest rain window for massage or errands.",
       "3. Walk the Cloud 9 boardwalk only during a clear break.",
       "",
-      "Checked: Open-Meteo weather API forecast. Weather signal: Thunderstorm; rain 0.7mm. Not checked: Google Places open-now results or road flooding.",
+      "Checked: Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - forecast for Cloud 9. Weather signal: Thunderstorm; rain 0.7mm. Not checked: Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - Google Places open-now results and road flooding.",
     ].join("\n"),
   });
 
@@ -113,11 +113,20 @@ test("renders numbered assistant plans and source caveats as separate blocks", a
   await expect(
     page.getByRole("listitem").filter({ hasText: "Use the heaviest rain window" }),
   ).toBeVisible();
-  await expect(page.getByText("Checked: Open-Meteo weather API forecast.")).toBeVisible();
-  await expect(page.getByText("Weather signal:")).toBeVisible();
+  const sourceLines = page.getByTestId("assistant-source-line");
   await expect(
-    page.getByText("Not checked: Google Places open-now results or road flooding."),
-  ).toBeVisible();
+    sourceLines.filter({
+      hasText:
+        "Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - forecast for Cloud 9.",
+    }),
+  ).toHaveCount(1);
+  await expect(sourceLines.filter({ hasText: "Thunderstorm; rain 0.7mm." })).toHaveCount(1);
+  await expect(
+    sourceLines.filter({
+      hasText:
+        "Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - Google Places open-now results and road flooding.",
+    }),
+  ).toHaveCount(1);
 
   const orderedListCount = await page
     .getByTestId("assistant-message-bubble")
@@ -125,7 +134,7 @@ test("renders numbered assistant plans and source caveats as separate blocks", a
     .locator("ol")
     .count();
   expect(orderedListCount).toBe(1);
-  await expect(page.getByTestId("assistant-source-line")).toHaveCount(3);
+  await expect(sourceLines).toHaveCount(3);
 });
 
 test("wraps long assistant links without rendering preview cards", async ({ page }) => {

@@ -88,6 +88,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Preserved normalized answer source lines in the chat UI, including metadata-rich Open-Meteo
+  source lines that mention Cloud 9 without being split as numbered lists.
 - Added not-verified source caveats to generic chat fallback responses and provider-unavailable
   caveats to failed Google Places recommendation lookups.
 - Rendered Google Places recommendation source labels from provider freshness metadata, including

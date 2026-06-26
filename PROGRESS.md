@@ -11,13 +11,12 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 - [x] Step 2: Curated Beach And Weather Labels
 - [x] Step 3: Google Places Recommendation Labels
 - [x] Step 4: Generic Fallback And Provider-Failure Labels
-- [ ] Step 5: Frontend Parser Regression Coverage
+- [x] Step 5: Frontend Parser Regression Coverage
 - [ ] Step 6: Final Verification And Documentation Alignment
 
 ## Current Status
 
-Step 4 is complete. Step 5 is next: verify chat UI parsing/rendering for normalized
-source lines.
+Step 5 is complete. Step 6 is next: final verification and documentation alignment.
 
 ## Update Rule
 
@@ -78,5 +77,17 @@ that step is committed.
   `bun run db:migrate:test` passed (38 tables); `bun run db:seed:test` passed (5
   areas, 3 routes, 4 source profiles); `bun run build` passed; `bun run test:e2e`
   passed (17 tests).
-  Commit: pending.
+  Commit: `9d1bca8` (`Label generic and failed provider chat paths`).
   Next step: Step 5, Frontend Parser Regression Coverage.
+- 2026-06-26: Completed Step 5 by extending chat e2e coverage to normalized source
+  lines with confidence/profile/fetched metadata and fixing the chat parser so `Cloud 9.`
+  inside a source line is not misread as a numbered list item.
+  Validation: `bun run format` passed; `bun run test:e2e` passed after the parser fix
+  (17 tests); `npx react-doctor@latest --verbose --scope changed` passed with no issues
+  and score 100/100; `bun run lint` passed (`biome check .`, 178 files checked); `bun
+  run typecheck --incremental false` passed; `bun test` passed (211 tests); `bun run
+  db:migrate:test` passed (38 tables); `bun run db:seed:test` passed (5 areas, 3
+  routes, 4 source profiles); `bun run build` passed; `bun run test:e2e` passed (17
+  tests).
+  Commit: pending.
+  Next step: Step 6, Final Verification And Documentation Alignment.
