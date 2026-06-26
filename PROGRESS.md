@@ -16,14 +16,14 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 - [x] Step 3: Weather Forecast Tool
 - [x] Step 4: Google Places Search and Details Tools
 - [x] Step 5: Curated Local Guide Tool
-- [ ] Step 6: Responses API Tool Loop Runtime
+- [x] Step 6: Responses API Tool Loop Runtime
 - [ ] Step 7: Source Consistency Validator
 - [ ] Step 8: Rewire `/api/chat` to the Agent Runtime
 - [ ] Step 9: Regression, Observability, and Documentation Pass
 
 ## Current Status
 
-Step 5 is complete. The curated local guide agent tool is available, and Step 6 is next.
+Step 6 is complete. The Responses API tool-loop runtime is available, and Step 7 is next.
 
 ## Update Rule
 
@@ -111,3 +111,18 @@ that step is committed.
   test:e2e` passed (17 tests).
   Commit: this commit (`Add curated local guide chat tool`).
   Next step: Step 6, Responses API Tool Loop Runtime.
+- 2026-06-26: Completed Step 6 by adding the `runAskSiargaoAgentTurn` Responses API
+  runtime, `store: false` model calls with typed tool definitions, tool-result feedback,
+  upstream request ID tracking, source aggregation, structured tool-call audits, provider
+  operation logging, and max tool-call/turn protections. Network-free tests cover no-tool
+  answers, weather, Places search/details, curated local guide, multiple tool calls,
+  provider-failure continuation, loop protection, and missing-output failures.
+  Validation: `bun run format` passed; `bun test
+  src/server/chat/ask-siargao-agent.test.ts src/server/chat/agent-tools.test.ts
+  src/server/chat/agent-runtime.test.ts` passed (38 tests); `bun run lint` passed (`biome
+  check .`, 184 files checked); `bun run typecheck --incremental false` passed; `bun test`
+  passed (256 tests); `bun run db:migrate:test && bun run db:seed:test` passed (38 tables;
+  5 areas, 3 routes, 4 source profiles); `bun run build` passed; `bun run test:e2e` passed
+  (17 tests).
+  Commit: this commit (`Add Responses tool loop runtime`).
+  Next step: Step 7, Source Consistency Validator.

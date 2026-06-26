@@ -20,6 +20,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
   allowed field masks, restricted output shaping, and provider-unavailable tool outputs.
 - Added the curated local guide chat agent tool with structured beach candidates, filters, source
   summaries, and explicit unchecked local-condition caveats.
+- Added the Responses API chat agent tool-loop runtime with `store: false` model calls, typed tool
+  feedback, upstream request tracking, tool-call audit logs, source aggregation, and max-loop
+  protections.
 - Established progress tracking for the Priority 3 trust score and source labels implementation
   plan.
 - Added a shared answer source summary contract and compact markdown renderer for checked,

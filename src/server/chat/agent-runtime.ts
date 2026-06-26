@@ -83,6 +83,7 @@ export type ResolvedAgentRuntimeRequest = AgentRuntimeRequest & {
 };
 
 export type AgentResponsesCreateResult = {
+  id?: string;
   output_text?: string;
   _request_id?: string;
   output?: unknown;

@@ -1,0 +1,301 @@
+import OpenAI from "openai";
+
+import {
+  type AgentResponsesClient,
+  type AgentRuntimeDependencies,
+  type AgentRuntimeRequest,
+  type AgentToolCallAudit,
+  type AgentToolExecutionRequest,
+  type AgentToolResult,
+  type AgentTurnResult,
+  createAgentToolCallAudit,
+  createAgentTurnResult,
+  resolveAgentRuntimeRequest,
+} from "@/server/chat/agent-runtime";
+import {
+  type AgentToolDependencies,
+  agentToolDefinitions,
+  executeAgentTool,
+} from "@/server/chat/agent-tools";
+import { createComponentLogger } from "@/server/observability/logger";
+
+export type AskSiargaoAgentDependencies = AgentRuntimeDependencies &
+  AgentToolDependencies & {
+    now?: () => Date;
+  };
+
+type ParsedFunctionCall = {
+  callId: string;
+  name: string;
+  arguments: Record<string, unknown>;
+};
+
+const defaultMaxToolCalls = 8;
+const defaultMaxTurns = 6;
+const maxConversationMessages = 10;
+const agentLogger = createComponentLogger("chat_agent");
+
+function createOpenAIAgentClient(apiKey = process.env.OPENAI_API_KEY): AgentResponsesClient {
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is required for Ask Siargao agent chat.");
+  }
+
+  return new OpenAI({ apiKey, timeout: 30_000 }) as AgentResponsesClient;
+}
+
+export async function runAskSiargaoAgentTurn(
+  request: AgentRuntimeRequest,
+  dependencies: AskSiargaoAgentDependencies = {},
+): Promise<AgentTurnResult> {
+  const resolved = resolveAgentRuntimeRequest(request, dependencies);
+  const client = dependencies.client ?? createOpenAIAgentClient();
+  const executeTool =
+    dependencies.executeTool ??
+    ((toolRequest: AgentToolExecutionRequest) => executeAgentTool(toolRequest, dependencies));
+  const logger = (dependencies.logger ?? agentLogger).child({ requestId: resolved.requestId });
+  const upstreamRequestIds: string[] = [];
+  const toolCalls: AgentToolCallAudit[] = [];
+  const maxToolCalls = dependencies.maxToolCalls ?? defaultMaxToolCalls;
+  const maxTurns = dependencies.maxTurns ?? defaultMaxTurns;
+
+  logger.info(
+    {
+      model: resolved.model,
+      messageCount: resolved.messages.length,
+      maxToolCalls,
+      maxTurns,
+    },
+    "Ask Siargao agent turn started.",
+  );
+
+  let response = await client.responses.create({
+    model: resolved.model,
+    store: false,
+    max_output_tokens: 1_000,
+    instructions: askSiargaoAgentInstructions,
+    tools: agentToolDefinitions,
+    input: JSON.stringify({
+      product: "Ask Siargao",
+      conversation: resolved.messages.slice(-maxConversationMessages),
+      requestMetadata: resolved.metadata,
+      deterministicSignals: resolved.deterministicSignals,
+      responseContract: responseContract,
+    }),
+  });
+  collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+
+  for (let turn = 0; turn < maxTurns; turn += 1) {
+    const finalText = response.output_text?.trim();
+    if (finalText) {
+      logger.info(
+        {
+          durationMs: sumDurations(toolCalls),
+          model: resolved.model,
+          toolCallCount: toolCalls.length,
+          upstreamRequestCount: upstreamRequestIds.length,
+        },
+        "Ask Siargao agent turn completed.",
+      );
+      return createAgentTurnResult({
+        message: finalText,
+        requestId: resolved.requestId,
+        model: resolved.model,
+        upstreamRequestIds,
+        toolCalls,
+      });
+    }
+
+    const functionCalls = extractFunctionCalls(response.output);
+    if (functionCalls.length === 0) {
+      throw new Error("OpenAI response did not include output_text.");
+    }
+
+    if (toolCalls.length + functionCalls.length > maxToolCalls) {
+      throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
+    }
+
+    const toolOutputs = await Promise.all(
+      functionCalls.map((functionCall) =>
+        executeAndAuditTool({
+          executeTool,
+          functionCall,
+          logger,
+          now: dependencies.now ?? (() => new Date()),
+          requestId: resolved.requestId,
+        }),
+      ),
+    );
+    toolCalls.push(...toolOutputs.map((output) => output.audit));
+
+    response = await client.responses.create({
+      model: resolved.model,
+      store: false,
+      max_output_tokens: 1_000,
+      instructions: askSiargaoAgentInstructions,
+      tools: agentToolDefinitions,
+      previous_response_id: response.id,
+      input: toolOutputs.map((output) => ({
+        type: "function_call_output",
+        call_id: output.functionCall.callId,
+        output: serializeToolOutput(output.result),
+      })),
+    });
+    collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+  }
+
+  throw new Error("Ask Siargao agent exceeded the maximum turn count.");
+}
+
+async function executeAndAuditTool({
+  executeTool,
+  functionCall,
+  logger,
+  now,
+  requestId,
+}: {
+  executeTool: (request: AgentToolExecutionRequest) => Promise<AgentToolResult>;
+  functionCall: ParsedFunctionCall;
+  logger: ReturnType<typeof createComponentLogger>;
+  now: () => Date;
+  requestId: string;
+}) {
+  const startedAt = now();
+  const result = await executeTool({
+    requestId,
+    toolCallId: functionCall.callId,
+    name: functionCall.name,
+    arguments: functionCall.arguments,
+  });
+  const completedAt = now();
+  const audit = createAgentToolCallAudit({
+    toolCallId: functionCall.callId,
+    name: functionCall.name,
+    arguments: functionCall.arguments,
+    result,
+    startedAt,
+    completedAt,
+    providerOperation: providerOperationForTool(functionCall.name),
+  });
+
+  logger.info(
+    {
+      toolCallId: functionCall.callId,
+      toolName: functionCall.name,
+      durationMs: audit.durationMs,
+      status: audit.status,
+      errorCode: audit.errorCode,
+      providerOperation: audit.providerOperation,
+      sourceProfileIds: audit.sourceProfileIds,
+    },
+    "Ask Siargao agent tool call completed.",
+  );
+
+  return { audit, functionCall, result };
+}
+
+function extractFunctionCalls(output: unknown): ParsedFunctionCall[] {
+  if (!Array.isArray(output)) {
+    return [];
+  }
+
+  const calls: ParsedFunctionCall[] = [];
+  for (const item of output) {
+    if (!isRecord(item) || item.type !== "function_call" || typeof item.name !== "string") {
+      continue;
+    }
+
+    calls.push({
+      callId: readString(item.call_id) ?? readString(item.id) ?? `call_${calls.length + 1}`,
+      name: item.name,
+      arguments: parseToolArguments(item.arguments),
+    });
+  }
+
+  return calls;
+}
+
+function parseToolArguments(value: unknown): Record<string, unknown> {
+  if (isRecord(value)) {
+    return value;
+  }
+
+  if (typeof value !== "string") {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function serializeToolOutput(result: AgentToolResult) {
+  return JSON.stringify({
+    status: result.status,
+    text: result.text,
+    data: result.data,
+    errorCode: result.errorCode,
+    sources: result.sources,
+  });
+}
+
+function collectUpstreamRequestId(requestId: string | undefined, upstreamRequestIds: string[]) {
+  if (requestId) {
+    upstreamRequestIds.push(requestId);
+  }
+}
+
+function providerOperationForTool(name: string) {
+  switch (name) {
+    case "get_weather_forecast":
+      return "open_meteo.forecast";
+    case "search_places":
+      return "google_places.search";
+    case "get_place_details":
+      return "google_places.details";
+    case "search_local_guide":
+      return "local_guide.search";
+    case "describe_source_policy":
+      return "source_policy.describe";
+    default:
+      return undefined;
+  }
+}
+
+function sumDurations(toolCalls: readonly AgentToolCallAudit[]) {
+  return toolCalls.reduce((total, toolCall) => total + toolCall.durationMs, 0);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+const responseContract = {
+  tone: "practical local travel assistant",
+  scope:
+    "Answer only Siargao-related travel and local trip-planning questions. Politely decline unrelated questions.",
+  sourceUse:
+    "Use tool outputs as the only source for live weather, Google Places, curated local guide, and source-policy claims.",
+  caveats:
+    "Mention material unchecked fields from tool sources. Do not imply ratings, hours, tides, surf, bookings, availability, safety, or road conditions were checked unless a tool output says so.",
+};
+
+const askSiargaoAgentInstructions = [
+  "You are Ask Siargao, a practical Siargao travel assistant.",
+  "Answer the traveler's latest question directly and conversationally.",
+  "Stay strictly scoped to Siargao Island, Siargao travel, and local trip-planning topics.",
+  "If the latest question is unrelated to Siargao or plausible trip planning, politely decline and invite a Siargao-related question.",
+  "Use the available tools whenever the answer needs current weather, Google Places facts, curated beach/local guide facts, or source-label policy.",
+  "Do not invent live, provider-backed, or curated local facts. If a tool fails, explain what could not be checked and still give bounded practical guidance when possible.",
+  "Treat Google Places ordering as provider relevance, not an independent quality ranking.",
+  "Every Google Places place mentioned from tool output should include its raw Google Maps URL when present.",
+  "For weather-sensitive or safety-sensitive plans, mention missing surf, swell, tides, road flooding, closures, and local safety checks when the tool did not check them.",
+  "Keep answers concise and actionable.",
+  "Do not frame Ask Siargao as a trip risk audit or paid report in chat answers.",
+].join("\n");
