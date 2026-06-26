@@ -16,8 +16,8 @@
 
 ## Current Status
 
-- Current step: Step 6, final integration, regression gates, and release notes.
-- Next step: Run the final Priority 6 audit and release gates, then record completion.
+- Current step: Complete.
+- Next step: None for the Priority 6 safe database and local knowledge tools plan.
 
 ## Step Checklist
 
@@ -27,7 +27,7 @@
 - [x] Step 3: Display-safe source evidence lookup.
 - [x] Step 4: Register safe database tools in the agent runtime.
 - [x] Step 5: Align agent memory and tool-use documentation.
-- [ ] Step 6: Final integration, regression gates, and release notes.
+- [x] Step 6: Final integration, regression gates, and release notes.
 
 ## Update Log
 
@@ -127,4 +127,20 @@
   - Passed: `bun run typecheck --incremental false`.
   - Passed: `bun test src/server/chat/agent-memory.test.ts`.
   - Passed: `bun test`.
+- Commit: pending.
+
+### 2026-06-27 - Step 6 Complete
+
+- Reviewed the final safe local data implementation for restricted payload names,
+  private-data exposure, source-consistency coverage, and agent runtime registration.
+- Confirmed safe local data tools are typed, registered, tested, source-governed,
+  documented, and audited through the existing Responses loop.
+- Final validation:
+  - Passed: `bun run format`.
+  - Passed: `bun run lint`.
+  - Passed: `bun run typecheck --incremental false`.
+  - Passed: `bun run db:migrate:test && bun run db:seed:test`.
+  - Passed: `bun test`.
+  - Passed: `bun run build`.
+  - Skipped: `bun run test:e2e` because no dev server was listening on port `3100`.
 - Commit: pending.

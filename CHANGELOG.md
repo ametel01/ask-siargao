@@ -31,6 +31,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
   definitions, audit operation mapping, source summaries, and source-consistency coverage.
 - Updated agent-memory guidance for safe local data tool use, structured filters, source
   evidence boundaries, and the memory-as-reference-not-evidence rule.
+- Verified the Priority 6 safe database and local knowledge tools slice against format,
+  lint, typecheck, database migration/seed, unit tests, production build, and restricted
+  exposure checks.
 - Added hosted file-search registration for synced agent memory plus a deterministic
   backend `search_agent_memory` fallback for local and test retrieval.
 - Added agent-memory vector-store synchronization with dry-run support, checksum-aware
