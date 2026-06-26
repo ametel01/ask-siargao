@@ -330,9 +330,12 @@ export async function getSourceEvidence(
   options: QueryLocalFactsOptions = {},
 ): Promise<SourceEvidenceToolResult> {
   const query = sourceEvidenceArgumentsSchema.parse(input);
+  const curatedFactsById = curatedGuideFactsById();
   const curatedEvidence = query.factIds
     .filter((factId) => factId.startsWith("curated_local_guide:"))
-    .map(curatedFactIdToEvidence);
+    .map((factId) => curatedFactsById.get(factId))
+    .filter(isLocalFactResultItem)
+    .map(curatedFactToEvidence);
   const databaseEvidence = options.queryRunner
     ? await queryDatabaseEvidence(
         query.factIds.filter((factId) => !factId.startsWith("curated_local_guide:")),
@@ -362,12 +365,21 @@ function field(
   return { name, type, description, required };
 }
 
-function curatedFactIdToEvidence(factId: string): SourceEvidenceResultItem {
+function curatedGuideFactsById() {
+  return new Map(
+    queryCuratedGuideFacts({ entityTypes: ["beach"], limit: localFactsMaxLimit }).map((fact) => [
+      fact.id,
+      fact,
+    ]),
+  );
+}
+
+function curatedFactToEvidence(fact: LocalFactResultItem): SourceEvidenceResultItem {
   return {
-    factId,
+    factId: fact.id,
     sourceName: "Ask Siargao curated local beach guide",
     sourceLabel: "curated_local_guide",
-    confidence: "medium",
+    confidence: fact.confidence,
     caveats: [
       "Curated local guide estimate; exact conditions can change by tide, weather, road access, and site conditions.",
     ],
@@ -393,6 +405,7 @@ async function queryDatabaseEvidence(
   const rows = await queryRunner`
     select
       f.id as fact_id,
+      f.public_republish_allowed as fact_public_republish_allowed,
       f.confidence_label,
       f.source_profile_id,
       f.fetched_at,
@@ -408,8 +421,17 @@ async function queryDatabaseEvidence(
     from facts f
     left join source_profiles sp on sp.id = f.source_profile_id
     left join evidence ev on ev.fact_id = f.id
+      and (
+        ev.public_republish_allowed = true
+        or ev.allowed_use in ('public_republish', 'citation_only')
+      )
     where f.id = any(${factIds})
-      and f.audit_use_allowed = true
+      and f.public_republish_allowed = true
+      and (f.expires_at is null or f.expires_at > now())
+      and (
+        sp.id is null
+        or sp.allowed_use in ('public_republish', 'citation_only')
+      )
     order by f.id, ev.created_at`;
 
   return rows.map(evidenceRowToSourceEvidence).filter(isSourceEvidenceResultItem);
@@ -427,10 +449,18 @@ function evidenceRowToSourceEvidence(
 
   const sourceAllowedUse = readString(row.source_allowed_use);
   const evidenceAllowedUse = readString(row.evidence_allowed_use);
+  if (!isDisplaySafeEvidenceRow({ evidenceAllowedUse, row, sourceAllowedUse })) {
+    return undefined;
+  }
+
   const sourceProfileId = readString(row.source_profile_id);
   const fetchedAt = readDateString(row.fetched_at);
   const verifiedAt = readDateString(row.verified_at);
   const expiresAt = readDateString(row.expires_at);
+  if (isExpiredDateString(expiresAt)) {
+    return undefined;
+  }
+
   const citationDisplayAllowed = canDisplayCitation({
     evidenceAllowedUse,
     publicRepublishAllowed: Boolean(row.public_republish_allowed),
@@ -515,7 +545,8 @@ async function queryDatabaseFacts(
   queryRunner: LocalFactsQueryRunner,
 ): Promise<LocalFactResultItem[]> {
   const facts: LocalFactResultItem[] = [];
-  const pattern = `%${[query.area, query.text, ...(query.tags ?? [])].filter(Boolean).join(" ")}%`;
+  const pattern = databasePrefilterPattern(query);
+  const rowLimit = Math.min(query.limit * 5, localFactsMaxLimit);
 
   if (query.entityTypes.includes("area")) {
     const areaRows = await queryRunner`
@@ -524,7 +555,7 @@ async function queryDatabaseFacts(
       where ${pattern} = '%%'
         or lower(name || ' ' || municipality || ' ' || description) like lower(${pattern})
       order by name
-      limit ${query.limit}`;
+      limit ${rowLimit}`;
     facts.push(...areaRows.map(areaRowToLocalFact).filter(isLocalFactResultItem));
   }
 
@@ -535,8 +566,27 @@ async function queryDatabaseFacts(
       where ${pattern} = '%%'
         or lower(name || ' ' || origin || ' ' || destination) like lower(${pattern})
       order by name
-      limit ${query.limit}`;
+      limit ${rowLimit}`;
     facts.push(...routeRows.map(routeRowToLocalFact).filter(isLocalFactResultItem));
+  }
+
+  const publicEntityTypes = query.entityTypes.filter(
+    (entityType) => entityType !== "area" && entityType !== "route" && entityType !== "beach",
+  );
+  if (publicEntityTypes.length > 0) {
+    const entityRows = await queryRunner`
+      select e.id, e.entity_type, e.name, e.aliases, e.confidence_label, a.name as area
+      from entities e
+      left join areas a on a.id = e.area_id
+      where e.public_visibility = 'public'
+        and e.entity_type = any(${publicEntityTypes})
+        and (
+          ${pattern} = '%%'
+          or lower(e.name || ' ' || coalesce(a.name, '') || ' ' || coalesce(e.aliases::text, '')) like lower(${pattern})
+        )
+      order by e.name
+      limit ${rowLimit}`;
+    facts.push(...entityRows.map(publicEntityRowToLocalFact).filter(isLocalFactResultItem));
   }
 
   const factEntityTypes = query.entityTypes.filter(
@@ -564,12 +614,14 @@ async function queryDatabaseFacts(
       left join source_profiles sp on sp.id = f.source_profile_id
       where f.public_republish_allowed = true
         and coalesce(e.entity_type, f.fact_type) = any(${factEntityTypes})
+        and (sp.id is null or sp.allowed_use in ('public_republish', 'citation_only'))
+        and (f.expires_at is null or f.expires_at > now())
         and (
           ${pattern} = '%%'
           or lower(coalesce(e.name, '') || ' ' || coalesce(a.name, '') || ' ' || f.claim || ' ' || f.fact_type) like lower(${pattern})
         )
       order by f.fetched_at desc, f.id
-      limit ${query.limit}`;
+      limit ${rowLimit}`;
     facts.push(...factRows.map(governedFactRowToLocalFact).filter(isLocalFactResultItem));
   }
 
@@ -633,6 +685,36 @@ function routeRowToLocalFact(row: LocalFactsDatabaseRow): LocalFactResultItem | 
   };
 }
 
+function publicEntityRowToLocalFact(row: LocalFactsDatabaseRow): LocalFactResultItem | undefined {
+  const id = readString(row.id);
+  const entityType = readLocalFactEntityType(row.entity_type);
+  const name = readString(row.name);
+  const confidence = readConfidence(row.confidence_label);
+  if (!id || !entityType || !name || !confidence) {
+    return undefined;
+  }
+
+  const area = readString(row.area);
+  const aliases = readStringArray(row.aliases);
+
+  return {
+    id: `public_entity:${id}`,
+    entityType,
+    name,
+    ...(area ? { area } : {}),
+    tags: uniqueCompact([entityType, area, ...aliases].flatMap((value) => tagsFromText(value))),
+    claim: `${name} is a public ${entityType} entity${area ? ` in ${area}` : ""}.`,
+    confidence,
+    source: {
+      label: "curated_local_guide",
+      sourceName: "Ask Siargao public entity registry",
+    },
+    caveats: [
+      "Public entity records identify known local entities; they do not verify live status, availability, ratings, or safety.",
+    ],
+  };
+}
+
 function governedFactRowToLocalFact(row: LocalFactsDatabaseRow): LocalFactResultItem | undefined {
   const id = readString(row.id);
   const entityType = readLocalFactEntityType(row.entity_type);
@@ -643,6 +725,11 @@ function governedFactRowToLocalFact(row: LocalFactsDatabaseRow): LocalFactResult
     return undefined;
   }
 
+  const allowedUse = readString(row.allowed_use);
+  if (allowedUse && !isDisplaySafeAllowedUse(allowedUse)) {
+    return undefined;
+  }
+
   const sourceProfileId = readString(row.source_profile_id);
   const sourceName = readString(row.source_name) ?? "Governed local fact source";
   const factType = readString(row.fact_type);
@@ -650,6 +737,9 @@ function governedFactRowToLocalFact(row: LocalFactsDatabaseRow): LocalFactResult
   const fetchedAt = readDateString(row.fetched_at);
   const verifiedAt = readDateString(row.verified_at);
   const expiresAt = readDateString(row.expires_at);
+  if (isExpiredDateString(expiresAt)) {
+    return undefined;
+  }
 
   return {
     id,
@@ -660,7 +750,7 @@ function governedFactRowToLocalFact(row: LocalFactsDatabaseRow): LocalFactResult
     claim,
     confidence,
     source: {
-      label: sourceLabelFromAllowedUse(readString(row.allowed_use)),
+      label: sourceLabelFromAllowedUse(allowedUse),
       sourceName,
       ...(sourceProfileId ? { sourceProfileId } : {}),
       ...(fetchedAt ? { fetchedAt } : {}),
@@ -697,6 +787,11 @@ function localFactMatchesQuery(fact: LocalFactResultItem, query: LocalFactsQuery
   return true;
 }
 
+function databasePrefilterPattern(query: LocalFactsQuery) {
+  const searchableText = query.text ?? query.area;
+  return searchableText ? `%${searchableText}%` : "%%";
+}
+
 function sourceLabelFromAllowedUse(allowedUse: string | undefined): AnswerTrustLabel {
   if (allowedUse === "public_republish") {
     return "fresh_cache";
@@ -704,7 +799,7 @@ function sourceLabelFromAllowedUse(allowedUse: string | undefined): AnswerTrustL
   if (allowedUse === "citation_only") {
     return "not_verified";
   }
-  return "curated_local_guide";
+  return "not_verified";
 }
 
 function canDisplayCitation({
@@ -723,6 +818,47 @@ function canDisplayCitation({
     sourceAllowedUse === "public_republish" ||
     sourceAllowedUse === "citation_only"
   );
+}
+
+function isDisplaySafeEvidenceRow({
+  evidenceAllowedUse,
+  row,
+  sourceAllowedUse,
+}: {
+  evidenceAllowedUse: string | undefined;
+  row: LocalFactsDatabaseRow;
+  sourceAllowedUse: string | undefined;
+}) {
+  if (row.fact_public_republish_allowed !== true) {
+    return false;
+  }
+  if (sourceAllowedUse && !isDisplaySafeAllowedUse(sourceAllowedUse)) {
+    return false;
+  }
+
+  const hasEvidenceMetadata = Boolean(
+    readString(row.evidence_label) ||
+      readString(row.citation_url) ||
+      readString(row.citation_text) ||
+      evidenceAllowedUse,
+  );
+  if (!hasEvidenceMetadata) {
+    return true;
+  }
+
+  return Boolean(row.public_republish_allowed) || isDisplaySafeAllowedUse(evidenceAllowedUse);
+}
+
+function isDisplaySafeAllowedUse(allowedUse: string | undefined) {
+  return allowedUse === "public_republish" || allowedUse === "citation_only";
+}
+
+function isExpiredDateString(dateString: string | undefined) {
+  if (!dateString) {
+    return false;
+  }
+  const timestamp = Date.parse(dateString);
+  return Number.isFinite(timestamp) && timestamp <= Date.now();
 }
 
 function optionalCitationFields(row: LocalFactsDatabaseRow) {

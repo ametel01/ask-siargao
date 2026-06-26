@@ -110,6 +110,7 @@ export type AgentToolDependencies = {
   googlePlacesDetailsDb?: GooglePlacesStoreDatabase;
   googlePlacesFetcher?: (url: string, init: RequestInit) => Promise<Response>;
   localFactsQueryRunner?: LocalFactsQueryRunner;
+  localFactsQueryTimeoutMs?: number;
   memorySnapshot?: AgentMemorySnapshot;
   now?: () => Date;
 };
@@ -130,6 +131,7 @@ const weatherForecastLocations = [
   "Del Carmen",
 ] as const;
 
+const defaultLocalFactsQueryTimeoutMs = 2_000;
 const describeSourcePolicySchema = z.object({}).strict();
 const agentMemoryReferenceDocumentNames = requiredAgentMemoryManifest
   .filter((entry) => entry.role === "reference")
@@ -895,9 +897,14 @@ async function getSourceEvidenceToolResult(
   args: SourceEvidenceArguments,
   dependencies: AgentToolDependencies,
 ): Promise<AgentToolResult> {
-  const result = await withLocalFactsQueryRunner(dependencies, (queryRunner) =>
-    getSourceEvidence(args, { queryRunner }),
+  const needsDatabaseEvidence = args.factIds.some(
+    (factId) => !factId.startsWith("curated_local_guide:"),
   );
+  const result = needsDatabaseEvidence
+    ? await withLocalFactsQueryRunner(dependencies, (queryRunner) =>
+        getSourceEvidence(args, { queryRunner }),
+      )
+    : await getSourceEvidence(args);
   return {
     name: "get_source_evidence",
     status: "success",
@@ -1065,8 +1072,9 @@ async function withLocalFactsQueryRunner<T>(
   dependencies: AgentToolDependencies,
   callback: (queryRunner: LocalFactsQueryRunner | undefined) => Promise<T>,
 ) {
+  const timeoutMs = normalizeLocalFactsQueryTimeoutMs(dependencies.localFactsQueryTimeoutMs);
   if (dependencies.localFactsQueryRunner) {
-    return callback(dependencies.localFactsQueryRunner);
+    return withLocalFactsTimeout(callback(dependencies.localFactsQueryRunner), timeoutMs);
   }
 
   const databaseUrl = process.env.DATABASE_URL;
@@ -1076,10 +1084,38 @@ async function withLocalFactsQueryRunner<T>(
 
   const sql = postgres(databaseUrl, { max: 1, prepare: false });
   try {
-    return await callback((query, ...params) => sql(query, ...(params as never[])));
+    return await withLocalFactsTimeout(
+      (async () => {
+        await sql.unsafe(`set statement_timeout to ${timeoutMs}`);
+        return callback((query, ...params) => sql(query, ...(params as never[])));
+      })(),
+      timeoutMs,
+    );
   } finally {
     await sql.end({ timeout: 1 });
   }
+}
+
+function normalizeLocalFactsQueryTimeoutMs(timeoutMs: number | undefined) {
+  if (!Number.isFinite(timeoutMs) || !timeoutMs || timeoutMs <= 0) {
+    return defaultLocalFactsQueryTimeoutMs;
+  }
+  return Math.min(Math.floor(timeoutMs), 30_000);
+}
+
+function withLocalFactsTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      reject(new Error(`Local data query timed out after ${timeoutMs}ms.`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  });
 }
 
 function normalizeLocalGuideSearchResult(result: LocalGuideSearchResult) {

@@ -9,6 +9,13 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Prevented safe local source evidence lookup from returning audit-only/private evidence metadata,
+  accepting fabricated curated guide fact IDs, or dropping route facts when a query combines area
+  and serialized tags.
+- Tightened safe local fact queries to exclude non-display-safe source profiles, search area/text
+  filters independently, return public entity registry rows, and time out slow database calls.
+- Stopped expired governed local facts and source evidence from being returned or labeled as
+  `fresh_cache`.
 - Deleted stale hosted file-search memory attachments when reference memory files are replaced or
   duplicate older checksums remain in the same vector store.
 - Bound backend `search_agent_memory` tool calls to the already resolved turn memory snapshot.

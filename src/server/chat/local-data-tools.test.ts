@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
 
 import {
   describeDatabaseSchema,
@@ -8,6 +9,8 @@ import {
   queryLocalFacts,
   sourceEvidenceArgumentsSchema,
 } from "@/server/chat/local-data-tools";
+import { seedSiargaoBaseline } from "@/server/db/seed";
+import { runInitialMigration } from "@/server/db/test-database";
 
 describe("local data tools contracts", () => {
   test("describes every approved local data surface", () => {
@@ -227,6 +230,99 @@ describe("local data tools contracts", () => {
     expect(JSON.stringify(result).toLowerCase()).not.toContain("private@example.com");
   });
 
+  test("queries seeded route facts when area and serialized tags are both provided", async () => {
+    const db = new PGlite();
+    await runInitialMigration(db);
+    await seedSiargaoBaseline(pgliteTemplateRunner(db));
+
+    const result = await queryLocalFacts(
+      {
+        entityTypes: ["route"],
+        area: "General Luna",
+        tags: ["transport"],
+        limit: 5,
+      },
+      {
+        queryRunner: pgliteTemplateRunner(db),
+      },
+    );
+
+    await db.close();
+
+    expect(result.facts.length).toBeGreaterThan(0);
+    expect(result.facts.every((fact) => fact.entityType === "route")).toBe(true);
+    expect(result.facts.every((fact) => fact.tags.includes("transport"))).toBe(true);
+    expect(result.facts.map((fact) => fact.name)).toEqual(
+      expect.arrayContaining(["Sayak Airport to General Luna", "Dapa Port to General Luna"]),
+    );
+  });
+
+  test("queries seeded route facts when area and text appear independently", async () => {
+    const db = new PGlite();
+    await runInitialMigration(db);
+    await seedSiargaoBaseline(pgliteTemplateRunner(db));
+
+    const result = await queryLocalFacts(
+      {
+        entityTypes: ["route"],
+        area: "General Luna",
+        text: "Airport",
+        limit: 5,
+      },
+      {
+        queryRunner: pgliteTemplateRunner(db),
+      },
+    );
+
+    await db.close();
+
+    expect(result.facts.map((fact) => fact.name)).toContain("Sayak Airport to General Luna");
+  });
+
+  test("queries public entity rows without governed facts", async () => {
+    const db = new PGlite();
+    await runInitialMigration(db);
+    await seedSiargaoBaseline(pgliteTemplateRunner(db));
+    await pgliteTemplateRunner(db)`
+      insert into entities (id, slug, entity_type, name, aliases, public_visibility, confidence_label)
+      values (
+        'entity_board_repair',
+        'board-repair-siargao',
+        'service',
+        'Board Repair Siargao',
+        '["board fix"]'::jsonb,
+        'public',
+        'medium'
+      )`;
+
+    const result = await queryLocalFacts(
+      {
+        entityTypes: ["service"],
+        text: "Board Repair",
+        limit: 5,
+      },
+      {
+        queryRunner: pgliteTemplateRunner(db),
+      },
+    );
+
+    await db.close();
+
+    expect(result.facts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "public_entity:entity_board_repair",
+          entityType: "service",
+          name: "Board Repair Siargao",
+          source: {
+            label: "curated_local_guide",
+            sourceName: "Ask Siargao public entity registry",
+          },
+        }),
+      ]),
+    );
+  });
+
   test("serializes governed database facts without raw row leakage", async () => {
     const result = await queryLocalFacts(
       {
@@ -280,6 +376,81 @@ describe("local data tools contracts", () => {
     expect(JSON.stringify(result).toLowerCase()).not.toContain("audit_private");
   });
 
+  test("does not expose governed facts with audit-only source profiles", async () => {
+    const result = await queryLocalFacts(
+      {
+        entityTypes: ["service"],
+        text: "private",
+        limit: 5,
+      },
+      {
+        queryRunner: async (strings) => {
+          if (!strings.join("?").includes("from facts")) {
+            return [];
+          }
+          return [
+            {
+              id: "fact_private_host_note",
+              entity_type: "service",
+              name: "Private host note",
+              area: "General Luna",
+              claim: "Private user-submitted note.",
+              fact_type: "host_note",
+              confidence_label: "medium",
+              source_profile_id: "source_user_submitted",
+              source_name: "User-submitted trip evidence profile",
+              allowed_use: "audit_only",
+              fetched_at: new Date("2026-06-26T00:00:00.000Z"),
+            },
+          ];
+        },
+      },
+    );
+
+    expect(result.facts).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain("source_user_submitted");
+    expect(JSON.stringify(result)).not.toContain("User-submitted trip evidence profile");
+    expect(JSON.stringify(result)).not.toContain("Private user-submitted note.");
+  });
+
+  test("does not return expired governed facts as fresh cache", async () => {
+    const result = await queryLocalFacts(
+      {
+        entityTypes: ["service"],
+        text: "stale",
+        limit: 5,
+      },
+      {
+        queryRunner: async (strings) => {
+          if (!strings.join("?").includes("from facts")) {
+            return [];
+          }
+          return [
+            {
+              id: "fact_stale_generator_backup",
+              entity_type: "service",
+              name: "Stale generator service",
+              area: "General Luna",
+              claim: "Stale public cache row.",
+              fact_type: "generator",
+              confidence_label: "medium",
+              source_profile_id: "source_local_public",
+              source_name: "Local public directory",
+              allowed_use: "public_republish",
+              fetched_at: new Date("2020-01-01T00:00:00.000Z"),
+              expires_at: "2020-01-01T00:00:00.000Z",
+            },
+          ];
+        },
+      },
+    );
+
+    expect(result.facts).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain("fresh_cache");
+    expect(JSON.stringify(result)).not.toContain("fact_stale_generator_backup");
+    expect(JSON.stringify(result)).not.toContain("Stale public cache row.");
+  });
+
   test("caps query_local_facts results to the normalized maximum limit", async () => {
     const result = await queryLocalFacts({
       entityTypes: ["beach"],
@@ -326,11 +497,12 @@ describe("local data tools contracts", () => {
         queryRunner: async () => [
           {
             fact_id: "fact_transport_schedule",
+            fact_public_republish_allowed: true,
             confidence_label: "medium",
             source_profile_id: "source_official_transport",
             fetched_at: new Date("2026-06-26T00:00:00.000Z"),
             verified_at: "2026-06-26T01:00:00.000Z",
-            expires_at: "2026-06-27T00:00:00.000Z",
+            expires_at: "2099-01-01T00:00:00.000Z",
             source_name: "Official transport source profile",
             source_allowed_use: "citation_only",
             evidence_label: "official schedule citation",
@@ -353,7 +525,7 @@ describe("local data tools contracts", () => {
         confidence: "medium",
         fetchedAt: "2026-06-26T00:00:00.000Z",
         verifiedAt: "2026-06-26T01:00:00.000Z",
-        expiresAt: "2026-06-27T00:00:00.000Z",
+        expiresAt: "2099-01-01T00:00:00.000Z",
         citationUrl: "https://example.com/schedule",
         citationText: "Published schedule page",
         caveats: [
@@ -372,6 +544,37 @@ describe("local data tools contracts", () => {
     expect(JSON.stringify(result).toLowerCase()).not.toContain("raw_payload");
   });
 
+  test("does not return expired governed source evidence as fresh cache", async () => {
+    const result = await getSourceEvidence(
+      {
+        factIds: ["fact_stale_public_cache"],
+      },
+      {
+        queryRunner: async () => [
+          {
+            fact_id: "fact_stale_public_cache",
+            fact_public_republish_allowed: true,
+            confidence_label: "medium",
+            source_profile_id: "source_local_public",
+            fetched_at: new Date("2020-01-01T00:00:00.000Z"),
+            expires_at: "2020-01-01T00:00:00.000Z",
+            source_name: "Local public directory",
+            source_allowed_use: "public_republish",
+            evidence_label: "stale public cache evidence",
+            evidence_allowed_use: "public_republish",
+            public_republish_allowed: true,
+          },
+        ],
+      },
+    );
+
+    expect(result.evidence).toEqual([]);
+    expect(result.missingFactIds).toEqual(["fact_stale_public_cache"]);
+    expect(JSON.stringify(result)).not.toContain("fresh_cache");
+    expect(JSON.stringify(result)).not.toContain("Local public directory");
+    expect(JSON.stringify(result)).not.toContain("stale public cache evidence");
+  });
+
   test("adds Google Places caveats while omitting restricted payload and review fields", async () => {
     const result = await getSourceEvidence(
       {
@@ -381,6 +584,7 @@ describe("local data tools contracts", () => {
         queryRunner: async () => [
           {
             fact_id: "fact_google_place_hours",
+            fact_public_republish_allowed: true,
             confidence_label: "low",
             source_profile_id: "source_google_places",
             source_name: "Google Places API profile",
@@ -425,7 +629,16 @@ describe("local data tools contracts", () => {
     expect(result.missingFactIds).toEqual(["missing_fact"]);
   });
 
-  test("does not display citations when source policy does not allow display", async () => {
+  test("reports fabricated curated guide fact IDs as missing", async () => {
+    const result = await getSourceEvidence({
+      factIds: ["curated_local_guide:beach:not-a-real-beach"],
+    });
+
+    expect(result.evidence).toEqual([]);
+    expect(result.missingFactIds).toEqual(["curated_local_guide:beach:not-a-real-beach"]);
+  });
+
+  test("does not expose audit-only evidence metadata for guessed fact IDs", async () => {
     const result = await getSourceEvidence(
       {
         factIds: ["fact_audit_only"],
@@ -434,6 +647,7 @@ describe("local data tools contracts", () => {
         queryRunner: async () => [
           {
             fact_id: "fact_audit_only",
+            fact_public_republish_allowed: false,
             confidence_label: "medium",
             source_profile_id: "source_user_submitted",
             source_name: "User-submitted trip evidence profile",
@@ -448,8 +662,22 @@ describe("local data tools contracts", () => {
       },
     );
 
-    expect(result.evidence[0]).not.toHaveProperty("citationUrl");
-    expect(result.evidence[0]).not.toHaveProperty("citationText");
+    expect(result.evidence).toEqual([]);
+    expect(result.missingFactIds).toEqual(["fact_audit_only"]);
     expect(JSON.stringify(result)).not.toContain("Do not show this");
+    expect(JSON.stringify(result)).not.toContain("private host note");
+    expect(JSON.stringify(result)).not.toContain("source_user_submitted");
   });
 });
+
+function pgliteTemplateRunner(db: PGlite) {
+  return async (query: TemplateStringsArray, ...params: unknown[]) => {
+    const text = query.reduce(
+      (statement, part, index) =>
+        `${statement}${part}${index < params.length ? `$${index + 1}` : ""}`,
+      "",
+    );
+    const result = await db.query(text, params);
+    return result.rows as Record<string, unknown>[];
+  };
+}

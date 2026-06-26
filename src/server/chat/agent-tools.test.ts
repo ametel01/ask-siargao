@@ -797,6 +797,28 @@ describe("agent tools", () => {
     expect(result.sources[0]?.checked.join(" ")).toContain("route fact");
   });
 
+  test("times out slow local fact database queries", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_db_facts_timeout",
+        name: "query_local_facts",
+        arguments: {
+          entityTypes: ["route"],
+          limit: 5,
+        },
+      },
+      {
+        localFactsQueryRunner: async () => new Promise(() => {}),
+        localFactsQueryTimeoutMs: 1,
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("tool_execution_failed");
+    expect(result.text).toBe("Local data query timed out after 1ms.");
+    expect(result.sources).toEqual([]);
+  });
+
   test("executes display-safe source evidence lookup", async () => {
     const result = await executeAgentTool({
       requestId: "agent_request_evidence",
@@ -832,6 +854,7 @@ describe("agent tools", () => {
         localFactsQueryRunner: async () => [
           {
             fact_id: "fact_google_place",
+            fact_public_republish_allowed: true,
             confidence_label: "low",
             source_profile_id: "source_google_places",
             source_name: "Google Places API profile",
