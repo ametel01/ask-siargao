@@ -25,6 +25,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Established progress tracking for the Priority 7 map-first recommendation cards implementation
+  plan.
 - Established progress and changelog tracking for the Priority 6 safe database and local
   knowledge tools implementation plan.
 - Added safe local data tool contracts, an approved schema dictionary, and zod argument
