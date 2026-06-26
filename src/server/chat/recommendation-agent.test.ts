@@ -40,8 +40,11 @@ describe("RecommendationAgent", () => {
       center: { latitude: 9.7594, longitude: 125.9761 },
     });
     expect(response.message).toContain("Good options I found from Google Places:");
-    expect(response.message).toContain("Checked: Google Places ratings, open-now signal");
-    expect(response.message).toContain("Not checked: covered seating, bookings, review text");
+    expect(response.message).toContain("Checked: Google Places (live checked");
+    expect(response.message).toContain("place listings, ratings");
+    expect(response.message).not.toContain("open-now signal");
+    expect(response.message).toContain("Not checked: Google Places (live checked");
+    expect(response.message).toContain("covered seating, bookings, review text");
     expect(response.message).toContain("1. **Dapa Food House**");
     expect(response.message).toContain("Rating: 4.5 (95 reviews)");
     expect(response.message).toContain("Best fit:");
@@ -258,8 +261,10 @@ describe("RecommendationAgent", () => {
     expect(response.message).toContain("Best fit: closest strong match");
     expect(response.message).toContain("from Cloud 9, open now.");
     expect(response.message).not.toContain("Google currently reports open.");
-    expect(response.message).toContain("Checked: Google Places open-now signal");
-    expect(response.message).toContain("Not checked: covered seating");
+    expect(response.message).toContain("Checked: Google Places (live checked");
+    expect(response.message).toContain("open-now signal");
+    expect(response.message).toContain("Not checked: Google Places (live checked");
+    expect(response.message).toContain("covered seating");
   });
 
   test("keeps breakfast caveats full but compacts lunch meal follow-up caveats", async () => {
@@ -302,10 +307,12 @@ describe("RecommendationAgent", () => {
       textQuery: "lunch restaurants near Cloud 9 Siargao",
       center: { latitude: 9.8116, longitude: 126.1651 },
     });
-    expect(breakfastResponse.message).toContain("Checked: Google Places ratings");
-    expect(breakfastResponse.message).toContain("Not checked: covered seating");
-    expect(lunchResponse.message).toContain("Checked: Google Places open-now signal");
-    expect(lunchResponse.message).toContain("Not checked: covered seating");
+    expect(breakfastResponse.message).toContain("Checked: Google Places (live checked");
+    expect(breakfastResponse.message).toContain("ratings");
+    expect(breakfastResponse.message).toContain("Not checked: Google Places (live checked");
+    expect(lunchResponse.message).toContain("Checked: Google Places (live checked");
+    expect(lunchResponse.message).not.toContain("open-now signal");
+    expect(lunchResponse.message).toContain("Not checked: Google Places (live checked");
   });
 
   test("searches Google Places for covered cafe open-now follow-ups", async () => {
@@ -345,9 +352,32 @@ describe("RecommendationAgent", () => {
       center: { latitude: 9.8006, longitude: 126.1586 },
     });
     expect(response.message).toContain("Covered Beachfront Cafe");
-    expect(response.message).toContain("Checked: Google Places ratings");
-    expect(response.message).toContain("Not checked: covered seating");
+    expect(response.message).toContain("Checked: Google Places (live checked");
+    expect(response.message).not.toContain("open-now signal");
+    expect(response.message).toContain("opening hours/open-now status");
+    expect(response.message).toContain("covered seating");
     expect(response.message).toContain("Maps: https://maps.google.com/?cid=place_dapa");
+  });
+
+  test("renders fresh cached Places recommendations with a distinct source label", async () => {
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) =>
+        googlePlacesContext({
+          fetchedAt,
+          search,
+          freshness: "fresh_cache",
+          placeName: "Cache Cafe",
+        }),
+    });
+
+    const response = await agent.answer({
+      messages: [{ role: "user", content: "find a cafe near general luna" }],
+    });
+
+    expect(response.status).toBe("answered");
+    expect(response.message).toContain("Checked: Google Places (fresh cache");
+    expect(response.message).not.toContain("live checked");
+    expect(response.message).toContain("1. **Cache Cafe**");
   });
 
   test("uses prior location and cheaper modifier for there follow-ups", async () => {
@@ -691,6 +721,9 @@ describe("RecommendationAgent", () => {
     });
 
     expect(response.message).toContain("Tap these searches instead");
+    expect(response.message).toContain("Not checked: Google Places (not verified");
+    expect(response.message).toContain("verified place listings");
+    expect(response.message).not.toContain("Checked: Google Places");
     expect(response.message).toContain("proper restaurant near Dapa Siargao");
     expect(response.message).toContain("restaurant near Del Carmen Port Siargao");
   });
@@ -707,6 +740,7 @@ function googlePlacesContext({
   places,
   rating = 4.2,
   search,
+  freshness = "live",
   userRatingCount = 80,
 }: {
   fetchedAt?: string;
@@ -714,6 +748,7 @@ function googlePlacesContext({
   places?: GooglePlacesChatContext["places"];
   rating?: number;
   search: GooglePlacesChatSearch;
+  freshness?: GooglePlacesChatContext["freshness"];
   userRatingCount?: number;
 }): GooglePlacesChatContext {
   return {
@@ -721,7 +756,7 @@ function googlePlacesContext({
     sourceName: "Google Places",
     sourceProfileId: googlePlacesDiscoverySourceProfileId,
     fetchedAt,
-    freshness: "live",
+    freshness,
     search,
     fieldMask: googlePlacesChatSearchFieldMask,
     caveats: ["No review text."],

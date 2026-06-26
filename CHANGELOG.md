@@ -88,6 +88,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Rendered Google Places recommendation source labels from provider freshness metadata, including
+  distinct live/fresh-cache labels and opening-hours-not-verified caveats.
 - Routed curated beach and weather chat answers through shared trust/source labels,
   including provider-unavailable caveats for fallback weather snapshots.
 - Routed `/api/chat` follow-up decisions through request-scoped trip context for weather planning,

@@ -2,12 +2,13 @@ import OpenAI from "openai";
 import type { Logger } from "pino";
 import { z } from "zod";
 
-import { normalizeLocalRecommendation } from "@/server/chat/local-recommendation";
 import {
-  interpretPlaceIntent,
-  isPlaceRecommendationContent,
-  type PlaceIntent,
-} from "@/server/chat/place-intent";
+  type AnswerSourceSummary,
+  googlePlacesFreshnessToTrustLabel,
+  renderAnswerSourceLines,
+} from "@/server/chat/answer-source-summary";
+import { normalizeLocalRecommendation } from "@/server/chat/local-recommendation";
+import { interpretPlaceIntent, type PlaceIntent } from "@/server/chat/place-intent";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 import { createComponentLogger } from "@/server/observability/logger";
 import {
@@ -18,6 +19,7 @@ import {
   getGooglePlacesChatContext,
 } from "@/server/providers/google-places-chat";
 import { createDefaultCachedGooglePlacesChatContextAdapter } from "@/server/providers/google-places-chat-cache";
+import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
 
 export type RecommendationAgentResponse = {
   status: "answered" | "clarifying_question" | "unsupported";
@@ -88,6 +90,8 @@ export type PlaceCandidate = {
   score: number;
   source: {
     provider: "google_places";
+    sourceName: GooglePlacesChatContext["sourceName"];
+    sourceProfileId: GooglePlacesChatContext["sourceProfileId"];
     fetchedAt: string;
     freshness: GooglePlacesChatContext["freshness"];
   };
@@ -348,6 +352,8 @@ export class RecommendationAgent {
           });
           const foundCandidates = context.places.map((place) =>
             placeCandidateFromGooglePlace(place, search.textQuery, search.center, {
+              sourceName: context.sourceName,
+              sourceProfileId: context.sourceProfileId,
               fetchedAt: context.fetchedAt,
               freshness: context.freshness,
             }),
@@ -851,7 +857,10 @@ function placeCandidateFromGooglePlace(
   place: GooglePlacesChatPlace,
   sourceQuery: string,
   searchCenter: GooglePlacesChatSearch["center"],
-  source: Pick<PlaceCandidate["source"], "fetchedAt" | "freshness">,
+  source: Pick<
+    PlaceCandidate["source"],
+    "sourceName" | "sourceProfileId" | "fetchedAt" | "freshness"
+  >,
 ): PlaceCandidate {
   const distanceMeters =
     place.latitude === undefined || place.longitude === undefined
@@ -881,6 +890,8 @@ function placeCandidateFromGooglePlace(
     score: 0,
     source: {
       provider: "google_places",
+      sourceName: source.sourceName,
+      sourceProfileId: source.sourceProfileId,
       fetchedAt: source.fetchedAt,
       freshness: source.freshness,
     },
@@ -953,11 +964,15 @@ function renderRecommendationAnswer(
     }));
 
     if (fallbackSearches.length === 0) {
-      return "I could not verify useful place options for that request.";
+      return [
+        "I could not verify useful place options for that request.",
+        ...renderAnswerSourceLines([noResultSourceSummary(intent)]),
+      ].join("\n");
     }
 
     return [
       "I could not verify exact place listings, so I will not name a restaurant as confirmed.",
+      ...renderAnswerSourceLines([noResultSourceSummary(intent)]),
       "",
       "Tap these searches instead:",
       ...fallbackSearches.map((search) => `- ${search.query}: ${search.url}`),
@@ -965,7 +980,8 @@ function renderRecommendationAnswer(
   }
 
   const centerLabel = searchActions.at(-1)?.centerLabel ?? intent?.location ?? "the requested area";
-  const recommendations = candidates.slice(0, 4).map((candidate, index) =>
+  const selectedCandidates = candidates.slice(0, 4);
+  const recommendations = selectedCandidates.map((candidate, index) =>
     normalizeLocalRecommendation({
       candidate,
       category: intent?.category ?? "activity_place",
@@ -974,19 +990,10 @@ function renderRecommendationAnswer(
       index,
     }),
   );
-  const caveats = compactMealFollowUpCaveat(intent)
-    ? [
-        "Checked: Google Places open-now signal, distance, addresses, and map links.",
-        "Not checked: covered seating, bookings, review text, or independent local validation.",
-      ]
-    : [
-        "Checked: Google Places ratings, open-now signal, distance, addresses, and map links.",
-        "Not checked: covered seating, bookings, review text, or independent local validation.",
-      ];
 
   return [
     "Good options I found from Google Places:",
-    ...caveats,
+    ...renderAnswerSourceLines(recommendationSourceSummaries(selectedCandidates, intent)),
     "",
     ...recommendations.map((recommendation, index) => {
       const rating =
@@ -1001,15 +1008,80 @@ function renderRecommendationAnswer(
   ].join("\n");
 }
 
-function compactMealFollowUpCaveat(intent: PlaceIntent | null) {
-  return (
-    intent !== null &&
-    intent.meal !== null &&
-    /\b(what\s+about|how\s+about|instead|also|and\s+(?:lunch|dinner|breakfast))\b/i.test(
-      intent.latestUserTurn,
-    ) &&
-    isPlaceRecommendationContent(intent.recentUserContext)
-  );
+function recommendationSourceSummaries(
+  candidates: readonly PlaceCandidate[],
+  intent: PlaceIntent | null,
+): AnswerSourceSummary[] {
+  const summaries = new Map<string, AnswerSourceSummary>();
+
+  for (const candidate of candidates) {
+    const label = googlePlacesFreshnessToTrustLabel(candidate.source.freshness);
+    const key = [
+      label,
+      candidate.source.sourceName,
+      candidate.source.sourceProfileId,
+      candidate.source.fetchedAt,
+    ].join("|");
+    if (summaries.has(key)) {
+      continue;
+    }
+
+    summaries.set(key, {
+      label,
+      sourceName: candidate.source.sourceName,
+      sourceProfileId: candidate.source.sourceProfileId,
+      fetchedAt: candidate.source.fetchedAt,
+      checked: recommendationCheckedItems(candidates),
+      notChecked: recommendationNotCheckedItems(candidates, intent),
+    });
+  }
+
+  return [...summaries.values()];
+}
+
+function recommendationCheckedItems(candidates: readonly PlaceCandidate[]) {
+  return [
+    "place listings",
+    ...(candidates.some((candidate) => candidate.rating !== undefined) ? ["ratings"] : []),
+    ...(candidates.some((candidate) => candidate.currentOpeningHours?.openNow !== undefined)
+      ? ["open-now signal"]
+      : []),
+    ...(candidates.some((candidate) => candidate.distanceMeters !== undefined) ? ["distance"] : []),
+    ...(candidates.some((candidate) => candidate.formattedAddress) ? ["addresses"] : []),
+    "map links",
+  ];
+}
+
+function recommendationNotCheckedItems(
+  candidates: readonly PlaceCandidate[],
+  intent: PlaceIntent | null,
+) {
+  return [
+    ...(requiresLiveStatus(intent) &&
+    !candidates.some((candidate) => candidate.currentOpeningHours?.openNow !== undefined)
+      ? ["opening hours/open-now status"]
+      : []),
+    "covered seating",
+    "bookings",
+    "review text",
+    "independent local validation",
+  ];
+}
+
+function noResultSourceSummary(intent: PlaceIntent | null): AnswerSourceSummary {
+  return {
+    label: "not_verified",
+    sourceName: "Google Places",
+    sourceProfileId: googlePlacesDiscoverySourceProfileId,
+    checked: [],
+    notChecked: [
+      "verified place listings",
+      ...(requiresLiveStatus(intent) ? ["opening hours/open-now status"] : []),
+      "bookings",
+      "review text",
+      "independent local validation",
+    ],
+  };
 }
 
 function distanceMetersBetween(

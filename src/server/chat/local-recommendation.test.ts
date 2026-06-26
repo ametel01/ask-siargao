@@ -20,6 +20,8 @@ describe("normalizeLocalRecommendation", () => {
         currentOpeningHours: { openNow: true },
         source: {
           provider: "google_places",
+          sourceName: "Google Places",
+          sourceProfileId: "source_google_places",
           fetchedAt: "2026-06-26T01:00:00.000Z",
           freshness: "live",
         },
@@ -44,6 +46,8 @@ describe("normalizeLocalRecommendation", () => {
       priceLevel: "PRICE_LEVEL_MODERATE",
       source: {
         provider: "google_places",
+        sourceName: "Google Places",
+        sourceProfileId: "source_google_places",
         fetchedAt: "2026-06-26T01:00:00.000Z",
         freshness: "live",
       },

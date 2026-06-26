@@ -9,15 +9,15 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Shared Answer Source Summary Contract
 - [x] Step 2: Curated Beach And Weather Labels
-- [ ] Step 3: Google Places Recommendation Labels
+- [x] Step 3: Google Places Recommendation Labels
 - [ ] Step 4: Generic Fallback And Provider-Failure Labels
 - [ ] Step 5: Frontend Parser Regression Coverage
 - [ ] Step 6: Final Verification And Documentation Alignment
 
 ## Current Status
 
-Step 2 is complete. Step 3 is next: label Google Places recommendation freshness and
-open-now verification accurately.
+Step 3 is complete. Step 4 is next: add source transparency to generic fallback and
+recommendation-provider failure paths.
 
 ## Update Rule
 
@@ -54,5 +54,18 @@ that step is committed.
   passed; `bun test` passed (210 tests); `bun run db:migrate:test` passed (38 tables);
   `bun run db:seed:test` passed (5 areas, 3 routes, 4 source profiles); `bun run build`
   passed; `bun run test:e2e` passed (17 tests).
-  Commit: pending.
+  Commit: `ad320f6` (`Label beach and weather answer sources`).
   Next step: Step 3, Google Places Recommendation Labels.
+- 2026-06-26: Completed Step 3 by preserving Google Places source metadata through
+  recommendation candidates, rendering live/fresh-cache recommendation source labels
+  through `AnswerSourceSummary`, distinguishing open-now checked from opening-hours-not-
+  verified, and marking no-result recommendation answers as not verified.
+  Validation: `bun run format` passed; `bun test
+  src/server/chat/recommendation-agent.test.ts src/server/chat/local-recommendation.test.ts
+  src/app/api/chat/route.test.ts` passed (53 tests); `bun run lint` passed (`biome
+  check .`, 178 files checked); `bun run typecheck --incremental false` passed; `bun
+  test` passed (211 tests); `bun run db:migrate:test` passed (38 tables); `bun run
+  db:seed:test` passed (5 areas, 3 routes, 4 source profiles); `bun run build` passed;
+  `bun run test:e2e` passed (17 tests).
+  Commit: pending.
+  Next step: Step 4, Generic Fallback And Provider-Failure Labels.

@@ -20,6 +20,8 @@ export type LocalRecommendation = {
   caveats: string[];
   source: {
     provider: "google_places";
+    sourceName?: string;
+    sourceProfileId?: string;
     fetchedAt: string;
     freshness: GooglePlacesChatContext["freshness"];
   };
