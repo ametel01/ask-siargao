@@ -15,13 +15,13 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 - [x] Step 2: Instruction Memory Injection and Version Metadata
 - [x] Step 3: Vector Store Sync and Operational Configuration
 - [x] Step 4: File Search Tool Registration and Backend Memory Fallback
-- [ ] Step 5: Runtime Reference, Release Checks, and Cleanup
+- [x] Step 5: Runtime Reference, Release Checks, and Cleanup
 
 ## Current Status
 
-Step 4 is complete. The chat agent can use hosted `file_search` when a vector
-store ID is configured and falls back to deterministic backend memory search in
-local/test mode without treating memory retrieval as live evidence.
+All steps are complete. Persistent agent memory is authored in Markdown,
+validated, loaded into chat instructions, exposed through vector-store
+`file_search` or backend fallback retrieval, documented, and fully validated.
 
 ## Update Rule
 
@@ -95,5 +95,20 @@ before that step is committed.
   `bun run db:migrate:test && bun run db:seed:test` passed (38 tables; 5 areas,
   3 routes, 4 source profiles); `bun run build` passed; `bun run test:e2e`
   passed (17 tests).
-  Commit: this commit (`Wire agent memory retrieval tools`).
+  Commit: `cc6db65` (`Wire agent memory retrieval tools`).
   Next step: Step 5, Runtime Reference, Release Checks, and Cleanup.
+- 2026-06-27: Completed Step 5 by documenting the three persistent-memory
+  layers, the memory editing/sync workflow, source-policy constraints, and the
+  legacy chat-adapter boundary in `docs/developer/reference/chat-agent-runtime.md`;
+  linking persistent memory from the docs index; and running a final audit for
+  secrets, vector-store IDs, `NEXT_PUBLIC_` server config, raw memory-body
+  logging, memory-backed source labels, and normal chat-request upload paths.
+  Validation: `bun run format` passed; `bun run lint` passed (`biome check .`,
+  191 files checked); `bun run typecheck --incremental false` passed; `bun test`
+  passed (265 tests); `bun run db:migrate:test && bun run db:seed:test` passed
+  (38 tables; 5 areas, 3 routes, 4 source profiles); `bun run build` passed;
+  `bun run test:e2e` passed (17 tests). Final audit found only documented
+  placeholders and test fixture vector-store IDs, no production secrets or normal
+  chat upload path.
+  Commit: this commit (`Document persistent agent memory`).
+  Final plan status: complete.

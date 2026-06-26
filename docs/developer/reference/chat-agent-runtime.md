@@ -19,6 +19,40 @@ Add the tool in `src/server/chat/agent-tools.ts`.
 Do not add a hardcoded final-answer branch to `/api/chat`. Deterministic code can classify,
 validate, fetch, rank, and normalize data, but final prose belongs to the model.
 
+## Persistent Agent Memory
+
+Agent memory lives in `docs/agent-memory/` and is wired into the chat runtime deliberately. Markdown
+files are not treated as model memory unless the runtime loads or indexes them.
+
+The current memory layers are:
+
+- instruction Markdown: `ASK_SIARGAO_AGENT_SKILLS.md` and
+  `ASK_SIARGAO_TOOL_USE_POLICY.md` are loaded by `loadAgentMemorySnapshot` and appended to every
+  Responses `instructions` call, including tool-loop continuation calls with
+  `previous_response_id`;
+- vector-store `file_search`: reference files can be synced with
+  `bun run agent-memory:sync`; when `OPENAI_AGENT_MEMORY_VECTOR_STORE_ID` is set, the chat runtime
+  registers hosted `file_search` with that vector store;
+- backend memory fallback: when no vector store ID is configured, the runtime registers
+  `search_agent_memory`, a deterministic local search tool over reference-role Markdown files for
+  local development and tests.
+
+Every successful agent turn can include memory metadata: version ID, file IDs, roles, checksums,
+byte lengths, and optional vector-store ID. Logs use the same metadata summary and must not include
+raw memory document bodies.
+
+To add or edit agent memory:
+
+1. Edit the relevant file under `docs/agent-memory/`.
+2. Keep instruction files short and stable; use reference files for larger data dictionary, source
+   policy, and local assumption material.
+3. Run `bun test src/server/chat/agent-memory.test.ts`.
+4. Run `bun run agent-memory:sync -- --dry-run` to confirm the reference-file sync plan.
+5. For deployed file search, run `bun run agent-memory:sync` with `OPENAI_API_KEY`, then configure
+   the printed `OPENAI_AGENT_MEMORY_VECTOR_STORE_ID` as a server-only environment variable.
+
+Normal chat requests never upload memory files. Uploads only happen through the sync script.
+
 ## Argument Validation
 
 Tool arguments are validated by each Zod schema before handler code runs. Invalid arguments return a
@@ -58,6 +92,11 @@ model produces source labels that are not backed by tool evidence.
 `describe_source_policy` is descriptive policy metadata, not answer evidence. It should return the
 label explanations in `data.policies` and `text`, with an empty `sources` array.
 
+`file_search` and `search_agent_memory` are also policy/reference retrieval paths, not answer
+evidence. They must not create `live_checked`, `fresh_cache`, `weather_checked`,
+`curated_local_guide`, or `provider_unavailable` source summaries. Live/local factual claims still
+need governed tools such as weather, Google Places, or the curated local guide.
+
 ## Observability
 
 Runtime logs include request ID bindings, model, tool names, tool status, provider operation,
@@ -65,9 +104,16 @@ provider failure status, source labels, source profile IDs, durations, and upstr
 Logs must not include raw tool arguments, raw restricted provider payloads, provider response bodies,
 secrets, review text, bookings, or availability data.
 
+## Legacy Adapter Boundary
+
+`src/server/llm/chat-adapter.ts` is a legacy direct Responses adapter used by older unit tests and
+context-shaping helpers. Valid `/api/chat` responses use `runAskSiargaoAgentTurn` instead. Do not
+add persistent-memory behavior to the legacy adapter unless a future cleanup plan decides to remove
+or migrate that boundary.
+
 ## Out Of Scope
 
 The current runtime does not include persistent long-term chat memory, unrestricted database access,
-SQL tools, file-search memory, booking/table/room availability checks, review-text ingestion for
-chat answers, surf/swell/tide integrations, road-closure feeds, or automatic repair-pass prompting
-after source-consistency failures.
+SQL tools, booking/table/room availability checks, review-text ingestion for chat answers,
+surf/swell/tide integrations, road-closure feeds, or automatic repair-pass prompting after
+source-consistency failures.

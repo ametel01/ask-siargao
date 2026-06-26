@@ -115,6 +115,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Documented persistent agent memory authoring, sync, retrieval, source-policy constraints, and
+  the legacy chat-adapter boundary.
 - Loaded Markdown-backed agent memory into chat-agent instructions and exposed memory version
   metadata in runtime results, route responses, and logs.
 - Routed valid `/api/chat` requests through the Ask Siargao agent runtime so weather, Places,
