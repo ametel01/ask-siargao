@@ -69,6 +69,38 @@ describe("chat source consistency", () => {
     expect(result.valid).toBe(true);
   });
 
+  test("accepts curated and fresh-cache local data sources from safe local data tools", () => {
+    const localFreshCacheSummary: AnswerSourceSummary = {
+      label: "fresh_cache",
+      sourceName: "Local public directory",
+      sourceProfileId: "source_local_public",
+      confidence: "medium",
+      checked: ["service fact: Backup generator service"],
+      notChecked: ["private audit records"],
+    };
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Doot is curated and the service fact came from cache.", [
+        localGuideSourceSummary,
+        localFreshCacheSummary,
+      ]),
+      sources: [localGuideSourceSummary, localFreshCacheSummary],
+      toolCalls: [
+        toolCall({
+          name: "query_local_facts",
+          status: "success",
+          sources: [localGuideSourceSummary, localFreshCacheSummary],
+        }),
+        toolCall({
+          name: "get_source_evidence",
+          status: "success",
+          sources: [localGuideSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result.valid).toBe(true);
+  });
+
   test("keeps generic model reasoning as not verified without requiring tool output", () => {
     const result = validateChatAnswerSourceConsistency({
       message: withSourceLines("A relaxed General Luna afternoon is reasonable.", [

@@ -288,6 +288,12 @@ function providerOperationForTool(name: string) {
       return "google_places.details";
     case "search_local_guide":
       return "local_guide.search";
+    case "describe_database_schema":
+      return "local_data.schema";
+    case "query_local_facts":
+      return "local_data.query";
+    case "get_source_evidence":
+      return "local_data.evidence";
     case "describe_source_policy":
       return "source_policy.describe";
     case "search_agent_memory":
@@ -326,7 +332,7 @@ const askSiargaoBaseInstructions = [
   "Answer the traveler's latest question directly and conversationally.",
   "Stay strictly scoped to Siargao Island, Siargao travel, and local trip-planning topics.",
   "If the latest question is unrelated to Siargao or plausible trip planning, politely decline and invite a Siargao-related question.",
-  "Use the available tools whenever the answer needs current weather, Google Places facts, curated beach/local guide facts, or source-label policy.",
+  "Use the available tools whenever the answer needs current weather, Google Places facts, curated beach/local guide facts, safe local database facts, source evidence, or source-label policy.",
   "Do not invent live, provider-backed, or curated local facts. If a tool fails, explain what could not be checked and still give bounded practical guidance when possible.",
   "Treat Google Places ordering as provider relevance, not an independent quality ranking.",
   "Every Google Places place mentioned from tool output should include its raw Google Maps URL when present.",

@@ -27,6 +27,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
   database fact surfaces with source/confidence metadata and raw/private field guards.
 - Added display-safe source evidence lookup for curated and governed fact IDs, including
   citation-policy handling, Google Places caveats, and restricted payload guards.
+- Registered the safe local data tools in the Responses agent runtime with strict tool
+  definitions, audit operation mapping, source summaries, and source-consistency coverage.
 - Added hosted file-search registration for synced agent memory plus a deterministic
   backend `search_agent_memory` fallback for local and test retrieval.
 - Added agent-memory vector-store synchronization with dry-run support, checksum-aware

@@ -16,9 +16,9 @@
 
 ## Current Status
 
-- Current step: Step 4, register safe database tools in the agent runtime.
-- Next step: Expose schema discovery, structured local fact retrieval, and source
-  evidence lookup through the existing Responses tool loop.
+- Current step: Step 5, align agent memory and tool-use documentation.
+- Next step: Update agent memory guidance so the model knows when to use the safe local
+  data tools without treating memory as evidence.
 
 ## Step Checklist
 
@@ -26,7 +26,7 @@
 - [x] Step 1: Safe local data contracts and schema dictionary.
 - [x] Step 2: Structured local fact query engine.
 - [x] Step 3: Display-safe source evidence lookup.
-- [ ] Step 4: Register safe database tools in the agent runtime.
+- [x] Step 4: Register safe database tools in the agent runtime.
 - [ ] Step 5: Align agent memory and tool-use documentation.
 - [ ] Step 6: Final integration, regression gates, and release notes.
 
@@ -91,5 +91,25 @@
   - Passed: `bun run typecheck --incremental false`.
   - Passed: `bun test src/server/chat/local-data-tools.test.ts`.
   - Passed: `bun run db:migrate:test && bun run db:seed:test`.
+  - Passed: `bun test`.
+- Commit: pending.
+
+### 2026-06-27 - Step 4 Complete
+
+- Registered `describe_database_schema`, `query_local_facts`, and `get_source_evidence`
+  as strict Responses tools in the agent tool registry.
+- Added safe local-data execution wrappers, optional database query-runner dependency,
+  source summaries, audit provider-operation mapping, and source-consistency support for
+  curated and fresh-cache local data evidence.
+- Extended agent tool and Responses loop tests for tool definitions, available-tool
+  descriptions, schema description, local fact queries, source evidence lookup, invalid
+  arguments, raw-field guards, and audit operation names.
+- Validation:
+  - Passed: `bun run format`.
+  - Passed: `bun run lint`.
+  - Passed: `bun run typecheck --incremental false`.
+  - Passed: `bun test src/server/chat/agent-tools.test.ts`.
+  - Passed: `bun test src/server/chat/ask-siargao-agent.test.ts`.
+  - Passed: `bun test src/server/chat/source-consistency.test.ts`.
   - Passed: `bun test`.
 - Commit: pending.

@@ -175,6 +175,88 @@ describe("agent tools", () => {
       },
       {
         type: "function",
+        name: "describe_database_schema",
+        description:
+          "Describe the approved safe local data surfaces, fields, query rules, limits, and prohibited database access.",
+        parameters: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+      {
+        type: "function",
+        name: "query_local_facts",
+        description:
+          "Query approved local Siargao facts with structured filters only; no SQL, private data, or raw provider payloads.",
+        parameters: {
+          type: "object",
+          properties: {
+            entityTypes: {
+              type: "array",
+              items: {
+                type: "string",
+                enum: [
+                  "area",
+                  "route",
+                  "beach",
+                  "service",
+                  "place",
+                  "accommodation",
+                  "operator",
+                  "risk",
+                  "local_caveat",
+                ],
+              },
+              description: "Approved entity types to retrieve.",
+            },
+            area: {
+              type: "string",
+              description: "Optional Siargao area filter such as General Luna or Cloud 9.",
+            },
+            tags: {
+              type: "array",
+              items: { type: "string" },
+              description: "Optional tags such as sandy, swimming, rain-fit, sunset, or transport.",
+            },
+            text: {
+              type: "string",
+              description: "Optional text filter matched against names and claims.",
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 20,
+              description: "Maximum number of local facts to return.",
+            },
+          },
+          required: ["entityTypes"],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+      {
+        type: "function",
+        name: "get_source_evidence",
+        description:
+          "Return display-safe source evidence, caveats, freshness, and checked boundaries for safe local fact IDs.",
+        parameters: {
+          type: "object",
+          properties: {
+            factIds: {
+              type: "array",
+              items: { type: "string" },
+              description: "Fact IDs returned by query_local_facts or compatible safe fact IDs.",
+            },
+          },
+          required: ["factIds"],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+      {
+        type: "function",
         name: "describe_source_policy",
         description:
           "Explain Ask Siargao source labels, checked/not-checked boundaries, and provider caveats.",
@@ -209,6 +291,21 @@ describe("agent tools", () => {
         name: "search_local_guide",
         description:
           "Search Ask Siargao curated local guide facts for beaches and local trip-planning fit.",
+      },
+      {
+        name: "describe_database_schema",
+        description:
+          "Describe the approved safe local data surfaces, fields, query rules, limits, and prohibited database access.",
+      },
+      {
+        name: "query_local_facts",
+        description:
+          "Query approved local Siargao facts with structured filters only; no SQL, private data, or raw provider payloads.",
+      },
+      {
+        name: "get_source_evidence",
+        description:
+          "Return display-safe source evidence, caveats, freshness, and checked boundaries for safe local fact IDs.",
       },
       {
         name: "describe_source_policy",
@@ -618,6 +715,159 @@ describe("agent tools", () => {
     expect(result.sources).toEqual([]);
   });
 
+  test("returns a safe database schema description", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_schema",
+      name: "describe_database_schema",
+      arguments: {},
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("Approved local data surfaces");
+    expect(result.text).toContain("curated_local_guide");
+    expect(result.sources).toEqual([]);
+    const data = result.data as { schema: { publicViews: Array<{ name: string }> } };
+    expect(data.schema.publicViews.map((view) => view.name)).toContain("governed_facts");
+    expect(JSON.stringify(result.data).toLowerCase()).not.toContain("raw_payload");
+    expect(JSON.stringify(result.data).toLowerCase()).not.toContain("payments");
+  });
+
+  test("executes structured local fact queries with source metadata", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_local_facts",
+        name: "query_local_facts",
+        arguments: {
+          entityTypes: ["beach"],
+          area: "General Luna",
+          tags: ["sandy"],
+          limit: 2,
+        },
+      },
+      {
+        localFactsQueryRunner: async () => [],
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("Safe local fact query returned 2 fact");
+    expect(result.sources[0]).toMatchObject({
+      label: "curated_local_guide",
+      sourceName: "Ask Siargao curated local beach guide",
+    });
+    const data = result.data as {
+      facts: Array<{ id: string; source: { label: string }; confidence: string }>;
+      query: { limit: number };
+    };
+    expect(data.query.limit).toBe(2);
+    expect(data.facts[0]?.id).toStartWith("curated_local_guide:beach:");
+    expect(data.facts[0]?.source.label).toBe("curated_local_guide");
+    expect(data.facts[0]?.confidence).toBe("medium");
+  });
+
+  test("executes local fact database queries through injected dependencies", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_db_facts",
+        name: "query_local_facts",
+        arguments: {
+          entityTypes: ["route"],
+          tags: ["transport"],
+          limit: 5,
+        },
+      },
+      {
+        localFactsQueryRunner: async () => [
+          {
+            id: "route_gl_dapa",
+            name: "General Luna to Dapa",
+            origin: "General Luna",
+            destination: "Dapa",
+            transport_modes: ["van"],
+            risk_notes: ["Check road conditions separately."],
+            payload_json: { should: "not leak" },
+          },
+        ],
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("General Luna to Dapa");
+    expect(JSON.stringify(result.data).toLowerCase()).not.toContain("payload_json");
+    expect(result.sources[0]?.checked.join(" ")).toContain("route fact");
+  });
+
+  test("executes display-safe source evidence lookup", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_evidence",
+      name: "get_source_evidence",
+      arguments: {
+        factIds: ["curated_local_guide:beach:doot-beach"],
+      },
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("Display-safe source evidence returned");
+    expect(result.sources[0]).toMatchObject({
+      label: "curated_local_guide",
+      sourceName: "Ask Siargao curated local beach guide",
+    });
+    const data = result.data as {
+      evidence: Array<{ factId: string; checked: string[]; notChecked: string[] }>;
+    };
+    expect(data.evidence[0]?.factId).toBe("curated_local_guide:beach:doot-beach");
+    expect(data.evidence[0]?.notChecked).toContain("live tide");
+  });
+
+  test("keeps source evidence database output free of raw restricted fields", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_evidence_google",
+        name: "get_source_evidence",
+        arguments: {
+          factIds: ["fact_google_place"],
+        },
+      },
+      {
+        localFactsQueryRunner: async () => [
+          {
+            fact_id: "fact_google_place",
+            confidence_label: "low",
+            source_profile_id: "source_google_places",
+            source_name: "Google Places API profile",
+            source_allowed_use: "citation_only",
+            evidence_label: "allowed Google Places field mask",
+            citation_url: "https://maps.google.com/?cid=test",
+            evidence_allowed_use: "citation_only",
+            public_republish_allowed: false,
+            raw_payload: { should: "not leak" },
+            text_json: { should: "not leak" },
+          },
+        ],
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.sources[0]?.notChecked).toContain("Google review text");
+    expect(JSON.stringify(result.data).toLowerCase()).not.toContain("raw_payload");
+    expect(JSON.stringify(result.data).toLowerCase()).not.toContain("text_json");
+  });
+
+  test("rejects invalid local data tool arguments before execution", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_invalid_local_facts",
+      name: "query_local_facts",
+      arguments: {
+        entityTypes: ["users"],
+        table: "users",
+      },
+    });
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("invalid_tool_arguments");
+    expect(result.sources).toEqual([]);
+  });
+
   test("returns a normalized live weather forecast tool output", async () => {
     const result = await executeAgentTool(
       {
@@ -894,12 +1144,12 @@ describe("agent tools", () => {
   test("returns unknown tool errors without throwing", async () => {
     const result = await executeAgentTool({
       requestId: "agent_request_1",
-      name: "query_local_facts",
+      name: "run_unrestricted_sql",
       arguments: {},
     });
 
     expect(result).toMatchObject({
-      name: "query_local_facts",
+      name: "run_unrestricted_sql",
       status: "error",
       errorCode: "unknown_tool",
       sources: [],

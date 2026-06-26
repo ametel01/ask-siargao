@@ -13,6 +13,16 @@ import type {
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary, AnswerTrustLabel } from "@/server/chat/answer-source-summary";
 import {
+  describeDatabaseSchema,
+  describeDatabaseSchemaArgumentsSchema,
+  getSourceEvidence,
+  type LocalFactsQueryRunner,
+  localFactsMaxLimit,
+  localFactsQuerySchema,
+  queryLocalFacts,
+  sourceEvidenceArgumentsSchema,
+} from "@/server/chat/local-data-tools";
+import {
   type LocalGuideSearchResult,
   searchSiargaoLocalGuide,
 } from "@/server/local/siargao-beaches";
@@ -99,6 +109,7 @@ export type AgentToolDependencies = {
   googlePlacesApiKey?: string;
   googlePlacesDetailsDb?: GooglePlacesStoreDatabase;
   googlePlacesFetcher?: (url: string, init: RequestInit) => Promise<Response>;
+  localFactsQueryRunner?: LocalFactsQueryRunner;
   memorySnapshot?: AgentMemorySnapshot;
   now?: () => Date;
 };
@@ -108,6 +119,9 @@ type PlaceDetailsArguments = z.infer<typeof placeDetailsSchema>;
 type SearchLocalGuideArguments = z.infer<typeof searchLocalGuideSchema>;
 type SearchAgentMemoryArguments = z.infer<typeof searchAgentMemorySchema>;
 type WeatherForecastArguments = z.infer<typeof weatherForecastSchema>;
+type DescribeDatabaseSchemaArguments = z.infer<typeof describeDatabaseSchemaArgumentsSchema>;
+type QueryLocalFactsArguments = z.infer<typeof localFactsQuerySchema>;
+type SourceEvidenceArguments = z.infer<typeof sourceEvidenceArgumentsSchema>;
 
 const weatherForecastLocations = [
   "Siargao Island",
@@ -411,6 +425,102 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
     schema: searchLocalGuideSchema,
     execute: (args) => searchLocalGuideToolResult(args as SearchLocalGuideArguments),
   },
+  describe_database_schema: {
+    definition: {
+      type: "function",
+      name: "describe_database_schema",
+      description:
+        "Describe the approved safe local data surfaces, fields, query rules, limits, and prohibited database access.",
+      parameters: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+    schema: describeDatabaseSchemaArgumentsSchema,
+    execute: (args) => describeDatabaseSchemaToolResult(args as DescribeDatabaseSchemaArguments),
+  },
+  query_local_facts: {
+    definition: {
+      type: "function",
+      name: "query_local_facts",
+      description:
+        "Query approved local Siargao facts with structured filters only; no SQL, private data, or raw provider payloads.",
+      parameters: {
+        type: "object",
+        properties: {
+          entityTypes: {
+            type: "array",
+            items: {
+              type: "string",
+              enum: [
+                "area",
+                "route",
+                "beach",
+                "service",
+                "place",
+                "accommodation",
+                "operator",
+                "risk",
+                "local_caveat",
+              ],
+            },
+            description: "Approved entity types to retrieve.",
+          },
+          area: {
+            type: "string",
+            description: "Optional Siargao area filter such as General Luna or Cloud 9.",
+          },
+          tags: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional tags such as sandy, swimming, rain-fit, sunset, or transport.",
+          },
+          text: {
+            type: "string",
+            description: "Optional text filter matched against names and claims.",
+          },
+          limit: {
+            type: "integer",
+            minimum: 1,
+            maximum: localFactsMaxLimit,
+            description: "Maximum number of local facts to return.",
+          },
+        },
+        required: ["entityTypes"],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+    schema: localFactsQuerySchema,
+    execute: (args, _request, dependencies) =>
+      queryLocalFactsToolResult(args as QueryLocalFactsArguments, dependencies),
+  },
+  get_source_evidence: {
+    definition: {
+      type: "function",
+      name: "get_source_evidence",
+      description:
+        "Return display-safe source evidence, caveats, freshness, and checked boundaries for safe local fact IDs.",
+      parameters: {
+        type: "object",
+        properties: {
+          factIds: {
+            type: "array",
+            items: { type: "string" },
+            description: "Fact IDs returned by query_local_facts or compatible safe fact IDs.",
+          },
+        },
+        required: ["factIds"],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+    schema: sourceEvidenceArgumentsSchema,
+    execute: (args, _request, dependencies) =>
+      getSourceEvidenceToolResult(args as SourceEvidenceArguments, dependencies),
+  },
   describe_source_policy: {
     definition: {
       type: "function",
@@ -479,6 +589,9 @@ const defaultFunctionToolNames = [
   "search_places",
   "get_place_details",
   "search_local_guide",
+  "describe_database_schema",
+  "query_local_facts",
+  "get_source_evidence",
   "describe_source_policy",
 ] as const satisfies readonly AskSiargaoAgentToolName[];
 
@@ -745,6 +858,58 @@ function searchLocalGuideToolResult(args: SearchLocalGuideArguments): AgentToolR
   };
 }
 
+function describeDatabaseSchemaToolResult(_args: DescribeDatabaseSchemaArguments): AgentToolResult {
+  const schema = describeDatabaseSchema();
+  return {
+    name: "describe_database_schema",
+    status: "success",
+    text: renderDatabaseSchemaText(schema),
+    data: {
+      status: "available",
+      schema,
+    },
+    sources: [],
+  };
+}
+
+async function queryLocalFactsToolResult(
+  args: QueryLocalFactsArguments,
+  dependencies: AgentToolDependencies,
+): Promise<AgentToolResult> {
+  const result = await withLocalFactsQueryRunner(dependencies, (queryRunner) =>
+    queryLocalFacts(args, { queryRunner }),
+  );
+  return {
+    name: "query_local_facts",
+    status: "success",
+    text: renderLocalFactsText(result),
+    data: {
+      status: "available",
+      ...result,
+    },
+    sources: localFactSourceSummaries(result.facts),
+  };
+}
+
+async function getSourceEvidenceToolResult(
+  args: SourceEvidenceArguments,
+  dependencies: AgentToolDependencies,
+): Promise<AgentToolResult> {
+  const result = await withLocalFactsQueryRunner(dependencies, (queryRunner) =>
+    getSourceEvidence(args, { queryRunner }),
+  );
+  return {
+    name: "get_source_evidence",
+    status: "success",
+    text: renderSourceEvidenceText(result),
+    data: {
+      status: "available",
+      ...result,
+    },
+    sources: sourceEvidenceSummaries(result.evidence),
+  };
+}
+
 function renderLocalGuideText(result: LocalGuideSearchResult) {
   const candidates = result.candidates
     .slice(0, 5)
@@ -771,6 +936,150 @@ function renderLocalGuideText(result: LocalGuideSearchResult) {
     ...exclusions,
     ...result.caveats,
   ].join("\n");
+}
+
+function renderDatabaseSchemaText(schema: ReturnType<typeof describeDatabaseSchema>) {
+  return [
+    `Approved local data surfaces: ${schema.publicViews.map((view) => view.name).join(", ")}.`,
+    `Default limit: ${schema.defaultLimit}; maximum limit: ${schema.maxLimit}.`,
+    "Query rules:",
+    ...schema.queryRules.map((rule) => `- ${rule}`),
+  ].join("\n");
+}
+
+function renderLocalFactsText(result: Awaited<ReturnType<typeof queryLocalFacts>>) {
+  if (result.facts.length === 0) {
+    return "No safe local facts matched the structured query.";
+  }
+  return [
+    `Safe local fact query returned ${result.facts.length} fact(s).`,
+    ...result.facts.map((fact, index) =>
+      [
+        `${index + 1}. ${fact.name}`,
+        fact.entityType,
+        fact.area,
+        fact.claim,
+        `${fact.confidence} confidence`,
+        `source: ${fact.source.sourceName} (${fact.source.label})`,
+      ]
+        .filter(Boolean)
+        .join(" - "),
+    ),
+    ...result.caveats,
+  ].join("\n");
+}
+
+function renderSourceEvidenceText(result: Awaited<ReturnType<typeof getSourceEvidence>>) {
+  if (result.evidence.length === 0) {
+    return `No display-safe source evidence found for ${result.factIds.length} fact ID(s).`;
+  }
+  return [
+    `Display-safe source evidence returned for ${result.evidence.length} fact ID(s).`,
+    ...result.evidence.map((item, index) =>
+      [
+        `${index + 1}. ${item.factId}`,
+        item.sourceName,
+        `${item.confidence} confidence`,
+        item.sourceProfileId ? `profile ${item.sourceProfileId}` : undefined,
+        item.fetchedAt ? `fetched ${item.fetchedAt}` : undefined,
+        item.citationUrl ? `citation ${item.citationUrl}` : undefined,
+      ]
+        .filter(Boolean)
+        .join(" - "),
+    ),
+    ...(result.missingFactIds.length
+      ? [`Missing fact IDs: ${result.missingFactIds.join(", ")}.`]
+      : []),
+    ...result.caveats,
+  ].join("\n");
+}
+
+function localFactSourceSummaries(
+  facts: Awaited<ReturnType<typeof queryLocalFacts>>["facts"],
+): AnswerSourceSummary[] {
+  const summaries = new Map<string, AnswerSourceSummary>();
+  for (const fact of facts) {
+    const key = [
+      fact.source.label,
+      fact.source.sourceName,
+      fact.source.sourceProfileId ?? "",
+      fact.source.fetchedAt ?? "",
+    ].join("|");
+    const existing = summaries.get(key);
+    const checkedItem = `${fact.entityType} fact: ${fact.name}`;
+    if (existing) {
+      summaries.set(key, {
+        ...existing,
+        checked: uniqueText([...existing.checked, checkedItem]),
+        notChecked: uniqueText([...existing.notChecked, ...fact.caveats]),
+      });
+      continue;
+    }
+    summaries.set(key, {
+      label: fact.source.label,
+      sourceName: fact.source.sourceName,
+      ...(fact.source.sourceProfileId ? { sourceProfileId: fact.source.sourceProfileId } : {}),
+      ...(fact.source.fetchedAt ? { fetchedAt: fact.source.fetchedAt } : {}),
+      confidence: fact.confidence,
+      checked: [checkedItem],
+      notChecked: [...fact.caveats],
+    });
+  }
+  return [...summaries.values()];
+}
+
+function sourceEvidenceSummaries(
+  evidence: Awaited<ReturnType<typeof getSourceEvidence>>["evidence"],
+): AnswerSourceSummary[] {
+  const summaries = new Map<string, AnswerSourceSummary>();
+  for (const item of evidence) {
+    const key = [
+      item.sourceLabel,
+      item.sourceName,
+      item.sourceProfileId ?? "",
+      item.fetchedAt ?? "",
+    ].join("|");
+    const existing = summaries.get(key);
+    if (existing) {
+      summaries.set(key, {
+        ...existing,
+        checked: uniqueText([...existing.checked, ...item.checked]),
+        notChecked: uniqueText([...existing.notChecked, ...item.notChecked, ...item.caveats]),
+      });
+      continue;
+    }
+    summaries.set(key, {
+      label: item.sourceLabel,
+      sourceName: item.sourceName,
+      ...(item.sourceProfileId ? { sourceProfileId: item.sourceProfileId } : {}),
+      ...(item.fetchedAt ? { fetchedAt: item.fetchedAt } : {}),
+      confidence: item.confidence,
+      checked: [...item.checked],
+      notChecked: uniqueText([...item.notChecked, ...item.caveats]),
+    });
+  }
+  return [...summaries.values()];
+}
+
+async function withLocalFactsQueryRunner<T>(
+  dependencies: AgentToolDependencies,
+  callback: (queryRunner: LocalFactsQueryRunner | undefined) => Promise<T>,
+) {
+  if (dependencies.localFactsQueryRunner) {
+    return callback(dependencies.localFactsQueryRunner);
+  }
+
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    return callback(undefined);
+  }
+
+  const sql = postgres(databaseUrl, { max: 1, prepare: false });
+  try {
+    return await callback((query, ...params) => sql(query, ...(params as never[])));
+  } finally {
+    await sql.end({ timeout: 1 });
+  }
 }
 
 function normalizeLocalGuideSearchResult(result: LocalGuideSearchResult) {
@@ -1253,6 +1562,10 @@ function weatherProviderUnavailableSourceSummary(locationName: string): AnswerSo
 
 function formatNullableNumber(value: number | null, unit: string) {
   return value === null ? "unavailable" : `${value}${unit}`;
+}
+
+function uniqueText(values: readonly string[]) {
+  return [...new Set(values.filter((value) => value.trim().length > 0))];
 }
 
 function tokenizeMemoryQuery(query: string) {

@@ -164,11 +164,15 @@ function validateSourceClaim(
 function summarizeToolEvidence(toolCalls: readonly AgentToolCallAudit[]) {
   return {
     livePlaces: hasToolSourceLabel(toolCalls, placesToolNames, "live_checked"),
-    freshPlaces: hasToolSourceLabel(toolCalls, placesToolNames, "fresh_cache"),
+    freshPlaces: hasToolSourceLabel(
+      toolCalls,
+      new Set([...placesToolNames, "query_local_facts", "get_source_evidence"]),
+      "fresh_cache",
+    ),
     weather: hasToolSourceLabel(toolCalls, new Set(["get_weather_forecast"]), "weather_checked"),
     localGuide: hasToolSourceLabel(
       toolCalls,
-      new Set(["search_local_guide"]),
+      new Set(["search_local_guide", "query_local_facts", "get_source_evidence"]),
       "curated_local_guide",
     ),
     providerUnavailable: toolCalls.some(

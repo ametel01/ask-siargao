@@ -302,6 +302,78 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.sources).toEqual([localGuideSourceSummary]);
   });
 
+  test("executes safe local data tools through the tool loop", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_schema_call",
+        requestId: "req_schema_call",
+        callId: "call_schema",
+        name: "describe_database_schema",
+        arguments: {},
+      }),
+      responseWithToolCall({
+        id: "resp_facts_call",
+        requestId: "req_facts_call",
+        callId: "call_facts",
+        name: "query_local_facts",
+        arguments: { entityTypes: ["beach"], tags: ["sandy"], limit: 2 },
+      }),
+      responseWithToolCall({
+        id: "resp_evidence_call",
+        requestId: "req_evidence_call",
+        callId: "call_evidence",
+        name: "get_source_evidence",
+        arguments: { factIds: ["curated_local_guide:beach:doot-beach"] },
+      }),
+      {
+        id: "resp_local_data_final",
+        output_text: "Doot Beach is a curated local fact; tide and safety were not checked.",
+        _request_id: "req_local_data_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      describe_database_schema: {
+        name: "describe_database_schema",
+        status: "success",
+        text: "Safe schema dictionary loaded.",
+        sources: [],
+      },
+      query_local_facts: {
+        name: "query_local_facts",
+        status: "success",
+        text: "Safe local facts returned Doot Beach.",
+        sources: [localGuideSourceSummary],
+      },
+      get_source_evidence: {
+        name: "get_source_evidence",
+        status: "success",
+        text: "Display-safe evidence returned for Doot Beach.",
+        sources: [localGuideSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Which sandy beach has source evidence?" }],
+        requestId: "agent_request_local_data",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("Doot Beach");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "describe_database_schema",
+      "query_local_facts",
+      "get_source_evidence",
+    ]);
+    expect(result.toolCalls.map((toolCall) => toolCall.providerOperation)).toEqual([
+      "local_data.schema",
+      "local_data.query",
+      "local_data.evidence",
+    ]);
+    expect(result.sources).toEqual([localGuideSourceSummary]);
+  });
+
   test("executes multiple tool calls from one model response", async () => {
     const client = fakeResponsesClient([
       {
