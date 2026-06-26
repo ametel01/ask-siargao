@@ -382,6 +382,20 @@ describe("agent tools", () => {
       rating: 4.6,
       currentOpeningHours: { openNow: true },
     });
+    expect(result.cards?.[0]).toMatchObject({
+      kind: "place",
+      title: "Shaka Siargao",
+      mapsUrl: "https://maps.google.com/?cid=shaka",
+      distanceLabel: "About 50 m from search center.",
+      openStatusLabel: "Open now according to Google Places.",
+      sourceLabel: "Google Places - live checked",
+    });
+    expect(result.cards?.[0]?.fitReasons.join(" ")).toContain("Google rating 4.6");
+    expect(result.cards?.[0]?.caveats.join(" ")).toContain("review text");
+    expect(result.actions?.map((action) => action.label)).toEqual([
+      "Ask for alternatives",
+      "Make this into a short plan",
+    ]);
   });
 
   test("returns fresh-cache Google Places search output", async () => {
@@ -408,6 +422,72 @@ describe("agent tools", () => {
     expect(result.status).toBe("success");
     expect(result.sources[0]?.label).toBe("fresh_cache");
     expect(result.text).toContain("Cached Dinner Grill");
+    expect(result.cards?.[0]?.sourceLabel).toBe("Google Places - fresh cache");
+    expect(result.cards?.[0]?.mapsUrl).toContain("Cached%20Dinner%20Grill");
+  });
+
+  test("does not fabricate a Places card map URL when no returned map URL is available", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_places",
+        name: "search_places",
+        arguments: {
+          query: "cafes near Cloud 9",
+          center: { latitude: 9.8116, longitude: 126.1651 },
+          radius_meters: 4_000,
+        },
+      },
+      {
+        getGooglePlacesChatContext: async ({ search }) => {
+          const context = googlePlacesContextFixture({
+            placeName: "Map Missing Cafe",
+            search,
+          });
+          return {
+            ...context,
+            places: [{ ...context.places[0], googleMapsUri: "" }],
+          };
+        },
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.cards?.[0]?.title).toBe("Map Missing Cafe");
+    expect(result.cards?.[0]?.mapsUrl).toBeUndefined();
+  });
+
+  test("labels closed Places cards without dropping the recommendation card", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_places",
+        name: "search_places",
+        arguments: {
+          query: "restaurants open now",
+          center: { latitude: 9.8006, longitude: 126.1586 },
+          radius_meters: 4_000,
+          constraints: { open_now: true },
+        },
+      },
+      {
+        getGooglePlacesChatContext: async ({ search }) => {
+          const context = googlePlacesContextFixture({
+            placeName: "Closed Dinner Grill",
+            search,
+          });
+          return {
+            ...context,
+            places: [{ ...context.places[0], currentOpeningHours: { openNow: false } }],
+          };
+        },
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.cards?.[0]).toMatchObject({
+      title: "Closed Dinner Grill",
+      openStatusLabel: "Not open now according to Google Places.",
+    });
+    expect(result.cards?.[0]?.fitReasons.join(" ")).toContain("not-open-now signal");
   });
 
   test("returns not-verified output when Places search has no results", async () => {
@@ -434,6 +514,8 @@ describe("agent tools", () => {
     expect(result.text).toContain("no useful results");
     expect(result.sources[0]?.label).toBe("not_verified");
     expect(result.sources[0]?.checked).toEqual([]);
+    expect(result.cards).toBeUndefined();
+    expect(result.actions).toBeUndefined();
   });
 
   test("rejects invalid Places search arguments before provider code", async () => {
@@ -483,6 +565,8 @@ describe("agent tools", () => {
     expect(result.errorCode).toBe("provider_unavailable");
     expect(result.sources[0]?.label).toBe("provider_unavailable");
     expect(result.text).toContain("PERMISSION_DENIED");
+    expect(result.cards).toBeUndefined();
+    expect(result.actions).toBeUndefined();
   });
 
   test("returns cache-first Place details without enterprise or review fields", async () => {
@@ -528,6 +612,12 @@ describe("agent tools", () => {
     expect(data.place.displayName).toBe("Cached Cafe");
     expect(data.place).not.toHaveProperty("rating");
     expect(data.place).not.toHaveProperty("reviews");
+    expect(result.cards?.[0]).toMatchObject({
+      title: "Cached Cafe",
+      mapsUrl: "https://maps.google.com/?cid=cached",
+      openStatusLabel: "Hours not returned by Google Places.",
+      sourceLabel: "Google Places - fresh cache",
+    });
     expect(liveCalls).toBe(0);
   });
 
@@ -569,6 +659,11 @@ describe("agent tools", () => {
     expect(data.fieldMask).toBe(googlePlacesDetailsFieldMask);
     expect(data.place.displayName).toBe("Live Surf Shop");
     expect(data.place).not.toHaveProperty("reviews");
+    expect(result.cards?.[0]).toMatchObject({
+      title: "Live Surf Shop",
+      mapsUrl: "https://maps.google.com/?cid=live",
+      sourceLabel: "Google Places - live checked",
+    });
   });
 
   test("returns provider-unavailable output for Place details failures", async () => {

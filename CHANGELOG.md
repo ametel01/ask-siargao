@@ -25,6 +25,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added Google Places recommendation cards and prompt actions with map links, distance/open-status
+  labels, fit reasons, caveats, and live/fresh-cache source labels.
 - Added tool-backed chat cards and actions to final agent turn results while keeping audit records
   restricted to safe metadata.
 - Established progress tracking for the Priority 7 map-first recommendation cards implementation

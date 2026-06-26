@@ -10,6 +10,8 @@ import type {
   AgentToolExecutionRequest,
   AgentToolResult,
   AskSiargaoAgentToolName,
+  ChatAction,
+  RecommendationCard,
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary, AnswerTrustLabel } from "@/server/chat/answer-source-summary";
 import {
@@ -751,12 +753,16 @@ async function searchPlacesToolResult(
       dependencies,
     );
     const sourceSummary = googlePlacesSearchSourceSummary(context);
+    const cards = googlePlacesSearchCards(context, sourceSummary);
+    const actions = googlePlacesPromptActions(cards, context.search.textQuery);
     return {
       name: "search_places",
       status: "success",
       text: renderGooglePlacesSearchText(context),
       data: normalizeGooglePlacesSearchContext(context),
       sources: [sourceSummary],
+      ...(cards.length ? { cards } : {}),
+      ...(actions.length ? { actions } : {}),
     };
   } catch (error) {
     return {
@@ -780,6 +786,13 @@ async function getPlaceDetailsToolResult(
   const cached = await findCachedPlaceDetails(args.place_id, now, dependencies);
   if (cached) {
     const details = normalizeCachedPlaceDetails(cached);
+    const sourceSummary = googlePlacesDetailsSourceSummary(
+      "fresh_cache",
+      details.displayName,
+      cached.fetched_at,
+    );
+    const cards = googlePlacesDetailsCards(details, sourceSummary);
+    const actions = googlePlacesPromptActions(cards, details.displayName);
     return {
       name: "get_place_details",
       status: "success",
@@ -791,9 +804,9 @@ async function getPlaceDetailsToolResult(
         place: details,
         caveats: googlePlacesCaveats,
       },
-      sources: [
-        googlePlacesDetailsSourceSummary("fresh_cache", details.displayName, cached.fetched_at),
-      ],
+      sources: [sourceSummary],
+      ...(cards.length ? { cards } : {}),
+      ...(actions.length ? { actions } : {}),
     };
   }
 
@@ -810,6 +823,13 @@ async function getPlaceDetailsToolResult(
       };
     }
 
+    const sourceSummary = googlePlacesDetailsSourceSummary(
+      "live",
+      detail.displayName,
+      detail.fetchedAt,
+    );
+    const cards = googlePlacesDetailsCards(detail, sourceSummary);
+    const actions = googlePlacesPromptActions(cards, detail.displayName);
     return {
       name: "get_place_details",
       status: "success",
@@ -821,7 +841,9 @@ async function getPlaceDetailsToolResult(
         place: detail,
         caveats: googlePlacesDetailsCaveats,
       },
-      sources: [googlePlacesDetailsSourceSummary("live", detail.displayName, detail.fetchedAt)],
+      sources: [sourceSummary],
+      ...(cards.length ? { cards } : {}),
+      ...(actions.length ? { actions } : {}),
     };
   } catch (error) {
     return {
@@ -1277,6 +1299,251 @@ function normalizeCachedPlaceDetails(cached: Awaited<ReturnType<typeof findFresh
   } satisfies GooglePlacesDetails;
 }
 
+function googlePlacesSearchCards(
+  context: GooglePlacesChatContext,
+  sourceSummary: AnswerSourceSummary,
+): RecommendationCard[] {
+  if (context.status !== "available" || context.places.length === 0) {
+    return [];
+  }
+
+  return context.places.slice(0, 4).map((place, index) =>
+    googlePlacesCardFromPlace({
+      caveats: context.caveats,
+      distanceLabel: googlePlacesDistanceLabel(context.search.center, place),
+      index,
+      place,
+      search: context.search,
+      sourceSummary,
+    }),
+  );
+}
+
+function googlePlacesDetailsCards(
+  details: GooglePlacesDetails,
+  sourceSummary: AnswerSourceSummary,
+): RecommendationCard[] {
+  return [
+    googlePlacesCardFromPlace({
+      caveats: googlePlacesDetailsCaveats,
+      index: 0,
+      place: {
+        placeId: details.placeId,
+        displayName: details.displayName,
+        formattedAddress: details.formattedAddress,
+        types: details.types,
+        primaryType: details.primaryType,
+        businessStatus: details.businessStatus,
+        googleMapsUri: details.googleMapsUri ?? "",
+      },
+      sourceSummary,
+    }),
+  ];
+}
+
+function googlePlacesCardFromPlace({
+  caveats,
+  distanceLabel,
+  index,
+  place,
+  search,
+  sourceSummary,
+}: {
+  caveats: readonly string[];
+  distanceLabel?: string;
+  index: number;
+  place: Pick<
+    GooglePlacesChatPlace,
+    | "businessStatus"
+    | "currentOpeningHours"
+    | "displayName"
+    | "formattedAddress"
+    | "googleMapsUri"
+    | "placeId"
+    | "priceLevel"
+    | "primaryType"
+    | "rating"
+    | "types"
+    | "userRatingCount"
+  >;
+  search?: GooglePlacesChatSearch;
+  sourceSummary: AnswerSourceSummary;
+}): RecommendationCard {
+  const mapsUrl = normalizeText(place.googleMapsUri);
+  const openStatusLabel = googlePlacesOpenStatusLabel(place.currentOpeningHours?.openNow);
+  return {
+    id: `place_${slugPart(place.placeId || place.displayName).toLowerCase()}`,
+    kind: "place",
+    title: place.displayName,
+    ...(googlePlacesSubtitle(place) ? { subtitle: googlePlacesSubtitle(place) } : {}),
+    ...(mapsUrl ? { mapsUrl } : {}),
+    ...(distanceLabel ? { distanceLabel } : {}),
+    openStatusLabel,
+    fitReasons: googlePlacesFitReasons({ distanceLabel, index, openStatusLabel, place, search }),
+    caveats: uniqueText([
+      ...caveats,
+      ...sourceSummary.notChecked,
+      ...(place.currentOpeningHours?.openNow === undefined
+        ? ["Opening hours were not returned for this place."]
+        : []),
+      "Google Places ordering is provider relevance, not an independent local quality ranking.",
+    ]),
+    sourceLabel: googlePlacesCardSourceLabel(sourceSummary),
+  };
+}
+
+function googlePlacesSubtitle(
+  place: Pick<
+    GooglePlacesChatPlace,
+    "formattedAddress" | "priceLevel" | "primaryType" | "rating" | "userRatingCount"
+  >,
+) {
+  return [
+    place.primaryType ? humanizeGooglePlaceType(place.primaryType) : undefined,
+    place.formattedAddress,
+    googlePlacesRatingLabel(place),
+    googlePlacesPriceLabel(place.priceLevel),
+  ]
+    .filter(Boolean)
+    .join(" - ");
+}
+
+function googlePlacesFitReasons({
+  distanceLabel,
+  index,
+  openStatusLabel,
+  place,
+  search,
+}: {
+  distanceLabel?: string;
+  index: number;
+  openStatusLabel: string;
+  place: Pick<
+    GooglePlacesChatPlace,
+    "currentOpeningHours" | "primaryType" | "rating" | "types" | "userRatingCount"
+  >;
+  search?: GooglePlacesChatSearch;
+}) {
+  return uniqueText([
+    search ? `Returned #${index + 1} by Google Places for "${search.textQuery}".` : undefined,
+    search?.includedType && place.types.includes(search.includedType)
+      ? `Matches the requested ${humanizeGooglePlaceType(search.includedType)} type.`
+      : place.primaryType
+        ? `Google Places primary type: ${humanizeGooglePlaceType(place.primaryType)}.`
+        : undefined,
+    distanceLabel,
+    place.currentOpeningHours?.openNow === true
+      ? "Google Places returned an open-now signal."
+      : undefined,
+    place.currentOpeningHours?.openNow === false
+      ? "Google Places returned a not-open-now signal."
+      : undefined,
+    place.rating === undefined ? undefined : googlePlacesRatingLabel(place),
+    openStatusLabel === "Hours not returned by Google Places." ? openStatusLabel : undefined,
+  ]);
+}
+
+function googlePlacesPromptActions(
+  cards: readonly RecommendationCard[],
+  currentContext: string,
+): ChatAction[] {
+  const selected = cards[0];
+  if (!selected) {
+    return [];
+  }
+  const slug = slugPart(selected.id).toLowerCase();
+  return [
+    {
+      id: `places_alternatives_${slug}`,
+      label: "Ask for alternatives",
+      prompt: `Suggest alternatives to ${selected.title} for this request: ${currentContext}.`,
+    },
+    {
+      id: `places_plan_${slug}`,
+      label: "Make this into a short plan",
+      prompt: `Make ${selected.title} into a short Siargao plan for this request: ${currentContext}.`,
+    },
+  ];
+}
+
+function googlePlacesOpenStatusLabel(openNow: boolean | undefined) {
+  if (openNow === true) {
+    return "Open now according to Google Places.";
+  }
+  if (openNow === false) {
+    return "Not open now according to Google Places.";
+  }
+  return "Hours not returned by Google Places.";
+}
+
+function googlePlacesDistanceLabel(
+  center: GooglePlacesChatSearch["center"],
+  place: Pick<GooglePlacesChatPlace, "latitude" | "longitude">,
+) {
+  if (place.latitude === undefined || place.longitude === undefined) {
+    return undefined;
+  }
+  const distanceMeters = haversineDistanceMeters(center, {
+    latitude: place.latitude,
+    longitude: place.longitude,
+  });
+  if (distanceMeters < 950) {
+    return `About ${Math.max(50, Math.round(distanceMeters / 50) * 50)} m from search center.`;
+  }
+  return `About ${formatOneDecimal(distanceMeters / 1000)} km from search center.`;
+}
+
+function haversineDistanceMeters(
+  left: { latitude: number; longitude: number },
+  right: { latitude: number; longitude: number },
+) {
+  const earthRadiusMeters = 6_371_000;
+  const latitudeDelta = degreesToRadians(right.latitude - left.latitude);
+  const longitudeDelta = degreesToRadians(right.longitude - left.longitude);
+  const leftLatitude = degreesToRadians(left.latitude);
+  const rightLatitude = degreesToRadians(right.latitude);
+  const a =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(leftLatitude) * Math.cos(rightLatitude) * Math.sin(longitudeDelta / 2) ** 2;
+  return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function degreesToRadians(value: number) {
+  return (value * Math.PI) / 180;
+}
+
+function formatOneDecimal(value: number) {
+  return value.toFixed(1).replace(/\.0$/, "");
+}
+
+function googlePlacesRatingLabel(place: Pick<GooglePlacesChatPlace, "rating" | "userRatingCount">) {
+  if (place.rating === undefined) {
+    return undefined;
+  }
+  return place.userRatingCount === undefined
+    ? `Google rating ${place.rating}`
+    : `Google rating ${place.rating} from ${place.userRatingCount} ratings`;
+}
+
+function googlePlacesPriceLabel(priceLevel: string | undefined) {
+  return priceLevel
+    ?.replace(/^PRICE_LEVEL_/, "")
+    .replaceAll("_", " ")
+    .toLowerCase();
+}
+
+function googlePlacesCardSourceLabel(summary: AnswerSourceSummary) {
+  return `${summary.sourceName} - ${summary.label.replaceAll("_", " ")}`;
+}
+
+function humanizeGooglePlaceType(value: string) {
+  return value.replaceAll("_", " ").toLowerCase();
+}
+
+function normalizeText(value: string | undefined) {
+  return value?.replaceAll(/\s+/g, " ").trim() ?? "";
+}
+
 function renderGooglePlacesSearchText(context: GooglePlacesChatContext) {
   if (context.status === "no_results" || context.places.length === 0) {
     return `Google Places returned no useful results for "${context.search.textQuery}".`;
@@ -1600,8 +1867,10 @@ function formatNullableNumber(value: number | null, unit: string) {
   return value === null ? "unavailable" : `${value}${unit}`;
 }
 
-function uniqueText(values: readonly string[]) {
-  return [...new Set(values.filter((value) => value.trim().length > 0))];
+function uniqueText(values: readonly (string | null | undefined)[]) {
+  return [
+    ...new Set(values.map((value) => value?.trim() ?? "").filter((value) => value.length > 0)),
+  ];
 }
 
 function tokenizeMemoryQuery(query: string) {

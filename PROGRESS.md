@@ -9,16 +9,16 @@
 
 ## Status
 
-- Current step: Step 3 - Places Recommendation Cards
-- State: Step 2 complete
-- Next step: Step 3 - Places Recommendation Cards
+- Current step: Step 4 - Beach Recommendation Cards
+- State: Step 3 complete
+- Next step: Step 4 - Beach Recommendation Cards
 
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Structured Chat Artifact Contracts
 - [x] Step 2: Tool-Backed Card and Action Generation
-- [ ] Step 3: Places Recommendation Cards
+- [x] Step 3: Places Recommendation Cards
 - [ ] Step 4: Beach Recommendation Cards
 - [ ] Step 5: API Response Shape Tests
 - [ ] Step 6: ChatWorkspace Card Rendering
@@ -75,5 +75,20 @@
   - `bun run lint` passed.
   - `bun run typecheck --incremental false` passed.
   - `bun test` passed.
-- Commit: Pending creation for Step 2.
+- Commit: `b91a4cc` - Attach tool-backed chat artifacts.
 - Next step: Step 3 - Places Recommendation Cards.
+
+### Step 3: Places Recommendation Cards
+
+- Status: Complete.
+- Changes: Added map-first Google Places cards and prompt actions for search and detail tool
+  results, including distance labels, open-status labels, source labels, fit reasons, and caveats
+  without fabricating missing map URLs.
+- Validation:
+  - `bun test src/server/chat/agent-tools.test.ts` passed.
+  - `bun run format` passed.
+  - `bun run lint` passed.
+  - `bun run typecheck --incremental false` passed.
+  - `bun test` passed.
+- Commit: Pending creation for Step 3.
+- Next step: Step 4 - Beach Recommendation Cards.
