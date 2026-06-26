@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added hosted file-search registration for synced agent memory plus a deterministic
+  backend `search_agent_memory` fallback for local and test retrieval.
 - Added agent-memory vector-store synchronization with dry-run support, checksum-aware
   file metadata, a package script, and server-only configuration documentation.
 - Added reviewable agent-memory Markdown files with required-file validation, role

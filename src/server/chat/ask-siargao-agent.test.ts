@@ -27,7 +27,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         messages: [{ role: "user", content: "How should I spend my first afternoon?" }],
         requestId: "agent_request_general",
       },
-      { client, model: "gpt-test" },
+      { client, agentMemoryVectorStoreId: "", model: "gpt-test" },
     );
 
     expect(result.message).toContain("Cloud 9");
@@ -42,6 +42,9 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(client.requests).toHaveLength(1);
     expect(client.requests[0]?.store).toBe(false);
     expect(client.requests[0]?.tools).toBeArray();
+    expect(client.requests[0]?.tools).toContainEqual(
+      expect.objectContaining({ name: "search_agent_memory" }),
+    );
     expect(String(client.requests[0]?.instructions)).toContain("Use the available tools");
     expect(String(client.requests[0]?.instructions)).toContain(
       "Every final answer must be written by the AI",
@@ -52,6 +55,38 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(parseFirstInput(client.requests[0]?.input).conversation?.[0]?.content).toContain(
       "first afternoon",
     );
+  });
+
+  test("registers hosted file search when a vector store is configured", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_general",
+        output_text: "Use memory policy, then answer concisely.",
+        _request_id: "req_general",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "How do your source labels work?" }],
+        requestId: "agent_request_file_search",
+      },
+      {
+        client,
+        agentMemoryVectorStoreId: "vs_memory",
+        model: "gpt-test",
+      },
+    );
+
+    expect(client.requests[0]?.tools).toContainEqual({
+      type: "file_search",
+      vector_store_ids: ["vs_memory"],
+      max_num_results: 5,
+    });
+    expect(client.requests[0]?.tools).not.toContainEqual(
+      expect.objectContaining({ name: "search_agent_memory" }),
+    );
+    expect(result.memory?.vectorStoreId).toBe("vs_memory");
   });
 
   test("executes a weather tool call and feeds the result back to the model", async () => {

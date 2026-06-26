@@ -14,14 +14,14 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 - [x] Step 1: Agent Memory Files, Manifest, and Validation
 - [x] Step 2: Instruction Memory Injection and Version Metadata
 - [x] Step 3: Vector Store Sync and Operational Configuration
-- [ ] Step 4: File Search Tool Registration and Backend Memory Fallback
+- [x] Step 4: File Search Tool Registration and Backend Memory Fallback
 - [ ] Step 5: Runtime Reference, Release Checks, and Cleanup
 
 ## Current Status
 
-Step 3 is complete. Maintainers can dry-run or sync reference agent-memory files
-to an OpenAI vector store through a repo script, with checksum-aware skip logic
-and server-only configuration documented.
+Step 4 is complete. The chat agent can use hosted `file_search` when a vector
+store ID is configured and falls back to deterministic backend memory search in
+local/test mode without treating memory retrieval as live evidence.
 
 ## Update Rule
 
@@ -82,5 +82,18 @@ before that step is committed.
   `bun run db:migrate:test && bun run db:seed:test` passed (38 tables; 5 areas,
   3 routes, 4 source profiles); `bun run build` passed; `bun run test:e2e`
   passed (17 tests).
-  Commit: this commit (`Add agent memory vector store sync`).
+  Commit: `650298a` (`Add agent memory vector store sync`).
   Next step: Step 4, File Search Tool Registration and Backend Memory Fallback.
+- 2026-06-27: Completed Step 4 by extending chat tool contracts for
+  `search_agent_memory`, adding deterministic local search over reference memory,
+  adding a Responses tool builder that selects hosted `file_search` when a vector
+  store ID is configured and backend memory fallback otherwise, and wiring the
+  built tool list into every Ask Siargao agent Responses call.
+  Validation: `bun run format` passed; focused chat tool/runtime/source tests
+  passed (48 tests); `bun run lint` passed (`biome check .`, 191 files checked);
+  `bun run typecheck --incremental false` passed; `bun test` passed (265 tests);
+  `bun run db:migrate:test && bun run db:seed:test` passed (38 tables; 5 areas,
+  3 routes, 4 source profiles); `bun run build` passed; `bun run test:e2e`
+  passed (17 tests).
+  Commit: this commit (`Wire agent memory retrieval tools`).
+  Next step: Step 5, Runtime Reference, Release Checks, and Cleanup.

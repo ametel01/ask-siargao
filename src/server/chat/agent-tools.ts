@@ -1,6 +1,11 @@
 import postgres from "postgres";
 import { z } from "zod";
 
+import {
+  type AgentMemorySnapshot,
+  loadAgentMemorySnapshot,
+  requiredAgentMemoryManifest,
+} from "@/server/chat/agent-memory";
 import type {
   AgentToolExecutionRequest,
   AgentToolResult,
@@ -50,6 +55,14 @@ export type AgentToolDefinition = {
   strict: true;
 };
 
+export type AgentHostedToolDefinition = {
+  type: "file_search";
+  vector_store_ids: readonly string[];
+  max_num_results?: number;
+};
+
+export type AgentResponseToolDefinition = AgentToolDefinition | AgentHostedToolDefinition;
+
 type ToolHandler<Arguments> = (
   args: Arguments,
   request: AgentToolExecutionRequest,
@@ -86,12 +99,14 @@ export type AgentToolDependencies = {
   googlePlacesApiKey?: string;
   googlePlacesDetailsDb?: GooglePlacesStoreDatabase;
   googlePlacesFetcher?: (url: string, init: RequestInit) => Promise<Response>;
+  memorySnapshot?: AgentMemorySnapshot;
   now?: () => Date;
 };
 
 type SearchPlacesArguments = z.infer<typeof searchPlacesSchema>;
 type PlaceDetailsArguments = z.infer<typeof placeDetailsSchema>;
 type SearchLocalGuideArguments = z.infer<typeof searchLocalGuideSchema>;
+type SearchAgentMemoryArguments = z.infer<typeof searchAgentMemorySchema>;
 type WeatherForecastArguments = z.infer<typeof weatherForecastSchema>;
 
 const weatherForecastLocations = [
@@ -102,6 +117,9 @@ const weatherForecastLocations = [
 ] as const;
 
 const describeSourcePolicySchema = z.object({}).strict();
+const agentMemoryReferenceDocumentNames = requiredAgentMemoryManifest
+  .filter((entry) => entry.role === "reference")
+  .map((entry) => entry.fileName) as [string, ...string[]];
 const siargaoCenterSchema = z
   .object({
     latitude: z.number().min(9.0).max(10.5),
@@ -154,6 +172,13 @@ const weatherForecastSchema = z
   .object({
     location: z.enum(weatherForecastLocations),
     date_range: z.enum(["today", "next_7_days"]),
+  })
+  .strict();
+const searchAgentMemorySchema = z
+  .object({
+    query: z.string().trim().min(2).max(240),
+    documents: z.array(z.enum(agentMemoryReferenceDocumentNames)).min(1).max(5).optional(),
+    max_results: z.number().int().min(1).max(5).optional(),
   })
   .strict();
 
@@ -410,15 +435,138 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
       sources: [],
     }),
   },
+  search_agent_memory: {
+    definition: {
+      type: "function",
+      name: "search_agent_memory",
+      description:
+        "Search durable Ask Siargao agent memory references such as the data dictionary, source policy, and local assumptions. This is policy/reference context, not live evidence.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Natural-language memory search query.",
+          },
+          documents: {
+            type: "array",
+            items: {
+              type: "string",
+              enum: agentMemoryReferenceDocumentNames,
+            },
+            description: "Optional subset of agent-memory reference documents to search.",
+          },
+          max_results: {
+            type: "integer",
+            minimum: 1,
+            maximum: 5,
+            description: "Maximum number of reference excerpts to return.",
+          },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+    schema: searchAgentMemorySchema,
+    execute: (args, _request, dependencies) =>
+      searchAgentMemoryToolResult(args as SearchAgentMemoryArguments, dependencies),
+  },
 };
 
-export const agentToolDefinitions = Object.values(registeredTools).map((tool) => tool.definition);
+const defaultFunctionToolNames = [
+  "get_weather_forecast",
+  "search_places",
+  "get_place_details",
+  "search_local_guide",
+  "describe_source_policy",
+] as const satisfies readonly AskSiargaoAgentToolName[];
+
+export const agentToolDefinitions = defaultFunctionToolNames.map(
+  (name) => registeredTools[name]?.definition as AgentToolDefinition,
+);
+
+export function buildAgentResponseTools(
+  _memorySnapshot: AgentMemorySnapshot,
+  options: {
+    forceMemoryFallback?: boolean;
+    includeMemoryFallbackWithFileSearch?: boolean;
+    vectorStoreId?: string;
+  } = {},
+): AgentResponseToolDefinition[] {
+  const tools: AgentResponseToolDefinition[] = [...agentToolDefinitions];
+  const vectorStoreId = options.vectorStoreId ?? process.env.OPENAI_AGENT_MEMORY_VECTOR_STORE_ID;
+  if (vectorStoreId) {
+    tools.push({
+      type: "file_search",
+      vector_store_ids: [vectorStoreId],
+      max_num_results: 5,
+    });
+  }
+
+  if (
+    !vectorStoreId ||
+    options.forceMemoryFallback ||
+    options.includeMemoryFallbackWithFileSearch
+  ) {
+    const memorySearch = registeredTools.search_agent_memory?.definition;
+    if (memorySearch) {
+      tools.push(memorySearch);
+    }
+  }
+
+  return tools;
+}
 
 export function describeAvailableTools() {
   return agentToolDefinitions.map((tool) => ({
     name: tool.name,
     description: tool.description,
   }));
+}
+
+function searchAgentMemoryToolResult(
+  args: SearchAgentMemoryArguments,
+  dependencies: AgentToolDependencies,
+): AgentToolResult {
+  const snapshot = dependencies.memorySnapshot ?? loadAgentMemorySnapshot();
+  const maxResults = args.max_results ?? 3;
+  const selectedDocuments = new Set(args.documents ?? []);
+  const referenceFiles =
+    selectedDocuments.size > 0
+      ? snapshot.referenceFiles.filter((file) => selectedDocuments.has(file.fileName))
+      : snapshot.referenceFiles;
+  const terms = tokenizeMemoryQuery(args.query);
+  const results = referenceFiles
+    .map((file) => {
+      const excerpt = findMemoryExcerpt(file.content, terms);
+      return {
+        fileName: file.fileName,
+        title: file.title,
+        checksum: file.checksum,
+        excerpt,
+        score: scoreMemoryFile(file.content, file.title, terms),
+      };
+    })
+    .filter((result) => result.score > 0 || terms.length === 0)
+    .sort((left, right) => right.score - left.score || left.fileName.localeCompare(right.fileName))
+    .slice(0, maxResults);
+
+  return {
+    name: "search_agent_memory",
+    status: "success",
+    text:
+      results.length > 0
+        ? renderAgentMemorySearchText(results)
+        : "No Ask Siargao agent memory reference matched the query.",
+    data: {
+      status: "available",
+      memoryVersionId: snapshot.versionId,
+      results,
+      caveat: "Agent memory retrieval is policy/reference context only and is not live evidence.",
+    },
+    sources: [],
+  };
 }
 
 export async function executeAgentTool(
@@ -1106,6 +1254,65 @@ function weatherProviderUnavailableSourceSummary(locationName: string): AnswerSo
 
 function formatNullableNumber(value: number | null, unit: string) {
   return value === null ? "unavailable" : `${value}${unit}`;
+}
+
+function tokenizeMemoryQuery(query: string) {
+  return query
+    .toLowerCase()
+    .split(/[^a-z0-9_]+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length > 2);
+}
+
+function scoreMemoryFile(content: string, title: string, terms: readonly string[]) {
+  const haystack = `${title}\n${content}`.toLowerCase();
+  return terms.reduce((score, term) => score + countOccurrences(haystack, term), 0);
+}
+
+function countOccurrences(content: string, term: string) {
+  let count = 0;
+  let index = content.indexOf(term);
+  while (index !== -1) {
+    count += 1;
+    index = content.indexOf(term, index + term.length);
+  }
+  return count;
+}
+
+function findMemoryExcerpt(content: string, terms: readonly string[]) {
+  const paragraphs = content
+    .split(/\n{2,}/)
+    .map((paragraph) => normalizeMemoryText(paragraph.replace(/^#+\s*/gm, "")))
+    .filter(Boolean);
+  const term = terms.find((candidate) =>
+    paragraphs.some((paragraph) => paragraph.toLowerCase().includes(candidate)),
+  );
+  const paragraph =
+    paragraphs.find((candidate) => term && candidate.toLowerCase().includes(term)) ??
+    paragraphs[0] ??
+    "";
+  return truncateMemoryExcerpt(paragraph);
+}
+
+function renderAgentMemorySearchText(
+  results: readonly { fileName: string; title: string; excerpt: string }[],
+) {
+  return [
+    "Ask Siargao agent memory reference matches:",
+    ...results.map((result) => `- ${result.fileName}: ${result.excerpt}`),
+    "Memory retrieval is policy/reference context only, not live evidence.",
+  ].join("\n");
+}
+
+function normalizeMemoryText(content: string) {
+  return content.replaceAll(/\s+/g, " ").trim();
+}
+
+function truncateMemoryExcerpt(excerpt: string) {
+  if (excerpt.length <= 360) {
+    return excerpt;
+  }
+  return `${excerpt.slice(0, 357).trimEnd()}...`;
 }
 
 function renderSourcePolicyText(policies: readonly SourcePolicyDescription[]) {

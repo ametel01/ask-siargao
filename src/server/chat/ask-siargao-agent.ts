@@ -16,13 +16,16 @@ import {
 } from "@/server/chat/agent-runtime";
 import {
   type AgentToolDependencies,
-  agentToolDefinitions,
+  buildAgentResponseTools,
   executeAgentTool,
 } from "@/server/chat/agent-tools";
 import { createComponentLogger } from "@/server/observability/logger";
 
 export type AskSiargaoAgentDependencies = AgentRuntimeDependencies &
   AgentToolDependencies & {
+    agentMemoryVectorStoreId?: string;
+    forceAgentMemorySearchFallback?: boolean;
+    includeAgentMemoryFallbackWithFileSearch?: boolean;
     now?: () => Date;
   };
 
@@ -60,8 +63,15 @@ export async function runAskSiargaoAgentTurn(
   const maxToolCalls = dependencies.maxToolCalls ?? defaultMaxToolCalls;
   const maxTurns = dependencies.maxTurns ?? defaultMaxTurns;
   const memorySnapshot = dependencies.memorySnapshot ?? loadAgentMemorySnapshot();
-  const memory = createAgentMemoryMetadata(memorySnapshot);
+  const agentMemoryVectorStoreId =
+    dependencies.agentMemoryVectorStoreId ?? process.env.OPENAI_AGENT_MEMORY_VECTOR_STORE_ID;
+  const memory = createAgentMemoryMetadata(memorySnapshot, agentMemoryVectorStoreId);
   const instructions = buildAskSiargaoAgentInstructions(memorySnapshot);
+  const tools = buildAgentResponseTools(memorySnapshot, {
+    vectorStoreId: agentMemoryVectorStoreId,
+    forceMemoryFallback: dependencies.forceAgentMemorySearchFallback,
+    includeMemoryFallbackWithFileSearch: dependencies.includeAgentMemoryFallbackWithFileSearch,
+  });
 
   logger.info(
     {
@@ -79,7 +89,7 @@ export async function runAskSiargaoAgentTurn(
     store: false,
     max_output_tokens: 1_000,
     instructions,
-    tools: agentToolDefinitions,
+    tools,
     input: JSON.stringify({
       product: "Ask Siargao",
       conversation: resolved.messages.slice(-maxConversationMessages),
@@ -141,7 +151,7 @@ export async function runAskSiargaoAgentTurn(
       store: false,
       max_output_tokens: 1_000,
       instructions,
-      tools: agentToolDefinitions,
+      tools,
       previous_response_id: response.id,
       input: toolOutputs.map((output) => ({
         type: "function_call_output",
@@ -269,6 +279,8 @@ function providerOperationForTool(name: string) {
       return "local_guide.search";
     case "describe_source_policy":
       return "source_policy.describe";
+    case "search_agent_memory":
+      return "agent_memory.search";
     default:
       return undefined;
   }
@@ -292,6 +304,8 @@ const responseContract = {
     "Answer only Siargao-related travel and local trip-planning questions. Politely decline unrelated questions.",
   sourceUse:
     "Use tool outputs as the only source for live weather, Google Places, curated local guide, and source-policy claims.",
+  memoryRetrieval:
+    "Use file_search or search_agent_memory for durable Ask Siargao policy/reference context. Memory retrieval is not live evidence and does not create checked source labels.",
   caveats:
     "Mention material unchecked fields from tool sources. Do not imply ratings, hours, tides, surf, bookings, availability, safety, or road conditions were checked unless a tool output says so.",
 };
@@ -318,8 +332,10 @@ function buildAskSiargaoAgentInstructions(memorySnapshot: AgentMemorySnapshot) {
   ].join("\n\n");
 }
 
-function createAgentMemoryMetadata(memorySnapshot: AgentMemorySnapshot): AgentMemoryMetadata {
-  const vectorStoreId = process.env.OPENAI_AGENT_MEMORY_VECTOR_STORE_ID;
+function createAgentMemoryMetadata(
+  memorySnapshot: AgentMemorySnapshot,
+  vectorStoreId: string | undefined,
+): AgentMemoryMetadata {
   return {
     versionId: memorySnapshot.versionId,
     files: memorySnapshot.files.map((file) => ({

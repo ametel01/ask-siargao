@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AgentMemorySnapshot } from "@/server/chat/agent-memory";
 import {
   agentToolDefinitions,
+  buildAgentResponseTools,
   describeAvailableTools,
   executeAgentTool,
 } from "@/server/chat/agent-tools";
@@ -782,6 +784,98 @@ describe("agent tools", () => {
     expect(data.policies[0]?.label).toBe("live_checked");
   });
 
+  test("builds file search tools when a vector store is configured", () => {
+    const tools = buildAgentResponseTools(memorySnapshotFixture(), {
+      vectorStoreId: "vs_memory",
+    });
+
+    expect(tools).toContainEqual({
+      type: "file_search",
+      vector_store_ids: ["vs_memory"],
+      max_num_results: 5,
+    });
+    expect(tools).not.toContainEqual(expect.objectContaining({ name: "search_agent_memory" }));
+  });
+
+  test("builds backend memory fallback when no vector store is configured", () => {
+    const tools = buildAgentResponseTools(memorySnapshotFixture());
+
+    expect(tools).toContainEqual(
+      expect.objectContaining({
+        type: "function",
+        name: "search_agent_memory",
+      }),
+    );
+    expect(tools).not.toContainEqual(expect.objectContaining({ type: "file_search" }));
+  });
+
+  test("searches source policy memory without creating source evidence labels", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_memory",
+        name: "search_agent_memory",
+        arguments: {
+          query: "source labels checked not checked",
+          documents: ["ASK_SIARGAO_SOURCE_POLICY.md"],
+          max_results: 2,
+        },
+      },
+      {
+        memorySnapshot: memorySnapshotFixture(),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("ASK_SIARGAO_SOURCE_POLICY.md");
+    expect(result.text).toContain("not live evidence");
+    expect(result.sources).toEqual([]);
+    expect(JSON.stringify(result.data)).toContain("source labels");
+    expect(JSON.stringify(result.data)).not.toContain("live_checked");
+    expect(JSON.stringify(result.data)).not.toContain("fresh_cache");
+    expect(JSON.stringify(result.data)).not.toContain("weather_checked");
+  });
+
+  test("searches data dictionary memory", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_memory_dictionary",
+        name: "search_agent_memory",
+        arguments: {
+          query: "unrestricted database access out of scope",
+          documents: ["ASK_SIARGAO_DATA_DICTIONARY.md"],
+        },
+      },
+      {
+        memorySnapshot: memorySnapshotFixture(),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("ASK_SIARGAO_DATA_DICTIONARY.md");
+    expect(result.text).toContain("unrestricted database access is out of scope");
+    expect(result.sources).toEqual([]);
+  });
+
+  test("rejects invalid memory-search arguments", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_memory_invalid",
+        name: "search_agent_memory",
+        arguments: {
+          query: "source",
+          documents: ["PLAN.md"],
+        },
+      },
+      {
+        memorySnapshot: memorySnapshotFixture(),
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("invalid_tool_arguments");
+    expect(result.sources).toEqual([]);
+  });
+
   test("rejects invalid arguments before tool execution", async () => {
     const result = await executeAgentTool({
       requestId: "agent_request_1",
@@ -810,6 +904,51 @@ describe("agent tools", () => {
     });
   });
 });
+
+function memorySnapshotFixture(): AgentMemorySnapshot {
+  const dataDictionary = {
+    id: "ask_siargao_data_dictionary",
+    title: "Ask Siargao Data Dictionary",
+    fileName: "ASK_SIARGAO_DATA_DICTIONARY.md",
+    relativePath: "docs/agent-memory/ASK_SIARGAO_DATA_DICTIONARY.md",
+    role: "reference" as const,
+    checksum: "d".repeat(64),
+    byteLength: 80,
+    content:
+      "The data dictionary says unrestricted database access is out of scope for persistent agent memory.",
+  };
+  const sourcePolicy = {
+    id: "ask_siargao_source_policy",
+    title: "Ask Siargao Source Policy",
+    fileName: "ASK_SIARGAO_SOURCE_POLICY.md",
+    relativePath: "docs/agent-memory/ASK_SIARGAO_SOURCE_POLICY.md",
+    role: "reference" as const,
+    checksum: "s".repeat(64),
+    byteLength: 90,
+    content:
+      "The source policy explains source labels, checked and not checked wording, and says memory is not live evidence.",
+  };
+
+  return {
+    versionId: "agent-memory:toolfixture000000",
+    files: [
+      {
+        id: "ask_siargao_agent_skills",
+        title: "Ask Siargao Agent Skills",
+        fileName: "ASK_SIARGAO_AGENT_SKILLS.md",
+        relativePath: "docs/agent-memory/ASK_SIARGAO_AGENT_SKILLS.md",
+        role: "instruction",
+        checksum: "a".repeat(64),
+        byteLength: 20,
+        content: "Instruction content.",
+      },
+      dataDictionary,
+      sourcePolicy,
+    ],
+    instructionMarkdown: "Instruction content.",
+    referenceFiles: [dataDictionary, sourcePolicy],
+  };
+}
 
 function liveWeatherSnapshot(locationName = "Siargao Island"): WeatherSnapshot {
   return {

@@ -11,7 +11,8 @@ export type AskSiargaoAgentToolName =
   | "search_places"
   | "get_place_details"
   | "search_local_guide"
-  | "describe_source_policy";
+  | "describe_source_policy"
+  | "search_agent_memory";
 
 export type AgentToolCallStatus = "success" | "error";
 
