@@ -11,7 +11,7 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
-- [ ] Step 1: Agent Runtime Contracts and Test Doubles
+- [x] Step 1: Agent Runtime Contracts and Test Doubles
 - [ ] Step 2: Tool Registry and Source Policy Tool
 - [ ] Step 3: Weather Forecast Tool
 - [ ] Step 4: Google Places Search and Details Tools
@@ -23,8 +23,8 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 
 ## Current Status
 
-Step 0 is complete. Tracking now reflects the Priority 4 AI tool runtime plan, and Step 1
-is next.
+Step 1 is complete. Runtime contracts and network-free test doubles are available, and
+Step 2 is next.
 
 ## Update Rule
 
@@ -42,3 +42,14 @@ that step is committed.
   confirmed `CHANGELOG.md` contains Keep a Changelog structure with `## [Unreleased]`.
   Commit: this commit (`Add AI tool runtime tracking files`).
   Next step: Step 1, Agent Runtime Contracts and Test Doubles.
+- 2026-06-26: Completed Step 1 by adding importable agent runtime contracts, audit and
+  source-summary helpers, optional future card/action metadata, and fake Responses/tool
+  executor utilities in focused tests.
+  Validation: `bun run format` passed; `bun test src/server/chat/agent-runtime.test.ts`
+  passed (7 tests); `bun run lint` passed (`biome check .`, 180 files checked);
+  `bun run typecheck --incremental false` passed; `bun test` passed (225 tests);
+  `bun run db:migrate:test && bun run db:seed:test` passed (38 tables; 5 areas, 3
+  routes, 4 source profiles); `bun run build` passed; `bun run test:e2e` passed (17
+  tests).
+  Commit: this commit (`Define chat agent runtime contracts`).
+  Next step: Step 2, Tool Registry and Source Policy Tool.
