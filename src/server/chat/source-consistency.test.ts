@@ -131,6 +131,31 @@ describe("chat source consistency", () => {
     expect(result).toEqual({ valid: true, issues: [] });
   });
 
+  test("accepts itinerary planning caveats as not verified without live checks", () => {
+    const itineraryCaveatSource: AnswerSourceSummary = {
+      label: "not_verified",
+      sourceName: "Itinerary planner unchecked live signals",
+      confidence: "medium",
+      checked: [],
+      notChecked: ["live weather", "live Google Places open status", "surf", "tide"],
+    };
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Use the plan, but keep live checks caveated.", [
+        itineraryCaveatSource,
+      ]),
+      sources: [itineraryCaveatSource],
+      toolCalls: [
+        toolCall({
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [itineraryCaveatSource],
+        }),
+      ],
+    });
+
+    expect(result).toEqual({ valid: true, issues: [] });
+  });
+
   test("rejects fabricated checked labels without matching tool output", () => {
     const result = validateChatAnswerSourceConsistency({
       message: withSourceLines("Google Places says this is live checked.", [

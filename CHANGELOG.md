@@ -27,6 +27,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added weather and Google Places follow-up requirements to itinerary artifacts so rainy,
+  weather-sensitive, meal, cafe, dinner, and food-crawl plans identify the live checks needed
+  before final AI-written prose.
 - Added a local itinerary planning agent tool with structured 2-4 hour plan artifacts, initial
   rainy Cloud 9, sunset dinner, sandy beach, non-surfer, and food-crawl theme support, and
   explicit unchecked weather, Places, surf, tide, road, closure, and safety caveats.

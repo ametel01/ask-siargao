@@ -23,6 +23,16 @@ describe("local itinerary planning tools", () => {
       "curated_local_guide",
       "not_verified",
     ]);
+    expect(result.requiredToolChecks.weather).toMatchObject({
+      tool: "get_weather_forecast",
+      location: "Cloud 9",
+      date_range: "today",
+    });
+    expect(result.requiredToolChecks.places[0]).toMatchObject({
+      tool: "search_places",
+      query: "covered cafes near Cloud 9 Siargao",
+      constraints: { included_type: "cafe", open_now: true, page_size: 5 },
+    });
   });
 
   test("sunset plus dinner keeps a route-aware sequence and requires Places for dinner", () => {
@@ -42,6 +52,11 @@ describe("local itinerary planning tools", () => {
     expect(result.plan.stops[1]?.title).toContain("seafood");
     expect(result.plan.stops[1]?.caveats.join(" ")).toContain("search_places");
     expect(result.plan.skip).toContain("Far north dinner detours after sunset");
+    expect(result.requiredToolChecks.weather?.location).toBe("General Luna");
+    expect(result.requiredToolChecks.places[0]).toMatchObject({
+      query: "seafood General Luna Siargao",
+      constraints: { included_type: "restaurant", open_now: true, page_size: 5 },
+    });
   });
 
   test("sandy beach half-day excludes far north options under a 30-minute constraint", () => {
@@ -91,5 +106,9 @@ describe("local itinerary planning tools", () => {
     expect(result.plan.stops[0]?.title).toContain("local seafood");
     expect(result.plan.sources.at(-1)?.notChecked.join(" ")).toContain("live open-now status");
     expect(result.plan.skip).toContain("Venue names without live or fresh-cache Places evidence");
+    expect(result.requiredToolChecks.places.map((check) => check.query)).toEqual([
+      "local seafood General Luna Siargao",
+      "cafes or dessert near General Luna Siargao",
+    ]);
   });
 });

@@ -17,7 +17,7 @@ commit reference when available, current status, and the next step.
 - [x] Step 1: Baseline Quality Gate Run
 - [x] Step 2: Add Shared Itinerary Artifact Types
 - [x] Step 3: Build Deterministic Itinerary Planning Tool Data
-- [ ] Step 4: Integrate Weather and Places Requirements Into Itinerary Flow
+- [x] Step 4: Integrate Weather and Places Requirements Into Itinerary Flow
 - [ ] Step 5: Return Itinerary Artifacts From `/api/chat`
 - [ ] Step 6: Render Itinerary Plans in the Chat UI
 - [ ] Step 7: Add End-to-End Itinerary Behavior Coverage
@@ -26,7 +26,7 @@ commit reference when available, current status, and the next step.
 
 ## Current Status
 
-Step 3 is complete. Step 4 is next.
+Step 4 is complete. Step 5 is next.
 
 ## Update Log
 
@@ -109,6 +109,34 @@ Validation:
 - `bun test src/server/chat/agent-tools.test.ts`: passed (40 tests).
 - `bun test`: passed (317 tests across 41 files).
 
-Commit: `Add local itinerary planning tool`.
+Commit: `12a00b4` (`Add local itinerary planning tool`).
 
 Next step: Step 4, weather and Places requirements in the itinerary flow.
+
+### Step 4: Integrate Weather and Places Requirements Into Itinerary Flow
+
+Completed:
+
+- Added `requiredToolChecks` to itinerary planning output for weather-sensitive and
+  meal/cafe/food-crawl itinerary stops.
+- Added suggested weather locations/date ranges and Places queries, centers, radii, and
+  open-now constraints.
+- Updated agent instructions to require weather checks for rainy/weather-sensitive itineraries
+  and Places checks for meal, cafe, dinner, drinks, and food-crawl stops when live status or maps
+  identity matters.
+- Added fake model/tool-loop coverage for rainy Cloud 9, sunset dinner, food crawl, and Places
+  provider-failure itinerary flows.
+- Added source-consistency coverage for itinerary not-verified caveats.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `bun test src/server/chat/ask-siargao-agent.test.ts`: passed (18 tests).
+- `bun test src/server/chat/source-consistency.test.ts`: passed (12 tests).
+- `bun test`: passed (322 tests across 41 files).
+
+Commit: `Connect itinerary plans to weather and places tools`.
+
+Next step: Step 5, return itinerary artifacts from `/api/chat`.

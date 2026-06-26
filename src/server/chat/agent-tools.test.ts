@@ -952,9 +952,19 @@ describe("agent tools", () => {
       ],
       skip: expect.arrayContaining(["Far north dinner detours after sunset"]),
     });
-    const data = result.data as { plan: { title: string }; localGuide: { status: string } };
+    const data = result.data as {
+      plan: { title: string };
+      localGuide: { status: string };
+      requiredToolChecks: {
+        weather?: { tool: string };
+        places: Array<{ query: string; constraints: { open_now?: boolean } }>;
+      };
+    };
     expect(data.plan.title).toBe("Sunset plus Dinner");
     expect(data.localGuide.status).toBe("available");
+    expect(data.requiredToolChecks.weather?.tool).toBe("get_weather_forecast");
+    expect(data.requiredToolChecks.places[0]?.query).toBe("seafood General Luna Siargao");
+    expect(data.requiredToolChecks.places[0]?.constraints.open_now).toBe(true);
     expect(result.actions?.map((action) => action.label)).toEqual([
       "Check weather",
       "Find live places",

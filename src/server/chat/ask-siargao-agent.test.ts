@@ -356,6 +356,238 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.sources).toEqual([localGuideSourceSummary]);
   });
 
+  test("rainy Cloud 9 itineraries call planning and weather before final prose", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_rainy_plan",
+        requestId: "req_rainy_plan",
+        callId: "call_plan",
+        name: "plan_local_itinerary",
+        arguments: { theme: "rainy_cloud_9_afternoon", needs_weather_check: true },
+      }),
+      responseWithToolCall({
+        id: "resp_rainy_weather",
+        requestId: "req_rainy_weather",
+        callId: "call_weather",
+        name: "get_weather_forecast",
+        arguments: { location: "Cloud 9", date_range: "today" },
+      }),
+      {
+        id: "resp_rainy_final",
+        output_text: "Weather was checked; keep the covered fallback and avoid exposed beach hops.",
+        _request_id: "req_rainy_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      plan_local_itinerary: {
+        name: "plan_local_itinerary",
+        status: "success",
+        text: "Structured itinerary artifact prepared. Required weather check: Cloud 9.",
+        sources: [localGuideSourceSummary],
+        itineraries: [rainyCloud9Plan],
+      },
+      get_weather_forecast: {
+        name: "get_weather_forecast",
+        status: "success",
+        text: "Open-Meteo forecast loaded for Cloud 9.",
+        sources: [weatherSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Rainy Cloud 9 afternoon plan?" }],
+        requestId: "agent_request_rainy_itinerary",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "plan_local_itinerary",
+      "get_weather_forecast",
+    ]);
+    expect(result.sources).toEqual([localGuideSourceSummary, weatherSourceSummary]);
+    expect(result.message).toContain("Weather was checked");
+  });
+
+  test("sunset plus dinner itineraries call planning and Places before final prose", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_dinner_plan",
+        requestId: "req_dinner_plan",
+        callId: "call_plan",
+        name: "plan_local_itinerary",
+        arguments: { theme: "sunset_plus_dinner", needs_open_now: true },
+      }),
+      responseWithToolCall({
+        id: "resp_dinner_places",
+        requestId: "req_dinner_places",
+        callId: "call_places",
+        name: "search_places",
+        arguments: {
+          query: "dinner restaurants General Luna Siargao",
+          center: { latitude: 9.784, longitude: 126.158 },
+          radius_meters: 4000,
+          constraints: { included_type: "restaurant", open_now: true, page_size: 5 },
+        },
+      }),
+      {
+        id: "resp_dinner_final",
+        output_text: "Use the sunset stop, then choose the live-checked dinner venue.",
+        _request_id: "req_dinner_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      plan_local_itinerary: {
+        name: "plan_local_itinerary",
+        status: "success",
+        text: "Structured itinerary artifact prepared. Required Places check: dinner.",
+        sources: [localGuideSourceSummary],
+        itineraries: [sunsetDinnerPlan],
+      },
+      search_places: {
+        name: "search_places",
+        status: "success",
+        text: "Google Places returned open dinner options.",
+        sources: [placesSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Sunset plus dinner plan for tonight." }],
+        requestId: "agent_request_dinner_itinerary",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "plan_local_itinerary",
+      "search_places",
+    ]);
+    expect(result.sources).toEqual([localGuideSourceSummary, placesSourceSummary]);
+    expect(result.itineraries).toEqual([sunsetDinnerPlan]);
+  });
+
+  test("food crawl itineraries call Places for live food options", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_food_plan",
+        requestId: "req_food_plan",
+        callId: "call_plan",
+        name: "plan_local_itinerary",
+        arguments: { theme: "food_crawl", needs_open_now: true },
+      }),
+      responseWithToolCall({
+        id: "resp_food_places",
+        requestId: "req_food_places",
+        callId: "call_places",
+        name: "search_places",
+        arguments: {
+          query: "restaurants General Luna Siargao",
+          center: { latitude: 9.784, longitude: 126.158 },
+          radius_meters: 4000,
+          constraints: { included_type: "restaurant", open_now: true, page_size: 5 },
+        },
+      }),
+      {
+        id: "resp_food_final",
+        output_text: "Use the live food options as the crawl stops.",
+        _request_id: "req_food_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      plan_local_itinerary: {
+        name: "plan_local_itinerary",
+        status: "success",
+        text: "Structured food crawl artifact prepared. Required Places check: restaurants.",
+        sources: [genericSourceSummary],
+        itineraries: [foodCrawlPlan],
+      },
+      search_places: {
+        name: "search_places",
+        status: "success",
+        text: "Google Places returned food options.",
+        sources: [placesSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Make a food crawl for 3 hours." }],
+        requestId: "agent_request_food_crawl",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "plan_local_itinerary",
+      "search_places",
+    ]);
+    expect(result.sources).toEqual([genericSourceSummary, placesSourceSummary]);
+  });
+
+  test("Places failures in itinerary flows remain caveated instead of live checked", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_failed_places_plan",
+        requestId: "req_failed_places_plan",
+        callId: "call_plan",
+        name: "plan_local_itinerary",
+        arguments: { theme: "sunset_plus_dinner", needs_open_now: true },
+      }),
+      responseWithToolCall({
+        id: "resp_failed_places",
+        requestId: "req_failed_places",
+        callId: "call_places",
+        name: "search_places",
+        arguments: {
+          query: "dinner restaurants General Luna Siargao",
+          center: { latitude: 9.784, longitude: 126.158 },
+          radius_meters: 4000,
+          constraints: { included_type: "restaurant", open_now: true, page_size: 5 },
+        },
+      }),
+      {
+        id: "resp_failed_places_final",
+        output_text: "Places was unavailable, so dinner open status is not live checked.",
+        _request_id: "req_failed_places_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      plan_local_itinerary: {
+        name: "plan_local_itinerary",
+        status: "success",
+        text: "Structured itinerary artifact prepared. Required Places check: dinner.",
+        sources: [localGuideSourceSummary],
+        itineraries: [sunsetDinnerPlan],
+      },
+      search_places: {
+        name: "search_places",
+        status: "error",
+        text: "Google Places search failed.",
+        errorCode: "provider_unavailable",
+        sources: [providerUnavailableSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Sunset plus dinner plan for tonight." }],
+        requestId: "agent_request_places_failure_itinerary",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.toolCalls[1]).toMatchObject({
+      name: "search_places",
+      status: "error",
+      errorCode: "provider_unavailable",
+    });
+    expect(result.sources).toEqual([localGuideSourceSummary, providerUnavailableSourceSummary]);
+    expect(result.message).toContain("not live checked");
+  });
+
   test("attaches tool-generated cards and actions to the final model-written answer", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
@@ -924,6 +1156,14 @@ const localGuideSourceSummary: AnswerSourceSummary = {
   notChecked: ["live tide", "lifeguard status"],
 };
 
+const genericSourceSummary: AnswerSourceSummary = {
+  label: "not_verified",
+  sourceName: "Itinerary planner unchecked live signals",
+  confidence: "medium",
+  checked: [],
+  notChecked: ["live open-now status", "weather forecast"],
+};
+
 const rainyCloud9Plan: ItineraryPlan = {
   title: "Rainy Cloud 9 Afternoon",
   durationLabel: "3-4 hours",
@@ -958,6 +1198,59 @@ const rainyCloud9Plan: ItineraryPlan = {
   ],
   skip: ["Exposed beach hopping"],
   sources: [localGuideSourceSummary],
+};
+
+const sunsetDinnerPlan: ItineraryPlan = {
+  title: "Sunset plus Dinner",
+  durationLabel: "3-4 hours",
+  stops: [
+    {
+      title: "Cloud 9 sunset stop",
+      kind: "activity",
+      sequence: 1,
+      area: "Cloud 9",
+      rationale: "Keep sunset close to General Luna.",
+      caveats: ["Weather still needs a forecast check."],
+    },
+    {
+      title: "Dinner in General Luna",
+      kind: "meal",
+      sequence: 2,
+      area: "General Luna",
+      travelTimeFromPreviousMinutes: 10,
+      rationale: "Avoid a long ride after sunset.",
+      caveats: ["Open status needs Places."],
+    },
+  ],
+  fallbackStops: [],
+  skip: ["Far north dinner detours after sunset"],
+  sources: [localGuideSourceSummary],
+};
+
+const foodCrawlPlan: ItineraryPlan = {
+  title: "General Luna Food Crawl",
+  durationLabel: "3-4 hours",
+  stops: [
+    {
+      title: "First food stop",
+      kind: "meal",
+      sequence: 1,
+      area: "General Luna",
+      rationale: "Start central.",
+      caveats: ["Open status needs Places."],
+    },
+    {
+      title: "Second food stop",
+      kind: "meal",
+      sequence: 2,
+      area: "General Luna",
+      rationale: "Keep the crawl compact.",
+      caveats: ["Open status needs Places."],
+    },
+  ],
+  fallbackStops: [],
+  skip: ["Venue names without Places evidence"],
+  sources: [genericSourceSummary],
 };
 
 const providerUnavailableSourceSummary: AnswerSourceSummary = {

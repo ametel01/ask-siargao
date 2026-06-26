@@ -37,12 +37,38 @@ export type LocalItineraryResult = {
     Omit<LocalItineraryRequest, "duration_hours" | "max_ride_minutes" | "origin">;
   localGuide: LocalGuideSearchResult;
   plan: ItineraryPlan;
+  requiredToolChecks: ItineraryRequiredToolChecks;
   caveats: readonly string[];
+};
+
+export type ItineraryRequiredToolChecks = {
+  weather?: {
+    required: true;
+    tool: "get_weather_forecast";
+    location: "Siargao Island" | "Cloud 9" | "General Luna" | "Del Carmen";
+    date_range: "today" | "next_7_days";
+    reason: string;
+  };
+  places: readonly {
+    required: true;
+    tool: "search_places";
+    query: string;
+    center: { latitude: number; longitude: number };
+    radius_meters: number;
+    constraints: {
+      included_type?: string;
+      open_now?: boolean;
+      page_size: number;
+    };
+    reason: string;
+  }[];
 };
 
 const defaultOrigin = "General Luna / Cloud 9";
 const defaultDurationHours = 3;
 const defaultMaxRideMinutes = 30;
+const generalLunaCenter = { latitude: 9.784, longitude: 126.158 };
+const cloud9Center = { latitude: 9.8116, longitude: 126.1651 };
 const siargaoGenericUnchecked = [
   "live weather",
   "live Google Places open status",
@@ -59,6 +85,7 @@ export function planLocalItinerary(input: LocalItineraryRequest): LocalItinerary
   const uncheckedSource = itineraryUncheckedSourceSummary(request);
   const sources = uniqueSourceSummaries([localGuide.sourceSummary, uncheckedSource]);
   const plan = buildPlan(request, localGuide, sources);
+  const requiredToolChecks = buildRequiredToolChecks(request);
   const caveats = uniqueText([
     ...plan.stops.flatMap((stop) => stop.caveats),
     ...plan.fallbackStops.flatMap((stop) => stop.caveats),
@@ -70,6 +97,7 @@ export function planLocalItinerary(input: LocalItineraryRequest): LocalItinerary
     request,
     localGuide,
     plan,
+    requiredToolChecks,
     caveats,
   };
 }
@@ -99,8 +127,24 @@ export function renderLocalItineraryToolText(result: LocalItineraryResult) {
         ]
       : []),
     ...(result.plan.skip.length ? [`Skip: ${result.plan.skip.join("; ")}.`] : []),
+    ...renderRequiredToolChecksText(result.requiredToolChecks),
     `Source caveats: ${result.caveats.join("; ")}.`,
   ].join("\n");
+}
+
+function renderRequiredToolChecksText(requiredToolChecks: ItineraryRequiredToolChecks) {
+  const lines: string[] = [];
+  if (requiredToolChecks.weather) {
+    lines.push(
+      `Required weather check: call ${requiredToolChecks.weather.tool} for ${requiredToolChecks.weather.location} (${requiredToolChecks.weather.date_range}) because ${requiredToolChecks.weather.reason}.`,
+    );
+  }
+  for (const placesCheck of requiredToolChecks.places) {
+    lines.push(
+      `Required Places check: call ${placesCheck.tool} for "${placesCheck.query}" within ${placesCheck.radius_meters}m because ${placesCheck.reason}.`,
+    );
+  }
+  return lines;
 }
 
 function normalizeRequest(input: LocalItineraryRequest): LocalItineraryResult["request"] {
@@ -431,6 +475,124 @@ function foodCrawlPlan(
       "Claims about bookings, table availability, or review text",
     ],
     sources,
+  };
+}
+
+function buildRequiredToolChecks(
+  request: LocalItineraryResult["request"],
+): ItineraryRequiredToolChecks {
+  return {
+    ...(requiresWeatherCheck(request) ? { weather: weatherCheckForRequest(request) } : {}),
+    places: placesChecksForRequest(request),
+  };
+}
+
+function requiresWeatherCheck(request: LocalItineraryResult["request"]) {
+  return (
+    request.needs_weather_check === true ||
+    request.theme === "rainy_cloud_9_afternoon" ||
+    request.theme === "sunset_plus_dinner"
+  );
+}
+
+function weatherCheckForRequest(
+  request: LocalItineraryResult["request"],
+): NonNullable<ItineraryRequiredToolChecks["weather"]> {
+  const location = request.theme === "rainy_cloud_9_afternoon" ? "Cloud 9" : "General Luna";
+  return {
+    required: true,
+    tool: "get_weather_forecast",
+    location,
+    date_range: "today",
+    reason:
+      request.theme === "rainy_cloud_9_afternoon"
+        ? "rain materially changes the sequence and fallback choice"
+        : "cloud cover and rain materially affect the outdoor itinerary window",
+  };
+}
+
+function placesChecksForRequest(
+  request: LocalItineraryResult["request"],
+): ItineraryRequiredToolChecks["places"] {
+  switch (request.theme) {
+    case "rainy_cloud_9_afternoon":
+      return [
+        placesCheck({
+          center: cloud9Center,
+          includedType: "cafe",
+          query: "covered cafes near Cloud 9 Siargao",
+          radiusMeters: 2_500,
+          reason: "the rainy plan uses a covered cafe stop whose live identity and hours matter",
+        }),
+      ];
+    case "sunset_plus_dinner":
+      return [
+        placesCheck({
+          center: generalLunaCenter,
+          includedType: "restaurant",
+          query: `${request.meal_preference ?? "dinner restaurants"} General Luna Siargao`,
+          radiusMeters: 4_000,
+          reason: "the dinner stop needs live venue identity, map links, and open-now status",
+        }),
+      ];
+    case "food_crawl":
+      return [
+        placesCheck({
+          center: generalLunaCenter,
+          includedType: "restaurant",
+          query: `${request.meal_preference ?? "restaurants"} General Luna Siargao`,
+          radiusMeters: 4_000,
+          reason: "the first food-crawl stop needs live venue choices",
+        }),
+        placesCheck({
+          center: generalLunaCenter,
+          includedType: "cafe",
+          query: "cafes or dessert near General Luna Siargao",
+          radiusMeters: 4_000,
+          reason: "the later crawl stop needs live cafe or dessert options",
+        }),
+      ];
+    case "sandy_beach_half_day":
+    case "non_surfer_half_day":
+      return request.needs_open_now
+        ? [
+            placesCheck({
+              center: generalLunaCenter,
+              includedType: "cafe",
+              query: "cafes near General Luna Siargao",
+              radiusMeters: 4_000,
+              reason: "the optional cafe or snack stop needs live identity and hours",
+            }),
+          ]
+        : [];
+  }
+}
+
+function placesCheck({
+  center,
+  includedType,
+  query,
+  radiusMeters,
+  reason,
+}: {
+  center: { latitude: number; longitude: number };
+  includedType: string;
+  query: string;
+  radiusMeters: number;
+  reason: string;
+}): ItineraryRequiredToolChecks["places"][number] {
+  return {
+    required: true,
+    tool: "search_places",
+    query,
+    center,
+    radius_meters: radiusMeters,
+    constraints: {
+      included_type: includedType,
+      open_now: true,
+      page_size: 5,
+    },
+    reason,
   };
 }
 

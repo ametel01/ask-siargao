@@ -962,6 +962,7 @@ function planLocalItineraryToolResult(args: LocalItineraryRequest): AgentToolRes
       request: result.request,
       localGuide: normalizeLocalGuideSearchResult(result.localGuide),
       plan: result.plan,
+      requiredToolChecks: result.requiredToolChecks,
       caveats: result.caveats,
     },
     sources: result.plan.sources,
