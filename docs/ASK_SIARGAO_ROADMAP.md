@@ -264,7 +264,7 @@ Initially, render this as compact markdown lines because `ChatWorkspace` already
 - Add route tests asserting source labels for beach, weather, Places, generic fallback, and provider-failure paths.
 - Add renderer tests to ensure checked/not-checked lines are preserved for the frontend parser.
 
-## Priority 4: AI Tool Runtime
+## Priority 4: AI Tool Runtime **COMPLETED**
 
 ### Outcome
 
