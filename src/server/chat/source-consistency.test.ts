@@ -69,6 +69,24 @@ describe("chat source consistency", () => {
     expect(result.valid).toBe(true);
   });
 
+  test("accepts curated itinerary sources backed by the itinerary planning tool", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Use the sequenced itinerary and keep the caveats visible.", [
+        localGuideSourceSummary,
+      ]),
+      sources: [localGuideSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [localGuideSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result.valid).toBe(true);
+  });
+
   test("accepts curated and fresh-cache local data sources from safe local data tools", () => {
     const localFreshCacheSummary: AnswerSourceSummary = {
       label: "fresh_cache",

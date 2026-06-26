@@ -172,7 +172,12 @@ function summarizeToolEvidence(toolCalls: readonly AgentToolCallAudit[]) {
     weather: hasToolSourceLabel(toolCalls, new Set(["get_weather_forecast"]), "weather_checked"),
     localGuide: hasToolSourceLabel(
       toolCalls,
-      new Set(["search_local_guide", "query_local_facts", "get_source_evidence"]),
+      new Set([
+        "search_local_guide",
+        "plan_local_itinerary",
+        "query_local_facts",
+        "get_source_evidence",
+      ]),
       "curated_local_guide",
     ),
     providerUnavailable: toolCalls.some(

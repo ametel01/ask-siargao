@@ -175,6 +175,70 @@ describe("agent tools", () => {
       },
       {
         type: "function",
+        name: "plan_local_itinerary",
+        description:
+          "Build a governed structured 2-4 hour Siargao itinerary artifact from curated local guide evidence and explicit unchecked caveats. The AI must use the returned plan as evidence and write the final answer itself.",
+        parameters: {
+          type: "object",
+          properties: {
+            theme: {
+              type: "string",
+              enum: [
+                "rainy_cloud_9_afternoon",
+                "sunset_plus_dinner",
+                "sandy_beach_half_day",
+                "non_surfer_half_day",
+                "food_crawl",
+              ],
+              description: "Initial supported local itinerary theme.",
+            },
+            origin: {
+              type: "string",
+              description:
+                "Traveler origin or assumed start area, such as General Luna or Cloud 9.",
+            },
+            duration_hours: {
+              type: "number",
+              minimum: 2,
+              maximum: 4,
+              description: "Target plan length in hours.",
+            },
+            transport_mode: {
+              type: "string",
+              enum: ["walk", "scooter", "tricycle", "van"],
+              description: "Traveler transport mode or constraint.",
+            },
+            max_ride_minutes: {
+              type: "integer",
+              minimum: 5,
+              maximum: 180,
+              description: "Maximum estimated ride time for any itinerary leg.",
+            },
+            needs_weather_check: {
+              type: "boolean",
+              description: "Whether weather materially affects the itinerary.",
+            },
+            needs_open_now: {
+              type: "boolean",
+              description: "Whether meal, cafe, or venue stops need live open-now checks.",
+            },
+            meal_preference: {
+              type: "string",
+              description: "Optional meal style, cuisine, or price preference.",
+            },
+            constraints: {
+              type: "array",
+              items: { type: "string" },
+              description: "Other user constraints to preserve as caveats.",
+            },
+          },
+          required: ["theme"],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+      {
+        type: "function",
         name: "describe_database_schema",
         description:
           "Describe the approved safe local data surfaces, fields, query rules, limits, and prohibited database access.",
@@ -291,6 +355,11 @@ describe("agent tools", () => {
         name: "search_local_guide",
         description:
           "Search Ask Siargao curated local guide facts for beaches and local trip-planning fit.",
+      },
+      {
+        name: "plan_local_itinerary",
+        description:
+          "Build a governed structured 2-4 hour Siargao itinerary artifact from curated local guide evidence and explicit unchecked caveats. The AI must use the returned plan as evidence and write the final answer itself.",
       },
       {
         name: "describe_database_schema",
@@ -851,6 +920,59 @@ describe("agent tools", () => {
     expect(result.status).toBe("error");
     expect(result.errorCode).toBe("invalid_tool_arguments");
     expect(result.text).toContain("Unrecognized key");
+    expect(result.sources).toEqual([]);
+  });
+
+  test("plans a local itinerary artifact without rendering final chat prose", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_itinerary",
+      name: "plan_local_itinerary",
+      arguments: {
+        theme: "sunset_plus_dinner",
+        origin: "General Luna",
+        duration_hours: 3,
+        needs_open_now: true,
+        meal_preference: "seafood",
+      },
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("Structured itinerary artifact prepared");
+    expect(result.text).toContain("write the final traveler-facing answer");
+    expect(result.sources.map((source) => source.label)).toEqual([
+      "curated_local_guide",
+      "not_verified",
+    ]);
+    expect(result.itineraries?.[0]).toMatchObject({
+      title: "Sunset plus Dinner",
+      durationLabel: "3-4 hours",
+      stops: [
+        expect.objectContaining({ sequence: 1 }),
+        expect.objectContaining({ kind: "meal", title: "Dinner in General Luna matching seafood" }),
+      ],
+      skip: expect.arrayContaining(["Far north dinner detours after sunset"]),
+    });
+    const data = result.data as { plan: { title: string }; localGuide: { status: string } };
+    expect(data.plan.title).toBe("Sunset plus Dinner");
+    expect(data.localGuide.status).toBe("available");
+    expect(result.actions?.map((action) => action.label)).toEqual([
+      "Check weather",
+      "Find live places",
+    ]);
+  });
+
+  test("rejects invalid itinerary planning arguments before execution", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_itinerary_invalid",
+      name: "plan_local_itinerary",
+      arguments: {
+        theme: "all_day_north_island",
+        duration_hours: 8,
+      },
+    });
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("invalid_tool_arguments");
     expect(result.sources).toEqual([]);
   });
 

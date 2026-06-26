@@ -16,7 +16,7 @@ commit reference when available, current status, and the next step.
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Baseline Quality Gate Run
 - [x] Step 2: Add Shared Itinerary Artifact Types
-- [ ] Step 3: Build Deterministic Itinerary Planning Tool Data
+- [x] Step 3: Build Deterministic Itinerary Planning Tool Data
 - [ ] Step 4: Integrate Weather and Places Requirements Into Itinerary Flow
 - [ ] Step 5: Return Itinerary Artifacts From `/api/chat`
 - [ ] Step 6: Render Itinerary Plans in the Chat UI
@@ -26,7 +26,7 @@ commit reference when available, current status, and the next step.
 
 ## Current Status
 
-Step 2 is complete. Step 3 is next.
+Step 3 is complete. Step 4 is next.
 
 ## Update Log
 
@@ -83,6 +83,32 @@ Validation:
 - `bun test src/server/chat/agent-runtime.test.ts`: passed (11 tests).
 - `bun test`: passed (308 tests across 40 files).
 
-Commit: `Add itinerary artifact contract`.
+Commit: `d6fb074` (`Add itinerary artifact contract`).
 
 Next step: Step 3, deterministic itinerary planning tool data.
+
+### Step 3: Build Deterministic Itinerary Planning Tool Data
+
+Completed:
+
+- Added the `plan_local_itinerary` agent tool with strict Zod arguments.
+- Added deterministic itinerary artifact generation for rainy Cloud 9 afternoon, sunset plus
+  dinner, sandy beach half-day, non-surfer half-day, and food crawl themes.
+- Kept itinerary generation as data shaping only; final chat prose remains model-written.
+- Wired itinerary artifacts into the tool registry, agent audit operation mapping, instructions,
+  and source-consistency validation.
+- Added unit and runtime coverage for itinerary artifact output, strict arguments, source caveats,
+  and model tool-loop propagation.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `bun test src/server/chat/itinerary-tools.test.ts`: passed (5 tests).
+- `bun test src/server/chat/agent-tools.test.ts`: passed (40 tests).
+- `bun test`: passed (317 tests across 41 files).
+
+Commit: `Add local itinerary planning tool`.
+
+Next step: Step 4, weather and Places requirements in the itinerary flow.

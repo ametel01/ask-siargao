@@ -11,9 +11,17 @@ import type {
   AgentToolResult,
   AskSiargaoAgentToolName,
   ChatAction,
+  ItineraryPlan,
   RecommendationCard,
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary, AnswerTrustLabel } from "@/server/chat/answer-source-summary";
+import {
+  type LocalItineraryRequest,
+  localItineraryRequestSchema,
+  localItineraryThemes,
+  planLocalItinerary,
+  renderLocalItineraryToolText,
+} from "@/server/chat/itinerary-tools";
 import {
   describeDatabaseSchema,
   describeDatabaseSchemaArgumentsSchema,
@@ -121,6 +129,7 @@ export type AgentToolDependencies = {
 type SearchPlacesArguments = z.infer<typeof searchPlacesSchema>;
 type PlaceDetailsArguments = z.infer<typeof placeDetailsSchema>;
 type SearchLocalGuideArguments = z.infer<typeof searchLocalGuideSchema>;
+type LocalItineraryArguments = z.infer<typeof localItineraryRequestSchema>;
 type SearchAgentMemoryArguments = z.infer<typeof searchAgentMemorySchema>;
 type WeatherForecastArguments = z.infer<typeof weatherForecastSchema>;
 type DescribeDatabaseSchemaArguments = z.infer<typeof describeDatabaseSchemaArgumentsSchema>;
@@ -430,6 +439,67 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
     schema: searchLocalGuideSchema,
     execute: (args) => searchLocalGuideToolResult(args as SearchLocalGuideArguments),
   },
+  plan_local_itinerary: {
+    definition: {
+      type: "function",
+      name: "plan_local_itinerary",
+      description:
+        "Build a governed structured 2-4 hour Siargao itinerary artifact from curated local guide evidence and explicit unchecked caveats. The AI must use the returned plan as evidence and write the final answer itself.",
+      parameters: {
+        type: "object",
+        properties: {
+          theme: {
+            type: "string",
+            enum: localItineraryThemes,
+            description: "Initial supported local itinerary theme.",
+          },
+          origin: {
+            type: "string",
+            description: "Traveler origin or assumed start area, such as General Luna or Cloud 9.",
+          },
+          duration_hours: {
+            type: "number",
+            minimum: 2,
+            maximum: 4,
+            description: "Target plan length in hours.",
+          },
+          transport_mode: {
+            type: "string",
+            enum: ["walk", "scooter", "tricycle", "van"],
+            description: "Traveler transport mode or constraint.",
+          },
+          max_ride_minutes: {
+            type: "integer",
+            minimum: 5,
+            maximum: 180,
+            description: "Maximum estimated ride time for any itinerary leg.",
+          },
+          needs_weather_check: {
+            type: "boolean",
+            description: "Whether weather materially affects the itinerary.",
+          },
+          needs_open_now: {
+            type: "boolean",
+            description: "Whether meal, cafe, or venue stops need live open-now checks.",
+          },
+          meal_preference: {
+            type: "string",
+            description: "Optional meal style, cuisine, or price preference.",
+          },
+          constraints: {
+            type: "array",
+            items: { type: "string" },
+            description: "Other user constraints to preserve as caveats.",
+          },
+        },
+        required: ["theme"],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+    schema: localItineraryRequestSchema,
+    execute: (args) => planLocalItineraryToolResult(args as LocalItineraryArguments),
+  },
   describe_database_schema: {
     definition: {
       type: "function",
@@ -594,6 +664,7 @@ const defaultFunctionToolNames = [
   "search_places",
   "get_place_details",
   "search_local_guide",
+  "plan_local_itinerary",
   "describe_database_schema",
   "query_local_facts",
   "get_source_evidence",
@@ -879,6 +950,26 @@ function searchLocalGuideToolResult(args: SearchLocalGuideArguments): AgentToolR
   };
 }
 
+function planLocalItineraryToolResult(args: LocalItineraryRequest): AgentToolResult {
+  const result = planLocalItinerary(args);
+  const actions = itineraryPromptActions(result.plan);
+  return {
+    name: "plan_local_itinerary",
+    status: "success",
+    text: renderLocalItineraryToolText(result),
+    data: {
+      status: "available",
+      request: result.request,
+      localGuide: normalizeLocalGuideSearchResult(result.localGuide),
+      plan: result.plan,
+      caveats: result.caveats,
+    },
+    sources: result.plan.sources,
+    itineraries: [result.plan],
+    ...(actions.length ? { actions } : {}),
+  };
+}
+
 function describeDatabaseSchemaToolResult(_args: DescribeDatabaseSchemaArguments): AgentToolResult {
   const schema = describeDatabaseSchema();
   return {
@@ -1031,6 +1122,34 @@ function localGuidePromptActions(
       prompt: `Suggest alternatives to ${selected.title} for this request: ${currentContext}.`,
     },
   ];
+}
+
+function itineraryPromptActions(plan: ItineraryPlan): ChatAction[] {
+  const actions: ChatAction[] = [];
+  if (
+    plan.sources.some((source) =>
+      source.notChecked.some((item) => /weather|forecast|rain/i.test(item)),
+    )
+  ) {
+    actions.push({
+      id: `itinerary_weather_${slugPart(plan.title).toLowerCase()}`,
+      label: "Check weather",
+      prompt: `Check weather before finalizing this itinerary: ${plan.title}.`,
+    });
+  }
+  if (
+    plan.stops.some(
+      (stop) =>
+        stop.kind === "meal" || stop.caveats.some((caveat) => /places|open|hours/i.test(caveat)),
+    )
+  ) {
+    actions.push({
+      id: `itinerary_places_${slugPart(plan.title).toLowerCase()}`,
+      label: "Find live places",
+      prompt: `Find live open place options for this itinerary: ${plan.title}.`,
+    });
+  }
+  return actions;
 }
 
 function localGuideMapSearchUrl(candidate: LocalGuideCandidate) {

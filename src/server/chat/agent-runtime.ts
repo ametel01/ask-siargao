@@ -11,6 +11,7 @@ export type AskSiargaoAgentToolName =
   | "search_places"
   | "get_place_details"
   | "search_local_guide"
+  | "plan_local_itinerary"
   | "describe_database_schema"
   | "query_local_facts"
   | "get_source_evidence"

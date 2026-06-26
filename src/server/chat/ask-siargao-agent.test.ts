@@ -8,6 +8,7 @@ import type {
   AgentResponsesCreateResult,
   AgentToolExecutor,
   AgentToolResult,
+  ItineraryPlan,
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import { runAskSiargaoAgentTurn } from "@/server/chat/ask-siargao-agent";
@@ -299,6 +300,59 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       providerOperation: "local_guide.search",
       sourceProfileIds: [],
     });
+    expect(result.sources).toEqual([localGuideSourceSummary]);
+  });
+
+  test("executes an itinerary planning tool call and attaches itinerary artifacts", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_itinerary_call",
+        requestId: "req_itinerary_call",
+        callId: "call_itinerary",
+        name: "plan_local_itinerary",
+        arguments: {
+          theme: "rainy_cloud_9_afternoon",
+          origin: "Cloud 9",
+          duration_hours: 3,
+          needs_weather_check: true,
+        },
+      }),
+      {
+        id: "resp_itinerary_final",
+        output_text: "Keep Cloud 9 short, then use the covered cafe fallback if rain builds.",
+        _request_id: "req_itinerary_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      plan_local_itinerary: {
+        name: "plan_local_itinerary",
+        status: "success",
+        text: "Structured itinerary artifact prepared.",
+        data: { plan: rainyCloud9Plan },
+        sources: [localGuideSourceSummary],
+        itineraries: [rainyCloud9Plan],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Plan a rainy Cloud 9 afternoon for 3 hours." }],
+        requestId: "agent_request_itinerary",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(String(client.requests[0]?.instructions)).toContain("call plan_local_itinerary first");
+    const toolOutput = parseToolOutput(client.requests[1]?.input, 0) as {
+      data: { plan: { title: string } };
+    };
+    expect(toolOutput.data.plan.title).toBe("Rainy Cloud 9 Afternoon");
+    expect(result.message).toContain("covered cafe");
+    expect(result.toolCalls[0]).toMatchObject({
+      name: "plan_local_itinerary",
+      providerOperation: "local_itinerary.plan",
+    });
+    expect(result.itineraries).toEqual([rainyCloud9Plan]);
     expect(result.sources).toEqual([localGuideSourceSummary]);
   });
 
@@ -868,6 +922,42 @@ const localGuideSourceSummary: AnswerSourceSummary = {
   confidence: "medium",
   checked: ["beach surface notes", "ride-time notes"],
   notChecked: ["live tide", "lifeguard status"],
+};
+
+const rainyCloud9Plan: ItineraryPlan = {
+  title: "Rainy Cloud 9 Afternoon",
+  durationLabel: "3-4 hours",
+  stops: [
+    {
+      title: "Cloud 9 boardwalk",
+      kind: "activity",
+      sequence: 1,
+      area: "Cloud 9",
+      rationale: "Keep the exposed stop short.",
+      caveats: ["Weather still needs a forecast check."],
+    },
+    {
+      title: "Covered cafe near Cloud 9",
+      kind: "meal",
+      sequence: 2,
+      area: "Cloud 9",
+      travelTimeFromPreviousMinutes: 5,
+      rationale: "Fallback if rain builds.",
+      caveats: ["Open status needs Places."],
+    },
+  ],
+  fallbackStops: [
+    {
+      title: "Covered cafe near Cloud 9",
+      kind: "meal",
+      sequence: 1,
+      area: "Cloud 9",
+      rationale: "Use when rain is active.",
+      caveats: ["Open status needs Places."],
+    },
+  ],
+  skip: ["Exposed beach hopping"],
+  sources: [localGuideSourceSummary],
 };
 
 const providerUnavailableSourceSummary: AnswerSourceSummary = {

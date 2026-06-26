@@ -27,6 +27,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added a local itinerary planning agent tool with structured 2-4 hour plan artifacts, initial
+  rainy Cloud 9, sunset dinner, sandy beach, non-surfer, and food-crawl theme support, and
+  explicit unchecked weather, Places, surf, tide, road, closure, and safety caveats.
 - Added a shared itinerary artifact contract for agent tool results and turn results, including
   sequenced stops, fallbacks, skip guidance, and source summaries.
 - Established progress and changelog tracking for the Priority 8 Local Itinerary Builder
