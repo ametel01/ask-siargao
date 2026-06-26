@@ -242,13 +242,14 @@ export class RecommendationAgent {
     );
 
     for (let step = 0; step < this.#maxSteps; step += 1) {
+      let candidates = state.candidates;
       const plannerStartedAt = Date.now();
       let action: RecommendationAction;
       try {
         action = await this.#planner({
           messages,
           locations: state.locations,
-          candidates: state.candidates,
+          candidates,
           previousActions: state.previousActions,
           trace,
           toolResults: state.toolResults,
@@ -260,7 +261,7 @@ export class RecommendationAgent {
             step,
             durationMs: Date.now() - plannerStartedAt,
             previousActionTypes: state.previousActions.map((previousAction) => previousAction.type),
-            candidateCount: state.candidates.length,
+            candidateCount: candidates.length,
           },
           "Recommendation planner failed.",
         );
@@ -272,7 +273,7 @@ export class RecommendationAgent {
         {
           step,
           action: summarizeActionForLogs(action),
-          candidateCount: state.candidates.length,
+          candidateCount: candidates.length,
           locationLabels: Object.values(state.locations).map((location) => location.label),
           durationMs: Date.now() - plannerStartedAt,
         },
@@ -343,17 +344,18 @@ export class RecommendationAgent {
             search,
             trace,
           });
-          const candidates = context.places.map((place) =>
+          const foundCandidates = context.places.map((place) =>
             placeCandidateFromGooglePlace(place, search.textQuery, search.center),
           );
-          state.candidates = dedupeCandidates([...state.candidates, ...candidates]);
+          candidates = dedupeCandidates([...candidates, ...foundCandidates]);
+          state.candidates = candidates;
           logger.info(
             {
               step,
               query: search.textQuery,
               providerStatus: context.status,
-              found: candidates.length,
-              totalCandidateCount: state.candidates.length,
+              found: foundCandidates.length,
+              totalCandidateCount: candidates.length,
               durationMs: Date.now() - searchStartedAt,
             },
             "Recommendation Places search completed.",
@@ -361,17 +363,18 @@ export class RecommendationAgent {
           state.toolResults.push({
             type: "search_places",
             query: action.query,
-            found: candidates.length,
+            found: foundCandidates.length,
           });
           break;
         }
         case "rank_candidates":
-          state.candidates = rankCandidates(state.candidates, action);
+          candidates = rankCandidates(candidates, action);
+          state.candidates = candidates;
           logger.debug(
             {
               step,
-              ranked: state.candidates.length,
-              topCandidates: state.candidates.slice(0, 5).map((candidate) => ({
+              ranked: candidates.length,
+              topCandidates: candidates.slice(0, 5).map((candidate) => ({
                 placeId: candidate.placeId,
                 name: candidate.name,
                 rating: candidate.rating,
@@ -381,13 +384,13 @@ export class RecommendationAgent {
             },
             "Recommendation candidates ranked.",
           );
-          state.toolResults.push({ type: "rank_candidates", ranked: state.candidates.length });
+          state.toolResults.push({ type: "rank_candidates", ranked: candidates.length });
           break;
         case "final_answer":
           logger.info(
             {
               step,
-              candidateCount: state.candidates.length,
+              candidateCount: candidates.length,
               actionTypes: state.previousActions.map((previousAction) => previousAction.type),
               durationMs: Date.now() - startedAt,
             },
@@ -396,7 +399,7 @@ export class RecommendationAgent {
           return {
             status: "answered",
             message: renderRecommendationAnswer(
-              state.candidates,
+              candidates,
               state.previousActions,
               interpretedIntent,
             ),

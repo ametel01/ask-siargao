@@ -23,7 +23,7 @@ export type BeachRecommendationRequest = {
   sunset?: boolean;
 };
 
-export const siargaoBeachGuide: SiargaoBeach[] = [
+const siargaoBeachGuide: SiargaoBeach[] = [
   {
     name: "Doot Beach",
     area: "Doot / General Luna side",

@@ -18,7 +18,6 @@ const suggestedPrompts = [
 ];
 
 const chatErrorMessage = "Ask Siargao could not answer right now. Please try again.";
-const initialPromptStoragePrefix = "ask-siargao:submitted-initial-prompt:";
 const maxChatRequestMessageLength = 2_000;
 const maxPriorChatRequestMessages = 6;
 const chatTimeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -71,10 +70,9 @@ type AssistantMarkdownBlock =
 type AssistantMarkdownListItems = Extract<AssistantMarkdownBlock, { type: "list" }>["items"];
 
 export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }) {
-  const [inputValue, setInputValue] = useState("");
+  const [inputValue, setInputValue] = useState(() => initialPrompt.trim());
   const [isSending, setIsSending] = useState(false);
   const [messages, setMessages] = useState<InteractiveChatMessage[]>([]);
-  const submittedInitialPromptRef = useRef(false);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
 
   const submitPrompt = useCallback(
@@ -154,23 +152,6 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
     },
     [isSending, messages],
   );
-
-  useEffect(() => {
-    if (!initialPrompt || submittedInitialPromptRef.current) {
-      return;
-    }
-
-    if (hasSubmittedInitialPrompt(initialPrompt)) {
-      clearPromptSearchParam();
-      submittedInitialPromptRef.current = true;
-      return;
-    }
-
-    submittedInitialPromptRef.current = true;
-    rememberSubmittedInitialPrompt(initialPrompt);
-    clearPromptSearchParam();
-    void submitPrompt(initialPrompt);
-  }, [initialPrompt, submitPrompt]);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
@@ -788,36 +769,4 @@ function truncateChatRequestMessage(value: string) {
   return value.length <= maxChatRequestMessageLength
     ? value
     : `${value.slice(0, maxChatRequestMessageLength - 3)}...`;
-}
-
-function initialPromptStorageKey(prompt: string) {
-  return `${initialPromptStoragePrefix}${prompt}`;
-}
-
-function hasSubmittedInitialPrompt(prompt: string) {
-  try {
-    return window.sessionStorage.getItem(initialPromptStorageKey(prompt)) === "true";
-  } catch {
-    return false;
-  }
-}
-
-function rememberSubmittedInitialPrompt(prompt: string) {
-  try {
-    window.sessionStorage.setItem(initialPromptStorageKey(prompt), "true");
-  } catch {
-    // Storage can be unavailable in private or restricted browser contexts.
-  }
-}
-
-function clearPromptSearchParam() {
-  const url = new URL(window.location.href);
-
-  if (!url.searchParams.has("prompt")) {
-    return;
-  }
-
-  url.searchParams.delete("prompt");
-  const nextPath = `${url.pathname}${url.search}${url.hash}`;
-  window.history.replaceState(window.history.state, "", nextPath);
 }

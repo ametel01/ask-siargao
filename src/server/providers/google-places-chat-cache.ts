@@ -70,7 +70,7 @@ export function createDefaultCachedGooglePlacesChatContextAdapter({
   });
 }
 
-export async function getCachedGooglePlacesChatContext(
+async function getCachedGooglePlacesChatContext(
   { fetchedAt = new Date().toISOString(), search, trace }: CachedGooglePlacesChatContextInput,
   {
     db,
@@ -142,7 +142,7 @@ export async function getCachedGooglePlacesChatContext(
   return liveContext;
 }
 
-export async function findFreshGooglePlacesChatContext(
+async function findFreshGooglePlacesChatContext(
   db: GooglePlacesStoreDatabase,
   { now, search }: { now: string; search: GooglePlacesChatSearch },
 ): Promise<GooglePlacesChatContext> {
@@ -247,7 +247,7 @@ export async function findFreshGooglePlacesChatContext(
   };
 }
 
-export async function persistGooglePlacesChatContext(
+async function persistGooglePlacesChatContext(
   db: GooglePlacesStoreDatabase,
   context: GooglePlacesChatContext,
   { logger }: PersistGooglePlacesChatContextOptions = {},

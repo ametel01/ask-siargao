@@ -155,7 +155,7 @@ test("wraps long assistant links without rendering preview cards", async ({ page
     .toBe(true);
 });
 
-test("auto-submits a prompt deep link once", async ({ page }) => {
+test("prefills a prompt deep link without auto-submitting", async ({ page }) => {
   const prompt = "What should I do near Cloud 9?";
   const mockChat = await mockChatApi(page, {
     message: "Mocked deep-link answer: start near the boardwalk, then pick a quiet cafe.",
@@ -174,18 +174,24 @@ test("auto-submits a prompt deep link once", async ({ page }) => {
 
   await page.goto(`/chat?prompt=${encodeURIComponent(prompt)}`);
 
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await expect(composerInput).toHaveValue(prompt);
+  await expect.poll(() => mockChat.requests.length).toBe(0);
+  await expect(page).toHaveURL(`/chat?prompt=${encodeURIComponent(prompt)}`);
+  expect(promptDocumentRequests).toBe(1);
+
+  await page.getByRole("button", { name: "Send question" }).click();
+
   await expect(page.getByText(prompt)).toBeVisible();
   await expect(
     page.getByText("Mocked deep-link answer: start near the boardwalk, then pick a quiet cafe."),
   ).toBeVisible();
-  await expect(page).toHaveURL("/chat");
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(lastSubmittedContent(mockChat.requests[0])).toBe(prompt);
-  expect(promptDocumentRequests).toBe(1);
 
   await page.goto(`/chat?prompt=${encodeURIComponent(prompt)}`);
 
-  await expect(page).toHaveURL("/chat");
+  await expect(composerInput).toHaveValue(prompt);
   await expect
     .poll(async () => {
       await page.waitForTimeout(100);

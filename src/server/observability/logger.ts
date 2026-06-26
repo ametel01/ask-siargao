@@ -31,7 +31,7 @@ type LoggerBindingValue = boolean | number | string | null | undefined;
 
 export type LoggerBindings = Record<string, LoggerBindingValue>;
 
-export function createServiceLogger(
+function createServiceLogger(
   input: {
     bindings?: LoggerBindings;
     env?: Record<string, string | undefined>;
@@ -65,13 +65,13 @@ export function createServiceLogger(
   });
 }
 
-export const logger = createServiceLogger();
+const logger = createServiceLogger();
 
 export function createComponentLogger(component: string, bindings: LoggerBindings = {}) {
   return logger.child(compact({ component, ...bindings }));
 }
 
-export function resolveLogLevel(env: Record<string, string | undefined> = process.env) {
+function resolveLogLevel(env: Record<string, string | undefined> = process.env) {
   if (env.LOG_LEVEL) {
     return env.LOG_LEVEL;
   }

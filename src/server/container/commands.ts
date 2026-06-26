@@ -5,7 +5,7 @@ export type LoggedCommandResult = {
   exitCode: number;
 };
 
-export class LoggedCommandError extends Error {
+class LoggedCommandError extends Error {
   constructor(
     readonly step: string,
     readonly command: readonly string[],
