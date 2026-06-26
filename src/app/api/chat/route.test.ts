@@ -403,6 +403,45 @@ describe("chat route", () => {
     expect(dependencies.requests).toHaveLength(0);
   });
 
+  test("routes existential there nearby cafe prompts instead of asking for location context", async () => {
+    const dependencies = chatDependencies();
+    const searches: GooglePlacesChatSearch[] = [];
+    const requiresLiveStatuses: Array<boolean | undefined> = [];
+    dependencies.recommendationAgent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, requiresLiveStatus, search }) => {
+        searches.push(search);
+        requiresLiveStatuses.push(requiresLiveStatus);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "General Luna Open Cafe",
+          rating: 4.4,
+          userRatingCount: 180,
+        });
+      },
+    });
+
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Are there cafes nearby that are open now?" }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("General Luna Open Cafe");
+    expect(body.message).not.toContain("Which Siargao place or area do you mean by there?");
+    expect(requiresLiveStatuses).toEqual([true]);
+    expect(searches[0]).toMatchObject({
+      textQuery: "cafe near General Luna Siargao",
+      includedType: "cafe",
+      center: { latitude: 9.8006, longitude: 126.1586 },
+      radiusMeters: 6_000,
+    });
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
   test("routes cheaper there follow-ups through prior trip location context", async () => {
     const dependencies = chatDependencies();
     const searches: GooglePlacesChatSearch[] = [];
@@ -439,6 +478,51 @@ describe("chat route", () => {
       center: { latitude: 9.8116, longitude: 126.1651 },
       radiusMeters: 6_000,
     });
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("does not keep cheaper search terms after a later open-now route follow-up", async () => {
+    const dependencies = chatDependencies();
+    const searches: GooglePlacesChatSearch[] = [];
+    const requiresLiveStatuses: Array<boolean | undefined> = [];
+    dependencies.recommendationAgent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, requiresLiveStatus, search }) => {
+        searches.push(search);
+        requiresLiveStatuses.push(requiresLiveStatus);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "Cloud 9 Dinner Grill",
+          rating: 4.5,
+          userRatingCount: 220,
+        });
+      },
+    });
+
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          { role: "user", content: "Where should we get dinner near Cloud 9?" },
+          { role: "assistant", content: "Here are dinner options near Cloud 9." },
+          { role: "user", content: "anything cheaper?" },
+          { role: "assistant", content: "Here are cheaper dinner options." },
+          { role: "user", content: "open now?" },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("Cloud 9 Dinner Grill");
+    expect(requiresLiveStatuses).toEqual([true]);
+    expect(searches[0]).toMatchObject({
+      textQuery: "dinner restaurants near Cloud 9 Siargao",
+      includedType: "restaurant",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+      radiusMeters: 6_000,
+    });
+    expect(searches[0]?.textQuery).not.toContain("cheap");
     expect(dependencies.requests).toHaveLength(0);
   });
 

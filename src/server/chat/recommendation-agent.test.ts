@@ -384,6 +384,46 @@ describe("RecommendationAgent", () => {
     expect(response.message).toContain("Cloud 9 Budget Grill");
   });
 
+  test("does not keep cheaper search terms after a later open-now follow-up", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const requiresLiveStatuses: Array<boolean | undefined> = [];
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, requiresLiveStatus, search }) => {
+        searches.push(search);
+        requiresLiveStatuses.push(requiresLiveStatus);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "Cloud 9 Dinner Grill",
+          rating: 4.5,
+          userRatingCount: 220,
+        });
+      },
+    });
+
+    const response = await agent.answer({
+      messages: [
+        { role: "user", content: "Where should we get dinner near Cloud 9?" },
+        { role: "assistant", content: "Here are dinner options near Cloud 9." },
+        { role: "user", content: "anything cheaper?" },
+        { role: "assistant", content: "Here are cheaper dinner options." },
+        { role: "user", content: "open now?" },
+      ],
+    });
+
+    expect(response.status).toBe("answered");
+    expect(requiresLiveStatuses).toEqual([true]);
+    expect(searches).toHaveLength(1);
+    expect(searches[0]).toMatchObject({
+      textQuery: "dinner restaurants near Cloud 9 Siargao",
+      includedType: "restaurant",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+      radiusMeters: 6_000,
+    });
+    expect(searches[0]?.textQuery).not.toContain("cheap");
+    expect(response.message).toContain("Cloud 9 Dinner Grill");
+  });
+
   test("uses prior Cloud 9 context for nearby cafe follow-ups", async () => {
     const searches: GooglePlacesChatSearch[] = [];
     const agent = new RecommendationAgent({

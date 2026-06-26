@@ -67,7 +67,7 @@ describe("deriveTripContext", () => {
     expect(context.durableConstraints).toContain("no_scooter");
   });
 
-  test("treats cheaper as a latest-turn budget modifier", () => {
+  test("treats cheaper as only a latest-turn budget modifier", () => {
     const context = deriveTripContext([
       { role: "user", content: "Where should we get dinner near Cloud 9?" },
       { role: "assistant", content: "Here are some dinner options." },
@@ -79,11 +79,21 @@ describe("deriveTripContext", () => {
       currentLocation: {
         label: "Cloud 9",
       },
-      travelerProfile: {
-        budget: "cheap",
-      },
     });
+    expect(context.travelerProfile.budget).toBeUndefined();
     expect(context.temporaryModifiers).toContain("cheaper");
+    expect(context.durableConstraints).not.toContain("budget_cheap");
+  });
+
+  test("keeps explicit budget language as durable context", () => {
+    const context = deriveTripContext([
+      { role: "user", content: "We're on a budget near Cloud 9." },
+      { role: "assistant", content: "I will keep options practical." },
+      { role: "user", content: "where should we eat?" },
+    ] satisfies AskSiargaoChatMessage[]);
+
+    expect(context.travelerProfile.budget).toBe("cheap");
+    expect(context.durableConstraints).toContain("budget_cheap");
   });
 
   test("resolves there and nearby from prior location context", () => {
@@ -108,6 +118,16 @@ describe("deriveTripContext", () => {
 
     expect(context.currentLocation).toBeUndefined();
     expect(context.unresolvedReference).toBe("there");
+  });
+
+  test("does not treat existential there as a missing location reference", () => {
+    const context = deriveTripContext([
+      { role: "user", content: "Are there cafes nearby that are open now?" },
+    ]);
+
+    expect(context.currentLocation?.label).toBe("General Luna");
+    expect(context.unresolvedReference).toBeUndefined();
+    expect(context.temporaryModifiers).toContain("open_now");
   });
 
   test("does not create Siargao trip context for unrelated generic prompts", () => {

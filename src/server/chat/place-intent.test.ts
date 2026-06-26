@@ -130,4 +130,22 @@ describe("interpretPlaceIntent", () => {
     });
     expect(intent?.liveNeeds).toContain("open_now");
   });
+
+  test("does not keep cheaper as a durable constraint after the latest turn changes", () => {
+    const intent = interpretPlaceIntent([
+      { role: "user", content: "Where should we get dinner near Cloud 9?" },
+      { role: "assistant", content: "Here are dinner options near Cloud 9." },
+      { role: "user", content: "anything cheaper?" },
+      { role: "assistant", content: "Here are cheaper dinner options." },
+      { role: "user", content: "open now?" },
+    ] satisfies AskSiargaoChatMessage[]);
+
+    expect(intent).toMatchObject({
+      category: "food",
+      location: "Cloud 9",
+    });
+    expect(intent?.liveNeeds).toContain("open_now");
+    expect(intent?.constraints).not.toContain("cheaper");
+    expect(intent?.constraints).not.toContain("budget");
+  });
 });

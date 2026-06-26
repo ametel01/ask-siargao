@@ -220,11 +220,14 @@ function joinContext(recentUserContext: string, latestUserTurn: string) {
 }
 
 function inferLocationReference(content: string): "there" | "nearby" | null {
-  if (/\bthere|that\s+area|in\s+that\s+area\b/i.test(content)) {
-    return "there";
-  }
   if (/\bnear(?:by)?|around|close\s+to|by\s+/i.test(content)) {
     return "nearby";
+  }
+  if (/\b(?:is|are|was|were)\s+there\b/i.test(content)) {
+    return null;
+  }
+  if (/\bthere|that\s+area|in\s+that\s+area\b/i.test(content)) {
+    return "there";
   }
   return null;
 }
@@ -303,7 +306,7 @@ function inferTravelerProfile(content: string): TravelerProfile {
 }
 
 function inferBudgetPreference(content: string): BudgetPreference | undefined {
-  if (/\bcheap(?:er)?|budget|affordable|low[-\s]?cost|inexpensive\b/i.test(content)) {
+  if (/\bcheap\b|\bbudget\b|\baffordable\b|\blow[-\s]?cost\b|\binexpensive\b/i.test(content)) {
     return "cheap";
   }
   if (/\bmid(?:range)?|moderate\b/i.test(content)) {
