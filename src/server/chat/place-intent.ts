@@ -89,11 +89,11 @@ export function interpretPlaceIntent(
   };
 }
 
-export function getLatestUserTurn(messages: readonly AskSiargaoChatMessage[]) {
+function getLatestUserTurn(messages: readonly AskSiargaoChatMessage[]) {
   return messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
 }
 
-export function getRecentUserContext(messages: readonly AskSiargaoChatMessage[]) {
+function getRecentUserContext(messages: readonly AskSiargaoChatMessage[]) {
   const userTurns = messages.filter((message) => message.role === "user");
   return userTurns
     .slice(0, -1)
@@ -112,7 +112,7 @@ export function isPlaceRecommendationContent(content: string) {
   );
 }
 
-export function inferPlaceCategory(content: string): PlaceCategory | null {
+function inferPlaceCategory(content: string): PlaceCategory | null {
   if (!content.trim()) {
     return null;
   }
@@ -141,7 +141,7 @@ export function inferPlaceCategory(content: string): PlaceCategory | null {
   return null;
 }
 
-export function inferLiveNeeds({
+function inferLiveNeeds({
   areaScope,
   category,
   latestUserTurn,
@@ -174,7 +174,7 @@ export function inferLiveNeeds({
   return [...needs];
 }
 
-export function inferPlaceLocationLabel(content: string): string | null {
+function inferPlaceLocationLabel(content: string): string | null {
   const normalizedContent = normalizeKey(content);
   const location = knownPlaceLocationLabels.find((label) =>
     normalizedContent.includes(normalizeKey(label)),
@@ -188,7 +188,7 @@ export function inferPlaceLocationLabel(content: string): string | null {
   return null;
 }
 
-export function inferMeal(content: string): MealIntent {
+function inferMeal(content: string): MealIntent {
   if (/\bbreakfast\b/i.test(content)) {
     return "breakfast";
   }
@@ -201,7 +201,7 @@ export function inferMeal(content: string): MealIntent {
   return null;
 }
 
-export function inferAreaScope(content: string): PlaceAreaScope {
+function inferAreaScope(content: string): PlaceAreaScope {
   if (/\bnear(?:by)?|around|close\s+to|that\s+area|in\s+that\s+area|by\s+/i.test(content)) {
     return "nearby";
   }
@@ -214,7 +214,7 @@ export function inferAreaScope(content: string): PlaceAreaScope {
   return null;
 }
 
-export function inferConstraints(content: string) {
+function inferConstraints(content: string) {
   const constraints: string[] = [];
   if (/\brain(?:y|ing)?|downpour|storm/i.test(content)) {
     constraints.push("rainy_day", "covered_seating");
@@ -228,7 +228,7 @@ export function inferConstraints(content: string) {
   return constraints;
 }
 
-export function inferAvoidTerms({
+function inferAvoidTerms({
   explicitlyRequestedCafe,
   latestUserTurn,
   meal,
@@ -247,7 +247,7 @@ export function inferAvoidTerms({
   return avoid;
 }
 
-export function inferSpecificPlaceName(content: string) {
+function inferSpecificPlaceName(content: string) {
   const mapLinkMatch =
     /\b(?:map\s+link|maps?|directions?|hours?|open\s+(?:now|today)|still\s+open|is|find|check)\s+(?:for|to|at)?\s*([A-Z][A-Za-z0-9'&.-]*(?:\s+[A-Z][A-Za-z0-9'&.-]*){0,4})\b/.exec(
       content,
