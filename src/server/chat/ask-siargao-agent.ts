@@ -1,6 +1,8 @@
 import OpenAI from "openai";
 
+import { type AgentMemorySnapshot, loadAgentMemorySnapshot } from "@/server/chat/agent-memory";
 import {
+  type AgentMemoryMetadata,
   type AgentResponsesClient,
   type AgentRuntimeDependencies,
   type AgentRuntimeRequest,
@@ -57,6 +59,9 @@ export async function runAskSiargaoAgentTurn(
   const toolCalls: AgentToolCallAudit[] = [];
   const maxToolCalls = dependencies.maxToolCalls ?? defaultMaxToolCalls;
   const maxTurns = dependencies.maxTurns ?? defaultMaxTurns;
+  const memorySnapshot = dependencies.memorySnapshot ?? loadAgentMemorySnapshot();
+  const memory = createAgentMemoryMetadata(memorySnapshot);
+  const instructions = buildAskSiargaoAgentInstructions(memorySnapshot);
 
   logger.info(
     {
@@ -64,6 +69,7 @@ export async function runAskSiargaoAgentTurn(
       messageCount: resolved.messages.length,
       maxToolCalls,
       maxTurns,
+      agentMemory: summarizeMemoryForLogs(memory),
     },
     "Ask Siargao agent turn started.",
   );
@@ -72,13 +78,14 @@ export async function runAskSiargaoAgentTurn(
     model: resolved.model,
     store: false,
     max_output_tokens: 1_000,
-    instructions: askSiargaoAgentInstructions,
+    instructions,
     tools: agentToolDefinitions,
     input: JSON.stringify({
       product: "Ask Siargao",
       conversation: resolved.messages.slice(-maxConversationMessages),
       requestMetadata: resolved.metadata,
       deterministicSignals: resolved.deterministicSignals,
+      agentMemory: memory,
       responseContract: responseContract,
     }),
   });
@@ -93,6 +100,7 @@ export async function runAskSiargaoAgentTurn(
           model: resolved.model,
           toolCallCount: toolCalls.length,
           upstreamRequestCount: upstreamRequestIds.length,
+          agentMemoryVersionId: memory.versionId,
         },
         "Ask Siargao agent turn completed.",
       );
@@ -100,6 +108,7 @@ export async function runAskSiargaoAgentTurn(
         message: finalText,
         requestId: resolved.requestId,
         model: resolved.model,
+        memory,
         upstreamRequestIds,
         toolCalls,
       });
@@ -131,7 +140,7 @@ export async function runAskSiargaoAgentTurn(
       model: resolved.model,
       store: false,
       max_output_tokens: 1_000,
-      instructions: askSiargaoAgentInstructions,
+      instructions,
       tools: agentToolDefinitions,
       previous_response_id: response.id,
       input: toolOutputs.map((output) => ({
@@ -287,7 +296,7 @@ const responseContract = {
     "Mention material unchecked fields from tool sources. Do not imply ratings, hours, tides, surf, bookings, availability, safety, or road conditions were checked unless a tool output says so.",
 };
 
-const askSiargaoAgentInstructions = [
+const askSiargaoBaseInstructions = [
   "You are Ask Siargao, a practical Siargao travel assistant.",
   "Answer the traveler's latest question directly and conversationally.",
   "Stay strictly scoped to Siargao Island, Siargao travel, and local trip-planning topics.",
@@ -300,3 +309,41 @@ const askSiargaoAgentInstructions = [
   "Keep answers concise and actionable.",
   "Do not frame Ask Siargao as a trip risk audit or paid report in chat answers.",
 ].join("\n");
+
+function buildAskSiargaoAgentInstructions(memorySnapshot: AgentMemorySnapshot) {
+  return [
+    askSiargaoBaseInstructions,
+    "Use the following loaded Ask Siargao agent memory as product behavior instructions.",
+    memorySnapshot.instructionMarkdown,
+  ].join("\n\n");
+}
+
+function createAgentMemoryMetadata(memorySnapshot: AgentMemorySnapshot): AgentMemoryMetadata {
+  const vectorStoreId = process.env.OPENAI_AGENT_MEMORY_VECTOR_STORE_ID;
+  return {
+    versionId: memorySnapshot.versionId,
+    files: memorySnapshot.files.map((file) => ({
+      id: file.id,
+      title: file.title,
+      fileName: file.fileName,
+      relativePath: file.relativePath,
+      role: file.role,
+      checksum: file.checksum,
+      byteLength: file.byteLength,
+    })),
+    ...(vectorStoreId ? { vectorStoreId } : {}),
+  };
+}
+
+function summarizeMemoryForLogs(memory: AgentMemoryMetadata) {
+  return {
+    versionId: memory.versionId,
+    ...(memory.vectorStoreId ? { vectorStoreId: memory.vectorStoreId } : {}),
+    files: memory.files.map((file) => ({
+      id: file.id,
+      role: file.role,
+      checksum: file.checksum,
+      byteLength: file.byteLength,
+    })),
+  };
+}

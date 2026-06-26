@@ -79,11 +79,12 @@ export function loadAgentMemorySnapshot(
   options: LoadAgentMemorySnapshotOptions = {},
 ): AgentMemorySnapshot {
   const rootDir = options.rootDir ?? process.cwd();
+  const memoryDir = path.join(rootDir, "docs", "agent-memory");
   const missingFiles: string[] = [];
   const files: AgentMemoryFile[] = [];
 
   for (const entry of requiredAgentMemoryManifest) {
-    const absolutePath = path.join(rootDir, entry.relativePath);
+    const absolutePath = path.join(memoryDir, entry.fileName);
     try {
       const content = readFileSync(absolutePath, "utf8");
       files.push({

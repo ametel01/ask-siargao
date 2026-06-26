@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { Logger } from "pino";
 
+import type { AgentMemorySnapshot } from "@/server/chat/agent-memory";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 
@@ -58,6 +59,22 @@ export type ChatAction = {
   metadata?: Record<string, unknown>;
 };
 
+export type AgentMemoryFileMetadata = {
+  id: string;
+  title: string;
+  fileName: string;
+  relativePath: string;
+  role: "instruction" | "reference";
+  checksum: string;
+  byteLength: number;
+};
+
+export type AgentMemoryMetadata = {
+  versionId: string;
+  files: readonly AgentMemoryFileMetadata[];
+  vectorStoreId?: string;
+};
+
 export type AgentTurnResult = {
   message: string;
   requestId: string;
@@ -65,6 +82,7 @@ export type AgentTurnResult = {
   model: string;
   toolCalls: readonly AgentToolCallAudit[];
   sources: readonly AnswerSourceSummary[];
+  memory?: AgentMemoryMetadata;
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
 };
@@ -108,6 +126,7 @@ export type AgentRuntimeDependencies = {
   client?: AgentResponsesClient;
   executeTool?: AgentToolExecutor;
   logger?: Logger;
+  memorySnapshot?: AgentMemorySnapshot;
   createRequestId?: () => string;
   model?: string;
   maxToolCalls?: number;
@@ -166,6 +185,7 @@ export function createAgentTurnResult({
   cards,
   message,
   model,
+  memory,
   requestId,
   sources,
   toolCalls = [],
@@ -174,6 +194,7 @@ export function createAgentTurnResult({
   message: string;
   requestId: string;
   model: string;
+  memory?: AgentMemoryMetadata;
   upstreamRequestIds?: readonly string[];
   toolCalls?: readonly AgentToolCallAudit[];
   sources?: readonly AnswerSourceSummary[];
@@ -187,6 +208,7 @@ export function createAgentTurnResult({
     model,
     toolCalls,
     sources: sources ?? aggregateAgentSourceSummaries(toolCalls),
+    ...(memory ? { memory } : {}),
     ...(cards?.length ? { cards } : {}),
     ...(actions?.length ? { actions } : {}),
   };

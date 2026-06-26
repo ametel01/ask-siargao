@@ -8,6 +8,7 @@ import {
   createDefaultChatRouteDependencies,
 } from "@/app/api/chat/chat-route";
 import type {
+  AgentMemoryMetadata,
   AgentRuntimeRequest,
   AgentToolCallAudit,
   AgentTurnResult,
@@ -39,6 +40,7 @@ describe("chat route", () => {
   test("routes ordinary valid Siargao chat through the agent runtime", async () => {
     const dependencies = chatDependencies({
       message: "For Cloud 9, start easy and keep dinner nearby.",
+      memory: memoryMetadata,
       sources: [genericSourceSummary],
     });
     const response = await chatResponse(
@@ -53,6 +55,7 @@ describe("chat route", () => {
     expect(body.message).toContain("Cloud 9");
     expect(body.requestId).toBe(dependencies.requests[0]?.requestId);
     expect(body.model).toBe("gpt-test");
+    expect(body.memory).toEqual(memoryMetadata);
     expect(body.toolCalls).toEqual([]);
     expect(body.sources).toEqual([genericSourceSummary]);
     expect(dependencies.requests[0]?.messages[0]?.content).toBe(
@@ -199,6 +202,7 @@ describe("chat route", () => {
         }),
       ],
       sources: [providerUnavailableSourceSummary],
+      memory: memoryMetadata,
     });
     const response = await chatResponse(
       jsonRequest({
@@ -257,6 +261,7 @@ describe("chat route", () => {
       message: "The model says live Google Places open-now status could not be checked.",
       toolCalls: [failingToolCall],
       sources: [providerUnavailableSourceSummary],
+      memory: memoryMetadata,
     });
     dependencies.logger = logs.logger;
     const response = await chatResponse(
@@ -273,6 +278,7 @@ describe("chat route", () => {
     expect(answeredLog?.payload).toMatchObject({
       branch: "agent_runtime",
       model: "gpt-test",
+      agentMemoryVersionId: memoryMetadata.versionId,
       providerFailure: true,
       sourceLabels: ["provider_unavailable"],
       toolCallCount: 1,
@@ -361,6 +367,7 @@ function chatDependencies(
         model: result.model ?? request.model ?? "gpt-test",
         toolCalls: result.toolCalls ?? [],
         sources: result.sources ?? [],
+        ...(result.memory ? { memory: result.memory } : {}),
         ...(result.cards ? { cards: result.cards } : {}),
         ...(result.actions ? { actions: result.actions } : {}),
       };
@@ -440,6 +447,21 @@ const genericSourceSummary: AnswerSourceSummary = {
   sourceName: "Generic model reasoning",
   checked: [],
   notChecked: ["live Google Places", "Open-Meteo weather forecast"],
+};
+
+const memoryMetadata: AgentMemoryMetadata = {
+  versionId: "agent-memory:routefixture00000000",
+  files: [
+    {
+      id: "ask_siargao_agent_skills",
+      title: "Ask Siargao Agent Skills",
+      fileName: "ASK_SIARGAO_AGENT_SKILLS.md",
+      relativePath: "docs/agent-memory/ASK_SIARGAO_AGENT_SKILLS.md",
+      role: "instruction",
+      checksum: "a".repeat(64),
+      byteLength: 1234,
+    },
+  ],
 };
 
 const weatherSourceSummary: AnswerSourceSummary = {

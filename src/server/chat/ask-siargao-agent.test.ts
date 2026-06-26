@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { Logger } from "pino";
 
+import type { AgentMemorySnapshot } from "@/server/chat/agent-memory";
 import type {
   AgentResponsesClient,
   AgentResponsesCreateResult,
@@ -34,10 +35,20 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.requestId).toBe("agent_request_general");
     expect(result.upstreamRequestIds).toEqual(["req_general"]);
     expect(result.toolCalls).toEqual([]);
+    expect(result.memory?.versionId).toMatch(/^agent-memory:[a-f0-9]{24}$/);
+    expect(result.memory?.files.map((file) => file.fileName)).toContain(
+      "ASK_SIARGAO_AGENT_SKILLS.md",
+    );
     expect(client.requests).toHaveLength(1);
     expect(client.requests[0]?.store).toBe(false);
     expect(client.requests[0]?.tools).toBeArray();
     expect(String(client.requests[0]?.instructions)).toContain("Use the available tools");
+    expect(String(client.requests[0]?.instructions)).toContain(
+      "Every final answer must be written by the AI",
+    );
+    expect(parseFirstInput(client.requests[0]?.input).agentMemory?.versionId).toBe(
+      result.memory?.versionId,
+    );
     expect(parseFirstInput(client.requests[0]?.input).conversation?.[0]?.content).toContain(
       "first afternoon",
     );
@@ -82,6 +93,10 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
 
     expect(client.requests).toHaveLength(2);
     expect(client.requests[1]?.previous_response_id).toBe("resp_weather_call");
+    expect(client.requests[1]?.instructions).toBe(client.requests[0]?.instructions);
+    expect(String(client.requests[1]?.instructions)).toContain(
+      "Use backend tools for live, local, provider-backed, or curated Ask Siargao facts",
+    );
     expect(client.requests[1]?.input).toEqual([
       expect.objectContaining({
         type: "function_call_output",
@@ -341,6 +356,9 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       {
         client,
         logger: logs.logger,
+        memorySnapshot: memorySnapshotFixture({
+          instructionContent: "RAW_MEMORY_BODY_SECRET: never log this memory body.",
+        }),
         executeTool: async (request) => ({
           name: request.name,
           status: "error",
@@ -367,6 +385,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       sourceProfileIds: ["source_google_places"],
     });
     expect(JSON.stringify(toolLog?.payload)).not.toContain("SECRET_TOKEN");
+    expect(JSON.stringify(logs.events)).not.toContain("RAW_MEMORY_BODY_SECRET");
   });
 
   test("protects the loop from excessive tool calls", async () => {
@@ -505,6 +524,7 @@ function steppedClock(isoTimes: string[]) {
 
 function parseFirstInput(input: unknown): {
   conversation?: Array<{ content?: string }>;
+  agentMemory?: { versionId?: string };
 } {
   return typeof input === "string" ? JSON.parse(input) : {};
 }
@@ -555,6 +575,51 @@ function captureLogger() {
   } as unknown as Logger;
 
   return { childBindings, events, logger };
+}
+
+function memorySnapshotFixture({
+  instructionContent = "Every final answer must be written by the AI.",
+}: {
+  instructionContent?: string;
+} = {}): AgentMemorySnapshot {
+  return {
+    versionId: "agent-memory:testmemory000000000000",
+    files: [
+      {
+        id: "ask_siargao_agent_skills",
+        title: "Ask Siargao Agent Skills",
+        fileName: "ASK_SIARGAO_AGENT_SKILLS.md",
+        relativePath: "docs/agent-memory/ASK_SIARGAO_AGENT_SKILLS.md",
+        role: "instruction",
+        checksum: "a".repeat(64),
+        byteLength: instructionContent.length,
+        content: instructionContent,
+      },
+      {
+        id: "ask_siargao_source_policy",
+        title: "Ask Siargao Source Policy",
+        fileName: "ASK_SIARGAO_SOURCE_POLICY.md",
+        relativePath: "docs/agent-memory/ASK_SIARGAO_SOURCE_POLICY.md",
+        role: "reference",
+        checksum: "b".repeat(64),
+        byteLength: 32,
+        content: "Never create source labels from memory retrieval alone.",
+      },
+    ],
+    instructionMarkdown: instructionContent,
+    referenceFiles: [
+      {
+        id: "ask_siargao_source_policy",
+        title: "Ask Siargao Source Policy",
+        fileName: "ASK_SIARGAO_SOURCE_POLICY.md",
+        relativePath: "docs/agent-memory/ASK_SIARGAO_SOURCE_POLICY.md",
+        role: "reference",
+        checksum: "b".repeat(64),
+        byteLength: 32,
+        content: "Never create source labels from memory retrieval alone.",
+      },
+    ],
+  };
 }
 
 const weatherSourceSummary: AnswerSourceSummary = {

@@ -111,6 +111,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Loaded Markdown-backed agent memory into chat-agent instructions and exposed memory version
+  metadata in runtime results, route responses, and logs.
 - Routed valid `/api/chat` requests through the Ask Siargao agent runtime so weather, Places,
   local guide, scope-decline, missing-context, and provider-failure responses are model-written
   with structured tool/source metadata and source consistency validation.

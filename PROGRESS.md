@@ -12,16 +12,16 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Agent Memory Files, Manifest, and Validation
-- [ ] Step 2: Instruction Memory Injection and Version Metadata
+- [x] Step 2: Instruction Memory Injection and Version Metadata
 - [ ] Step 3: Vector Store Sync and Operational Configuration
 - [ ] Step 4: File Search Tool Registration and Backend Memory Fallback
 - [ ] Step 5: Runtime Reference, Release Checks, and Cleanup
 
 ## Current Status
 
-Step 1 is complete. Reviewable agent-memory Markdown files, the required-file
-manifest, deterministic loader, checksums, version ID generation, and loader
-tests are in place.
+Step 2 is complete. The chat agent loads Markdown instruction memory for every
+Responses call and exposes memory version metadata in runtime results, route
+responses, and logs without logging raw memory document bodies.
 
 ## Update Rule
 
@@ -52,5 +52,19 @@ before that step is committed.
   `bun run db:migrate:test && bun run db:seed:test` passed (38 tables; 5 areas,
   3 routes, 4 source profiles); `bun run build` passed; `bun run test:e2e`
   passed (17 tests).
-  Commit: this commit (`Add agent memory files and validation`).
+  Commit: `d9164f8` (`Add agent memory files and validation`).
   Next step: Step 2, Instruction Memory Injection and Version Metadata.
+- 2026-06-27: Completed Step 2 by loading agent-memory instruction Markdown into
+  the Ask Siargao Responses instructions for the initial call and every tool-loop
+  continuation, adding memory metadata to runtime results and `/api/chat`
+  responses, including memory version IDs in logs, and keeping logged memory data
+  limited to file IDs, roles, checksums, byte lengths, and vector-store metadata.
+  Validation: `bun run format` passed; focused chat runtime/route/memory tests
+  passed (35 tests); `bun run lint` passed (`biome check .`, 188 files checked);
+  `bun run typecheck --incremental false` passed; `bun test` passed (253 tests);
+  `bun run db:migrate:test && bun run db:seed:test` passed (38 tables; 5 areas,
+  3 routes, 4 source profiles); `bun run build` passed without the memory-loader
+  trace warning after scoping reads to `docs/agent-memory/`; `bun run test:e2e`
+  passed (17 tests).
+  Commit: this commit (`Load agent memory into chat instructions`).
+  Next step: Step 3, Vector Store Sync and Operational Configuration.
