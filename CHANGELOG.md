@@ -25,6 +25,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added `/api/chat` response-shape coverage for structured cards, actions, markdown fallback
+  compatibility, and optional artifact omission.
 - Added curated beach recommendation cards and prompt actions with estimated ride times, Maps
   search links, source-backed fit reasons, and non-live caveats.
 - Added Google Places recommendation cards and prompt actions with map links, distance/open-status

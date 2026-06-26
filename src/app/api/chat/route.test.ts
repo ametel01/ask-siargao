@@ -60,6 +60,8 @@ describe("chat route", () => {
     expect(JSON.stringify(body.memory)).not.toContain("checksum");
     expect(body.toolCalls).toEqual([]);
     expect(body.sources).toEqual([genericSourceSummary]);
+    expect(body.cards).toBeUndefined();
+    expect(body.actions).toBeUndefined();
     expect(dependencies.requests[0]?.messages[0]?.content).toBe(
       "Where should we eat near Cloud 9?",
     );
@@ -158,6 +160,56 @@ describe("chat route", () => {
     expect(body.toolCalls[0]).toMatchObject({ name: "search_places" });
     expect(body.sources).toEqual([placesSourceSummary]);
     expect(signals?.intent.placeIntent?.category).toBe("coffee");
+  });
+
+  test("returns structured cards and actions while preserving the markdown message", async () => {
+    const dependencies = chatDependencies({
+      message: "The model-written answer still recommends Shaka in markdown.",
+      toolCalls: [
+        toolCall({
+          name: "search_places",
+          status: "success",
+          sources: [placesSourceSummary],
+        }),
+      ],
+      sources: [placesSourceSummary],
+      cards: [placeRecommendationCard],
+      actions: [promptAction],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Find cafes near Cloud 9 that are open now." }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toBe("The model-written answer still recommends Shaka in markdown.");
+    expect(body.requestId).toBe(dependencies.requests[0]?.requestId);
+    expect(body.sources).toEqual([placesSourceSummary]);
+    expect(body.cards).toEqual([placeRecommendationCard]);
+    expect(body.actions).toEqual([promptAction]);
+  });
+
+  test("allows not-verified card source labels without checked tool evidence", async () => {
+    const dependencies = chatDependencies({
+      message: "This is a model-written answer with generic reasoning only.",
+      sources: [genericSourceSummary],
+      cards: [genericRecommendationCard],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Give me a simple Siargao arrival tip." }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("generic reasoning");
+    expect(body.cards).toEqual([genericRecommendationCard]);
+    expect(body.actions).toBeUndefined();
   });
 
   test("returns curated local guide tool evidence from the agent runtime", async () => {
@@ -449,6 +501,34 @@ const genericSourceSummary: AnswerSourceSummary = {
   sourceName: "Generic model reasoning",
   checked: [],
   notChecked: ["live Google Places", "Open-Meteo weather forecast"],
+};
+
+const placeRecommendationCard = {
+  id: "place_shaka",
+  kind: "place" as const,
+  title: "Shaka Siargao",
+  subtitle: "Cafe - Cloud 9, General Luna - Google rating 4.6 from 900 ratings",
+  mapsUrl: "https://maps.google.com/?cid=shaka",
+  distanceLabel: "About 50 m from search center.",
+  openStatusLabel: "Open now according to Google Places.",
+  fitReasons: ["Returned #1 by Google Places for the request."],
+  caveats: ["Review text and bookings were not checked."],
+  sourceLabel: "Google Places - live checked",
+};
+
+const genericRecommendationCard = {
+  id: "generic_arrival_tip",
+  kind: "place" as const,
+  title: "General Luna arrival area",
+  fitReasons: ["Useful stable context for first-night planning."],
+  caveats: ["No live provider check was run."],
+  sourceLabel: "Generic model reasoning - not verified",
+};
+
+const promptAction = {
+  id: "places_plan_place_shaka",
+  label: "Make this into a short plan",
+  prompt: "Make Shaka Siargao into a short Siargao plan.",
 };
 
 const memoryMetadata: AgentMemoryMetadata = {

@@ -9,9 +9,9 @@
 
 ## Status
 
-- Current step: Step 5 - API Response Shape Tests
-- State: Step 4 complete
-- Next step: Step 5 - API Response Shape Tests
+- Current step: Step 6 - ChatWorkspace Card Rendering
+- State: Step 5 complete
+- Next step: Step 6 - ChatWorkspace Card Rendering
 
 ## Step Checklist
 
@@ -20,7 +20,7 @@
 - [x] Step 2: Tool-Backed Card and Action Generation
 - [x] Step 3: Places Recommendation Cards
 - [x] Step 4: Beach Recommendation Cards
-- [ ] Step 5: API Response Shape Tests
+- [x] Step 5: API Response Shape Tests
 - [ ] Step 6: ChatWorkspace Card Rendering
 - [ ] Step 7: End-to-End Card Coverage and Release Gates
 
@@ -105,5 +105,20 @@
   - `bun run lint` passed.
   - `bun run typecheck --incremental false` passed.
   - `bun test` passed.
-- Commit: Pending creation for Step 4.
+- Commit: `fa4639c` - Generate curated beach cards.
 - Next step: Step 5 - API Response Shape Tests.
+
+### Step 5: API Response Shape Tests
+
+- Status: Complete.
+- Changes: Added route coverage for structured `cards` and `actions` passthrough, markdown
+  message compatibility, optional omission, and `not_verified` card labels without checked tool
+  evidence.
+- Validation:
+  - `bun test src/app/api/chat/route.test.ts` passed.
+  - `bun run format` passed.
+  - `bun run lint` passed.
+  - `bun run typecheck --incremental false` passed.
+  - `bun test` passed.
+- Commit: Pending creation for Step 5.
+- Next step: Step 6 - ChatWorkspace Card Rendering.
