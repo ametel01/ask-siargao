@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Preserved returned Google Places detail hours, rating, rating-count, and price signals in live
+  detail cards and model-facing tool text.
 - Prevented safe local source evidence lookup from returning audit-only/private evidence metadata,
   accepting fabricated curated guide fact IDs, or dropping route facts when a query combines area
   and serialized tags.

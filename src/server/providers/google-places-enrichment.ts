@@ -18,6 +18,12 @@ export type GooglePlacesDetails = {
   primaryType?: string;
   businessStatus?: string;
   googleMapsUri?: string;
+  currentOpeningHours?: GooglePlacesOpeningHours;
+  regularOpeningHours?: GooglePlacesOpeningHours;
+  priceLevel?: string;
+  priceRange?: GooglePlacesPriceRange;
+  rating?: number;
+  userRatingCount?: number;
   fetchedAt: string;
 };
 
@@ -72,8 +78,14 @@ type GooglePlacesOpeningHours = {
 };
 
 type GooglePlacesPriceRange = {
-  startPrice?: Record<string, unknown>;
-  endPrice?: Record<string, unknown>;
+  startPrice?: GooglePlacesMoney;
+  endPrice?: GooglePlacesMoney;
+};
+
+type GooglePlacesMoney = {
+  currencyCode?: string;
+  units?: string;
+  nanos?: number;
 };
 
 type GooglePlacesDetailsResponse = {
@@ -163,6 +175,16 @@ export async function enrichGooglePlacesDetails({
       primaryType: detail.primaryType,
       businessStatus: detail.businessStatus,
       googleMapsUri: detail.googleMapsUri,
+      ...(detail.currentOpeningHoursJson
+        ? { currentOpeningHours: detail.currentOpeningHoursJson }
+        : {}),
+      ...(detail.regularOpeningHoursJson
+        ? { regularOpeningHours: detail.regularOpeningHoursJson }
+        : {}),
+      ...(detail.priceLevel ? { priceLevel: detail.priceLevel } : {}),
+      ...(detail.priceRangeJson ? { priceRange: detail.priceRangeJson } : {}),
+      ...(detail.rating === undefined ? {} : { rating: detail.rating }),
+      ...(detail.userRatingCount === undefined ? {} : { userRatingCount: detail.userRatingCount }),
       fetchedAt: detail.fetchedAt,
     }),
   );
@@ -231,6 +253,12 @@ export function normalizeGooglePlacesDetailsPayload(details: GooglePlacesDetails
     primaryType: details.primaryType,
     businessStatus: details.businessStatus,
     googleMapsUri: details.googleMapsUri,
+    currentOpeningHours: details.currentOpeningHours,
+    regularOpeningHours: details.regularOpeningHours,
+    priceLevel: details.priceLevel,
+    priceRange: details.priceRange,
+    rating: details.rating,
+    userRatingCount: details.userRatingCount,
     fieldMask: googlePlacesDetailsFieldMask,
     sku: "Places API Place Details Pro",
     storagePolicy:

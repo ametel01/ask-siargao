@@ -787,11 +787,7 @@ async function getPlaceDetailsToolResult(
   const cached = await findCachedPlaceDetails(args.place_id, now, dependencies);
   if (cached) {
     const details = normalizeCachedPlaceDetails(cached);
-    const sourceSummary = googlePlacesDetailsSourceSummary(
-      "fresh_cache",
-      details.displayName,
-      cached.fetched_at,
-    );
+    const sourceSummary = googlePlacesDetailsSourceSummary("fresh_cache", details);
     const cards = googlePlacesDetailsCards(details, sourceSummary);
     const actions = googlePlacesPromptActions(cards, details.displayName);
     return {
@@ -824,11 +820,7 @@ async function getPlaceDetailsToolResult(
       };
     }
 
-    const sourceSummary = googlePlacesDetailsSourceSummary(
-      "live",
-      detail.displayName,
-      detail.fetchedAt,
-    );
+    const sourceSummary = googlePlacesDetailsSourceSummary("live", detail);
     const cards = googlePlacesDetailsCards(detail, sourceSummary);
     const actions = googlePlacesPromptActions(cards, detail.displayName);
     return {
@@ -1363,6 +1355,9 @@ function normalizeCachedPlaceDetails(cached: Awaited<ReturnType<typeof findFresh
   }
 
   const displayName = readLocalizedText(cached.display_name_json) ?? cached.place_id;
+  const currentOpeningHours = googlePlacesOpeningHoursFromJson(cached.opening_hours_json);
+  const priceRange = googlePlacesPriceRangeFromJson(cached.price_range_json);
+  const rating = numberOrUndefined(cached.rating);
   return {
     placeId: cached.place_id,
     resourceName: cached.resource_name ?? `places/${cached.place_id}`,
@@ -1374,6 +1369,11 @@ function normalizeCachedPlaceDetails(cached: Awaited<ReturnType<typeof findFresh
     primaryType: cached.primary_type ?? undefined,
     businessStatus: cached.business_status ?? undefined,
     googleMapsUri: cached.google_maps_uri ?? undefined,
+    ...(currentOpeningHours ? { currentOpeningHours } : {}),
+    ...(cached.price_level ? { priceLevel: cached.price_level } : {}),
+    ...(priceRange ? { priceRange } : {}),
+    ...(rating === undefined ? {} : { rating }),
+    ...(cached.user_rating_count == null ? {} : { userRatingCount: cached.user_rating_count }),
     fetchedAt: cached.fetched_at.toISOString(),
   } satisfies GooglePlacesDetails;
 }
@@ -1407,12 +1407,7 @@ function googlePlacesDetailsCards(
       caveats: googlePlacesDetailsCaveats,
       index: 0,
       place: {
-        placeId: details.placeId,
-        displayName: details.displayName,
-        formattedAddress: details.formattedAddress,
-        types: details.types,
-        primaryType: details.primaryType,
-        businessStatus: details.businessStatus,
+        ...details,
         googleMapsUri: details.googleMapsUri ?? "",
       },
       sourceSummary,
@@ -1659,6 +1654,13 @@ function renderGooglePlacesDetailsText(
     details.formattedAddress,
     details.primaryType,
     details.businessStatus,
+    details.currentOpeningHours?.openNow === undefined
+      ? undefined
+      : details.currentOpeningHours.openNow
+        ? "open now"
+        : "not open now",
+    googlePlacesRatingLabel(details),
+    googlePlacesPriceLabel(details.priceLevel),
     details.googleMapsUri ? `Maps: ${details.googleMapsUri}` : undefined,
     `Field mask: ${googlePlacesDetailsFieldMask}.`,
     ...googlePlacesDetailsCaveats,
@@ -1685,17 +1687,16 @@ function googlePlacesSearchSourceSummary(context: GooglePlacesChatContext): Answ
 
 function googlePlacesDetailsSourceSummary(
   freshness: "fresh_cache" | "live",
-  displayName: string,
-  fetchedAt: string | Date,
+  details: GooglePlacesDetails,
 ): AnswerSourceSummary {
   const label = freshness === "fresh_cache" ? "fresh_cache" : "live_checked";
   return {
     label,
     sourceName: "Google Places",
     sourceProfileId: googlePlacesDiscoverySourceProfileId,
-    fetchedAt: typeof fetchedAt === "string" ? fetchedAt : fetchedAt.toISOString(),
+    fetchedAt: details.fetchedAt,
     confidence: freshness === "live" ? "high" : "medium",
-    checked: [`identity details for ${displayName}`, "map link when returned"],
+    checked: googlePlacesDetailsCheckedFields(details),
     notChecked: googlePlacesNotCheckedFields,
   };
 }
@@ -1739,6 +1740,20 @@ function googlePlacesSearchCheckedFields(context: GooglePlacesChatContext) {
   return checked;
 }
 
+function googlePlacesDetailsCheckedFields(details: GooglePlacesDetails) {
+  const checked = [`identity details for ${details.displayName}`, "map link when returned"];
+  if (details.rating !== undefined) {
+    checked.push("rating signals");
+  }
+  if (details.currentOpeningHours?.openNow !== undefined) {
+    checked.push("open-now signal");
+  }
+  if (details.priceLevel || details.priceRange) {
+    checked.push("price signals");
+  }
+  return checked;
+}
+
 function ensureSiargaoQuery(query: string) {
   return /\bsiargao\b/i.test(query) ? query : `${query} Siargao`;
 }
@@ -1751,12 +1766,64 @@ function readLocalizedText(value: Record<string, unknown> | null) {
   return typeof value?.text === "string" ? value.text : undefined;
 }
 
-function numberOrUndefined(value: string | number | null) {
-  if (value === null) {
+function numberOrUndefined(value: string | number | null | undefined) {
+  if (value === null || value === undefined) {
     return undefined;
   }
   const number = typeof value === "number" ? value : Number(value);
   return Number.isFinite(number) ? number : undefined;
+}
+
+function googlePlacesOpeningHoursFromJson(
+  value: unknown,
+): GooglePlacesDetails["currentOpeningHours"] {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const weekdayDescriptions = stringArrayOrUndefined(value.weekdayDescriptions);
+  return {
+    ...(typeof value.openNow === "boolean" ? { openNow: value.openNow } : {}),
+    ...(weekdayDescriptions ? { weekdayDescriptions } : {}),
+    ...(typeof value.nextOpenTime === "string" ? { nextOpenTime: value.nextOpenTime } : {}),
+    ...(typeof value.nextCloseTime === "string" ? { nextCloseTime: value.nextCloseTime } : {}),
+  };
+}
+
+function googlePlacesPriceRangeFromJson(value: unknown): GooglePlacesDetails["priceRange"] {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const startPrice = googlePlacesMoneyFromJson(value.startPrice);
+  const endPrice = googlePlacesMoneyFromJson(value.endPrice);
+  return {
+    ...(startPrice ? { startPrice } : {}),
+    ...(endPrice ? { endPrice } : {}),
+  };
+}
+
+function googlePlacesMoneyFromJson(value: unknown) {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return {
+    ...(typeof value.currencyCode === "string" ? { currencyCode: value.currencyCode } : {}),
+    ...(typeof value.units === "string" ? { units: value.units } : {}),
+    ...(typeof value.nanos === "number" ? { nanos: value.nanos } : {}),
+  };
+}
+
+function stringArrayOrUndefined(value: unknown) {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
+    return undefined;
+  }
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function slugPart(value: string) {

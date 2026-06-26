@@ -643,6 +643,10 @@ describe("agent tools", () => {
             types: ["store", "point_of_interest"],
             primaryType: "store",
             businessStatus: "OPERATIONAL",
+            currentOpeningHours: { openNow: true },
+            rating: 4.7,
+            userRatingCount: 321,
+            priceLevel: "PRICE_LEVEL_MODERATE",
             googleMapsUri: "https://maps.google.com/?cid=live",
           });
         },
@@ -658,12 +662,30 @@ describe("agent tools", () => {
     const data = result.data as { place: Record<string, unknown>; fieldMask: string };
     expect(data.fieldMask).toBe(googlePlacesDetailsFieldMask);
     expect(data.place.displayName).toBe("Live Surf Shop");
+    expect(data.place.currentOpeningHours).toEqual({ openNow: true });
+    expect(data.place.rating).toBe(4.7);
+    expect(data.place.userRatingCount).toBe(321);
+    expect(data.place.priceLevel).toBe("PRICE_LEVEL_MODERATE");
     expect(data.place).not.toHaveProperty("reviews");
+    expect(result.text).toContain("open now");
+    expect(result.text).toContain("Google rating 4.7 from 321 ratings");
+    expect(result.text).toContain("moderate");
+    expect(result.sources[0]?.checked).toContain("rating signals");
+    expect(result.sources[0]?.checked).toContain("open-now signal");
+    expect(result.sources[0]?.checked).toContain("price signals");
     expect(result.cards?.[0]).toMatchObject({
       title: "Live Surf Shop",
+      subtitle:
+        "store - Tourism Road, General Luna - Google rating 4.7 from 321 ratings - moderate",
       mapsUrl: "https://maps.google.com/?cid=live",
+      openStatusLabel: "Open now according to Google Places.",
       sourceLabel: "Google Places - live checked",
     });
+    expect(result.cards?.[0]?.fitReasons).toContain("Google Places returned an open-now signal.");
+    expect(result.cards?.[0]?.fitReasons).toContain("Google rating 4.7 from 321 ratings");
+    expect(result.cards?.[0]?.caveats).not.toContain(
+      "Opening hours were not returned for this place.",
+    );
   });
 
   test("returns provider-unavailable output for Place details failures", async () => {

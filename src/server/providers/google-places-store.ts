@@ -172,6 +172,11 @@ export type FreshGooglePlaceDetails = {
   primary_type: string | null;
   business_status: string | null;
   google_maps_uri: string | null;
+  opening_hours_json?: JsonObject | null;
+  price_level?: string | null;
+  price_range_json?: JsonObject | null;
+  rating?: string | null;
+  user_rating_count?: number | null;
   fetched_at: Date;
   stale_at: Date;
   retention_expires_at: Date;
@@ -194,6 +199,11 @@ export async function findFreshPlaceDetails(
         d.primary_type,
         d.business_status,
         d.google_maps_uri,
+        d.opening_hours_json,
+        d.price_level,
+        d.price_range_json,
+        d.rating::text as rating,
+        d.user_rating_count,
         d.fetched_at,
         d.stale_at,
         d.retention_expires_at
