@@ -18,11 +18,11 @@ only; it does not add trip or chat persistence.
 - [x] Step 2: Route Chat Decisions Through TripContext
 - [x] Step 3: Align Place Intent And Recommendation Planning With TripContext
 - [x] Step 4: End-To-End Route Regressions For Priority 2 Follow-Ups
-- [ ] Step 5: Persistence-Ready Documentation And Final Verification
+- [x] Step 5: Persistence-Ready Documentation And Final Verification
 
 ## Current Status
 
-Step 4 complete. Next: Step 5, Persistence-Ready Documentation And Final Verification.
+Priority 2 plan complete.
 
 ## Update Log
 
@@ -109,6 +109,25 @@ Step 4 complete. Next: Step 5, Persistence-Ready Documentation And Final Verific
   - `bun run typecheck --incremental false`: pass
   - `bun test src/app/api/chat/route.test.ts`: pass
   - `bun test`: pass
+  - `bun run test:e2e`: pass
+- Commit: `497e3a6 Cover contextual follow-up chat behavior`
+
+### 2026-06-26: Step 5 complete
+
+- Documented the request-scoped `TripContext` boundary in `docs/DATA_STRATEGY.md` and
+  `docs/TECH.md`, including stable context, latest-turn modifiers, route/recommendation consumers,
+  and the persistence handoff.
+- Confirmed no database schema or persistence documentation was added because this Priority 2 slice
+  does not add trips, chat messages, chat requests, usage meters, or snapshots.
+- Refined changelog entries for the completed contextual follow-up and trip-memory slice.
+- Final validation:
+  - `bun run format`: pass
+  - `bun run lint`: pass
+  - `bun run typecheck --incremental false`: pass
+  - `bun test`: pass
+  - `bun run db:migrate:test`: pass
+  - `bun run db:seed:test`: pass
+  - `bun run build`: pass
   - `bun run test:e2e`: pass
 - Commit: pending
 

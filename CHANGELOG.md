@@ -89,6 +89,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
   notes.
 - Aligned Google Places place intent and recommendation planning with trip context so prior
   locations, cheaper modifiers, kids constraints, and open-now follow-ups shape search and ranking.
+- Documented the request-scoped Priority 2 trip context boundary and persistence handoff for future
+  trip and chat memory tables.
 - Documented the completed Priority 1 local recommendation behavior, including cache-first Google
   Places lookups, markdown caveats, normalized recommendation objects, and the current e2e testing
   boundary.

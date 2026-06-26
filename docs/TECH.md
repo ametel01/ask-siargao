@@ -71,6 +71,19 @@ The first screen should let users paste a plan or ask a question. It should not 
 12. Persist assistant message, usage, provider cost, and fact IDs used.
 ```
 
+The current Priority 2 slice implements the trip-context and intent parts as a request-scoped
+boundary before persistence exists. `/api/chat` receives the bounded client message window and
+`src/server/chat/intent.ts` derives a pure `TripContext` from that window. The context carries
+stable location, area, ride-time, transport mode, traveler profile, and durable constraints
+separately from latest-turn modifiers such as open-now, covered, cheaper, rainy-day, swimming,
+sunset, and itinerary changes.
+
+`src/app/api/chat/chat-route.ts`, `src/server/chat/place-intent.ts`, and
+`src/server/chat/recommendation-agent.ts` use that shared context for weather planning, grounded
+beach guidance, local recommendation searches, and clarification when a follow-up like "there" has
+no referent. This keeps provider use deterministic and request-scoped while leaving persistent trip
+and chat tables for the later storage milestone.
+
 ## Core Modules
 
 Suggested source layout:

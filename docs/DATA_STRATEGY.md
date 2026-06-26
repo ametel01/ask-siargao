@@ -35,6 +35,20 @@ Stores user-owned context:
 - chat history
 - paid pass state and expiry
 
+Current Priority 2 implementation is request-scoped only. `src/server/chat/intent.ts` derives a
+`TripContext` from the bounded chat message window submitted to `/api/chat`; it does not persist
+trip context, raw chat memory, browser geolocation, or provider payloads. The derived context
+separates stable signals such as current location, area, ride-time limit, transport mode, kids,
+budget, no-scooter, and beach constraints from latest-turn temporary modifiers such as open now,
+covered, cheaper, rainy day, swimming, sunset, beach suitability, and itinerary changes. Route
+weather planning, grounded beach guidance, and Google Places recommendation planning consume that
+same request-scoped context so follow-ups can inherit location and constraints without creating new
+database tables.
+
+Persistent `trips`, `chat_messages`, `chat_requests`, usage meters, and trip-context snapshots
+remain future work. When they are added, they should store user-owned context and message metadata,
+then feed the same `TripContext` boundary rather than bypassing it.
+
 ### Entities
 
 Stores canonical things the assistant can reason about:
