@@ -104,6 +104,13 @@ export type SourceEvidenceLookupQuery = {
   factIds: readonly string[];
 };
 
+export type SourceEvidenceToolResult = {
+  factIds: readonly string[];
+  evidence: readonly SourceEvidenceResultItem[];
+  missingFactIds: readonly string[];
+  caveats: readonly string[];
+};
+
 export type LocalFactsDatabaseRow = Record<string, unknown>;
 
 export type LocalFactsQueryRunner = (
@@ -318,6 +325,34 @@ export async function queryLocalFacts(
   };
 }
 
+export async function getSourceEvidence(
+  input: unknown,
+  options: QueryLocalFactsOptions = {},
+): Promise<SourceEvidenceToolResult> {
+  const query = sourceEvidenceArgumentsSchema.parse(input);
+  const curatedEvidence = query.factIds
+    .filter((factId) => factId.startsWith("curated_local_guide:"))
+    .map(curatedFactIdToEvidence);
+  const databaseEvidence = options.queryRunner
+    ? await queryDatabaseEvidence(
+        query.factIds.filter((factId) => !factId.startsWith("curated_local_guide:")),
+        options.queryRunner,
+      )
+    : [];
+  const evidence = [...curatedEvidence, ...databaseEvidence];
+  const foundFactIds = new Set(evidence.map((item) => item.factId));
+
+  return {
+    factIds: query.factIds,
+    evidence,
+    missingFactIds: query.factIds.filter((factId) => !foundFactIds.has(factId)),
+    caveats: [
+      "Source evidence lookup returns display-safe metadata only.",
+      "Restricted provider bodies, Google review content, private records, and internal model traces are omitted.",
+    ],
+  };
+}
+
 function field(
   name: string,
   type: DatabaseSchemaFieldDescription["type"],
@@ -325,6 +360,107 @@ function field(
   required: boolean,
 ): DatabaseSchemaFieldDescription {
   return { name, type, description, required };
+}
+
+function curatedFactIdToEvidence(factId: string): SourceEvidenceResultItem {
+  return {
+    factId,
+    sourceName: "Ask Siargao curated local beach guide",
+    sourceLabel: "curated_local_guide",
+    confidence: "medium",
+    caveats: [
+      "Curated local guide estimate; exact conditions can change by tide, weather, road access, and site conditions.",
+    ],
+    checked: ["curated beach fit notes", "estimated ride-time notes"],
+    notChecked: [
+      "live tide",
+      "currents",
+      "road conditions",
+      "access changes",
+      "lifeguard or swimming safety",
+    ],
+  };
+}
+
+async function queryDatabaseEvidence(
+  factIds: readonly string[],
+  queryRunner: LocalFactsQueryRunner,
+): Promise<SourceEvidenceResultItem[]> {
+  if (factIds.length === 0) {
+    return [];
+  }
+
+  const rows = await queryRunner`
+    select
+      f.id as fact_id,
+      f.confidence_label,
+      f.source_profile_id,
+      f.fetched_at,
+      f.verified_at,
+      f.expires_at,
+      sp.source_name,
+      sp.allowed_use as source_allowed_use,
+      ev.label as evidence_label,
+      ev.citation_url,
+      ev.citation_text,
+      ev.allowed_use as evidence_allowed_use,
+      ev.public_republish_allowed
+    from facts f
+    left join source_profiles sp on sp.id = f.source_profile_id
+    left join evidence ev on ev.fact_id = f.id
+    where f.id = any(${factIds})
+      and f.audit_use_allowed = true
+    order by f.id, ev.created_at`;
+
+  return rows.map(evidenceRowToSourceEvidence).filter(isSourceEvidenceResultItem);
+}
+
+function evidenceRowToSourceEvidence(
+  row: LocalFactsDatabaseRow,
+): SourceEvidenceResultItem | undefined {
+  const factId = readString(row.fact_id);
+  const sourceName = readString(row.source_name) ?? "Governed local fact source";
+  const confidence = readConfidence(row.confidence_label);
+  if (!factId || !confidence) {
+    return undefined;
+  }
+
+  const sourceAllowedUse = readString(row.source_allowed_use);
+  const evidenceAllowedUse = readString(row.evidence_allowed_use);
+  const sourceProfileId = readString(row.source_profile_id);
+  const fetchedAt = readDateString(row.fetched_at);
+  const verifiedAt = readDateString(row.verified_at);
+  const expiresAt = readDateString(row.expires_at);
+  const citationDisplayAllowed = canDisplayCitation({
+    evidenceAllowedUse,
+    publicRepublishAllowed: Boolean(row.public_republish_allowed),
+    sourceAllowedUse,
+  });
+  const providerCaveats = sourceEvidenceCaveats({
+    sourceName,
+    sourceProfileId,
+    sourceAllowedUse,
+  });
+
+  return {
+    factId,
+    sourceName,
+    sourceLabel: sourceLabelFromAllowedUse(sourceAllowedUse),
+    ...(sourceProfileId ? { sourceProfileId } : {}),
+    confidence,
+    ...(fetchedAt ? { fetchedAt } : {}),
+    ...(verifiedAt ? { verifiedAt } : {}),
+    ...(expiresAt ? { expiresAt } : {}),
+    ...(citationDisplayAllowed ? optionalCitationFields(row) : {}),
+    caveats: providerCaveats,
+    checked: uniqueCompact([
+      readString(row.evidence_label) ?? "governed fact evidence",
+      fetchedAt ? "source fetch timestamp" : undefined,
+      verifiedAt ? "verification timestamp" : undefined,
+      expiresAt ? "freshness boundary" : undefined,
+    ]),
+    notChecked: sourceEvidenceNotChecked({ sourceName, sourceProfileId }),
+  };
 }
 
 function queryCuratedGuideFacts(query: LocalFactsQuery): LocalFactResultItem[] {
@@ -571,6 +707,78 @@ function sourceLabelFromAllowedUse(allowedUse: string | undefined): AnswerTrustL
   return "curated_local_guide";
 }
 
+function canDisplayCitation({
+  evidenceAllowedUse,
+  publicRepublishAllowed,
+  sourceAllowedUse,
+}: {
+  evidenceAllowedUse: string | undefined;
+  publicRepublishAllowed: boolean;
+  sourceAllowedUse: string | undefined;
+}) {
+  return (
+    publicRepublishAllowed ||
+    evidenceAllowedUse === "public_republish" ||
+    evidenceAllowedUse === "citation_only" ||
+    sourceAllowedUse === "public_republish" ||
+    sourceAllowedUse === "citation_only"
+  );
+}
+
+function optionalCitationFields(row: LocalFactsDatabaseRow) {
+  const citationUrl = readString(row.citation_url);
+  const citationText = readString(row.citation_text);
+  return {
+    ...(citationUrl ? { citationUrl } : {}),
+    ...(citationText ? { citationText } : {}),
+  };
+}
+
+function sourceEvidenceCaveats({
+  sourceName,
+  sourceProfileId,
+  sourceAllowedUse,
+}: {
+  sourceName: string;
+  sourceProfileId: string | undefined;
+  sourceAllowedUse: string | undefined;
+}) {
+  const normalizedSourceName = normalizeSearchText(sourceName);
+  return [
+    ...(sourceAllowedUse === "citation_only"
+      ? ["Citation-only source metadata may be displayed, but source bodies are not copied."]
+      : []),
+    ...(sourceAllowedUse === "public_republish"
+      ? ["Public-republish metadata is display-safe after source governance."]
+      : []),
+    ...(sourceProfileId === "source_google_places" || normalizedSourceName.includes("google places")
+      ? [
+          "Google Places evidence requires Google attribution and field-mask governance.",
+          "Google review content, raw snapshots, and unrestricted payloads are not exposed.",
+        ]
+      : []),
+    "Evidence output is display-safe metadata, not a raw source dump.",
+  ];
+}
+
+function sourceEvidenceNotChecked({
+  sourceName,
+  sourceProfileId,
+}: {
+  sourceName: string;
+  sourceProfileId: string | undefined;
+}) {
+  const normalizedSourceName = normalizeSearchText(sourceName);
+  return [
+    ...(sourceProfileId === "source_google_places" || normalizedSourceName.includes("google places")
+      ? ["Google review text", "booking or table availability", "full provider payload"]
+      : []),
+    "private audit records",
+    "payment records",
+    "internal model traces",
+  ];
+}
+
 function readLocalFactEntityType(value: unknown): LocalFactEntityType | undefined {
   const parsed = localFactEntityTypeSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
@@ -663,5 +871,11 @@ function uniqueCompact(values: readonly (string | undefined)[]) {
 function isLocalFactResultItem(
   value: LocalFactResultItem | undefined,
 ): value is LocalFactResultItem {
+  return Boolean(value);
+}
+
+function isSourceEvidenceResultItem(
+  value: SourceEvidenceResultItem | undefined,
+): value is SourceEvidenceResultItem {
   return Boolean(value);
 }

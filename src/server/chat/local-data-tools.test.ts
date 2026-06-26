@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   describeDatabaseSchema,
+  getSourceEvidence,
   localFactsMaxLimit,
   localFactsQuerySchema,
   queryLocalFacts,
@@ -287,5 +288,168 @@ describe("local data tools contracts", () => {
 
     expect(result.query.limit).toBe(localFactsMaxLimit);
     expect(result.facts.length).toBeLessThanOrEqual(localFactsMaxLimit);
+  });
+
+  test("returns display-safe evidence for curated local guide fact IDs", async () => {
+    const result = await getSourceEvidence({
+      factIds: ["curated_local_guide:beach:doot-beach"],
+    });
+
+    expect(result.evidence).toEqual([
+      {
+        factId: "curated_local_guide:beach:doot-beach",
+        sourceName: "Ask Siargao curated local beach guide",
+        sourceLabel: "curated_local_guide",
+        confidence: "medium",
+        caveats: [
+          "Curated local guide estimate; exact conditions can change by tide, weather, road access, and site conditions.",
+        ],
+        checked: ["curated beach fit notes", "estimated ride-time notes"],
+        notChecked: [
+          "live tide",
+          "currents",
+          "road conditions",
+          "access changes",
+          "lifeguard or swimming safety",
+        ],
+      },
+    ]);
+    expect(result.missingFactIds).toEqual([]);
+  });
+
+  test("returns citation-only source evidence without raw source bodies", async () => {
+    const result = await getSourceEvidence(
+      {
+        factIds: ["fact_transport_schedule"],
+      },
+      {
+        queryRunner: async () => [
+          {
+            fact_id: "fact_transport_schedule",
+            confidence_label: "medium",
+            source_profile_id: "source_official_transport",
+            fetched_at: new Date("2026-06-26T00:00:00.000Z"),
+            verified_at: "2026-06-26T01:00:00.000Z",
+            expires_at: "2026-06-27T00:00:00.000Z",
+            source_name: "Official transport source profile",
+            source_allowed_use: "citation_only",
+            evidence_label: "official schedule citation",
+            citation_url: "https://example.com/schedule",
+            citation_text: "Published schedule page",
+            evidence_allowed_use: "citation_only",
+            public_republish_allowed: false,
+            raw_payload: { should: "not leak" },
+          },
+        ],
+      },
+    );
+
+    expect(result.evidence).toEqual([
+      {
+        factId: "fact_transport_schedule",
+        sourceName: "Official transport source profile",
+        sourceLabel: "not_verified",
+        sourceProfileId: "source_official_transport",
+        confidence: "medium",
+        fetchedAt: "2026-06-26T00:00:00.000Z",
+        verifiedAt: "2026-06-26T01:00:00.000Z",
+        expiresAt: "2026-06-27T00:00:00.000Z",
+        citationUrl: "https://example.com/schedule",
+        citationText: "Published schedule page",
+        caveats: [
+          "Citation-only source metadata may be displayed, but source bodies are not copied.",
+          "Evidence output is display-safe metadata, not a raw source dump.",
+        ],
+        checked: [
+          "official schedule citation",
+          "source fetch timestamp",
+          "verification timestamp",
+          "freshness boundary",
+        ],
+        notChecked: ["private audit records", "payment records", "internal model traces"],
+      },
+    ]);
+    expect(JSON.stringify(result).toLowerCase()).not.toContain("raw_payload");
+  });
+
+  test("adds Google Places caveats while omitting restricted payload and review fields", async () => {
+    const result = await getSourceEvidence(
+      {
+        factIds: ["fact_google_place_hours"],
+      },
+      {
+        queryRunner: async () => [
+          {
+            fact_id: "fact_google_place_hours",
+            confidence_label: "low",
+            source_profile_id: "source_google_places",
+            source_name: "Google Places API profile",
+            source_allowed_use: "citation_only",
+            evidence_label: "allowed Google Places field mask",
+            citation_url: "https://maps.google.com/?cid=test",
+            evidence_allowed_use: "citation_only",
+            public_republish_allowed: false,
+            payload_json: { should: "not leak" },
+            text_json: { should: "not leak" },
+            original_text_json: { should: "not leak" },
+          },
+        ],
+      },
+    );
+
+    expect(result.evidence[0]?.caveats).toContain(
+      "Google Places evidence requires Google attribution and field-mask governance.",
+    );
+    expect(result.evidence[0]?.caveats).toContain(
+      "Google review content, raw snapshots, and unrestricted payloads are not exposed.",
+    );
+    expect(result.evidence[0]?.notChecked).toContain("Google review text");
+    expect(JSON.stringify(result).toLowerCase()).not.toContain("payload_json");
+    expect(JSON.stringify(result).toLowerCase()).not.toContain("text_json");
+    expect(JSON.stringify(result).toLowerCase()).not.toContain("original_text_json");
+  });
+
+  test("reports unknown fact IDs without broadening the evidence query", async () => {
+    const result = await getSourceEvidence(
+      {
+        factIds: ["missing_fact", "curated_local_guide:beach:malinao-beach"],
+      },
+      {
+        queryRunner: async () => [],
+      },
+    );
+
+    expect(result.evidence.map((item) => item.factId)).toEqual([
+      "curated_local_guide:beach:malinao-beach",
+    ]);
+    expect(result.missingFactIds).toEqual(["missing_fact"]);
+  });
+
+  test("does not display citations when source policy does not allow display", async () => {
+    const result = await getSourceEvidence(
+      {
+        factIds: ["fact_audit_only"],
+      },
+      {
+        queryRunner: async () => [
+          {
+            fact_id: "fact_audit_only",
+            confidence_label: "medium",
+            source_profile_id: "source_user_submitted",
+            source_name: "User-submitted trip evidence profile",
+            source_allowed_use: "audit_only",
+            evidence_label: "private host note",
+            citation_url: "https://example.com/private",
+            citation_text: "Do not show this",
+            evidence_allowed_use: "audit_only",
+            public_republish_allowed: false,
+          },
+        ],
+      },
+    );
+
+    expect(result.evidence[0]).not.toHaveProperty("citationUrl");
+    expect(result.evidence[0]).not.toHaveProperty("citationText");
+    expect(JSON.stringify(result)).not.toContain("Do not show this");
   });
 });

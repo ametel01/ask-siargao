@@ -16,16 +16,16 @@
 
 ## Current Status
 
-- Current step: Step 3, display-safe source evidence lookup.
-- Next step: Implement source evidence lookup for fact IDs without exposing restricted
-  provider payloads or private records.
+- Current step: Step 4, register safe database tools in the agent runtime.
+- Next step: Expose schema discovery, structured local fact retrieval, and source
+  evidence lookup through the existing Responses tool loop.
 
 ## Step Checklist
 
 - [x] Step 0: Progress and changelog tracking setup.
 - [x] Step 1: Safe local data contracts and schema dictionary.
 - [x] Step 2: Structured local fact query engine.
-- [ ] Step 3: Display-safe source evidence lookup.
+- [x] Step 3: Display-safe source evidence lookup.
 - [ ] Step 4: Register safe database tools in the agent runtime.
 - [ ] Step 5: Align agent memory and tool-use documentation.
 - [ ] Step 6: Final integration, regression gates, and release notes.
@@ -68,6 +68,23 @@
 - Extended local-data tests for General Luna beach filtering, sandy/swimming/rain-fit/sunset
   tags, entity-type filtering, text filtering, limit capping, injected route/fact rows,
   and raw/private field leakage guards.
+- Validation:
+  - Passed: `bun run format`.
+  - Passed: `bun run lint`.
+  - Passed: `bun run typecheck --incremental false`.
+  - Passed: `bun test src/server/chat/local-data-tools.test.ts`.
+  - Passed: `bun run db:migrate:test && bun run db:seed:test`.
+  - Passed: `bun test`.
+- Commit: pending.
+
+### 2026-06-27 - Step 3 Complete
+
+- Added `getSourceEvidence` for curated and governed fact IDs with display-safe source
+  metadata, citation-policy handling, freshness fields, Google Places caveats, checked and
+  not-checked boundaries, and missing fact ID reporting.
+- Extended local-data tests for curated evidence lookup, citation-only display, Google
+  Places caveats, unknown fact IDs, audit-only citation suppression, and restricted
+  payload/review/private-field leakage guards.
 - Validation:
   - Passed: `bun run format`.
   - Passed: `bun run lint`.

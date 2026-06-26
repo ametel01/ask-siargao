@@ -25,6 +25,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
   evidence lookup.
 - Added bounded structured local fact retrieval over curated beach guidance and approved
   database fact surfaces with source/confidence metadata and raw/private field guards.
+- Added display-safe source evidence lookup for curated and governed fact IDs, including
+  citation-policy handling, Google Places caveats, and restricted payload guards.
 - Added hosted file-search registration for synced agent memory plus a deterministic
   backend `search_agent_memory` fallback for local and test retrieval.
 - Added agent-memory vector-store synchronization with dry-run support, checksum-aware
