@@ -9,6 +9,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Established progress tracking for the Priority 1 live local recommendation implementation plan.
 - Established progress tracking for the Google Places persistence implementation plan.
 - Added typed Google Places capture tables for identities, snapshots, details, reviews, freshness,
   retention, attribution, and migration parity.
