@@ -156,5 +156,5 @@
   - `bun run db:seed:test` passed.
   - `bun run build` passed.
   - `bun run test:e2e` passed.
-- Commit: Pending creation for Step 7.
+- Commit: `b636e83` - Verify map-first recommendation cards.
 - Residual risks: None known.
