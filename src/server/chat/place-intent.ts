@@ -1,3 +1,8 @@
+import {
+  getLatestUserTurn,
+  getRecentUserContext,
+  inferSiargaoLocationLabel,
+} from "@/server/chat/intent";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 
 export type PlaceCategory =
@@ -39,6 +44,7 @@ const knownPlaceLocationLabels = [
   "Cloud 9",
   "Del Carmen",
   "Dapa",
+  "Siargao Island",
 ] as const;
 
 export function interpretPlaceIntent(
@@ -87,19 +93,6 @@ export function interpretPlaceIntent(
     latestUserTurn,
     recentUserContext,
   };
-}
-
-function getLatestUserTurn(messages: readonly AskSiargaoChatMessage[]) {
-  return messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
-}
-
-function getRecentUserContext(messages: readonly AskSiargaoChatMessage[]) {
-  const userTurns = messages.filter((message) => message.role === "user");
-  return userTurns
-    .slice(0, -1)
-    .slice(-6)
-    .map((message) => message.content)
-    .join(" ");
 }
 
 export function isPlaceRecommendationContent(content: string) {
@@ -175,17 +168,8 @@ function inferLiveNeeds({
 }
 
 function inferPlaceLocationLabel(content: string): string | null {
-  const normalizedContent = normalizeKey(content);
-  const location = knownPlaceLocationLabels.find((label) =>
-    normalizedContent.includes(normalizeKey(label)),
-  );
-  if (location) {
-    return location;
-  }
-  if (/\bsiargao\b/i.test(content)) {
-    return "Siargao Island";
-  }
-  return null;
+  const label = inferSiargaoLocationLabel(content);
+  return label && knownPlaceLocationLabels.includes(label) ? label : null;
 }
 
 function inferMeal(content: string): MealIntent {
@@ -287,8 +271,4 @@ function isGenericCapitalizedPhrase(value: string) {
   return /^(Siargao|General Luna|Cloud 9|Del Carmen|Dapa|Google Places?|Maps?)$/i.test(
     value.trim(),
   );
-}
-
-function normalizeKey(value: string) {
-  return value.toLowerCase().replaceAll(/\s+/g, " ").trim();
 }

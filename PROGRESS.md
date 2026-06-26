@@ -14,7 +14,7 @@ only; it does not add trip or chat persistence.
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
-- [ ] Step 1: Shared Trip Context And Intent Module
+- [x] Step 1: Shared Trip Context And Intent Module
 - [ ] Step 2: Route Chat Decisions Through TripContext
 - [ ] Step 3: Align Place Intent And Recommendation Planning With TripContext
 - [ ] Step 4: End-To-End Route Regressions For Priority 2 Follow-Ups
@@ -22,7 +22,7 @@ only; it does not add trip or chat persistence.
 
 ## Current Status
 
-Step 0 complete. Next: Step 1, Shared Trip Context And Intent Module.
+Step 1 complete. Next: Step 2, Route Chat Decisions Through TripContext.
 
 ## Update Log
 
@@ -35,6 +35,27 @@ Step 0 complete. Next: Step 1, Shared Trip Context And Intent Module.
   - `test -f PROGRESS.md`: pass
   - `test -f CHANGELOG.md`: pass
   - `rg -n "^# Changelog|^## \\[Unreleased\\]" CHANGELOG.md`: pass
+- Commit: `7ce28ff Track Priority 2 trip memory progress`
+
+### 2026-06-26: Step 1 complete
+
+- Added pure request-scoped `TripContext` derivation in `src/server/chat/intent.ts`.
+- Added stable context fields for current location, area, origin/destination, ride-time limit,
+  transport mode, traveler profile, durable constraints, active goal, and unresolved "there"
+  references.
+- Added latest-turn temporary modifiers for open-now, covered, cheaper, rainy-day, swimming, sunset,
+  beach-suitability, kids, budget, ride-time, and itinerary changes.
+- Moved shared user-turn and Siargao location helpers into the intent module and reused them from
+  `src/server/chat/place-intent.ts` without changing route behavior.
+- Added focused intent regression coverage for rainy Cloud 9 follow-ups, swimming-to-sunset goal
+  changes, no-scooter/kids constraints, cheaper budget modifiers, "there"/"nearby" resolution, and
+  generic prompt guardrails.
+- Validation:
+  - `bun run format`: pass
+  - `bun run lint`: pass
+  - `bun run typecheck --incremental false`: pass
+  - `bun test src/server/chat/intent.test.ts src/server/chat/place-intent.test.ts`: pass
+  - `bun test`: pass
 - Commit: pending
 
 ## Tracking Rule
