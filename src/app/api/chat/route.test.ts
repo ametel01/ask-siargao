@@ -5,6 +5,13 @@ import {
   chatResponse,
   createDefaultChatRouteDependencies,
 } from "@/app/api/chat/chat-route";
+import { RecommendationAgent } from "@/server/chat/recommendation-agent";
+import {
+  type GooglePlacesChatContext,
+  type GooglePlacesChatSearch,
+  googlePlacesChatSearchFieldMask,
+} from "@/server/providers/google-places-chat";
+import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
 import type { OpenMeteoForecastLocation } from "@/server/providers/open-meteo";
 import { fallbackWeatherSnapshot } from "@/server/public-pages/weather-snapshot";
 
@@ -355,6 +362,125 @@ describe("chat route", () => {
     expect(dependencies.requests).toHaveLength(0);
   });
 
+  test("checks open-now follow-ups through trip-context recommendation routing", async () => {
+    const dependencies = chatDependencies();
+    const searches: GooglePlacesChatSearch[] = [];
+    const requiresLiveStatuses: Array<boolean | undefined> = [];
+    dependencies.recommendationAgent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, requiresLiveStatus, search }) => {
+        searches.push(search);
+        requiresLiveStatuses.push(requiresLiveStatus);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "Open Cloud 9 Cafe",
+          rating: 4.5,
+          userRatingCount: 220,
+        });
+      },
+    });
+
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          { role: "user", content: "Where should we get coffee near Cloud 9?" },
+          { role: "assistant", content: "Try a cafe near Catangnan." },
+          { role: "user", content: "open now?" },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("Open Cloud 9 Cafe");
+    expect(requiresLiveStatuses).toEqual([true]);
+    expect(searches[0]).toMatchObject({
+      textQuery: "cafe near Cloud 9 Siargao",
+      includedType: "cafe",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+    });
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("routes cheaper there follow-ups through prior trip location context", async () => {
+    const dependencies = chatDependencies();
+    const searches: GooglePlacesChatSearch[] = [];
+    dependencies.recommendationAgent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "Cloud 9 Budget Grill",
+          rating: 4.3,
+          userRatingCount: 140,
+        });
+      },
+    });
+
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          { role: "user", content: "Where should we get dinner near Cloud 9?" },
+          { role: "assistant", content: "Here are dinner options near Cloud 9." },
+          { role: "user", content: "anything cheaper there?" },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("Cloud 9 Budget Grill");
+    expect(searches[0]).toMatchObject({
+      textQuery: "cheap restaurant near Cloud 9 Siargao",
+      includedType: "restaurant",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+      radiusMeters: 6_000,
+    });
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("routes nearby follow-ups through prior trip location context", async () => {
+    const dependencies = chatDependencies();
+    const searches: GooglePlacesChatSearch[] = [];
+    dependencies.recommendationAgent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "Cloud 9 Coffee Stop",
+          rating: 4.6,
+          userRatingCount: 320,
+        });
+      },
+    });
+
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          { role: "user", content: "We are staying near Cloud 9." },
+          { role: "assistant", content: "That keeps you close to Catangnan." },
+          { role: "user", content: "what cafes are nearby?" },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("Cloud 9 Coffee Stop");
+    expect(searches[0]).toMatchObject({
+      textQuery: "cafe near Cloud 9 Siargao",
+      includedType: "cafe",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+      radiusMeters: 6_000,
+    });
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
   test("routes bar and drinks requests to recommendation", async () => {
     const dependencies = chatDependencies();
     let agentCalls = 0;
@@ -687,4 +813,46 @@ function rawRequest(body: string) {
     headers: { "content-type": "application/json" },
     body,
   });
+}
+
+function googlePlacesContext({
+  fetchedAt = "2026-06-28T00:00:00.000Z",
+  placeName,
+  rating,
+  search,
+  userRatingCount,
+}: {
+  fetchedAt?: string;
+  placeName: string;
+  rating: number;
+  search: GooglePlacesChatSearch;
+  userRatingCount: number;
+}): GooglePlacesChatContext {
+  return {
+    status: "available",
+    sourceName: "Google Places",
+    sourceProfileId: googlePlacesDiscoverySourceProfileId,
+    fetchedAt,
+    freshness: "live",
+    search,
+    fieldMask: googlePlacesChatSearchFieldMask,
+    caveats: ["No review text."],
+    places: [
+      {
+        placeId: `place_${placeName.toLowerCase().replaceAll(/\W+/g, "_")}`,
+        resourceName: `places/${placeName}`,
+        displayName: placeName,
+        formattedAddress: "Cloud 9, General Luna",
+        latitude: 9.8117,
+        longitude: 126.1652,
+        types: ["restaurant", "cafe", "food"],
+        primaryType: search.includedType ?? "restaurant",
+        businessStatus: "OPERATIONAL",
+        googleMapsUri: `https://maps.google.com/?cid=${encodeURIComponent(placeName)}`,
+        rating,
+        userRatingCount,
+        currentOpeningHours: { openNow: true },
+      },
+    ],
+  };
 }

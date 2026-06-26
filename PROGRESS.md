@@ -17,12 +17,12 @@ only; it does not add trip or chat persistence.
 - [x] Step 1: Shared Trip Context And Intent Module
 - [x] Step 2: Route Chat Decisions Through TripContext
 - [x] Step 3: Align Place Intent And Recommendation Planning With TripContext
-- [ ] Step 4: End-To-End Route Regressions For Priority 2 Follow-Ups
+- [x] Step 4: End-To-End Route Regressions For Priority 2 Follow-Ups
 - [ ] Step 5: Persistence-Ready Documentation And Final Verification
 
 ## Current Status
 
-Step 3 complete. Next: Step 4, End-To-End Route Regressions For Priority 2 Follow-Ups.
+Step 4 complete. Next: Step 5, Persistence-Ready Documentation And Final Verification.
 
 ## Update Log
 
@@ -92,6 +92,24 @@ Step 3 complete. Next: Step 4, End-To-End Route Regressions For Priority 2 Follo
   - `bun run typecheck --incremental false`: pass
   - `bun test src/server/chat/intent.test.ts src/server/chat/place-intent.test.ts src/server/chat/recommendation-agent.test.ts`: pass
   - `bun test`: pass
+- Commit: `32138bd Align recommendations with trip context`
+
+### 2026-06-26: Step 4 complete
+
+- Expanded route-level Priority 2 coverage with real `RecommendationAgent` flows using mocked
+  Google Places data.
+- Covered open-now follow-ups after prior cafe context, cheaper "there" follow-ups after dinner
+  context, and nearby cafe follow-ups after Cloud 9 location context.
+- Confirmed existing route coverage still handles rainy Cloud 9 follow-ups, beach swimming-to-sunset
+  switching, ride-time limits, kids/no-scooter beach constraints, missing "there" clarification, and
+  unrelated generic prompt guardrails.
+- Validation:
+  - `bun run format`: pass
+  - `bun run lint`: pass
+  - `bun run typecheck --incremental false`: pass
+  - `bun test src/app/api/chat/route.test.ts`: pass
+  - `bun test`: pass
+  - `bun run test:e2e`: pass
 - Commit: pending
 
 ## Tracking Rule
