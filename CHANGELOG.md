@@ -27,6 +27,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added a shared itinerary artifact contract for agent tool results and turn results, including
+  sequenced stops, fallbacks, skip guidance, and source summaries.
 - Established progress and changelog tracking for the Priority 8 Local Itinerary Builder
   implementation plan.
 - Added Playwright coverage for map-first recommendation cards, including distance/open-status

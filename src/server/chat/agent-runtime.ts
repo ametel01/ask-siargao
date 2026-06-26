@@ -29,6 +29,7 @@ export type AgentToolResult = {
   sources: readonly AnswerSourceSummary[];
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
+  itineraries?: readonly ItineraryPlan[];
 };
 
 export type AgentToolCallAudit = {
@@ -71,6 +72,28 @@ export type ChatAction = {
   metadata?: Record<string, unknown>;
 };
 
+export type ItineraryStopKind = "place" | "beach" | "activity" | "meal" | "transfer";
+
+export type ItineraryStop = {
+  title: string;
+  kind: ItineraryStopKind;
+  sequence: number;
+  area?: string;
+  travelTimeFromPreviousMinutes?: number;
+  mapsUrl?: string;
+  rationale: string;
+  caveats: readonly string[];
+};
+
+export type ItineraryPlan = {
+  title: string;
+  durationLabel: string;
+  stops: readonly ItineraryStop[];
+  fallbackStops: readonly ItineraryStop[];
+  skip: readonly string[];
+  sources: readonly AnswerSourceSummary[];
+};
+
 export type AgentMemoryFileMetadata = {
   id: string;
   title: string;
@@ -97,6 +120,7 @@ export type AgentTurnResult = {
   memory?: AgentMemoryMetadata;
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
+  itineraries?: readonly ItineraryPlan[];
 };
 
 export type AgentRuntimeRequest = {
@@ -138,6 +162,7 @@ export type AgentArtifactCarrier = {
   sources: readonly AnswerSourceSummary[];
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
+  itineraries?: readonly ItineraryPlan[];
 };
 
 export type AgentRuntimeDependencies = {
@@ -201,6 +226,7 @@ export function createAgentToolCallAudit({
 export function createAgentTurnResult({
   actions,
   cards,
+  itineraries,
   message,
   model,
   memory,
@@ -220,6 +246,7 @@ export function createAgentTurnResult({
   sources?: readonly AnswerSourceSummary[];
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
+  itineraries?: readonly ItineraryPlan[];
 }): AgentTurnResult {
   const sourceCarriers = toolResults ?? toolCalls;
   const artifactCarriers = toolResults ?? [];
@@ -230,6 +257,10 @@ export function createAgentTurnResult({
   const mergedActions = dedupeById([
     ...(actions ?? []),
     ...artifactCarriers.flatMap((result) => result.actions ?? []),
+  ]);
+  const mergedItineraries = dedupeItineraries([
+    ...(itineraries ?? []),
+    ...artifactCarriers.flatMap((result) => result.itineraries ?? []),
   ]);
 
   return {
@@ -242,6 +273,7 @@ export function createAgentTurnResult({
     ...(memory ? { memory } : {}),
     ...(mergedCards.length ? { cards: mergedCards } : {}),
     ...(mergedActions.length ? { actions: mergedActions } : {}),
+    ...(mergedItineraries.length ? { itineraries: mergedItineraries } : {}),
   };
 }
 
@@ -285,6 +317,22 @@ function dedupeById<T extends { id: string }>(values: readonly T[]) {
     }
     results.push(value);
     seen.add(value.id);
+  }
+
+  return results;
+}
+
+function dedupeItineraries(values: readonly ItineraryPlan[]) {
+  const results: ItineraryPlan[] = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    const key = normalizeText(`${value.title} ${value.durationLabel}`).toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    results.push(value);
+    seen.add(key);
   }
 
   return results;

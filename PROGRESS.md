@@ -15,7 +15,7 @@ commit reference when available, current status, and the next step.
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Baseline Quality Gate Run
-- [ ] Step 2: Add Shared Itinerary Artifact Types
+- [x] Step 2: Add Shared Itinerary Artifact Types
 - [ ] Step 3: Build Deterministic Itinerary Planning Tool Data
 - [ ] Step 4: Integrate Weather and Places Requirements Into Itinerary Flow
 - [ ] Step 5: Return Itinerary Artifacts From `/api/chat`
@@ -26,7 +26,7 @@ commit reference when available, current status, and the next step.
 
 ## Current Status
 
-Step 1 is complete. Step 2 is next.
+Step 2 is complete. Step 3 is next.
 
 ## Update Log
 
@@ -62,6 +62,27 @@ Validation:
 - `bun run typecheck --incremental false`: passed.
 - `bun test`: passed (306 tests across 40 files).
 
-Commit: `Record itinerary builder quality baseline`.
+Commit: `ffefdff` (`Record itinerary builder quality baseline`).
 
 Next step: Step 2, shared itinerary artifact types.
+
+### Step 2: Add Shared Itinerary Artifact Types
+
+Completed:
+
+- Added shared itinerary artifact types to the agent runtime contract.
+- Extended tool results, artifact carriers, and turn results with optional itinerary artifacts.
+- Added itinerary merge and stable title-plus-duration dedupe behavior.
+- Added runtime tests for itinerary aggregation, dedupe, and existing card/action/source behavior.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed after applying Biome import ordering.
+- `bun run typecheck --incremental false`: passed.
+- `bun test src/server/chat/agent-runtime.test.ts`: passed (11 tests).
+- `bun test`: passed (308 tests across 40 files).
+
+Commit: `Add itinerary artifact contract`.
+
+Next step: Step 3, deterministic itinerary planning tool data.

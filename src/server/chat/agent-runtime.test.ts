@@ -7,6 +7,7 @@ import {
   aggregateAgentSourceSummaries,
   createAgentToolCallAudit,
   createAgentTurnResult,
+  type ItineraryPlan,
   resolveAgentRuntimeRequest,
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
@@ -233,17 +234,98 @@ describe("agent runtime contracts", () => {
     ]);
   });
 
+  test("merges and de-duplicates itinerary artifacts from tool results", () => {
+    const turn = createAgentTurnResult({
+      message: "Here is a short rainy-day sequence.",
+      requestId: "agent_request_itinerary_artifacts",
+      model: "gpt-test",
+      toolResults: [
+        {
+          sources: [localGuideSourceSummary],
+          itineraries: [rainyCloud9Plan],
+        },
+        {
+          sources: [weatherSourceSummary],
+          itineraries: [
+            {
+              ...rainyCloud9Plan,
+              title: " Rainy Cloud 9 Afternoon ",
+              stops: [
+                {
+                  title: "Duplicate first stop",
+                  kind: "activity",
+                  sequence: 1,
+                  rationale: "This duplicate should be ignored.",
+                  caveats: [],
+                },
+              ],
+            },
+            sunsetDinnerPlan,
+          ],
+        },
+      ],
+    });
+
+    expect(turn.sources).toEqual([localGuideSourceSummary, weatherSourceSummary]);
+    expect(turn.itineraries?.map((plan) => plan.title)).toEqual([
+      "Rainy Cloud 9 Afternoon",
+      "Sunset plus Dinner",
+    ]);
+    expect(turn.itineraries?.[0]?.stops[0]?.title).toBe("Cloud 9 boardwalk");
+    expect(turn.itineraries?.[0]?.fallbackStops[0]?.title).toBe("Covered cafe near Cloud 9");
+    expect(turn.itineraries?.[0]?.skip).toContain("Exposed beach hopping if heavy rain starts");
+  });
+
+  test("keeps existing card, action, and source aggregation when itineraries are present", () => {
+    const turn = createAgentTurnResult({
+      message: "Use Doot, then a backup cafe if rain builds.",
+      requestId: "agent_request_mixed_artifacts",
+      model: "gpt-test",
+      cards: [dootBeachCard],
+      actions: [weatherAction],
+      toolResults: [
+        {
+          sources: [localGuideSourceSummary],
+          cards: [{ ...dootBeachCard, title: "Duplicate Doot Beach" }],
+          actions: [{ ...weatherAction, label: "Duplicate weather action" }],
+          itineraries: [rainyCloud9Plan],
+        },
+        {
+          sources: [placesSourceSummary],
+          cards: [cloud9CafeCard],
+          actions: [planAction],
+        },
+      ],
+    });
+
+    expect(turn.sources).toEqual([localGuideSourceSummary, placesSourceSummary]);
+    expect(turn.cards?.map((card) => card.title)).toEqual(["Doot Beach", "Cloud 9 Cafe"]);
+    expect(turn.actions?.map((action) => action.label)).toEqual([
+      "Check weather",
+      "Make a short plan",
+    ]);
+    expect(turn.itineraries?.map((plan) => plan.durationLabel)).toEqual(["2-3 hours"]);
+  });
+
   test("omits empty card and action arrays from turn results", () => {
     const turn = createAgentTurnResult({
       message: "No structured artifacts needed.",
       requestId: "agent_request_no_artifacts",
       model: "gpt-test",
-      toolResults: [{ sources: [providerUnavailableSourceSummary], cards: [], actions: [] }],
+      toolResults: [
+        {
+          sources: [providerUnavailableSourceSummary],
+          cards: [],
+          actions: [],
+          itineraries: [],
+        },
+      ],
     });
 
     expect(turn.sources).toEqual([providerUnavailableSourceSummary]);
     expect("cards" in turn).toBe(false);
     expect("actions" in turn).toBe(false);
+    expect("itineraries" in turn).toBe(false);
   });
 
   test("supports fake Responses clients and tool executors for network-free tests", async () => {
@@ -384,4 +466,68 @@ const planAction = {
   id: "make_plan",
   label: "Make a short plan",
   prompt: "Make this into a short plan.",
+};
+
+const rainyCloud9Plan: ItineraryPlan = {
+  title: "Rainy Cloud 9 Afternoon",
+  durationLabel: "2-3 hours",
+  stops: [
+    {
+      title: "Cloud 9 boardwalk",
+      kind: "activity",
+      sequence: 1,
+      area: "Cloud 9",
+      rationale: "Short, easy first stop with nearby cover if showers build.",
+      caveats: ["Use weather evidence before committing to exposed time outside."],
+    },
+    {
+      title: "Covered cafe near Cloud 9",
+      kind: "meal",
+      sequence: 2,
+      area: "Cloud 9",
+      travelTimeFromPreviousMinutes: 5,
+      mapsUrl: "https://maps.example/cloud9-cafe",
+      rationale: "Keeps the plan close and gives a rain fallback.",
+      caveats: ["Opening hours need a live Places check."],
+    },
+  ],
+  fallbackStops: [
+    {
+      title: "Covered cafe near Cloud 9",
+      kind: "meal",
+      sequence: 1,
+      area: "Cloud 9",
+      rationale: "Use this if rain makes the boardwalk uncomfortable.",
+      caveats: ["Live open status not checked in this artifact."],
+    },
+  ],
+  skip: ["Exposed beach hopping if heavy rain starts"],
+  sources: [localGuideSourceSummary, weatherSourceSummary],
+};
+
+const sunsetDinnerPlan: ItineraryPlan = {
+  title: "Sunset plus Dinner",
+  durationLabel: "3-4 hours",
+  stops: [
+    {
+      title: "General Luna sunset stop",
+      kind: "activity",
+      sequence: 1,
+      area: "General Luna",
+      rationale: "Keeps the route compact before dinner.",
+      caveats: ["Sunset view depends on cloud cover."],
+    },
+    {
+      title: "Dinner near General Luna",
+      kind: "meal",
+      sequence: 2,
+      area: "General Luna",
+      travelTimeFromPreviousMinutes: 10,
+      rationale: "Avoids a late long ride after sunset.",
+      caveats: ["Use Places for live open status."],
+    },
+  ],
+  fallbackStops: [],
+  skip: ["Far north dinner detours after dark"],
+  sources: [localGuideSourceSummary],
 };
