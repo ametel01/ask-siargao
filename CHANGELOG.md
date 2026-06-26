@@ -88,6 +88,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Verified the Priority 3 trust/source label rollout against the roadmap and full release gate.
 - Preserved normalized answer source lines in the chat UI, including metadata-rich Open-Meteo
   source lines that mention Cloud 9 without being split as numbered lists.
 - Added not-verified source caveats to generic chat fallback responses and provider-unavailable

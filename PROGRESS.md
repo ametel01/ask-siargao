@@ -12,11 +12,12 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 - [x] Step 3: Google Places Recommendation Labels
 - [x] Step 4: Generic Fallback And Provider-Failure Labels
 - [x] Step 5: Frontend Parser Regression Coverage
-- [ ] Step 6: Final Verification And Documentation Alignment
+- [x] Step 6: Final Verification And Documentation Alignment
 
 ## Current Status
 
-Step 5 is complete. Step 6 is next: final verification and documentation alignment.
+All steps are complete. The Priority 3 trust score and source labels rollout has passed
+the final validation gate.
 
 ## Update Rule
 
@@ -89,5 +90,16 @@ that step is committed.
   db:migrate:test` passed (38 tables); `bun run db:seed:test` passed (5 areas, 3
   routes, 4 source profiles); `bun run build` passed; `bun run test:e2e` passed (17
   tests).
-  Commit: pending.
+  Commit: `7f5e4b6` (`Cover chat source line rendering`).
   Next step: Step 6, Final Verification And Documentation Alignment.
+- 2026-06-26: Completed Step 6 by reviewing the implementation against the roadmap
+  Priority 3 acceptance criteria, confirming existing README/roadmap/changelog coverage
+  was sufficient without additional environment or README changes, and rerunning the full
+  release gate.
+  Validation: `bun run format` passed; `bun run lint` passed (`biome check .`, 178
+  files checked); `bun run typecheck --incremental false` passed; `bun test` passed (211
+  tests); `bun run db:migrate:test` passed (38 tables); `bun run db:seed:test` passed
+  (5 areas, 3 routes, 4 source profiles); `bun run build` passed; `bun run test:e2e`
+  passed (17 tests).
+  Commit: this commit (`Verify trust source label rollout`).
+  Next step: none.
