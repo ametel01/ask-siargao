@@ -16,9 +16,8 @@
 
 ## Current Status
 
-- Current step: Step 5, align agent memory and tool-use documentation.
-- Next step: Update agent memory guidance so the model knows when to use the safe local
-  data tools without treating memory as evidence.
+- Current step: Step 6, final integration, regression gates, and release notes.
+- Next step: Run the final Priority 6 audit and release gates, then record completion.
 
 ## Step Checklist
 
@@ -27,7 +26,7 @@
 - [x] Step 2: Structured local fact query engine.
 - [x] Step 3: Display-safe source evidence lookup.
 - [x] Step 4: Register safe database tools in the agent runtime.
-- [ ] Step 5: Align agent memory and tool-use documentation.
+- [x] Step 5: Align agent memory and tool-use documentation.
 - [ ] Step 6: Final integration, regression gates, and release notes.
 
 ## Update Log
@@ -111,5 +110,21 @@
   - Passed: `bun test src/server/chat/agent-tools.test.ts`.
   - Passed: `bun test src/server/chat/ask-siargao-agent.test.ts`.
   - Passed: `bun test src/server/chat/source-consistency.test.ts`.
+  - Passed: `bun test`.
+- Commit: pending.
+
+### 2026-06-27 - Step 5 Complete
+
+- Updated agent-memory data dictionary, tool-use policy, and source policy docs with
+  `describe_database_schema`, `query_local_facts`, and `get_source_evidence`
+  guidance, structured filters, local-data evidence boundaries, and restricted-data
+  exclusions.
+- Updated agent-memory loader tests to assert the new safe local data tools and
+  memory-as-reference boundary are present in loaded memory.
+- Validation:
+  - Passed: `bun run format`.
+  - Passed: `bun run lint`.
+  - Passed: `bun run typecheck --incremental false`.
+  - Passed: `bun test src/server/chat/agent-memory.test.ts`.
   - Passed: `bun test`.
 - Commit: pending.

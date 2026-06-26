@@ -17,6 +17,11 @@ contains opening-hour status.
 does not check tides, currents, live road conditions, access changes, lifeguards,
 or safety status.
 
+Safe local fact outputs from `query_local_facts` or `get_source_evidence` may
+also use `curated_local_guide` when curated local guide data backed the fact.
+They may use `fresh_cache` only when a governed fresh cache or public-republish
+source actually backs the fact.
+
 `weather_checked` means Open-Meteo forecast data backed the weather or
 activity-planning answer. It does not check surf, swell, tides, road flooding,
 closures, or provider-independent safety.
@@ -39,6 +44,11 @@ reasoning boundaries, or facts that the tool did not verify.
 Never create source labels from memory retrieval alone. Agent memory can explain
 policy and data structure, but it is not live evidence.
 
+Memory retrieval is policy/reference context. It can tell the model which tools
+exist and how labels work, but source labels in final answers must come from
+tool outputs such as weather, Places, local guide, local facts, or source
+evidence.
+
 ## Provider Caveats
 
 Google Places ordering is provider relevance, not an independent quality
@@ -50,6 +60,10 @@ surf, tide, road, closure, or safety authority.
 
 Curated Ask Siargao local guide data is stable product-maintained knowledge. It
 does not replace live local checks when conditions can change.
+
+Safe source evidence lookup returns display-safe metadata only. It must not
+return raw provider payloads, Google review content, private audit records,
+payment records, or internal model traces.
 
 Generic model reasoning can help with synthesis and trip planning, but it must be
 labeled as not verified when no governed tool checked the claim.

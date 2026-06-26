@@ -29,6 +29,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
   citation-policy handling, Google Places caveats, and restricted payload guards.
 - Registered the safe local data tools in the Responses agent runtime with strict tool
   definitions, audit operation mapping, source summaries, and source-consistency coverage.
+- Updated agent-memory guidance for safe local data tool use, structured filters, source
+  evidence boundaries, and the memory-as-reference-not-evidence rule.
 - Added hosted file-search registration for synced agent memory plus a deterministic
   backend `search_agent_memory` fallback for local and test retrieval.
 - Added agent-memory vector-store synchronization with dry-run support, checksum-aware

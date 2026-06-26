@@ -71,6 +71,9 @@ describe("agent memory loader", () => {
     );
     expect(snapshot.instructionMarkdown).toContain("get_weather_forecast");
     expect(snapshot.instructionMarkdown).toContain("search_places");
+    expect(snapshot.instructionMarkdown).toContain("describe_database_schema");
+    expect(snapshot.instructionMarkdown).toContain("query_local_facts");
+    expect(snapshot.instructionMarkdown).toContain("get_source_evidence");
     expect(snapshot.instructionMarkdown).not.toContain("checksum:");
     expect(snapshot.instructionMarkdown).not.toMatch(/[a-f0-9]{64}/);
   });
@@ -83,14 +86,12 @@ describe("agent memory loader", () => {
         expect.objectContaining({
           fileName: "ASK_SIARGAO_DATA_DICTIONARY.md",
           role: "reference",
-          content: expect.stringContaining("Unrestricted database access is out of scope"),
+          content: expect.stringContaining("Safe local data tools must not expose private"),
         }),
         expect.objectContaining({
           fileName: "ASK_SIARGAO_SOURCE_POLICY.md",
           role: "reference",
-          content: expect.stringContaining(
-            "Never create source labels from memory retrieval alone",
-          ),
+          content: expect.stringContaining("Memory retrieval is policy/reference context"),
         }),
       ]),
     );
