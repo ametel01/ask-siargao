@@ -9,6 +9,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Established progress tracking for the Priority 4 AI tool runtime implementation plan.
 - Established progress tracking for the Priority 3 trust score and source labels implementation
   plan.
 - Added a shared answer source summary contract and compact markdown renderer for checked,
