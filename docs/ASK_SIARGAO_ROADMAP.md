@@ -355,7 +355,7 @@ Initial tools:
 - Add regression tests that deterministic branches cannot return final prose.
 - Add source-consistency tests for model answers that mention checked data.
 
-## Priority 5: Persistent Agent Memory
+## Priority 5: Persistent Agent Memory **COMPLETED**
 
 ### Outcome
 
@@ -412,7 +412,7 @@ agent used.
   instructions.
 - Add a tool test for retrieving source policy or data dictionary content.
 
-## Priority 6: Safe Database And Local Knowledge Tools
+## Priority 6: Safe Database And Local Knowledge Tools **COMPLETED**
 
 ### Outcome
 
