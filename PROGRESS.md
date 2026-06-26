@@ -10,8 +10,8 @@
 ## Status
 
 - Current step: Step 7 - End-to-End Card Coverage and Release Gates
-- State: Step 6 complete
-- Next step: Step 7 - End-to-End Card Coverage and Release Gates
+- State: Complete
+- Next step: None
 
 ## Step Checklist
 
@@ -22,7 +22,7 @@
 - [x] Step 4: Beach Recommendation Cards
 - [x] Step 5: API Response Shape Tests
 - [x] Step 6: ChatWorkspace Card Rendering
-- [ ] Step 7: End-to-End Card Coverage and Release Gates
+- [x] Step 7: End-to-End Card Coverage and Release Gates
 
 ## Tracking Rules
 
@@ -137,5 +137,24 @@
   - `bun test` passed.
   - `npx react-doctor@latest --verbose --scope changed` found no issues; the external score API
     timed out, so no numeric score was available.
-- Commit: Pending creation for Step 6.
+- Commit: `21107ee` - Render recommendation cards in chat.
 - Next step: Step 7 - End-to-End Card Coverage and Release Gates.
+
+### Step 7: End-to-End Card Coverage and Release Gates
+
+- Status: Complete.
+- Changes: Expanded Playwright coverage for structured recommendation cards, including
+  distance/open-status labels, Google Maps link target behavior, prompt action submission, and a
+  mobile overflow regression for long card content while preserving the long-link markdown
+  fallback case.
+- Validation:
+  - `bun run format` passed.
+  - `bun run lint` passed.
+  - `bun run typecheck --incremental false` passed.
+  - `bun test` passed.
+  - `bun run db:migrate:test` passed.
+  - `bun run db:seed:test` passed.
+  - `bun run build` passed.
+  - `bun run test:e2e` passed.
+- Commit: Pending creation for Step 7.
+- Residual risks: None known.

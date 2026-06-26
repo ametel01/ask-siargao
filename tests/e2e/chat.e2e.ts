@@ -143,6 +143,8 @@ test("renders structured recommendation cards and submits action prompts", async
   await expect(
     page.getByTestId("recommendation-card").filter({ hasText: "Shaka Siargao" }),
   ).toBeVisible();
+  await expect(page.getByText("About 50 m from search center.")).toBeVisible();
+  await expect(page.getByText("Open now according to Google Places.")).toBeVisible();
   await expect(page.getByText("Google Places - live checked")).toBeVisible();
   await expect(page.getByText("Review text and bookings were not checked.")).toBeVisible();
 
@@ -154,6 +156,57 @@ test("renders structured recommendation cards and submits action prompts", async
 
   await expect.poll(() => mockChat.requests.length).toBe(2);
   expect(lastSubmittedContent(mockChat.requests[1])).toBe(actionPrompt);
+});
+
+test("keeps recommendation cards inside the mobile chat column", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockChatApi(page, {
+    message: "Mocked mobile card answer: this card should stay inside the assistant bubble.",
+    cards: [
+      {
+        id: "place_long_mobile",
+        kind: "place",
+        title: "A very long Siargao recommendation title near Cloud 9 and General Luna",
+        subtitle:
+          "Cafe - Tourism Road, General Luna - Google rating 4.8 from 1234 ratings - returned by live lookup",
+        mapsUrl:
+          "https://maps.google.com/?cid=1842727875883507531&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMuTW9iaWxlLWNhcmQtbG9uZy11cmwtdGVzdA",
+        distanceLabel: "About 1.7 km from search center.",
+        openStatusLabel: "Hours not returned by Google Places.",
+        fitReasons: [
+          "Returned #1 by Google Places for a deliberately long mobile layout request.",
+          "Google Places primary type: cafe.",
+        ],
+        caveats: [
+          "Review text, bookings, table availability, room availability, and independent local quality checks were not checked.",
+        ],
+        sourceLabel: "Google Places - live checked",
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Send a mobile card");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  const assistantBubble = page.getByTestId("assistant-message-bubble").last();
+  const card = page.getByTestId("recommendation-card").last();
+  await expect(card).toBeVisible();
+  await expect(page.getByRole("link", { name: /Open .* in Google Maps/ })).toBeVisible();
+
+  await expect
+    .poll(async () =>
+      assistantBubble.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+    )
+    .toBe(true);
+  await expect
+    .poll(async () => card.evaluate((element) => element.scrollWidth <= element.clientWidth + 1))
+    .toBe(true);
+  await expect
+    .poll(async () =>
+      page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    )
+    .toBe(true);
 });
 
 test("renders numbered assistant plans and source caveats as separate blocks", async ({ page }) => {
