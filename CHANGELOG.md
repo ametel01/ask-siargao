@@ -27,6 +27,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Established progress and changelog tracking for the Priority 8 Local Itinerary Builder
+  implementation plan.
 - Added Playwright coverage for map-first recommendation cards, including distance/open-status
   labels, Google Maps link behavior, prompt actions, mobile overflow, and markdown fallback.
 - Added chat UI rendering for recommendation cards and follow-up actions beneath assistant
