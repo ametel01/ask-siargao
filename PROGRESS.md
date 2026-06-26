@@ -18,12 +18,13 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 - [x] Step 5: Curated Local Guide Tool
 - [x] Step 6: Responses API Tool Loop Runtime
 - [x] Step 7: Source Consistency Validator
-- [ ] Step 8: Rewire `/api/chat` to the Agent Runtime
+- [x] Step 8: Rewire `/api/chat` to the Agent Runtime
 - [ ] Step 9: Regression, Observability, and Documentation Pass
 
 ## Current Status
 
-Step 7 is complete. The source consistency validator is available, and Step 8 is next.
+Step 8 is complete. `/api/chat` now routes valid responses through the agent runtime, and
+Step 9 is next.
 
 ## Update Rule
 
@@ -141,3 +142,19 @@ that step is committed.
   (17 tests).
   Commit: this commit (`Validate chat answer source consistency`).
   Next step: Step 8, Rewire `/api/chat` to the Agent Runtime.
+- 2026-06-26: Completed Step 8 by replacing deterministic `/api/chat` final-answer branches
+  with the Ask Siargao agent runtime. The route still handles JSON/schema rejection before the
+  runtime, sends deterministic trip/intent/scope signals into the agent request, validates
+  returned message/source/tool metadata with the source consistency validator, and returns the
+  runtime message, model, request ID, upstream request IDs, tool calls, sources, cards, and
+  actions. Route tests now assert every valid successful path calls the agent runtime, including
+  weather, Places, local guide, scope-decline, missing-context, and provider-failure cases.
+  Validation: `bun run format` passed; `bun test
+  src/app/api/chat/route.test.ts src/server/chat/ask-siargao-agent.test.ts
+  src/server/chat/source-consistency.test.ts src/server/chat/agent-tools.test.ts` passed (51
+  tests); `bun run lint` passed (`biome check .`, 186 files checked); `bun run typecheck
+  --incremental false` passed; `bun test` passed (243 tests); `bun run db:migrate:test && bun
+  run db:seed:test` passed (38 tables; 5 areas, 3 routes, 4 source profiles); `bun run build`
+  passed; `bun run test:e2e` passed (17 tests).
+  Commit: this commit (`Route chat through agent runtime`).
+  Next step: Step 9, Regression, Observability, and Documentation Pass.

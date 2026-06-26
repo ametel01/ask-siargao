@@ -105,6 +105,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Routed valid `/api/chat` requests through the Ask Siargao agent runtime so weather, Places,
+  local guide, scope-decline, missing-context, and provider-failure responses are model-written
+  with structured tool/source metadata and source consistency validation.
 - Verified the Priority 3 trust/source label rollout against the roadmap and full release gate.
 - Preserved normalized answer source lines in the chat UI, including metadata-rich Open-Meteo
   source lines that mention Cloud 9 without being split as numbered lists.
