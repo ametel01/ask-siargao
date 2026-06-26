@@ -9,14 +9,14 @@
 
 ## Status
 
-- Current step: Step 1 - Structured Chat Artifact Contracts
-- State: Step 0 complete
-- Next step: Step 1 - Structured Chat Artifact Contracts
+- Current step: Step 2 - Tool-Backed Card and Action Generation
+- State: Step 1 complete
+- Next step: Step 2 - Tool-Backed Card and Action Generation
 
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
-- [ ] Step 1: Structured Chat Artifact Contracts
+- [x] Step 1: Structured Chat Artifact Contracts
 - [ ] Step 2: Tool-Backed Card and Action Generation
 - [ ] Step 3: Places Recommendation Cards
 - [ ] Step 4: Beach Recommendation Cards
@@ -44,5 +44,20 @@
   - `test -f CHANGELOG.md` passed.
   - `rg -n "Map-First Recommendation Cards|Step 0|Step 1" PROGRESS.md` passed.
   - `rg -n "^# Changelog|^## \\[Unreleased\\]" CHANGELOG.md` passed.
-- Commit: Pending creation for Step 0.
+- Commit: `5e5137d` - Track map-first card implementation progress.
 - Next step: Step 1 - Structured Chat Artifact Contracts.
+
+### Step 1: Structured Chat Artifact Contracts
+
+- Status: Complete.
+- Changes: Replaced the generic recommendation-card placeholder with the roadmap fields for
+  place/beach cards and allowed prompt actions to serialize as `id`, `label`, and `prompt`
+  without requiring a `type`.
+- Validation:
+  - `bun test src/server/chat/agent-runtime.test.ts` passed.
+  - `bun run format` passed.
+  - `bun run lint` passed.
+  - `bun run typecheck --incremental false` passed.
+  - `bun test` passed.
+- Commit: Pending creation for Step 1.
+- Next step: Step 2 - Tool-Backed Card and Action Generation.

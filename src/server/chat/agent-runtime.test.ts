@@ -149,7 +149,7 @@ describe("agent runtime contracts", () => {
     ]);
   });
 
-  test("creates turn results with source aggregation and future UI metadata", () => {
+  test("creates turn results with source aggregation and structured UI artifacts", () => {
     const toolCall = createAgentToolCallAudit({
       auditId: "audit_3",
       name: "search_local_guide",
@@ -170,14 +170,33 @@ describe("agent runtime contracts", () => {
       upstreamRequestIds: ["req_model_1", "req_model_1"],
       model: "gpt-test",
       toolCalls: [toolCall],
-      cards: [{ id: "card_doot", title: "Doot Beach" }],
-      actions: [{ id: "ask_weather", label: "Check weather", type: "prompt", prompt: "Weather?" }],
+      cards: [
+        {
+          id: "card_doot",
+          kind: "beach",
+          title: "Doot Beach",
+          subtitle: "General Luna-side sandy beach",
+          mapsUrl: "https://www.google.com/maps/search/?api=1&query=Doot%20Beach%20Siargao",
+          distanceLabel: "About 20 minutes by tricycle from General Luna",
+          fitReasons: ["Sandy shore", "Works for a quieter beach stop"],
+          caveats: ["Check tide and road conditions before leaving"],
+          sourceLabel: "Ask Siargao curated local beach guide",
+        },
+      ],
+      actions: [{ id: "ask_weather", label: "Check weather", prompt: "Weather?" }],
     });
 
     expect(turn.sources).toEqual([localGuideSourceSummary]);
     expect(turn.upstreamRequestIds).toEqual(["req_model_1"]);
     expect(turn.cards?.[0]?.title).toBe("Doot Beach");
-    expect(turn.actions?.[0]?.type).toBe("prompt");
+    expect(turn.cards?.[0]?.kind).toBe("beach");
+    expect(turn.cards?.[0]?.mapsUrl).toContain("google.com/maps");
+    expect(turn.cards?.[0]?.fitReasons).toContain("Sandy shore");
+    expect(turn.actions?.[0]).toEqual({
+      id: "ask_weather",
+      label: "Check weather",
+      prompt: "Weather?",
+    });
   });
 
   test("supports fake Responses clients and tool executors for network-free tests", async () => {

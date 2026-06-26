@@ -45,19 +45,25 @@ export type AgentToolCallAudit = {
   sources: readonly AnswerSourceSummary[];
 };
 
+export type RecommendationCardKind = "place" | "beach";
+
 export type RecommendationCard = {
   id: string;
+  kind: RecommendationCardKind;
   title: string;
   subtitle?: string;
-  description?: string;
-  href?: string;
-  metadata?: Record<string, unknown>;
+  mapsUrl?: string;
+  distanceLabel?: string;
+  openStatusLabel?: string;
+  fitReasons: readonly string[];
+  caveats: readonly string[];
+  sourceLabel: string;
 };
 
 export type ChatAction = {
   id: string;
   label: string;
-  type: "link" | "prompt" | "navigation";
+  type?: "link" | "prompt" | "navigation";
   href?: string;
   prompt?: string;
   metadata?: Record<string, unknown>;
