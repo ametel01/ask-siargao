@@ -13,15 +13,15 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Agent Memory Files, Manifest, and Validation
 - [x] Step 2: Instruction Memory Injection and Version Metadata
-- [ ] Step 3: Vector Store Sync and Operational Configuration
+- [x] Step 3: Vector Store Sync and Operational Configuration
 - [ ] Step 4: File Search Tool Registration and Backend Memory Fallback
 - [ ] Step 5: Runtime Reference, Release Checks, and Cleanup
 
 ## Current Status
 
-Step 2 is complete. The chat agent loads Markdown instruction memory for every
-Responses call and exposes memory version metadata in runtime results, route
-responses, and logs without logging raw memory document bodies.
+Step 3 is complete. Maintainers can dry-run or sync reference agent-memory files
+to an OpenAI vector store through a repo script, with checksum-aware skip logic
+and server-only configuration documented.
 
 ## Update Rule
 
@@ -66,5 +66,21 @@ before that step is committed.
   3 routes, 4 source profiles); `bun run build` passed without the memory-loader
   trace warning after scoping reads to `docs/agent-memory/`; `bun run test:e2e`
   passed (17 tests).
-  Commit: this commit (`Load agent memory into chat instructions`).
+  Commit: `46024ed` (`Load agent memory into chat instructions`).
   Next step: Step 3, Vector Store Sync and Operational Configuration.
+- 2026-06-27: Completed Step 3 by adding the agent-memory vector-store sync
+  module, fake-client tests, a `bun run agent-memory:sync` CLI with dry-run
+  support, checksum-aware skip metadata, failed-upload propagation, server-only
+  `OPENAI_AGENT_MEMORY_VECTOR_STORE_ID` documentation, and script reference
+  docs. Normal chat requests still do not upload memory files.
+  Validation: `bun run format` passed; `bun test
+  src/server/chat/agent-memory-vector-store.test.ts
+  src/server/chat/agent-memory.test.ts` passed (11 tests); `bun run
+  agent-memory:sync -- --dry-run` passed and printed only file names/checksums;
+  `bun run lint` passed (`biome check .`, 191 files checked); `bun run
+  typecheck --incremental false` passed; `bun test` passed (259 tests);
+  `bun run db:migrate:test && bun run db:seed:test` passed (38 tables; 5 areas,
+  3 routes, 4 source profiles); `bun run build` passed; `bun run test:e2e`
+  passed (17 tests).
+  Commit: this commit (`Add agent memory vector store sync`).
+  Next step: Step 4, File Search Tool Registration and Backend Memory Fallback.

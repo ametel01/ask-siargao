@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added agent-memory vector-store synchronization with dry-run support, checksum-aware
+  file metadata, a package script, and server-only configuration documentation.
 - Added reviewable agent-memory Markdown files with required-file validation, role
   classification, checksums, and deterministic memory version IDs.
 - Established progress tracking for the Priority 5 persistent agent memory implementation plan.
