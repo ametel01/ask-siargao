@@ -27,6 +27,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added `/api/chat` itinerary artifact responses with route coverage for rainy Cloud 9, sunset
+  dinner, sandy beach half-day, and food-crawl prompts.
 - Added weather and Google Places follow-up requirements to itinerary artifacts so rainy,
   weather-sensitive, meal, cafe, dinner, and food-crawl plans identify the live checks needed
   before final AI-written prose.

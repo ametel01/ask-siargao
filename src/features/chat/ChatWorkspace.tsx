@@ -44,6 +44,7 @@ type InteractiveChatMessage = {
   retryPrompt?: string;
   cards?: readonly RecommendationCardArtifact[];
   actions?: readonly ChatActionArtifact[];
+  itineraries?: readonly ItineraryPlanArtifact[];
 };
 
 type RecommendationCardArtifact = {
@@ -65,6 +66,34 @@ type ChatActionArtifact = {
   type?: "link" | "prompt" | "navigation";
   href?: string;
   prompt?: string;
+};
+
+type ItineraryStopArtifact = {
+  title: string;
+  kind: "place" | "beach" | "activity" | "meal" | "transfer";
+  sequence: number;
+  area?: string;
+  travelTimeFromPreviousMinutes?: number;
+  mapsUrl?: string;
+  rationale: string;
+  caveats: readonly string[];
+};
+
+type ItineraryPlanArtifact = {
+  title: string;
+  durationLabel: string;
+  stops: readonly ItineraryStopArtifact[];
+  fallbackStops: readonly ItineraryStopArtifact[];
+  skip: readonly string[];
+  sources: readonly {
+    label: string;
+    sourceName: string;
+    sourceProfileId?: string;
+    fetchedAt?: string;
+    confidence?: "high" | "medium" | "low";
+    checked: readonly string[];
+    notChecked: readonly string[];
+  }[];
 };
 
 type ChatComposerProps = {
@@ -147,6 +176,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
           message?: string;
           cards?: RecommendationCardArtifact[];
           actions?: ChatActionArtifact[];
+          itineraries?: ItineraryPlanArtifact[];
         };
 
         const responseMessage = body.message;
@@ -165,6 +195,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
                   status: "complete",
                   cards: body.cards,
                   actions: body.actions,
+                  itineraries: body.itineraries,
                 }
               : message,
           ),

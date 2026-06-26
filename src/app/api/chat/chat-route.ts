@@ -182,6 +182,7 @@ export async function chatResponse(
         toolCallCount: result.toolCalls.length,
         toolCalls: result.toolCalls.map(summarizeToolCallForLogs),
         sourceCount: result.sources.length,
+        itineraryCount: result.itineraries?.length ?? 0,
         upstreamRequestIds: result.upstreamRequestIds,
         agentMemoryVersionId: result.memory?.versionId,
         durationMs: Date.now() - startedAt,
@@ -202,6 +203,7 @@ export async function chatResponse(
         ...(result.memory ? { memory: summarizeMemoryForResponse(result.memory) } : {}),
         ...(result.cards?.length ? { cards: result.cards } : {}),
         ...(result.actions?.length ? { actions: result.actions } : {}),
+        ...(result.itineraries?.length ? { itineraries: result.itineraries } : {}),
       },
       { headers },
     );
@@ -309,7 +311,6 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
     ) ||
     ((today || nearby) && isActivityPlanContent(latestUserTurn));
   const activityPlan =
-    !placeIntent &&
     (isActivityPlanContent(latestUserTurn) || tripContext.activeGoal === "itinerary") &&
     (Boolean(locationLabel) || /\bsiargao\b/i.test(fullUserContext));
   const partialIntent = {
@@ -340,7 +341,7 @@ function isActivityPlanContent(content: string) {
 }
 
 function isBeachContent(content: string) {
-  return /\b(beaches?|beach\s+day|swim(?:ming)?|sand(?:y)?\s+beaches?|not\s+rocky|rocky|sunset\s+beach|within\s+\d+\s*(?:min|minutes?)\s+(?:ride|drive)|scooter\s+(?:ride|day|trip))\b/i.test(
+  return /\b(beaches?|beach\s+day|swim(?:ming)?|sand(?:y)?\s+beach(?:es)?|not\s+rocky|rocky|sunset\s+beach|within\s+\d+\s*(?:min|minutes?)\s+(?:ride|drive)|scooter\s+(?:ride|day|trip))\b/i.test(
     content,
   );
 }

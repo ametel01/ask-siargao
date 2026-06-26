@@ -12,6 +12,7 @@ import type {
   AgentRuntimeRequest,
   AgentToolCallAudit,
   AgentTurnResult,
+  ItineraryPlan,
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 
@@ -62,6 +63,7 @@ describe("chat route", () => {
     expect(body.sources).toEqual([genericSourceSummary]);
     expect(body.cards).toBeUndefined();
     expect(body.actions).toBeUndefined();
+    expect(body.itineraries).toBeUndefined();
     expect(dependencies.requests[0]?.messages[0]?.content).toBe(
       "Where should we eat near Cloud 9?",
     );
@@ -191,6 +193,118 @@ describe("chat route", () => {
     expect(body.cards).toEqual([placeRecommendationCard]);
     expect(body.actions).toEqual([promptAction]);
   });
+
+  test("returns itinerary artifacts with markdown, metadata, tool calls, and sources", async () => {
+    const itineraryToolCall = toolCall({
+      name: "plan_local_itinerary",
+      status: "success",
+      sources: [localGuideSourceSummary],
+    });
+    const dependencies = chatDependencies({
+      message: "Here is the model-written itinerary answer.",
+      toolCalls: [itineraryToolCall],
+      sources: [localGuideSourceSummary],
+      itineraries: [rainyCloud9Itinerary],
+      memory: memoryMetadata,
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Plan a rainy Cloud 9 afternoon for 3 hours." }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toBe("Here is the model-written itinerary answer.");
+    expect(body.requestId).toBe(dependencies.requests[0]?.requestId);
+    expect(body.model).toBe("gpt-test");
+    expect(body.toolCalls).toEqual([itineraryToolCall]);
+    expect(body.sources).toEqual([localGuideSourceSummary]);
+    expect(body.memory).toEqual(publicMemoryMetadata);
+    expect(body.itineraries).toEqual([rainyCloud9Itinerary]);
+  });
+
+  test("omits itinerary artifacts when the agent returns none", async () => {
+    const dependencies = chatDependencies({
+      message: "No structured itinerary needed.",
+      sources: [genericSourceSummary],
+      itineraries: [],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Give me one quick Siargao tip." }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.itineraries).toBeUndefined();
+  });
+
+  for (const scenario of [
+    {
+      name: "rainy Cloud 9 afternoon",
+      prompt: "Plan a rainy Cloud 9 afternoon for 3 hours.",
+      assertSignals: (signals: AgentSignals | undefined) => {
+        expect(signals?.intent.activityPlan).toBe(true);
+        expect(signals?.intent.weatherSensitive).toBe(true);
+      },
+    },
+    {
+      name: "sunset plus dinner",
+      prompt: "Plan sunset plus dinner in General Luna tonight.",
+      assertSignals: (signals: AgentSignals | undefined) => {
+        expect(signals?.intent.activityPlan).toBe(true);
+        expect(signals?.intent.placeIntent?.category).toBe("food");
+      },
+    },
+    {
+      name: "sandy beach half-day",
+      prompt: "Plan a sandy beach half-day within 30 minutes from General Luna.",
+      assertSignals: (signals: AgentSignals | undefined) => {
+        expect(signals?.intent.activityPlan).toBe(true);
+        expect(signals?.intent.beach).toBe(true);
+      },
+    },
+    {
+      name: "food crawl",
+      prompt: "Plan a three-hour food crawl in General Luna.",
+      assertSignals: (signals: AgentSignals | undefined) => {
+        expect(signals?.intent.activityPlan).toBe(true);
+        expect(signals?.intent.placeIntent?.category).toBe("food");
+      },
+    },
+  ]) {
+    test(`returns itinerary artifacts for ${scenario.name} prompts`, async () => {
+      const dependencies = chatDependencies({
+        message: `Model-written ${scenario.name} itinerary.`,
+        toolCalls: [
+          toolCall({
+            name: "plan_local_itinerary",
+            status: "success",
+            sources: [localGuideSourceSummary],
+          }),
+        ],
+        sources: [localGuideSourceSummary],
+        itineraries: [rainyCloud9Itinerary],
+      });
+      const response = await chatResponse(
+        jsonRequest({
+          messages: [{ role: "user", content: scenario.prompt }],
+        }),
+        dependencies,
+      );
+      const body = await response.json();
+      const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+      expect(response.status).toBe(200);
+      expect(body.message).toContain("Model-written");
+      expect(body.itineraries).toEqual([rainyCloud9Itinerary]);
+      scenario.assertSignals(signals);
+    });
+  }
 
   test("allows not-verified card source labels without checked tool evidence", async () => {
     const dependencies = chatDependencies({
@@ -335,6 +449,7 @@ describe("chat route", () => {
       agentMemoryVersionId: memoryMetadata.versionId,
       providerFailure: true,
       sourceLabels: ["provider_unavailable"],
+      itineraryCount: 0,
       toolCallCount: 1,
       toolCalls: [
         expect.objectContaining({
@@ -392,8 +507,11 @@ describe("chat route", () => {
 
 type AgentSignals = {
   intent: {
+    activityPlan?: boolean;
     beach?: boolean;
     placeIntent?: { category?: string };
+    tripContext?: { activeGoal?: string };
+    weatherSensitive?: boolean;
     weather?: boolean;
   };
   scope: {
@@ -424,6 +542,7 @@ function chatDependencies(
         ...(result.memory ? { memory: result.memory } : {}),
         ...(result.cards ? { cards: result.cards } : {}),
         ...(result.actions ? { actions: result.actions } : {}),
+        ...(result.itineraries ? { itineraries: result.itineraries } : {}),
       };
     },
     requests,
@@ -584,6 +703,43 @@ const localGuideSourceSummary: AnswerSourceSummary = {
   confidence: "medium",
   checked: ["beach surface notes", "ride-time notes"],
   notChecked: ["live tide", "lifeguard status"],
+};
+
+const rainyCloud9Itinerary: ItineraryPlan = {
+  title: "Rainy Cloud 9 Afternoon",
+  durationLabel: "3-4 hours",
+  stops: [
+    {
+      title: "Cloud 9 boardwalk",
+      kind: "activity",
+      sequence: 1,
+      area: "Cloud 9",
+      rationale: "Keep the exposed stop short.",
+      caveats: ["Weather needs checking."],
+    },
+    {
+      title: "Covered cafe near Cloud 9",
+      kind: "meal",
+      sequence: 2,
+      area: "Cloud 9",
+      travelTimeFromPreviousMinutes: 5,
+      mapsUrl: "https://maps.example/cloud9-cafe",
+      rationale: "Fallback if rain builds.",
+      caveats: ["Open status needs Places."],
+    },
+  ],
+  fallbackStops: [
+    {
+      title: "Covered cafe near Cloud 9",
+      kind: "meal",
+      sequence: 1,
+      area: "Cloud 9",
+      rationale: "Use during active rain.",
+      caveats: ["Open status needs Places."],
+    },
+  ],
+  skip: ["Exposed beach hopping"],
+  sources: [localGuideSourceSummary],
 };
 
 const providerUnavailableSourceSummary: AnswerSourceSummary = {

@@ -18,7 +18,7 @@ commit reference when available, current status, and the next step.
 - [x] Step 2: Add Shared Itinerary Artifact Types
 - [x] Step 3: Build Deterministic Itinerary Planning Tool Data
 - [x] Step 4: Integrate Weather and Places Requirements Into Itinerary Flow
-- [ ] Step 5: Return Itinerary Artifacts From `/api/chat`
+- [x] Step 5: Return Itinerary Artifacts From `/api/chat`
 - [ ] Step 6: Render Itinerary Plans in the Chat UI
 - [ ] Step 7: Add End-to-End Itinerary Behavior Coverage
 - [ ] Step 8: Update Developer and Agent Documentation
@@ -26,7 +26,7 @@ commit reference when available, current status, and the next step.
 
 ## Current Status
 
-Step 4 is complete. Step 5 is next.
+Step 5 is complete. Step 6 is next.
 
 ## Update Log
 
@@ -137,6 +137,33 @@ Validation:
 - `bun test src/server/chat/source-consistency.test.ts`: passed (12 tests).
 - `bun test`: passed (322 tests across 41 files).
 
-Commit: `Connect itinerary plans to weather and places tools`.
+Commit: `dd1c240` (`Connect itinerary plans to weather and places tools`).
 
 Next step: Step 5, return itinerary artifacts from `/api/chat`.
+
+### Step 5: Return Itinerary Artifacts From `/api/chat`
+
+Completed:
+
+- Added `itineraries` to successful `/api/chat` JSON responses when the agent returns itinerary
+  artifacts.
+- Omitted `itineraries` when the artifact array is empty.
+- Logged itinerary artifact counts without provider payloads.
+- Preserved markdown, tool calls, sources, memory, cards, actions, and source-consistency error
+  behavior.
+- Updated local chat response/message types to accept itinerary artifacts for the upcoming UI
+  renderer.
+- Preserved itinerary-like deterministic signals, including activity-plan signals alongside
+  place intent for dinner and food-crawl prompts.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `bun test src/app/api/chat/route.test.ts`: passed (22 tests).
+- `bun test`: passed (328 tests across 41 files).
+
+Commit: `Return itinerary artifacts from chat API`.
+
+Next step: Step 6, render itinerary plans in the chat UI.
