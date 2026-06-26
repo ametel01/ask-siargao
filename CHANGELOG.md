@@ -11,6 +11,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 - Established progress tracking for the Priority 3 trust score and source labels implementation
   plan.
+- Added a shared answer source summary contract and compact markdown renderer for checked,
+  not-checked, weather-signal, confidence, source-profile, and freshness labels.
 - Established progress tracking for the Priority 2 contextual follow-up and request-scoped trip
   memory implementation plan.
 - Added a shared request-scoped trip context and intent module for deriving stable Siargao context,

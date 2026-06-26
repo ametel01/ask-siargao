@@ -7,7 +7,7 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
-- [ ] Step 1: Shared Answer Source Summary Contract
+- [x] Step 1: Shared Answer Source Summary Contract
 - [ ] Step 2: Curated Beach And Weather Labels
 - [ ] Step 3: Google Places Recommendation Labels
 - [ ] Step 4: Generic Fallback And Provider-Failure Labels
@@ -16,8 +16,8 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 
 ## Current Status
 
-Step 0 is complete. Step 1 is next: add the shared answer source summary contract and
-markdown renderer.
+Step 1 is complete. Step 2 is next: thread the shared source summary renderer through
+curated beach and weather answers.
 
 ## Update Rule
 
@@ -32,5 +32,16 @@ that step is committed.
 - 2026-06-26: Completed Step 0 by creating `PROGRESS.md` and updating `CHANGELOG.md`
   with trust-label rollout tracking.
   Validation: `bun run lint` passed (`biome check .`, 176 files checked).
-  Commit: pending.
+  Commit: `ef0e767` (`Add trust-label implementation tracking`).
   Next step: Step 1, Shared Answer Source Summary Contract.
+- 2026-06-26: Completed Step 1 by adding `AnswerTrustLabel`, `AnswerSourceSummary`,
+  Google Places freshness mapping, compact source-line rendering, and focused renderer
+  tests.
+  Validation: `bun run format` passed; `bun run lint` passed (`biome check .`, 178
+  files checked); `bun run typecheck --incremental false` passed; `bun test
+  src/server/chat/answer-source-summary.test.ts` passed (6 tests); `bun test` passed
+  (209 tests); `bun run db:migrate:test` passed (38 tables); `bun run db:seed:test`
+  passed (5 areas, 3 routes, 4 source profiles); `bun run build` passed; `bun run
+  test:e2e` passed (17 tests).
+  Commit: pending.
+  Next step: Step 2, Curated Beach And Weather Labels.
