@@ -5,7 +5,7 @@ Source roadmap: `/Users/alexmetelli/source/ask-siargao/docs/ASK_SIARGAO_ROADMAP.
 
 ## Current Status
 
-Step 5 is complete. Step 6 is next: Render Priority 1 Answers With Checked And Not Checked Caveats.
+Step 6 is complete. Step 7 is next: End-To-End Priority 1 Verification And Documentation.
 
 This file must be updated after every completed step with the completed step, validation results,
 commit reference if available, current status, and next step.
@@ -18,7 +18,7 @@ commit reference if available, current status, and next step.
 - [x] Step 3: Generalize The Recommendation Agent From Food To Places
 - [x] Step 4: Normalize Candidates Into LocalRecommendation
 - [x] Step 5: Harden Cache-First Live Provider Behavior
-- [ ] Step 6: Render Priority 1 Answers With Checked And Not Checked Caveats
+- [x] Step 6: Render Priority 1 Answers With Checked And Not Checked Caveats
 - [ ] Step 7: End-To-End Priority 1 Verification And Documentation
 
 ## Update Log
@@ -149,5 +149,28 @@ commit reference if available, current status, and next step.
   - `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
   - `bun run build`: passed.
   - `bun run test:e2e`: passed, 17 tests.
-- Commit: `feat: harden places cache refresh behavior`.
+- Commit: `5232ea1 feat: harden places cache refresh behavior`.
 - Next step: Step 6, Render Priority 1 Answers With Checked And Not Checked Caveats.
+
+### Step 6: Render Priority 1 Answers With Checked And Not Checked Caveats
+
+- Status: Complete.
+- Summary:
+  - Standardized recommendation answer caveats so both full and compact follow-up answers include
+    explicit `Checked:` and `Not checked:` lines.
+  - Preserved grounded numbered recommendation rendering with fit reasons, open-now/closed/unknown
+    hours labels, ratings, addresses, and Google Maps links.
+  - Added assertions for checked/not-checked caveats, covered-place caveat copy, and map links in
+    Google-backed results.
+  - Preserved bounded no-results fallback links and route-level provider failure behavior.
+- Validation:
+  - `bun run format`: passed; no fixes applied.
+  - `bun run lint`: passed.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed, 176 tests.
+  - `bun run db:migrate:test`: passed, migrated 38 tables.
+  - `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 17 tests.
+- Commit: `feat: render grounded local recommendations`.
+- Next step: Step 7, End-To-End Priority 1 Verification And Documentation.

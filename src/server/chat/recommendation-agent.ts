@@ -947,7 +947,10 @@ function renderRecommendationAnswer(
     }),
   );
   const caveats = compactMealFollowUpCaveat(intent)
-    ? ["Checked Google Places for open nearby options. Covered seating and bookings not verified."]
+    ? [
+        "Checked: Google Places open-now signal, distance, addresses, and map links.",
+        "Not checked: covered seating, bookings, review text, or independent local validation.",
+      ]
     : [
         "Checked: Google Places ratings, open-now signal, distance, addresses, and map links.",
         "Not checked: covered seating, bookings, review text, or independent local validation.",

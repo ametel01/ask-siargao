@@ -78,6 +78,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Rendered Priority 1 local recommendation answers with explicit `Checked:` and `Not checked:`
+  caveats for Google Places signals, covered seating, bookings, review text, and local validation.
 - Hardened Google Places chat-cache refresh behavior for partial fresh cache rows and live-status
   requests whose cached rows lack opening-hour status.
 - Generalized the recommendation agent from food-only deterministic searches to Priority 1 local

@@ -255,13 +255,11 @@ describe("RecommendationAgent", () => {
     expect(response.message).not.toContain("Cloud 9 Coffee Bar");
     expect(response.message).not.toContain("Cloud 9 Brunch Spot");
     expect(response.message).not.toContain("Rain fit:");
-    expect(response.message).toContain(
-      "Checked Google Places for open nearby options. Covered seating and bookings not verified.",
-    );
     expect(response.message).toContain("Best fit: closest strong match");
     expect(response.message).toContain("from Cloud 9, open now.");
     expect(response.message).not.toContain("Google currently reports open.");
-    expect(response.message).not.toContain("Not checked: covered seating");
+    expect(response.message).toContain("Checked: Google Places open-now signal");
+    expect(response.message).toContain("Not checked: covered seating");
   });
 
   test("keeps breakfast caveats full but compacts lunch meal follow-up caveats", async () => {
@@ -306,10 +304,8 @@ describe("RecommendationAgent", () => {
     });
     expect(breakfastResponse.message).toContain("Checked: Google Places ratings");
     expect(breakfastResponse.message).toContain("Not checked: covered seating");
-    expect(lunchResponse.message).toContain(
-      "Checked Google Places for open nearby options. Covered seating and bookings not verified.",
-    );
-    expect(lunchResponse.message).not.toContain("Not checked: covered seating");
+    expect(lunchResponse.message).toContain("Checked: Google Places open-now signal");
+    expect(lunchResponse.message).toContain("Not checked: covered seating");
   });
 
   test("searches Google Places for covered cafe open-now follow-ups", async () => {
@@ -350,6 +346,8 @@ describe("RecommendationAgent", () => {
     });
     expect(response.message).toContain("Covered Beachfront Cafe");
     expect(response.message).toContain("Checked: Google Places ratings");
+    expect(response.message).toContain("Not checked: covered seating");
+    expect(response.message).toContain("Maps: https://maps.google.com/?cid=place_dapa");
   });
 
   test("lets the planner choose search and ranking actions before rendering candidates", async () => {
