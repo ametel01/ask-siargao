@@ -23,6 +23,11 @@ export type AgentMemoryUploadedFile = {
   id: string;
 };
 
+export type AgentMemoryVectorStoreFileDeleted = {
+  id: string;
+  deleted: boolean;
+};
+
 export type AgentMemoryVectorStoreClient = {
   files: {
     create: (params: { file: File; purpose: "assistants" }) => Promise<AgentMemoryUploadedFile>;
@@ -48,6 +53,10 @@ export type AgentMemoryVectorStoreClient = {
           attributes: Record<string, string | number | boolean>;
         },
       ) => Promise<AgentMemoryVectorStoreFile>;
+      delete: (
+        fileId: string,
+        params: { vector_store_id: string },
+      ) => Promise<AgentMemoryVectorStoreFileDeleted>;
     };
   };
 };
@@ -66,6 +75,7 @@ export type AgentMemoryVectorStoreSyncFileResult = {
   checksum: string;
   action: "would_upload" | "uploaded" | "skipped_unchanged";
   vectorStoreFileId?: string;
+  staleVectorStoreFileIdsDeleted?: readonly string[];
 };
 
 export type AgentMemoryVectorStoreSyncResult = {
@@ -121,14 +131,21 @@ export async function syncAgentMemoryVectorStore(
   const files: AgentMemoryVectorStoreSyncFileResult[] = [];
 
   for (const file of referenceFiles) {
+    const staleFiles = findStaleVectorStoreFiles(existingFiles, file);
     const existing = findUnchangedVectorStoreFile(existingFiles, file);
     if (existing) {
+      const staleVectorStoreFileIdsDeleted = await deleteStaleVectorStoreFiles(
+        client,
+        vectorStore.id,
+        staleFiles,
+      );
       files.push({
         fileName: file.fileName,
         memoryId: file.id,
         checksum: file.checksum,
         action: "skipped_unchanged",
         vectorStoreFileId: existing.id,
+        ...(staleVectorStoreFileIdsDeleted.length > 0 ? { staleVectorStoreFileIdsDeleted } : {}),
       });
       continue;
     }
@@ -150,12 +167,19 @@ export async function syncAgentMemoryVectorStore(
       );
     }
 
+    const staleVectorStoreFileIdsDeleted = await deleteStaleVectorStoreFiles(
+      client,
+      vectorStore.id,
+      staleFiles,
+    );
+
     files.push({
       fileName: file.fileName,
       memoryId: file.id,
       checksum: file.checksum,
       action: "uploaded",
       vectorStoreFileId: attached.id,
+      ...(staleVectorStoreFileIdsDeleted.length > 0 ? { staleVectorStoreFileIdsDeleted } : {}),
     });
   }
 
@@ -178,7 +202,10 @@ export function formatAgentMemoryVectorStoreSyncResult(result: AgentMemoryVector
   ];
 
   for (const file of result.files) {
-    lines.push(`${file.action}: ${file.fileName} (${file.checksum})`);
+    const staleDeleteSummary = file.staleVectorStoreFileIdsDeleted?.length
+      ? `; deleted stale vector-store files: ${file.staleVectorStoreFileIdsDeleted.join(", ")}`
+      : "";
+    lines.push(`${file.action}: ${file.fileName} (${file.checksum})${staleDeleteSummary}`);
   }
 
   if (!result.dryRun) {
@@ -235,6 +262,41 @@ function findUnchangedVectorStoreFile(
       file.attributes?.agent_memory_id === memoryFile.id &&
       file.attributes?.agent_memory_checksum === memoryFile.checksum,
   );
+}
+
+function findStaleVectorStoreFiles(
+  files: readonly AgentMemoryVectorStoreFile[],
+  memoryFile: AgentMemoryReferenceFile,
+) {
+  return files.filter(
+    (file) =>
+      file.attributes?.agent_memory_id === memoryFile.id &&
+      file.attributes?.agent_memory_checksum !== memoryFile.checksum,
+  );
+}
+
+async function deleteStaleVectorStoreFiles(
+  client: AgentMemoryVectorStoreClient,
+  vectorStoreId: string,
+  files: readonly AgentMemoryVectorStoreFile[],
+) {
+  const deletedFileIds: string[] = [];
+
+  for (const file of files) {
+    const deleted = await client.vectorStores.files.delete(file.id, {
+      vector_store_id: vectorStoreId,
+    });
+
+    if (!deleted.deleted) {
+      throw new Error(
+        `Failed to delete stale agent memory vector-store file ${file.id} from ${vectorStoreId}.`,
+      );
+    }
+
+    deletedFileIds.push(file.id);
+  }
+
+  return deletedFileIds;
 }
 
 function vectorStoreFileAttributes(

@@ -37,9 +37,11 @@ The current memory layers are:
   `search_agent_memory`, a deterministic local search tool over reference-role Markdown files for
   local development and tests.
 
-Every successful agent turn can include memory metadata: version ID, file IDs, roles, checksums,
-byte lengths, and optional vector-store ID. Logs use the same metadata summary and must not include
-raw memory document bodies.
+Every successful agent turn can include internal memory metadata: version ID, file IDs, roles,
+checksums, byte lengths, and optional vector-store ID. Public `/api/chat` responses expose only the
+memory version plus file IDs, names, and roles; vector-store IDs and checksums remain server/log
+metadata. Model-facing prompt and `search_agent_memory` tool payloads also omit vector-store IDs,
+checksums, relative paths, and byte lengths. Logs must not include raw memory document bodies.
 
 To add or edit agent memory:
 

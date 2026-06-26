@@ -7,6 +7,15 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ## [Unreleased]
 
+### Fixed
+
+- Deleted stale hosted file-search memory attachments when reference memory files are replaced or
+  duplicate older checksums remain in the same vector store.
+- Bound backend `search_agent_memory` tool calls to the already resolved turn memory snapshot.
+- Redacted server-only memory deployment metadata from public chat responses.
+- Removed server-only memory deployment metadata from model-facing prompt and memory-search tool
+  payloads.
+
 ### Added
 
 - Added hosted file-search registration for synced agent memory plus a deterministic

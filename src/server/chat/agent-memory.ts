@@ -117,14 +117,7 @@ export function loadAgentMemorySnapshot(
 }
 
 function renderInstructionMarkdown(files: readonly AgentMemoryInstructionFile[]) {
-  return files
-    .map((file) =>
-      [
-        `<!-- Agent memory: ${file.title}; checksum: ${file.checksum} -->`,
-        file.content.trim(),
-      ].join("\n"),
-    )
-    .join("\n\n");
+  return files.map((file) => file.content.trim()).join("\n\n");
 }
 
 function buildVersionId(files: readonly AgentMemoryFile[]) {

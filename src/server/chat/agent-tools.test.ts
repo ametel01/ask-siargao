@@ -830,6 +830,8 @@ describe("agent tools", () => {
     expect(result.text).toContain("not live evidence");
     expect(result.sources).toEqual([]);
     expect(JSON.stringify(result.data)).toContain("source labels");
+    expect(JSON.stringify(result.data)).not.toContain("checksum");
+    expect(JSON.stringify(result.data)).not.toContain("b".repeat(64));
     expect(JSON.stringify(result.data)).not.toContain("live_checked");
     expect(JSON.stringify(result.data)).not.toContain("fresh_cache");
     expect(JSON.stringify(result.data)).not.toContain("weather_checked");

@@ -71,6 +71,8 @@ describe("agent memory loader", () => {
     );
     expect(snapshot.instructionMarkdown).toContain("get_weather_forecast");
     expect(snapshot.instructionMarkdown).toContain("search_places");
+    expect(snapshot.instructionMarkdown).not.toContain("checksum:");
+    expect(snapshot.instructionMarkdown).not.toMatch(/[a-f0-9]{64}/);
   });
 
   test("reference memory includes data dictionary and source policy descriptors", () => {

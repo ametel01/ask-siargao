@@ -26,6 +26,7 @@ export type AskSiargaoAgentDependencies = AgentRuntimeDependencies &
     agentMemoryVectorStoreId?: string;
     forceAgentMemorySearchFallback?: boolean;
     includeAgentMemoryFallbackWithFileSearch?: boolean;
+    loadMemorySnapshot?: () => AgentMemorySnapshot;
     now?: () => Date;
   };
 
@@ -33,6 +34,14 @@ type ParsedFunctionCall = {
   callId: string;
   name: string;
   arguments: Record<string, unknown>;
+};
+
+type ModelFacingAgentMemoryMetadata = {
+  versionId: string;
+  files: Array<{
+    id: string;
+    role: AgentMemoryMetadata["files"][number]["role"];
+  }>;
 };
 
 const defaultMaxToolCalls = 8;
@@ -54,15 +63,17 @@ export async function runAskSiargaoAgentTurn(
 ): Promise<AgentTurnResult> {
   const resolved = resolveAgentRuntimeRequest(request, dependencies);
   const client = dependencies.client ?? createOpenAIAgentClient();
+  const memorySnapshot =
+    dependencies.memorySnapshot ?? dependencies.loadMemorySnapshot?.() ?? loadAgentMemorySnapshot();
+  const toolDependencies: AgentToolDependencies = { ...dependencies, memorySnapshot };
   const executeTool =
     dependencies.executeTool ??
-    ((toolRequest: AgentToolExecutionRequest) => executeAgentTool(toolRequest, dependencies));
+    ((toolRequest: AgentToolExecutionRequest) => executeAgentTool(toolRequest, toolDependencies));
   const logger = (dependencies.logger ?? agentLogger).child({ requestId: resolved.requestId });
   const upstreamRequestIds: string[] = [];
   const toolCalls: AgentToolCallAudit[] = [];
   const maxToolCalls = dependencies.maxToolCalls ?? defaultMaxToolCalls;
   const maxTurns = dependencies.maxTurns ?? defaultMaxTurns;
-  const memorySnapshot = dependencies.memorySnapshot ?? loadAgentMemorySnapshot();
   const agentMemoryVectorStoreId =
     dependencies.agentMemoryVectorStoreId ?? process.env.OPENAI_AGENT_MEMORY_VECTOR_STORE_ID;
   const memory = createAgentMemoryMetadata(memorySnapshot, agentMemoryVectorStoreId);
@@ -95,7 +106,7 @@ export async function runAskSiargaoAgentTurn(
       conversation: resolved.messages.slice(-maxConversationMessages),
       requestMetadata: resolved.metadata,
       deterministicSignals: resolved.deterministicSignals,
-      agentMemory: memory,
+      agentMemory: summarizeMemoryForModel(memory),
       responseContract: responseContract,
     }),
   });
@@ -360,6 +371,16 @@ function summarizeMemoryForLogs(memory: AgentMemoryMetadata) {
       role: file.role,
       checksum: file.checksum,
       byteLength: file.byteLength,
+    })),
+  };
+}
+
+function summarizeMemoryForModel(memory: AgentMemoryMetadata): ModelFacingAgentMemoryMetadata {
+  return {
+    versionId: memory.versionId,
+    files: memory.files.map((file) => ({
+      id: file.id,
+      role: file.role,
     })),
   };
 }

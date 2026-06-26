@@ -543,7 +543,6 @@ function searchAgentMemoryToolResult(
       return {
         fileName: file.fileName,
         title: file.title,
-        checksum: file.checksum,
         excerpt,
         score: scoreMemoryFile(file.content, file.title, terms),
       };

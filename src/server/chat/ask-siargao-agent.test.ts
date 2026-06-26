@@ -49,12 +49,16 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(String(client.requests[0]?.instructions)).toContain(
       "Every final answer must be written by the AI",
     );
-    expect(parseFirstInput(client.requests[0]?.input).agentMemory?.versionId).toBe(
-      result.memory?.versionId,
-    );
-    expect(parseFirstInput(client.requests[0]?.input).conversation?.[0]?.content).toContain(
-      "first afternoon",
-    );
+    const firstInput = parseFirstInput(client.requests[0]?.input);
+    expect(firstInput.agentMemory?.versionId).toBe(result.memory?.versionId);
+    expect(firstInput.agentMemory?.files?.[0]).toEqual({
+      id: "ask_siargao_agent_skills",
+      role: "instruction",
+    });
+    expect(JSON.stringify(firstInput.agentMemory)).not.toContain("checksum");
+    expect(JSON.stringify(firstInput.agentMemory)).not.toContain("byteLength");
+    expect(JSON.stringify(firstInput.agentMemory)).not.toContain("relativePath");
+    expect(firstInput.conversation?.[0]?.content).toContain("first afternoon");
   });
 
   test("registers hosted file search when a vector store is configured", async () => {
@@ -87,6 +91,46 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       expect.objectContaining({ name: "search_agent_memory" }),
     );
     expect(result.memory?.vectorStoreId).toBe("vs_memory");
+    const firstInput = parseFirstInput(client.requests[0]?.input);
+    expect(firstInput.agentMemory?.vectorStoreId).toBeUndefined();
+    expect(JSON.stringify(firstInput.agentMemory)).not.toContain("vs_memory");
+  });
+
+  test("binds the resolved memory snapshot into backend memory tool calls", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_memory_call",
+        requestId: "req_memory_call",
+        callId: "call_memory",
+        name: "search_agent_memory",
+        arguments: { query: "resolved snapshot needle", max_results: 1 },
+      }),
+      {
+        id: "resp_memory_final",
+        output_text: "Used the resolved memory snapshot.",
+        _request_id: "req_memory_final",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "What does the source policy say?" }],
+        requestId: "agent_request_bound_memory",
+      },
+      {
+        client,
+        loadMemorySnapshot: () =>
+          memorySnapshotFixture({
+            sourcePolicyContent: "Resolved snapshot needle only exists in this loaded snapshot.",
+          }),
+        model: "gpt-test",
+      },
+    );
+
+    expect(result.memory?.versionId).toBe("agent-memory:testmemory000000000000");
+    expect(parseToolOutput(client.requests[1]?.input, 0).text).toContain(
+      "Resolved snapshot needle",
+    );
   });
 
   test("executes a weather tool call and feeds the result back to the model", async () => {
@@ -559,7 +603,11 @@ function steppedClock(isoTimes: string[]) {
 
 function parseFirstInput(input: unknown): {
   conversation?: Array<{ content?: string }>;
-  agentMemory?: { versionId?: string };
+  agentMemory?: {
+    versionId?: string;
+    vectorStoreId?: string;
+    files?: Array<Record<string, unknown>>;
+  };
 } {
   return typeof input === "string" ? JSON.parse(input) : {};
 }
@@ -614,8 +662,10 @@ function captureLogger() {
 
 function memorySnapshotFixture({
   instructionContent = "Every final answer must be written by the AI.",
+  sourcePolicyContent = "Never create source labels from memory retrieval alone.",
 }: {
   instructionContent?: string;
+  sourcePolicyContent?: string;
 } = {}): AgentMemorySnapshot {
   return {
     versionId: "agent-memory:testmemory000000000000",
@@ -637,8 +687,8 @@ function memorySnapshotFixture({
         relativePath: "docs/agent-memory/ASK_SIARGAO_SOURCE_POLICY.md",
         role: "reference",
         checksum: "b".repeat(64),
-        byteLength: 32,
-        content: "Never create source labels from memory retrieval alone.",
+        byteLength: sourcePolicyContent.length,
+        content: sourcePolicyContent,
       },
     ],
     instructionMarkdown: instructionContent,
@@ -650,8 +700,8 @@ function memorySnapshotFixture({
         relativePath: "docs/agent-memory/ASK_SIARGAO_SOURCE_POLICY.md",
         role: "reference",
         checksum: "b".repeat(64),
-        byteLength: 32,
-        content: "Never create source labels from memory retrieval alone.",
+        byteLength: sourcePolicyContent.length,
+        content: sourcePolicyContent,
       },
     ],
   };

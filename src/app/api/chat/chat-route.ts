@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Logger } from "pino";
 import { z } from "zod";
 
-import type { AgentToolCallAudit } from "@/server/chat/agent-runtime";
+import type { AgentMemoryMetadata, AgentToolCallAudit } from "@/server/chat/agent-runtime";
 import {
   type AskSiargaoAgentDependencies,
   runAskSiargaoAgentTurn as defaultRunAskSiargaoAgentTurn,
@@ -48,6 +48,15 @@ type ChatRequestIntent = {
   today: boolean;
   weatherSensitive: boolean;
   weather: boolean;
+};
+
+type PublicAgentMemoryMetadata = {
+  versionId: string;
+  files: Array<{
+    id: string;
+    fileName: string;
+    role: AgentMemoryMetadata["files"][number]["role"];
+  }>;
 };
 
 const chatLogger = createComponentLogger("api.chat");
@@ -190,7 +199,7 @@ export async function chatResponse(
           : {}),
         toolCalls: result.toolCalls,
         sources: result.sources,
-        ...(result.memory ? { memory: result.memory } : {}),
+        ...(result.memory ? { memory: summarizeMemoryForResponse(result.memory) } : {}),
         ...(result.cards?.length ? { cards: result.cards } : {}),
         ...(result.actions?.length ? { actions: result.actions } : {}),
       },
@@ -236,6 +245,17 @@ export async function chatResponse(
 
 function isWeatherQuestion(intent: ChatRequestIntent) {
   return intent.weather || intent.weatherSensitive || intent.activityPlan;
+}
+
+function summarizeMemoryForResponse(memory: AgentMemoryMetadata): PublicAgentMemoryMetadata {
+  return {
+    versionId: memory.versionId,
+    files: memory.files.map((file) => ({
+      id: file.id,
+      fileName: file.fileName,
+      role: file.role,
+    })),
+  };
 }
 
 function summarizeToolCallForLogs(toolCall: AgentToolCallAudit) {

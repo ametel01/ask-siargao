@@ -83,6 +83,83 @@ describe("agent memory vector store sync", () => {
     expect(client.calls.uploadedFileNames).toEqual(["ASK_SIARGAO_SOURCE_POLICY.md"]);
   });
 
+  test("deletes stale vector-store files for replaced memory documents", async () => {
+    const client = fakeVectorStoreClient({
+      existingFiles: [
+        {
+          id: "vsf_old_data_dictionary",
+          status: "completed",
+          attributes: {
+            agent_memory_id: "ask_siargao_data_dictionary",
+            agent_memory_checksum: "old-checksum",
+          },
+        },
+        {
+          id: "vsf_unrelated_memory",
+          status: "completed",
+          attributes: {
+            agent_memory_id: "ask_siargao_other_memory",
+            agent_memory_checksum: "old-checksum",
+          },
+        },
+      ],
+    });
+
+    const result = await syncAgentMemoryVectorStore({
+      client,
+      snapshot: memorySnapshotFixture(),
+      vectorStoreId: "vs_existing",
+    });
+
+    expect(result.files[0]).toMatchObject({
+      action: "uploaded",
+      staleVectorStoreFileIdsDeleted: ["vsf_old_data_dictionary"],
+    });
+    expect(client.calls.deletedFiles).toEqual([
+      { fileId: "vsf_old_data_dictionary", vectorStoreId: "vs_existing" },
+    ]);
+    expect(client.calls.deletedFiles[0]?.fileId).not.toBe("vsf_unrelated_memory");
+  });
+
+  test("deletes stale duplicates even when the current checksum is already attached", async () => {
+    const client = fakeVectorStoreClient({
+      existingFiles: [
+        {
+          id: "vsf_current_data_dictionary",
+          status: "completed",
+          attributes: {
+            agent_memory_id: "ask_siargao_data_dictionary",
+            agent_memory_checksum: "d".repeat(64),
+          },
+        },
+        {
+          id: "vsf_stale_data_dictionary",
+          status: "completed",
+          attributes: {
+            agent_memory_id: "ask_siargao_data_dictionary",
+            agent_memory_checksum: "old-checksum",
+          },
+        },
+      ],
+    });
+
+    const result = await syncAgentMemoryVectorStore({
+      client,
+      snapshot: memorySnapshotFixture(),
+      vectorStoreId: "vs_existing",
+    });
+
+    expect(result.files[0]).toMatchObject({
+      action: "skipped_unchanged",
+      vectorStoreFileId: "vsf_current_data_dictionary",
+      staleVectorStoreFileIdsDeleted: ["vsf_stale_data_dictionary"],
+    });
+    expect(client.calls.uploadedFileNames).toEqual(["ASK_SIARGAO_SOURCE_POLICY.md"]);
+    expect(client.calls.deletedFiles).toEqual([
+      { fileId: "vsf_stale_data_dictionary", vectorStoreId: "vs_existing" },
+    ]);
+  });
+
   test("propagates failed upload processing", async () => {
     const client = fakeVectorStoreClient({
       attachedStatus: "failed",
@@ -131,6 +208,7 @@ function fakeVectorStoreClient({
     retrieveVectorStore: [] as string[],
     uploadedFileNames: [] as string[],
     attachedAttributes: [] as Array<Record<string, string | number | boolean>>,
+    deletedFiles: [] as Array<{ fileId: string; vectorStoreId: string }>,
   };
   const client: AgentMemoryVectorStoreClient & { calls: typeof calls } = {
     calls,
@@ -160,6 +238,10 @@ function fakeVectorStoreClient({
             attributes: params.attributes,
             ...(lastError ? { last_error: lastError } : { last_error: null }),
           };
+        },
+        delete: async (fileId, params) => {
+          calls.deletedFiles.push({ fileId, vectorStoreId: params.vector_store_id });
+          return { id: fileId, deleted: true };
         },
       },
     },

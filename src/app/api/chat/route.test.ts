@@ -55,7 +55,9 @@ describe("chat route", () => {
     expect(body.message).toContain("Cloud 9");
     expect(body.requestId).toBe(dependencies.requests[0]?.requestId);
     expect(body.model).toBe("gpt-test");
-    expect(body.memory).toEqual(memoryMetadata);
+    expect(body.memory).toEqual(publicMemoryMetadata);
+    expect(JSON.stringify(body.memory)).not.toContain("vs_route_memory");
+    expect(JSON.stringify(body.memory)).not.toContain("checksum");
     expect(body.toolCalls).toEqual([]);
     expect(body.sources).toEqual([genericSourceSummary]);
     expect(dependencies.requests[0]?.messages[0]?.content).toBe(
@@ -451,6 +453,7 @@ const genericSourceSummary: AnswerSourceSummary = {
 
 const memoryMetadata: AgentMemoryMetadata = {
   versionId: "agent-memory:routefixture00000000",
+  vectorStoreId: "vs_route_memory",
   files: [
     {
       id: "ask_siargao_agent_skills",
@@ -460,6 +463,17 @@ const memoryMetadata: AgentMemoryMetadata = {
       role: "instruction",
       checksum: "a".repeat(64),
       byteLength: 1234,
+    },
+  ],
+};
+
+const publicMemoryMetadata = {
+  versionId: memoryMetadata.versionId,
+  files: [
+    {
+      id: "ask_siargao_agent_skills",
+      fileName: "ASK_SIARGAO_AGENT_SKILLS.md",
+      role: "instruction",
     },
   ],
 };
