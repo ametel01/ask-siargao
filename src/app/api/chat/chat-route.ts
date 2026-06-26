@@ -246,9 +246,16 @@ export async function chatResponse(
       "Chat request answered.",
     );
 
+    const sourceSummaries = weatherContext
+      ? [
+          weatherSourceSummary(weatherContext),
+          genericFallbackSourceSummary({ includeWeatherForecast: false }),
+        ]
+      : [genericFallbackSourceSummary()];
+
     return Response.json(
       {
-        message: appendSourceLines(result.message, [genericFallbackSourceSummary]),
+        message: appendSourceLines(result.message, sourceSummaries),
         requestId,
         ...(result.requestId ? { upstreamRequestId: result.requestId } : {}),
       },
@@ -294,19 +301,25 @@ export async function chatResponse(
   }
 }
 
-const genericFallbackSourceSummary: AnswerSourceSummary = {
-  label: "not_verified",
-  sourceName: "Generic model reasoning",
-  checked: [],
-  notChecked: [
-    "live Google Places",
-    "fresh cached Google Places",
-    "Open-Meteo weather forecast",
-    "curated local guide checks",
-    "bookings",
-    "review text",
-  ],
-};
+function genericFallbackSourceSummary({
+  includeWeatherForecast = true,
+}: {
+  includeWeatherForecast?: boolean;
+} = {}): AnswerSourceSummary {
+  return {
+    label: "not_verified",
+    sourceName: "Generic model reasoning",
+    checked: [],
+    notChecked: [
+      "live Google Places",
+      "fresh cached Google Places",
+      ...(includeWeatherForecast ? ["Open-Meteo weather forecast"] : []),
+      "curated local guide checks",
+      "bookings",
+      "review text",
+    ],
+  };
+}
 
 const recommendationProviderUnavailableSourceSummary: AnswerSourceSummary = {
   label: "provider_unavailable",
@@ -545,6 +558,10 @@ function inferBeachRequest({
       /\bnot\s+rocky|no\s+rocks?|avoid\s+rocks?|smooth\s+sand\b/i.test(fullUserContext),
     swimming: latestSwimming && !latestSunset,
     sunset: latestSunset,
+    conciseFollowUp:
+      latestSwimming &&
+      !latestSunset &&
+      /\b(?:best\s+for|est\s+for|for)\s+swimming\b|^swim(?:ming)?\??$/i.test(latestUserTurn.trim()),
     ...(tripContext.transportMode !== "unknown"
       ? { transportMode: tripContext.transportMode }
       : {}),
@@ -652,15 +669,7 @@ function renderGroundedLocalPlan(
   const hasAvailableWeatherSnapshot = weatherContext?.status === "live";
   const today = hasAvailableWeatherSnapshot ? weatherContext.today : undefined;
   const weatherAssessment = assessTodayWeather(intent, today);
-  const weatherSignal = today
-    ? `${today.condition}; rain ${formatNullableWeatherMetric(
-        today.rainSum,
-        "mm",
-      )}; precipitation chance ${formatNullableWeatherMetric(
-        today.precipitationProbability,
-        "%",
-      )}; wind gust ${formatNullableWeatherMetric(today.windGust, "km/h")}.`
-    : "live conditions were not available";
+  const weatherSignal = today ? compactWeatherSignal(today) : "live conditions were not available";
 
   const plan = localPlanLines(location, weatherAssessment);
 
@@ -717,10 +726,6 @@ function renderGroundedBeachRecommendation(intent: ChatRequestIntent) {
   return renderSiargaoBeachRecommendation(intent.beachRequest);
 }
 
-function formatNullableWeatherMetric(value: number | null | undefined, unit: string) {
-  return value === null || value === undefined ? "unavailable" : `${value}${unit}`;
-}
-
 function assessTodayWeather(
   intent: ChatRequestIntent,
   today: WeatherSnapshot["today"] | undefined,
@@ -737,29 +742,20 @@ function assessTodayWeather(
 
   if (explicitRainPlan || thunderstorm || precipitationProbability >= 70) {
     return {
-      headline: `It looks stormy near ${intent.locationLabel ?? "Siargao"} today: ${condition.toLowerCase()}, ${precipitationProbability}% precipitation chance, ${weatherAmountLabel(
-        rainSum,
-        "rain",
-      )}, ${weatherAmountLabel(windGust, "gusts")}. I would keep the plan close and covered.`,
+      headline: `Rain is possible near ${intent.locationLabel ?? "Siargao"} today. Keep plans close and covered.`,
       planKind: "stormy",
     };
   }
 
   if (precipitationProbability >= 45 || rainSum >= 6 || windGust >= 35) {
     return {
-      headline: `The forecast near ${intent.locationLabel ?? "Siargao"} is mixed today: ${condition.toLowerCase()}, ${precipitationProbability}% precipitation chance, ${weatherAmountLabel(
-        rainSum,
-        "rain",
-      )}. I would keep an outdoor plan, but make every stop easy to bail out of.`,
+      headline: `The forecast near ${intent.locationLabel ?? "Siargao"} is mixed today. Keep outdoor stops easy to change.`,
       planKind: "flexible",
     };
   }
 
   return {
-    headline: `The forecast near ${intent.locationLabel ?? "Siargao"} looks workable today: ${condition.toLowerCase()}, ${precipitationProbability}% precipitation chance, ${weatherAmountLabel(
-      rainSum,
-      "rain",
-    )}. I would start outdoors and keep one covered fallback.`,
+    headline: `${condition} near ${intent.locationLabel ?? "Siargao"} today. Start outdoors, but keep a covered fallback.`,
     planKind: "outdoor",
   };
 }
@@ -769,10 +765,9 @@ function localPlanLines(location: string, assessment: ReturnType<typeof assessTo
     return [
       assessment.headline,
       "",
-      "1. Start with a covered cafe or brunch stop near Catangnan/General Luna while the rain is active.",
-      "2. Use the heaviest rain window for massage/spa time, laundry, cash, SIM, or transfer-booking errands.",
-      "3. Walk the Cloud 9 boardwalk only during a clear break and avoid long exposed scooter rides if roads are pooling.",
-      "4. If you want dinner next, I can check open nearby restaurants around Cloud 9 with Google Places.",
+      "1. Start with a covered cafe, massage, or errands.",
+      "2. Use the Cloud 9 boardwalk only during a clear break.",
+      "3. Keep dinner nearby and avoid long scooter rides if roads start pooling.",
     ];
   }
 
@@ -782,8 +777,7 @@ function localPlanLines(location: string, assessment: ReturnType<typeof assessTo
       "",
       "1. Check the Cloud 9 boardwalk/viewing deck first, before conditions turn.",
       "2. Keep lunch or coffee near Catangnan/General Luna so you have cover within a short ride.",
-      "3. Add surf or beach time only if the local conditions look comfortable when you arrive.",
-      "4. Keep dinner close to Cloud 9 or General Luna if showers return.",
+      "3. Add surf or beach time only if conditions look comfortable when you arrive.",
     ];
   }
 
@@ -792,26 +786,19 @@ function localPlanLines(location: string, assessment: ReturnType<typeof assessTo
     "",
     `1. Start at the ${location === "Cloud 9" ? "Cloud 9" : location} boardwalk/viewing area while conditions are good.`,
     "2. Add a surf lesson or board rental only after checking local surf conditions at the beach.",
-    "3. Use a cafe or lunch stop near Catangnan/General Luna as your easy fallback.",
-    "4. Keep sunset flexible and switch to dinner nearby if rain or wind picks up.",
+    "3. Use a cafe or lunch stop near Catangnan/General Luna as your fallback.",
   ];
 }
 
-function weatherAmountLabel(value: number, kind: "gusts" | "rain") {
-  if (kind === "gusts") {
-    if (value >= 35) {
-      return `gusts around ${value}km/h`;
-    }
-    return `moderate gusts around ${value}km/h`;
+function compactWeatherSignal(today: WeatherSnapshot["today"]) {
+  const parts = [today.condition];
+  if ((today.precipitationProbability ?? 0) >= 40 || (today.rainSum ?? 0) > 0) {
+    parts.push("rain possible");
   }
-
-  if (value >= 18) {
-    return `${value}mm heavy rain volume`;
+  if ((today.windGust ?? 0) >= 30) {
+    parts.push("gusty");
   }
-  if (value >= 6) {
-    return `${value}mm moderate rain volume`;
-  }
-  return `${value}mm light rain volume`;
+  return `${parts.join("; ")}.`;
 }
 
 function shouldDeclineNonSiargaoTopic(messages: readonly AskSiargaoChatMessage[]) {

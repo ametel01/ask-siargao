@@ -315,6 +315,173 @@ describe("RecommendationAgent", () => {
     expect(lunchResponse.message).toContain("Not checked: Google Places (live checked");
   });
 
+  test("answers dinner follow-ups from assistant location context without planner fallback", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const originalOpenAIKey = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "General Luna Dinner House",
+          rating: 4.8,
+          userRatingCount: 420,
+        });
+      },
+    });
+
+    try {
+      const response = await agent.answer({
+        messages: [
+          { role: "user", content: "what if it rains?" },
+          { role: "assistant", content: "It looks stormy near General Luna today." },
+          { role: "user", content: "where should i go for breakfast tomorrow?" },
+          {
+            role: "assistant",
+            content:
+              "Good options I found from Google Places: Sunday Siargao, 873 m from General Luna.",
+          },
+          { role: "user", content: "what about lunch?" },
+          {
+            role: "assistant",
+            content:
+              "Good options I found from Google Places: Yugto Siargao, 1.2 km from General Luna.",
+          },
+          { role: "user", content: "what about dinner?" },
+        ],
+      });
+
+      expect(response.status).toBe("answered");
+      expect(searches).toHaveLength(1);
+      expect(searches[0]).toMatchObject({
+        textQuery: "dinner restaurants in General Luna Siargao",
+        includedType: "restaurant",
+        center: { latitude: 9.8006, longitude: 126.1586 },
+      });
+      expect(response.message).toContain("General Luna Dinner House");
+    } finally {
+      restoreOpenAIKey(originalOpenAIKey);
+    }
+  });
+
+  test("answers proper-restaurant corrections without planner fallback", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const originalOpenAIKey = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "General Luna Sit Down Restaurant",
+          rating: 4.7,
+          userRatingCount: 360,
+        });
+      },
+    });
+
+    try {
+      const response = await agent.answer({
+        messages: [
+          { role: "user", content: "where should i go for breakfast tomorrow?" },
+          {
+            role: "assistant",
+            content:
+              "Good options I found from Google Places: Sunday Siargao, 873 m from General Luna.",
+          },
+          { role: "user", content: "what about lunch?" },
+          {
+            role: "assistant",
+            content:
+              "Good options I found from Google Places: Yugto Siargao, 1.2 km from General Luna.",
+          },
+          { role: "user", content: "what about dinner?" },
+          {
+            role: "assistant",
+            content: "Ask Siargao could not answer right now. Please try again.",
+          },
+          { role: "user", content: "I want proper restaurant not carinderia" },
+        ],
+      });
+
+      expect(response.status).toBe("answered");
+      expect(searches).toHaveLength(1);
+      expect(searches[0]).toMatchObject({
+        textQuery: "sit down restaurant in General Luna Siargao",
+        includedType: "restaurant",
+        center: { latitude: 9.8006, longitude: 126.1586 },
+      });
+      expect(response.message).toContain("General Luna Sit Down Restaurant");
+      expect(response.message).not.toMatch(/car[ie]nderia/i);
+    } finally {
+      restoreOpenAIKey(originalOpenAIKey);
+    }
+  });
+
+  test("keeps carinderias excluded for seafood follow-ups after proper-restaurant correction", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          places: [
+            {
+              placeId: "place_la_carinderia",
+              resourceName: "places/place_la_carinderia",
+              displayName: "La Carinderia",
+              formattedAddress: "General Luna, Siargao",
+              latitude: 9.793,
+              longitude: 126.158,
+              types: ["italian_restaurant", "restaurant", "food"],
+              primaryType: "italian_restaurant",
+              businessStatus: "OPERATIONAL",
+              googleMapsUri: "https://maps.google.com/?cid=carinderia",
+              rating: 4.8,
+              userRatingCount: 1400,
+              currentOpeningHours: { openNow: true },
+            },
+            {
+              placeId: "place_fin_fin",
+              resourceName: "places/place_fin_fin",
+              displayName: "Fin & Fin Beach Shack",
+              formattedAddress: "Cloud 9, General Luna",
+              latitude: 9.812,
+              longitude: 126.165,
+              types: ["seafood_restaurant", "restaurant", "food"],
+              primaryType: "restaurant",
+              businessStatus: "OPERATIONAL",
+              googleMapsUri: "https://maps.google.com/?cid=fin",
+              rating: 4.6,
+              userRatingCount: 250,
+              currentOpeningHours: { openNow: true },
+            },
+          ],
+        });
+      },
+    });
+
+    const response = await agent.answer({
+      messages: [
+        { role: "user", content: "what about dinner?" },
+        { role: "assistant", content: "Try Loka or X Pizza near Cloud 9." },
+        { role: "user", content: "I want proper restaurant not carinderia" },
+        { role: "assistant", content: "Try a sit-down restaurant near Cloud 9." },
+        { role: "user", content: "what about seafood?" },
+      ],
+    });
+
+    expect(response.status).toBe("answered");
+    expect(searches).toHaveLength(1);
+    expect(searches[0]?.textQuery).toBe("seafood restaurant in Cloud 9 Siargao");
+    expect(response.message).toContain("Fin & Fin Beach Shack");
+    expect(response.message).not.toContain("La Carinderia");
+  });
+
   test("searches Google Places for covered cafe open-now follow-ups", async () => {
     const searches: GooglePlacesChatSearch[] = [];
     const agent = new RecommendationAgent({
@@ -378,6 +545,91 @@ describe("RecommendationAgent", () => {
     expect(response.message).toContain("Checked: Google Places (fresh cache");
     expect(response.message).not.toContain("live checked");
     expect(response.message).toContain("1. **Cache Cafe**");
+  });
+
+  test("keeps checked fields scoped to each mixed Places source group", async () => {
+    const agent = new RecommendationAgent({
+      clock: () => new Date("2026-06-28T00:00:00.000Z"),
+      planner: queuePlanner([
+        {
+          type: "search_places",
+          query: "live dinner restaurant near Dapa Siargao",
+          centerLabel: "Dapa",
+          includedType: "restaurant",
+        },
+        {
+          type: "search_places",
+          query: "cached dinner restaurant near Dapa Siargao",
+          centerLabel: "Dapa",
+          includedType: "restaurant",
+        },
+        { type: "rank_candidates", preferredTerms: ["restaurant"], excludedTerms: [] },
+        { type: "final_answer" },
+      ]),
+      placesAdapter: async ({ fetchedAt, search }) => {
+        if (search.textQuery.startsWith("live")) {
+          return googlePlacesContext({
+            fetchedAt,
+            search,
+            places: [
+              {
+                placeId: "place_live_dinner",
+                resourceName: "places/place_live_dinner",
+                displayName: "Live Dinner Restaurant",
+                formattedAddress: "Dapa, Siargao",
+                latitude: 9.7595,
+                longitude: 125.9762,
+                types: ["restaurant", "food"],
+                primaryType: "restaurant",
+                businessStatus: "OPERATIONAL",
+                googleMapsUri: "https://maps.google.com/?cid=live",
+                rating: 4.8,
+                userRatingCount: 400,
+                currentOpeningHours: { openNow: true },
+              },
+            ],
+          });
+        }
+
+        return googlePlacesContext({
+          fetchedAt: "2026-06-25T00:00:00.000Z",
+          freshness: "fresh_cache",
+          search,
+          places: [
+            {
+              placeId: "place_cached_dinner",
+              resourceName: "places/place_cached_dinner",
+              displayName: "Cached Dinner Restaurant",
+              types: ["restaurant", "food"],
+              primaryType: "restaurant",
+              businessStatus: "OPERATIONAL",
+              googleMapsUri: "https://maps.google.com/?cid=cached",
+            },
+          ],
+        });
+      },
+    });
+
+    const response = await agent.answer({
+      messages: [{ role: "user", content: "dinner restaurants near Dapa" }],
+    });
+
+    expect(response.status).toBe("answered");
+    expect(response.message).toContain(
+      "Checked: Google Places (live checked; profile source_google_places; fetched 2026-06-28T00:00:00.000Z) - place listings, ratings, open-now signal, distance, addresses, and map links.",
+    );
+    expect(response.message).toContain(
+      "Checked: Google Places (fresh cache; profile source_google_places; fetched 2026-06-25T00:00:00.000Z) - place listings and map links.",
+    );
+    expect(response.message).not.toContain(
+      "Checked: Google Places (fresh cache; profile source_google_places; fetched 2026-06-25T00:00:00.000Z) - place listings, ratings",
+    );
+    expect(response.message).not.toContain(
+      "Checked: Google Places (fresh cache; profile source_google_places; fetched 2026-06-25T00:00:00.000Z) - place listings, open-now signal",
+    );
+    expect(response.message).not.toContain(
+      "Checked: Google Places (fresh cache; profile source_google_places; fetched 2026-06-25T00:00:00.000Z) - place listings, addresses",
+    );
   });
 
   test("uses prior location and cheaper modifier for there follow-ups", async () => {
@@ -732,6 +984,14 @@ describe("RecommendationAgent", () => {
 function queuePlanner(actions: RecommendationAction[]): RecommendationAgentPlanner {
   let index = 0;
   return async () => actions[index++] ?? { type: "final_answer" };
+}
+
+function restoreOpenAIKey(value: string | undefined) {
+  if (value === undefined) {
+    delete process.env.OPENAI_API_KEY;
+    return;
+  }
+  process.env.OPENAI_API_KEY = value;
 }
 
 function googlePlacesContext({

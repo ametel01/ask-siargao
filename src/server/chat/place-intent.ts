@@ -67,13 +67,14 @@ export function interpretPlaceIntent(
     return null;
   }
 
-  const meal = inferMeal(latestUserTurn) ?? inferMeal(recentUserContext);
+  const meal = inferMeal(latestUserTurn) ?? inferRecentMeal(messages);
   const fullContext = `${recentUserContext} ${latestUserTurn}`;
   const areaScope = inferAreaScope(latestUserTurn) ?? inferAreaScope(recentUserContext);
   const location =
     inferPlaceLocationLabel(latestUserTurn) ??
     tripContext.currentLocation?.label ??
-    inferPlaceLocationLabel(recentUserContext) ??
+    inferRecentPlaceLocationLabel(messages, "user") ??
+    inferRecentAssistantPlaceLocationLabel(messages) ??
     (areaScope === "nearby" ? defaultNearbyLocation : null);
   const constraints = [
     ...new Set([
@@ -83,7 +84,12 @@ export function interpretPlaceIntent(
     ]),
   ];
   const explicitlyRequestedCafe = /\b(caf[eé]s?|coffee)\b/i.test(fullContext);
-  const avoid = inferAvoidTerms({ explicitlyRequestedCafe, latestUserTurn, meal });
+  const avoid = inferAvoidTerms({
+    explicitlyRequestedCafe,
+    latestUserTurn,
+    meal,
+    recentUserContext,
+  });
   const liveNeeds = inferLiveNeeds({
     areaScope,
     category,
@@ -201,6 +207,52 @@ function inferMeal(content: string): MealIntent {
   return null;
 }
 
+function inferRecentMeal(messages: readonly AskSiargaoChatMessage[]): MealIntent {
+  return inferRecentUserTurns(messages, (content) => inferMeal(content));
+}
+
+function inferRecentPlaceLocationLabel(
+  messages: readonly AskSiargaoChatMessage[],
+  role: AskSiargaoChatMessage["role"],
+) {
+  return inferRecentTurns(messages, role, (content) => inferPlaceLocationLabel(content));
+}
+
+function inferRecentAssistantPlaceLocationLabel(messages: readonly AskSiargaoChatMessage[]) {
+  return inferRecentTurns(messages, "assistant", (content) => {
+    const label = inferPlaceLocationLabel(content);
+    return label === "Siargao Island" ? null : label;
+  });
+}
+
+function inferRecentUserTurns<T>(
+  messages: readonly AskSiargaoChatMessage[],
+  infer: (content: string) => T | null,
+) {
+  return inferRecentTurns(messages, "user", infer);
+}
+
+function inferRecentTurns<T>(
+  messages: readonly AskSiargaoChatMessage[],
+  role: AskSiargaoChatMessage["role"],
+  infer: (content: string) => T | null,
+) {
+  const recentTurns = messages
+    .slice(0, -1)
+    .filter((message) => message.role === role)
+    .slice(-6)
+    .reverse();
+
+  for (const message of recentTurns) {
+    const value = infer(message.content);
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
 function inferAreaScope(content: string): PlaceAreaScope {
   if (/\bnear(?:by)?|around|close\s+to|that\s+area|in\s+that\s+area|by\s+/i.test(content)) {
     return "nearby";
@@ -246,16 +298,20 @@ function inferAvoidTerms({
   explicitlyRequestedCafe,
   latestUserTurn,
   meal,
+  recentUserContext,
 }: {
   explicitlyRequestedCafe: boolean;
   latestUserTurn: string;
   meal: MealIntent;
+  recentUserContext: string;
 }) {
   const avoid: string[] = [];
   if (meal === "dinner" && !explicitlyRequestedCafe) {
     avoid.push("brunch_only", "coffee_only");
   }
-  if (/\bproper|sit[-\s]?down|not\s+car[ie]nderia\b/i.test(latestUserTurn)) {
+  if (
+    /\bproper|sit[-\s]?down|not\s+car[ie]nderia\b/i.test(`${recentUserContext} ${latestUserTurn}`)
+  ) {
     avoid.push("carinderia", "canteen");
   }
   return avoid;

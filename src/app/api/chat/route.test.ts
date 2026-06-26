@@ -158,11 +158,18 @@ describe("chat route", () => {
       }),
       dependencies,
     );
+    const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(dependencies.weatherRequests).toBe(1);
     expect(dependencies.requests[0]?.weatherContext?.sourceProfileId).toBe("source_open_meteo");
     expect(dependencies.requests[0]?.weatherContext?.summary).toContain("Open-Meteo");
+    expect(body.message).toContain("Checked: Open-Meteo weather API (weather checked");
+    expect(body.message).toContain("forecast for Siargao Island");
+    expect(body.message).toContain("Not checked: Generic model reasoning (not verified)");
+    expect(body.message).not.toContain(
+      "Not checked: Generic model reasoning (not verified) - live Google Places, fresh cached Google Places, Open-Meteo weather forecast",
+    );
   });
 
   test("proactively loads weather for today activity planning near Cloud 9", async () => {
@@ -183,7 +190,9 @@ describe("chat route", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.message).toContain("forecast near Cloud 9");
+    expect(body.message).toContain("Partly cloudy near Cloud 9 today.");
+    expect(body.message).not.toContain("precipitation chance");
+    expect(body.message).not.toContain("rain volume");
     expect(body.message).toContain("Checked: Open-Meteo weather API (weather checked");
     expect(body.message).toContain("profile source_open_meteo");
     expect(body.message).toContain("Weather signal: Partly cloudy");
@@ -235,7 +244,7 @@ describe("chat route", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.message).toContain("forecast near Cloud 9");
+    expect(body.message).toContain("Partly cloudy near Cloud 9 today.");
     expect(body.message).toContain("Checked: Open-Meteo weather API (weather checked");
     expect(dependencies.weatherRequests).toBe(1);
     expect(dependencies.requests).toHaveLength(0);
@@ -256,9 +265,10 @@ describe("chat route", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.message).toContain("It looks stormy near Cloud 9 today");
+    expect(body.message).toContain("Rain is possible near Cloud 9 today.");
     expect(body.message).toContain("Checked: Open-Meteo weather API (weather checked");
-    expect(body.message).toContain("If you want dinner next, I can check open nearby restaurants");
+    expect(body.message).toContain("Keep dinner nearby");
+    expect(body.message).not.toContain("moderate gusts around");
     expect(dependencies.weatherRequests).toBe(1);
     expect(dependencies.requests).toHaveLength(0);
   });
@@ -775,13 +785,13 @@ describe("chat route", () => {
         messages: [
           {
             role: "user",
-            content: "Which beaches can I reach within 20 min ride from General Luna?",
+            content: "Which beaches can I reach within 30 min ride from General Luna?",
           },
           {
             role: "assistant",
             content: "Doot and Malinao are the closest beach options.",
           },
-          { role: "user", content: "best for swimming?" },
+          { role: "user", content: "est for swimming?" },
         ],
       }),
       dependencies,
@@ -789,8 +799,10 @@ describe("chat route", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.message).toContain("about a 20-minute ride");
-    expect(body.message).toContain("good sandy shoreline candidate when conditions are calm");
+    expect(body.message).toContain("For swimming from that 30-minute General Luna shortlist");
+    expect(body.message).toContain("Doot Beach");
+    expect(body.message).toContain("Malinao Beach");
+    expect(body.message).not.toContain("From General Luna, these beach options fit");
     expect(dependencies.requests).toHaveLength(0);
   });
 

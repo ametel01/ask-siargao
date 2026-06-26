@@ -26,6 +26,7 @@ export type BeachRecommendationRequest = {
   avoidRocky?: boolean;
   swimming?: boolean;
   sunset?: boolean;
+  conciseFollowUp?: boolean;
   transportMode?: "walk" | "scooter" | "tricycle" | "van";
   withKids?: boolean;
   durableConstraints?: string[];
@@ -156,6 +157,10 @@ export function renderSiargaoBeachRecommendation(request: BeachRecommendationReq
         left.name.localeCompare(right.name),
     );
 
+  if (request.swimming && request.conciseFollowUp) {
+    return renderSwimmingBeachFollowUp({ candidates, maxRideMinutes, originLabel, request });
+  }
+
   const header = beachRecommendationHeader({ maxRideMinutes, originLabel, request, sandFiltered });
   const ranked = candidates.slice(0, 5).map((beach, index) => {
     const bestFor = beachBestUse(beach, request);
@@ -188,6 +193,52 @@ export function renderSiargaoBeachRecommendation(request: BeachRecommendationReq
     "",
     ...renderAnswerSourceLines([beachGuideSourceSummary]),
   ].join("\n");
+}
+
+function renderSwimmingBeachFollowUp({
+  candidates,
+  maxRideMinutes,
+  originLabel,
+  request,
+}: {
+  candidates: SiargaoBeach[];
+  maxRideMinutes: number;
+  originLabel: string;
+  request: BeachRecommendationRequest;
+}) {
+  const swimmingOrder = ["Doot Beach", "Malinao Beach", "Secret Beach", "Union Beach area"];
+  const ranked = [...candidates]
+    .sort(
+      (left, right) =>
+        swimmingRank(left.name, swimmingOrder) - swimmingRank(right.name, swimmingOrder) ||
+        left.distanceFromGeneralLunaMinutes.max - right.distanceFromGeneralLunaMinutes.max,
+    )
+    .slice(0, 4)
+    .map((beach, index) => {
+      const caution =
+        beach.name === "Secret Beach"
+          ? "go only if surf and currents look gentle"
+          : beach.name === "Union Beach area"
+            ? "less ideal if you want clean sand"
+            : "check tide and conditions before entering";
+      return `${index + 1}. **${beach.name}** - ${beach.swimmingFit}; ${caution}.`;
+    });
+
+  return [
+    `For swimming from that ${maxRideMinutes}-minute ${originLabel} shortlist, I would pick:`,
+    "",
+    ...ranked,
+    ...(request.sandOnly || request.avoidRocky
+      ? ["", "Keep the sandy/not-rocky filter; do not treat Cloud 9 as the swim pick."]
+      : []),
+    "",
+    ...renderAnswerSourceLines([beachGuideSourceSummary]),
+  ].join("\n");
+}
+
+function swimmingRank(name: string, order: readonly string[]) {
+  const index = order.indexOf(name);
+  return index === -1 ? order.length : index;
 }
 
 function beachTripContextNotes(request: BeachRecommendationRequest) {

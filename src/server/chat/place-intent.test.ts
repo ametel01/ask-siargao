@@ -131,6 +131,68 @@ describe("interpretPlaceIntent", () => {
     expect(intent?.liveNeeds).toContain("open_now");
   });
 
+  test("uses assistant recommendation context when trimmed user turns omit the location", () => {
+    const intent = interpretPlaceIntent([
+      { role: "user", content: "what if it rains?" },
+      { role: "assistant", content: "It looks stormy near General Luna today." },
+      { role: "user", content: "where should i go for breakfast tomorrow?" },
+      {
+        role: "assistant",
+        content:
+          "Good options I found from Google Places: Sunday Siargao, 873 m from General Luna.",
+      },
+      { role: "user", content: "what about lunch?" },
+      {
+        role: "assistant",
+        content:
+          "Good options I found from Google Places: Yugto Siargao, 1.2 km from General Luna.",
+      },
+      { role: "user", content: "what about dinner?" },
+    ] satisfies AskSiargaoChatMessage[]);
+
+    expect(intent).toMatchObject({
+      category: "food",
+      meal: "dinner",
+      location: "General Luna",
+    });
+  });
+
+  test("inherits the newest prior meal for restaurant-quality follow-ups", () => {
+    const intent = interpretPlaceIntent([
+      { role: "user", content: "where should i go for breakfast tomorrow?" },
+      { role: "assistant", content: "Try a cafe near General Luna." },
+      { role: "user", content: "what about lunch?" },
+      { role: "assistant", content: "Try a restaurant near General Luna." },
+      { role: "user", content: "what about dinner?" },
+      { role: "assistant", content: "Ask Siargao could not answer right now. Please try again." },
+      { role: "user", content: "I want proper restaurant not carinderia" },
+    ] satisfies AskSiargaoChatMessage[]);
+
+    expect(intent).toMatchObject({
+      category: "food",
+      meal: "dinner",
+      location: "General Luna",
+      avoid: ["brunch_only", "coffee_only", "carinderia", "canteen"],
+    });
+  });
+
+  test("carries proper-restaurant avoidance into seafood refinements", () => {
+    const intent = interpretPlaceIntent([
+      { role: "user", content: "what about dinner?" },
+      { role: "assistant", content: "Try Loka or X Pizza near Cloud 9." },
+      { role: "user", content: "I want proper restaurant not carinderia" },
+      { role: "assistant", content: "Try a sit-down restaurant near Cloud 9." },
+      { role: "user", content: "what about seafood?" },
+    ] satisfies AskSiargaoChatMessage[]);
+
+    expect(intent).toMatchObject({
+      category: "food",
+      meal: "dinner",
+      location: "Cloud 9",
+      avoid: ["brunch_only", "coffee_only", "carinderia", "canteen"],
+    });
+  });
+
   test("does not keep cheaper as a durable constraint after the latest turn changes", () => {
     const intent = interpretPlaceIntent([
       { role: "user", content: "Where should we get dinner near Cloud 9?" },

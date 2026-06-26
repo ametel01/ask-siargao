@@ -154,6 +154,25 @@ const recommendationActionSchema = z.discriminatedUnion("type", [
   unsupportedActionSchema,
 ]);
 
+const recommendationActionResponseSchema = z.object({
+  type: z.enum([
+    "resolve_location",
+    "search_places",
+    "rank_candidates",
+    "ask_clarifying_question",
+    "final_answer",
+    "unsupported",
+  ]),
+  text: z.string().min(2).optional(),
+  query: z.string().min(2).optional(),
+  centerLabel: z.string().min(2).optional(),
+  radiusMeters: z.number().int().positive().max(60_000).optional(),
+  includedType: z.string().min(2).optional(),
+  preferredTerms: z.array(z.string()).optional(),
+  excludedTerms: z.array(z.string()).optional(),
+  question: z.string().min(4).optional(),
+});
+
 export type RecommendationAction = z.infer<typeof recommendationActionSchema>;
 
 const recommendationLogger = createComponentLogger("chat.recommendation_agent");
@@ -607,7 +626,7 @@ function parseRecommendationAction(outputText: string): RecommendationAction {
     .replace(/```$/i, "")
     .trim();
   const parsed = JSON.parse(json) as unknown;
-  return recommendationActionSchema.parse(parsed);
+  return recommendationActionSchema.parse(recommendationActionResponseSchema.parse(parsed));
 }
 
 function interpretPlaceRequest(messages: readonly AskSiargaoChatMessage[]) {
@@ -1012,7 +1031,7 @@ function recommendationSourceSummaries(
   candidates: readonly PlaceCandidate[],
   intent: PlaceIntent | null,
 ): AnswerSourceSummary[] {
-  const summaries = new Map<string, AnswerSourceSummary>();
+  const groupedCandidates = new Map<string, PlaceCandidate[]>();
 
   for (const candidate of candidates) {
     const label = googlePlacesFreshnessToTrustLabel(candidate.source.freshness);
@@ -1022,21 +1041,24 @@ function recommendationSourceSummaries(
       candidate.source.sourceProfileId,
       candidate.source.fetchedAt,
     ].join("|");
-    if (summaries.has(key)) {
-      continue;
-    }
 
-    summaries.set(key, {
-      label,
+    groupedCandidates.set(key, [...(groupedCandidates.get(key) ?? []), candidate]);
+  }
+
+  return [...groupedCandidates.values()].map((sourceCandidates) => {
+    const candidate = sourceCandidates[0];
+    if (!candidate) {
+      throw new Error("Recommendation source group unexpectedly had no candidates.");
+    }
+    return {
+      label: googlePlacesFreshnessToTrustLabel(candidate.source.freshness),
       sourceName: candidate.source.sourceName,
       sourceProfileId: candidate.source.sourceProfileId,
       fetchedAt: candidate.source.fetchedAt,
-      checked: recommendationCheckedItems(candidates),
-      notChecked: recommendationNotCheckedItems(candidates, intent),
-    });
-  }
-
-  return [...summaries.values()];
+      checked: recommendationCheckedItems(sourceCandidates),
+      notChecked: recommendationNotCheckedItems(sourceCandidates, intent),
+    };
+  });
 }
 
 function recommendationCheckedItems(candidates: readonly PlaceCandidate[]) {
@@ -1189,56 +1211,27 @@ const recommendationPlannerInstructions = [
 
 const recommendationActionJsonSchema = {
   type: "object",
-  anyOf: [
-    actionSchemaVariant({
-      type: "resolve_location",
-      required: ["type", "text"],
-      properties: { text: { type: "string" } },
-    }),
-    actionSchemaVariant({
-      type: "search_places",
-      required: ["type", "query"],
-      properties: {
-        query: { type: "string" },
-        centerLabel: { type: "string" },
-        radiusMeters: { type: "integer", minimum: 1, maximum: 60_000 },
-        includedType: { type: "string" },
-      },
-    }),
-    actionSchemaVariant({
-      type: "rank_candidates",
-      required: ["type", "preferredTerms", "excludedTerms"],
-      properties: {
-        preferredTerms: { type: "array", items: { type: "string" } },
-        excludedTerms: { type: "array", items: { type: "string" } },
-      },
-    }),
-    actionSchemaVariant({
-      type: "ask_clarifying_question",
-      required: ["type", "question"],
-      properties: { question: { type: "string" } },
-    }),
-    actionSchemaVariant({ type: "final_answer", required: ["type"], properties: {} }),
-    actionSchemaVariant({ type: "unsupported", required: ["type"], properties: {} }),
-  ],
-};
-
-function actionSchemaVariant({
-  properties,
-  required,
-  type,
-}: {
-  type: RecommendationAction["type"];
-  required: string[];
-  properties: Record<string, unknown>;
-}) {
-  return {
-    type: "object",
-    additionalProperties: false,
-    required,
-    properties: {
-      type: { const: type },
-      ...properties,
+  additionalProperties: false,
+  required: ["type"],
+  properties: {
+    type: {
+      type: "string",
+      enum: [
+        "resolve_location",
+        "search_places",
+        "rank_candidates",
+        "ask_clarifying_question",
+        "final_answer",
+        "unsupported",
+      ],
     },
-  };
-}
+    text: { type: "string" },
+    query: { type: "string" },
+    centerLabel: { type: "string" },
+    radiusMeters: { type: "integer", minimum: 1, maximum: 60_000 },
+    includedType: { type: "string" },
+    preferredTerms: { type: "array", items: { type: "string" } },
+    excludedTerms: { type: "array", items: { type: "string" } },
+    question: { type: "string" },
+  },
+};
