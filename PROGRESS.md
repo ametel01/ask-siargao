@@ -14,7 +14,7 @@ commit reference when available, current status, and the next step.
 ## Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
-- [ ] Step 1: Baseline Quality Gate Run
+- [x] Step 1: Baseline Quality Gate Run
 - [ ] Step 2: Add Shared Itinerary Artifact Types
 - [ ] Step 3: Build Deterministic Itinerary Planning Tool Data
 - [ ] Step 4: Integrate Weather and Places Requirements Into Itinerary Flow
@@ -26,7 +26,7 @@ commit reference when available, current status, and the next step.
 
 ## Current Status
 
-Step 0 is complete. Step 1 is next.
+Step 1 is complete. Step 2 is next.
 
 ## Update Log
 
@@ -45,6 +45,23 @@ Validation:
 - `rg -n "^# Changelog|^## \\[Unreleased\\]" CHANGELOG.md`: passed.
 - `rg -n "Local Itinerary Builder|Step 0|Step 1" PROGRESS.md`: passed.
 
-Commit: `Track itinerary builder execution progress`.
+Commit: `cdde360` (`Track itinerary builder execution progress`).
 
 Next step: Step 1, baseline quality gate run.
+
+### Step 1: Baseline Quality Gate Run
+
+Completed:
+
+- Ran the pre-implementation quality baseline without source behavior changes.
+- Confirmed there are no pre-existing baseline failures to carry forward.
+
+Validation:
+
+- `bun run lint`: passed (`biome check .`, 193 files checked).
+- `bun run typecheck --incremental false`: passed.
+- `bun test`: passed (306 tests across 40 files).
+
+Commit: `Record itinerary builder quality baseline`.
+
+Next step: Step 2, shared itinerary artifact types.
