@@ -129,7 +129,7 @@ Priority 2 plan complete.
   - `bun run db:seed:test`: pass
   - `bun run build`: pass
   - `bun run test:e2e`: pass
-- Commit: pending
+- Commit: `de7557b Document Priority 2 trip context behavior`
 
 ## Tracking Rule
 
