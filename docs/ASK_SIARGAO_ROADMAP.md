@@ -4,24 +4,29 @@
 
 This roadmap turns the positioning in [ASK_SIARGAO_POSITIONING.md](ASK_SIARGAO_POSITIONING.md) into an implementation plan.
 
-Ask Siargao should not compete as a general chatbot. It should become the Siargao trip copilot that helps a traveler decide what to do next based on local context, live place data, weather, distance, and source caveats.
+Ask Siargao should not compete as a general chatbot. It should become the Siargao trip copilot that helps a traveler decide what to do next through an AI agent that can retrieve local context, live place data, weather, distance, and source caveats on demand.
 
 ## Product Promise
 
-Ask Siargao gives practical, current trip decisions for Siargao: what to do, where to go, what is nearby, what is open, and what to avoid based on weather, distance, and local context.
+Ask Siargao gives practical, current trip decisions for Siargao by letting an AI agent retrieve live local data, read curated Siargao knowledge, and explain the best next move in plain language.
 
 ## Roadmap Principles
 
-- Prefer deterministic routing for live facts instead of relying on the LLM to decide when to search.
-- Check existing internal facts before calling live providers.
+- Every chat request must go through the AI, and every user-facing answer must be AI-written.
+- The backend is a tool runtime, not the final conversational layer.
+- Deterministic code may classify, retrieve, rank, validate, and enforce source policy, but it must not replace the model's final response with preset prose.
+- The AI should decide when to call tools for weather, Places, curated local knowledge, database facts, and source inspection.
 - Treat Google Places and Open-Meteo as governed providers with field masks, freshness windows, retention rules, and source caveats.
-- Keep local Siargao curation as structured data, not hidden prompt text.
+- Keep local Siargao curation as structured data and expose it to the AI through tools or retrieval memory.
+- Give the AI persistent product memory through Markdown instructions, file search/vector stores, or backend tools.
 - Return answers that a traveler can act on: place, distance, open signal, map link, reason, caveat, and fallback.
 - Make follow-ups inherit stable trip context while allowing the latest modifier to change the answer goal.
 
 ## Current Implementation Baseline
 
-The repo already has useful foundations for this roadmap:
+The repo already has useful foundations for this roadmap, but Priorities 1-3 also showed the main product risk: too much user-facing behavior can be fulfilled by deterministic branches before the AI writes anything.
+
+Milestone 4 onward should correct that direction. The foundations remain useful as tools and retrieval systems, not as preset answer renderers:
 
 - `src/app/api/chat/chat-route.ts` classifies food, beach, weather, nearby, and activity-plan intents.
 - `src/server/chat/recommendation-agent.ts` routes food and place-like questions through a planner, Google Places lookup, ranking, and rendered answer.
@@ -32,7 +37,7 @@ The repo already has useful foundations for this roadmap:
 - `src/features/chat/ChatWorkspace.tsx` renders assistant markdown, links, source lines, and a chat composer.
 - `src/server/db/schema.ts` already includes source-governance, fact, evidence, Google Places, weather, public content, and payment-related tables.
 
-The roadmap should deepen these systems rather than replace them.
+The roadmap should preserve these systems as backend capabilities while moving final response ownership to an AI tool-calling agent.
 
 ## Priority 1: Live Open-Now Local Recommendations
 
@@ -259,21 +264,240 @@ Initially, render this as compact markdown lines because `ChatWorkspace` already
 - Add route tests asserting source labels for beach, weather, Places, generic fallback, and provider-failure paths.
 - Add renderer tests to ensure checked/not-checked lines are preserved for the frontend parser.
 
-## Priority 4: Map-First Recommendation Cards
+## Priority 4: AI Tool Runtime
 
 ### Outcome
 
-Local recommendations should become actionable UI cards with map link, distance, open status, fit rationale, source label, and follow-up actions.
+Ask Siargao should have one primary chat agent that receives every user message,
+decides which backend tools to call, and writes every final answer.
+
+Deterministic weather, beach, recommendation, and local-plan renderers should be
+converted into tools or validators. They should no longer produce the final
+assistant message.
 
 ### User Stories
 
-- As a traveler, I can scan recommendations quickly instead of reading a dense paragraph.
-- As a traveler, I can open the map for a place from the answer.
-- As a traveler, I can ask for alternatives, save an option, or request an itinerary using a returned place.
+- As a traveler, I can ask "what should I do near Cloud 9 today?" and the AI can
+  call weather, local guide, and Places tools before writing a natural answer.
+- As a traveler, I can ask follow-ups without hearing repeated preset text.
+- As a maintainer, I can add a backend capability as a tool without creating a
+  new hardcoded response branch.
 
 ### Technical Specification
 
-Add a structured response mode to `/api/chat` while keeping markdown compatibility:
+Create an agent runtime for `/api/chat`:
+
+```ts
+type AskSiargaoAgentTool =
+  | "get_weather_forecast"
+  | "search_places"
+  | "get_place_details"
+  | "search_local_guide"
+  | "describe_database_schema"
+  | "query_local_facts"
+  | "describe_source_policy";
+
+type AgentTurnResult = {
+  message: string;
+  requestId: string;
+  model: string;
+  toolCalls: AgentToolCallAudit[];
+  sources: AnswerSourceSummary[];
+  cards?: RecommendationCard[];
+  actions?: ChatAction[];
+};
+```
+
+The runtime should use the OpenAI Responses API with function tools or MCP tools.
+
+The route flow becomes:
+
+1. Validate request shape, rate limits, scope, and safety.
+2. Build conversation input and persistent agent instructions.
+3. Register backend tools.
+4. Let the model call tools as needed.
+5. Execute tool calls on the backend.
+6. Continue the Responses tool loop until the model produces a final answer.
+7. Validate source consistency and return the AI-written response.
+
+Keep deterministic classifiers only as optional signals. They can help set tool
+availability, default location hints, or safety constraints, but they cannot
+choose final wording.
+
+### Tool Requirements
+
+Initial tools:
+
+- `get_weather_forecast(location, date_range)` returns normalized Open-Meteo
+  snapshots and concise condition signals.
+- `search_places(query, center, radius_meters, constraints)` returns governed
+  Google Places candidates from fresh cache or live lookup.
+- `get_place_details(place_id)` returns allowed place fields only.
+- `search_local_guide(query, filters)` returns curated Siargao entities and
+  caveats.
+- `describe_source_policy()` explains checked/not-checked labels available to
+  the agent.
+
+### Acceptance Criteria
+
+- No successful `/api/chat` response is produced without an OpenAI model call.
+- Weather, beach, local-guide, and recommendation prompts are AI-written.
+- Existing provider checks still happen when the AI calls the matching tool.
+- Tool call traces are logged for observability.
+- Provider failure is returned to the model as tool output, not rendered directly
+  as a preset final answer.
+
+### Test Plan
+
+- Add route tests proving common chat prompts invoke the model.
+- Add tool-loop tests for weather, Places, local guide, and no-tool general
+  Siargao prompts.
+- Add regression tests that deterministic branches cannot return final prose.
+- Add source-consistency tests for model answers that mention checked data.
+
+## Priority 5: Persistent Agent Memory
+
+### Outcome
+
+Ask Siargao should give the AI durable product memory through Markdown files,
+file search/vector stores, and schema/tool description tools.
+
+Local Markdown files are not model memory by themselves. The app must explicitly
+load or index them.
+
+### User Stories
+
+- As a maintainer, I can update agent behavior in Markdown without hiding product
+  rules inside scattered code branches.
+- As the AI agent, I can retrieve source policy, data dictionary, tool-use rules,
+  and Siargao local assumptions when answering.
+- As a product owner, I can review what the AI is expected to know.
+
+### Technical Specification
+
+Create agent memory files:
+
+```text
+docs/agent-memory/
+  ASK_SIARGAO_AGENT_SKILLS.md
+  ASK_SIARGAO_TOOL_USE_POLICY.md
+  ASK_SIARGAO_DATA_DICTIONARY.md
+  ASK_SIARGAO_SOURCE_POLICY.md
+  ASK_SIARGAO_LOCAL_ASSUMPTIONS.md
+```
+
+Wire them into the agent with two paths:
+
+1. Load small, stable policy files into Responses `instructions`.
+2. Upload larger reference files into an OpenAI vector store and expose them
+   through the `file_search` tool.
+
+Add checksums or version IDs so deployments can tell which memory version the
+agent used.
+
+### Acceptance Criteria
+
+- The agent receives product behavior instructions from Markdown, not only inline
+  strings in code.
+- The agent can retrieve larger Markdown references through file search or a
+  backend memory tool.
+- Tests fail if the required memory files are missing.
+- The agent memory explains that every final answer must be AI-written and that
+  tools are required for live/local facts.
+
+### Test Plan
+
+- Add unit tests for memory file loading and required-file validation.
+- Add an integration test that verifies the chat adapter includes memory
+  instructions.
+- Add a tool test for retrieving source policy or data dictionary content.
+
+## Priority 6: Safe Database And Local Knowledge Tools
+
+### Outcome
+
+The AI should understand the Ask Siargao data model and retrieve local facts on
+demand without receiving unrestricted production database access.
+
+### User Stories
+
+- As a traveler, I can ask about beaches, transport, services, and local caveats,
+  and the AI can retrieve curated data before answering.
+- As the AI agent, I can inspect what structured data exists before choosing a
+  query.
+- As a maintainer, I can prevent unsafe SQL, restricted provider payload exposure,
+  and source-policy violations.
+
+### Technical Specification
+
+Expose safe data tools:
+
+```ts
+type DatabaseSchemaToolResult = {
+  publicViews: Array<{
+    name: string;
+    description: string;
+    fields: Array<{ name: string; type: string; description: string }>;
+  }>;
+  queryRules: string[];
+};
+
+type LocalFactsQuery = {
+  entityTypes: string[];
+  area?: string;
+  tags?: string[];
+  text?: string;
+  limit: number;
+};
+```
+
+Preferred tool set:
+
+- `describe_database_schema()` returns an AI-readable data dictionary for
+  approved views and domain objects.
+- `query_local_facts(query)` accepts structured filters rather than free SQL.
+- `search_local_guide(query, filters)` searches curated data.
+- `get_source_evidence(fact_ids)` returns source caveats allowed for display.
+
+If a SQL-like tool is added later, it must be read-only, parsed before execution,
+restricted to approved views, row-limited, timed out, and blocked from mutation.
+
+### Acceptance Criteria
+
+- The AI can discover available local fact structures.
+- The AI can query curated/local data through allowlisted tools.
+- No tool exposes raw restricted Google Places payloads or private user data.
+- All returned facts include source or confidence metadata.
+
+### Test Plan
+
+- Add tests for schema-description output.
+- Add tests for local fact queries by area, tag, and entity type.
+- Add negative tests for unsafe SQL or disallowed table access if SQL is added.
+- Add source-policy tests for provider-derived fields.
+
+## Priority 7: Map-First Recommendation Cards
+
+### Outcome
+
+Local recommendations should become actionable UI cards with map link, distance,
+open status, fit rationale, source label, and follow-up actions.
+
+The AI still writes the message. Cards are structured artifacts produced from
+tool results and returned alongside the AI answer.
+
+### User Stories
+
+- As a traveler, I can scan recommendations quickly instead of reading a dense
+  paragraph.
+- As a traveler, I can open the map for a place from the answer.
+- As a traveler, I can ask for alternatives, save an option, or request an
+  itinerary using a returned place.
+
+### Technical Specification
+
+Add a structured response mode to `/api/chat` while keeping markdown
+compatibility:
 
 ```ts
 type ChatResponseBody = {
@@ -303,20 +527,9 @@ type ChatAction = {
 };
 ```
 
-Update `src/features/chat/ChatWorkspace.tsx` to render cards when present and fall back to markdown-only messages when absent. Keep links accessible and preserve source caveats in the card footer.
-
-Card-producing backends:
-
-- Places recommendations: derive from `LocalRecommendation`.
-- Beach recommendations: derive from `SiargaoBeach`.
-- Itineraries: derive from itinerary stops after Priority 6.
-
-### UI Requirements
-
-- Cards should be compact and scannable inside the existing chat stream.
-- Use icon buttons for map/open/save actions where practical.
-- Do not hide source caveats behind an unexplained decorative element.
-- Preserve the existing chat composer and retry behavior.
+Update `src/features/chat/ChatWorkspace.tsx` to render cards when present and
+fall back to markdown-only messages when absent. Keep links accessible and
+preserve source caveats in the card footer.
 
 ### Acceptance Criteria
 
@@ -327,127 +540,33 @@ Card-producing backends:
 
 ### Test Plan
 
-- Add React tests or e2e coverage for card rendering, map links, and fallback markdown.
+- Add React tests or e2e coverage for card rendering, map links, and fallback
+  markdown.
 - Add route tests confirming `cards` shape for Places and beach answers.
 - Add Playwright coverage for mobile card layout once the UI exists.
 
-## Priority 5: Siargao-Specific Data Packs
-
-### Outcome
-
-Ask Siargao should answer common local questions from deterministic curated datasets before falling back to generic LLM reasoning.
-
-### User Stories
-
-- As a traveler, I can ask for sandy beaches, rainy-day activities, sunset spots, ATMs, clinics, laundry, SIM help, scooter rentals, and airport transfer basics.
-- As a maintainer, I can update local guidance without editing prompt text.
-- As a product owner, I can see which local datasets exist and which caveats they carry.
-
-### Technical Specification
-
-Generalize `src/server/local/siargao-beaches.ts` into a local guide module:
-
-```text
-src/server/local/
-  siargao-guide.ts
-  datasets/
-    beaches.ts
-    rainy-day-activities.ts
-    sunset-spots.ts
-    essential-services.ts
-    transport.ts
-    safety-caveats.ts
-```
-
-Use a common entity shape:
-
-```ts
-type LocalGuideEntity = {
-  id: string;
-  name: string;
-  category: string;
-  area: string;
-  tags: string[];
-  distanceFromGeneralLunaMinutes?: { min: number; max: number };
-  location?: { latitude: number; longitude: number };
-  fit: Record<string, string>;
-  caveats: string[];
-  confidence: "high" | "medium" | "low";
-  sourceNotes: string;
-  reviewBy?: string;
-};
-```
-
-Build deterministic retrieval helpers:
-
-- `findLocalGuideEntities(query)`
-- `rankLocalGuideEntities(entities, filters)`
-- `renderLocalGuideAnswer(result)`
-
-The intent router should consult local datasets for stable local knowledge such as geography, surfaces, ride-time estimates, rain exposure, and safety caveats. It should use Google Places for live identity, hours, map links, ratings, and open-now status.
-
-### Data Requirements
-
-Start with TypeScript data modules for reviewability. Move to DB tables only when editing workflows or public APIs require it.
-
-Initial datasets:
-
-- beaches
-- surf spots
-- rainy-day activities
-- sunset spots
-- cafes with likely covered seating
-- ATMs
-- pharmacies and clinics
-- laundry
-- SIM and phone support
-- transport and scooter rentals
-- ferry and airport transfer basics
-- common tourist traps and safety caveats
-
-### Acceptance Criteria
-
-- Beach logic no longer lives as a one-off module.
-- At least three new local guide categories can answer deterministic prompts.
-- Local guide answers include confidence, source notes, and not-checked caveats.
-- Live place facts are still delegated to Google Places when current status matters.
-
-### Test Plan
-
-- Add unit tests for dataset validation, filtering, ranking, and rendering.
-- Add route tests for non-beach local guide questions.
-- Add tests that open-now questions still route to Places instead of static data.
-
-## Priority 6: Local Itinerary Builder
+## Priority 8: Local Itinerary Builder
 
 ### Outcome
 
 Ask Siargao should produce 2-4 hour practical plans, not only lists of places.
 
+The itinerary should be AI-written after the agent retrieves local guide data,
+weather data, and live place data as needed.
+
 ### User Stories
 
-- As a traveler, I can ask for a rainy Cloud 9 afternoon and receive a short sequence with fallback options.
+- As a traveler, I can ask for a rainy Cloud 9 afternoon and receive a short
+  sequence with fallback options.
 - As a traveler, I can ask for sunset plus dinner and get a route-aware plan.
-- As a traveler, I can ask for a non-surfer half-day and avoid stops that do not fit my ride-time limit or weather.
+- As a traveler, I can ask for a non-surfer half-day and avoid stops that do not
+  fit my ride-time limit or weather.
 
 ### Technical Specification
 
-Add an itinerary intent and planner:
+Add itinerary-specific tools and structured output:
 
 ```ts
-type ItineraryIntent = {
-  durationHours: 2 | 3 | 4 | "half_day";
-  origin?: TripContext["currentLocation"];
-  theme:
-    | "rainy_day"
-    | "sunset_dinner"
-    | "sandy_beach"
-    | "food_crawl"
-    | "non_surfer"
-    | "scooter_day";
-  constraints: string[];
-};
-
 type ItineraryPlan = {
   title: string;
   durationLabel: string;
@@ -469,49 +588,50 @@ type ItineraryStop = {
 };
 ```
 
-Build itinerary candidates from:
+The agent should combine:
 
-- `TripContext` for origin and constraints;
-- local guide datasets for stable suitability;
-- Google Places for live place choices and open-now checks;
-- weather snapshot for rain, wind, and outdoor exposure.
-
-Keep sequencing deterministic at first:
-
-1. Select theme.
-2. Select origin and radius.
-3. Choose 2-4 stops that fit travel-time constraints.
-4. Replace outdoor stops with covered fallbacks when weather risk is high.
-5. Render sequence, travel time, fallback, skip list, and source caveats.
+- trip context for origin and constraints;
+- local guide tools for stable suitability;
+- Google Places tools for live place choices and open-now checks;
+- weather tools for rain, wind, and outdoor exposure.
 
 ### Acceptance Criteria
 
 - Itinerary prompts do not return generic brainstorms.
-- Plans include a sequence, travel time estimates, fallback, what to skip, and source caveats.
-- Rainy-day plans use weather context automatically.
+- Plans include a sequence, travel time estimates, fallback, what to skip, and
+  source caveats.
+- Rainy-day plans use weather tools automatically.
 - Dinner or cafe stops use Places when live open status matters.
 
 ### Test Plan
 
-- Add itinerary planner unit tests for each initial theme.
-- Add route tests for rainy Cloud 9 afternoon, sunset plus dinner, sandy beach half-day, and food crawl.
+- Add itinerary tool tests for each initial theme.
+- Add route tests for rainy Cloud 9 afternoon, sunset plus dinner, sandy beach
+  half-day, and food crawl.
 - Add tests for fallback substitution under high rain probability.
 
-## Priority 7: Weather, Tide, And Surf Fusion
+## Priority 9: Weather, Tide, And Surf Fusion
 
 ### Outcome
 
-Ask Siargao should convert weather, tide, and surf signals into a practical condition judgment instead of reporting raw weather only.
+Ask Siargao should convert weather, tide, and surf signals into a practical
+condition judgment instead of reporting raw weather only.
+
+Weather details should stay essential. The AI should lead with what the traveler
+should do, then cite only the weather facts that matter.
 
 ### User Stories
 
-- As a traveler, I can ask whether a beach is good for swimming now and get a practical recommendation.
-- As a traveler, I can ask "what should I avoid today?" and get weather-aware local caveats.
-- As a traveler, I can distinguish weather-checked facts from unverified tide, surf, road, and swimming-safety facts.
+- As a traveler, I can ask whether a beach is good for swimming now and get a
+  practical recommendation.
+- As a traveler, I can ask "what should I avoid today?" and get weather-aware
+  local caveats.
+- As a traveler, I can distinguish weather-checked facts from unverified tide,
+  surf, road, and swimming-safety facts.
 
 ### Technical Specification
 
-Extend the weather answer layer into a condition engine:
+Expose condition signals through tools:
 
 ```ts
 type ConditionSignal = {
@@ -531,38 +651,39 @@ type ConditionJudgment = {
 };
 ```
 
-Initial implementation should use existing Open-Meteo data and curated local caveats. Tide and surf should remain explicitly `not_checked` until approved providers are integrated.
-
-Later provider options:
-
-- tide API with Siargao-relevant station mapping;
-- surf forecast provider with explicit terms review;
-- official advisories or municipal/provincial sources for closures and safety notices.
+Initial implementation should use existing Open-Meteo data and curated local
+caveats. Tide and surf should remain explicitly `not_checked` until approved
+providers are integrated.
 
 ### Acceptance Criteria
 
-- Weather-sensitive activity answers include a recommendation, reasons, alternatives, and caveats.
+- Weather-sensitive activity answers include a recommendation, reasons,
+  alternatives, and caveats.
+- Weather prose is concise and decision-oriented.
 - Tide and surf are not implied as checked before provider integration.
-- The answer can say "avoid" when rain or wind thresholds make the plan weak.
 - Beach answers can merge curated beach suitability with weather signals.
 
 ### Test Plan
 
 - Add unit tests for weather thresholds and condition judgments.
 - Add route tests for swimming, rainy-day, scooter, and sunset prompts.
-- Add regression tests that tide/surf are labeled not checked until providers exist.
+- Add regression tests that tide/surf are labeled not checked until providers
+  exist.
 
-## Priority 8: Consent-Based Near-Me Geolocation
+## Priority 10: Consent-Based Near-Me Geolocation
 
 ### Outcome
 
-Travelers should be able to share their current location and receive nearby guidance without typing Cloud 9, General Luna, Dapa, or another area.
+Travelers should be able to share their current location and receive nearby
+guidance without typing Cloud 9, General Luna, Dapa, or another area.
 
 ### User Stories
 
 - As a traveler, I can tap a location control and ask "what is open near me?"
-- As a traveler, I can continue without sharing location and still type an area manually.
-- As a privacy-conscious user, I can see that location sharing is optional and scoped to the request or trip.
+- As a traveler, I can continue without sharing location and still type an area
+  manually.
+- As a privacy-conscious user, I can see that location sharing is optional and
+  scoped to the request or trip.
 
 ### Technical Specification
 
@@ -589,7 +710,8 @@ clientContext?: ChatClientContext;
 
 On the server:
 
-- validate coordinates are plausibly in or near Siargao before using them;
+- validate coordinates are plausibly in or near Siargao before exposing them to
+  tools;
 - treat browser geolocation as user-provided context;
 - use it as the Places search center for nearby requests;
 - do not persist it unless trip-session consent is explicit;
@@ -606,19 +728,22 @@ On the server:
 
 - Add schema tests for valid, missing, and invalid client context.
 - Add route tests for near-me Places search center selection.
-- Add e2e coverage for the geolocation permission path using mocked browser permissions.
+- Add e2e coverage for the geolocation permission path using mocked browser
+  permissions.
 
-## Priority 9: Save And Share Trip Plans
+## Priority 11: Save And Share Trip Plans
 
 ### Outcome
 
-Travelers should be able to keep useful recommendations and share compact trip plans.
+Travelers should be able to keep useful recommendations and share compact trip
+plans.
 
 ### User Stories
 
 - As a traveler, I can save a restaurant, beach, or itinerary from chat.
 - As a traveler, I can share a plan with a friend without exposing the full chat.
-- As a maintainer, I can preserve source caveats and freshness labels when a plan is shared.
+- As a maintainer, I can preserve source caveats and freshness labels when a plan
+  is shared.
 
 ### Technical Specification
 
@@ -645,16 +770,10 @@ type SharedTripPlan = {
 };
 ```
 
-Start with local browser storage for unauthenticated chat sessions if there is no trip persistence yet. When trip/pass persistence is active, move saved items to Postgres and expose a share route that renders only selected items and allowed source metadata.
-
-### Data Requirements
-
-Potential tables:
-
-- `saved_trip_items`
-- `shared_trip_plans`
-
-Shared pages must not expose private chat messages, unrestricted provider payloads, or paid-only context unless explicitly selected and allowed.
+Start with local browser storage for unauthenticated chat sessions if there is no
+trip persistence yet. When trip/pass persistence is active, move saved items to
+Postgres and expose a share route that renders only selected items and allowed
+source metadata.
 
 ### Acceptance Criteria
 
@@ -666,38 +785,44 @@ Shared pages must not expose private chat messages, unrestricted provider payloa
 ### Test Plan
 
 - Add UI tests for saving and removing items.
-- Add API tests for share-token creation and access control once server persistence exists.
+- Add API tests for share-token creation and access control once server
+  persistence exists.
 - Add source-policy tests to ensure restricted provider content is not exposed.
 
 ## Delivery Order
 
 | Order | Item | Dependency | Reason |
 | ---: | --- | --- | --- |
-| 1 | Live open-now local recommendations | Existing Places cache and recommendation agent | Highest user value and strongest differentiation from generic chat. |
-| 2 | Contextual follow-up and trip memory | Item 1 | Makes live recommendations useful across conversation turns. |
-| 3 | Trust score and source labels | Items 1-2 | Turns provider usage into visible trust. |
-| 4 | Map-first recommendation cards | Items 1 and 3 | Converts grounded results into a practical travel UI. |
-| 5 | Siargao-specific data packs | Existing beach guide | Expands deterministic local knowledge beyond beaches. |
-| 6 | Local itinerary builder | Items 1, 2, 5 | Combines live places, context, and local data into plans. |
-| 7 | Weather, tide, and surf fusion | Existing weather snapshots, Item 5 | Improves condition judgments and avoids unsafe generic advice. |
-| 8 | Consent-based near-me geolocation | Items 1-2 | Makes nearby recommendations faster and more accurate. |
-| 9 | Save and share trip plans | Items 4 and 6 | Adds retention and collaboration after the core answer quality exists. |
+| 1 | AI tool runtime | Completed Priorities 1-3 | Corrects the product direction by making every response AI-written. |
+| 2 | Persistent agent memory | AI tool runtime | Gives the model durable behavior, source, and schema knowledge. |
+| 3 | Safe database and local knowledge tools | Agent memory and existing schema | Lets the AI retrieve local facts without unsafe DB access. |
+| 4 | Map-first recommendation cards | Tool runtime and source metadata | Converts tool results into practical travel UI while preserving AI prose. |
+| 5 | Local itinerary builder | Tools, context, cards | Combines live places, context, weather, and local data into plans. |
+| 6 | Weather, tide, and surf fusion | Weather tool and local caveats | Improves condition judgments without verbose raw weather reporting. |
+| 7 | Consent-based near-me geolocation | Tool runtime and Places tools | Makes nearby recommendations faster and more accurate. |
+| 8 | Save and share trip plans | Cards and itineraries | Adds retention and collaboration after core answer quality exists. |
 
 ## Product Metrics
 
-- Share of local-place prompts routed through Places or fresh cache instead of generic LLM fallback.
-- Share of grounded answers with checked/not-checked labels.
-- Provider failure rate and fallback rate.
-- Average recommendation answer latency.
+- Share of `/api/chat` responses that include an OpenAI model call.
+- Share of local/live prompts where the model called at least one relevant tool.
+- Share of answers with source labels backed by actual tool outputs.
+- Provider failure rate and model-handled fallback rate.
+- Average tool-loop latency.
 - Repeat follow-up success rate without restating area.
+- User reports of repeated or templated wording.
 - Card click-through rate for map links.
 - Saved itinerary or saved place rate.
-- User-visible caveat coverage for weather, open-now, tide, surf, roads, bookings, and seating.
+- User-visible caveat coverage for weather, open-now, tide, surf, roads,
+  bookings, and seating.
 
 ## Non-Goals
 
 - Competing with ChatGPT or Claude on broad reasoning.
+- Replacing AI-written answers with deterministic local templates.
+- Letting the model execute unrestricted SQL against production data.
 - Bulk-indexing every Siargao business before user demand exists.
 - Building a permanent raw Google Places or review corpus.
-- Claiming tide, surf, road, booking, or seating verification before approved providers exist.
+- Claiming tide, surf, road, booking, or seating verification before approved
+  providers exist.
 - Turning the app into a generic trip planner for all destinations.
