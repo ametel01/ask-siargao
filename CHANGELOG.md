@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Established progress tracking for the Priority 2 contextual follow-up and request-scoped trip
+  memory implementation plan.
 - Added normalized `LocalRecommendation` objects for Google Places-backed local recommendations,
   including map links, open-now status, fit reasons, caveats, and source freshness.
 - Added a shared place-intent classifier for Priority 1 local recommendations, covering food,
