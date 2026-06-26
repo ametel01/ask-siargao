@@ -32,23 +32,7 @@ startupLogger.info(
 );
 
 if (!serveOnly) {
-  await runLoggedCommand({
-    command: ["bun", "install", "--frozen-lockfile"],
-    logger: startupLogger,
-    step: "dependencies.install",
-  });
-
-  await runLoggedCommand({
-    command: ["bun", "run", "db:migrate"],
-    logger: startupLogger,
-    step: "database.migrate",
-  });
-
-  await runLoggedCommand({
-    command: ["bun", "run", "db:seed"],
-    logger: startupLogger,
-    step: "database.seed",
-  });
+  await runStartupPreparationCommands();
 }
 
 const nextResult = await runLoggedCommand({
@@ -79,4 +63,35 @@ function databaseTargetForLog(databaseUrl: string | undefined) {
   } catch {
     return "[unparseable]";
   }
+}
+
+async function runStartupPreparationCommands() {
+  const steps = [
+    () =>
+      runLoggedCommand({
+        command: ["bun", "install", "--frozen-lockfile"],
+        logger: startupLogger,
+        step: "dependencies.install",
+      }),
+    () =>
+      runLoggedCommand({
+        command: ["bun", "run", "db:migrate"],
+        logger: startupLogger,
+        step: "database.migrate",
+      }),
+    () =>
+      runLoggedCommand({
+        command: ["bun", "run", "db:seed"],
+        logger: startupLogger,
+        step: "database.seed",
+      }),
+  ] as const;
+
+  await steps.reduce<Promise<void>>(
+    (previousStep, runStep) =>
+      previousStep.then(async () => {
+        await runStep();
+      }),
+    Promise.resolve(),
+  );
 }

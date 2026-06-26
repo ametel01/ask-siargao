@@ -252,76 +252,75 @@ async function persistGooglePlacesChatContext(
   context: GooglePlacesChatContext,
   { logger }: PersistGooglePlacesChatContextOptions = {},
 ) {
-  const summaries: GooglePlaceDetailsWriteSummary[] = [];
-
-  for (const [resultIndex, place] of context.places.entries()) {
-    const capture = googlePlacesChatCaptureInput({ context, place, resultIndex });
-    const placeLogger = logger?.child(
-      compactLogFields({
-        placeId: place.placeId,
-        resultIndex,
-        snapshotId: capture.snapshot?.id,
-        sourceRecordId: capture.sourceRecord.id,
-      }),
-    );
-    const writeStartedAt = Date.now();
-
-    placeLogger?.debug(
-      {
-        businessStatus: place.businessStatus,
-        displayName: place.displayName,
-        primaryType: place.primaryType,
-        rating: place.rating,
-        requestKind: capture.snapshot?.requestKind,
-        staleAt: capture.details.staleAt,
-        userRatingCount: place.userRatingCount,
-      },
-      "Google Places chat DB place write started.",
-    );
-
-    try {
-      const summary = await upsertGooglePlaceDetails(db, capture);
-      summaries.push(summary);
+  return Promise.all(
+    context.places.map(async (place, resultIndex): Promise<GooglePlaceDetailsWriteSummary> => {
+      const capture = googlePlacesChatCaptureInput({ context, place, resultIndex });
+      const placeLogger = logger?.child(
+        compactLogFields({
+          placeId: place.placeId,
+          resultIndex,
+          snapshotId: capture.snapshot?.id,
+          sourceRecordId: capture.sourceRecord.id,
+        }),
+      );
+      const writeStartedAt = Date.now();
 
       placeLogger?.debug(
         {
-          detailsUpserted: summary.detailsUpserted,
-          durationMs: Date.now() - writeStartedAt,
-          evidenceUpserted: summary.evidenceUpserted,
-          factsUpserted: summary.factsUpserted,
-          fetchedAt: summary.fetchedAt,
-          placeIdentityUpserted: summary.placeIdentityUpserted,
-          retentionExpiresAt: summary.retentionExpiresAt,
-          snapshotUpserted: summary.snapshotUpserted,
-          sourceRecordUpserted: summary.sourceRecordUpserted,
-          staleAt: summary.staleAt,
+          businessStatus: place.businessStatus,
+          displayName: place.displayName,
+          primaryType: place.primaryType,
+          rating: place.rating,
+          requestKind: capture.snapshot?.requestKind,
+          staleAt: capture.details.staleAt,
+          userRatingCount: place.userRatingCount,
         },
-        "Google Places chat DB place write completed.",
+        "Google Places chat DB place write started.",
       );
-    } catch (error) {
-      const writeError =
-        error instanceof GooglePlacesStoreWriteError
-          ? {
-              phase: error.phase,
-              placeId: error.placeId,
-              snapshotId: error.snapshotId,
-              sourceRecordId: error.sourceRecordId,
-            }
-          : undefined;
 
-      placeLogger?.error(
-        {
-          err: error,
-          durationMs: Date.now() - writeStartedAt,
-          writeError,
-        },
-        "Google Places chat DB place write failed.",
-      );
-      throw error;
-    }
-  }
+      try {
+        const summary = await upsertGooglePlaceDetails(db, capture);
 
-  return summaries;
+        placeLogger?.debug(
+          {
+            detailsUpserted: summary.detailsUpserted,
+            durationMs: Date.now() - writeStartedAt,
+            evidenceUpserted: summary.evidenceUpserted,
+            factsUpserted: summary.factsUpserted,
+            fetchedAt: summary.fetchedAt,
+            placeIdentityUpserted: summary.placeIdentityUpserted,
+            retentionExpiresAt: summary.retentionExpiresAt,
+            snapshotUpserted: summary.snapshotUpserted,
+            sourceRecordUpserted: summary.sourceRecordUpserted,
+            staleAt: summary.staleAt,
+          },
+          "Google Places chat DB place write completed.",
+        );
+
+        return summary;
+      } catch (error) {
+        const writeError =
+          error instanceof GooglePlacesStoreWriteError
+            ? {
+                phase: error.phase,
+                placeId: error.placeId,
+                snapshotId: error.snapshotId,
+                sourceRecordId: error.sourceRecordId,
+              }
+            : undefined;
+
+        placeLogger?.error(
+          {
+            err: error,
+            durationMs: Date.now() - writeStartedAt,
+            writeError,
+          },
+          "Google Places chat DB place write failed.",
+        );
+        throw error;
+      }
+    }),
+  );
 }
 
 export function googlePlacesChatSearchCacheKey(search: GooglePlacesChatSearch) {

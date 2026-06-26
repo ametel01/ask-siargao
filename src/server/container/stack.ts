@@ -81,13 +81,15 @@ await runLoggedCommand({
 });
 
 if ("postCommands" in actionConfig) {
-  for (const postCommand of actionConfig.postCommands) {
-    await runLoggedCommand({
-      command: postCommand.command,
-      logger: stackLogger,
-      step: postCommand.step,
-    });
-  }
+  await Promise.all(
+    actionConfig.postCommands.map((postCommand) =>
+      runLoggedCommand({
+        command: postCommand.command,
+        logger: stackLogger,
+        step: postCommand.step,
+      }),
+    ),
+  );
 }
 
 stackLogger.info({ action }, "Container stack action completed.");

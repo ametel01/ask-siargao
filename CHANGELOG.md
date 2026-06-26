@@ -22,6 +22,14 @@ and this project adheres to Semantic Versioning when releases are tagged.
   refresh gating, and gap reporting.
 - Added end-to-end route coverage proving DB-first Google chat context, blocked-refresh gaps, and
   restricted Google content filtering before LLM input.
+- Added a cached Google Places chat lookup path for recommendation answers, including persisted
+  fresh search context and opening-hour signals.
+- Added a logged local development stack workflow for host and Compose startup, database
+  migration/seed steps, stack commands, and redacted command logging.
+- Added curated Siargao beach guidance for grounded beach follow-up answers around General Luna,
+  Cloud 9, sandy beaches, ride-time constraints, swimming, and sunset fit.
+- Added Ask Siargao positioning and roadmap documentation focused on live local checks,
+  weather-aware planning, place recommendations, map-first UX, and trust labels.
 - Added mocked browser coverage for real chat submission, assistant response rendering, and prompt auto-submit.
 - Established progress tracking for the real chat replacement plan.
 - Added a first GPT-backed Ask Siargao chat slice with a server-side OpenAI Responses API adapter, `/api/chat` endpoint, rate limiting, validation, landing prompt deep links, and interactive desktop/mobile composers.
@@ -76,6 +84,17 @@ and this project adheres to Semantic Versioning when releases are tagged.
   source freshness, attribution, and gaps.
 - Made Google Places chat and details adapters capture-ready while preserving existing chat context
   compatibility.
+- Optimized chat Google Maps link enrichment so existing linked URIs are detected reliably and
+  missing map links are appended near matching place names.
+- Bounded the client chat history sent to `/api/chat` by limiting prior completed turns and
+  truncating long message content before follow-up requests.
+- Routed food and place recommendation questions through the multi-step recommendation agent with
+  request IDs, structured logs, provider-backed candidates, ranking, and fallback errors.
+- Grounded weather-sensitive activity plans and beach follow-up answers in interpreted chat intent,
+  live weather context when available, and local Siargao guidance before falling back to generic LLM
+  responses.
+- Changed `/chat?prompt=` deep links to prefill the composer without auto-submitting or clearing
+  the prompt URL parameter.
 - Wired weather-related `/api/chat` requests to Siargao Open-Meteo weather context, including direct live fallback when stored forecast rows are unavailable and Del Carmen area detection.
 - Aligned landing-to-chat prompt links and copy with the GPT-only real chat surface, removing live-data and source-backed freshness claims from the landing shell.
 - Replaced the `/chat` mock sidebar/context workspace with one focused responsive real chat shell.
@@ -94,10 +113,14 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Removed
 
+- Removed completed `PLAN.md`, `PROGRESS.md`, and old implementation plan files after consolidating
+  current product direction into roadmap documentation.
 - Removed Panda CSS configuration, generated `styled-system` output, Panda theme token/recipe files, Panda codegen scripts, `postinstall`, and the `@pandacss/dev` dependency.
 
 ### Fixed
 
+- Kept recommendation-agent candidate state consistent across planner steps so newly found places
+  are available to ranking and final-answer rendering.
 - Rendered assistant chat Markdown for bold text and bullet lists instead of collapsing formatted responses into a plain paragraph.
 - Hoisted the chat timestamp formatter so message rendering does not rebuild `Intl.DateTimeFormat` for every timestamp.
 - Hardened chat pending and error states with disabled in-flight controls, safe failure copy, retry affordance, and keyboard resubmission coverage.

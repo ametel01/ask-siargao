@@ -123,8 +123,11 @@ export function renderSiargaoBeachRecommendation(request: BeachRecommendationReq
   const maxRideMinutes = request.maxRideMinutes ?? 30;
   const sandFiltered = Boolean(request.sandOnly || request.avoidRocky);
   const candidates = siargaoBeachGuide
-    .filter((beach) => beach.distanceFromGeneralLunaMinutes.max <= maxRideMinutes)
-    .filter((beach) => (sandFiltered ? beach.surface === "sand" : beach.surface !== "rocky"))
+    .filter(
+      (beach) =>
+        beach.distanceFromGeneralLunaMinutes.max <= maxRideMinutes &&
+        (sandFiltered ? beach.surface === "sand" : beach.surface !== "rocky"),
+    )
     .sort(
       (left, right) =>
         left.distanceFromGeneralLunaMinutes.max - right.distanceFromGeneralLunaMinutes.max ||

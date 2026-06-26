@@ -586,24 +586,48 @@ export async function deleteExpiredGooglePlacesContent(
   db: GooglePlacesStoreDatabase,
   { now }: { now: string },
 ): Promise<GooglePlacesCleanupCounts> {
-  const reviews = await db.query<{ id: string }>(
-    "delete from google_place_reviews where retention_expires_at < $1 returning id",
-    [now],
-  );
-  const details = await db.query<{ place_id: string }>(
-    "delete from google_place_details where retention_expires_at < $1 returning place_id",
-    [now],
-  );
-  const snapshots = await db.query<{ id: string }>(
-    "delete from google_place_snapshots where retention_expires_at is not null and retention_expires_at < $1 returning id",
-    [now],
-  );
+  const [reviews, details] = await Promise.all([
+    db.query<{ id: string }>(
+      "delete from google_place_reviews where retention_expires_at < $1 returning id",
+      [now],
+    ),
+    db.query<{ place_id: string }>(
+      "delete from google_place_details where retention_expires_at < $1 returning place_id",
+      [now],
+    ),
+  ]);
+  const snapshots = await deleteExpiredGooglePlaceSnapshotsAfterReviews(db, {
+    now,
+    reviews,
+  });
 
   return {
     reviewsDeleted: reviews.rows.length,
     detailsDeleted: details.rows.length,
     snapshotsDeleted: snapshots.rows.length,
   };
+}
+
+async function deleteExpiredGooglePlaceSnapshotsAfterReviews(
+  db: GooglePlacesStoreDatabase,
+  {
+    now,
+    reviews,
+  }: {
+    now: string;
+    reviews: { rows: Array<{ id: string }> };
+  },
+) {
+  if (!Array.isArray(reviews.rows)) {
+    throw new Error(
+      "Review cleanup must complete before expired Google Place snapshots are deleted.",
+    );
+  }
+
+  return db.query<{ id: string }>(
+    "delete from google_place_snapshots where retention_expires_at is not null and retention_expires_at < $1 returning id",
+    [now],
+  );
 }
 
 export async function countExpiredGooglePlacesContent(
