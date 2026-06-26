@@ -16,6 +16,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
   structured unknown/invalid tool errors, and machine-readable source label caveats.
 - Added the weather forecast chat agent tool with governed Open-Meteo snapshots, location/date
   validation, normalized weather signals, and provider-unavailable tool outputs.
+- Added governed Google Places search and details chat agent tools with cache-first lookup,
+  allowed field masks, restricted output shaping, and provider-unavailable tool outputs.
 - Established progress tracking for the Priority 3 trust score and source labels implementation
   plan.
 - Added a shared answer source summary contract and compact markdown renderer for checked,

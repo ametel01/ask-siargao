@@ -5,6 +5,12 @@ import {
   describeAvailableTools,
   executeAgentTool,
 } from "@/server/chat/agent-tools";
+import {
+  type GooglePlacesChatContext,
+  type GooglePlacesChatSearch,
+  googlePlacesChatSearchFieldMask,
+} from "@/server/providers/google-places-chat";
+import { googlePlacesDetailsFieldMask } from "@/server/providers/google-places-enrichment";
 import type { OpenMeteoForecastLocation } from "@/server/providers/open-meteo";
 import {
   fallbackWeatherSnapshot,
@@ -40,6 +46,77 @@ describe("agent tools", () => {
       },
       {
         type: "function",
+        name: "search_places",
+        description:
+          "Search governed Google Places results for Siargao places using allowed chat-search fields.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Natural-language place search query scoped to Siargao.",
+            },
+            center: {
+              type: "object",
+              properties: {
+                latitude: { type: "number" },
+                longitude: { type: "number" },
+              },
+              required: ["latitude", "longitude"],
+              additionalProperties: false,
+            },
+            radius_meters: {
+              type: "integer",
+              minimum: 500,
+              maximum: 20000,
+              description: "Search radius around the center point.",
+            },
+            constraints: {
+              type: "object",
+              properties: {
+                included_type: {
+                  type: "string",
+                  description: "Optional Google Places primary type such as restaurant or cafe.",
+                },
+                open_now: {
+                  type: "boolean",
+                  description: "Whether live opening status is needed.",
+                },
+                page_size: {
+                  type: "integer",
+                  minimum: 1,
+                  maximum: 10,
+                  description: "Maximum number of places to return.",
+                },
+              },
+              additionalProperties: false,
+            },
+          },
+          required: ["query", "center", "radius_meters"],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+      {
+        type: "function",
+        name: "get_place_details",
+        description:
+          "Get governed Google Places identity details for one place ID using cache-first lookup and the allowed details field mask.",
+        parameters: {
+          type: "object",
+          properties: {
+            place_id: {
+              type: "string",
+              description: "Google Places place ID.",
+            },
+          },
+          required: ["place_id"],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+      {
+        type: "function",
         name: "describe_source_policy",
         description:
           "Explain Ask Siargao source labels, checked/not-checked boundaries, and provider caveats.",
@@ -61,12 +138,298 @@ describe("agent tools", () => {
           "Get the governed Open-Meteo weather forecast snapshot for a known Siargao location.",
       },
       {
+        name: "search_places",
+        description:
+          "Search governed Google Places results for Siargao places using allowed chat-search fields.",
+      },
+      {
+        name: "get_place_details",
+        description:
+          "Get governed Google Places identity details for one place ID using cache-first lookup and the allowed details field mask.",
+      },
+      {
         name: "describe_source_policy",
         description:
           "Explain Ask Siargao source labels, checked/not-checked boundaries, and provider caveats.",
       },
     ]);
     expect(agentToolDefinitions.map((tool) => tool.name)).not.toContain("describe_available_tools");
+  });
+
+  test("searches live Google Places with the chat field mask", async () => {
+    const requests: RequestInit[] = [];
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_places",
+        name: "search_places",
+        arguments: {
+          query: "cafes near Cloud 9",
+          center: { latitude: 9.8116, longitude: 126.1651 },
+          radius_meters: 4_000,
+          constraints: { included_type: "cafe", open_now: true, page_size: 2 },
+        },
+      },
+      {
+        googlePlacesApiKey: "test-key",
+        googlePlacesFetcher: async (_url, init) => {
+          requests.push(init);
+          return Response.json({
+            places: [
+              {
+                id: "place_shaka",
+                name: "places/place_shaka",
+                displayName: { text: "Shaka Siargao" },
+                formattedAddress: "Cloud 9, General Luna",
+                location: { latitude: 9.8117, longitude: 126.1652 },
+                types: ["cafe", "food", "point_of_interest", "establishment"],
+                primaryType: "cafe",
+                businessStatus: "OPERATIONAL",
+                googleMapsUri: "https://maps.google.com/?cid=shaka",
+                rating: 4.6,
+                userRatingCount: 900,
+                currentOpeningHours: { openNow: true },
+              },
+            ],
+          });
+        },
+        now: () => new Date("2026-06-26T00:00:00.000Z"),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect((requests[0]?.headers as Record<string, string>)["X-Goog-FieldMask"]).toBe(
+      googlePlacesChatSearchFieldMask,
+    );
+    expect(result.text).toContain("Shaka Siargao");
+    expect(result.text).toContain("Field mask");
+    expect(result.sources[0]).toMatchObject({
+      label: "live_checked",
+      sourceName: "Google Places",
+      sourceProfileId: "source_google_places",
+    });
+    const data = result.data as {
+      fieldMask: string;
+      freshness: string;
+      places: Array<{ displayName: string; rating?: number; currentOpeningHours?: unknown }>;
+      search: { textQuery: string; includedType?: string };
+    };
+    expect(data.fieldMask).toBe(googlePlacesChatSearchFieldMask);
+    expect(data.freshness).toBe("live");
+    expect(data.search.textQuery).toBe("cafes near Cloud 9 Siargao");
+    expect(data.search.includedType).toBe("cafe");
+    expect(data.places[0]).toMatchObject({
+      displayName: "Shaka Siargao",
+      rating: 4.6,
+      currentOpeningHours: { openNow: true },
+    });
+  });
+
+  test("returns fresh-cache Google Places search output", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_places",
+        name: "search_places",
+        arguments: {
+          query: "restaurants near General Luna Siargao",
+          center: { latitude: 9.8006, longitude: 126.1586 },
+          radius_meters: 6_000,
+        },
+      },
+      {
+        getGooglePlacesChatContext: async ({ search }) =>
+          googlePlacesContextFixture({
+            freshness: "fresh_cache",
+            placeName: "Cached Dinner Grill",
+            search,
+          }),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.sources[0]?.label).toBe("fresh_cache");
+    expect(result.text).toContain("Cached Dinner Grill");
+  });
+
+  test("returns not-verified output when Places search has no results", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_places",
+        name: "search_places",
+        arguments: {
+          query: "rare impossible place Siargao",
+          center: { latitude: 9.8006, longitude: 126.1586 },
+          radius_meters: 2_000,
+        },
+      },
+      {
+        getGooglePlacesChatContext: async ({ search }) => ({
+          ...googlePlacesContextFixture({ placeName: "unused", search }),
+          status: "no_results",
+          places: [],
+        }),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("no useful results");
+    expect(result.sources[0]?.label).toBe("not_verified");
+    expect(result.sources[0]?.checked).toEqual([]);
+  });
+
+  test("rejects invalid Places search arguments before provider code", async () => {
+    let providerCalls = 0;
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_places",
+        name: "search_places",
+        arguments: {
+          query: "cafes",
+          center: { latitude: 15, longitude: 126.1651 },
+          radius_meters: 4_000,
+        },
+      },
+      {
+        getGooglePlacesChatContext: async ({ search }) => {
+          providerCalls += 1;
+          return googlePlacesContextFixture({ placeName: "Should Not Run", search });
+        },
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("invalid_tool_arguments");
+    expect(providerCalls).toBe(0);
+  });
+
+  test("returns provider-unavailable output for Places search failures", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_places",
+        name: "search_places",
+        arguments: {
+          query: "cafes near Cloud 9",
+          center: { latitude: 9.8116, longitude: 126.1651 },
+          radius_meters: 4_000,
+        },
+      },
+      {
+        getGooglePlacesChatContext: async () => {
+          throw new Error("Google Places chat lookup failed: PERMISSION_DENIED");
+        },
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("provider_unavailable");
+    expect(result.sources[0]?.label).toBe("provider_unavailable");
+    expect(result.text).toContain("PERMISSION_DENIED");
+  });
+
+  test("returns cache-first Place details without enterprise or review fields", async () => {
+    let liveCalls = 0;
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_details",
+        name: "get_place_details",
+        arguments: { place_id: "place_cached" },
+      },
+      {
+        findFreshPlaceDetails: async () => ({
+          place_id: "place_cached",
+          resource_name: "places/place_cached",
+          display_name_json: { text: "Cached Cafe" },
+          formatted_address: "General Luna, Siargao",
+          latitude: "9.8006",
+          longitude: "126.1586",
+          types_json: ["cafe", "food"],
+          primary_type: "cafe",
+          business_status: "OPERATIONAL",
+          google_maps_uri: "https://maps.google.com/?cid=cached",
+          fetched_at: new Date("2026-06-25T00:00:00.000Z"),
+          stale_at: new Date("2026-07-01T00:00:00.000Z"),
+          retention_expires_at: new Date("2026-07-25T00:00:00.000Z"),
+        }),
+        enrichGooglePlacesDetails: async () => {
+          liveCalls += 1;
+          return [];
+        },
+        now: () => new Date("2026-06-26T00:00:00.000Z"),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.sources[0]?.label).toBe("fresh_cache");
+    expect(result.text).toContain("Cached Cafe");
+    const data = result.data as {
+      fieldMask: string;
+      place: Record<string, unknown>;
+    };
+    expect(data.fieldMask).toBe(googlePlacesDetailsFieldMask);
+    expect(data.place.displayName).toBe("Cached Cafe");
+    expect(data.place).not.toHaveProperty("rating");
+    expect(data.place).not.toHaveProperty("reviews");
+    expect(liveCalls).toBe(0);
+  });
+
+  test("falls back to live Place details with the allowed details field mask", async () => {
+    const requests: RequestInit[] = [];
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_details",
+        name: "get_place_details",
+        arguments: { place_id: "place_live" },
+      },
+      {
+        findFreshPlaceDetails: async () => null,
+        googlePlacesApiKey: "test-key",
+        googlePlacesFetcher: async (_url, init) => {
+          requests.push(init);
+          return Response.json({
+            id: "place_live",
+            name: "places/place_live",
+            displayName: { text: "Live Surf Shop" },
+            formattedAddress: "Tourism Road, General Luna",
+            location: { latitude: 9.81, longitude: 126.16 },
+            types: ["store", "point_of_interest"],
+            primaryType: "store",
+            businessStatus: "OPERATIONAL",
+            googleMapsUri: "https://maps.google.com/?cid=live",
+          });
+        },
+        now: () => new Date("2026-06-26T00:00:00.000Z"),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect((requests[0]?.headers as Record<string, string>)["X-Goog-FieldMask"]).toBe(
+      googlePlacesDetailsFieldMask,
+    );
+    expect(result.sources[0]?.label).toBe("live_checked");
+    const data = result.data as { place: Record<string, unknown>; fieldMask: string };
+    expect(data.fieldMask).toBe(googlePlacesDetailsFieldMask);
+    expect(data.place.displayName).toBe("Live Surf Shop");
+    expect(data.place).not.toHaveProperty("reviews");
+  });
+
+  test("returns provider-unavailable output for Place details failures", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_details",
+        name: "get_place_details",
+        arguments: { place_id: "place_denied" },
+      },
+      {
+        findFreshPlaceDetails: async () => null,
+        enrichGooglePlacesDetails: async () => {
+          throw new Error("Google Places enrichment failed: PERMISSION_DENIED");
+        },
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("provider_unavailable");
+    expect(result.sources[0]?.label).toBe("provider_unavailable");
+    expect(result.text).toContain("PERMISSION_DENIED");
   });
 
   test("returns a normalized live weather forecast tool output", async () => {
@@ -293,5 +656,47 @@ function liveWeatherSnapshot(locationName = "Siargao Island"): WeatherSnapshot {
       windGust: 18,
       level: "low",
     },
+  };
+}
+
+function googlePlacesContextFixture({
+  fetchedAt = "2026-06-26T00:00:00.000Z",
+  freshness = "live",
+  placeName,
+  search,
+}: {
+  fetchedAt?: string;
+  freshness?: GooglePlacesChatContext["freshness"];
+  placeName: string;
+  search: GooglePlacesChatSearch;
+}): GooglePlacesChatContext {
+  return {
+    status: "available",
+    sourceName: "Google Places",
+    sourceProfileId: "source_google_places",
+    fetchedAt,
+    freshness,
+    search,
+    fieldMask: googlePlacesChatSearchFieldMask,
+    caveats: [
+      "It does not include review text, bookings, table availability, room availability, or verified local quality checks.",
+    ],
+    places: [
+      {
+        placeId: `place_${placeName.toLowerCase().replaceAll(/\W+/g, "_")}`,
+        resourceName: `places/${placeName}`,
+        displayName: placeName,
+        formattedAddress: "General Luna, Siargao",
+        latitude: 9.8006,
+        longitude: 126.1586,
+        types: [search.includedType ?? "restaurant", "point_of_interest"],
+        primaryType: search.includedType ?? "restaurant",
+        businessStatus: "OPERATIONAL",
+        googleMapsUri: `https://maps.google.com/?cid=${encodeURIComponent(placeName)}`,
+        rating: 4.5,
+        userRatingCount: 220,
+        currentOpeningHours: { openNow: true },
+      },
+    ],
   };
 }

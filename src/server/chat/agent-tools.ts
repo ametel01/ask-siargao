@@ -1,3 +1,4 @@
+import postgres from "postgres";
 import { z } from "zod";
 
 import type {
@@ -6,6 +7,23 @@ import type {
   AskSiargaoAgentToolName,
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary, AnswerTrustLabel } from "@/server/chat/answer-source-summary";
+import {
+  type GooglePlacesChatContext,
+  type GooglePlacesChatPlace,
+  type GooglePlacesChatSearch,
+  getGooglePlacesChatContext,
+} from "@/server/providers/google-places-chat";
+import { createDefaultCachedGooglePlacesChatContextAdapter } from "@/server/providers/google-places-chat-cache";
+import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
+import {
+  enrichGooglePlacesDetails,
+  type GooglePlacesDetails,
+  googlePlacesDetailsFieldMask,
+} from "@/server/providers/google-places-enrichment";
+import {
+  findFreshPlaceDetails,
+  type GooglePlacesStoreDatabase,
+} from "@/server/providers/google-places-store";
 import {
   type OpenMeteoForecastLocation,
   siargaoForecastLocations,
@@ -52,9 +70,23 @@ type SourcePolicyToolData = {
 };
 
 export type AgentToolDependencies = {
+  enrichGooglePlacesDetails?: typeof enrichGooglePlacesDetails;
+  findFreshPlaceDetails?: typeof findFreshPlaceDetails;
+  getGooglePlacesChatContext?: (input: {
+    fetchedAt: string;
+    requiresLiveStatus?: boolean;
+    search: GooglePlacesChatSearch;
+    trace?: { requestId?: string };
+  }) => Promise<GooglePlacesChatContext>;
   getLatestSiargaoWeatherSnapshot?: typeof getLatestSiargaoWeatherSnapshot;
+  googlePlacesApiKey?: string;
+  googlePlacesDetailsDb?: GooglePlacesStoreDatabase;
+  googlePlacesFetcher?: (url: string, init: RequestInit) => Promise<Response>;
+  now?: () => Date;
 };
 
+type SearchPlacesArguments = z.infer<typeof searchPlacesSchema>;
+type PlaceDetailsArguments = z.infer<typeof placeDetailsSchema>;
 type WeatherForecastArguments = z.infer<typeof weatherForecastSchema>;
 
 const weatherForecastLocations = [
@@ -65,6 +97,37 @@ const weatherForecastLocations = [
 ] as const;
 
 const describeSourcePolicySchema = z.object({}).strict();
+const siargaoCenterSchema = z
+  .object({
+    latitude: z.number().min(9.0).max(10.5),
+    longitude: z.number().min(125.0).max(127.0),
+  })
+  .strict();
+const searchPlacesSchema = z
+  .object({
+    query: z.string().trim().min(2).max(180),
+    center: siargaoCenterSchema,
+    radius_meters: z.number().int().min(500).max(20_000),
+    constraints: z
+      .object({
+        included_type: z.string().trim().min(2).max(60).optional(),
+        open_now: z.boolean().optional(),
+        page_size: z.number().int().min(1).max(10).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+const placeDetailsSchema = z
+  .object({
+    place_id: z
+      .string()
+      .trim()
+      .min(2)
+      .max(200)
+      .regex(/^[A-Za-z0-9_.:-]+$/),
+  })
+  .strict();
 const weatherForecastSchema = z
   .object({
     location: z.enum(weatherForecastLocations),
@@ -227,6 +290,87 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
     execute: (args, _request, dependencies) =>
       getWeatherForecastToolResult(args as WeatherForecastArguments, dependencies),
   },
+  search_places: {
+    definition: {
+      type: "function",
+      name: "search_places",
+      description:
+        "Search governed Google Places results for Siargao places using allowed chat-search fields.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Natural-language place search query scoped to Siargao.",
+          },
+          center: {
+            type: "object",
+            properties: {
+              latitude: { type: "number" },
+              longitude: { type: "number" },
+            },
+            required: ["latitude", "longitude"],
+            additionalProperties: false,
+          },
+          radius_meters: {
+            type: "integer",
+            minimum: 500,
+            maximum: 20000,
+            description: "Search radius around the center point.",
+          },
+          constraints: {
+            type: "object",
+            properties: {
+              included_type: {
+                type: "string",
+                description: "Optional Google Places primary type such as restaurant or cafe.",
+              },
+              open_now: {
+                type: "boolean",
+                description: "Whether live opening status is needed.",
+              },
+              page_size: {
+                type: "integer",
+                minimum: 1,
+                maximum: 10,
+                description: "Maximum number of places to return.",
+              },
+            },
+            additionalProperties: false,
+          },
+        },
+        required: ["query", "center", "radius_meters"],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+    schema: searchPlacesSchema,
+    execute: (args, request, dependencies) =>
+      searchPlacesToolResult(args as SearchPlacesArguments, request, dependencies),
+  },
+  get_place_details: {
+    definition: {
+      type: "function",
+      name: "get_place_details",
+      description:
+        "Get governed Google Places identity details for one place ID using cache-first lookup and the allowed details field mask.",
+      parameters: {
+        type: "object",
+        properties: {
+          place_id: {
+            type: "string",
+            description: "Google Places place ID.",
+          },
+        },
+        required: ["place_id"],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+    schema: placeDetailsSchema,
+    execute: (args, _request, dependencies) =>
+      getPlaceDetailsToolResult(args as PlaceDetailsArguments, dependencies),
+  },
   describe_source_policy: {
     definition: {
       type: "function",
@@ -303,6 +447,435 @@ export async function executeAgentTool(
     };
   }
 }
+
+async function searchPlacesToolResult(
+  args: SearchPlacesArguments,
+  request: AgentToolExecutionRequest,
+  dependencies: AgentToolDependencies,
+): Promise<AgentToolResult> {
+  const fetchedAt = currentIso(dependencies);
+  const search: GooglePlacesChatSearch = {
+    label: `agent_${slugPart(args.query)}`,
+    textQuery: ensureSiargaoQuery(args.query),
+    ...(args.constraints?.included_type ? { includedType: args.constraints.included_type } : {}),
+    center: args.center,
+    radiusMeters: args.radius_meters,
+    pageSize: args.constraints?.page_size ?? 8,
+  };
+
+  try {
+    const context = await getGooglePlacesSearchContext(
+      {
+        fetchedAt,
+        requiresLiveStatus: args.constraints?.open_now,
+        search,
+        trace: { requestId: request.requestId },
+      },
+      dependencies,
+    );
+    const sourceSummary = googlePlacesSearchSourceSummary(context);
+    return {
+      name: "search_places",
+      status: "success",
+      text: renderGooglePlacesSearchText(context),
+      data: normalizeGooglePlacesSearchContext(context),
+      sources: [sourceSummary],
+    };
+  } catch (error) {
+    return {
+      name: "search_places",
+      status: "error",
+      text:
+        error instanceof Error
+          ? `Google Places search failed: ${error.message}`
+          : "Google Places search failed.",
+      errorCode: "provider_unavailable",
+      sources: [googlePlacesProviderUnavailableSourceSummary("Google Places search lookup")],
+    };
+  }
+}
+
+async function getPlaceDetailsToolResult(
+  args: PlaceDetailsArguments,
+  dependencies: AgentToolDependencies,
+): Promise<AgentToolResult> {
+  const now = currentIso(dependencies);
+  const cached = await findCachedPlaceDetails(args.place_id, now, dependencies);
+  if (cached) {
+    const details = normalizeCachedPlaceDetails(cached);
+    return {
+      name: "get_place_details",
+      status: "success",
+      text: renderGooglePlacesDetailsText(details, "fresh_cache"),
+      data: {
+        status: "available",
+        freshness: "fresh_cache",
+        fieldMask: googlePlacesDetailsFieldMask,
+        place: details,
+        caveats: googlePlacesCaveats,
+      },
+      sources: [
+        googlePlacesDetailsSourceSummary("fresh_cache", details.displayName, cached.fetched_at),
+      ],
+    };
+  }
+
+  try {
+    const details = await getLivePlaceDetails(args.place_id, now, dependencies);
+    const detail = details[0];
+    if (!detail) {
+      return {
+        name: "get_place_details",
+        status: "error",
+        text: `Google Places details did not return a place for ${args.place_id}.`,
+        errorCode: "not_found",
+        sources: [googlePlacesNotVerifiedSourceSummary("Google Places details result")],
+      };
+    }
+
+    return {
+      name: "get_place_details",
+      status: "success",
+      text: renderGooglePlacesDetailsText(detail, "live"),
+      data: {
+        status: "available",
+        freshness: "live",
+        fieldMask: googlePlacesDetailsFieldMask,
+        place: detail,
+        caveats: googlePlacesDetailsCaveats,
+      },
+      sources: [googlePlacesDetailsSourceSummary("live", detail.displayName, detail.fetchedAt)],
+    };
+  } catch (error) {
+    return {
+      name: "get_place_details",
+      status: "error",
+      text:
+        error instanceof Error
+          ? `Google Places details lookup failed: ${error.message}`
+          : "Google Places details lookup failed.",
+      errorCode: "provider_unavailable",
+      sources: [googlePlacesProviderUnavailableSourceSummary("Google Places details lookup")],
+    };
+  }
+}
+
+async function getGooglePlacesSearchContext(
+  input: {
+    fetchedAt: string;
+    requiresLiveStatus?: boolean;
+    search: GooglePlacesChatSearch;
+    trace?: { requestId?: string };
+  },
+  dependencies: AgentToolDependencies,
+) {
+  if (dependencies.getGooglePlacesChatContext) {
+    return dependencies.getGooglePlacesChatContext(input);
+  }
+
+  if (dependencies.googlePlacesApiKey || dependencies.googlePlacesFetcher) {
+    return getGooglePlacesChatContext({
+      apiKey: dependencies.googlePlacesApiKey,
+      fetchedAt: input.fetchedAt,
+      fetcher: dependencies.googlePlacesFetcher,
+      search: input.search,
+      trace: input.trace,
+    });
+  }
+
+  const cachedAdapter = createDefaultCachedGooglePlacesChatContextAdapter();
+  if (cachedAdapter) {
+    return cachedAdapter(input);
+  }
+
+  return getGooglePlacesChatContext({
+    fetchedAt: input.fetchedAt,
+    search: input.search,
+    trace: input.trace,
+  });
+}
+
+async function findCachedPlaceDetails(
+  placeId: string,
+  now: string,
+  dependencies: AgentToolDependencies,
+) {
+  if (dependencies.findFreshPlaceDetails) {
+    return dependencies.findFreshPlaceDetails(
+      dependencies.googlePlacesDetailsDb ?? inertGooglePlacesStoreDatabase,
+      { now, placeId },
+    );
+  }
+
+  if (dependencies.googlePlacesDetailsDb) {
+    return findFreshPlaceDetails(dependencies.googlePlacesDetailsDb, { now, placeId });
+  }
+
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    return null;
+  }
+
+  const sql = postgres(databaseUrl, { max: 1, prepare: false });
+  try {
+    return await findFreshPlaceDetails(
+      {
+        async query<T>(query: string, params: unknown[] = []) {
+          const rows = await sql.unsafe<T[]>(query, params as never[]);
+          return { rows };
+        },
+      },
+      { now, placeId },
+    );
+  } finally {
+    await sql.end({ timeout: 1 });
+  }
+}
+
+async function getLivePlaceDetails(
+  placeId: string,
+  fetchedAt: string,
+  dependencies: AgentToolDependencies,
+) {
+  const enrich = dependencies.enrichGooglePlacesDetails ?? enrichGooglePlacesDetails;
+  return enrich({
+    apiKey:
+      dependencies.googlePlacesApiKey ??
+      process.env.GOOGLE_API_KEY ??
+      process.env.GOOGLE_PLACES_API_KEY ??
+      "",
+    fetchedAt,
+    fetcher: dependencies.googlePlacesFetcher,
+    placeIds: [placeId],
+  });
+}
+
+function normalizeGooglePlacesSearchContext(context: GooglePlacesChatContext) {
+  return {
+    status: context.status,
+    sourceName: context.sourceName,
+    sourceProfileId: context.sourceProfileId,
+    fetchedAt: context.fetchedAt,
+    freshness: context.freshness,
+    search: context.search,
+    fieldMask: context.fieldMask,
+    places: context.places.map(normalizeGooglePlacesChatPlace),
+    caveats: context.caveats,
+  };
+}
+
+function normalizeGooglePlacesChatPlace(place: GooglePlacesChatPlace) {
+  return {
+    placeId: place.placeId,
+    resourceName: place.resourceName,
+    displayName: place.displayName,
+    formattedAddress: place.formattedAddress,
+    latitude: place.latitude,
+    longitude: place.longitude,
+    types: place.types,
+    primaryType: place.primaryType,
+    businessStatus: place.businessStatus,
+    googleMapsUri: place.googleMapsUri,
+    rating: place.rating,
+    userRatingCount: place.userRatingCount,
+    currentOpeningHours: place.currentOpeningHours,
+    regularOpeningHours: place.regularOpeningHours,
+    priceLevel: place.priceLevel,
+    priceRange: place.priceRange,
+    websiteUri: place.websiteUri,
+    internationalPhoneNumber: place.internationalPhoneNumber,
+  };
+}
+
+function normalizeCachedPlaceDetails(cached: Awaited<ReturnType<typeof findFreshPlaceDetails>>) {
+  if (!cached) {
+    throw new Error("Cached Google Places detail row is required.");
+  }
+
+  const displayName = readLocalizedText(cached.display_name_json) ?? cached.place_id;
+  return {
+    placeId: cached.place_id,
+    resourceName: cached.resource_name ?? `places/${cached.place_id}`,
+    displayName,
+    formattedAddress: cached.formatted_address ?? undefined,
+    latitude: numberOrUndefined(cached.latitude),
+    longitude: numberOrUndefined(cached.longitude),
+    types: cached.types_json ?? [],
+    primaryType: cached.primary_type ?? undefined,
+    businessStatus: cached.business_status ?? undefined,
+    googleMapsUri: cached.google_maps_uri ?? undefined,
+    fetchedAt: cached.fetched_at.toISOString(),
+  } satisfies GooglePlacesDetails;
+}
+
+function renderGooglePlacesSearchText(context: GooglePlacesChatContext) {
+  if (context.status === "no_results" || context.places.length === 0) {
+    return `Google Places returned no useful results for "${context.search.textQuery}".`;
+  }
+
+  return [
+    `Google Places returned ${context.places.length} result(s) for "${context.search.textQuery}".`,
+    ...context.places.map((place, index) => {
+      const fields = [
+        `${index + 1}. ${place.displayName}`,
+        place.formattedAddress,
+        place.primaryType,
+        place.currentOpeningHours?.openNow === undefined
+          ? undefined
+          : place.currentOpeningHours.openNow
+            ? "open now"
+            : "not open now",
+        place.rating === undefined ? undefined : `rating ${place.rating}`,
+        place.googleMapsUri ? `Maps: ${place.googleMapsUri}` : undefined,
+      ];
+      return fields.filter(Boolean).join(" - ");
+    }),
+    `Field mask: ${context.fieldMask}.`,
+    ...context.caveats,
+  ].join("\n");
+}
+
+function renderGooglePlacesDetailsText(
+  details: GooglePlacesDetails,
+  freshness: "fresh_cache" | "live",
+) {
+  const fields = [
+    `Google Places ${freshness === "live" ? "live" : "fresh cached"} details for ${details.displayName}.`,
+    details.formattedAddress,
+    details.primaryType,
+    details.businessStatus,
+    details.googleMapsUri ? `Maps: ${details.googleMapsUri}` : undefined,
+    `Field mask: ${googlePlacesDetailsFieldMask}.`,
+    ...googlePlacesDetailsCaveats,
+  ];
+  return fields.filter(Boolean).join("\n");
+}
+
+function googlePlacesSearchSourceSummary(context: GooglePlacesChatContext): AnswerSourceSummary {
+  if (context.status === "no_results" || context.places.length === 0) {
+    return googlePlacesNotVerifiedSourceSummary("useful Google Places shortlist");
+  }
+
+  const label = context.freshness === "fresh_cache" ? "fresh_cache" : "live_checked";
+  return {
+    label,
+    sourceName: context.sourceName,
+    sourceProfileId: context.sourceProfileId,
+    fetchedAt: context.fetchedAt,
+    confidence: label === "live_checked" ? "high" : "medium",
+    checked: googlePlacesSearchCheckedFields(context),
+    notChecked: googlePlacesNotCheckedFields,
+  };
+}
+
+function googlePlacesDetailsSourceSummary(
+  freshness: "fresh_cache" | "live",
+  displayName: string,
+  fetchedAt: string | Date,
+): AnswerSourceSummary {
+  const label = freshness === "fresh_cache" ? "fresh_cache" : "live_checked";
+  return {
+    label,
+    sourceName: "Google Places",
+    sourceProfileId: googlePlacesDiscoverySourceProfileId,
+    fetchedAt: typeof fetchedAt === "string" ? fetchedAt : fetchedAt.toISOString(),
+    confidence: freshness === "live" ? "high" : "medium",
+    checked: [`identity details for ${displayName}`, "map link when returned"],
+    notChecked: googlePlacesNotCheckedFields,
+  };
+}
+
+function googlePlacesProviderUnavailableSourceSummary(check: string): AnswerSourceSummary {
+  return {
+    label: "provider_unavailable",
+    sourceName: "Google Places",
+    sourceProfileId: googlePlacesDiscoverySourceProfileId,
+    confidence: "low",
+    checked: [],
+    notChecked: [check, ...googlePlacesNotCheckedFields],
+  };
+}
+
+function googlePlacesNotVerifiedSourceSummary(check: string): AnswerSourceSummary {
+  return {
+    label: "not_verified",
+    sourceName: "Google Places",
+    sourceProfileId: googlePlacesDiscoverySourceProfileId,
+    confidence: "low",
+    checked: [],
+    notChecked: [check, ...googlePlacesNotCheckedFields],
+  };
+}
+
+function googlePlacesSearchCheckedFields(context: GooglePlacesChatContext) {
+  const checked = ["place listings", "addresses", "map links"];
+  if (context.places.some((place) => place.rating !== undefined)) {
+    checked.push("rating signals");
+  }
+  if (context.places.some((place) => place.currentOpeningHours?.openNow !== undefined)) {
+    checked.push("open-now signal");
+  }
+  if (context.places.some((place) => place.priceLevel || place.priceRange)) {
+    checked.push("price signals");
+  }
+  if (context.places.some((place) => place.websiteUri || place.internationalPhoneNumber)) {
+    checked.push("website or phone fields");
+  }
+  return checked;
+}
+
+function ensureSiargaoQuery(query: string) {
+  return /\bsiargao\b/i.test(query) ? query : `${query} Siargao`;
+}
+
+function currentIso(dependencies: AgentToolDependencies) {
+  return (dependencies.now?.() ?? new Date()).toISOString();
+}
+
+function readLocalizedText(value: Record<string, unknown> | null) {
+  return typeof value?.text === "string" ? value.text : undefined;
+}
+
+function numberOrUndefined(value: string | number | null) {
+  if (value === null) {
+    return undefined;
+  }
+  const number = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function slugPart(value: string) {
+  return value
+    .replaceAll(/[^A-Za-z0-9_]+/g, "_")
+    .replaceAll(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+}
+
+const googlePlacesCaveats = [
+  "Google Places output does not include review text.",
+  "Booking availability, table availability, room availability, and independent local quality checks are not checked.",
+  "Google Places content requires Google attribution and retention handling.",
+];
+
+const googlePlacesDetailsCaveats = [
+  "Google Places details use the identity/details field mask only.",
+  ...googlePlacesCaveats,
+];
+
+const googlePlacesNotCheckedFields = [
+  "review text",
+  "bookings",
+  "table availability",
+  "room availability",
+  "independent local quality checks",
+];
+
+const inertGooglePlacesStoreDatabase: GooglePlacesStoreDatabase = {
+  async query() {
+    return { rows: [] };
+  },
+};
 
 async function getWeatherForecastToolResult(
   args: WeatherForecastArguments,

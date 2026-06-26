@@ -14,7 +14,7 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 - [x] Step 1: Agent Runtime Contracts and Test Doubles
 - [x] Step 2: Tool Registry and Source Policy Tool
 - [x] Step 3: Weather Forecast Tool
-- [ ] Step 4: Google Places Search and Details Tools
+- [x] Step 4: Google Places Search and Details Tools
 - [ ] Step 5: Curated Local Guide Tool
 - [ ] Step 6: Responses API Tool Loop Runtime
 - [ ] Step 7: Source Consistency Validator
@@ -23,7 +23,8 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 
 ## Current Status
 
-Step 3 is complete. The weather forecast agent tool is available, and Step 4 is next.
+Step 4 is complete. The governed Google Places search and details agent tools are
+available, and Step 5 is next.
 
 ## Update Rule
 
@@ -78,3 +79,21 @@ that step is committed.
   passed; `bun run test:e2e` passed (17 tests).
   Commit: this commit (`Add weather forecast chat tool`).
   Next step: Step 4, Google Places Search and Details Tools.
+- 2026-06-26: Completed Step 4 by adding `search_places` and `get_place_details` agent
+  tools with strict argument validation, cached Google Places chat search reuse, live
+  fallback search through the governed chat field mask, cache-first place details, live
+  details fallback through the allowed details field mask, restricted output shaping, and
+  provider-unavailable tool outputs for search/detail failures.
+  Validation: `bun run format` passed; `bun test
+  src/server/chat/agent-tools.test.ts src/server/providers/google-places-policy.test.ts
+  src/server/providers/google-places-chat.test.ts
+  src/server/providers/google-places-chat-cache.test.ts
+  src/server/providers/google-places-store.test.ts
+  src/server/providers/google-places-enrichment.test.ts
+  src/server/providers/google-places-discovery.test.ts` passed (44 tests); `bun run lint`
+  passed (`biome check .`, 182 files checked); `bun run typecheck --incremental false`
+  passed; `bun test` passed (244 tests); `bun run db:migrate:test && bun run
+  db:seed:test` passed (38 tables; 5 areas, 3 routes, 4 source profiles); `bun run build`
+  passed; `bun run test:e2e` passed (17 tests).
+  Commit: this commit (`Add governed Places chat tools`).
+  Next step: Step 5, Curated Local Guide Tool.

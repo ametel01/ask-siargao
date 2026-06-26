@@ -161,36 +161,47 @@ export type UpsertGooglePlaceReviewsInput = {
   reviews: GooglePlaceReviewInput[];
 };
 
+export type FreshGooglePlaceDetails = {
+  place_id: string;
+  resource_name: string | null;
+  display_name_json: JsonObject | null;
+  formatted_address: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  types_json: string[] | null;
+  primary_type: string | null;
+  business_status: string | null;
+  google_maps_uri: string | null;
+  fetched_at: Date;
+  stale_at: Date;
+  retention_expires_at: Date;
+};
+
 export async function findFreshPlaceDetails(
   db: GooglePlacesStoreDatabase,
   { now, placeId }: { placeId: string; now: string },
-) {
-  const result = await db.query<{
-    place_id: string;
-    display_name_json: JsonObject | null;
-    formatted_address: string | null;
-    rating: string | null;
-    user_rating_count: number | null;
-    price_level: string | null;
-    fetched_at: Date;
-    stale_at: Date;
-    retention_expires_at: Date;
-  }>(
+): Promise<FreshGooglePlaceDetails | null> {
+  const result = await db.query<FreshGooglePlaceDetails>(
     `
       select
-        place_id,
-        display_name_json,
-        formatted_address,
-        rating::text as rating,
-        user_rating_count,
-        price_level,
-        fetched_at,
-        stale_at,
-        retention_expires_at
-      from google_place_details
-      where place_id = $1
-        and stale_at > $2
-        and retention_expires_at > $2
+        d.place_id,
+        gp.resource_name,
+        d.display_name_json,
+        d.formatted_address,
+        d.latitude::text as latitude,
+        d.longitude::text as longitude,
+        d.types_json,
+        d.primary_type,
+        d.business_status,
+        d.google_maps_uri,
+        d.fetched_at,
+        d.stale_at,
+        d.retention_expires_at
+      from google_place_details d
+      left join google_places gp on gp.place_id = d.place_id
+      where d.place_id = $1
+        and d.stale_at > $2
+        and d.retention_expires_at > $2
       limit 1
     `,
     [placeId, now],
