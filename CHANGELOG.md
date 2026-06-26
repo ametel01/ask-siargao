@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added reviewable agent-memory Markdown files with required-file validation, role
+  classification, checksums, and deterministic memory version IDs.
 - Established progress tracking for the Priority 5 persistent agent memory implementation plan.
 - Established progress tracking for the Priority 4 AI tool runtime implementation plan.
 - Added chat agent runtime contracts, audit/source aggregation helpers, future card/action
