@@ -76,6 +76,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Routed Priority 1 local-place chat requests through the recommendation agent with route coverage
+  for open-now follow-ups, bar/drinks prompts, service-place prompts, covered/beachfront requests,
+  and named-place map-link follow-ups.
 - Restored `/api/chat` Google Places answer-context wiring for live/stored place facts and expanded
   recommendation detection to accommodation rating follow-ups near Cloud 9.
 - Runs the checked-in SQL database migration during Compose startup after Postgres is healthy and

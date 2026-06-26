@@ -355,6 +355,94 @@ describe("chat route", () => {
     expect(dependencies.requests).toHaveLength(0);
   });
 
+  test("routes bar and drinks requests to recommendation", async () => {
+    const dependencies = chatDependencies();
+    let agentCalls = 0;
+    dependencies.recommendationAgent = {
+      answer: async () => {
+        agentCalls += 1;
+        return {
+          status: "answered",
+          message:
+            "Good options I found from Google Places:\n1. **Harana Bar**\n  Maps: https://maps.example/bar",
+          model: "gpt-5.5",
+        };
+      },
+    };
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Where can we get drinks near General Luna?" }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("Harana Bar");
+    expect(agentCalls).toBe(1);
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("routes service-place prompts to recommendation", async () => {
+    const dependencies = chatDependencies();
+    let agentCalls = 0;
+    dependencies.recommendationAgent = {
+      answer: async () => {
+        agentCalls += 1;
+        return {
+          status: "answered",
+          message:
+            "Good options I found from Google Places:\n1. **General Luna Pharmacy**\n  Maps: https://maps.example/pharmacy",
+          model: "gpt-5.5",
+        };
+      },
+    };
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Any pharmacy nearby that is open now?" }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("General Luna Pharmacy");
+    expect(agentCalls).toBe(1);
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("routes named-place map-link follow-ups to recommendation", async () => {
+    const dependencies = chatDependencies();
+    let agentMessages: unknown;
+    dependencies.recommendationAgent = {
+      answer: async ({ messages }) => {
+        agentMessages = messages;
+        return {
+          status: "answered",
+          message:
+            "Good options I found from Google Places:\n1. **Shaka Siargao**\n  Maps: https://maps.example/shaka",
+          model: "gpt-5.5",
+        };
+      },
+    };
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          { role: "user", content: "Where should we get coffee near Cloud 9?" },
+          { role: "assistant", content: "Shaka Siargao is a common coffee stop near Cloud 9." },
+          { role: "user", content: "Can I get the map link for Shaka Siargao?" },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("Shaka Siargao");
+    expect(Array.isArray(agentMessages)).toBe(true);
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
   test("answers 30-minute General Luna beach questions from the grounded beach guide", async () => {
     const dependencies = chatDependencies();
     let agentCalls = 0;

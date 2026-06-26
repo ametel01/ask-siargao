@@ -5,7 +5,7 @@ Source roadmap: `/Users/alexmetelli/source/ask-siargao/docs/ASK_SIARGAO_ROADMAP.
 
 ## Current Status
 
-Step 1 is complete. Step 2 is next: Route Priority 1 Requests Through The Recommendation Agent.
+Step 2 is complete. Step 3 is next: Generalize The Recommendation Agent From Food To Places.
 
 This file must be updated after every completed step with the completed step, validation results,
 commit reference if available, current status, and next step.
@@ -14,7 +14,7 @@ commit reference if available, current status, and next step.
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Shared Place Intent Model
-- [ ] Step 2: Route Priority 1 Requests Through The Recommendation Agent
+- [x] Step 2: Route Priority 1 Requests Through The Recommendation Agent
 - [ ] Step 3: Generalize The Recommendation Agent From Food To Places
 - [ ] Step 4: Normalize Candidates Into LocalRecommendation
 - [ ] Step 5: Harden Cache-First Live Provider Behavior
@@ -55,5 +55,27 @@ commit reference if available, current status, and next step.
   - `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
   - `bun run build`: passed.
   - `bun run test:e2e`: passed, 17 tests.
-- Commit: `feat: add shared place intent classification`.
+- Commit: `6f55ce7 feat: add shared place intent classification`.
 - Next step: Step 2, Route Priority 1 Requests Through The Recommendation Agent.
+
+### Step 2: Route Priority 1 Requests Through The Recommendation Agent
+
+- Status: Complete.
+- Summary:
+  - Confirmed chat-route recommendation routing now uses `placeIntent` instead of a food-only
+    flag, so Priority 1 place requests are evaluated before generic LLM fallback.
+  - Added route-level coverage for bar/drinks requests, service-place open-now prompts, and
+    named-place map-link follow-ups.
+  - Kept existing weather, ordinary chat, grounded beach, activity-plan, and bounded
+    recommendation-failure behaviors passing.
+- Validation:
+  - `bun run format`: passed; no fixes applied.
+  - `bun run lint`: passed.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed, 167 tests.
+  - `bun run db:migrate:test`: passed, migrated 38 tables.
+  - `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 17 tests.
+- Commit: `feat: route live place requests through recommendations`.
+- Next step: Step 3, Generalize The Recommendation Agent From Food To Places.
