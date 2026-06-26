@@ -17,13 +17,13 @@ Plan: `/Users/alexmetelli/source/ask-siargao/PLAN.md`
 - [x] Step 4: Google Places Search and Details Tools
 - [x] Step 5: Curated Local Guide Tool
 - [x] Step 6: Responses API Tool Loop Runtime
-- [ ] Step 7: Source Consistency Validator
+- [x] Step 7: Source Consistency Validator
 - [ ] Step 8: Rewire `/api/chat` to the Agent Runtime
 - [ ] Step 9: Regression, Observability, and Documentation Pass
 
 ## Current Status
 
-Step 6 is complete. The Responses API tool-loop runtime is available, and Step 7 is next.
+Step 7 is complete. The source consistency validator is available, and Step 8 is next.
 
 ## Update Rule
 
@@ -126,3 +126,18 @@ that step is committed.
   (17 tests).
   Commit: this commit (`Add Responses tool loop runtime`).
   Next step: Step 7, Source Consistency Validator.
+- 2026-06-26: Completed Step 7 by adding an independent chat source consistency validator
+  for structured `sources` and rendered `Checked:`/`Not checked:` source lines. The validator
+  accepts generic model reasoning only as `not_verified`, requires matching tool-call evidence
+  for live Places, fresh-cache Places, weather, and curated local guide labels, requires failed
+  or fallback tool evidence for provider-unavailable labels, and exposes a controlled
+  `SourceConsistencyError` for route enforcement.
+  Validation: `bun run format` passed; `bun test
+  src/server/chat/source-consistency.test.ts src/server/chat/ask-siargao-agent.test.ts
+  src/server/chat/agent-runtime.test.ts` passed (23 tests); `bun run lint` passed (`biome
+  check .`, 186 files checked); `bun run typecheck --incremental false` passed; `bun test`
+  passed (264 tests); `bun run db:migrate:test && bun run db:seed:test` passed (38 tables;
+  5 areas, 3 routes, 4 source profiles); `bun run build` passed; `bun run test:e2e` passed
+  (17 tests).
+  Commit: this commit (`Validate chat answer source consistency`).
+  Next step: Step 8, Rewire `/api/chat` to the Agent Runtime.

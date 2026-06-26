@@ -23,6 +23,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Added the Responses API chat agent tool-loop runtime with `store: false` model calls, typed tool
   feedback, upstream request tracking, tool-call audit logs, source aggregation, and max-loop
   protections.
+- Added chat source consistency validation for structured sources and rendered source lines so
+  model-written answers cannot fabricate live, cached, weather, curated, or provider-unavailable
+  source labels without matching tool evidence.
 - Established progress tracking for the Priority 3 trust score and source labels implementation
   plan.
 - Added a shared answer source summary contract and compact markdown renderer for checked,
