@@ -62,6 +62,8 @@ describe("Google Places chat cache", () => {
     expect(liveCalls).toBe(1);
     expect(first.places).toHaveLength(8);
     expect(second.places).toHaveLength(8);
+    expect(first.freshness).toBe("live");
+    expect(second.freshness).toBe("fresh_cache");
     expect(second.places.map((place) => place.displayName)).toEqual(
       first.places.map((place) => place.displayName),
     );
@@ -279,6 +281,7 @@ function googlePlacesContext({
     sourceName: "Google Places",
     sourceProfileId: googlePlacesDiscoverySourceProfileId,
     fetchedAt,
+    freshness: "live",
     search,
     fieldMask: googlePlacesChatSearchFieldMask,
     caveats: [],

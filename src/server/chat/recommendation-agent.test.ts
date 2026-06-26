@@ -517,6 +517,7 @@ function googlePlacesContext({
     sourceName: "Google Places",
     sourceProfileId: googlePlacesDiscoverySourceProfileId,
     fetchedAt,
+    freshness: "live",
     search,
     fieldMask: googlePlacesChatSearchFieldMask,
     caveats: ["No review text."],

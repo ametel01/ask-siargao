@@ -141,6 +141,7 @@ const googlePlacesContextFixture: GooglePlacesChatContext = {
   sourceName: "Google Places",
   sourceProfileId: "source_google_places",
   fetchedAt: "2026-06-24T00:00:00.000Z",
+  freshness: "live",
   search: {
     label: "chat_restaurant_cloud_9",
     textQuery: "find me the best restaurant around cloud9 Siargao Philippines",

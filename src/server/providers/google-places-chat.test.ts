@@ -124,6 +124,7 @@ describe("Google Places chat lookup", () => {
       sourceName: "Google Places",
       sourceProfileId: "source_google_places",
       fetchedAt: "2026-06-24T00:00:00.000Z",
+      freshness: "live",
       search: cloud9RestaurantSearch,
       places: [
         {

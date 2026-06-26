@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import type { Logger } from "pino";
 import { z } from "zod";
 
+import { normalizeLocalRecommendation } from "@/server/chat/local-recommendation";
 import {
   interpretPlaceIntent,
   isPlaceRecommendationContent,
@@ -72,16 +73,23 @@ export type PlaceCandidate = {
   formattedAddress?: string;
   primaryType?: string;
   types: string[];
+  businessStatus?: string;
   rating?: number;
   userRatingCount?: number;
   currentOpeningHours?: GooglePlacesOpeningHours;
   regularOpeningHours?: GooglePlacesOpeningHours;
+  priceLevel?: string;
   googleMapsUri: string;
   sourceQuery: string;
   distanceMeters?: number;
   latitude?: number;
   longitude?: number;
   score: number;
+  source: {
+    provider: "google_places";
+    fetchedAt: string;
+    freshness: GooglePlacesChatContext["freshness"];
+  };
 };
 
 type ToolResult =
@@ -337,7 +345,10 @@ export class RecommendationAgent {
             trace,
           });
           const foundCandidates = context.places.map((place) =>
-            placeCandidateFromGooglePlace(place, search.textQuery, search.center),
+            placeCandidateFromGooglePlace(place, search.textQuery, search.center, {
+              fetchedAt: context.fetchedAt,
+              freshness: context.freshness,
+            }),
           );
           candidates = dedupeCandidates([...candidates, ...foundCandidates]);
           state.candidates = candidates;
@@ -806,6 +817,7 @@ function placeCandidateFromGooglePlace(
   place: GooglePlacesChatPlace,
   sourceQuery: string,
   searchCenter: GooglePlacesChatSearch["center"],
+  source: Pick<PlaceCandidate["source"], "fetchedAt" | "freshness">,
 ): PlaceCandidate {
   const distanceMeters =
     place.latitude === undefined || place.longitude === undefined
@@ -821,16 +833,23 @@ function placeCandidateFromGooglePlace(
     formattedAddress: place.formattedAddress,
     primaryType: place.primaryType,
     types: place.types,
+    businessStatus: place.businessStatus,
     rating: place.rating,
     userRatingCount: place.userRatingCount,
     currentOpeningHours: place.currentOpeningHours,
     regularOpeningHours: place.regularOpeningHours,
+    priceLevel: place.priceLevel,
     googleMapsUri: place.googleMapsUri,
     sourceQuery,
     distanceMeters,
     latitude: place.latitude,
     longitude: place.longitude,
     score: 0,
+    source: {
+      provider: "google_places",
+      fetchedAt: source.fetchedAt,
+      freshness: source.freshness,
+    },
   };
 }
 
@@ -912,6 +931,15 @@ function renderRecommendationAnswer(
   }
 
   const centerLabel = searchActions.at(-1)?.centerLabel ?? intent?.location ?? "the requested area";
+  const recommendations = candidates.slice(0, 4).map((candidate, index) =>
+    normalizeLocalRecommendation({
+      candidate,
+      category: intent?.category ?? "activity_place",
+      centerLabel,
+      constraints: intent?.constraints ?? [],
+      index,
+    }),
+  );
   const caveats = compactMealFollowUpCaveat(intent)
     ? ["Checked Google Places for open nearby options. Covered seating and bookings not verified."]
     : [
@@ -923,54 +951,17 @@ function renderRecommendationAnswer(
     "Good options I found from Google Places:",
     ...caveats,
     "",
-    ...candidates.slice(0, 4).map((candidate, index) => {
+    ...recommendations.map((recommendation, index) => {
       const rating =
-        candidate.rating && candidate.userRatingCount
-          ? `\n  Rating: ${candidate.rating} (${candidate.userRatingCount.toLocaleString()} reviews)`
+        recommendation.rating && recommendation.reviewCount
+          ? `\n  Rating: ${recommendation.rating} (${recommendation.reviewCount.toLocaleString()} reviews)`
           : "";
-      const address = candidate.formattedAddress ? `\n  Area: ${candidate.formattedAddress}` : "";
-      return `${index + 1}. **${candidate.name}**\n  Best fit: ${candidateFitLabel(
-        candidate,
-        index,
-        centerLabel,
-      )}${rating}${address}\n  Maps: ${candidate.googleMapsUri}`;
+      const address = recommendation.address ? `\n  Area: ${recommendation.address}` : "";
+      return `${index + 1}. **${recommendation.name}**\n  Best fit: ${recommendation.fitReasons.join(
+        ", ",
+      )}.${rating}${address}\n  Maps: ${recommendation.mapsUrl}`;
     }),
   ].join("\n");
-}
-
-function openingHoursLabel(hours: GooglePlacesOpeningHours | undefined) {
-  if (hours?.openNow === true) {
-    return "open now";
-  }
-  if (hours?.openNow === false) {
-    return "currently closed";
-  }
-  return "hours not returned";
-}
-
-function distanceFitLabel(distanceMeters: number, centerLabel: string, index: number) {
-  const distanceLabel = `${formatDistance(distanceMeters)} from ${centerLabel}`;
-  if (index === 0) {
-    return `closest strong match, ${distanceLabel}`;
-  }
-  if (distanceMeters < 1_000) {
-    return `close option, ${distanceLabel}`;
-  }
-  if (distanceMeters < 4_000) {
-    return `short ride, ${distanceLabel}`;
-  }
-  return `broader-area option, ${distanceLabel}`;
-}
-
-function candidateFitLabel(candidate: PlaceCandidate, index: number, centerLabel: string) {
-  const fitParts: string[] = [];
-  if (candidate.distanceMeters !== undefined) {
-    fitParts.push(distanceFitLabel(candidate.distanceMeters, centerLabel, index));
-  } else if (index === 0) {
-    fitParts.push("top-ranked match");
-  }
-  fitParts.push(openingHoursLabel(candidate.currentOpeningHours));
-  return `${fitParts.join(", ")}.`;
 }
 
 function compactMealFollowUpCaveat(intent: PlaceIntent | null) {
@@ -982,13 +973,6 @@ function compactMealFollowUpCaveat(intent: PlaceIntent | null) {
     ) &&
     isPlaceRecommendationContent(intent.recentUserContext)
   );
-}
-
-function formatDistance(distanceMeters: number) {
-  if (distanceMeters < 1_000) {
-    return `${Math.round(distanceMeters)} m`;
-  }
-  return `${(distanceMeters / 1_000).toFixed(1)} km`;
 }
 
 function distanceMetersBetween(

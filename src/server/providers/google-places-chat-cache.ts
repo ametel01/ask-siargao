@@ -236,6 +236,7 @@ async function findFreshGooglePlacesChatContext(
     sourceName: "Google Places",
     sourceProfileId: googlePlacesDiscoverySourceProfileId,
     fetchedAt: result.rows[0]?.snapshot_fetched_at.toISOString() ?? now,
+    freshness: "fresh_cache",
     search,
     fieldMask: googlePlacesChatSearchFieldMask,
     places,

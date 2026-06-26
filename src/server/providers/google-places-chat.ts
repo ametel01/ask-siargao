@@ -87,6 +87,7 @@ export type GooglePlacesChatContext = {
   sourceName: "Google Places";
   sourceProfileId: typeof googlePlacesDiscoverySourceProfileId;
   fetchedAt: string;
+  freshness: "fresh_cache" | "live" | "stale_cache";
   search: GooglePlacesChatSearch;
   fieldMask: typeof googlePlacesChatSearchFieldMask;
   places: GooglePlacesChatPlace[];
@@ -230,6 +231,7 @@ export async function getGooglePlacesChatContext({
       sourceName: "Google Places",
       sourceProfileId: googlePlacesDiscoverySourceProfileId,
       fetchedAt,
+      freshness: "live",
       search,
       fieldMask: googlePlacesChatSearchFieldMask,
       places,
