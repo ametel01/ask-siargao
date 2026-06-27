@@ -60,6 +60,9 @@ describe("Google Places chat cache", () => {
     });
     expect(logs).toContainEqual(
       expect.objectContaining({
+        bindings: expect.objectContaining({
+          cacheKey: "no_store_browser_geolocation",
+        }),
         message: "Google Places chat cache bypassed.",
         payload: expect.objectContaining({
           cacheMode: "no_store",
@@ -71,6 +74,8 @@ describe("Google Places chat cache", () => {
     expect(logs.some((log) => log.message === "Google Places chat live lookup persisted.")).toBe(
       false,
     );
+    expect(JSON.stringify(logs)).not.toContain("9.8006");
+    expect(JSON.stringify(logs)).not.toContain("126.1586");
 
     await db.close();
   });

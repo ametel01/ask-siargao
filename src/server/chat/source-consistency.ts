@@ -1,7 +1,9 @@
-import type { AgentToolCallAudit } from "@/server/chat/agent-runtime";
+import type { AgentToolCallAudit, ChatClientGeolocationContext } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary, AnswerTrustLabel } from "@/server/chat/answer-source-summary";
 
 export type SourceConsistencyIssueCode =
+  | "browser_geolocation_claim_not_tool_backed"
+  | "browser_geolocation_coordinates_rendered"
   | "generic_reasoning_mislabeled"
   | "provider_unavailable_without_tool_failure"
   | "rendered_checked_line_not_verifiable"
@@ -18,6 +20,7 @@ export type SourceConsistencyIssue = {
 };
 
 export type SourceConsistencyValidationInput = {
+  browserGeolocation?: ChatClientGeolocationContext;
   message?: string;
   sources?: readonly AnswerSourceSummary[];
   toolCalls?: readonly AgentToolCallAudit[];
@@ -62,6 +65,7 @@ export class SourceConsistencyError extends Error {
 }
 
 export function validateChatAnswerSourceConsistency({
+  browserGeolocation,
   message,
   sources = [],
   toolCalls = [],
@@ -71,12 +75,109 @@ export function validateChatAnswerSourceConsistency({
     ...sources.map(sourceSummaryToClaim),
     ...extractRenderedSourceClaims(message ?? ""),
   ];
-  const issues = claims.flatMap((claim) => validateSourceClaim(claim, evidence));
+  const issues = [
+    ...validateBrowserGeolocationProse(message ?? "", browserGeolocation, evidence),
+    ...claims.flatMap((claim) => validateSourceClaim(claim, evidence)),
+  ];
 
   return {
     valid: issues.length === 0,
     issues,
   };
+}
+
+function validateBrowserGeolocationProse(
+  message: string,
+  geolocation: ChatClientGeolocationContext | undefined,
+  evidence: ReturnType<typeof summarizeToolEvidence>,
+): SourceConsistencyIssue[] {
+  const issues: SourceConsistencyIssue[] = [];
+  const proseMessage = messageWithoutRenderedSourceLines(message);
+
+  if (hasBrowserGeolocationUsageClaim(proseMessage) && !evidence.browserGeolocationPlaces) {
+    issues.push({
+      code: "browser_geolocation_claim_not_tool_backed",
+      message: "Shared-location prose claims require a matching geolocated Places tool output.",
+    });
+  }
+
+  if (!hasExactBrowserGeolocation(geolocation)) {
+    return issues;
+  }
+
+  const latitudeVariants = coordinateStringVariants(geolocation.latitude);
+  const longitudeVariants = coordinateStringVariants(geolocation.longitude);
+  if (
+    !hasAnyNumericLiteral(message, latitudeVariants) &&
+    !hasAnyNumericLiteral(message, longitudeVariants)
+  ) {
+    return issues;
+  }
+
+  issues.push({
+    code: "browser_geolocation_coordinates_rendered",
+    message: "Traveler-facing answers must not render exact browser geolocation coordinates.",
+  });
+  return issues;
+}
+
+function messageWithoutRenderedSourceLines(message: string) {
+  return message
+    .split("\n")
+    .filter(
+      (line) => !line.trim().startsWith("Checked: ") && !line.trim().startsWith("Not checked: "),
+    )
+    .join("\n");
+}
+
+function hasBrowserGeolocationUsageClaim(message: string) {
+  return browserGeolocationUsageClaimPatterns.some((pattern) => pattern.test(message));
+}
+
+const browserGeolocationUsageClaimPatterns = [
+  /\b(?:used|using|based\s+on|from|with|searched|checked|looked|found)\b.{0,80}\b(?:your|the)\s+(?:shared|current|browser)?\s*(?:location|geolocation)\b/iu,
+  /\b(?:your|the)\s+(?:shared|current|browser)\s+(?:location|geolocation)\b.{0,80}\b(?:search\s+center|nearby\s+search|to\s+find|for\s+nearby|as\s+(?:the\s+)?(?:search\s+)?center)\b/iu,
+  /\bnear\s+your\s+(?:shared|current|browser)\s+(?:location|geolocation)\b/iu,
+  /\bbrowser\s+geolocation\s+search\s+center\b/iu,
+];
+
+function hasExactBrowserGeolocation(
+  geolocation: ChatClientGeolocationContext | undefined,
+): geolocation is ChatClientGeolocationContext & { latitude: number; longitude: number } {
+  return (
+    geolocation?.status === "available" &&
+    geolocation.source === "browser_geolocation" &&
+    typeof geolocation.latitude === "number" &&
+    typeof geolocation.longitude === "number"
+  );
+}
+
+function coordinateStringVariants(value: number) {
+  return new Set(
+    [String(value), ...[3, 4, 5, 6, 7].map((digits) => trimTrailingZeroes(value.toFixed(digits)))]
+      .filter((variant) => variant.includes("."))
+      .filter((variant) => decimalFractionLength(variant) >= 3),
+  );
+}
+
+function trimTrailingZeroes(value: string) {
+  return value.replace(/(\.\d*?[1-9])0+$/u, "$1").replace(/\.0+$/u, ".0");
+}
+
+function decimalFractionLength(value: string) {
+  return value.split(".")[1]?.length ?? 0;
+}
+
+function hasAnyNumericLiteral(value: string, literals: ReadonlySet<string>) {
+  return [...literals].some((literal) => numericLiteralPattern(literal).test(value));
+}
+
+function numericLiteralPattern(literal: string) {
+  return new RegExp(`(^|[^\\d.])${escapeRegExp(literal)}(?=$|[^\\d.])`, "u");
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 export function assertChatAnswerSourceConsistency(input: SourceConsistencyValidationInput) {
@@ -197,6 +298,7 @@ function summarizeToolEvidence(toolCalls: readonly AgentToolCallAudit[]) {
       (toolCall) =>
         toolCall.status === "success" &&
         toolCall.name === "search_places" &&
+        hasBrowserGeolocationSearchCenterArgument(toolCall.arguments) &&
         toolCall.sources.some((source) => hasBrowserGeolocationCheckedText(source.checked)),
     ),
     livePlaces: hasToolSourceLabel(toolCalls, placesToolNames, "live_checked"),
@@ -242,6 +344,11 @@ function isBrowserGeolocationCheckedClaim(claim: SourceClaim) {
 
 function hasBrowserGeolocationCheckedText(values: readonly string[]) {
   return values.some((value) => /\bbrowser geolocation search center\b/i.test(value));
+}
+
+function hasBrowserGeolocationSearchCenterArgument(argumentsValue: Record<string, unknown>) {
+  const center = argumentsValue.center;
+  return isRecord(center) && center.source === "browser_geolocation";
 }
 
 function hasToolSourceLabel(
@@ -358,4 +465,8 @@ function isVerifyingLabel(label: AnswerTrustLabel) {
 
 function normalizeText(value: string | undefined) {
   return value?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

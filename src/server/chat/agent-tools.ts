@@ -824,7 +824,7 @@ export async function executeAgentTool(
     };
   }
 
-  const parsed = tool.schema.safeParse(request.arguments);
+  const parsed = tool.schema.safeParse(toolArgumentsForValidation(request));
   if (!parsed.success) {
     return {
       name: request.name,
@@ -849,6 +849,26 @@ export async function executeAgentTool(
       sources: [],
     };
   }
+}
+
+function toolArgumentsForValidation(request: AgentToolExecutionRequest) {
+  if (request.name !== "search_places" || !isRecord(request.arguments)) {
+    return request.arguments;
+  }
+
+  const placesToolContext = normalizeGooglePlacesToolContext(request.toolContext);
+  if (!placesToolContext?.center) {
+    return request.arguments;
+  }
+
+  if ("center" in request.arguments && placesToolContext.centerSource !== "browser_geolocation") {
+    return request.arguments;
+  }
+
+  return {
+    ...request.arguments,
+    center: placesToolContext.center,
+  };
 }
 
 async function searchPlacesToolResult(
@@ -1571,13 +1591,21 @@ function normalizeGooglePlacesSearchContext(
     consentScope?: GooglePlacesToolExecutionContext["consentScope"];
   },
 ) {
+  const search =
+    centerContext.centerSource === "browser_geolocation"
+      ? {
+          ...context.search,
+          center: { source: "browser_geolocation" },
+        }
+      : context.search;
+
   return {
     status: context.status,
     sourceName: context.sourceName,
     sourceProfileId: context.sourceProfileId,
     fetchedAt: context.fetchedAt,
     freshness: context.freshness,
-    search: context.search,
+    search,
     centerSource: centerContext.centerSource,
     ...(centerContext.consentScope ? { consentScope: centerContext.consentScope } : {}),
     fieldMask: context.fieldMask,

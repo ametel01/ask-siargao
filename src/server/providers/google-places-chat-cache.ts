@@ -96,7 +96,10 @@ async function getCachedGooglePlacesChatContext(
   const scopedLogger = logger.child(
     compactLogFields({
       requestId: trace?.requestId,
-      cacheKey: googlePlacesChatSearchCacheKey(search),
+      cacheKey:
+        cacheMode === "no_store"
+          ? "no_store_browser_geolocation"
+          : googlePlacesChatSearchCacheKey(search),
     }),
   );
   if (cacheMode === "no_store") {

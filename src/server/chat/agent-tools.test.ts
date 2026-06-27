@@ -661,9 +661,144 @@ describe("agent tools", () => {
       centerSource: "browser_geolocation",
       consentScope: "single_request",
       search: {
-        center: browserCenter,
+        center: { source: "browser_geolocation" },
       },
     });
+    expect(JSON.stringify(result.data)).not.toContain("9.8123");
+    expect(JSON.stringify(result.data)).not.toContain("126.1664");
+  });
+
+  test("uses browser geolocation when near-me Places arguments omit center", async () => {
+    const searches: Array<{
+      cacheMode?: string;
+      search: GooglePlacesChatSearch;
+    }> = [];
+    const browserCenter = { latitude: 9.8123, longitude: 126.1664 };
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_places_browser_location_no_center",
+        name: "search_places",
+        arguments: {
+          query: "cafes near me",
+          radius_meters: 2_500,
+          constraints: { included_type: "cafe", open_now: true, page_size: 3 },
+        },
+        toolContext: {
+          googlePlaces: {
+            center: browserCenter,
+            centerSource: "browser_geolocation",
+            cacheMode: "no_store",
+            consentScope: "single_request",
+          },
+        },
+      },
+      {
+        getGooglePlacesChatContext: async ({ cacheMode, fetchedAt, search }) => {
+          searches.push({ cacheMode, search });
+          return googlePlacesContextFixture({
+            fetchedAt,
+            placeName: "Browser Center Cafe",
+            search,
+          });
+        },
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(searches[0]).toMatchObject({
+      cacheMode: "no_store",
+      search: {
+        center: browserCenter,
+        includedType: "cafe",
+        openNow: true,
+      },
+    });
+    expect(result.data).toMatchObject({
+      centerSource: "browser_geolocation",
+      search: {
+        center: { source: "browser_geolocation" },
+      },
+    });
+  });
+
+  test("repairs browser geolocation center references before Places validation", async () => {
+    const searches: Array<{
+      cacheMode?: string;
+      search: GooglePlacesChatSearch;
+    }> = [];
+    const browserCenter = { latitude: 9.8123, longitude: 126.1664 };
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_places_browser_location_center_reference",
+        name: "search_places",
+        arguments: {
+          query: "cafes near me",
+          center: { source: "browser_geolocation" },
+          radius_meters: 2_500,
+          constraints: { included_type: "cafe", open_now: true, page_size: 3 },
+        },
+        toolContext: {
+          googlePlaces: {
+            center: browserCenter,
+            centerSource: "browser_geolocation",
+            cacheMode: "no_store",
+            consentScope: "single_request",
+          },
+        },
+      },
+      {
+        getGooglePlacesChatContext: async ({ cacheMode, fetchedAt, search }) => {
+          searches.push({ cacheMode, search });
+          return googlePlacesContextFixture({
+            fetchedAt,
+            placeName: "Browser Center Cafe",
+            search,
+          });
+        },
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(searches[0]).toMatchObject({
+      cacheMode: "no_store",
+      search: {
+        center: browserCenter,
+        includedType: "cafe",
+        openNow: true,
+      },
+    });
+    expect(result.data).toMatchObject({
+      centerSource: "browser_geolocation",
+      search: {
+        center: { source: "browser_geolocation" },
+      },
+    });
+  });
+
+  test("rejects Places search without center or runtime browser geolocation", async () => {
+    let providerCalls = 0;
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_places_missing_center",
+        name: "search_places",
+        arguments: {
+          query: "cafes",
+          radius_meters: 2_500,
+          constraints: { included_type: "cafe", open_now: true, page_size: 3 },
+        },
+      },
+      {
+        getGooglePlacesChatContext: async ({ search }) => {
+          providerCalls += 1;
+          return googlePlacesContextFixture({ placeName: "Should Not Run", search });
+        },
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("invalid_tool_arguments");
+    expect(result.text).toContain("Invalid arguments");
+    expect(providerCalls).toBe(0);
   });
 
   test("returns fresh-cache Google Places search output", async () => {

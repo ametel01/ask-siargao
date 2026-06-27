@@ -66,6 +66,7 @@ describe("chat source consistency", () => {
       toolCalls: [
         toolCall({
           name: "search_places",
+          arguments: { center: { source: "browser_geolocation" } },
           status: "success",
           sources: [geolocatedPlacesSource],
         }),
@@ -89,6 +90,86 @@ describe("chat source consistency", () => {
       "structured_source_not_tool_backed",
       "rendered_checked_line_not_verifiable",
     ]);
+  });
+
+  test("rejects browser geolocation claims when Places tool output lacks center marker", () => {
+    const geolocatedPlacesSource: AnswerSourceSummary = {
+      ...livePlacesSourceSummary,
+      checked: [...livePlacesSourceSummary.checked, "browser geolocation search center"],
+    };
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Used your shared location as the nearby search center.", [
+        geolocatedPlacesSource,
+      ]),
+      sources: [geolocatedPlacesSource],
+      toolCalls: [
+        toolCall({
+          name: "search_places",
+          arguments: { center: { latitude: 9.8116, longitude: 126.1651 } },
+          status: "success",
+          sources: [geolocatedPlacesSource],
+        }),
+      ],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toEqual([
+      "browser_geolocation_claim_not_tool_backed",
+      "structured_source_not_tool_backed",
+      "rendered_checked_line_not_verifiable",
+    ]);
+  });
+
+  test("rejects shared-location prose claims without geolocated Places evidence", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("I used your shared location to find nearby cafes.", [
+        livePlacesSourceSummary,
+      ]),
+      sources: [livePlacesSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "search_places",
+          status: "success",
+          sources: [livePlacesSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toEqual([
+      "browser_geolocation_claim_not_tool_backed",
+    ]);
+  });
+
+  test("rejects exact or rounded browser geolocation coordinates in final prose", () => {
+    for (const message of [
+      "I used latitude 9.8116 as your search center.",
+      "I used 9.812, 126.165 as your rounded search center.",
+    ]) {
+      const result = validateChatAnswerSourceConsistency({
+        browserGeolocation: {
+          status: "available",
+          source: "browser_geolocation",
+          consentScope: "single_request",
+          latitude: 9.8116,
+          longitude: 126.1651,
+        },
+        message: withSourceLines(message, [livePlacesSourceSummary]),
+        sources: [livePlacesSourceSummary],
+        toolCalls: [
+          toolCall({
+            name: "search_places",
+            status: "success",
+            sources: [livePlacesSourceSummary],
+          }),
+        ],
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues.map((issue) => issue.code)).toContain(
+        "browser_geolocation_coordinates_rendered",
+      );
+    }
   });
 
   test("accepts valid curated local guide sources", () => {
@@ -524,12 +605,14 @@ function withSourceLines(message: string, sources: readonly AnswerSourceSummary[
 }
 
 function toolCall({
+  arguments: toolArguments = {},
   errorCode,
   name,
   sources,
   status,
 }: {
   name: string;
+  arguments?: Record<string, unknown>;
   status: "success" | "error";
   sources: readonly AnswerSourceSummary[];
   errorCode?: string;
@@ -537,7 +620,7 @@ function toolCall({
   return {
     id: `audit_${name}`,
     name,
-    arguments: {},
+    arguments: toolArguments,
     status,
     durationMs: 10,
     startedAt: "2026-06-26T00:00:00.000Z",

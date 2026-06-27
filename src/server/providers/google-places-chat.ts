@@ -188,7 +188,7 @@ export async function getGooglePlacesChatContext({
       label: search.label,
       query: search.textQuery,
       includedType: search.includedType,
-      center: search.center,
+      center: googlePlacesChatSearchCenterLogFields(),
       radiusMeters: search.radiusMeters,
       pageSize: search.pageSize,
       fieldMask: googlePlacesChatSearchFieldMask,
@@ -446,6 +446,10 @@ function normalizeMoney(money: GooglePlacesMoney | undefined): GooglePlacesMoney
   }
 
   return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+export function googlePlacesChatSearchCenterLogFields() {
+  return { source: "redacted_coordinates" };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -113,7 +113,7 @@ export async function runAskSiargaoAgentTurn(
       product: "Ask Siargao",
       conversation: resolved.messages.slice(-maxConversationMessages),
       requestMetadata: resolved.metadata,
-      deterministicSignals: resolved.deterministicSignals,
+      deterministicSignals: modelFacingDeterministicSignals(resolved),
       agentMemory: summarizeMemoryForModel(memory),
       responseContract: responseContract,
     }),
@@ -160,7 +160,7 @@ export async function runAskSiargaoAgentTurn(
             validationRepairItineraryPlan: {
               toolCallId: automaticPlanOutput.functionCall.callId,
               name: automaticPlanOutput.functionCall.name,
-              arguments: automaticPlanOutput.functionCall.arguments,
+              arguments: publicToolArguments(automaticPlanOutput.functionCall),
               result: JSON.parse(serializeToolOutput(automaticPlanOutput.result)),
             },
             responseContract,
@@ -208,7 +208,7 @@ export async function runAskSiargaoAgentTurn(
             validationRepairConditionJudgment: {
               toolCallId: automaticConditionOutput.functionCall.callId,
               name: automaticConditionOutput.functionCall.name,
-              arguments: automaticConditionOutput.functionCall.arguments,
+              arguments: publicToolArguments(automaticConditionOutput.functionCall),
               result: JSON.parse(serializeToolOutput(automaticConditionOutput.result)),
             },
             responseContract,
@@ -253,7 +253,7 @@ export async function runAskSiargaoAgentTurn(
             automaticRequiredToolChecks: automaticToolOutputs.map((output) => ({
               toolCallId: output.functionCall.callId,
               name: output.functionCall.name,
-              arguments: output.functionCall.arguments,
+              arguments: publicToolArguments(output.functionCall),
               result: JSON.parse(serializeToolOutput(output.result)),
             })),
             responseContract,
@@ -1011,7 +1011,6 @@ async function executeAndAuditTool({
     toolCallId: executableFunctionCall.callId,
     name: executableFunctionCall.name,
     arguments: executableFunctionCall.arguments,
-    clientContext: runtimeRequest.clientContext,
     ...(executableFunctionCall.toolContext
       ? { toolContext: executableFunctionCall.toolContext }
       : {}),
@@ -1024,7 +1023,7 @@ async function executeAndAuditTool({
   const audit = createAgentToolCallAudit({
     toolCallId: executableFunctionCall.callId,
     name: executableFunctionCall.name,
-    arguments: executableFunctionCall.arguments,
+    arguments: publicToolArguments(executableFunctionCall),
     result: resultWithToolCallId,
     startedAt,
     completedAt,
@@ -1073,10 +1072,6 @@ function applyRuntimeToolContext(
 
   return {
     ...functionCall,
-    arguments: {
-      ...functionCall.arguments,
-      center,
-    },
     toolContext: {
       googlePlaces: {
         center,
@@ -1110,6 +1105,12 @@ function shouldUseBrowserGeolocationForPlaces(
   const query =
     typeof functionCall.arguments.query === "string" ? functionCall.arguments.query : "";
   const latestUserTurn = latestRuntimeUserTurn(request);
+  if (
+    hasExplicitRelativeLocationAnchor(latestUserTurn) &&
+    !hasDirectBrowserLocationText(latestUserTurn)
+  ) {
+    return false;
+  }
   return isNearMeText(query) || isNearMeText(latestUserTurn);
 }
 
@@ -1118,7 +1119,31 @@ function latestRuntimeUserTurn(request: AgentRuntimeRequest) {
 }
 
 function isNearMeText(value: string) {
-  return /\b(?:near\s+me|around\s+me|close\s+to\s+me|close\s+by|nearby|by\s+me)\b/i.test(value);
+  if (hasDirectBrowserLocationText(value)) {
+    return true;
+  }
+
+  return (
+    /\b(?:closest|nearest|nearby|close\s+by)\b/i.test(value) &&
+    !hasExplicitRelativeLocationAnchor(value)
+  );
+}
+
+function hasDirectBrowserLocationText(value: string) {
+  return /\b(?:near\s+me|around\s+me|close\s+to\s+me|by\s+me|around\s+here|near\s+here|near\s+us|around\s+us|close\s+to\s+us)\b/i.test(
+    value,
+  );
+}
+
+function hasExplicitRelativeLocationAnchor(value: string) {
+  return (
+    /\b(?:closest|nearest|nearby|close\s+by)\b.{0,80}\b(?:to|from|near|around|by|in|at)\s+(?!me\b|us\b|here\b|my\b|our\b)[A-Za-z0-9]/i.test(
+      value,
+    ) ||
+    /\b(?:nearby|close\s+by)\s+(?!me\b|us\b|here\b|my\b|our\b)(?:[A-Z][A-Za-z0-9'-]*|[A-Za-z]*\d[A-Za-z0-9'-]*)/u.test(
+      value,
+    )
+  );
 }
 
 function summarizeToolContextForLogs(toolContext: AgentToolExecutionContext | undefined) {
@@ -1176,10 +1201,69 @@ function serializeToolOutput(result: AgentToolResult) {
   return JSON.stringify({
     status: result.status,
     text: result.text,
-    data: result.data,
+    data: modelFacingToolData(result.data),
     errorCode: result.errorCode,
     sources: result.sources,
   });
+}
+
+function modelFacingDeterministicSignals(request: AgentRuntimeRequest) {
+  if (!request.deterministicSignals) {
+    return undefined;
+  }
+
+  const geolocation = request.clientContext?.geolocation;
+  if (geolocation?.source !== "browser_geolocation") {
+    return request.deterministicSignals;
+  }
+
+  return {
+    ...request.deterministicSignals,
+    clientContext: {
+      geolocation: {
+        status: geolocation.status,
+        source: geolocation.source,
+        consentScope: geolocation.consentScope,
+        ...(geolocation.status === "available" ? { centerSource: "browser_geolocation" } : {}),
+      },
+    },
+  };
+}
+
+function publicToolArguments(functionCall: ExecutableFunctionCall): Record<string, unknown> {
+  if (
+    functionCall.name !== "search_places" ||
+    functionCall.toolContext?.googlePlaces?.centerSource !== "browser_geolocation"
+  ) {
+    return functionCall.arguments;
+  }
+
+  return {
+    ...functionCall.arguments,
+    center: browserGeolocationCenterReference(),
+  };
+}
+
+function modelFacingToolData(data: AgentToolResult["data"]) {
+  if (!isRecord(data) || data.centerSource !== "browser_geolocation") {
+    return data;
+  }
+
+  const search = isRecord(data.search)
+    ? {
+        ...data.search,
+        center: browserGeolocationCenterReference(),
+      }
+    : data.search;
+
+  return {
+    ...data,
+    search,
+  };
+}
+
+function browserGeolocationCenterReference() {
+  return { source: "browser_geolocation" };
 }
 
 function collectUpstreamRequestId(requestId: string | undefined, upstreamRequestIds: string[]) {

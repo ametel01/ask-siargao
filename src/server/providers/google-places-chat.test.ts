@@ -4,6 +4,7 @@ import {
   buildGooglePlacesChatSearchBody,
   type GooglePlacesChatSearch,
   getGooglePlacesChatContext,
+  googlePlacesChatSearchCenterLogFields,
   googlePlacesChatSearchFieldMask,
 } from "@/server/providers/google-places-chat";
 
@@ -55,6 +56,14 @@ describe("Google Places chat lookup", () => {
       regionCode: "PH",
       languageCode: "en",
     });
+  });
+
+  test("redacts search center coordinates from provider log fields", () => {
+    const logFields = googlePlacesChatSearchCenterLogFields();
+
+    expect(logFields).toEqual({ source: "redacted_coordinates" });
+    expect(JSON.stringify(logFields)).not.toContain("9.8116");
+    expect(JSON.stringify(logFields)).not.toContain("126.1651");
   });
 
   test("adds an open-now filter and returns only currently open places when requested", async () => {

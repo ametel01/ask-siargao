@@ -196,7 +196,7 @@ export async function chatResponse(
           clientContext: summarizeClientContextForMetadata(clientContext),
         },
         deterministicSignals: {
-          clientContext,
+          clientContext: summarizeClientContextForAgent(clientContext),
           intent: summarizeIntentForAgent(intent),
           scope: {
             shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
@@ -209,21 +209,26 @@ export async function chatResponse(
         logger,
       },
     );
+    const publicToolCalls = redactToolCallsForPublicResponse(
+      result.toolCalls,
+      clientContext.geolocation,
+    );
 
     assertChatAnswerSourceConsistency({
       message: result.message,
       sources: chatAnswerSourcesForValidation(result.sources, result.itineraries),
-      toolCalls: result.toolCalls,
+      toolCalls: publicToolCalls,
+      browserGeolocation: clientContext.geolocation,
     });
 
     logger.info(
       {
         branch: "agent_runtime",
         model: result.model,
-        providerFailure: result.toolCalls.some(isProviderFailureToolCall),
+        providerFailure: publicToolCalls.some(isProviderFailureToolCall),
         sourceLabels: [...new Set(result.sources.map((source) => source.label))],
-        toolCallCount: result.toolCalls.length,
-        toolCalls: result.toolCalls.map(summarizeToolCallForLogs),
+        toolCallCount: publicToolCalls.length,
+        toolCalls: publicToolCalls.map(summarizeToolCallForLogs),
         sourceCount: result.sources.length,
         itineraryCount: result.itineraries?.length ?? 0,
         upstreamRequestIds: result.upstreamRequestIds,
@@ -242,7 +247,7 @@ export async function chatResponse(
         ...(result.upstreamRequestIds?.length
           ? { upstreamRequestIds: result.upstreamRequestIds }
           : {}),
-        toolCalls: result.toolCalls,
+        toolCalls: publicToolCalls,
         sources: result.sources,
         ...(result.memory ? { memory: summarizeMemoryForResponse(result.memory) } : {}),
         ...(result.cards?.length ? { cards: result.cards } : {}),
@@ -378,6 +383,18 @@ function summarizeClientContextForMetadata(clientContext: ChatClientContext) {
   };
 }
 
+function summarizeClientContextForAgent(clientContext: ChatClientContext) {
+  const geolocation = clientContext.geolocation;
+  return {
+    geolocation: {
+      status: geolocation.status,
+      source: geolocation.source,
+      consentScope: geolocation.consentScope,
+      ...(geolocation.status === "available" ? { centerSource: "browser_geolocation" } : {}),
+    },
+  };
+}
+
 function summarizeGeolocationForLogs(geolocation: ChatClientGeolocationContext) {
   return {
     status: geolocation.status,
@@ -419,6 +436,60 @@ function isProviderFailureToolCall(toolCall: AgentToolCallAudit) {
     toolCall.errorCode === "provider_unavailable" ||
     toolCall.sources.some((source) => source.label === "provider_unavailable")
   );
+}
+
+function redactToolCallsForPublicResponse(
+  toolCalls: readonly AgentToolCallAudit[],
+  geolocation: ChatClientGeolocationContext,
+) {
+  if (!hasExactBrowserGeolocation(geolocation)) {
+    return toolCalls;
+  }
+
+  return toolCalls.map((toolCall) => {
+    if (toolCall.name !== "search_places") {
+      return toolCall;
+    }
+
+    const center = toolCall.arguments.center;
+    if (!isRecord(center) || !centerMatchesBrowserGeolocation(center, geolocation)) {
+      return toolCall;
+    }
+
+    return {
+      ...toolCall,
+      arguments: {
+        ...toolCall.arguments,
+        center: browserGeolocationCenterReference(),
+      },
+    };
+  });
+}
+
+function hasExactBrowserGeolocation(
+  geolocation: ChatClientGeolocationContext,
+): geolocation is ChatClientGeolocationContext & { latitude: number; longitude: number } {
+  return (
+    geolocation.status === "available" &&
+    geolocation.source === "browser_geolocation" &&
+    typeof geolocation.latitude === "number" &&
+    typeof geolocation.longitude === "number"
+  );
+}
+
+function centerMatchesBrowserGeolocation(
+  center: Record<string, unknown>,
+  geolocation: ChatClientGeolocationContext & { latitude: number; longitude: number },
+) {
+  return center.latitude === geolocation.latitude && center.longitude === geolocation.longitude;
+}
+
+function browserGeolocationCenterReference() {
+  return { source: "browser_geolocation" };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isRecommendationQuestion(intent: ChatRequestIntent) {

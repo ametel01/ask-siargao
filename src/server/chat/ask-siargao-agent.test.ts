@@ -198,6 +198,59 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.sources).toEqual([weatherSourceSummary]);
   });
 
+  test("does not pass raw browser geolocation into non-Places tool executors", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_weather_location_call",
+        requestId: "req_weather_location_call",
+        callId: "call_weather_location",
+        name: "get_weather_forecast",
+        arguments: { location: "Siargao Island", date_range: "today" },
+      }),
+      {
+        id: "resp_weather_location_final",
+        output_text: "Weather checked without exposing exact browser coordinates.",
+        _request_id: "req_weather_location_final",
+      },
+    ]);
+    const toolRequests: Parameters<AgentToolExecutor>[0][] = [];
+
+    await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Is today good for a beach plan?" }],
+        requestId: "agent_request_weather_location",
+        clientContext: {
+          geolocation: {
+            status: "available",
+            source: "browser_geolocation",
+            consentScope: "single_request",
+            latitude: 9.8123,
+            longitude: 126.1664,
+            accuracyMeters: 20,
+            capturedAt: "2026-06-26T00:00:00.000Z",
+          },
+        },
+      },
+      {
+        client,
+        executeTool: async (request) => {
+          toolRequests.push(request);
+          return {
+            name: request.name,
+            status: "success",
+            text: "Open-Meteo forecast loaded.",
+            sources: [weatherSourceSummary],
+          };
+        },
+        model: "gpt-test",
+      },
+    );
+
+    expect(toolRequests[0]?.clientContext).toBeUndefined();
+    expect(JSON.stringify(toolRequests)).not.toContain("9.8123");
+    expect(JSON.stringify(toolRequests)).not.toContain("126.1664");
+  });
+
   test("repairs near-me Places tool calls to use consented browser geolocation", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
@@ -207,7 +260,6 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         name: "search_places",
         arguments: {
           query: "restaurants open now",
-          center: { latitude: 9.784, longitude: 126.158 },
           radius_meters: 2_500,
           constraints: { included_type: "restaurant", open_now: true, page_size: 5 },
         },
@@ -235,6 +287,16 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
             capturedAt: "2026-06-26T00:00:00.000Z",
           },
         },
+        deterministicSignals: {
+          clientContext: {
+            geolocation: {
+              status: "available",
+              source: "browser_geolocation",
+              consentScope: "single_request",
+              ...browserCenter,
+            },
+          },
+        },
       },
       {
         client,
@@ -244,6 +306,12 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
             name: request.name,
             status: "success",
             text: "Google Places returned nearby restaurants.",
+            data: {
+              centerSource: "browser_geolocation",
+              search: {
+                center: browserCenter,
+              },
+            },
             sources: [openNowPlacesSourceSummary],
           };
         },
@@ -252,11 +320,25 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
 
     expect(result.message).toContain("shared location");
+    const firstInput = parseFirstInput(client.requests[0]?.input);
+    expect(firstInput.deterministicSignals?.clientContext).toEqual({
+      geolocation: {
+        status: "available",
+        source: "browser_geolocation",
+        consentScope: "single_request",
+        centerSource: "browser_geolocation",
+      },
+    });
+    const toolOutput = parseToolOutput(client.requests[1]?.input, 0);
+    expect(toolOutput.data).toMatchObject({
+      search: {
+        center: { source: "browser_geolocation" },
+      },
+    });
     expect(toolRequests[0]).toMatchObject({
       name: "search_places",
       arguments: {
         query: "restaurants open now",
-        center: browserCenter,
       },
       toolContext: {
         googlePlaces: {
@@ -267,12 +349,167 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         },
       },
     });
+    expect(toolRequests[0]?.clientContext).toBeUndefined();
+    expect(toolRequests[0]?.arguments).not.toHaveProperty("center");
     expect(result.toolCalls[0]).toMatchObject({
       name: "search_places",
       arguments: {
-        center: browserCenter,
+        center: { source: "browser_geolocation" },
       },
     });
+    expect(JSON.stringify(result.toolCalls)).not.toContain("9.8123");
+    expect(JSON.stringify(result.toolCalls)).not.toContain("126.1664");
+    expect(JSON.stringify(firstInput)).not.toContain("9.8123");
+    expect(JSON.stringify(firstInput)).not.toContain("126.1664");
+    expect(JSON.stringify(toolOutput)).not.toContain("9.8123");
+    expect(JSON.stringify(toolOutput)).not.toContain("126.1664");
+  });
+
+  test("repairs equivalent nearby phrasing with browser geolocation", async () => {
+    for (const prompt of [
+      "What's open around here?",
+      "Closest cafe?",
+      "Any restaurants near us?",
+    ]) {
+      const client = fakeResponsesClient([
+        responseWithToolCall({
+          id: `resp_places_${prompt}`,
+          requestId: `req_places_${prompt}`,
+          callId: `call_places_${prompt}`,
+          name: "search_places",
+          arguments: {
+            query: "cafes open now",
+            center: { latitude: 9.784, longitude: 126.158 },
+            radius_meters: 2_500,
+            constraints: { open_now: true },
+          },
+        }),
+        {
+          id: `resp_final_${prompt}`,
+          output_text: "Used your shared location for nearby places.",
+          _request_id: `req_final_${prompt}`,
+        },
+      ]);
+      const toolRequests: Parameters<AgentToolExecutor>[0][] = [];
+      const browserCenter = { latitude: 9.8123, longitude: 126.1664 };
+
+      await runAskSiargaoAgentTurn(
+        {
+          messages: [{ role: "user", content: prompt }],
+          requestId: `agent_request_${prompt}`,
+          clientContext: {
+            geolocation: {
+              status: "available",
+              source: "browser_geolocation",
+              consentScope: "single_request",
+              ...browserCenter,
+              capturedAt: "2026-06-26T00:00:00.000Z",
+            },
+          },
+        },
+        {
+          client,
+          executeTool: async (request) => {
+            toolRequests.push(request);
+            return {
+              name: request.name,
+              status: "success",
+              text: "Google Places returned nearby venues.",
+              sources: [openNowPlacesSourceSummary],
+            };
+          },
+          model: "gpt-test",
+        },
+      );
+
+      expect(toolRequests[0]?.toolContext?.googlePlaces?.center).toEqual(browserCenter);
+      expect(toolRequests[0]?.toolContext?.googlePlaces?.centerSource).toBe("browser_geolocation");
+    }
+  });
+
+  test("does not repair anchored relative-location prompts to browser geolocation", async () => {
+    for (const scenario of [
+      {
+        prompt: "What's the closest cafe to Cloud 9?",
+        query: "closest cafes",
+        center: { latitude: 9.8116, longitude: 126.1651 },
+      },
+      {
+        prompt: "Nearest ATM to Dapa ferry terminal?",
+        query: "nearest ATMs",
+        center: { latitude: 9.7604, longitude: 126.0523 },
+      },
+      {
+        prompt: "Cafes nearby Cloud 9?",
+        query: "cafes nearby",
+        center: { latitude: 9.8116, longitude: 126.1651 },
+      },
+      {
+        prompt: "Laundry close by Dapa ferry terminal?",
+        query: "laundry close by",
+        center: { latitude: 9.7604, longitude: 126.0523 },
+      },
+    ]) {
+      const client = fakeResponsesClient([
+        responseWithToolCall({
+          id: `resp_places_anchored_${scenario.query}`,
+          requestId: `req_places_anchored_${scenario.query}`,
+          callId: `call_places_anchored_${scenario.query}`,
+          name: "search_places",
+          arguments: {
+            query: scenario.query,
+            center: scenario.center,
+            radius_meters: 2_500,
+            constraints: { page_size: 5 },
+          },
+        }),
+        {
+          id: `resp_final_anchored_${scenario.query}`,
+          output_text: "Used the named anchor for the search.",
+          _request_id: `req_final_anchored_${scenario.query}`,
+        },
+      ]);
+      const toolRequests: Parameters<AgentToolExecutor>[0][] = [];
+
+      await runAskSiargaoAgentTurn(
+        {
+          messages: [{ role: "user", content: scenario.prompt }],
+          requestId: `agent_request_anchored_${scenario.query}`,
+          clientContext: {
+            geolocation: {
+              status: "available",
+              source: "browser_geolocation",
+              consentScope: "single_request",
+              latitude: 9.8123,
+              longitude: 126.1664,
+              capturedAt: "2026-06-26T00:00:00.000Z",
+            },
+          },
+        },
+        {
+          client,
+          executeTool: async (request) => {
+            toolRequests.push(request);
+            return {
+              name: request.name,
+              status: "success",
+              text: "Google Places returned anchored venues.",
+              sources: [openNowPlacesSourceSummary],
+            };
+          },
+          model: "gpt-test",
+        },
+      );
+
+      expect(toolRequests[0]).toMatchObject({
+        name: "search_places",
+        arguments: {
+          query: scenario.query,
+          center: scenario.center,
+        },
+      });
+      expect(toolRequests[0]?.toolContext).toBeUndefined();
+    }
   });
 
   test("executes a condition judgment tool call and feeds the evidence back to the model", async () => {
@@ -2458,6 +2695,7 @@ function steppedClock(isoTimes: string[]) {
 
 function parseFirstInput(input: unknown): {
   conversation?: Array<{ content?: string }>;
+  deterministicSignals?: Record<string, unknown>;
   agentMemory?: {
     versionId?: string;
     vectorStoreId?: string;

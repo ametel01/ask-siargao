@@ -95,9 +95,14 @@ describe("chat route", () => {
       accuracyMeters: geolocation.accuracyMeters,
       capturedAt: geolocation.capturedAt,
     });
-    expect(signals?.clientContext.geolocation).toEqual(
-      dependencies.requests[0]?.clientContext?.geolocation,
-    );
+    expect(signals?.clientContext.geolocation).toEqual({
+      status: "available",
+      source: "browser_geolocation",
+      consentScope: "single_request",
+      centerSource: "browser_geolocation",
+    });
+    expect(JSON.stringify(signals?.clientContext)).not.toContain(String(geolocation.latitude));
+    expect(JSON.stringify(signals?.clientContext)).not.toContain(String(geolocation.longitude));
     expect(dependencies.requests[0]?.metadata?.clientContext).toEqual({
       geolocation: {
         status: "available",
@@ -549,6 +554,10 @@ describe("chat route", () => {
         toolCall({
           name: "search_places",
           status: "success",
+          arguments: {
+            query: "cafes near me",
+            center: { latitude: 9.8116, longitude: 126.1651 },
+          },
           sources: [browserLocationPlacesSourceSummary],
         }),
       ],
@@ -566,6 +575,7 @@ describe("chat route", () => {
     const response = await chatResponse(
       jsonRequest({
         messages: [{ role: "user", content: "Find cafes near me that are open now." }],
+        clientContext: { geolocation: validGeolocation() },
       }),
       dependencies,
     );
@@ -574,9 +584,42 @@ describe("chat route", () => {
     expect(response.status).toBe(200);
     expect(body.sources).toEqual([browserLocationPlacesSourceSummary]);
     expect(body.sources[0].checked).toContain("browser geolocation search center");
+    expect(body.toolCalls[0].arguments.center).toEqual({ source: "browser_geolocation" });
     expect(body.cards[0].caveats.join(" ")).toContain("browser geolocation");
+    expect(JSON.stringify(body.toolCalls)).not.toContain("9.8116");
+    expect(JSON.stringify(body.toolCalls)).not.toContain("126.1651");
     expect(JSON.stringify(body.cards)).not.toContain("9.8116");
     expect(JSON.stringify(body.cards)).not.toContain("126.1651");
+  });
+
+  test("rejects final answers that render exact browser-location coordinates", async () => {
+    const dependencies = chatDependencies({
+      message: "I used your location at 9.8116, 126.1651 to search nearby cafes.",
+      toolCalls: [
+        toolCall({
+          name: "search_places",
+          status: "success",
+          arguments: {
+            query: "cafes near me",
+            center: { latitude: 9.8116, longitude: 126.1651 },
+          },
+          sources: [browserLocationPlacesSourceSummary],
+        }),
+      ],
+      sources: [browserLocationPlacesSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Find cafes near me that are open now." }],
+        clientContext: { geolocation: validGeolocation() },
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(body.error).toBe("source_consistency_failed");
+    expect(body.message).toContain("verify the answer sources");
   });
 
   test("returns structured cards and actions while preserving the markdown message", async () => {
@@ -1139,10 +1182,7 @@ type AgentSignals = {
       status: string;
       source: "browser_geolocation";
       consentScope?: string;
-      latitude?: number;
-      longitude?: number;
-      accuracyMeters?: number;
-      capturedAt?: string;
+      centerSource?: "browser_geolocation";
     };
   };
   intent: {
@@ -1242,11 +1282,13 @@ function captureLogger() {
 }
 
 function toolCall({
+  arguments: args = {},
   errorCode,
   name,
   sources,
   status,
 }: {
+  arguments?: Record<string, unknown>;
   name: string;
   status: "success" | "error";
   sources: readonly AnswerSourceSummary[];
@@ -1255,7 +1297,7 @@ function toolCall({
   return {
     id: `audit_${name}`,
     name,
-    arguments: {},
+    arguments: args,
     status,
     durationMs: 12,
     startedAt: "2026-06-26T00:00:00.000Z",
