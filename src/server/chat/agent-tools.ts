@@ -887,7 +887,7 @@ async function searchPlacesToolResult(
       },
     );
     const contextWithCenterCaveats = withGooglePlacesCenterCaveats(context, placesToolContext);
-    const sourceSummary = googlePlacesSearchSourceSummary(context);
+    const sourceSummary = googlePlacesSearchSourceSummary(context, placesToolContext);
     const cards = googlePlacesSearchCards(contextWithCenterCaveats, sourceSummary);
     const actions = googlePlacesPromptActions(cards, contextWithCenterCaveats.search.textQuery);
     return {
@@ -1928,7 +1928,10 @@ function renderGooglePlacesDetailsText(
   return fields.filter(Boolean).join("\n");
 }
 
-function googlePlacesSearchSourceSummary(context: GooglePlacesChatContext): AnswerSourceSummary {
+function googlePlacesSearchSourceSummary(
+  context: GooglePlacesChatContext,
+  toolContext?: ReturnType<typeof normalizeGooglePlacesToolContext>,
+): AnswerSourceSummary {
   if (context.status === "no_results" || context.places.length === 0) {
     return googlePlacesNotVerifiedSourceSummary("useful Google Places shortlist");
   }
@@ -1940,7 +1943,7 @@ function googlePlacesSearchSourceSummary(context: GooglePlacesChatContext): Answ
     sourceProfileId: context.sourceProfileId,
     fetchedAt: context.fetchedAt,
     confidence: label === "live_checked" ? "high" : "medium",
-    checked: googlePlacesSearchCheckedFields(context),
+    checked: googlePlacesSearchCheckedFields(context, toolContext),
     notChecked: googlePlacesNotCheckedFields,
   };
 }
@@ -1983,8 +1986,14 @@ function googlePlacesNotVerifiedSourceSummary(check: string): AnswerSourceSummar
   };
 }
 
-function googlePlacesSearchCheckedFields(context: GooglePlacesChatContext) {
+function googlePlacesSearchCheckedFields(
+  context: GooglePlacesChatContext,
+  toolContext?: ReturnType<typeof normalizeGooglePlacesToolContext>,
+) {
   const checked = ["place listings", "addresses", "map links"];
+  if (toolContext?.centerSource === "browser_geolocation") {
+    checked.push("browser geolocation search center");
+  }
   if (context.places.some((place) => place.rating !== undefined)) {
     checked.push("rating signals");
   }

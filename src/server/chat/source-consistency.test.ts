@@ -53,6 +53,44 @@ describe("chat source consistency", () => {
     expect(result.valid).toBe(true);
   });
 
+  test("accepts browser geolocation search-center claims only when Places tool-backed", () => {
+    const geolocatedPlacesSource: AnswerSourceSummary = {
+      ...livePlacesSourceSummary,
+      checked: [...livePlacesSourceSummary.checked, "browser geolocation search center"],
+    };
+    const valid = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Used your shared location as the nearby search center.", [
+        geolocatedPlacesSource,
+      ]),
+      sources: [geolocatedPlacesSource],
+      toolCalls: [
+        toolCall({
+          name: "search_places",
+          status: "success",
+          sources: [geolocatedPlacesSource],
+        }),
+      ],
+    });
+    const invalid = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Fabricated location-source wording.", [geolocatedPlacesSource]),
+      sources: [geolocatedPlacesSource],
+      toolCalls: [
+        toolCall({
+          name: "search_places",
+          status: "success",
+          sources: [livePlacesSourceSummary],
+        }),
+      ],
+    });
+
+    expect(valid).toEqual({ valid: true, issues: [] });
+    expect(invalid.valid).toBe(false);
+    expect(invalid.issues.map((issue) => issue.code)).toEqual([
+      "structured_source_not_tool_backed",
+      "rendered_checked_line_not_verifiable",
+    ]);
+  });
+
   test("accepts valid curated local guide sources", () => {
     const result = validateChatAnswerSourceConsistency({
       message: withSourceLines("Doot and Malinao fit best.", [localGuideSourceSummary]),

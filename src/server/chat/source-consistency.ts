@@ -157,6 +157,22 @@ function validateSourceClaim(
     ];
   }
 
+  if (isBrowserGeolocationCheckedClaim(claim) && !evidence.browserGeolocationPlaces) {
+    return [
+      {
+        code:
+          claim.origin === "rendered_source_line"
+            ? "rendered_checked_line_not_verifiable"
+            : "structured_source_not_tool_backed",
+        label: claim.label,
+        line: claim.line,
+        sourceName: claim.sourceName,
+        message:
+          "Browser-geolocation source claims require a matching geolocated Places tool output.",
+      },
+    ];
+  }
+
   if (isToolBackedLabelSupported(claim.label, evidence)) {
     return [];
   }
@@ -177,6 +193,12 @@ function validateSourceClaim(
 
 function summarizeToolEvidence(toolCalls: readonly AgentToolCallAudit[]) {
   return {
+    browserGeolocationPlaces: toolCalls.some(
+      (toolCall) =>
+        toolCall.status === "success" &&
+        toolCall.name === "search_places" &&
+        toolCall.sources.some((source) => hasBrowserGeolocationCheckedText(source.checked)),
+    ),
     livePlaces: hasToolSourceLabel(toolCalls, placesToolNames, "live_checked"),
     freshPlaces: hasToolSourceLabel(
       toolCalls,
@@ -206,6 +228,20 @@ function summarizeToolEvidence(toolCalls: readonly AgentToolCallAudit[]) {
         toolCall.sources.some((source) => source.label === "provider_unavailable"),
     ),
   };
+}
+
+function isBrowserGeolocationCheckedClaim(claim: SourceClaim) {
+  if (!claim.label || !isVerifyingLabel(claim.label)) {
+    return false;
+  }
+  if (claim.origin === "rendered_source_line" && claim.lineKind !== "checked") {
+    return false;
+  }
+  return hasBrowserGeolocationCheckedText([claim.checkedText ?? ""]);
+}
+
+function hasBrowserGeolocationCheckedText(values: readonly string[]) {
+  return values.some((value) => /\bbrowser geolocation search center\b/i.test(value));
 }
 
 function hasToolSourceLabel(

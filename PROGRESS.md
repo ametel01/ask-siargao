@@ -17,12 +17,12 @@ references, current status, and the next step.
 - [x] Step 1: Chat Client Context Schema and Geolocation Validation
 - [x] Step 2: Geolocated Places Center Selection and Privacy-Safe Tool Policy
 - [x] Step 3: Chat UI Location Consent Control
-- [ ] Step 4: Answer Metadata, Caveats, and Source Consistency for Location Source
+- [x] Step 4: Answer Metadata, Caveats, and Source Consistency for Location Source
 - [ ] Step 5: End-to-End Permission Coverage and Final Documentation
 
 ## Current Status
 
-Step 3 complete. Current status: Step 4 ready to start.
+Step 4 complete. Current status: Step 5 ready to start.
 
 ## Update Log
 
@@ -98,5 +98,24 @@ Step 3 complete. Current status: Step 4 ready to start.
   - `bun run test:e2e -- tests/e2e/chat.e2e.ts --project=chromium`: passed
   - `bun test`: passed
   - `npx react-doctor@latest --verbose --scope changed`: passed, score 100/100
-- Commit: pending
+- Commit: `5b9a3b7` (`Add optional chat geolocation control`)
 - Next step: Step 4, answer metadata, caveats, and source consistency for location source.
+
+### 2026-06-27 - Step 4
+
+- Added `browser geolocation search center` to Google Places checked fields when a Places search
+  used consented browser geolocation as its center.
+- Kept recommendation card caveats visible while avoiding raw coordinate display in card metadata.
+- Updated source-consistency validation to accept browser-geolocation source wording only when a
+  successful `search_places` tool call produced matching browser-location source evidence.
+- Added route, tool, and source-consistency regression coverage for valid and fabricated
+  browser-location source metadata.
+- Validation:
+  - `bun run format`: passed
+  - `bun run lint`: passed
+  - `bun run typecheck --incremental false`: passed
+  - `bun test src/server/chat/source-consistency.test.ts src/server/chat/agent-tools.test.ts src/app/api/chat/route.test.ts`:
+    passed
+  - `bun test`: passed
+- Commit: pending
+- Next step: Step 5, end-to-end permission coverage and final documentation.

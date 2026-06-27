@@ -77,6 +77,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added browser-location source metadata for geolocated Places results, including tool-backed
+  source-consistency validation that rejects fabricated browser-geolocation source claims.
 - Added an optional chat composer location control that requests browser geolocation only after a
   traveler click, sends single-request location context with the next chat request, and consumes it
   afterward without storing coordinates.

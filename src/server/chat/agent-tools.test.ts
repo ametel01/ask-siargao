@@ -653,7 +653,10 @@ describe("agent tools", () => {
       },
     });
     expect(result.text).toContain("consented browser geolocation");
+    expect(result.sources[0]?.checked).toContain("browser geolocation search center");
     expect(result.cards?.[0]?.caveats.join(" ")).toContain("browser geolocation");
+    expect(result.cards?.[0]?.caveats.join(" ")).not.toContain("9.8123");
+    expect(result.cards?.[0]?.caveats.join(" ")).not.toContain("126.1664");
     expect(result.data).toMatchObject({
       centerSource: "browser_geolocation",
       consentScope: "single_request",

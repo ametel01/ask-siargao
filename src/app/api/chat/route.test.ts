@@ -542,6 +542,43 @@ describe("chat route", () => {
     expect(signals?.intent.placeIntent?.category).toBe("coffee");
   });
 
+  test("returns browser-location Places source metadata when tool-backed", async () => {
+    const dependencies = chatDependencies({
+      message: "The model recommends a cafe near your shared location.",
+      toolCalls: [
+        toolCall({
+          name: "search_places",
+          status: "success",
+          sources: [browserLocationPlacesSourceSummary],
+        }),
+      ],
+      sources: [browserLocationPlacesSourceSummary],
+      cards: [
+        {
+          ...placeRecommendationCard,
+          caveats: [
+            ...placeRecommendationCard.caveats,
+            "Search center came from consented browser geolocation; exact coordinates are not displayed.",
+          ],
+        },
+      ],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Find cafes near me that are open now." }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.sources).toEqual([browserLocationPlacesSourceSummary]);
+    expect(body.sources[0].checked).toContain("browser geolocation search center");
+    expect(body.cards[0].caveats.join(" ")).toContain("browser geolocation");
+    expect(JSON.stringify(body.cards)).not.toContain("9.8116");
+    expect(JSON.stringify(body.cards)).not.toContain("126.1651");
+  });
+
   test("returns structured cards and actions while preserving the markdown message", async () => {
     const dependencies = chatDependencies({
       message: "The model-written answer still recommends Shaka in markdown.",
@@ -1319,6 +1356,11 @@ const placesSourceSummary: AnswerSourceSummary = {
   confidence: "high",
   checked: ["place listings", "map links"],
   notChecked: ["review text", "bookings"],
+};
+
+const browserLocationPlacesSourceSummary: AnswerSourceSummary = {
+  ...placesSourceSummary,
+  checked: [...placesSourceSummary.checked, "browser geolocation search center"],
 };
 
 const localGuideSourceSummary: AnswerSourceSummary = {
