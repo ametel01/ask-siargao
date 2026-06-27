@@ -77,6 +77,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Verified and documented the completed consent-based near-me geolocation flow, including granted,
+  denied, skipped, and single-request-consumed browser permission coverage.
 - Added browser-location source metadata for geolocated Places results, including tool-backed
   source-consistency validation that rejects fabricated browser-geolocation source claims.
 - Added an optional chat composer location control that requests browser geolocation only after a

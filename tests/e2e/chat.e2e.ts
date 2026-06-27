@@ -174,6 +174,42 @@ test("sends granted browser geolocation once and consumes it after the request",
   expect(mockChat.requests[1]?.clientContext).toBeUndefined();
 });
 
+test("continues without geolocation after permission is denied", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition(_success: PositionCallback, error?: PositionErrorCallback) {
+          error?.({
+            code: 1,
+            message: "User denied geolocation.",
+            PERMISSION_DENIED: 1,
+            POSITION_UNAVAILABLE: 2,
+            TIMEOUT: 3,
+          } as GeolocationPositionError);
+        },
+      },
+    });
+  });
+  const mockChat = await mockChatApi(page, {
+    message: "Mocked typed-area answer: General Luna options still work without location.",
+  });
+
+  await page.goto("/chat");
+
+  await page.getByRole("button", { name: "Share location once" }).click();
+  await expect(page.getByText("Location permission denied.")).toBeVisible();
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("What is open in General Luna?");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByText("Mocked typed-area answer:")).toBeVisible();
+  await expect.poll(() => mockChat.requests.length).toBe(1);
+  expect(lastSubmittedContent(mockChat.requests[0])).toBe("What is open in General Luna?");
+  expect(mockChat.requests[0]?.clientContext).toBeUndefined();
+});
+
 test("sends a mobile suggested prompt through the same chat API path", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const mockChat = await mockChatApi(page, {

@@ -35,6 +35,12 @@ policy guardrail for missing evidence; it must not render user-facing copy,
 must preserve source caveats, and must stay scoped to deterministic route
 signals that identify a required evidence contract.
 
+Browser geolocation follows the same boundary. The backend may validate a
+consented browser location, decide whether it is usable as a Google Places search
+center, enforce no-store privacy policy for exact single-request coordinates, and
+attach source metadata. It must return that tool evidence to the model; it must
+not render deterministic "near me" final prose.
+
 ## Backend Role
 
 The backend is the tool runtime for the agent. It should expose capabilities such

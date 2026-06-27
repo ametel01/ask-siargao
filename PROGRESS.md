@@ -18,11 +18,11 @@ references, current status, and the next step.
 - [x] Step 2: Geolocated Places Center Selection and Privacy-Safe Tool Policy
 - [x] Step 3: Chat UI Location Consent Control
 - [x] Step 4: Answer Metadata, Caveats, and Source Consistency for Location Source
-- [ ] Step 5: End-to-End Permission Coverage and Final Documentation
+- [x] Step 5: End-to-End Permission Coverage and Final Documentation
 
 ## Current Status
 
-Step 4 complete. Current status: Step 5 ready to start.
+Complete. Current status: Priority 10 implementation complete and final audit passed.
 
 ## Update Log
 
@@ -117,5 +117,26 @@ Step 4 complete. Current status: Step 5 ready to start.
   - `bun test src/server/chat/source-consistency.test.ts src/server/chat/agent-tools.test.ts src/app/api/chat/route.test.ts`:
     passed
   - `bun test`: passed
-- Commit: pending
+- Commit: `85a3121` (`Surface browser location source metadata`)
 - Next step: Step 5, end-to-end permission coverage and final documentation.
+
+### 2026-06-27 - Step 5
+
+- Marked Priority 10 as complete in the roadmap and documented the completed browser
+  geolocation behavior.
+- Clarified the agent architecture boundary for backend-governed browser geolocation context,
+  no-store exact-coordinate policy, and AI-written final prose.
+- Added Playwright coverage for denied browser geolocation permission to confirm chat continues
+  without sending `clientContext`.
+- Re-ran the full final validation gate set for the completed Priority 10 slice.
+- Validation:
+  - `bun run format`: passed
+  - `bun run lint`: passed
+  - `bun run typecheck --incremental false`: passed
+  - `bun test`: passed (436 tests)
+  - `bun run db:migrate:test`: passed
+  - `bun run db:seed:test`: passed
+  - `bun run build`: passed
+  - `bun run test:e2e`: passed (24 tests)
+- Commit: `Verify near-me geolocation flow`
+- Next step: None.

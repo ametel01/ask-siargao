@@ -672,6 +672,8 @@ providers are integrated.
 
 ## Priority 10: Consent-Based Near-Me Geolocation
 
+Status: Complete as of 2026-06-27.
+
 ### Outcome
 
 Travelers should be able to share their current location and receive nearby
@@ -730,6 +732,20 @@ On the server:
 - Add route tests for near-me Places search center selection.
 - Add e2e coverage for the geolocation permission path using mocked browser
   permissions.
+
+### Completed Behavior
+
+- `ChatWorkspace` offers an optional single-request location control and sends
+  `clientContext.geolocation` only after an explicit click.
+- `/api/chat` validates geolocation shape, capture time, consent scope, accuracy,
+  and Siargao-area plausibility before passing usable coordinates to the agent.
+- Near-me Google Places searches use consented browser geolocation as the search
+  center, bypass persistent chat-search cache storage for exact single-request
+  coordinates, and keep final prose AI-written.
+- Browser-location source metadata is visible through Places source fields and
+  card/tool caveats without displaying raw coordinates.
+- E2E coverage exercises granted, denied, skipped, and single-request-consumed
+  location flows with mocked browser geolocation.
 
 ## Priority 11: Save And Share Trip Plans
 
