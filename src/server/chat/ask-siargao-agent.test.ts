@@ -2205,7 +2205,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
 
     expect(result.message).toBe("The model wrote this final answer after reading the tool output.");
-    expect(result.cards).toEqual([card]);
+    expect(result.cards).toEqual([{ ...card, sources: [localGuideSourceSummary] }]);
     expect(result.actions).toEqual([action]);
     expect(result.sources).toEqual([localGuideSourceSummary]);
     expect(JSON.stringify(result.toolCalls)).not.toContain("SECRET_CARD_PAYLOAD");

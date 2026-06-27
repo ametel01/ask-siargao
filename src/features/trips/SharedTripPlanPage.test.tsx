@@ -5,6 +5,7 @@ import { SharedTripPlanPage } from "@/features/trips/SharedTripPlanPage";
 import type { ItineraryPlan, RecommendationCard } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import {
+  publicSharedTripPlanFromStored,
   savedTripItemFromItineraryPlan,
   savedTripItemFromRecommendationCard,
 } from "@/server/trips/shared-trip-types";
@@ -13,7 +14,7 @@ describe("SharedTripPlanPage", () => {
   test("renders selected cards and itineraries without chat transcript fields", () => {
     const html = renderToStaticMarkup(
       <SharedTripPlanPage
-        plan={{
+        plan={publicSharedTripPlanFromStored({
           id: "shared_plan_1",
           title: "Cloud 9 saved plan",
           createdAt: "2026-06-28T01:00:00.000Z",
@@ -31,18 +32,32 @@ describe("SharedTripPlanPage", () => {
               tripId: "local_trip_page_123456",
             }),
           ],
-        }}
+        })}
       />,
     );
 
     expect(html).toContain("Cloud 9 saved plan");
     expect(html).toContain("Shaka Siargao");
-    expect(html).toContain("Open now from Google Places");
     expect(html).toContain("Review text and bookings were not checked.");
     expect(html).toContain("Rain-aware Cloud 9 afternoon");
     expect(html).toContain("Cloud 9 boardwalk");
+    expect(html).toContain("Covered cafe backup");
+    expect(html).toContain("General Luna");
+    expect(html).toContain("Live open status should be checked before leaving.");
+    expect(html).toContain("Open now from Google Places");
+    expect(html).toContain("Google Places - live checked");
+    expect(html).toContain("Google Places API - live checked - fetched 2026-06-28T00:45:00.000Z");
+    expect(html).toContain("Checked by Google Places API: place identity");
+    expect(html).toContain("Open-Meteo weather API - weather checked");
+    expect(html).toContain("Checked by Open-Meteo weather API: forecast for General Luna");
     expect(html).toContain("Not checked by Open-Meteo weather API: surf reports");
+    expect(html).toContain(
+      "Not checked by Browser saved trip: Saved from browser and not reverified by Ask Siargao before sharing.",
+    );
     expect(html).toContain("https://www.google.com/maps/search/?api=1&amp;query=Shaka%20Siargao");
+    expect(html).toContain(
+      "https://www.google.com/maps/search/?api=1&amp;query=General%20Luna%20cafe",
+    );
     expect(html).not.toContain("Where should I eat?");
     expect(html).not.toContain("assistant");
     expect(html).not.toContain("rawProviderPayload");
@@ -113,6 +128,7 @@ const rainyPlan: ItineraryPlan = {
       kind: "meal",
       sequence: 2,
       area: "General Luna",
+      mapsUrl: "https://www.google.com/maps/search/?api=1&query=General%20Luna%20cafe",
       rationale: "Keeps the plan useful during passing rain.",
       caveats: ["Live open status should be checked before leaving."],
     },

@@ -670,7 +670,7 @@ providers are integrated.
 - Add regression tests that tide/surf are labeled not checked until providers
   exist.
 
-## Priority 10: Consent-Based Near-Me Geolocation
+## Priority 10: Consent-Based Near-Me Geolocation **COMPLETED**
 
 Status: Complete as of 2026-06-27.
 
@@ -747,7 +747,9 @@ On the server:
 - E2E coverage exercises granted, denied, skipped, and single-request-consumed
   location flows with mocked browser geolocation.
 
-## Priority 11: Save And Share Trip Plans
+## Priority 11: Save And Share Trip Plans **COMPLETED**
+
+Status: Complete as of 2026-06-28.
 
 ### Outcome
 
@@ -804,6 +806,22 @@ source metadata.
 - Add API tests for share-token creation and access control once server
   persistence exists.
 - Add source-policy tests to ensure restricted provider content is not exposed.
+
+### Completed Behavior
+
+- Travelers can save recommendation cards and itinerary plans from chat, remove them, and keep
+  the saved tray locally across reloads.
+- Share creation syncs only selected saved items to the saved-trip APIs, resolves the stored
+  saved-trip row by client trip key, and creates an unguessable public share token.
+- Public shared plans render selected cards and itineraries without full chat history, raw
+  provider payloads, Google review text, exact browser geolocation, or unrelated client context.
+- Shared recommendation cards preserve captured map links, source labels, and open-status labels
+  when present, while adding a browser-saved caveat that the captured status was not reverified
+  before sharing.
+- Shared itinerary plans render primary and fallback stops with area labels, rationale, per-stop
+  caveats, and Google Maps links when available.
+- Shared plans preserve allowed source freshness, checked/not-checked labels, expiry/deletion
+  behavior, and generic unavailable-token rendering.
 
 ## Delivery Order
 

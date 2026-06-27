@@ -115,18 +115,92 @@ describe("shared trip persistence store", () => {
     });
     expect(lookedUp?.title).toBe("Cloud 9 highlights");
     expect(lookedUp?.items.map((item) => item.title)).toEqual(["Shaka Siargao"]);
-    expect(lookedUp?.items[0]?.sources).toEqual([placesSource]);
-    expect(lookedUp?.items[0]?.sources[0]).toMatchObject({
-      label: "live_checked",
-      sourceName: "Google Places API",
-      sourceProfileId: "source_google_places",
-      fetchedAt: "2026-06-28T00:45:00.000Z",
-      checked: ["place identity", "current opening status"],
-      notChecked: ["review text", "table availability"],
-    });
+    expect(lookedUp?.items[0]?.tripId).toBeUndefined();
+    expect(lookedUp?.items[0]?.sources).toEqual([placesSource, browserSavedNotReverifiedSource]);
+    expect(
+      lookedUp?.items[0]?.payload.type === "recommendation_card"
+        ? lookedUp.items[0].payload.card.sourceLabel
+        : "",
+    ).toBe("Google Places - live checked");
+    expect(
+      lookedUp?.items[0]?.payload.type === "recommendation_card"
+        ? lookedUp.items[0].payload.card.openStatusLabel
+        : "",
+    ).toBe("Open now from Google Places");
     expect(JSON.stringify(lookedUp)).not.toContain("rawProviderPayload");
     expect(JSON.stringify(lookedUp)).not.toContain("Best smoothie bowl");
     expect(JSON.stringify(lookedUp)).not.toContain("9.8116");
+    expect(JSON.stringify(lookedUp)).toContain("live_checked");
+    expect(JSON.stringify(lookedUp)).toContain("current opening status");
+
+    await db.close();
+  });
+
+  test("orders shared snapshot items by requested item ids", async () => {
+    const db = await openSharedTripStoreTestDatabase();
+    const trip = await seedTripWithItems(db, "trip_share_order", "browser-trip-key-share-order");
+    const result = await createSharedTripPlan(db, {
+      id: "share_order",
+      tripId: trip.id,
+      title: "Reverse order",
+      itemIds: ["trip_share_order_itinerary", "place_shaka"],
+      publicToken: "order-token",
+      now: "2026-06-28T02:00:00.000Z",
+    });
+
+    expect(result.plan.items.map((item) => item.id)).toEqual([
+      "trip_share_order_itinerary",
+      "place_shaka",
+    ]);
+
+    const lookedUp = await lookupSharedTripPlanByToken(db, {
+      publicToken: "order-token",
+      now: "2026-06-28T02:01:00.000Z",
+    });
+    expect(lookedUp?.items.map((item) => item.id)).toEqual([
+      "trip_share_order_itinerary",
+      "place_shaka",
+    ]);
+
+    await db.close();
+  });
+
+  test("keeps shared links stable after selected saved items are removed", async () => {
+    const db = await openSharedTripStoreTestDatabase();
+    const trip = await seedTripWithItems(db, "trip_snapshot", "browser-trip-key-snapshot");
+    await createSharedTripPlan(db, {
+      id: "share_snapshot",
+      tripId: trip.id,
+      title: "Snapshot plan",
+      itemIds: ["place_shaka", "trip_snapshot_itinerary"],
+      publicToken: "snapshot-token",
+      now: "2026-06-28T02:00:00.000Z",
+    });
+
+    expect(
+      await removeSavedTripItem(db, {
+        tripId: trip.id,
+        itemId: "place_shaka",
+        now: "2026-06-28T02:05:00.000Z",
+      }),
+    ).toBe(true);
+    expect(await listSavedTripItems(db, { tripId: trip.id })).toHaveLength(1);
+
+    const lookedUp = await lookupSharedTripPlanByToken(db, {
+      publicToken: "snapshot-token",
+      now: "2026-06-28T02:06:00.000Z",
+    });
+
+    expect(lookedUp?.items.map((item) => item.title)).toEqual([
+      "Shaka Siargao",
+      "Rain-aware Cloud 9 afternoon",
+    ]);
+    expect(lookedUp?.items[0]?.sources).toEqual([placesSource, browserSavedNotReverifiedSource]);
+    expect(
+      lookedUp?.items[1]?.payload.type === "itinerary_plan"
+        ? lookedUp.items[1].payload.plan.sources
+        : [],
+    ).toEqual([weatherSource, browserSavedNotReverifiedSource]);
 
     await db.close();
   });
@@ -203,6 +277,75 @@ describe("shared trip persistence store", () => {
 
     await db.close();
   });
+
+  test("keeps deterministic item ids scoped to their trip", async () => {
+    const db = await openSharedTripStoreTestDatabase();
+    const firstTrip = await upsertSavedTrip(db, {
+      id: "trip_first_same_item",
+      clientTripKey: "browser-trip-key-first-same-item",
+      title: "First seeded saved plan",
+      now: "2026-06-28T01:00:00.000Z",
+    });
+    const secondTrip = await upsertSavedTrip(db, {
+      id: "trip_second_same_item",
+      clientTripKey: "browser-trip-key-second-same-item",
+      title: "Second seeded saved plan",
+      now: "2026-06-28T01:00:00.000Z",
+    });
+
+    await upsertSavedTripItems(db, {
+      tripId: firstTrip.id,
+      now: "2026-06-28T01:01:00.000Z",
+      items: [
+        savedTripItemFromRecommendationCard({
+          card: shakaCard,
+          sources: [placesSource],
+          savedAt: "2026-06-28T01:01:00.000Z",
+          tripId: firstTrip.id,
+        }),
+      ],
+    });
+    await createSharedTripPlan(db, {
+      id: "share_first_same_item",
+      tripId: firstTrip.id,
+      title: "First same item plan",
+      itemIds: ["place_shaka"],
+      publicToken: "first-same-item-token",
+      now: "2026-06-28T01:02:00.000Z",
+    });
+    await upsertSavedTripItems(db, {
+      tripId: secondTrip.id,
+      now: "2026-06-28T01:03:00.000Z",
+      items: [
+        savedTripItemFromRecommendationCard({
+          card: { ...shakaCard, subtitle: "Saved from the second anonymous trip" },
+          sources: [placesSource],
+          savedAt: "2026-06-28T01:03:00.000Z",
+          tripId: secondTrip.id,
+        }),
+      ],
+    });
+
+    expect((await listSavedTripItems(db, { tripId: firstTrip.id })).map((item) => item.id)).toEqual(
+      ["place_shaka"],
+    );
+    expect(
+      (await listSavedTripItems(db, { tripId: secondTrip.id })).map((item) => item.id),
+    ).toEqual(["place_shaka"]);
+
+    const firstShare = await lookupSharedTripPlanByToken(db, {
+      publicToken: "first-same-item-token",
+      now: "2026-06-28T01:04:00.000Z",
+    });
+    expect(firstShare?.items.map((item) => item.title)).toEqual(["Shaka Siargao"]);
+    expect(
+      firstShare?.items[0]?.payload.type === "recommendation_card"
+        ? firstShare.items[0].payload.card.subtitle
+        : "",
+    ).toBe("Smoothie bowls near Cloud 9");
+
+    await db.close();
+  });
 });
 
 async function openSharedTripStoreTestDatabase() {
@@ -262,6 +405,14 @@ const weatherSource: AnswerSourceSummary = {
   confidence: "medium",
   checked: ["forecast for General Luna"],
   notChecked: ["surf reports", "road flooding"],
+};
+
+const browserSavedNotReverifiedSource: AnswerSourceSummary = {
+  label: "not_verified",
+  sourceName: "Browser saved trip",
+  confidence: "low",
+  checked: [],
+  notChecked: ["Saved from browser and not reverified by Ask Siargao before sharing."],
 };
 
 const shakaCard: RecommendationCard = {

@@ -97,6 +97,7 @@ type RecommendationCardArtifact = {
   fitReasons: readonly string[];
   caveats: readonly string[];
   sourceLabel: string;
+  sources?: readonly ChatSourceArtifact[];
 };
 
 type ChatActionArtifact = {
@@ -124,15 +125,17 @@ type ItineraryPlanArtifact = {
   stops: readonly ItineraryStopArtifact[];
   fallbackStops: readonly ItineraryStopArtifact[];
   skip: readonly string[];
-  sources: readonly {
-    label: string;
-    sourceName: string;
-    sourceProfileId?: string;
-    fetchedAt?: string;
-    confidence?: "high" | "medium" | "low";
-    checked: readonly string[];
-    notChecked: readonly string[];
-  }[];
+  sources: readonly ChatSourceArtifact[];
+};
+
+type ChatSourceArtifact = {
+  label: string;
+  sourceName: string;
+  sourceProfileId?: string;
+  fetchedAt?: string;
+  confidence?: "high" | "medium" | "low";
+  checked: readonly string[];
+  notChecked: readonly string[];
 };
 
 type SavedTripState = {
@@ -421,6 +424,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
           cards?: RecommendationCardArtifact[];
           actions?: ChatActionArtifact[];
           itineraries?: ItineraryPlanArtifact[];
+          sources?: ChatSourceArtifact[];
         };
 
         const responseMessage = body.message;
@@ -493,6 +497,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
         items: state.items.filter((item) => item.id !== itemId),
         updatedAt: new Date().toISOString(),
       });
+      void deleteSavedTripItem({ itemId, tripId: state.tripId }).catch(() => {});
       savedPlanSharing.includeItem(itemId);
     },
     [savedPlanSharing],
@@ -1784,6 +1789,18 @@ async function postSavedTripItems({
   }
 }
 
+async function deleteSavedTripItem({ itemId, tripId }: { tripId: string; itemId: string }) {
+  const response = await fetch(`/api/trips/saved/${encodeURIComponent(itemId)}`, {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ tripId }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Saved item could not be deleted.");
+  }
+}
+
 async function postSharedTripPlan({
   itemIds,
   title,
@@ -1967,6 +1984,7 @@ function buildSavedItemFromCard(card: RecommendationCardArtifact, tripId: string
   const itemId = savedItemIdForCard(card);
   const title = normalizeSavedText(card.title, 180);
   const caveats = normalizeSavedTextArray(card.caveats, 16);
+  const sources = normalizeSavedSources(card.sources ?? []);
 
   return {
     id: itemId,
@@ -1994,7 +2012,7 @@ function buildSavedItemFromCard(card: RecommendationCardArtifact, tripId: string
         sourceLabel: normalizeSavedText(card.sourceLabel, 180),
       },
     },
-    sources: [],
+    sources,
     ...(card.mapsUrl ? { mapsUrl: card.mapsUrl } : {}),
     caveats,
   };
@@ -2067,11 +2085,9 @@ function normalizeSavedItineraryStop(stop: ItineraryStopArtifact) {
   };
 }
 
-function normalizeSavedSources(
-  sources: ItineraryPlanArtifact["sources"],
-): SavedTripItem["sources"] {
+function normalizeSavedSources(sources: readonly ChatSourceArtifact[]): SavedTripItem["sources"] {
   return sources.map((source) => ({
-    label: isSavedSourceLabel(source.label) ? source.label : "not_verified",
+    label: normalizeSavedSourceLabel(source.label),
     sourceName: normalizeSavedText(source.sourceName, 180),
     ...(source.sourceProfileId
       ? { sourceProfileId: normalizeSavedText(source.sourceProfileId, 180) }
@@ -2117,6 +2133,10 @@ function normalizeSavedIdentifier(value: string) {
 
 function isUsableIdentifier(value: unknown): value is string {
   return typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9:_-]{7,127}$/.test(value);
+}
+
+function normalizeSavedSourceLabel(value: string): SavedTripItem["sources"][number]["label"] {
+  return isSavedSourceLabel(value) ? value : "not_verified";
 }
 
 function isSavedSourceLabel(value: string): value is SavedTripItem["sources"][number]["label"] {

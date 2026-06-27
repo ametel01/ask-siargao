@@ -63,6 +63,7 @@ export type RecommendationCard = {
   fitReasons: readonly string[];
   caveats: readonly string[];
   sourceLabel: string;
+  sources?: readonly AnswerSourceSummary[];
 };
 
 export type ChatAction = {
@@ -303,9 +304,9 @@ export function createAgentTurnResult({
   const sourceReconciliation = itinerarySourceReconciliation(artifactCarriers, toolCalls);
   const reconciledSources = reconcileSourceSummaries(mergedSources, sourceReconciliation);
   const liveItineraryEvidence = itineraryLiveEvidence(artifactCarriers, toolCalls);
-  const mergedCards = dedupeById([
+  const mergedCards = dedupeCardsById([
     ...(cards ?? []),
-    ...artifactCarriers.flatMap((result) => result.cards ?? []),
+    ...artifactCarriers.flatMap((result) => cardsWithCarrierSources(result)),
   ]);
   const mergedActions = dedupeById([
     ...(actions ?? []),
@@ -1001,6 +1002,33 @@ function dedupeById<T extends { id: string }>(values: readonly T[]) {
     }
     results.push(value);
     seen.add(value.id);
+  }
+
+  return results;
+}
+
+function cardsWithCarrierSources(result: AgentToolResultArtifactCarrier): RecommendationCard[] {
+  return (result.cards ?? []).map((card) =>
+    card.sources?.length ? card : { ...card, sources: result.sources },
+  );
+}
+
+function dedupeCardsById(values: readonly RecommendationCard[]) {
+  const results: RecommendationCard[] = [];
+  const indexesById = new Map<string, number>();
+
+  for (const value of values) {
+    const existingIndex = indexesById.get(value.id);
+    if (existingIndex === undefined) {
+      indexesById.set(value.id, results.length);
+      results.push(value);
+      continue;
+    }
+
+    const existing = results[existingIndex];
+    if (existing && !existing.sources?.length && value.sources?.length) {
+      results[existingIndex] = { ...existing, sources: value.sources };
+    }
   }
 
   return results;

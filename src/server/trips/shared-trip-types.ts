@@ -22,6 +22,14 @@ const trimmedString = (max: number) => z.string().trim().min(1).max(max);
 const normalizedTextArraySchema = (maxItems: number, maxLength = maxMediumTextLength) =>
   z.array(trimmedString(maxLength)).max(maxItems);
 
+const allowedMapsLinkHosts = new Set(["maps.app.goo.gl", "maps.google.com", "maps.google.com.ph"]);
+const allowedGoogleMapsPathHosts = new Set([
+  "google.com",
+  "www.google.com",
+  "google.com.ph",
+  "www.google.com.ph",
+]);
+
 export const savedTripItemIdSchema = z.string().regex(savedTripItemIdPattern).max(128);
 export const localTripIdSchema = z.string().regex(localTripIdPattern).max(128);
 
@@ -30,7 +38,7 @@ export const mapsUrlSchema = z
   .max(600)
   .refine((value) => {
     const url = new URL(value);
-    return url.protocol === "https:" && isAllowedMapsHost(url.hostname);
+    return url.protocol === "https:" && isAllowedMapsUrl(url);
   }, "Maps URLs must use an allowed HTTPS maps host.");
 
 export const answerSourceSummarySchema = z
@@ -219,6 +227,13 @@ export function normalizeSharedTripPlan(input: unknown): SharedTripPlan {
   return sharedTripPlanSchema.parse(input);
 }
 
+export function publicSharedTripPlanFromStored(plan: SharedTripPlan): SharedTripPlan {
+  return normalizeSharedTripPlan({
+    ...plan,
+    items: plan.items.map(publicSavedTripItemFromStored),
+  });
+}
+
 export function savedTripItemFromRecommendationCard({
   card,
   id = card.id,
@@ -232,6 +247,8 @@ export function savedTripItemFromRecommendationCard({
   savedAt: string;
   tripId?: string;
 }): SavedTripItem {
+  const { sources: _cardSources, ...cardPayload } = card;
+
   return normalizeSavedTripItem({
     id: normalizeIdentifier(id),
     ...(tripId ? { tripId: normalizeIdentifier(tripId) } : {}),
@@ -242,7 +259,7 @@ export function savedTripItemFromRecommendationCard({
     payload: {
       type: "recommendation_card",
       card: {
-        ...card,
+        ...cardPayload,
         id: normalizeIdentifier(card.id),
         title: normalizeText(card.title, maxShortTextLength),
         ...(card.subtitle ? { subtitle: normalizeText(card.subtitle, maxShortTextLength) } : {}),
@@ -338,6 +355,80 @@ function normalizeSourceSummary(source: AnswerSourceSummary) {
   };
 }
 
+function publicSavedTripItemFromStored(item: SavedTripItem): SavedTripItem {
+  const payload = publicSavedTripPayloadFromStored(item.payload);
+
+  return normalizeSavedTripItem({
+    id: item.id,
+    kind: item.kind,
+    title: item.title,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    payload,
+    sources: publicSourcesFromStored(item.sources),
+    ...publicSavedItemDisplayFields(payload),
+  });
+}
+
+function publicSavedTripPayloadFromStored(
+  payload: SavedTripItem["payload"],
+): SavedTripItem["payload"] {
+  if (payload.type === "recommendation_card") {
+    return {
+      type: "recommendation_card",
+      card: payload.card,
+    };
+  }
+
+  if (payload.type === "itinerary_plan") {
+    return {
+      type: "itinerary_plan",
+      plan: {
+        ...payload.plan,
+        sources: publicSourcesFromStored(payload.plan.sources),
+      },
+    };
+  }
+
+  return payload;
+}
+
+function publicSavedItemDisplayFields(payload: SavedTripItem["payload"]) {
+  if (payload.type === "recommendation_card") {
+    return {
+      ...(payload.card.mapsUrl ? { mapsUrl: payload.card.mapsUrl } : {}),
+      caveats: payload.card.caveats,
+    };
+  }
+
+  if (payload.type === "itinerary_plan") {
+    return {
+      caveats: [
+        ...payload.plan.skip,
+        ...payload.plan.stops.flatMap((stop) => stop.caveats),
+        ...payload.plan.fallbackStops.flatMap((stop) => stop.caveats),
+      ],
+    };
+  }
+
+  return { caveats: [] };
+}
+
+function publicSourcesFromStored(sources: readonly AnswerSourceSummary[]) {
+  const normalizedSources = sources.map(normalizeSourceSummary);
+  const hasBrowserSavedCaveat = normalizedSources.some(
+    (source) =>
+      source.label === browserSavedNotReverifiedSource.label &&
+      source.sourceName === browserSavedNotReverifiedSource.sourceName,
+  );
+
+  if (hasBrowserSavedCaveat || normalizedSources.length >= 12) {
+    return normalizedSources;
+  }
+
+  return [...normalizedSources, normalizeSourceSummary(browserSavedNotReverifiedSource)];
+}
+
 function normalizeText(value: string, maxLength: number) {
   return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
 }
@@ -353,11 +444,24 @@ function normalizeTextArray(
     .slice(0, maxItems);
 }
 
-function isAllowedMapsHost(hostname: string) {
-  return (
-    hostname === "google.com" ||
-    hostname.endsWith(".google.com") ||
-    hostname === "goo.gl" ||
-    hostname === "maps.app.goo.gl"
-  );
+function isAllowedMapsUrl(url: URL) {
+  const hostname = url.hostname.toLowerCase();
+
+  if (allowedMapsLinkHosts.has(hostname)) {
+    return true;
+  }
+
+  if (!allowedGoogleMapsPathHosts.has(hostname)) {
+    return false;
+  }
+
+  return url.pathname === "/maps" || url.pathname.startsWith("/maps/");
 }
+
+const browserSavedNotReverifiedSource: AnswerSourceSummary = {
+  label: "not_verified",
+  sourceName: "Browser saved trip",
+  confidence: "low",
+  checked: [],
+  notChecked: ["Saved from browser and not reverified by Ask Siargao before sharing."],
+};

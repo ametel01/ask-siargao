@@ -1240,6 +1240,7 @@ function localGuideRecommendationCard({
       "Map link is a Google Maps search, not a live Google Places identity check.",
     ]),
     sourceLabel: cardSourceLabel(sourceSummary),
+    sources: [sourceSummary],
   };
 }
 
@@ -1751,6 +1752,7 @@ function googlePlacesCardFromPlace({
       "Google Places ordering is provider relevance, not an independent local quality ranking.",
     ]),
     sourceLabel: cardSourceLabel(sourceSummary),
+    sources: [sourceSummary],
   };
 }
 

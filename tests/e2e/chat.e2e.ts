@@ -16,6 +16,16 @@ type ChatRequestBody = {
   };
 };
 
+type MockSourceSummary = {
+  label: string;
+  sourceName: string;
+  sourceProfileId?: string;
+  fetchedAt?: string;
+  confidence?: "high" | "medium" | "low";
+  checked: string[];
+  notChecked: string[];
+};
+
 type MockRecommendationCard = {
   id: string;
   kind: "place" | "beach";
@@ -27,6 +37,7 @@ type MockRecommendationCard = {
   fitReasons: string[];
   caveats: string[];
   sourceLabel: string;
+  sources?: MockSourceSummary[];
 };
 
 type MockChatAction = {
@@ -52,23 +63,41 @@ type MockItineraryPlan = {
   stops: MockItineraryStop[];
   fallbackStops: MockItineraryStop[];
   skip: string[];
-  sources: Array<{
-    label: string;
-    sourceName: string;
-    sourceProfileId?: string;
-    fetchedAt?: string;
-    confidence?: "high" | "medium" | "low";
-    checked: string[];
-    notChecked: string[];
-  }>;
+  sources: MockSourceSummary[];
+};
+type E2ERecommendationPayload = {
+  type: "recommendation_card";
+  card: MockRecommendationCard;
+};
+type E2EItineraryPayload = {
+  type: "itinerary_plan";
+  plan: MockItineraryPlan;
+};
+type E2ENotePayload = {
+  type: "note";
+  text: string;
+};
+type E2ESavedTripItem = {
+  id: string;
+  tripId?: string;
+  kind: "place" | "beach" | "itinerary" | "note";
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  payload: E2ERecommendationPayload | E2EItineraryPayload | E2ENotePayload;
+  sources: MockSourceSummary[];
+  mapsUrl?: string;
+  caveats: string[];
+};
+type E2ESharedTripPlan = {
+  id: string;
+  title: string;
+  createdAt: string;
+  items: E2ESavedTripItem[];
 };
 type SavedTripItemsRequestBody = {
   tripId?: string;
-  items?: Array<{
-    id?: string;
-    kind?: string;
-    title?: string;
-  }>;
+  items?: E2ESavedTripItem[];
   messages?: unknown;
   clientContext?: unknown;
 };
@@ -273,6 +302,7 @@ test("renders structured recommendation cards and submits action prompts", async
         fitReasons: ["Returned #1 by Google Places for this request."],
         caveats: ["Review text and bookings were not checked."],
         sourceLabel: "Google Places - live checked",
+        sources: [mockPlacesSource],
       },
     ],
     actions: [
@@ -354,8 +384,18 @@ test("saves local cards and itineraries with dedupe, removal, and reload persist
 }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
   const prompt = "Save a Shaka stop and rainy Cloud 9 plan";
+  const deletedItems: string[] = [];
+  await page.route("**/api/trips/saved/*", async (route) => {
+    deletedItems.push(route.request().url());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ removed: true }),
+    });
+  });
   await mockChatApi(page, {
     message: "Mocked saved-plan answer: save the useful pieces below.",
+    sources: [mockPlacesSource],
     cards: [
       {
         id: "place_shaka",
@@ -368,6 +408,7 @@ test("saves local cards and itineraries with dedupe, removal, and reload persist
         fitReasons: ["Returned #1 by Google Places for this request."],
         caveats: ["Review text and bookings were not checked."],
         sourceLabel: "Google Places - live checked",
+        sources: [mockPlacesSource],
       },
     ],
     itineraries: [mockRainyCloud9Itinerary()],
@@ -392,6 +433,12 @@ test("saves local cards and itineraries with dedupe, removal, and reload persist
 
   const savedState = await readSavedTripStorage(page);
   expect(savedState.items.map((item) => item.kind).sort()).toEqual(["itinerary", "place"]);
+  const savedCard = savedState.items.find((item) => item.kind === "place");
+  expect(savedCard?.sources?.[0]).toMatchObject({
+    sourceName: "Google Places API",
+    checked: ["place identity", "current opening status"],
+    notChecked: ["review text", "table availability"],
+  });
   const savedJson = JSON.stringify(savedState);
   expect(savedJson).not.toContain(prompt);
   expect(savedJson).not.toContain("messages");
@@ -422,6 +469,9 @@ test("saves local cards and itineraries with dedupe, removal, and reload persist
     page.getByTestId("saved-plan-item").filter({ hasText: "Shaka Siargao" }),
   ).toHaveCount(0);
   expect((await readSavedTripStorage(page)).items).toHaveLength(1);
+  expect(deletedItems.some((url) => url.endsWith("/api/trips/saved/place%3Aplace_shaka"))).toBe(
+    true,
+  );
 });
 
 test("creates and copies or opens a share link from saved cards and itineraries", async ({
@@ -474,14 +524,22 @@ test("creates and copies or opens a share link from saved cards and itineraries"
     });
   });
   await page.context().route("**/trips/shared/token_playwright", async (route) => {
+    const publicPlan = publicSharedTripPlanForE2E({
+      id: "shared_trip_playwright",
+      title: "Siargao saved plan - 2 items",
+      createdAt: "2026-06-28T01:00:00.000Z",
+      items: savedRequests.at(-1)?.items ?? [],
+    });
+
     await route.fulfill({
       status: 200,
       contentType: "text/html",
-      body: "<!doctype html><title>Shared Siargao plan</title><h1>Shared Siargao plan</h1>",
+      body: renderSharedTripPlanDocument(publicPlan),
     });
   });
   await mockChatApi(page, {
     message: "Mocked saved-plan answer: save the useful pieces below.",
+    sources: [mockPlacesSource],
     cards: [
       {
         id: "place_shaka",
@@ -494,6 +552,7 @@ test("creates and copies or opens a share link from saved cards and itineraries"
         fitReasons: ["Returned #1 by Google Places for this request."],
         caveats: ["Review text and bookings were not checked."],
         sourceLabel: "Google Places - live checked",
+        sources: [mockPlacesSource],
       },
     ],
     itineraries: [mockRainyCloud9Itinerary()],
@@ -516,6 +575,12 @@ test("creates and copies or opens a share link from saved cards and itineraries"
   await expect.poll(() => shareRequests.length).toBe(1);
 
   expect(savedRequests[0]?.items?.map((item) => item.kind).sort()).toEqual(["itinerary", "place"]);
+  const savedPlaceRequest = savedRequests[0]?.items?.find((item) => item.kind === "place");
+  expect(savedPlaceRequest?.sources?.[0]).toMatchObject({
+    sourceName: "Google Places API",
+    checked: ["place identity", "current opening status"],
+    notChecked: ["review text", "table availability"],
+  });
   expect(savedRequests[0]?.messages).toBeUndefined();
   expect(savedRequests[0]?.clientContext).toBeUndefined();
   expect(JSON.stringify(savedRequests[0])).not.toContain(prompt);
@@ -538,7 +603,48 @@ test("creates and copies or opens a share link from saved cards and itineraries"
   await page.getByTestId("saved-plan-share-link").getByRole("link", { name: "Open" }).click();
   const popup = await popupPromise;
   await expect(popup).toHaveURL(shareUrl);
+  await expect(popup.getByRole("heading", { name: "Siargao saved plan - 2 items" })).toBeVisible();
+  await expect(popup.getByText("Open now according to Google Places.")).toBeVisible();
+  await expect(popup.getByText("Google Places - live checked")).toBeVisible();
+  await expect(
+    popup.getByText("Google Places API - live checked - fetched 2026-06-28T00:45:00.000Z"),
+  ).toBeVisible();
+  await expect(
+    popup.getByText("Checked by Google Places API: current opening status"),
+  ).toBeVisible();
+  await expect(
+    popup.getByText("Not checked by Google Places API: table availability"),
+  ).toBeVisible();
+  await expect(popup.getByText("Ask Siargao local guide - curated local guide")).toBeVisible();
+  await expect(
+    popup.getByText("Checked by Ask Siargao local guide: rainy-day Cloud 9 fallback pattern"),
+  ).toBeVisible();
+  await expect(
+    popup.getByText(
+      "Not checked by Browser saved trip: Saved from browser and not reverified by Ask Siargao before sharing.",
+    ),
+  ).toHaveCount(2);
+  await expect(popup.getByText(prompt)).toHaveCount(0);
   await popup.close();
+});
+
+test("renders generic public shared-plan unavailable state in the browser", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await page.route("**/trips/shared/expired_playwright", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: renderSharedTripPlanDocument(null),
+    });
+  });
+
+  await page.goto("/trips/shared/expired_playwright");
+
+  await expect(page.getByRole("heading", { name: "Shared plan unavailable" })).toBeVisible();
+  await expect(page.getByText("Ask the traveler for a fresh link.")).toBeVisible();
+  await expect(page.getByText("expired")).toHaveCount(0);
+  await expect(page.getByText("deleted")).toHaveCount(0);
+  await expect(page.getByText("not found")).toHaveCount(0);
 });
 
 test("prevents empty share selections and keeps local saves after share API failure", async ({
@@ -980,12 +1086,14 @@ async function mockChatApi(
     cards,
     itineraries,
     message,
+    sources,
     waitForRelease = false,
   }: {
     actions?: MockChatAction[];
     cards?: MockRecommendationCard[];
     itineraries?: MockItineraryPlan[];
     message: string;
+    sources?: MockSourceSummary[];
     waitForRelease?: boolean;
   },
 ) {
@@ -1007,6 +1115,7 @@ async function mockChatApi(
         message,
         model: "gpt-5.5-test",
         requestId: "req_playwright_chat",
+        ...(sources?.length ? { sources } : {}),
         ...(cards?.length ? { cards } : {}),
         ...(actions?.length ? { actions } : {}),
         ...(itineraries?.length ? { itineraries } : {}),
@@ -1024,12 +1133,110 @@ function lastSubmittedContent(request?: ChatRequestBody) {
   return request?.messages?.at(-1)?.content;
 }
 
+function publicSharedTripPlanForE2E(plan: E2ESharedTripPlan): E2ESharedTripPlan {
+  return {
+    ...plan,
+    items: plan.items.map((item) => {
+      const { tripId: _tripId, ...publicItem } = item;
+      const payload =
+        item.payload.type === "itinerary_plan"
+          ? {
+              type: "itinerary_plan" as const,
+              plan: {
+                ...item.payload.plan,
+                sources: withBrowserSavedNotReverifiedSource(item.payload.plan.sources),
+              },
+            }
+          : item.payload;
+
+      return {
+        ...publicItem,
+        payload,
+        sources: withBrowserSavedNotReverifiedSource(item.sources),
+      };
+    }),
+  };
+}
+
+function withBrowserSavedNotReverifiedSource(sources: MockSourceSummary[]) {
+  if (
+    sources.some(
+      (source) =>
+        source.label === browserSavedNotReverifiedSource.label &&
+        source.sourceName === browserSavedNotReverifiedSource.sourceName,
+    ) ||
+    sources.length >= 12
+  ) {
+    return sources;
+  }
+
+  return [...sources, browserSavedNotReverifiedSource];
+}
+
+function renderSharedTripPlanDocument(plan: E2ESharedTripPlan | null) {
+  const body = plan
+    ? `<main aria-label="Shared Siargao trip plan"><h1>${escapeHtml(plan.title)}</h1>${plan.items
+        .map(renderSharedTripItem)
+        .join("")}</main>`
+    : `<main aria-label="Shared Siargao trip plan unavailable"><h1>Shared plan unavailable</h1><p>This shared Siargao plan cannot be opened. Ask the traveler for a fresh link.</p></main>`;
+
+  return `<!doctype html><html lang="en"><head><title>Shared Siargao plan</title></head><body>${body}</body></html>`;
+}
+
+function renderSharedTripItem(item: E2ESavedTripItem) {
+  if (item.payload.type === "recommendation_card") {
+    const card = item.payload.card;
+    return `<article><h2>${escapeHtml(card.title)}</h2>${[
+      card.subtitle,
+      card.distanceLabel,
+      card.openStatusLabel,
+      card.sourceLabel,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => `<p>${escapeHtml(value)}</p>`)
+      .join("")}${renderSources(item.sources)}</article>`;
+  }
+
+  if (item.payload.type === "itinerary_plan") {
+    const plan = item.payload.plan;
+    return `<article><h2>${escapeHtml(plan.title)}</h2>${renderSources(plan.sources)}</article>`;
+  }
+
+  return `<article><h2>${escapeHtml(item.title)}</h2><p>${escapeHtml(item.payload.text)}</p></article>`;
+}
+
+function renderSources(sources: MockSourceSummary[]) {
+  return `<section>${sources
+    .map(
+      (source) =>
+        `<p>${escapeHtml(source.sourceName)} - ${escapeHtml(source.label.replaceAll("_", " "))}${
+          source.fetchedAt ? ` - fetched ${escapeHtml(source.fetchedAt)}` : ""
+        }</p>${[
+          ...source.checked.map((item) => `Checked by ${source.sourceName}: ${item}`),
+          ...source.notChecked.map((item) => `Not checked by ${source.sourceName}: ${item}`),
+        ]
+          .map((item) => `<p>${escapeHtml(item)}</p>`)
+          .join("")}`,
+    )
+    .join("")}</section>`;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 type SavedTripStorageState = {
   tripId: string;
   items: Array<{
     id: string;
     kind: "place" | "beach" | "itinerary" | "note";
     title: string;
+    sources?: MockSourceSummary[];
     updatedAt: string;
   }>;
   updatedAt: string;
@@ -1044,6 +1251,24 @@ async function readSavedTripStorage(page: Page) {
     return JSON.parse(storedValue) as SavedTripStorageState;
   }, savedTripStorageKey);
 }
+
+const mockPlacesSource: MockSourceSummary = {
+  label: "live_checked",
+  sourceName: "Google Places API",
+  sourceProfileId: "source_google_places",
+  fetchedAt: "2026-06-28T00:45:00.000Z",
+  confidence: "high",
+  checked: ["place identity", "current opening status"],
+  notChecked: ["review text", "table availability"],
+};
+
+const browserSavedNotReverifiedSource: MockSourceSummary = {
+  label: "not_verified",
+  sourceName: "Browser saved trip",
+  confidence: "low",
+  checked: [],
+  notChecked: ["Saved from browser and not reverified by Ask Siargao before sharing."],
+};
 
 function mockRainyCloud9Itinerary(): MockItineraryPlan {
   return {

@@ -228,6 +228,8 @@ describe("agent runtime contracts", () => {
 
     expect(turn.sources).toEqual([localGuideSourceSummary, placesSourceSummary]);
     expect(turn.cards?.map((card) => card.title)).toEqual(["Doot Beach", "Cloud 9 Cafe"]);
+    expect(turn.cards?.[0]?.sources).toEqual([localGuideSourceSummary]);
+    expect(turn.cards?.[1]?.sources).toEqual([placesSourceSummary]);
     expect(turn.actions?.map((action) => action.label)).toEqual([
       "Check weather",
       "Make a short plan",

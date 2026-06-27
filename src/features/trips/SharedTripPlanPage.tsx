@@ -3,6 +3,9 @@ import { Clock, ExternalLink, MapPin, Navigation } from "lucide-react";
 import type { SavedTripItem, SharedTripPlan } from "@/server/trips/shared-trip-types";
 import { BrandLockup, PalmMark } from "@/ui/components/ask-siargao";
 
+type SharedItineraryPlan = Extract<SavedTripItem["payload"], { type: "itinerary_plan" }>["plan"];
+type SharedItineraryStop = SharedItineraryPlan["stops"][number];
+
 export function SharedTripPlanPage({ plan }: { plan: SharedTripPlan | null }) {
   if (!plan) {
     return <SharedTripUnavailableState />;
@@ -146,40 +149,53 @@ function SharedItineraryItem({ item }: { item: SavedTripItem }) {
         </div>
       </div>
 
-      <ol className="m-0 grid gap-4 p-0" data-testid="shared-trip-itinerary-stops">
-        {plan.stops
-          .toSorted((first, second) => first.sequence - second.sequence)
-          .map((stop) => (
-            <li className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] gap-3" key={stop.title}>
-              <span className="inline-flex size-7 items-center justify-center rounded-md bg-[#ecf5f0] text-xs font-black text-[#14624a]">
-                {stop.sequence}
-              </span>
-              <div className="grid min-w-0 gap-1.5">
-                <h3 className="m-0 text-sm font-black break-words text-text-strong">
-                  {stop.title}
-                </h3>
-                {stop.area ? (
-                  <p className="m-0 text-xs font-extrabold text-text-soft">{stop.area}</p>
-                ) : null}
-                <p className="m-0 text-sm leading-[1.55] break-words text-text-default">
-                  {stop.rationale}
-                </p>
-                <CaveatList items={stop.caveats} />
-                {stop.mapsUrl ? <MapLink href={stop.mapsUrl} title={stop.title} /> : null}
-              </div>
-            </li>
-          ))}
-      </ol>
+      <ItineraryStopList stops={plan.stops} testId="shared-trip-itinerary-stops" />
 
       {plan.fallbackStops.length ? (
-        <PlanNoteSection
-          items={plan.fallbackStops.map((stop) => [stop.title, stop.rationale].join(" - "))}
-          title="Fallbacks"
-        />
+        <section className="grid gap-3" data-testid="shared-trip-itinerary-fallbacks">
+          <h3 className="m-0 text-xs font-black text-text-strong">Fallbacks</h3>
+          <ItineraryStopList stops={plan.fallbackStops} />
+        </section>
       ) : null}
       {plan.skip.length ? <PlanNoteSection items={plan.skip} title="Skip" /> : null}
       <SourceSummaryList sources={plan.sources} />
     </article>
+  );
+}
+
+function ItineraryStopList({
+  stops,
+  testId,
+}: {
+  stops: readonly SharedItineraryStop[];
+  testId?: string;
+}) {
+  return (
+    <ol className="m-0 grid gap-4 p-0" data-testid={testId}>
+      {stops
+        .toSorted((first, second) => first.sequence - second.sequence)
+        .map((stop) => (
+          <li
+            className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] gap-3"
+            key={`${stop.sequence}-${stop.title}`}
+          >
+            <span className="inline-flex size-7 items-center justify-center rounded-md bg-[#ecf5f0] text-xs font-black text-[#14624a]">
+              {stop.sequence}
+            </span>
+            <div className="grid min-w-0 gap-1.5">
+              <h3 className="m-0 text-sm font-black break-words text-text-strong">{stop.title}</h3>
+              {stop.area ? (
+                <p className="m-0 text-xs font-extrabold text-text-soft">{stop.area}</p>
+              ) : null}
+              <p className="m-0 text-sm leading-[1.55] break-words text-text-default">
+                {stop.rationale}
+              </p>
+              <CaveatList items={stop.caveats} />
+              {stop.mapsUrl ? <MapLink href={stop.mapsUrl} title={stop.title} /> : null}
+            </div>
+          </li>
+        ))}
+    </ol>
   );
 }
 
@@ -256,6 +272,11 @@ function SourceSummaryList({ sources }: { sources: SharedTripPlan["items"][numbe
           </span>
         ))}
       </div>
+      <BulletList
+        items={sources.flatMap((source) =>
+          source.checked.map((item) => `Checked by ${source.sourceName}: ${item}`),
+        )}
+      />
       <BulletList
         items={sources.flatMap((source) =>
           source.notChecked.map((item) => `Not checked by ${source.sourceName}: ${item}`),

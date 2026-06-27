@@ -6,6 +6,7 @@ import {
   jsonb,
   numeric,
   pgTable,
+  primaryKey,
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
@@ -33,7 +34,7 @@ export const savedTrips = pgTable(
 export const savedTripItems = pgTable(
   "saved_trip_items",
   {
-    id: text("id").primaryKey(),
+    id: text("id").notNull(),
     tripId: text("trip_id")
       .notNull()
       .references(() => savedTrips.id),
@@ -46,6 +47,7 @@ export const savedTripItems = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (table) => [
+    primaryKey({ columns: [table.tripId, table.id] }),
     index("saved_trip_items_trip_id_idx").on(table.tripId),
     index("saved_trip_items_deleted_at_idx").on(table.deletedAt),
   ],
@@ -61,6 +63,7 @@ export const sharedTripPlans = pgTable(
     publicTokenHash: text("public_token_hash").notNull().unique(),
     title: text("title").notNull(),
     itemIdsJson: jsonb("item_ids_json").$type<string[]>().notNull().default([]),
+    itemsJson: jsonb("items_json").$type<Record<string, unknown>[]>().notNull().default([]),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

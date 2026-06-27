@@ -11,7 +11,7 @@ import {
 import type { RecommendationCard } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import { runInitialMigration } from "@/server/db/test-database";
-import { deleteSharedTripPlanByToken } from "@/server/trips/shared-trip-store";
+import { deleteSharedTripPlanByToken, hashClientTripKey } from "@/server/trips/shared-trip-store";
 import { savedTripItemFromRecommendationCard } from "@/server/trips/shared-trip-types";
 
 describe("saved trip API routes", () => {
@@ -79,6 +79,26 @@ describe("saved trip API routes", () => {
     await dependencies.close();
   });
 
+  test("lists an empty saved trip without creating a trip record", async () => {
+    const dependencies = await tripRouteDependencies();
+    const tripId = "local_trip_missing_123456";
+    const response = await savedTripsResponse(
+      new Request(`https://siargao.test/api/trips/saved?tripId=${tripId}`, { method: "GET" }),
+      dependencies,
+    );
+    const body = await response.json();
+    const rows = await dependencies.db.query<{ id: string }>(
+      "select id from saved_trips where client_trip_key_hash = $1",
+      [hashClientTripKey(tripId)],
+    );
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ tripId, items: [] });
+    expect(rows.rows).toEqual([]);
+
+    await dependencies.close();
+  });
+
   test("saves, lists, and deletes selected local saved items", async () => {
     const dependencies = await tripRouteDependencies();
     const tripId = "local_trip_route_123456";
@@ -100,6 +120,11 @@ describe("saved trip API routes", () => {
     expect(saveResponse.status).toBe(200);
     expect(saveBody.items).toHaveLength(1);
     expect(JSON.stringify(saveBody)).not.toContain("messages");
+    const tripRows = await dependencies.db.query<{ id: string }>(
+      "select id from saved_trips where client_trip_key_hash = $1",
+      [hashClientTripKey(tripId)],
+    );
+    expect(tripRows.rows[0]?.id).toBe(`saved_trip_${hashClientTripKey(tripId)}`);
 
     const listResponse = await savedTripsResponse(
       new Request(`https://siargao.test/api/trips/saved?tripId=${tripId}`, { method: "GET" }),
@@ -128,6 +153,60 @@ describe("saved trip API routes", () => {
     await dependencies.close();
   });
 
+  test("lists, deletes, and shares using the stored saved trip id for a client key", async () => {
+    const dependencies = await tripRouteDependencies();
+    const tripId = "local_trip_legacy_123456";
+    const legacyTripId = "saved_trip_legacy_row";
+    await dependencies.db.query(
+      `
+        insert into saved_trips (
+          id,
+          user_id,
+          client_trip_key_hash,
+          title,
+          created_at,
+          updated_at
+        )
+        values ($1, null, $2, $3, $4, $4)
+      `,
+      [legacyTripId, hashClientTripKey(tripId), "Legacy browser trip", nowIso],
+    );
+    await saveRouteItem(dependencies, tripId, shakaCard);
+
+    const tripRows = await dependencies.db.query<{ id: string }>(
+      "select id from saved_trips where client_trip_key_hash = $1",
+      [hashClientTripKey(tripId)],
+    );
+    expect(tripRows.rows[0]?.id).toBe(legacyTripId);
+
+    const listResponse = await savedTripsResponse(
+      new Request(`https://siargao.test/api/trips/saved?tripId=${tripId}`, { method: "GET" }),
+      dependencies,
+    );
+    const listBody = await listResponse.json();
+    expect(listBody.items.map((savedItem: { id: string }) => savedItem.id)).toEqual([
+      "place_shaka",
+    ]);
+
+    const shareResponse = await createSharedTripResponse(
+      jsonRequest("/api/trips/share", {
+        tripId,
+        title: "Legacy row share",
+        itemIds: ["place_shaka"],
+      }),
+      dependencies,
+    );
+    expect(shareResponse.status).toBe(200);
+
+    const deleteResponse = await deleteSavedTripItemResponse(
+      jsonRequest("/api/trips/saved/place_shaka", { tripId }, "DELETE"),
+      { itemId: "place_shaka", dependencies },
+    );
+    expect((await deleteResponse.json()).removed).toBe(true);
+
+    await dependencies.close();
+  });
+
   test("creates and looks up share URLs without exposing unrelated chat state", async () => {
     const dependencies = await tripRouteDependencies();
     const tripId = "local_trip_share_123456";
@@ -148,18 +227,21 @@ describe("saved trip API routes", () => {
     expect(shareBody.plan.items.map((item: { title: string }) => item.title)).toEqual([
       "Shaka Siargao",
     ]);
-    expect(shareBody.plan.items[0].sources).toEqual([placesSource]);
-    expect(shareBody.plan.items[0].sources[0]).toMatchObject({
-      sourceName: "Google Places API",
-      sourceProfileId: "source_google_places",
-      fetchedAt: "2026-06-28T00:45:00.000Z",
-      checked: ["place identity", "current opening status"],
-      notChecked: ["review text", "table availability"],
-    });
+    expect(shareBody.plan.items[0].tripId).toBeUndefined();
+    expect(shareBody.plan.items[0].sources).toEqual([
+      placesSource,
+      browserSavedNotReverifiedSource,
+    ]);
+    expect(shareBody.plan.items[0].payload.card.sourceLabel).toBe("Google Places - live checked");
+    expect(shareBody.plan.items[0].payload.card.openStatusLabel).toBe(
+      "Open now from Google Places",
+    );
     expect(JSON.stringify(shareBody)).not.toContain("Where should I eat?");
     expect(JSON.stringify(shareBody)).not.toContain("rawProviderPayload");
     expect(JSON.stringify(shareBody)).not.toContain("9.8116");
     expect(JSON.stringify(shareBody)).not.toContain("126.1651");
+    expect(JSON.stringify(shareBody)).toContain("live_checked");
+    expect(JSON.stringify(shareBody)).toContain("current opening status");
 
     const lookupResponse = await sharedTripTokenResponse(
       new Request("https://siargao.test/api/trips/share/public-token-1"),
@@ -170,6 +252,11 @@ describe("saved trip API routes", () => {
     expect(lookupResponse.status).toBe(200);
     expect(lookupBody.plan.title).toBe("Cloud 9 food stop");
     expect(lookupBody.plan.items).toHaveLength(1);
+    expect(lookupBody.plan.items[0].tripId).toBeUndefined();
+    expect(lookupBody.plan.items[0].sources).toEqual([
+      placesSource,
+      browserSavedNotReverifiedSource,
+    ]);
 
     await dependencies.close();
   });
@@ -309,6 +396,14 @@ const placesSource: AnswerSourceSummary = {
   confidence: "high",
   checked: ["place identity", "current opening status"],
   notChecked: ["review text", "table availability"],
+};
+
+const browserSavedNotReverifiedSource: AnswerSourceSummary = {
+  label: "not_verified",
+  sourceName: "Browser saved trip",
+  confidence: "low",
+  checked: [],
+  notChecked: ["Saved from browser and not reverified by Ask Siargao before sharing."],
 };
 
 const shakaCard: RecommendationCard = {

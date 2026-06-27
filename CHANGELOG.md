@@ -15,6 +15,10 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Aligned shared-trip public source policy so captured source freshness, checked/not-checked
+  signals, source labels, and open-status labels remain visible with not-reverified caveats;
+  structured shared itinerary fallbacks keep map links/areas/caveats; and Playwright now covers
+  public share rendering plus the generic unavailable state.
 - Classified boat/Sugba ride condition prompts as boat-trip judgments instead of scooter checks,
   kept valid Places "current opening status" source wording from being treated as ocean-current
   evidence, scoped curated local caveats to beach-relevant condition judgments, kept condition

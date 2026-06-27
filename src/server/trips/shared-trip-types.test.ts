@@ -5,8 +5,10 @@ import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import {
   browserSavedTripStateSchema,
   createSharedTripPlanRequestSchema,
+  mapsUrlSchema,
   normalizePublicTripTitle,
   normalizeSavedTripItem,
+  publicSharedTripPlanFromStored,
   savedTripItemFromItineraryPlan,
   savedTripItemFromRecommendationCard,
   savedTripItemSchema,
@@ -94,6 +96,70 @@ describe("shared trip artifact contracts", () => {
     expect(JSON.stringify(item)).toContain("local guide notes");
   });
 
+  test("public shared plans preserve captured source evidence and add not-reverified context", () => {
+    const item = savedTripItemFromItineraryPlan({
+      id: "itinerary_public_source_policy",
+      plan: {
+        ...rainyPlan,
+        sources: [placesSource, weatherSource],
+      },
+      savedAt: "2026-06-28T01:05:00.000Z",
+      tripId: "local_trip_123456",
+    });
+    const publicPlan = publicSharedTripPlanFromStored({
+      id: "shared_trip_source_policy",
+      title: "Source policy plan",
+      items: [item],
+      createdAt: "2026-06-28T01:06:00.000Z",
+    });
+
+    const publicItem = publicPlan.items[0];
+    expect(publicItem?.tripId).toBeUndefined();
+    expect(publicItem?.sources).toEqual([
+      placesSource,
+      weatherSource,
+      browserSavedNotReverifiedSource,
+    ]);
+    expect(
+      publicItem?.payload.type === "itinerary_plan" ? publicItem.payload.plan.sources : [],
+    ).toEqual([placesSource, weatherSource, browserSavedNotReverifiedSource]);
+    expect(JSON.stringify(publicPlan)).toContain("live_checked");
+    expect(JSON.stringify(publicPlan)).toContain("weather_checked");
+    expect(JSON.stringify(publicPlan)).toContain("current opening status");
+    expect(JSON.stringify(publicPlan)).toContain("Saved from browser and not reverified");
+  });
+
+  test("public shared recommendation cards keep captured live and open-status labels", () => {
+    const item = savedTripItemFromRecommendationCard({
+      card: placeCard,
+      sources: [placesSource],
+      savedAt: "2026-06-28T01:00:00.000Z",
+      tripId: "local_trip_123456",
+    });
+    const publicPlan = publicSharedTripPlanFromStored({
+      id: "shared_trip_open_status",
+      title: "Open status plan",
+      items: [item],
+      createdAt: "2026-06-28T01:06:00.000Z",
+    });
+
+    const publicItem = publicPlan.items[0];
+    expect(
+      publicItem?.payload.type === "recommendation_card"
+        ? publicItem.payload.card.openStatusLabel
+        : undefined,
+    ).toBe("Open now from Google Places");
+    expect(
+      publicItem?.payload.type === "recommendation_card"
+        ? publicItem.payload.card.sourceLabel
+        : undefined,
+    ).toBe("Google Places - live checked");
+    expect(publicItem?.sources).toEqual([placesSource, browserSavedNotReverifiedSource]);
+    expect(JSON.stringify(publicPlan)).toContain("Google Places - live checked");
+    expect(JSON.stringify(publicPlan)).toContain("Open now from Google Places");
+    expect(JSON.stringify(publicPlan)).toContain("Saved from browser and not reverified");
+  });
+
   test("rejects oversized, malformed, or mismatched saved items", () => {
     const baseItem = savedTripItemFromRecommendationCard({
       card: placeCard,
@@ -119,6 +185,37 @@ describe("shared trip artifact contracts", () => {
         mapsUrl: "javascript:alert(1)",
       }).success,
     ).toBe(false);
+  });
+
+  test("allows only Google Maps URL patterns for public map links", () => {
+    const allowedUrls = [
+      "https://google.com/maps/search/?api=1&query=Shaka%20Siargao",
+      "https://www.google.com/maps/place/Cloud+9",
+      "https://google.com.ph/maps/search/?api=1&query=General%20Luna",
+      "https://www.google.com.ph/maps/place/Cloud+9",
+      "https://maps.google.com/?q=Cloud%209%20Siargao",
+      "https://maps.google.com.ph/maps?q=General%20Luna",
+      "https://maps.app.goo.gl/abc123",
+    ];
+    const rejectedUrls = [
+      "https://accounts.google.com/signin",
+      "https://docs.google.com/document/d/fake",
+      "https://goo.gl/maps/legacy",
+      "https://maps.google.evil.com/maps?q=Cloud%209",
+      "https://maps.google.evil/maps?q=Cloud%209",
+      "https://maps.google.zip/maps?q=Cloud%209",
+      "https://google.com/search?q=Cloud%209",
+      "https://www.google.com/calendar",
+      "http://www.google.com/maps/search/?api=1&query=Shaka%20Siargao",
+    ];
+
+    for (const url of allowedUrls) {
+      expect(mapsUrlSchema.safeParse(url).success).toBe(true);
+    }
+
+    for (const url of rejectedUrls) {
+      expect(mapsUrlSchema.safeParse(url).success).toBe(false);
+    }
   });
 
   test("rejects raw tool calls, provider payloads, full chat messages, and coordinates", () => {
@@ -294,6 +391,14 @@ const freshCacheSource: AnswerSourceSummary = {
   confidence: "high",
   checked: ["place identity"],
   notChecked: ["review text", "table availability"],
+};
+
+const browserSavedNotReverifiedSource: AnswerSourceSummary = {
+  label: "not_verified",
+  sourceName: "Browser saved trip",
+  confidence: "low",
+  checked: [],
+  notChecked: ["Saved from browser and not reverified by Ask Siargao before sharing."],
 };
 
 const placeCard: RecommendationCard = {

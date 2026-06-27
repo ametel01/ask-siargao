@@ -4,7 +4,9 @@ import { getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import {
   createSharedTripPlan,
   generateShareToken,
+  hashClientTripKey,
   listSavedTripItems,
+  lookupSavedTripByClientTripKey,
   lookupSharedTripPlanByToken,
   removeSavedTripItem,
   type SharedTripStoreDatabase,
@@ -120,11 +122,16 @@ export async function deleteSavedTripItemResponse(
     );
   }
 
-  const removed = await removeSavedTripItem(dependencies.db, {
-    tripId: savedTripRecordId(parsed.data.tripId),
-    itemId,
-    now: dependencies.now().toISOString(),
+  const trip = await lookupSavedTripByClientTripKey(dependencies.db, {
+    clientTripKey: parsed.data.tripId,
   });
+  const removed = trip
+    ? await removeSavedTripItem(dependencies.db, {
+        tripId: trip.id,
+        itemId,
+        now: dependencies.now().toISOString(),
+      })
+    : false;
 
   return Response.json({ removed }, { headers });
 }
@@ -155,9 +162,16 @@ export async function createSharedTripResponse(
   }
 
   try {
+    const trip = await lookupSavedTripByClientTripKey(dependencies.db, {
+      clientTripKey: parsed.data.tripId,
+    });
+    if (!trip) {
+      throw new Error("Saved trip could not be found for sharing.");
+    }
+
     const result = await createSharedTripPlan(dependencies.db, {
       id: dependencies.createId("shared_trip"),
-      tripId: savedTripRecordId(parsed.data.tripId),
+      tripId: trip.id,
       title: parsed.data.title ?? "Siargao saved plan",
       itemIds: parsed.data.itemIds,
       expiresAt: parsed.data.expiresAt,
@@ -222,14 +236,10 @@ async function listSavedTripsResponse(
     ]);
   }
 
-  await upsertSavedTrip(dependencies.db, {
-    id: savedTripRecordId(parsed.data),
+  const trip = await lookupSavedTripByClientTripKey(dependencies.db, {
     clientTripKey: parsed.data,
-    now: dependencies.now().toISOString(),
   });
-  const items = await listSavedTripItems(dependencies.db, {
-    tripId: savedTripRecordId(parsed.data),
-  });
+  const items = trip ? await listSavedTripItems(dependencies.db, { tripId: trip.id }) : [];
 
   return Response.json({ tripId: parsed.data, items }, { headers });
 }
@@ -245,13 +255,5 @@ function invalidTripRequest(error: string, issues: Array<{ path: string; message
 }
 
 function savedTripRecordId(clientTripKey: string) {
-  return `saved_trip_${hashString(clientTripKey).slice(0, 32)}`;
-}
-
-function hashString(value: string) {
-  let hash = 5381;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 33) ^ value.charCodeAt(index);
-  }
-  return (hash >>> 0).toString(36);
+  return `saved_trip_${hashClientTripKey(clientTripKey)}`;
 }

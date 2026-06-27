@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import {
   normalizeSavedTripItem,
   normalizeSharedTripPlan,
+  publicSharedTripPlanFromStored,
   type SavedTripItem,
   type SharedTripPlan,
 } from "@/server/trips/shared-trip-types";
@@ -53,6 +54,7 @@ type SharedTripPlanRow = {
   trip_id: string;
   title: string;
   item_ids_json: string[];
+  items_json: SavedTripItem[];
   expires_at: Date | null;
   created_at: Date;
   updated_at: Date;
@@ -99,6 +101,24 @@ export async function upsertSavedTrip(
   return savedTripRecordFromRow(requiredRow(result.rows, "saved trip"));
 }
 
+export async function lookupSavedTripByClientTripKey(
+  db: SharedTripStoreDatabase,
+  { clientTripKey }: { clientTripKey: string },
+): Promise<SavedTripRecord | null> {
+  const result = await db.query<SavedTripRow>(
+    `
+      select id, user_id, client_trip_key_hash, title, created_at, updated_at
+      from saved_trips
+      where client_trip_key_hash = $1
+      limit 1
+    `,
+    [hashClientTripKey(clientTripKey)],
+  );
+  const row = result.rows[0];
+
+  return row ? savedTripRecordFromRow(row) : null;
+}
+
 export async function upsertSavedTripItems(
   db: SharedTripStoreDatabase,
   {
@@ -133,9 +153,8 @@ export async function upsertSavedTripItems(
           deleted_at
         )
         values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, null)
-        on conflict (id) do update
+        on conflict (trip_id, id) do update
         set
-          trip_id = excluded.trip_id,
           kind = excluded.kind,
           title = excluded.title,
           payload_json = excluded.payload_json,
@@ -222,11 +241,12 @@ export async function createSharedTripPlan(
     publicToken?: string;
   },
 ): Promise<SharedTripPlanCreationResult> {
-  const selectedItems = await listSelectedActiveItems(db, { itemIds, tripId });
-  const selectedItemIds = selectedItems.map((item) => item.id);
-  if (selectedItemIds.length !== new Set(itemIds).size) {
+  const requestedItemIds = [...new Set(itemIds)];
+  const selectedItems = await listSelectedActiveItems(db, { itemIds: requestedItemIds, tripId });
+  if (selectedItems.length !== requestedItemIds.length) {
     throw new Error("Shared plans can only include active items from the selected trip.");
   }
+  const snapshotItems = orderItemsByIds(selectedItems, requestedItemIds);
 
   const publicTokenHash = hashPublicToken(publicToken);
   await db.query(
@@ -237,33 +257,46 @@ export async function createSharedTripPlan(
         public_token_hash,
         title,
         item_ids_json,
+        items_json,
         expires_at,
         deleted_at,
         created_at,
         updated_at
       )
-      values ($1, $2, $3, $4, $5::jsonb, $6, null, $7, $7)
+      values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, null, $8, $8)
       on conflict (id) do update
       set
         public_token_hash = excluded.public_token_hash,
         title = excluded.title,
         item_ids_json = excluded.item_ids_json,
+        items_json = excluded.items_json,
         expires_at = excluded.expires_at,
         deleted_at = null,
         updated_at = excluded.updated_at
     `,
-    [id, tripId, publicTokenHash, title, JSON.stringify(selectedItemIds), expiresAt ?? null, now],
+    [
+      id,
+      tripId,
+      publicTokenHash,
+      title,
+      JSON.stringify(requestedItemIds),
+      JSON.stringify(snapshotItems),
+      expiresAt ?? null,
+      now,
+    ],
   );
+
+  const storedPlan = normalizeSharedTripPlan({
+    id,
+    title,
+    items: snapshotItems,
+    createdAt: now,
+    ...(expiresAt ? { expiresAt } : {}),
+  });
 
   return {
     publicToken,
-    plan: normalizeSharedTripPlan({
-      id,
-      title,
-      items: orderItemsByIds(selectedItems, selectedItemIds),
-      createdAt: now,
-      ...(expiresAt ? { expiresAt } : {}),
-    }),
+    plan: publicSharedTripPlanFromStored(storedPlan),
   };
 }
 
@@ -273,7 +306,7 @@ export async function lookupSharedTripPlanByToken(
 ) {
   const result = await db.query<SharedTripPlanRow>(
     `
-      select id, trip_id, title, item_ids_json, expires_at, created_at, updated_at
+      select id, trip_id, title, item_ids_json, items_json, expires_at, created_at, updated_at
       from shared_trip_plans
       where public_token_hash = $1
         and deleted_at is null
@@ -287,18 +320,22 @@ export async function lookupSharedTripPlanByToken(
     return null;
   }
 
-  const selectedItems = await listSelectedActiveItems(db, {
-    tripId: row.trip_id,
-    itemIds: row.item_ids_json,
-  });
+  const snapshotItems = row.items_json.map((item) => normalizeSavedTripItem(item));
+  const items =
+    snapshotItems.length > 0 ? snapshotItems : await legacySharedTripItemsFromIds(db, row);
+  if (!items) {
+    return null;
+  }
 
-  return normalizeSharedTripPlan({
+  const storedPlan = normalizeSharedTripPlan({
     id: row.id,
     title: row.title,
-    items: orderItemsByIds(selectedItems, row.item_ids_json),
+    items,
     createdAt: row.created_at.toISOString(),
     ...(row.expires_at ? { expiresAt: row.expires_at.toISOString() } : {}),
   });
+
+  return publicSharedTripPlanFromStored(storedPlan);
 }
 
 export async function deleteSharedTripPlanByToken(
@@ -351,6 +388,22 @@ async function listSelectedActiveItems(
   );
 
   return result.rows.map(savedTripItemFromRow);
+}
+
+async function legacySharedTripItemsFromIds(
+  db: SharedTripStoreDatabase,
+  row: Pick<SharedTripPlanRow, "item_ids_json" | "trip_id">,
+) {
+  const selectedItems = await listSelectedActiveItems(db, {
+    tripId: row.trip_id,
+    itemIds: row.item_ids_json,
+  });
+
+  if (selectedItems.length !== new Set(row.item_ids_json).size) {
+    return null;
+  }
+
+  return orderItemsByIds(selectedItems, row.item_ids_json);
 }
 
 function savedTripRecordFromRow(row: SavedTripRow): SavedTripRecord {

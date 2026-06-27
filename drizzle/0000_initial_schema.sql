@@ -18,7 +18,7 @@ CREATE INDEX IF NOT EXISTS saved_trips_client_trip_key_hash_idx
   ON saved_trips(client_trip_key_hash);
 
 CREATE TABLE IF NOT EXISTS saved_trip_items (
-  id text PRIMARY KEY,
+  id text NOT NULL,
   trip_id text NOT NULL REFERENCES saved_trips(id),
   kind text NOT NULL,
   title text NOT NULL,
@@ -26,8 +26,12 @@ CREATE TABLE IF NOT EXISTS saved_trip_items (
   sources_json jsonb NOT NULL DEFAULT '[]'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  deleted_at timestamptz
+  deleted_at timestamptz,
+  PRIMARY KEY (trip_id, id)
 );
+
+ALTER TABLE saved_trip_items DROP CONSTRAINT IF EXISTS saved_trip_items_pkey;
+ALTER TABLE saved_trip_items ADD PRIMARY KEY (trip_id, id);
 
 CREATE INDEX IF NOT EXISTS saved_trip_items_trip_id_idx
   ON saved_trip_items(trip_id);
@@ -41,11 +45,15 @@ CREATE TABLE IF NOT EXISTS shared_trip_plans (
   public_token_hash text NOT NULL UNIQUE,
   title text NOT NULL,
   item_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  items_json jsonb NOT NULL DEFAULT '[]'::jsonb,
   expires_at timestamptz,
   deleted_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE shared_trip_plans
+  ADD COLUMN IF NOT EXISTS items_json jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE INDEX IF NOT EXISTS shared_trip_plans_trip_id_idx
   ON shared_trip_plans(trip_id);
