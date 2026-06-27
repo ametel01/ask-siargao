@@ -62,6 +62,23 @@ type MockItineraryPlan = {
     notChecked: string[];
   }>;
 };
+type SavedTripItemsRequestBody = {
+  tripId?: string;
+  items?: Array<{
+    id?: string;
+    kind?: string;
+    title?: string;
+  }>;
+  messages?: unknown;
+  clientContext?: unknown;
+};
+type SharedTripCreateRequestBody = {
+  tripId?: string;
+  itemIds?: string[];
+  title?: string;
+  messages?: unknown;
+  clientContext?: unknown;
+};
 
 const savedTripStorageKey = "ask-siargao:saved-trip:v1";
 
@@ -405,6 +422,180 @@ test("saves local cards and itineraries with dedupe, removal, and reload persist
     page.getByTestId("saved-plan-item").filter({ hasText: "Shaka Siargao" }),
   ).toHaveCount(0);
   expect((await readSavedTripStorage(page)).items).toHaveLength(1);
+});
+
+test("creates and copies or opens a share link from saved cards and itineraries", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        async writeText(value: string) {
+          (window as Window & { __copiedShareText?: string }).__copiedShareText = value;
+        },
+      },
+    });
+  });
+
+  const prompt = "Save and share Shaka with a rainy Cloud 9 plan";
+  const savedRequests: SavedTripItemsRequestBody[] = [];
+  const shareRequests: SharedTripCreateRequestBody[] = [];
+  const shareUrl = new URL("/trips/shared/token_playwright", "http://127.0.0.1:3100").toString();
+
+  await page.route("**/api/trips/saved", async (route) => {
+    const body = route.request().postDataJSON() as SavedTripItemsRequestBody;
+    savedRequests.push(body);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        tripId: body.tripId,
+        items: body.items ?? [],
+      }),
+    });
+  });
+  await page.route("**/api/trips/share", async (route) => {
+    shareRequests.push(route.request().postDataJSON() as SharedTripCreateRequestBody);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        token: "token_playwright",
+        shareUrl,
+        plan: {
+          id: "shared_trip_playwright",
+          title: "Siargao saved plan - 2 items",
+          createdAt: "2026-06-28T01:00:00.000Z",
+          items: savedRequests.at(-1)?.items ?? [],
+        },
+      }),
+    });
+  });
+  await page.context().route("**/trips/shared/token_playwright", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: "<!doctype html><title>Shared Siargao plan</title><h1>Shared Siargao plan</h1>",
+    });
+  });
+  await mockChatApi(page, {
+    message: "Mocked saved-plan answer: save the useful pieces below.",
+    cards: [
+      {
+        id: "place_shaka",
+        kind: "place",
+        title: "Shaka Siargao",
+        subtitle: "Cafe - Cloud 9, General Luna",
+        mapsUrl: "https://maps.google.com/?cid=shaka",
+        distanceLabel: "About 50 m from search center.",
+        openStatusLabel: "Open now according to Google Places.",
+        fitReasons: ["Returned #1 by Google Places for this request."],
+        caveats: ["Review text and bookings were not checked."],
+        sourceLabel: "Google Places - live checked",
+      },
+    ],
+    itineraries: [mockRainyCloud9Itinerary()],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill(prompt);
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByText("Mocked saved-plan answer:")).toBeVisible();
+  await page.getByRole("button", { name: "Save Shaka Siargao" }).click();
+  await page.getByRole("button", { name: "Save Rainy Cloud 9 Afternoon" }).click();
+  await expect(page.getByTestId("saved-plan-tray")).toContainText("2 selected to share");
+
+  await page.getByRole("button", { name: /^Share$/ }).click();
+
+  await expect(page.getByTestId("saved-plan-share-link")).toBeVisible();
+  await expect(page.getByLabel("Share link")).toHaveValue(shareUrl);
+  await expect.poll(() => savedRequests.length).toBe(1);
+  await expect.poll(() => shareRequests.length).toBe(1);
+
+  expect(savedRequests[0]?.items?.map((item) => item.kind).sort()).toEqual(["itinerary", "place"]);
+  expect(savedRequests[0]?.messages).toBeUndefined();
+  expect(savedRequests[0]?.clientContext).toBeUndefined();
+  expect(JSON.stringify(savedRequests[0])).not.toContain(prompt);
+  expect(JSON.stringify(savedRequests[0])).not.toContain("latitude");
+  expect(JSON.stringify(savedRequests[0])).not.toContain("longitude");
+
+  expect(shareRequests[0]?.itemIds).toHaveLength(2);
+  expect(shareRequests[0]?.messages).toBeUndefined();
+  expect(shareRequests[0]?.clientContext).toBeUndefined();
+
+  await page.getByRole("button", { name: "Copy" }).click();
+  await expect(page.getByRole("button", { name: "Copied" })).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => (window as Window & { __copiedShareText?: string }).__copiedShareText,
+    ),
+  ).toBe(shareUrl);
+
+  const popupPromise = page.waitForEvent("popup");
+  await page.getByTestId("saved-plan-share-link").getByRole("link", { name: "Open" }).click();
+  const popup = await popupPromise;
+  await expect(popup).toHaveURL(shareUrl);
+  await popup.close();
+});
+
+test("prevents empty share selections and keeps local saves after share API failure", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 900 });
+  let savedSyncRequests = 0;
+  await page.route("**/api/trips/saved", async (route) => {
+    savedSyncRequests += 1;
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "share_sync_unavailable" }),
+    });
+  });
+  await mockChatApi(page, {
+    message: "Mocked saved-plan answer: save one useful piece below.",
+    cards: [
+      {
+        id: "place_shaka",
+        kind: "place",
+        title: "Shaka Siargao",
+        subtitle: "Cafe - Cloud 9, General Luna",
+        mapsUrl: "https://maps.google.com/?cid=shaka",
+        distanceLabel: "About 50 m from search center.",
+        openStatusLabel: "Open now according to Google Places.",
+        fitReasons: ["Returned #1 by Google Places for this request."],
+        caveats: ["Review text and bookings were not checked."],
+        sourceLabel: "Google Places - live checked",
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Save Shaka for later");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByText("Mocked saved-plan answer:")).toBeVisible();
+  await page.getByRole("button", { name: "Save Shaka Siargao" }).click();
+  await expect(page.getByTestId("saved-plan-tray")).toContainText("1 selected to share");
+
+  await page.getByLabel("Include Shaka Siargao in shared plan").uncheck();
+  await expect(page.getByTestId("saved-plan-share-empty")).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Share$/ })).toBeDisabled();
+  expect(savedSyncRequests).toBe(0);
+
+  await page.getByLabel("Include Shaka Siargao in shared plan").check();
+  await page.getByRole("button", { name: /^Share$/ }).click();
+
+  await expect(page.getByTestId("saved-plan-share-error")).toContainText(
+    "Share link could not be created",
+  );
+  await expect(
+    page.getByTestId("saved-plan-item").filter({ hasText: "Shaka Siargao" }),
+  ).toHaveCount(1);
+  expect((await readSavedTripStorage(page)).items).toHaveLength(1);
+  expect(savedSyncRequests).toBe(1);
 });
 
 test("renders initial itinerary theme fixtures without generic brainstorm fallback", async ({

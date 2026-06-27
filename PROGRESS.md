@@ -9,7 +9,7 @@ Source documents:
 
 ## Current Status
 
-Step 6 is complete. Next step: Step 7, wire share creation into chat UI.
+Step 7 is complete. Next step: Step 8, harden source policy and privacy tests.
 
 `PROGRESS.md` must be updated after every completed step with the completed step,
 validation results, commit reference if available, current status, and next step.
@@ -25,11 +25,46 @@ step is committed.
 - [x] Step 4: Add Trip Persistence Schema And Store
 - [x] Step 5: Add Saved Trip API Routes
 - [x] Step 6: Add Public Shared Plan Page
-- [ ] Step 7: Wire Share Creation Into Chat UI
+- [x] Step 7: Wire Share Creation Into Chat UI
 - [ ] Step 8: Harden Source Policy And Privacy Tests
 - [ ] Step 9: Update Documentation And Final Verification
 
 ## Update Log
+
+### 2026-06-28: Step 7 - Wire Share Creation Into Chat UI
+
+Completed:
+- Added saved-plan selection controls so travelers can choose which saved cards and itineraries are
+  included in a shared plan.
+- Added chat UI share creation that syncs only selected saved artifacts to `/api/trips/saved`,
+  creates a token through `/api/trips/share`, and displays the generated share link.
+- Added copy and open controls for generated share links.
+- Added pending, success, empty-selection, copy-error, and share-error states while preserving
+  local saved items when the share API fails.
+- Moved related share-link state transitions into a reducer-backed hook to keep the chat workspace
+  maintainable.
+- Added Playwright coverage for share creation from saved card and itinerary fixtures, copy/open
+  affordances, empty-selection prevention, request privacy, and API failure fallback.
+
+Validation:
+- `bun run format`: passed.
+- `bun run test:e2e -- tests/e2e/chat.e2e.ts -g "saved|share"`: passed, 2 tests.
+- `npx react-doctor@latest --verbose --scope changed`: passed, 100/100 with no issues after
+  reducer extraction.
+- `bun run lint`: passed, Biome checked 211 files.
+- `bun run typecheck --incremental false`: passed.
+- `bun test`: passed, 464 tests across 46 files.
+- `bun run db:migrate:test`: passed, migrated 41 tables in the Step 3 test database.
+- `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
+- `bun run build`: passed and preserved `/trips/shared/[token]` as dynamic server-rendered.
+- `bun run test:e2e`: passed, 27 Playwright tests.
+- Post-update `bun run lint`: passed after recording progress and changelog entries.
+
+Commit:
+- `Connect chat saved items to sharing`.
+
+Next:
+- Step 8: harden shared-plan source policy and privacy tests.
 
 ### 2026-06-28: Step 6 - Add Public Shared Plan Page
 

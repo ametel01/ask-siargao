@@ -3,7 +3,9 @@
 import {
   Bookmark,
   BookmarkCheck,
+  Check,
   Clock,
+  Copy,
   ExternalLink,
   Home,
   LoaderCircle,
@@ -21,6 +23,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   useSyncExternalStore,
@@ -41,6 +44,7 @@ const suggestedPrompts = [
 ];
 
 const chatErrorMessage = "Ask Siargao could not answer right now. Please try again.";
+const shareErrorMessage = "Share link could not be created. Your saved items are still here.";
 const maxChatRequestMessageLength = 2_000;
 const maxPriorChatRequestMessages = 6;
 const savedTripStorageKey = "ask-siargao:saved-trip:v1";
@@ -136,6 +140,24 @@ type SavedTripState = {
   items: SavedTripItem[];
   updatedAt: string;
 };
+type SavedPlanShareStatus = "idle" | "syncing" | "creating" | "ready" | "error";
+type SavedPlanCopyStatus = "idle" | "copied" | "error";
+type SavedPlanShareState = {
+  excludedShareItemIds: ReadonlySet<string>;
+  shareStatus: SavedPlanShareStatus;
+  shareUrl: string | null;
+  copyStatus: SavedPlanCopyStatus;
+};
+type SavedPlanShareAction =
+  | { type: "reset_link" }
+  | { type: "include_item"; itemId: string }
+  | { type: "toggle_item"; itemId: string; shouldInclude: boolean }
+  | { type: "syncing" }
+  | { type: "creating" }
+  | { type: "ready"; shareUrl: string }
+  | { type: "error" }
+  | { type: "copied" }
+  | { type: "copy_error" };
 
 const serverSavedTripSnapshot: SavedTripState = {
   tripId: "local_trip_pending",
@@ -182,6 +204,127 @@ type AssistantMarkdownBlock =
     };
 type AssistantMarkdownListItems = Extract<AssistantMarkdownBlock, { type: "list" }>["items"];
 
+function useSavedPlanSharing(savedTripState: SavedTripState) {
+  const [shareState, dispatchShareState] = useReducer(
+    savedPlanShareReducer,
+    createInitialSavedPlanShareState(),
+  );
+  const selectedShareItems = useMemo(
+    () => savedTripState.items.filter((item) => !shareState.excludedShareItemIds.has(item.id)),
+    [savedTripState.items, shareState.excludedShareItemIds],
+  );
+
+  const includeItem = useCallback((itemId: string) => {
+    dispatchShareState({ type: "include_item", itemId });
+  }, []);
+  const toggleItem = useCallback((itemId: string, shouldInclude: boolean) => {
+    dispatchShareState({ type: "toggle_item", itemId, shouldInclude });
+  }, []);
+  const createShareLink = useCallback(async () => {
+    if (shareState.shareStatus === "syncing" || shareState.shareStatus === "creating") {
+      return;
+    }
+
+    if (selectedShareItems.length === 0) {
+      dispatchShareState({ type: "error" });
+      return;
+    }
+
+    dispatchShareState({ type: "syncing" });
+
+    try {
+      await postSavedTripItems({
+        tripId: savedTripState.tripId,
+        items: selectedShareItems,
+      });
+
+      dispatchShareState({ type: "creating" });
+      const result = await postSharedTripPlan({
+        tripId: savedTripState.tripId,
+        itemIds: selectedShareItems.map((item) => item.id),
+        title: buildSharedPlanTitle(selectedShareItems),
+      });
+
+      dispatchShareState({ type: "ready", shareUrl: result.shareUrl });
+    } catch {
+      dispatchShareState({ type: "error" });
+    }
+  }, [savedTripState.tripId, selectedShareItems, shareState.shareStatus]);
+  const copyShareLink = useCallback(async () => {
+    if (!shareState.shareUrl) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareState.shareUrl);
+      dispatchShareState({ type: "copied" });
+    } catch {
+      dispatchShareState({ type: "copy_error" });
+    }
+  }, [shareState.shareUrl]);
+
+  return {
+    ...shareState,
+    selectedShareItems,
+    includeItem,
+    toggleItem,
+    createShareLink,
+    copyShareLink,
+  };
+}
+
+function savedPlanShareReducer(
+  state: SavedPlanShareState,
+  action: SavedPlanShareAction,
+): SavedPlanShareState {
+  switch (action.type) {
+    case "include_item":
+      return resetSavedPlanShareLink({
+        ...state,
+        excludedShareItemIds: withoutSetValue(state.excludedShareItemIds, action.itemId),
+      });
+    case "toggle_item":
+      return resetSavedPlanShareLink({
+        ...state,
+        excludedShareItemIds: action.shouldInclude
+          ? withoutSetValue(state.excludedShareItemIds, action.itemId)
+          : withSetValue(state.excludedShareItemIds, action.itemId),
+      });
+    case "syncing":
+      return { ...state, shareStatus: "syncing", shareUrl: null, copyStatus: "idle" };
+    case "creating":
+      return { ...state, shareStatus: "creating", shareUrl: null, copyStatus: "idle" };
+    case "ready":
+      return { ...state, shareStatus: "ready", shareUrl: action.shareUrl, copyStatus: "idle" };
+    case "error":
+      return { ...state, shareStatus: "error", shareUrl: null, copyStatus: "idle" };
+    case "copied":
+      return { ...state, copyStatus: "copied" };
+    case "copy_error":
+      return { ...state, copyStatus: "error" };
+  }
+
+  return state;
+}
+
+function resetSavedPlanShareLink(state: SavedPlanShareState): SavedPlanShareState {
+  return {
+    ...state,
+    shareStatus: "idle",
+    shareUrl: null,
+    copyStatus: "idle",
+  };
+}
+
+function createInitialSavedPlanShareState(): SavedPlanShareState {
+  return {
+    excludedShareItemIds: new Set<string>(),
+    shareStatus: "idle",
+    shareUrl: null,
+    copyStatus: "idle",
+  };
+}
+
 export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }) {
   const [inputValue, setInputValue] = useState(() => initialPrompt.trim());
   const [isSending, setIsSending] = useState(false);
@@ -197,6 +340,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
     () => new Set(savedTripState.items.map((item) => item.id)),
     [savedTripState],
   );
+  const savedPlanSharing = useSavedPlanSharing(savedTripState);
 
   const requestLocation = useCallback(() => {
     if (!("geolocation" in navigator)) {
@@ -321,26 +465,38 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
     [isSending, locationState, messages],
   );
 
-  const saveRecommendationCard = useCallback((card: RecommendationCardArtifact) => {
-    const state = getSavedTripSnapshot();
-    writeSavedTripState(upsertSavedTripItem(state, buildSavedItemFromCard(card, state.tripId)));
-  }, []);
+  const saveRecommendationCard = useCallback(
+    (card: RecommendationCardArtifact) => {
+      const state = getSavedTripSnapshot();
+      const nextItem = buildSavedItemFromCard(card, state.tripId);
+      writeSavedTripState(upsertSavedTripItem(state, nextItem));
+      savedPlanSharing.includeItem(nextItem.id);
+    },
+    [savedPlanSharing],
+  );
 
-  const saveItineraryPlan = useCallback((plan: ItineraryPlanArtifact) => {
-    const state = getSavedTripSnapshot();
-    writeSavedTripState(
-      upsertSavedTripItem(state, buildSavedItemFromItinerary(plan, state.tripId)),
-    );
-  }, []);
+  const saveItineraryPlan = useCallback(
+    (plan: ItineraryPlanArtifact) => {
+      const state = getSavedTripSnapshot();
+      const nextItem = buildSavedItemFromItinerary(plan, state.tripId);
+      writeSavedTripState(upsertSavedTripItem(state, nextItem));
+      savedPlanSharing.includeItem(nextItem.id);
+    },
+    [savedPlanSharing],
+  );
 
-  const removeSavedItem = useCallback((itemId: string) => {
-    const state = getSavedTripSnapshot();
-    writeSavedTripState({
-      ...state,
-      items: state.items.filter((item) => item.id !== itemId),
-      updatedAt: new Date().toISOString(),
-    });
-  }, []);
+  const removeSavedItem = useCallback(
+    (itemId: string) => {
+      const state = getSavedTripSnapshot();
+      writeSavedTripState({
+        ...state,
+        items: state.items.filter((item) => item.id !== itemId),
+        updatedAt: new Date().toISOString(),
+      });
+      savedPlanSharing.includeItem(itemId);
+    },
+    [savedPlanSharing],
+  );
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
@@ -393,7 +549,20 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
 
         <div className="min-h-0 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
           <div className="mx-auto grid min-h-full max-w-3xl content-start gap-5">
-            <SavedPlanTray items={savedTripState.items} onRemoveItem={removeSavedItem} />
+            <SavedPlanTray
+              copyStatus={savedPlanSharing.copyStatus}
+              excludedShareItemIds={savedPlanSharing.excludedShareItemIds}
+              items={savedTripState.items}
+              onCopyShareLink={savedPlanSharing.copyShareLink}
+              onCreateShareLink={() => {
+                void savedPlanSharing.createShareLink();
+              }}
+              onRemoveItem={removeSavedItem}
+              onToggleShareItem={savedPlanSharing.toggleItem}
+              selectedItemCount={savedPlanSharing.selectedShareItems.length}
+              shareStatus={savedPlanSharing.shareStatus}
+              shareUrl={savedPlanSharing.shareUrl}
+            />
             {hasMessages ? (
               <>
                 <SuggestedPromptBar
@@ -541,15 +710,34 @@ function ChatMessage({
 }
 
 function SavedPlanTray({
+  copyStatus,
+  excludedShareItemIds,
   items,
+  onCopyShareLink,
+  onCreateShareLink,
   onRemoveItem,
+  onToggleShareItem,
+  selectedItemCount,
+  shareStatus,
+  shareUrl,
 }: {
+  copyStatus: SavedPlanCopyStatus;
+  excludedShareItemIds: ReadonlySet<string>;
   items: readonly SavedTripItem[];
+  onCopyShareLink: () => void;
+  onCreateShareLink: () => void;
   onRemoveItem: (itemId: string) => void;
+  onToggleShareItem: (itemId: string, shouldInclude: boolean) => void;
+  selectedItemCount: number;
+  shareStatus: SavedPlanShareStatus;
+  shareUrl: string | null;
 }) {
   if (items.length === 0) {
     return null;
   }
+
+  const isSharing = shareStatus === "syncing" || shareStatus === "creating";
+  const hasSelectedItems = selectedItemCount > 0;
 
   return (
     <section
@@ -565,42 +753,127 @@ function SavedPlanTray({
           <div className="min-w-0">
             <h2 className="m-0 text-sm font-black text-text-on-dark">Saved plan</h2>
             <p className="m-0 text-xs font-bold text-text-on-dark-muted">
-              {items.length} {items.length === 1 ? "item" : "items"} saved locally
+              {items.length} {items.length === 1 ? "item" : "items"} saved locally,{" "}
+              {selectedItemCount} selected to share
             </p>
           </div>
         </div>
+        <Button
+          className="shrink-0 rounded-md border-[#20d59b]/30 bg-[#20d59b] px-3 text-xs font-extrabold text-[#062015] hover:bg-[#6af0bd] disabled:opacity-55"
+          disabled={!hasSelectedItems || isSharing}
+          onClick={onCreateShareLink}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          {isSharing ? (
+            <LoaderCircle aria-hidden="true" className="animate-spin" size={14} />
+          ) : (
+            <ExternalLink aria-hidden="true" size={14} />
+          )}
+          {shareStatus === "syncing" ? "Saving" : shareStatus === "creating" ? "Sharing" : "Share"}
+        </Button>
       </div>
 
       <div className="flex min-w-0 gap-2 overflow-x-auto pb-1" data-testid="saved-plan-items">
-        {items.map((item) => (
-          <div
-            className="flex min-w-[13rem] max-w-[18rem] items-center gap-2 rounded-md border border-white/14 bg-white/12 px-3 py-2"
-            data-testid="saved-plan-item"
-            key={item.id}
-          >
-            <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-white/12 text-[#6af0bd]">
-              {item.kind === "itinerary" ? (
-                <Navigation aria-hidden="true" size={14} />
-              ) : (
-                <MapPin aria-hidden="true" size={14} />
-              )}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-xs font-extrabold text-text-on-dark">
-              {item.title}
-            </span>
-            <Button
-              aria-label={`Remove ${item.title} from saved plan`}
-              className="size-8 shrink-0 rounded-md border-white/18 bg-white/10 text-text-on-dark hover:bg-white/15"
-              onClick={() => onRemoveItem(item.id)}
-              size="icon"
-              type="button"
-              variant="outline"
+        {items.map((item) => {
+          const isIncluded = !excludedShareItemIds.has(item.id);
+
+          return (
+            <div
+              className="grid min-w-[14rem] max-w-[19rem] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-white/14 bg-white/12 px-3 py-2"
+              data-testid="saved-plan-item"
+              key={item.id}
             >
-              <Trash2 aria-hidden="true" size={14} />
-            </Button>
-          </div>
-        ))}
+              <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-white/12 text-[#6af0bd]">
+                {item.kind === "itinerary" ? (
+                  <Navigation aria-hidden="true" size={14} />
+                ) : (
+                  <MapPin aria-hidden="true" size={14} />
+                )}
+              </span>
+              <label className="flex min-w-0 items-center gap-2">
+                <input
+                  aria-label={`Include ${item.title} in shared plan`}
+                  checked={isIncluded}
+                  className="size-4 shrink-0 accent-[#20d59b]"
+                  onChange={(event) => onToggleShareItem(item.id, event.currentTarget.checked)}
+                  type="checkbox"
+                />
+                <span className="min-w-0 flex-1 truncate text-xs font-extrabold text-text-on-dark">
+                  {item.title}
+                </span>
+              </label>
+              <Button
+                aria-label={`Remove ${item.title} from saved plan`}
+                className="size-8 shrink-0 rounded-md border-white/18 bg-white/10 text-text-on-dark hover:bg-white/15"
+                onClick={() => onRemoveItem(item.id)}
+                size="icon"
+                type="button"
+                variant="outline"
+              >
+                <Trash2 aria-hidden="true" size={14} />
+              </Button>
+            </div>
+          );
+        })}
       </div>
+
+      {!hasSelectedItems ? (
+        <p className="m-0 text-xs font-bold text-[#ffd98a]" data-testid="saved-plan-share-empty">
+          Select at least one saved item to create a share link.
+        </p>
+      ) : null}
+
+      {shareStatus === "error" ? (
+        <p className="m-0 text-xs font-bold text-[#ffd0d0]" data-testid="saved-plan-share-error">
+          {shareErrorMessage}
+        </p>
+      ) : null}
+
+      {shareUrl ? (
+        <div
+          className="grid min-w-0 gap-2 rounded-md border border-[#20d59b]/20 bg-[#062015]/28 p-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]"
+          data-testid="saved-plan-share-link"
+        >
+          <input
+            aria-label="Share link"
+            className="min-h-9 min-w-0 rounded-md border border-white/16 bg-white/10 px-3 text-xs font-bold text-text-on-dark outline-none"
+            readOnly
+            value={shareUrl}
+          />
+          <Button
+            className="rounded-md border-white/18 bg-white/10 text-xs font-extrabold text-text-on-dark hover:bg-white/15"
+            onClick={onCopyShareLink}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            {copyStatus === "copied" ? (
+              <Check aria-hidden="true" size={14} />
+            ) : (
+              <Copy aria-hidden="true" size={14} />
+            )}
+            {copyStatus === "copied" ? "Copied" : "Copy"}
+          </Button>
+          <Button
+            asChild
+            className="rounded-md border-white/18 bg-white/10 text-xs font-extrabold text-text-on-dark hover:bg-white/15"
+            size="sm"
+            variant="outline"
+          >
+            <a href={shareUrl} rel="noreferrer" target="_blank">
+              <ExternalLink aria-hidden="true" size={14} />
+              Open
+            </a>
+          </Button>
+          {copyStatus === "error" ? (
+            <p className="m-0 text-xs font-bold text-[#ffd0d0] sm:col-span-3">
+              Copy failed. The link is still available above.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1491,6 +1764,75 @@ function ChatEmptyState({
 
 function createMessageId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+async function postSavedTripItems({
+  items,
+  tripId,
+}: {
+  tripId: string;
+  items: readonly SavedTripItem[];
+}) {
+  const response = await fetch("/api/trips/saved", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ tripId, items }),
+  });
+
+  if (!response.ok) {
+    throw new Error(shareErrorMessage);
+  }
+}
+
+async function postSharedTripPlan({
+  itemIds,
+  title,
+  tripId,
+}: {
+  tripId: string;
+  itemIds: readonly string[];
+  title: string;
+}) {
+  const response = await fetch("/api/trips/share", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ tripId, itemIds, title }),
+  });
+  const body = (await response.json()) as { shareUrl?: unknown };
+
+  if (!response.ok || typeof body.shareUrl !== "string") {
+    throw new Error(shareErrorMessage);
+  }
+
+  return { shareUrl: body.shareUrl };
+}
+
+function buildSharedPlanTitle(items: readonly SavedTripItem[]) {
+  if (items.length === 1) {
+    return `${items[0]?.title ?? "Siargao"} saved plan`;
+  }
+
+  return `Siargao saved plan - ${items.length} items`;
+}
+
+function withoutSetValue(values: ReadonlySet<string>, value: string) {
+  if (!values.has(value)) {
+    return values;
+  }
+
+  const nextValues = new Set(values);
+  nextValues.delete(value);
+  return nextValues;
+}
+
+function withSetValue(values: ReadonlySet<string>, value: string) {
+  if (values.has(value)) {
+    return values;
+  }
+
+  const nextValues = new Set(values);
+  nextValues.add(value);
+  return nextValues;
 }
 
 function createEmptySavedTripState(): SavedTripState {

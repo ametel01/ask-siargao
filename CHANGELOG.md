@@ -78,6 +78,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added chat share-link creation for saved trip items, including selected-item controls, API-backed
+  share token creation, copy/open link controls, empty and error states, and browser coverage that
+  verifies share requests exclude chat history and geolocation.
 - Added public shared trip plan pages at `/trips/shared/[token]` with noindex metadata, selected
   card/itinerary rendering, source and caveat display, map links, generic unavailable-token
   handling, and server-render privacy coverage that excludes chat transcripts, raw provider
