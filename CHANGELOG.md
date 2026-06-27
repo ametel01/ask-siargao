@@ -51,6 +51,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Established progress and changelog tracking for the Priority 9 Weather, Tide, And Surf Fusion
+  implementation plan.
 - Added itinerary behavior coverage across agent tool-loop and browser rendering for rainy Cloud 9,
   sunset plus dinner, sandy beach/non-surfer, and food-crawl scenarios.
 - Added chat UI rendering for itinerary artifacts, including sequenced stops, travel-time labels,
