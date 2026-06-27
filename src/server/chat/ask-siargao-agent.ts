@@ -19,7 +19,10 @@ import {
   buildAgentResponseTools,
   executeAgentTool,
 } from "@/server/chat/agent-tools";
-import type { ItineraryRequiredToolChecks } from "@/server/chat/itinerary-tools";
+import type {
+  ItineraryRequiredToolChecks,
+  LocalItineraryRequest,
+} from "@/server/chat/itinerary-tools";
 import { createComponentLogger } from "@/server/observability/logger";
 
 export type AskSiargaoAgentDependencies = AgentRuntimeDependencies &
@@ -117,6 +120,46 @@ export async function runAskSiargaoAgentTurn(
   for (let turn = 0; turn < maxTurns; turn += 1) {
     const finalText = response.output_text?.trim();
     if (finalText) {
+      const missingInitialItineraryPlan = missingRequiredInitialItineraryPlan(resolved, toolCalls);
+      if (missingInitialItineraryPlan) {
+        if (toolCalls.length + 1 > maxToolCalls) {
+          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
+        }
+
+        const automaticPlanOutput = await executeAndAuditTool({
+          executeTool,
+          functionCall: missingInitialItineraryPlan,
+          logger,
+          now: dependencies.now ?? (() => new Date()),
+          requestId: resolved.requestId,
+        });
+        toolCalls.push(automaticPlanOutput.audit);
+        toolResults.push(automaticPlanOutput.result);
+
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_000,
+          instructions,
+          tools,
+          ...(response.id ? { previous_response_id: response.id } : {}),
+          input: JSON.stringify({
+            product: "Ask Siargao",
+            instruction:
+              "You attempted a final itinerary answer before calling plan_local_itinerary. Use this automatically executed itinerary artifact as planning evidence, preserve its caveats, and continue with any required follow-up checks before the final traveler-facing answer.",
+            automaticRequiredItineraryPlan: {
+              toolCallId: automaticPlanOutput.functionCall.callId,
+              name: automaticPlanOutput.functionCall.name,
+              arguments: automaticPlanOutput.functionCall.arguments,
+              result: JSON.parse(serializeToolOutput(automaticPlanOutput.result)),
+            },
+            responseContract,
+          }),
+        });
+        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        continue;
+      }
+
       const missingRequiredChecks = missingRequiredItineraryChecks(toolResults, toolCalls);
       if (missingRequiredChecks.length > 0) {
         if (toolCalls.length + missingRequiredChecks.length > maxToolCalls) {
@@ -222,6 +265,242 @@ export async function runAskSiargaoAgentTurn(
   }
 
   throw new Error("Ask Siargao agent exceeded the maximum turn count.");
+}
+
+function missingRequiredInitialItineraryPlan(
+  request: AgentRuntimeRequest,
+  toolCalls: readonly AgentToolCallAudit[],
+): ParsedFunctionCall | undefined {
+  if (hasToolCall(toolCalls, "plan_local_itinerary")) {
+    return undefined;
+  }
+
+  const argumentsForPlan = inferRequiredInitialItineraryPlanArguments(request);
+  if (!argumentsForPlan) {
+    return undefined;
+  }
+
+  return {
+    callId: "auto_required_itinerary_plan_1",
+    name: "plan_local_itinerary",
+    arguments: argumentsForPlan,
+  };
+}
+
+function inferRequiredInitialItineraryPlanArguments(
+  request: AgentRuntimeRequest,
+): Record<string, unknown> | undefined {
+  const latestUserTurn = latestUserContent(request.messages);
+  const userContext = request.messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.content)
+    .join(" ");
+  if (!isItineraryPlanningRequest(latestUserTurn, request.deterministicSignals)) {
+    return undefined;
+  }
+
+  const theme = inferLocalItineraryTheme(userContext);
+  const constraints = inferItineraryConstraints(userContext, request.deterministicSignals);
+  const transportMode = inferItineraryTransportMode(userContext, request.deterministicSignals);
+  const durationHours = inferItineraryDurationHours(userContext);
+  const maxRideMinutes = inferMaxRideMinutes(userContext, request.deterministicSignals);
+  const origin = inferItineraryOrigin(userContext, request.deterministicSignals);
+  const mealPreference = inferMealPreference(userContext, constraints);
+
+  return {
+    theme,
+    ...(origin ? { origin } : {}),
+    ...(durationHours ? { duration_hours: durationHours } : {}),
+    ...(transportMode ? { transport_mode: transportMode } : {}),
+    ...(maxRideMinutes ? { max_ride_minutes: maxRideMinutes } : {}),
+    ...(needsWeatherCheck(userContext, request.deterministicSignals)
+      ? { needs_weather_check: true }
+      : {}),
+    ...(needsOpenNowCheck(theme, userContext) ? { needs_open_now: true } : {}),
+    ...(mealPreference ? { meal_preference: mealPreference } : {}),
+    ...(constraints.length ? { constraints } : {}),
+  } satisfies Partial<LocalItineraryRequest>;
+}
+
+function isItineraryPlanningRequest(
+  latestUserTurn: string,
+  deterministicSignals: Record<string, unknown> | undefined,
+) {
+  if (latestUserTurn.trim().length === 0) {
+    return false;
+  }
+  const hasActivityPlanSignal =
+    readBooleanPath(deterministicSignals, ["intent", "activityPlan"]) === true;
+  const explicitPlanningLanguage =
+    /\b(itinerary|half[-\s]?day|food\s+crawl|crawl|(?:two|three|four|2|3|4)[-\s]?(?:hour|hr)s?|plan(?:\s+a|\s+an|\s+for|\s+my|\s+our)?|route|sequence|stops?)\b/i.test(
+      latestUserTurn,
+    );
+  const hasInitialThemeLanguage =
+    /\b(rainy\s+cloud\s*9|sunset\s+(?:plus|and)\s+dinner|dinner\s+(?:after|plus|and)\s+sunset|non[-\s]?surfer|not\s+surfing|food\s+crawl)\b/i.test(
+      latestUserTurn,
+    );
+
+  return (hasActivityPlanSignal && explicitPlanningLanguage) || hasInitialThemeLanguage;
+}
+
+function inferLocalItineraryTheme(content: string): LocalItineraryRequest["theme"] {
+  if (/\bfood\s+crawl|crawl\b/i.test(content)) {
+    return "food_crawl";
+  }
+  if (/\brainy|rain(?:ing)?|showers?|storm|covered|indoors?|inside\b/i.test(content)) {
+    return "rainy_cloud_9_afternoon";
+  }
+  if (/\bsunset\b/i.test(content) || /\bdinner\b/i.test(content)) {
+    return "sunset_plus_dinner";
+  }
+  if (/\b(non[-\s]?surfer|not\s+surfing|avoid\s+surf|no\s+surf(?:ing)?)\b/i.test(content)) {
+    return "non_surfer_half_day";
+  }
+  return "sandy_beach_half_day";
+}
+
+function inferItineraryConstraints(
+  content: string,
+  deterministicSignals: Record<string, unknown> | undefined,
+) {
+  return uniqueText([
+    ...readStringArrayPath(deterministicSignals, ["intent", "tripContext", "durableConstraints"]),
+    ...(/\bkids?|children|child|toddler|family|families\b/i.test(content) ? ["with kids"] : []),
+    ...(/\bno\s+scooter|without\s+(?:a\s+)?scooter|avoid\s+scooters?|walk(?:ing)?\s+only\b/i.test(
+      content,
+    )
+      ? ["avoid scooters"]
+      : []),
+    ...(/\bvegetarian|vegan|plant[-\s]?based|no\s+meat\b/i.test(content) ? ["vegetarian"] : []),
+    ...(/\bquiet|calm|low[-\s]?key|not\s+crowded|avoid\s+crowds?|peaceful\b/i.test(content)
+      ? ["quiet"]
+      : []),
+    ...(/\bnon[-\s]?surfer|not\s+surfing|avoid\s+surf|no\s+surf(?:ing)?\b/i.test(content)
+      ? ["not surfing"]
+      : []),
+  ]);
+}
+
+function inferItineraryTransportMode(
+  content: string,
+  deterministicSignals: Record<string, unknown> | undefined,
+): LocalItineraryRequest["transport_mode"] | undefined {
+  const signalTransportMode = readStringPath(deterministicSignals, [
+    "intent",
+    "tripContext",
+    "transportMode",
+  ]);
+  if (isItineraryTransportMode(signalTransportMode)) {
+    return signalTransportMode;
+  }
+  if (/\bwalk(?:ing)?|no\s+scooter|without\s+(?:a\s+)?scooter\b/i.test(content)) {
+    return "walk";
+  }
+  if (/\bscooter|motorbike|motor\s*bike\b/i.test(content)) {
+    return "scooter";
+  }
+  if (/\btricycle\b/i.test(content)) {
+    return "tricycle";
+  }
+  if (/\bvan\b/i.test(content)) {
+    return "van";
+  }
+  return undefined;
+}
+
+function inferItineraryDurationHours(content: string) {
+  const numeric = content.match(/\b([234])[-\s]?(?:hour|hr)s?\b/i)?.[1];
+  if (numeric) {
+    return Number(numeric);
+  }
+  if (/\btwo[-\s]?(?:hour|hr)s?\b/i.test(content)) {
+    return 2;
+  }
+  if (/\bthree[-\s]?(?:hour|hr)s?\b/i.test(content)) {
+    return 3;
+  }
+  if (/\bfour[-\s]?(?:hour|hr)s?\b/i.test(content)) {
+    return 4;
+  }
+  return undefined;
+}
+
+function inferMaxRideMinutes(
+  content: string,
+  deterministicSignals: Record<string, unknown> | undefined,
+) {
+  const signalRideLimit = readNumberPath(deterministicSignals, [
+    "intent",
+    "tripContext",
+    "rideTimeLimitMinutes",
+  ]);
+  if (signalRideLimit) {
+    return signalRideLimit;
+  }
+  const rideLimit = content.match(/\b(\d{1,3})[-\s]?(?:minute|min)\b/i)?.[1];
+  return rideLimit ? Number(rideLimit) : undefined;
+}
+
+function inferItineraryOrigin(
+  content: string,
+  deterministicSignals: Record<string, unknown> | undefined,
+) {
+  const signalLocation =
+    readStringPath(deterministicSignals, ["intent", "locationLabel"]) ??
+    readStringPath(deterministicSignals, ["intent", "tripContext", "currentArea"]);
+  if (signalLocation) {
+    return signalLocation;
+  }
+  if (/\bcloud\s*9|cloud9|catangnan\b/i.test(content)) {
+    return "Cloud 9";
+  }
+  if (/\bgeneral\s+luna|\bgl\b/i.test(content)) {
+    return "General Luna";
+  }
+  return undefined;
+}
+
+function inferMealPreference(content: string, constraints: readonly string[]) {
+  if (/\bseafood\b/i.test(content)) {
+    return "seafood";
+  }
+  if (/\bvegetarian|vegan|plant[-\s]?based|no\s+meat\b/i.test(content)) {
+    return "vegetarian-friendly";
+  }
+  if (constraints.some((constraint) => /\bvegetarian\b/i.test(constraint))) {
+    return "vegetarian-friendly";
+  }
+  return undefined;
+}
+
+function needsWeatherCheck(
+  content: string,
+  deterministicSignals: Record<string, unknown> | undefined,
+) {
+  return (
+    readBooleanPath(deterministicSignals, ["intent", "weatherSensitive"]) === true ||
+    /\brainy|rain(?:ing)?|showers?|storm|weather|today|this\s+(?:morning|afternoon|evening)|sunset\b/i.test(
+      content,
+    )
+  );
+}
+
+function needsOpenNowCheck(theme: LocalItineraryRequest["theme"], content: string) {
+  return (
+    theme === "food_crawl" ||
+    theme === "sunset_plus_dinner" ||
+    /\b(food|dinner|lunch|breakfast|brunch|caf[eé]s?|coffee|drinks?|bars?|open(?:[-\s]?now)?|hours?)\b/i.test(
+      content,
+    )
+  );
+}
+
+function latestUserContent(messages: readonly AgentRuntimeRequest["messages"][number][]) {
+  return messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
+}
+
+function hasToolCall(toolCalls: readonly AgentToolCallAudit[], name: string) {
+  return toolCalls.some((toolCall) => toolCall.name === name);
 }
 
 function missingRequiredItineraryChecks(
@@ -487,6 +766,62 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readString(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function readStringPath(value: unknown, path: readonly string[]) {
+  let current = value;
+  for (const segment of path) {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    current = current[segment];
+  }
+  return readString(current);
+}
+
+function readNumberPath(value: unknown, path: readonly string[]) {
+  let current = value;
+  for (const segment of path) {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    current = current[segment];
+  }
+  return typeof current === "number" ? current : undefined;
+}
+
+function readBooleanPath(value: unknown, path: readonly string[]) {
+  let current = value;
+  for (const segment of path) {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    current = current[segment];
+  }
+  return typeof current === "boolean" ? current : undefined;
+}
+
+function readStringArrayPath(value: unknown, path: readonly string[]) {
+  let current = value;
+  for (const segment of path) {
+    if (!isRecord(current)) {
+      return [];
+    }
+    current = current[segment];
+  }
+  return Array.isArray(current)
+    ? current.filter((item): item is string => typeof item === "string" && item.length > 0)
+    : [];
+}
+
+function isItineraryTransportMode(
+  value: string | undefined,
+): value is NonNullable<LocalItineraryRequest["transport_mode"]> {
+  return value === "walk" || value === "scooter" || value === "tricycle" || value === "van";
+}
+
+function uniqueText(values: readonly string[]) {
+  return [...new Set(values.map((value) => value.replaceAll(/\s+/g, " ").trim()).filter(Boolean))];
 }
 
 const responseContract = {

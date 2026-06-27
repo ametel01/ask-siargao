@@ -356,6 +356,67 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.sources).toEqual([localGuideSourceSummary]);
   });
 
+  test("auto-executes itinerary planning before accepting direct itinerary prose", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_direct_itinerary",
+        output_text: "Direct food crawl prose without a structured itinerary.",
+        _request_id: "req_direct_itinerary",
+      },
+      {
+        id: "resp_after_auto_plan",
+        output_text: "Final food crawl answer after reading the itinerary artifact.",
+        _request_id: "req_after_auto_plan",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      plan_local_itinerary: {
+        name: "plan_local_itinerary",
+        status: "success",
+        text: "Structured food crawl artifact prepared.",
+        data: {
+          plan: foodCrawlPlan,
+          requiredToolChecks: { places: [] },
+        },
+        sources: [genericSourceSummary],
+        itineraries: [foodCrawlPlan],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Make a 3 hour food crawl in General Luna." }],
+        requestId: "agent_request_auto_initial_itinerary",
+        deterministicSignals: {
+          intent: {
+            activityPlan: true,
+            locationLabel: "General Luna",
+            tripContext: {
+              activeGoal: "itinerary",
+              currentArea: "General Luna",
+              durableConstraints: [],
+              transportMode: "unknown",
+            },
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("after reading the itinerary artifact");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual(["plan_local_itinerary"]);
+    expect(result.toolCalls[0]?.arguments).toMatchObject({
+      theme: "food_crawl",
+      origin: "General Luna",
+      duration_hours: 3,
+      needs_open_now: true,
+    });
+    expect(client.requests).toHaveLength(2);
+    const automaticInput = parseAutomaticRequiredPlanInput(client.requests[1]?.input);
+    expect(automaticInput.automaticRequiredItineraryPlan?.name).toBe("plan_local_itinerary");
+    expect(result.itineraries).toEqual([foodCrawlPlan]);
+  });
+
   test("rainy Cloud 9 itineraries call planning and weather before final prose", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
@@ -781,7 +842,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         name: "search_places",
         status: "success",
         text: "Google Places returned live cafe options.",
-        sources: [placesSourceSummary],
+        sources: [openNowPlacesSourceSummary],
       },
     });
 
@@ -806,7 +867,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       "search_places",
     ]);
     expect(result.itineraries?.[0]?.sources).toContainEqual(weatherSourceSummary);
-    expect(result.itineraries?.[0]?.sources).toContainEqual(placesSourceSummary);
+    expect(result.itineraries?.[0]?.sources).toContainEqual(openNowPlacesSourceSummary);
     expect(result.itineraries?.[0]?.sources.flatMap((source) => source.notChecked)).not.toContain(
       "weather forecast",
     );
@@ -1206,6 +1267,12 @@ function parseAutomaticRequiredCheckInput(input: unknown): {
   return typeof input === "string" ? JSON.parse(input) : {};
 }
 
+function parseAutomaticRequiredPlanInput(input: unknown): {
+  automaticRequiredItineraryPlan?: { name?: string };
+} {
+  return typeof input === "string" ? JSON.parse(input) : {};
+}
+
 function parseToolOutput(
   input: unknown,
   index: number,
@@ -1319,6 +1386,11 @@ const placesSourceSummary: AnswerSourceSummary = {
   confidence: "high",
   checked: ["place identity", "map link"],
   notChecked: ["review text", "bookings"],
+};
+
+const openNowPlacesSourceSummary: AnswerSourceSummary = {
+  ...placesSourceSummary,
+  checked: ["place identity", "map link", "open-now signal"],
 };
 
 const localGuideSourceSummary: AnswerSourceSummary = {

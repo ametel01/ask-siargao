@@ -9,6 +9,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Required structured itinerary planning before final prose for clear itinerary prompts, kept
+  open-now caveats until Places returns opening-hours evidence, and stopped food-crawl artifacts
+  from claiming curated beach-guide source support.
 - Stopped itinerary beach stops from labeling General Luna ride estimates as previous-stop travel
   times, preserved user itinerary constraints in artifacts and caveats, and made live-check caveat
   reconciliation require every required weather or Places follow-up to succeed.

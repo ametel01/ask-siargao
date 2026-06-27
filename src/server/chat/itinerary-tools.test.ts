@@ -162,6 +162,10 @@ describe("local itinerary planning tools", () => {
     });
 
     expect(result.plan.title).toBe("General Luna Food Crawl");
+    expect(result.plan.sources.map((source) => source.label)).toEqual(["not_verified"]);
+    expect(result.plan.sources.map((source) => source.sourceName)).not.toContain(
+      "Ask Siargao curated local beach guide",
+    );
     expect(result.plan.stops.map((stop) => stop.kind)).toEqual(["meal", "meal", "meal"]);
     expect(result.plan.stops.map((stop) => stop.sequence)).toEqual([1, 2, 3]);
     expect(result.plan.stops[0]?.title).toContain("local seafood");

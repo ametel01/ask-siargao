@@ -387,6 +387,58 @@ describe("agent runtime contracts", () => {
     expect(turn.itineraries?.[0]?.sources).toContainEqual(providerUnavailableSourceSummary);
   });
 
+  test("does not clear open-status caveats when Places lacks open-now evidence", () => {
+    const identityAndOpenStatusCaveatSource: AnswerSourceSummary = {
+      ...genericSourceSummary,
+      notChecked: ["live open-now status", "Google Places lookup"],
+    };
+    const cafeSearch = {
+      query: "cafes near Cloud 9 Siargao",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+      radius_meters: 2500,
+      constraints: { included_type: "cafe", open_now: true, page_size: 5 },
+    };
+    const identityOnlyPlacesCall = createAgentToolCallAudit({
+      auditId: "audit_identity_only_places",
+      name: "search_places",
+      arguments: cafeSearch,
+      result: {
+        name: "search_places",
+        status: "success",
+        text: "Cafes loaded without opening-hours fields.",
+        sources: [identityOnlyPlacesSourceSummary],
+      },
+      startedAt: new Date("2026-06-26T00:00:00.000Z"),
+      completedAt: new Date("2026-06-26T00:00:00.010Z"),
+    });
+
+    const turn = createAgentTurnResult({
+      message: "Use the cafe identities, but do not claim open-now status.",
+      requestId: "agent_request_identity_only_places",
+      model: "gpt-test",
+      toolCalls: [identityOnlyPlacesCall],
+      toolResults: [
+        {
+          sources: [identityAndOpenStatusCaveatSource],
+          itineraries: [{ ...rainyCloud9Plan, sources: [identityAndOpenStatusCaveatSource] }],
+          data: {
+            requiredToolChecks: {
+              places: [{ required: true, tool: "search_places", ...cafeSearch }],
+            },
+          },
+        },
+        {
+          sources: [identityOnlyPlacesSourceSummary],
+        },
+      ],
+    });
+
+    const notChecked = turn.itineraries?.[0]?.sources.flatMap((source) => source.notChecked) ?? [];
+    expect(notChecked).toContain("live open-now status");
+    expect(notChecked).not.toContain("Google Places lookup");
+    expect(turn.itineraries?.[0]?.sources).toContainEqual(identityOnlyPlacesSourceSummary);
+  });
+
   test("omits empty card and action arrays from turn results", () => {
     const turn = createAgentTurnResult({
       message: "No structured artifacts needed.",
@@ -491,6 +543,16 @@ const placesSourceSummary: AnswerSourceSummary = {
   fetchedAt: "2026-06-26T00:00:00.000Z",
   confidence: "high",
   checked: ["place identity", "opening-hours status"],
+  notChecked: ["review text", "bookings"],
+};
+
+const identityOnlyPlacesSourceSummary: AnswerSourceSummary = {
+  label: "live_checked",
+  sourceName: "Google Places",
+  sourceProfileId: "source_google_places",
+  fetchedAt: "2026-06-26T00:00:00.000Z",
+  confidence: "high",
+  checked: ["place identity", "map link"],
   notChecked: ["review text", "bookings"],
 };
 

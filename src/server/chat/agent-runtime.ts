@@ -329,8 +329,14 @@ function reconcileItinerarySources(
 }
 
 type ItinerarySourceReconciliation = {
-  hasPlacesCheck: boolean;
+  hasPlacesIdentityCheck: boolean;
+  hasPlacesOpenStatusCheck: boolean;
   hasWeatherCheck: boolean;
+};
+
+type RequiredPlacesCheck = {
+  arguments: Record<string, unknown>;
+  requiresOpenNow: boolean;
 };
 
 function itinerarySourceReconciliation(
@@ -346,20 +352,27 @@ function itinerarySourceReconciliation(
           "weather_checked",
         ]),
       ),
-    hasPlacesCheck:
+    hasPlacesIdentityCheck:
       requiredChecks.places.length > 0 &&
-      requiredChecks.places.every((requiredArguments) =>
-        hasSuccessfulRequiredToolCall(toolCalls, "search_places", requiredArguments, [
+      requiredChecks.places.every((requiredCheck) =>
+        hasSuccessfulRequiredToolCall(toolCalls, "search_places", requiredCheck.arguments, [
           "live_checked",
           "fresh_cache",
         ]),
+      ),
+    hasPlacesOpenStatusCheck:
+      requiredChecks.places.length > 0 &&
+      requiredChecks.places.every((requiredCheck) =>
+        requiredCheck.requiresOpenNow
+          ? hasSuccessfulRequiredPlacesOpenStatusCall(toolCalls, requiredCheck)
+          : true,
       ),
   };
 }
 
 function collectRequiredItineraryChecks(toolResults: readonly AgentToolResultArtifactCarrier[]) {
   const weather: Record<string, unknown>[] = [];
-  const places: Record<string, unknown>[] = [];
+  const places: RequiredPlacesCheck[] = [];
 
   for (const result of toolResults) {
     if (!isRecord(result.data) || !isRecord(result.data.requiredToolChecks)) {
@@ -379,11 +392,15 @@ function collectRequiredItineraryChecks(toolResults: readonly AgentToolResultArt
         if (!isRecord(check)) {
           continue;
         }
-        places.push({
+        const argumentsForCheck = {
           query: check.query,
           center: check.center,
           radius_meters: check.radius_meters,
           constraints: check.constraints,
+        };
+        places.push({
+          arguments: argumentsForCheck,
+          requiresOpenNow: isRecord(check.constraints) && check.constraints.open_now === true,
         });
       }
     }
@@ -391,7 +408,7 @@ function collectRequiredItineraryChecks(toolResults: readonly AgentToolResultArt
 
   return {
     weather: uniqueRequiredArguments(weather),
-    places: uniqueRequiredArguments(places),
+    places: uniqueRequiredPlacesChecks(places),
   };
 }
 
@@ -411,6 +428,24 @@ function hasSuccessfulRequiredToolCall(
   );
 }
 
+function hasSuccessfulRequiredPlacesOpenStatusCall(
+  toolCalls: readonly AgentToolCallAudit[],
+  requiredCheck: RequiredPlacesCheck,
+) {
+  const requiredKey = normalizeRequiredToolArguments(requiredCheck.arguments);
+  return toolCalls.some(
+    (toolCall) =>
+      toolCall.name === "search_places" &&
+      toolCall.status === "success" &&
+      normalizeRequiredToolArguments(toolCall.arguments) === requiredKey &&
+      toolCall.sources.some(
+        (source) =>
+          (source.label === "live_checked" || source.label === "fresh_cache") &&
+          source.checked.some(isPlacesOpenStatusCheckedItem),
+      ),
+  );
+}
+
 function uniqueRequiredArguments(values: readonly Record<string, unknown>[]) {
   const results: Record<string, unknown>[] = [];
   const seen = new Set<string>();
@@ -425,13 +460,29 @@ function uniqueRequiredArguments(values: readonly Record<string, unknown>[]) {
   return results;
 }
 
+function uniqueRequiredPlacesChecks(values: readonly RequiredPlacesCheck[]) {
+  const results: RequiredPlacesCheck[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const key = normalizeRequiredToolArguments(value.arguments);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    results.push(value);
+  }
+  return results;
+}
+
 function reconcileNotCheckedSource(
   source: AnswerSourceSummary,
   {
-    hasPlacesCheck,
+    hasPlacesIdentityCheck,
+    hasPlacesOpenStatusCheck,
     hasWeatherCheck,
   }: {
-    hasPlacesCheck: boolean;
+    hasPlacesIdentityCheck: boolean;
+    hasPlacesOpenStatusCheck: boolean;
     hasWeatherCheck: boolean;
   },
 ): AnswerSourceSummary {
@@ -444,7 +495,8 @@ function reconcileNotCheckedSource(
     notChecked: source.notChecked.filter(
       (item) =>
         !(hasWeatherCheck && isWeatherNotCheckedItem(item)) &&
-        !(hasPlacesCheck && isPlacesNotCheckedItem(item)),
+        !(hasPlacesOpenStatusCheck && isPlacesOpenStatusNotCheckedItem(item)) &&
+        !(hasPlacesIdentityCheck && isPlacesIdentityNotCheckedItem(item)),
     ),
   };
 }
@@ -453,10 +505,19 @@ function isWeatherNotCheckedItem(value: string) {
   return /\b(weather|forecast)\b/i.test(value);
 }
 
-function isPlacesNotCheckedItem(value: string) {
-  return /\b(google places|places|open[- ]?now|open status|opening|map link|place identity|current menus)\b/i.test(
-    value,
-  );
+function isPlacesOpenStatusCheckedItem(value: string) {
+  return /\b(open[- ]?now|opening[- ]?hours|open status|opening hours)\b/i.test(value);
+}
+
+function isPlacesOpenStatusNotCheckedItem(value: string) {
+  return /\b(open[- ]?now|open status|opening|opening[- ]?hours|hours?)\b/i.test(value);
+}
+
+function isPlacesIdentityNotCheckedItem(value: string) {
+  if (isPlacesOpenStatusNotCheckedItem(value)) {
+    return false;
+  }
+  return /\b(google places|places|map link|place identity|current menus)\b/i.test(value);
 }
 
 function extractSourceProfileIds(sources: readonly AnswerSourceSummary[]) {

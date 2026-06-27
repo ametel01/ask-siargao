@@ -98,13 +98,13 @@ export function planLocalItinerary(input: LocalItineraryRequest): LocalItinerary
   const constraints = summarizeItineraryConstraints(request);
   const localGuide = searchSiargaoLocalGuide(localGuideQuery(request, constraints));
   const uncheckedSource = itineraryUncheckedSourceSummary(request, constraints);
-  const sources = uniqueSourceSummaries([localGuide.sourceSummary, uncheckedSource]);
+  const sources = itinerarySourceSummaries(request, localGuide.sourceSummary, uncheckedSource);
   const plan = applyConstraintGuidance(buildPlan(request, localGuide, sources), constraints);
   const requiredToolChecks = buildRequiredToolChecks(request);
   const caveats = uniqueText([
     ...plan.stops.flatMap((stop) => stop.caveats),
     ...plan.fallbackStops.flatMap((stop) => stop.caveats),
-    ...localGuide.caveats,
+    ...(usesCuratedLocalGuideSource(request) ? localGuide.caveats : []),
     ...uncheckedSource.notChecked,
   ]);
 
@@ -709,6 +709,21 @@ function uniqueSourceSummaries(sources: readonly AnswerSourceSummary[]) {
     results.push(source);
   }
   return results;
+}
+
+function itinerarySourceSummaries(
+  request: LocalItineraryResult["request"],
+  localGuideSource: AnswerSourceSummary,
+  uncheckedSource: AnswerSourceSummary,
+) {
+  return uniqueSourceSummaries([
+    ...(usesCuratedLocalGuideSource(request) ? [localGuideSource] : []),
+    uncheckedSource,
+  ]);
+}
+
+function usesCuratedLocalGuideSource(request: LocalItineraryResult["request"]) {
+  return request.theme !== "food_crawl";
 }
 
 function uniqueText(values: readonly string[]) {
