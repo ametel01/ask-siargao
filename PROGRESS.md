@@ -23,13 +23,13 @@ This file tracks execution of `PLAN.md` for the Priority 9 implementation slice.
 - [x] Step 3: Agent Tool Schema And Execution
 - [x] Step 4: Agent Tool-Use Policy And Route Signals
 - [x] Step 5: Route, Runtime, And Source Consistency Integration
-- [ ] Step 6: Chat UI Rendering For Condition Evidence
+- [x] Step 6: Chat UI Rendering For Condition Evidence
 - [ ] Step 7: Final Verification And Handoff
 
 ## Current Status
 
-- Active step: Step 6
-- Next step: Step 6 chat UI rendering for condition evidence
+- Active step: Step 7
+- Next step: Step 7 final verification and handoff
 - Notes: `docs/ASK_SIARGAO_ROADMAP.md` has an unrelated Priority 8 completion marker and should not
   be included in Priority 9 commits unless explicitly requested or updated at final verification.
 
@@ -160,3 +160,22 @@ This file tracks execution of `PLAN.md` for the Priority 9 implementation slice.
   - Passed: `bun test` with 395 tests passing
   - Passed: `bun run build`
 - Commit: `Integrate condition judgments with chat runtime`
+
+### Step 6: Chat UI Rendering For Condition Evidence
+
+- Status: Complete
+- Changes:
+  - Confirmed no structured condition artifact was added in Step 5, so no dedicated condition card
+    UI is needed in this slice.
+  - Kept condition judgments rendered through existing AI-written markdown and source-line UI,
+    which already separates `Checked`, `Weather signal`, and `Not checked` lines in compact,
+    mobile-safe blocks.
+  - Skipped Playwright e2e because no visible artifact surface or UI code changed.
+- Validation:
+  - Passed: `bun run format`
+  - Passed: `bun run lint`
+  - Passed: `bun run typecheck --incremental false`
+  - Passed: `bun test src/app/api/chat/route.test.ts` with 41 tests passing
+  - Passed: `bun test` with 395 tests passing
+  - Passed: `bun run build`
+- Commit: `Render condition judgment evidence`
