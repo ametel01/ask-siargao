@@ -7,6 +7,7 @@ import {
   describeAvailableTools,
   executeAgentTool,
 } from "@/server/chat/agent-tools";
+import { conditionJudgmentToolParameters } from "@/server/chat/condition-tools";
 import {
   type GooglePlacesChatContext,
   type GooglePlacesChatSearch,
@@ -364,6 +365,19 @@ describe("agent tools", () => {
       expect(tool.strict).toBe(true);
       assertStrictObjectSchema(tool.parameters, tool.name);
     }
+  });
+
+  test("defines a strict future condition judgment schema without exposing the tool yet", () => {
+    assertStrictObjectSchema(conditionJudgmentToolParameters, "get_condition_judgment");
+    expect(conditionJudgmentToolParameters.required).toEqual([
+      "activity",
+      "location",
+      "date_range",
+      "beach_name",
+      "include_local_caveats",
+      "constraints",
+    ]);
+    expect(agentToolDefinitions.map((tool) => tool.name)).not.toContain("get_condition_judgment");
   });
 
   test("describes available tools without exposing the helper as model-callable", () => {

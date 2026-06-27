@@ -156,6 +156,35 @@ describe("chat source consistency", () => {
     expect(result).toEqual({ valid: true, issues: [] });
   });
 
+  test("accepts condition judgment caveats for unchecked tide and surf signals", () => {
+    const conditionCaveatSource: AnswerSourceSummary = {
+      label: "not_verified",
+      sourceName: "Condition judgment unchecked marine signals",
+      confidence: "medium",
+      checked: [],
+      notChecked: ["tide", "surf", "currents", "lifeguard or swimming safety"],
+    };
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Weather can be checked, but marine signals stay caveated.", [
+        conditionCaveatSource,
+      ]),
+      sources: [conditionCaveatSource],
+      toolCalls: [
+        toolCall({
+          name: "get_condition_judgment",
+          status: "success",
+          sources: [conditionCaveatSource],
+        }),
+      ],
+    });
+
+    expect(result).toEqual({ valid: true, issues: [] });
+  });
+
+  test.todo("accepts weather_checked condition judgment claims only after get_condition_judgment is tool-backed", () => {});
+
+  test.todo("rejects tide or surf checked labels until provider-backed marine tools exist", () => {});
+
   test("rejects fabricated checked labels without matching tool output", () => {
     const result = validateChatAnswerSourceConsistency({
       message: withSourceLines("Google Places says this is live checked.", [

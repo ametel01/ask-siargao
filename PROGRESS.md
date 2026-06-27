@@ -18,7 +18,7 @@ This file tracks execution of `PLAN.md` for the Priority 9 implementation slice.
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
-- [ ] Step 1: Baseline Characterization And Contracts
+- [x] Step 1: Baseline Characterization And Contracts
 - [ ] Step 2: Condition Judgment Builder
 - [ ] Step 3: Agent Tool Schema And Execution
 - [ ] Step 4: Agent Tool-Use Policy And Route Signals
@@ -28,8 +28,8 @@ This file tracks execution of `PLAN.md` for the Priority 9 implementation slice.
 
 ## Current Status
 
-- Active step: Step 1
-- Next step: Step 1 baseline characterization and contracts
+- Active step: Step 2
+- Next step: Step 2 condition judgment builder
 - Notes: `docs/ASK_SIARGAO_ROADMAP.md` has an unrelated Priority 8 completion marker and should not
   be included in Priority 9 commits unless explicitly requested or updated at final verification.
 
@@ -51,3 +51,25 @@ This file tracks execution of `PLAN.md` for the Priority 9 implementation slice.
   - Passed: `bun run typecheck --incremental false`
   - Passed: `bun test` with 370 tests passing
 - Commit: `Track weather tide surf fusion plan`
+
+### Step 1: Baseline Characterization And Contracts
+
+- Status: Complete
+- Changes:
+  - Added `src/server/chat/condition-tools.ts` with condition signal, condition judgment, request,
+    source summary, and future tool-parameter contracts.
+  - Added characterization tests for complete judgment shape, supported activities and
+    recommendations, nullable strict-schema arguments, and explicitly unchecked tide/surf signals.
+  - Added a strict-schema audit test for the future `get_condition_judgment` parameters without
+    exposing the tool to the agent yet.
+  - Added source-consistency coverage for not-verified condition caveats and TODO tests for later
+    tool-backed weather and marine-provider enforcement.
+- Validation:
+  - Passed: `bun run format`
+  - Passed: `bun run lint`
+  - Passed: `bun run typecheck --incremental false`
+  - Passed:
+    `bun test src/server/chat/condition-tools.test.ts src/server/chat/source-consistency.test.ts src/server/chat/agent-tools.test.ts`
+  - Passed: `bun test` with 376 tests passing and 2 TODO tests
+  - Passed: `bun run build`
+- Commit: `Characterize condition judgment contracts`
