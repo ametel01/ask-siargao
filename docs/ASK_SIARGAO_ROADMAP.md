@@ -476,7 +476,7 @@ restricted to approved views, row-limited, timed out, and blocked from mutation.
 - Add negative tests for unsafe SQL or disallowed table access if SQL is added.
 - Add source-policy tests for provider-derived fields.
 
-## Priority 7: Map-First Recommendation Cards
+## Priority 7: Map-First Recommendation Cards **COMPLETED**
 
 ### Outcome
 
