@@ -78,6 +78,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added browser-local saved trip items in chat, including accessible card and itinerary save/remove
+  controls, a compact saved-plan tray, reload persistence, deduping, and Playwright privacy
+  coverage that excludes chat history and browser geolocation from saved payloads.
 - Added shared saved-trip artifact contracts, runtime validators, browser storage DTOs, share
   request DTOs, and privacy regression tests for recommendation cards and itinerary plans.
 - Established progress and changelog tracking for the Priority 11 Saved Trip Sharing

@@ -9,7 +9,7 @@ Source documents:
 
 ## Current Status
 
-Step 2 is complete. Next step: Step 3, add local saved items in chat.
+Step 3 is complete. Next step: Step 4, add trip persistence schema and store.
 
 `PROGRESS.md` must be updated after every completed step with the completed step,
 validation results, commit reference if available, current status, and next step.
@@ -21,7 +21,7 @@ step is committed.
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Baseline Quality Gate Run
 - [x] Step 2: Define Shared Trip Artifact Contracts
-- [ ] Step 3: Add Local Saved Items In Chat
+- [x] Step 3: Add Local Saved Items In Chat
 - [ ] Step 4: Add Trip Persistence Schema And Store
 - [ ] Step 5: Add Saved Trip API Routes
 - [ ] Step 6: Add Public Shared Plan Page
@@ -30,6 +30,39 @@ step is committed.
 - [ ] Step 9: Update Documentation And Final Verification
 
 ## Update Log
+
+### 2026-06-28: Step 3 - Add Local Saved Items In Chat
+
+Completed:
+- Added browser-local saved trip state in `src/features/chat/ChatWorkspace.tsx` backed by
+  `localStorage` and an anonymous local trip ID.
+- Added save/remove controls for recommendation cards and itinerary plans with accessible labels.
+- Added a compact saved-plan tray that shows saved cards and itineraries, supports removal, and
+  persists across reloads.
+- Kept saved payloads limited to structured card/itinerary artifacts, source summaries, caveats,
+  and map links; chat prompts, message history, and browser coordinates are not stored.
+- Added Playwright coverage for saving cards and itineraries, deduping duplicate storage entries,
+  removing saved items, reload persistence, and localStorage privacy checks.
+
+Validation:
+- `bun run format`: passed.
+- `bun run lint`: passed, Biome checked 199 files.
+- `bun run typecheck --incremental false`: passed.
+- `bun run test:e2e -- tests/e2e/chat.e2e.ts -g "saves local cards"`: passed, 1 test.
+- `npx react-doctor@latest --verbose --scope changed`: passed, 100/100 with no issues after
+  replacing mount-effect hydration with `useSyncExternalStore`.
+- `bun test`: passed, 453 tests across 43 files.
+- `bun run db:migrate:test`: passed, migrated 38 tables in the Step 3 test database.
+- `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
+- `bun run build`: passed.
+- `bun run test:e2e`: passed, 25 Playwright tests.
+- Post-update `bun run lint`: passed after recording progress and changelog entries.
+
+Commit:
+- `Add local saved trip items`.
+
+Next:
+- Step 4: add Postgres-backed saved trip persistence and share-token storage.
 
 ### 2026-06-28: Step 2 - Define Shared Trip Artifact Contracts
 

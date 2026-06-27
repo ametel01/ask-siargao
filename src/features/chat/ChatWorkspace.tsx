@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  Bookmark,
+  BookmarkCheck,
   Clock,
   ExternalLink,
   Home,
@@ -10,15 +12,26 @@ import {
   Navigation,
   Send,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { InputGroup } from "@/components/ui/input-group";
 import { InputGroupAddon } from "@/components/ui/input-group-addon";
 import { InputGroupButton } from "@/components/ui/input-group-button";
 import { InputGroupInput } from "@/components/ui/input-group-input";
+import type { SavedTripItem } from "@/server/trips/shared-trip-types";
 import { BrandLockup, PalmMark } from "@/ui/components/ask-siargao";
 
 const suggestedPrompts = [
@@ -30,6 +43,7 @@ const suggestedPrompts = [
 const chatErrorMessage = "Ask Siargao could not answer right now. Please try again.";
 const maxChatRequestMessageLength = 2_000;
 const maxPriorChatRequestMessages = 6;
+const savedTripStorageKey = "ask-siargao:saved-trip:v1";
 const chatTimeFormatter = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
   minute: "2-digit",
@@ -117,6 +131,20 @@ type ItineraryPlanArtifact = {
   }[];
 };
 
+type SavedTripState = {
+  tripId: string;
+  items: SavedTripItem[];
+  updatedAt: string;
+};
+
+const serverSavedTripSnapshot: SavedTripState = {
+  tripId: "local_trip_pending",
+  items: [],
+  updatedAt: "1970-01-01T00:00:00.000Z",
+};
+let savedTripSnapshotCache: { rawValue: string | null; state: SavedTripState } | null = null;
+const savedTripListeners = new Set<() => void>();
+
 type ChatComposerProps = {
   inputValue: string;
   isSending: boolean;
@@ -159,7 +187,16 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
   const [isSending, setIsSending] = useState(false);
   const [locationState, setLocationState] = useState<LocationCaptureState>({ status: "idle" });
   const [messages, setMessages] = useState<InteractiveChatMessage[]>([]);
+  const savedTripState = useSyncExternalStore(
+    subscribeSavedTripState,
+    getSavedTripSnapshot,
+    getSavedTripServerSnapshot,
+  );
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const savedItemIds = useMemo(
+    () => new Set(savedTripState.items.map((item) => item.id)),
+    [savedTripState],
+  );
 
   const requestLocation = useCallback(() => {
     if (!("geolocation" in navigator)) {
@@ -284,6 +321,27 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
     [isSending, locationState, messages],
   );
 
+  const saveRecommendationCard = useCallback((card: RecommendationCardArtifact) => {
+    const state = getSavedTripSnapshot();
+    writeSavedTripState(upsertSavedTripItem(state, buildSavedItemFromCard(card, state.tripId)));
+  }, []);
+
+  const saveItineraryPlan = useCallback((plan: ItineraryPlanArtifact) => {
+    const state = getSavedTripSnapshot();
+    writeSavedTripState(
+      upsertSavedTripItem(state, buildSavedItemFromItinerary(plan, state.tripId)),
+    );
+  }, []);
+
+  const removeSavedItem = useCallback((itemId: string) => {
+    const state = getSavedTripSnapshot();
+    writeSavedTripState({
+      ...state,
+      items: state.items.filter((item) => item.id !== itemId),
+      updatedAt: new Date().toISOString(),
+    });
+  }, []);
+
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
   });
@@ -335,6 +393,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
 
         <div className="min-h-0 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
           <div className="mx-auto grid min-h-full max-w-3xl content-start gap-5">
+            <SavedPlanTray items={savedTripState.items} onRemoveItem={removeSavedItem} />
             {hasMessages ? (
               <>
                 <SuggestedPromptBar
@@ -349,7 +408,11 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
                       key={message.id}
                       message={message}
                       onRetryPrompt={handlePromptSubmit}
+                      onSaveItineraryPlan={saveItineraryPlan}
+                      onSaveRecommendationCard={saveRecommendationCard}
+                      onRemoveSavedItem={removeSavedItem}
                       onSubmitPrompt={handlePromptSubmit}
+                      savedItemIds={savedItemIds}
                     />
                   ))}
                 </div>
@@ -382,12 +445,20 @@ function ChatMessage({
   disabled,
   message,
   onRetryPrompt,
+  onRemoveSavedItem,
+  onSaveItineraryPlan,
+  onSaveRecommendationCard,
   onSubmitPrompt,
+  savedItemIds,
 }: {
   disabled: boolean;
   message: InteractiveChatMessage;
   onRetryPrompt: (prompt: string) => void;
+  onRemoveSavedItem: (itemId: string) => void;
+  onSaveItineraryPlan: (plan: ItineraryPlanArtifact) => void;
+  onSaveRecommendationCard: (card: RecommendationCardArtifact) => void;
   onSubmitPrompt: (prompt: string) => void;
+  savedItemIds: ReadonlySet<string>;
 }) {
   const isUser = message.role === "user";
   const isPending = message.status === "pending";
@@ -426,10 +497,20 @@ function ChatMessage({
           <div className="grid min-w-0 flex-1 gap-4">
             <AssistantMarkdownText text={message.text} tone={isError ? "error" : "default"} />
             {!isError && !isPending && message.itineraries?.length ? (
-              <ItineraryPlans plans={message.itineraries} />
+              <ItineraryPlans
+                onRemoveSavedItem={onRemoveSavedItem}
+                onSaveItineraryPlan={onSaveItineraryPlan}
+                plans={message.itineraries}
+                savedItemIds={savedItemIds}
+              />
             ) : null}
             {!isError && !isPending && message.cards?.length ? (
-              <RecommendationCards cards={message.cards} />
+              <RecommendationCards
+                cards={message.cards}
+                onRemoveSavedItem={onRemoveSavedItem}
+                onSaveRecommendationCard={onSaveRecommendationCard}
+                savedItemIds={savedItemIds}
+              />
             ) : null}
             {!isError && !isPending && message.actions?.length ? (
               <ChatActionButtons
@@ -459,52 +540,139 @@ function ChatMessage({
   );
 }
 
-function ItineraryPlans({ plans }: { plans: readonly ItineraryPlanArtifact[] }) {
+function SavedPlanTray({
+  items,
+  onRemoveItem,
+}: {
+  items: readonly SavedTripItem[];
+  onRemoveItem: (itemId: string) => void;
+}) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <section
+      aria-label="Saved plan"
+      className="grid min-w-0 gap-3 rounded-lg border border-white/14 bg-white/10 p-3 text-text-on-dark shadow-[0_18px_44px_rgba(0,0,0,0.14)] backdrop-blur-md"
+      data-testid="saved-plan-tray"
+    >
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-[#20d59b]/18 text-[#6af0bd]">
+            <BookmarkCheck aria-hidden="true" size={16} />
+          </div>
+          <div className="min-w-0">
+            <h2 className="m-0 text-sm font-black text-text-on-dark">Saved plan</h2>
+            <p className="m-0 text-xs font-bold text-text-on-dark-muted">
+              {items.length} {items.length === 1 ? "item" : "items"} saved locally
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex min-w-0 gap-2 overflow-x-auto pb-1" data-testid="saved-plan-items">
+        {items.map((item) => (
+          <div
+            className="flex min-w-[13rem] max-w-[18rem] items-center gap-2 rounded-md border border-white/14 bg-white/12 px-3 py-2"
+            data-testid="saved-plan-item"
+            key={item.id}
+          >
+            <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-white/12 text-[#6af0bd]">
+              {item.kind === "itinerary" ? (
+                <Navigation aria-hidden="true" size={14} />
+              ) : (
+                <MapPin aria-hidden="true" size={14} />
+              )}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-xs font-extrabold text-text-on-dark">
+              {item.title}
+            </span>
+            <Button
+              aria-label={`Remove ${item.title} from saved plan`}
+              className="size-8 shrink-0 rounded-md border-white/18 bg-white/10 text-text-on-dark hover:bg-white/15"
+              onClick={() => onRemoveItem(item.id)}
+              size="icon"
+              type="button"
+              variant="outline"
+            >
+              <Trash2 aria-hidden="true" size={14} />
+            </Button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ItineraryPlans({
+  onRemoveSavedItem,
+  onSaveItineraryPlan,
+  plans,
+  savedItemIds,
+}: {
+  onRemoveSavedItem: (itemId: string) => void;
+  onSaveItineraryPlan: (plan: ItineraryPlanArtifact) => void;
+  plans: readonly ItineraryPlanArtifact[];
+  savedItemIds: ReadonlySet<string>;
+}) {
   return (
     <div className="grid min-w-0 gap-5" data-testid="itinerary-plans">
-      {plans.map((plan) => (
-        <section
-          aria-label={plan.title}
-          className="grid min-w-0 gap-4 border-[#c9dfd4] border-t pt-4"
-          data-testid="itinerary-plan"
-          key={`${plan.title}-${plan.durationLabel}`}
-        >
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-[#d8f1e6] text-[#14624a]">
-              <Navigation aria-hidden="true" size={17} />
+      {plans.map((plan) => {
+        const savedItemId = savedItemIdForItinerary(plan);
+        const isSaved = savedItemIds.has(savedItemId);
+
+        return (
+          <section
+            aria-label={plan.title}
+            className="grid min-w-0 gap-4 border-[#c9dfd4] border-t pt-4"
+            data-testid="itinerary-plan"
+            key={`${plan.title}-${plan.durationLabel}`}
+          >
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-[#d8f1e6] text-[#14624a]">
+                <Navigation aria-hidden="true" size={17} />
+              </div>
+              <div className="grid min-w-0 flex-1 gap-1">
+                <h3 className="m-0 text-sm leading-[1.25] font-black break-words text-text-strong sm:text-base">
+                  {plan.title}
+                </h3>
+                <span className="inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border border-black/5 bg-[#f7fbf8] px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold text-text-soft">
+                  <Clock aria-hidden="true" className="shrink-0" size={13} />
+                  <span className="min-w-0 break-words">{plan.durationLabel}</span>
+                </span>
+              </div>
+              <SaveToggleButton
+                isSaved={isSaved}
+                itemId={savedItemId}
+                onRemoveSavedItem={onRemoveSavedItem}
+                onSave={() => onSaveItineraryPlan(plan)}
+                title={plan.title}
+              />
             </div>
-            <div className="grid min-w-0 flex-1 gap-1">
-              <h3 className="m-0 text-sm leading-[1.25] font-black break-words text-text-strong sm:text-base">
-                {plan.title}
-              </h3>
-              <span className="inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border border-black/5 bg-[#f7fbf8] px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold text-text-soft">
-                <Clock aria-hidden="true" className="shrink-0" size={13} />
-                <span className="min-w-0 break-words">{plan.durationLabel}</span>
-              </span>
-            </div>
-          </div>
 
-          <ol className="m-0 grid min-w-0 gap-3 p-0" data-testid="itinerary-stops">
-            {sortItineraryStops(plan.stops).map((stop) => (
-              <ItineraryStopRow key={`${stop.sequence}-${stop.title}`} stop={stop} />
-            ))}
-          </ol>
+            <ol className="m-0 grid min-w-0 gap-3 p-0" data-testid="itinerary-stops">
+              {sortItineraryStops(plan.stops).map((stop) => (
+                <ItineraryStopRow key={`${stop.sequence}-${stop.title}`} stop={stop} />
+              ))}
+            </ol>
 
-          {plan.fallbackStops.length ? (
-            <ItineraryNoteSection
-              items={plan.fallbackStops.map((stop) => formatItineraryStopSummary(stop))}
-              testId="itinerary-fallbacks"
-              title="Fallbacks"
-            />
-          ) : null}
+            {plan.fallbackStops.length ? (
+              <ItineraryNoteSection
+                items={plan.fallbackStops.map((stop) => formatItineraryStopSummary(stop))}
+                testId="itinerary-fallbacks"
+                title="Fallbacks"
+              />
+            ) : null}
 
-          {plan.skip.length ? (
-            <ItineraryNoteSection items={plan.skip} testId="itinerary-skip" title="Skip" />
-          ) : null}
+            {plan.skip.length ? (
+              <ItineraryNoteSection items={plan.skip} testId="itinerary-skip" title="Skip" />
+            ) : null}
 
-          {plan.sources.length ? <ItinerarySources sources={plan.sources} /> : null}
-        </section>
-      ))}
+            {plan.sources.length ? <ItinerarySources sources={plan.sources} /> : null}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -638,73 +806,140 @@ function formatTrustLabel(value: string) {
   return value.replaceAll("_", " ");
 }
 
-function RecommendationCards({ cards }: { cards: readonly RecommendationCardArtifact[] }) {
+function RecommendationCards({
+  cards,
+  onRemoveSavedItem,
+  onSaveRecommendationCard,
+  savedItemIds,
+}: {
+  cards: readonly RecommendationCardArtifact[];
+  onRemoveSavedItem: (itemId: string) => void;
+  onSaveRecommendationCard: (card: RecommendationCardArtifact) => void;
+  savedItemIds: ReadonlySet<string>;
+}) {
   return (
     <div className="grid min-w-0 gap-3" data-testid="recommendation-cards">
-      {cards.map((card) => (
-        <article
-          className="grid min-w-0 gap-3 rounded-md border border-[#c9dfd4] bg-[#f7fbf8] p-3 shadow-[0_12px_28px_rgba(22,60,49,0.08)]"
-          data-testid="recommendation-card"
-          key={card.id}
-        >
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-[#d8f1e6] text-[#14624a]">
-              {card.kind === "beach" ? (
-                <Navigation aria-hidden="true" size={17} />
-              ) : (
-                <MapPin aria-hidden="true" size={17} />
-              )}
+      {cards.map((card) => {
+        const savedItemId = savedItemIdForCard(card);
+        const isSaved = savedItemIds.has(savedItemId);
+
+        return (
+          <article
+            className="grid min-w-0 gap-3 rounded-md border border-[#c9dfd4] bg-[#f7fbf8] p-3 shadow-[0_12px_28px_rgba(22,60,49,0.08)]"
+            data-testid="recommendation-card"
+            key={card.id}
+          >
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-[#d8f1e6] text-[#14624a]">
+                {card.kind === "beach" ? (
+                  <Navigation aria-hidden="true" size={17} />
+                ) : (
+                  <MapPin aria-hidden="true" size={17} />
+                )}
+              </div>
+              <div className="grid min-w-0 flex-1 gap-1">
+                <h3 className="m-0 text-sm leading-[1.25] font-black break-words text-text-strong sm:text-base">
+                  {card.title}
+                </h3>
+                {card.subtitle ? (
+                  <p className="m-0 text-xs leading-[1.45] break-words text-text-soft sm:text-sm">
+                    {card.subtitle}
+                  </p>
+                ) : null}
+              </div>
+              <SaveToggleButton
+                isSaved={isSaved}
+                itemId={savedItemId}
+                onRemoveSavedItem={onRemoveSavedItem}
+                onSave={() => onSaveRecommendationCard(card)}
+                title={card.title}
+              />
             </div>
-            <div className="grid min-w-0 flex-1 gap-1">
-              <h3 className="m-0 text-sm leading-[1.25] font-black break-words text-text-strong sm:text-base">
-                {card.title}
-              </h3>
-              {card.subtitle ? (
-                <p className="m-0 text-xs leading-[1.45] break-words text-text-soft sm:text-sm">
-                  {card.subtitle}
-                </p>
+
+            <div className="flex min-w-0 flex-wrap gap-2">
+              {card.distanceLabel ? (
+                <CardSignal icon="distance" label={card.distanceLabel} />
               ) : null}
+              {card.openStatusLabel ? (
+                <CardSignal icon="time" label={card.openStatusLabel} />
+              ) : null}
+              <CardSignal label={card.sourceLabel} />
             </div>
-          </div>
 
-          <div className="flex min-w-0 flex-wrap gap-2">
-            {card.distanceLabel ? <CardSignal icon="distance" label={card.distanceLabel} /> : null}
-            {card.openStatusLabel ? <CardSignal icon="time" label={card.openStatusLabel} /> : null}
-            <CardSignal label={card.sourceLabel} />
-          </div>
+            {card.fitReasons.length ? (
+              <ul className="m-0 grid gap-1.5 pl-4 text-xs leading-[1.45] text-text-default sm:text-sm">
+                {card.fitReasons.map((reason) => (
+                  <li className="break-words" key={reason}>
+                    {reason}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
 
-          {card.fitReasons.length ? (
-            <ul className="m-0 grid gap-1.5 pl-4 text-xs leading-[1.45] text-text-default sm:text-sm">
-              {card.fitReasons.map((reason) => (
-                <li className="break-words" key={reason}>
-                  {reason}
-                </li>
-              ))}
-            </ul>
-          ) : null}
+            {card.caveats.length ? (
+              <p className="m-0 rounded-md border border-[#e4d8b8] bg-[#fff9e8] px-3 py-2 text-xs leading-[1.45] break-words text-[#66521c]">
+                {card.caveats.join(" ")}
+              </p>
+            ) : null}
 
-          {card.caveats.length ? (
-            <p className="m-0 rounded-md border border-[#e4d8b8] bg-[#fff9e8] px-3 py-2 text-xs leading-[1.45] break-words text-[#66521c]">
-              {card.caveats.join(" ")}
-            </p>
-          ) : null}
-
-          {card.mapsUrl ? (
-            <a
-              aria-label={`Open ${card.title} in Google Maps`}
-              className="inline-flex min-h-9 w-fit max-w-full items-center gap-2 rounded-md border border-[#14624a]/25 bg-white px-3 py-2 text-xs font-extrabold text-[#14624a] no-underline hover:bg-[#edf8f2]"
-              href={card.mapsUrl}
-              rel="noreferrer"
-              target="_blank"
-            >
-              <MapPin aria-hidden="true" className="shrink-0" size={15} />
-              <span className="min-w-0 break-words">Open map</span>
-              <ExternalLink aria-hidden="true" className="shrink-0" size={14} />
-            </a>
-          ) : null}
-        </article>
-      ))}
+            {card.mapsUrl ? (
+              <a
+                aria-label={`Open ${card.title} in Google Maps`}
+                className="inline-flex min-h-9 w-fit max-w-full items-center gap-2 rounded-md border border-[#14624a]/25 bg-white px-3 py-2 text-xs font-extrabold text-[#14624a] no-underline hover:bg-[#edf8f2]"
+                href={card.mapsUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <MapPin aria-hidden="true" className="shrink-0" size={15} />
+                <span className="min-w-0 break-words">Open map</span>
+                <ExternalLink aria-hidden="true" className="shrink-0" size={14} />
+              </a>
+            ) : null}
+          </article>
+        );
+      })}
     </div>
+  );
+}
+
+function SaveToggleButton({
+  isSaved,
+  itemId,
+  onRemoveSavedItem,
+  onSave,
+  title,
+}: {
+  isSaved: boolean;
+  itemId: string;
+  onRemoveSavedItem: (itemId: string) => void;
+  onSave: () => void;
+  title: string;
+}) {
+  return (
+    <Button
+      aria-label={isSaved ? `Remove ${title} from saved plan` : `Save ${title}`}
+      className={
+        isSaved
+          ? "size-9 shrink-0 rounded-md border-[#14624a]/25 bg-[#14624a] text-white hover:bg-[#0f503d]"
+          : "size-9 shrink-0 rounded-md border-[#14624a]/25 bg-white text-[#14624a] hover:bg-[#edf8f2]"
+      }
+      onClick={() => {
+        if (isSaved) {
+          onRemoveSavedItem(itemId);
+          return;
+        }
+        onSave();
+      }}
+      size="icon"
+      type="button"
+      variant="outline"
+    >
+      {isSaved ? (
+        <BookmarkCheck aria-hidden="true" size={16} />
+      ) : (
+        <Bookmark aria-hidden="true" size={16} />
+      )}
+    </Button>
   );
 }
 
@@ -1256,6 +1491,322 @@ function ChatEmptyState({
 
 function createMessageId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+function createEmptySavedTripState(): SavedTripState {
+  const now = new Date().toISOString();
+  return {
+    tripId: createAnonymousTripId(),
+    items: [],
+    updatedAt: now,
+  };
+}
+
+function readSavedTripState(): SavedTripState {
+  if (typeof window === "undefined") {
+    return serverSavedTripSnapshot;
+  }
+
+  try {
+    const storedValue = localStorage.getItem(savedTripStorageKey);
+    if (!storedValue) {
+      return createEmptySavedTripState();
+    }
+
+    const parsedValue = JSON.parse(storedValue) as Partial<SavedTripState>;
+    const tripId = isUsableIdentifier(parsedValue.tripId)
+      ? parsedValue.tripId
+      : createAnonymousTripId();
+    const items = Array.isArray(parsedValue.items)
+      ? dedupeSavedItems(parsedValue.items.filter(isSavedTripItemLike))
+      : [];
+
+    return {
+      tripId,
+      items,
+      updatedAt:
+        typeof parsedValue.updatedAt === "string"
+          ? parsedValue.updatedAt
+          : new Date().toISOString(),
+    };
+  } catch {
+    return createEmptySavedTripState();
+  }
+}
+
+function getSavedTripServerSnapshot() {
+  return serverSavedTripSnapshot;
+}
+
+function getSavedTripSnapshot() {
+  if (typeof window === "undefined") {
+    return serverSavedTripSnapshot;
+  }
+
+  const rawValue = localStorage.getItem(savedTripStorageKey);
+  if (savedTripSnapshotCache && savedTripSnapshotCache.rawValue === rawValue) {
+    return savedTripSnapshotCache.state;
+  }
+
+  const state = readSavedTripState();
+  savedTripSnapshotCache = { rawValue, state };
+  return state;
+}
+
+function subscribeSavedTripState(callback: () => void) {
+  savedTripListeners.add(callback);
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === savedTripStorageKey) {
+      savedTripSnapshotCache = null;
+      callback();
+    }
+  };
+
+  window.addEventListener("storage", handleStorage);
+  return () => {
+    savedTripListeners.delete(callback);
+    window.removeEventListener("storage", handleStorage);
+  };
+}
+
+function writeSavedTripState(state: SavedTripState) {
+  const rawValue = JSON.stringify(state);
+  localStorage.setItem(savedTripStorageKey, rawValue);
+  savedTripSnapshotCache = { rawValue, state };
+  for (const listener of savedTripListeners) {
+    listener();
+  }
+}
+
+function upsertSavedTripItem(state: SavedTripState, nextItem: SavedTripItem): SavedTripState {
+  let replacedExistingItem = false;
+  const items: SavedTripItem[] = [];
+
+  for (const item of state.items) {
+    if (item.id !== nextItem.id) {
+      items.push(item);
+      continue;
+    }
+
+    if (!replacedExistingItem) {
+      items.push({ ...nextItem, createdAt: item.createdAt });
+      replacedExistingItem = true;
+    }
+  }
+
+  if (!replacedExistingItem) {
+    items.push(nextItem);
+  }
+
+  return {
+    ...state,
+    items,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function dedupeSavedItems(items: readonly SavedTripItem[]) {
+  const seenItemIds = new Set<string>();
+  const results: SavedTripItem[] = [];
+
+  for (const item of items) {
+    if (seenItemIds.has(item.id)) {
+      continue;
+    }
+    seenItemIds.add(item.id);
+    results.push(item);
+  }
+
+  return results;
+}
+
+function buildSavedItemFromCard(card: RecommendationCardArtifact, tripId: string): SavedTripItem {
+  const now = new Date().toISOString();
+  const itemId = savedItemIdForCard(card);
+  const title = normalizeSavedText(card.title, 180);
+  const caveats = normalizeSavedTextArray(card.caveats, 16);
+
+  return {
+    id: itemId,
+    tripId,
+    kind: card.kind,
+    title,
+    createdAt: now,
+    updatedAt: now,
+    payload: {
+      type: "recommendation_card",
+      card: {
+        id: normalizeSavedIdentifier(card.id),
+        kind: card.kind,
+        title,
+        ...(card.subtitle ? { subtitle: normalizeSavedText(card.subtitle, 180) } : {}),
+        ...(card.mapsUrl ? { mapsUrl: card.mapsUrl } : {}),
+        ...(card.distanceLabel
+          ? { distanceLabel: normalizeSavedText(card.distanceLabel, 80) }
+          : {}),
+        ...(card.openStatusLabel
+          ? { openStatusLabel: normalizeSavedText(card.openStatusLabel, 80) }
+          : {}),
+        fitReasons: normalizeSavedTextArray(card.fitReasons, 8),
+        caveats,
+        sourceLabel: normalizeSavedText(card.sourceLabel, 180),
+      },
+    },
+    sources: [],
+    ...(card.mapsUrl ? { mapsUrl: card.mapsUrl } : {}),
+    caveats,
+  };
+}
+
+function buildSavedItemFromItinerary(plan: ItineraryPlanArtifact, tripId: string): SavedTripItem {
+  const now = new Date().toISOString();
+  const itemId = savedItemIdForItinerary(plan);
+  const title = normalizeSavedText(plan.title, 180);
+  const sources = normalizeSavedSources(plan.sources);
+
+  return {
+    id: itemId,
+    tripId,
+    kind: "itinerary",
+    title,
+    createdAt: now,
+    updatedAt: now,
+    payload: {
+      type: "itinerary_plan",
+      plan: {
+        title,
+        durationLabel: normalizeSavedText(plan.durationLabel, 80),
+        stops: plan.stops.map(normalizeSavedItineraryStop),
+        fallbackStops: plan.fallbackStops.map(normalizeSavedItineraryStop),
+        skip: normalizeSavedTextArray(plan.skip, 12),
+        sources,
+      },
+    },
+    sources,
+    caveats: normalizeSavedTextArray(
+      [
+        ...plan.skip,
+        ...plan.stops.flatMap((stop) => stop.caveats),
+        ...plan.fallbackStops.flatMap((stop) => stop.caveats),
+      ],
+      16,
+    ),
+  };
+}
+
+function savedItemIdForCard(card: RecommendationCardArtifact) {
+  return normalizeSavedIdentifier(`${card.kind}:${card.id}`);
+}
+
+function savedItemIdForItinerary(plan: ItineraryPlanArtifact) {
+  return normalizeSavedIdentifier(`itinerary:${plan.title}:${plan.durationLabel}`);
+}
+
+function createAnonymousTripId() {
+  const randomValue =
+    globalThis.crypto && "randomUUID" in globalThis.crypto
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return normalizeSavedIdentifier(`local_trip_${randomValue}`);
+}
+
+function normalizeSavedItineraryStop(stop: ItineraryStopArtifact) {
+  return {
+    title: normalizeSavedText(stop.title, 180),
+    kind: stop.kind,
+    sequence: stop.sequence,
+    ...(stop.area ? { area: normalizeSavedText(stop.area, 120) } : {}),
+    ...(typeof stop.travelTimeFromPreviousMinutes === "number"
+      ? { travelTimeFromPreviousMinutes: stop.travelTimeFromPreviousMinutes }
+      : {}),
+    ...(stop.mapsUrl ? { mapsUrl: stop.mapsUrl } : {}),
+    rationale: normalizeSavedText(stop.rationale, 500),
+    caveats: normalizeSavedTextArray(stop.caveats, 12),
+  };
+}
+
+function normalizeSavedSources(
+  sources: ItineraryPlanArtifact["sources"],
+): SavedTripItem["sources"] {
+  return sources.map((source) => ({
+    label: isSavedSourceLabel(source.label) ? source.label : "not_verified",
+    sourceName: normalizeSavedText(source.sourceName, 180),
+    ...(source.sourceProfileId
+      ? { sourceProfileId: normalizeSavedText(source.sourceProfileId, 180) }
+      : {}),
+    ...(source.fetchedAt ? { fetchedAt: source.fetchedAt } : {}),
+    ...(source.confidence ? { confidence: source.confidence } : {}),
+    checked: normalizeSavedTextArray(source.checked, 12, 180),
+    notChecked: normalizeSavedTextArray(source.notChecked, 16, 180),
+  }));
+}
+
+function normalizeSavedTextArray(values: readonly string[], maxItems: number, maxLength = 500) {
+  const results: string[] = [];
+
+  for (const value of values) {
+    const normalizedValue = normalizeSavedText(value, maxLength);
+    if (normalizedValue.length === 0) {
+      continue;
+    }
+
+    results.push(normalizedValue);
+    if (results.length >= maxItems) {
+      break;
+    }
+  }
+
+  return results;
+}
+
+function normalizeSavedText(value: string, maxLength: number) {
+  return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+
+function normalizeSavedIdentifier(value: string) {
+  const normalizedValue = value
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zA-Z0-9:_-]/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 128);
+  return normalizedValue.length > 0 ? normalizedValue : "saved_item";
+}
+
+function isUsableIdentifier(value: unknown): value is string {
+  return typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9:_-]{7,127}$/.test(value);
+}
+
+function isSavedSourceLabel(value: string): value is SavedTripItem["sources"][number]["label"] {
+  return (
+    value === "live_checked" ||
+    value === "fresh_cache" ||
+    value === "curated_local_guide" ||
+    value === "weather_checked" ||
+    value === "not_verified" ||
+    value === "provider_unavailable"
+  );
+}
+
+function isSavedTripItemLike(value: unknown): value is SavedTripItem {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const item = value as Partial<SavedTripItem>;
+  return (
+    typeof item.id === "string" &&
+    typeof item.title === "string" &&
+    typeof item.createdAt === "string" &&
+    typeof item.updatedAt === "string" &&
+    (item.kind === "place" ||
+      item.kind === "beach" ||
+      item.kind === "itinerary" ||
+      item.kind === "note") &&
+    typeof item.payload === "object" &&
+    Array.isArray(item.sources) &&
+    Array.isArray(item.caveats)
+  );
 }
 
 function formatTimestamp() {

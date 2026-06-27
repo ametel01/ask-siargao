@@ -63,6 +63,8 @@ type MockItineraryPlan = {
   }>;
 };
 
+const savedTripStorageKey = "ask-siargao:saved-trip:v1";
+
 test("sends a desktop composer message to the chat API and renders the assistant response", async ({
   page,
 }) => {
@@ -328,6 +330,81 @@ test("renders itinerary plans with stops, fallbacks, skip guidance, sources, and
   await expect(page.getByTestId("itinerary-sources")).toContainText(
     "Not checked by Ask Siargao local guide: live weather",
   );
+});
+
+test("saves local cards and itineraries with dedupe, removal, and reload persistence", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 900 });
+  const prompt = "Save a Shaka stop and rainy Cloud 9 plan";
+  await mockChatApi(page, {
+    message: "Mocked saved-plan answer: save the useful pieces below.",
+    cards: [
+      {
+        id: "place_shaka",
+        kind: "place",
+        title: "Shaka Siargao",
+        subtitle: "Cafe - Cloud 9, General Luna",
+        mapsUrl: "https://maps.google.com/?cid=shaka",
+        distanceLabel: "About 50 m from search center.",
+        openStatusLabel: "Open now according to Google Places.",
+        fitReasons: ["Returned #1 by Google Places for this request."],
+        caveats: ["Review text and bookings were not checked."],
+        sourceLabel: "Google Places - live checked",
+      },
+    ],
+    itineraries: [mockRainyCloud9Itinerary()],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill(prompt);
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByText("Mocked saved-plan answer:")).toBeVisible();
+  await page.getByRole("button", { name: "Save Shaka Siargao" }).click();
+  await expect(page.getByTestId("saved-plan-tray")).toContainText("1 item saved locally");
+  await expect(
+    page.getByTestId("saved-plan-item").filter({ hasText: "Shaka Siargao" }),
+  ).toHaveCount(1);
+
+  await page.getByRole("button", { name: "Save Rainy Cloud 9 Afternoon" }).click();
+  await expect(page.getByTestId("saved-plan-tray")).toContainText("2 items saved locally");
+  await expect(
+    page.getByTestId("saved-plan-item").filter({ hasText: "Rainy Cloud 9 Afternoon" }),
+  ).toHaveCount(1);
+
+  const savedState = await readSavedTripStorage(page);
+  expect(savedState.items.map((item) => item.kind).sort()).toEqual(["itinerary", "place"]);
+  const savedJson = JSON.stringify(savedState);
+  expect(savedJson).not.toContain(prompt);
+  expect(savedJson).not.toContain("messages");
+  expect(savedJson).not.toContain("clientContext");
+  expect(savedJson).not.toContain("latitude");
+  expect(savedJson).not.toContain("longitude");
+
+  await page.evaluate((storageKey) => {
+    const storedValue = localStorage.getItem(storageKey);
+    if (!storedValue) {
+      throw new Error("Saved trip storage missing.");
+    }
+    const state = JSON.parse(storedValue) as SavedTripStorageState;
+    state.items.push({ ...state.items[0], updatedAt: new Date().toISOString() });
+    localStorage.setItem(storageKey, JSON.stringify(state));
+  }, savedTripStorageKey);
+
+  await page.reload();
+  await expect(page.getByTestId("saved-plan-tray")).toContainText("2 items saved locally");
+  await expect(page.getByTestId("saved-plan-item")).toHaveCount(2);
+
+  await page
+    .getByTestId("saved-plan-tray")
+    .getByRole("button", { name: "Remove Shaka Siargao from saved plan" })
+    .click();
+  await expect(page.getByTestId("saved-plan-tray")).toContainText("1 item saved locally");
+  await expect(
+    page.getByTestId("saved-plan-item").filter({ hasText: "Shaka Siargao" }),
+  ).toHaveCount(0);
+  expect((await readSavedTripStorage(page)).items).toHaveLength(1);
 });
 
 test("renders initial itinerary theme fixtures without generic brainstorm fallback", async ({
@@ -754,6 +831,27 @@ async function mockChatApi(
 
 function lastSubmittedContent(request?: ChatRequestBody) {
   return request?.messages?.at(-1)?.content;
+}
+
+type SavedTripStorageState = {
+  tripId: string;
+  items: Array<{
+    id: string;
+    kind: "place" | "beach" | "itinerary" | "note";
+    title: string;
+    updatedAt: string;
+  }>;
+  updatedAt: string;
+};
+
+async function readSavedTripStorage(page: Page) {
+  return page.evaluate((storageKey) => {
+    const storedValue = localStorage.getItem(storageKey);
+    if (!storedValue) {
+      throw new Error("Saved trip storage missing.");
+    }
+    return JSON.parse(storedValue) as SavedTripStorageState;
+  }, savedTripStorageKey);
 }
 
 function mockRainyCloud9Itinerary(): MockItineraryPlan {
