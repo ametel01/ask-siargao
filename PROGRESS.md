@@ -9,7 +9,7 @@ Source documents:
 
 ## Current Status
 
-Step 5 is complete. Next step: Step 6, add public shared plan page.
+Step 6 is complete. Next step: Step 7, wire share creation into chat UI.
 
 `PROGRESS.md` must be updated after every completed step with the completed step,
 validation results, commit reference if available, current status, and next step.
@@ -24,12 +24,44 @@ step is committed.
 - [x] Step 3: Add Local Saved Items In Chat
 - [x] Step 4: Add Trip Persistence Schema And Store
 - [x] Step 5: Add Saved Trip API Routes
-- [ ] Step 6: Add Public Shared Plan Page
+- [x] Step 6: Add Public Shared Plan Page
 - [ ] Step 7: Wire Share Creation Into Chat UI
 - [ ] Step 8: Harden Source Policy And Privacy Tests
 - [ ] Step 9: Update Documentation And Final Verification
 
 ## Update Log
+
+### 2026-06-28: Step 6 - Add Public Shared Plan Page
+
+Completed:
+- Added the dynamic `/trips/shared/[token]` App Router page with noindex/nofollow metadata and
+  server-side share-token lookup.
+- Added a render-only shared trip plan view for selected recommendation cards, itinerary plans,
+  sources, caveats, freshness labels, and map links.
+- Added a generic unavailable state for invalid, expired, or deleted share tokens without exposing
+  token status.
+- Kept public rendering limited to selected saved artifacts, excluding chat transcript fields, raw
+  provider payloads, and browser coordinates.
+- Added server-rendered component tests for selected card/itinerary output and privacy exclusions.
+
+Validation:
+- `bun run format`: passed.
+- `bun test src/features/trips/SharedTripPlanPage.test.tsx`: passed, 2 tests.
+- `npx react-doctor@latest --verbose --scope changed`: passed, 100/100 with no issues.
+- `bun run lint`: passed, Biome checked 211 files.
+- `bun run typecheck --incremental false`: passed.
+- `bun test`: passed, 464 tests across 46 files.
+- `bun run db:migrate:test`: passed, migrated 41 tables in the Step 3 test database.
+- `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
+- `bun run build`: passed and listed `/trips/shared/[token]` as dynamic server-rendered.
+- `bun run test:e2e`: passed, 25 Playwright tests.
+- Post-update `bun run lint`: passed after recording progress and changelog entries.
+
+Commit:
+- `Render shared trip plans`.
+
+Next:
+- Step 7: wire share creation into the chat UI.
 
 ### 2026-06-28: Step 5 - Add Saved Trip API Routes
 

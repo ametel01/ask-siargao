@@ -78,6 +78,10 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added public shared trip plan pages at `/trips/shared/[token]` with noindex metadata, selected
+  card/itinerary rendering, source and caveat display, map links, generic unavailable-token
+  handling, and server-render privacy coverage that excludes chat transcripts, raw provider
+  payloads, and browser coordinates.
 - Added saved trip API routes for browser sync, item deletion, share URL creation, and share-token
   lookup with validation, rate limiting, and route-level privacy coverage.
 - Added Postgres-backed saved trip persistence and share-token storage, including hashed public
