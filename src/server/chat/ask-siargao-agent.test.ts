@@ -413,7 +413,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     });
     expect(client.requests).toHaveLength(2);
     const automaticInput = parseAutomaticRequiredPlanInput(client.requests[1]?.input);
-    expect(automaticInput.automaticRequiredItineraryPlan?.name).toBe("plan_local_itinerary");
+    expect(automaticInput.validationRepairItineraryPlan?.name).toBe("plan_local_itinerary");
     expect(result.itineraries).toEqual([foodCrawlPlan]);
   });
 
@@ -1268,7 +1268,7 @@ function parseAutomaticRequiredCheckInput(input: unknown): {
 }
 
 function parseAutomaticRequiredPlanInput(input: unknown): {
-  automaticRequiredItineraryPlan?: { name?: string };
+  validationRepairItineraryPlan?: { name?: string };
 } {
   return typeof input === "string" ? JSON.parse(input) : {};
 }

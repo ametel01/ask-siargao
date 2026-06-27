@@ -9,6 +9,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Refreshed structured itinerary artifacts with successful live weather and Places follow-up
+  evidence, reconciled top-level chat sources after itinerary checks, and gave route scenario tests
+  distinct itinerary fixtures.
 - Required structured itinerary planning before final prose for clear itinerary prompts, kept
   open-now caveats until Places returns opening-hours evidence, and stopped food-crawl artifacts
   from claiming curated beach-guide source support.

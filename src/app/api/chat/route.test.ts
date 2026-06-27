@@ -247,6 +247,7 @@ describe("chat route", () => {
     {
       name: "rainy Cloud 9 afternoon",
       prompt: "Plan a rainy Cloud 9 afternoon for 3 hours.",
+      itinerary: () => rainyCloud9Itinerary,
       assertSignals: (signals: AgentSignals | undefined) => {
         expect(signals?.intent.activityPlan).toBe(true);
         expect(signals?.intent.weatherSensitive).toBe(true);
@@ -255,6 +256,7 @@ describe("chat route", () => {
     {
       name: "sunset plus dinner",
       prompt: "Plan sunset plus dinner in General Luna tonight.",
+      itinerary: () => sunsetDinnerItinerary,
       assertSignals: (signals: AgentSignals | undefined) => {
         expect(signals?.intent.activityPlan).toBe(true);
         expect(signals?.intent.placeIntent?.category).toBe("food");
@@ -263,6 +265,7 @@ describe("chat route", () => {
     {
       name: "sandy beach half-day",
       prompt: "Plan a sandy beach half-day within 30 minutes from General Luna.",
+      itinerary: () => sandyBeachItinerary,
       assertSignals: (signals: AgentSignals | undefined) => {
         expect(signals?.intent.activityPlan).toBe(true);
         expect(signals?.intent.beach).toBe(true);
@@ -271,6 +274,7 @@ describe("chat route", () => {
     {
       name: "food crawl",
       prompt: "Plan a three-hour food crawl in General Luna.",
+      itinerary: () => foodCrawlItinerary,
       assertSignals: (signals: AgentSignals | undefined) => {
         expect(signals?.intent.activityPlan).toBe(true);
         expect(signals?.intent.placeIntent?.category).toBe("food");
@@ -278,6 +282,7 @@ describe("chat route", () => {
     },
   ]) {
     test(`returns itinerary artifacts for ${scenario.name} prompts`, async () => {
+      const itinerary = scenario.itinerary();
       const dependencies = chatDependencies({
         message: `Model-written ${scenario.name} itinerary.`,
         toolCalls: [
@@ -288,7 +293,7 @@ describe("chat route", () => {
           }),
         ],
         sources: [localGuideSourceSummary],
-        itineraries: [rainyCloud9Itinerary],
+        itineraries: [itinerary],
       });
       const response = await chatResponse(
         jsonRequest({
@@ -301,7 +306,7 @@ describe("chat route", () => {
 
       expect(response.status).toBe(200);
       expect(body.message).toContain("Model-written");
-      expect(body.itineraries).toEqual([rainyCloud9Itinerary]);
+      expect(body.itineraries).toEqual([itinerary]);
       scenario.assertSignals(signals);
     });
   }
@@ -740,6 +745,114 @@ const rainyCloud9Itinerary: ItineraryPlan = {
   ],
   skip: ["Exposed beach hopping"],
   sources: [localGuideSourceSummary],
+};
+
+const sunsetDinnerItinerary: ItineraryPlan = {
+  title: "Sunset plus Dinner",
+  durationLabel: "3-4 hours",
+  stops: [
+    {
+      title: "Cloud 9 sunset watch",
+      kind: "activity",
+      sequence: 1,
+      area: "Cloud 9",
+      rationale: "Keep sunset close before dinner.",
+      caveats: ["Cloud cover needs checking."],
+    },
+    {
+      title: "Dinner in General Luna",
+      kind: "meal",
+      sequence: 2,
+      area: "General Luna",
+      travelTimeFromPreviousMinutes: 10,
+      rationale: "Avoids a late long ride.",
+      caveats: ["Open status needs Places."],
+    },
+  ],
+  fallbackStops: [
+    {
+      title: "Central General Luna dinner",
+      kind: "meal",
+      sequence: 1,
+      area: "General Luna",
+      rationale: "Use if sunset weather is poor.",
+      caveats: ["Open status needs Places."],
+    },
+  ],
+  skip: ["Far north dinner detours after dark"],
+  sources: [localGuideSourceSummary],
+};
+
+const sandyBeachItinerary: ItineraryPlan = {
+  title: "Sandy Beach Half-Day",
+  durationLabel: "3-4 hours",
+  stops: [
+    {
+      title: "Doot Beach",
+      kind: "beach",
+      sequence: 1,
+      area: "General Luna",
+      rationale: "Main sandy beach stop within the ride-time constraint.",
+      caveats: ["Tide and local safety were not checked."],
+    },
+    {
+      title: "Cafe near General Luna",
+      kind: "meal",
+      sequence: 2,
+      area: "General Luna",
+      travelTimeFromPreviousMinutes: 15,
+      rationale: "Keeps the half-day compact.",
+      caveats: ["Open status needs Places."],
+    },
+  ],
+  fallbackStops: [
+    {
+      title: "Malinao Beach",
+      kind: "beach",
+      sequence: 1,
+      area: "General Luna",
+      rationale: "Use if the first sandy stop is crowded.",
+      caveats: ["Tide and local safety were not checked."],
+    },
+  ],
+  skip: ["Pacifico under a strict 30-minute General Luna constraint"],
+  sources: [localGuideSourceSummary],
+};
+
+const foodCrawlItinerary: ItineraryPlan = {
+  title: "General Luna Food Crawl",
+  durationLabel: "3-4 hours",
+  stops: [
+    {
+      title: "First restaurant stop in General Luna",
+      kind: "meal",
+      sequence: 1,
+      area: "General Luna",
+      rationale: "Start central.",
+      caveats: ["Use Places before naming venues."],
+    },
+    {
+      title: "Dessert or cafe stop",
+      kind: "meal",
+      sequence: 2,
+      area: "General Luna",
+      travelTimeFromPreviousMinutes: 10,
+      rationale: "Keep the route compact.",
+      caveats: ["Open status needs Places."],
+    },
+  ],
+  fallbackStops: [
+    {
+      title: "One central General Luna venue",
+      kind: "meal",
+      sequence: 1,
+      area: "General Luna",
+      rationale: "Use if Places returns too few crawl stops.",
+      caveats: ["Do not claim reliability without evidence."],
+    },
+  ],
+  skip: ["Venue names without Places evidence"],
+  sources: [genericSourceSummary],
 };
 
 const providerUnavailableSourceSummary: AnswerSourceSummary = {

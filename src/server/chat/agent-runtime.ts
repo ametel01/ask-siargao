@@ -167,6 +167,8 @@ export type AgentArtifactCarrier = {
 };
 
 type AgentToolResultArtifactCarrier = AgentArtifactCarrier & {
+  name?: AgentToolResult["name"];
+  status?: AgentToolResult["status"];
   data?: AgentToolResult["data"];
 };
 
@@ -257,6 +259,8 @@ export function createAgentTurnResult({
   const artifactCarriers = toolResults ?? [];
   const mergedSources = sources ?? aggregateAgentSourceSummaries(sourceCarriers);
   const sourceReconciliation = itinerarySourceReconciliation(artifactCarriers, toolCalls);
+  const reconciledSources = reconcileSourceSummaries(mergedSources, sourceReconciliation);
+  const liveItineraryEvidence = itineraryLiveEvidence(artifactCarriers);
   const mergedCards = dedupeById([
     ...(cards ?? []),
     ...artifactCarriers.flatMap((result) => result.cards ?? []),
@@ -268,7 +272,11 @@ export function createAgentTurnResult({
   const mergedItineraries = dedupeItineraries([
     ...(itineraries ?? []),
     ...artifactCarriers.flatMap((result) => result.itineraries ?? []),
-  ]).map((itinerary) => reconcileItinerarySources(itinerary, mergedSources, sourceReconciliation));
+  ])
+    .map((itinerary) => refreshItineraryArtifact(itinerary, liveItineraryEvidence))
+    .map((itinerary) =>
+      reconcileItinerarySources(itinerary, reconciledSources, sourceReconciliation),
+    );
 
   return {
     message,
@@ -276,7 +284,7 @@ export function createAgentTurnResult({
     ...(upstreamRequestIds?.length ? { upstreamRequestIds: unique(upstreamRequestIds) } : {}),
     model,
     toolCalls,
-    sources: mergedSources,
+    sources: reconciledSources,
     ...(memory ? { memory } : {}),
     ...(mergedCards.length ? { cards: mergedCards } : {}),
     ...(mergedActions.length ? { actions: mergedActions } : {}),
@@ -326,6 +334,316 @@ function reconcileItinerarySources(
     ...itinerary,
     sources: [...reconciledSources, ...addedSources],
   };
+}
+
+function reconcileSourceSummaries(
+  sources: readonly AnswerSourceSummary[],
+  reconciliation: ItinerarySourceReconciliation,
+) {
+  return sources
+    .map((source) => reconcileNotCheckedSource(source, reconciliation))
+    .filter((source) => source.checked.length > 0 || source.notChecked.length > 0);
+}
+
+type ItineraryLiveEvidence = {
+  highWeatherRisk: boolean;
+  weatherSummary?: string;
+  places: readonly LivePlaceCandidate[];
+};
+
+type LivePlaceCandidate = {
+  title: string;
+  includedType?: string;
+  mapsUrl?: string;
+  area?: string;
+  openStatusLabel?: string;
+  fitReasons: readonly string[];
+  caveats: readonly string[];
+};
+
+function itineraryLiveEvidence(
+  toolResults: readonly AgentToolResultArtifactCarrier[],
+): ItineraryLiveEvidence {
+  const places: LivePlaceCandidate[] = [];
+  let highWeatherRisk = false;
+  let weatherSummary: string | undefined;
+
+  for (const result of toolResults) {
+    if (result.status === "error") {
+      continue;
+    }
+
+    if (result.name === "get_weather_forecast") {
+      const level = readStringPath(result.data, ["today", "level"]);
+      if (level === "high") {
+        highWeatherRisk = true;
+      }
+      weatherSummary = readStringPath(result.data, ["summary"]) ?? weatherSummary;
+    }
+
+    if (isPlacesEvidenceResult(result)) {
+      places.push(...livePlaceCandidatesFromResult(result));
+    }
+  }
+
+  return {
+    highWeatherRisk,
+    ...(weatherSummary ? { weatherSummary } : {}),
+    places: dedupeLivePlaceCandidates(places),
+  };
+}
+
+function isPlacesEvidenceResult(result: AgentToolResultArtifactCarrier) {
+  return (
+    result.name === "search_places" ||
+    result.sources.some(
+      (source) =>
+        source.sourceProfileId === "source_google_places" &&
+        (source.label === "live_checked" || source.label === "fresh_cache"),
+    )
+  );
+}
+
+function livePlaceCandidatesFromResult(
+  result: AgentToolResultArtifactCarrier,
+): LivePlaceCandidate[] {
+  const includedType = readStringPath(result.data, ["search", "includedType"]);
+  const candidates = (result.cards ?? [])
+    .filter((card) => card.kind === "place")
+    .map((card) => ({
+      title: card.title,
+      ...(includedType ? { includedType } : {}),
+      ...(card.mapsUrl ? { mapsUrl: card.mapsUrl } : {}),
+      ...(card.subtitle ? { area: card.subtitle } : {}),
+      ...(card.openStatusLabel ? { openStatusLabel: card.openStatusLabel } : {}),
+      fitReasons: card.fitReasons,
+      caveats: card.caveats,
+    }));
+
+  if (candidates.length > 0) {
+    return candidates;
+  }
+
+  const places =
+    isRecord(result.data) && Array.isArray(result.data.places) ? result.data.places : [];
+  return places.flatMap((place): LivePlaceCandidate[] => {
+    if (!isRecord(place)) {
+      return [];
+    }
+    const title = readString(place.displayName);
+    if (!title) {
+      return [];
+    }
+    return [
+      {
+        title,
+        ...(includedType ? { includedType } : {}),
+        ...(readString(place.googleMapsUri) ? { mapsUrl: readString(place.googleMapsUri) } : {}),
+        ...(readString(place.formattedAddress) ? { area: readString(place.formattedAddress) } : {}),
+        ...(isRecord(place.currentOpeningHours) &&
+        typeof place.currentOpeningHours.openNow === "boolean"
+          ? {
+              openStatusLabel: place.currentOpeningHours.openNow
+                ? "Open now according to Google Places."
+                : "Not open now according to Google Places.",
+            }
+          : {}),
+        fitReasons: ["Returned by Google Places for the itinerary follow-up check."],
+        caveats: [],
+      },
+    ];
+  });
+}
+
+function dedupeLivePlaceCandidates(candidates: readonly LivePlaceCandidate[]) {
+  const results: LivePlaceCandidate[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const key = normalizeText(candidate.title).toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    results.push(candidate);
+  }
+  return results;
+}
+
+function refreshItineraryArtifact(
+  itinerary: ItineraryPlan,
+  evidence: ItineraryLiveEvidence,
+): ItineraryPlan {
+  const weatherAdjusted = applyWeatherEvidenceToItinerary(itinerary, evidence);
+  return applyPlacesEvidenceToItinerary(weatherAdjusted, evidence.places);
+}
+
+function applyWeatherEvidenceToItinerary(
+  itinerary: ItineraryPlan,
+  evidence: ItineraryLiveEvidence,
+): ItineraryPlan {
+  if (!evidence.highWeatherRisk || itinerary.fallbackStops.length === 0) {
+    return itinerary;
+  }
+
+  const promotedFallbacks = itinerary.fallbackStops.map((stop) => ({
+    ...stop,
+    rationale: weatherAdjustedRationale(stop.rationale, evidence.weatherSummary),
+    caveats: uniqueText([
+      ...stop.caveats.filter((caveat) => !isWeatherNotCheckedItem(caveat)),
+      "Promoted from fallback after live weather showed high weather risk.",
+    ]),
+  }));
+  const remainingStops = itinerary.stops
+    .filter(
+      (stop) =>
+        !promotedFallbacks.some(
+          (fallback) => normalizeText(fallback.title) === normalizeText(stop.title),
+        ),
+    )
+    .map((stop) => ({
+      ...stop,
+      caveats: uniqueText([
+        ...stop.caveats.filter((caveat) => !isWeatherNotCheckedItem(caveat)),
+        ...(isOutdoorItineraryStop(stop)
+          ? ["Keep this optional unless the live weather window is comfortable."]
+          : []),
+      ]),
+    }));
+
+  return {
+    ...itinerary,
+    stops: resequenceItineraryStops([...promotedFallbacks, ...remainingStops]),
+    fallbackStops: [],
+    skip: uniqueText([
+      ...itinerary.skip,
+      "Outdoor stops during high weather-risk windows unless conditions visibly improve",
+    ]),
+  };
+}
+
+function applyPlacesEvidenceToItinerary(
+  itinerary: ItineraryPlan,
+  candidates: readonly LivePlaceCandidate[],
+): ItineraryPlan {
+  if (candidates.length === 0) {
+    return itinerary;
+  }
+
+  const usedCandidateTitles = new Set<string>();
+  return {
+    ...itinerary,
+    stops: itinerary.stops.map((stop) =>
+      applyPlaceCandidateToStop(stop, candidates, usedCandidateTitles),
+    ),
+    fallbackStops: itinerary.fallbackStops.map((stop) =>
+      applyPlaceCandidateToStop(stop, candidates, usedCandidateTitles),
+    ),
+  };
+}
+
+function applyPlaceCandidateToStop(
+  stop: ItineraryStop,
+  candidates: readonly LivePlaceCandidate[],
+  usedCandidateTitles: Set<string>,
+): ItineraryStop {
+  if (!shouldHydrateStopWithPlaces(stop)) {
+    return stop;
+  }
+
+  const candidate = choosePlaceCandidateForStop(stop, candidates, usedCandidateTitles);
+  if (!candidate) {
+    return stop;
+  }
+
+  usedCandidateTitles.add(normalizeText(candidate.title).toLowerCase());
+  return {
+    ...stop,
+    title: candidate.title,
+    ...(candidate.area ? { area: stop.area ?? candidate.area } : {}),
+    ...(candidate.mapsUrl ? { mapsUrl: candidate.mapsUrl } : {}),
+    rationale: placeAdjustedRationale(stop.rationale, candidate),
+    caveats: uniqueText([
+      ...stop.caveats.filter((caveat) => !isPlacesNotCheckedCaveat(caveat)),
+      ...candidate.caveats,
+    ]),
+  };
+}
+
+function choosePlaceCandidateForStop(
+  stop: ItineraryStop,
+  candidates: readonly LivePlaceCandidate[],
+  usedCandidateTitles: Set<string>,
+) {
+  const unused = candidates.filter(
+    (candidate) => !usedCandidateTitles.has(normalizeText(candidate.title).toLowerCase()),
+  );
+  const preferredType = preferredPlaceTypeForStop(stop);
+  return (
+    unused.find((candidate) => preferredType && candidate.includedType === preferredType) ??
+    unused[0]
+  );
+}
+
+function preferredPlaceTypeForStop(stop: ItineraryStop) {
+  const haystack = normalizeText(`${stop.title} ${stop.rationale} ${stop.caveats.join(" ")}`);
+  if (/\b(cafe|coffee|dessert|covered)\b/i.test(haystack)) {
+    return "cafe";
+  }
+  if (/\b(dinner|restaurant|food|meal|lunch|breakfast)\b/i.test(haystack)) {
+    return "restaurant";
+  }
+  return undefined;
+}
+
+function shouldHydrateStopWithPlaces(stop: ItineraryStop) {
+  if (stop.kind === "meal" || stop.kind === "place") {
+    return true;
+  }
+  const titleAndCaveats = normalizeText(`${stop.title} ${stop.caveats.join(" ")}`);
+  return /\b(places|google places|open status|open-now|opening|hours|maps?|venue|cafe|restaurant|food|dessert)\b/i.test(
+    titleAndCaveats,
+  );
+}
+
+function isPlacesNotCheckedCaveat(value: string) {
+  return /\b(places|google places|open status|open[- ]?now|opening|hours?|maps?|venue|venues?|ratings?)\b/i.test(
+    value,
+  );
+}
+
+function isOutdoorItineraryStop(stop: ItineraryStop) {
+  if (stop.kind === "meal") {
+    return false;
+  }
+  return /\b(beach|boardwalk|sunset|outdoor|surf|walk)\b/i.test(
+    `${stop.title} ${stop.area ?? ""} ${stop.rationale}`,
+  );
+}
+
+function placeAdjustedRationale(stopRationale: string, candidate: LivePlaceCandidate) {
+  return uniqueText([
+    stopRationale,
+    `Updated from the required Places check with ${candidate.title}${
+      candidate.openStatusLabel ? ` (${candidate.openStatusLabel})` : ""
+    }.`,
+  ]).join(" ");
+}
+
+function weatherAdjustedRationale(stopRationale: string, weatherSummary: string | undefined) {
+  return uniqueText([
+    stopRationale,
+    weatherSummary
+      ? `Live weather check reported high risk: ${weatherSummary}`
+      : "Live weather check reported high weather risk.",
+  ]).join(" ");
+}
+
+function resequenceItineraryStops(stops: readonly ItineraryStop[]) {
+  return stops.map((stop, index) => ({
+    ...stop,
+    sequence: index + 1,
+    ...(index === 0 ? { travelTimeFromPreviousMinutes: undefined } : {}),
+  }));
 }
 
 type ItinerarySourceReconciliation = {
@@ -530,6 +848,10 @@ function unique(values: readonly string[]) {
   return [...new Set(values)];
 }
 
+function uniqueText(values: readonly string[]) {
+  return [...new Set(values.map(normalizeText).filter(Boolean))];
+}
+
 function dedupeById<T extends { id: string }>(values: readonly T[]) {
   const results: T[] = [];
   const seen = new Set<string>();
@@ -596,6 +918,21 @@ function normalizeRequiredToolArguments(value: unknown): string {
         ]),
     ),
   );
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function readStringPath(value: unknown, path: readonly string[]) {
+  let current = value;
+  for (const segment of path) {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    current = current[segment];
+  }
+  return readString(current);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

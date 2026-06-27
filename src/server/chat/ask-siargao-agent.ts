@@ -120,15 +120,17 @@ export async function runAskSiargaoAgentTurn(
   for (let turn = 0; turn < maxTurns; turn += 1) {
     const finalText = response.output_text?.trim();
     if (finalText) {
-      const missingInitialItineraryPlan = missingRequiredInitialItineraryPlan(resolved, toolCalls);
-      if (missingInitialItineraryPlan) {
+      const itineraryPlanRepairCall = missingInitialItineraryPlanRepairCall(resolved, toolCalls);
+      if (itineraryPlanRepairCall) {
         if (toolCalls.length + 1 > maxToolCalls) {
           throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
         }
 
+        // Validation repair only: the model should choose plan_local_itinerary first. If it
+        // tries final itinerary prose anyway, the runtime repairs the missing contract evidence.
         const automaticPlanOutput = await executeAndAuditTool({
           executeTool,
-          functionCall: missingInitialItineraryPlan,
+          functionCall: itineraryPlanRepairCall,
           logger,
           now: dependencies.now ?? (() => new Date()),
           requestId: resolved.requestId,
@@ -146,8 +148,8 @@ export async function runAskSiargaoAgentTurn(
           input: JSON.stringify({
             product: "Ask Siargao",
             instruction:
-              "You attempted a final itinerary answer before calling plan_local_itinerary. Use this automatically executed itinerary artifact as planning evidence, preserve its caveats, and continue with any required follow-up checks before the final traveler-facing answer.",
-            automaticRequiredItineraryPlan: {
+              "Validation repair: you attempted a final itinerary answer before choosing plan_local_itinerary as required. Use this runtime-repaired itinerary artifact as planning evidence, preserve its caveats, and continue with any required follow-up checks before the final traveler-facing answer.",
+            validationRepairItineraryPlan: {
               toolCallId: automaticPlanOutput.functionCall.callId,
               name: automaticPlanOutput.functionCall.name,
               arguments: automaticPlanOutput.functionCall.arguments,
@@ -267,7 +269,7 @@ export async function runAskSiargaoAgentTurn(
   throw new Error("Ask Siargao agent exceeded the maximum turn count.");
 }
 
-function missingRequiredInitialItineraryPlan(
+function missingInitialItineraryPlanRepairCall(
   request: AgentRuntimeRequest,
   toolCalls: readonly AgentToolCallAudit[],
 ): ParsedFunctionCall | undefined {

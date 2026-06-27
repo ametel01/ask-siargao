@@ -439,6 +439,175 @@ describe("agent runtime contracts", () => {
     expect(turn.itineraries?.[0]?.sources).toContainEqual(identityOnlyPlacesSourceSummary);
   });
 
+  test("reconciles top-level sources after required itinerary checks", () => {
+    const weatherCall = createAgentToolCallAudit({
+      auditId: "audit_required_weather",
+      name: "get_weather_forecast",
+      arguments: { location: "Cloud 9", date_range: "today" },
+      result: {
+        name: "get_weather_forecast",
+        status: "success",
+        text: "Weather loaded.",
+        sources: [weatherSourceSummary],
+      },
+      startedAt: new Date("2026-06-26T00:00:00.000Z"),
+      completedAt: new Date("2026-06-26T00:00:00.010Z"),
+    });
+    const placesArguments = {
+      query: "covered cafes near Cloud 9 Siargao",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+      radius_meters: 2500,
+      constraints: { included_type: "cafe", open_now: true, page_size: 5 },
+    };
+    const placesCall = createAgentToolCallAudit({
+      auditId: "audit_required_places",
+      name: "search_places",
+      arguments: placesArguments,
+      result: {
+        name: "search_places",
+        status: "success",
+        text: "Places loaded.",
+        sources: [placesSourceSummary],
+      },
+      startedAt: new Date("2026-06-26T00:00:00.020Z"),
+      completedAt: new Date("2026-06-26T00:00:00.030Z"),
+    });
+
+    const turn = createAgentTurnResult({
+      message: "Weather and cafe checks are now complete.",
+      requestId: "agent_request_reconciled_top_level_sources",
+      model: "gpt-test",
+      toolCalls: [weatherCall, placesCall],
+      toolResults: [
+        {
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [genericSourceSummary],
+          itineraries: [{ ...rainyCloud9Plan, sources: [genericSourceSummary] }],
+          data: {
+            requiredToolChecks: {
+              weather: {
+                required: true,
+                tool: "get_weather_forecast",
+                location: "Cloud 9",
+                date_range: "today",
+              },
+              places: [{ required: true, tool: "search_places", ...placesArguments }],
+            },
+          },
+        },
+        {
+          name: "get_weather_forecast",
+          status: "success",
+          sources: [weatherSourceSummary],
+        },
+        {
+          name: "search_places",
+          status: "success",
+          sources: [placesSourceSummary],
+        },
+      ],
+    });
+
+    expect(turn.sources).toEqual([weatherSourceSummary, placesSourceSummary]);
+    expect(turn.itineraries?.[0]?.sources).toEqual([weatherSourceSummary, placesSourceSummary]);
+  });
+
+  test("hydrates generic itinerary meal stops from successful Places checks", () => {
+    const restaurantSearch = {
+      query: "dinner restaurants General Luna Siargao",
+      center: { latitude: 9.784, longitude: 126.158 },
+      radius_meters: 4000,
+      constraints: { included_type: "restaurant", open_now: true, page_size: 5 },
+    };
+    const restaurantCall = createAgentToolCallAudit({
+      auditId: "audit_live_restaurant",
+      name: "search_places",
+      arguments: restaurantSearch,
+      result: {
+        name: "search_places",
+        status: "success",
+        text: "Restaurant loaded.",
+        sources: [placesSourceSummary],
+      },
+      startedAt: new Date("2026-06-26T00:00:00.000Z"),
+      completedAt: new Date("2026-06-26T00:00:00.010Z"),
+    });
+
+    const turn = createAgentTurnResult({
+      message: "Use this live dinner venue.",
+      requestId: "agent_request_places_hydrated_itinerary",
+      model: "gpt-test",
+      toolCalls: [restaurantCall],
+      toolResults: [
+        {
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [genericSourceSummary],
+          itineraries: [sunsetDinnerPlan],
+          data: {
+            requiredToolChecks: {
+              places: [{ required: true, tool: "search_places", ...restaurantSearch }],
+            },
+          },
+        },
+        {
+          name: "search_places",
+          status: "success",
+          sources: [placesSourceSummary],
+          cards: [generalLunaRestaurantCard],
+          data: {
+            search: { includedType: "restaurant" },
+          },
+        },
+      ],
+    });
+
+    expect(turn.itineraries?.[0]?.stops[1]).toMatchObject({
+      title: "Kermit Siargao",
+      mapsUrl: "https://maps.example/kermit",
+    });
+    expect(turn.itineraries?.[0]?.stops[1]?.rationale).toContain(
+      "Updated from the required Places check",
+    );
+    expect(turn.itineraries?.[0]?.stops[1]?.caveats).not.toContain(
+      "Use Places for live open status.",
+    );
+  });
+
+  test("promotes itinerary fallbacks when live weather shows high risk", () => {
+    const turn = createAgentTurnResult({
+      message: "Heavy rain makes the covered fallback the first stop.",
+      requestId: "agent_request_weather_adjusted_itinerary",
+      model: "gpt-test",
+      toolResults: [
+        {
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [genericSourceSummary],
+          itineraries: [rainyCloud9Plan],
+        },
+        {
+          name: "get_weather_forecast",
+          status: "success",
+          sources: [weatherSourceSummary],
+          data: {
+            summary: "Heavy rain likely around Cloud 9 this afternoon.",
+            today: { level: "high" },
+          },
+        },
+      ],
+    });
+
+    expect(turn.itineraries?.[0]?.stops[0]?.title).toBe("Covered cafe near Cloud 9");
+    expect(turn.itineraries?.[0]?.stops[0]?.rationale).toContain("high risk");
+    expect(turn.itineraries?.[0]?.stops[1]?.title).toBe("Cloud 9 boardwalk");
+    expect(turn.itineraries?.[0]?.fallbackStops).toEqual([]);
+    expect(turn.itineraries?.[0]?.skip).toContain(
+      "Outdoor stops during high weather-risk windows unless conditions visibly improve",
+    );
+  });
+
   test("omits empty card and action arrays from turn results", () => {
     const turn = createAgentTurnResult({
       message: "No structured artifacts needed.",
@@ -602,6 +771,19 @@ const cloud9CafeCard = {
   distanceLabel: "About 500 m from Cloud 9",
   openStatusLabel: "Open status checked",
   fitReasons: ["Close to the surf tower"],
+  caveats: ["Bookings and review text were not checked"],
+  sourceLabel: "Google Places - live checked",
+};
+
+const generalLunaRestaurantCard = {
+  id: "card_kermit",
+  kind: "place" as const,
+  title: "Kermit Siargao",
+  subtitle: "Restaurant in General Luna",
+  mapsUrl: "https://maps.example/kermit",
+  distanceLabel: "About 1.2 km from search center.",
+  openStatusLabel: "Open now according to Google Places.",
+  fitReasons: ["Returned by Google Places for dinner restaurants."],
   caveats: ["Bookings and review text were not checked"],
   sourceLabel: "Google Places - live checked",
 };
