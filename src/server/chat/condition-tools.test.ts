@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  buildConditionJudgment,
   type ConditionJudgment,
   conditionActivities,
   conditionJudgmentRequestSchema,
@@ -9,7 +10,14 @@ import {
   conditionRiskLevels,
   conditionSignalKinds,
   conditionSignalStatuses,
+  precipitationProbabilityRiskLevel,
+  rainSumRiskLevel,
+  windGustRiskLevel,
+  windSpeedRiskLevel,
 } from "@/server/chat/condition-tools";
+import { searchSiargaoLocalGuide } from "@/server/local/siargao-beaches";
+import type { WeatherSnapshot } from "@/server/public-pages/weather-snapshot";
+import { fallbackWeatherSnapshot } from "@/server/public-pages/weather-snapshot";
 
 type ConditionSourceSummary = ConditionJudgment["sources"][number];
 
@@ -99,6 +107,120 @@ describe("condition judgment contracts", () => {
       constraints: null,
     });
   });
+
+  test("classifies Open-Meteo threshold helpers", () => {
+    expect(precipitationProbabilityRiskLevel(80)).toBe("high");
+    expect(precipitationProbabilityRiskLevel(50)).toBe("medium");
+    expect(rainSumRiskLevel(3)).toBe("low");
+    expect(windSpeedRiskLevel(30)).toBe("medium");
+    expect(windGustRiskLevel(60)).toBe("high");
+  });
+
+  test("builds a low-risk scooter judgment from checked weather and unchecked roads", () => {
+    const judgment = buildConditionJudgment({
+      request: requestFixture({ activity: "scooter", constraints: ["avoid flooded roads"] }),
+      weatherSnapshot: weatherSnapshotFixture({ level: "low", windGust: 18 }),
+    });
+
+    expect(judgment.recommendation).toBe("good");
+    expect(judgment.signals.map((signal) => [signal.kind, signal.status])).toEqual([
+      ["weather", "checked"],
+      ["road", "not_checked"],
+    ]);
+    expect(judgment.sources.map((source) => source.label)).toEqual([
+      "weather_checked",
+      "not_verified",
+    ]);
+    expect(judgment.caveats).toContain("Preserved constraints: avoid flooded roads.");
+  });
+
+  test("keeps swimming flexible when weather is checked but tide and surf are not", () => {
+    const judgment = buildConditionJudgment({
+      request: requestFixture({
+        activity: "swimming",
+        beach_name: "Malinao Beach",
+        include_local_caveats: true,
+      }),
+      weatherSnapshot: weatherSnapshotFixture({ level: "low", rainSum: 0.2, windGust: 14 }),
+      localGuideResult: searchSiargaoLocalGuide({
+        query: "Malinao swimming beach",
+        filters: { swimming: true, beachSurface: "sand" },
+      }),
+    });
+
+    expect(judgment.recommendation).toBe("flexible");
+    expect(judgment.locationName).toBe("Malinao Beach");
+    expect(judgment.signals.map((signal) => signal.kind)).toEqual([
+      "weather",
+      "tide",
+      "surf",
+      "manual_caveat",
+    ]);
+    expect(judgment.caveats).toContain(
+      "Tide, surf, swell, currents, and lifeguard status were not checked.",
+    );
+  });
+
+  test("avoids exposed scooter and boat plans when checked weather risk is high", () => {
+    const highWeather = weatherSnapshotFixture({
+      level: "high",
+      precipitationProbability: 88,
+      rainSum: 24,
+      windGust: 62,
+    });
+
+    expect(
+      buildConditionJudgment({
+        request: requestFixture({ activity: "scooter" }),
+        weatherSnapshot: highWeather,
+      }).recommendation,
+    ).toBe("avoid");
+    expect(
+      buildConditionJudgment({
+        request: requestFixture({ activity: "boat_trip", location: "Del Carmen" }),
+        weatherSnapshot: highWeather,
+      }).recommendation,
+    ).toBe("avoid");
+  });
+
+  test("handles sunset as weather-sensitive without inventing tide or surf checks", () => {
+    const judgment = buildConditionJudgment({
+      request: requestFixture({ activity: "sunset", location: "Cloud 9" }),
+      weatherSnapshot: weatherSnapshotFixture({
+        condition: "Cloudy breaks",
+        level: "medium",
+        precipitationProbability: 48,
+      }),
+    });
+
+    expect(judgment.recommendation).toBe("flexible");
+    expect(judgment.signals.map((signal) => signal.kind)).toEqual(["weather"]);
+    expect(judgment.reasons[0]).toContain("Cloudy breaks");
+    expect(judgment.caveats).not.toContain(
+      "Tide, surf, swell, currents, and lifeguard status were not checked.",
+    );
+  });
+
+  test("uses conservative local confirmation when weather is unavailable", () => {
+    const judgment = buildConditionJudgment({
+      request: requestFixture({ activity: "swimming" }),
+      weatherSnapshot: fallbackWeatherSnapshot,
+    });
+
+    expect(judgment.recommendation).toBe("needs_local_confirmation");
+    expect(judgment.sources[0]).toEqual(
+      expect.objectContaining({
+        label: "provider_unavailable",
+        sourceName: "Open-Meteo weather API",
+      }),
+    );
+    expect(judgment.signals[0]).toEqual(
+      expect.objectContaining({
+        kind: "weather",
+        status: "unavailable",
+      }),
+    );
+  });
 });
 
 const weatherSource: ConditionSourceSummary = {
@@ -187,3 +309,63 @@ const swimmingJudgmentFixture = {
   ],
   sources: [weatherSource, uncheckedMarineSource, localGuideSource],
 } satisfies ConditionJudgment;
+
+function requestFixture(
+  overrides: Partial<
+    ConditionJudgment["activity"] extends infer _Activity
+      ? {
+          activity: ConditionJudgment["activity"];
+          location: "Siargao Island" | "Cloud 9" | "General Luna" | "Del Carmen";
+          date_range: "today" | "next_7_days";
+          beach_name: string | null;
+          include_local_caveats: boolean | null;
+          constraints: string[] | null;
+        }
+      : never
+  > = {},
+) {
+  return {
+    activity: "swimming",
+    location: "General Luna",
+    date_range: "today",
+    beach_name: null,
+    include_local_caveats: null,
+    constraints: null,
+    ...overrides,
+  } as const;
+}
+
+function weatherSnapshotFixture({
+  condition = "Cloudy breaks",
+  level = "low",
+  precipitationProbability = 20,
+  precipitationSum = 0.4,
+  rainSum = 0.2,
+  windGust = 18,
+  windSpeed = 12,
+}: Partial<WeatherSnapshot["today"]> = {}): WeatherSnapshot {
+  return {
+    ...fallbackWeatherSnapshot,
+    status: "live",
+    locationName: "Siargao forecast near General Luna",
+    fetchedAt: "2026-06-27T00:00:00.000Z",
+    expiresAt: "2026-06-28T00:00:00.000Z",
+    freshness: "fresh",
+    confidence: "medium",
+    citationUrl: "https://api.open-meteo.com/v1/forecast",
+    evidenceIds: ["ev_open_meteo_test"],
+    summary: "Open-Meteo fixture summary.",
+    today: {
+      ...fallbackWeatherSnapshot.today,
+      date: "2026-06-27",
+      condition,
+      precipitationProbability,
+      precipitationSum,
+      rainSum,
+      windSpeed,
+      windGust,
+      level,
+      evidenceId: "ev_open_meteo_test",
+    },
+  };
+}

@@ -19,7 +19,7 @@ This file tracks execution of `PLAN.md` for the Priority 9 implementation slice.
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Baseline Characterization And Contracts
-- [ ] Step 2: Condition Judgment Builder
+- [x] Step 2: Condition Judgment Builder
 - [ ] Step 3: Agent Tool Schema And Execution
 - [ ] Step 4: Agent Tool-Use Policy And Route Signals
 - [ ] Step 5: Route, Runtime, And Source Consistency Integration
@@ -28,8 +28,8 @@ This file tracks execution of `PLAN.md` for the Priority 9 implementation slice.
 
 ## Current Status
 
-- Active step: Step 2
-- Next step: Step 2 condition judgment builder
+- Active step: Step 3
+- Next step: Step 3 agent tool schema and execution
 - Notes: `docs/ASK_SIARGAO_ROADMAP.md` has an unrelated Priority 8 completion marker and should not
   be included in Priority 9 commits unless explicitly requested or updated at final verification.
 
@@ -73,3 +73,25 @@ This file tracks execution of `PLAN.md` for the Priority 9 implementation slice.
   - Passed: `bun test` with 376 tests passing and 2 TODO tests
   - Passed: `bun run build`
 - Commit: `Characterize condition judgment contracts`
+
+### Step 2: Condition Judgment Builder
+
+- Status: Complete
+- Changes:
+  - Implemented `buildConditionJudgment` with governed weather, tide, surf, road, and curated local
+    caveat signals.
+  - Added Open-Meteo threshold helpers for precipitation probability, rain amount, wind speed, and
+    wind gust.
+  - Kept tide, surf, swell, currents, roads, lifeguards, and official warnings explicitly unchecked
+    unless a provider exists.
+  - Added activity-specific recommendation logic and alternatives for swimming, surfing, scooter,
+    rain-plan, sunset, and boat-trip judgments.
+  - Added provider-unavailable handling that returns conservative local-confirmation judgments.
+- Validation:
+  - Passed: `bun run format`
+  - Passed: `bun run lint`
+  - Passed: `bun run typecheck --incremental false`
+  - Passed: `bun test src/server/chat/condition-tools.test.ts src/server/providers/open-meteo.test.ts`
+  - Passed: `bun test` with 382 tests passing and 2 TODO tests
+  - Passed: `bun run build`
+- Commit: `Add condition judgment builder`

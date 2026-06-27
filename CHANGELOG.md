@@ -51,6 +51,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added a source-governed condition judgment builder that combines Open-Meteo weather, curated local
+  caveats, and explicit unchecked tide, surf, road, current, and safety signals.
 - Added condition judgment contract coverage for weather, tide, surf, road, and caveat signals,
   including future strict Responses schema validation for `get_condition_judgment`.
 - Established progress and changelog tracking for the Priority 9 Weather, Tide, And Surf Fusion
