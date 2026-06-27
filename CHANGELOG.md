@@ -78,6 +78,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added Postgres-backed saved trip persistence and share-token storage, including hashed public
+  tokens, expiry/deletion handling, migration parity coverage, and PGlite store tests.
 - Added browser-local saved trip items in chat, including accessible card and itinerary save/remove
   controls, a compact saved-plan tray, reload persistence, deduping, and Playwright privacy
   coverage that excludes chat history and browser geolocation from saved payloads.

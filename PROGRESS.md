@@ -9,7 +9,7 @@ Source documents:
 
 ## Current Status
 
-Step 3 is complete. Next step: Step 4, add trip persistence schema and store.
+Step 4 is complete. Next step: Step 5, add saved trip API routes.
 
 `PROGRESS.md` must be updated after every completed step with the completed step,
 validation results, commit reference if available, current status, and next step.
@@ -22,7 +22,7 @@ step is committed.
 - [x] Step 1: Baseline Quality Gate Run
 - [x] Step 2: Define Shared Trip Artifact Contracts
 - [x] Step 3: Add Local Saved Items In Chat
-- [ ] Step 4: Add Trip Persistence Schema And Store
+- [x] Step 4: Add Trip Persistence Schema And Store
 - [ ] Step 5: Add Saved Trip API Routes
 - [ ] Step 6: Add Public Shared Plan Page
 - [ ] Step 7: Wire Share Creation Into Chat UI
@@ -30,6 +30,37 @@ step is committed.
 - [ ] Step 9: Update Documentation And Final Verification
 
 ## Update Log
+
+### 2026-06-28: Step 4 - Add Trip Persistence Schema And Store
+
+Completed:
+- Added `saved_trips`, `saved_trip_items`, and `shared_trip_plans` to the Drizzle schema and
+  initial SQL migration with indexes, foreign keys, soft-delete fields, and optional expiry.
+- Updated migration parity coverage for the new trip tables.
+- Added `src/server/trips/shared-trip-store.ts` for saved trip upsert, item upsert/list/remove,
+  share-token creation, token lookup, expiry checks, deletion checks, and client/share token
+  hashing.
+- Added PGlite-backed store tests covering persistence, updates, removals, selected share plans,
+  hashed token storage, expired/deleted shares, and cross-trip item selection rejection.
+
+Validation:
+- `bun run format`: passed.
+- `bun test src/server/db/migration.test.ts src/server/trips/shared-trip-store.test.ts`: passed,
+  6 tests.
+- `bun run lint`: passed, Biome checked 201 files.
+- `bun run typecheck --incremental false`: passed.
+- `bun test`: passed, 457 tests across 44 files.
+- `bun run db:migrate:test`: passed, migrated 41 tables in the Step 3 test database.
+- `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
+- `bun run build`: passed.
+- `bun run test:e2e`: passed, 25 Playwright tests.
+- Post-update `bun run lint`: passed after recording progress and changelog entries.
+
+Commit:
+- `Persist saved trip plans`.
+
+Next:
+- Step 5: add saved trip API routes and route-level coverage.
 
 ### 2026-06-28: Step 3 - Add Local Saved Items In Chat
 

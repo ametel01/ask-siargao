@@ -5,6 +5,57 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS saved_trips (
+  id text PRIMARY KEY,
+  user_id text REFERENCES users(id),
+  client_trip_key_hash text NOT NULL UNIQUE,
+  title text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS saved_trips_client_trip_key_hash_idx
+  ON saved_trips(client_trip_key_hash);
+
+CREATE TABLE IF NOT EXISTS saved_trip_items (
+  id text PRIMARY KEY,
+  trip_id text NOT NULL REFERENCES saved_trips(id),
+  kind text NOT NULL,
+  title text NOT NULL,
+  payload_json jsonb NOT NULL,
+  sources_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS saved_trip_items_trip_id_idx
+  ON saved_trip_items(trip_id);
+
+CREATE INDEX IF NOT EXISTS saved_trip_items_deleted_at_idx
+  ON saved_trip_items(deleted_at);
+
+CREATE TABLE IF NOT EXISTS shared_trip_plans (
+  id text PRIMARY KEY,
+  trip_id text NOT NULL REFERENCES saved_trips(id),
+  public_token_hash text NOT NULL UNIQUE,
+  title text NOT NULL,
+  item_ids_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  expires_at timestamptz,
+  deleted_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS shared_trip_plans_trip_id_idx
+  ON shared_trip_plans(trip_id);
+
+CREATE INDEX IF NOT EXISTS shared_trip_plans_public_token_hash_idx
+  ON shared_trip_plans(public_token_hash);
+
+CREATE INDEX IF NOT EXISTS shared_trip_plans_expires_at_idx
+  ON shared_trip_plans(expires_at);
+
 CREATE TABLE IF NOT EXISTS areas (
   id text PRIMARY KEY,
   slug text NOT NULL UNIQUE,

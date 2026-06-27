@@ -37,6 +37,9 @@ import {
   reviewerResults,
   reviews,
   routes,
+  savedTripItems,
+  savedTrips,
+  sharedTripPlans,
   sourceCredibilityScores,
   sourcePermissions,
   sourceProfiles,
@@ -58,6 +61,9 @@ describe("Step 3 database migration", () => {
 
     const requiredTables = [
       "users",
+      "saved_trips",
+      "saved_trip_items",
+      "shared_trip_plans",
       "audit_requests",
       "audit_inputs",
       "audit_runs",
@@ -124,6 +130,9 @@ describe("Step 3 database migration", () => {
 
     const schemaTables = [
       users,
+      savedTrips,
+      savedTripItems,
+      sharedTripPlans,
       areas,
       routes,
       providers,

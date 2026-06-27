@@ -17,6 +17,62 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const savedTrips = pgTable(
+  "saved_trips",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").references(() => users.id),
+    clientTripKeyHash: text("client_trip_key_hash").notNull().unique(),
+    title: text("title").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("saved_trips_client_trip_key_hash_idx").on(table.clientTripKeyHash)],
+);
+
+export const savedTripItems = pgTable(
+  "saved_trip_items",
+  {
+    id: text("id").primaryKey(),
+    tripId: text("trip_id")
+      .notNull()
+      .references(() => savedTrips.id),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    payloadJson: jsonb("payload_json").$type<Record<string, unknown>>().notNull(),
+    sourcesJson: jsonb("sources_json").$type<Record<string, unknown>[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("saved_trip_items_trip_id_idx").on(table.tripId),
+    index("saved_trip_items_deleted_at_idx").on(table.deletedAt),
+  ],
+);
+
+export const sharedTripPlans = pgTable(
+  "shared_trip_plans",
+  {
+    id: text("id").primaryKey(),
+    tripId: text("trip_id")
+      .notNull()
+      .references(() => savedTrips.id),
+    publicTokenHash: text("public_token_hash").notNull().unique(),
+    title: text("title").notNull(),
+    itemIdsJson: jsonb("item_ids_json").$type<string[]>().notNull().default([]),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("shared_trip_plans_trip_id_idx").on(table.tripId),
+    index("shared_trip_plans_public_token_hash_idx").on(table.publicTokenHash),
+    index("shared_trip_plans_expires_at_idx").on(table.expiresAt),
+  ],
+);
+
 export const areas = pgTable("areas", {
   id: text("id").primaryKey(),
   slug: text("slug").notNull().unique(),
