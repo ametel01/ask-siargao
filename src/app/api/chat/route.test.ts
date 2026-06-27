@@ -137,6 +137,52 @@ describe("chat route", () => {
     expect(signals?.intent.weather).toBe(true);
   });
 
+  test("passes condition hints for swimming prompts without forcing an itinerary", async () => {
+    const dependencies = chatDependencies({
+      message: "The model should use condition evidence before advising on swimming.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Is Malinao good for swimming today?" }],
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.intent.conditionActivity).toBe("swimming");
+    expect(signals?.intent.marineCondition).toBe(true);
+    expect(signals?.intent.weatherSensitive).toBe(true);
+    expect(signals?.intent.activityPlan).toBe(false);
+  });
+
+  test("passes condition hints for scooter and boat prompts", async () => {
+    const dependencies = chatDependencies({
+      message: "The model should judge road and marine conditions with tools.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "Is it okay to scooter to Del Carmen before a Sugba boat trip today?",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.intent.conditionActivity).toBe("scooter");
+    expect(signals?.intent.roadCondition).toBe(true);
+    expect(signals?.intent.marineCondition).toBe(true);
+    expect(signals?.intent.weatherSensitive).toBe(true);
+    expect(signals?.intent.activityPlan).toBe(false);
+  });
+
   test("returns Places tool evidence from the agent runtime", async () => {
     const dependencies = chatDependencies({
       message: "The model recommends a cafe and includes the Maps link.",
@@ -676,8 +722,11 @@ type AgentSignals = {
   intent: {
     activityPlan?: boolean;
     beach?: boolean;
+    conditionActivity?: string;
     locationLabel?: string;
+    marineCondition?: boolean;
     placeIntent?: { category?: string };
+    roadCondition?: boolean;
     tripContext?: { activeGoal?: string };
     weatherSensitive?: boolean;
     weather?: boolean;

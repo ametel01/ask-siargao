@@ -21,15 +21,15 @@ This file tracks execution of `PLAN.md` for the Priority 9 implementation slice.
 - [x] Step 1: Baseline Characterization And Contracts
 - [x] Step 2: Condition Judgment Builder
 - [x] Step 3: Agent Tool Schema And Execution
-- [ ] Step 4: Agent Tool-Use Policy And Route Signals
+- [x] Step 4: Agent Tool-Use Policy And Route Signals
 - [ ] Step 5: Route, Runtime, And Source Consistency Integration
 - [ ] Step 6: Chat UI Rendering For Condition Evidence
 - [ ] Step 7: Final Verification And Handoff
 
 ## Current Status
 
-- Active step: Step 4
-- Next step: Step 4 agent tool-use policy and route signals
+- Active step: Step 5
+- Next step: Step 5 route, runtime, and source consistency integration
 - Notes: `docs/ASK_SIARGAO_ROADMAP.md` has an unrelated Priority 8 completion marker and should not
   be included in Priority 9 commits unless explicitly requested or updated at final verification.
 
@@ -117,3 +117,24 @@ This file tracks execution of `PLAN.md` for the Priority 9 implementation slice.
   - Passed: `bun test` with 387 tests passing
   - Passed: `bun run build`
 - Commit: `Expose condition judgment tool`
+
+### Step 4: Agent Tool-Use Policy And Route Signals
+
+- Status: Complete
+- Changes:
+  - Updated agent-memory tool policy, agent skills, and source policy for `get_condition_judgment`.
+  - Updated base agent instructions so condition questions about swimming, surfing, scooter rides,
+    rain plans, sunset, and boat trips should call the condition tool before final prose.
+  - Added route intent hints for condition activity, marine condition, and road condition context
+    without making the route produce final answer prose.
+  - Added route, memory, and agent-loop regression coverage for condition hints and policy loading.
+- Validation:
+  - Passed: `bun run format`
+  - Passed: `bun run lint`
+  - Passed: `bun run typecheck --incremental false`
+  - Passed:
+    `bun test src/app/api/chat/route.test.ts src/server/chat/agent-memory.test.ts src/server/chat/ask-siargao-agent.test.ts`
+  - Passed: `bun run agent-memory:sync -- --dry-run`
+  - Passed: `bun test` with 389 tests passing
+  - Passed: `bun run build`
+- Commit: `Teach agent condition judgment tool use`

@@ -26,6 +26,11 @@ source actually backs the fact.
 activity-planning answer. It does not check surf, swell, tides, road flooding,
 closures, or provider-independent safety.
 
+Condition judgment outputs may use `weather_checked` only for Open-Meteo-backed
+weather signals. Their tide, surf, swell, current, road, lifeguard, and safety
+boundaries must remain `not_verified` or `provider_unavailable` until a
+provider-backed tool actually checks those signals.
+
 `not_verified` means the answer uses generic model reasoning or stable context
 without a matching live, cached, weather, or curated tool output.
 

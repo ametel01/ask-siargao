@@ -49,6 +49,12 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Removed server-only memory deployment metadata from model-facing prompt and memory-search tool
   payloads.
 
+### Changed
+
+- Taught agent instructions, memory policy, and chat route intent signals to route weather-sensitive
+  swimming, surfing, scooter, rain-plan, sunset, and boat-trip condition questions toward
+  `get_condition_judgment` without replacing model-written final answers.
+
 ### Added
 
 - Exposed `get_condition_judgment` as a strict Responses agent tool with model-facing condition

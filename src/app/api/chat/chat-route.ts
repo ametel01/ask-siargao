@@ -43,12 +43,15 @@ type ChatRequestIntent = {
   latestUserTurn: string;
   recentUserContext: string;
   tripContext: TripContext;
+  conditionActivity?: "swimming" | "surfing" | "scooter" | "rain_plan" | "sunset" | "boat_trip";
   locationLabel?: "Cloud 9" | "Del Carmen" | "General Luna" | "Siargao Island";
   activityPlan: boolean;
   beach: boolean;
+  marineCondition: boolean;
   missingContext: boolean;
   nearby: boolean;
   placeIntent?: PlaceIntent;
+  roadCondition: boolean;
   shouldDeclineNonSiargaoTopic: boolean;
   today: boolean;
   weatherSensitive: boolean;
@@ -314,9 +317,15 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
   const nearby = /\bnear(?:by)?|around|close\s+to|that\s+area|in\s+that\s+area|by\s+/i.test(
     fullUserContext,
   );
+  const conditionActivity = inferConditionActivity(latestUserTurn);
+  const marineCondition = isMarineConditionContent(latestUserTurn);
+  const roadCondition = isRoadConditionContent(latestUserTurn);
   const weather = isWeatherContent(latestUserTurn);
   const weatherSensitive =
     weather ||
+    Boolean(conditionActivity) ||
+    marineCondition ||
+    roadCondition ||
     tripContext.activeGoal === "rain_plan" ||
     /\brainy|rain(?:ing)?|showers?|storm|windy|surf|waves?|conditions?|cloudy\b/i.test(
       latestUserTurn,
@@ -334,8 +343,11 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
     ...(locationLabel ? { locationLabel } : {}),
     activityPlan,
     beach: latestBeach || contextualBeach,
+    ...(conditionActivity ? { conditionActivity } : {}),
+    marineCondition,
     nearby,
     ...(placeIntent ? { placeIntent } : {}),
+    roadCondition,
     today,
     weatherSensitive,
     weather,
@@ -410,6 +422,40 @@ function isWeatherContent(content: string) {
   );
 }
 
+function inferConditionActivity(
+  content: string,
+): ChatRequestIntent["conditionActivity"] | undefined {
+  if (/\b(swim|swimming|swimmable)\b/i.test(content)) {
+    return "swimming";
+  }
+  if (/\b(surf|surfing|waves?|swell)\b/i.test(content)) {
+    return "surfing";
+  }
+  if (/\b(scooter|motorbike|motor\s*bike|ride|drive)\b/i.test(content)) {
+    return "scooter";
+  }
+  if (/\brain\s+plan|rainy\s+day|covered|avoid\s+rain\b/i.test(content)) {
+    return "rain_plan";
+  }
+  if (/\bsunset\b/i.test(content)) {
+    return "sunset";
+  }
+  if (/\b(boat|island\s+hopping|sugba|lagoon|tour)\b/i.test(content)) {
+    return "boat_trip";
+  }
+  return undefined;
+}
+
+function isMarineConditionContent(content: string) {
+  return /\b(tides?|surf|swell|waves?|currents?|sea\s+conditions?|swim(?:ming)?|boat|island\s+hopping|lagoon)\b/i.test(
+    content,
+  );
+}
+
+function isRoadConditionContent(content: string) {
+  return /\b(scooter|motorbike|motor\s*bike|road|flood(?:ed|ing)?|ride|drive)\b/i.test(content);
+}
+
 function inferChatLocationLabel(content: string): ChatRequestIntent["locationLabel"] {
   if (/\bcloud\s*9|cloud9|catangnan\b/i.test(content)) {
     return "Cloud 9";
@@ -443,10 +489,13 @@ function summarizeIntentForAgent(intent: ChatRequestIntent) {
   return {
     activityPlan: intent.activityPlan,
     beach: intent.beach,
+    conditionActivity: intent.conditionActivity,
     locationLabel: intent.locationLabel,
+    marineCondition: intent.marineCondition,
     missingContext: intent.missingContext,
     nearby: intent.nearby,
     placeIntent: intent.placeIntent,
+    roadCondition: intent.roadCondition,
     shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
     today: intent.today,
     weather: intent.weather,
@@ -470,7 +519,9 @@ function summarizeIntentForLogs(intent: ChatRequestIntent) {
   return {
     activityPlan: intent.activityPlan,
     beach: intent.beach,
+    conditionActivity: intent.conditionActivity,
     locationLabel: intent.locationLabel,
+    marineCondition: intent.marineCondition,
     missingContext: intent.missingContext,
     nearby: intent.nearby,
     tripContext: {
@@ -487,6 +538,7 @@ function summarizeIntentForLogs(intent: ChatRequestIntent) {
           location: intent.placeIntent.location,
         }
       : undefined,
+    roadCondition: intent.roadCondition,
     shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
     today: intent.today,
     weather: intent.weather,

@@ -70,6 +70,7 @@ describe("agent memory loader", () => {
       "Use backend tools for live, local, provider-backed, or curated Ask Siargao facts",
     );
     expect(snapshot.instructionMarkdown).toContain("get_weather_forecast");
+    expect(snapshot.instructionMarkdown).toContain("get_condition_judgment");
     expect(snapshot.instructionMarkdown).toContain("search_places");
     expect(snapshot.instructionMarkdown).toContain("describe_database_schema");
     expect(snapshot.instructionMarkdown).toContain("query_local_facts");

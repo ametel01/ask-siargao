@@ -47,6 +47,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       expect.objectContaining({ name: "search_agent_memory" }),
     );
     expect(String(client.requests[0]?.instructions)).toContain("Use the available tools");
+    expect(String(client.requests[0]?.instructions)).toContain("get_condition_judgment");
     expect(String(client.requests[0]?.instructions)).toContain(
       "Every final answer must be written by the AI",
     );

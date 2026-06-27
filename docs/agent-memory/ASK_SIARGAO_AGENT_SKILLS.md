@@ -40,3 +40,8 @@ where to go, what to avoid, and which checks still matter.
 
 Use bullets when comparing options. Avoid broad travel-blog narration. Do not
 overstate certainty about local conditions that were not checked.
+
+For condition questions such as whether swimming, surfing, a scooter ride,
+sunset, a rain plan, or a boat trip is sensible today, use condition evidence
+from tools and clearly separate checked weather from unchecked tide, surf, road,
+current, lifeguard, and safety signals.
