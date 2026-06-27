@@ -77,6 +77,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Established progress and changelog tracking for the Priority 10 Consent-Based Near-Me
+  Geolocation implementation plan.
 - Exposed `get_condition_judgment` as a strict Responses agent tool with model-facing condition
   evidence, governed sources, provider-unavailable handling, and tool-loop audit coverage.
 - Added a source-governed condition judgment builder that combines Open-Meteo weather, curated local
