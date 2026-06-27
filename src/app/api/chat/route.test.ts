@@ -70,6 +70,173 @@ describe("chat route", () => {
     expect(dependencies.requests[0]?.metadata?.route).toBe("/api/chat");
   });
 
+  test("accepts valid Siargao geolocation client context as deterministic browser context", async () => {
+    const dependencies = chatDependencies({
+      message: "The model uses browser location as optional context.",
+      sources: [genericSourceSummary],
+    });
+    const geolocation = validGeolocation();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "What is open near me?" }],
+        clientContext: { geolocation },
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(dependencies.requests[0]?.clientContext?.geolocation).toEqual({
+      status: "available",
+      source: "browser_geolocation",
+      consentScope: "single_request",
+      latitude: geolocation.latitude,
+      longitude: geolocation.longitude,
+      accuracyMeters: geolocation.accuracyMeters,
+      capturedAt: geolocation.capturedAt,
+    });
+    expect(signals?.clientContext.geolocation).toEqual(
+      dependencies.requests[0]?.clientContext?.geolocation,
+    );
+    expect(dependencies.requests[0]?.metadata?.clientContext).toEqual({
+      geolocation: {
+        status: "available",
+        source: "browser_geolocation",
+        consentScope: "single_request",
+      },
+    });
+    expect(JSON.stringify(dependencies.requests[0]?.metadata)).not.toContain(
+      String(geolocation.latitude),
+    );
+    expect(JSON.stringify(dependencies.requests[0]?.metadata)).not.toContain(
+      String(geolocation.longitude),
+    );
+  });
+
+  test("treats missing optional geolocation as accepted missing browser context", async () => {
+    const dependencies = chatDependencies({
+      message: "The model continues without browser location.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "What is open in General Luna?" }],
+        clientContext: {},
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.clientContext.geolocation).toEqual({
+      status: "missing",
+      source: "browser_geolocation",
+    });
+  });
+
+  test("rejects malformed geolocation schema before calling the agent", async () => {
+    for (const scenario of [
+      {
+        name: "impossible latitude",
+        geolocation: { ...validGeolocation(), latitude: 100 },
+        path: "clientContext.geolocation.latitude",
+      },
+      {
+        name: "malformed capturedAt",
+        geolocation: { ...validGeolocation(), capturedAt: "not-a-date" },
+        path: "clientContext.geolocation.capturedAt",
+      },
+      {
+        name: "invalid consent scope",
+        geolocation: { ...validGeolocation(), consentScope: "forever" },
+        path: "clientContext.geolocation.consentScope",
+      },
+    ]) {
+      const dependencies = chatDependencies();
+      const response = await chatResponse(
+        jsonRequest({
+          messages: [{ role: "user", content: "What is open near me?" }],
+          clientContext: { geolocation: scenario.geolocation },
+        }),
+        dependencies,
+      );
+      const body = await response.json();
+
+      expect(response.status, scenario.name).toBe(400);
+      expect(body.error, scenario.name).toBe("invalid_chat_request");
+      expect(
+        body.issues.map((issue: { path: string }) => issue.path),
+        scenario.name,
+      ).toContain(scenario.path);
+      expect(dependencies.requests, scenario.name).toHaveLength(0);
+    }
+  });
+
+  test("ignores out-of-area geolocation without exposing coordinates to agent tools", async () => {
+    const dependencies = chatDependencies({
+      message: "The model asks the user to type a Siargao area.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "What is open near me?" }],
+        clientContext: {
+          geolocation: {
+            ...validGeolocation(),
+            latitude: 14.5995,
+            longitude: 120.9842,
+          },
+        },
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.clientContext.geolocation).toEqual({
+      status: "out_of_area",
+      source: "browser_geolocation",
+      consentScope: "single_request",
+    });
+    expect(JSON.stringify(signals?.clientContext.geolocation)).not.toContain("14.5995");
+    expect(JSON.stringify(signals?.clientContext.geolocation)).not.toContain("120.9842");
+  });
+
+  test("marks stale and low-accuracy geolocation as unusable browser context", async () => {
+    for (const scenario of [
+      {
+        name: "stale",
+        geolocation: { ...validGeolocation(), capturedAt: "2026-01-01T00:00:00.000Z" },
+        status: "stale",
+      },
+      {
+        name: "low accuracy",
+        geolocation: { ...validGeolocation(), accuracyMeters: 4_000 },
+        status: "low_accuracy",
+      },
+    ]) {
+      const dependencies = chatDependencies({
+        message: "The model continues without a usable browser center.",
+        sources: [genericSourceSummary],
+      });
+      const response = await chatResponse(
+        jsonRequest({
+          messages: [{ role: "user", content: "What is open near me?" }],
+          clientContext: { geolocation: scenario.geolocation },
+        }),
+        dependencies,
+      );
+      const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+      expect(response.status, scenario.name).toBe(200);
+      expect(signals?.clientContext.geolocation, scenario.name).toEqual({
+        status: scenario.status,
+        source: "browser_geolocation",
+        consentScope: "single_request",
+      });
+    }
+  });
+
   test("sends unrelated valid prompts to the agent as decline instructions instead of hardcoding prose", async () => {
     const dependencies = chatDependencies({
       message: "I can help with Siargao travel, not stock bots.",
@@ -813,10 +980,12 @@ describe("chat route", () => {
     const response = await chatResponse(
       jsonRequest({
         messages: [{ role: "user", content: "Restaurants open now near General Luna?" }],
+        clientContext: { geolocation: validGeolocation() },
       }),
       dependencies,
     );
     const body = await response.json();
+    const receivedLog = logs.events.find((event) => event.message === "Chat request received.");
     const answeredLog = logs.events.find((event) => event.message === "Chat request answered.");
 
     expect(response.status).toBe(200);
@@ -829,6 +998,11 @@ describe("chat route", () => {
       sourceLabels: ["provider_unavailable"],
       itineraryCount: 0,
       toolCallCount: 1,
+      geolocation: {
+        status: "available",
+        source: "browser_geolocation",
+        consentScope: "single_request",
+      },
       toolCalls: [
         expect.objectContaining({
           name: "search_places",
@@ -839,7 +1013,14 @@ describe("chat route", () => {
         }),
       ],
     });
+    expect(receivedLog?.payload.geolocation).toEqual({
+      status: "available",
+      source: "browser_geolocation",
+      consentScope: "single_request",
+    });
     expect(JSON.stringify(answeredLog?.payload)).not.toContain("SECRET_TOKEN");
+    expect(JSON.stringify(logs.events)).not.toContain("9.8116");
+    expect(JSON.stringify(logs.events)).not.toContain("126.1651");
   });
 
   test("returns a controlled error when agent source labels are not tool-backed", async () => {
@@ -916,6 +1097,17 @@ describe("chat route", () => {
 });
 
 type AgentSignals = {
+  clientContext: {
+    geolocation: {
+      status: string;
+      source: "browser_geolocation";
+      consentScope?: string;
+      latitude?: number;
+      longitude?: number;
+      accuracyMeters?: number;
+      capturedAt?: string;
+    };
+  };
   intent: {
     activityPlan?: boolean;
     beach?: boolean;
@@ -933,6 +1125,16 @@ type AgentSignals = {
     shouldDeclineNonSiargaoTopic?: boolean;
   };
 };
+
+function validGeolocation() {
+  return {
+    latitude: 9.8116,
+    longitude: 126.1651,
+    accuracyMeters: 25,
+    capturedAt: new Date().toISOString(),
+    consentScope: "single_request",
+  };
+}
 
 function chatDependencies(
   result: Partial<AgentTurnResult> = {

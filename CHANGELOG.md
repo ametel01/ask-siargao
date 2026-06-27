@@ -77,6 +77,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added optional `/api/chat` browser geolocation client context with server-side validation,
+  Siargao-area plausibility checks, and privacy-safe route metadata.
 - Established progress and changelog tracking for the Priority 10 Consent-Based Near-Me
   Geolocation implementation plan.
 - Exposed `get_condition_judgment` as a strict Responses agent tool with model-facing condition

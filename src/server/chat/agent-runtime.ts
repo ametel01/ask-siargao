@@ -125,10 +125,34 @@ export type AgentTurnResult = {
   itineraries?: readonly ItineraryPlan[];
 };
 
+export type ChatClientGeolocationConsentScope = "single_request" | "trip_session";
+
+export type ChatClientGeolocationStatus =
+  | "available"
+  | "missing"
+  | "out_of_area"
+  | "stale"
+  | "low_accuracy";
+
+export type ChatClientGeolocationContext = {
+  status: ChatClientGeolocationStatus;
+  source: "browser_geolocation";
+  consentScope?: ChatClientGeolocationConsentScope;
+  latitude?: number;
+  longitude?: number;
+  accuracyMeters?: number;
+  capturedAt?: string;
+};
+
+export type ChatClientContext = {
+  geolocation: ChatClientGeolocationContext;
+};
+
 export type AgentRuntimeRequest = {
   messages: readonly AskSiargaoChatMessage[];
   requestId?: string;
   model?: string;
+  clientContext?: ChatClientContext;
   metadata?: Record<string, unknown>;
   deterministicSignals?: Record<string, unknown>;
 };

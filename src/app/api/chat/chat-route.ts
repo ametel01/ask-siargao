@@ -6,6 +6,9 @@ import { z } from "zod";
 import type {
   AgentMemoryMetadata,
   AgentToolCallAudit,
+  ChatClientContext,
+  ChatClientGeolocationConsentScope,
+  ChatClientGeolocationContext,
   ItineraryPlan,
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
@@ -32,7 +35,24 @@ const chatRequestSchema = z.object({
     )
     .min(1)
     .max(12),
+  clientContext: z
+    .object({
+      geolocation: z
+        .object({
+          latitude: z.number().min(-90).max(90),
+          longitude: z.number().min(-180).max(180),
+          accuracyMeters: z.number().min(0).optional(),
+          capturedAt: z.iso.datetime(),
+          consentScope: z.enum(["single_request", "trip_session"]),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict()
+    .optional(),
 });
+
+type ParsedChatClientContext = z.infer<typeof chatRequestSchema>["clientContext"];
 
 export type ChatRouteDependencies = AskSiargaoAgentDependencies & {
   runAskSiargaoAgentTurn?: typeof defaultRunAskSiargaoAgentTurn;
@@ -66,6 +86,16 @@ type PublicAgentMemoryMetadata = {
     role: AgentMemoryMetadata["files"][number]["role"];
   }>;
 };
+
+const siargaoAreaBounds = {
+  minLatitude: 9.35,
+  maxLatitude: 10.15,
+  minLongitude: 125.75,
+  maxLongitude: 126.45,
+} as const;
+const maxGeolocationAgeMs = 30 * 60 * 1_000;
+const maxFutureGeolocationSkewMs = 5 * 60 * 1_000;
+const maxUsableAccuracyMeters = 3_000;
 
 const chatLogger = createComponentLogger("api.chat");
 
@@ -130,6 +160,7 @@ export async function chatResponse(
   }
 
   const messages = parsed.data.messages satisfies AskSiargaoChatMessage[];
+  const clientContext = normalizeChatClientContext(parsed.data.clientContext, new Date(startedAt));
   const intent = interpretChatRequestIntent(messages);
   const latestUserMessage = getLatestUserMessage(messages);
   logger.info(
@@ -142,6 +173,7 @@ export async function chatResponse(
       isWeatherQuestion: isWeatherQuestion(intent),
       shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
       missingContext: intent.missingContext,
+      geolocation: summarizeGeolocationForLogs(clientContext.geolocation),
     },
     "Chat request received.",
   );
@@ -158,10 +190,13 @@ export async function chatResponse(
       {
         messages,
         requestId,
+        clientContext,
         metadata: {
           route: "/api/chat",
+          clientContext: summarizeClientContextForMetadata(clientContext),
         },
         deterministicSignals: {
+          clientContext,
           intent: summarizeIntentForAgent(intent),
           scope: {
             shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
@@ -193,6 +228,7 @@ export async function chatResponse(
         itineraryCount: result.itineraries?.length ?? 0,
         upstreamRequestIds: result.upstreamRequestIds,
         agentMemoryVersionId: result.memory?.versionId,
+        geolocation: summarizeGeolocationForLogs(clientContext.geolocation),
         durationMs: Date.now() - startedAt,
       },
       "Chat request answered.",
@@ -258,6 +294,96 @@ function chatAnswerSourcesForValidation(
   itineraries: readonly ItineraryPlan[] | undefined,
 ) {
   return [...sources, ...(itineraries?.flatMap((itinerary) => itinerary.sources) ?? [])];
+}
+
+function normalizeChatClientContext(
+  clientContext: ParsedChatClientContext,
+  now: Date,
+): ChatClientContext {
+  return {
+    geolocation: normalizeClientGeolocation(clientContext?.geolocation, now),
+  };
+}
+
+function normalizeClientGeolocation(
+  geolocation: NonNullable<ParsedChatClientContext>["geolocation"] | undefined,
+  now: Date,
+): ChatClientGeolocationContext {
+  if (!geolocation) {
+    return {
+      status: "missing",
+      source: "browser_geolocation",
+    };
+  }
+
+  const base = {
+    source: "browser_geolocation",
+    consentScope: geolocation.consentScope satisfies ChatClientGeolocationConsentScope,
+  } as const;
+
+  if (!isInSiargaoArea(geolocation.latitude, geolocation.longitude)) {
+    return {
+      ...base,
+      status: "out_of_area",
+    };
+  }
+
+  if (isStaleGeolocation(geolocation.capturedAt, now)) {
+    return {
+      ...base,
+      status: "stale",
+    };
+  }
+
+  if (
+    geolocation.accuracyMeters !== undefined &&
+    geolocation.accuracyMeters > maxUsableAccuracyMeters
+  ) {
+    return {
+      ...base,
+      status: "low_accuracy",
+    };
+  }
+
+  return {
+    ...base,
+    status: "available",
+    latitude: geolocation.latitude,
+    longitude: geolocation.longitude,
+    ...(geolocation.accuracyMeters !== undefined
+      ? { accuracyMeters: geolocation.accuracyMeters }
+      : {}),
+    capturedAt: geolocation.capturedAt,
+  };
+}
+
+function isInSiargaoArea(latitude: number, longitude: number) {
+  return (
+    latitude >= siargaoAreaBounds.minLatitude &&
+    latitude <= siargaoAreaBounds.maxLatitude &&
+    longitude >= siargaoAreaBounds.minLongitude &&
+    longitude <= siargaoAreaBounds.maxLongitude
+  );
+}
+
+function isStaleGeolocation(capturedAt: string, now: Date) {
+  const capturedTime = Date.parse(capturedAt);
+  const ageMs = now.getTime() - capturedTime;
+  return ageMs > maxGeolocationAgeMs || ageMs < -maxFutureGeolocationSkewMs;
+}
+
+function summarizeClientContextForMetadata(clientContext: ChatClientContext) {
+  return {
+    geolocation: summarizeGeolocationForLogs(clientContext.geolocation),
+  };
+}
+
+function summarizeGeolocationForLogs(geolocation: ChatClientGeolocationContext) {
+  return {
+    status: geolocation.status,
+    source: geolocation.source,
+    consentScope: geolocation.consentScope,
+  };
 }
 
 function isWeatherQuestion(intent: ChatRequestIntent) {
