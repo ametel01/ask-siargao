@@ -27,6 +27,14 @@ Every chat request follows this contract:
 
 No user-facing response should bypass the AI.
 
+Narrow validation repair exception: for governed evidence contracts such as
+local itinerary artifacts and condition judgments, the backend may execute the
+missing required tool after the model attempts final prose, then return that
+tool output to the model for a revised final answer. This repair path is only a
+policy guardrail for missing evidence; it must not render user-facing copy,
+must preserve source caveats, and must stay scoped to deterministic route
+signals that identify a required evidence contract.
+
 ## Backend Role
 
 The backend is the tool runtime for the agent. It should expose capabilities such

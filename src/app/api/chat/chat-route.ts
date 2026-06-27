@@ -317,9 +317,21 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
   const nearby = /\bnear(?:by)?|around|close\s+to|that\s+area|in\s+that\s+area|by\s+/i.test(
     fullUserContext,
   );
-  const conditionActivity = inferConditionActivity(latestUserTurn);
-  const marineCondition = isMarineConditionContent(latestUserTurn);
-  const roadCondition = isRoadConditionContent(latestUserTurn);
+  const bareRideBoatFollowUp = isBareRideBoatFollowUp(latestUserTurn, recentUserContext);
+  const directConditionActivity = bareRideBoatFollowUp
+    ? undefined
+    : inferConditionActivity(latestUserTurn);
+  const conditionActivity = bareRideBoatFollowUp
+    ? "boat_trip"
+    : (directConditionActivity ??
+      inferFollowUpConditionActivity(latestUserTurn, recentUserContext));
+  const inheritedConditionContext = directConditionActivity ? latestUserTurn : recentUserContext;
+  const marineCondition =
+    isMarineConditionContent(latestUserTurn) ||
+    (Boolean(conditionActivity) && isMarineConditionContent(inheritedConditionContext));
+  const roadCondition =
+    (!bareRideBoatFollowUp && isRoadConditionContent(latestUserTurn)) ||
+    (Boolean(conditionActivity) && isRoadConditionContent(inheritedConditionContext));
   const weather = isWeatherContent(latestUserTurn);
   const weatherSensitive =
     weather ||
@@ -428,10 +440,19 @@ function inferConditionActivity(
   if (/\b(swim|swimming|swimmable)\b/i.test(content)) {
     return "swimming";
   }
+  if (/\b(boat|boat\s+tour|island\s+hopping|sugba|lagoon)\b/i.test(content)) {
+    return "boat_trip";
+  }
   if (/\b(surf|surfing|waves?|swell)\b/i.test(content)) {
     return "surfing";
   }
-  if (/\b(scooter|motorbike|motor\s*bike|ride|drive)\b/i.test(content)) {
+  if (/\b(scooter|motorbike|motor\s*bike|land\s+tour)\b/i.test(content)) {
+    return "scooter";
+  }
+  if (
+    /\bdrive\b/i.test(content) ||
+    (/\bride\b/i.test(content) && !isMarineConditionContent(content))
+  ) {
     return "scooter";
   }
   if (/\brain\s+plan|rainy\s+day|covered|avoid\s+rain\b/i.test(content)) {
@@ -440,10 +461,43 @@ function inferConditionActivity(
   if (/\bsunset\b/i.test(content)) {
     return "sunset";
   }
-  if (/\b(boat|island\s+hopping|sugba|lagoon|tour)\b/i.test(content)) {
-    return "boat_trip";
-  }
   return undefined;
+}
+
+function inferFollowUpConditionActivity(
+  latestUserTurn: string,
+  recentUserContext: string,
+): ChatRequestIntent["conditionActivity"] | undefined {
+  if (!isConditionFollowUpContent(latestUserTurn)) {
+    return undefined;
+  }
+  if (
+    /\b(food|eat|restaurants?|caf[eé]s?|coffee|dinner|lunch|breakfast|brunch|bar|hotel|stay)\b/i.test(
+      latestUserTurn,
+    )
+  ) {
+    return undefined;
+  }
+  return inferConditionActivity(recentUserContext);
+}
+
+function isBareRideBoatFollowUp(latestUserTurn: string, recentUserContext: string) {
+  return (
+    /\bride\b/i.test(latestUserTurn) &&
+    !/\b(scooter|motorbike|motor\s*bike|drive|land\s+tour)\b/i.test(latestUserTurn) &&
+    !hasBoatTripConditionContent(latestUserTurn) &&
+    hasBoatTripConditionContent(recentUserContext)
+  );
+}
+
+function isConditionFollowUpContent(content: string) {
+  return /\b(what\s+about|how\s+about|same|tomorrow|tmrw|next\s+7\s+days?|next\s+seven\s+days?|this\s+week|next\s+week|weekend|later\s+this\s+week)\b/i.test(
+    content,
+  );
+}
+
+function hasBoatTripConditionContent(content: string) {
+  return /\b(boat|island\s+hopping|sugba|lagoon|boat\s+trip|boat\s+ride|marine)\b/i.test(content);
 }
 
 function isMarineConditionContent(content: string) {
@@ -453,14 +507,17 @@ function isMarineConditionContent(content: string) {
 }
 
 function isRoadConditionContent(content: string) {
-  return /\b(scooter|motorbike|motor\s*bike|road|flood(?:ed|ing)?|ride|drive)\b/i.test(content);
+  return (
+    /\b(scooter|motorbike|motor\s*bike|road|flood(?:ed|ing)?|drive|land\s+tour)\b/i.test(content) ||
+    (/\bride\b/i.test(content) && !isMarineConditionContent(content))
+  );
 }
 
 function inferChatLocationLabel(content: string): ChatRequestIntent["locationLabel"] {
   if (/\bcloud\s*9|cloud9|catangnan\b/i.test(content)) {
     return "Cloud 9";
   }
-  if (/\bdel\s+carmen\b/i.test(content)) {
+  if (/\bdel\s+carmen\b|\bsugba(?:\s+lagoon)?\b/i.test(content)) {
     return "Del Carmen";
   }
   if (/\bgeneral\s+luna|\bgl\b/i.test(content)) {

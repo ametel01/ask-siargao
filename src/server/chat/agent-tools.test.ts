@@ -1019,6 +1019,33 @@ describe("agent tools", () => {
     expect(result.cards?.map((card) => card.title)).not.toContain("Pacifico Beach");
   });
 
+  test("does not promote negatively mentioned north-island beaches in broad guide queries", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_local",
+      name: "search_local_guide",
+      arguments: {
+        query: "sandy beaches within 30 minutes from General Luna, not Pacifico",
+        filters: {
+          max_ride_minutes: 30,
+        },
+      },
+    });
+
+    const data = result.data as {
+      candidates: Array<{ name: string; rideTimeFromGeneralLunaMinutes: { max: number } }>;
+      excluded: Array<{ name: string; reason: string }>;
+    };
+    expect(data.candidates[0]?.name).not.toBe("Pacifico Beach");
+    expect(data.candidates.map((candidate) => candidate.name)).not.toContain("Pacifico Beach");
+    expect(
+      data.candidates.every((candidate) => candidate.rideTimeFromGeneralLunaMinutes.max <= 30),
+    ).toBe(true);
+    expect(data.excluded.find((candidate) => candidate.name === "Pacifico Beach")?.reason).toBe(
+      "explicitly excluded by the query",
+    );
+    expect(result.cards?.map((card) => card.title)).not.toContain("Pacifico Beach");
+  });
+
   test("carries kids and no-scooter caveats without safety overclaims", async () => {
     const result = await executeAgentTool({
       requestId: "agent_request_local",
@@ -1451,6 +1478,95 @@ describe("agent tools", () => {
         expect.objectContaining({ kind: "surf", status: "not_checked" }),
       ]),
     );
+  });
+
+  test("does not include curated beach guide caveats for non-beach condition tool requests", async () => {
+    const cases = [
+      { activity: "scooter", location: "General Luna" },
+      { activity: "boat_trip", location: "Del Carmen" },
+      { activity: "surfing", location: "Cloud 9" },
+      { activity: "rain_plan", location: "General Luna" },
+      { activity: "sunset", location: "General Luna" },
+    ] as const;
+
+    for (const conditionCase of cases) {
+      const result = await executeAgentTool(
+        {
+          requestId: `agent_request_condition_${conditionCase.activity}`,
+          name: "get_condition_judgment",
+          arguments: {
+            activity: conditionCase.activity,
+            location: conditionCase.location,
+            date_range: "today",
+            beach_name: null,
+            include_local_caveats: null,
+            constraints: null,
+          },
+        },
+        {
+          getLatestSiargaoWeatherSnapshot: async () => liveWeatherSnapshot(conditionCase.location),
+        },
+      );
+
+      expect(result.status).toBe("success");
+      expect(result.sources.map((source) => source.label)).not.toContain("curated_local_guide");
+      expect(result.text).not.toContain("manual_caveat");
+    }
+  });
+
+  test("does not include curated beach guide caveats for generic swimming condition requests", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_condition_generic_swimming",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "swimming",
+          location: "General Luna",
+          date_range: "today",
+          beach_name: null,
+          include_local_caveats: null,
+          constraints: null,
+        },
+      },
+      {
+        getLatestSiargaoWeatherSnapshot: async () => liveWeatherSnapshot("General Luna"),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.sources.map((source) => source.label)).not.toContain("curated_local_guide");
+    expect(result.text).not.toContain("manual_caveat");
+    expect(JSON.stringify(result.data)).not.toContain("curated_local_guide:doot_beach");
+  });
+
+  test("uses matching named beach caveats for condition tool requests", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_condition_pacifico",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "swimming",
+          location: "Siargao Island",
+          date_range: "today",
+          beach_name: "Pacifico Beach",
+          include_local_caveats: true,
+          constraints: null,
+        },
+      },
+      {
+        getLatestSiargaoWeatherSnapshot: async () => liveWeatherSnapshot("Siargao Island"),
+      },
+    );
+    const data = result.data as {
+      judgment: {
+        signals: Array<{ kind: string; evidenceIds: string[] }>;
+      };
+    };
+
+    expect(result.status).toBe("success");
+    const manualCaveat = data.judgment.signals.find((signal) => signal.kind === "manual_caveat");
+    expect(manualCaveat?.evidenceIds).toEqual(["curated_local_guide:pacifico_beach"]);
+    expect(result.text).not.toContain("Doot");
   });
 
   test("returns provider-unavailable condition evidence when weather fails", async () => {

@@ -261,6 +261,564 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.sources).toEqual([weatherSourceSummary, conditionMarineSourceSummary]);
   });
 
+  test("auto-executes condition judgment before accepting direct condition prose", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_direct_condition",
+        output_text: "Direct swimming answer without condition evidence.",
+        _request_id: "req_direct_condition",
+      },
+      {
+        id: "resp_after_condition_repair",
+        output_text:
+          "Final swimming answer after checking condition evidence and preserving tide caveats.",
+        _request_id: "req_after_condition_repair",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      get_condition_judgment: {
+        name: "get_condition_judgment",
+        status: "success",
+        text: "Condition judgment: flexible. Weather checked; tide and surf not checked.",
+        data: {
+          judgment: {
+            recommendation: "flexible",
+            signals: [
+              { kind: "weather", status: "checked" },
+              { kind: "tide", status: "not_checked" },
+              { kind: "surf", status: "not_checked" },
+            ],
+          },
+        },
+        sources: [weatherSourceSummary, conditionMarineSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Is Malinao good for swimming today?" }],
+        requestId: "agent_request_auto_condition",
+        deterministicSignals: {
+          intent: {
+            conditionActivity: "swimming",
+            locationLabel: "General Luna",
+            marineCondition: true,
+            weatherSensitive: true,
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("after checking condition evidence");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual(["get_condition_judgment"]);
+    expect(result.toolCalls[0]?.arguments).toEqual({
+      activity: "swimming",
+      location: "General Luna",
+      date_range: "today",
+      beach_name: "Malinao Beach",
+      include_local_caveats: null,
+      constraints: [],
+    });
+    expect(client.requests).toHaveLength(2);
+    const automaticInput = parseAutomaticConditionInput(client.requests[1]?.input);
+    expect(automaticInput.validationRepairConditionJudgment?.name).toBe("get_condition_judgment");
+    expect(result.sources).toEqual([weatherSourceSummary, conditionMarineSourceSummary]);
+  });
+
+  test("condition repair uses the latest explicit place before inherited context", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_direct_followup_condition",
+        output_text: "Direct sunset answer without condition evidence.",
+        _request_id: "req_direct_followup_condition",
+      },
+      {
+        id: "resp_after_followup_condition_repair",
+        output_text: "Final sunset answer after Cloud 9 condition evidence.",
+        _request_id: "req_after_followup_condition_repair",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      get_condition_judgment: {
+        name: "get_condition_judgment",
+        status: "success",
+        text: "Condition judgment evidence for Cloud 9.",
+        sources: [weatherSourceSummary, conditionMarineSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          { role: "user", content: "Is Malinao good for swimming today?" },
+          { role: "assistant", content: "Malinao needs tide and surf confirmation." },
+          { role: "user", content: "What about sunset at Cloud 9 tomorrow?" },
+        ],
+        requestId: "agent_request_followup_condition_repair",
+        deterministicSignals: {
+          intent: {
+            conditionActivity: "sunset",
+            locationLabel: "General Luna",
+            marineCondition: true,
+            weatherSensitive: true,
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("Cloud 9 condition evidence");
+    expect(result.toolCalls[0]?.arguments).toEqual({
+      activity: "sunset",
+      location: "Cloud 9",
+      date_range: "next_7_days",
+      beach_name: "Cloud 9",
+      include_local_caveats: null,
+      constraints: [],
+    });
+    expect(client.requests).toHaveLength(2);
+  });
+
+  test("repairs condition evidence that omits required beach name and constraints", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_generic_swim_condition_call",
+        requestId: "req_generic_swim_condition_call",
+        callId: "call_generic_swim_condition",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "swimming",
+          location: "General Luna",
+          date_range: "today",
+          beach_name: null,
+          include_local_caveats: null,
+          constraints: [],
+        },
+      }),
+      {
+        id: "resp_after_generic_swim_condition",
+        output_text: "Final swimming answer after generic General Luna evidence.",
+        _request_id: "req_after_generic_swim_condition",
+      },
+      {
+        id: "resp_after_required_malinao_condition",
+        output_text: "Final swimming answer after Malinao and kids evidence.",
+        _request_id: "req_after_required_malinao_condition",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      get_condition_judgment: {
+        name: "get_condition_judgment",
+        status: "success",
+        text: "Condition judgment evidence.",
+        sources: [weatherSourceSummary, conditionMarineSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Is Malinao good for swimming with kids today?" }],
+        requestId: "agent_request_required_beach_condition_repair",
+        deterministicSignals: {
+          intent: {
+            conditionActivity: "swimming",
+            locationLabel: "General Luna",
+            marineCondition: true,
+            weatherSensitive: true,
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("Malinao and kids evidence");
+    expect(result.toolCalls.map((toolCall) => toolCall.arguments)).toEqual([
+      {
+        activity: "swimming",
+        location: "General Luna",
+        date_range: "today",
+        beach_name: null,
+        include_local_caveats: null,
+        constraints: [],
+      },
+      {
+        activity: "swimming",
+        location: "General Luna",
+        date_range: "today",
+        beach_name: "Malinao Beach",
+        include_local_caveats: null,
+        constraints: ["with kids"],
+      },
+    ]);
+    expect(client.requests).toHaveLength(3);
+  });
+
+  test("auto-executes boat condition judgments for boat ride prompts", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_direct_boat_condition",
+        output_text: "Direct boat answer without condition evidence.",
+        _request_id: "req_direct_boat_condition",
+      },
+      {
+        id: "resp_after_boat_condition_repair",
+        output_text: "Final boat answer after checking condition evidence.",
+        _request_id: "req_after_boat_condition_repair",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      get_condition_judgment: {
+        name: "get_condition_judgment",
+        status: "success",
+        text: "Condition judgment: needs local confirmation. Weather checked; marine signals not checked.",
+        sources: [weatherSourceSummary, conditionMarineSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Is the boat ride to Sugba okay today?" }],
+        requestId: "agent_request_auto_boat_condition",
+        deterministicSignals: {
+          intent: {
+            conditionActivity: "boat_trip",
+            locationLabel: "Del Carmen",
+            marineCondition: true,
+            roadCondition: false,
+            weatherSensitive: true,
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("after checking condition evidence");
+    expect(result.toolCalls[0]?.arguments).toEqual({
+      activity: "boat_trip",
+      location: "Del Carmen",
+      date_range: "today",
+      beach_name: "Sugba Lagoon",
+      include_local_caveats: null,
+      constraints: [],
+    });
+  });
+
+  test("repairs bare ride follow-ups in inherited boat context as boat trips", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_direct_bare_ride_followup",
+        output_text: "Direct follow-up answer without condition evidence.",
+        _request_id: "req_direct_bare_ride_followup",
+      },
+      {
+        id: "resp_after_bare_ride_followup_repair",
+        output_text: "Final follow-up answer after checking boat condition evidence.",
+        _request_id: "req_after_bare_ride_followup_repair",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      get_condition_judgment: {
+        name: "get_condition_judgment",
+        status: "success",
+        text: "Condition judgment: needs local confirmation. Weather checked; marine signals not checked.",
+        sources: [weatherSourceSummary, conditionMarineSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          { role: "user", content: "Is the boat ride to Sugba okay today?" },
+          { role: "assistant", content: "Check condition evidence before deciding." },
+          { role: "user", content: "Can I ride tomorrow?" },
+        ],
+        requestId: "agent_request_bare_ride_followup_condition",
+        deterministicSignals: {
+          intent: {
+            conditionActivity: "scooter",
+            locationLabel: "Del Carmen",
+            marineCondition: true,
+            roadCondition: false,
+            weatherSensitive: true,
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("boat condition evidence");
+    expect(result.toolCalls[0]?.arguments).toEqual({
+      activity: "boat_trip",
+      location: "Del Carmen",
+      date_range: "next_7_days",
+      beach_name: "Sugba Lagoon",
+      include_local_caveats: null,
+      constraints: [],
+    });
+  });
+
+  test("repairs mixed scooter and boat condition prompts as boat trips", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_direct_mixed_transport_condition",
+        output_text: "Direct mixed transport answer without condition evidence.",
+        _request_id: "req_direct_mixed_transport_condition",
+      },
+      {
+        id: "resp_after_mixed_transport_condition",
+        output_text: "Final mixed transport answer after checking condition evidence.",
+        _request_id: "req_after_mixed_transport_condition",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      get_condition_judgment: {
+        name: "get_condition_judgment",
+        status: "success",
+        text: "Condition judgment: needs local confirmation. Weather checked; marine and road signals not checked.",
+        sources: [weatherSourceSummary, conditionMarineSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Is it okay to scooter to Del Carmen before a Sugba boat trip today?",
+          },
+        ],
+        requestId: "agent_request_auto_mixed_transport_condition",
+        deterministicSignals: {
+          intent: {
+            conditionActivity: "scooter",
+            locationLabel: "Del Carmen",
+            marineCondition: true,
+            roadCondition: true,
+            weatherSensitive: true,
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("after checking condition evidence");
+    expect(result.toolCalls[0]?.arguments).toEqual({
+      activity: "boat_trip",
+      location: "Del Carmen",
+      date_range: "today",
+      beach_name: "Sugba Lagoon",
+      include_local_caveats: null,
+      constraints: [],
+    });
+  });
+
+  test("repairs mismatched scooter condition evidence for mixed boat prompts", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_wrong_scooter_condition_call",
+        requestId: "req_wrong_scooter_condition_call",
+        callId: "call_wrong_scooter_condition",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "scooter",
+          location: "Del Carmen",
+          date_range: "today",
+          beach_name: "Sugba Lagoon",
+          include_local_caveats: null,
+          constraints: [],
+        },
+      }),
+      {
+        id: "resp_after_wrong_scooter_condition",
+        output_text: "Final mixed answer after only scooter condition evidence.",
+        _request_id: "req_after_wrong_scooter_condition",
+      },
+      {
+        id: "resp_after_required_boat_condition",
+        output_text: "Final mixed answer after required boat condition evidence.",
+        _request_id: "req_after_required_boat_condition",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      get_condition_judgment: {
+        name: "get_condition_judgment",
+        status: "success",
+        text: "Condition judgment evidence.",
+        sources: [weatherSourceSummary, conditionMarineSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Is it okay to scooter to Del Carmen before a Sugba boat trip today?",
+          },
+        ],
+        requestId: "agent_request_mismatched_mixed_transport_condition",
+        deterministicSignals: {
+          intent: {
+            conditionActivity: "boat_trip",
+            locationLabel: "Del Carmen",
+            marineCondition: true,
+            roadCondition: true,
+            weatherSensitive: true,
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("required boat condition evidence");
+    expect(result.toolCalls.map((toolCall) => toolCall.arguments.activity)).toEqual([
+      "scooter",
+      "boat_trip",
+    ]);
+    expect(client.requests).toHaveLength(3);
+  });
+
+  test("repairs wave-and-boat prompts as boat trips even with surfing signals", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_direct_wave_boat_condition",
+        output_text: "Direct wave and boat answer without condition evidence.",
+        _request_id: "req_direct_wave_boat_condition",
+      },
+      {
+        id: "resp_after_wave_boat_condition",
+        output_text: "Final wave and boat answer after checking boat condition evidence.",
+        _request_id: "req_after_wave_boat_condition",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      get_condition_judgment: {
+        name: "get_condition_judgment",
+        status: "success",
+        text: "Condition judgment: boat trip needs local confirmation.",
+        sources: [weatherSourceSummary, conditionMarineSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Are the waves okay for the boat to Sugba?" }],
+        requestId: "agent_request_wave_boat_condition",
+        deterministicSignals: {
+          intent: {
+            conditionActivity: "surfing",
+            locationLabel: "Del Carmen",
+            marineCondition: true,
+            weatherSensitive: true,
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("boat condition evidence");
+    expect(result.toolCalls[0]?.arguments).toEqual({
+      activity: "boat_trip",
+      location: "Del Carmen",
+      date_range: "today",
+      beach_name: "Sugba Lagoon",
+      include_local_caveats: null,
+      constraints: [],
+    });
+  });
+
+  test("repairs tomorrow condition prompts with the next-7-days forecast range", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_direct_tomorrow_condition",
+        output_text: "Direct sunset answer without condition evidence.",
+        _request_id: "req_direct_tomorrow_condition",
+      },
+      {
+        id: "resp_after_tomorrow_condition",
+        output_text: "Final sunset answer after checking condition evidence.",
+        _request_id: "req_after_tomorrow_condition",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      get_condition_judgment: {
+        name: "get_condition_judgment",
+        status: "success",
+        text: "Condition judgment: flexible. Weather checked for the next seven days.",
+        sources: [weatherSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Is Cloud 9 sunset worth it tomorrow?" }],
+        requestId: "agent_request_auto_tomorrow_condition",
+        deterministicSignals: {
+          intent: {
+            conditionActivity: "sunset",
+            locationLabel: "Cloud 9",
+            weatherSensitive: true,
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("after checking condition evidence");
+    expect(result.toolCalls[0]?.arguments).toEqual({
+      activity: "sunset",
+      location: "Cloud 9",
+      date_range: "next_7_days",
+      beach_name: "Cloud 9",
+      include_local_caveats: null,
+      constraints: [],
+    });
+    expect(parseAutomaticConditionInput(client.requests[1]?.input).instruction).toContain(
+      "7-day proxy",
+    );
+  });
+
+  test("does not auto-execute condition judgment for weather-only prose", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_direct_weather",
+        output_text: "Direct weather answer without condition repair.",
+        _request_id: "req_direct_weather",
+      },
+    ]);
+    let toolCallCount = 0;
+    const executeTool: AgentToolExecutor = async (request) => {
+      toolCallCount += 1;
+      return {
+        name: request.name,
+        status: "error",
+        text: `Unexpected tool ${request.name}.`,
+        errorCode: "unexpected_tool",
+        sources: [],
+      };
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Will it rain in General Luna today?" }],
+        requestId: "agent_request_weather_no_condition_repair",
+        deterministicSignals: {
+          intent: {
+            locationLabel: "General Luna",
+            weather: true,
+            weatherSensitive: true,
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("without condition repair");
+    expect(result.toolCalls).toEqual([]);
+    expect(toolCallCount).toBe(0);
+  });
+
   test("executes Google Places search and details tool calls", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
@@ -479,6 +1037,102 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     const automaticInput = parseAutomaticRequiredPlanInput(client.requests[1]?.input);
     expect(automaticInput.validationRepairItineraryPlan?.name).toBe("plan_local_itinerary");
     expect(result.itineraries).toEqual([foodCrawlPlan]);
+  });
+
+  test("auto-executes condition evidence after itinerary repair for mixed prompts", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_direct_mixed",
+        output_text: "Direct sandy beach plan and swimming advice without evidence.",
+        _request_id: "req_direct_mixed",
+      },
+      {
+        id: "resp_after_mixed_plan",
+        output_text: "Itinerary evidence is present, but condition evidence is still missing.",
+        _request_id: "req_after_mixed_plan",
+      },
+      {
+        id: "resp_after_mixed_condition",
+        output_text: "Final mixed answer after itinerary and condition evidence.",
+        _request_id: "req_after_mixed_condition",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      plan_local_itinerary: {
+        name: "plan_local_itinerary",
+        status: "success",
+        text: "Structured sandy beach artifact prepared.",
+        data: {
+          plan: sandyBeachPlan,
+          requiredToolChecks: { places: [] },
+        },
+        sources: [localGuideSourceSummary],
+        itineraries: [sandyBeachPlan],
+      },
+      get_condition_judgment: {
+        name: "get_condition_judgment",
+        status: "success",
+        text: "Condition judgment: flexible. Weather checked; tide and surf not checked.",
+        sources: [weatherSourceSummary, conditionMarineSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Plan a sandy beach half-day and tell me if swimming is okay today.",
+          },
+        ],
+        requestId: "agent_request_mixed_itinerary_condition",
+        deterministicSignals: {
+          intent: {
+            activityPlan: true,
+            conditionActivity: "swimming",
+            locationLabel: "General Luna",
+            marineCondition: true,
+            weatherSensitive: true,
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("after itinerary and condition evidence");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "plan_local_itinerary",
+      "get_condition_judgment",
+    ]);
+    expect(result.toolCalls[0]?.arguments).toMatchObject({
+      theme: "sandy_beach_half_day",
+    });
+    expect(result.toolCalls[1]?.arguments).toEqual({
+      activity: "swimming",
+      location: "General Luna",
+      date_range: "today",
+      beach_name: null,
+      include_local_caveats: null,
+      constraints: [],
+    });
+    expect(client.requests).toHaveLength(3);
+    expect(
+      parseAutomaticRequiredPlanInput(client.requests[1]?.input).validationRepairItineraryPlan,
+    ).toMatchObject({ name: "plan_local_itinerary" });
+    expect(
+      parseAutomaticConditionInput(client.requests[2]?.input).validationRepairConditionJudgment,
+    ).toMatchObject({ name: "get_condition_judgment" });
+    expect(result.itineraries).toBeDefined();
+    const itinerary = result.itineraries?.[0];
+    expect(itinerary).toMatchObject({
+      title: sandyBeachPlan.title,
+      stops: sandyBeachPlan.stops,
+    });
+    expect(itinerary?.sources.map((source) => source.label)).toEqual([
+      "curated_local_guide",
+      "weather_checked",
+      "not_verified",
+    ]);
   });
 
   test("repairs failed itinerary planning before accepting final itinerary prose", async () => {
@@ -1744,6 +2398,13 @@ function parseAutomaticRequiredCheckInput(input: unknown): {
 
 function parseAutomaticRequiredPlanInput(input: unknown): {
   validationRepairItineraryPlan?: { name?: string };
+} {
+  return typeof input === "string" ? JSON.parse(input) : {};
+}
+
+function parseAutomaticConditionInput(input: unknown): {
+  instruction?: string;
+  validationRepairConditionJudgment?: { name?: string };
 } {
   return typeof input === "string" ? JSON.parse(input) : {};
 }

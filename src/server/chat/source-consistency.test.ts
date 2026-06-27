@@ -199,6 +199,25 @@ describe("chat source consistency", () => {
     expect(result).toEqual({ valid: true, issues: [] });
   });
 
+  test("accepts curated local guide claims from condition judgment tool evidence", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Malinao has curated beach-surface caveats for swimming.", [
+        weatherSourceSummary,
+        localGuideSourceSummary,
+      ]),
+      sources: [weatherSourceSummary, localGuideSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "get_condition_judgment",
+          status: "success",
+          sources: [weatherSourceSummary, localGuideSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result).toEqual({ valid: true, issues: [] });
+  });
+
   test("rejects tide or surf checked labels until provider-backed marine tools exist", () => {
     const checkedTideSource: AnswerSourceSummary = {
       label: "weather_checked",
@@ -223,6 +242,131 @@ describe("chat source consistency", () => {
     expect(result.issues.map((issue) => issue.code)).toEqual([
       "unsupported_checked_label",
       "unsupported_checked_label",
+    ]);
+  });
+
+  test("rejects checked marine terms in structured checked fields and rendered source text", () => {
+    const weatherWithMarineChecked: AnswerSourceSummary = {
+      ...weatherSourceSummary,
+      checked: ["forecast for Siargao Island", "tide and surf"],
+      notChecked: [],
+    };
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Do not accept weather sources as marine checks.", [
+        weatherWithMarineChecked,
+      ]),
+      sources: [weatherWithMarineChecked],
+      toolCalls: [
+        toolCall({
+          name: "get_weather_forecast",
+          status: "success",
+          sources: [weatherSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toEqual([
+      "unsupported_checked_label",
+      "unsupported_checked_label",
+    ]);
+  });
+
+  test("accepts current Places status wording without treating it as ocean current evidence", () => {
+    const currentOpeningSource: AnswerSourceSummary = {
+      ...livePlacesSourceSummary,
+      sourceName: "current opening status",
+      checked: ["open-now signal"],
+    };
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("The venue has current opening status.", [currentOpeningSource]),
+      sources: [currentOpeningSource],
+      toolCalls: [
+        toolCall({
+          name: "search_places",
+          status: "success",
+          sources: [currentOpeningSource],
+        }),
+      ],
+    });
+
+    expect(result).toEqual({ valid: true, issues: [] });
+  });
+
+  test("still rejects checked sea current claims until marine providers exist", () => {
+    const seaCurrentSource: AnswerSourceSummary = {
+      ...weatherSourceSummary,
+      checked: ["sea current"],
+      notChecked: [],
+    };
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Do not accept weather sources as sea-current checks.", [
+        seaCurrentSource,
+      ]),
+      sources: [seaCurrentSource],
+      toolCalls: [
+        toolCall({
+          name: "get_weather_forecast",
+          status: "success",
+          sources: [weatherSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toEqual([
+      "unsupported_checked_label",
+      "unsupported_checked_label",
+    ]);
+  });
+
+  test("rejects fabricated checked road and safety claims until providers exist", () => {
+    const roadSafetySource: AnswerSourceSummary = {
+      ...weatherSourceSummary,
+      checked: ["road flooding", "lifeguard status", "official warnings"],
+      notChecked: [],
+    };
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Do not accept weather sources as road or safety checks.", [
+        roadSafetySource,
+      ]),
+      sources: [roadSafetySource],
+      toolCalls: [
+        toolCall({
+          name: "get_weather_forecast",
+          status: "success",
+          sources: [weatherSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toEqual([
+      "unsupported_checked_label",
+      "unsupported_checked_label",
+    ]);
+  });
+
+  test("rejects rendered checked road and swimming-safety claims", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message:
+        "Checked conditions.\n\nChecked: Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo) - road closures and swimming safety.",
+      sources: [],
+      toolCalls: [
+        toolCall({
+          name: "get_weather_forecast",
+          status: "success",
+          sources: [weatherSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        code: "unsupported_checked_label",
+        label: "weather_checked",
+      }),
     ]);
   });
 

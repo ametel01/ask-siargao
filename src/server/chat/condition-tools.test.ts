@@ -161,6 +161,97 @@ describe("condition judgment contracts", () => {
     );
   });
 
+  test("uses the matching named beach candidate for curated local caveats", () => {
+    for (const beachName of ["Malinao Beach", "Pacifico Beach", "Alegria Beach"]) {
+      const judgment = buildConditionJudgment({
+        request: requestFixture({
+          activity: "swimming",
+          beach_name: beachName,
+          include_local_caveats: true,
+        }),
+        weatherSnapshot: weatherSnapshotFixture({ level: "low" }),
+        localGuideResult: searchSiargaoLocalGuide({
+          query: `${beachName} swimming beach`,
+          filters: { beachName, swimming: true, beachSurface: "sand" },
+        }),
+      });
+      const manualCaveat = judgment.signals.find((signal) => signal.kind === "manual_caveat");
+
+      expect(manualCaveat?.evidenceIds).toEqual([
+        `curated_local_guide:${beachName
+          .toLowerCase()
+          .replaceAll(/[^a-z0-9]+/g, "_")
+          .replaceAll(/^_|_$/g, "")}`,
+      ]);
+      expect(manualCaveat?.summary).not.toContain("entry and water depth can vary with tide");
+    }
+  });
+
+  test("does not attach a named beach caveat to generic swimming judgments", () => {
+    const judgment = buildConditionJudgment({
+      request: requestFixture({
+        activity: "swimming",
+        beach_name: null,
+        include_local_caveats: null,
+      }),
+      weatherSnapshot: weatherSnapshotFixture({ level: "low" }),
+      localGuideResult: searchSiargaoLocalGuide({
+        query: "General Luna swimming",
+        filters: { swimming: true, beachSurface: "sand" },
+      }),
+    });
+
+    expect(judgment.signals.map((signal) => signal.kind)).toEqual(["weather", "tide", "surf"]);
+    expect(judgment.sources.map((source) => source.label)).toEqual([
+      "weather_checked",
+      "not_verified",
+    ]);
+  });
+
+  test("does not attach a curated beach caveat when a named place is not in the beach guide", () => {
+    const judgment = buildConditionJudgment({
+      request: requestFixture({
+        activity: "boat_trip",
+        location: "Del Carmen",
+        beach_name: "Sugba Lagoon",
+        include_local_caveats: true,
+      }),
+      weatherSnapshot: weatherSnapshotFixture(),
+      localGuideResult: searchSiargaoLocalGuide({
+        query: "Sugba Lagoon boat trip",
+        filters: { beachName: "Sugba Lagoon" },
+      }),
+    });
+
+    expect(judgment.signals.map((signal) => signal.kind)).not.toContain("manual_caveat");
+    expect(judgment.sources.map((source) => source.label)).not.toContain("curated_local_guide");
+  });
+
+  test("does not attach curated beach caveats to non-beach condition judgments", () => {
+    const localGuideResult = searchSiargaoLocalGuide({
+      query: "Cloud 9 beach caveats",
+      filters: { swimming: true, beachSurface: "sand" },
+    });
+    const cases = [
+      requestFixture({ activity: "scooter", location: "General Luna" }),
+      requestFixture({ activity: "boat_trip", location: "Del Carmen" }),
+      requestFixture({ activity: "surfing", location: "Cloud 9" }),
+      requestFixture({ activity: "rain_plan", location: "General Luna" }),
+      requestFixture({ activity: "sunset", location: "General Luna" }),
+    ] as const;
+
+    for (const request of cases) {
+      const judgment = buildConditionJudgment({
+        request,
+        weatherSnapshot: weatherSnapshotFixture(),
+        localGuideResult,
+      });
+
+      expect(judgment.signals.map((signal) => signal.kind)).not.toContain("manual_caveat");
+      expect(judgment.sources.map((source) => source.label)).not.toContain("curated_local_guide");
+    }
+  });
+
   test("avoids exposed scooter and boat plans when checked weather risk is high", () => {
     const highWeather = weatherSnapshotFixture({
       level: "high",
@@ -181,6 +272,61 @@ describe("condition judgment contracts", () => {
         weatherSnapshot: highWeather,
       }).recommendation,
     ).toBe("avoid");
+  });
+
+  test("uses seven-day peak metrics for next-7-days condition judgments", () => {
+    const judgment = buildConditionJudgment({
+      request: requestFixture({ activity: "scooter", date_range: "next_7_days" }),
+      weatherSnapshot: weatherSnapshotFixture({
+        level: "low",
+        precipitationProbability: 18,
+        rainSum: 0.2,
+        windGust: 16,
+        metrics: [
+          {
+            id: "precipitation_probability",
+            label: "Peak precipitation probability",
+            value: 82,
+            unit: "%",
+            peakDate: "2026-06-30",
+            level: "high",
+            claim: "Maximum daily precipitation probability in the next 7 days is 82%.",
+            evidenceId: "ev_open_meteo_peak_precipitation",
+          },
+          {
+            id: "rain_sum",
+            label: "Peak daily rain",
+            value: 24,
+            unit: "mm",
+            peakDate: "2026-07-01",
+            level: "high",
+            claim: "Maximum forecast daily rain sum in the next 7 days is 24 mm.",
+            evidenceId: "ev_open_meteo_peak_rain",
+          },
+          {
+            id: "wind_gust",
+            label: "Peak wind gust",
+            value: 18,
+            unit: "km/h",
+            peakDate: "2026-06-28",
+            level: "low",
+            claim: "Maximum forecast wind gust in the next 7 days is 18 km/h.",
+            evidenceId: "ev_open_meteo_peak_wind",
+          },
+        ],
+      }),
+    });
+
+    expect(judgment.dateLabel).toBe("next 7 days");
+    expect(judgment.recommendation).toBe("avoid");
+    expect(judgment.signals[0]).toMatchObject({
+      kind: "weather",
+      level: "high",
+    });
+    expect(judgment.reasons[0]).toContain("7-day peaks");
+    expect(judgment.caveats).toContain(
+      "Next-7-days evidence is a range-level proxy, not a day-specific forecast judgment.",
+    );
   });
 
   test("handles sunset as weather-sensitive without inventing tide or surf checks", () => {
@@ -338,12 +484,15 @@ function requestFixture(
 function weatherSnapshotFixture({
   condition = "Cloudy breaks",
   level = "low",
+  metrics,
   precipitationProbability = 20,
   precipitationSum = 0.4,
   rainSum = 0.2,
   windGust = 18,
   windSpeed = 12,
-}: Partial<WeatherSnapshot["today"]> = {}): WeatherSnapshot {
+}: Partial<WeatherSnapshot["today"]> & {
+  metrics?: WeatherSnapshot["metrics"];
+} = {}): WeatherSnapshot {
   return {
     ...fallbackWeatherSnapshot,
     status: "live",
@@ -367,5 +516,12 @@ function weatherSnapshotFixture({
       level,
       evidenceId: "ev_open_meteo_test",
     },
+    metrics:
+      metrics ??
+      fallbackWeatherSnapshot.metrics.map((metric) => ({
+        ...metric,
+        level: "low",
+        peakDate: "2026-06-27",
+      })),
   };
 }

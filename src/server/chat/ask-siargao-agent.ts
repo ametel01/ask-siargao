@@ -19,6 +19,7 @@ import {
   buildAgentResponseTools,
   executeAgentTool,
 } from "@/server/chat/agent-tools";
+import { type ConditionJudgmentRequest, conditionActivities } from "@/server/chat/condition-tools";
 import type {
   ItineraryRequiredToolChecks,
   LocalItineraryRequest,
@@ -166,6 +167,53 @@ export async function runAskSiargaoAgentTurn(
         continue;
       }
 
+      const conditionJudgmentRepairCall = missingConditionJudgmentRepairCall(
+        resolved,
+        toolCalls,
+        toolResults,
+      );
+      if (conditionJudgmentRepairCall) {
+        if (toolCalls.length + 1 > maxToolCalls) {
+          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
+        }
+
+        // Validation repair only: the model should choose get_condition_judgment for condition
+        // prompts. If it tries final prose anyway, the runtime repairs the missing evidence.
+        const automaticConditionOutput = await executeAndAuditTool({
+          executeTool,
+          functionCall: conditionJudgmentRepairCall,
+          logger,
+          now: dependencies.now ?? (() => new Date()),
+          requestId: resolved.requestId,
+        });
+        toolCalls.push(automaticConditionOutput.audit);
+        toolResults.push(automaticConditionOutput.result);
+
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_000,
+          instructions,
+          tools,
+          ...(response.id ? { previous_response_id: response.id } : {}),
+          input: JSON.stringify({
+            product: "Ask Siargao",
+            instruction: conditionJudgmentRepairInstruction(
+              automaticConditionOutput.functionCall.arguments,
+            ),
+            validationRepairConditionJudgment: {
+              toolCallId: automaticConditionOutput.functionCall.callId,
+              name: automaticConditionOutput.functionCall.name,
+              arguments: automaticConditionOutput.functionCall.arguments,
+              result: JSON.parse(serializeToolOutput(automaticConditionOutput.result)),
+            },
+            responseContract,
+          }),
+        });
+        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        continue;
+      }
+
       const missingRequiredChecks = missingRequiredItineraryChecks(toolResults, toolCalls);
       if (missingRequiredChecks.length > 0) {
         if (toolCalls.length + missingRequiredChecks.length > maxToolCalls) {
@@ -292,6 +340,70 @@ function missingInitialItineraryPlanRepairCall(
     name: "plan_local_itinerary",
     arguments: argumentsForPlan,
   };
+}
+
+function missingConditionJudgmentRepairCall(
+  request: AgentRuntimeRequest,
+  toolCalls: readonly AgentToolCallAudit[],
+  toolResults: readonly AgentToolResult[],
+): ParsedFunctionCall | undefined {
+  const argumentsForCondition = inferRequiredConditionJudgmentArguments(request);
+  if (!argumentsForCondition) {
+    return undefined;
+  }
+  if (hasSuccessfulConditionJudgment(toolCalls, toolResults, argumentsForCondition)) {
+    return undefined;
+  }
+
+  return {
+    callId: "auto_required_condition_judgment_1",
+    name: "get_condition_judgment",
+    arguments: argumentsForCondition,
+  };
+}
+
+function inferRequiredConditionJudgmentArguments(
+  request: AgentRuntimeRequest,
+): Record<string, unknown> | undefined {
+  const userTurns = request.messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.content);
+  const latestUserTurn = userTurns.at(-1) ?? latestUserContent(request.messages);
+  if (latestUserTurn.trim().length === 0) {
+    return undefined;
+  }
+
+  const signalActivity = readStringPath(request.deterministicSignals, [
+    "intent",
+    "conditionActivity",
+  ]);
+  if (!isConditionActivity(signalActivity)) {
+    return undefined;
+  }
+
+  const priorUserContext = userTurns.slice(0, -1).join(" ");
+  const inheritedPlaceContext = latestTurnHasConditionPlace(latestUserTurn) ? "" : priorUserContext;
+  const conditionContext = [latestUserTurn, inheritedPlaceContext].filter(Boolean).join(" ");
+  const activity = inferConditionRepairActivity(
+    signalActivity,
+    latestUserTurn,
+    inheritedPlaceContext,
+  );
+  const conditionRequest = {
+    activity,
+    location: inferConditionLocation(
+      latestUserTurn,
+      inheritedPlaceContext,
+      request.deterministicSignals,
+    ),
+    date_range: inferConditionDateRange(latestUserTurn),
+    beach_name:
+      inferConditionBeachName(latestUserTurn) ?? inferConditionBeachName(inheritedPlaceContext),
+    include_local_caveats: null,
+    constraints: inferItineraryConstraints(conditionContext, request.deterministicSignals),
+  } satisfies ConditionJudgmentRequest;
+
+  return conditionRequest;
 }
 
 function inferRequiredInitialItineraryPlanArguments(
@@ -509,6 +621,96 @@ function inferItineraryOrigin(
   return undefined;
 }
 
+function inferConditionLocation(
+  latestContent: string,
+  inheritedPlaceContext: string,
+  deterministicSignals: Record<string, unknown> | undefined,
+): ConditionJudgmentRequest["location"] {
+  const latestLocation = inferConditionLocationFromContent(latestContent);
+  if (latestLocation) {
+    return latestLocation;
+  }
+  const signalLocation =
+    readStringPath(deterministicSignals, ["intent", "locationLabel"]) ??
+    readStringPath(deterministicSignals, ["intent", "tripContext", "currentArea"]);
+  if (isConditionLocation(signalLocation)) {
+    return signalLocation;
+  }
+  return inferConditionLocationFromContent(inheritedPlaceContext) ?? "Siargao Island";
+}
+
+function inferConditionLocationFromContent(
+  content: string,
+): ConditionJudgmentRequest["location"] | undefined {
+  if (/\bcloud\s*9|cloud9|catangnan\b/i.test(content)) {
+    return "Cloud 9";
+  }
+  if (/\bdel\s+carmen|sugba\s+lagoon|sugba\b/i.test(content)) {
+    return "Del Carmen";
+  }
+  if (/\bgeneral\s+luna|\bgl\b/i.test(content)) {
+    return "General Luna";
+  }
+  return undefined;
+}
+
+function inferConditionRepairActivity(
+  signalActivity: ConditionJudgmentRequest["activity"],
+  latestContent: string,
+  inheritedPlaceContext: string,
+): ConditionJudgmentRequest["activity"] {
+  if (signalActivity !== "boat_trip" && hasBoatTripConditionContent(latestContent)) {
+    return "boat_trip";
+  }
+  if (
+    signalActivity === "scooter" &&
+    isBareRideBoatFollowUp(latestContent, inheritedPlaceContext)
+  ) {
+    return "boat_trip";
+  }
+  return signalActivity;
+}
+
+function inferConditionDateRange(content: string): ConditionJudgmentRequest["date_range"] {
+  return /\b(tomorrow|tmrw|next\s+7\s+days?|next\s+seven\s+days?|this\s+week|next\s+week|weekend|later\s+this\s+week|in\s+(?:[2-7]|two|three|four|five|six|seven)\s+days?)\b/i.test(
+    content,
+  )
+    ? "next_7_days"
+    : "today";
+}
+
+function hasBoatTripConditionContent(content: string) {
+  return /\b(boat|island\s+hopping|sugba|lagoon|boat\s+trip|boat\s+ride|marine)\b/i.test(content);
+}
+
+function isBareRideBoatFollowUp(latestContent: string, inheritedPlaceContext: string) {
+  return (
+    /\bride\b/i.test(latestContent) &&
+    !/\b(scooter|motorbike|motor\s*bike|drive|road|land\s+tour)\b/i.test(latestContent) &&
+    !hasBoatTripConditionContent(latestContent) &&
+    hasBoatTripConditionContent(inheritedPlaceContext)
+  );
+}
+
+function inferConditionBeachName(content: string): string | null {
+  const match = /\b(malinao|doot|cloud\s*9|pacifico|alegria|magpupungko|sugba)\b/i.exec(content);
+  if (!match?.[1]) {
+    return null;
+  }
+  const normalized = match[1].replaceAll(/\s+/g, " ");
+  if (/^cloud\s*9$/i.test(normalized)) {
+    return "Cloud 9";
+  }
+  if (/^sugba$/i.test(normalized)) {
+    return "Sugba Lagoon";
+  }
+  return `${normalized[0]?.toUpperCase() ?? ""}${normalized.slice(1).toLowerCase()} Beach`;
+}
+
+function latestTurnHasConditionPlace(content: string) {
+  return Boolean(inferConditionLocationFromContent(content) ?? inferConditionBeachName(content));
+}
+
 function inferMealPreference(content: string, constraints: readonly string[]) {
   if (/\bseafood\b/i.test(content)) {
     return "seafood";
@@ -548,6 +750,15 @@ function latestUserContent(messages: readonly AgentRuntimeRequest["messages"][nu
   return messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
 }
 
+function conditionJudgmentRepairInstruction(argumentsForCondition: Record<string, unknown>) {
+  const base =
+    "Validation repair: you attempted a final condition answer before choosing get_condition_judgment as required. Use this runtime-repaired condition evidence, preserve unchecked tide, surf, road, current, lifeguard, and safety caveats, and write the final traveler-facing answer now.";
+  if (argumentsForCondition.date_range !== "next_7_days") {
+    return base;
+  }
+  return `${base} The repaired evidence uses the next_7_days range; if the user asked about tomorrow or a specific future day, say this is a 7-day proxy rather than a tomorrow-specific forecast judgment.`;
+}
+
 function hasSuccessfulItineraryPlanArtifact(
   toolCalls: readonly AgentToolCallAudit[],
   toolResults: readonly AgentToolResult[],
@@ -563,6 +774,89 @@ function hasSuccessfulItineraryPlanArtifact(
         Boolean(result.itineraries?.length),
     )
   );
+}
+
+function hasSuccessfulConditionJudgment(
+  toolCalls: readonly AgentToolCallAudit[],
+  toolResults: readonly AgentToolResult[],
+  requiredArguments: Record<string, unknown>,
+) {
+  return (
+    toolCalls.some(
+      (toolCall) =>
+        toolCall.name === "get_condition_judgment" &&
+        toolCall.status === "success" &&
+        conditionJudgmentMatchesRequiredArguments(toolCall.arguments, requiredArguments),
+    ) &&
+    toolResults.some(
+      (result) => result.name === "get_condition_judgment" && result.status === "success",
+    )
+  );
+}
+
+function conditionJudgmentMatchesRequiredArguments(
+  actual: Record<string, unknown>,
+  required: Record<string, unknown>,
+) {
+  return (
+    actual.activity === required.activity &&
+    actual.date_range === required.date_range &&
+    actual.location === required.location &&
+    requiredConditionBeachMatches(actual, required) &&
+    requiredConditionConstraintsMatch(actual, required) &&
+    requiredConditionLocalCaveatIntentMatches(actual, required)
+  );
+}
+
+function requiredConditionBeachMatches(
+  actual: Record<string, unknown>,
+  required: Record<string, unknown>,
+) {
+  return (
+    typeof required.beach_name !== "string" ||
+    normalizeRequiredConditionText(actual.beach_name) ===
+      normalizeRequiredConditionText(required.beach_name)
+  );
+}
+
+function requiredConditionConstraintsMatch(
+  actual: Record<string, unknown>,
+  required: Record<string, unknown>,
+) {
+  const requiredConstraints = readConditionConstraintValues(required.constraints);
+  if (requiredConstraints.length === 0) {
+    return true;
+  }
+  const actualConstraints = new Set(
+    readConditionConstraintValues(actual.constraints).map(normalizeRequiredConditionText),
+  );
+  return requiredConstraints
+    .map(normalizeRequiredConditionText)
+    .every((constraint) => actualConstraints.has(constraint));
+}
+
+function requiredConditionLocalCaveatIntentMatches(
+  actual: Record<string, unknown>,
+  required: Record<string, unknown>,
+) {
+  if (typeof required.beach_name === "string" && actual.include_local_caveats === false) {
+    return false;
+  }
+  return (
+    required.include_local_caveats === null ||
+    required.include_local_caveats === undefined ||
+    actual.include_local_caveats === required.include_local_caveats
+  );
+}
+
+function readConditionConstraintValues(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
+function normalizeRequiredConditionText(value: unknown) {
+  return typeof value === "string" ? value.replaceAll(/\s+/g, " ").trim().toLowerCase() : "";
 }
 
 function missingRequiredItineraryChecks(
@@ -886,6 +1180,23 @@ function isItineraryTransportMode(
   value: string | undefined,
 ): value is NonNullable<LocalItineraryRequest["transport_mode"]> {
   return value === "walk" || value === "scooter" || value === "tricycle" || value === "van";
+}
+
+function isConditionActivity(
+  value: string | undefined,
+): value is ConditionJudgmentRequest["activity"] {
+  return conditionActivities.some((activity) => activity === value);
+}
+
+function isConditionLocation(
+  value: string | undefined,
+): value is ConditionJudgmentRequest["location"] {
+  return (
+    value === "Siargao Island" ||
+    value === "Cloud 9" ||
+    value === "General Luna" ||
+    value === "Del Carmen"
+  );
 }
 
 function uniqueText(values: readonly string[]) {

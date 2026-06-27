@@ -157,7 +157,7 @@ describe("chat route", () => {
     expect(signals?.intent.activityPlan).toBe(false);
   });
 
-  test("passes condition hints for scooter and boat prompts", async () => {
+  test("passes condition hints for mixed scooter and boat prompts", async () => {
     const dependencies = chatDependencies({
       message: "The model should judge road and marine conditions with tools.",
       sources: [genericSourceSummary],
@@ -176,11 +176,120 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.conditionActivity).toBe("scooter");
+    expect(signals?.intent.conditionActivity).toBe("boat_trip");
     expect(signals?.intent.roadCondition).toBe(true);
     expect(signals?.intent.marineCondition).toBe(true);
     expect(signals?.intent.weatherSensitive).toBe(true);
     expect(signals?.intent.activityPlan).toBe(false);
+  });
+
+  test("does not classify land or scooter tour prompts as boat trips", async () => {
+    for (const prompt of ["Is a land tour okay today?", "Can I scooter tour Siargao today?"]) {
+      const dependencies = chatDependencies({
+        message: "The model should judge road and exposure conditions with tools.",
+        sources: [genericSourceSummary],
+      });
+      const response = await chatResponse(
+        jsonRequest({
+          messages: [{ role: "user", content: prompt }],
+        }),
+        dependencies,
+      );
+      const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+      expect(response.status).toBe(200);
+      expect(signals?.intent.conditionActivity).toBe("scooter");
+      expect(signals?.intent.roadCondition).toBe(true);
+      expect(signals?.intent.marineCondition).toBe(false);
+      expect(signals?.intent.weatherSensitive).toBe(true);
+    }
+  });
+
+  test("classifies boat ride prompts as boat condition judgments", async () => {
+    const dependencies = chatDependencies({
+      message: "The model should judge boat and marine conditions with tools.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Is the boat ride to Sugba okay today?" }],
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.intent.conditionActivity).toBe("boat_trip");
+    expect(signals?.intent.marineCondition).toBe(true);
+    expect(signals?.intent.roadCondition).toBe(false);
+    expect(signals?.intent.weatherSensitive).toBe(true);
+  });
+
+  test("inherits boat context for bare ride follow-ups", async () => {
+    const dependencies = chatDependencies({
+      message: "The model should judge tomorrow boat and marine conditions with tools.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          { role: "user", content: "Is the boat ride to Sugba okay today?" },
+          { role: "assistant", content: "Check condition evidence before deciding." },
+          { role: "user", content: "Can I ride tomorrow?" },
+        ],
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.intent.conditionActivity).toBe("boat_trip");
+    expect(signals?.intent.locationLabel).toBe("Del Carmen");
+    expect(signals?.intent.marineCondition).toBe(true);
+    expect(signals?.intent.roadCondition).toBe(false);
+    expect(signals?.intent.weatherSensitive).toBe(true);
+  });
+
+  test("classifies wave questions for Sugba boats as boat condition judgments", async () => {
+    const dependencies = chatDependencies({
+      message: "The model should judge boat and marine conditions with tools.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Are the waves okay for the boat to Sugba?" }],
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.intent.conditionActivity).toBe("boat_trip");
+    expect(signals?.intent.marineCondition).toBe(true);
+    expect(signals?.intent.weatherSensitive).toBe(true);
+  });
+
+  test("inherits condition intent for temporal follow-ups", async () => {
+    const dependencies = chatDependencies({
+      message: "The model should check tomorrow condition evidence.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          { role: "user", content: "Is Malinao good for swimming today?" },
+          { role: "assistant", content: "Use condition evidence before deciding." },
+          { role: "user", content: "What about tomorrow?" },
+        ],
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.intent.conditionActivity).toBe("swimming");
+    expect(signals?.intent.marineCondition).toBe(true);
+    expect(signals?.intent.weatherSensitive).toBe(true);
   });
 
   for (const scenario of [

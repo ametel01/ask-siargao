@@ -20,6 +20,7 @@ import {
   type ConditionJudgment,
   conditionJudgmentRequestSchema,
   conditionJudgmentToolParameters,
+  shouldIncludeConditionLocalCaveats,
 } from "@/server/chat/condition-tools";
 import {
   type LocalItineraryRequest,
@@ -2100,18 +2101,18 @@ async function getConditionJudgmentToolResult(
     getSnapshot,
     location,
   });
-  const localGuideResult =
-    args.include_local_caveats === false
-      ? null
-      : searchSiargaoLocalGuide({
-          query: conditionLocalGuideQuery(args),
-          filters: {
-            swimming: args.activity === "swimming",
-            sunset: args.activity === "sunset",
-            rainFit: args.activity === "rain_plan",
-            beachSurface: args.activity === "swimming" ? "sand" : "any",
-          },
-        });
+  const localGuideResult = !shouldIncludeConditionLocalCaveats(args)
+    ? null
+    : searchSiargaoLocalGuide({
+        query: conditionLocalGuideQuery(args),
+        filters: {
+          ...(args.beach_name ? { beachName: args.beach_name } : {}),
+          swimming: args.activity === "swimming",
+          sunset: args.activity === "sunset",
+          rainFit: args.activity === "rain_plan",
+          beachSurface: args.activity === "swimming" ? "sand" : "any",
+        },
+      });
   const judgment = buildConditionJudgment({
     request: args,
     weatherSnapshot,

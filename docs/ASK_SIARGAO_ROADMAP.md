@@ -545,7 +545,7 @@ preserve source caveats in the card footer.
 - Add route tests confirming `cards` shape for Places and beach answers.
 - Add Playwright coverage for mobile card layout once the UI exists.
 
-## Priority 8: Local Itinerary Builder
+## Priority 8: Local Itinerary Builder **COMPLETED**
 
 ### Outcome
 
@@ -610,7 +610,7 @@ The agent should combine:
   half-day, and food crawl.
 - Add tests for fallback substitution under high rain probability.
 
-## Priority 9: Weather, Tide, And Surf Fusion
+## Priority 9: Weather, Tide, And Surf Fusion **COMPLETED**
 
 ### Outcome
 

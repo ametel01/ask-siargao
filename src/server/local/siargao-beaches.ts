@@ -33,6 +33,8 @@ export type BeachRecommendationRequest = {
 };
 
 export type LocalGuideSearchFilters = {
+  beachName?: string;
+  excludedBeachNames?: string[];
   beachSurface?: SiargaoBeachSurface | "any";
   swimming?: boolean;
   sunset?: boolean;
@@ -187,11 +189,27 @@ export function searchSiargaoLocalGuide({
   const normalizedFilters = normalizeLocalGuideFilters(query, filters);
   const maxRideMinutes = normalizedFilters.maxRideMinutes ?? 45;
   const selectedSurface = normalizedFilters.beachSurface ?? "any";
+  const requestedBeachName = normalizedFilters.beachName;
+  const excludedBeachNames = normalizedFilters.excludedBeachNames ?? [];
   const excluded: LocalGuideExcludedCandidate[] = [];
   const candidates = siargaoBeachGuide
     .filter((beach) => {
+      const explicitlyExcluded = excludedBeachNames.some((excludedName) =>
+        beachNameMatches(beach.name, excludedName),
+      );
+      const nameFits = beachNameMatches(beach.name, requestedBeachName);
       const rideTimeFits = beach.distanceFromGeneralLunaMinutes.max <= maxRideMinutes;
       const surfaceFits = selectedSurface === "any" || beach.surface === selectedSurface;
+      if (explicitlyExcluded) {
+        excluded.push({
+          name: beach.name,
+          reason: "explicitly excluded by the query",
+        });
+        return false;
+      }
+      if (nameFits) {
+        return true;
+      }
       if (!rideTimeFits) {
         excluded.push({
           name: beach.name,
@@ -280,12 +298,17 @@ function normalizeLocalGuideFilters(
   query: string,
   filters: LocalGuideSearchFilters,
 ): LocalGuideSearchFilters {
+  const excludedBeachNames = uniqueText([
+    ...(filters.excludedBeachNames ?? []),
+    ...inferExcludedBeachNames(query),
+  ]);
   const wantsSand = /\bsand(?:y)?|not\s+rocky|avoid\s+rocks?|smooth\s+sand\b/i.test(query);
   const wantsSwimming = /\bswim(?:ming)?|calm\s+water\b/i.test(query);
   const wantsSunset = /\bsunset|late[-\s]?afternoon\b/i.test(query);
   const wantsRain = /\brain|rainy|covered|bad\s+weather\b/i.test(query);
   return {
     ...filters,
+    ...(excludedBeachNames.length ? { excludedBeachNames } : {}),
     ...(filters.beachSurface
       ? {}
       : {
@@ -347,6 +370,9 @@ function localGuideRank(left: SiargaoBeach, right: SiargaoBeach, filters: LocalG
 
 function localGuideScore(beach: SiargaoBeach, filters: LocalGuideSearchFilters) {
   let score = 0;
+  if (beachNameMatches(beach.name, filters.beachName)) {
+    score += 100;
+  }
   if (filters.swimming && beach.name === "Doot Beach") {
     score += 5;
   }
@@ -369,6 +395,54 @@ function localGuideScore(beach: SiargaoBeach, filters: LocalGuideSearchFilters) 
     score -= 2;
   }
   return score;
+}
+
+function beachNameMatches(beachName: string, requestedName: string | undefined) {
+  if (!requestedName) {
+    return false;
+  }
+  const normalizedBeach = normalizeBeachName(beachName);
+  const normalizedRequest = normalizeBeachName(requestedName);
+  return (
+    normalizedBeach === normalizedRequest ||
+    normalizedBeach.replace(/\bbeach access\b/g, "") === normalizedRequest ||
+    normalizedRequest.includes(normalizedBeach) ||
+    normalizedBeach.includes(normalizedRequest)
+  );
+}
+
+function normalizeBeachName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\b(beach|area|access)\b/g, "")
+    .replaceAll(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function inferExcludedBeachNames(query: string) {
+  return siargaoBeachGuide
+    .filter((beach) => explicitlyExcludesBeach(query, beach.name))
+    .map((beach) => beach.name);
+}
+
+function explicitlyExcludesBeach(query: string, beachName: string) {
+  const beachPattern = beachNamePattern(beachName);
+  return new RegExp(
+    `\\b(?:not|no|skip|exclude|excluding|avoid|except|without)\\s+(?:the\\s+)?${beachPattern}\\b`,
+    "i",
+  ).test(query);
+}
+
+function beachNamePattern(beachName: string) {
+  return normalizeBeachName(beachName).split(/\s+/).filter(Boolean).map(escapeRegExp).join("\\s+");
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function uniqueText(values: readonly string[]) {
+  return [...new Set(values.map((value) => value.replaceAll(/\s+/g, " ").trim()).filter(Boolean))];
 }
 
 function renderSwimmingBeachFollowUp({

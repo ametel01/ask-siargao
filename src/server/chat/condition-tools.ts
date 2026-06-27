@@ -136,9 +136,19 @@ export const conditionJudgmentToolParameters = {
   additionalProperties: false,
 } as const;
 
+export function shouldIncludeConditionLocalCaveats(request: ConditionJudgmentRequest) {
+  if (request.include_local_caveats === false) {
+    return false;
+  }
+  if (request.beach_name) {
+    return true;
+  }
+  return request.activity === "sunset" && request.location === "Cloud 9";
+}
+
 export function buildConditionJudgment(input: BuildConditionJudgmentInput): ConditionJudgment {
   const request = conditionJudgmentRequestSchema.parse(input.request);
-  const weatherSignal = buildWeatherSignal(input.weatherSnapshot);
+  const weatherSignal = buildWeatherSignal(input.weatherSnapshot, request.date_range);
   const signals = [
     weatherSignal,
     ...buildUncheckedMarineSignals(request.activity),
@@ -179,7 +189,10 @@ export function windGustRiskLevel(value: number | null | undefined) {
   return thresholdRiskLevel(value, { high: 55, medium: 35 });
 }
 
-function buildWeatherSignal(weatherSnapshot: WeatherSnapshot | null | undefined): ConditionSignal {
+function buildWeatherSignal(
+  weatherSnapshot: WeatherSnapshot | null | undefined,
+  dateRange: ConditionJudgmentRequest["date_range"],
+): ConditionSignal {
   if (!weatherSnapshot || weatherSnapshot.status === "fallback") {
     const source: AnswerSourceSummary = {
       label: "provider_unavailable",
@@ -203,13 +216,16 @@ function buildWeatherSignal(weatherSnapshot: WeatherSnapshot | null | undefined)
   }
 
   const today = weatherSnapshot.today;
-  const level = highestRiskLevel([
+  const todayLevel = highestRiskLevel([
     today.level,
     precipitationProbabilityRiskLevel(today.precipitationProbability),
     rainSumRiskLevel(today.rainSum ?? today.precipitationSum),
     windSpeedRiskLevel(today.windSpeed),
     windGustRiskLevel(today.windGust),
   ]);
+  const rangeMetricLevels =
+    dateRange === "next_7_days" ? weatherSnapshot.metrics.map((metric) => metric.level) : [];
+  const level = highestRiskLevel([todayLevel, ...rangeMetricLevels]);
   const source: AnswerSourceSummary = {
     label: "weather_checked",
     sourceName: weatherSnapshot.sourceName,
@@ -231,7 +247,7 @@ function buildWeatherSignal(weatherSnapshot: WeatherSnapshot | null | undefined)
     status: "checked",
     level,
     label: "Open-Meteo forecast",
-    summary: weatherSignalSummary(weatherSnapshot, level),
+    summary: weatherSignalSummary(weatherSnapshot, level, dateRange),
     checked: source.checked,
     notChecked: source.notChecked,
     evidenceIds: weatherSnapshot.evidenceIds,
@@ -305,10 +321,13 @@ function buildManualCaveatSignals(
   request: ConditionJudgmentRequest,
   localGuideResult: LocalGuideSearchResult | null | undefined,
 ) {
-  if (!localGuideResult || request.include_local_caveats === false) {
+  if (!localGuideResult || !shouldIncludeConditionLocalCaveats(request)) {
     return [];
   }
-  const candidate = localGuideResult.candidates[0];
+  const candidate = selectManualCaveatCandidate(request, localGuideResult);
+  if (!candidate) {
+    return [];
+  }
   const source = localGuideResult.sourceSummary;
   return [
     {
@@ -316,16 +335,34 @@ function buildManualCaveatSignals(
       status: "checked",
       level: candidate?.confidence === "high" ? "low" : "medium",
       label: "Curated local caveat",
-      summary:
-        candidate?.caveats[0] ??
-        localGuideResult.caveats[0] ??
-        "Curated local guide caveats apply.",
+      summary: candidate.caveats[0] ?? "Curated local guide caveats apply.",
       checked: source.checked,
       notChecked: source.notChecked,
-      evidenceIds: candidate ? [`curated_local_guide:${slugify(candidate.name)}`] : [],
+      evidenceIds: [`curated_local_guide:${slugify(candidate.name)}`],
       source,
     } satisfies ConditionSignal,
   ];
+}
+
+function selectManualCaveatCandidate(
+  request: ConditionJudgmentRequest,
+  localGuideResult: LocalGuideSearchResult,
+) {
+  if (!request.beach_name) {
+    return localGuideResult.candidates[0];
+  }
+  return localGuideResult.candidates.find((candidate) =>
+    conditionBeachNameMatches(candidate.name, request.beach_name ?? undefined),
+  );
+}
+
+function conditionBeachNameMatches(candidateName: string, requestedName: string | undefined) {
+  if (!requestedName) {
+    return false;
+  }
+  const candidate = normalizeConditionBeachName(candidateName);
+  const requested = normalizeConditionBeachName(requestedName);
+  return candidate === requested || candidate.includes(requested) || requested.includes(candidate);
 }
 
 function recommendationFor({
@@ -425,6 +462,9 @@ function caveatsFor({
 }) {
   const caveats = [
     "This is a condition judgment, not an official safety warning.",
+    request.date_range === "next_7_days"
+      ? "Next-7-days evidence is a range-level proxy, not a day-specific forecast judgment."
+      : undefined,
     hasUncheckedMarineSignal(signals)
       ? "Tide, surf, swell, currents, and lifeguard status were not checked."
       : undefined,
@@ -438,14 +478,27 @@ function caveatsFor({
   return compact(caveats);
 }
 
-function weatherSignalSummary(weatherSnapshot: WeatherSnapshot, level: ConditionSignal["level"]) {
+function weatherSignalSummary(
+  weatherSnapshot: WeatherSnapshot,
+  level: ConditionSignal["level"],
+  dateRange: ConditionJudgmentRequest["date_range"],
+) {
   const today = weatherSnapshot.today;
-  return [
+  const todaySummary = [
     `${today.condition} for ${weatherSnapshot.locationName}`,
     `risk ${level}`,
     `precipitation probability ${formatMetric(today.precipitationProbability, "%")}`,
     `rain ${formatMetric(today.rainSum ?? today.precipitationSum, "mm")}`,
     `wind gust ${formatMetric(today.windGust, "km/h")}`,
+  ];
+  if (dateRange !== "next_7_days" || weatherSnapshot.metrics.length === 0) {
+    return todaySummary.join("; ");
+  }
+  return [
+    ...todaySummary,
+    `7-day peaks ${weatherSnapshot.metrics
+      .map((metric) => `${metric.label.toLowerCase()} ${metric.value}${metric.unit}`)
+      .join(", ")}`,
   ].join("; ");
 }
 
@@ -504,6 +557,14 @@ function compact(values: readonly (string | undefined)[]) {
 
 function formatMetric(value: number | null | undefined, unit: string) {
   return value === null || value === undefined ? "unavailable" : `${value}${unit}`;
+}
+
+function normalizeConditionBeachName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\b(beach|area|access)\b/g, "")
+    .replaceAll(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function slugify(value: string) {

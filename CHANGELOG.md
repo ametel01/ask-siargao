@@ -9,6 +9,20 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Classified boat/Sugba ride condition prompts as boat-trip judgments instead of scooter checks,
+  kept valid Places "current opening status" source wording from being treated as ocean-current
+  evidence, scoped curated local caveats to beach-relevant condition judgments, kept condition
+  evidence repair active for mixed itinerary-and-condition prompts, required named-beach caveats
+  to match the requested beach, preserved marine condition evidence for mixed scooter-and-boat
+  prompts without treating land/scooter tours as boat trips, made condition repair matching honor
+  required beach names and constraints, kept boat/Sugba wave prompts on boat-trip evidence,
+  prevented generic swimming judgments from inheriting one named beach's caveat, inherited
+  condition intent for temporal follow-ups, mapped tomorrow condition repairs to a clearly labeled
+  next-seven-days proxy range, rejected fabricated checked road/safety/official-warning labels, and
+  documented condition judgment repair as a narrow validation exception.
+- Enforced condition judgment evidence before final condition prose, allowed condition-backed
+  curated local guide source labels, applied seven-day weather risk metrics to next-week condition
+  judgments, and rejected checked tide/surf claims in source details.
 - Kept condition judgment source validation from accepting checked tide or surf labels before
   provider-backed marine tools exist, while preserving model-written chat answers backed by
   condition tool evidence.

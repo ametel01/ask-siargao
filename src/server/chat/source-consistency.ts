@@ -34,6 +34,7 @@ type SourceClaim = {
   lineKind?: "checked" | "not_checked";
   line?: string;
   sourceName?: string;
+  checkedText?: string;
 };
 
 const renderedTrustLabels: Record<string, AnswerTrustLabel> = {
@@ -46,7 +47,7 @@ const renderedTrustLabels: Record<string, AnswerTrustLabel> = {
 };
 
 const placesToolNames = new Set(["search_places", "get_place_details"]);
-const sourceLinePattern = /^(Checked|Not checked):\s+(.+?)\s+\(([^)]*)\)\s+-\s+.+\.$/u;
+const sourceLinePattern = /^(Checked|Not checked):\s+(.+?)\s+\(([^)]*)\)\s+-\s+(.+)\.$/u;
 
 export class SourceConsistencyError extends Error {
   readonly code = "source_consistency_failed";
@@ -128,14 +129,15 @@ function validateSourceClaim(
     return [];
   }
 
-  if (isUnsupportedMarineCheckedClaim(claim)) {
+  if (isUnsupportedCheckedClaim(claim)) {
     return [
       {
         code: "unsupported_checked_label",
         label: claim.label,
         line: claim.line,
         sourceName: claim.sourceName,
-        message: "Tide, surf, swell, and current claims cannot be labeled checked yet.",
+        message:
+          "Tide, surf, road, safety, and official-warning claims cannot be labeled checked yet.",
       },
     ];
   }
@@ -189,6 +191,7 @@ function summarizeToolEvidence(toolCalls: readonly AgentToolCallAudit[]) {
     localGuide: hasToolSourceLabel(
       toolCalls,
       new Set([
+        "get_condition_judgment",
         "search_local_guide",
         "plan_local_itinerary",
         "query_local_facts",
@@ -237,11 +240,24 @@ function isToolBackedLabelSupported(
   }
 }
 
-function isUnsupportedMarineCheckedClaim(claim: SourceClaim) {
+function isUnsupportedCheckedClaim(claim: SourceClaim) {
   if (!claim.label || !isVerifyingLabel(claim.label)) {
     return false;
   }
-  return /\b(tide|surf|swell|current|marine)\b/i.test(claim.sourceName ?? "");
+  if (claim.origin === "rendered_source_line" && claim.lineKind !== "checked") {
+    return false;
+  }
+  const text = [claim.sourceName, claim.checkedText].filter(Boolean).join(" ");
+  return (
+    /\b(tide|surf|swell|marine|currents)\b/i.test(text) ||
+    /\b(?:rip|sea|ocean)\s+current\b/i.test(text) ||
+    /\b(?:road flooding|flooded roads?|road closures?|local closures?|transport warnings?)\b/i.test(
+      text,
+    ) ||
+    /\b(?:lifeguards?|swimming safety|marine safety|official warnings?|official transport warnings?|safety warnings?)\b/i.test(
+      text,
+    )
+  );
 }
 
 function sourceSummaryToClaim(source: AnswerSourceSummary): SourceClaim {
@@ -249,6 +265,7 @@ function sourceSummaryToClaim(source: AnswerSourceSummary): SourceClaim {
     origin: "structured_source",
     label: source.label,
     sourceName: source.sourceName,
+    checkedText: source.checked.join(" "),
   };
 }
 
@@ -275,6 +292,7 @@ function renderedSourceLineToClaim(line: string): SourceClaim {
     line,
     sourceName: match[2],
     label: readRenderedTrustLabel(match[3]),
+    checkedText: match[4],
   };
 }
 
