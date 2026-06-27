@@ -9,6 +9,13 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Enforced true open-now Places filtering for required itinerary checks, kept outdoor dry-break
+  fallbacks from being promoted during high weather risk, made itinerary origins affect venue
+  checks or surface unsupported route timing, and validated itinerary artifact source labels at the
+  chat API boundary.
+- Required a successful itinerary artifact before final itinerary prose, covered sandy beach
+  half-day repair triggers without explicit plan verbs, and corrected the progress handoff note for
+  tracked `PLAN.md`.
 - Refreshed structured itinerary artifacts with successful live weather and Places follow-up
   evidence, reconciled top-level chat sources after itinerary checks, and gave route scenario tests
   distinct itinerary fixtures.

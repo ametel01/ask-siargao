@@ -3,7 +3,12 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Logger } from "pino";
 import { z } from "zod";
 
-import type { AgentMemoryMetadata, AgentToolCallAudit } from "@/server/chat/agent-runtime";
+import type {
+  AgentMemoryMetadata,
+  AgentToolCallAudit,
+  ItineraryPlan,
+} from "@/server/chat/agent-runtime";
+import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import {
   type AskSiargaoAgentDependencies,
   runAskSiargaoAgentTurn as defaultRunAskSiargaoAgentTurn,
@@ -169,7 +174,7 @@ export async function chatResponse(
 
     assertChatAnswerSourceConsistency({
       message: result.message,
-      sources: result.sources,
+      sources: chatAnswerSourcesForValidation(result.sources, result.itineraries),
       toolCalls: result.toolCalls,
     });
 
@@ -243,6 +248,13 @@ export async function chatResponse(
       { status, headers },
     );
   }
+}
+
+function chatAnswerSourcesForValidation(
+  sources: readonly AnswerSourceSummary[],
+  itineraries: readonly ItineraryPlan[] | undefined,
+) {
+  return [...sources, ...(itineraries?.flatMap((itinerary) => itinerary.sources) ?? [])];
 }
 
 function isWeatherQuestion(intent: ChatRequestIntent) {
@@ -335,7 +347,7 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
 }
 
 function isActivityPlanContent(content: string) {
-  return /\b(w?hat\s+should|w?hat\s+can|things?\s+to\s+do|activities?|plan|itinerary)\b/i.test(
+  return /\b(w?hat\s+should|w?hat\s+can|things?\s+to\s+do|activities?|plan|itinerary|half[-\s]?day|food\s+crawl|sandy\s+beach(?:es)?)\b/i.test(
     content,
   );
 }

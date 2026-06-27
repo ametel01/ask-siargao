@@ -83,6 +83,7 @@ const defaultDurationHours = 3;
 const defaultMaxRideMinutes = 30;
 const generalLunaCenter = { latitude: 9.784, longitude: 126.158 };
 const cloud9Center = { latitude: 9.8116, longitude: 126.1651 };
+const delCarmenCenter = { latitude: 9.8692, longitude: 125.9706 };
 const siargaoGenericUnchecked = [
   "live weather",
   "live Google Places open status",
@@ -99,7 +100,10 @@ export function planLocalItinerary(input: LocalItineraryRequest): LocalItinerary
   const localGuide = searchSiargaoLocalGuide(localGuideQuery(request, constraints));
   const uncheckedSource = itineraryUncheckedSourceSummary(request, constraints);
   const sources = itinerarySourceSummaries(request, localGuide.sourceSummary, uncheckedSource);
-  const plan = applyConstraintGuidance(buildPlan(request, localGuide, sources), constraints);
+  const plan = applyOriginGuidance(
+    applyConstraintGuidance(buildPlan(request, localGuide, sources), constraints),
+    request,
+  );
   const requiredToolChecks = buildRequiredToolChecks(request);
   const caveats = uniqueText([
     ...plan.stops.flatMap((stop) => stop.caveats),
@@ -331,7 +335,7 @@ function sunsetDinnerPlan(
         title: dinnerTitle(request),
         kind: "meal",
         sequence: 2,
-        area: "General Luna",
+        area: placeAreaForRequest(request).label,
         travelTimeFromPreviousMinutes: 10,
         rationale: "Keeps dinner close after dark and lets Places choose live options later.",
         caveats: [
@@ -341,10 +345,10 @@ function sunsetDinnerPlan(
     ],
     fallbackStops: [
       {
-        title: "Cafe or casual dinner in General Luna",
+        title: `Cafe or casual dinner in ${placeAreaForRequest(request).label}`,
         kind: "meal",
         sequence: 1,
-        area: "General Luna",
+        area: placeAreaForRequest(request).label,
         rationale: "Use this if sunset weather is poor or the first dinner search fails.",
         caveats: ["Live availability, bookings, and kitchen hours were not checked."],
       },
@@ -456,23 +460,24 @@ function foodCrawlPlan(
   const mealPreference =
     request.meal_preference ??
     (constraints.vegetarian ? "vegetarian-friendly food" : "casual local food");
+  const placeArea = placeAreaForRequest(request);
   return {
-    title: "General Luna Food Crawl",
+    title: `${placeArea.label} Food Crawl`,
     durationLabel: durationLabel(request.duration_hours),
     stops: [
       {
-        title: `First ${mealPreference} stop in General Luna`,
+        title: `First ${mealPreference} stop in ${placeArea.label}`,
         kind: "meal",
         sequence: 1,
-        area: "General Luna",
+        area: placeArea.label,
         rationale: "Start central so live Places searches can keep the crawl compact.",
         caveats: ["Use search_places before naming venues, maps links, ratings, or open status."],
       },
       {
-        title: "Second stop toward Catangnan or Tourism Road",
+        title: `Second stop near ${placeArea.label}`,
         kind: "meal",
         sequence: 2,
-        area: "General Luna / Catangnan",
+        area: placeArea.label,
         travelTimeFromPreviousMinutes: 10,
         rationale: "Keeps rides short while giving the AI room to pick a different food type.",
         caveats: ["Cuisine, price, and open-now status need Places evidence."],
@@ -481,7 +486,7 @@ function foodCrawlPlan(
         title: "Dessert, coffee, or drinks stop",
         kind: "meal",
         sequence: 3,
-        area: "General Luna",
+        area: placeArea.label,
         travelTimeFromPreviousMinutes: 10,
         rationale: "Ends near the main accommodation and tricycle area.",
         caveats: ["Use Places for live hours before presenting a final venue."],
@@ -489,10 +494,10 @@ function foodCrawlPlan(
     ],
     fallbackStops: [
       {
-        title: "One reliable central General Luna venue",
+        title: `One reliable central ${placeArea.label} venue`,
         kind: "meal",
         sequence: 1,
-        area: "General Luna",
+        area: placeArea.label,
         rationale: "Use this if live Places checks return too few crawl stops.",
         caveats: ["Do not claim reliability unless Places or curated evidence supports it."],
       },
@@ -523,10 +528,83 @@ function requiresWeatherCheck(request: LocalItineraryResult["request"]) {
   );
 }
 
+function weatherLocationForRequest(
+  request: LocalItineraryResult["request"],
+): NonNullable<ItineraryRequiredToolChecks["weather"]>["location"] {
+  if (/\bdel\s+carmen\b/i.test(request.origin)) {
+    return "Del Carmen";
+  }
+  if (/\bgeneral\s+luna\b/i.test(request.origin)) {
+    return "General Luna";
+  }
+  if (/\bcloud\s*9|catangnan\b/i.test(request.origin)) {
+    return "Cloud 9";
+  }
+  return "General Luna";
+}
+
+function placeAreaForRequest(request: LocalItineraryResult["request"]) {
+  if (/\bdel\s+carmen\b/i.test(request.origin)) {
+    return {
+      label: "Del Carmen",
+      queryArea: "Del Carmen Siargao",
+      center: delCarmenCenter,
+    };
+  }
+  if (/\bgeneral\s+luna\b/i.test(request.origin)) {
+    return {
+      label: "General Luna",
+      queryArea: "General Luna Siargao",
+      center: generalLunaCenter,
+    };
+  }
+  if (/\bcloud\s*9|catangnan\b/i.test(request.origin)) {
+    return {
+      label: "Cloud 9 / Catangnan",
+      queryArea: "Cloud 9 Siargao",
+      center: cloud9Center,
+    };
+  }
+  return { label: "General Luna", queryArea: "General Luna Siargao", center: generalLunaCenter };
+}
+
+function applyOriginGuidance(
+  plan: ItineraryPlan,
+  request: LocalItineraryResult["request"],
+): ItineraryPlan {
+  if (request.theme === "food_crawl" || isRouteAwareOriginSupported(request.origin)) {
+    return plan;
+  }
+
+  const caveat = `Origin-specific route timing from ${request.origin} is not available in the curated local guide; this artifact uses General Luna / Cloud 9 local-guide assumptions.`;
+  return {
+    ...plan,
+    stops: plan.stops.map((stop) => originCaveatedStop(stop, caveat)),
+    fallbackStops: plan.fallbackStops.map((stop) => originCaveatedStop(stop, caveat)),
+    skip: uniqueText([
+      ...plan.skip,
+      `Treat ride timing from ${request.origin} as not checked; ask for live transport guidance before leaving that origin.`,
+    ]),
+  };
+}
+
+function originCaveatedStop(stop: ItineraryStop, caveat: string): ItineraryStop {
+  return {
+    ...stop,
+    travelTimeFromPreviousMinutes: undefined,
+    caveats: uniqueText([...stop.caveats, caveat]),
+  };
+}
+
+function isRouteAwareOriginSupported(origin: string) {
+  return /\bgeneral\s+luna\b|\bcloud\s*9\b|\bcatangnan\b/i.test(origin);
+}
+
 function weatherCheckForRequest(
   request: LocalItineraryResult["request"],
 ): NonNullable<ItineraryRequiredToolChecks["weather"]> {
-  const location = request.theme === "rainy_cloud_9_afternoon" ? "Cloud 9" : "General Luna";
+  const location =
+    request.theme === "rainy_cloud_9_afternoon" ? "Cloud 9" : weatherLocationForRequest(request);
   return {
     required: true,
     tool: "get_weather_forecast",
@@ -542,6 +620,7 @@ function weatherCheckForRequest(
 function placesChecksForRequest(
   request: LocalItineraryResult["request"],
 ): ItineraryRequiredToolChecks["places"] {
+  const placeArea = placeAreaForRequest(request);
   switch (request.theme) {
     case "rainy_cloud_9_afternoon":
       return [
@@ -556,9 +635,9 @@ function placesChecksForRequest(
     case "sunset_plus_dinner":
       return [
         placesCheck({
-          center: generalLunaCenter,
+          center: placeArea.center,
           includedType: "restaurant",
-          query: `${request.meal_preference ?? "dinner restaurants"} General Luna Siargao`,
+          query: `${request.meal_preference ?? "dinner restaurants"} ${placeArea.queryArea}`,
           radiusMeters: 4_000,
           reason: "the dinner stop needs live venue identity, map links, and open-now status",
         }),
@@ -566,16 +645,16 @@ function placesChecksForRequest(
     case "food_crawl":
       return [
         placesCheck({
-          center: generalLunaCenter,
+          center: placeArea.center,
           includedType: "restaurant",
-          query: `${request.meal_preference ?? "restaurants"} General Luna Siargao`,
+          query: `${request.meal_preference ?? "restaurants"} ${placeArea.queryArea}`,
           radiusMeters: 4_000,
           reason: "the first food-crawl stop needs live venue choices",
         }),
         placesCheck({
-          center: generalLunaCenter,
+          center: placeArea.center,
           includedType: "cafe",
-          query: "cafes or dessert near General Luna Siargao",
+          query: `cafes or dessert near ${placeArea.queryArea}`,
           radiusMeters: 4_000,
           reason: "the later crawl stop needs live cafe or dessert options",
         }),
@@ -585,9 +664,9 @@ function placesChecksForRequest(
       return request.needs_open_now
         ? [
             placesCheck({
-              center: generalLunaCenter,
+              center: placeArea.center,
               includedType: "cafe",
-              query: "cafes near General Luna Siargao",
+              query: `cafes near ${placeArea.queryArea}`,
               radiusMeters: 4_000,
               reason: "the optional cafe or snack stop needs live identity and hours",
             }),
@@ -682,7 +761,8 @@ function dinnerTitle(request: LocalItineraryResult["request"]) {
   const constraints = summarizeItineraryConstraints(request);
   const preference =
     request.meal_preference ?? (constraints.vegetarian ? "vegetarian-friendly" : "");
-  return preference ? `Dinner in General Luna matching ${preference}` : "Dinner in General Luna";
+  const area = placeAreaForRequest(request).label;
+  return preference ? `Dinner in ${area} matching ${preference}` : `Dinner in ${area}`;
 }
 
 function durationLabel(hours: number) {

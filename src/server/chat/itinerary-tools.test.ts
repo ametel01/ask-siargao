@@ -176,4 +176,47 @@ describe("local itinerary planning tools", () => {
       "cafes or dessert near General Luna Siargao",
     ]);
   });
+
+  test("uses requested origin for venue-centered food crawl checks", () => {
+    const result = planLocalItinerary({
+      theme: "food_crawl",
+      origin: "Del Carmen",
+      duration_hours: 3,
+      needs_open_now: true,
+    });
+
+    expect(result.plan.title).toBe("Del Carmen Food Crawl");
+    expect(result.plan.stops.map((stop) => stop.area)).toEqual([
+      "Del Carmen",
+      "Del Carmen",
+      "Del Carmen",
+    ]);
+    expect(result.requiredToolChecks.places[0]).toMatchObject({
+      query: "restaurants Del Carmen Siargao",
+      center: { latitude: 9.8692, longitude: 125.9706 },
+    });
+    expect(result.requiredToolChecks.places[1]).toMatchObject({
+      query: "cafes or dessert near Del Carmen Siargao",
+      center: { latitude: 9.8692, longitude: 125.9706 },
+    });
+  });
+
+  test("surfaces unsupported origin caveats for route-aware beach plans", () => {
+    const result = planLocalItinerary({
+      theme: "sandy_beach_half_day",
+      origin: "Del Carmen",
+      duration_hours: 4,
+      max_ride_minutes: 30,
+    });
+
+    expect(result.plan.stops.flatMap((stop) => stop.caveats).join(" ")).toContain(
+      "Origin-specific route timing from Del Carmen is not available",
+    );
+    expect(
+      result.plan.stops.every((stop) => stop.travelTimeFromPreviousMinutes === undefined),
+    ).toBe(true);
+    expect(result.plan.skip).toContain(
+      "Treat ride timing from Del Carmen as not checked; ask for live transport guidance before leaving that origin.",
+    );
+  });
 });

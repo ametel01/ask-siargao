@@ -57,6 +57,44 @@ describe("Google Places chat lookup", () => {
     });
   });
 
+  test("adds an open-now filter and returns only currently open places when requested", async () => {
+    const openNowSearch: GooglePlacesChatSearch = {
+      ...cloud9RestaurantSearch,
+      openNow: true,
+    };
+    const requests: RequestInit[] = [];
+    const context = await getGooglePlacesChatContext({
+      apiKey: "test-key",
+      fetchedAt: "2026-06-24T00:00:00.000Z",
+      search: openNowSearch,
+      fetcher: async (_url, init) => {
+        requests.push(init);
+        return Response.json({
+          places: [
+            {
+              id: "place_closed",
+              name: "places/place_closed",
+              displayName: { text: "Closed Dinner Spot" },
+              googleMapsUri: "https://maps.google.com/?cid=closed",
+              currentOpeningHours: { openNow: false },
+            },
+            {
+              id: "place_open",
+              name: "places/place_open",
+              displayName: { text: "Open Dinner Spot" },
+              googleMapsUri: "https://maps.google.com/?cid=open",
+              currentOpeningHours: { openNow: true },
+            },
+          ],
+        });
+      },
+    });
+
+    expect(JSON.parse(String(requests[0]?.body))).toMatchObject({ openNow: true });
+    expect(context.places.map((place) => place.displayName)).toEqual(["Open Dinner Spot"]);
+    expect(context.places[0]?.currentOpeningHours?.openNow).toBe(true);
+  });
+
   test("returns enhanced Google Places context without review text or availability fields", async () => {
     const requests: RequestInit[] = [];
     const context = await getGooglePlacesChatContext({

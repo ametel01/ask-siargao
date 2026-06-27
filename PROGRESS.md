@@ -261,8 +261,7 @@ Completed:
   itinerary artifact contract, planning tool, weather/Places requirements, API response, UI
   renderer, behavior coverage, and documentation updates.
 - Confirmed no introduced failures remained.
-- Left `PLAN.md` untracked because it was present as the implementation plan input and was not part
-  of the requested committed implementation changes.
+- Kept `PLAN.md` tracked as the committed implementation plan input for this slice.
 
 Validation:
 

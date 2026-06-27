@@ -8,6 +8,7 @@ export type GooglePlacesChatSearch = {
   label: string;
   textQuery: string;
   includedType?: string;
+  openNow?: boolean;
   center: {
     latitude: number;
     longitude: number;
@@ -144,6 +145,7 @@ export function buildGooglePlacesChatSearchBody(search: GooglePlacesChatSearch) 
           strictTypeFiltering: true,
         }
       : {}),
+    ...(search.openNow ? { openNow: true } : {}),
     pageSize: search.pageSize,
     locationBias: {
       circle: {
@@ -205,7 +207,10 @@ export async function getGooglePlacesChatContext({
       body: JSON.stringify(buildGooglePlacesChatSearchBody(search)),
     });
     const payload = await parseGooglePlacesChatSearchResponse(response);
-    const places = parseGooglePlacesChatPlaces(payload);
+    const places = filterGooglePlacesChatPlacesForSearch(
+      parseGooglePlacesChatPlaces(payload),
+      search,
+    );
 
     logger.info(
       {
@@ -253,6 +258,15 @@ export async function getGooglePlacesChatContext({
     );
     throw error;
   }
+}
+
+function filterGooglePlacesChatPlacesForSearch(
+  places: readonly GooglePlacesChatPlace[],
+  search: GooglePlacesChatSearch,
+) {
+  return search.openNow
+    ? places.filter((place) => place.currentOpeningHours?.openNow === true)
+    : [...places];
 }
 
 async function parseGooglePlacesChatSearchResponse(

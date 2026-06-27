@@ -417,6 +417,133 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.itineraries).toEqual([foodCrawlPlan]);
   });
 
+  test("repairs failed itinerary planning before accepting final itinerary prose", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_failed_initial_plan",
+        requestId: "req_failed_initial_plan",
+        callId: "call_failed_initial_plan",
+        name: "plan_local_itinerary",
+        arguments: { theme: "not_a_theme" },
+      }),
+      {
+        id: "resp_after_failed_plan",
+        output_text: "Final itinerary prose after a failed plan call.",
+        _request_id: "req_after_failed_plan",
+      },
+      {
+        id: "resp_after_repair_plan",
+        output_text: "Final itinerary prose after the repaired artifact.",
+        _request_id: "req_after_repair_plan",
+      },
+    ]);
+    let planCallCount = 0;
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name !== "plan_local_itinerary") {
+        return {
+          name: request.name,
+          status: "error",
+          text: `Unexpected tool ${request.name}.`,
+          errorCode: "unexpected_tool",
+          sources: [],
+        };
+      }
+      planCallCount += 1;
+      if (planCallCount === 1) {
+        return {
+          name: "plan_local_itinerary",
+          status: "error",
+          text: "Invalid itinerary planning arguments.",
+          errorCode: "invalid_tool_arguments",
+          sources: [],
+          toolCallId: request.toolCallId,
+        };
+      }
+      return {
+        name: "plan_local_itinerary",
+        status: "success",
+        text: "Structured sandy beach artifact prepared.",
+        data: {
+          plan: sandyBeachPlan,
+          requiredToolChecks: { places: [] },
+        },
+        sources: [localGuideSourceSummary],
+        itineraries: [sandyBeachPlan],
+        toolCallId: request.toolCallId,
+      };
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Plan a sandy beach half-day from General Luna." }],
+        requestId: "agent_request_failed_initial_plan_repair",
+        deterministicSignals: {
+          intent: {
+            activityPlan: true,
+            locationLabel: "General Luna",
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("repaired artifact");
+    expect(result.toolCalls.map((toolCall) => toolCall.status)).toEqual(["error", "success"]);
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "plan_local_itinerary",
+      "plan_local_itinerary",
+    ]);
+    expect(result.toolCalls[1]?.arguments).toMatchObject({
+      theme: "sandy_beach_half_day",
+      origin: "General Luna",
+    });
+    expect(result.itineraries).toEqual([sandyBeachPlan]);
+  });
+
+  test("repairs direct sandy beach half-day prose without route activity-plan signals", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_direct_sandy_half_day",
+        output_text: "Direct sandy half-day prose without a structured itinerary.",
+        _request_id: "req_direct_sandy_half_day",
+      },
+      {
+        id: "resp_after_sandy_repair",
+        output_text: "Final sandy beach answer after the itinerary artifact.",
+        _request_id: "req_after_sandy_repair",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      plan_local_itinerary: {
+        name: "plan_local_itinerary",
+        status: "success",
+        text: "Structured sandy beach artifact prepared.",
+        data: {
+          plan: sandyBeachPlan,
+          requiredToolChecks: { places: [] },
+        },
+        sources: [localGuideSourceSummary],
+        itineraries: [sandyBeachPlan],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Sandy beach half-day from General Luna." }],
+        requestId: "agent_request_sandy_half_day_repair",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("after the itinerary artifact");
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0]?.arguments).toMatchObject({
+      theme: "sandy_beach_half_day",
+      origin: "General Luna",
+    });
+    expect(result.itineraries).toEqual([sandyBeachPlan]);
+  });
+
   test("rainy Cloud 9 itineraries call planning and weather before final prose", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({

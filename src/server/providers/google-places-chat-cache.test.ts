@@ -209,11 +209,51 @@ describe("Google Places chat cache", () => {
         payload: expect.objectContaining({
           cacheCandidateCount: 4,
           cacheStatus: "partial",
-          cacheSupportsLiveStatus: false,
+          cacheSupportsRequiredOpenNow: false,
           requiresLiveStatus: true,
         }),
       }),
     );
+
+    await db.close();
+  });
+
+  test("refreshes fresh cache rows when required open-now places are cached as closed", async () => {
+    const db = await openGooglePlacesChatCacheTestDatabase();
+    const openNowSearch: GooglePlacesChatSearch = {
+      ...generalLunaRestaurantSearch,
+      openNow: true,
+    };
+    let liveCalls = 0;
+    const adapter = createCachedGooglePlacesChatContextAdapter({
+      db,
+      liveAdapter: async ({ fetchedAt, search }) => {
+        liveCalls += 1;
+        return googlePlacesContext({
+          fetchedAt,
+          openNow: liveCalls !== 1,
+          placeCount: 4,
+          search,
+        });
+      },
+      minimumFreshCachePlaces: 4,
+    });
+
+    const first = await adapter({
+      fetchedAt: "2026-06-25T22:08:55.090Z",
+      requiresLiveStatus: true,
+      search: openNowSearch,
+    });
+    const second = await adapter({
+      fetchedAt: "2026-06-25T22:09:55.090Z",
+      requiresLiveStatus: true,
+      search: openNowSearch,
+    });
+
+    expect(liveCalls).toBe(2);
+    expect(first.places.every((place) => place.currentOpeningHours?.openNow === false)).toBe(true);
+    expect(second.freshness).toBe("live");
+    expect(second.places.every((place) => place.currentOpeningHours?.openNow === true)).toBe(true);
 
     await db.close();
   });

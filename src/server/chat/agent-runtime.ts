@@ -418,7 +418,8 @@ function livePlaceCandidatesFromResult(
       ...(card.openStatusLabel ? { openStatusLabel: card.openStatusLabel } : {}),
       fitReasons: card.fitReasons,
       caveats: card.caveats,
-    }));
+    }))
+    .filter(isOpenLivePlaceCandidate);
 
   if (candidates.length > 0) {
     return candidates;
@@ -434,25 +435,28 @@ function livePlaceCandidatesFromResult(
     if (!title) {
       return [];
     }
-    return [
-      {
-        title,
-        ...(includedType ? { includedType } : {}),
-        ...(readString(place.googleMapsUri) ? { mapsUrl: readString(place.googleMapsUri) } : {}),
-        ...(readString(place.formattedAddress) ? { area: readString(place.formattedAddress) } : {}),
-        ...(isRecord(place.currentOpeningHours) &&
-        typeof place.currentOpeningHours.openNow === "boolean"
-          ? {
-              openStatusLabel: place.currentOpeningHours.openNow
-                ? "Open now according to Google Places."
-                : "Not open now according to Google Places.",
-            }
-          : {}),
-        fitReasons: ["Returned by Google Places for the itinerary follow-up check."],
-        caveats: [],
-      },
-    ];
+    const candidate = {
+      title,
+      ...(includedType ? { includedType } : {}),
+      ...(readString(place.googleMapsUri) ? { mapsUrl: readString(place.googleMapsUri) } : {}),
+      ...(readString(place.formattedAddress) ? { area: readString(place.formattedAddress) } : {}),
+      ...(isRecord(place.currentOpeningHours) &&
+      typeof place.currentOpeningHours.openNow === "boolean"
+        ? {
+            openStatusLabel: place.currentOpeningHours.openNow
+              ? "Open now according to Google Places."
+              : "Not open now according to Google Places.",
+          }
+        : {}),
+      fitReasons: ["Returned by Google Places for the itinerary follow-up check."],
+      caveats: [],
+    };
+    return isOpenLivePlaceCandidate(candidate) ? [candidate] : [];
   });
+}
+
+function isOpenLivePlaceCandidate(candidate: LivePlaceCandidate) {
+  return !candidate.openStatusLabel || !/^not open now\b/i.test(candidate.openStatusLabel);
 }
 
 function dedupeLivePlaceCandidates(candidates: readonly LivePlaceCandidate[]) {
@@ -485,7 +489,7 @@ function applyWeatherEvidenceToItinerary(
     return itinerary;
   }
 
-  const promotedFallbacks = itinerary.fallbackStops.map((stop) => ({
+  const promotedFallbacks = itinerary.fallbackStops.filter(isWeatherShelterStop).map((stop) => ({
     ...stop,
     rationale: weatherAdjustedRationale(stop.rationale, evidence.weatherSummary),
     caveats: uniqueText([
@@ -493,6 +497,15 @@ function applyWeatherEvidenceToItinerary(
       "Promoted from fallback after live weather showed high weather risk.",
     ]),
   }));
+  const remainingFallbacks = itinerary.fallbackStops
+    .filter((stop) => !isWeatherShelterStop(stop))
+    .map((stop) => ({
+      ...stop,
+      caveats: uniqueText([
+        ...stop.caveats.filter((caveat) => !isWeatherNotCheckedItem(caveat)),
+        "Keep this as a dry-break fallback only; do not use it during active heavy rain.",
+      ]),
+    }));
   const remainingStops = itinerary.stops
     .filter(
       (stop) =>
@@ -513,12 +526,20 @@ function applyWeatherEvidenceToItinerary(
   return {
     ...itinerary,
     stops: resequenceItineraryStops([...promotedFallbacks, ...remainingStops]),
-    fallbackStops: [],
+    fallbackStops: remainingFallbacks,
     skip: uniqueText([
       ...itinerary.skip,
       "Outdoor stops during high weather-risk windows unless conditions visibly improve",
     ]),
   };
+}
+
+function isWeatherShelterStop(stop: ItineraryStop) {
+  const haystack = `${stop.title} ${stop.area ?? ""} ${stop.rationale} ${stop.caveats.join(" ")}`;
+  return (
+    stop.kind === "meal" ||
+    /\b(covered|indoor|inside|cafe|restaurant|coffee|shelter)\b/i.test(haystack)
+  );
 }
 
 function applyPlacesEvidenceToItinerary(
@@ -759,7 +780,7 @@ function hasSuccessfulRequiredPlacesOpenStatusCall(
       toolCall.sources.some(
         (source) =>
           (source.label === "live_checked" || source.label === "fresh_cache") &&
-          source.checked.some(isPlacesOpenStatusCheckedItem),
+          source.checked.some(isPlacesOpenNowCheckedItem),
       ),
   );
 }
@@ -823,8 +844,8 @@ function isWeatherNotCheckedItem(value: string) {
   return /\b(weather|forecast)\b/i.test(value);
 }
 
-function isPlacesOpenStatusCheckedItem(value: string) {
-  return /\b(open[- ]?now|opening[- ]?hours|open status|opening hours)\b/i.test(value);
+function isPlacesOpenNowCheckedItem(value: string) {
+  return /\bopen[- ]?now signal\b/i.test(value);
 }
 
 function isPlacesOpenStatusNotCheckedItem(value: string) {

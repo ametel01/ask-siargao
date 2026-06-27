@@ -575,6 +575,34 @@ describe("agent runtime contracts", () => {
     );
   });
 
+  test("does not hydrate itinerary meal stops from closed Places candidates", () => {
+    const turn = createAgentTurnResult({
+      message: "Do not use closed venues in the structured itinerary.",
+      requestId: "agent_request_closed_places_itinerary",
+      model: "gpt-test",
+      toolResults: [
+        {
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [genericSourceSummary],
+          itineraries: [sunsetDinnerPlan],
+        },
+        {
+          name: "search_places",
+          status: "success",
+          sources: [placesSourceSummary],
+          cards: [closedGeneralLunaRestaurantCard],
+          data: {
+            search: { includedType: "restaurant" },
+          },
+        },
+      ],
+    });
+
+    expect(turn.itineraries?.[0]?.stops[1]?.title).toBe("Dinner near General Luna");
+    expect(turn.itineraries?.[0]?.stops[1]?.mapsUrl).toBeUndefined();
+  });
+
   test("promotes itinerary fallbacks when live weather shows high risk", () => {
     const turn = createAgentTurnResult({
       message: "Heavy rain makes the covered fallback the first stop.",
@@ -605,6 +633,50 @@ describe("agent runtime contracts", () => {
     expect(turn.itineraries?.[0]?.fallbackStops).toEqual([]);
     expect(turn.itineraries?.[0]?.skip).toContain(
       "Outdoor stops during high weather-risk windows unless conditions visibly improve",
+    );
+  });
+
+  test("does not promote outdoor dry-break fallbacks when live weather shows high risk", () => {
+    const dryBreakPlan: ItineraryPlan = {
+      ...rainyCloud9Plan,
+      fallbackStops: [
+        {
+          title: "Close beach dry-break option",
+          kind: "beach",
+          sequence: 1,
+          area: "General Luna",
+          rationale: "Swap this in only during a dry break.",
+          caveats: ["Use only if roads and weather visibly improve."],
+        },
+      ],
+    };
+    const turn = createAgentTurnResult({
+      message: "Heavy rain should keep the outdoor fallback as a fallback.",
+      requestId: "agent_request_weather_dry_break_fallback",
+      model: "gpt-test",
+      toolResults: [
+        {
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [genericSourceSummary],
+          itineraries: [dryBreakPlan],
+        },
+        {
+          name: "get_weather_forecast",
+          status: "success",
+          sources: [weatherSourceSummary],
+          data: {
+            summary: "Heavy rain likely around Cloud 9 this afternoon.",
+            today: { level: "high" },
+          },
+        },
+      ],
+    });
+
+    expect(turn.itineraries?.[0]?.stops[0]?.title).toBe("Cloud 9 boardwalk");
+    expect(turn.itineraries?.[0]?.fallbackStops[0]?.title).toBe("Close beach dry-break option");
+    expect(turn.itineraries?.[0]?.fallbackStops[0]?.caveats).toContain(
+      "Keep this as a dry-break fallback only; do not use it during active heavy rain.",
     );
   });
 
@@ -711,7 +783,7 @@ const placesSourceSummary: AnswerSourceSummary = {
   sourceProfileId: "source_google_places",
   fetchedAt: "2026-06-26T00:00:00.000Z",
   confidence: "high",
-  checked: ["place identity", "opening-hours status"],
+  checked: ["place identity", "open-now signal"],
   notChecked: ["review text", "bookings"],
 };
 
@@ -786,6 +858,12 @@ const generalLunaRestaurantCard = {
   fitReasons: ["Returned by Google Places for dinner restaurants."],
   caveats: ["Bookings and review text were not checked"],
   sourceLabel: "Google Places - live checked",
+};
+
+const closedGeneralLunaRestaurantCard = {
+  ...generalLunaRestaurantCard,
+  id: "card_closed_kermit",
+  openStatusLabel: "Not open now according to Google Places.",
 };
 
 const weatherAction = {

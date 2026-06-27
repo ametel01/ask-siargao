@@ -98,11 +98,11 @@ async function getCachedGooglePlacesChatContext(
     }),
   );
   const cachedContext = await findFreshGooglePlacesChatContext(db, { now: fetchedAt, search });
-  const cacheSupportsLiveStatus =
+  const cacheSupportsRequiredOpenNow =
     !requiresLiveStatus ||
-    cachedContext.places.every((place) => place.currentOpeningHours?.openNow !== undefined);
+    cachedContext.places.every((place) => place.currentOpeningHours?.openNow === true);
   const cacheStatus =
-    cachedContext.places.length >= minimumFreshCachePlaces && cacheSupportsLiveStatus
+    cachedContext.places.length >= minimumFreshCachePlaces && cacheSupportsRequiredOpenNow
       ? "hit"
       : cachedContext.places.length > 0
         ? "partial"
@@ -112,7 +112,7 @@ async function getCachedGooglePlacesChatContext(
     {
       cacheStatus,
       cacheCandidateCount: cachedContext.places.length,
-      cacheSupportsLiveStatus,
+      cacheSupportsRequiredOpenNow,
       minimumFreshCachePlaces,
       requiresLiveStatus,
       query: search.textQuery,
@@ -340,6 +340,7 @@ export function googlePlacesChatSearchCacheKey(search: GooglePlacesChatSearch) {
   return [
     normalizeCachePart(search.textQuery),
     normalizeCachePart(search.includedType ?? "any"),
+    search.openNow ? "open_now" : "any_hours",
     coordinatePart(search.center.latitude),
     coordinatePart(search.center.longitude),
     search.radiusMeters,

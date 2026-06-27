@@ -522,6 +522,7 @@ describe("agent tools", () => {
     expect((requests[0]?.headers as Record<string, string>)["X-Goog-FieldMask"]).toBe(
       googlePlacesChatSearchFieldMask,
     );
+    expect(JSON.parse(String(requests[0]?.body))).toMatchObject({ openNow: true });
     expect(result.text).toContain("Shaka Siargao");
     expect(result.text).toContain("Field mask");
     expect(result.sources[0]).toMatchObject({
@@ -618,7 +619,7 @@ describe("agent tools", () => {
     expect(result.cards?.[0]?.mapsUrl).toBeUndefined();
   });
 
-  test("labels closed Places cards without dropping the recommendation card", async () => {
+  test("drops closed Places candidates for open-now searches", async () => {
     const result = await executeAgentTool(
       {
         requestId: "agent_request_places",
@@ -645,11 +646,12 @@ describe("agent tools", () => {
     );
 
     expect(result.status).toBe("success");
-    expect(result.cards?.[0]).toMatchObject({
-      title: "Closed Dinner Grill",
-      openStatusLabel: "Not open now according to Google Places.",
+    expect(result.sources[0]).toMatchObject({
+      label: "not_verified",
+      notChecked: expect.arrayContaining(["useful Google Places shortlist"]),
     });
-    expect(result.cards?.[0]?.fitReasons.join(" ")).toContain("not-open-now signal");
+    expect(result.cards).toBeUndefined();
+    expect(JSON.stringify(result.data)).not.toContain("Closed Dinner Grill");
   });
 
   test("returns not-verified output when Places search has no results", async () => {

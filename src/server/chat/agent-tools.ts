@@ -835,20 +835,26 @@ async function searchPlacesToolResult(
     label: `agent_${slugPart(args.query)}`,
     textQuery: ensureSiargaoQuery(args.query),
     ...(args.constraints?.included_type ? { includedType: args.constraints.included_type } : {}),
+    ...(args.constraints?.open_now ? { openNow: true } : {}),
     center: args.center,
     radiusMeters: args.radius_meters,
     pageSize: args.constraints?.page_size ?? 8,
   };
 
   try {
-    const context = await getGooglePlacesSearchContext(
+    const context = enforceRequiredOpenNowContext(
+      await getGooglePlacesSearchContext(
+        {
+          fetchedAt,
+          requiresLiveStatus: args.constraints?.open_now,
+          search,
+          trace: { requestId: request.requestId },
+        },
+        dependencies,
+      ),
       {
-        fetchedAt,
-        requiresLiveStatus: args.constraints?.open_now,
-        search,
-        trace: { requestId: request.requestId },
+        requiresOpenNow: args.constraints?.open_now === true,
       },
-      dependencies,
     );
     const sourceSummary = googlePlacesSearchSourceSummary(context);
     const cards = googlePlacesSearchCards(context, sourceSummary);
@@ -874,6 +880,29 @@ async function searchPlacesToolResult(
       sources: [googlePlacesProviderUnavailableSourceSummary("Google Places search lookup")],
     };
   }
+}
+
+function enforceRequiredOpenNowContext(
+  context: GooglePlacesChatContext,
+  { requiresOpenNow }: { requiresOpenNow: boolean },
+): GooglePlacesChatContext {
+  if (!requiresOpenNow) {
+    return context;
+  }
+
+  const openPlaces = context.places.filter((place) => place.currentOpeningHours?.openNow === true);
+  return {
+    ...context,
+    status: openPlaces.length > 0 ? "available" : "no_results",
+    places: openPlaces,
+    caveats:
+      openPlaces.length === context.places.length
+        ? context.caveats
+        : [
+            ...context.caveats,
+            "Open-now filtering removed places that Google did not report as currently open.",
+          ],
+  };
 }
 
 async function getPlaceDetailsToolResult(

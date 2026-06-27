@@ -120,7 +120,11 @@ export async function runAskSiargaoAgentTurn(
   for (let turn = 0; turn < maxTurns; turn += 1) {
     const finalText = response.output_text?.trim();
     if (finalText) {
-      const itineraryPlanRepairCall = missingInitialItineraryPlanRepairCall(resolved, toolCalls);
+      const itineraryPlanRepairCall = missingInitialItineraryPlanRepairCall(
+        resolved,
+        toolCalls,
+        toolResults,
+      );
       if (itineraryPlanRepairCall) {
         if (toolCalls.length + 1 > maxToolCalls) {
           throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
@@ -272,8 +276,9 @@ export async function runAskSiargaoAgentTurn(
 function missingInitialItineraryPlanRepairCall(
   request: AgentRuntimeRequest,
   toolCalls: readonly AgentToolCallAudit[],
+  toolResults: readonly AgentToolResult[],
 ): ParsedFunctionCall | undefined {
-  if (hasToolCall(toolCalls, "plan_local_itinerary")) {
+  if (hasSuccessfulItineraryPlanArtifact(toolCalls, toolResults)) {
     return undefined;
   }
 
@@ -338,7 +343,7 @@ function isItineraryPlanningRequest(
       latestUserTurn,
     );
   const hasInitialThemeLanguage =
-    /\b(rainy\s+cloud\s*9|sunset\s+(?:plus|and)\s+dinner|dinner\s+(?:after|plus|and)\s+sunset|non[-\s]?surfer|not\s+surfing|food\s+crawl)\b/i.test(
+    /\b(rainy\s+cloud\s*9|sunset\s+(?:plus|and)\s+dinner|dinner\s+(?:after|plus|and)\s+sunset|non[-\s]?surfer|not\s+surfing|food\s+crawl|(?:sandy\s+beach|beach)\s+half[-\s]?day|half[-\s]?day\s+(?:sandy\s+)?beach)\b/i.test(
       latestUserTurn,
     );
 
@@ -456,6 +461,9 @@ function inferItineraryOrigin(
   if (/\bcloud\s*9|cloud9|catangnan\b/i.test(content)) {
     return "Cloud 9";
   }
+  if (/\bdel\s+carmen|sugba\s+lagoon\b/i.test(content)) {
+    return "Del Carmen";
+  }
   if (/\bgeneral\s+luna|\bgl\b/i.test(content)) {
     return "General Luna";
   }
@@ -501,8 +509,21 @@ function latestUserContent(messages: readonly AgentRuntimeRequest["messages"][nu
   return messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
 }
 
-function hasToolCall(toolCalls: readonly AgentToolCallAudit[], name: string) {
-  return toolCalls.some((toolCall) => toolCall.name === name);
+function hasSuccessfulItineraryPlanArtifact(
+  toolCalls: readonly AgentToolCallAudit[],
+  toolResults: readonly AgentToolResult[],
+) {
+  return (
+    toolCalls.some(
+      (toolCall) => toolCall.name === "plan_local_itinerary" && toolCall.status === "success",
+    ) &&
+    toolResults.some(
+      (result) =>
+        result.name === "plan_local_itinerary" &&
+        result.status === "success" &&
+        Boolean(result.itineraries?.length),
+    )
+  );
 }
 
 function missingRequiredItineraryChecks(

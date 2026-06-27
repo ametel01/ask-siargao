@@ -225,6 +225,30 @@ describe("chat route", () => {
     expect(body.itineraries).toEqual([rainyCloud9Itinerary]);
   });
 
+  test("validates itinerary artifact sources before returning them", async () => {
+    const dependencies = chatDependencies({
+      message: "Here is an itinerary with an invalid checked artifact source.",
+      toolCalls: [],
+      sources: [genericSourceSummary],
+      itineraries: [
+        {
+          ...rainyCloud9Itinerary,
+          sources: [weatherSourceSummary],
+        },
+      ],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Plan a rainy Cloud 9 afternoon for 3 hours." }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(body.error).toBe("source_consistency_failed");
+  });
+
   test("omits itinerary artifacts when the agent returns none", async () => {
     const dependencies = chatDependencies({
       message: "No structured itinerary needed.",
@@ -310,6 +334,25 @@ describe("chat route", () => {
       scenario.assertSignals(signals);
     });
   }
+
+  test("marks sandy beach half-day prompts as activity plans without explicit plan verbs", async () => {
+    const dependencies = chatDependencies({
+      message: "The model writes a sandy half-day answer.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Sandy beach half-day from General Luna." }],
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.intent.activityPlan).toBe(true);
+    expect(signals?.intent.beach).toBe(true);
+    expect(signals?.intent.locationLabel).toBe("General Luna");
+  });
 
   test("allows not-verified card source labels without checked tool evidence", async () => {
     const dependencies = chatDependencies({
@@ -514,6 +557,7 @@ type AgentSignals = {
   intent: {
     activityPlan?: boolean;
     beach?: boolean;
+    locationLabel?: string;
     placeIntent?: { category?: string };
     tripContext?: { activeGoal?: string };
     weatherSensitive?: boolean;
