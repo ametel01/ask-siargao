@@ -54,6 +54,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Completed the Priority 9 Weather, Tide, And Surf Fusion slice with condition judgments that use
+  checked Open-Meteo weather, curated local caveats, and explicit unchecked tide, surf, road,
+  current, and safety boundaries.
 - Taught agent instructions, memory policy, and chat route intent signals to route weather-sensitive
   swimming, surfing, scooter, rain-plan, sunset, and boat-trip condition questions toward
   `get_condition_judgment` without replacing model-written final answers.
