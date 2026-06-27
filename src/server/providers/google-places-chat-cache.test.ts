@@ -21,6 +21,60 @@ const generalLunaRestaurantSearch: GooglePlacesChatSearch = {
 };
 
 describe("Google Places chat cache", () => {
+  test("bypasses cache reads and writes for no-store chat search contexts", async () => {
+    const db = await openGooglePlacesChatCacheTestDatabase();
+    const logs: TestLog[] = [];
+    let liveCalls = 0;
+    const adapter = createCachedGooglePlacesChatContextAdapter({
+      db,
+      liveAdapter: async ({ fetchedAt, search }) => {
+        liveCalls += 1;
+        return googlePlacesContext({ fetchedAt, placeCount: 3, search });
+      },
+      logger: createTestLogger(logs),
+    });
+
+    const context = await adapter({
+      cacheMode: "no_store",
+      fetchedAt: "2026-06-25T22:08:55.090Z",
+      search: generalLunaRestaurantSearch,
+    });
+    const counts = await db.query<{
+      google_place_snapshots: number;
+      google_place_details: number;
+      source_records: number;
+    }>(`
+      select
+        (select count(*)::int from google_place_snapshots) as google_place_snapshots,
+        (select count(*)::int from google_place_details) as google_place_details,
+        (select count(*)::int from source_records) as source_records
+    `);
+
+    expect(liveCalls).toBe(1);
+    expect(context.freshness).toBe("live");
+    expect(context.places).toHaveLength(3);
+    expect(counts.rows[0]).toEqual({
+      google_place_snapshots: 0,
+      google_place_details: 0,
+      source_records: 0,
+    });
+    expect(logs).toContainEqual(
+      expect.objectContaining({
+        message: "Google Places chat cache bypassed.",
+        payload: expect.objectContaining({
+          cacheMode: "no_store",
+          googleApiCalled: true,
+        }),
+      }),
+    );
+    expect(logs.some((log) => log.message === "Google Places chat cache checked.")).toBe(false);
+    expect(logs.some((log) => log.message === "Google Places chat live lookup persisted.")).toBe(
+      false,
+    );
+
+    await db.close();
+  });
+
   test("persists live chat search results and reuses fresh cache on the next matching request", async () => {
     const db = await openGooglePlacesChatCacheTestDatabase();
     const logs: TestLog[] = [];

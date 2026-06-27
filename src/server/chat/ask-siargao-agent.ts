@@ -7,9 +7,11 @@ import {
   type AgentRuntimeDependencies,
   type AgentRuntimeRequest,
   type AgentToolCallAudit,
+  type AgentToolExecutionContext,
   type AgentToolExecutionRequest,
   type AgentToolResult,
   type AgentTurnResult,
+  type ChatClientGeolocationContext,
   createAgentToolCallAudit,
   createAgentTurnResult,
   resolveAgentRuntimeRequest,
@@ -138,6 +140,7 @@ export async function runAskSiargaoAgentTurn(
           functionCall: itineraryPlanRepairCall,
           logger,
           now: dependencies.now ?? (() => new Date()),
+          runtimeRequest: resolved,
           requestId: resolved.requestId,
         });
         toolCalls.push(automaticPlanOutput.audit);
@@ -184,6 +187,7 @@ export async function runAskSiargaoAgentTurn(
           functionCall: conditionJudgmentRepairCall,
           logger,
           now: dependencies.now ?? (() => new Date()),
+          runtimeRequest: resolved,
           requestId: resolved.requestId,
         });
         toolCalls.push(automaticConditionOutput.audit);
@@ -227,6 +231,7 @@ export async function runAskSiargaoAgentTurn(
               functionCall,
               logger,
               now: dependencies.now ?? (() => new Date()),
+              runtimeRequest: resolved,
               requestId: resolved.requestId,
             }),
           ),
@@ -295,6 +300,7 @@ export async function runAskSiargaoAgentTurn(
           functionCall,
           logger,
           now: dependencies.now ?? (() => new Date()),
+          runtimeRequest: resolved,
           requestId: resolved.requestId,
         }),
       ),
@@ -988,51 +994,144 @@ async function executeAndAuditTool({
   functionCall,
   logger,
   now,
+  runtimeRequest,
   requestId,
 }: {
   executeTool: (request: AgentToolExecutionRequest) => Promise<AgentToolResult>;
   functionCall: ParsedFunctionCall;
   logger: ReturnType<typeof createComponentLogger>;
   now: () => Date;
+  runtimeRequest: AgentRuntimeRequest;
   requestId: string;
 }) {
+  const executableFunctionCall = applyRuntimeToolContext(functionCall, runtimeRequest);
   const startedAt = now();
   const result = await executeTool({
     requestId,
-    toolCallId: functionCall.callId,
-    name: functionCall.name,
-    arguments: functionCall.arguments,
+    toolCallId: executableFunctionCall.callId,
+    name: executableFunctionCall.name,
+    arguments: executableFunctionCall.arguments,
+    clientContext: runtimeRequest.clientContext,
+    ...(executableFunctionCall.toolContext
+      ? { toolContext: executableFunctionCall.toolContext }
+      : {}),
   });
   const resultWithToolCallId = {
     ...result,
-    toolCallId: result.toolCallId ?? functionCall.callId,
+    toolCallId: result.toolCallId ?? executableFunctionCall.callId,
   };
   const completedAt = now();
   const audit = createAgentToolCallAudit({
-    toolCallId: functionCall.callId,
-    name: functionCall.name,
-    arguments: functionCall.arguments,
+    toolCallId: executableFunctionCall.callId,
+    name: executableFunctionCall.name,
+    arguments: executableFunctionCall.arguments,
     result: resultWithToolCallId,
     startedAt,
     completedAt,
-    providerOperation: providerOperationForTool(functionCall.name),
+    providerOperation: providerOperationForTool(executableFunctionCall.name),
   });
 
   logger.info(
     {
-      toolCallId: functionCall.callId,
-      toolName: functionCall.name,
+      toolCallId: executableFunctionCall.callId,
+      toolName: executableFunctionCall.name,
       durationMs: audit.durationMs,
       status: audit.status,
       errorCode: audit.errorCode,
       providerOperation: audit.providerOperation,
       sourceLabels: audit.sources.map((source) => source.label),
       sourceProfileIds: audit.sourceProfileIds,
+      toolContext: summarizeToolContextForLogs(executableFunctionCall.toolContext),
     },
     "Ask Siargao agent tool call completed.",
   );
 
-  return { audit, functionCall, result: resultWithToolCallId };
+  return { audit, functionCall: executableFunctionCall, result: resultWithToolCallId };
+}
+
+type ExecutableFunctionCall = ParsedFunctionCall & {
+  toolContext?: AgentToolExecutionContext;
+};
+
+function applyRuntimeToolContext(
+  functionCall: ParsedFunctionCall,
+  request: AgentRuntimeRequest,
+): ExecutableFunctionCall {
+  if (functionCall.name !== "search_places") {
+    return functionCall;
+  }
+
+  const geolocation = usableBrowserGeolocation(request);
+  if (!geolocation || !shouldUseBrowserGeolocationForPlaces(functionCall, request)) {
+    return functionCall;
+  }
+
+  const center = {
+    latitude: geolocation.latitude,
+    longitude: geolocation.longitude,
+  };
+
+  return {
+    ...functionCall,
+    arguments: {
+      ...functionCall.arguments,
+      center,
+    },
+    toolContext: {
+      googlePlaces: {
+        center,
+        centerSource: "browser_geolocation",
+        cacheMode: "no_store",
+        consentScope: geolocation.consentScope,
+      },
+    },
+  };
+}
+
+function usableBrowserGeolocation(
+  request: AgentRuntimeRequest,
+): (ChatClientGeolocationContext & { latitude: number; longitude: number }) | undefined {
+  const geolocation = request.clientContext?.geolocation;
+  if (
+    geolocation?.status === "available" &&
+    geolocation.source === "browser_geolocation" &&
+    typeof geolocation.latitude === "number" &&
+    typeof geolocation.longitude === "number"
+  ) {
+    return geolocation as ChatClientGeolocationContext & { latitude: number; longitude: number };
+  }
+  return undefined;
+}
+
+function shouldUseBrowserGeolocationForPlaces(
+  functionCall: ParsedFunctionCall,
+  request: AgentRuntimeRequest,
+) {
+  const query =
+    typeof functionCall.arguments.query === "string" ? functionCall.arguments.query : "";
+  const latestUserTurn = latestRuntimeUserTurn(request);
+  return isNearMeText(query) || isNearMeText(latestUserTurn);
+}
+
+function latestRuntimeUserTurn(request: AgentRuntimeRequest) {
+  return [...request.messages].reverse().find((message) => message.role === "user")?.content ?? "";
+}
+
+function isNearMeText(value: string) {
+  return /\b(?:near\s+me|around\s+me|close\s+to\s+me|close\s+by|nearby|by\s+me)\b/i.test(value);
+}
+
+function summarizeToolContextForLogs(toolContext: AgentToolExecutionContext | undefined) {
+  if (!toolContext?.googlePlaces) {
+    return undefined;
+  }
+  return {
+    googlePlaces: {
+      centerSource: toolContext.googlePlaces.centerSource,
+      cacheMode: toolContext.googlePlaces.cacheMode,
+      consentScope: toolContext.googlePlaces.consentScope,
+    },
+  };
 }
 
 function extractFunctionCalls(output: unknown): ParsedFunctionCall[] {

@@ -7,6 +7,7 @@ import {
   requiredAgentMemoryManifest,
 } from "@/server/chat/agent-memory";
 import type {
+  AgentToolExecutionContext,
   AgentToolExecutionRequest,
   AgentToolResult,
   AskSiargaoAgentToolName,
@@ -103,6 +104,8 @@ type RegisteredTool<Arguments> = {
   execute: ToolHandler<Arguments>;
 };
 
+type GooglePlacesToolExecutionContext = NonNullable<AgentToolExecutionContext["googlePlaces"]>;
+
 type SourcePolicyDescription = {
   label: AnswerTrustLabel;
   meaning: string;
@@ -118,6 +121,7 @@ export type AgentToolDependencies = {
   enrichGooglePlacesDetails?: typeof enrichGooglePlacesDetails;
   findFreshPlaceDetails?: typeof findFreshPlaceDetails;
   getGooglePlacesChatContext?: (input: {
+    cacheMode?: "standard" | "no_store";
     fetchedAt: string;
     requiresLiveStatus?: boolean;
     search: GooglePlacesChatSearch;
@@ -853,20 +857,24 @@ async function searchPlacesToolResult(
   dependencies: AgentToolDependencies,
 ): Promise<AgentToolResult> {
   const fetchedAt = currentIso(dependencies);
+  const placesToolContext = normalizeGooglePlacesToolContext(request.toolContext);
+  const searchCenter = placesToolContext?.center ?? args.center;
   const search: GooglePlacesChatSearch = {
     label: `agent_${slugPart(args.query)}`,
     textQuery: ensureSiargaoQuery(args.query),
     ...(args.constraints?.included_type ? { includedType: args.constraints.included_type } : {}),
     ...(args.constraints?.open_now ? { openNow: true } : {}),
-    center: args.center,
+    center: searchCenter,
     radiusMeters: args.radius_meters,
     pageSize: args.constraints?.page_size ?? 8,
   };
+  const centerSource = placesToolContext?.centerSource ?? "model_supplied";
 
   try {
     const context = enforceRequiredOpenNowContext(
       await getGooglePlacesSearchContext(
         {
+          cacheMode: placesToolContext?.cacheMode ?? "standard",
           fetchedAt,
           requiresLiveStatus: args.constraints?.open_now,
           search,
@@ -878,14 +886,18 @@ async function searchPlacesToolResult(
         requiresOpenNow: args.constraints?.open_now === true,
       },
     );
+    const contextWithCenterCaveats = withGooglePlacesCenterCaveats(context, placesToolContext);
     const sourceSummary = googlePlacesSearchSourceSummary(context);
-    const cards = googlePlacesSearchCards(context, sourceSummary);
-    const actions = googlePlacesPromptActions(cards, context.search.textQuery);
+    const cards = googlePlacesSearchCards(contextWithCenterCaveats, sourceSummary);
+    const actions = googlePlacesPromptActions(cards, contextWithCenterCaveats.search.textQuery);
     return {
       name: "search_places",
       status: "success",
-      text: renderGooglePlacesSearchText(context),
-      data: normalizeGooglePlacesSearchContext(context),
+      text: renderGooglePlacesSearchText(contextWithCenterCaveats),
+      data: normalizeGooglePlacesSearchContext(contextWithCenterCaveats, {
+        centerSource,
+        consentScope: placesToolContext?.consentScope,
+      }),
       sources: [sourceSummary],
       ...(cards.length ? { cards } : {}),
       ...(actions.length ? { actions } : {}),
@@ -902,6 +914,37 @@ async function searchPlacesToolResult(
       sources: [googlePlacesProviderUnavailableSourceSummary("Google Places search lookup")],
     };
   }
+}
+
+function normalizeGooglePlacesToolContext(toolContext: AgentToolExecutionContext | undefined) {
+  const googlePlaces = toolContext?.googlePlaces;
+  if (!googlePlaces) {
+    return undefined;
+  }
+
+  return {
+    center: googlePlaces.center,
+    centerSource: googlePlaces.centerSource,
+    cacheMode: googlePlaces.cacheMode,
+    consentScope: googlePlaces.consentScope,
+  };
+}
+
+function withGooglePlacesCenterCaveats(
+  context: GooglePlacesChatContext,
+  toolContext: ReturnType<typeof normalizeGooglePlacesToolContext>,
+): GooglePlacesChatContext {
+  if (toolContext?.centerSource !== "browser_geolocation") {
+    return context;
+  }
+
+  return {
+    ...context,
+    caveats: [
+      ...context.caveats,
+      "Search center came from consented browser geolocation; exact coordinates are not displayed.",
+    ],
+  };
 }
 
 function enforceRequiredOpenNowContext(
@@ -1422,6 +1465,7 @@ function normalizeLocalGuideSearchResult(result: LocalGuideSearchResult) {
 
 async function getGooglePlacesSearchContext(
   input: {
+    cacheMode?: "standard" | "no_store";
     fetchedAt: string;
     requiresLiveStatus?: boolean;
     search: GooglePlacesChatSearch;
@@ -1431,6 +1475,16 @@ async function getGooglePlacesSearchContext(
 ) {
   if (dependencies.getGooglePlacesChatContext) {
     return dependencies.getGooglePlacesChatContext(input);
+  }
+
+  if (input.cacheMode === "no_store") {
+    return getGooglePlacesChatContext({
+      apiKey: dependencies.googlePlacesApiKey,
+      fetchedAt: input.fetchedAt,
+      fetcher: dependencies.googlePlacesFetcher,
+      search: input.search,
+      trace: input.trace,
+    });
   }
 
   if (dependencies.googlePlacesApiKey || dependencies.googlePlacesFetcher) {
@@ -1510,7 +1564,13 @@ async function getLivePlaceDetails(
   });
 }
 
-function normalizeGooglePlacesSearchContext(context: GooglePlacesChatContext) {
+function normalizeGooglePlacesSearchContext(
+  context: GooglePlacesChatContext,
+  centerContext: {
+    centerSource: GooglePlacesToolExecutionContext["centerSource"];
+    consentScope?: GooglePlacesToolExecutionContext["consentScope"];
+  },
+) {
   return {
     status: context.status,
     sourceName: context.sourceName,
@@ -1518,6 +1578,8 @@ function normalizeGooglePlacesSearchContext(context: GooglePlacesChatContext) {
     fetchedAt: context.fetchedAt,
     freshness: context.freshness,
     search: context.search,
+    centerSource: centerContext.centerSource,
+    ...(centerContext.consentScope ? { consentScope: centerContext.consentScope } : {}),
     fieldMask: context.fieldMask,
     places: context.places.map(normalizeGooglePlacesChatPlace),
     caveats: context.caveats,

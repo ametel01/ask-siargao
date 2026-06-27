@@ -148,6 +148,20 @@ export type ChatClientContext = {
   geolocation: ChatClientGeolocationContext;
 };
 
+export type GooglePlacesSearchCenterSource = "browser_geolocation" | "gazetteer" | "model_supplied";
+
+export type AgentToolExecutionContext = {
+  googlePlaces?: {
+    centerSource: GooglePlacesSearchCenterSource;
+    cacheMode?: "standard" | "no_store";
+    consentScope?: ChatClientGeolocationConsentScope;
+    center?: {
+      latitude: number;
+      longitude: number;
+    };
+  };
+};
+
 export type AgentRuntimeRequest = {
   messages: readonly AskSiargaoChatMessage[];
   requestId?: string;
@@ -180,6 +194,8 @@ export type AgentToolExecutionRequest = {
   name: string;
   arguments: Record<string, unknown>;
   requestId: string;
+  clientContext?: ChatClientContext;
+  toolContext?: AgentToolExecutionContext;
 };
 
 export type AgentToolExecutor = (request: AgentToolExecutionRequest) => Promise<AgentToolResult>;

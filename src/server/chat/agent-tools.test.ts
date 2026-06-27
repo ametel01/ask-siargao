@@ -606,6 +606,63 @@ describe("agent tools", () => {
     ]);
   });
 
+  test("uses browser geolocation as the Places center and marks no-store context", async () => {
+    const searches: Array<{
+      cacheMode?: string;
+      search: GooglePlacesChatSearch;
+    }> = [];
+    const browserCenter = { latitude: 9.8123, longitude: 126.1664 };
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_places_browser_location",
+        name: "search_places",
+        arguments: {
+          query: "cafes near me",
+          center: { latitude: 9.784, longitude: 126.158 },
+          radius_meters: 2_500,
+          constraints: { included_type: "cafe", open_now: true, page_size: 3 },
+        },
+        toolContext: {
+          googlePlaces: {
+            center: browserCenter,
+            centerSource: "browser_geolocation",
+            cacheMode: "no_store",
+            consentScope: "single_request",
+          },
+        },
+      },
+      {
+        getGooglePlacesChatContext: async ({ cacheMode, fetchedAt, search }) => {
+          searches.push({ cacheMode, search });
+          return googlePlacesContextFixture({
+            fetchedAt,
+            placeName: "Browser Center Cafe",
+            search,
+          });
+        },
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(searches[0]).toMatchObject({
+      cacheMode: "no_store",
+      search: {
+        center: browserCenter,
+        includedType: "cafe",
+        openNow: true,
+      },
+    });
+    expect(result.text).toContain("consented browser geolocation");
+    expect(result.cards?.[0]?.caveats.join(" ")).toContain("browser geolocation");
+    expect(result.data).toMatchObject({
+      centerSource: "browser_geolocation",
+      consentScope: "single_request",
+      search: {
+        center: browserCenter,
+      },
+    });
+  });
+
   test("returns fresh-cache Google Places search output", async () => {
     const result = await executeAgentTool(
       {

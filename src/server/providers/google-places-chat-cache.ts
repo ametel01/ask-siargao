@@ -32,6 +32,7 @@ type LiveGooglePlacesChatAdapter = (input: {
 }) => Promise<GooglePlacesChatContext>;
 
 type CachedGooglePlacesChatContextInput = {
+  cacheMode?: "standard" | "no_store";
   fetchedAt?: string;
   requiresLiveStatus?: boolean;
   search: GooglePlacesChatSearch;
@@ -74,6 +75,7 @@ export function createDefaultCachedGooglePlacesChatContextAdapter({
 
 async function getCachedGooglePlacesChatContext(
   {
+    cacheMode = "standard",
     fetchedAt = new Date().toISOString(),
     requiresLiveStatus = false,
     search,
@@ -97,6 +99,23 @@ async function getCachedGooglePlacesChatContext(
       cacheKey: googlePlacesChatSearchCacheKey(search),
     }),
   );
+  if (cacheMode === "no_store") {
+    const liveContext = await liveAdapter({ fetchedAt, requiresLiveStatus, search, trace });
+    scopedLogger.info(
+      {
+        cacheMode,
+        googleApiCalled: true,
+        providerStatus: liveContext.status,
+        query: search.textQuery,
+        includedType: search.includedType,
+        radiusMeters: search.radiusMeters,
+        pageSize: search.pageSize,
+      },
+      "Google Places chat cache bypassed.",
+    );
+    return liveContext;
+  }
+
   const cachedContext = await findFreshGooglePlacesChatContext(db, { now: fetchedAt, search });
   const cacheSupportsRequiredOpenNow =
     !requiresLiveStatus ||

@@ -15,14 +15,14 @@ references, current status, and the next step.
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Chat Client Context Schema and Geolocation Validation
-- [ ] Step 2: Geolocated Places Center Selection and Privacy-Safe Tool Policy
+- [x] Step 2: Geolocated Places Center Selection and Privacy-Safe Tool Policy
 - [ ] Step 3: Chat UI Location Consent Control
 - [ ] Step 4: Answer Metadata, Caveats, and Source Consistency for Location Source
 - [ ] Step 5: End-to-End Permission Coverage and Final Documentation
 
 ## Current Status
 
-Step 1 complete. Current status: Step 2 ready to start.
+Step 2 complete. Current status: Step 3 ready to start.
 
 ## Update Log
 
@@ -54,5 +54,27 @@ Step 1 complete. Current status: Step 2 ready to start.
   - `bun run typecheck --incremental false`: passed
   - `bun test src/app/api/chat/route.test.ts`: passed
   - `bun test`: passed
-- Commit: pending
+- Commit: `1a31072` (`Validate chat geolocation context`)
 - Next step: Step 2, geolocated Places center selection and privacy-safe tool policy.
+
+### 2026-06-27 - Step 2
+
+- Repaired near-me `search_places` tool calls to use available consented browser geolocation as
+  the search center even when the model supplies a stale/default center.
+- Added backend-owned Places tool context for center source, consent scope, and no-store cache
+  mode without changing the strict model-call schema.
+- Exposed browser-geolocation center source in Places tool data and caveats without displaying raw
+  coordinates in user-facing metadata.
+- Bypassed Google Places chat cache reads and writes for no-store browser-location searches so
+  exact single-request coordinates are not persisted.
+- Validation:
+  - `bun run format`: passed
+  - `bun run lint`: passed
+  - `bun run typecheck --incremental false`: passed
+  - `bun test src/server/chat/agent-tools.test.ts src/server/chat/ask-siargao-agent.test.ts`:
+    passed
+  - `bun test src/server/providers/google-places-chat-cache.test.ts`: passed
+  - `bun test src/app/api/chat/route.test.ts`: passed
+  - `bun test`: passed
+- Commit: pending
+- Next step: Step 3, chat UI location consent control.

@@ -198,6 +198,83 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.sources).toEqual([weatherSourceSummary]);
   });
 
+  test("repairs near-me Places tool calls to use consented browser geolocation", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_near_me_places_call",
+        requestId: "req_near_me_places_call",
+        callId: "call_places_near_me",
+        name: "search_places",
+        arguments: {
+          query: "restaurants open now",
+          center: { latitude: 9.784, longitude: 126.158 },
+          radius_meters: 2_500,
+          constraints: { included_type: "restaurant", open_now: true, page_size: 5 },
+        },
+      }),
+      {
+        id: "resp_near_me_places_final",
+        output_text: "I checked nearby restaurants using your shared location.",
+        _request_id: "req_near_me_places_final",
+      },
+    ]);
+    const toolRequests: Parameters<AgentToolExecutor>[0][] = [];
+    const browserCenter = { latitude: 9.8123, longitude: 126.1664 };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "What restaurants are open near me?" }],
+        requestId: "agent_request_near_me_places",
+        clientContext: {
+          geolocation: {
+            status: "available",
+            source: "browser_geolocation",
+            consentScope: "single_request",
+            ...browserCenter,
+            accuracyMeters: 20,
+            capturedAt: "2026-06-26T00:00:00.000Z",
+          },
+        },
+      },
+      {
+        client,
+        executeTool: async (request) => {
+          toolRequests.push(request);
+          return {
+            name: request.name,
+            status: "success",
+            text: "Google Places returned nearby restaurants.",
+            sources: [openNowPlacesSourceSummary],
+          };
+        },
+        model: "gpt-test",
+      },
+    );
+
+    expect(result.message).toContain("shared location");
+    expect(toolRequests[0]).toMatchObject({
+      name: "search_places",
+      arguments: {
+        query: "restaurants open now",
+        center: browserCenter,
+      },
+      toolContext: {
+        googlePlaces: {
+          center: browserCenter,
+          centerSource: "browser_geolocation",
+          cacheMode: "no_store",
+          consentScope: "single_request",
+        },
+      },
+    });
+    expect(result.toolCalls[0]).toMatchObject({
+      name: "search_places",
+      arguments: {
+        center: browserCenter,
+      },
+    });
+  });
+
   test("executes a condition judgment tool call and feeds the evidence back to the model", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({

@@ -77,6 +77,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added privacy-safe near-me Places center selection that uses consented browser geolocation for
+  nearby searches, exposes the center source in tool data, and bypasses persistent chat-search
+  caching for exact single-request browser coordinates.
 - Added optional `/api/chat` browser geolocation client context with server-side validation,
   Siargao-area plausibility checks, and privacy-safe route metadata.
 - Established progress and changelog tracking for the Priority 10 Consent-Based Near-Me
