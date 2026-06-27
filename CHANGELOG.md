@@ -77,6 +77,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added an optional chat composer location control that requests browser geolocation only after a
+  traveler click, sends single-request location context with the next chat request, and consumes it
+  afterward without storing coordinates.
 - Added privacy-safe near-me Places center selection that uses consented browser geolocation for
   nearby searches, exposes the center source in tool data, and bypasses persistent chat-search
   caching for exact single-request browser coordinates.

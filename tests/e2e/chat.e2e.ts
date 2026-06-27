@@ -5,6 +5,15 @@ type ChatRequestBody = {
     role?: string;
     content?: string;
   }>;
+  clientContext?: {
+    geolocation?: {
+      latitude?: number;
+      longitude?: number;
+      accuracyMeters?: number;
+      capturedAt?: string;
+      consentScope?: "single_request" | "trip_session";
+    };
+  };
 };
 
 type MockRecommendationCard = {
@@ -92,6 +101,7 @@ test("sends a desktop composer message to the chat API and renders the assistant
   expect(lastSubmittedContent(mockChat.requests[0])).toBe(
     "Where should we eat near Cloud 9 tonight?",
   );
+  expect(mockChat.requests[0]?.clientContext).toBeUndefined();
 
   mockChat.release();
 
@@ -106,6 +116,62 @@ test("sends a desktop composer message to the chat API and renders the assistant
   expect(composerBox).not.toBeNull();
   expect(composerBox?.y ?? 0).toBeGreaterThanOrEqual(0);
   expect((composerBox?.y ?? 0) + (composerBox?.height ?? 0)).toBeLessThanOrEqual(1153);
+});
+
+test("sends granted browser geolocation once and consumes it after the request", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition(success: PositionCallback) {
+          success({
+            coords: {
+              latitude: 9.8116,
+              longitude: 126.1651,
+              accuracy: 25,
+              altitude: null,
+              altitudeAccuracy: null,
+              heading: null,
+              speed: null,
+            },
+            timestamp: Date.now(),
+          } as GeolocationPosition);
+        },
+      },
+    });
+  });
+  const mockChat = await mockChatApi(page, {
+    message: "Mocked near-me answer: I used the shared location for this request.",
+  });
+
+  await page.goto("/chat");
+
+  await page.getByRole("button", { name: "Share location once" }).click();
+  await expect(page.getByText("Location ready for the next question.")).toBeVisible();
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("What is open near me?");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByText("Mocked near-me answer:")).toBeVisible();
+  await expect(page.getByText("Location used for the last question.")).toBeVisible();
+  await expect.poll(() => mockChat.requests.length).toBe(1);
+  expect(mockChat.requests[0]?.clientContext?.geolocation).toMatchObject({
+    latitude: 9.8116,
+    longitude: 126.1651,
+    accuracyMeters: 25,
+    consentScope: "single_request",
+  });
+  expect(mockChat.requests[0]?.clientContext?.geolocation?.capturedAt).toEqual(expect.any(String));
+
+  await composerInput.fill("What about tomorrow?");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect.poll(() => mockChat.requests.length).toBe(2);
+  expect(lastSubmittedContent(mockChat.requests[1])).toBe("What about tomorrow?");
+  expect(mockChat.requests[1]?.clientContext).toBeUndefined();
 });
 
 test("sends a mobile suggested prompt through the same chat API path", async ({ page }) => {

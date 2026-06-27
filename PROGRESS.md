@@ -16,13 +16,13 @@ references, current status, and the next step.
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Chat Client Context Schema and Geolocation Validation
 - [x] Step 2: Geolocated Places Center Selection and Privacy-Safe Tool Policy
-- [ ] Step 3: Chat UI Location Consent Control
+- [x] Step 3: Chat UI Location Consent Control
 - [ ] Step 4: Answer Metadata, Caveats, and Source Consistency for Location Source
 - [ ] Step 5: End-to-End Permission Coverage and Final Documentation
 
 ## Current Status
 
-Step 2 complete. Current status: Step 3 ready to start.
+Step 3 complete. Current status: Step 4 ready to start.
 
 ## Update Log
 
@@ -76,5 +76,27 @@ Step 2 complete. Current status: Step 3 ready to start.
   - `bun test src/server/providers/google-places-chat-cache.test.ts`: passed
   - `bun test src/app/api/chat/route.test.ts`: passed
   - `bun test`: passed
-- Commit: pending
+- Commit: `afe727d` (`Use consented geolocation for nearby Places`)
 - Next step: Step 3, chat UI location consent control.
+
+### 2026-06-27 - Step 3
+
+- Added a compact optional location control to the chat composer using the existing icon-button
+  pattern.
+- Requested browser geolocation only after an explicit traveler click and sent
+  `clientContext.geolocation` with the next chat request when a captured location is ready.
+- Kept location consent scoped to `single_request` and consumed the captured location after the
+  request was sent, without local storage or server-side persistence changes.
+- Added concise UI states for optional, requesting, ready, denied, unavailable, unsupported, and
+  consumed location states without showing raw coordinates.
+- Added Playwright coverage for the mocked geolocation path and single-request consumption.
+- Validation:
+  - `bun run format`: passed
+  - `bun run lint`: passed
+  - `bun run typecheck --incremental false`: passed
+  - `bun test src/app/api/chat/route.test.ts`: passed
+  - `bun run test:e2e -- tests/e2e/chat.e2e.ts --project=chromium`: passed
+  - `bun test`: passed
+  - `npx react-doctor@latest --verbose --scope changed`: passed, score 100/100
+- Commit: pending
+- Next step: Step 4, answer metadata, caveats, and source consistency for location source.

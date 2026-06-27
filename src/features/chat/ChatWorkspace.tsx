@@ -35,6 +35,27 @@ const chatTimeFormatter = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit",
 });
 
+type ChatClientGeolocation = {
+  latitude: number;
+  longitude: number;
+  accuracyMeters?: number;
+  capturedAt: string;
+  consentScope: "single_request";
+};
+
+type ChatClientContext = {
+  geolocation: ChatClientGeolocation;
+};
+
+type LocationCaptureState =
+  | { status: "idle" }
+  | { status: "requesting" }
+  | { status: "ready"; geolocation: ChatClientGeolocation }
+  | { status: "denied" }
+  | { status: "unavailable" }
+  | { status: "unsupported" }
+  | { status: "consumed" };
+
 type InteractiveChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -99,7 +120,9 @@ type ItineraryPlanArtifact = {
 type ChatComposerProps = {
   inputValue: string;
   isSending: boolean;
+  locationState: LocationCaptureState;
   onInputValueChange: (value: string) => void;
+  onRequestLocation: () => void;
   onSubmitPrompt: (prompt: string) => void;
 };
 
@@ -134,8 +157,44 @@ type AssistantMarkdownListItems = Extract<AssistantMarkdownBlock, { type: "list"
 export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }) {
   const [inputValue, setInputValue] = useState(() => initialPrompt.trim());
   const [isSending, setIsSending] = useState(false);
+  const [locationState, setLocationState] = useState<LocationCaptureState>({ status: "idle" });
   const [messages, setMessages] = useState<InteractiveChatMessage[]>([]);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+
+  const requestLocation = useCallback(() => {
+    if (!("geolocation" in navigator)) {
+      setLocationState({ status: "unsupported" });
+      return;
+    }
+
+    setLocationState({ status: "requesting" });
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocationState({
+          status: "ready",
+          geolocation: {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            ...(Number.isFinite(position.coords.accuracy)
+              ? { accuracyMeters: position.coords.accuracy }
+              : {}),
+            capturedAt: new Date(position.timestamp).toISOString(),
+            consentScope: "single_request",
+          },
+        });
+      },
+      (error) => {
+        setLocationState({
+          status: error.code === error.PERMISSION_DENIED ? "denied" : "unavailable",
+        });
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 60_000,
+        timeout: 10_000,
+      },
+    );
+  }, []);
 
   const submitPrompt = useCallback(
     async (prompt: string) => {
@@ -161,16 +220,20 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
         status: "pending",
       };
       const requestMessages = buildChatRequestMessages(messages, trimmedPrompt);
+      const requestBody = buildChatRequestBody(requestMessages, locationState);
 
       setInputValue("");
       setIsSending(true);
       setMessages((currentMessages) => [...currentMessages, userMessage, pendingAssistant]);
+      if (requestBody.clientContext?.geolocation.consentScope === "single_request") {
+        setLocationState({ status: "consumed" });
+      }
 
       try {
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ messages: requestMessages }),
+          body: JSON.stringify(requestBody),
         });
         const body = (await response.json()) as {
           message?: string;
@@ -218,7 +281,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
         setIsSending(false);
       }
     },
-    [isSending, messages],
+    [isSending, locationState, messages],
   );
 
   useEffect(() => {
@@ -305,7 +368,9 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
         <ChatComposer
           inputValue={inputValue}
           isSending={isSending}
+          locationState={locationState}
           onInputValueChange={setInputValue}
+          onRequestLocation={requestLocation}
           onSubmitPrompt={handlePromptSubmit}
         />
       </section>
@@ -1034,7 +1099,9 @@ function formatAssistantLinkText(value: string) {
 function ChatComposer({
   inputValue,
   isSending,
+  locationState,
   onInputValueChange,
+  onRequestLocation,
   onSubmitPrompt,
 }: ChatComposerProps) {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1042,10 +1109,37 @@ function ChatComposer({
     onSubmitPrompt(inputValue);
   }
 
+  const locationStatus = locationStatusText(locationState);
+  const locationReady = locationState.status === "ready";
+  const locationRequesting = locationState.status === "requesting";
+
   return (
     <footer className="border-white/12 border-t bg-brand-navy-980/92 px-4 py-3 backdrop-blur-md sm:px-6 lg:px-8">
       <form aria-label="Ask Siargao composer" className="mx-auto max-w-3xl" onSubmit={handleSubmit}>
-        <InputGroup className="min-h-[58px] grid-cols-[1fr_48px] rounded-lg border-white/18 bg-white/96 p-2 shadow-[0_22px_70px_rgba(0,0,0,0.28)]">
+        <InputGroup className="min-h-[58px] rounded-lg border-white/18 bg-white/96 p-2 shadow-[0_22px_70px_rgba(0,0,0,0.28)]">
+          <InputGroupAddon align="inline-start">
+            <InputGroupButton
+              aria-label={
+                locationReady ? "Location ready for next question" : "Share location once"
+              }
+              aria-pressed={locationReady}
+              className={
+                locationReady
+                  ? "size-11 rounded-md bg-[#14624a] text-white hover:bg-[#0f503d]"
+                  : "size-11 rounded-md text-text-soft hover:bg-[#ecf5f0] hover:text-[#14624a]"
+              }
+              disabled={isSending || locationRequesting}
+              onClick={onRequestLocation}
+              size="icon-sm"
+              type="button"
+            >
+              {locationRequesting ? (
+                <LoaderCircle aria-hidden="true" className="animate-spin" size={18} />
+              ) : (
+                <MapPin aria-hidden="true" size={18} />
+              )}
+            </InputGroupButton>
+          </InputGroupAddon>
           <InputGroupInput
             aria-label="Ask anything about Siargao"
             className="h-11 px-3 text-base text-text-default placeholder:text-text-soft"
@@ -1070,9 +1164,34 @@ function ChatComposer({
             </InputGroupButton>
           </InputGroupAddon>
         </InputGroup>
+        <p
+          aria-live="polite"
+          className="m-0 mt-2 min-h-4 px-1 text-[0.72rem] leading-tight font-extrabold text-text-on-dark-muted"
+        >
+          {locationStatus}
+        </p>
       </form>
     </footer>
   );
+}
+
+function locationStatusText(locationState: LocationCaptureState) {
+  switch (locationState.status) {
+    case "requesting":
+      return "Requesting location...";
+    case "ready":
+      return "Location ready for the next question.";
+    case "denied":
+      return "Location permission denied.";
+    case "unavailable":
+      return "Location unavailable.";
+    case "unsupported":
+      return "Location unavailable in this browser.";
+    case "consumed":
+      return "Location used for the last question.";
+    case "idle":
+      return "Location sharing is optional.";
+  }
 }
 
 function SuggestedPromptBar({
@@ -1154,6 +1273,18 @@ function buildChatRequestMessages(messages: readonly InteractiveChatMessage[], p
       })),
     { role: "user" as const, content: truncateChatRequestMessage(prompt) },
   ];
+}
+
+function buildChatRequestBody(
+  messages: ReturnType<typeof buildChatRequestMessages>,
+  locationState: LocationCaptureState,
+): { messages: ReturnType<typeof buildChatRequestMessages>; clientContext?: ChatClientContext } {
+  return {
+    messages,
+    ...(locationState.status === "ready"
+      ? { clientContext: { geolocation: locationState.geolocation } }
+      : {}),
+  };
 }
 
 function truncateChatRequestMessage(value: string) {
