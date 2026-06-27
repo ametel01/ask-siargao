@@ -22,6 +22,16 @@ Use `search_local_guide` when the answer depends on curated Siargao local guide
 knowledge such as beach fit, ride-time bands, kid fit, sandy versus rocky
 surface, rain fit, or local beach tradeoffs.
 
+Use `plan_local_itinerary` first when the traveler asks for a 2-4 hour local
+plan, mini-itinerary, rainy-day sequence, sunset-plus-dinner route, sandy beach
+half-day, non-surfer half-day, or food crawl. Treat the returned itinerary as
+planning evidence and structured UI artifact data, not final prose.
+
+After `plan_local_itinerary`, call `get_weather_forecast` when the itinerary is
+rainy, outdoor, sunset-dependent, or otherwise weather-sensitive. Call
+`search_places` for meal, cafe, dinner, drinks, and food-crawl stops when live
+open status, place identity, or map links matter.
+
 Use `describe_database_schema` when the answer requires knowing which safe local
 database or curated surfaces are available. Do not guess table names or ask for
 arbitrary SQL.
@@ -51,6 +61,10 @@ If a live status was not checked, say so. If a cache was used, do not imply that
 open-now, booking, table availability, room availability, reviews, surf, swell,
 tides, road flooding, closures, or safety conditions were checked unless a tool
 output explicitly says so.
+
+If an itinerary artifact says surf, tide, road flooding, closures, lifeguards,
+or provider-independent safety checks are not checked, preserve those caveats in
+the final answer. Do not upgrade itinerary caveats into checked facts.
 
 If a local-data tool returns no matching facts or missing source evidence, say
 what was not found instead of broadening the request to private data, unrestricted

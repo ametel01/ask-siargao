@@ -19,6 +19,44 @@ Add the tool in `src/server/chat/agent-tools.ts`.
 Do not add a hardcoded final-answer branch to `/api/chat`. Deterministic code can classify,
 validate, fetch, rank, and normalize data, but final prose belongs to the model.
 
+## Local Itinerary Tool
+
+`plan_local_itinerary` is a planning-evidence tool, not a final-answer renderer. Its handler lives
+in `src/server/chat/agent-tools.ts` and delegates deterministic plan shaping to
+`src/server/chat/itinerary-tools.ts`.
+
+Supported initial themes are:
+
+- `rainy_cloud_9_afternoon`;
+- `sunset_plus_dinner`;
+- `sandy_beach_half_day`;
+- `non_surfer_half_day`;
+- `food_crawl`.
+
+The tool returns:
+
+- `data.plan`, an `ItineraryPlan` with title, duration label, sequenced stops, fallback stops,
+  skip guidance, and source summaries;
+- `data.requiredToolChecks`, which names follow-up `get_weather_forecast` and `search_places`
+  calls the model should make before final prose when the itinerary depends on weather or live
+  place status;
+- `sources`, so source-consistency validation can verify itinerary labels;
+- `itineraries`, so `/api/chat` can return structured artifacts for the chat UI;
+- optional prompt `actions` for weather and Places follow-up checks.
+
+Use `plan_local_itinerary` first for 2-4 hour local itinerary requests. The model must still write
+the final traveler-facing answer after it inspects the artifact and any required follow-up tool
+results. Do not convert `renderLocalItineraryToolText` into public answer copy.
+
+Weather-sensitive itineraries require a weather check through `get_weather_forecast`. Meal, cafe,
+dinner, drinks, and food-crawl stops require `search_places` when live status, a map identity, or
+open-now confidence matters. Provider failures should remain visible as provider-unavailable or
+not-verified caveats instead of being rewritten as checked facts.
+
+The current itinerary tool does not check surf, swell, tides, road flooding, closures, lifeguard
+status, or provider-independent safety conditions. Keep those items in `notChecked` caveats unless
+a future governed tool explicitly supplies them.
+
 ## Persistent Agent Memory
 
 Agent memory lives in `docs/agent-memory/` and is wired into the chat runtime deliberately. Markdown

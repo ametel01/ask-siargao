@@ -21,12 +21,12 @@ commit reference when available, current status, and the next step.
 - [x] Step 5: Return Itinerary Artifacts From `/api/chat`
 - [x] Step 6: Render Itinerary Plans in the Chat UI
 - [x] Step 7: Add End-to-End Itinerary Behavior Coverage
-- [ ] Step 8: Update Developer and Agent Documentation
+- [x] Step 8: Update Developer and Agent Documentation
 - [ ] Step 9: Final Verification and Handoff
 
 ## Current Status
 
-Step 7 is complete. Step 8 is next.
+Step 8 is complete. Step 9 is next.
 
 ## Update Log
 
@@ -223,3 +223,31 @@ Validation:
 Commit: `Cover itinerary builder scenarios`.
 
 Next step: Step 8, update developer and agent documentation.
+
+### Step 8: Update Developer and Agent Documentation
+
+Completed:
+
+- Documented `plan_local_itinerary` in the chat agent runtime reference as a planning-evidence
+  tool that returns structured artifacts, required follow-up checks, source summaries, and actions
+  while leaving final prose to the model.
+- Documented the supported initial itinerary themes and the current unchecked boundaries for surf,
+  swell, tides, road flooding, closures, lifeguards, and provider-independent safety conditions.
+- Updated agent memory tool-use policy so itinerary requests call `plan_local_itinerary` first,
+  weather-sensitive plans call `get_weather_forecast`, and meal/cafe/dinner/drinks/food-crawl stops
+  call `search_places` when live status, map identity, or open-now confidence matters.
+- Preserved source-caveat rules for provider failures and unchecked itinerary signals.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed (`biome check .`, 195 files checked).
+- `bun run typecheck --incremental false`: passed.
+- `bun test src/server/chat/agent-memory.test.ts`: passed (5 tests).
+- `bun run agent-memory:sync -- --dry-run`: passed; reported dry-run uploads for 3 reference
+  files and no real upload.
+- `bun test`: passed (329 tests across 41 files).
+
+Commit: `Document itinerary tool behavior`.
+
+Next step: Step 9, final verification and handoff.

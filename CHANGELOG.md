@@ -179,6 +179,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Documented the itinerary planning tool contract, required weather/Places follow-up checks, and
+  unchecked surf, tide, road, closure, and safety caveat boundaries in developer and agent memory
+  docs.
 - Recorded the pre-implementation quality baseline for the Priority 8 Local Itinerary Builder.
 - Defined the structured chat recommendation-card contract around map-first place and beach fields
   while keeping prompt actions compatible with the roadmap response shape.
