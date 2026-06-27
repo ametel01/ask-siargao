@@ -9,7 +9,7 @@ Source documents:
 
 ## Current Status
 
-Step 4 is complete. Next step: Step 5, add saved trip API routes.
+Step 5 is complete. Next step: Step 6, add public shared plan page.
 
 `PROGRESS.md` must be updated after every completed step with the completed step,
 validation results, commit reference if available, current status, and next step.
@@ -23,13 +23,46 @@ step is committed.
 - [x] Step 2: Define Shared Trip Artifact Contracts
 - [x] Step 3: Add Local Saved Items In Chat
 - [x] Step 4: Add Trip Persistence Schema And Store
-- [ ] Step 5: Add Saved Trip API Routes
+- [x] Step 5: Add Saved Trip API Routes
 - [ ] Step 6: Add Public Shared Plan Page
 - [ ] Step 7: Wire Share Creation Into Chat UI
 - [ ] Step 8: Harden Source Policy And Privacy Tests
 - [ ] Step 9: Update Documentation And Final Verification
 
 ## Update Log
+
+### 2026-06-28: Step 5 - Add Saved Trip API Routes
+
+Completed:
+- Added API route handlers for saved item sync/listing, saved item deletion, share URL creation,
+  and share-token lookup under `src/app/api/trips`.
+- Added dependency-injected route helpers backed by the shared trip store and Step 2 request
+  validators.
+- Added a small raw SQL query-client wrapper for production route use with the existing Postgres
+  dependency.
+- Rate-limited the saved-trip and share route handlers with the existing `public_api` policy.
+- Added route tests for malformed payloads, save/list/delete, share creation, token lookup,
+  expired and deleted token behavior, cross-trip item rejection, and no chat-state leakage in API
+  responses.
+
+Validation:
+- `bun run format`: passed.
+- `bun test src/app/api/trips/route.test.ts`: passed, 5 tests.
+- `bun run lint`: passed, Biome checked 208 files.
+- `bun run typecheck --incremental false`: passed.
+- `bun test`: passed, 462 tests across 45 files.
+- `bun run db:migrate:test`: passed, migrated 41 tables in the Step 3 test database.
+- `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
+- `bun run build`: passed and listed `/api/trips/saved`, `/api/trips/saved/[itemId]`,
+  `/api/trips/share`, and `/api/trips/share/[token]`.
+- `bun run test:e2e`: passed, 25 Playwright tests.
+- Post-update `bun run lint`: passed after recording progress and changelog entries.
+
+Commit:
+- `Add saved trip share APIs`.
+
+Next:
+- Step 6: render public shared trip plan pages.
 
 ### 2026-06-28: Step 4 - Add Trip Persistence Schema And Store
 

@@ -78,6 +78,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added saved trip API routes for browser sync, item deletion, share URL creation, and share-token
+  lookup with validation, rate limiting, and route-level privacy coverage.
 - Added Postgres-backed saved trip persistence and share-token storage, including hashed public
   tokens, expiry/deletion handling, migration parity coverage, and PGlite store tests.
 - Added browser-local saved trip items in chat, including accessible card and itinerary save/remove
