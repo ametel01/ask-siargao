@@ -19,14 +19,14 @@ commit reference when available, current status, and the next step.
 - [x] Step 3: Build Deterministic Itinerary Planning Tool Data
 - [x] Step 4: Integrate Weather and Places Requirements Into Itinerary Flow
 - [x] Step 5: Return Itinerary Artifacts From `/api/chat`
-- [ ] Step 6: Render Itinerary Plans in the Chat UI
+- [x] Step 6: Render Itinerary Plans in the Chat UI
 - [ ] Step 7: Add End-to-End Itinerary Behavior Coverage
 - [ ] Step 8: Update Developer and Agent Documentation
 - [ ] Step 9: Final Verification and Handoff
 
 ## Current Status
 
-Step 5 is complete. Step 6 is next.
+Step 6 is complete. Step 7 is next.
 
 ## Update Log
 
@@ -167,3 +167,32 @@ Validation:
 Commit: `Return itinerary artifacts from chat API`.
 
 Next step: Step 6, render itinerary plans in the chat UI.
+
+### Step 6: Render Itinerary Plans in the Chat UI
+
+Completed:
+
+- Added an `ItineraryPlans` renderer below assistant markdown and before cards/actions.
+- Rendered itinerary title, duration, sequenced stops, travel-time estimates, map links,
+  rationale, stop caveats, fallback stops, skip guidance, source labels, and not-checked source
+  caveats.
+- Kept the renderer inside the existing assistant bubble without adding nested card shells.
+- Preserved recommendation card rendering and markdown-only fallback behavior.
+- Added Playwright coverage for structured itinerary rendering, map links, fallbacks, skip
+  guidance, source caveats, markdown fallback without itinerary artifacts, and mobile overflow
+  containment.
+- Fixed the React Doctor `js-tosorted-immutable` warning by using `toSorted` for stop ordering.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed (`biome check .`, 195 files checked).
+- `bun run typecheck --incremental false`: passed.
+- `bun test`: passed (328 tests across 41 files).
+- `bun run test:e2e -- tests/e2e/chat.e2e.ts`: passed (11 tests).
+- `npm_config_yes=true npx react-doctor@latest --verbose --scope changed`: passed with no issues
+  found and score 100/100.
+
+Commit: `Render itinerary plans in chat`.
+
+Next step: Step 7, add end-to-end itinerary behavior coverage.

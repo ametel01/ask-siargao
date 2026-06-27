@@ -26,6 +26,34 @@ type MockChatAction = {
   prompt?: string;
 };
 
+type MockItineraryStop = {
+  title: string;
+  kind: "place" | "beach" | "activity" | "meal" | "transfer";
+  sequence: number;
+  area?: string;
+  travelTimeFromPreviousMinutes?: number;
+  mapsUrl?: string;
+  rationale: string;
+  caveats: string[];
+};
+
+type MockItineraryPlan = {
+  title: string;
+  durationLabel: string;
+  stops: MockItineraryStop[];
+  fallbackStops: MockItineraryStop[];
+  skip: string[];
+  sources: Array<{
+    label: string;
+    sourceName: string;
+    sourceProfileId?: string;
+    fetchedAt?: string;
+    confidence?: "high" | "medium" | "low";
+    checked: string[];
+    notChecked: string[];
+  }>;
+};
+
 test("sends a desktop composer message to the chat API and renders the assistant response", async ({
   page,
 }) => {
@@ -158,6 +186,48 @@ test("renders structured recommendation cards and submits action prompts", async
   expect(lastSubmittedContent(mockChat.requests[1])).toBe(actionPrompt);
 });
 
+test("renders itinerary plans with stops, fallbacks, skip guidance, sources, and map links", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await mockChatApi(page, {
+    message:
+      "Here is a compact rainy Cloud 9 plan. Use the structured plan below for the sequence.",
+    itineraries: [mockRainyCloud9Itinerary()],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Plan rainy Cloud 9 afternoon");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  const plan = page.getByTestId("itinerary-plan").filter({ hasText: "Rainy Cloud 9 Afternoon" });
+  await expect(page.getByText("Here is a compact rainy Cloud 9 plan.")).toBeVisible();
+  await expect(plan).toBeVisible();
+  await expect(plan.getByText("3-4 hours")).toBeVisible();
+  const stops = plan.getByTestId("itinerary-stops");
+  await expect(stops.getByRole("listitem").filter({ hasText: "Cloud 9 boardwalk" })).toBeVisible();
+  await expect(
+    stops.getByRole("listitem").filter({ hasText: "Covered cafe near Cloud 9" }),
+  ).toBeVisible();
+  await expect(plan.getByText("About 5 minutes from the previous stop.")).toBeVisible();
+  await expect(plan.getByText("Keep the exposed stop short.")).toBeVisible();
+  await expect(plan.getByText("Weather needs checking.")).toBeVisible();
+
+  const mapLink = plan.getByRole("link", { name: "Open Covered cafe near Cloud 9 in Google Maps" });
+  await expect(mapLink).toHaveAttribute("href", "https://maps.example/cloud9-cafe");
+  await expect(mapLink).toHaveAttribute("target", "_blank");
+
+  await expect(page.getByTestId("itinerary-fallbacks").getByText("Fallbacks")).toBeVisible();
+  await expect(page.getByTestId("itinerary-fallbacks")).toContainText("Use during active rain");
+  await expect(page.getByTestId("itinerary-skip")).toContainText("Exposed beach hopping");
+  await expect(page.getByTestId("itinerary-sources")).toContainText(
+    "curated local guide - Ask Siargao local guide, high confidence",
+  );
+  await expect(page.getByTestId("itinerary-sources")).toContainText(
+    "Not checked by Ask Siargao local guide: live weather",
+  );
+});
+
 test("keeps recommendation cards inside the mobile chat column", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockChatApi(page, {
@@ -209,6 +279,60 @@ test("keeps recommendation cards inside the mobile chat column", async ({ page }
     .toBe(true);
 });
 
+test("keeps itinerary plans inside the mobile chat column", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockChatApi(page, {
+    message: "Mocked mobile itinerary answer: this plan should stay inside the assistant bubble.",
+    itineraries: [
+      {
+        ...mockRainyCloud9Itinerary(),
+        title:
+          "Very long rainy Cloud 9 afternoon itinerary title with cafe fallback and boardwalk timing",
+        stops: [
+          {
+            ...mockRainyCloud9Itinerary().stops[0],
+            title:
+              "Cloud 9 boardwalk during a very specific short low-rain visibility window near Catangnan",
+            rationale:
+              "Use this only as a short scenic stop before moving under cover if the rain comes back.",
+          },
+          {
+            ...mockRainyCloud9Itinerary().stops[1],
+            mapsUrl:
+              "https://maps.google.com/?cid=1842727875883507531&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMuTW9iaWxlLWl0aW5lcmFyeS1sb25nLXVybC10ZXN0LXdpdGgtbG90cy1vZi1jaGFyYWN0ZXJz",
+          },
+        ],
+        skip: [
+          "A very long exposed beach hopping segment across multiple stops when rain, road spray, and uncertain tricycle availability would make the route uncomfortable.",
+        ],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Send a mobile itinerary");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  const assistantBubble = page.getByTestId("assistant-message-bubble").last();
+  const plan = page.getByTestId("itinerary-plan").last();
+  await expect(plan).toBeVisible();
+  await expect(page.getByRole("link", { name: /Open Covered cafe near Cloud 9/ })).toBeVisible();
+
+  await expect
+    .poll(async () =>
+      assistantBubble.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+    )
+    .toBe(true);
+  await expect
+    .poll(async () => plan.evaluate((element) => element.scrollWidth <= element.clientWidth + 1))
+    .toBe(true);
+  await expect
+    .poll(async () =>
+      page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    )
+    .toBe(true);
+});
+
 test("renders numbered assistant plans and source caveats as separate blocks", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockChatApi(page, {
@@ -248,6 +372,7 @@ test("renders numbered assistant plans and source caveats as separate blocks", a
         "Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - Google Places open-now results and road flooding.",
     }),
   ).toHaveCount(1);
+  await expect(page.getByTestId("itinerary-plans")).toHaveCount(0);
 
   const orderedListCount = await page
     .getByTestId("assistant-message-bubble")
@@ -440,11 +565,13 @@ async function mockChatApi(
   {
     actions,
     cards,
+    itineraries,
     message,
     waitForRelease = false,
   }: {
     actions?: MockChatAction[];
     cards?: MockRecommendationCard[];
+    itineraries?: MockItineraryPlan[];
     message: string;
     waitForRelease?: boolean;
   },
@@ -469,6 +596,7 @@ async function mockChatApi(
         requestId: "req_playwright_chat",
         ...(cards?.length ? { cards } : {}),
         ...(actions?.length ? { actions } : {}),
+        ...(itineraries?.length ? { itineraries } : {}),
       }),
     });
   });
@@ -481,4 +609,52 @@ async function mockChatApi(
 
 function lastSubmittedContent(request?: ChatRequestBody) {
   return request?.messages?.at(-1)?.content;
+}
+
+function mockRainyCloud9Itinerary(): MockItineraryPlan {
+  return {
+    title: "Rainy Cloud 9 Afternoon",
+    durationLabel: "3-4 hours",
+    stops: [
+      {
+        title: "Cloud 9 boardwalk",
+        kind: "activity",
+        sequence: 1,
+        area: "Cloud 9",
+        rationale: "Keep the exposed stop short.",
+        caveats: ["Weather needs checking."],
+      },
+      {
+        title: "Covered cafe near Cloud 9",
+        kind: "meal",
+        sequence: 2,
+        area: "Cloud 9",
+        travelTimeFromPreviousMinutes: 5,
+        mapsUrl: "https://maps.example/cloud9-cafe",
+        rationale: "Fallback if rain builds.",
+        caveats: ["Open status needs Places."],
+      },
+    ],
+    fallbackStops: [
+      {
+        title: "Covered cafe near Cloud 9",
+        kind: "meal",
+        sequence: 1,
+        area: "Cloud 9",
+        rationale: "Use during active rain.",
+        caveats: ["Open status needs Places."],
+      },
+    ],
+    skip: ["Exposed beach hopping"],
+    sources: [
+      {
+        label: "curated_local_guide",
+        sourceName: "Ask Siargao local guide",
+        sourceProfileId: "source_local_guide",
+        confidence: "high",
+        checked: ["rainy-day Cloud 9 fallback pattern"],
+        notChecked: ["live weather", "open cafe status"],
+      },
+    ],
+  };
 }

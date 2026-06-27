@@ -360,6 +360,9 @@ function ChatMessage({
           ) : null}
           <div className="grid min-w-0 flex-1 gap-4">
             <AssistantMarkdownText text={message.text} tone={isError ? "error" : "default"} />
+            {!isError && !isPending && message.itineraries?.length ? (
+              <ItineraryPlans plans={message.itineraries} />
+            ) : null}
             {!isError && !isPending && message.cards?.length ? (
               <RecommendationCards cards={message.cards} />
             ) : null}
@@ -389,6 +392,185 @@ function ChatMessage({
       </div>
     </article>
   );
+}
+
+function ItineraryPlans({ plans }: { plans: readonly ItineraryPlanArtifact[] }) {
+  return (
+    <div className="grid min-w-0 gap-5" data-testid="itinerary-plans">
+      {plans.map((plan) => (
+        <section
+          aria-label={plan.title}
+          className="grid min-w-0 gap-4 border-[#c9dfd4] border-t pt-4"
+          data-testid="itinerary-plan"
+          key={`${plan.title}-${plan.durationLabel}`}
+        >
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-[#d8f1e6] text-[#14624a]">
+              <Navigation aria-hidden="true" size={17} />
+            </div>
+            <div className="grid min-w-0 flex-1 gap-1">
+              <h3 className="m-0 text-sm leading-[1.25] font-black break-words text-text-strong sm:text-base">
+                {plan.title}
+              </h3>
+              <span className="inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border border-black/5 bg-[#f7fbf8] px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold text-text-soft">
+                <Clock aria-hidden="true" className="shrink-0" size={13} />
+                <span className="min-w-0 break-words">{plan.durationLabel}</span>
+              </span>
+            </div>
+          </div>
+
+          <ol className="m-0 grid min-w-0 gap-3 p-0" data-testid="itinerary-stops">
+            {sortItineraryStops(plan.stops).map((stop) => (
+              <ItineraryStopRow key={`${stop.sequence}-${stop.title}`} stop={stop} />
+            ))}
+          </ol>
+
+          {plan.fallbackStops.length ? (
+            <ItineraryNoteSection
+              items={plan.fallbackStops.map((stop) => formatItineraryStopSummary(stop))}
+              testId="itinerary-fallbacks"
+              title="Fallbacks"
+            />
+          ) : null}
+
+          {plan.skip.length ? (
+            <ItineraryNoteSection items={plan.skip} testId="itinerary-skip" title="Skip" />
+          ) : null}
+
+          {plan.sources.length ? <ItinerarySources sources={plan.sources} /> : null}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
+  return (
+    <li className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] gap-3">
+      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-[#ecf5f0] text-xs font-black text-[#14624a]">
+        {stop.sequence}
+      </span>
+      <div className="grid min-w-0 gap-1.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <h4 className="m-0 min-w-0 text-sm leading-[1.3] font-black break-words text-text-strong">
+            {stop.title}
+          </h4>
+          {stop.area ? (
+            <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-black/5 bg-[#f7fbf8] px-2 py-1 text-[0.7rem] leading-tight font-extrabold text-text-soft">
+              <MapPin aria-hidden="true" className="shrink-0" size={12} />
+              <span className="min-w-0 break-words">{stop.area}</span>
+            </span>
+          ) : null}
+        </div>
+
+        {stop.travelTimeFromPreviousMinutes ? (
+          <p className="m-0 inline-flex min-w-0 items-center gap-1.5 text-xs leading-[1.45] font-bold break-words text-text-soft">
+            <Clock aria-hidden="true" className="shrink-0" size={13} />
+            <span className="min-w-0 break-words">
+              About {stop.travelTimeFromPreviousMinutes} minutes from the previous stop.
+            </span>
+          </p>
+        ) : null}
+
+        <p className="m-0 text-xs leading-[1.5] break-words text-text-default sm:text-sm">
+          {stop.rationale}
+        </p>
+
+        {stop.caveats.length ? (
+          <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-[#66521c]">
+            {stop.caveats.map((caveat) => (
+              <li className="break-words" key={caveat}>
+                {caveat}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        {stop.mapsUrl ? (
+          <a
+            aria-label={`Open ${stop.title} in Google Maps`}
+            className="inline-flex min-h-9 w-fit max-w-full items-center gap-2 rounded-md border border-[#14624a]/25 bg-white px-3 py-2 text-xs font-extrabold text-[#14624a] no-underline hover:bg-[#edf8f2]"
+            href={stop.mapsUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <MapPin aria-hidden="true" className="shrink-0" size={15} />
+            <span className="min-w-0 break-words">Open map</span>
+            <ExternalLink aria-hidden="true" className="shrink-0" size={14} />
+          </a>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+function ItineraryNoteSection({
+  items,
+  testId,
+  title,
+}: {
+  items: readonly string[];
+  testId: string;
+  title: string;
+}) {
+  return (
+    <section className="grid min-w-0 gap-1.5" data-testid={testId}>
+      <h4 className="m-0 text-xs font-black text-text-strong">{title}</h4>
+      <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-text-default sm:text-sm">
+        {items.map((item) => (
+          <li className="break-words" key={item}>
+            {item}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function ItinerarySources({ sources }: { sources: ItineraryPlanArtifact["sources"] }) {
+  return (
+    <section className="grid min-w-0 gap-2" data-testid="itinerary-sources">
+      <h4 className="m-0 text-xs font-black text-text-strong">Sources</h4>
+      <div className="flex min-w-0 flex-wrap gap-2">
+        {sources.map((source) => (
+          <span
+            className="inline-flex max-w-full items-center rounded-md border border-black/5 bg-[#f7fbf8] px-2.5 py-1.5 text-[0.72rem] leading-tight font-extrabold text-text-soft"
+            key={`${source.label}-${source.sourceName}-${source.sourceProfileId ?? "profile"}`}
+          >
+            <span className="min-w-0 break-words">{formatItinerarySourceLabel(source)}</span>
+          </span>
+        ))}
+      </div>
+      {sources.some((source) => source.notChecked.length > 0) ? (
+        <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-[#66521c]">
+          {sources.flatMap((source) =>
+            source.notChecked.map((item) => (
+              <li className="break-words" key={`${source.sourceName}-${item}`}>
+                Not checked by {source.sourceName}: {item}
+              </li>
+            )),
+          )}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+function sortItineraryStops(stops: readonly ItineraryStopArtifact[]) {
+  return stops.toSorted((first, second) => first.sequence - second.sequence);
+}
+
+function formatItineraryStopSummary(stop: ItineraryStopArtifact) {
+  return [stop.title, stop.area, stop.rationale].filter(Boolean).join(" - ");
+}
+
+function formatItinerarySourceLabel(source: ItineraryPlanArtifact["sources"][number]) {
+  const confidence = source.confidence ? `, ${source.confidence} confidence` : "";
+  return `${formatTrustLabel(source.label)} - ${source.sourceName}${confidence}`;
+}
+
+function formatTrustLabel(value: string) {
+  return value.replaceAll("_", " ");
 }
 
 function RecommendationCards({ cards }: { cards: readonly RecommendationCardArtifact[] }) {

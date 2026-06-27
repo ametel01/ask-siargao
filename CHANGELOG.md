@@ -27,6 +27,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added chat UI rendering for itinerary artifacts, including sequenced stops, travel-time labels,
+  map links, fallbacks, skip guidance, source caveats, and mobile containment coverage.
 - Added `/api/chat` itinerary artifact responses with route coverage for rainy Cloud 9, sunset
   dinner, sandy beach half-day, and food-crawl prompts.
 - Added weather and Google Places follow-up requirements to itinerary artifacts so rainy,
