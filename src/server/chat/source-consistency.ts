@@ -128,6 +128,18 @@ function validateSourceClaim(
     return [];
   }
 
+  if (isUnsupportedMarineCheckedClaim(claim)) {
+    return [
+      {
+        code: "unsupported_checked_label",
+        label: claim.label,
+        line: claim.line,
+        sourceName: claim.sourceName,
+        message: "Tide, surf, swell, and current claims cannot be labeled checked yet.",
+      },
+    ];
+  }
+
   if (claim.label === "provider_unavailable") {
     if (evidence.providerUnavailable) {
       return [];
@@ -169,7 +181,11 @@ function summarizeToolEvidence(toolCalls: readonly AgentToolCallAudit[]) {
       new Set([...placesToolNames, "query_local_facts", "get_source_evidence"]),
       "fresh_cache",
     ),
-    weather: hasToolSourceLabel(toolCalls, new Set(["get_weather_forecast"]), "weather_checked"),
+    weather: hasToolSourceLabel(
+      toolCalls,
+      new Set(["get_weather_forecast", "get_condition_judgment"]),
+      "weather_checked",
+    ),
     localGuide: hasToolSourceLabel(
       toolCalls,
       new Set([
@@ -219,6 +235,13 @@ function isToolBackedLabelSupported(
     case "provider_unavailable":
       return true;
   }
+}
+
+function isUnsupportedMarineCheckedClaim(claim: SourceClaim) {
+  if (!claim.label || !isVerifyingLabel(claim.label)) {
+    return false;
+  }
+  return /\b(tide|surf|swell|current|marine)\b/i.test(claim.sourceName ?? "");
 }
 
 function sourceSummaryToClaim(source: AnswerSourceSummary): SourceClaim {

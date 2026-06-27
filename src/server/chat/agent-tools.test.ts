@@ -49,6 +49,14 @@ describe("agent tools", () => {
       },
       {
         type: "function",
+        name: "get_condition_judgment",
+        description:
+          "Build a governed condition judgment for Siargao activities from checked Open-Meteo weather, curated local caveats, and explicit unchecked tide, surf, road, current, and safety signals. The AI must use the returned judgment as evidence and write the final answer itself.",
+        parameters: conditionJudgmentToolParameters,
+        strict: true,
+      },
+      {
+        type: "function",
         name: "search_places",
         description:
           "Search governed Google Places results for Siargao places using allowed chat-search fields.",
@@ -367,7 +375,7 @@ describe("agent tools", () => {
     }
   });
 
-  test("defines a strict future condition judgment schema without exposing the tool yet", () => {
+  test("registers a strict condition judgment schema", () => {
     assertStrictObjectSchema(conditionJudgmentToolParameters, "get_condition_judgment");
     expect(conditionJudgmentToolParameters.required).toEqual([
       "activity",
@@ -377,7 +385,7 @@ describe("agent tools", () => {
       "include_local_caveats",
       "constraints",
     ]);
-    expect(agentToolDefinitions.map((tool) => tool.name)).not.toContain("get_condition_judgment");
+    expect(agentToolDefinitions.map((tool) => tool.name)).toContain("get_condition_judgment");
   });
 
   test("describes available tools without exposing the helper as model-callable", () => {
@@ -386,6 +394,11 @@ describe("agent tools", () => {
         name: "get_weather_forecast",
         description:
           "Get the governed Open-Meteo weather forecast snapshot for a known Siargao location.",
+      },
+      {
+        name: "get_condition_judgment",
+        description:
+          "Build a governed condition judgment for Siargao activities from checked Open-Meteo weather, curated local caveats, and explicit unchecked tide, surf, road, current, and safety signals. The AI must use the returned judgment as evidence and write the final answer itself.",
       },
       {
         name: "search_places",
@@ -471,6 +484,23 @@ describe("agent tools", () => {
         constraints: null,
       },
     });
+    const conditionResult = await executeAgentTool(
+      {
+        requestId: "agent_request_nullable_condition",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "sunset",
+          location: "Cloud 9",
+          date_range: "today",
+          beach_name: null,
+          include_local_caveats: null,
+          constraints: null,
+        },
+      },
+      {
+        getLatestSiargaoWeatherSnapshot: async () => liveWeatherSnapshot("Cloud 9"),
+      },
+    );
     const localFactsResult = await executeAgentTool(
       {
         requestId: "agent_request_nullable_local_facts",
@@ -489,6 +519,7 @@ describe("agent tools", () => {
     expect(placesResult.status).toBe("success");
     expect(localGuideResult.status).toBe("success");
     expect(itineraryResult.status).toBe("success");
+    expect(conditionResult.status).toBe("success");
     expect(localFactsResult.status).toBe("success");
   });
 
@@ -1377,6 +1408,91 @@ describe("agent tools", () => {
       sourceName: "Open-Meteo weather API",
       sourceProfileId: "source_open_meteo",
     });
+  });
+
+  test("returns a weather-backed condition judgment tool output", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_condition",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "swimming",
+          location: "General Luna",
+          date_range: "today",
+          beach_name: "Malinao Beach",
+          include_local_caveats: true,
+          constraints: ["with kids"],
+        },
+      },
+      {
+        getLatestSiargaoWeatherSnapshot: async () => liveWeatherSnapshot("General Luna"),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("Condition judgment for swimming at Malinao Beach");
+    expect(result.text).toContain("tide not_checked");
+    expect(result.sources.map((source) => source.label)).toEqual([
+      "weather_checked",
+      "not_verified",
+      "curated_local_guide",
+    ]);
+    const data = result.data as {
+      judgment: {
+        recommendation: string;
+        signals: Array<{ kind: string; status: string }>;
+      };
+    };
+    expect(data.judgment.recommendation).toBe("flexible");
+    expect(data.judgment.signals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "weather", status: "checked" }),
+        expect.objectContaining({ kind: "tide", status: "not_checked" }),
+        expect.objectContaining({ kind: "surf", status: "not_checked" }),
+      ]),
+    );
+  });
+
+  test("returns provider-unavailable condition evidence when weather fails", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_condition_unavailable",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "boat_trip",
+          location: "Del Carmen",
+          date_range: "today",
+          beach_name: null,
+          include_local_caveats: false,
+          constraints: null,
+        },
+      },
+      {
+        getLatestSiargaoWeatherSnapshot: async () => {
+          throw new Error("Open-Meteo unavailable");
+        },
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.sources[0]).toMatchObject({
+      label: "provider_unavailable",
+      sourceName: "Open-Meteo weather API",
+    });
+    const data = result.data as {
+      judgment: {
+        recommendation: string;
+        signals: Array<{ kind: string; status: string }>;
+      };
+    };
+    expect(data.judgment.recommendation).toBe("needs_local_confirmation");
+    expect(data.judgment.signals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "weather", status: "unavailable" }),
+        expect.objectContaining({ kind: "tide", status: "not_checked" }),
+        expect.objectContaining({ kind: "surf", status: "not_checked" }),
+      ]),
+    );
   });
 
   test("rejects invalid weather date ranges before provider code", async () => {

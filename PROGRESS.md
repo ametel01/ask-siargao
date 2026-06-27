@@ -20,7 +20,7 @@ This file tracks execution of `PLAN.md` for the Priority 9 implementation slice.
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Baseline Characterization And Contracts
 - [x] Step 2: Condition Judgment Builder
-- [ ] Step 3: Agent Tool Schema And Execution
+- [x] Step 3: Agent Tool Schema And Execution
 - [ ] Step 4: Agent Tool-Use Policy And Route Signals
 - [ ] Step 5: Route, Runtime, And Source Consistency Integration
 - [ ] Step 6: Chat UI Rendering For Condition Evidence
@@ -28,8 +28,8 @@ This file tracks execution of `PLAN.md` for the Priority 9 implementation slice.
 
 ## Current Status
 
-- Active step: Step 3
-- Next step: Step 3 agent tool schema and execution
+- Active step: Step 4
+- Next step: Step 4 agent tool-use policy and route signals
 - Notes: `docs/ASK_SIARGAO_ROADMAP.md` has an unrelated Priority 8 completion marker and should not
   be included in Priority 9 commits unless explicitly requested or updated at final verification.
 
@@ -95,3 +95,25 @@ This file tracks execution of `PLAN.md` for the Priority 9 implementation slice.
   - Passed: `bun test` with 382 tests passing and 2 TODO tests
   - Passed: `bun run build`
 - Commit: `Add condition judgment builder`
+
+### Step 3: Agent Tool Schema And Execution
+
+- Status: Complete
+- Changes:
+  - Added `get_condition_judgment` to the agent tool union, strict Responses tool registry, default
+    model-callable tool list, and available-tool descriptions.
+  - Executed the tool through existing Open-Meteo weather snapshots and curated local guide caveats.
+  - Returned model-facing condition evidence in `data.judgment`, source summaries, and concise tool
+    text without rendering final traveler prose.
+  - Added provider-operation audit mapping for condition judgment tool calls.
+  - Updated source-consistency validation so weather claims can be backed by the condition tool while
+    tide, surf, swell, and current claims remain uncheckable until provider-backed tools exist.
+- Validation:
+  - Passed: `bun run format`
+  - Passed: `bun run lint`
+  - Passed: `bun run typecheck --incremental false`
+  - Passed:
+    `bun test src/server/chat/agent-tools.test.ts src/server/chat/ask-siargao-agent.test.ts src/server/chat/source-consistency.test.ts`
+  - Passed: `bun test` with 387 tests passing
+  - Passed: `bun run build`
+- Commit: `Expose condition judgment tool`

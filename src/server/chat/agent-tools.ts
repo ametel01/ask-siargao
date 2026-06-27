@@ -16,6 +16,12 @@ import type {
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary, AnswerTrustLabel } from "@/server/chat/answer-source-summary";
 import {
+  buildConditionJudgment,
+  type ConditionJudgment,
+  conditionJudgmentRequestSchema,
+  conditionJudgmentToolParameters,
+} from "@/server/chat/condition-tools";
+import {
   type LocalItineraryRequest,
   localItineraryRequestSchema,
   localItineraryThemes,
@@ -132,6 +138,7 @@ type SearchLocalGuideArguments = z.infer<typeof searchLocalGuideSchema>;
 type LocalItineraryArguments = z.infer<typeof localItineraryRequestSchema>;
 type SearchAgentMemoryArguments = z.infer<typeof searchAgentMemorySchema>;
 type WeatherForecastArguments = z.infer<typeof weatherForecastSchema>;
+type ConditionJudgmentArguments = z.infer<typeof conditionJudgmentRequestSchema>;
 type DescribeDatabaseSchemaArguments = z.infer<typeof describeDatabaseSchemaArgumentsSchema>;
 type QueryLocalFactsArguments = z.infer<typeof localFactsQuerySchema>;
 type SourceEvidenceArguments = z.infer<typeof sourceEvidenceArgumentsSchema>;
@@ -301,6 +308,19 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
     schema: weatherForecastSchema,
     execute: (args, _request, dependencies) =>
       getWeatherForecastToolResult(args as WeatherForecastArguments, dependencies),
+  },
+  get_condition_judgment: {
+    definition: {
+      type: "function",
+      name: "get_condition_judgment",
+      description:
+        "Build a governed condition judgment for Siargao activities from checked Open-Meteo weather, curated local caveats, and explicit unchecked tide, surf, road, current, and safety signals. The AI must use the returned judgment as evidence and write the final answer itself.",
+      parameters: conditionJudgmentToolParameters,
+      strict: true,
+    },
+    schema: conditionJudgmentRequestSchema,
+    execute: (args, _request, dependencies) =>
+      getConditionJudgmentToolResult(args as ConditionJudgmentArguments, dependencies),
   },
   search_places: {
     definition: {
@@ -687,6 +707,7 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
 
 const defaultFunctionToolNames = [
   "get_weather_forecast",
+  "get_condition_judgment",
   "search_places",
   "get_place_details",
   "search_local_guide",
@@ -2066,6 +2087,85 @@ async function getWeatherForecastToolResult(
       sources: [weatherProviderUnavailableSourceSummary(args.location)],
     };
   }
+}
+
+async function getConditionJudgmentToolResult(
+  args: ConditionJudgmentArguments,
+  dependencies: AgentToolDependencies,
+): Promise<AgentToolResult> {
+  const getSnapshot =
+    dependencies.getLatestSiargaoWeatherSnapshot ?? getLatestSiargaoWeatherSnapshot;
+  const location = weatherForecastLocationForLabel(args.location);
+  const weatherSnapshot = await getConditionWeatherSnapshot({
+    getSnapshot,
+    location,
+  });
+  const localGuideResult =
+    args.include_local_caveats === false
+      ? null
+      : searchSiargaoLocalGuide({
+          query: conditionLocalGuideQuery(args),
+          filters: {
+            swimming: args.activity === "swimming",
+            sunset: args.activity === "sunset",
+            rainFit: args.activity === "rain_plan",
+            beachSurface: args.activity === "swimming" ? "sand" : "any",
+          },
+        });
+  const judgment = buildConditionJudgment({
+    request: args,
+    weatherSnapshot,
+    localGuideResult,
+  });
+
+  return {
+    name: "get_condition_judgment",
+    status: "success",
+    text: renderConditionJudgmentToolText(judgment),
+    data: {
+      status: "available",
+      judgment,
+    },
+    sources: judgment.sources,
+  };
+}
+
+async function getConditionWeatherSnapshot({
+  getSnapshot,
+  location,
+}: {
+  getSnapshot: typeof getLatestSiargaoWeatherSnapshot;
+  location?: OpenMeteoForecastLocation;
+}) {
+  try {
+    return await getSnapshot(location ? { location } : {});
+  } catch {
+    return null;
+  }
+}
+
+function conditionLocalGuideQuery(args: ConditionJudgmentArguments) {
+  const parts = [
+    args.beach_name,
+    args.activity.replaceAll("_", " "),
+    args.location,
+    ...(args.constraints ?? []),
+  ];
+  return uniqueText(parts).join(" ");
+}
+
+function renderConditionJudgmentToolText(judgment: ConditionJudgment) {
+  return [
+    `Condition judgment for ${judgment.activity.replaceAll("_", " ")} at ${judgment.locationName}: ${judgment.recommendation} (${judgment.level} risk).`,
+    `Reasons: ${judgment.reasons.join(" ")}`,
+    `Alternatives: ${judgment.alternatives.join(" ")}`,
+    judgment.caveats.length ? `Caveats: ${judgment.caveats.join(" ")}` : "",
+    `Signals: ${judgment.signals
+      .map((signal) => `${signal.kind} ${signal.status} ${signal.level}: ${signal.summary}`)
+      .join(" | ")}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function weatherForecastLocationForLabel(

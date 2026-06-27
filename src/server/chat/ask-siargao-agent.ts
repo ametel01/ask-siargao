@@ -799,6 +799,8 @@ function providerOperationForTool(name: string) {
   switch (name) {
     case "get_weather_forecast":
       return "open_meteo.forecast";
+    case "get_condition_judgment":
+      return "condition_judgment";
     case "search_places":
       return "google_places.search";
     case "get_place_details":

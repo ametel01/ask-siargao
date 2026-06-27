@@ -181,9 +181,50 @@ describe("chat source consistency", () => {
     expect(result).toEqual({ valid: true, issues: [] });
   });
 
-  test.todo("accepts weather_checked condition judgment claims only after get_condition_judgment is tool-backed", () => {});
+  test("accepts weather_checked condition judgment claims only when tool-backed", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Checked weather still leaves marine caveats visible.", [
+        weatherSourceSummary,
+      ]),
+      sources: [weatherSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "get_condition_judgment",
+          status: "success",
+          sources: [weatherSourceSummary],
+        }),
+      ],
+    });
 
-  test.todo("rejects tide or surf checked labels until provider-backed marine tools exist", () => {});
+    expect(result).toEqual({ valid: true, issues: [] });
+  });
+
+  test("rejects tide or surf checked labels until provider-backed marine tools exist", () => {
+    const checkedTideSource: AnswerSourceSummary = {
+      label: "weather_checked",
+      sourceName: "Tide and surf condition provider",
+      confidence: "medium",
+      checked: ["tide", "surf"],
+      notChecked: [],
+    };
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Do not accept checked marine labels yet.", [checkedTideSource]),
+      sources: [checkedTideSource],
+      toolCalls: [
+        toolCall({
+          name: "get_condition_judgment",
+          status: "success",
+          sources: [weatherSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toEqual([
+      "unsupported_checked_label",
+      "unsupported_checked_label",
+    ]);
+  });
 
   test("rejects fabricated checked labels without matching tool output", () => {
     const result = validateChatAnswerSourceConsistency({

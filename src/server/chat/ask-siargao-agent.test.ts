@@ -197,6 +197,69 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.sources).toEqual([weatherSourceSummary]);
   });
 
+  test("executes a condition judgment tool call and feeds the evidence back to the model", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_condition_call",
+        requestId: "req_condition_call",
+        callId: "call_condition",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "swimming",
+          location: "General Luna",
+          date_range: "today",
+          beach_name: "Malinao Beach",
+          include_local_caveats: true,
+          constraints: ["with kids"],
+        },
+      }),
+      {
+        id: "resp_condition_final",
+        output_text:
+          "Use Malinao only if the water looks calm; tide and surf still need local confirmation.",
+        _request_id: "req_condition_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      get_condition_judgment: {
+        name: "get_condition_judgment",
+        status: "success",
+        text: "Condition judgment: flexible. Weather checked; tide and surf not checked.",
+        data: {
+          judgment: {
+            recommendation: "flexible",
+            signals: [
+              { kind: "weather", status: "checked" },
+              { kind: "tide", status: "not_checked" },
+              { kind: "surf", status: "not_checked" },
+            ],
+          },
+        },
+        sources: [weatherSourceSummary, conditionMarineSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Is Malinao good for swimming with kids today?" }],
+        requestId: "agent_request_condition",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(client.requests).toHaveLength(2);
+    expect(parseToolOutput(client.requests[1]?.input, 0).text).toContain("Condition judgment");
+    expect(result.message).toContain("local confirmation");
+    expect(result.toolCalls[0]).toMatchObject({
+      toolCallId: "call_condition",
+      name: "get_condition_judgment",
+      status: "success",
+      providerOperation: "condition_judgment",
+      sourceProfileIds: ["source_open_meteo"],
+    });
+    expect(result.sources).toEqual([weatherSourceSummary, conditionMarineSourceSummary]);
+  });
+
   test("executes Google Places search and details tool calls", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
@@ -1787,6 +1850,14 @@ const weatherSourceSummary: AnswerSourceSummary = {
   confidence: "medium",
   checked: ["forecast for Siargao Island"],
   notChecked: ["surf reports"],
+};
+
+const conditionMarineSourceSummary: AnswerSourceSummary = {
+  label: "not_verified",
+  sourceName: "Condition judgment unchecked marine signals",
+  confidence: "medium",
+  checked: [],
+  notChecked: ["tide", "surf", "swell", "currents", "lifeguard or swimming safety"],
 };
 
 const placesSourceSummary: AnswerSourceSummary = {

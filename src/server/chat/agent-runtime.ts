@@ -8,6 +8,7 @@ import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 
 export type AskSiargaoAgentToolName =
   | "get_weather_forecast"
+  | "get_condition_judgment"
   | "search_places"
   | "get_place_details"
   | "search_local_guide"
