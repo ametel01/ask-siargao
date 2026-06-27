@@ -228,6 +228,49 @@ test("renders itinerary plans with stops, fallbacks, skip guidance, sources, and
   );
 });
 
+test("renders initial itinerary theme fixtures without generic brainstorm fallback", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mockChatApi(page, {
+    message: "Mocked itinerary theme coverage: sunset, sandy beach, and food crawl plans.",
+    itineraries: [mockSunsetDinnerItinerary(), mockSandyBeachItinerary(), mockFoodCrawlItinerary()],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Show itinerary theme coverage");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByText("Mocked itinerary theme coverage:")).toBeVisible();
+  await expect(page.getByTestId("itinerary-plan")).toHaveCount(3);
+
+  const sunsetPlan = page.getByTestId("itinerary-plan").filter({ hasText: "Sunset plus Dinner" });
+  await expect(sunsetPlan).toContainText("Cloud 9 sunset stop");
+  await expect(sunsetPlan).toContainText("Dinner in General Luna");
+  await expect(sunsetPlan).toContainText("About 10 minutes from the previous stop.");
+  await expect(
+    sunsetPlan.getByRole("link", { name: "Open Dinner in General Luna in Google Maps" }),
+  ).toHaveAttribute("href", "https://maps.example/general-luna-dinner");
+  await expect(sunsetPlan.getByTestId("itinerary-skip")).toContainText(
+    "Far north dinner detours after sunset",
+  );
+
+  const sandyPlan = page.getByTestId("itinerary-plan").filter({ hasText: "Sandy Beach Half-Day" });
+  await expect(sandyPlan).toContainText("Doot Beach");
+  await expect(sandyPlan).toContainText("Malinao Beach");
+  await expect(sandyPlan.getByTestId("itinerary-skip")).toContainText("Surf-only Cloud 9 sessions");
+  await expect(sandyPlan).not.toContainText("Surf lesson");
+
+  const foodPlan = page
+    .getByTestId("itinerary-plan")
+    .filter({ hasText: "General Luna Food Crawl" });
+  await expect(foodPlan).toContainText("First food stop");
+  await expect(foodPlan).toContainText("Second food stop");
+  await expect(foodPlan.getByTestId("itinerary-sources")).toContainText(
+    "Not checked by Itinerary planner unchecked live signals: live open-now status",
+  );
+});
+
 test("keeps recommendation cards inside the mobile chat column", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockChatApi(page, {
@@ -654,6 +697,128 @@ function mockRainyCloud9Itinerary(): MockItineraryPlan {
         confidence: "high",
         checked: ["rainy-day Cloud 9 fallback pattern"],
         notChecked: ["live weather", "open cafe status"],
+      },
+    ],
+  };
+}
+
+function mockSunsetDinnerItinerary(): MockItineraryPlan {
+  return {
+    title: "Sunset plus Dinner",
+    durationLabel: "3-4 hours",
+    stops: [
+      {
+        title: "Cloud 9 sunset stop",
+        kind: "activity",
+        sequence: 1,
+        area: "Cloud 9",
+        rationale: "Keep sunset close to General Luna.",
+        caveats: ["Weather still needs a forecast check."],
+      },
+      {
+        title: "Dinner in General Luna",
+        kind: "meal",
+        sequence: 2,
+        area: "General Luna",
+        travelTimeFromPreviousMinutes: 10,
+        mapsUrl: "https://maps.example/general-luna-dinner",
+        rationale: "Avoid a long ride after sunset.",
+        caveats: ["Open status needs Places."],
+      },
+    ],
+    fallbackStops: [],
+    skip: ["Far north dinner detours after sunset"],
+    sources: [
+      {
+        label: "curated_local_guide",
+        sourceName: "Ask Siargao local guide",
+        confidence: "medium",
+        checked: ["route sequence"],
+        notChecked: ["live weather", "dinner open status"],
+      },
+    ],
+  };
+}
+
+function mockSandyBeachItinerary(): MockItineraryPlan {
+  return {
+    title: "Sandy Beach Half-Day",
+    durationLabel: "3-4 hours",
+    stops: [
+      {
+        title: "Doot Beach",
+        kind: "beach",
+        sequence: 1,
+        area: "General Luna side",
+        rationale: "Use the sandy beach option instead of surf-only Cloud 9.",
+        caveats: ["Tide and lifeguard status were not checked."],
+      },
+      {
+        title: "General Luna snack stop",
+        kind: "meal",
+        sequence: 2,
+        area: "General Luna",
+        travelTimeFromPreviousMinutes: 15,
+        rationale: "Keep the route compact for a half-day.",
+        caveats: ["Open status needs Places if a specific venue is selected."],
+      },
+    ],
+    fallbackStops: [
+      {
+        title: "Malinao Beach",
+        kind: "beach",
+        sequence: 1,
+        area: "General Luna side",
+        rationale: "Use as a quieter sandy fallback.",
+        caveats: ["Tide and swim conditions were not checked."],
+      },
+    ],
+    skip: ["Surf-only Cloud 9 sessions", "Far north beach detours"],
+    sources: [
+      {
+        label: "curated_local_guide",
+        sourceName: "Ask Siargao local guide",
+        confidence: "medium",
+        checked: ["sandy beach notes", "ride-time notes"],
+        notChecked: ["live tide", "lifeguard status"],
+      },
+    ],
+  };
+}
+
+function mockFoodCrawlItinerary(): MockItineraryPlan {
+  return {
+    title: "General Luna Food Crawl",
+    durationLabel: "3-4 hours",
+    stops: [
+      {
+        title: "First food stop",
+        kind: "meal",
+        sequence: 1,
+        area: "General Luna",
+        rationale: "Start central.",
+        caveats: ["Open status needs Places."],
+      },
+      {
+        title: "Second food stop",
+        kind: "meal",
+        sequence: 2,
+        area: "General Luna",
+        travelTimeFromPreviousMinutes: 8,
+        mapsUrl: "https://maps.example/general-luna-food-stop",
+        rationale: "Keep the crawl compact.",
+        caveats: ["Menu and wait times were not checked."],
+      },
+    ],
+    fallbackStops: [],
+    skip: ["Venue names without Places evidence"],
+    sources: [
+      {
+        label: "not_verified",
+        sourceName: "Itinerary planner unchecked live signals",
+        confidence: "medium",
+        checked: [],
+        notChecked: ["live open-now status", "current menus"],
       },
     ],
   };

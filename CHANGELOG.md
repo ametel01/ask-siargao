@@ -27,6 +27,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added itinerary behavior coverage across agent tool-loop and browser rendering for rainy Cloud 9,
+  sunset plus dinner, sandy beach/non-surfer, and food-crawl scenarios.
 - Added chat UI rendering for itinerary artifacts, including sequenced stops, travel-time labels,
   map links, fallbacks, skip guidance, source caveats, and mobile containment coverage.
 - Added `/api/chat` itinerary artifact responses with route coverage for rainy Cloud 9, sunset

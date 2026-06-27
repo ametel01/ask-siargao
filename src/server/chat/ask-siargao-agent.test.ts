@@ -469,6 +469,58 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.itineraries).toEqual([sunsetDinnerPlan]);
   });
 
+  test("sandy beach half-day itineraries avoid surf-only brainstorms", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_sandy_plan",
+        requestId: "req_sandy_plan",
+        callId: "call_plan",
+        name: "plan_local_itinerary",
+        arguments: {
+          theme: "sandy_beach_half_day",
+          origin: "General Luna",
+          duration_hours: 3,
+          max_ride_minutes: 30,
+          avoid: ["surf-only stops"],
+        },
+      }),
+      {
+        id: "resp_sandy_final",
+        output_text: "Use the sandy beach sequence and skip surf-only stops.",
+        _request_id: "req_sandy_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      plan_local_itinerary: {
+        name: "plan_local_itinerary",
+        status: "success",
+        text: "Structured sandy beach itinerary artifact prepared.",
+        sources: [localGuideSourceSummary],
+        itineraries: [sandyBeachPlan],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          { role: "user", content: "Plan a non-surfer sandy beach half-day from General Luna." },
+        ],
+        requestId: "agent_request_sandy_itinerary",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual(["plan_local_itinerary"]);
+    expect(result.itineraries).toEqual([sandyBeachPlan]);
+    expect(result.itineraries?.[0]?.stops.map((stop) => stop.title).join(" ")).not.toMatch(
+      /surf lesson/i,
+    );
+    expect(result.itineraries?.[0]?.skip).toEqual(
+      expect.arrayContaining(["Surf-only Cloud 9 sessions"]),
+    );
+    expect(result.message).toContain("skip surf-only stops");
+  });
+
   test("food crawl itineraries call Places for live food options", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
@@ -1224,6 +1276,42 @@ const sunsetDinnerPlan: ItineraryPlan = {
   ],
   fallbackStops: [],
   skip: ["Far north dinner detours after sunset"],
+  sources: [localGuideSourceSummary],
+};
+
+const sandyBeachPlan: ItineraryPlan = {
+  title: "Sandy Beach Half-Day",
+  durationLabel: "3-4 hours",
+  stops: [
+    {
+      title: "Doot Beach",
+      kind: "beach",
+      sequence: 1,
+      area: "General Luna side",
+      rationale: "Use the sandy beach option instead of surf-only Cloud 9.",
+      caveats: ["Tide and lifeguard status were not checked."],
+    },
+    {
+      title: "General Luna snack stop",
+      kind: "meal",
+      sequence: 2,
+      area: "General Luna",
+      travelTimeFromPreviousMinutes: 15,
+      rationale: "Keep the route compact for a half-day.",
+      caveats: ["Open status needs Places if a specific venue is selected."],
+    },
+  ],
+  fallbackStops: [
+    {
+      title: "Malinao Beach",
+      kind: "beach",
+      sequence: 1,
+      area: "General Luna side",
+      rationale: "Use as a quieter sandy fallback.",
+      caveats: ["Tide and swim conditions were not checked."],
+    },
+  ],
+  skip: ["Surf-only Cloud 9 sessions", "Far north beach detours"],
   sources: [localGuideSourceSummary],
 };
 

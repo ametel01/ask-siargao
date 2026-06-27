@@ -20,13 +20,13 @@ commit reference when available, current status, and the next step.
 - [x] Step 4: Integrate Weather and Places Requirements Into Itinerary Flow
 - [x] Step 5: Return Itinerary Artifacts From `/api/chat`
 - [x] Step 6: Render Itinerary Plans in the Chat UI
-- [ ] Step 7: Add End-to-End Itinerary Behavior Coverage
+- [x] Step 7: Add End-to-End Itinerary Behavior Coverage
 - [ ] Step 8: Update Developer and Agent Documentation
 - [ ] Step 9: Final Verification and Handoff
 
 ## Current Status
 
-Step 6 is complete. Step 7 is next.
+Step 7 is complete. Step 8 is next.
 
 ## Update Log
 
@@ -196,3 +196,30 @@ Validation:
 Commit: `Render itinerary plans in chat`.
 
 Next step: Step 7, add end-to-end itinerary behavior coverage.
+
+### Step 7: Add End-to-End Itinerary Behavior Coverage
+
+Completed:
+
+- Added a fake Responses tool-loop regression proving sandy beach/non-surfer itinerary prompts
+  keep structured itinerary artifacts and avoid surf-only brainstorms.
+- Expanded browser coverage with deterministic sunset plus dinner, sandy beach, and food-crawl
+  itinerary fixtures.
+- Asserted route-aware dinner sequencing, itinerary stop map links, sandy beach fallback/skip
+  guidance, no surf-lesson main stop, food-crawl sequencing, and live-open-status caveats.
+- Kept all new tests deterministic with mocked Responses/tool outputs and mocked `/api/chat`
+  responses; no live OpenAI, Open-Meteo, or Google Places calls are required.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed (`biome check .`, 195 files checked).
+- `bun run typecheck --incremental false`: passed.
+- `bun test src/server/chat/ask-siargao-agent.test.ts`: passed (19 tests).
+- `bun run test:e2e -- tests/e2e/chat.e2e.ts`: passed (12 tests).
+- `bun test`: passed (329 tests across 41 files).
+- `bun run test:e2e`: passed (22 tests).
+
+Commit: `Cover itinerary builder scenarios`.
+
+Next step: Step 8, update developer and agent documentation.
