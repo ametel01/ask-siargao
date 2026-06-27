@@ -9,7 +9,7 @@ Source documents:
 
 ## Current Status
 
-Step 0 is complete. Next step: Step 1, baseline quality gate run.
+Step 1 is complete. Next step: Step 2, define shared trip artifact contracts.
 
 `PROGRESS.md` must be updated after every completed step with the completed step,
 validation results, commit reference if available, current status, and next step.
@@ -19,7 +19,7 @@ step is committed.
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
-- [ ] Step 1: Baseline Quality Gate Run
+- [x] Step 1: Baseline Quality Gate Run
 - [ ] Step 2: Define Shared Trip Artifact Contracts
 - [ ] Step 3: Add Local Saved Items In Chat
 - [ ] Step 4: Add Trip Persistence Schema And Store
@@ -30,6 +30,30 @@ step is committed.
 - [ ] Step 9: Update Documentation And Final Verification
 
 ## Update Log
+
+### 2026-06-28: Step 1 - Baseline Quality Gate Run
+
+Completed:
+- Ran the full pre-implementation baseline gate suite.
+- No product code changed in this step.
+- No pre-existing failures were found.
+
+Validation:
+- `bun install --frozen-lockfile`: passed, no dependency changes.
+- `bun run lint`: passed, Biome checked 197 files.
+- `bun run typecheck --incremental false`: passed.
+- `bun test`: passed, 447 tests across 42 files.
+- `bun run db:migrate:test`: passed, migrated 38 tables in the Step 3 test database.
+- `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
+- `bun run build`: passed.
+- `bun run test:e2e`: passed, 24 Playwright tests.
+- Post-update `bun run lint`: passed after recording progress and changelog entries.
+
+Commit:
+- `Record trip sharing baseline gates`.
+
+Next:
+- Step 2: define typed, policy-aware saved trip artifact contracts.
 
 ### 2026-06-28: Step 0 - Progress and Changelog Tracking Setup
 
