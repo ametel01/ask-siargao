@@ -9,6 +9,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Stopped itinerary beach stops from labeling General Luna ride estimates as previous-stop travel
+  times, preserved user itinerary constraints in artifacts and caveats, and made live-check caveat
+  reconciliation require every required weather or Places follow-up to succeed.
 - Enforced required itinerary weather and Google Places follow-up checks before accepting final
   agent prose, and reconciled itinerary artifact source caveats after those checks complete.
 - Updated strict Responses tool schemas so optional fields are provider-valid required nullable

@@ -1026,6 +1026,7 @@ describe("agent tools", () => {
         duration_hours: 3,
         needs_open_now: true,
         meal_preference: "seafood",
+        constraints: ["with kids"],
       },
     });
 
@@ -1052,9 +1053,12 @@ describe("agent tools", () => {
         weather?: { tool: string };
         places: Array<{ query: string; constraints: { open_now?: boolean } }>;
       };
+      constraints: { labels: string[]; withKids: boolean };
     };
     expect(data.plan.title).toBe("Sunset plus Dinner");
     expect(data.localGuide.status).toBe("available");
+    expect(data.constraints.labels).toContain("with kids");
+    expect(data.constraints.withKids).toBe(true);
     expect(data.requiredToolChecks.weather?.tool).toBe("get_weather_forecast");
     expect(data.requiredToolChecks.places[0]?.query).toBe("seafood General Luna Siargao");
     expect(data.requiredToolChecks.places[0]?.constraints.open_now).toBe(true);

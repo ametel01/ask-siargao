@@ -79,6 +79,29 @@ describe("local itinerary planning tools", () => {
     expect(result.plan.skip.join(" ")).toContain("Pacifico Beach and Alegria Beach");
   });
 
+  test("does not label General Luna ride estimates as previous-stop travel times", () => {
+    const result = planLocalItinerary({
+      theme: "sandy_beach_half_day",
+      duration_hours: 4,
+      max_ride_minutes: 30,
+    });
+
+    expect(result.plan.stops[0]).toMatchObject({
+      title: "Doot Beach",
+      sequence: 1,
+    });
+    expect(result.plan.stops[0]?.travelTimeFromPreviousMinutes).toBeUndefined();
+    expect(result.plan.stops[1]).toMatchObject({
+      title: "Malinao Beach",
+      sequence: 2,
+    });
+    expect(result.plan.stops[1]?.travelTimeFromPreviousMinutes).toBeUndefined();
+    expect(result.plan.stops[2]).toMatchObject({
+      kind: "meal",
+      travelTimeFromPreviousMinutes: 15,
+    });
+  });
+
   test("non-surfer half-day avoids surf-only stops", () => {
     const result = planLocalItinerary({
       theme: "non_surfer_half_day",
@@ -90,6 +113,44 @@ describe("local itinerary planning tools", () => {
     expect(result.plan.stops.map((stop) => stop.title)).not.toContain("Cloud 9 beach access");
     expect(result.plan.skip).toContain("Surf-only lessons or reef entries");
     expect(result.plan.stops.map((stop) => stop.kind)).toContain("activity");
+  });
+
+  test("preserves user constraints in filters, caveats, skip guidance, and sources", () => {
+    const result = planLocalItinerary({
+      theme: "food_crawl",
+      duration_hours: 3,
+      constraints: ["vegetarian", "with kids", "avoid scooters", "quiet only"],
+      needs_open_now: true,
+    });
+
+    expect(result.constraints.labels).toEqual(
+      expect.arrayContaining(["vegetarian", "with kids", "avoid scooters", "quiet"]),
+    );
+    expect(result.localGuide.filters).toMatchObject({
+      transportMode: "walk",
+      withKids: true,
+    });
+    expect(result.plan.stops[0]?.title).toContain("vegetarian-friendly");
+    expect(result.plan.stops[0]?.caveats.join(" ")).toContain("User constraints preserved");
+    expect(result.plan.stops[0]?.caveats.join(" ")).toContain("Vegetarian fit needs live menu");
+    expect(result.plan.stops[0]?.caveats.join(" ")).toContain("No-scooter fit depends");
+    expect(result.plan.stops[0]?.caveats.join(" ")).toContain("Quietness and crowd levels");
+    expect(result.plan.skip).toEqual(
+      expect.arrayContaining([
+        "Scooter-only routing or stops that require self-driving",
+        "Food stops that cannot be checked for vegetarian-friendly options",
+        "Known noisy or crowd-heavy stops when quieter options are available",
+      ]),
+    );
+    expect(result.plan.sources.at(-1)?.notChecked).toEqual(
+      expect.arrayContaining([
+        "live vegetarian menu fit",
+        "live crowd or noise levels",
+        "live tricycle, van, or walking-route availability",
+        "kid-specific swim safety",
+      ]),
+    );
+    expect(result.caveats.join(" ")).toContain("quiet");
   });
 
   test("food crawl sequences meal stops and marks live open status as not checked", () => {

@@ -986,6 +986,7 @@ function planLocalItineraryToolResult(args: LocalItineraryRequest): AgentToolRes
     data: {
       status: "available",
       request: result.request,
+      constraints: result.constraints,
       localGuide: normalizeLocalGuideSearchResult(result.localGuide),
       plan: result.plan,
       requiredToolChecks: result.requiredToolChecks,

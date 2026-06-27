@@ -307,6 +307,86 @@ describe("agent runtime contracts", () => {
     expect(turn.itineraries?.map((plan) => plan.durationLabel)).toEqual(["2-3 hours"]);
   });
 
+  test("does not clear itinerary Places caveats until every required Places check succeeds", () => {
+    const restaurantSearch = {
+      query: "restaurants General Luna Siargao",
+      center: { latitude: 9.784, longitude: 126.158 },
+      radius_meters: 4000,
+      constraints: { included_type: "restaurant", open_now: true, page_size: 5 },
+    };
+    const cafeSearch = {
+      query: "cafes or dessert near General Luna Siargao",
+      center: { latitude: 9.784, longitude: 126.158 },
+      radius_meters: 4000,
+      constraints: { included_type: "cafe", open_now: true, page_size: 5 },
+    };
+    const restaurantCall = createAgentToolCallAudit({
+      auditId: "audit_restaurant_places",
+      name: "search_places",
+      arguments: restaurantSearch,
+      result: {
+        name: "search_places",
+        status: "success",
+        text: "Restaurants loaded.",
+        sources: [placesSourceSummary],
+      },
+      startedAt: new Date("2026-06-26T00:00:00.000Z"),
+      completedAt: new Date("2026-06-26T00:00:00.010Z"),
+    });
+    const failedCafeCall = createAgentToolCallAudit({
+      auditId: "audit_cafe_places",
+      name: "search_places",
+      arguments: cafeSearch,
+      result: {
+        name: "search_places",
+        status: "error",
+        text: "Cafe search failed.",
+        errorCode: "provider_unavailable",
+        sources: [providerUnavailableSourceSummary],
+      },
+      startedAt: new Date("2026-06-26T00:00:00.020Z"),
+      completedAt: new Date("2026-06-26T00:00:00.030Z"),
+    });
+
+    const turn = createAgentTurnResult({
+      message: "Use the restaurant results, but cafe status failed.",
+      requestId: "agent_request_partial_places",
+      model: "gpt-test",
+      toolCalls: [restaurantCall, failedCafeCall],
+      toolResults: [
+        {
+          sources: [genericSourceSummary],
+          itineraries: [{ ...foodCrawlPlan, sources: [genericSourceSummary] }],
+          data: {
+            requiredToolChecks: {
+              places: [
+                { required: true, tool: "search_places", ...restaurantSearch },
+                { required: true, tool: "search_places", ...cafeSearch },
+              ],
+            },
+          },
+        },
+        {
+          sources: [placesSourceSummary],
+        },
+        {
+          sources: [providerUnavailableSourceSummary],
+        },
+      ],
+    });
+
+    expect(turn.sources).toEqual([
+      genericSourceSummary,
+      placesSourceSummary,
+      providerUnavailableSourceSummary,
+    ]);
+    expect(turn.itineraries?.[0]?.sources.flatMap((source) => source.notChecked)).toContain(
+      "live open-now status",
+    );
+    expect(turn.itineraries?.[0]?.sources).toContainEqual(placesSourceSummary);
+    expect(turn.itineraries?.[0]?.sources).toContainEqual(providerUnavailableSourceSummary);
+  });
+
   test("omits empty card and action arrays from turn results", () => {
     const turn = createAgentTurnResult({
       message: "No structured artifacts needed.",
@@ -431,6 +511,14 @@ const providerUnavailableSourceSummary: AnswerSourceSummary = {
   notChecked: ["Google Places lookup"],
 };
 
+const genericSourceSummary: AnswerSourceSummary = {
+  label: "not_verified",
+  sourceName: "Itinerary planner unchecked live signals",
+  confidence: "medium",
+  checked: [],
+  notChecked: ["live open-now status", "weather forecast"],
+};
+
 const dootBeachCard = {
   id: "card_doot",
   kind: "beach" as const,
@@ -530,4 +618,31 @@ const sunsetDinnerPlan: ItineraryPlan = {
   fallbackStops: [],
   skip: ["Far north dinner detours after dark"],
   sources: [localGuideSourceSummary],
+};
+
+const foodCrawlPlan: ItineraryPlan = {
+  title: "General Luna Food Crawl",
+  durationLabel: "3-4 hours",
+  stops: [
+    {
+      title: "First food stop",
+      kind: "meal",
+      sequence: 1,
+      area: "General Luna",
+      rationale: "Start central.",
+      caveats: ["Open status needs Places."],
+    },
+    {
+      title: "Dessert stop",
+      kind: "meal",
+      sequence: 2,
+      area: "General Luna",
+      travelTimeFromPreviousMinutes: 10,
+      rationale: "Keep the route compact.",
+      caveats: ["Open status needs Places."],
+    },
+  ],
+  fallbackStops: [],
+  skip: ["Venue names without Places evidence"],
+  sources: [genericSourceSummary],
 };

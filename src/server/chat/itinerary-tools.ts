@@ -38,6 +38,7 @@ export type LocalItineraryRequest = z.infer<typeof localItineraryRequestSchema>;
 export type LocalItineraryResult = {
   request: Required<Pick<LocalItineraryRequest, "duration_hours" | "max_ride_minutes" | "origin">> &
     Omit<LocalItineraryRequest, "duration_hours" | "max_ride_minutes" | "origin">;
+  constraints: ItineraryConstraintSummary;
   localGuide: LocalGuideSearchResult;
   plan: ItineraryPlan;
   requiredToolChecks: ItineraryRequiredToolChecks;
@@ -67,6 +68,16 @@ export type ItineraryRequiredToolChecks = {
   }[];
 };
 
+export type ItineraryConstraintSummary = {
+  raw: readonly string[];
+  labels: readonly string[];
+  withKids: boolean;
+  noScooter: boolean;
+  vegetarian: boolean;
+  quiet: boolean;
+  notSurfing: boolean;
+};
+
 const defaultOrigin = "General Luna / Cloud 9";
 const defaultDurationHours = 3;
 const defaultMaxRideMinutes = 30;
@@ -84,10 +95,11 @@ const siargaoGenericUnchecked = [
 
 export function planLocalItinerary(input: LocalItineraryRequest): LocalItineraryResult {
   const request = normalizeRequest(input);
-  const localGuide = searchSiargaoLocalGuide(localGuideQuery(request));
-  const uncheckedSource = itineraryUncheckedSourceSummary(request);
+  const constraints = summarizeItineraryConstraints(request);
+  const localGuide = searchSiargaoLocalGuide(localGuideQuery(request, constraints));
+  const uncheckedSource = itineraryUncheckedSourceSummary(request, constraints);
   const sources = uniqueSourceSummaries([localGuide.sourceSummary, uncheckedSource]);
-  const plan = buildPlan(request, localGuide, sources);
+  const plan = applyConstraintGuidance(buildPlan(request, localGuide, sources), constraints);
   const requiredToolChecks = buildRequiredToolChecks(request);
   const caveats = uniqueText([
     ...plan.stops.flatMap((stop) => stop.caveats),
@@ -98,6 +110,7 @@ export function planLocalItinerary(input: LocalItineraryRequest): LocalItinerary
 
   return {
     request,
+    constraints,
     localGuide,
     plan,
     requiredToolChecks,
@@ -159,7 +172,11 @@ function normalizeRequest(input: LocalItineraryRequest): LocalItineraryResult["r
   };
 }
 
-function localGuideQuery(request: LocalItineraryResult["request"]) {
+function localGuideQuery(
+  request: LocalItineraryResult["request"],
+  constraints: ItineraryConstraintSummary,
+) {
+  const transportMode = request.transport_mode ?? (constraints.noScooter ? "walk" : undefined);
   switch (request.theme) {
     case "rainy_cloud_9_afternoon":
       return {
@@ -167,7 +184,8 @@ function localGuideQuery(request: LocalItineraryResult["request"]) {
         filters: {
           rainFit: true,
           maxRideMinutes: Math.min(request.max_ride_minutes, 30),
-          transportMode: request.transport_mode,
+          transportMode,
+          withKids: constraints.withKids,
         },
       };
     case "sunset_plus_dinner":
@@ -176,7 +194,8 @@ function localGuideQuery(request: LocalItineraryResult["request"]) {
         filters: {
           sunset: true,
           maxRideMinutes: Math.min(request.max_ride_minutes, 30),
-          transportMode: request.transport_mode,
+          transportMode,
+          withKids: constraints.withKids,
         },
       };
     case "sandy_beach_half_day":
@@ -186,7 +205,8 @@ function localGuideQuery(request: LocalItineraryResult["request"]) {
           beachSurface: "sand" as const,
           swimming: true,
           maxRideMinutes: Math.min(request.max_ride_minutes, 30),
-          transportMode: request.transport_mode,
+          transportMode,
+          withKids: constraints.withKids,
         },
       };
     case "non_surfer_half_day":
@@ -196,7 +216,8 @@ function localGuideQuery(request: LocalItineraryResult["request"]) {
           beachSurface: "sand" as const,
           swimming: true,
           maxRideMinutes: Math.min(request.max_ride_minutes, 35),
-          transportMode: request.transport_mode,
+          transportMode,
+          withKids: constraints.withKids,
         },
       };
     case "food_crawl":
@@ -204,7 +225,8 @@ function localGuideQuery(request: LocalItineraryResult["request"]) {
         query: "General Luna food crawl short route",
         filters: {
           maxRideMinutes: Math.min(request.max_ride_minutes, 30),
-          transportMode: request.transport_mode,
+          transportMode,
+          withKids: constraints.withKids,
         },
       };
   }
@@ -430,7 +452,10 @@ function foodCrawlPlan(
   request: LocalItineraryResult["request"],
   sources: readonly AnswerSourceSummary[],
 ): ItineraryPlan {
-  const mealPreference = request.meal_preference ?? "casual local food";
+  const constraints = summarizeItineraryConstraints(request);
+  const mealPreference =
+    request.meal_preference ??
+    (constraints.vegetarian ? "vegetarian-friendly food" : "casual local food");
   return {
     title: "General Luna Food Crawl",
     durationLabel: durationLabel(request.duration_hours),
@@ -602,7 +627,11 @@ function placesCheck({
 function candidateStop(
   candidate: LocalGuideCandidate | undefined,
   sequence: number,
-  options: { fallbackTitle?: string; rationale: string },
+  options: {
+    fallbackTitle?: string;
+    rationale: string;
+    travelTimeFromPreviousMinutes?: number;
+  },
 ): ItineraryStop {
   if (!candidate) {
     return {
@@ -620,7 +649,9 @@ function candidateStop(
     kind: "beach",
     sequence,
     area: candidate.area,
-    travelTimeFromPreviousMinutes: candidate.rideTimeFromGeneralLunaMinutes.max,
+    ...(options.travelTimeFromPreviousMinutes
+      ? { travelTimeFromPreviousMinutes: options.travelTimeFromPreviousMinutes }
+      : {}),
     mapsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
       `${candidate.name} ${candidate.area} Siargao`,
     )}`,
@@ -631,6 +662,7 @@ function candidateStop(
 
 function itineraryUncheckedSourceSummary(
   request: LocalItineraryResult["request"],
+  constraints: ItineraryConstraintSummary,
 ): AnswerSourceSummary {
   return {
     label: "not_verified",
@@ -640,15 +672,17 @@ function itineraryUncheckedSourceSummary(
     notChecked: uniqueText([
       ...(request.needs_weather_check ? ["weather forecast for the itinerary window"] : []),
       ...(request.needs_open_now ? ["live open-now status for meal, cafe, or venue stops"] : []),
+      ...constraintNotCheckedItems(constraints),
       ...siargaoGenericUnchecked,
     ]),
   };
 }
 
 function dinnerTitle(request: LocalItineraryResult["request"]) {
-  return request.meal_preference
-    ? `Dinner in General Luna matching ${request.meal_preference}`
-    : "Dinner in General Luna";
+  const constraints = summarizeItineraryConstraints(request);
+  const preference =
+    request.meal_preference ?? (constraints.vegetarian ? "vegetarian-friendly" : "");
+  return preference ? `Dinner in General Luna matching ${preference}` : "Dinner in General Luna";
 }
 
 function durationLabel(hours: number) {
@@ -679,6 +713,124 @@ function uniqueSourceSummaries(sources: readonly AnswerSourceSummary[]) {
 
 function uniqueText(values: readonly string[]) {
   return [...new Set(values.map(normalizeText).filter(Boolean))];
+}
+
+function summarizeItineraryConstraints(
+  request: Pick<LocalItineraryRequest, "constraints">,
+): ItineraryConstraintSummary {
+  const raw = uniqueText(request.constraints ?? []);
+  const haystack = raw.join(" ");
+  const withKids = /\b(with[_\s-]?kids|kids?|children|child|toddler|family|families)\b/i.test(
+    haystack,
+  );
+  const noScooter =
+    /\b(no[_\s-]?scooter|avoid\s+scooters?|without\s+(?:a\s+)?scooter|walk(?:ing)?\s+only|no\s+motorbike)\b/i.test(
+      haystack,
+    );
+  const vegetarian = /\b(vegetarian|vegan|plant[-\s]?based|no\s+meat)\b/i.test(haystack);
+  const quiet = /\b(quiet|calm|low[-\s]?key|not\s+crowded|avoid\s+crowds?|peaceful)\b/i.test(
+    haystack,
+  );
+  const notSurfing =
+    /\b(not\s+surfing|non[-\s]?surfer|avoid\s+surf|no\s+surf(?:ing)?|not\s+a\s+surfer)\b/i.test(
+      haystack,
+    );
+
+  return {
+    raw,
+    labels: uniqueText([
+      ...(withKids ? ["with kids"] : []),
+      ...(noScooter ? ["avoid scooters"] : []),
+      ...(vegetarian ? ["vegetarian"] : []),
+      ...(quiet ? ["quiet"] : []),
+      ...(notSurfing ? ["not surfing"] : []),
+      ...raw,
+    ]),
+    withKids,
+    noScooter,
+    vegetarian,
+    quiet,
+    notSurfing,
+  };
+}
+
+function applyConstraintGuidance(
+  plan: ItineraryPlan,
+  constraints: ItineraryConstraintSummary,
+): ItineraryPlan {
+  const caveats = constraintCaveats(constraints);
+  const skip = constraintSkipGuidance(constraints);
+  if (caveats.length === 0 && skip.length === 0) {
+    return plan;
+  }
+
+  return {
+    ...plan,
+    stops: plan.stops.map((stop) => ({
+      ...stop,
+      caveats: uniqueText([...stop.caveats, ...caveats]),
+    })),
+    fallbackStops: plan.fallbackStops.map((stop) => ({
+      ...stop,
+      caveats: uniqueText([...stop.caveats, ...caveats]),
+    })),
+    skip: uniqueText([...plan.skip, ...skip]),
+  };
+}
+
+function constraintCaveats(constraints: ItineraryConstraintSummary) {
+  if (constraints.labels.length === 0) {
+    return [];
+  }
+
+  return uniqueText([
+    `User constraints preserved: ${constraints.labels.join(", ")}.`,
+    ...(constraints.withKids
+      ? [
+          "Keep swim, road, and weather decisions conservative for kids; lifeguards were not checked.",
+        ]
+      : []),
+    ...(constraints.noScooter
+      ? [
+          "No-scooter fit depends on exact accommodation, walking comfort, and tricycle or van availability.",
+        ]
+      : []),
+    ...(constraints.vegetarian
+      ? ["Vegetarian fit needs live menu or venue confirmation before naming a food stop."]
+      : []),
+    ...(constraints.quiet
+      ? ["Quietness and crowd levels were not live checked; avoid overclaiming a stop as quiet."]
+      : []),
+    ...(constraints.notSurfing ? ["Do not turn this into a surf lesson or reef-entry plan."] : []),
+  ]);
+}
+
+function constraintSkipGuidance(constraints: ItineraryConstraintSummary) {
+  return uniqueText([
+    ...(constraints.withKids ? ["Stops that require unchecked swim safety for kids"] : []),
+    ...(constraints.noScooter ? ["Scooter-only routing or stops that require self-driving"] : []),
+    ...(constraints.vegetarian
+      ? ["Food stops that cannot be checked for vegetarian-friendly options"]
+      : []),
+    ...(constraints.quiet
+      ? ["Known noisy or crowd-heavy stops when quieter options are available"]
+      : []),
+    ...(constraints.notSurfing ? ["Surf lessons, reef entries, or surf-only stops"] : []),
+  ]);
+}
+
+function constraintNotCheckedItems(constraints: ItineraryConstraintSummary) {
+  if (constraints.labels.length === 0) {
+    return [];
+  }
+
+  return uniqueText([
+    `live confirmation of user constraints: ${constraints.labels.join(", ")}`,
+    ...(constraints.vegetarian ? ["live vegetarian menu fit"] : []),
+    ...(constraints.quiet ? ["live crowd or noise levels"] : []),
+    ...(constraints.noScooter ? ["live tricycle, van, or walking-route availability"] : []),
+    ...(constraints.withKids ? ["kid-specific swim safety"] : []),
+  ]);
 }
 
 function normalizeText(value: string) {

@@ -166,6 +166,10 @@ export type AgentArtifactCarrier = {
   itineraries?: readonly ItineraryPlan[];
 };
 
+type AgentToolResultArtifactCarrier = AgentArtifactCarrier & {
+  data?: AgentToolResult["data"];
+};
+
 export type AgentRuntimeDependencies = {
   client?: AgentResponsesClient;
   executeTool?: AgentToolExecutor;
@@ -243,7 +247,7 @@ export function createAgentTurnResult({
   memory?: AgentMemoryMetadata;
   upstreamRequestIds?: readonly string[];
   toolCalls?: readonly AgentToolCallAudit[];
-  toolResults?: readonly AgentArtifactCarrier[];
+  toolResults?: readonly AgentToolResultArtifactCarrier[];
   sources?: readonly AnswerSourceSummary[];
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
@@ -252,6 +256,7 @@ export function createAgentTurnResult({
   const sourceCarriers = toolResults ?? toolCalls;
   const artifactCarriers = toolResults ?? [];
   const mergedSources = sources ?? aggregateAgentSourceSummaries(sourceCarriers);
+  const sourceReconciliation = itinerarySourceReconciliation(artifactCarriers, toolCalls);
   const mergedCards = dedupeById([
     ...(cards ?? []),
     ...artifactCarriers.flatMap((result) => result.cards ?? []),
@@ -263,7 +268,7 @@ export function createAgentTurnResult({
   const mergedItineraries = dedupeItineraries([
     ...(itineraries ?? []),
     ...artifactCarriers.flatMap((result) => result.itineraries ?? []),
-  ]).map((itinerary) => reconcileItinerarySources(itinerary, mergedSources));
+  ]).map((itinerary) => reconcileItinerarySources(itinerary, mergedSources, sourceReconciliation));
 
   return {
     message,
@@ -302,16 +307,13 @@ export function aggregateAgentSourceSummaries(
 function reconcileItinerarySources(
   itinerary: ItineraryPlan,
   aggregateSources: readonly AnswerSourceSummary[],
+  reconciliation: ItinerarySourceReconciliation,
 ): ItineraryPlan {
-  const hasWeatherCheck = aggregateSources.some((source) => source.label === "weather_checked");
-  const hasPlacesCheck = aggregateSources.some(
-    (source) => source.label === "live_checked" || source.label === "fresh_cache",
-  );
   const reconciledSources = itinerary.sources
-    .map((source) => reconcileNotCheckedSource(source, { hasPlacesCheck, hasWeatherCheck }))
+    .map((source) => reconcileNotCheckedSource(source, reconciliation))
     .filter((source) => source.checked.length > 0 || source.notChecked.length > 0);
   const reconciledAggregateSources = aggregateSources
-    .map((source) => reconcileNotCheckedSource(source, { hasPlacesCheck, hasWeatherCheck }))
+    .map((source) => reconcileNotCheckedSource(source, reconciliation))
     .filter((source) => source.checked.length > 0 || source.notChecked.length > 0);
   const addedSources = reconciledAggregateSources.filter(
     (source) =>
@@ -324,6 +326,103 @@ function reconcileItinerarySources(
     ...itinerary,
     sources: [...reconciledSources, ...addedSources],
   };
+}
+
+type ItinerarySourceReconciliation = {
+  hasPlacesCheck: boolean;
+  hasWeatherCheck: boolean;
+};
+
+function itinerarySourceReconciliation(
+  toolResults: readonly AgentToolResultArtifactCarrier[],
+  toolCalls: readonly AgentToolCallAudit[],
+): ItinerarySourceReconciliation {
+  const requiredChecks = collectRequiredItineraryChecks(toolResults);
+  return {
+    hasWeatherCheck:
+      requiredChecks.weather.length > 0 &&
+      requiredChecks.weather.every((requiredArguments) =>
+        hasSuccessfulRequiredToolCall(toolCalls, "get_weather_forecast", requiredArguments, [
+          "weather_checked",
+        ]),
+      ),
+    hasPlacesCheck:
+      requiredChecks.places.length > 0 &&
+      requiredChecks.places.every((requiredArguments) =>
+        hasSuccessfulRequiredToolCall(toolCalls, "search_places", requiredArguments, [
+          "live_checked",
+          "fresh_cache",
+        ]),
+      ),
+  };
+}
+
+function collectRequiredItineraryChecks(toolResults: readonly AgentToolResultArtifactCarrier[]) {
+  const weather: Record<string, unknown>[] = [];
+  const places: Record<string, unknown>[] = [];
+
+  for (const result of toolResults) {
+    if (!isRecord(result.data) || !isRecord(result.data.requiredToolChecks)) {
+      continue;
+    }
+
+    const requiredToolChecks = result.data.requiredToolChecks;
+    if (isRecord(requiredToolChecks.weather)) {
+      weather.push({
+        location: requiredToolChecks.weather.location,
+        date_range: requiredToolChecks.weather.date_range,
+      });
+    }
+
+    if (Array.isArray(requiredToolChecks.places)) {
+      for (const check of requiredToolChecks.places) {
+        if (!isRecord(check)) {
+          continue;
+        }
+        places.push({
+          query: check.query,
+          center: check.center,
+          radius_meters: check.radius_meters,
+          constraints: check.constraints,
+        });
+      }
+    }
+  }
+
+  return {
+    weather: uniqueRequiredArguments(weather),
+    places: uniqueRequiredArguments(places),
+  };
+}
+
+function hasSuccessfulRequiredToolCall(
+  toolCalls: readonly AgentToolCallAudit[],
+  name: string,
+  requiredArguments: Record<string, unknown>,
+  acceptedSourceLabels: readonly AnswerSourceSummary["label"][],
+) {
+  const requiredKey = normalizeRequiredToolArguments(requiredArguments);
+  return toolCalls.some(
+    (toolCall) =>
+      toolCall.name === name &&
+      toolCall.status === "success" &&
+      toolCall.sources.some((source) => acceptedSourceLabels.includes(source.label)) &&
+      normalizeRequiredToolArguments(toolCall.arguments) === requiredKey,
+  );
+}
+
+function uniqueRequiredArguments(values: readonly Record<string, unknown>[]) {
+  const results: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const key = normalizeRequiredToolArguments(value);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    results.push(value);
+  }
+  return results;
 }
 
 function reconcileNotCheckedSource(
@@ -415,6 +514,31 @@ function sourceSummaryKey(summary: AnswerSourceSummary) {
 
 function normalizeList(values: readonly string[]) {
   return values.map(normalizeText).filter(Boolean);
+}
+
+function normalizeRequiredToolArguments(value: unknown): string {
+  if (Array.isArray(value)) {
+    return JSON.stringify(value.map((item) => JSON.parse(normalizeRequiredToolArguments(item))));
+  }
+  if (!isRecord(value)) {
+    return JSON.stringify(value ?? null);
+  }
+
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(value)
+        .filter((entry): entry is [string, unknown] => entry[1] !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nestedValue]) => [
+          key,
+          JSON.parse(normalizeRequiredToolArguments(nestedValue)),
+        ]),
+    ),
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function normalizeText(value: string) {
