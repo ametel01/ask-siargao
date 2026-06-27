@@ -7,6 +7,12 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ## [Unreleased]
 
+### Security
+
+- Hardened shared-trip source-policy and privacy coverage so public shared DTOs preserve allowed
+  source metadata while rejecting raw provider payloads, Google review fields, tool-call arguments,
+  full chat transcripts, browser geolocation, and exact coordinates.
+
 ### Fixed
 
 - Classified boat/Sugba ride condition prompts as boat-trip judgments instead of scooter checks,

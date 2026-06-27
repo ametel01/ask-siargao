@@ -115,6 +115,18 @@ describe("shared trip persistence store", () => {
     });
     expect(lookedUp?.title).toBe("Cloud 9 highlights");
     expect(lookedUp?.items.map((item) => item.title)).toEqual(["Shaka Siargao"]);
+    expect(lookedUp?.items[0]?.sources).toEqual([placesSource]);
+    expect(lookedUp?.items[0]?.sources[0]).toMatchObject({
+      label: "live_checked",
+      sourceName: "Google Places API",
+      sourceProfileId: "source_google_places",
+      fetchedAt: "2026-06-28T00:45:00.000Z",
+      checked: ["place identity", "current opening status"],
+      notChecked: ["review text", "table availability"],
+    });
+    expect(JSON.stringify(lookedUp)).not.toContain("rawProviderPayload");
+    expect(JSON.stringify(lookedUp)).not.toContain("Best smoothie bowl");
+    expect(JSON.stringify(lookedUp)).not.toContain("9.8116");
 
     await db.close();
   });

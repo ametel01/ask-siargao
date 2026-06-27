@@ -9,7 +9,7 @@ Source documents:
 
 ## Current Status
 
-Step 7 is complete. Next step: Step 8, harden source policy and privacy tests.
+Step 8 is complete. Next step: Step 9, update documentation and run final verification.
 
 `PROGRESS.md` must be updated after every completed step with the completed step,
 validation results, commit reference if available, current status, and next step.
@@ -26,10 +26,41 @@ step is committed.
 - [x] Step 5: Add Saved Trip API Routes
 - [x] Step 6: Add Public Shared Plan Page
 - [x] Step 7: Wire Share Creation Into Chat UI
-- [ ] Step 8: Harden Source Policy And Privacy Tests
+- [x] Step 8: Harden Source Policy And Privacy Tests
 - [ ] Step 9: Update Documentation And Final Verification
 
 ## Update Log
+
+### 2026-06-28: Step 8 - Harden Source Policy And Privacy Tests
+
+Completed:
+- Expanded shared trip artifact contract tests to preserve allowed source labels, source names,
+  source profile IDs, freshness timestamps, checked arrays, and not-checked caveats.
+- Added schema regression coverage for rejected raw provider payloads, Google review fields,
+  provider coordinates, tool-call arguments, full chat messages, and browser geolocation context.
+- Expanded saved-trip API route tests so save/share request bodies reject chat transcripts and
+  geolocation data.
+- Expanded share route/store assertions so public shared DTOs preserve allowed source metadata
+  while excluding raw provider payloads, review text, exact coordinates, and unrelated chat state.
+
+Validation:
+- `bun run format`: passed.
+- `bun test src/server/trips/shared-trip-types.test.ts src/server/trips/shared-trip-store.test.ts src/app/api/trips/route.test.ts`:
+  passed, 17 tests.
+- `bun run lint`: passed, Biome checked 211 files.
+- `bun run typecheck --incremental false`: passed.
+- `bun test`: passed, 466 tests across 46 files.
+- `bun run db:migrate:test`: passed, migrated 41 tables in the Step 3 test database.
+- `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
+- `bun run build`: passed and preserved `/trips/shared/[token]` as dynamic server-rendered.
+- `bun run test:e2e`: passed, 27 Playwright tests.
+- Post-update `bun run lint`: passed after recording progress and changelog entries.
+
+Commit:
+- `Harden shared trip privacy policy`.
+
+Next:
+- Step 9: update documentation and run final verification.
 
 ### 2026-06-28: Step 7 - Wire Share Creation Into Chat UI
 

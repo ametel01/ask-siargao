@@ -66,6 +66,34 @@ describe("shared trip artifact contracts", () => {
     expect(JSON.stringify(item)).not.toContain("messages");
   });
 
+  test("preserves allowed source freshness, trust labels, and not-checked caveats", () => {
+    const item = savedTripItemFromItineraryPlan({
+      id: "itinerary_source_policy",
+      plan: {
+        ...rainyPlan,
+        sources: [placesSource, weatherSource, curatedLocalSource, freshCacheSource],
+      },
+      savedAt: "2026-06-28T01:05:00.000Z",
+      tripId: "local_trip_123456",
+    });
+
+    expect(item.sources).toEqual([
+      placesSource,
+      weatherSource,
+      curatedLocalSource,
+      freshCacheSource,
+    ]);
+    expect(item.payload.type === "itinerary_plan" ? item.payload.plan.sources : []).toEqual([
+      placesSource,
+      weatherSource,
+      curatedLocalSource,
+      freshCacheSource,
+    ]);
+    expect(JSON.stringify(item)).toContain("2026-06-28T00:45:00.000Z");
+    expect(JSON.stringify(item)).toContain("table availability");
+    expect(JSON.stringify(item)).toContain("local guide notes");
+  });
+
   test("rejects oversized, malformed, or mismatched saved items", () => {
     const baseItem = savedTripItemFromRecommendationCard({
       card: placeCard,
@@ -116,7 +144,43 @@ describe("shared trip artifact contracts", () => {
       },
       {
         ...baseItem,
+        payload: {
+          ...baseItem.payload,
+          card: {
+            ...(baseItem.payload.type === "recommendation_card" ? baseItem.payload.card : {}),
+            googleReviews: [{ text: "Best smoothie bowl on the island." }],
+          },
+        },
+      },
+      {
+        ...baseItem,
+        payload: {
+          ...baseItem.payload,
+          card: {
+            ...(baseItem.payload.type === "recommendation_card" ? baseItem.payload.card : {}),
+            reviewText: "Best smoothie bowl on the island.",
+          },
+        },
+      },
+      {
+        ...baseItem,
+        payload: {
+          ...baseItem.payload,
+          card: {
+            ...(baseItem.payload.type === "recommendation_card" ? baseItem.payload.card : {}),
+            location: { latitude: 9.8116, longitude: 126.1651 },
+          },
+        },
+      },
+      {
+        ...baseItem,
         sources: [{ ...placesSource, rawSource: { body: "private provider body" } }],
+      },
+      {
+        ...baseItem,
+        toolCallArguments: {
+          center: { latitude: 9.8116, longitude: 126.1651 },
+        },
       },
     ];
 
@@ -151,6 +215,28 @@ describe("shared trip artifact contracts", () => {
       createSharedTripPlanRequestSchema.safeParse({
         tripId: "local_trip_123456",
         itemIds: [],
+      }).success,
+    ).toBe(false);
+    expect(
+      browserSavedTripStateSchema.safeParse({
+        tripId: "local_trip_123456",
+        items: [item],
+        updatedAt: "2026-06-28T01:01:00.000Z",
+        messages: [{ role: "user", content: "Where should I eat?" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      createSharedTripPlanRequestSchema.safeParse({
+        tripId: "local_trip_123456",
+        itemIds: [item.id],
+        clientContext: {
+          geolocation: {
+            latitude: 9.8116,
+            longitude: 126.1651,
+            capturedAt: "2026-06-28T01:01:00.000Z",
+            consentScope: "single_request",
+          },
+        },
       }).success,
     ).toBe(false);
   });
@@ -189,6 +275,25 @@ const weatherSource: AnswerSourceSummary = {
   confidence: "medium",
   checked: ["forecast for General Luna"],
   notChecked: ["surf reports", "road flooding"],
+};
+
+const curatedLocalSource: AnswerSourceSummary = {
+  label: "curated_local_guide",
+  sourceName: "Ask Siargao local guide",
+  sourceProfileId: "source_local_guide",
+  confidence: "medium",
+  checked: ["local guide notes"],
+  notChecked: ["current closures"],
+};
+
+const freshCacheSource: AnswerSourceSummary = {
+  label: "fresh_cache",
+  sourceName: "Google Places API cached result",
+  sourceProfileId: "source_google_places",
+  fetchedAt: "2026-06-28T00:10:00.000Z",
+  confidence: "high",
+  checked: ["place identity"],
+  notChecked: ["review text", "table availability"],
 };
 
 const placeCard: RecommendationCard = {

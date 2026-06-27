@@ -28,6 +28,57 @@ describe("saved trip API routes", () => {
     await dependencies.close();
   });
 
+  test("rejects chat transcripts and geolocation in save and share request bodies", async () => {
+    const dependencies = await tripRouteDependencies();
+    const tripId = "local_trip_private_123456";
+    const item = savedTripItemFromRecommendationCard({
+      card: shakaCard,
+      sources: [placesSource],
+      savedAt: nowIso,
+      tripId,
+    });
+
+    const saveResponse = await savedTripsResponse(
+      jsonRequest("/api/trips/saved", {
+        tripId,
+        items: [item],
+        messages: [{ role: "user", content: "Where should I eat near me?" }],
+        clientContext: {
+          geolocation: {
+            latitude: 9.8116,
+            longitude: 126.1651,
+            capturedAt: nowIso,
+            consentScope: "single_request",
+          },
+        },
+      }),
+      dependencies,
+    );
+    const shareResponse = await createSharedTripResponse(
+      jsonRequest("/api/trips/share", {
+        tripId,
+        title: "Private fields should fail",
+        itemIds: ["place_shaka"],
+        messages: [{ role: "assistant", content: "Try this exact place." }],
+        clientContext: {
+          geolocation: {
+            latitude: 9.8116,
+            longitude: 126.1651,
+            capturedAt: nowIso,
+            consentScope: "single_request",
+          },
+        },
+      }),
+      dependencies,
+    );
+
+    expect(saveResponse.status).toBe(400);
+    expect((await saveResponse.json()).error).toBe("invalid_saved_trip_request");
+    expect(shareResponse.status).toBe(400);
+    expect((await shareResponse.json()).error).toBe("invalid_shared_trip_request");
+    await dependencies.close();
+  });
+
   test("saves, lists, and deletes selected local saved items", async () => {
     const dependencies = await tripRouteDependencies();
     const tripId = "local_trip_route_123456";
@@ -97,8 +148,18 @@ describe("saved trip API routes", () => {
     expect(shareBody.plan.items.map((item: { title: string }) => item.title)).toEqual([
       "Shaka Siargao",
     ]);
+    expect(shareBody.plan.items[0].sources).toEqual([placesSource]);
+    expect(shareBody.plan.items[0].sources[0]).toMatchObject({
+      sourceName: "Google Places API",
+      sourceProfileId: "source_google_places",
+      fetchedAt: "2026-06-28T00:45:00.000Z",
+      checked: ["place identity", "current opening status"],
+      notChecked: ["review text", "table availability"],
+    });
     expect(JSON.stringify(shareBody)).not.toContain("Where should I eat?");
     expect(JSON.stringify(shareBody)).not.toContain("rawProviderPayload");
+    expect(JSON.stringify(shareBody)).not.toContain("9.8116");
+    expect(JSON.stringify(shareBody)).not.toContain("126.1651");
 
     const lookupResponse = await sharedTripTokenResponse(
       new Request("https://siargao.test/api/trips/share/public-token-1"),
