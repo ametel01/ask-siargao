@@ -9,6 +9,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Kept condition judgment source validation from accepting checked tide or surf labels before
+  provider-backed marine tools exist, while preserving model-written chat answers backed by
+  condition tool evidence.
 - Tightened itinerary repair classification so logistics and transfer prompts with bare duration
   language do not force itinerary artifacts, while scoped local plans before airport/ferry timing
   still enforce planning; scoped live weather and Places artifact hydration to matching required

@@ -183,6 +183,62 @@ describe("chat route", () => {
     expect(signals?.intent.activityPlan).toBe(false);
   });
 
+  for (const scenario of [
+    {
+      prompt: "Is Malinao good for swimming today?",
+      expectedActivity: "swimming",
+      message: "The model says swimming is flexible after checking weather.",
+    },
+    {
+      prompt: "What should I avoid on a rainy day in General Luna?",
+      expectedActivity: "rain_plan",
+      message: "The model says avoid exposed rides and use covered stops.",
+    },
+    {
+      prompt: "Is it okay to scooter to Pacifico today?",
+      expectedActivity: "scooter",
+      message: "The model says scooter conditions need a short low-exposure fallback.",
+    },
+    {
+      prompt: "Is Cloud 9 sunset worth it today?",
+      expectedActivity: "sunset",
+      message: "The model says sunset is flexible if the weather window holds.",
+    },
+    {
+      prompt: "Is a Sugba boat trip sensible today?",
+      expectedActivity: "boat_trip",
+      message: "The model says the boat trip needs local marine confirmation.",
+    },
+  ]) {
+    test(`returns condition judgment evidence for ${scenario.expectedActivity} prompts`, async () => {
+      const conditionToolCall = toolCall({
+        name: "get_condition_judgment",
+        status: "success",
+        sources: [weatherSourceSummary, conditionMarineSourceSummary],
+      });
+      const dependencies = chatDependencies({
+        message: scenario.message,
+        toolCalls: [conditionToolCall],
+        sources: [weatherSourceSummary, conditionMarineSourceSummary],
+      });
+      const response = await chatResponse(
+        jsonRequest({
+          messages: [{ role: "user", content: scenario.prompt }],
+        }),
+        dependencies,
+      );
+      const body = await response.json();
+      const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+      expect(response.status).toBe(200);
+      expect(body.message).toBe(scenario.message);
+      expect(body.toolCalls[0]).toMatchObject({ name: "get_condition_judgment" });
+      expect(body.sources).toEqual([weatherSourceSummary, conditionMarineSourceSummary]);
+      expect(signals?.intent.conditionActivity).toBe(scenario.expectedActivity);
+      expect(signals?.intent.weatherSensitive).toBe(true);
+    });
+  }
+
   test("returns Places tool evidence from the agent runtime", async () => {
     const dependencies = chatDependencies({
       message: "The model recommends a cafe and includes the Maps link.",
@@ -696,6 +752,38 @@ describe("chat route", () => {
     expect(dependencies.requests).toHaveLength(1);
   });
 
+  test("rejects checked tide and surf labels at the route boundary", async () => {
+    const checkedMarineSource: AnswerSourceSummary = {
+      label: "weather_checked",
+      sourceName: "Tide and surf condition provider",
+      confidence: "medium",
+      checked: ["tide", "surf"],
+      notChecked: [],
+    };
+    const dependencies = chatDependencies({
+      message: "The model claims tide and surf were checked.",
+      toolCalls: [
+        toolCall({
+          name: "get_condition_judgment",
+          status: "success",
+          sources: [weatherSourceSummary],
+        }),
+      ],
+      sources: [checkedMarineSource],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Are tides and surf okay for swimming?" }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(body.error).toBe("source_consistency_failed");
+    expect(body.message).toContain("verify the answer sources");
+  });
+
   test("returns stable unavailable response when the agent runtime is not configured", async () => {
     const response = await chatResponse(
       jsonRequest({ messages: [{ role: "user", content: "Hi" }] }),
@@ -902,6 +990,14 @@ const weatherSourceSummary: AnswerSourceSummary = {
   confidence: "medium",
   checked: ["forecast for Siargao Island"],
   notChecked: ["surf reports"],
+};
+
+const conditionMarineSourceSummary: AnswerSourceSummary = {
+  label: "not_verified",
+  sourceName: "Condition judgment unchecked marine signals",
+  confidence: "medium",
+  checked: [],
+  notChecked: ["tide", "surf", "swell", "currents", "lifeguard or swimming safety"],
 };
 
 const placesSourceSummary: AnswerSourceSummary = {

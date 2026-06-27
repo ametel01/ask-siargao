@@ -22,14 +22,14 @@ This file tracks execution of `PLAN.md` for the Priority 9 implementation slice.
 - [x] Step 2: Condition Judgment Builder
 - [x] Step 3: Agent Tool Schema And Execution
 - [x] Step 4: Agent Tool-Use Policy And Route Signals
-- [ ] Step 5: Route, Runtime, And Source Consistency Integration
+- [x] Step 5: Route, Runtime, And Source Consistency Integration
 - [ ] Step 6: Chat UI Rendering For Condition Evidence
 - [ ] Step 7: Final Verification And Handoff
 
 ## Current Status
 
-- Active step: Step 5
-- Next step: Step 5 route, runtime, and source consistency integration
+- Active step: Step 6
+- Next step: Step 6 chat UI rendering for condition evidence
 - Notes: `docs/ASK_SIARGAO_ROADMAP.md` has an unrelated Priority 8 completion marker and should not
   be included in Priority 9 commits unless explicitly requested or updated at final verification.
 
@@ -138,3 +138,25 @@ This file tracks execution of `PLAN.md` for the Priority 9 implementation slice.
   - Passed: `bun test` with 389 tests passing
   - Passed: `bun run build`
 - Commit: `Teach agent condition judgment tool use`
+
+### Step 5: Route, Runtime, And Source Consistency Integration
+
+- Status: Complete
+- Changes:
+  - Added `/api/chat` route-boundary coverage for swimming, rainy-day avoid, scooter, sunset, and
+    boat-trip condition prompts backed by `get_condition_judgment` tool evidence.
+  - Verified condition judgment weather evidence and unchecked marine caveats pass through route
+    source validation without adding a deterministic final-answer branch or a separate artifact
+    carrier.
+  - Added route-boundary regression coverage that rejects checked tide and surf labels until a
+    provider-backed marine tool exists.
+- Validation:
+  - Passed: `bun run format`
+  - Passed: `bun run lint`
+  - Passed: `bun run typecheck --incremental false`
+  - Passed:
+    `bun test src/server/chat/source-consistency.test.ts src/server/chat/agent-runtime.test.ts src/app/api/chat/route.test.ts`
+    with 76 tests passing
+  - Passed: `bun test` with 395 tests passing
+  - Passed: `bun run build`
+- Commit: `Integrate condition judgments with chat runtime`
