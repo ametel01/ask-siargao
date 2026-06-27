@@ -49,6 +49,36 @@ Persistent `trips`, `chat_messages`, `chat_requests`, usage meters, and trip-con
 remain future work. When they are added, they should store user-owned context and message metadata,
 then feed the same `TripContext` boundary rather than bypassing it.
 
+### Saved Trip Sharing
+
+Priority 11 adds a narrow saved-plan layer without introducing persistent chat history. The
+browser stores selected recommendation cards, itinerary plans, and notes in `localStorage` under an
+anonymous `local_trip_*` ID. That ID is not an account identity; the server hashes it before storing
+rows in `saved_trips`.
+
+Saved item payloads are deliberately compact:
+
+- recommendation card or itinerary structure;
+- map links already approved for display;
+- source summaries with label, source name, optional source profile ID, optional freshness
+  timestamp, confidence, checked arrays, and not-checked arrays;
+- caveats needed to preserve source and safety boundaries.
+
+They must not include:
+
+- full chat transcripts;
+- raw provider payloads;
+- Google review text or review objects;
+- tool-call arguments;
+- browser geolocation or exact coordinates;
+- unrelated trip context.
+
+Share creation first syncs only the selected saved items to `/api/trips/saved`, then creates a
+share token with `/api/trips/share`. Share tokens are stored as hashes. Shared plan lookup returns
+only selected saved items, and expired or soft-deleted share tokens return no plan. The public
+`/trips/shared/[token]` page uses generic unavailable copy for invalid, expired, and deleted tokens
+so token state is not disclosed.
+
 ### Entities
 
 Stores canonical things the assistant can reason about:
@@ -260,6 +290,11 @@ When a limit is reached, the assistant should continue answering from existing f
 
 Public pages and public APIs should come later than the chat product. When added, they must use only facts marked `public_display` or otherwise approved for public republication.
 
+Saved trip share pages are public surfaces, but they are not public knowledge pages. They are
+traveler-created, noindex shared artifacts. They can display selected saved cards and itineraries
+with permitted source summaries, freshness, checked/not-checked labels, caveats, and map links.
+They must follow the same private-data exclusions below.
+
 Never expose:
 
 - private trip messages
@@ -267,6 +302,7 @@ Never expose:
 - raw restricted provider payloads
 - non-republishable review text
 - low-confidence claims without caveats
+- exact browser geolocation or tool-call arguments
 
 ## Implementation Milestones
 

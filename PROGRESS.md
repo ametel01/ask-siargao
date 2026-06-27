@@ -9,7 +9,7 @@ Source documents:
 
 ## Current Status
 
-Step 8 is complete. Next step: Step 9, update documentation and run final verification.
+Step 9 is complete. Priority 11 Saved Trip Sharing implementation is complete.
 
 `PROGRESS.md` must be updated after every completed step with the completed step,
 validation results, commit reference if available, current status, and next step.
@@ -27,9 +27,39 @@ step is committed.
 - [x] Step 6: Add Public Shared Plan Page
 - [x] Step 7: Wire Share Creation Into Chat UI
 - [x] Step 8: Harden Source Policy And Privacy Tests
-- [ ] Step 9: Update Documentation And Final Verification
+- [x] Step 9: Update Documentation And Final Verification
 
 ## Update Log
+
+### 2026-06-28: Step 9 - Update Documentation And Final Verification
+
+Completed:
+- Updated the route/surface reference with the public shared plan page, saved-trip APIs,
+  anonymous local trip ID behavior, token expiry/deletion behavior, and public DTO privacy
+  boundaries.
+- Updated the data strategy with saved trip sharing implementation notes, including local browser
+  storage, hashed anonymous trip IDs, selected-item sync, share-token hashing, noindex public share
+  pages, and source-policy projection rules.
+- Confirmed no new environment variables are required; saved trip sharing uses the existing
+  database and public API rate-limit infrastructure.
+- Ran the final full quality gate suite.
+
+Validation:
+- `bun run format`: passed.
+- `bun run lint`: passed, Biome checked 211 files.
+- `bun run typecheck --incremental false`: passed.
+- `bun test`: passed, 466 tests across 46 files.
+- `bun run db:migrate:test`: passed, migrated 41 tables in the Step 3 test database.
+- `bun run db:seed:test`: passed, seeded 5 areas, 3 routes, and 4 source profiles.
+- `bun run build`: passed and listed `/trips/shared/[token]` as dynamic server-rendered.
+- `bun run test:e2e`: passed, 27 Playwright tests.
+- Post-update `bun run lint`: passed after recording progress and changelog entries.
+
+Commit:
+- `Document saved trip sharing`.
+
+Next:
+- Priority 11 Saved Trip Sharing is complete.
 
 ### 2026-06-28: Step 8 - Harden Source Policy And Privacy Tests
 
