@@ -1,0 +1,363 @@
+import { z } from "zod";
+
+import type { ItineraryPlan, ItineraryStop, RecommendationCard } from "@/server/chat/agent-runtime";
+import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
+
+export const savedTripItemKinds = ["place", "beach", "itinerary", "note"] as const;
+export type SavedTripItemKind = (typeof savedTripItemKinds)[number];
+
+export const savedTripPayloadTypes = ["recommendation_card", "itinerary_plan", "note"] as const;
+export type SavedTripPayloadType = (typeof savedTripPayloadTypes)[number];
+
+export const maxSavedTripItems = 50;
+export const maxSharedTripItemIds = 50;
+
+const maxShortTextLength = 180;
+const maxMediumTextLength = 500;
+const maxNoteTextLength = 2_000;
+const savedTripItemIdPattern = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,127}$/;
+const localTripIdPattern = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{7,127}$/;
+
+const trimmedString = (max: number) => z.string().trim().min(1).max(max);
+const normalizedTextArraySchema = (maxItems: number, maxLength = maxMediumTextLength) =>
+  z.array(trimmedString(maxLength)).max(maxItems);
+
+export const savedTripItemIdSchema = z.string().regex(savedTripItemIdPattern).max(128);
+export const localTripIdSchema = z.string().regex(localTripIdPattern).max(128);
+
+export const mapsUrlSchema = z
+  .url()
+  .max(600)
+  .refine((value) => {
+    const url = new URL(value);
+    return url.protocol === "https:" && isAllowedMapsHost(url.hostname);
+  }, "Maps URLs must use an allowed HTTPS maps host.");
+
+export const answerSourceSummarySchema = z
+  .object({
+    label: z.enum([
+      "live_checked",
+      "fresh_cache",
+      "curated_local_guide",
+      "weather_checked",
+      "not_verified",
+      "provider_unavailable",
+    ]),
+    sourceName: trimmedString(maxShortTextLength),
+    sourceProfileId: trimmedString(maxShortTextLength).optional(),
+    fetchedAt: z.iso.datetime().optional(),
+    confidence: z.enum(["high", "medium", "low"]).optional(),
+    checked: normalizedTextArraySchema(12, maxShortTextLength),
+    notChecked: normalizedTextArraySchema(16, maxShortTextLength),
+  })
+  .strict();
+
+export const recommendationCardPayloadSchema = z
+  .object({
+    id: savedTripItemIdSchema,
+    kind: z.enum(["place", "beach"]),
+    title: trimmedString(maxShortTextLength),
+    subtitle: trimmedString(maxShortTextLength).optional(),
+    mapsUrl: mapsUrlSchema.optional(),
+    distanceLabel: trimmedString(80).optional(),
+    openStatusLabel: trimmedString(80).optional(),
+    fitReasons: normalizedTextArraySchema(8),
+    caveats: normalizedTextArraySchema(12),
+    sourceLabel: trimmedString(maxShortTextLength),
+  })
+  .strict();
+
+export const itineraryStopPayloadSchema = z
+  .object({
+    title: trimmedString(maxShortTextLength),
+    kind: z.enum(["place", "beach", "activity", "meal", "transfer"]),
+    sequence: z.number().int().min(1).max(20),
+    area: trimmedString(120).optional(),
+    travelTimeFromPreviousMinutes: z
+      .number()
+      .int()
+      .min(0)
+      .max(24 * 60)
+      .optional(),
+    mapsUrl: mapsUrlSchema.optional(),
+    rationale: trimmedString(maxMediumTextLength),
+    caveats: normalizedTextArraySchema(12),
+  })
+  .strict();
+
+export const itineraryPlanPayloadSchema = z
+  .object({
+    title: trimmedString(maxShortTextLength),
+    durationLabel: trimmedString(80),
+    stops: z.array(itineraryStopPayloadSchema).min(1).max(20),
+    fallbackStops: z.array(itineraryStopPayloadSchema).max(12),
+    skip: normalizedTextArraySchema(12),
+    sources: z.array(answerSourceSummarySchema).max(12),
+  })
+  .strict();
+
+export const savedRecommendationPayloadSchema = z
+  .object({
+    type: z.literal("recommendation_card"),
+    card: recommendationCardPayloadSchema,
+  })
+  .strict();
+
+export const savedItineraryPayloadSchema = z
+  .object({
+    type: z.literal("itinerary_plan"),
+    plan: itineraryPlanPayloadSchema,
+  })
+  .strict();
+
+export const savedNotePayloadSchema = z
+  .object({
+    type: z.literal("note"),
+    text: trimmedString(maxNoteTextLength),
+  })
+  .strict();
+
+export const savedTripItemPayloadSchema = z.discriminatedUnion("type", [
+  savedRecommendationPayloadSchema,
+  savedItineraryPayloadSchema,
+  savedNotePayloadSchema,
+]);
+
+export const savedTripItemSchema = z
+  .object({
+    id: savedTripItemIdSchema,
+    tripId: localTripIdSchema.optional(),
+    kind: z.enum(savedTripItemKinds),
+    title: trimmedString(maxShortTextLength),
+    createdAt: z.iso.datetime(),
+    updatedAt: z.iso.datetime(),
+    payload: savedTripItemPayloadSchema,
+    sources: z.array(answerSourceSummarySchema).max(12),
+    mapsUrl: mapsUrlSchema.optional(),
+    caveats: normalizedTextArraySchema(16),
+  })
+  .strict()
+  .superRefine((item, context) => {
+    if (item.payload.type === "recommendation_card" && item.kind !== item.payload.card.kind) {
+      context.addIssue({
+        code: "custom",
+        message: "Recommendation saved item kind must match the recommendation card kind.",
+        path: ["kind"],
+      });
+    }
+
+    if (item.payload.type === "itinerary_plan" && item.kind !== "itinerary") {
+      context.addIssue({
+        code: "custom",
+        message: "Itinerary payloads must use the itinerary saved item kind.",
+        path: ["kind"],
+      });
+    }
+
+    if (item.payload.type === "note" && item.kind !== "note") {
+      context.addIssue({
+        code: "custom",
+        message: "Note payloads must use the note saved item kind.",
+        path: ["kind"],
+      });
+    }
+  });
+
+export const browserSavedTripStateSchema = z
+  .object({
+    tripId: localTripIdSchema,
+    items: z.array(savedTripItemSchema).max(maxSavedTripItems),
+    updatedAt: z.iso.datetime(),
+  })
+  .strict();
+
+export const saveSavedTripItemsRequestSchema = z
+  .object({
+    tripId: localTripIdSchema,
+    items: z.array(savedTripItemSchema).max(maxSavedTripItems),
+  })
+  .strict();
+
+export const createSharedTripPlanRequestSchema = z
+  .object({
+    tripId: localTripIdSchema,
+    title: trimmedString(maxShortTextLength).optional(),
+    itemIds: z.array(savedTripItemIdSchema).min(1).max(maxSharedTripItemIds),
+    expiresAt: z.iso.datetime().optional(),
+  })
+  .strict();
+
+export const sharedTripPlanSchema = z
+  .object({
+    id: savedTripItemIdSchema,
+    title: trimmedString(maxShortTextLength),
+    items: z.array(savedTripItemSchema).max(maxSharedTripItemIds),
+    createdAt: z.iso.datetime(),
+    expiresAt: z.iso.datetime().optional(),
+  })
+  .strict();
+
+export type SavedRecommendationPayload = z.infer<typeof savedRecommendationPayloadSchema>;
+export type SavedItineraryPayload = z.infer<typeof savedItineraryPayloadSchema>;
+export type SavedNotePayload = z.infer<typeof savedNotePayloadSchema>;
+export type SavedTripItemPayload = z.infer<typeof savedTripItemPayloadSchema>;
+export type SavedTripItem = z.infer<typeof savedTripItemSchema>;
+export type BrowserSavedTripState = z.infer<typeof browserSavedTripStateSchema>;
+export type SaveSavedTripItemsRequest = z.infer<typeof saveSavedTripItemsRequestSchema>;
+export type CreateSharedTripPlanRequest = z.infer<typeof createSharedTripPlanRequestSchema>;
+export type SharedTripPlan = z.infer<typeof sharedTripPlanSchema>;
+
+export function normalizeSavedTripItem(input: unknown): SavedTripItem {
+  return savedTripItemSchema.parse(input);
+}
+
+export function normalizeBrowserSavedTripState(input: unknown): BrowserSavedTripState {
+  return browserSavedTripStateSchema.parse(input);
+}
+
+export function normalizeSharedTripPlan(input: unknown): SharedTripPlan {
+  return sharedTripPlanSchema.parse(input);
+}
+
+export function savedTripItemFromRecommendationCard({
+  card,
+  id = card.id,
+  sources = [],
+  savedAt,
+  tripId,
+}: {
+  card: RecommendationCard;
+  id?: string;
+  sources?: readonly AnswerSourceSummary[];
+  savedAt: string;
+  tripId?: string;
+}): SavedTripItem {
+  return normalizeSavedTripItem({
+    id: normalizeIdentifier(id),
+    ...(tripId ? { tripId: normalizeIdentifier(tripId) } : {}),
+    kind: card.kind,
+    title: normalizeText(card.title, maxShortTextLength),
+    createdAt: savedAt,
+    updatedAt: savedAt,
+    payload: {
+      type: "recommendation_card",
+      card: {
+        ...card,
+        id: normalizeIdentifier(card.id),
+        title: normalizeText(card.title, maxShortTextLength),
+        ...(card.subtitle ? { subtitle: normalizeText(card.subtitle, maxShortTextLength) } : {}),
+        fitReasons: normalizeTextArray(card.fitReasons, 8),
+        caveats: normalizeTextArray(card.caveats, 12),
+        sourceLabel: normalizeText(card.sourceLabel, maxShortTextLength),
+      },
+    },
+    sources: sources.map(normalizeSourceSummary),
+    ...(card.mapsUrl ? { mapsUrl: normalizeMapsUrl(card.mapsUrl) } : {}),
+    caveats: normalizeTextArray(card.caveats, 16),
+  });
+}
+
+export function savedTripItemFromItineraryPlan({
+  id,
+  plan,
+  savedAt,
+  tripId,
+}: {
+  id: string;
+  plan: ItineraryPlan;
+  savedAt: string;
+  tripId?: string;
+}): SavedTripItem {
+  return normalizeSavedTripItem({
+    id: normalizeIdentifier(id),
+    ...(tripId ? { tripId: normalizeIdentifier(tripId) } : {}),
+    kind: "itinerary",
+    title: normalizeText(plan.title, maxShortTextLength),
+    createdAt: savedAt,
+    updatedAt: savedAt,
+    payload: {
+      type: "itinerary_plan",
+      plan: {
+        ...plan,
+        title: normalizeText(plan.title, maxShortTextLength),
+        stops: plan.stops.map(normalizeItineraryStop),
+        fallbackStops: plan.fallbackStops.map(normalizeItineraryStop),
+        skip: normalizeTextArray(plan.skip, 12),
+        sources: plan.sources.map(normalizeSourceSummary),
+      },
+    },
+    sources: plan.sources.map(normalizeSourceSummary),
+    caveats: normalizeTextArray(
+      [
+        ...plan.skip,
+        ...plan.stops.flatMap((stop) => stop.caveats),
+        ...plan.fallbackStops.flatMap((stop) => stop.caveats),
+      ],
+      16,
+    ),
+  });
+}
+
+export function normalizePublicTripTitle(value: string | undefined) {
+  return normalizeText(value || "Siargao saved plan", maxShortTextLength);
+}
+
+export function normalizeIdentifier(value: string) {
+  return value
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zA-Z0-9:_-]/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 128);
+}
+
+export function normalizeMapsUrl(value: string) {
+  return mapsUrlSchema.parse(value.trim());
+}
+
+function normalizeItineraryStop(stop: ItineraryStop) {
+  return {
+    ...stop,
+    title: normalizeText(stop.title, maxShortTextLength),
+    ...(stop.area ? { area: normalizeText(stop.area, 120) } : {}),
+    ...(stop.mapsUrl ? { mapsUrl: normalizeMapsUrl(stop.mapsUrl) } : {}),
+    rationale: normalizeText(stop.rationale, maxMediumTextLength),
+    caveats: normalizeTextArray(stop.caveats, 12),
+  };
+}
+
+function normalizeSourceSummary(source: AnswerSourceSummary) {
+  return {
+    ...source,
+    sourceName: normalizeText(source.sourceName, maxShortTextLength),
+    ...(source.sourceProfileId
+      ? { sourceProfileId: normalizeText(source.sourceProfileId, maxShortTextLength) }
+      : {}),
+    checked: normalizeTextArray(source.checked, 12, maxShortTextLength),
+    notChecked: normalizeTextArray(source.notChecked, 16, maxShortTextLength),
+  };
+}
+
+function normalizeText(value: string, maxLength: number) {
+  return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+
+function normalizeTextArray(
+  values: readonly string[],
+  maxItems: number,
+  maxLength = maxMediumTextLength,
+) {
+  return values
+    .map((value) => normalizeText(value, maxLength))
+    .filter((value) => value.length > 0)
+    .slice(0, maxItems);
+}
+
+function isAllowedMapsHost(hostname: string) {
+  return (
+    hostname === "google.com" ||
+    hostname.endsWith(".google.com") ||
+    hostname === "goo.gl" ||
+    hostname === "maps.app.goo.gl"
+  );
+}

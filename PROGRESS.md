@@ -9,7 +9,7 @@ Source documents:
 
 ## Current Status
 
-Step 1 is complete. Next step: Step 2, define shared trip artifact contracts.
+Step 2 is complete. Next step: Step 3, add local saved items in chat.
 
 `PROGRESS.md` must be updated after every completed step with the completed step,
 validation results, commit reference if available, current status, and next step.
@@ -20,7 +20,7 @@ step is committed.
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Baseline Quality Gate Run
-- [ ] Step 2: Define Shared Trip Artifact Contracts
+- [x] Step 2: Define Shared Trip Artifact Contracts
 - [ ] Step 3: Add Local Saved Items In Chat
 - [ ] Step 4: Add Trip Persistence Schema And Store
 - [ ] Step 5: Add Saved Trip API Routes
@@ -30,6 +30,37 @@ step is committed.
 - [ ] Step 9: Update Documentation And Final Verification
 
 ## Update Log
+
+### 2026-06-28: Step 2 - Define Shared Trip Artifact Contracts
+
+Completed:
+- Added `src/server/trips/shared-trip-types.ts` with strict saved trip item, shared plan,
+  browser storage, save request, and share request contracts.
+- Added normalization helpers for recommendation cards, itinerary plans, public plan titles,
+  identifiers, source summaries, caveats, and Maps URLs.
+- Added `src/server/trips/shared-trip-types.test.ts` covering valid card and itinerary saves,
+  oversized payload rejection, kind/payload consistency, browser storage DTOs, share request DTOs,
+  and privacy exclusions for raw tool calls, provider payloads, chat messages, and coordinates.
+
+Validation:
+- `bun run format`: passed, formatted 198 files and fixed 1 file.
+- `bun test src/server/trips/shared-trip-types.test.ts`: passed, 6 tests.
+- `bun run lint`: passed, Biome checked 199 files.
+- `bun run typecheck --incremental false`: passed after a test assertion readonly mismatch was
+  corrected.
+- `bun test`: passed, 453 tests across 43 files.
+- `bun run db:migrate:test`: passed, migrated 38 tables in the Step 3 test database.
+- `bun run db:seed:test`: passed when rerun after migration; an earlier concurrent seed attempt
+  failed because it was launched before migration completed.
+- `bun run build`: passed.
+- `bun run test:e2e`: passed, 24 Playwright tests.
+- Post-update `bun run lint`: passed after recording progress and changelog entries.
+
+Commit:
+- `Define saved trip artifact contracts`.
+
+Next:
+- Step 3: add browser-local saved items in the chat UI.
 
 ### 2026-06-28: Step 1 - Baseline Quality Gate Run
 

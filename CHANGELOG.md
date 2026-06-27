@@ -78,6 +78,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added shared saved-trip artifact contracts, runtime validators, browser storage DTOs, share
+  request DTOs, and privacy regression tests for recommendation cards and itinerary plans.
 - Established progress and changelog tracking for the Priority 11 Saved Trip Sharing
   implementation plan.
 - Verified and documented the completed consent-based near-me geolocation flow, including granted,
