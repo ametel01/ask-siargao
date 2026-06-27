@@ -336,18 +336,57 @@ function isItineraryPlanningRequest(
   if (latestUserTurn.trim().length === 0) {
     return false;
   }
+  if (isExcludedItineraryRepairRequest(latestUserTurn)) {
+    return false;
+  }
   const hasActivityPlanSignal =
     readBooleanPath(deterministicSignals, ["intent", "activityPlan"]) === true;
-  const explicitPlanningLanguage =
-    /\b(itinerary|half[-\s]?day|food\s+crawl|crawl|(?:two|three|four|2|3|4)[-\s]?(?:hour|hr)s?|plan(?:\s+a|\s+an|\s+for|\s+my|\s+our)?|route|sequence|stops?)\b/i.test(
-      latestUserTurn,
-    );
   const hasInitialThemeLanguage =
-    /\b(rainy\s+cloud\s*9|sunset\s+(?:plus|and)\s+dinner|dinner\s+(?:after|plus|and)\s+sunset|non[-\s]?surfer|not\s+surfing|food\s+crawl|(?:sandy\s+beach|beach)\s+half[-\s]?day|half[-\s]?day\s+(?:sandy\s+)?beach)\b/i.test(
+    /\b(rainy\s+cloud\s*9|sunset\s+(?:plus|and)\s+dinner|dinner\s+(?:after|plus|and)\s+sunset|food\s+crawl|(?:non[-\s]?surfer|not\s+surfing|sandy\s+beach|beach)\s+half[-\s]?day|half[-\s]?day\s+(?:non[-\s]?surfer|not\s+surfing|sandy\s+)?beach)\b/i.test(
       latestUserTurn,
     );
+  const hasScopedDuration =
+    /\b(?:two|three|four|2|3|4)[-\s]?(?:hour|hr)s?\b/i.test(latestUserTurn) ||
+    /\bhalf[-\s]?day\b/i.test(latestUserTurn);
+  const hasRouteWithStops =
+    /\b(?:route|sequence)\b/i.test(latestUserTurn) && /\bstops?\b/i.test(latestUserTurn);
+  const hasScopedItineraryLanguage =
+    hasInitialThemeLanguage ||
+    (hasScopedDuration &&
+      /\b(itinerary|plan|route|sequence|stops?|things?\s+to\s+do|activities?)\b/i.test(
+        latestUserTurn,
+      )) ||
+    hasRouteWithStops;
 
-  return (hasActivityPlanSignal && explicitPlanningLanguage) || hasInitialThemeLanguage;
+  return hasInitialThemeLanguage || (hasActivityPlanSignal && hasScopedItineraryLanguage);
+}
+
+function isExcludedItineraryRepairRequest(content: string) {
+  if (
+    /\b(critique|review|audit|improve\s+my\s+itinerary|plan\s+my\s+(?:trip|vacation|holiday))\b/i.test(
+      content,
+    )
+  ) {
+    return true;
+  }
+  return (
+    /\b(airport|flight|ferry|pier|port|transfer|pickup|pick\s+up|drop[-\s]?off|taxi|shuttle|transport|transportation|logistics?)\b/i.test(
+      content,
+    ) && !hasScopedLocalItineraryContent(content)
+  );
+}
+
+function hasScopedLocalItineraryContent(content: string) {
+  return (
+    /\b(rainy\s+cloud\s*9|sunset\s+(?:plus|and)\s+dinner|dinner\s+(?:after|plus|and)\s+sunset|food\s+crawl|(?:non[-\s]?surfer|not\s+surfing|sandy\s+beach|beach)\s+half[-\s]?day|half[-\s]?day\s+(?:non[-\s]?surfer|not\s+surfing|sandy\s+)?beach)\b/i.test(
+      content,
+    ) ||
+    (/\b(?:two|three|four|2|3|4)[-\s]?(?:hour|hr)s?\b/i.test(content) &&
+      /\b(food\s+crawl|crawl|things?\s+to\s+do|activities?|stops?|beaches?|sunset|dinner|lunch|breakfast|brunch|caf[eé]s?|restaurants?|eat)\b/i.test(
+        content,
+      )) ||
+    (/\b(?:route|sequence)\b/i.test(content) && /\bstops?\b/i.test(content))
+  );
 }
 
 function inferLocalItineraryTheme(content: string): LocalItineraryRequest["theme"] {
@@ -670,12 +709,16 @@ async function executeAndAuditTool({
     name: functionCall.name,
     arguments: functionCall.arguments,
   });
+  const resultWithToolCallId = {
+    ...result,
+    toolCallId: result.toolCallId ?? functionCall.callId,
+  };
   const completedAt = now();
   const audit = createAgentToolCallAudit({
     toolCallId: functionCall.callId,
     name: functionCall.name,
     arguments: functionCall.arguments,
-    result,
+    result: resultWithToolCallId,
     startedAt,
     completedAt,
     providerOperation: providerOperationForTool(functionCall.name),
@@ -695,7 +738,7 @@ async function executeAndAuditTool({
     "Ask Siargao agent tool call completed.",
   );
 
-  return { audit, functionCall, result };
+  return { audit, functionCall, result: resultWithToolCallId };
 }
 
 function extractFunctionCalls(output: unknown): ParsedFunctionCall[] {

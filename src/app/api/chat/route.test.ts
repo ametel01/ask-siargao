@@ -354,6 +354,125 @@ describe("chat route", () => {
     expect(signals?.intent.locationLabel).toBe("General Luna");
   });
 
+  test("marks scoped half-day prompts by van as activity plans", async () => {
+    const dependencies = chatDependencies({
+      message: "The model writes a van-based half-day answer.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "Plan a 3-hour non-surfer half-day by van from General Luna.",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.intent.activityPlan).toBe(true);
+    expect(signals?.intent.locationLabel).toBe("General Luna");
+  });
+
+  test("marks scoped food-crawl prompts before ferry transfer as activity plans", async () => {
+    const dependencies = chatDependencies({
+      message: "The model writes a ferry-timed food crawl answer.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "Plan a 3-hour food crawl before my ferry transfer in General Luna.",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.intent.activityPlan).toBe(true);
+    expect(signals?.intent.placeIntent?.category).toBe("food");
+    expect(signals?.intent.locationLabel).toBe("General Luna");
+  });
+
+  test("marks scoped half-day route before airport pickup as an activity plan", async () => {
+    const dependencies = chatDependencies({
+      message: "The model writes an airport-timed half-day answer.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "Half-day non-surfer route before airport pickup from General Luna.",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.intent.activityPlan).toBe(true);
+    expect(signals?.intent.locationLabel).toBe("General Luna");
+  });
+
+  test("does not mark not-surfing food prompts as activity plans", async () => {
+    const dependencies = chatDependencies({
+      message: "The model answers the food question without an itinerary artifact.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "I'm not surfing today, where should I eat in General Luna?",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.intent.activityPlan).toBe(false);
+    expect(signals?.intent.placeIntent?.category).toBe("food");
+    expect(signals?.intent.locationLabel).toBe("General Luna");
+  });
+
+  for (const prompt of [
+    "Can you plan my airport transfer to General Luna?",
+    "Can you plan my 2-hour airport transfer from General Luna?",
+    "Can you plan my ferry transfer to General Luna?",
+    "Can you critique my itinerary for tomorrow?",
+    "Can you plan my trip to Siargao?",
+  ]) {
+    test(`does not mark non-itinerary plan prompt as an activity plan: ${prompt}`, async () => {
+      const dependencies = chatDependencies({
+        message: "The model answers without a structured itinerary repair.",
+        sources: [genericSourceSummary],
+      });
+      const response = await chatResponse(
+        jsonRequest({
+          messages: [{ role: "user", content: prompt }],
+        }),
+        dependencies,
+      );
+      const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+      expect(response.status).toBe(200);
+      expect(signals?.intent.activityPlan).toBe(false);
+    });
+  }
+
   test("allows not-verified card source labels without checked tool evidence", async () => {
     const dependencies = chatDependencies({
       message: "This is a model-written answer with generic reasoning only.",

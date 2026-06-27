@@ -544,6 +544,200 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.itineraries).toEqual([sandyBeachPlan]);
   });
 
+  test("repairs scoped half-day itinerary prose when transport mode is van", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_direct_van_half_day",
+        output_text: "Direct van half-day prose without a structured itinerary.",
+        _request_id: "req_direct_van_half_day",
+      },
+      {
+        id: "resp_after_van_repair",
+        output_text: "Final van half-day answer after the itinerary artifact.",
+        _request_id: "req_after_van_repair",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      plan_local_itinerary: {
+        name: "plan_local_itinerary",
+        status: "success",
+        text: "Structured non-surfer itinerary artifact prepared.",
+        data: {
+          plan: sandyBeachPlan,
+          requiredToolChecks: { places: [] },
+        },
+        sources: [localGuideSourceSummary],
+        itineraries: [sandyBeachPlan],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Plan a 3-hour non-surfer half-day by van from General Luna.",
+          },
+        ],
+        requestId: "agent_request_van_half_day_repair",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("after the itinerary artifact");
+    expect(result.toolCalls[0]?.arguments).toMatchObject({
+      theme: "non_surfer_half_day",
+      origin: "General Luna",
+      duration_hours: 3,
+      transport_mode: "van",
+    });
+    expect(result.itineraries).toEqual([sandyBeachPlan]);
+  });
+
+  test("does not repair non-itinerary not-surfing food prompts", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_not_surfing_food",
+        output_text: "Try a casual dinner spot in General Luna.",
+        _request_id: "req_not_surfing_food",
+      },
+    ]);
+    let toolCallCount = 0;
+    const executeTool: AgentToolExecutor = async (request) => {
+      toolCallCount += 1;
+      return {
+        name: request.name,
+        status: "error",
+        text: `Unexpected tool ${request.name}.`,
+        errorCode: "unexpected_tool",
+        sources: [],
+      };
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "I'm not surfing today, where should I eat in General Luna?",
+          },
+        ],
+        requestId: "agent_request_not_surfing_food",
+        deterministicSignals: {
+          intent: {
+            activityPlan: true,
+            locationLabel: "General Luna",
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("General Luna");
+    expect(result.toolCalls).toEqual([]);
+    expect(result.itineraries).toBeUndefined();
+    expect(toolCallCount).toBe(0);
+  });
+
+  test("repairs scoped itinerary prose that mentions ferry timing", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_direct_ferry_food_crawl",
+        output_text: "Direct food crawl prose without a structured itinerary.",
+        _request_id: "req_direct_ferry_food_crawl",
+      },
+      {
+        id: "resp_after_ferry_food_crawl_repair",
+        output_text: "Final food crawl answer after the itinerary artifact.",
+        _request_id: "req_after_ferry_food_crawl_repair",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      plan_local_itinerary: {
+        name: "plan_local_itinerary",
+        status: "success",
+        text: "Structured food crawl artifact prepared.",
+        data: {
+          plan: foodCrawlPlan,
+          requiredToolChecks: { places: [] },
+        },
+        sources: [genericSourceSummary],
+        itineraries: [foodCrawlPlan],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Plan a 3-hour food crawl before my ferry transfer in General Luna.",
+          },
+        ],
+        requestId: "agent_request_ferry_food_crawl_repair",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("after the itinerary artifact");
+    expect(result.toolCalls[0]?.arguments).toMatchObject({
+      theme: "food_crawl",
+      origin: "General Luna",
+      duration_hours: 3,
+      needs_open_now: true,
+    });
+    expect(result.itineraries).toEqual([foodCrawlPlan]);
+  });
+
+  for (const prompt of [
+    "Can you plan my airport transfer to General Luna?",
+    "Can you plan my 2-hour airport transfer from General Luna?",
+    "Can you plan my ferry transfer to General Luna?",
+    "Can you critique my itinerary for tomorrow?",
+    "Can you plan my trip to Siargao?",
+  ]) {
+    test(`does not auto-repair non-itinerary plan prompt: ${prompt}`, async () => {
+      const client = fakeResponsesClient([
+        {
+          id: "resp_direct_non_itinerary_plan",
+          output_text: "Direct answer for a non-itinerary planning request.",
+          _request_id: "req_direct_non_itinerary_plan",
+        },
+      ]);
+      let toolCallCount = 0;
+      const executeTool: AgentToolExecutor = async (request) => {
+        toolCallCount += 1;
+        return {
+          name: request.name,
+          status: "error",
+          text: `Unexpected tool ${request.name}.`,
+          errorCode: "unexpected_tool",
+          sources: [],
+        };
+      };
+
+      const result = await runAskSiargaoAgentTurn(
+        {
+          messages: [{ role: "user", content: prompt }],
+          requestId: "agent_request_non_itinerary_plan",
+          deterministicSignals: {
+            intent: {
+              activityPlan: true,
+              locationLabel: "General Luna",
+            },
+          },
+        },
+        { client, executeTool, model: "gpt-test" },
+      );
+
+      expect(result.message).toContain("non-itinerary");
+      expect(result.toolCalls).toEqual([]);
+      expect(result.itineraries).toBeUndefined();
+      expect(toolCallCount).toBe(0);
+      expect(client.requests).toHaveLength(1);
+    });
+  }
+
   test("rainy Cloud 9 itineraries call planning and weather before final prose", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
@@ -661,6 +855,96 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     });
     expect(result.itineraries?.[0]?.sources).toContainEqual(localGuideSourceSummary);
     expect(result.itineraries?.[0]?.sources).toContainEqual(placesSourceSummary);
+  });
+
+  test("hydrates itinerary Places stops when production tools omit result toolCallId", async () => {
+    const placesArguments = {
+      query: "dinner restaurants General Luna Siargao",
+      center: { latitude: 9.784, longitude: 126.158 },
+      radius_meters: 4000,
+      constraints: { included_type: "restaurant", open_now: true, page_size: 5 },
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_dinner_plan_without_result_id",
+        requestId: "req_dinner_plan_without_result_id",
+        callId: "call_plan_without_result_id",
+        name: "plan_local_itinerary",
+        arguments: { theme: "sunset_plus_dinner", needs_open_now: true },
+      }),
+      responseWithToolCall({
+        id: "resp_dinner_places_without_result_id",
+        requestId: "req_dinner_places_without_result_id",
+        callId: "call_places_without_result_id",
+        name: "search_places",
+        arguments: placesArguments,
+      }),
+      {
+        id: "resp_dinner_final_without_result_id",
+        output_text: "Use the live-checked dinner venue.",
+        _request_id: "req_dinner_final_without_result_id",
+      },
+    ]);
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "plan_local_itinerary") {
+        return {
+          name: "plan_local_itinerary",
+          status: "success",
+          text: "Structured itinerary artifact prepared. Required Places check: dinner.",
+          data: {
+            plan: sunsetDinnerPlan,
+            requiredToolChecks: {
+              places: [{ required: true, tool: "search_places", ...placesArguments }],
+            },
+          },
+          sources: [localGuideSourceSummary],
+          itineraries: [sunsetDinnerPlan],
+        };
+      }
+      if (request.name === "search_places") {
+        return {
+          name: "search_places",
+          status: "success",
+          text: "Google Places returned open dinner options.",
+          sources: [openNowPlacesSourceSummary],
+          cards: [
+            {
+              id: "card_kermit",
+              kind: "place",
+              title: "Kermit Siargao",
+              subtitle: "Restaurant in General Luna",
+              mapsUrl: "https://maps.example/kermit",
+              openStatusLabel: "Open now according to Google Places.",
+              fitReasons: ["Returned by Google Places for dinner restaurants."],
+              caveats: ["Bookings and review text were not checked."],
+              sourceLabel: "Google Places - live checked",
+            },
+          ],
+          data: { search: { includedType: "restaurant" } },
+        };
+      }
+      return {
+        name: request.name,
+        status: "error",
+        text: `Unexpected tool ${request.name}.`,
+        errorCode: "unexpected_tool",
+        sources: [],
+      };
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Sunset plus dinner plan for tonight." }],
+        requestId: "agent_request_dinner_itinerary_without_result_ids",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.toolCalls[1]?.toolCallId).toBe("call_places_without_result_id");
+    expect(result.itineraries?.[0]?.stops[1]).toMatchObject({
+      title: "Kermit Siargao",
+      mapsUrl: "https://maps.example/kermit",
+    });
   });
 
   test("sandy beach half-day itineraries avoid surf-only brainstorms", async () => {

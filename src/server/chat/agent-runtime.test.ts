@@ -522,9 +522,11 @@ describe("agent runtime contracts", () => {
     };
     const restaurantCall = createAgentToolCallAudit({
       auditId: "audit_live_restaurant",
+      toolCallId: "call_live_restaurant",
       name: "search_places",
       arguments: restaurantSearch,
       result: {
+        toolCallId: "call_live_restaurant",
         name: "search_places",
         status: "success",
         text: "Restaurant loaded.",
@@ -552,6 +554,7 @@ describe("agent runtime contracts", () => {
           },
         },
         {
+          toolCallId: "call_live_restaurant",
           name: "search_places",
           status: "success",
           sources: [placesSourceSummary],
@@ -572,6 +575,96 @@ describe("agent runtime contracts", () => {
     );
     expect(turn.itineraries?.[0]?.stops[1]?.caveats).not.toContain(
       "Use Places for live open status.",
+    );
+  });
+
+  test("does not hydrate itinerary stops from unrelated successful Places checks", () => {
+    const cafeSearch = {
+      query: "cafes near Cloud 9 Siargao",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+      radius_meters: 4000,
+      constraints: { included_type: "cafe", open_now: true, page_size: 5 },
+    };
+    const unrelatedRestaurantSearch = {
+      query: "restaurants General Luna Siargao",
+      center: { latitude: 9.784, longitude: 126.158 },
+      radius_meters: 4000,
+      constraints: { included_type: "restaurant", open_now: true, page_size: 5 },
+    };
+    const failedCafeCall = createAgentToolCallAudit({
+      auditId: "audit_failed_required_cafe",
+      toolCallId: "call_required_cafe",
+      name: "search_places",
+      arguments: cafeSearch,
+      result: {
+        toolCallId: "call_required_cafe",
+        name: "search_places",
+        status: "error",
+        text: "Cafe search failed.",
+        errorCode: "provider_unavailable",
+        sources: [providerUnavailableSourceSummary],
+      },
+      startedAt: new Date("2026-06-26T00:00:00.000Z"),
+      completedAt: new Date("2026-06-26T00:00:00.010Z"),
+    });
+    const unrelatedRestaurantCall = createAgentToolCallAudit({
+      auditId: "audit_unrelated_restaurant",
+      toolCallId: "call_unrelated_restaurant",
+      name: "search_places",
+      arguments: unrelatedRestaurantSearch,
+      result: {
+        toolCallId: "call_unrelated_restaurant",
+        name: "search_places",
+        status: "success",
+        text: "Restaurant loaded.",
+        sources: [placesSourceSummary],
+      },
+      startedAt: new Date("2026-06-26T00:00:00.020Z"),
+      completedAt: new Date("2026-06-26T00:00:00.030Z"),
+    });
+
+    const turn = createAgentTurnResult({
+      message: "The required cafe check failed, so keep the cafe stop generic.",
+      requestId: "agent_request_unrelated_places_not_hydrated",
+      model: "gpt-test",
+      toolCalls: [failedCafeCall, unrelatedRestaurantCall],
+      toolResults: [
+        {
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [genericSourceSummary],
+          itineraries: [rainyCloud9Plan],
+          data: {
+            requiredToolChecks: {
+              places: [{ required: true, tool: "search_places", ...cafeSearch }],
+            },
+          },
+        },
+        {
+          toolCallId: "call_required_cafe",
+          name: "search_places",
+          status: "error",
+          sources: [providerUnavailableSourceSummary],
+          data: {
+            search: { includedType: "cafe" },
+          },
+        },
+        {
+          toolCallId: "call_unrelated_restaurant",
+          name: "search_places",
+          status: "success",
+          sources: [placesSourceSummary],
+          cards: [generalLunaRestaurantCard],
+          data: {
+            search: { includedType: "restaurant" },
+          },
+        },
+      ],
+    });
+
+    expect(turn.itineraries?.[0]?.stops[1]?.title).toBe("Covered cafe near Cloud 9");
+    expect(turn.itineraries?.[0]?.stops[1]?.rationale).not.toContain(
+      "Updated from the required Places check",
     );
   });
 
@@ -604,18 +697,46 @@ describe("agent runtime contracts", () => {
   });
 
   test("promotes itinerary fallbacks when live weather shows high risk", () => {
+    const requiredWeather = { location: "Cloud 9", date_range: "today" };
+    const weatherCall = createAgentToolCallAudit({
+      auditId: "audit_required_weather",
+      toolCallId: "call_required_weather",
+      name: "get_weather_forecast",
+      arguments: requiredWeather,
+      result: {
+        toolCallId: "call_required_weather",
+        name: "get_weather_forecast",
+        status: "success",
+        text: "Weather loaded.",
+        sources: [weatherSourceSummary],
+      },
+      startedAt: new Date("2026-06-26T00:00:00.000Z"),
+      completedAt: new Date("2026-06-26T00:00:00.010Z"),
+    });
     const turn = createAgentTurnResult({
       message: "Heavy rain makes the covered fallback the first stop.",
       requestId: "agent_request_weather_adjusted_itinerary",
       model: "gpt-test",
+      toolCalls: [weatherCall],
       toolResults: [
         {
           name: "plan_local_itinerary",
           status: "success",
           sources: [genericSourceSummary],
           itineraries: [rainyCloud9Plan],
+          data: {
+            requiredToolChecks: {
+              weather: {
+                required: true,
+                tool: "get_weather_forecast",
+                ...requiredWeather,
+              },
+              places: [],
+            },
+          },
         },
         {
+          toolCallId: "call_required_weather",
           name: "get_weather_forecast",
           status: "success",
           sources: [weatherSourceSummary],
@@ -636,7 +757,80 @@ describe("agent runtime contracts", () => {
     );
   });
 
+  test("does not promote itinerary fallbacks from unrelated weather checks", () => {
+    const requiredWeather = { location: "Cloud 9", date_range: "today" };
+    const unrelatedWeather = { location: "General Luna", date_range: "today" };
+    const weatherCall = createAgentToolCallAudit({
+      auditId: "audit_unrelated_weather",
+      toolCallId: "call_unrelated_weather",
+      name: "get_weather_forecast",
+      arguments: unrelatedWeather,
+      result: {
+        toolCallId: "call_unrelated_weather",
+        name: "get_weather_forecast",
+        status: "success",
+        text: "Weather loaded.",
+        sources: [weatherSourceSummary],
+      },
+      startedAt: new Date("2026-06-26T00:00:00.000Z"),
+      completedAt: new Date("2026-06-26T00:00:00.010Z"),
+    });
+    const turn = createAgentTurnResult({
+      message: "Unrelated weather should not rearrange this itinerary.",
+      requestId: "agent_request_unrelated_weather_itinerary",
+      model: "gpt-test",
+      toolCalls: [weatherCall],
+      toolResults: [
+        {
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [genericSourceSummary],
+          itineraries: [rainyCloud9Plan],
+          data: {
+            requiredToolChecks: {
+              weather: {
+                required: true,
+                tool: "get_weather_forecast",
+                ...requiredWeather,
+              },
+              places: [],
+            },
+          },
+        },
+        {
+          toolCallId: "call_unrelated_weather",
+          name: "get_weather_forecast",
+          status: "success",
+          sources: [weatherSourceSummary],
+          data: {
+            summary: "Heavy rain likely around General Luna this afternoon.",
+            today: { level: "high" },
+          },
+        },
+      ],
+    });
+
+    expect(turn.itineraries?.[0]?.stops[0]?.title).toBe("Cloud 9 boardwalk");
+    expect(turn.itineraries?.[0]?.fallbackStops[0]?.title).toBe("Covered cafe near Cloud 9");
+  });
+
   test("does not promote outdoor dry-break fallbacks when live weather shows high risk", () => {
+    const requiredWeather = { location: "Cloud 9", date_range: "today" };
+    const weatherCall = createAgentToolCallAudit({
+      auditId: "audit_required_dry_break_weather",
+      toolCallId: "call_required_dry_break_weather",
+      name: "get_weather_forecast",
+      arguments: requiredWeather,
+      result: {
+        toolCallId: "call_required_dry_break_weather",
+        name: "get_weather_forecast",
+        status: "success",
+        text: "Weather loaded.",
+        sources: [weatherSourceSummary],
+      },
+      startedAt: new Date("2026-06-26T00:00:00.000Z"),
+      completedAt: new Date("2026-06-26T00:00:00.010Z"),
+    });
     const dryBreakPlan: ItineraryPlan = {
       ...rainyCloud9Plan,
       fallbackStops: [
@@ -654,14 +848,26 @@ describe("agent runtime contracts", () => {
       message: "Heavy rain should keep the outdoor fallback as a fallback.",
       requestId: "agent_request_weather_dry_break_fallback",
       model: "gpt-test",
+      toolCalls: [weatherCall],
       toolResults: [
         {
           name: "plan_local_itinerary",
           status: "success",
           sources: [genericSourceSummary],
           itineraries: [dryBreakPlan],
+          data: {
+            requiredToolChecks: {
+              weather: {
+                required: true,
+                tool: "get_weather_forecast",
+                ...requiredWeather,
+              },
+              places: [],
+            },
+          },
         },
         {
+          toolCallId: "call_required_dry_break_weather",
           name: "get_weather_forecast",
           status: "success",
           sources: [weatherSourceSummary],

@@ -167,6 +167,7 @@ export type AgentArtifactCarrier = {
 };
 
 type AgentToolResultArtifactCarrier = AgentArtifactCarrier & {
+  toolCallId?: AgentToolResult["toolCallId"];
   name?: AgentToolResult["name"];
   status?: AgentToolResult["status"];
   data?: AgentToolResult["data"];
@@ -260,7 +261,7 @@ export function createAgentTurnResult({
   const mergedSources = sources ?? aggregateAgentSourceSummaries(sourceCarriers);
   const sourceReconciliation = itinerarySourceReconciliation(artifactCarriers, toolCalls);
   const reconciledSources = reconcileSourceSummaries(mergedSources, sourceReconciliation);
-  const liveItineraryEvidence = itineraryLiveEvidence(artifactCarriers);
+  const liveItineraryEvidence = itineraryLiveEvidence(artifactCarriers, toolCalls);
   const mergedCards = dedupeById([
     ...(cards ?? []),
     ...artifactCarriers.flatMap((result) => result.cards ?? []),
@@ -363,10 +364,13 @@ type LivePlaceCandidate = {
 
 function itineraryLiveEvidence(
   toolResults: readonly AgentToolResultArtifactCarrier[],
+  toolCalls: readonly AgentToolCallAudit[],
 ): ItineraryLiveEvidence {
   const places: LivePlaceCandidate[] = [];
   let highWeatherRisk = false;
   let weatherSummary: string | undefined;
+  const requiredWeatherCalls = requiredWeatherChecksBySuccessfulToolCallId(toolResults, toolCalls);
+  const requiredPlacesCalls = requiredPlacesChecksBySuccessfulToolCallId(toolResults, toolCalls);
 
   for (const result of toolResults) {
     if (result.status === "error") {
@@ -374,15 +378,25 @@ function itineraryLiveEvidence(
     }
 
     if (result.name === "get_weather_forecast") {
-      const level = readStringPath(result.data, ["today", "level"]);
-      if (level === "high") {
-        highWeatherRisk = true;
+      const requiredArguments = result.toolCallId
+        ? requiredWeatherCalls.get(result.toolCallId)
+        : undefined;
+      if (requiredArguments) {
+        const level = readStringPath(result.data, ["today", "level"]);
+        if (level === "high") {
+          highWeatherRisk = true;
+        }
+        weatherSummary = readStringPath(result.data, ["summary"]) ?? weatherSummary;
       }
-      weatherSummary = readStringPath(result.data, ["summary"]) ?? weatherSummary;
     }
 
     if (isPlacesEvidenceResult(result)) {
-      places.push(...livePlaceCandidatesFromResult(result));
+      const requiredCheck = result.toolCallId
+        ? requiredPlacesCalls.get(result.toolCallId)
+        : undefined;
+      if (requiredCheck) {
+        places.push(...livePlaceCandidatesFromResult(result));
+      }
     }
   }
 
@@ -391,6 +405,50 @@ function itineraryLiveEvidence(
     ...(weatherSummary ? { weatherSummary } : {}),
     places: dedupeLivePlaceCandidates(places),
   };
+}
+
+function requiredWeatherChecksBySuccessfulToolCallId(
+  toolResults: readonly AgentToolResultArtifactCarrier[],
+  toolCalls: readonly AgentToolCallAudit[],
+) {
+  const requiredChecks = collectRequiredItineraryChecks(toolResults);
+  const results = new Map<string, Record<string, unknown>>();
+
+  for (const toolCall of toolCalls) {
+    if (!toolCall.toolCallId) {
+      continue;
+    }
+    const requiredArguments = requiredChecks.weather.find((argumentsForCheck) =>
+      isSuccessfulRequiredWeatherToolCall(toolCall, argumentsForCheck),
+    );
+    if (requiredArguments) {
+      results.set(toolCall.toolCallId, requiredArguments);
+    }
+  }
+
+  return results;
+}
+
+function requiredPlacesChecksBySuccessfulToolCallId(
+  toolResults: readonly AgentToolResultArtifactCarrier[],
+  toolCalls: readonly AgentToolCallAudit[],
+) {
+  const requiredChecks = collectRequiredItineraryChecks(toolResults);
+  const results = new Map<string, RequiredPlacesCheck>();
+
+  for (const toolCall of toolCalls) {
+    if (!toolCall.toolCallId) {
+      continue;
+    }
+    const requiredCheck = requiredChecks.places.find((check) =>
+      isSuccessfulRequiredPlacesToolCall(toolCall, check),
+    );
+    if (requiredCheck) {
+      results.set(toolCall.toolCallId, requiredCheck);
+    }
+  }
+
+  return results;
 }
 
 function isPlacesEvidenceResult(result: AgentToolResultArtifactCarrier) {
@@ -599,10 +657,10 @@ function choosePlaceCandidateForStop(
     (candidate) => !usedCandidateTitles.has(normalizeText(candidate.title).toLowerCase()),
   );
   const preferredType = preferredPlaceTypeForStop(stop);
-  return (
-    unused.find((candidate) => preferredType && candidate.includedType === preferredType) ??
-    unused[0]
-  );
+  if (preferredType) {
+    return unused.find((candidate) => candidate.includedType === preferredType);
+  }
+  return unused[0];
 }
 
 function preferredPlaceTypeForStop(stop: ItineraryStop) {
@@ -767,21 +825,40 @@ function hasSuccessfulRequiredToolCall(
   );
 }
 
+function isSuccessfulRequiredWeatherToolCall(
+  toolCall: AgentToolCallAudit,
+  requiredArguments: Record<string, unknown>,
+) {
+  return (
+    toolCall.name === "get_weather_forecast" &&
+    toolCall.status === "success" &&
+    normalizeRequiredToolArguments(toolCall.arguments) ===
+      normalizeRequiredToolArguments(requiredArguments) &&
+    toolCall.sources.some((source) => source.label === "weather_checked")
+  );
+}
+
 function hasSuccessfulRequiredPlacesOpenStatusCall(
   toolCalls: readonly AgentToolCallAudit[],
   requiredCheck: RequiredPlacesCheck,
 ) {
+  return toolCalls.some((toolCall) => isSuccessfulRequiredPlacesToolCall(toolCall, requiredCheck));
+}
+
+function isSuccessfulRequiredPlacesToolCall(
+  toolCall: AgentToolCallAudit,
+  requiredCheck: RequiredPlacesCheck,
+) {
   const requiredKey = normalizeRequiredToolArguments(requiredCheck.arguments);
-  return toolCalls.some(
-    (toolCall) =>
-      toolCall.name === "search_places" &&
-      toolCall.status === "success" &&
-      normalizeRequiredToolArguments(toolCall.arguments) === requiredKey &&
-      toolCall.sources.some(
-        (source) =>
-          (source.label === "live_checked" || source.label === "fresh_cache") &&
-          source.checked.some(isPlacesOpenNowCheckedItem),
-      ),
+  return (
+    toolCall.name === "search_places" &&
+    toolCall.status === "success" &&
+    normalizeRequiredToolArguments(toolCall.arguments) === requiredKey &&
+    toolCall.sources.some(
+      (source) =>
+        (source.label === "live_checked" || source.label === "fresh_cache") &&
+        (!requiredCheck.requiresOpenNow || source.checked.some(isPlacesOpenNowCheckedItem)),
+    )
   );
 }
 

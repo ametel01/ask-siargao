@@ -9,6 +9,10 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Tightened itinerary repair classification so logistics and transfer prompts with bare duration
+  language do not force itinerary artifacts, while scoped local plans before airport/ferry timing
+  still enforce planning; scoped live weather and Places artifact hydration to matching required
+  tool evidence.
 - Enforced true open-now Places filtering for required itinerary checks, kept outdoor dry-break
   fallbacks from being promoted during high weather risk, made itinerary origins affect venue
   checks or surface unsupported route timing, and validated itinerary artifact source labels at the

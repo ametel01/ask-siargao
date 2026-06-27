@@ -322,7 +322,9 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
       latestUserTurn,
     ) ||
     ((today || nearby) && isActivityPlanContent(latestUserTurn));
+  const excludesActivityPlan = isLogisticsOrCritiquePlanContent(latestUserTurn);
   const activityPlan =
+    !excludesActivityPlan &&
     (isActivityPlanContent(latestUserTurn) || tripContext.activeGoal === "itinerary") &&
     (Boolean(locationLabel) || /\bsiargao\b/i.test(fullUserContext));
   const partialIntent = {
@@ -347,8 +349,46 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
 }
 
 function isActivityPlanContent(content: string) {
-  return /\b(w?hat\s+should|w?hat\s+can|things?\s+to\s+do|activities?|plan|itinerary|half[-\s]?day|food\s+crawl|sandy\s+beach(?:es)?)\b/i.test(
-    content,
+  if (isLogisticsOrCritiquePlanContent(content)) {
+    return false;
+  }
+  const directActivityLanguage =
+    /\b(w?hat\s+should|w?hat\s+can|things?\s+to\s+do|activities?|itinerary|half[-\s]?day|food\s+crawl|sandy\s+beach(?:es)?)\b/i.test(
+      content,
+    );
+  const scopedPlanLanguage =
+    /\bplan\b/i.test(content) &&
+    /\b(?:rainy\s+cloud\s*9|sunset|dinner|food\s+crawl|sandy\s+beach|non[-\s]?surfer|half[-\s]?day|(?:two|three|four|2|3|4)[-\s]?(?:hour|hr)s?|stops?|sequence|route)\b/i.test(
+      content,
+    );
+  return directActivityLanguage || scopedPlanLanguage;
+}
+
+function isLogisticsOrCritiquePlanContent(content: string) {
+  if (
+    /\b(critique|review|audit|improve\s+my\s+itinerary|plan\s+my\s+(?:trip|vacation|holiday))\b/i.test(
+      content,
+    )
+  ) {
+    return true;
+  }
+  return (
+    /\b(airport|flight|ferry|pier|port|transfer|pickup|pick\s+up|drop[-\s]?off|taxi|shuttle|transport|transportation|logistics?)\b/i.test(
+      content,
+    ) && !hasScopedLocalItineraryContent(content)
+  );
+}
+
+function hasScopedLocalItineraryContent(content: string) {
+  return (
+    /\b(?:rainy\s+cloud\s*9|sunset|dinner|food\s+crawl|sandy\s+beach|non[-\s]?surfer|half[-\s]?day)\b/i.test(
+      content,
+    ) ||
+    (/\b(?:two|three|four|2|3|4)[-\s]?(?:hour|hr)s?\b/i.test(content) &&
+      /\b(food\s+crawl|crawl|things?\s+to\s+do|activities?|stops?|beaches?|sunset|dinner|lunch|breakfast|brunch|caf[eé]s?|restaurants?|eat)\b/i.test(
+        content,
+      )) ||
+    (/\b(?:route|sequence)\b/i.test(content) && /\bstops?\b/i.test(content))
   );
 }
 

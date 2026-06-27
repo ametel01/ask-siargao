@@ -276,4 +276,33 @@ Validation:
 
 Commit: `Verify local itinerary builder`.
 
-Next step: none; implementation plan complete.
+Next step: post-verification chat runtime hardening remained in the working tree and was completed
+in the follow-up section below.
+
+### Follow-up: Itinerary Repair Classification and Evidence Matching
+
+Completed:
+
+- Tightened deterministic itinerary repair so non-itinerary logistics, transfer, broad trip-planning,
+  critique, and not-surfing food/place prompts do not force `plan_local_itinerary`.
+- Preserved itinerary enforcement for scoped local plans that mention airport/ferry timing, including
+  food crawls, half-day non-surfer routes, and transport-mode constraints such as van.
+- Matched structured itinerary weather and Places mutations to successful required tool-call
+  arguments, and normalized production tool results with their Responses function-call IDs.
+- Updated route and agent regressions for duration-bearing airport transfers, not-surfing food
+  prompts, ferry-timed food crawls, airport-timed half-day routes, production Places hydration, and
+  unrelated weather/Places evidence.
+- Added a matching `CHANGELOG.md` entry under `## [Unreleased]`.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed (`biome check .`, 195 files checked).
+- `bun run typecheck --incremental false`: passed.
+- `bun test src/server/chat/ask-siargao-agent.test.ts src/app/api/chat/route.test.ts`: passed.
+- `bun test`: passed (370 tests across 41 files).
+- `bun run build`: passed.
+
+Commit: not committed; changes remain in the working tree.
+
+Next step: commit the follow-up hardening when ready.
