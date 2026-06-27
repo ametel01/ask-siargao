@@ -251,6 +251,7 @@ export function createAgentTurnResult({
 }): AgentTurnResult {
   const sourceCarriers = toolResults ?? toolCalls;
   const artifactCarriers = toolResults ?? [];
+  const mergedSources = sources ?? aggregateAgentSourceSummaries(sourceCarriers);
   const mergedCards = dedupeById([
     ...(cards ?? []),
     ...artifactCarriers.flatMap((result) => result.cards ?? []),
@@ -262,7 +263,7 @@ export function createAgentTurnResult({
   const mergedItineraries = dedupeItineraries([
     ...(itineraries ?? []),
     ...artifactCarriers.flatMap((result) => result.itineraries ?? []),
-  ]);
+  ]).map((itinerary) => reconcileItinerarySources(itinerary, mergedSources));
 
   return {
     message,
@@ -270,7 +271,7 @@ export function createAgentTurnResult({
     ...(upstreamRequestIds?.length ? { upstreamRequestIds: unique(upstreamRequestIds) } : {}),
     model,
     toolCalls,
-    sources: sources ?? aggregateAgentSourceSummaries(sourceCarriers),
+    sources: mergedSources,
     ...(memory ? { memory } : {}),
     ...(mergedCards.length ? { cards: mergedCards } : {}),
     ...(mergedActions.length ? { actions: mergedActions } : {}),
@@ -296,6 +297,67 @@ export function aggregateAgentSourceSummaries(
   }
 
   return summaries;
+}
+
+function reconcileItinerarySources(
+  itinerary: ItineraryPlan,
+  aggregateSources: readonly AnswerSourceSummary[],
+): ItineraryPlan {
+  const hasWeatherCheck = aggregateSources.some((source) => source.label === "weather_checked");
+  const hasPlacesCheck = aggregateSources.some(
+    (source) => source.label === "live_checked" || source.label === "fresh_cache",
+  );
+  const reconciledSources = itinerary.sources
+    .map((source) => reconcileNotCheckedSource(source, { hasPlacesCheck, hasWeatherCheck }))
+    .filter((source) => source.checked.length > 0 || source.notChecked.length > 0);
+  const reconciledAggregateSources = aggregateSources
+    .map((source) => reconcileNotCheckedSource(source, { hasPlacesCheck, hasWeatherCheck }))
+    .filter((source) => source.checked.length > 0 || source.notChecked.length > 0);
+  const addedSources = reconciledAggregateSources.filter(
+    (source) =>
+      !reconciledSources.some(
+        (existingSource) => sourceSummaryKey(existingSource) === sourceSummaryKey(source),
+      ),
+  );
+
+  return {
+    ...itinerary,
+    sources: [...reconciledSources, ...addedSources],
+  };
+}
+
+function reconcileNotCheckedSource(
+  source: AnswerSourceSummary,
+  {
+    hasPlacesCheck,
+    hasWeatherCheck,
+  }: {
+    hasPlacesCheck: boolean;
+    hasWeatherCheck: boolean;
+  },
+): AnswerSourceSummary {
+  if (source.label !== "not_verified") {
+    return source;
+  }
+
+  return {
+    ...source,
+    notChecked: source.notChecked.filter(
+      (item) =>
+        !(hasWeatherCheck && isWeatherNotCheckedItem(item)) &&
+        !(hasPlacesCheck && isPlacesNotCheckedItem(item)),
+    ),
+  };
+}
+
+function isWeatherNotCheckedItem(value: string) {
+  return /\b(weather|forecast)\b/i.test(value);
+}
+
+function isPlacesNotCheckedItem(value: string) {
+  return /\b(google places|places|open[- ]?now|open status|opening|map link|place identity|current menus)\b/i.test(
+    value,
+  );
 }
 
 function extractSourceProfileIds(sources: readonly AnswerSourceSummary[]) {

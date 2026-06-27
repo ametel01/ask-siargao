@@ -9,6 +9,10 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Enforced required itinerary weather and Google Places follow-up checks before accepting final
+  agent prose, and reconciled itinerary artifact source caveats after those checks complete.
+- Updated strict Responses tool schemas so optional fields are provider-valid required nullable
+  properties, with regression coverage for nested strict schema requirements.
 - Preserved returned Google Places detail hours, rating, rating-count, and price signals in live
   detail cards and model-facing tool text.
 - Prevented safe local source evidence lookup from returning audit-only/private evidence metadata,

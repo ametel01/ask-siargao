@@ -140,6 +140,8 @@ const normalizedStringSchema = z
   .min(1)
   .max(120)
   .transform((value) => value.toLowerCase());
+const optionalNullable = <Schema extends z.ZodTypeAny>(schema: Schema) =>
+  z.preprocess((value) => (value === null ? undefined : value), schema.optional());
 
 const localFactEntityTypeSchema = z.preprocess(
   (value) => (typeof value === "string" ? value.trim().toLowerCase() : value),
@@ -151,15 +153,18 @@ export const describeDatabaseSchemaArgumentsSchema = z.object({}).strict();
 export const localFactsQuerySchema: z.ZodType<LocalFactsQuery> = z
   .object({
     entityTypes: z.array(localFactEntityTypeSchema).min(1).max(localFactEntityTypes.length),
-    area: normalizedStringSchema.optional(),
-    tags: z.array(normalizedStringSchema).min(1).max(12).optional(),
-    text: z.string().trim().min(2).max(240).optional(),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .default(localFactsDefaultLimit)
-      .transform((value) => Math.min(value, localFactsMaxLimit)),
+    area: optionalNullable(normalizedStringSchema),
+    tags: optionalNullable(z.array(normalizedStringSchema).min(1).max(12)),
+    text: optionalNullable(z.string().trim().min(2).max(240)),
+    limit: z.preprocess(
+      (value) => (value === null ? undefined : value),
+      z
+        .number()
+        .int()
+        .min(1)
+        .default(localFactsDefaultLimit)
+        .transform((value) => Math.min(value, localFactsMaxLimit)),
+    ),
   })
   .strict();
 

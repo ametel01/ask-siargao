@@ -19,6 +19,7 @@ import {
   buildAgentResponseTools,
   executeAgentTool,
 } from "@/server/chat/agent-tools";
+import type { ItineraryRequiredToolChecks } from "@/server/chat/itinerary-tools";
 import { createComponentLogger } from "@/server/observability/logger";
 
 export type AskSiargaoAgentDependencies = AgentRuntimeDependencies &
@@ -116,6 +117,50 @@ export async function runAskSiargaoAgentTurn(
   for (let turn = 0; turn < maxTurns; turn += 1) {
     const finalText = response.output_text?.trim();
     if (finalText) {
+      const missingRequiredChecks = missingRequiredItineraryChecks(toolResults, toolCalls);
+      if (missingRequiredChecks.length > 0) {
+        if (toolCalls.length + missingRequiredChecks.length > maxToolCalls) {
+          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
+        }
+
+        const automaticToolOutputs = await Promise.all(
+          missingRequiredChecks.map((functionCall) =>
+            executeAndAuditTool({
+              executeTool,
+              functionCall,
+              logger,
+              now: dependencies.now ?? (() => new Date()),
+              requestId: resolved.requestId,
+            }),
+          ),
+        );
+        toolCalls.push(...automaticToolOutputs.map((output) => output.audit));
+        toolResults.push(...automaticToolOutputs.map((output) => output.result));
+
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_000,
+          instructions,
+          tools,
+          ...(response.id ? { previous_response_id: response.id } : {}),
+          input: JSON.stringify({
+            product: "Ask Siargao",
+            instruction:
+              "You attempted a final itinerary answer before required follow-up checks completed. Use these automatically executed safe tool outputs, preserve provider failures as caveats, and write the final traveler-facing answer now.",
+            automaticRequiredToolChecks: automaticToolOutputs.map((output) => ({
+              toolCallId: output.functionCall.callId,
+              name: output.functionCall.name,
+              arguments: output.functionCall.arguments,
+              result: JSON.parse(serializeToolOutput(output.result)),
+            })),
+            responseContract,
+          }),
+        });
+        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        continue;
+      }
+
       logger.info(
         {
           durationMs: sumDurations(toolCalls),
@@ -177,6 +222,130 @@ export async function runAskSiargaoAgentTurn(
   }
 
   throw new Error("Ask Siargao agent exceeded the maximum turn count.");
+}
+
+function missingRequiredItineraryChecks(
+  toolResults: readonly AgentToolResult[],
+  toolCalls: readonly AgentToolCallAudit[],
+): ParsedFunctionCall[] {
+  const missing: ParsedFunctionCall[] = [];
+  const seen = new Set<string>();
+
+  for (const result of toolResults) {
+    const requiredToolChecks = readRequiredToolChecks(result.data);
+    if (!requiredToolChecks) {
+      continue;
+    }
+
+    if (requiredToolChecks.weather) {
+      const argumentsForWeather = {
+        location: requiredToolChecks.weather.location,
+        date_range: requiredToolChecks.weather.date_range,
+      };
+      const key = requiredCheckKey("get_weather_forecast", argumentsForWeather);
+      if (
+        !seen.has(key) &&
+        !hasMatchingToolCall(toolCalls, "get_weather_forecast", argumentsForWeather)
+      ) {
+        missing.push({
+          callId: `auto_required_weather_${missing.length + 1}`,
+          name: "get_weather_forecast",
+          arguments: argumentsForWeather,
+        });
+        seen.add(key);
+      }
+    }
+
+    for (const placesCheck of requiredToolChecks.places) {
+      const argumentsForPlaces = {
+        query: placesCheck.query,
+        center: placesCheck.center,
+        radius_meters: placesCheck.radius_meters,
+        constraints: placesCheck.constraints,
+      };
+      const key = requiredCheckKey("search_places", argumentsForPlaces);
+      if (!seen.has(key) && !hasMatchingToolCall(toolCalls, "search_places", argumentsForPlaces)) {
+        missing.push({
+          callId: `auto_required_places_${missing.length + 1}`,
+          name: "search_places",
+          arguments: argumentsForPlaces,
+        });
+        seen.add(key);
+      }
+    }
+  }
+
+  return missing;
+}
+
+function readRequiredToolChecks(data: AgentToolResult["data"]) {
+  if (!isRecord(data) || !isRequiredToolChecks(data.requiredToolChecks)) {
+    return undefined;
+  }
+  return data.requiredToolChecks;
+}
+
+function isRequiredToolChecks(value: unknown): value is ItineraryRequiredToolChecks {
+  if (!isRecord(value) || !Array.isArray(value.places)) {
+    return false;
+  }
+  if (
+    value.weather !== undefined &&
+    (!isRecord(value.weather) ||
+      value.weather.tool !== "get_weather_forecast" ||
+      typeof value.weather.location !== "string" ||
+      typeof value.weather.date_range !== "string")
+  ) {
+    return false;
+  }
+  return value.places.every(
+    (check) =>
+      isRecord(check) &&
+      check.tool === "search_places" &&
+      typeof check.query === "string" &&
+      isRecord(check.center) &&
+      typeof check.center.latitude === "number" &&
+      typeof check.center.longitude === "number" &&
+      typeof check.radius_meters === "number" &&
+      isRecord(check.constraints),
+  );
+}
+
+function hasMatchingToolCall(
+  toolCalls: readonly AgentToolCallAudit[],
+  name: string,
+  requiredArguments: Record<string, unknown>,
+) {
+  const requiredKey = normalizeRequiredToolArguments(requiredArguments);
+  return toolCalls.some(
+    (toolCall) =>
+      toolCall.name === name && normalizeRequiredToolArguments(toolCall.arguments) === requiredKey,
+  );
+}
+
+function requiredCheckKey(name: string, requiredArguments: Record<string, unknown>) {
+  return `${name}:${normalizeRequiredToolArguments(requiredArguments)}`;
+}
+
+function normalizeRequiredToolArguments(value: unknown): string {
+  if (Array.isArray(value)) {
+    return JSON.stringify(value.map((item) => JSON.parse(normalizeRequiredToolArguments(item))));
+  }
+  if (!isRecord(value)) {
+    return JSON.stringify(value ?? null);
+  }
+
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(value)
+        .filter((entry): entry is [string, unknown] => entry[1] !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nestedValue]) => [
+          key,
+          JSON.parse(normalizeRequiredToolArguments(nestedValue)),
+        ]),
+    ),
+  );
 }
 
 async function executeAndAuditTool({

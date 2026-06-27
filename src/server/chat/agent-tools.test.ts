@@ -74,27 +74,28 @@ describe("agent tools", () => {
               description: "Search radius around the center point.",
             },
             constraints: {
-              type: "object",
+              type: ["object", "null"],
               properties: {
                 included_type: {
-                  type: "string",
+                  type: ["string", "null"],
                   description: "Optional Google Places primary type such as restaurant or cafe.",
                 },
                 open_now: {
-                  type: "boolean",
+                  type: ["boolean", "null"],
                   description: "Whether live opening status is needed.",
                 },
                 page_size: {
-                  type: "integer",
+                  type: ["integer", "null"],
                   minimum: 1,
                   maximum: 10,
                   description: "Maximum number of places to return.",
                 },
               },
+              required: ["included_type", "open_now", "page_size"],
               additionalProperties: false,
             },
           },
-          required: ["query", "center", "radius_meters"],
+          required: ["query", "center", "radius_meters", "constraints"],
           additionalProperties: false,
         },
         strict: true,
@@ -130,45 +131,54 @@ describe("agent tools", () => {
               description: "Natural-language local guide query.",
             },
             filters: {
-              type: "object",
+              type: ["object", "null"],
               properties: {
                 beach_surface: {
-                  type: "string",
-                  enum: ["sand", "mixed", "rocky", "any"],
+                  type: ["string", "null"],
+                  enum: ["sand", "mixed", "rocky", "any", null],
                   description: "Preferred beach surface.",
                 },
                 swimming: {
-                  type: "boolean",
+                  type: ["boolean", "null"],
                   description: "Whether swimming fit should be prioritized.",
                 },
                 sunset: {
-                  type: "boolean",
+                  type: ["boolean", "null"],
                   description: "Whether sunset or late-afternoon fit should be prioritized.",
                 },
                 rain_fit: {
-                  type: "boolean",
+                  type: ["boolean", "null"],
                   description: "Whether bad-weather or short-ride fit should be prioritized.",
                 },
                 max_ride_minutes: {
-                  type: "integer",
+                  type: ["integer", "null"],
                   minimum: 1,
                   maximum: 180,
                   description: "Maximum ride time from the General Luna side.",
                 },
                 transport_mode: {
-                  type: "string",
-                  enum: ["walk", "scooter", "tricycle", "van"],
+                  type: ["string", "null"],
+                  enum: ["walk", "scooter", "tricycle", "van", null],
                   description: "Traveler transport constraint.",
                 },
                 with_kids: {
-                  type: "boolean",
+                  type: ["boolean", "null"],
                   description: "Whether the traveler is with kids.",
                 },
               },
+              required: [
+                "beach_surface",
+                "swimming",
+                "sunset",
+                "rain_fit",
+                "max_ride_minutes",
+                "transport_mode",
+                "with_kids",
+              ],
               additionalProperties: false,
             },
           },
-          required: ["query"],
+          required: ["query", "filters"],
           additionalProperties: false,
         },
         strict: true,
@@ -193,46 +203,56 @@ describe("agent tools", () => {
               description: "Initial supported local itinerary theme.",
             },
             origin: {
-              type: "string",
+              type: ["string", "null"],
               description:
                 "Traveler origin or assumed start area, such as General Luna or Cloud 9.",
             },
             duration_hours: {
-              type: "number",
+              type: ["number", "null"],
               minimum: 2,
               maximum: 4,
               description: "Target plan length in hours.",
             },
             transport_mode: {
-              type: "string",
-              enum: ["walk", "scooter", "tricycle", "van"],
+              type: ["string", "null"],
+              enum: ["walk", "scooter", "tricycle", "van", null],
               description: "Traveler transport mode or constraint.",
             },
             max_ride_minutes: {
-              type: "integer",
+              type: ["integer", "null"],
               minimum: 5,
               maximum: 180,
               description: "Maximum estimated ride time for any itinerary leg.",
             },
             needs_weather_check: {
-              type: "boolean",
+              type: ["boolean", "null"],
               description: "Whether weather materially affects the itinerary.",
             },
             needs_open_now: {
-              type: "boolean",
+              type: ["boolean", "null"],
               description: "Whether meal, cafe, or venue stops need live open-now checks.",
             },
             meal_preference: {
-              type: "string",
+              type: ["string", "null"],
               description: "Optional meal style, cuisine, or price preference.",
             },
             constraints: {
-              type: "array",
+              type: ["array", "null"],
               items: { type: "string" },
               description: "Other user constraints to preserve as caveats.",
             },
           },
-          required: ["theme"],
+          required: [
+            "theme",
+            "origin",
+            "duration_hours",
+            "transport_mode",
+            "max_ride_minutes",
+            "needs_weather_check",
+            "needs_open_now",
+            "meal_preference",
+            "constraints",
+          ],
           additionalProperties: false,
         },
         strict: true,
@@ -245,6 +265,7 @@ describe("agent tools", () => {
         parameters: {
           type: "object",
           properties: {},
+          required: [],
           additionalProperties: false,
         },
         strict: true,
@@ -276,26 +297,26 @@ describe("agent tools", () => {
               description: "Approved entity types to retrieve.",
             },
             area: {
-              type: "string",
+              type: ["string", "null"],
               description: "Optional Siargao area filter such as General Luna or Cloud 9.",
             },
             tags: {
-              type: "array",
+              type: ["array", "null"],
               items: { type: "string" },
               description: "Optional tags such as sandy, swimming, rain-fit, sunset, or transport.",
             },
             text: {
-              type: "string",
+              type: ["string", "null"],
               description: "Optional text filter matched against names and claims.",
             },
             limit: {
-              type: "integer",
+              type: ["integer", "null"],
               minimum: 1,
               maximum: 20,
               description: "Maximum number of local facts to return.",
             },
           },
-          required: ["entityTypes"],
+          required: ["entityTypes", "area", "tags", "text", "limit"],
           additionalProperties: false,
         },
         strict: true,
@@ -327,11 +348,22 @@ describe("agent tools", () => {
         parameters: {
           type: "object",
           properties: {},
+          required: [],
           additionalProperties: false,
         },
         strict: true,
       },
     ]);
+  });
+
+  test("requires every property in strict Responses object schemas", () => {
+    const tools = buildAgentResponseTools(memorySnapshotFixture());
+    const functionTools = tools.filter((tool) => tool.type === "function");
+
+    for (const tool of functionTools) {
+      expect(tool.strict).toBe(true);
+      assertStrictObjectSchema(tool.parameters, tool.name);
+    }
   });
 
   test("describes available tools without exposing the helper as model-callable", () => {
@@ -383,6 +415,67 @@ describe("agent tools", () => {
       },
     ]);
     expect(agentToolDefinitions.map((tool) => tool.name)).not.toContain("describe_available_tools");
+  });
+
+  test("accepts nullable optional fields required by strict Responses schemas", async () => {
+    const placesResult = await executeAgentTool(
+      {
+        requestId: "agent_request_nullable_places",
+        name: "search_places",
+        arguments: {
+          query: "cafes General Luna",
+          center: { latitude: 9.8, longitude: 126.16 },
+          radius_meters: 2500,
+          constraints: null,
+        },
+      },
+      {
+        getGooglePlacesChatContext: async ({ fetchedAt, search }) =>
+          googlePlacesContextFixture({ fetchedAt, placeName: "Nullable Cafe", search }),
+      },
+    );
+    const localGuideResult = await executeAgentTool({
+      requestId: "agent_request_nullable_local_guide",
+      name: "search_local_guide",
+      arguments: {
+        query: "sandy beaches",
+        filters: null,
+      },
+    });
+    const itineraryResult = await executeAgentTool({
+      requestId: "agent_request_nullable_itinerary",
+      name: "plan_local_itinerary",
+      arguments: {
+        theme: "sandy_beach_half_day",
+        origin: null,
+        duration_hours: null,
+        transport_mode: null,
+        max_ride_minutes: null,
+        needs_weather_check: null,
+        needs_open_now: null,
+        meal_preference: null,
+        constraints: null,
+      },
+    });
+    const localFactsResult = await executeAgentTool(
+      {
+        requestId: "agent_request_nullable_local_facts",
+        name: "query_local_facts",
+        arguments: {
+          entityTypes: ["beach"],
+          area: null,
+          tags: null,
+          text: null,
+          limit: null,
+        },
+      },
+      { localFactsQueryRunner: async () => [] },
+    );
+
+    expect(placesResult.status).toBe("success");
+    expect(localGuideResult.status).toBe("success");
+    expect(itineraryResult.status).toBe("success");
+    expect(localFactsResult.status).toBe("success");
   });
 
   test("searches live Google Places with the chat field mask", async () => {
@@ -1559,4 +1652,46 @@ function googlePlacesContextFixture({
       },
     ],
   };
+}
+
+function assertStrictObjectSchema(schema: unknown, path: string) {
+  expect(isRecord(schema), `${path} must be a schema object`).toBe(true);
+  if (!isRecord(schema)) {
+    return;
+  }
+
+  if (schemaHasObjectType(schema)) {
+    expect(schema.additionalProperties, `${path} must reject additional properties`).toBe(false);
+    expect(Array.isArray(schema.required), `${path} must list required properties`).toBe(true);
+    const properties = isRecord(schema.properties) ? schema.properties : {};
+    expect([...((schema.required as readonly string[] | undefined) ?? [])].sort()).toEqual(
+      Object.keys(properties).sort(),
+    );
+
+    for (const [propertyName, propertySchema] of Object.entries(properties)) {
+      assertNestedStrictObjectSchemas(propertySchema, `${path}.${propertyName}`);
+    }
+  }
+}
+
+function assertNestedStrictObjectSchemas(schema: unknown, path: string) {
+  if (!isRecord(schema)) {
+    return;
+  }
+
+  if (schemaHasObjectType(schema)) {
+    assertStrictObjectSchema(schema, path);
+  }
+
+  if (schema.type === "array" || (Array.isArray(schema.type) && schema.type.includes("array"))) {
+    assertNestedStrictObjectSchemas(schema.items, `${path}[]`);
+  }
+}
+
+function schemaHasObjectType(schema: Record<string, unknown>) {
+  return schema.type === "object" || (Array.isArray(schema.type) && schema.type.includes("object"));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

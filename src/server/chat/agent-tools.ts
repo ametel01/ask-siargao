@@ -154,19 +154,22 @@ const siargaoCenterSchema = z
     longitude: z.number().min(125.0).max(127.0),
   })
   .strict();
+const optionalNullable = <Schema extends z.ZodTypeAny>(schema: Schema) =>
+  z.preprocess((value) => (value === null ? undefined : value), schema.optional());
 const searchPlacesSchema = z
   .object({
     query: z.string().trim().min(2).max(180),
     center: siargaoCenterSchema,
     radius_meters: z.number().int().min(500).max(20_000),
-    constraints: z
-      .object({
-        included_type: z.string().trim().min(2).max(60).optional(),
-        open_now: z.boolean().optional(),
-        page_size: z.number().int().min(1).max(10).optional(),
-      })
-      .strict()
-      .optional(),
+    constraints: optionalNullable(
+      z
+        .object({
+          included_type: optionalNullable(z.string().trim().min(2).max(60)),
+          open_now: optionalNullable(z.boolean()),
+          page_size: optionalNullable(z.number().int().min(1).max(10)),
+        })
+        .strict(),
+    ),
   })
   .strict();
 const placeDetailsSchema = z
@@ -182,18 +185,19 @@ const placeDetailsSchema = z
 const searchLocalGuideSchema = z
   .object({
     query: z.string().trim().min(2).max(240),
-    filters: z
-      .object({
-        beach_surface: z.enum(["sand", "mixed", "rocky", "any"]).optional(),
-        swimming: z.boolean().optional(),
-        sunset: z.boolean().optional(),
-        rain_fit: z.boolean().optional(),
-        max_ride_minutes: z.number().int().min(1).max(180).optional(),
-        transport_mode: z.enum(["walk", "scooter", "tricycle", "van"]).optional(),
-        with_kids: z.boolean().optional(),
-      })
-      .strict()
-      .optional(),
+    filters: optionalNullable(
+      z
+        .object({
+          beach_surface: optionalNullable(z.enum(["sand", "mixed", "rocky", "any"])),
+          swimming: optionalNullable(z.boolean()),
+          sunset: optionalNullable(z.boolean()),
+          rain_fit: optionalNullable(z.boolean()),
+          max_ride_minutes: optionalNullable(z.number().int().min(1).max(180)),
+          transport_mode: optionalNullable(z.enum(["walk", "scooter", "tricycle", "van"])),
+          with_kids: optionalNullable(z.boolean()),
+        })
+        .strict(),
+    ),
   })
   .strict();
 const weatherForecastSchema = z
@@ -205,8 +209,8 @@ const weatherForecastSchema = z
 const searchAgentMemorySchema = z
   .object({
     query: z.string().trim().min(2).max(240),
-    documents: z.array(z.enum(agentMemoryReferenceDocumentNames)).min(1).max(5).optional(),
-    max_results: z.number().int().min(1).max(5).optional(),
+    documents: optionalNullable(z.array(z.enum(agentMemoryReferenceDocumentNames)).min(1).max(5)),
+    max_results: optionalNullable(z.number().int().min(1).max(5)),
   })
   .strict();
 
@@ -327,27 +331,28 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
             description: "Search radius around the center point.",
           },
           constraints: {
-            type: "object",
+            type: ["object", "null"],
             properties: {
               included_type: {
-                type: "string",
+                type: ["string", "null"],
                 description: "Optional Google Places primary type such as restaurant or cafe.",
               },
               open_now: {
-                type: "boolean",
+                type: ["boolean", "null"],
                 description: "Whether live opening status is needed.",
               },
               page_size: {
-                type: "integer",
+                type: ["integer", "null"],
                 minimum: 1,
                 maximum: 10,
                 description: "Maximum number of places to return.",
               },
             },
+            required: ["included_type", "open_now", "page_size"],
             additionalProperties: false,
           },
         },
-        required: ["query", "center", "radius_meters"],
+        required: ["query", "center", "radius_meters", "constraints"],
         additionalProperties: false,
       },
       strict: true,
@@ -393,45 +398,54 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
             description: "Natural-language local guide query.",
           },
           filters: {
-            type: "object",
+            type: ["object", "null"],
             properties: {
               beach_surface: {
-                type: "string",
-                enum: ["sand", "mixed", "rocky", "any"],
+                type: ["string", "null"],
+                enum: ["sand", "mixed", "rocky", "any", null],
                 description: "Preferred beach surface.",
               },
               swimming: {
-                type: "boolean",
+                type: ["boolean", "null"],
                 description: "Whether swimming fit should be prioritized.",
               },
               sunset: {
-                type: "boolean",
+                type: ["boolean", "null"],
                 description: "Whether sunset or late-afternoon fit should be prioritized.",
               },
               rain_fit: {
-                type: "boolean",
+                type: ["boolean", "null"],
                 description: "Whether bad-weather or short-ride fit should be prioritized.",
               },
               max_ride_minutes: {
-                type: "integer",
+                type: ["integer", "null"],
                 minimum: 1,
                 maximum: 180,
                 description: "Maximum ride time from the General Luna side.",
               },
               transport_mode: {
-                type: "string",
-                enum: ["walk", "scooter", "tricycle", "van"],
+                type: ["string", "null"],
+                enum: ["walk", "scooter", "tricycle", "van", null],
                 description: "Traveler transport constraint.",
               },
               with_kids: {
-                type: "boolean",
+                type: ["boolean", "null"],
                 description: "Whether the traveler is with kids.",
               },
             },
+            required: [
+              "beach_surface",
+              "swimming",
+              "sunset",
+              "rain_fit",
+              "max_ride_minutes",
+              "transport_mode",
+              "with_kids",
+            ],
             additionalProperties: false,
           },
         },
-        required: ["query"],
+        required: ["query", "filters"],
         additionalProperties: false,
       },
       strict: true,
@@ -454,45 +468,55 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
             description: "Initial supported local itinerary theme.",
           },
           origin: {
-            type: "string",
+            type: ["string", "null"],
             description: "Traveler origin or assumed start area, such as General Luna or Cloud 9.",
           },
           duration_hours: {
-            type: "number",
+            type: ["number", "null"],
             minimum: 2,
             maximum: 4,
             description: "Target plan length in hours.",
           },
           transport_mode: {
-            type: "string",
-            enum: ["walk", "scooter", "tricycle", "van"],
+            type: ["string", "null"],
+            enum: ["walk", "scooter", "tricycle", "van", null],
             description: "Traveler transport mode or constraint.",
           },
           max_ride_minutes: {
-            type: "integer",
+            type: ["integer", "null"],
             minimum: 5,
             maximum: 180,
             description: "Maximum estimated ride time for any itinerary leg.",
           },
           needs_weather_check: {
-            type: "boolean",
+            type: ["boolean", "null"],
             description: "Whether weather materially affects the itinerary.",
           },
           needs_open_now: {
-            type: "boolean",
+            type: ["boolean", "null"],
             description: "Whether meal, cafe, or venue stops need live open-now checks.",
           },
           meal_preference: {
-            type: "string",
+            type: ["string", "null"],
             description: "Optional meal style, cuisine, or price preference.",
           },
           constraints: {
-            type: "array",
+            type: ["array", "null"],
             items: { type: "string" },
             description: "Other user constraints to preserve as caveats.",
           },
         },
-        required: ["theme"],
+        required: [
+          "theme",
+          "origin",
+          "duration_hours",
+          "transport_mode",
+          "max_ride_minutes",
+          "needs_weather_check",
+          "needs_open_now",
+          "meal_preference",
+          "constraints",
+        ],
         additionalProperties: false,
       },
       strict: true,
@@ -509,6 +533,7 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
       parameters: {
         type: "object",
         properties: {},
+        required: [],
         additionalProperties: false,
       },
       strict: true,
@@ -544,26 +569,26 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
             description: "Approved entity types to retrieve.",
           },
           area: {
-            type: "string",
+            type: ["string", "null"],
             description: "Optional Siargao area filter such as General Luna or Cloud 9.",
           },
           tags: {
-            type: "array",
+            type: ["array", "null"],
             items: { type: "string" },
             description: "Optional tags such as sandy, swimming, rain-fit, sunset, or transport.",
           },
           text: {
-            type: "string",
+            type: ["string", "null"],
             description: "Optional text filter matched against names and claims.",
           },
           limit: {
-            type: "integer",
+            type: ["integer", "null"],
             minimum: 1,
             maximum: localFactsMaxLimit,
             description: "Maximum number of local facts to return.",
           },
         },
-        required: ["entityTypes"],
+        required: ["entityTypes", "area", "tags", "text", "limit"],
         additionalProperties: false,
       },
       strict: true,
@@ -605,6 +630,7 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
       parameters: {
         type: "object",
         properties: {},
+        required: [],
         additionalProperties: false,
       },
       strict: true,
@@ -634,7 +660,7 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
             description: "Natural-language memory search query.",
           },
           documents: {
-            type: "array",
+            type: ["array", "null"],
             items: {
               type: "string",
               enum: agentMemoryReferenceDocumentNames,
@@ -642,13 +668,13 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
             description: "Optional subset of agent-memory reference documents to search.",
           },
           max_results: {
-            type: "integer",
+            type: ["integer", "null"],
             minimum: 1,
             maximum: 5,
             description: "Maximum number of reference excerpts to return.",
           },
         },
-        required: ["query"],
+        required: ["query", "documents", "max_results"],
         additionalProperties: false,
       },
       strict: true,

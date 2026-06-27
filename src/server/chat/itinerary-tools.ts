@@ -16,17 +16,20 @@ export const localItineraryThemes = [
   "food_crawl",
 ] as const;
 
+const optionalNullable = <Schema extends z.ZodTypeAny>(schema: Schema) =>
+  z.preprocess((value) => (value === null ? undefined : value), schema.optional());
+
 export const localItineraryRequestSchema = z
   .object({
     theme: z.enum(localItineraryThemes),
-    origin: z.string().trim().min(2).max(120).optional(),
-    duration_hours: z.number().min(2).max(4).optional(),
-    transport_mode: z.enum(["walk", "scooter", "tricycle", "van"]).optional(),
-    max_ride_minutes: z.number().int().min(5).max(180).optional(),
-    needs_weather_check: z.boolean().optional(),
-    needs_open_now: z.boolean().optional(),
-    meal_preference: z.string().trim().min(2).max(120).optional(),
-    constraints: z.array(z.string().trim().min(1).max(120)).max(12).optional(),
+    origin: optionalNullable(z.string().trim().min(2).max(120)),
+    duration_hours: optionalNullable(z.number().min(2).max(4)),
+    transport_mode: optionalNullable(z.enum(["walk", "scooter", "tricycle", "van"])),
+    max_ride_minutes: optionalNullable(z.number().int().min(5).max(180)),
+    needs_weather_check: optionalNullable(z.boolean()),
+    needs_open_now: optionalNullable(z.boolean()),
+    meal_preference: optionalNullable(z.string().trim().min(2).max(120)),
+    constraints: optionalNullable(z.array(z.string().trim().min(1).max(120)).max(12)),
   })
   .strict();
 

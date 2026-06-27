@@ -466,7 +466,13 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       "search_places",
     ]);
     expect(result.sources).toEqual([localGuideSourceSummary, placesSourceSummary]);
-    expect(result.itineraries).toEqual([sunsetDinnerPlan]);
+    expect(result.itineraries?.[0]).toMatchObject({
+      title: sunsetDinnerPlan.title,
+      durationLabel: sunsetDinnerPlan.durationLabel,
+      stops: sunsetDinnerPlan.stops,
+    });
+    expect(result.itineraries?.[0]?.sources).toContainEqual(localGuideSourceSummary);
+    expect(result.itineraries?.[0]?.sources).toContainEqual(placesSourceSummary);
   });
 
   test("sandy beach half-day itineraries avoid surf-only brainstorms", async () => {
@@ -701,6 +707,115 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(JSON.stringify(result.toolCalls)).not.toContain("SECRET_CARD_PAYLOAD");
     expect(parseToolOutput(client.requests[1]?.input, 0).cards).toBeUndefined();
     expect(parseToolOutput(client.requests[1]?.input, 0).actions).toBeUndefined();
+  });
+
+  test("auto-executes required itinerary checks before accepting final prose", async () => {
+    const uncheckedItinerarySource: AnswerSourceSummary = {
+      label: "not_verified",
+      sourceName: "Itinerary planner unchecked live signals",
+      confidence: "medium",
+      checked: [],
+      notChecked: ["weather forecast", "live open-now status", "surf"],
+    };
+    const planNeedingChecks: ItineraryPlan = {
+      ...rainyCloud9Plan,
+      sources: [uncheckedItinerarySource],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_required_plan",
+        requestId: "req_required_plan",
+        callId: "call_plan",
+        name: "plan_local_itinerary",
+        arguments: { theme: "rainy_cloud_9_afternoon", needs_weather_check: true },
+      }),
+      {
+        id: "resp_premature_final",
+        output_text: "Premature final answer without required checks.",
+        _request_id: "req_premature_final",
+      },
+      {
+        id: "resp_checked_final",
+        output_text: "Weather and Places were checked; keep surf caveats.",
+        _request_id: "req_checked_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      plan_local_itinerary: {
+        name: "plan_local_itinerary",
+        status: "success",
+        text: "Structured itinerary artifact prepared. Required weather and Places checks remain.",
+        data: {
+          plan: planNeedingChecks,
+          requiredToolChecks: {
+            weather: {
+              required: true,
+              tool: "get_weather_forecast",
+              location: "Cloud 9",
+              date_range: "today",
+              reason: "Rain-sensitive Cloud 9 plan.",
+            },
+            places: [
+              {
+                required: true,
+                tool: "search_places",
+                query: "covered cafe Cloud 9 Siargao",
+                center: { latitude: 9.8116, longitude: 126.1651 },
+                radius_meters: 2500,
+                constraints: { included_type: "cafe", open_now: true, page_size: 5 },
+                reason: "Cafe fallback needs live identity and open status.",
+              },
+            ],
+          },
+        },
+        sources: [uncheckedItinerarySource],
+        itineraries: [planNeedingChecks],
+      },
+      get_weather_forecast: {
+        name: "get_weather_forecast",
+        status: "success",
+        text: "Open-Meteo forecast loaded for Cloud 9.",
+        sources: [weatherSourceSummary],
+      },
+      search_places: {
+        name: "search_places",
+        status: "success",
+        text: "Google Places returned live cafe options.",
+        sources: [placesSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Plan a rainy Cloud 9 cafe afternoon." }],
+        requestId: "agent_request_required_itinerary_checks",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("Weather and Places were checked");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "plan_local_itinerary",
+      "get_weather_forecast",
+      "search_places",
+    ]);
+    expect(client.requests).toHaveLength(3);
+    const automaticInput = parseAutomaticRequiredCheckInput(client.requests[2]?.input);
+    expect(automaticInput.automaticRequiredToolChecks?.map((check) => check.name)).toEqual([
+      "get_weather_forecast",
+      "search_places",
+    ]);
+    expect(result.itineraries?.[0]?.sources).toContainEqual(weatherSourceSummary);
+    expect(result.itineraries?.[0]?.sources).toContainEqual(placesSourceSummary);
+    expect(result.itineraries?.[0]?.sources.flatMap((source) => source.notChecked)).not.toContain(
+      "weather forecast",
+    );
+    expect(result.itineraries?.[0]?.sources.flatMap((source) => source.notChecked)).not.toContain(
+      "live open-now status",
+    );
+    expect(result.itineraries?.[0]?.sources.flatMap((source) => source.notChecked)).toContain(
+      "surf",
+    );
   });
 
   test("executes safe local data tools through the tool loop", async () => {
@@ -1081,6 +1196,12 @@ function parseFirstInput(input: unknown): {
     vectorStoreId?: string;
     files?: Array<Record<string, unknown>>;
   };
+} {
+  return typeof input === "string" ? JSON.parse(input) : {};
+}
+
+function parseAutomaticRequiredCheckInput(input: unknown): {
+  automaticRequiredToolChecks?: Array<{ name?: string }>;
 } {
   return typeof input === "string" ? JSON.parse(input) : {};
 }
