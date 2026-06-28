@@ -161,11 +161,16 @@ function hasExactBrowserGeolocation(
 }
 
 function coordinateStringVariants(value: number) {
-  return new Set(
-    [String(value), ...[3, 4, 5, 6, 7].map((digits) => trimTrailingZeroes(value.toFixed(digits)))]
-      .filter((variant) => variant.includes("."))
-      .filter((variant) => decimalFractionLength(variant) >= 3),
-  );
+  const variants = new Set<string>();
+  for (const variant of [
+    String(value),
+    ...[3, 4, 5, 6, 7].map((digits) => trimTrailingZeroes(value.toFixed(digits))),
+  ]) {
+    if (decimalFractionLength(variant) >= 3) {
+      variants.add(variant);
+    }
+  }
+  return variants;
 }
 
 function trimTrailingZeroes(value: string) {
@@ -523,7 +528,10 @@ function normalizeText(value: string | undefined) {
 }
 
 function normalizeItems(items: readonly string[]) {
-  return items.map(normalizeText).filter((item) => item.length > 0);
+  return items.flatMap((item) => {
+    const normalizedItem = normalizeText(item);
+    return normalizedItem.length > 0 ? [normalizedItem] : [];
+  });
 }
 
 function formatItems(items: readonly string[]) {

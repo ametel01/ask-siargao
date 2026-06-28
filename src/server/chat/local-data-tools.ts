@@ -3,9 +3,9 @@ import { z } from "zod";
 import type { AnswerTrustLabel } from "@/server/chat/answer-source-summary";
 import { searchSiargaoLocalGuide } from "@/server/local/siargao-beaches";
 
-export const localFactsDefaultLimit = 10;
+const localFactsDefaultLimit = 10;
 export const localFactsMaxLimit = 20;
-export const sourceEvidenceMaxFactIds = 20;
+const sourceEvidenceMaxFactIds = 20;
 
 export type LocalDataSurfaceName =
   | "areas"
@@ -148,43 +148,39 @@ const localFactEntityTypeSchema = z.preprocess(
   z.enum(localFactEntityTypes),
 );
 
-export const describeDatabaseSchemaArgumentsSchema = z.object({}).strict();
+export const describeDatabaseSchemaArgumentsSchema = z.strictObject({});
 
-export const localFactsQuerySchema: z.ZodType<LocalFactsQuery> = z
-  .object({
-    entityTypes: z.array(localFactEntityTypeSchema).min(1).max(localFactEntityTypes.length),
-    area: optionalNullable(normalizedStringSchema),
-    tags: optionalNullable(z.array(normalizedStringSchema).min(1).max(12)),
-    text: optionalNullable(z.string().trim().min(2).max(240)),
-    limit: z.preprocess(
-      (value) => (value === null ? undefined : value),
-      z
-        .number()
-        .int()
-        .min(1)
-        .default(localFactsDefaultLimit)
-        .transform((value) => Math.min(value, localFactsMaxLimit)),
-    ),
-  })
-  .strict();
-
-export const sourceEvidenceArgumentsSchema: z.ZodType<SourceEvidenceLookupQuery> = z
-  .object({
-    factIds: z
-      .array(
-        z
-          .string()
-          .trim()
-          .min(3)
-          .max(160)
-          .regex(/^[A-Za-z0-9_.:-]+$/),
-      )
+export const localFactsQuerySchema: z.ZodType<LocalFactsQuery> = z.strictObject({
+  entityTypes: z.array(localFactEntityTypeSchema).min(1).max(localFactEntityTypes.length),
+  area: optionalNullable(normalizedStringSchema),
+  tags: optionalNullable(z.array(normalizedStringSchema).min(1).max(12)),
+  text: optionalNullable(z.string().trim().min(2).max(240)),
+  limit: z.preprocess(
+    (value) => (value === null ? undefined : value),
+    z
+      .number()
+      .int()
       .min(1)
-      .max(sourceEvidenceMaxFactIds),
-  })
-  .strict();
+      .default(localFactsDefaultLimit)
+      .transform((value) => Math.min(value, localFactsMaxLimit)),
+  ),
+});
 
-export const databaseSchemaToolResult: DatabaseSchemaToolResult = {
+export const sourceEvidenceArgumentsSchema: z.ZodType<SourceEvidenceLookupQuery> = z.strictObject({
+  factIds: z
+    .array(
+      z
+        .string()
+        .trim()
+        .min(3)
+        .max(160)
+        .regex(/^[A-Za-z0-9_.:-]+$/),
+    )
+    .min(1)
+    .max(sourceEvidenceMaxFactIds),
+});
+
+const databaseSchemaToolResult: DatabaseSchemaToolResult = {
   defaultLimit: localFactsDefaultLimit,
   maxLimit: localFactsMaxLimit,
   queryRules: [
@@ -336,11 +332,13 @@ export async function getSourceEvidence(
 ): Promise<SourceEvidenceToolResult> {
   const query = sourceEvidenceArgumentsSchema.parse(input);
   const curatedFactsById = curatedGuideFactsById();
-  const curatedEvidence = query.factIds
-    .filter((factId) => factId.startsWith("curated_local_guide:"))
-    .map((factId) => curatedFactsById.get(factId))
-    .filter(isLocalFactResultItem)
-    .map(curatedFactToEvidence);
+  const curatedEvidence = query.factIds.flatMap((factId) => {
+    if (!factId.startsWith("curated_local_guide:")) {
+      return [];
+    }
+    const fact = curatedFactsById.get(factId);
+    return isLocalFactResultItem(fact) ? [curatedFactToEvidence(fact)] : [];
+  });
   const databaseEvidence = options.queryRunner
     ? await queryDatabaseEvidence(
         query.factIds.filter((factId) => !factId.startsWith("curated_local_guide:")),
@@ -439,7 +437,10 @@ async function queryDatabaseEvidence(
       )
     order by f.id, ev.created_at`;
 
-  return rows.map(evidenceRowToSourceEvidence).filter(isSourceEvidenceResultItem);
+  return rows.flatMap((row) => {
+    const evidence = evidenceRowToSourceEvidence(row);
+    return isSourceEvidenceResultItem(evidence) ? [evidence] : [];
+  });
 }
 
 function evidenceRowToSourceEvidence(
@@ -561,7 +562,12 @@ async function queryDatabaseFacts(
         or lower(name || ' ' || municipality || ' ' || description) like lower(${pattern})
       order by name
       limit ${rowLimit}`;
-    facts.push(...areaRows.map(areaRowToLocalFact).filter(isLocalFactResultItem));
+    facts.push(
+      ...areaRows.flatMap((row) => {
+        const fact = areaRowToLocalFact(row);
+        return isLocalFactResultItem(fact) ? [fact] : [];
+      }),
+    );
   }
 
   if (query.entityTypes.includes("route")) {
@@ -572,7 +578,12 @@ async function queryDatabaseFacts(
         or lower(name || ' ' || origin || ' ' || destination) like lower(${pattern})
       order by name
       limit ${rowLimit}`;
-    facts.push(...routeRows.map(routeRowToLocalFact).filter(isLocalFactResultItem));
+    facts.push(
+      ...routeRows.flatMap((row) => {
+        const fact = routeRowToLocalFact(row);
+        return isLocalFactResultItem(fact) ? [fact] : [];
+      }),
+    );
   }
 
   const publicEntityTypes = query.entityTypes.filter(
@@ -591,7 +602,12 @@ async function queryDatabaseFacts(
         )
       order by e.name
       limit ${rowLimit}`;
-    facts.push(...entityRows.map(publicEntityRowToLocalFact).filter(isLocalFactResultItem));
+    facts.push(
+      ...entityRows.flatMap((row) => {
+        const fact = publicEntityRowToLocalFact(row);
+        return isLocalFactResultItem(fact) ? [fact] : [];
+      }),
+    );
   }
 
   const factEntityTypes = query.entityTypes.filter(
@@ -627,7 +643,12 @@ async function queryDatabaseFacts(
         )
       order by f.fetched_at desc, f.id
       limit ${rowLimit}`;
-    facts.push(...factRows.map(governedFactRowToLocalFact).filter(isLocalFactResultItem));
+    facts.push(
+      ...factRows.flatMap((row) => {
+        const fact = governedFactRowToLocalFact(row);
+        return isLocalFactResultItem(fact) ? [fact] : [];
+      }),
+    );
   }
 
   return facts;

@@ -26,13 +26,11 @@ export type TripRouteDependencies = {
   createPublicToken: () => string;
 };
 
-const deleteSavedTripItemRequestSchema = z
-  .object({
-    tripId: localTripIdSchema,
-  })
-  .strict();
+const deleteSavedTripItemRequestSchema = z.strictObject({
+  tripId: localTripIdSchema,
+});
 
-export function createDefaultTripRouteDependencies(): TripRouteDependencies {
+function createDefaultTripRouteDependencies(): TripRouteDependencies {
   return {
     db: getDefaultDatabaseQueryClient(),
     now: () => new Date(),

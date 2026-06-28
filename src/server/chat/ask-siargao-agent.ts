@@ -371,9 +371,9 @@ function missingConditionJudgmentRepairCall(
 function inferRequiredConditionJudgmentArguments(
   request: AgentRuntimeRequest,
 ): Record<string, unknown> | undefined {
-  const userTurns = request.messages
-    .filter((message) => message.role === "user")
-    .map((message) => message.content);
+  const userTurns = request.messages.flatMap((message) =>
+    message.role === "user" ? [message.content] : [],
+  );
   const latestUserTurn = userTurns.at(-1) ?? latestUserContent(request.messages);
   if (latestUserTurn.trim().length === 0) {
     return undefined;
@@ -417,8 +417,7 @@ function inferRequiredInitialItineraryPlanArguments(
 ): Record<string, unknown> | undefined {
   const latestUserTurn = latestUserContent(request.messages);
   const userContext = request.messages
-    .filter((message) => message.role === "user")
-    .map((message) => message.content)
+    .flatMap((message) => (message.role === "user" ? [message.content] : []))
     .join(" ");
   if (!isItineraryPlanningRequest(latestUserTurn, request.deterministicSignals)) {
     return undefined;
@@ -1383,7 +1382,14 @@ function isConditionLocation(
 }
 
 function uniqueText(values: readonly string[]) {
-  return [...new Set(values.map((value) => value.replaceAll(/\s+/g, " ").trim()).filter(Boolean))];
+  return [
+    ...new Set(
+      values.flatMap((value) => {
+        const normalizedValue = value.replaceAll(/\s+/g, " ").trim();
+        return normalizedValue ? [normalizedValue] : [];
+      }),
+    ),
+  ];
 }
 
 const responseContract = {

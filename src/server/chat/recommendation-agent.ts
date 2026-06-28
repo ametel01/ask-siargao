@@ -18,7 +18,6 @@ import {
   type GooglePlacesOpeningHours,
   getGooglePlacesChatContext,
 } from "@/server/providers/google-places-chat";
-import { createDefaultCachedGooglePlacesChatContextAdapter } from "@/server/providers/google-places-chat-cache";
 import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
 
 export type RecommendationAgentResponse = {
@@ -491,12 +490,6 @@ export class RecommendationAgent {
       source: "google_places",
     };
   }
-}
-
-export function createDefaultRecommendationAgent() {
-  return new RecommendationAgent({
-    placesAdapter: createDefaultCachedGooglePlacesChatContextAdapter(),
-  });
 }
 
 function requiresLiveStatus(intent: PlaceIntent | null) {

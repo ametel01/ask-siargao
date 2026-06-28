@@ -1,7 +1,4 @@
-import {
-  type AnswerSourceSummary,
-  renderAnswerSourceLines,
-} from "@/server/chat/answer-source-summary";
+import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 
 export type SiargaoBeachSurface = "sand" | "mixed" | "rocky";
 
@@ -165,7 +162,7 @@ const siargaoBeachGuide: SiargaoBeach[] = [
   },
 ];
 
-export const beachGuideSourceSummary: AnswerSourceSummary = {
+const beachGuideSourceSummary: AnswerSourceSummary = {
   label: "curated_local_guide",
   sourceName: "Ask Siargao curated local beach guide",
   confidence: "medium",
@@ -237,61 +234,6 @@ export function searchSiargaoLocalGuide({
     ],
     sourceSummary: beachGuideSourceSummary,
   };
-}
-
-// Legacy deterministic prose renderer kept until `/api/chat` is rewired to the agent runtime.
-export function renderSiargaoBeachRecommendation(request: BeachRecommendationRequest) {
-  const originLabel = request.originLabel === "Cloud 9" ? "Cloud 9 / General Luna" : "General Luna";
-  const maxRideMinutes = request.maxRideMinutes ?? 30;
-  const sandFiltered = Boolean(request.sandOnly || request.avoidRocky);
-  const candidates = siargaoBeachGuide
-    .filter(
-      (beach) =>
-        beach.distanceFromGeneralLunaMinutes.max <= maxRideMinutes &&
-        (sandFiltered ? beach.surface === "sand" : beach.surface !== "rocky"),
-    )
-    .sort(
-      (left, right) =>
-        left.distanceFromGeneralLunaMinutes.max - right.distanceFromGeneralLunaMinutes.max ||
-        left.name.localeCompare(right.name),
-    );
-
-  if (request.swimming && request.conciseFollowUp) {
-    return renderSwimmingBeachFollowUp({ candidates, maxRideMinutes, originLabel, request });
-  }
-
-  const header = beachRecommendationHeader({ maxRideMinutes, originLabel, request, sandFiltered });
-  const ranked = candidates.slice(0, 5).map((beach, index) => {
-    const bestFor = beachBestUse(beach, request);
-    return `${index + 1}. **${beach.name}** - ${rideTimeLabel(
-      beach,
-    )}; ${beach.surface} beach; ${bestFor}.`;
-  });
-  const sunsetNote = request.sunset
-    ? [
-        "",
-        "For a classic Cloud 9 sunset vibe, the boardwalk is still an easy option, but it does not match your sand-only beach filter.",
-      ]
-    : [];
-  const tripContextNotes = beachTripContextNotes(request);
-  const exclusions =
-    maxRideMinutes <= 30
-      ? [
-          "",
-          "I would not include Pacifico or Alegria in a strict 30-minute list from General Luna; they are usually longer north-island rides.",
-        ]
-      : [];
-
-  return [
-    header,
-    "",
-    ...ranked,
-    ...sunsetNote,
-    ...exclusions,
-    ...tripContextNotes,
-    "",
-    ...renderAnswerSourceLines([beachGuideSourceSummary]),
-  ].join("\n");
 }
 
 function normalizeLocalGuideFilters(
@@ -420,9 +362,9 @@ function normalizeBeachName(value: string) {
 }
 
 function inferExcludedBeachNames(query: string) {
-  return siargaoBeachGuide
-    .filter((beach) => explicitlyExcludesBeach(query, beach.name))
-    .map((beach) => beach.name);
+  return siargaoBeachGuide.flatMap((beach) =>
+    explicitlyExcludesBeach(query, beach.name) ? [beach.name] : [],
+  );
 }
 
 function explicitlyExcludesBeach(query: string, beachName: string) {
@@ -442,93 +384,14 @@ function escapeRegExp(value: string) {
 }
 
 function uniqueText(values: readonly string[]) {
-  return [...new Set(values.map((value) => value.replaceAll(/\s+/g, " ").trim()).filter(Boolean))];
-}
-
-function renderSwimmingBeachFollowUp({
-  candidates,
-  maxRideMinutes,
-  originLabel,
-  request,
-}: {
-  candidates: SiargaoBeach[];
-  maxRideMinutes: number;
-  originLabel: string;
-  request: BeachRecommendationRequest;
-}) {
-  const swimmingOrder = ["Doot Beach", "Malinao Beach", "Secret Beach", "Union Beach area"];
-  const ranked = [...candidates]
-    .sort(
-      (left, right) =>
-        swimmingRank(left.name, swimmingOrder) - swimmingRank(right.name, swimmingOrder) ||
-        left.distanceFromGeneralLunaMinutes.max - right.distanceFromGeneralLunaMinutes.max,
-    )
-    .slice(0, 4)
-    .map((beach, index) => {
-      const caution =
-        beach.name === "Secret Beach"
-          ? "go only if surf and currents look gentle"
-          : beach.name === "Union Beach area"
-            ? "less ideal if you want clean sand"
-            : "check tide and conditions before entering";
-      return `${index + 1}. **${beach.name}** - ${beach.swimmingFit}; ${caution}.`;
-    });
-
   return [
-    `For swimming from that ${maxRideMinutes}-minute ${originLabel} shortlist, I would pick:`,
-    "",
-    ...ranked,
-    ...(request.sandOnly || request.avoidRocky
-      ? ["", "Keep the sandy/not-rocky filter; do not treat Cloud 9 as the swim pick."]
-      : []),
-    "",
-    ...renderAnswerSourceLines([beachGuideSourceSummary]),
-  ].join("\n");
-}
-
-function swimmingRank(name: string, order: readonly string[]) {
-  const index = order.indexOf(name);
-  return index === -1 ? order.length : index;
-}
-
-function beachTripContextNotes(request: BeachRecommendationRequest) {
-  const notes: string[] = [];
-  if (request.withKids) {
-    notes.push("travelling with kids");
-  }
-  if (request.transportMode === "walk" || request.durableConstraints?.includes("no_scooter")) {
-    notes.push("no scooter / walking constraint");
-  }
-  if (notes.length === 0) {
-    return [];
-  }
-  return ["", `Trip fit notes: ${notes.join("; ")}.`];
-}
-
-function beachRecommendationHeader({
-  maxRideMinutes,
-  originLabel,
-  request,
-  sandFiltered,
-}: {
-  maxRideMinutes: number;
-  originLabel: string;
-  request: BeachRecommendationRequest;
-  sandFiltered: boolean;
-}) {
-  if (request.sunset && sandFiltered) {
-    return `For sunset with your sandy, not-rocky filter within about ${maxRideMinutes} minutes of ${originLabel}, I would treat these as late-afternoon beach options:`;
-  }
-  if (request.sunset) {
-    return `For sunset or late-afternoon beach time within about ${maxRideMinutes} minutes of ${originLabel}, I would shortlist:`;
-  }
-  if (request.swimming && sandFiltered) {
-    return `For swimming with your sandy, not-rocky filter within about ${maxRideMinutes} minutes of ${originLabel}, I would shortlist:`;
-  }
-  if (sandFiltered) {
-    return `For sandy, not-rocky beach options within about ${maxRideMinutes} minutes of ${originLabel}, I would shortlist:`;
-  }
-  return `From ${originLabel}, these beach options fit about a ${maxRideMinutes}-minute ride:`;
+    ...new Set(
+      values.flatMap((value) => {
+        const normalizedValue = value.replaceAll(/\s+/g, " ").trim();
+        return normalizedValue ? [normalizedValue] : [];
+      }),
+    ),
+  ];
 }
 
 function beachBestUse(beach: SiargaoBeach, request: BeachRecommendationRequest) {

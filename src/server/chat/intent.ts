@@ -69,12 +69,6 @@ export type TripContext = {
   unresolvedReference?: "there";
 };
 
-export type UnifiedChatIntentResult = {
-  latestUserTurn: string;
-  recentUserContext: string;
-  tripContext: TripContext;
-};
-
 const defaultNearbyLocation: TripContextLocation = {
   label: "General Luna",
   area: "General Luna",
@@ -132,17 +126,6 @@ export function deriveTripContext(messages: readonly AskSiargaoChatMessage[]): T
   };
 }
 
-export function deriveChatIntent(
-  messages: readonly AskSiargaoChatMessage[],
-): UnifiedChatIntentResult {
-  const tripContext = deriveTripContext(messages);
-  return {
-    latestUserTurn: tripContext.latestUserTurn,
-    recentUserContext: tripContext.recentUserContext,
-    tripContext,
-  };
-}
-
 export function getLatestUserTurn(messages: readonly AskSiargaoChatMessage[]) {
   return messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
 }
@@ -185,7 +168,7 @@ export function inferSiargaoLocationLabel(content: string): TripContextLocationL
   );
 }
 
-export function inferRideTimeLimitMinutes(content: string) {
+function inferRideTimeLimitMinutes(content: string) {
   const match =
     /\b(?:within|under|max(?:imum)?|no\s+more\s+than|less\s+than|about)\s+(\d{1,3})\s*(?:min|mins|minutes?)\b/i.exec(
       content,
@@ -196,7 +179,7 @@ export function inferRideTimeLimitMinutes(content: string) {
   return Number(match[1]);
 }
 
-export function inferTransportMode(content: string): TransportMode {
+function inferTransportMode(content: string): TransportMode {
   if (/\bno\s+scooter|without\s+(?:a\s+)?scooter|do\s+not\s+ride|don't\s+ride\b/i.test(content)) {
     return "walk";
   }

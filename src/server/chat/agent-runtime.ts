@@ -315,11 +315,13 @@ export function createAgentTurnResult({
   const mergedItineraries = dedupeItineraries([
     ...(itineraries ?? []),
     ...artifactCarriers.flatMap((result) => result.itineraries ?? []),
-  ])
-    .map((itinerary) => refreshItineraryArtifact(itinerary, liveItineraryEvidence))
-    .map((itinerary) =>
-      reconcileItinerarySources(itinerary, reconciledSources, sourceReconciliation),
-    );
+  ]).map((itinerary) =>
+    reconcileItinerarySources(
+      refreshItineraryArtifact(itinerary, liveItineraryEvidence),
+      reconciledSources,
+      sourceReconciliation,
+    ),
+  );
 
   return {
     message,
@@ -360,12 +362,18 @@ function reconcileItinerarySources(
   aggregateSources: readonly AnswerSourceSummary[],
   reconciliation: ItinerarySourceReconciliation,
 ): ItineraryPlan {
-  const reconciledSources = itinerary.sources
-    .map((source) => reconcileNotCheckedSource(source, reconciliation))
-    .filter((source) => source.checked.length > 0 || source.notChecked.length > 0);
-  const reconciledAggregateSources = aggregateSources
-    .map((source) => reconcileNotCheckedSource(source, reconciliation))
-    .filter((source) => source.checked.length > 0 || source.notChecked.length > 0);
+  const reconciledSources = itinerary.sources.flatMap((source) => {
+    const reconciledSource = reconcileNotCheckedSource(source, reconciliation);
+    return reconciledSource.checked.length > 0 || reconciledSource.notChecked.length > 0
+      ? [reconciledSource]
+      : [];
+  });
+  const reconciledAggregateSources = aggregateSources.flatMap((source) => {
+    const reconciledSource = reconcileNotCheckedSource(source, reconciliation);
+    return reconciledSource.checked.length > 0 || reconciledSource.notChecked.length > 0
+      ? [reconciledSource]
+      : [];
+  });
   const addedSources = reconciledAggregateSources.filter(
     (source) =>
       !reconciledSources.some(
@@ -383,9 +391,12 @@ function reconcileSourceSummaries(
   sources: readonly AnswerSourceSummary[],
   reconciliation: ItinerarySourceReconciliation,
 ) {
-  return sources
-    .map((source) => reconcileNotCheckedSource(source, reconciliation))
-    .filter((source) => source.checked.length > 0 || source.notChecked.length > 0);
+  return sources.flatMap((source) => {
+    const reconciledSource = reconcileNotCheckedSource(source, reconciliation);
+    return reconciledSource.checked.length > 0 || reconciledSource.notChecked.length > 0
+      ? [reconciledSource]
+      : [];
+  });
 }
 
 type ItineraryLiveEvidence = {
@@ -454,17 +465,25 @@ function requiredWeatherChecksBySuccessfulToolCallId(
   toolCalls: readonly AgentToolCallAudit[],
 ) {
   const requiredChecks = collectRequiredItineraryChecks(toolResults);
+  const requiredWeatherByKey = new Map(
+    requiredChecks.weather.map((argumentsForCheck) => [
+      normalizeRequiredToolArguments(argumentsForCheck),
+      argumentsForCheck,
+    ]),
+  );
   const results = new Map<string, Record<string, unknown>>();
 
   for (const toolCall of toolCalls) {
     if (!toolCall.toolCallId) {
       continue;
     }
-    const requiredArguments = requiredChecks.weather.find((argumentsForCheck) =>
-      isSuccessfulRequiredWeatherToolCall(toolCall, argumentsForCheck),
+    const requiredArguments = requiredWeatherByKey.get(
+      normalizeRequiredToolArguments(toolCall.arguments),
     );
     if (requiredArguments) {
-      results.set(toolCall.toolCallId, requiredArguments);
+      if (isSuccessfulRequiredWeatherToolCall(toolCall, requiredArguments)) {
+        results.set(toolCall.toolCallId, requiredArguments);
+      }
     }
   }
 
@@ -476,17 +495,22 @@ function requiredPlacesChecksBySuccessfulToolCallId(
   toolCalls: readonly AgentToolCallAudit[],
 ) {
   const requiredChecks = collectRequiredItineraryChecks(toolResults);
+  const requiredPlacesByKey = new Map(
+    requiredChecks.places.map((check) => [normalizeRequiredToolArguments(check.arguments), check]),
+  );
   const results = new Map<string, RequiredPlacesCheck>();
 
   for (const toolCall of toolCalls) {
     if (!toolCall.toolCallId) {
       continue;
     }
-    const requiredCheck = requiredChecks.places.find((check) =>
-      isSuccessfulRequiredPlacesToolCall(toolCall, check),
+    const requiredCheck = requiredPlacesByKey.get(
+      normalizeRequiredToolArguments(toolCall.arguments),
     );
     if (requiredCheck) {
-      results.set(toolCall.toolCallId, requiredCheck);
+      if (isSuccessfulRequiredPlacesToolCall(toolCall, requiredCheck)) {
+        results.set(toolCall.toolCallId, requiredCheck);
+      }
     }
   }
 
@@ -508,9 +532,11 @@ function livePlaceCandidatesFromResult(
   result: AgentToolResultArtifactCarrier,
 ): LivePlaceCandidate[] {
   const includedType = readStringPath(result.data, ["search", "includedType"]);
-  const candidates = (result.cards ?? [])
-    .filter((card) => card.kind === "place")
-    .map((card) => ({
+  const candidates = (result.cards ?? []).flatMap((card): LivePlaceCandidate[] => {
+    if (card.kind !== "place") {
+      return [];
+    }
+    const candidate = {
       title: card.title,
       ...(includedType ? { includedType } : {}),
       ...(card.mapsUrl ? { mapsUrl: card.mapsUrl } : {}),
@@ -518,8 +544,9 @@ function livePlaceCandidatesFromResult(
       ...(card.openStatusLabel ? { openStatusLabel: card.openStatusLabel } : {}),
       fitReasons: card.fitReasons,
       caveats: card.caveats,
-    }))
-    .filter(isOpenLivePlaceCandidate);
+    };
+    return isOpenLivePlaceCandidate(candidate) ? [candidate] : [];
+  });
 
   if (candidates.length > 0) {
     return candidates;
@@ -589,39 +616,54 @@ function applyWeatherEvidenceToItinerary(
     return itinerary;
   }
 
-  const promotedFallbacks = itinerary.fallbackStops.filter(isWeatherShelterStop).map((stop) => ({
-    ...stop,
-    rationale: weatherAdjustedRationale(stop.rationale, evidence.weatherSummary),
-    caveats: uniqueText([
-      ...stop.caveats.filter((caveat) => !isWeatherNotCheckedItem(caveat)),
-      "Promoted from fallback after live weather showed high weather risk.",
-    ]),
-  }));
-  const remainingFallbacks = itinerary.fallbackStops
-    .filter((stop) => !isWeatherShelterStop(stop))
-    .map((stop) => ({
-      ...stop,
-      caveats: uniqueText([
-        ...stop.caveats.filter((caveat) => !isWeatherNotCheckedItem(caveat)),
-        "Keep this as a dry-break fallback only; do not use it during active heavy rain.",
-      ]),
-    }));
-  const remainingStops = itinerary.stops
-    .filter(
-      (stop) =>
-        !promotedFallbacks.some(
-          (fallback) => normalizeText(fallback.title) === normalizeText(stop.title),
-        ),
-    )
-    .map((stop) => ({
-      ...stop,
-      caveats: uniqueText([
-        ...stop.caveats.filter((caveat) => !isWeatherNotCheckedItem(caveat)),
-        ...(isOutdoorItineraryStop(stop)
-          ? ["Keep this optional unless the live weather window is comfortable."]
-          : []),
-      ]),
-    }));
+  const promotedFallbacks = itinerary.fallbackStops.flatMap((stop): ItineraryStop[] => {
+    if (!isWeatherShelterStop(stop)) {
+      return [];
+    }
+    return [
+      {
+        ...stop,
+        rationale: weatherAdjustedRationale(stop.rationale, evidence.weatherSummary),
+        caveats: uniqueText([
+          ...stop.caveats.filter((caveat) => !isWeatherNotCheckedItem(caveat)),
+          "Promoted from fallback after live weather showed high weather risk.",
+        ]),
+      },
+    ];
+  });
+  const remainingFallbacks = itinerary.fallbackStops.flatMap((stop): ItineraryStop[] => {
+    if (isWeatherShelterStop(stop)) {
+      return [];
+    }
+    return [
+      {
+        ...stop,
+        caveats: uniqueText([
+          ...stop.caveats.filter((caveat) => !isWeatherNotCheckedItem(caveat)),
+          "Keep this as a dry-break fallback only; do not use it during active heavy rain.",
+        ]),
+      },
+    ];
+  });
+  const promotedFallbackTitles = new Set(
+    promotedFallbacks.map((fallback) => normalizeText(fallback.title)),
+  );
+  const remainingStops = itinerary.stops.flatMap((stop): ItineraryStop[] => {
+    if (promotedFallbackTitles.has(normalizeText(stop.title))) {
+      return [];
+    }
+    return [
+      {
+        ...stop,
+        caveats: uniqueText([
+          ...stop.caveats.filter((caveat) => !isWeatherNotCheckedItem(caveat)),
+          ...(isOutdoorItineraryStop(stop)
+            ? ["Keep this optional unless the live weather window is comfortable."]
+            : []),
+        ]),
+      },
+    ];
+  });
 
   return {
     ...itinerary,
@@ -989,7 +1031,14 @@ function unique(values: readonly string[]) {
 }
 
 function uniqueText(values: readonly string[]) {
-  return [...new Set(values.map(normalizeText).filter(Boolean))];
+  return [
+    ...new Set(
+      values.flatMap((value) => {
+        const normalizedValue = normalizeText(value);
+        return normalizedValue ? [normalizedValue] : [];
+      }),
+    ),
+  ];
 }
 
 function dedupeById<T extends { id: string }>(values: readonly T[]) {
@@ -1063,7 +1112,10 @@ function sourceSummaryKey(summary: AnswerSourceSummary) {
 }
 
 function normalizeList(values: readonly string[]) {
-  return values.map(normalizeText).filter(Boolean);
+  return values.flatMap((value) => {
+    const normalizedValue = normalizeText(value);
+    return normalizedValue ? [normalizedValue] : [];
+  });
 }
 
 function normalizeRequiredToolArguments(value: unknown): string {

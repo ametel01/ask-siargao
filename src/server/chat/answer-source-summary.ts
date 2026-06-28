@@ -101,7 +101,10 @@ function sourceDescriptor(summary: AnswerSourceSummary) {
 }
 
 function normalizeItems(items: readonly string[]) {
-  return items.map(normalizeText).filter((item) => item.length > 0);
+  return items.flatMap((item) => {
+    const normalizedItem = normalizeText(item);
+    return normalizedItem.length > 0 ? [normalizedItem] : [];
+  });
 }
 
 function normalizeText(value: string | undefined) {

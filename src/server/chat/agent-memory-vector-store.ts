@@ -89,7 +89,7 @@ export type AgentMemoryVectorStoreSyncResult = {
 
 const vectorStoreName = "Ask Siargao Agent Memory";
 
-export function createOpenAIAgentMemoryVectorStoreClient(
+function createOpenAIAgentMemoryVectorStoreClient(
   apiKey = process.env.OPENAI_API_KEY,
 ): AgentMemoryVectorStoreClient {
   if (!apiKey) {
@@ -128,60 +128,59 @@ export async function syncAgentMemoryVectorStore(
     vectorStoreId: options.vectorStoreId ?? process.env.OPENAI_AGENT_MEMORY_VECTOR_STORE_ID,
   });
   const existingFiles = await collectVectorStoreFiles(client, vectorStore.id);
-  const files: AgentMemoryVectorStoreSyncFileResult[] = [];
+  const files = await Promise.all(
+    referenceFiles.map(async (file): Promise<AgentMemoryVectorStoreSyncFileResult> => {
+      const staleFiles = findStaleVectorStoreFiles(existingFiles, file);
+      const existing = findUnchangedVectorStoreFile(existingFiles, file);
+      if (existing) {
+        const staleVectorStoreFileIdsDeleted = await deleteStaleVectorStoreFiles(
+          client,
+          vectorStore.id,
+          staleFiles,
+        );
+        return {
+          fileName: file.fileName,
+          memoryId: file.id,
+          checksum: file.checksum,
+          action: "skipped_unchanged",
+          vectorStoreFileId: existing.id,
+          ...(staleVectorStoreFileIdsDeleted.length > 0 ? { staleVectorStoreFileIdsDeleted } : {}),
+        };
+      }
 
-  for (const file of referenceFiles) {
-    const staleFiles = findStaleVectorStoreFiles(existingFiles, file);
-    const existing = findUnchangedVectorStoreFile(existingFiles, file);
-    if (existing) {
+      const uploaded = await client.files.create({
+        file: await toFile(new Blob([file.content], { type: "text/markdown" }), file.fileName),
+        purpose: "assistants",
+      });
+      const attached = await client.vectorStores.files.createAndPoll(vectorStore.id, {
+        file_id: uploaded.id,
+        attributes: vectorStoreFileAttributes(file, snapshot.versionId),
+      });
+
+      if (attached.status === "failed" || attached.last_error) {
+        throw new Error(
+          `Failed to process ${file.fileName} in vector store ${vectorStore.id}: ${
+            attached.last_error?.message ?? attached.status
+          }`,
+        );
+      }
+
       const staleVectorStoreFileIdsDeleted = await deleteStaleVectorStoreFiles(
         client,
         vectorStore.id,
         staleFiles,
       );
-      files.push({
+
+      return {
         fileName: file.fileName,
         memoryId: file.id,
         checksum: file.checksum,
-        action: "skipped_unchanged",
-        vectorStoreFileId: existing.id,
+        action: "uploaded",
+        vectorStoreFileId: attached.id,
         ...(staleVectorStoreFileIdsDeleted.length > 0 ? { staleVectorStoreFileIdsDeleted } : {}),
-      });
-      continue;
-    }
-
-    const uploaded = await client.files.create({
-      file: await toFile(new Blob([file.content], { type: "text/markdown" }), file.fileName),
-      purpose: "assistants",
-    });
-    const attached = await client.vectorStores.files.createAndPoll(vectorStore.id, {
-      file_id: uploaded.id,
-      attributes: vectorStoreFileAttributes(file, snapshot.versionId),
-    });
-
-    if (attached.status === "failed" || attached.last_error) {
-      throw new Error(
-        `Failed to process ${file.fileName} in vector store ${vectorStore.id}: ${
-          attached.last_error?.message ?? attached.status
-        }`,
-      );
-    }
-
-    const staleVectorStoreFileIdsDeleted = await deleteStaleVectorStoreFiles(
-      client,
-      vectorStore.id,
-      staleFiles,
-    );
-
-    files.push({
-      fileName: file.fileName,
-      memoryId: file.id,
-      checksum: file.checksum,
-      action: "uploaded",
-      vectorStoreFileId: attached.id,
-      ...(staleVectorStoreFileIdsDeleted.length > 0 ? { staleVectorStoreFileIdsDeleted } : {}),
-    });
-  }
+      };
+    }),
+  );
 
   return {
     dryRun: false,
@@ -280,23 +279,21 @@ async function deleteStaleVectorStoreFiles(
   vectorStoreId: string,
   files: readonly AgentMemoryVectorStoreFile[],
 ) {
-  const deletedFileIds: string[] = [];
+  return Promise.all(
+    files.map(async (file) => {
+      const deleted = await client.vectorStores.files.delete(file.id, {
+        vector_store_id: vectorStoreId,
+      });
 
-  for (const file of files) {
-    const deleted = await client.vectorStores.files.delete(file.id, {
-      vector_store_id: vectorStoreId,
-    });
+      if (!deleted.deleted) {
+        throw new Error(
+          `Failed to delete stale agent memory vector-store file ${file.id} from ${vectorStoreId}.`,
+        );
+      }
 
-    if (!deleted.deleted) {
-      throw new Error(
-        `Failed to delete stale agent memory vector-store file ${file.id} from ${vectorStoreId}.`,
-      );
-    }
-
-    deletedFileIds.push(file.id);
-  }
-
-  return deletedFileIds;
+      return file.id;
+    }),
+  );
 }
 
 function vectorStoreFileAttributes(

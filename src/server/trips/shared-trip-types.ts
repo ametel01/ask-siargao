@@ -3,14 +3,14 @@ import { z } from "zod";
 import type { ItineraryPlan, ItineraryStop, RecommendationCard } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 
-export const savedTripItemKinds = ["place", "beach", "itinerary", "note"] as const;
+const savedTripItemKinds = ["place", "beach", "itinerary", "note"] as const;
 export type SavedTripItemKind = (typeof savedTripItemKinds)[number];
 
-export const savedTripPayloadTypes = ["recommendation_card", "itinerary_plan", "note"] as const;
+const savedTripPayloadTypes = ["recommendation_card", "itinerary_plan", "note"] as const;
 export type SavedTripPayloadType = (typeof savedTripPayloadTypes)[number];
 
-export const maxSavedTripItems = 50;
-export const maxSharedTripItemIds = 50;
+const maxSavedTripItems = 50;
+const maxSharedTripItemIds = 50;
 
 const maxShortTextLength = 180;
 const maxMediumTextLength = 500;
@@ -30,7 +30,7 @@ const allowedGoogleMapsPathHosts = new Set([
   "www.google.com.ph",
 ]);
 
-export const savedTripItemIdSchema = z.string().regex(savedTripItemIdPattern).max(128);
+const savedTripItemIdSchema = z.string().regex(savedTripItemIdPattern).max(128);
 export const localTripIdSchema = z.string().regex(localTripIdPattern).max(128);
 
 export const mapsUrlSchema = z
@@ -41,98 +41,84 @@ export const mapsUrlSchema = z
     return url.protocol === "https:" && isAllowedMapsUrl(url);
   }, "Maps URLs must use an allowed HTTPS maps host.");
 
-export const answerSourceSummarySchema = z
-  .object({
-    label: z.enum([
-      "live_checked",
-      "fresh_cache",
-      "curated_local_guide",
-      "weather_checked",
-      "not_verified",
-      "provider_unavailable",
-    ]),
-    sourceName: trimmedString(maxShortTextLength),
-    sourceProfileId: trimmedString(maxShortTextLength).optional(),
-    fetchedAt: z.iso.datetime().optional(),
-    confidence: z.enum(["high", "medium", "low"]).optional(),
-    checked: normalizedTextArraySchema(12, maxShortTextLength),
-    notChecked: normalizedTextArraySchema(16, maxShortTextLength),
-  })
-  .strict();
+const answerSourceSummarySchema = z.strictObject({
+  label: z.enum([
+    "live_checked",
+    "fresh_cache",
+    "curated_local_guide",
+    "weather_checked",
+    "not_verified",
+    "provider_unavailable",
+  ]),
+  sourceName: trimmedString(maxShortTextLength),
+  sourceProfileId: trimmedString(maxShortTextLength).optional(),
+  fetchedAt: z.iso.datetime().optional(),
+  confidence: z.enum(["high", "medium", "low"]).optional(),
+  checked: normalizedTextArraySchema(12, maxShortTextLength),
+  notChecked: normalizedTextArraySchema(16, maxShortTextLength),
+});
 
-export const recommendationCardPayloadSchema = z
-  .object({
-    id: savedTripItemIdSchema,
-    kind: z.enum(["place", "beach"]),
-    title: trimmedString(maxShortTextLength),
-    subtitle: trimmedString(maxShortTextLength).optional(),
-    mapsUrl: mapsUrlSchema.optional(),
-    distanceLabel: trimmedString(80).optional(),
-    openStatusLabel: trimmedString(80).optional(),
-    fitReasons: normalizedTextArraySchema(8),
-    caveats: normalizedTextArraySchema(12),
-    sourceLabel: trimmedString(maxShortTextLength),
-  })
-  .strict();
+const recommendationCardPayloadSchema = z.strictObject({
+  id: savedTripItemIdSchema,
+  kind: z.enum(["place", "beach"]),
+  title: trimmedString(maxShortTextLength),
+  subtitle: trimmedString(maxShortTextLength).optional(),
+  mapsUrl: mapsUrlSchema.optional(),
+  distanceLabel: trimmedString(80).optional(),
+  openStatusLabel: trimmedString(80).optional(),
+  fitReasons: normalizedTextArraySchema(8),
+  caveats: normalizedTextArraySchema(12),
+  sourceLabel: trimmedString(maxShortTextLength),
+});
 
-export const itineraryStopPayloadSchema = z
-  .object({
-    title: trimmedString(maxShortTextLength),
-    kind: z.enum(["place", "beach", "activity", "meal", "transfer"]),
-    sequence: z.number().int().min(1).max(20),
-    area: trimmedString(120).optional(),
-    travelTimeFromPreviousMinutes: z
-      .number()
-      .int()
-      .min(0)
-      .max(24 * 60)
-      .optional(),
-    mapsUrl: mapsUrlSchema.optional(),
-    rationale: trimmedString(maxMediumTextLength),
-    caveats: normalizedTextArraySchema(12),
-  })
-  .strict();
+const itineraryStopPayloadSchema = z.strictObject({
+  title: trimmedString(maxShortTextLength),
+  kind: z.enum(["place", "beach", "activity", "meal", "transfer"]),
+  sequence: z.number().int().min(1).max(20),
+  area: trimmedString(120).optional(),
+  travelTimeFromPreviousMinutes: z
+    .number()
+    .int()
+    .min(0)
+    .max(24 * 60)
+    .optional(),
+  mapsUrl: mapsUrlSchema.optional(),
+  rationale: trimmedString(maxMediumTextLength),
+  caveats: normalizedTextArraySchema(12),
+});
 
-export const itineraryPlanPayloadSchema = z
-  .object({
-    title: trimmedString(maxShortTextLength),
-    durationLabel: trimmedString(80),
-    stops: z.array(itineraryStopPayloadSchema).min(1).max(20),
-    fallbackStops: z.array(itineraryStopPayloadSchema).max(12),
-    skip: normalizedTextArraySchema(12),
-    sources: z.array(answerSourceSummarySchema).max(12),
-  })
-  .strict();
+const itineraryPlanPayloadSchema = z.strictObject({
+  title: trimmedString(maxShortTextLength),
+  durationLabel: trimmedString(80),
+  stops: z.array(itineraryStopPayloadSchema).min(1).max(20),
+  fallbackStops: z.array(itineraryStopPayloadSchema).max(12),
+  skip: normalizedTextArraySchema(12),
+  sources: z.array(answerSourceSummarySchema).max(12),
+});
 
-export const savedRecommendationPayloadSchema = z
-  .object({
-    type: z.literal("recommendation_card"),
-    card: recommendationCardPayloadSchema,
-  })
-  .strict();
+const savedRecommendationPayloadSchema = z.strictObject({
+  type: z.literal("recommendation_card"),
+  card: recommendationCardPayloadSchema,
+});
 
-export const savedItineraryPayloadSchema = z
-  .object({
-    type: z.literal("itinerary_plan"),
-    plan: itineraryPlanPayloadSchema,
-  })
-  .strict();
+const savedItineraryPayloadSchema = z.strictObject({
+  type: z.literal("itinerary_plan"),
+  plan: itineraryPlanPayloadSchema,
+});
 
-export const savedNotePayloadSchema = z
-  .object({
-    type: z.literal("note"),
-    text: trimmedString(maxNoteTextLength),
-  })
-  .strict();
+const savedNotePayloadSchema = z.strictObject({
+  type: z.literal("note"),
+  text: trimmedString(maxNoteTextLength),
+});
 
-export const savedTripItemPayloadSchema = z.discriminatedUnion("type", [
+const savedTripItemPayloadSchema = z.discriminatedUnion("type", [
   savedRecommendationPayloadSchema,
   savedItineraryPayloadSchema,
   savedNotePayloadSchema,
 ]);
 
 export const savedTripItemSchema = z
-  .object({
+  .strictObject({
     id: savedTripItemIdSchema,
     tripId: localTripIdSchema.optional(),
     kind: z.enum(savedTripItemKinds),
@@ -144,7 +130,6 @@ export const savedTripItemSchema = z
     mapsUrl: mapsUrlSchema.optional(),
     caveats: normalizedTextArraySchema(16),
   })
-  .strict()
   .superRefine((item, context) => {
     if (item.payload.type === "recommendation_card" && item.kind !== item.payload.card.kind) {
       context.addIssue({
@@ -171,39 +156,31 @@ export const savedTripItemSchema = z
     }
   });
 
-export const browserSavedTripStateSchema = z
-  .object({
-    tripId: localTripIdSchema,
-    items: z.array(savedTripItemSchema).max(maxSavedTripItems),
-    updatedAt: z.iso.datetime(),
-  })
-  .strict();
+export const browserSavedTripStateSchema = z.strictObject({
+  tripId: localTripIdSchema,
+  items: z.array(savedTripItemSchema).max(maxSavedTripItems),
+  updatedAt: z.iso.datetime(),
+});
 
-export const saveSavedTripItemsRequestSchema = z
-  .object({
-    tripId: localTripIdSchema,
-    items: z.array(savedTripItemSchema).max(maxSavedTripItems),
-  })
-  .strict();
+export const saveSavedTripItemsRequestSchema = z.strictObject({
+  tripId: localTripIdSchema,
+  items: z.array(savedTripItemSchema).max(maxSavedTripItems),
+});
 
-export const createSharedTripPlanRequestSchema = z
-  .object({
-    tripId: localTripIdSchema,
-    title: trimmedString(maxShortTextLength).optional(),
-    itemIds: z.array(savedTripItemIdSchema).min(1).max(maxSharedTripItemIds),
-    expiresAt: z.iso.datetime().optional(),
-  })
-  .strict();
+export const createSharedTripPlanRequestSchema = z.strictObject({
+  tripId: localTripIdSchema,
+  title: trimmedString(maxShortTextLength).optional(),
+  itemIds: z.array(savedTripItemIdSchema).min(1).max(maxSharedTripItemIds),
+  expiresAt: z.iso.datetime().optional(),
+});
 
-export const sharedTripPlanSchema = z
-  .object({
-    id: savedTripItemIdSchema,
-    title: trimmedString(maxShortTextLength),
-    items: z.array(savedTripItemSchema).max(maxSharedTripItemIds),
-    createdAt: z.iso.datetime(),
-    expiresAt: z.iso.datetime().optional(),
-  })
-  .strict();
+const sharedTripPlanSchema = z.strictObject({
+  id: savedTripItemIdSchema,
+  title: trimmedString(maxShortTextLength),
+  items: z.array(savedTripItemSchema).max(maxSharedTripItemIds),
+  createdAt: z.iso.datetime(),
+  expiresAt: z.iso.datetime().optional(),
+});
 
 export type SavedRecommendationPayload = z.infer<typeof savedRecommendationPayloadSchema>;
 export type SavedItineraryPayload = z.infer<typeof savedItineraryPayloadSchema>;
@@ -217,10 +194,6 @@ export type SharedTripPlan = z.infer<typeof sharedTripPlanSchema>;
 
 export function normalizeSavedTripItem(input: unknown): SavedTripItem {
   return savedTripItemSchema.parse(input);
-}
-
-export function normalizeBrowserSavedTripState(input: unknown): BrowserSavedTripState {
-  return browserSavedTripStateSchema.parse(input);
 }
 
 export function normalizeSharedTripPlan(input: unknown): SharedTripPlan {
@@ -319,7 +292,7 @@ export function normalizePublicTripTitle(value: string | undefined) {
   return normalizeText(value || "Siargao saved plan", maxShortTextLength);
 }
 
-export function normalizeIdentifier(value: string) {
+function normalizeIdentifier(value: string) {
   return value
     .trim()
     .replace(/\s+/g, "-")
@@ -439,8 +412,10 @@ function normalizeTextArray(
   maxLength = maxMediumTextLength,
 ) {
   return values
-    .map((value) => normalizeText(value, maxLength))
-    .filter((value) => value.length > 0)
+    .flatMap((value) => {
+      const normalizedValue = normalizeText(value, maxLength);
+      return normalizedValue.length > 0 ? [normalizedValue] : [];
+    })
     .slice(0, maxItems);
 }
 

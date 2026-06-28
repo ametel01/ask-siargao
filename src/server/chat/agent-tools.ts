@@ -156,75 +156,65 @@ const weatherForecastLocations = [
 ] as const;
 
 const defaultLocalFactsQueryTimeoutMs = 2_000;
-const describeSourcePolicySchema = z.object({}).strict();
-const agentMemoryReferenceDocumentNames = requiredAgentMemoryManifest
-  .filter((entry) => entry.role === "reference")
-  .map((entry) => entry.fileName) as [string, ...string[]];
-const siargaoCenterSchema = z
-  .object({
-    latitude: z.number().min(9.0).max(10.5),
-    longitude: z.number().min(125.0).max(127.0),
-  })
-  .strict();
+const describeSourcePolicySchema = z.strictObject({});
+const agentMemoryReferenceDocumentNames = requiredAgentMemoryManifest.reduce<string[]>(
+  (names, entry) => {
+    if (entry.role === "reference") {
+      names.push(entry.fileName);
+    }
+    return names;
+  },
+  [],
+) as [string, ...string[]];
+const siargaoCenterSchema = z.strictObject({
+  latitude: z.number().min(9.0).max(10.5),
+  longitude: z.number().min(125.0).max(127.0),
+});
 const optionalNullable = <Schema extends z.ZodTypeAny>(schema: Schema) =>
   z.preprocess((value) => (value === null ? undefined : value), schema.optional());
-const searchPlacesSchema = z
-  .object({
-    query: z.string().trim().min(2).max(180),
-    center: siargaoCenterSchema,
-    radius_meters: z.number().int().min(500).max(20_000),
-    constraints: optionalNullable(
-      z
-        .object({
-          included_type: optionalNullable(z.string().trim().min(2).max(60)),
-          open_now: optionalNullable(z.boolean()),
-          page_size: optionalNullable(z.number().int().min(1).max(10)),
-        })
-        .strict(),
-    ),
-  })
-  .strict();
-const placeDetailsSchema = z
-  .object({
-    place_id: z
-      .string()
-      .trim()
-      .min(2)
-      .max(200)
-      .regex(/^[A-Za-z0-9_.:-]+$/),
-  })
-  .strict();
-const searchLocalGuideSchema = z
-  .object({
-    query: z.string().trim().min(2).max(240),
-    filters: optionalNullable(
-      z
-        .object({
-          beach_surface: optionalNullable(z.enum(["sand", "mixed", "rocky", "any"])),
-          swimming: optionalNullable(z.boolean()),
-          sunset: optionalNullable(z.boolean()),
-          rain_fit: optionalNullable(z.boolean()),
-          max_ride_minutes: optionalNullable(z.number().int().min(1).max(180)),
-          transport_mode: optionalNullable(z.enum(["walk", "scooter", "tricycle", "van"])),
-          with_kids: optionalNullable(z.boolean()),
-        })
-        .strict(),
-    ),
-  })
-  .strict();
-const weatherForecastSchema = z
-  .object({
-    location: z.enum(weatherForecastLocations),
-    date_range: z.enum(["today", "next_7_days"]),
-  })
-  .strict();
-const searchAgentMemorySchema = z
-  .object({
-    query: z.string().trim().min(2).max(240),
-    documents: optionalNullable(z.array(z.enum(agentMemoryReferenceDocumentNames)).min(1).max(5)),
-    max_results: optionalNullable(z.number().int().min(1).max(5)),
-  })
-  .strict();
+const searchPlacesSchema = z.strictObject({
+  query: z.string().trim().min(2).max(180),
+  center: siargaoCenterSchema,
+  radius_meters: z.number().int().min(500).max(20_000),
+  constraints: optionalNullable(
+    z.strictObject({
+      included_type: optionalNullable(z.string().trim().min(2).max(60)),
+      open_now: optionalNullable(z.boolean()),
+      page_size: optionalNullable(z.number().int().min(1).max(10)),
+    }),
+  ),
+});
+const placeDetailsSchema = z.strictObject({
+  place_id: z
+    .string()
+    .trim()
+    .min(2)
+    .max(200)
+    .regex(/^[A-Za-z0-9_.:-]+$/),
+});
+const searchLocalGuideSchema = z.strictObject({
+  query: z.string().trim().min(2).max(240),
+  filters: optionalNullable(
+    z.strictObject({
+      beach_surface: optionalNullable(z.enum(["sand", "mixed", "rocky", "any"])),
+      swimming: optionalNullable(z.boolean()),
+      sunset: optionalNullable(z.boolean()),
+      rain_fit: optionalNullable(z.boolean()),
+      max_ride_minutes: optionalNullable(z.number().int().min(1).max(180)),
+      transport_mode: optionalNullable(z.enum(["walk", "scooter", "tricycle", "van"])),
+      with_kids: optionalNullable(z.boolean()),
+    }),
+  ),
+});
+const weatherForecastSchema = z.strictObject({
+  location: z.enum(weatherForecastLocations),
+  date_range: z.enum(["today", "next_7_days"]),
+});
+const searchAgentMemorySchema = z.strictObject({
+  query: z.string().trim().min(2).max(240),
+  documents: optionalNullable(z.array(z.enum(agentMemoryReferenceDocumentNames)).min(1).max(5)),
+  max_results: optionalNullable(z.number().int().min(1).max(5)),
+});
 
 const sourcePolicyDescriptions: SourcePolicyDescription[] = [
   {
@@ -779,16 +769,20 @@ function searchAgentMemoryToolResult(
       : snapshot.referenceFiles;
   const terms = tokenizeMemoryQuery(args.query);
   const results = referenceFiles
-    .map((file) => {
-      const excerpt = findMemoryExcerpt(file.content, terms);
-      return {
-        fileName: file.fileName,
-        title: file.title,
-        excerpt,
-        score: scoreMemoryFile(file.content, file.title, terms),
-      };
+    .flatMap((file) => {
+      const score = scoreMemoryFile(file.content, file.title, terms);
+      if (score <= 0 && terms.length > 0) {
+        return [];
+      }
+      return [
+        {
+          fileName: file.fileName,
+          title: file.title,
+          excerpt: findMemoryExcerpt(file.content, terms),
+          score,
+        },
+      ];
     })
-    .filter((result) => result.score > 0 || terms.length === 0)
     .sort((left, right) => right.score - left.score || left.fileName.localeCompare(right.fileName))
     .slice(0, maxResults);
 
@@ -1183,11 +1177,11 @@ function renderLocalGuideText(result: LocalGuideSearchResult) {
         .filter(Boolean)
         .join(" - "),
     );
-  const exclusions = result.excluded
-    .filter(
-      (candidate) => candidate.name === "Pacifico Beach" || candidate.name === "Alegria Beach",
-    )
-    .map((candidate) => `Excluded: ${candidate.name} - ${candidate.reason}`);
+  const exclusions = result.excluded.flatMap((candidate) =>
+    candidate.name === "Pacifico Beach" || candidate.name === "Alegria Beach"
+      ? [`Excluded: ${candidate.name} - ${candidate.reason}`]
+      : [],
+  );
 
   return [
     `Ask Siargao curated local guide results for "${result.query}".`,
@@ -1361,11 +1355,12 @@ function localFactSourceSummaries(
 ): AnswerSourceSummary[] {
   const summaries = new Map<string, AnswerSourceSummary>();
   for (const fact of facts) {
+    const { fetchedAt, sourceProfileId } = fact.source;
     const key = [
       fact.source.label,
       fact.source.sourceName,
-      fact.source.sourceProfileId ?? "",
-      fact.source.fetchedAt ?? "",
+      sourceProfileId ?? "",
+      fetchedAt ?? "",
     ].join("|");
     const existing = summaries.get(key);
     const checkedItem = `${fact.entityType} fact: ${fact.name}`;
@@ -1380,8 +1375,8 @@ function localFactSourceSummaries(
     summaries.set(key, {
       label: fact.source.label,
       sourceName: fact.source.sourceName,
-      ...(fact.source.sourceProfileId ? { sourceProfileId: fact.source.sourceProfileId } : {}),
-      ...(fact.source.fetchedAt ? { fetchedAt: fact.source.fetchedAt } : {}),
+      ...(sourceProfileId ? { sourceProfileId } : {}),
+      ...(fetchedAt ? { fetchedAt } : {}),
       confidence: fact.confidence,
       checked: [checkedItem],
       notChecked: [...fact.caveats],
@@ -1441,7 +1436,7 @@ async function withLocalFactsQueryRunner<T>(
   try {
     return await withLocalFactsTimeout(
       (async () => {
-        await sql.unsafe(`set statement_timeout to ${timeoutMs}`);
+        await sql`select set_config('statement_timeout', ${String(timeoutMs)}, false)`;
         return callback((query, ...params) => sql(query, ...(params as never[])));
       })(),
       timeoutMs,
@@ -2392,17 +2387,24 @@ function formatNullableNumber(value: number | null, unit: string) {
 }
 
 function uniqueText(values: readonly (string | null | undefined)[]) {
-  return [
-    ...new Set(values.map((value) => value?.trim() ?? "").filter((value) => value.length > 0)),
-  ];
+  const uniqueValues = new Set<string>();
+  for (const value of values) {
+    const normalizedValue = value?.trim() ?? "";
+    if (normalizedValue.length > 0) {
+      uniqueValues.add(normalizedValue);
+    }
+  }
+  return [...uniqueValues];
 }
 
 function tokenizeMemoryQuery(query: string) {
   return query
     .toLowerCase()
     .split(/[^a-z0-9_]+/)
-    .map((term) => term.trim())
-    .filter((term) => term.length > 2);
+    .flatMap((term) => {
+      const normalizedTerm = term.trim();
+      return normalizedTerm.length > 2 ? [normalizedTerm] : [];
+    });
 }
 
 function scoreMemoryFile(content: string, title: string, terms: readonly string[]) {
@@ -2421,10 +2423,10 @@ function countOccurrences(content: string, term: string) {
 }
 
 function findMemoryExcerpt(content: string, terms: readonly string[]) {
-  const paragraphs = content
-    .split(/\n{2,}/)
-    .map((paragraph) => normalizeMemoryText(paragraph.replace(/^#+\s*/gm, "")))
-    .filter(Boolean);
+  const paragraphs = content.split(/\n{2,}/).flatMap((paragraph) => {
+    const normalizedParagraph = normalizeMemoryText(paragraph.replace(/^#+\s*/gm, ""));
+    return normalizedParagraph ? [normalizedParagraph] : [];
+  });
   const term = terms.find((candidate) =>
     paragraphs.some((paragraph) => paragraph.toLowerCase().includes(candidate)),
   );

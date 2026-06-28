@@ -31,57 +31,49 @@ const answerTrustLabels = [
   "provider_unavailable",
 ] as const satisfies readonly AnswerTrustLabel[];
 
-export const conditionSourceSummarySchema = z
-  .object({
-    label: z.enum(answerTrustLabels),
-    sourceName: z.string().min(1),
-    sourceProfileId: z.string().min(1).optional(),
-    fetchedAt: z.string().min(1).optional(),
-    confidence: z.enum(["high", "medium", "low"]).optional(),
-    checked: z.array(z.string().min(1)),
-    notChecked: z.array(z.string().min(1)),
-  })
-  .strict();
+const conditionSourceSummarySchema = z.strictObject({
+  label: z.enum(answerTrustLabels),
+  sourceName: z.string().min(1),
+  sourceProfileId: z.string().min(1).optional(),
+  fetchedAt: z.string().min(1).optional(),
+  confidence: z.enum(["high", "medium", "low"]).optional(),
+  checked: z.array(z.string().min(1)),
+  notChecked: z.array(z.string().min(1)),
+});
 
-export const conditionSignalSchema = z
-  .object({
-    kind: z.enum(conditionSignalKinds),
-    status: z.enum(conditionSignalStatuses),
-    level: z.enum(conditionRiskLevels),
-    label: z.string().min(1),
-    summary: z.string().min(1),
-    checked: z.array(z.string().min(1)),
-    notChecked: z.array(z.string().min(1)),
-    evidenceIds: z.array(z.string().min(1)),
-    source: conditionSourceSummarySchema,
-  })
-  .strict();
+const conditionSignalSchema = z.strictObject({
+  kind: z.enum(conditionSignalKinds),
+  status: z.enum(conditionSignalStatuses),
+  level: z.enum(conditionRiskLevels),
+  label: z.string().min(1),
+  summary: z.string().min(1),
+  checked: z.array(z.string().min(1)),
+  notChecked: z.array(z.string().min(1)),
+  evidenceIds: z.array(z.string().min(1)),
+  source: conditionSourceSummarySchema,
+});
 
-export const conditionJudgmentSchema = z
-  .object({
-    activity: z.enum(conditionActivities),
-    locationName: z.string().min(1),
-    dateLabel: z.string().min(1),
-    recommendation: z.enum(conditionRecommendations),
-    level: z.enum(conditionRiskLevels),
-    reasons: z.array(z.string().min(1)).min(1),
-    alternatives: z.array(z.string().min(1)).min(1),
-    caveats: z.array(z.string().min(1)),
-    signals: z.array(conditionSignalSchema).min(1),
-    sources: z.array(conditionSourceSummarySchema).min(1),
-  })
-  .strict();
+export const conditionJudgmentSchema = z.strictObject({
+  activity: z.enum(conditionActivities),
+  locationName: z.string().min(1),
+  dateLabel: z.string().min(1),
+  recommendation: z.enum(conditionRecommendations),
+  level: z.enum(conditionRiskLevels),
+  reasons: z.array(z.string().min(1)).min(1),
+  alternatives: z.array(z.string().min(1)).min(1),
+  caveats: z.array(z.string().min(1)),
+  signals: z.array(conditionSignalSchema).min(1),
+  sources: z.array(conditionSourceSummarySchema).min(1),
+});
 
-export const conditionJudgmentRequestSchema = z
-  .object({
-    activity: z.enum(conditionActivities),
-    location: z.enum(["Siargao Island", "Cloud 9", "General Luna", "Del Carmen"]),
-    date_range: z.enum(["today", "next_7_days"]),
-    beach_name: z.string().min(1).nullable(),
-    include_local_caveats: z.boolean().nullable(),
-    constraints: z.array(z.string().min(1)).nullable(),
-  })
-  .strict();
+export const conditionJudgmentRequestSchema = z.strictObject({
+  activity: z.enum(conditionActivities),
+  location: z.enum(["Siargao Island", "Cloud 9", "General Luna", "Del Carmen"]),
+  date_range: z.enum(["today", "next_7_days"]),
+  beach_name: z.string().min(1).nullable(),
+  include_local_caveats: z.boolean().nullable(),
+  constraints: z.array(z.string().min(1)).nullable(),
+});
 
 export type ConditionSignal = z.infer<typeof conditionSignalSchema>;
 export type ConditionJudgment = z.infer<typeof conditionJudgmentSchema>;

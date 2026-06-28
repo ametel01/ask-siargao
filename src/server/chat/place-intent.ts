@@ -113,16 +113,6 @@ export function interpretPlaceIntent(
   };
 }
 
-export function isPlaceRecommendationContent(content: string) {
-  return (
-    /\b(restaurants?|where\s+(?:can|should)\s+(?:we|i)\s+eat|food|dinner|lunch|breakfast|brunch|caf[eé]s?|coffee|bars?|nightlife|drinks?|places?\s+to\s+(?:eat|go|stop)|stop\s+to\s+eat|food\s+stops?|car[ie]nderias?|seafood|covered\s+(?:caf[eé]s?|places?|spots?)|beachfront\s+(?:places?|caf[eé]s?|restaurants?|spots?)|specific\s+(?:places?|spots?|caf[eé]s?))\b/i.test(
-      content,
-    ) ||
-    isServicePlaceContent(content) ||
-    inferSpecificPlaceName(content) !== null
-  );
-}
-
 function inferPlaceCategory(content: string): PlaceCategory | null {
   if (!content.trim()) {
     return null;

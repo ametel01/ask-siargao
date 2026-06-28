@@ -25,7 +25,7 @@ import {
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 import { createComponentLogger } from "@/server/observability/logger";
 
-const chatRequestSchema = z.object({
+const chatRequestSchema = z.strictObject({
   messages: z
     .array(
       z.object({
@@ -38,17 +38,15 @@ const chatRequestSchema = z.object({
   clientContext: z
     .object({
       geolocation: z
-        .object({
+        .strictObject({
           latitude: z.number().min(-90).max(90),
           longitude: z.number().min(-180).max(180),
           accuracyMeters: z.number().min(0).optional(),
           capturedAt: z.iso.datetime(),
           consentScope: z.enum(["single_request", "trip_session"]),
         })
-        .strict()
         .optional(),
     })
-    .strict()
     .optional(),
 });
 
@@ -323,19 +321,12 @@ async function readChatRequestBodyText(request: Request) {
     return { status: "ok" as const, text: "" };
   }
 
-  const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-
+  for await (const value of request.body) {
     totalBytes += value.byteLength;
     if (totalBytes > maxChatRequestBodyBytes) {
-      await reader.cancel();
       return { status: "too_large" as const };
     }
     chunks.push(value);

@@ -19,19 +19,17 @@ export const localItineraryThemes = [
 const optionalNullable = <Schema extends z.ZodTypeAny>(schema: Schema) =>
   z.preprocess((value) => (value === null ? undefined : value), schema.optional());
 
-export const localItineraryRequestSchema = z
-  .object({
-    theme: z.enum(localItineraryThemes),
-    origin: optionalNullable(z.string().trim().min(2).max(120)),
-    duration_hours: optionalNullable(z.number().min(2).max(4)),
-    transport_mode: optionalNullable(z.enum(["walk", "scooter", "tricycle", "van"])),
-    max_ride_minutes: optionalNullable(z.number().int().min(5).max(180)),
-    needs_weather_check: optionalNullable(z.boolean()),
-    needs_open_now: optionalNullable(z.boolean()),
-    meal_preference: optionalNullable(z.string().trim().min(2).max(120)),
-    constraints: optionalNullable(z.array(z.string().trim().min(1).max(120)).max(12)),
-  })
-  .strict();
+export const localItineraryRequestSchema = z.strictObject({
+  theme: z.enum(localItineraryThemes),
+  origin: optionalNullable(z.string().trim().min(2).max(120)),
+  duration_hours: optionalNullable(z.number().min(2).max(4)),
+  transport_mode: optionalNullable(z.enum(["walk", "scooter", "tricycle", "van"])),
+  max_ride_minutes: optionalNullable(z.number().int().min(5).max(180)),
+  needs_weather_check: optionalNullable(z.boolean()),
+  needs_open_now: optionalNullable(z.boolean()),
+  meal_preference: optionalNullable(z.string().trim().min(2).max(120)),
+  constraints: optionalNullable(z.array(z.string().trim().min(1).max(120)).max(12)),
+});
 
 export type LocalItineraryRequest = z.infer<typeof localItineraryRequestSchema>;
 
@@ -807,7 +805,14 @@ function usesCuratedLocalGuideSource(request: LocalItineraryResult["request"]) {
 }
 
 function uniqueText(values: readonly string[]) {
-  return [...new Set(values.map(normalizeText).filter(Boolean))];
+  return [
+    ...new Set(
+      values.flatMap((value) => {
+        const normalizedValue = normalizeText(value);
+        return normalizedValue ? [normalizedValue] : [];
+      }),
+    ),
+  ];
 }
 
 function summarizeItineraryConstraints(
