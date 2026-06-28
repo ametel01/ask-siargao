@@ -173,12 +173,18 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
 
     expect(client.requests).toHaveLength(2);
-    expect(client.requests[1]?.previous_response_id).toBe("resp_weather_call");
+    expect(client.requests[1]?.previous_response_id).toBeUndefined();
+    expect(client.requests[1]?.store).toBe(false);
     expect(client.requests[1]?.instructions).toBe(client.requests[0]?.instructions);
     expect(String(client.requests[1]?.instructions)).toContain(
       "Use backend tools for live, local, provider-backed, or curated Ask Siargao facts",
     );
-    expect(client.requests[1]?.input).toEqual([
+    expect(responseInputItemsByType(client.requests[1]?.input, "function_call")).toContainEqual(
+      expect.objectContaining({
+        call_id: "call_weather",
+      }),
+    );
+    expect(responseInputItemsByType(client.requests[1]?.input, "function_call_output")).toEqual([
       expect.objectContaining({
         type: "function_call_output",
         call_id: "call_weather",
@@ -2443,7 +2449,10 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       { client, executeTool, model: "gpt-test" },
     );
 
-    expect(client.requests[1]?.input).toHaveLength(2);
+    expect(responseInputItemsByType(client.requests[1]?.input, "function_call")).toHaveLength(2);
+    expect(
+      responseInputItemsByType(client.requests[1]?.input, "function_call_output"),
+    ).toHaveLength(2);
     expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
       "get_weather_forecast",
       "search_local_guide",
@@ -2702,26 +2711,26 @@ function parseFirstInput(input: unknown): {
     files?: Array<Record<string, unknown>>;
   };
 } {
-  return typeof input === "string" ? JSON.parse(input) : {};
+  return parseLastUserInputMessage(input) ?? {};
 }
 
 function parseAutomaticRequiredCheckInput(input: unknown): {
   automaticRequiredToolChecks?: Array<{ name?: string }>;
 } {
-  return typeof input === "string" ? JSON.parse(input) : {};
+  return parseLastUserInputMessage(input) ?? {};
 }
 
 function parseAutomaticRequiredPlanInput(input: unknown): {
   validationRepairItineraryPlan?: { name?: string };
 } {
-  return typeof input === "string" ? JSON.parse(input) : {};
+  return parseLastUserInputMessage(input) ?? {};
 }
 
 function parseAutomaticConditionInput(input: unknown): {
   instruction?: string;
   validationRepairConditionJudgment?: { name?: string };
 } {
-  return typeof input === "string" ? JSON.parse(input) : {};
+  return parseLastUserInputMessage(input) ?? {};
 }
 
 function parseToolOutput(
@@ -2735,12 +2744,48 @@ function parseToolOutput(
     return {};
   }
 
-  const item = input[index];
+  const item = responseInputItemsByType(input, "function_call_output")[index];
   if (!isRecord(item) || typeof item.output !== "string") {
     return {};
   }
 
   return JSON.parse(item.output);
+}
+
+function parseLastUserInputMessage(input: unknown): Record<string, unknown> | undefined {
+  if (typeof input === "string") {
+    return JSON.parse(input);
+  }
+  if (!Array.isArray(input)) {
+    return undefined;
+  }
+
+  const item = [...input]
+    .reverse()
+    .find(
+      (candidate) =>
+        isRecord(candidate) && candidate.type === "message" && candidate.role === "user",
+    );
+  if (!isRecord(item) || !Array.isArray(item.content)) {
+    return undefined;
+  }
+
+  const textPart = item.content.find(
+    (candidate) => isRecord(candidate) && candidate.type === "input_text",
+  );
+  if (!isRecord(textPart) || typeof textPart.text !== "string") {
+    return undefined;
+  }
+
+  return JSON.parse(textPart.text);
+}
+
+function responseInputItemsByType(input: unknown, type: string) {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  return input.filter((item) => isRecord(item) && item.type === type);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

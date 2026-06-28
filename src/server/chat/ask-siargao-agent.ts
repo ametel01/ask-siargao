@@ -51,6 +51,8 @@ type ModelFacingAgentMemoryMetadata = {
   }>;
 };
 
+type ResponseInputItem = Record<string, unknown>;
+
 const defaultMaxToolCalls = 8;
 const defaultMaxTurns = 6;
 const maxConversationMessages = 10;
@@ -103,13 +105,8 @@ export async function runAskSiargaoAgentTurn(
     "Ask Siargao agent turn started.",
   );
 
-  let response = await client.responses.create({
-    model: resolved.model,
-    store: false,
-    max_output_tokens: 1_000,
-    instructions,
-    tools,
-    input: JSON.stringify({
+  let responseInput: ResponseInputItem[] = [
+    userInputMessage({
       product: "Ask Siargao",
       conversation: resolved.messages.slice(-maxConversationMessages),
       requestMetadata: resolved.metadata,
@@ -117,6 +114,14 @@ export async function runAskSiargaoAgentTurn(
       agentMemory: summarizeMemoryForModel(memory),
       responseContract: responseContract,
     }),
+  ];
+  let response = await client.responses.create({
+    model: resolved.model,
+    store: false,
+    max_output_tokens: 1_000,
+    instructions,
+    tools,
+    input: responseInput,
   });
   collectUpstreamRequestId(response._request_id, upstreamRequestIds);
 
@@ -146,14 +151,10 @@ export async function runAskSiargaoAgentTurn(
         toolCalls.push(automaticPlanOutput.audit);
         toolResults.push(automaticPlanOutput.result);
 
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_000,
-          instructions,
-          tools,
-          ...(response.id ? { previous_response_id: response.id } : {}),
-          input: JSON.stringify({
+        responseInput = [
+          ...responseInput,
+          ...responseOutputItems(response.output),
+          userInputMessage({
             product: "Ask Siargao",
             instruction:
               "Validation repair: you attempted a final itinerary answer before choosing plan_local_itinerary as required. Use this runtime-repaired itinerary artifact as planning evidence, preserve its caveats, and continue with any required follow-up checks before the final traveler-facing answer.",
@@ -165,6 +166,14 @@ export async function runAskSiargaoAgentTurn(
             },
             responseContract,
           }),
+        ];
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_000,
+          instructions,
+          tools,
+          input: responseInput,
         });
         collectUpstreamRequestId(response._request_id, upstreamRequestIds);
         continue;
@@ -193,14 +202,10 @@ export async function runAskSiargaoAgentTurn(
         toolCalls.push(automaticConditionOutput.audit);
         toolResults.push(automaticConditionOutput.result);
 
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_000,
-          instructions,
-          tools,
-          ...(response.id ? { previous_response_id: response.id } : {}),
-          input: JSON.stringify({
+        responseInput = [
+          ...responseInput,
+          ...responseOutputItems(response.output),
+          userInputMessage({
             product: "Ask Siargao",
             instruction: conditionJudgmentRepairInstruction(
               automaticConditionOutput.functionCall.arguments,
@@ -213,6 +218,14 @@ export async function runAskSiargaoAgentTurn(
             },
             responseContract,
           }),
+        ];
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_000,
+          instructions,
+          tools,
+          input: responseInput,
         });
         collectUpstreamRequestId(response._request_id, upstreamRequestIds);
         continue;
@@ -239,14 +252,10 @@ export async function runAskSiargaoAgentTurn(
         toolCalls.push(...automaticToolOutputs.map((output) => output.audit));
         toolResults.push(...automaticToolOutputs.map((output) => output.result));
 
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_000,
-          instructions,
-          tools,
-          ...(response.id ? { previous_response_id: response.id } : {}),
-          input: JSON.stringify({
+        responseInput = [
+          ...responseInput,
+          ...responseOutputItems(response.output),
+          userInputMessage({
             product: "Ask Siargao",
             instruction:
               "You attempted a final itinerary answer before required follow-up checks completed. Use these automatically executed safe tool outputs, preserve provider failures as caveats, and write the final traveler-facing answer now.",
@@ -258,6 +267,14 @@ export async function runAskSiargaoAgentTurn(
             })),
             responseContract,
           }),
+        ];
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_000,
+          instructions,
+          tools,
+          input: responseInput,
         });
         collectUpstreamRequestId(response._request_id, upstreamRequestIds);
         continue;
@@ -308,23 +325,48 @@ export async function runAskSiargaoAgentTurn(
     toolCalls.push(...toolOutputs.map((output) => output.audit));
     toolResults.push(...toolOutputs.map((output) => output.result));
 
+    responseInput = [
+      ...responseInput,
+      ...responseOutputItems(response.output),
+      ...toolOutputs.map((output) => ({
+        type: "function_call_output",
+        call_id: output.functionCall.callId,
+        output: serializeToolOutput(output.result),
+      })),
+    ];
     response = await client.responses.create({
       model: resolved.model,
       store: false,
       max_output_tokens: 1_000,
       instructions,
       tools,
-      previous_response_id: response.id,
-      input: toolOutputs.map((output) => ({
-        type: "function_call_output",
-        call_id: output.functionCall.callId,
-        output: serializeToolOutput(output.result),
-      })),
+      input: responseInput,
     });
     collectUpstreamRequestId(response._request_id, upstreamRequestIds);
   }
 
   throw new Error("Ask Siargao agent exceeded the maximum turn count.");
+}
+
+function userInputMessage(input: Record<string, unknown>): ResponseInputItem {
+  return {
+    type: "message",
+    role: "user",
+    content: [
+      {
+        type: "input_text",
+        text: JSON.stringify(input),
+      },
+    ],
+  };
+}
+
+function responseOutputItems(output: unknown): ResponseInputItem[] {
+  if (!Array.isArray(output)) {
+    return [];
+  }
+
+  return output.flatMap((item) => (isRecord(item) ? [item] : []));
 }
 
 function missingInitialItineraryPlanRepairCall(
