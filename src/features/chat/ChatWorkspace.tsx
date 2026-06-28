@@ -19,6 +19,7 @@ import {
 import Link from "next/link";
 import {
   type FormEvent,
+  type KeyboardEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -33,7 +34,6 @@ import { Button } from "@/components/ui/button";
 import { InputGroup } from "@/components/ui/input-group";
 import { InputGroupAddon } from "@/components/ui/input-group-addon";
 import { InputGroupButton } from "@/components/ui/input-group-button";
-import { InputGroupInput } from "@/components/ui/input-group-input";
 import type { SavedTripItem } from "@/server/trips/shared-trip-types";
 import { BrandLockup, PalmMark } from "@/ui/components/ask-siargao";
 
@@ -640,8 +640,13 @@ function ChatMessage({
 
   if (isUser) {
     return (
-      <article className="max-w-[min(88%,42rem)] justify-self-end rounded-lg bg-[image:var(--gradient-cta)] px-5 py-4 text-text-on-dark shadow-[0_18px_44px_rgba(76,49,184,0.25)]">
-        <p className="m-0 text-sm leading-[1.55] font-extrabold sm:text-base">{message.text}</p>
+      <article
+        className="min-w-0 max-w-[min(88%,42rem)] justify-self-end overflow-hidden rounded-lg bg-[image:var(--gradient-cta)] px-5 py-4 text-text-on-dark shadow-[0_18px_44px_rgba(76,49,184,0.25)]"
+        data-testid="user-message-bubble"
+      >
+        <p className="m-0 whitespace-pre-wrap break-words text-sm leading-[1.55] font-extrabold [overflow-wrap:anywhere] sm:text-base">
+          {message.text}
+        </p>
         <time className="mt-2 block text-right text-xs font-bold text-brand-lavender-200">
           {message.timestamp}
         </time>
@@ -1617,7 +1622,22 @@ function ChatComposer({
   onRequestLocation,
   onSubmitPrompt,
 }: ChatComposerProps) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    resizeComposerTextarea(textareaRef.current);
+  });
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmitPrompt(inputValue);
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || isSending || inputValue.trim().length === 0) {
+      return;
+    }
+
     event.preventDefault();
     onSubmitPrompt(inputValue);
   }
@@ -1629,8 +1649,8 @@ function ChatComposer({
   return (
     <footer className="border-white/12 border-t bg-brand-navy-980/92 px-4 py-3 backdrop-blur-md sm:px-6 lg:px-8">
       <form aria-label="Ask Siargao composer" className="mx-auto max-w-3xl" onSubmit={handleSubmit}>
-        <InputGroup className="min-h-[58px] rounded-lg border-white/18 bg-white/96 p-2 shadow-[0_22px_70px_rgba(0,0,0,0.28)]">
-          <InputGroupAddon align="inline-start">
+        <InputGroup className="min-h-[58px] items-start rounded-lg border-white/18 bg-white/96 p-2 shadow-[0_22px_70px_rgba(0,0,0,0.28)]">
+          <InputGroupAddon align="inline-start" className="pt-1.5">
             <InputGroupButton
               aria-label={
                 locationReady ? "Location ready for next question" : "Share location once"
@@ -1653,15 +1673,26 @@ function ChatComposer({
               )}
             </InputGroupButton>
           </InputGroupAddon>
-          <InputGroupInput
+          <textarea
+            data-slot="input-group-control"
             aria-label="Ask anything about Siargao"
-            className="h-11 px-3 text-base text-text-default placeholder:text-text-soft"
+            className="max-h-32 min-h-11 flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent px-3 py-2.5 text-base leading-6 whitespace-pre-wrap text-text-default shadow-none outline-none [field-sizing:content] [overflow-wrap:anywhere] placeholder:text-text-soft focus-visible:ring-0 disabled:bg-transparent"
             disabled={isSending}
-            onInput={(event) => onInputValueChange(event.currentTarget.value)}
+            onChange={(event) => {
+              resizeComposerTextarea(event.currentTarget);
+              onInputValueChange(event.currentTarget.value);
+            }}
+            onInput={(event) => {
+              resizeComposerTextarea(event.currentTarget);
+              onInputValueChange(event.currentTarget.value);
+            }}
+            onKeyDown={handleComposerKeyDown}
             placeholder="Ask anything about Siargao..."
+            ref={textareaRef}
+            rows={1}
             value={inputValue}
           />
-          <InputGroupAddon align="inline-end">
+          <InputGroupAddon align="inline-end" className="pt-1.5">
             <InputGroupButton
               aria-label="Send question"
               className="size-11 rounded-md bg-brand-violet-650 text-white hover:bg-brand-violet-600"
@@ -1686,6 +1717,15 @@ function ChatComposer({
       </form>
     </footer>
   );
+}
+
+function resizeComposerTextarea(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) {
+    return;
+  }
+
+  textarea.style.height = "auto";
+  textarea.style.height = `${Math.min(textarea.scrollHeight, 128)}px`;
 }
 
 function locationStatusText(locationState: LocationCaptureState) {

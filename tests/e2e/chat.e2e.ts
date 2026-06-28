@@ -166,6 +166,45 @@ test("sends a desktop composer message to the chat API and renders the assistant
   expect((composerBox?.y ?? 0) + (composerBox?.height ?? 0)).toBeLessThanOrEqual(1153);
 });
 
+test("wraps long user text inside the composer and user message bubble", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockChatApi(page, {
+    message: "Mocked answer after a long wrapped user prompt.",
+  });
+
+  await page.goto("/chat");
+
+  const longPrompt =
+    "I'm staying near Cloud 9 for 10 days and need quiet sleep, surfing, good restaurants, airport transfer timing, and a fallback plan for rainy afternoons. Also test a long token: quiet-sleep-surf-food-transfer-cloud9-general-luna-rainy-day-backup-plan.";
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill(longPrompt);
+
+  const composerBox = await composerInput.boundingBox();
+  expect(composerBox).not.toBeNull();
+  expect(composerBox?.height ?? 0).toBeGreaterThan(44);
+  await expect
+    .poll(async () =>
+      composerInput.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+    )
+    .toBe(true);
+
+  await composerInput.press("Enter");
+
+  const userBubble = page.getByTestId("user-message-bubble").last();
+  await expect(userBubble).toBeVisible();
+  await expect(page.getByText("Mocked answer after a long wrapped user prompt.")).toBeVisible();
+  await expect
+    .poll(async () =>
+      userBubble.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+    )
+    .toBe(true);
+  await expect
+    .poll(async () =>
+      page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    )
+    .toBe(true);
+});
+
 test("sends granted browser geolocation once and consumes it after the request", async ({
   page,
 }) => {
