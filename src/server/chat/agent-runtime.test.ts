@@ -264,6 +264,7 @@ describe("agent runtime contracts", () => {
     });
 
     expect(turn.sources).toEqual([localGuideSourceSummary, placesSourceSummary]);
+    expect(turn.publicSources).toEqual([placesSourceSummary]);
     expect(turn.cards?.map((card) => card.title)).toEqual(["Cloud 9 Cafe"]);
     expect(turn.cards?.[0]?.sources).toEqual([placesSourceSummary]);
     expect(turn.actions?.map((action) => action.label)).toEqual(["Make a short plan"]);
@@ -274,6 +275,36 @@ describe("agent runtime contracts", () => {
       unselectedCardCount: 1,
       unselectedActionCount: 1,
     });
+  });
+
+  test("keeps aggregate sources internal while exposing only message-selected sources", () => {
+    const localGuideResult: AgentToolResult = {
+      name: "search_local_guide",
+      toolCallId: "call_local_guide",
+      status: "success",
+      text: "Beach guide loaded.",
+      sources: [localGuideSourceSummary],
+    };
+    const placesResult: AgentToolResult = {
+      name: "search_places",
+      toolCallId: "call_places",
+      status: "success",
+      text: "Places loaded.",
+      sources: [placesSourceSummary],
+    };
+    const turn = createAgentTurnResult({
+      message: "Use the selected Places-backed breakfast answer.",
+      requestId: "agent_request_public_sources",
+      model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        usedToolCallIds: ["call_places"],
+      }),
+      toolResults: [localGuideResult, placesResult],
+    });
+
+    expect(turn.sources).toEqual([localGuideSourceSummary, placesSourceSummary]);
+    expect(turn.publicSources).toEqual([placesSourceSummary]);
+    expect(turn.cards).toBeUndefined();
   });
 
   test("does not expose itinerary artifacts without final-payload selection", () => {
@@ -400,6 +431,7 @@ describe("agent runtime contracts", () => {
     });
 
     expect(turn.cards?.map((card) => card.id)).toEqual([cloud9CafeCard.id]);
+    expect(turn.publicSources).toEqual([placesSourceSummary]);
     expect(turn.actions).toBeUndefined();
     expect(turn.itineraries).toBeUndefined();
     expect(turn.artifactSelection).toMatchObject({

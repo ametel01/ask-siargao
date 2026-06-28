@@ -159,6 +159,7 @@ export type AgentTurnResult = {
   model: string;
   toolCalls: readonly AgentToolCallAudit[];
   sources: readonly AnswerSourceSummary[];
+  publicSources: readonly AnswerSourceSummary[];
   memory?: AgentMemoryMetadata;
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
@@ -372,6 +373,18 @@ export function createAgentTurnResult({
       sourceReconciliation,
     ),
   );
+  const publicSources = finalPayload
+    ? reconcileSourceSummaries(
+        aggregateAgentSourceSummaries([
+          ...sourceCarriers.filter((carrier) =>
+            carrier.toolCallId ? finalPayload.usedToolCallIds.includes(carrier.toolCallId) : false,
+          ),
+          ...selectedArtifacts.cards.map((card) => ({ sources: card.sources ?? [] })),
+          ...selectedItineraries.map((itinerary) => ({ sources: itinerary.sources })),
+        ]),
+        sourceReconciliation,
+      )
+    : reconciledSources;
 
   return {
     message,
@@ -380,6 +393,7 @@ export function createAgentTurnResult({
     model,
     toolCalls,
     sources: reconciledSources,
+    publicSources,
     ...(memory ? { memory } : {}),
     artifactSelection: selectedArtifacts.summary,
     ...(selectedArtifacts.cards.length ? { cards: selectedArtifacts.cards } : {}),

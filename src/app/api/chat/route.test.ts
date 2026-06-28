@@ -746,8 +746,8 @@ describe("chat route", () => {
         unselectedCardCount: 1,
         unselectedActionCount: 1,
         unselectedItineraryCount: 0,
-        unknownCardIds: [],
-        unknownActionIds: [],
+        unknownCardIds: ["missing_card"],
+        unknownActionIds: ["missing_action"],
         unknownItineraryIds: [],
       },
     });
@@ -779,9 +779,82 @@ describe("chat route", () => {
         totalActionCount: 2,
         selectedActionCount: 1,
         unselectedActionCount: 1,
+        unknownCardIds: ["missing_card"],
+        unknownActionIds: ["missing_action"],
       },
     });
     expect(JSON.stringify(answeredLog?.payload)).not.toContain("place_shaka");
+  });
+
+  test("returns public sources while logging aggregate source counts", async () => {
+    const logs = captureLogger();
+    const dependencies = chatDependencies({
+      message: "The model-written answer uses the Places-backed breakfast source.",
+      toolCalls: [
+        toolCall({
+          name: "search_local_guide",
+          status: "success",
+          sources: [localGuideSourceSummary],
+        }),
+        toolCall({
+          name: "search_places",
+          status: "success",
+          sources: [placesSourceSummary],
+        }),
+      ],
+      sources: [localGuideSourceSummary, placesSourceSummary],
+      publicSources: [placesSourceSummary],
+    });
+    dependencies.logger = logs.logger;
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Find breakfast near Cloud 9." }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+    const answeredLog = logs.events.find((event) => event.message === "Chat request answered.");
+
+    expect(response.status).toBe(200);
+    expect(body.sources).toEqual([placesSourceSummary]);
+    expect(answeredLog?.payload).toMatchObject({
+      sourceCount: 2,
+      publicSourceCount: 1,
+      sourceLabels: ["curated_local_guide", "live_checked"],
+      publicSourceLabels: ["live_checked"],
+    });
+  });
+
+  test("rejects rendered source lines that are only backed by aggregate internal sources", async () => {
+    const dependencies = chatDependencies({
+      message:
+        "The model-written answer cites internal local-guide evidence.\n\nChecked: Ask Siargao curated local beach guide (curated local guide; medium confidence) - beach surface notes and ride-time notes.",
+      toolCalls: [
+        toolCall({
+          name: "search_local_guide",
+          status: "success",
+          sources: [localGuideSourceSummary],
+        }),
+        toolCall({
+          name: "search_places",
+          status: "success",
+          sources: [placesSourceSummary],
+        }),
+      ],
+      sources: [localGuideSourceSummary, placesSourceSummary],
+      publicSources: [placesSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Find breakfast near Cloud 9." }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(body.error).toBe("source_consistency_failed");
+    expect(body.message).toContain("verify the answer sources");
   });
 
   test("validates selected card sources before returning them", async () => {
@@ -1473,6 +1546,7 @@ function chatDependencies(
         model: result.model ?? request.model ?? "gpt-test",
         toolCalls: result.toolCalls ?? [],
         sources: result.sources ?? [],
+        publicSources: result.publicSources ?? result.sources ?? [],
         ...(result.memory ? { memory: result.memory } : {}),
         ...(result.cards ? { cards: result.cards } : {}),
         ...(result.actions ? { actions: result.actions } : {}),

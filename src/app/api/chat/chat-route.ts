@@ -13,7 +13,10 @@ import type {
   ItineraryPlan,
   RecommendationCard,
 } from "@/server/chat/agent-runtime";
-import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
+import {
+  type AnswerSourceSummary,
+  renderAnswerSourceLines,
+} from "@/server/chat/answer-source-summary";
 import {
   type AskSiargaoAgentDependencies,
   runAskSiargaoAgentTurn as defaultRunAskSiargaoAgentTurn,
@@ -235,9 +238,14 @@ export async function chatResponse(
       clientContext.geolocation,
     );
 
+    const publicAnswerSources = chatAnswerSourcesForValidation(
+      result.publicSources,
+      result.cards,
+      result.itineraries,
+    );
     const sourceValidationInput = {
       message: result.message,
-      sources: chatAnswerSourcesForValidation(result.sources, result.cards, result.itineraries),
+      sources: publicAnswerSources,
       toolCalls: publicToolCalls,
       browserGeolocation: clientContext.geolocation,
     };
@@ -265,6 +273,7 @@ export async function chatResponse(
         "Chat answer repaired by removing malformed rendered source lines.",
       );
     }
+    assertRenderedSourceLinesArePublic(responseMessage, publicAnswerSources);
 
     logger.info(
       {
@@ -272,9 +281,11 @@ export async function chatResponse(
         model: result.model,
         providerFailure: publicToolCalls.some(isProviderFailureToolCall),
         sourceLabels: [...new Set(result.sources.map((source) => source.label))],
+        publicSourceLabels: [...new Set(result.publicSources.map((source) => source.label))],
         toolCallCount: publicToolCalls.length,
         toolCalls: publicToolCalls.map(summarizeToolCallForLogs),
         sourceCount: result.sources.length,
+        publicSourceCount: result.publicSources.length,
         cardCount: result.cards?.length ?? 0,
         actionCount: result.actions?.length ?? 0,
         itineraryCount: result.itineraries?.length ?? 0,
@@ -298,7 +309,7 @@ export async function chatResponse(
           ? { upstreamRequestIds: result.upstreamRequestIds }
           : {}),
         toolCalls: publicToolCalls,
-        sources: result.sources,
+        sources: result.publicSources,
         ...(result.memory ? { memory: summarizeMemoryForResponse(result.memory) } : {}),
         ...(result.cards?.length ? { cards: result.cards } : {}),
         ...(result.actions?.length ? { actions: result.actions } : {}),
@@ -392,6 +403,34 @@ function chatAnswerSourcesForValidation(
     ...(cards?.flatMap((card) => card.sources ?? []) ?? []),
     ...(itineraries?.flatMap((itinerary) => itinerary.sources) ?? []),
   ];
+}
+
+function assertRenderedSourceLinesArePublic(
+  message: string,
+  publicSources: readonly AnswerSourceSummary[],
+) {
+  const renderedSourceLines = message
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("Checked: ") || line.startsWith("Not checked: "));
+  if (renderedSourceLines.length === 0) {
+    return;
+  }
+
+  const publicSourceLines = new Set(renderAnswerSourceLines(publicSources));
+  const nonPublicLines = renderedSourceLines.filter((line) => !publicSourceLines.has(line));
+  if (nonPublicLines.length === 0) {
+    return;
+  }
+
+  throw new SourceConsistencyError(
+    nonPublicLines.map((line) => ({
+      code: "structured_source_not_tool_backed",
+      line,
+      message:
+        "Rendered source lines must be represented by public response sources or selected artifacts.",
+    })),
+  );
 }
 
 function repairMalformedRenderedSourceLines(
@@ -570,6 +609,15 @@ function summarizeArtifactSelectionForLogs(
     unselectedCardCount: artifactSelection.unselectedCardCount,
     unselectedActionCount: artifactSelection.unselectedActionCount,
     unselectedItineraryCount: artifactSelection.unselectedItineraryCount,
+    ...(artifactSelection.unknownCardIds.length
+      ? { unknownCardIds: artifactSelection.unknownCardIds }
+      : {}),
+    ...(artifactSelection.unknownActionIds.length
+      ? { unknownActionIds: artifactSelection.unknownActionIds }
+      : {}),
+    ...(artifactSelection.unknownItineraryIds.length
+      ? { unknownItineraryIds: artifactSelection.unknownItineraryIds }
+      : {}),
   };
 }
 
