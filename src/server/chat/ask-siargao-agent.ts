@@ -89,6 +89,7 @@ export async function runAskSiargaoAgentTurn(
   const upstreamRequestIds: string[] = [];
   const toolCalls: AgentToolCallAudit[] = [];
   const toolResults: AgentToolResult[] = [];
+  const hostedMemoryFileNames = new Set<string>();
   const maxToolCalls = dependencies.maxToolCalls ?? defaultMaxToolCalls;
   const maxTurns = dependencies.maxTurns ?? defaultMaxTurns;
   const agentMemoryVectorStoreId =
@@ -100,6 +101,7 @@ export async function runAskSiargaoAgentTurn(
     forceMemoryFallback: dependencies.forceAgentMemorySearchFallback,
     includeMemoryFallbackWithFileSearch: dependencies.includeAgentMemoryFallbackWithFileSearch,
   });
+  const responseInclude = agentMemoryVectorStoreId ? ["file_search_call.results"] : undefined;
 
   logger.info(
     {
@@ -128,9 +130,11 @@ export async function runAskSiargaoAgentTurn(
     max_output_tokens: 1_000,
     instructions,
     tools,
+    ...(responseInclude ? { include: responseInclude } : {}),
     input: responseInput,
   });
   collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+  collectHostedFileSearchMemoryFileNames(response.output, memorySnapshot, hostedMemoryFileNames);
 
   for (let turn = 0; turn < maxTurns; turn += 1) {
     const finalText = response.output_text?.trim();
@@ -180,9 +184,15 @@ export async function runAskSiargaoAgentTurn(
           max_output_tokens: 1_000,
           instructions,
           tools,
+          ...(responseInclude ? { include: responseInclude } : {}),
           input: responseInput,
         });
         collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        collectHostedFileSearchMemoryFileNames(
+          response.output,
+          memorySnapshot,
+          hostedMemoryFileNames,
+        );
         continue;
       }
 
@@ -232,9 +242,15 @@ export async function runAskSiargaoAgentTurn(
           max_output_tokens: 1_000,
           instructions,
           tools,
+          ...(responseInclude ? { include: responseInclude } : {}),
           input: responseInput,
         });
         collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        collectHostedFileSearchMemoryFileNames(
+          response.output,
+          memorySnapshot,
+          hostedMemoryFileNames,
+        );
         continue;
       }
 
@@ -281,9 +297,15 @@ export async function runAskSiargaoAgentTurn(
           max_output_tokens: 1_000,
           instructions,
           tools,
+          ...(responseInclude ? { include: responseInclude } : {}),
           input: responseInput,
         });
         collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        collectHostedFileSearchMemoryFileNames(
+          response.output,
+          memorySnapshot,
+          hostedMemoryFileNames,
+        );
         continue;
       }
 
@@ -330,9 +352,15 @@ export async function runAskSiargaoAgentTurn(
           max_output_tokens: 1_000,
           instructions,
           tools,
+          ...(responseInclude ? { include: responseInclude } : {}),
           input: responseInput,
         });
         collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        collectHostedFileSearchMemoryFileNames(
+          response.output,
+          memorySnapshot,
+          hostedMemoryFileNames,
+        );
         continue;
       }
 
@@ -341,6 +369,7 @@ export async function runAskSiargaoAgentTurn(
         resolved,
         toolCalls,
         toolResults,
+        hostedMemoryFileNames,
       );
       if (memoryRepairCall) {
         if (toolCalls.length + 1 > maxToolCalls) {
@@ -380,9 +409,15 @@ export async function runAskSiargaoAgentTurn(
           max_output_tokens: 1_000,
           instructions,
           tools,
+          ...(responseInclude ? { include: responseInclude } : {}),
           input: responseInput,
         });
         collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        collectHostedFileSearchMemoryFileNames(
+          response.output,
+          memorySnapshot,
+          hostedMemoryFileNames,
+        );
         continue;
       }
 
@@ -399,6 +434,7 @@ export async function runAskSiargaoAgentTurn(
       const finalPayload = parseFinalPayloadOrLegacyText(finalText, {
         logger,
         requireStructuredFinalOutput: dependencies.requireStructuredFinalOutput === true,
+        hostedMemoryFileNames,
         toolCalls,
         toolResults,
       });
@@ -455,9 +491,11 @@ export async function runAskSiargaoAgentTurn(
       max_output_tokens: 1_000,
       instructions,
       tools,
+      ...(responseInclude ? { include: responseInclude } : {}),
       input: responseInput,
     });
     collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+    collectHostedFileSearchMemoryFileNames(response.output, memorySnapshot, hostedMemoryFileNames);
   }
 
   throw new Error("Ask Siargao agent exceeded the maximum turn count.");
@@ -484,16 +522,88 @@ function responseOutputItems(output: unknown): ResponseInputItem[] {
   return output.flatMap((item) => (isRecord(item) ? [item] : []));
 }
 
+function collectHostedFileSearchMemoryFileNames(
+  output: unknown,
+  memorySnapshot: AgentMemorySnapshot,
+  fileNames: Set<string>,
+) {
+  if (!Array.isArray(output)) {
+    return;
+  }
+
+  const knownFiles = new Map<string, string>();
+  for (const file of memorySnapshot.referenceFiles) {
+    knownFiles.set(file.fileName, file.fileName);
+    knownFiles.set(file.id, file.fileName);
+    knownFiles.set(file.relativePath, file.fileName);
+  }
+
+  for (const item of output) {
+    if (!isRecord(item) || item.type !== "file_search_call" || !Array.isArray(item.results)) {
+      continue;
+    }
+    for (const result of item.results) {
+      const fileName = hostedFileSearchMemoryFileName(result, knownFiles);
+      if (fileName) {
+        fileNames.add(fileName);
+      }
+    }
+  }
+}
+
+function hostedFileSearchMemoryFileName(result: unknown, knownFiles: ReadonlyMap<string, string>) {
+  if (!isRecord(result)) {
+    return undefined;
+  }
+
+  for (const candidate of hostedFileSearchMemoryFileCandidates(result)) {
+    const exactMatch = knownFiles.get(candidate);
+    if (exactMatch) {
+      return exactMatch;
+    }
+    const baseName = candidate.split(/[\\/]/u).at(-1);
+    if (baseName) {
+      const baseNameMatch = knownFiles.get(baseName);
+      if (baseNameMatch) {
+        return baseNameMatch;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function hostedFileSearchMemoryFileCandidates(result: Record<string, unknown>) {
+  const candidates = [
+    readString(result.filename),
+    readString(result.file_id),
+    readString(result.fileName),
+    readString(result.file_name),
+  ];
+  const attributes = isRecord(result.attributes) ? result.attributes : {};
+  candidates.push(
+    readString(attributes.agent_memory_file_name),
+    readString(attributes.agent_memory_id),
+    readString(attributes.fileName),
+    readString(attributes.file_name),
+    readString(attributes.relativePath),
+    readString(attributes.relative_path),
+  );
+  return candidates.flatMap((candidate) => (candidate ? [candidate] : []));
+}
+
 function parseFinalPayloadOrLegacyText(
   finalText: string,
   {
     logger,
     requireStructuredFinalOutput,
+    hostedMemoryFileNames,
     toolCalls,
     toolResults,
   }: {
     logger: Logger;
     requireStructuredFinalOutput: boolean;
+    hostedMemoryFileNames: ReadonlySet<string>;
     toolCalls: readonly AgentToolCallAudit[];
     toolResults: readonly AgentToolResult[];
   },
@@ -509,8 +619,9 @@ function parseFinalPayloadOrLegacyText(
   }
 
   return validateFinalPayloadMemoryFiles(
-    validateFinalPayloadToolCallIds(parsed, toolCalls, requireStructuredFinalOutput),
+    validateFinalPayloadToolCallIds(parsed, toolCalls, requireStructuredFinalOutput, logger),
     toolResults,
+    hostedMemoryFileNames,
     requireStructuredFinalOutput,
     logger,
   );
@@ -587,6 +698,7 @@ function validateFinalPayloadToolCallIds(
   payload: AgentFinalPayload,
   toolCalls: readonly AgentToolCallAudit[],
   strict: boolean,
+  logger: Logger,
 ): AgentFinalPayload {
   const knownToolCallIds = new Set(
     toolCalls.flatMap((toolCall) => (toolCall.toolCallId ? [toolCall.toolCallId] : [])),
@@ -599,6 +711,13 @@ function validateFinalPayloadToolCallIds(
   if (strict && unknownToolCallIds.length > 0) {
     throw new Error(
       `Agent final payload referenced unknown tool call ID(s): ${unknownToolCallIds.join(", ")}`,
+    );
+  }
+
+  if (unknownToolCallIds.length > 0) {
+    logger.warn(
+      { usedToolCallIds: unknownToolCallIds },
+      "Agent final payload referenced unknown tool call ID(s).",
     );
   }
 
@@ -615,10 +734,14 @@ function validateFinalPayloadToolCallIds(
 function validateFinalPayloadMemoryFiles(
   payload: AgentFinalPayload,
   toolResults: readonly AgentToolResult[],
+  hostedMemoryFileNames: ReadonlySet<string>,
   strict: boolean,
   logger: Logger,
 ): AgentFinalPayload {
   const observedMemoryFiles = currentTurnMemoryFileNames(toolResults);
+  for (const fileName of hostedMemoryFileNames) {
+    observedMemoryFiles.add(fileName);
+  }
   const usedMemoryFiles = uniqueText(payload.usedMemoryFiles);
   const unknownMemoryFiles = usedMemoryFiles.filter(
     (fileName) => !observedMemoryFiles.has(fileName),
@@ -732,18 +855,20 @@ function missingClearMemoryLoadRepairCall(
   request: AgentRuntimeRequest,
   toolCalls: readonly AgentToolCallAudit[],
   toolResults: readonly AgentToolResult[],
+  hostedMemoryFileNames: ReadonlySet<string>,
 ): ParsedFunctionCall | undefined {
   if (!parseAgentFinalPayload(finalText)) {
-    return undefined;
-  }
-  if (toolCalls.some((toolCall) => !isMemoryToolName(toolCall.name))) {
     return undefined;
   }
   const requiredFileName = clearRequiredMemoryFileName(request);
   if (!requiredFileName) {
     return undefined;
   }
-  if (currentTurnMemoryFileNames(toolResults).has(requiredFileName)) {
+  const observedMemoryFiles = currentTurnMemoryFileNames(toolResults);
+  for (const fileName of hostedMemoryFileNames) {
+    observedMemoryFiles.add(fileName);
+  }
+  if (observedMemoryFiles.has(requiredFileName)) {
     return undefined;
   }
   if (hasMemoryLoadAttemptForFile(toolCalls, requiredFileName)) {
@@ -755,10 +880,6 @@ function missingClearMemoryLoadRepairCall(
     name: "load_agent_memory_file",
     arguments: { documents: [requiredFileName] },
   };
-}
-
-function isMemoryToolName(name: string) {
-  return name === "load_agent_memory_file" || name === "search_agent_memory";
 }
 
 function clearRequiredMemoryFileName(request: AgentRuntimeRequest) {

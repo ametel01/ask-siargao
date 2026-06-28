@@ -183,8 +183,19 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         }),
         _request_id: "req_structured_artifact_final",
       },
+      {
+        id: "resp_structured_artifact_final_after_memory",
+        output_text: finalPayloadText({
+          answer: "Doot is the best fit to show.",
+          usedToolCallIds: ["call_local"],
+          usedMemoryFiles: ["LOCAL_GUIDE_BEACHES.md"],
+          displayCardIds: [card.id],
+          displayActionIds: [action.id],
+        }),
+        _request_id: "req_structured_artifact_final_after_memory",
+      },
     ]);
-    const executeTool = fakeToolExecutor({
+    const localGuideExecutor = fakeToolExecutor({
       search_local_guide: {
         name: "search_local_guide",
         status: "success",
@@ -194,13 +205,22 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         actions: [action],
       },
     });
+    const memoryExecutor = memoryLoadExecutor();
 
     const result = await runAskSiargaoAgentTurn(
       {
         messages: [{ role: "user", content: "Sandy beaches with kids near General Luna?" }],
         requestId: "agent_request_structured_artifacts",
       },
-      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+      {
+        client,
+        executeTool: (request) =>
+          request.name === "load_agent_memory_file"
+            ? memoryExecutor(request)
+            : localGuideExecutor(request),
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
     );
 
     expect(result.message).toBe("Doot is the best fit to show.");
@@ -529,6 +549,71 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
   });
 
+  test("repairs clear memory answers after a non-memory tool call", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_surf_tool_first",
+        requestId: "req_surf_tool_first",
+        callId: "call_surf_tool",
+        name: "rank_surf_spots_nearby",
+        arguments: { skill_level: "beginner", max_results: 3 },
+      }),
+      {
+        id: "resp_surf_memory_still_missing",
+        output_text: finalPayloadText({
+          answer: "Use Cloud 9 only if you want the famous break.",
+          usedToolCallIds: ["call_surf_tool"],
+          usedMemoryFiles: ["SURF.md"],
+        }),
+        _request_id: "req_surf_memory_still_missing",
+      },
+      {
+        id: "resp_surf_memory_repaired",
+        output_text: finalPayloadText({
+          answer: "Use Cloud 9 only if you want the famous break.",
+          usedToolCallIds: ["call_surf_tool"],
+          usedMemoryFiles: ["SURF.md"],
+        }),
+        _request_id: "req_surf_memory_repaired",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Which surf spots should I consider?" }],
+        requestId: "agent_request_surf_memory_after_tool_repair",
+      },
+      {
+        client,
+        executeTool: async (request) => {
+          if (request.name === "load_agent_memory_file") {
+            return memoryLoadExecutor()(request);
+          }
+          return {
+            name: request.name,
+            status: "success",
+            text: "Ranked surf spots loaded.",
+            toolCallId: request.toolCallId,
+            sources: [],
+          };
+        },
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "rank_surf_spots_nearby",
+      "load_agent_memory_file",
+    ]);
+    expect(parseAutomaticMemoryInput(client.requests[2]?.input).validationRepairMemoryLoad).toEqual(
+      expect.objectContaining({
+        name: "load_agent_memory_file",
+        arguments: { documents: ["SURF.md"] },
+      }),
+    );
+  });
+
   test("repairs beach guide answers by loading LOCAL_GUIDE_BEACHES.md", async () => {
     const client = fakeResponsesClient([
       {
@@ -692,6 +777,37 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
   });
 
+  test("logs and drops unknown used tool call IDs in compatibility mode", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_unknown_used_tool_compat",
+        output_text: finalPayloadText({
+          answer: "First afternoon answer.",
+          usedToolCallIds: ["missing_call"],
+        }),
+        _request_id: "req_unknown_used_tool_compat",
+      },
+    ]);
+    const logs = captureLogger();
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "How should I spend my first afternoon?" }],
+        requestId: "agent_request_unknown_tool_compat",
+      },
+      { client, logger: logs.logger, model: "gpt-test" },
+    );
+
+    expect(result.message).toBe("First afternoon answer.");
+    expect(logs.events).toContainEqual(
+      expect.objectContaining({
+        level: "warn",
+        message: "Agent final payload referenced unknown tool call ID(s).",
+        payload: { usedToolCallIds: ["missing_call"] },
+      }),
+    );
+  });
+
   test("registers hosted file search when a vector store is configured", async () => {
     const client = fakeResponsesClient([
       {
@@ -718,6 +834,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       vector_store_ids: ["vs_memory"],
       max_num_results: 5,
     });
+    expect(client.requests[0]?.include).toEqual(["file_search_call.results"]);
     expect(client.requests[0]?.tools).not.toContainEqual(
       expect.objectContaining({ name: "search_agent_memory" }),
     );
@@ -725,6 +842,54 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     const firstInput = parseFirstInput(client.requests[0]?.input);
     expect(firstInput.agentMemory?.vectorStoreId).toBeUndefined();
     expect(JSON.stringify(firstInput.agentMemory)).not.toContain("vs_memory");
+  });
+
+  test("accepts hosted file-search memory results as observed used memory files", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_file_search_memory",
+        output_text: finalPayloadText({
+          answer: "Memory retrieval does not create checked source labels.",
+          usedMemoryFiles: ["ASK_SIARGAO_SOURCE_POLICY.md"],
+        }),
+        output: [
+          {
+            type: "file_search_call",
+            id: "fs_source_policy",
+            queries: ["source labels"],
+            status: "completed",
+            results: [
+              {
+                filename: "ASK_SIARGAO_SOURCE_POLICY.md",
+                attributes: {
+                  agent_memory_file_name: "ASK_SIARGAO_SOURCE_POLICY.md",
+                },
+              },
+            ],
+          },
+        ],
+        _request_id: "req_file_search_memory",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "What source labels can you use?" }],
+        requestId: "agent_request_file_search_memory",
+      },
+      {
+        client,
+        agentMemoryVectorStoreId: "vs_memory",
+        memorySnapshot: memorySnapshotFixture(),
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.message).toContain("Memory retrieval");
+    expect(result.toolCalls).toEqual([]);
+    expect(client.requests).toHaveLength(1);
+    expect(client.requests[0]?.include).toEqual(["file_search_call.results"]);
   });
 
   test("binds the resolved memory snapshot into backend memory tool calls", async () => {
