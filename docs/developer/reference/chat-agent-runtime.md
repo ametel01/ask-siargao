@@ -64,16 +64,20 @@ files are not treated as model memory unless the runtime loads or indexes them.
 
 The current memory layers are:
 
-- instruction Markdown: `ASK_SIARGAO_AGENT_SKILLS.md` and
-  `ASK_SIARGAO_TOOL_USE_POLICY.md` are loaded by `loadAgentMemorySnapshot` and appended to every
-  Responses `instructions` call, including tool-loop continuation calls with
-  `previous_response_id`;
+- instruction Markdown: `INDEX.md` is loaded by `loadAgentMemorySnapshot` and appended to every
+  Responses `instructions` call. It is the only domain-memory file loaded by default, and it tells
+  the model which reference files to load for the current request;
 - vector-store `file_search`: reference files can be synced with
   `bun run agent-memory:sync`; when `OPENAI_AGENT_MEMORY_VECTOR_STORE_ID` is set, the chat runtime
   registers hosted `file_search` with that vector store;
 - backend memory fallback: when no vector store ID is configured, the runtime registers
   `search_agent_memory`, a deterministic local search tool over reference-role Markdown files for
   local development and tests.
+
+The planned thin-harness implementation is specified in
+[`thin-agent-harness-spec.md`](thin-agent-harness-spec.md). That spec keeps the same index-only
+default memory model and adds Codex-style compact memory rendering plus model-selected public
+artifacts.
 
 Every successful agent turn can include internal memory metadata: version ID, file IDs, roles,
 checksums, byte lengths, and optional vector-store ID. Public `/api/chat` responses expose only the
@@ -84,8 +88,8 @@ checksums, relative paths, and byte lengths. Logs must not include raw memory do
 To add or edit agent memory:
 
 1. Edit the relevant file under `docs/agent-memory/`.
-2. Keep instruction files short and stable; use reference files for larger data dictionary, source
-   policy, and local assumption material.
+2. Keep `INDEX.md` short and stable; use reference files for surf, beach, data dictionary, source
+   policy, tool-use policy, answer-shape, and local assumption material.
 3. Run `bun test src/server/chat/agent-memory.test.ts`.
 4. Run `bun run agent-memory:sync -- --dry-run` to confirm the reference-file sync plan.
 5. For deployed file search, run `bun run agent-memory:sync` with `OPENAI_API_KEY`, then configure

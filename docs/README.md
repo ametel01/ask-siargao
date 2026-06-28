@@ -11,6 +11,7 @@ The current product direction is Ask Siargao: a Siargao-focused chatbot tour ope
 - [DATA_STRATEGY](DATA_STRATEGY.md): data pipeline logic for checking the DB first, fetching live provider data on demand, and normalizing useful facts back into the DB.
 - [ASK_SIARGAO_POSITIONING](ASK_SIARGAO_POSITIONING.md): product positioning against ChatGPT and Claude, including differentiation principles and priority roadmap.
 - [Chat Agent Runtime Reference](developer/reference/chat-agent-runtime.md): developer reference for persistent agent memory, backend tools, source summaries, provider-failure handling, and observability in `/api/chat`.
+- [Thin Agent Harness Implementation Spec](developer/reference/thin-agent-harness-spec.md): proposed implementation plan for Codex-style memory loading and model-selected chat artifacts.
 - [STARTUP_IDEA_LAB](STARTUP_IDEA_LAB.md): product positioning, pricing, validation, and go-to-market thesis.
 - [LANDING_STYLE_REQUIREMENTS](LANDING_STYLE_REQUIREMENTS.md): current landing and chat-entry UX requirements.
 - [COMPETITORS](COMPETITORS.md): market research and competitor observations.
