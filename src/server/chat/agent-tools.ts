@@ -2,6 +2,7 @@ import postgres from "postgres";
 import { z } from "zod";
 
 import {
+  type AgentMemoryReferenceFile,
   type AgentMemorySnapshot,
   loadAgentMemorySnapshot,
   requiredAgentMemoryManifest,
@@ -157,6 +158,7 @@ type PlaceDetailsArguments = z.infer<typeof placeDetailsSchema>;
 type SearchLocalGuideArguments = z.infer<typeof searchLocalGuideSchema>;
 type LocalItineraryArguments = z.infer<typeof localItineraryRequestSchema>;
 type SearchAgentMemoryArguments = z.infer<typeof searchAgentMemorySchema>;
+type LoadAgentMemoryFileArguments = z.infer<typeof loadAgentMemoryFileSchema>;
 type WeatherForecastArguments = z.infer<typeof weatherForecastSchema>;
 type MarineConditionsArguments = z.infer<typeof marineConditionsSchema>;
 type TideForecastArguments = z.infer<typeof tideForecastSchema>;
@@ -185,6 +187,7 @@ const agentMemoryReferenceDocumentNames = requiredAgentMemoryManifest.reduce<str
   },
   [],
 ) as [string, ...string[]];
+const agentMemoryLoadableDocumentNames = agentMemoryReferenceDocumentNames;
 const siargaoCenterSchema = z.strictObject({
   latitude: z.number().min(9.0).max(10.5),
   longitude: z.number().min(125.0).max(127.0),
@@ -241,6 +244,9 @@ const searchAgentMemorySchema = z.strictObject({
   query: z.string().trim().min(2).max(240),
   documents: optionalNullable(z.array(z.enum(agentMemoryReferenceDocumentNames)).min(1).max(5)),
   max_results: optionalNullable(z.number().int().min(1).max(5)),
+});
+const loadAgentMemoryFileSchema = z.strictObject({
+  documents: z.array(z.enum(agentMemoryLoadableDocumentNames)).min(1).max(3),
 });
 
 const sourcePolicyDescriptions: SourcePolicyDescription[] = [
@@ -806,6 +812,35 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
     execute: (args, _request, dependencies) =>
       searchAgentMemoryToolResult(args as SearchAgentMemoryArguments, dependencies),
   },
+  load_agent_memory_file: {
+    definition: {
+      type: "function",
+      name: "load_agent_memory_file",
+      description:
+        "Load exact Ask Siargao agent-memory reference files by filename after using INDEX.md to choose the smallest relevant set. This is policy/reference context, not live evidence.",
+      parameters: {
+        type: "object",
+        properties: {
+          documents: {
+            type: "array",
+            items: {
+              type: "string",
+              enum: agentMemoryLoadableDocumentNames,
+            },
+            minItems: 1,
+            maxItems: 3,
+            description: "Agent-memory reference document filenames to load exactly.",
+          },
+        },
+        required: ["documents"],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+    schema: loadAgentMemoryFileSchema,
+    execute: (args, _request, dependencies) =>
+      loadAgentMemoryFileToolResult(args as LoadAgentMemoryFileArguments, dependencies),
+  },
 };
 
 const defaultFunctionToolNames = [
@@ -821,6 +856,7 @@ const defaultFunctionToolNames = [
   "query_local_facts",
   "get_source_evidence",
   "describe_source_policy",
+  "load_agent_memory_file",
 ] as const satisfies readonly AskSiargaoAgentToolName[];
 
 export const agentToolDefinitions = defaultFunctionToolNames.map(
@@ -911,6 +947,48 @@ function searchAgentMemoryToolResult(
     },
     sources: [],
   };
+}
+
+function loadAgentMemoryFileToolResult(
+  args: LoadAgentMemoryFileArguments,
+  dependencies: AgentToolDependencies,
+): AgentToolResult {
+  const snapshot = dependencies.memorySnapshot ?? loadAgentMemorySnapshot();
+  const selectedDocuments = new Set(args.documents);
+  const files = snapshot.referenceFiles.filter((file) => selectedDocuments.has(file.fileName));
+  const missingDocuments = args.documents.filter(
+    (fileName) => !files.some((file) => file.fileName === fileName),
+  );
+
+  return {
+    name: "load_agent_memory_file",
+    status: missingDocuments.length > 0 ? "error" : "success",
+    text:
+      missingDocuments.length > 0
+        ? `Ask Siargao agent memory file(s) were not available: ${missingDocuments.join(", ")}.`
+        : renderLoadedAgentMemoryFilesText(files),
+    ...(missingDocuments.length > 0 ? { errorCode: "not_found" } : {}),
+    data: {
+      status: missingDocuments.length > 0 ? "missing" : "available",
+      memoryVersionId: snapshot.versionId,
+      files: files.map((file) => ({
+        fileName: file.fileName,
+        title: file.title,
+        role: file.role,
+        content: file.content,
+      })),
+      caveat: "Agent memory retrieval is policy/reference context only and is not live evidence.",
+    },
+    sources: [],
+  };
+}
+
+function renderLoadedAgentMemoryFilesText(files: readonly AgentMemoryReferenceFile[]) {
+  return [
+    `Loaded Ask Siargao agent memory file(s): ${files.map((file) => file.fileName).join(", ")}.`,
+    ...files.map((file) => `\n# ${file.fileName}\n${file.content.trim()}`),
+    "Memory retrieval is policy/reference context only, not live evidence.",
+  ].join("\n");
 }
 
 export async function executeAgentTool(

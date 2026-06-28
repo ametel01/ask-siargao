@@ -68,6 +68,7 @@ type ChatRequestIntent = {
   marineCondition: boolean;
   missingContext: boolean;
   nearby: boolean;
+  nearMeUsesBrowserGeolocation: boolean;
   placeIntent?: PlaceIntent;
   roadCondition: boolean;
   shouldDeclineNonSiargaoTopic: boolean;
@@ -179,7 +180,7 @@ export async function chatResponse(
 
   const messages = parsed.data.messages satisfies AskSiargaoChatMessage[];
   const clientContext = normalizeChatClientContext(parsed.data.clientContext, new Date(startedAt));
-  const intent = interpretChatRequestIntent(messages);
+  const intent = interpretChatRequestIntent(messages, clientContext);
   const latestUserMessage = getLatestUserMessage(messages);
   logger.info(
     {
@@ -608,10 +609,22 @@ function isRecommendationQuestion(intent: ChatRequestIntent) {
   return Boolean(intent.placeIntent);
 }
 
-function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]): ChatRequestIntent {
-  const tripContext = deriveTripContext(messages);
-  const { fullUserContext, latestUserTurn, recentUserContext } = tripContext;
-  const placeIntent = interpretPlaceIntent(messages);
+function interpretChatRequestIntent(
+  messages: readonly AskSiargaoChatMessage[],
+  clientContext?: ChatClientContext,
+): ChatRequestIntent {
+  const derivedTripContext = deriveTripContext(messages);
+  const { fullUserContext, latestUserTurn, recentUserContext } = derivedTripContext;
+  const nearMeUsesBrowserGeolocation =
+    isBrowserLocationNearMeRequest(latestUserTurn) &&
+    clientContext?.geolocation.status === "available";
+  const tripContext = nearMeUsesBrowserGeolocation
+    ? withoutDefaultNearbyLocation(derivedTripContext)
+    : derivedTripContext;
+  const rawPlaceIntent = interpretPlaceIntent(messages);
+  const placeIntent = nearMeUsesBrowserGeolocation
+    ? withoutDefaultNearbyPlaceIntent(rawPlaceIntent)
+    : rawPlaceIntent;
   const latestBeach =
     isBeachContent(latestUserTurn) ||
     tripContext.activeGoal === "beach_swimming" ||
@@ -668,6 +681,7 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
     ...(conditionActivity ? { conditionActivity } : {}),
     marineCondition,
     nearby,
+    nearMeUsesBrowserGeolocation,
     ...(placeIntent ? { placeIntent } : {}),
     roadCondition,
     today,
@@ -681,6 +695,34 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
     missingContext: shouldAskForMissingContext(partialIntent),
     shouldDeclineNonSiargaoTopic: shouldDeclineNonSiargaoTopic(messages),
   };
+}
+
+function withoutDefaultNearbyLocation(tripContext: TripContext): TripContext {
+  if (tripContext.currentLocation?.source !== "gazetteer") {
+    return tripContext;
+  }
+
+  const { currentArea: _currentArea, currentLocation: _currentLocation, ...rest } = tripContext;
+  return rest;
+}
+
+function withoutDefaultNearbyPlaceIntent(placeIntent: PlaceIntent | null): PlaceIntent | null {
+  if (placeIntent?.areaScope !== "nearby" || placeIntent.location !== "General Luna") {
+    return placeIntent;
+  }
+
+  const tripContext = withoutDefaultNearbyLocation(placeIntent.tripContext);
+  return {
+    ...placeIntent,
+    location: null,
+    tripContext,
+  };
+}
+
+function isBrowserLocationNearMeRequest(content: string) {
+  return /\b(?:near\s+me|around\s+me|close\s+to\s+me|by\s+me|my\s+(?:location|area)|current\s+location|where\s+i\s+am|around\s+here|near\s+here|near\s+us|around\s+us|close\s+to\s+us)\b/i.test(
+    content,
+  );
 }
 
 function isActivityPlanContent(content: string) {
@@ -862,6 +904,7 @@ function summarizeIntentForAgent(intent: ChatRequestIntent) {
     marineCondition: intent.marineCondition,
     missingContext: intent.missingContext,
     nearby: intent.nearby,
+    nearMeUsesBrowserGeolocation: intent.nearMeUsesBrowserGeolocation,
     placeIntent: intent.placeIntent,
     roadCondition: intent.roadCondition,
     shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
@@ -881,6 +924,15 @@ function summarizeIntentForAgent(intent: ChatRequestIntent) {
       travelerProfile: intent.tripContext.travelerProfile,
       unresolvedReference: intent.tripContext.unresolvedReference,
     },
+    browserGeolocation: intent.nearMeUsesBrowserGeolocation
+      ? {
+          useAsProximityAnchor: true,
+          source: "browser_geolocation",
+          exactCoordinatesHidden: true,
+          instruction:
+            "The user asked near me/my location and browser geolocation is available. Do not assume any named area unless a tool or user text supports it.",
+        }
+      : undefined,
   };
 }
 
@@ -893,9 +945,11 @@ function summarizeIntentForLogs(intent: ChatRequestIntent) {
     marineCondition: intent.marineCondition,
     missingContext: intent.missingContext,
     nearby: intent.nearby,
+    nearMeUsesBrowserGeolocation: intent.nearMeUsesBrowserGeolocation,
     tripContext: {
       activeGoal: intent.tripContext.activeGoal,
       currentLocation: intent.tripContext.currentLocation?.label,
+      currentLocationSource: intent.tripContext.currentLocation?.source,
       durableConstraints: intent.tripContext.durableConstraints,
       temporaryModifiers: intent.tripContext.temporaryModifiers,
       unresolvedReference: intent.tripContext.unresolvedReference,

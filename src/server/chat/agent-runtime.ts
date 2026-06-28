@@ -19,6 +19,7 @@ export type AskSiargaoAgentToolName =
   | "query_local_facts"
   | "get_source_evidence"
   | "describe_source_policy"
+  | "load_agent_memory_file"
   | "search_agent_memory";
 
 export type AgentToolCallStatus = "success" | "error";

@@ -148,6 +148,42 @@ describe("chat route", () => {
     );
   });
 
+  test("uses browser geolocation instead of the General Luna default for near-me surf prompts", async () => {
+    const dependencies = chatDependencies({
+      message: "The model should use shared browser location as the proximity anchor.",
+      sources: [genericSourceSummary],
+    });
+    const geolocation = validGeolocation();
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "I want to go surfing today, what are the closest spots near me?",
+          },
+        ],
+        clientContext: { geolocation },
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.intent.conditionActivity).toBe("surfing");
+    expect(signals?.intent.nearby).toBe(true);
+    expect(signals?.intent.nearMeUsesBrowserGeolocation).toBe(true);
+    expect(signals?.intent.locationLabel).toBeUndefined();
+    expect(signals?.intent.tripContext?.currentLocation).toBeUndefined();
+    expect(signals?.intent.browserGeolocation).toMatchObject({
+      useAsProximityAnchor: true,
+      source: "browser_geolocation",
+      exactCoordinatesHidden: true,
+    });
+    expect(JSON.stringify(signals)).not.toContain("General Luna");
+    expect(JSON.stringify(signals)).not.toContain(String(geolocation.latitude));
+    expect(JSON.stringify(signals)).not.toContain(String(geolocation.longitude));
+  });
+
   test("treats missing optional geolocation as accepted missing browser context", async () => {
     const dependencies = chatDependencies({
       message: "The model continues without browser location.",
@@ -1300,13 +1336,20 @@ type AgentSignals = {
   intent: {
     activityPlan?: boolean;
     beach?: boolean;
+    browserGeolocation?: {
+      exactCoordinatesHidden?: boolean;
+      source?: "browser_geolocation";
+      useAsProximityAnchor?: boolean;
+    };
     conditionActivity?: string;
     locationLabel?: string;
     marineCondition?: boolean;
+    nearMeUsesBrowserGeolocation?: boolean;
+    nearby?: boolean;
     placeIntent?: { category?: string };
     roadCondition?: boolean;
     tripAdvice?: boolean;
-    tripContext?: { activeGoal?: string };
+    tripContext?: { activeGoal?: string; currentLocation?: unknown };
     weatherSensitive?: boolean;
     weather?: boolean;
   };

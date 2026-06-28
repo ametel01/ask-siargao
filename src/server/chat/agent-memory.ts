@@ -39,18 +39,39 @@ export type LoadAgentMemorySnapshotOptions = {
 
 export const requiredAgentMemoryManifest = [
   {
+    id: "ask_siargao_memory_index",
+    title: "Ask Siargao Agent Memory Index",
+    fileName: "INDEX.md",
+    relativePath: "docs/agent-memory/INDEX.md",
+    role: "instruction",
+  },
+  {
+    id: "ask_siargao_surf",
+    title: "Siargao Surf Spots",
+    fileName: "SURF.md",
+    relativePath: "docs/agent-memory/SURF.md",
+    role: "reference",
+  },
+  {
+    id: "ask_siargao_local_guide_beaches",
+    title: "Siargao Tourist-Worthy Beaches",
+    fileName: "LOCAL_GUIDE_BEACHES.md",
+    relativePath: "docs/agent-memory/LOCAL_GUIDE_BEACHES.md",
+    role: "reference",
+  },
+  {
     id: "ask_siargao_agent_skills",
     title: "Ask Siargao Agent Skills",
     fileName: "ASK_SIARGAO_AGENT_SKILLS.md",
     relativePath: "docs/agent-memory/ASK_SIARGAO_AGENT_SKILLS.md",
-    role: "instruction",
+    role: "reference",
   },
   {
     id: "ask_siargao_tool_use_policy",
     title: "Ask Siargao Tool Use Policy",
     fileName: "ASK_SIARGAO_TOOL_USE_POLICY.md",
     relativePath: "docs/agent-memory/ASK_SIARGAO_TOOL_USE_POLICY.md",
-    role: "instruction",
+    role: "reference",
   },
   {
     id: "ask_siargao_data_dictionary",

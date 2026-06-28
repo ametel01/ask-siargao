@@ -22,8 +22,13 @@ describe("agent memory loader", () => {
     );
     expect(snapshot.files.every((file) => file.checksum.length === 64)).toBe(true);
     expect(snapshot.versionId).toMatch(/^agent-memory:[a-f0-9]{24}$/);
-    expect(snapshot.instructionMarkdown).toContain("Ask Siargao Agent Skills");
+    expect(snapshot.instructionMarkdown).toContain("Ask Siargao Agent Memory Index");
+    expect(snapshot.instructionMarkdown).toContain("SURF.md");
     expect(snapshot.referenceFiles.map((file) => file.fileName)).toEqual([
+      "SURF.md",
+      "LOCAL_GUIDE_BEACHES.md",
+      "ASK_SIARGAO_AGENT_SKILLS.md",
+      "ASK_SIARGAO_TOOL_USE_POLICY.md",
       "ASK_SIARGAO_DATA_DICTIONARY.md",
       "ASK_SIARGAO_SOURCE_POLICY.md",
       "ASK_SIARGAO_LOCAL_ASSUMPTIONS.md",
@@ -62,19 +67,19 @@ describe("agent memory loader", () => {
     expect(first.versionId).not.toBe(second.versionId);
   });
 
-  test("instruction memory includes AI-written answer and live-tool requirements", () => {
+  test("instruction memory only includes the dynamic memory index", () => {
     const snapshot = loadAgentMemorySnapshot();
 
-    expect(snapshot.instructionMarkdown).toContain("Every final answer must be written by the AI");
+    expect(snapshot.instructionMarkdown).toContain("This is the only domain-memory file");
     expect(snapshot.instructionMarkdown).toContain(
-      "Use backend tools for live, local, provider-backed, or curated Ask Siargao facts",
+      "load the relevant file before the final answer",
     );
-    expect(snapshot.instructionMarkdown).toContain("get_weather_forecast");
-    expect(snapshot.instructionMarkdown).toContain("get_condition_judgment");
-    expect(snapshot.instructionMarkdown).toContain("search_places");
-    expect(snapshot.instructionMarkdown).toContain("describe_database_schema");
-    expect(snapshot.instructionMarkdown).toContain("query_local_facts");
-    expect(snapshot.instructionMarkdown).toContain("get_source_evidence");
+    expect(snapshot.instructionMarkdown).toContain("SURF.md");
+    expect(snapshot.instructionMarkdown).toContain("ASK_SIARGAO_TOOL_USE_POLICY.md");
+    expect(snapshot.instructionMarkdown).not.toContain(
+      "Every final answer must be written by the AI",
+    );
+    expect(snapshot.instructionMarkdown).not.toContain("get_condition_judgment");
     expect(snapshot.instructionMarkdown).not.toContain("checksum:");
     expect(snapshot.instructionMarkdown).not.toMatch(/[a-f0-9]{64}/);
   });
@@ -84,6 +89,16 @@ describe("agent memory loader", () => {
 
     expect(snapshot.referenceFiles).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          fileName: "SURF.md",
+          role: "reference",
+          content: expect.stringContaining("Hard Boundary: Surf Spots vs Beach Fallbacks"),
+        }),
+        expect.objectContaining({
+          fileName: "LOCAL_GUIDE_BEACHES.md",
+          role: "reference",
+          content: expect.stringContaining("Do not use this file alone to answer surf-spot"),
+        }),
         expect.objectContaining({
           fileName: "ASK_SIARGAO_DATA_DICTIONARY.md",
           role: "reference",
@@ -120,6 +135,12 @@ function createMemoryRoot(options: { skipFileName?: string } = {}) {
 
 function fixtureContentFor(fileName: string) {
   switch (fileName) {
+    case "INDEX.md":
+      return "Load the smallest relevant memory files. SURF.md covers surf spots.";
+    case "SURF.md":
+      return "Surf spots are separate from beach fallbacks.";
+    case "LOCAL_GUIDE_BEACHES.md":
+      return "Beach guide fallbacks are not surf spot recommendations.";
     case "ASK_SIARGAO_AGENT_SKILLS.md":
       return "Every final answer must be written by the AI.";
     case "ASK_SIARGAO_TOOL_USE_POLICY.md":

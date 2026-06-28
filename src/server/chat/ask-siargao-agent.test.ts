@@ -46,15 +46,18 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(client.requests[0]?.tools).toContainEqual(
       expect.objectContaining({ name: "search_agent_memory" }),
     );
-    expect(String(client.requests[0]?.instructions)).toContain("Use the available tools");
-    expect(String(client.requests[0]?.instructions)).toContain("get_condition_judgment");
+    expect(client.requests[0]?.tools).toContainEqual(
+      expect.objectContaining({ name: "load_agent_memory_file" }),
+    );
+    expect(String(client.requests[0]?.instructions)).toContain("Use the loaded INDEX.md");
+    expect(String(client.requests[0]?.instructions)).toContain("Ask Siargao Agent Memory Index");
     expect(String(client.requests[0]?.instructions)).toContain(
-      "Every final answer must be written by the AI",
+      "Every final answer must be written by the AI from loaded memory and tool output",
     );
     const firstInput = parseFirstInput(client.requests[0]?.input);
     expect(firstInput.agentMemory?.versionId).toBe(result.memory?.versionId);
     expect(firstInput.agentMemory?.files?.[0]).toEqual({
-      id: "ask_siargao_agent_skills",
+      id: "ask_siargao_memory_index",
       role: "instruction",
     });
     expect(JSON.stringify(firstInput.agentMemory)).not.toContain("checksum");
@@ -177,7 +180,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(client.requests[1]?.store).toBe(false);
     expect(client.requests[1]?.instructions).toBe(client.requests[0]?.instructions);
     expect(String(client.requests[1]?.instructions)).toContain(
-      "Use backend tools for live, local, provider-backed, or curated Ask Siargao facts",
+      "Use backend tools whenever the answer needs current weather",
     );
     expect(responseInputItemsByType(client.requests[1]?.input, "function_call")).toContainEqual(
       expect.objectContaining({
@@ -1284,7 +1287,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       { client, executeTool, model: "gpt-test" },
     );
 
-    expect(String(client.requests[0]?.instructions)).toContain("call plan_local_itinerary first");
+    expect(String(client.requests[0]?.instructions)).toContain("Use the loaded INDEX.md");
     const toolOutput = parseToolOutput(client.requests[1]?.input, 0) as {
       data: { plan: { title: string } };
     };
@@ -2818,7 +2821,7 @@ function captureLogger() {
 }
 
 function memorySnapshotFixture({
-  instructionContent = "Every final answer must be written by the AI.",
+  instructionContent = "Use INDEX.md to choose which detailed memory files to load.",
   sourcePolicyContent = "Never create source labels from memory retrieval alone.",
 }: {
   instructionContent?: string;
@@ -2828,10 +2831,10 @@ function memorySnapshotFixture({
     versionId: "agent-memory:testmemory000000000000",
     files: [
       {
-        id: "ask_siargao_agent_skills",
-        title: "Ask Siargao Agent Skills",
-        fileName: "ASK_SIARGAO_AGENT_SKILLS.md",
-        relativePath: "docs/agent-memory/ASK_SIARGAO_AGENT_SKILLS.md",
+        id: "ask_siargao_memory_index",
+        title: "Ask Siargao Agent Memory Index",
+        fileName: "INDEX.md",
+        relativePath: "docs/agent-memory/INDEX.md",
         role: "instruction",
         checksum: "a".repeat(64),
         byteLength: instructionContent.length,

@@ -415,6 +415,38 @@ describe("agent tools", () => {
         },
         strict: true,
       },
+      {
+        type: "function",
+        name: "load_agent_memory_file",
+        description:
+          "Load exact Ask Siargao agent-memory reference files by filename after using INDEX.md to choose the smallest relevant set. This is policy/reference context, not live evidence.",
+        parameters: {
+          type: "object",
+          properties: {
+            documents: {
+              type: "array",
+              items: {
+                type: "string",
+                enum: [
+                  "SURF.md",
+                  "LOCAL_GUIDE_BEACHES.md",
+                  "ASK_SIARGAO_AGENT_SKILLS.md",
+                  "ASK_SIARGAO_TOOL_USE_POLICY.md",
+                  "ASK_SIARGAO_DATA_DICTIONARY.md",
+                  "ASK_SIARGAO_SOURCE_POLICY.md",
+                  "ASK_SIARGAO_LOCAL_ASSUMPTIONS.md",
+                ],
+              },
+              minItems: 1,
+              maxItems: 3,
+              description: "Agent-memory reference document filenames to load exactly.",
+            },
+          },
+          required: ["documents"],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
     ]);
   });
 
@@ -502,6 +534,11 @@ describe("agent tools", () => {
         name: "describe_source_policy",
         description:
           "Explain Ask Siargao source labels, checked/not-checked boundaries, and provider caveats.",
+      },
+      {
+        name: "load_agent_memory_file",
+        description:
+          "Load exact Ask Siargao agent-memory reference files by filename after using INDEX.md to choose the smallest relevant set. This is policy/reference context, not live evidence.",
       },
     ]);
     expect(agentToolDefinitions.map((tool) => tool.name)).not.toContain("describe_available_tools");
@@ -2060,6 +2097,12 @@ describe("agent tools", () => {
       vector_store_ids: ["vs_memory"],
       max_num_results: 5,
     });
+    expect(tools).toContainEqual(
+      expect.objectContaining({
+        type: "function",
+        name: "load_agent_memory_file",
+      }),
+    );
     expect(tools).not.toContainEqual(expect.objectContaining({ name: "search_agent_memory" }));
   });
 
@@ -2124,6 +2167,29 @@ describe("agent tools", () => {
     expect(result.sources).toEqual([]);
   });
 
+  test("loads exact memory files chosen from the index", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_memory_load",
+        name: "load_agent_memory_file",
+        arguments: {
+          documents: ["SURF.md", "ASK_SIARGAO_SOURCE_POLICY.md"],
+        },
+      },
+      {
+        memorySnapshot: memorySnapshotFixture(),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("Loaded Ask Siargao agent memory file(s)");
+    expect(result.text).toContain("SURF.md");
+    expect(result.text).toContain("surf spots are separate from beach fallbacks");
+    expect(result.sources).toEqual([]);
+    expect(JSON.stringify(result.data)).toContain("SURF.md");
+    expect(JSON.stringify(result.data)).not.toContain("checksum");
+  });
+
   test("rejects invalid memory-search arguments", async () => {
     const result = await executeAgentTool(
       {
@@ -2174,6 +2240,26 @@ describe("agent tools", () => {
 });
 
 function memorySnapshotFixture(): AgentMemorySnapshot {
+  const index = {
+    id: "ask_siargao_memory_index",
+    title: "Ask Siargao Agent Memory Index",
+    fileName: "INDEX.md",
+    relativePath: "docs/agent-memory/INDEX.md",
+    role: "instruction" as const,
+    checksum: "i".repeat(64),
+    byteLength: 60,
+    content: "Use INDEX.md to choose which detailed memory files to load.",
+  };
+  const surf = {
+    id: "ask_siargao_surf",
+    title: "Siargao Surf Spots",
+    fileName: "SURF.md",
+    relativePath: "docs/agent-memory/SURF.md",
+    role: "reference" as const,
+    checksum: "u".repeat(64),
+    byteLength: 70,
+    content: "The surf memory says surf spots are separate from beach fallbacks.",
+  };
   const dataDictionary = {
     id: "ask_siargao_data_dictionary",
     title: "Ask Siargao Data Dictionary",
@@ -2199,22 +2285,9 @@ function memorySnapshotFixture(): AgentMemorySnapshot {
 
   return {
     versionId: "agent-memory:toolfixture000000",
-    files: [
-      {
-        id: "ask_siargao_agent_skills",
-        title: "Ask Siargao Agent Skills",
-        fileName: "ASK_SIARGAO_AGENT_SKILLS.md",
-        relativePath: "docs/agent-memory/ASK_SIARGAO_AGENT_SKILLS.md",
-        role: "instruction",
-        checksum: "a".repeat(64),
-        byteLength: 20,
-        content: "Instruction content.",
-      },
-      dataDictionary,
-      sourcePolicy,
-    ],
-    instructionMarkdown: "Instruction content.",
-    referenceFiles: [dataDictionary, sourcePolicy],
+    files: [index, surf, dataDictionary, sourcePolicy],
+    instructionMarkdown: index.content,
+    referenceFiles: [surf, dataDictionary, sourcePolicy],
   };
 }
 
