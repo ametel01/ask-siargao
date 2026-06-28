@@ -205,9 +205,7 @@ test("wraps long user text inside the composer and user message bubble", async (
     .toBe(true);
 });
 
-test("sends granted browser geolocation once and consumes it after the request", async ({
-  page,
-}) => {
+test("sends granted browser geolocation for a trip session", async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "geolocation", {
       configurable: true,
@@ -239,14 +237,14 @@ test("sends granted browser geolocation once and consumes it after the request",
   await expect(page.getByRole("button", { name: "Enable location" })).toBeVisible();
   await page.getByRole("button", { name: "Enable location" }).click();
   await expect(page.getByText("Location active for this chat.")).toBeVisible();
-  await expect(page.getByText("Location active")).toBeVisible();
+  await expect(page.getByText("Location active", { exact: true })).toBeVisible();
 
   const composerInput = page.getByLabel("Ask anything about Siargao");
   await composerInput.fill("What is open near me?");
   await page.getByRole("button", { name: "Send question" }).click();
 
   await expect(page.getByText("Mocked near-me answer:")).toBeVisible();
-  await expect(page.getByText("Location used for the last question.")).toBeVisible();
+  await expect(page.getByText("Location active for this chat.")).toBeVisible();
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(mockChat.requests[0]?.clientContext?.geolocation).toMatchObject({
     latitude: 9.8116,

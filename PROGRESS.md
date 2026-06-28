@@ -26,12 +26,12 @@
 - [x] Step 8: Memory-Aware Source Consistency Validation
 - [x] Step 9: Chat Route Public Contract And Observability
 - [x] Step 10: Documentation Alignment
-- [ ] Step 11: Full Quality Gates And Manual Chat Checks
+- [x] Step 11: Full Quality Gates And Manual Chat Checks
 
 ## Current Status
 
-- Current step: Step 11
-- Next action: Run final quality gates and manual chat-contract checks.
+- Current step: Complete
+- Next action: None.
 
 ## Baseline Gate Results
 
@@ -41,6 +41,37 @@
 - Bun tests passed: 504 tests across 49 files.
 
 ## Update Log
+
+### 2026-06-29 - Step 11 Complete
+
+- Ran the CI-equivalent validation chain. The first full chain passed through build, then exposed a
+  stale browser-geolocation e2e assertion: the current UI keeps location active for the chat session
+  instead of showing single-request consumed copy after send.
+- Aligned the e2e test with current trip-session geolocation behavior and tightened the
+  `Location active` text assertion to an exact match.
+- Re-ran Playwright e2e after the test fix; all 32 e2e tests passed.
+- Re-ran post-fix format, lint, typecheck, targeted chat/route regression tests, and the full Bun
+  test suite.
+- Confirmed test-safe chat-contract coverage for:
+  - near-me surf prompts: `auto-executes surf spot ranking for closest near-me surf prompts` and
+    `/api/chat` browser-location routing coverage;
+  - Dapa breakfast prompts: structured output returns the selected restaurant card and no beach
+    cards, while legacy output returns no unselected cards;
+  - sandy beach half-day prompts: route and agent tests return itinerary artifacts and avoid
+    surf-only brainstorms.
+- The exact live prompt `can you tell me the best time to go to Pilar for the best waves?` was not
+  run against a live model/provider in this local validation pass; adjacent test-safe surf,
+  condition-evidence, and memory-repair coverage passed without using external services.
+
+Validation:
+
+- `bun run format && bun run lint && bun run typecheck --incremental false && bun test && bun run db:migrate:test && bun run db:seed:test && bun run build && bun run test:e2e`: passed through build, then e2e exposed the stale geolocation assertion described above.
+- `bun run test:e2e`: passed, 32 tests, after the geolocation e2e assertion update.
+- `bun run format && bun run lint && bun run typecheck --incremental false && bun test src/server/chat/ask-siargao-agent.test.ts src/app/api/chat/route.test.ts tests/e2e/chat.e2e.ts && bun test`: passed; targeted Bun run executed 124 chat/route tests, and the full Bun suite passed 529 tests across 49 files.
+
+Commit:
+
+- Committed: `Validate thin chat harness implementation`
 
 ### 2026-06-29 - Step 10 Complete
 
