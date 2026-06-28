@@ -20,7 +20,7 @@
 - [x] Step 2: Structured Final Output Parsing In The Agent Loop
 - [x] Step 3: Dapa Breakfast Regression Coverage
 - [x] Step 4: Compact Agent Memory Catalog Rendering
-- [ ] Step 5: Catalog-Backed Memory Tools
+- [x] Step 5: Catalog-Backed Memory Tools
 - [ ] Step 6: Prompt Construction Uses Available Memory Metadata
 - [ ] Step 7: Final Payload Memory Validation And Clear-Case Repair
 - [ ] Step 8: Memory-Aware Source Consistency Validation
@@ -30,8 +30,8 @@
 
 ## Current Status
 
-- Current step: Step 5
-- Next action: Back memory tool schemas and outputs with the memory catalog metadata.
+- Current step: Step 6
+- Next action: Use compact available-memory metadata when constructing the agent prompt.
 
 ## Baseline Gate Results
 
@@ -41,6 +41,26 @@
 - Bun tests passed: 504 tests across 49 files.
 
 ## Update Log
+
+### 2026-06-29 - Step 5 Complete
+
+- Backed `load_agent_memory_file` and `search_agent_memory` model-facing document enums with the current turn's memory snapshot.
+- Added `loadedMemoryFileNames` to exact memory-file load outputs without exposing checksums or adding memory source labels.
+- Added tool tests proving vector-store and backend fallback memory schemas use the resolved catalog document names.
+- Added exact-load coverage proving selected memory file bodies are returned and deployment metadata remains hidden.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `bun test src/server/chat/agent-tools.test.ts`: passed, 58 tests.
+- `bun test src/server/chat/agent-memory.test.ts`: passed, 7 tests.
+- `bun test`: passed, 517 tests across 49 files.
+
+Commit:
+
+- Committed: `Back memory tools with the catalog`
 
 ### 2026-06-29 - Step 4 Complete
 
@@ -59,7 +79,7 @@ Validation:
 
 Commit:
 
-- Pending: `Render compact agent memory catalog`
+- `98951ab Render compact agent memory catalog`
 
 ### 2026-06-29 - Step 3 Complete
 

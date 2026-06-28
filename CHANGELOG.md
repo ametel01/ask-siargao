@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed agent memory retrieval tool schemas to use the resolved turn memory catalog and return
+  exact loaded memory filenames without exposing deployment metadata.
 - Changed the Ask Siargao agent loop to parse structured final payload JSON, validate current-turn
   tool-call references, and keep legacy plain-text answers as no-artifact compatibility output.
 - Changed chat runtime artifact handling so tool-produced cards, actions, and itineraries stay

@@ -911,14 +911,18 @@ export const agentToolDefinitions = defaultFunctionToolNames.map(
 );
 
 export function buildAgentResponseTools(
-  _memorySnapshot: AgentMemorySnapshot,
+  memorySnapshot: AgentMemorySnapshot,
   options: {
     forceMemoryFallback?: boolean;
     includeMemoryFallbackWithFileSearch?: boolean;
     vectorStoreId?: string;
   } = {},
 ): AgentResponseToolDefinition[] {
-  const tools: AgentResponseToolDefinition[] = [...agentToolDefinitions];
+  const tools: AgentResponseToolDefinition[] = defaultFunctionToolNames.map((name) =>
+    name === "load_agent_memory_file"
+      ? memoryToolDefinitionForSnapshot(name, memorySnapshot)
+      : (registeredTools[name]?.definition as AgentToolDefinition),
+  );
   const vectorStoreId = options.vectorStoreId ?? process.env.OPENAI_AGENT_MEMORY_VECTOR_STORE_ID;
   if (vectorStoreId) {
     tools.push({
@@ -933,7 +937,7 @@ export function buildAgentResponseTools(
     options.forceMemoryFallback ||
     options.includeMemoryFallbackWithFileSearch
   ) {
-    const memorySearch = registeredTools.search_agent_memory?.definition;
+    const memorySearch = memoryToolDefinitionForSnapshot("search_agent_memory", memorySnapshot);
     if (memorySearch) {
       tools.push(memorySearch);
     }
@@ -1018,6 +1022,7 @@ function loadAgentMemoryFileToolResult(
     data: {
       status: missingDocuments.length > 0 ? "missing" : "available",
       memoryVersionId: snapshot.versionId,
+      loadedMemoryFileNames: files.map((file) => file.fileName),
       files: files.map((file) => ({
         fileName: file.fileName,
         title: file.title,
@@ -1028,6 +1033,60 @@ function loadAgentMemoryFileToolResult(
     },
     sources: [],
   };
+}
+
+function memoryToolDefinitionForSnapshot(
+  name: "load_agent_memory_file" | "search_agent_memory",
+  memorySnapshot: AgentMemorySnapshot,
+): AgentToolDefinition {
+  const definition = registeredTools[name]?.definition as AgentToolDefinition;
+  const documentNames = memoryReferenceDocumentNames(memorySnapshot);
+  if (name === "search_agent_memory") {
+    const documentsProperty = definition.parameters.properties.documents;
+    const documentsPropertyRecord = isRecord(documentsProperty) ? documentsProperty : {};
+    const items = isRecord(documentsPropertyRecord.items) ? documentsPropertyRecord.items : {};
+    return {
+      ...definition,
+      parameters: {
+        ...definition.parameters,
+        properties: {
+          ...definition.parameters.properties,
+          documents: {
+            ...documentsPropertyRecord,
+            items: {
+              ...items,
+              enum: documentNames,
+            },
+          },
+        },
+      },
+    };
+  }
+
+  const documentsProperty = definition.parameters.properties.documents;
+  const documentsPropertyRecord = isRecord(documentsProperty) ? documentsProperty : {};
+  const items = isRecord(documentsPropertyRecord.items) ? documentsPropertyRecord.items : {};
+  return {
+    ...definition,
+    parameters: {
+      ...definition.parameters,
+      properties: {
+        ...definition.parameters.properties,
+        documents: {
+          ...documentsPropertyRecord,
+          items: {
+            ...items,
+            enum: documentNames,
+          },
+        },
+      },
+    },
+  };
+}
+
+function memoryReferenceDocumentNames(memorySnapshot: AgentMemorySnapshot) {
+  const names = memorySnapshot.referenceFiles.map((file) => file.fileName);
+  return names.length > 0 ? names : agentMemoryReferenceDocumentNames;
 }
 
 function renderLoadedAgentMemoryFilesText(files: readonly AgentMemoryReferenceFile[]) {

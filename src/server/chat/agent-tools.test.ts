@@ -2193,7 +2193,8 @@ describe("agent tools", () => {
   });
 
   test("builds file search tools when a vector store is configured", () => {
-    const tools = buildAgentResponseTools(memorySnapshotFixture(), {
+    const memorySnapshot = memorySnapshotFixture();
+    const tools = buildAgentResponseTools(memorySnapshot, {
       vectorStoreId: "vs_memory",
     });
 
@@ -2208,17 +2209,24 @@ describe("agent tools", () => {
         name: "load_agent_memory_file",
       }),
     );
+    expect(memoryToolDocumentEnum(tools, "load_agent_memory_file")).toEqual(
+      memorySnapshot.referenceFiles.map((file) => file.fileName),
+    );
     expect(tools).not.toContainEqual(expect.objectContaining({ name: "search_agent_memory" }));
   });
 
   test("builds backend memory fallback when no vector store is configured", () => {
-    const tools = buildAgentResponseTools(memorySnapshotFixture());
+    const memorySnapshot = memorySnapshotFixture();
+    const tools = buildAgentResponseTools(memorySnapshot);
 
     expect(tools).toContainEqual(
       expect.objectContaining({
         type: "function",
         name: "search_agent_memory",
       }),
+    );
+    expect(memoryToolDocumentEnum(tools, "search_agent_memory")).toEqual(
+      memorySnapshot.referenceFiles.map((file) => file.fileName),
     );
     expect(tools).not.toContainEqual(expect.objectContaining({ type: "file_search" }));
   });
@@ -2291,8 +2299,17 @@ describe("agent tools", () => {
     expect(result.text).toContain("SURF.md");
     expect(result.text).toContain("surf spots are separate from beach fallbacks");
     expect(result.sources).toEqual([]);
-    expect(JSON.stringify(result.data)).toContain("SURF.md");
-    expect(JSON.stringify(result.data)).not.toContain("checksum");
+    const data = result.data as {
+      loadedMemoryFileNames?: string[];
+      files?: Array<{ fileName?: string; content?: string }>;
+    };
+    expect(data.loadedMemoryFileNames).toEqual(["SURF.md", "ASK_SIARGAO_SOURCE_POLICY.md"]);
+    expect(data.files?.map((file) => file.fileName)).toEqual([
+      "SURF.md",
+      "ASK_SIARGAO_SOURCE_POLICY.md",
+    ]);
+    expect(data.files?.[0]?.content).toContain("surf spots are separate from beach fallbacks");
+    expect(JSON.stringify(data)).not.toContain("checksum");
   });
 
   test("rejects invalid memory-search arguments", async () => {
@@ -2394,6 +2411,30 @@ function memorySnapshotFixture(): AgentMemorySnapshot {
     instructionMarkdown: index.content,
     referenceFiles: [surf, dataDictionary, sourcePolicy],
   };
+}
+
+function memoryToolDocumentEnum(tools: readonly unknown[], toolName: string) {
+  const tool = tools.find((candidate) => isRecord(candidate) && candidate.name === toolName);
+  if (!isRecord(tool)) {
+    return [];
+  }
+  const parameters = tool.parameters;
+  if (!isRecord(parameters)) {
+    return [];
+  }
+  const properties = parameters.properties;
+  if (!isRecord(properties)) {
+    return [];
+  }
+  const documents = properties.documents;
+  if (!isRecord(documents)) {
+    return [];
+  }
+  const items = documents.items;
+  if (!isRecord(items) || !Array.isArray(items.enum)) {
+    return [];
+  }
+  return items.enum;
 }
 
 function liveWeatherSnapshot(locationName = "Siargao Island"): WeatherSnapshot {
