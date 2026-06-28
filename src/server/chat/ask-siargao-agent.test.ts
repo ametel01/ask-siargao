@@ -481,6 +481,217 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     ).rejects.toThrow("unknown tool call ID");
   });
 
+  test("repairs surf answers by loading SURF.md before final prose", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_surf_memory_missing",
+        output_text: finalPayloadText({
+          answer: "Cloud 9 is the classic surf answer.",
+          usedMemoryFiles: ["SURF.md"],
+        }),
+        _request_id: "req_surf_memory_missing",
+      },
+      {
+        id: "resp_surf_memory_final",
+        output_text: finalPayloadText({
+          answer: "Cloud 9 is the classic surf answer.",
+          usedMemoryFiles: ["SURF.md"],
+        }),
+        _request_id: "req_surf_memory_final",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Which surf spots should I consider?" }],
+        requestId: "agent_request_surf_memory_repair",
+      },
+      {
+        client,
+        executeTool: memoryLoadExecutor(),
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.message).toContain("Cloud 9");
+    expect(result.toolCalls).toContainEqual(
+      expect.objectContaining({
+        name: "load_agent_memory_file",
+        toolCallId: "auto_required_memory_load_surf",
+      }),
+    );
+    expect(parseAutomaticMemoryInput(client.requests[1]?.input).validationRepairMemoryLoad).toEqual(
+      expect.objectContaining({
+        name: "load_agent_memory_file",
+        arguments: { documents: ["SURF.md"] },
+      }),
+    );
+  });
+
+  test("repairs beach guide answers by loading LOCAL_GUIDE_BEACHES.md", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_beach_memory_missing",
+        output_text: finalPayloadText({
+          answer: "Doot and Malinao are the easier sandy beach options.",
+          usedMemoryFiles: ["LOCAL_GUIDE_BEACHES.md"],
+        }),
+        _request_id: "req_beach_memory_missing",
+      },
+      {
+        id: "resp_beach_memory_final",
+        output_text: finalPayloadText({
+          answer: "Doot and Malinao are the easier sandy beach options.",
+          usedMemoryFiles: ["LOCAL_GUIDE_BEACHES.md"],
+        }),
+        _request_id: "req_beach_memory_final",
+      },
+    ]);
+
+    await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Which sandy beaches are good near General Luna?" }],
+        requestId: "agent_request_beach_memory_repair",
+      },
+      {
+        client,
+        executeTool: memoryLoadExecutor(),
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(parseAutomaticMemoryInput(client.requests[1]?.input).validationRepairMemoryLoad).toEqual(
+      expect.objectContaining({
+        name: "load_agent_memory_file",
+        arguments: { documents: ["LOCAL_GUIDE_BEACHES.md"] },
+      }),
+    );
+  });
+
+  test("repairs source-policy answers by loading ASK_SIARGAO_SOURCE_POLICY.md", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_source_memory_missing",
+        output_text: finalPayloadText({
+          answer: "Memory alone cannot create checked source labels.",
+          usedMemoryFiles: ["ASK_SIARGAO_SOURCE_POLICY.md"],
+        }),
+        _request_id: "req_source_memory_missing",
+      },
+      {
+        id: "resp_source_memory_final",
+        output_text: finalPayloadText({
+          answer: "Memory alone cannot create checked source labels.",
+          usedMemoryFiles: ["ASK_SIARGAO_SOURCE_POLICY.md"],
+        }),
+        _request_id: "req_source_memory_final",
+      },
+    ]);
+
+    await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "What source labels can you use?" }],
+        requestId: "agent_request_source_memory_repair",
+      },
+      {
+        client,
+        executeTool: memoryLoadExecutor(),
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(parseAutomaticMemoryInput(client.requests[1]?.input).validationRepairMemoryLoad).toEqual(
+      expect.objectContaining({
+        name: "load_agent_memory_file",
+        arguments: { documents: ["ASK_SIARGAO_SOURCE_POLICY.md"] },
+      }),
+    );
+  });
+
+  test("does not force beach or surf memory for breakfast place prompts", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_breakfast_no_memory",
+        output_text: finalPayloadText({
+          answer: "For breakfast in Dapa, use a Places check for current options.",
+        }),
+        _request_id: "req_breakfast_no_memory",
+      },
+    ]);
+
+    await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "I'll go to Dapa later, good places for breakfast?" }],
+        requestId: "agent_request_breakfast_no_memory",
+      },
+      {
+        client,
+        executeTool: memoryLoadExecutor(),
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(client.requests).toHaveLength(1);
+  });
+
+  test("rejects unobserved used memory files in strict structured final output", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_unknown_memory_strict",
+        output_text: finalPayloadText({
+          answer: "First afternoon answer.",
+          usedMemoryFiles: ["SURF.md"],
+        }),
+        _request_id: "req_unknown_memory_strict",
+      },
+    ]);
+
+    await expect(
+      runAskSiargaoAgentTurn(
+        {
+          messages: [{ role: "user", content: "How should I spend my first afternoon?" }],
+          requestId: "agent_request_unknown_memory_strict",
+        },
+        { client, model: "gpt-test", requireStructuredFinalOutput: true },
+      ),
+    ).rejects.toThrow("memory file(s) not loaded or returned this turn: SURF.md");
+  });
+
+  test("drops and logs unobserved used memory files in compatibility mode", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_unknown_memory_compat",
+        output_text: finalPayloadText({
+          answer: "First afternoon answer.",
+          usedMemoryFiles: ["SURF.md"],
+        }),
+        _request_id: "req_unknown_memory_compat",
+      },
+    ]);
+    const logs = captureLogger();
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "How should I spend my first afternoon?" }],
+        requestId: "agent_request_unknown_memory_compat",
+      },
+      { client, logger: logs.logger, model: "gpt-test" },
+    );
+
+    expect(result.message).toBe("First afternoon answer.");
+    expect(logs.events).toContainEqual(
+      expect.objectContaining({
+        level: "warn",
+        message: "Agent final payload referenced unobserved memory file(s).",
+        payload: { usedMemoryFiles: ["SURF.md"] },
+      }),
+    );
+  });
+
   test("registers hosted file search when a vector store is configured", async () => {
     const client = fakeResponsesClient([
       {
@@ -3286,6 +3497,32 @@ function fakeToolExecutor(
   };
 }
 
+function memoryLoadExecutor(): AgentToolExecutor {
+  return async (request) => {
+    const documents = readDocumentsArgument(request.arguments);
+    return {
+      name: request.name,
+      status: "success",
+      text: `Loaded memory files: ${documents.join(", ")}`,
+      toolCallId: request.toolCallId,
+      data: {
+        loadedMemoryFileNames: documents,
+        files: documents.map((fileName) => ({
+          fileName,
+          content: `${fileName} loaded reference body.`,
+        })),
+      },
+      sources: [],
+    };
+  };
+}
+
+function readDocumentsArgument(args: Record<string, unknown>) {
+  return Array.isArray(args.documents)
+    ? args.documents.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
 function steppedClock(isoTimes: string[]) {
   const pending = [...isoTimes];
   return () => new Date(pending.shift() ?? isoTimes.at(-1) ?? "2026-06-26T00:00:00.000Z");
@@ -3321,6 +3558,15 @@ function parseAutomaticRequiredPlanInput(input: unknown): {
 function parseAutomaticConditionInput(input: unknown): {
   instruction?: string;
   validationRepairConditionJudgment?: { name?: string };
+} {
+  return parseLastUserInputMessage(input) ?? {};
+}
+
+function parseAutomaticMemoryInput(input: unknown): {
+  validationRepairMemoryLoad?: {
+    name?: string;
+    arguments?: Record<string, unknown>;
+  };
 } {
   return parseLastUserInputMessage(input) ?? {};
 }

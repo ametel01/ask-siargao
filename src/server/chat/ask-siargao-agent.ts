@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import type { Logger } from "pino";
 
 import {
   type AgentMemorySnapshot,
@@ -335,6 +336,56 @@ export async function runAskSiargaoAgentTurn(
         continue;
       }
 
+      const memoryRepairCall = missingClearMemoryLoadRepairCall(
+        finalText,
+        resolved,
+        toolCalls,
+        toolResults,
+      );
+      if (memoryRepairCall) {
+        if (toolCalls.length + 1 > maxToolCalls) {
+          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
+        }
+
+        const automaticMemoryOutput = await executeAndAuditTool({
+          executeTool,
+          functionCall: memoryRepairCall,
+          logger,
+          now: dependencies.now ?? (() => new Date()),
+          runtimeRequest: resolved,
+          requestId: resolved.requestId,
+        });
+        toolCalls.push(automaticMemoryOutput.audit);
+        toolResults.push(automaticMemoryOutput.result);
+
+        responseInput = [
+          ...responseInput,
+          ...responseOutputItems(response.output),
+          userInputMessage({
+            product: "Ask Siargao",
+            instruction:
+              "Validation repair: you attempted a final answer for a topic covered by the loaded INDEX.md before loading the exact memory file. Use this loaded memory file as reference context, keep memory separate from live evidence, and return the final traveler-facing JSON payload now.",
+            validationRepairMemoryLoad: {
+              toolCallId: automaticMemoryOutput.functionCall.callId,
+              name: automaticMemoryOutput.functionCall.name,
+              arguments: publicToolArguments(automaticMemoryOutput.functionCall),
+              result: JSON.parse(serializeToolOutput(automaticMemoryOutput.result)),
+            },
+            responseContract,
+          }),
+        ];
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_000,
+          instructions,
+          tools,
+          input: responseInput,
+        });
+        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        continue;
+      }
+
       logger.info(
         {
           durationMs: sumDurations(toolCalls),
@@ -346,8 +397,10 @@ export async function runAskSiargaoAgentTurn(
         "Ask Siargao agent turn completed.",
       );
       const finalPayload = parseFinalPayloadOrLegacyText(finalText, {
+        logger,
         requireStructuredFinalOutput: dependencies.requireStructuredFinalOutput === true,
         toolCalls,
+        toolResults,
       });
       return createAgentTurnResult({
         message: finalPayload?.answer ?? finalText,
@@ -434,11 +487,15 @@ function responseOutputItems(output: unknown): ResponseInputItem[] {
 function parseFinalPayloadOrLegacyText(
   finalText: string,
   {
+    logger,
     requireStructuredFinalOutput,
     toolCalls,
+    toolResults,
   }: {
+    logger: Logger;
     requireStructuredFinalOutput: boolean;
     toolCalls: readonly AgentToolCallAudit[];
+    toolResults: readonly AgentToolResult[];
   },
 ): AgentFinalPayload | undefined {
   const parsed = parseAgentFinalPayload(finalText);
@@ -451,7 +508,12 @@ function parseFinalPayloadOrLegacyText(
     return undefined;
   }
 
-  return validateFinalPayloadToolCallIds(parsed, toolCalls, requireStructuredFinalOutput);
+  return validateFinalPayloadMemoryFiles(
+    validateFinalPayloadToolCallIds(parsed, toolCalls, requireStructuredFinalOutput),
+    toolResults,
+    requireStructuredFinalOutput,
+    logger,
+  );
 }
 
 function parseAgentFinalPayload(finalText: string): AgentFinalPayload | undefined {
@@ -550,6 +612,57 @@ function validateFinalPayloadToolCallIds(
   };
 }
 
+function validateFinalPayloadMemoryFiles(
+  payload: AgentFinalPayload,
+  toolResults: readonly AgentToolResult[],
+  strict: boolean,
+  logger: Logger,
+): AgentFinalPayload {
+  const observedMemoryFiles = currentTurnMemoryFileNames(toolResults);
+  const usedMemoryFiles = uniqueText(payload.usedMemoryFiles);
+  const unknownMemoryFiles = usedMemoryFiles.filter(
+    (fileName) => !observedMemoryFiles.has(fileName),
+  );
+
+  if (strict && unknownMemoryFiles.length > 0) {
+    throw new Error(
+      `Agent final payload referenced memory file(s) not loaded or returned this turn: ${unknownMemoryFiles.join(", ")}`,
+    );
+  }
+
+  if (unknownMemoryFiles.length > 0) {
+    logger.warn(
+      { usedMemoryFiles: unknownMemoryFiles },
+      "Agent final payload referenced unobserved memory file(s).",
+    );
+  }
+
+  return {
+    ...payload,
+    usedMemoryFiles: usedMemoryFiles.filter((fileName) => observedMemoryFiles.has(fileName)),
+  };
+}
+
+function currentTurnMemoryFileNames(toolResults: readonly AgentToolResult[]) {
+  const fileNames = new Set<string>();
+  for (const result of toolResults) {
+    if (result.name === "load_agent_memory_file") {
+      for (const fileName of readStringArrayFromPath(result.data, ["loadedMemoryFileNames"])) {
+        fileNames.add(fileName);
+      }
+      for (const fileName of readFileNamesFromArrayPath(result.data, ["files"])) {
+        fileNames.add(fileName);
+      }
+    }
+    if (result.name === "search_agent_memory") {
+      for (const fileName of readFileNamesFromArrayPath(result.data, ["results"])) {
+        fileNames.add(fileName);
+      }
+    }
+  }
+  return fileNames;
+}
+
 function missingInitialItineraryPlanRepairCall(
   request: AgentRuntimeRequest,
   toolCalls: readonly AgentToolCallAudit[],
@@ -612,6 +725,101 @@ function missingSurfSpotRankingRepairCall(
       include_boat_access: false,
     },
   };
+}
+
+function missingClearMemoryLoadRepairCall(
+  finalText: string,
+  request: AgentRuntimeRequest,
+  toolCalls: readonly AgentToolCallAudit[],
+  toolResults: readonly AgentToolResult[],
+): ParsedFunctionCall | undefined {
+  if (!parseAgentFinalPayload(finalText)) {
+    return undefined;
+  }
+  if (toolCalls.some((toolCall) => !isMemoryToolName(toolCall.name))) {
+    return undefined;
+  }
+  const requiredFileName = clearRequiredMemoryFileName(request);
+  if (!requiredFileName) {
+    return undefined;
+  }
+  if (currentTurnMemoryFileNames(toolResults).has(requiredFileName)) {
+    return undefined;
+  }
+  if (hasMemoryLoadAttemptForFile(toolCalls, requiredFileName)) {
+    return undefined;
+  }
+
+  return {
+    callId: `auto_required_memory_load_${memoryRepairId(requiredFileName)}`,
+    name: "load_agent_memory_file",
+    arguments: { documents: [requiredFileName] },
+  };
+}
+
+function isMemoryToolName(name: string) {
+  return name === "load_agent_memory_file" || name === "search_agent_memory";
+}
+
+function clearRequiredMemoryFileName(request: AgentRuntimeRequest) {
+  const latestUserTurn = latestUserContent(request.messages);
+  if (
+    /\b(source[-\s]?labels?|source policy|checked|not checked|live evidence|confidence)\b/i.test(
+      latestUserTurn,
+    )
+  ) {
+    return "ASK_SIARGAO_SOURCE_POLICY.md";
+  }
+  if (
+    /\b(tool[-\s]?use|use tools?|weather tool|places tool|condition tool|itinerary tool|when .*tools?)\b/i.test(
+      latestUserTurn,
+    )
+  ) {
+    return "ASK_SIARGAO_TOOL_USE_POLICY.md";
+  }
+  if (
+    /\b(data dictionary|database|local facts?|safe fields?|query boundaries?|data boundaries?)\b/i.test(
+      latestUserTurn,
+    )
+  ) {
+    return "ASK_SIARGAO_DATA_DICTIONARY.md";
+  }
+  if (isFoodOrPlaceMemoryExclusion(latestUserTurn)) {
+    return undefined;
+  }
+  if (/\b(surf(?:ing|er|ers|s|ed)?|waves?|surf spots?|breaks?)\b/i.test(latestUserTurn)) {
+    return "SURF.md";
+  }
+  if (
+    /\b(beaches?|beach\s+day|sandy|sand|family[-\s]?friendly\s+beach|quiet\s+beach|where\s+(?:can|should)\s+i\s+swim|swim(?:ming)?\s+beach)\b/i.test(
+      latestUserTurn,
+    )
+  ) {
+    return "LOCAL_GUIDE_BEACHES.md";
+  }
+  return undefined;
+}
+
+function isFoodOrPlaceMemoryExclusion(content: string) {
+  return /\b(food|breakfast|brunch|lunch|dinner|caf[eé]s?|coffee|restaurants?|eat|drinks?|bars?|open(?:[-\s]?now)?|google places?)\b/i.test(
+    content,
+  );
+}
+
+function hasMemoryLoadAttemptForFile(toolCalls: readonly AgentToolCallAudit[], fileName: string) {
+  return toolCalls.some(
+    (toolCall) =>
+      toolCall.name === "load_agent_memory_file" &&
+      readStringArrayFromPath(toolCall.arguments, ["documents"]).includes(fileName),
+  );
+}
+
+function memoryRepairId(fileName: string) {
+  return fileName
+    .toLowerCase()
+    .replace(/\.md$/u, "")
+    .replaceAll(/[^a-z0-9]+/gu, "_")
+    .replaceAll(/^_+|_+$/gu, "");
 }
 
 function needsBrowserLocationSurfSpotRanking(request: AgentRuntimeRequest) {
@@ -1667,6 +1875,33 @@ function readStringPath(value: unknown, path: readonly string[]) {
     current = current[segment];
   }
   return readString(current);
+}
+
+function readStringArrayFromPath(value: unknown, path: readonly string[]) {
+  let current = value;
+  for (const segment of path) {
+    if (!isRecord(current)) {
+      return [];
+    }
+    current = current[segment];
+  }
+  return readStringArray(current) ?? [];
+}
+
+function readFileNamesFromArrayPath(value: unknown, path: readonly string[]) {
+  let current = value;
+  for (const segment of path) {
+    if (!isRecord(current)) {
+      return [];
+    }
+    current = current[segment];
+  }
+  if (!Array.isArray(current)) {
+    return [];
+  }
+  return current
+    .flatMap((item) => (isRecord(item) ? [readString(item.fileName)] : []))
+    .filter((fileName): fileName is string => typeof fileName === "string");
 }
 
 function readNumberPath(value: unknown, path: readonly string[]) {

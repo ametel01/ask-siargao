@@ -80,6 +80,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed structured final payload handling to validate model-selected memory files against
+  current-turn memory observations and repair clear no-tool surf, beach, and source-policy answers
+  by loading the exact indexed memory file first.
 - Changed Ask Siargao agent prompt construction to include compact available-memory metadata before
   the loaded index while keeping full reference memory bodies out of the default prompt.
 - Changed agent memory retrieval tool schemas to use the resolved turn memory catalog and return

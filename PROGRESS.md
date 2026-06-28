@@ -22,7 +22,7 @@
 - [x] Step 4: Compact Agent Memory Catalog Rendering
 - [x] Step 5: Catalog-Backed Memory Tools
 - [x] Step 6: Prompt Construction Uses Available Memory Metadata
-- [ ] Step 7: Final Payload Memory Validation And Clear-Case Repair
+- [x] Step 7: Final Payload Memory Validation And Clear-Case Repair
 - [ ] Step 8: Memory-Aware Source Consistency Validation
 - [ ] Step 9: Chat Route Public Contract And Observability
 - [ ] Step 10: Documentation Alignment
@@ -30,8 +30,8 @@
 
 ## Current Status
 
-- Current step: Step 7
-- Next action: Validate final-payload memory usage against current-turn memory retrieval observations.
+- Current step: Step 8
+- Next action: Ensure memory retrieval cannot back live/provider/source labels in source consistency validation.
 
 ## Baseline Gate Results
 
@@ -41,6 +41,26 @@
 - Bun tests passed: 504 tests across 49 files.
 
 ## Update Log
+
+### 2026-06-29 - Step 7 Complete
+
+- Validated structured final-payload `usedMemoryFiles` against memory files observed from current-turn memory tool results.
+- Rejected unobserved memory filenames in strict mode and dropped/logged them in compatibility mode.
+- Added structured-output repair for clear no-tool surf, beach-guide, and source-policy answers so the agent loads the exact indexed memory file before final prose.
+- Kept breakfast/place prompts and non-memory tool workflows from being over-routed into surf or beach memory.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `bun test src/server/chat/ask-siargao-agent.test.ts`: passed, 63 tests.
+- `bun test src/server/chat/agent-tools.test.ts`: passed, 58 tests.
+- `bun test`: passed, 524 tests across 49 files.
+
+Commit:
+
+- Committed: `Validate model-selected memory usage`
 
 ### 2026-06-29 - Step 6 Complete
 
