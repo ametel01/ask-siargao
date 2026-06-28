@@ -90,6 +90,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added progress tracking for the thin agent harness implementation so each plan step can record
+  validation results, status, and commit references.
 - Added chat share-link creation for saved trip items, including selected-item controls, API-backed
   share token creation, copy/open link controls, empty and error states, and browser coverage that
   verifies share requests exclude chat history and geolocation.
