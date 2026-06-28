@@ -48,6 +48,12 @@ import {
   searchSiargaoLocalGuide,
 } from "@/server/local/siargao-beaches";
 import {
+  parseSurfSpotDistanceAnchors,
+  type RankedSurfSpot,
+  rankSurfSpotsNearby,
+  type SurfSpotSkillLevel,
+} from "@/server/local/siargao-surf-spots";
+import {
   type GooglePlacesChatContext,
   type GooglePlacesChatPlace,
   type GooglePlacesChatSearch,
@@ -156,6 +162,7 @@ export type AgentToolDependencies = {
 type SearchPlacesArguments = z.infer<typeof searchPlacesSchema>;
 type PlaceDetailsArguments = z.infer<typeof placeDetailsSchema>;
 type SearchLocalGuideArguments = z.infer<typeof searchLocalGuideSchema>;
+type RankSurfSpotsNearbyArguments = z.infer<typeof rankSurfSpotsNearbySchema>;
 type LocalItineraryArguments = z.infer<typeof localItineraryRequestSchema>;
 type SearchAgentMemoryArguments = z.infer<typeof searchAgentMemorySchema>;
 type LoadAgentMemoryFileArguments = z.infer<typeof loadAgentMemoryFileSchema>;
@@ -227,6 +234,11 @@ const searchLocalGuideSchema = z.strictObject({
       with_kids: optionalNullable(z.boolean()),
     }),
   ),
+});
+const rankSurfSpotsNearbySchema = z.strictObject({
+  skill_level: z.enum(["beginner", "intermediate", "advanced", "any"]).nullable(),
+  max_results: z.number().int().min(1).max(10).nullable(),
+  include_boat_access: z.boolean().nullable(),
 });
 const weatherForecastSchema = z.strictObject({
   location: z.enum(weatherForecastLocations),
@@ -582,6 +594,40 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
     schema: searchLocalGuideSchema,
     execute: (args) => searchLocalGuideToolResult(args as SearchLocalGuideArguments),
   },
+  rank_surf_spots_nearby: {
+    definition: {
+      type: "function",
+      name: "rank_surf_spots_nearby",
+      description:
+        "Rank known Siargao surf spots by straight-line distance from the user's consented browser geolocation. Use for closest/nearest/near-me surf spot requests. The tool returns distances and spot metadata only; it does not expose the user's coordinates or live surf conditions.",
+      parameters: {
+        type: "object",
+        properties: {
+          skill_level: {
+            type: ["string", "null"],
+            enum: ["beginner", "intermediate", "advanced", "any", null],
+            description: "Optional skill filter for the surf spots to rank.",
+          },
+          max_results: {
+            type: ["integer", "null"],
+            minimum: 1,
+            maximum: 10,
+            description: "Maximum number of ranked surf spots to return.",
+          },
+          include_boat_access: {
+            type: ["boolean", "null"],
+            description: "Whether boat-access surf spots may be included.",
+          },
+        },
+        required: ["skill_level", "max_results", "include_boat_access"],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+    schema: rankSurfSpotsNearbySchema,
+    execute: (args, request, dependencies) =>
+      rankSurfSpotsNearbyToolResult(args as RankSurfSpotsNearbyArguments, request, dependencies),
+  },
   plan_local_itinerary: {
     definition: {
       type: "function",
@@ -851,6 +897,7 @@ const defaultFunctionToolNames = [
   "search_places",
   "get_place_details",
   "search_local_guide",
+  "rank_surf_spots_nearby",
   "plan_local_itinerary",
   "describe_database_schema",
   "query_local_facts",
@@ -1272,6 +1319,59 @@ function searchLocalGuideToolResult(args: SearchLocalGuideArguments): AgentToolR
   };
 }
 
+function rankSurfSpotsNearbyToolResult(
+  args: RankSurfSpotsNearbyArguments,
+  request: AgentToolExecutionRequest,
+  dependencies: AgentToolDependencies,
+): AgentToolResult {
+  const context = request.toolContext?.surfSpotRanking;
+  if (!context?.center) {
+    return {
+      name: "rank_surf_spots_nearby",
+      status: "error",
+      text: "Browser geolocation is required to rank the closest surf spots, but no consented location was available to this tool.",
+      errorCode: "browser_geolocation_unavailable",
+      sources: [surfSpotRankingUnavailableSourceSummary()],
+    };
+  }
+
+  const anchors = loadSurfSpotDistanceAnchors(dependencies);
+  if (anchors.length === 0) {
+    return {
+      name: "rank_surf_spots_nearby",
+      status: "error",
+      text: "SURF.md did not contain machine-readable surf spot distance anchors.",
+      errorCode: "surf_spot_anchors_unavailable",
+      sources: [surfSpotRankingUnavailableSourceSummary()],
+    };
+  }
+
+  const spots = rankSurfSpotsNearby({
+    center: context.center,
+    spots: anchors,
+    skillLevel: args.skill_level ?? "any",
+    maxResults: args.max_results ?? undefined,
+    includeBoatAccess: args.include_boat_access ?? false,
+  });
+  const sourceSummary = surfSpotRankingSourceSummary(spots);
+  return {
+    name: "rank_surf_spots_nearby",
+    status: "success",
+    text: renderRankedSurfSpotsText(spots, args.skill_level ?? "any"),
+    data: {
+      status: "available",
+      centerSource: "browser_geolocation",
+      ...(context.consentScope ? { consentScope: context.consentScope } : {}),
+      distanceBasis: "straight_line_km",
+      skillLevel: args.skill_level ?? "any",
+      includeBoatAccess: args.include_boat_access ?? false,
+      spots,
+      caveats: surfSpotRankingCaveats,
+    },
+    sources: [sourceSummary],
+  };
+}
+
 function planLocalItineraryToolResult(args: LocalItineraryRequest): AgentToolResult {
   const result = planLocalItinerary(args);
   const actions = itineraryPromptActions(result.plan);
@@ -1292,6 +1392,37 @@ function planLocalItineraryToolResult(args: LocalItineraryRequest): AgentToolRes
     itineraries: [result.plan],
     ...(actions.length ? { actions } : {}),
   };
+}
+
+function renderRankedSurfSpotsText(
+  spots: readonly RankedSurfSpot[],
+  skillLevel: SurfSpotSkillLevel,
+) {
+  if (spots.length === 0) {
+    return `No known Siargao surf spots matched the ${skillLevel} skill filter near the shared browser location.`;
+  }
+
+  return [
+    `Ranked ${spots.length} known Siargao surf spot(s) by straight-line distance from the user's shared browser location.`,
+    `Skill filter: ${skillLevel}.`,
+    ...spots.map((spot, index) =>
+      [
+        `${index + 1}. ${spot.name}`,
+        spot.area,
+        spot.distanceLabel,
+        `${spot.access} access`,
+        `skill: ${spot.skillLevels.join("/")}`,
+        ...spot.caveats,
+      ].join(" - "),
+    ),
+    ...surfSpotRankingCaveats,
+  ].join("\n");
+}
+
+function loadSurfSpotDistanceAnchors(dependencies: AgentToolDependencies) {
+  const snapshot = dependencies.memorySnapshot ?? loadAgentMemorySnapshot();
+  const surfMemory = snapshot.referenceFiles.find((file) => file.fileName === "SURF.md");
+  return surfMemory ? parseSurfSpotDistanceAnchors(surfMemory.content) : [];
 }
 
 function describeDatabaseSchemaToolResult(_args: DescribeDatabaseSchemaArguments): AgentToolResult {
@@ -1610,6 +1741,36 @@ function sourceEvidenceSummaries(
     });
   }
   return [...summaries.values()];
+}
+
+const surfSpotRankingCaveats = [
+  "Distances are straight-line estimates from the shared browser location, not road travel distance or travel time.",
+  "Exact break coordinates, live surf quality, tides, currents, access changes, lifeguards, and local warnings were not checked.",
+  "For remote, reef, or boat-access waves, check with a local surf school, boatman, or experienced local surfer.",
+] as const;
+
+function surfSpotRankingSourceSummary(spots: readonly RankedSurfSpot[]): AnswerSourceSummary {
+  return {
+    label: "curated_local_guide",
+    sourceName: "Ask Siargao surf spot reference",
+    confidence: "medium",
+    checked: [
+      "known surf spot reference list",
+      "approximate straight-line distance ranking from shared browser location",
+      ...(spots.length ? [`ranked spots: ${spots.map((spot) => spot.name).join(", ")}`] : []),
+    ],
+    notChecked: [...surfSpotRankingCaveats],
+  };
+}
+
+function surfSpotRankingUnavailableSourceSummary(): AnswerSourceSummary {
+  return {
+    label: "provider_unavailable",
+    sourceName: "Browser geolocation",
+    confidence: "low",
+    checked: [],
+    notChecked: ["closest surf spot distance ranking"],
+  };
 }
 
 async function withLocalFactsQueryRunner<T>(

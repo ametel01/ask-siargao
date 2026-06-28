@@ -521,6 +521,135 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     }
   });
 
+  test("auto-executes surf spot ranking for closest near-me surf prompts", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_direct_surf_condition",
+        output_text: "Direct surf answer without condition evidence or distances.",
+        _request_id: "req_direct_surf_condition",
+      },
+      {
+        id: "resp_after_surf_condition",
+        output_text: "Surf answer with condition evidence but still no ranked distances.",
+        _request_id: "req_after_surf_condition",
+      },
+      {
+        id: "resp_after_surf_ranking",
+        output_text:
+          "Closest surf spots from your shared location are Pacifico / Big Wish and Bamboo Garden, with approximate km distances.",
+        _request_id: "req_after_surf_ranking",
+      },
+    ]);
+    const browserCenter = { latitude: 9.952, longitude: 126.088 };
+    const toolRequests: Parameters<AgentToolExecutor>[0][] = [];
+    const executeTool: AgentToolExecutor = async (request) => {
+      toolRequests.push(request);
+      if (request.name === "get_condition_judgment") {
+        return {
+          name: request.name,
+          status: "success",
+          text: "Condition judgment: poor for surfing today.",
+          sources: [weatherSourceSummary, conditionMarineSourceSummary],
+        };
+      }
+      if (request.name === "rank_surf_spots_nearby") {
+        return {
+          name: request.name,
+          status: "success",
+          text: "Ranked surf spots: 1. Pacifico / Big Wish - About 0.2 km straight-line. 2. Bamboo Garden - About 0.3 km straight-line.",
+          data: {
+            centerSource: "browser_geolocation",
+            spots: [
+              {
+                name: "Pacifico / Big Wish",
+                distanceLabel: "About 0.2 km straight-line from your shared location.",
+              },
+              {
+                name: "Bamboo Garden",
+                distanceLabel: "About 0.3 km straight-line from your shared location.",
+              },
+            ],
+          },
+          sources: [localGuideSourceSummary],
+        };
+      }
+      return {
+        name: request.name,
+        status: "error",
+        text: `Unexpected tool ${request.name}.`,
+        errorCode: "unexpected_tool",
+        sources: [],
+      };
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "I want to go surfing today what are the closest spots near me?",
+          },
+        ],
+        requestId: "agent_request_auto_near_me_surf",
+        clientContext: {
+          geolocation: {
+            status: "available",
+            source: "browser_geolocation",
+            consentScope: "trip_session",
+            ...browserCenter,
+            capturedAt: "2026-06-26T00:00:00.000Z",
+          },
+        },
+        deterministicSignals: {
+          intent: {
+            conditionActivity: "surfing",
+            nearMeUsesBrowserGeolocation: true,
+            nearby: true,
+            today: true,
+            weatherSensitive: true,
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("Pacifico / Big Wish");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "get_condition_judgment",
+      "rank_surf_spots_nearby",
+    ]);
+    expect(result.toolCalls[1]?.arguments).toEqual({
+      skill_level: "any",
+      max_results: 7,
+      include_boat_access: false,
+      center: { source: "browser_geolocation" },
+    });
+    expect(toolRequests[1]).toMatchObject({
+      name: "rank_surf_spots_nearby",
+      toolContext: {
+        surfSpotRanking: {
+          center: browserCenter,
+          centerSource: "browser_geolocation",
+          consentScope: "trip_session",
+        },
+      },
+    });
+    const automaticInput = parseLastUserInputMessage(client.requests[2]?.input);
+    expect(automaticInput?.validationRepairSurfSpotRanking).toMatchObject({
+      name: "rank_surf_spots_nearby",
+    });
+    const toolOutput = automaticInput?.validationRepairSurfSpotRanking as
+      | { result?: Record<string, unknown> }
+      | undefined;
+    expect(toolOutput?.result?.data).toMatchObject({
+      center: { source: "browser_geolocation" },
+    });
+    expect(JSON.stringify(result.toolCalls)).not.toContain("9.952");
+    expect(JSON.stringify(result.toolCalls)).not.toContain("126.088");
+    expect(JSON.stringify(client.requests)).not.toContain("9.952");
+    expect(JSON.stringify(client.requests)).not.toContain("126.088");
+  });
+
   test("executes a condition judgment tool call and feeds the evidence back to the model", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({

@@ -25,6 +25,11 @@ Cloud 9, General Luna surf zones, beginner/intermediate/advanced surf
 recommendations, surf spot caveats, and distinguishing surf breaks from normal
 beaches.
 
+For "closest surf spots near me", "nearest surf", or similar browser-location
+requests, load `SURF.md` and call `rank_surf_spots_nearby` before the final
+answer. Use the tool's km distances for the nearest list; do not infer General
+Luna, Cloud 9, or any other named base from memory alone.
+
 ### LOCAL_GUIDE_BEACHES.md
 
 Use for beach-day recommendations, swimming beaches, sandy/rocky beach tradeoffs,

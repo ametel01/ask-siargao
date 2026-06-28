@@ -35,6 +35,227 @@ local surfer.
 - Mention that conditions depend on swell direction, tide, wind, season, and board choice.
 - For today's timing, tide, weather, swell, wind, or safety-sensitive advice,
   also use the governed condition/tide/marine/weather tools required by policy.
+- For "closest surf spots near me" with browser geolocation available, call
+  `rank_surf_spots_nearby` and use its approximate km ranking. Do not substitute
+  the General Luna / Cloud 9 cluster unless the ranking tool actually returns it
+  near the user's shared location.
+- The surf ranking tool uses approximate public-area anchors and straight-line
+  distance only; road distance, travel time, exact lineup pins, access changes,
+  and live surf quality remain unchecked.
+
+---
+
+## Machine-Readable Distance Ranking Anchors
+
+These anchors support the `rank_surf_spots_nearby` tool. Coordinates are
+approximate public-area anchors, not exact lineup pins.
+
+```json surf_spot_distance_anchors
+[
+  {
+    "id": "cloud_9",
+    "name": "Cloud 9",
+    "aliases": [],
+    "area": "General Luna / Catangnan",
+    "skillLevels": ["advanced"],
+    "access": "paddle",
+    "latitude": 9.8147,
+    "longitude": 126.1654,
+    "caveats": ["Advanced reef wave; not suitable for beginners."]
+  },
+  {
+    "id": "quiksilver",
+    "name": "Quiksilver",
+    "aliases": ["Quicksilver"],
+    "area": "General Luna / Cloud 9",
+    "skillLevels": ["intermediate", "advanced"],
+    "access": "paddle",
+    "latitude": 9.8138,
+    "longitude": 126.1662,
+    "caveats": ["Reef break near Cloud 9; avoid treating it as a pure beginner wave."]
+  },
+  {
+    "id": "jacking_horse",
+    "name": "Jacking Horse",
+    "aliases": [],
+    "area": "General Luna / Cloud 9",
+    "skillLevels": ["beginner", "intermediate"],
+    "access": "paddle",
+    "latitude": 9.8155,
+    "longitude": 126.1647,
+    "caveats": [
+      "Softer lesson wave, but still reef-based; beginners should go with an instructor."
+    ]
+  },
+  {
+    "id": "tuason_point",
+    "name": "Tuason Point",
+    "aliases": ["Tuason"],
+    "area": "General Luna / Tuason",
+    "skillLevels": ["intermediate", "advanced"],
+    "access": "shore",
+    "latitude": 9.8037,
+    "longitude": 126.1619,
+    "caveats": ["Powerful reef wave; high tide is generally safer than low tide."]
+  },
+  {
+    "id": "cemetery_pesangan",
+    "name": "Cemetery / Pesangan",
+    "aliases": ["Cemetery", "Pesangan"],
+    "area": "General Luna",
+    "skillLevels": ["beginner", "intermediate", "advanced"],
+    "access": "paddle",
+    "latitude": 9.7899,
+    "longitude": 126.1558,
+    "caveats": ["Multiple reef peaks; fit varies widely by tide and swell."]
+  },
+  {
+    "id": "ocean_9",
+    "name": "Ocean 9",
+    "aliases": [],
+    "area": "Santa Fe / Catangnan side",
+    "skillLevels": ["beginner"],
+    "access": "shore",
+    "latitude": 9.8208,
+    "longitude": 126.1388,
+    "caveats": ["Softer bay wave that may be flat without enough wrapping swell."]
+  },
+  {
+    "id": "daku_reef",
+    "name": "Daku Reef",
+    "aliases": ["Daku Island"],
+    "area": "Daku Island",
+    "skillLevels": ["beginner", "intermediate"],
+    "access": "boat",
+    "latitude": 9.749,
+    "longitude": 126.149,
+    "caveats": ["Boat access required; reef still present."]
+  },
+  {
+    "id": "guiuan_g1",
+    "name": "Guiuan / G1",
+    "aliases": ["Guiuan", "Giwan", "G1"],
+    "area": "Southern Siargao",
+    "skillLevels": ["beginner", "intermediate"],
+    "access": "shore",
+    "latitude": 9.7698,
+    "longitude": 126.112,
+    "caveats": [
+      "South-facing option; not always suitable for complete beginners without instruction."
+    ]
+  },
+  {
+    "id": "union",
+    "name": "Union",
+    "aliases": [],
+    "area": "Southern Siargao near Guiuan",
+    "skillLevels": ["beginner", "intermediate"],
+    "access": "shore",
+    "latitude": 9.7605,
+    "longitude": 126.1045,
+    "caveats": ["Local naming and exact entry points vary; confirm on arrival."]
+  },
+  {
+    "id": "secret_spot_paradise",
+    "name": "Secret Spot / Paradise Surfing",
+    "aliases": ["Secret Spot", "Paradise Surfing"],
+    "area": "Southern Siargao near Guiuan / Union",
+    "skillLevels": ["beginner", "intermediate"],
+    "access": "shore",
+    "latitude": 9.7582,
+    "longitude": 126.095,
+    "caveats": ["Local naming may vary; confirm the exact section before paddling out."]
+  },
+  {
+    "id": "salvacion",
+    "name": "Salvacion",
+    "aliases": [],
+    "area": "Salvacion",
+    "skillLevels": ["intermediate"],
+    "access": "local",
+    "latitude": 9.861,
+    "longitude": 126.105,
+    "caveats": ["Check local access and conditions."]
+  },
+  {
+    "id": "pilar",
+    "name": "Pilar",
+    "aliases": [],
+    "area": "Pilar",
+    "skillLevels": ["intermediate"],
+    "access": "local",
+    "latitude": 9.8655,
+    "longitude": 126.099,
+    "caveats": ["Reef and rocks; local lineup awareness matters."]
+  },
+  {
+    "id": "pacifico_big_wish",
+    "name": "Pacifico / Big Wish",
+    "aliases": ["Pacifico", "Big Wish"],
+    "area": "Pacifico",
+    "skillLevels": ["intermediate", "advanced"],
+    "access": "shore",
+    "latitude": 9.9538,
+    "longitude": 126.0882,
+    "caveats": ["Powerful north-coast left; not for beginners when solid."]
+  },
+  {
+    "id": "bamboo_garden",
+    "name": "Bamboo Garden",
+    "aliases": ["Bamboo"],
+    "area": "Pacifico area",
+    "skillLevels": ["beginner", "intermediate", "advanced"],
+    "access": "shore",
+    "latitude": 9.949,
+    "longitude": 126.088,
+    "caveats": ["Match skill to section; not all sections are beginner-safe."]
+  },
+  {
+    "id": "burgos_bay",
+    "name": "Burgos Bay",
+    "aliases": [],
+    "area": "Burgos",
+    "skillLevels": ["beginner", "intermediate", "advanced"],
+    "access": "shore",
+    "latitude": 10.009,
+    "longitude": 126.074,
+    "caveats": ["Broad surf zone; ask locally which exact Burgos wave is working."]
+  },
+  {
+    "id": "innertubes",
+    "name": "Innertubes",
+    "aliases": ["Inner Tube"],
+    "area": "Burgos Bay",
+    "skillLevels": ["intermediate", "advanced"],
+    "access": "shore",
+    "latitude": 10.007,
+    "longitude": 126.075,
+    "caveats": ["Barrel opportunity when aligned, but not beginner-safe."]
+  },
+  {
+    "id": "hapiks",
+    "name": "Hapiks",
+    "aliases": [],
+    "area": "Burgos Bay",
+    "skillLevels": ["advanced"],
+    "access": "shore",
+    "latitude": 10.012,
+    "longitude": 126.072,
+    "caveats": ["Fast technical left; advanced only."]
+  },
+  {
+    "id": "tangbo",
+    "name": "Tangbo Secret Spot / Paradise Beach",
+    "aliases": ["Tangbo", "Secret Paradise", "Paradise Beach"],
+    "area": "North tip / Tangbo",
+    "skillLevels": ["beginner", "intermediate", "advanced"],
+    "access": "shore",
+    "latitude": 10.057,
+    "longitude": 126.075,
+    "caveats": ["Clarify section and conditions before recommending to beginners."]
+  }
+]
+```
 
 ---
 

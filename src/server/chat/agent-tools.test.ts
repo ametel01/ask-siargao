@@ -247,6 +247,35 @@ describe("agent tools", () => {
       },
       {
         type: "function",
+        name: "rank_surf_spots_nearby",
+        description:
+          "Rank known Siargao surf spots by straight-line distance from the user's consented browser geolocation. Use for closest/nearest/near-me surf spot requests. The tool returns distances and spot metadata only; it does not expose the user's coordinates or live surf conditions.",
+        parameters: {
+          type: "object",
+          properties: {
+            skill_level: {
+              type: ["string", "null"],
+              enum: ["beginner", "intermediate", "advanced", "any", null],
+              description: "Optional skill filter for the surf spots to rank.",
+            },
+            max_results: {
+              type: ["integer", "null"],
+              minimum: 1,
+              maximum: 10,
+              description: "Maximum number of ranked surf spots to return.",
+            },
+            include_boat_access: {
+              type: ["boolean", "null"],
+              description: "Whether boat-access surf spots may be included.",
+            },
+          },
+          required: ["skill_level", "max_results", "include_boat_access"],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+      {
+        type: "function",
         name: "plan_local_itinerary",
         description:
           "Build a governed structured 2-4 hour Siargao itinerary artifact from curated local guide evidence and explicit unchecked caveats. The AI must use the returned plan as evidence and write the final answer itself.",
@@ -511,6 +540,11 @@ describe("agent tools", () => {
           "Search Ask Siargao curated local guide facts for beaches and local trip-planning fit.",
       },
       {
+        name: "rank_surf_spots_nearby",
+        description:
+          "Rank known Siargao surf spots by straight-line distance from the user's consented browser geolocation. Use for closest/nearest/near-me surf spot requests. The tool returns distances and spot metadata only; it does not expose the user's coordinates or live surf conditions.",
+      },
+      {
         name: "plan_local_itinerary",
         description:
           "Build a governed structured 2-4 hour Siargao itinerary artifact from curated local guide evidence and explicit unchecked caveats. The AI must use the returned plan as evidence and write the final answer itself.",
@@ -569,6 +603,21 @@ describe("agent tools", () => {
         filters: null,
       },
     });
+    const surfRankingResult = await executeAgentTool({
+      requestId: "agent_request_nullable_surf_ranking",
+      name: "rank_surf_spots_nearby",
+      arguments: {
+        skill_level: null,
+        max_results: null,
+        include_boat_access: null,
+      },
+      toolContext: {
+        surfSpotRanking: {
+          centerSource: "browser_geolocation",
+          center: { latitude: 9.952, longitude: 126.088 },
+        },
+      },
+    });
     const itineraryResult = await executeAgentTool({
       requestId: "agent_request_nullable_itinerary",
       name: "plan_local_itinerary",
@@ -618,9 +667,65 @@ describe("agent tools", () => {
 
     expect(placesResult.status).toBe("success");
     expect(localGuideResult.status).toBe("success");
+    expect(surfRankingResult.status).toBe("success");
     expect(itineraryResult.status).toBe("success");
     expect(conditionResult.status).toBe("success");
     expect(localFactsResult.status).toBe("success");
+  });
+
+  test("ranks surf spots from browser geolocation without exposing coordinates", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_surf_ranking_pacifico",
+      name: "rank_surf_spots_nearby",
+      arguments: {
+        skill_level: "any",
+        max_results: 3,
+        include_boat_access: false,
+      },
+      toolContext: {
+        surfSpotRanking: {
+          centerSource: "browser_geolocation",
+          consentScope: "trip_session",
+          center: { latitude: 9.952, longitude: 126.088 },
+        },
+      },
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("Pacifico / Big Wish");
+    expect(result.text).toContain("Bamboo Garden");
+    expect(result.text).toContain("km straight-line");
+    expect(result.data).toMatchObject({
+      centerSource: "browser_geolocation",
+      distanceBasis: "straight_line_km",
+      consentScope: "trip_session",
+    });
+    expect(
+      (result.data as { spots?: Array<{ name: string; distanceKm: number }> }).spots?.map(
+        (spot) => spot.name,
+      ),
+    ).toEqual(["Pacifico / Big Wish", "Bamboo Garden", "Innertubes"]);
+    expect(JSON.stringify(result)).not.toContain("9.952");
+    expect(JSON.stringify(result)).not.toContain("126.088");
+    expect(result.sources[0]).toMatchObject({
+      label: "curated_local_guide",
+      sourceName: "Ask Siargao surf spot reference",
+    });
+  });
+
+  test("requires browser geolocation for surf spot ranking", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_surf_ranking_no_location",
+      name: "rank_surf_spots_nearby",
+      arguments: {
+        skill_level: "any",
+        max_results: 3,
+        include_boat_access: false,
+      },
+    });
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("browser_geolocation_unavailable");
   });
 
   test("searches live Google Places with the chat field mask", async () => {

@@ -104,10 +104,10 @@ function validateBrowserGeolocationProse(
   const issues: SourceConsistencyIssue[] = [];
   const proseMessage = messageWithoutRenderedSourceLines(message);
 
-  if (hasBrowserGeolocationUsageClaim(proseMessage) && !evidence.browserGeolocationPlaces) {
+  if (hasBrowserGeolocationUsageClaim(proseMessage) && !evidence.browserGeolocationTool) {
     issues.push({
       code: "browser_geolocation_claim_not_tool_backed",
-      message: "Shared-location prose claims require a matching geolocated Places tool output.",
+      message: "Shared-location prose claims require matching geolocated tool output.",
     });
   }
 
@@ -273,7 +273,7 @@ function validateSourceClaim(
     ];
   }
 
-  if (isBrowserGeolocationCheckedClaim(claim) && !evidence.browserGeolocationPlaces) {
+  if (isBrowserGeolocationCheckedClaim(claim) && !evidence.browserGeolocationTool) {
     return [
       {
         code:
@@ -283,8 +283,7 @@ function validateSourceClaim(
         label: claim.label,
         line: claim.line,
         sourceName: claim.sourceName,
-        message:
-          "Browser-geolocation source claims require a matching geolocated Places tool output.",
+        message: "Browser-geolocation source claims require matching geolocated tool output.",
       },
     ];
   }
@@ -308,15 +307,24 @@ function validateSourceClaim(
 }
 
 function summarizeToolEvidence(toolCalls: readonly AgentToolCallAudit[]) {
+  const browserGeolocationPlaces = toolCalls.some(
+    (toolCall) =>
+      toolCall.status === "success" &&
+      toolCall.name === "search_places" &&
+      hasBrowserGeolocationSearchCenterArgument(toolCall.arguments) &&
+      toolCall.sources.some((source) => hasBrowserGeolocationCheckedText(source.checked)),
+  );
+  const browserGeolocationSurfRanking = toolCalls.some(
+    (toolCall) =>
+      toolCall.status === "success" &&
+      toolCall.name === "rank_surf_spots_nearby" &&
+      hasBrowserGeolocationSearchCenterArgument(toolCall.arguments) &&
+      toolCall.sources.some((source) => hasBrowserGeolocationCheckedText(source.checked)),
+  );
   return {
     toolSources: summarizeToolSources(toolCalls),
-    browserGeolocationPlaces: toolCalls.some(
-      (toolCall) =>
-        toolCall.status === "success" &&
-        toolCall.name === "search_places" &&
-        hasBrowserGeolocationSearchCenterArgument(toolCall.arguments) &&
-        toolCall.sources.some((source) => hasBrowserGeolocationCheckedText(source.checked)),
-    ),
+    browserGeolocationPlaces,
+    browserGeolocationTool: browserGeolocationPlaces || browserGeolocationSurfRanking,
     livePlaces: hasToolSourceLabel(toolCalls, placesToolNames, "live_checked"),
     freshPlaces: hasToolSourceLabel(
       toolCalls,
@@ -346,6 +354,7 @@ function summarizeToolEvidence(toolCalls: readonly AgentToolCallAudit[]) {
         "plan_local_itinerary",
         "query_local_facts",
         "get_source_evidence",
+        "rank_surf_spots_nearby",
       ]),
       "curated_local_guide",
     ),
@@ -384,7 +393,11 @@ function isBrowserGeolocationCheckedClaim(claim: SourceClaim) {
 }
 
 function hasBrowserGeolocationCheckedText(values: readonly string[]) {
-  return values.some((value) => /\bbrowser geolocation search center\b/i.test(value));
+  return values.some(
+    (value) =>
+      /\bbrowser geolocation search center\b/i.test(value) ||
+      /\b(?:shared|browser)\s+(?:browser\s+)?location\b/i.test(value),
+  );
 }
 
 function hasBrowserGeolocationSearchCenterArgument(argumentsValue: Record<string, unknown>) {
@@ -444,6 +457,7 @@ function toolNamesForVerifyingLabel(label: AnswerTrustLabel) {
         "plan_local_itinerary",
         "query_local_facts",
         "get_source_evidence",
+        "rank_surf_spots_nearby",
       ]);
     case "not_verified":
     case "provider_unavailable":
@@ -467,8 +481,12 @@ function isUnsupportedCheckedClaim(claim: SourceClaim) {
     return false;
   }
   const text = [claim.sourceName, claim.checkedText].filter(Boolean).join(" ");
+  const hasSurfConditionClaim = /\bsurf\b/i.test(text)
+    ? /\b(?:conditions?|quality|reports?|forecasts?|swell|waves?|tides?|marine)\b/i.test(text)
+    : false;
   const hasMarineModelClaim =
-    /\b(tide|surf|swell|marine|waves?|sea[- ]?level)\b/i.test(text) ||
+    /\b(tide|swell|marine|waves?|sea[- ]?level)\b/i.test(text) ||
+    hasSurfConditionClaim ||
     /\b(?:sea|ocean)\s+currents?\b/i.test(text);
   const hasRoadOrOfficialSafetyClaim =
     /\b(?:road flooding|flooded roads?|road closures?|local closures?|transport warnings?)\b/i.test(

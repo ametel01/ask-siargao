@@ -231,6 +231,55 @@ export async function runAskSiargaoAgentTurn(
         continue;
       }
 
+      const surfSpotRankingRepairCall = missingSurfSpotRankingRepairCall(
+        resolved,
+        toolCalls,
+        toolResults,
+      );
+      if (surfSpotRankingRepairCall) {
+        if (toolCalls.length + 1 > maxToolCalls) {
+          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
+        }
+
+        const automaticSurfSpotRankingOutput = await executeAndAuditTool({
+          executeTool,
+          functionCall: surfSpotRankingRepairCall,
+          logger,
+          now: dependencies.now ?? (() => new Date()),
+          runtimeRequest: resolved,
+          requestId: resolved.requestId,
+        });
+        toolCalls.push(automaticSurfSpotRankingOutput.audit);
+        toolResults.push(automaticSurfSpotRankingOutput.result);
+
+        responseInput = [
+          ...responseInput,
+          ...responseOutputItems(response.output),
+          userInputMessage({
+            product: "Ask Siargao",
+            instruction:
+              "Validation repair: the user asked for closest surf spots near their shared location. Use this ranked surf-spot output for the nearest list, include approximate km distances, do not infer a named base area from memory alone, and preserve the distance and live-condition caveats.",
+            validationRepairSurfSpotRanking: {
+              toolCallId: automaticSurfSpotRankingOutput.functionCall.callId,
+              name: automaticSurfSpotRankingOutput.functionCall.name,
+              arguments: publicToolArguments(automaticSurfSpotRankingOutput.functionCall),
+              result: JSON.parse(serializeToolOutput(automaticSurfSpotRankingOutput.result)),
+            },
+            responseContract,
+          }),
+        ];
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_000,
+          instructions,
+          tools,
+          input: responseInput,
+        });
+        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        continue;
+      }
+
       const missingRequiredChecks = missingRequiredItineraryChecks(toolResults, toolCalls);
       if (missingRequiredChecks.length > 0) {
         if (toolCalls.length + missingRequiredChecks.length > maxToolCalls) {
@@ -408,6 +457,60 @@ function missingConditionJudgmentRepairCall(
     name: "get_condition_judgment",
     arguments: argumentsForCondition,
   };
+}
+
+function missingSurfSpotRankingRepairCall(
+  request: AgentRuntimeRequest,
+  toolCalls: readonly AgentToolCallAudit[],
+  toolResults: readonly AgentToolResult[],
+): ParsedFunctionCall | undefined {
+  if (!needsBrowserLocationSurfSpotRanking(request)) {
+    return undefined;
+  }
+  if (hasSuccessfulToolCall(toolCalls, toolResults, "rank_surf_spots_nearby")) {
+    return undefined;
+  }
+
+  return {
+    callId: "auto_required_surf_spots_nearby_1",
+    name: "rank_surf_spots_nearby",
+    arguments: {
+      skill_level: inferSurfSkillLevel(latestUserContent(request.messages)),
+      max_results: 7,
+      include_boat_access: false,
+    },
+  };
+}
+
+function needsBrowserLocationSurfSpotRanking(request: AgentRuntimeRequest) {
+  if (!usableBrowserGeolocation(request)) {
+    return false;
+  }
+  const latestUserTurn = latestUserContent(request.messages);
+  const hasSurfSignal =
+    readStringPath(request.deterministicSignals, ["intent", "conditionActivity"]) === "surfing" ||
+    /\bsurf(?:ing|er|s|ed)?\b/i.test(latestUserTurn);
+  const hasNearMeSignal =
+    readBooleanPath(request.deterministicSignals, ["intent", "nearMeUsesBrowserGeolocation"]) ===
+      true || hasDirectBrowserLocationText(latestUserTurn);
+  const asksForClosest =
+    /\b(?:closest|nearest|nearby|near\s+me|around\s+me|close\s+to\s+me|around\s+here|near\s+here)\b/i.test(
+      latestUserTurn,
+    );
+  return hasSurfSignal && hasNearMeSignal && asksForClosest;
+}
+
+function inferSurfSkillLevel(content: string): "beginner" | "intermediate" | "advanced" | "any" {
+  if (/\b(beginner|learning|learn|lesson|first[-\s]?timer|newbie)\b/i.test(content)) {
+    return "beginner";
+  }
+  if (/\b(intermediate|longboard|longboarding)\b/i.test(content)) {
+    return "intermediate";
+  }
+  if (/\b(advanced|expert|barrel|barrels|heavy|charging)\b/i.test(content)) {
+    return "advanced";
+  }
+  return "any";
 }
 
 function inferRequiredConditionJudgmentArguments(
@@ -841,6 +944,17 @@ function hasSuccessfulConditionJudgment(
   );
 }
 
+function hasSuccessfulToolCall(
+  toolCalls: readonly AgentToolCallAudit[],
+  toolResults: readonly AgentToolResult[],
+  name: string,
+) {
+  return (
+    toolCalls.some((toolCall) => toolCall.name === name && toolCall.status === "success") &&
+    toolResults.some((result) => result.name === name && result.status === "success")
+  );
+}
+
 function conditionJudgmentMatchesRequiredArguments(
   actual: Record<string, unknown>,
   required: Record<string, unknown>,
@@ -1097,6 +1211,27 @@ function applyRuntimeToolContext(
   functionCall: ParsedFunctionCall,
   request: AgentRuntimeRequest,
 ): ExecutableFunctionCall {
+  if (functionCall.name === "rank_surf_spots_nearby") {
+    const geolocation = usableBrowserGeolocation(request);
+    if (!geolocation) {
+      return functionCall;
+    }
+
+    return {
+      ...functionCall,
+      toolContext: {
+        surfSpotRanking: {
+          center: {
+            latitude: geolocation.latitude,
+            longitude: geolocation.longitude,
+          },
+          centerSource: "browser_geolocation",
+          consentScope: geolocation.consentScope,
+        },
+      },
+    };
+  }
+
   if (functionCall.name !== "search_places") {
     return functionCall;
   }
@@ -1188,15 +1323,27 @@ function hasExplicitRelativeLocationAnchor(value: string) {
 }
 
 function summarizeToolContextForLogs(toolContext: AgentToolExecutionContext | undefined) {
-  if (!toolContext?.googlePlaces) {
+  if (!toolContext?.googlePlaces && !toolContext?.surfSpotRanking) {
     return undefined;
   }
   return {
-    googlePlaces: {
-      centerSource: toolContext.googlePlaces.centerSource,
-      cacheMode: toolContext.googlePlaces.cacheMode,
-      consentScope: toolContext.googlePlaces.consentScope,
-    },
+    ...(toolContext.googlePlaces
+      ? {
+          googlePlaces: {
+            centerSource: toolContext.googlePlaces.centerSource,
+            cacheMode: toolContext.googlePlaces.cacheMode,
+            consentScope: toolContext.googlePlaces.consentScope,
+          },
+        }
+      : {}),
+    ...(toolContext.surfSpotRanking
+      ? {
+          surfSpotRanking: {
+            centerSource: toolContext.surfSpotRanking.centerSource,
+            consentScope: toolContext.surfSpotRanking.consentScope,
+          },
+        }
+      : {}),
   };
 }
 
@@ -1273,6 +1420,16 @@ function modelFacingDeterministicSignals(request: AgentRuntimeRequest) {
 
 function publicToolArguments(functionCall: ExecutableFunctionCall): Record<string, unknown> {
   if (
+    functionCall.name === "rank_surf_spots_nearby" &&
+    functionCall.toolContext?.surfSpotRanking?.centerSource === "browser_geolocation"
+  ) {
+    return {
+      ...functionCall.arguments,
+      center: browserGeolocationCenterReference(),
+    };
+  }
+
+  if (
     functionCall.name !== "search_places" ||
     functionCall.toolContext?.googlePlaces?.centerSource !== "browser_geolocation"
   ) {
@@ -1288,6 +1445,13 @@ function publicToolArguments(functionCall: ExecutableFunctionCall): Record<strin
 function modelFacingToolData(data: AgentToolResult["data"]) {
   if (!isRecord(data) || data.centerSource !== "browser_geolocation") {
     return data;
+  }
+
+  if (Array.isArray(data.spots)) {
+    return {
+      ...data,
+      center: browserGeolocationCenterReference(),
+    };
   }
 
   const search = isRecord(data.search)
@@ -1329,6 +1493,8 @@ function providerOperationForTool(name: string) {
       return "google_places.details";
     case "search_local_guide":
       return "local_guide.search";
+    case "rank_surf_spots_nearby":
+      return "surf_spots.rank_nearby";
     case "plan_local_itinerary":
       return "local_itinerary.plan";
     case "describe_database_schema":

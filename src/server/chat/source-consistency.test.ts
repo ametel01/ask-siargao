@@ -115,6 +115,26 @@ describe("chat source consistency", () => {
     ]);
   });
 
+  test("accepts browser geolocation claims when surf ranking tool-backed", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines(
+        "Closest surf spots from your shared location are Pacifico / Big Wish and Bamboo Garden.",
+        [surfSpotRankingSourceSummary],
+      ),
+      sources: [surfSpotRankingSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "rank_surf_spots_nearby",
+          arguments: { center: { source: "browser_geolocation" } },
+          status: "success",
+          sources: [surfSpotRankingSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result).toEqual({ valid: true, issues: [] });
+  });
+
   test("rejects browser geolocation claims when Places tool output lacks center marker", () => {
     const geolocatedPlacesSource: AnswerSourceSummary = {
       ...livePlacesSourceSummary,
@@ -756,6 +776,17 @@ const localGuideSourceSummary: AnswerSourceSummary = {
   confidence: "medium",
   checked: ["beach surface notes", "ride-time notes"],
   notChecked: ["live tide", "lifeguard status"],
+};
+
+const surfSpotRankingSourceSummary: AnswerSourceSummary = {
+  label: "curated_local_guide",
+  sourceName: "Ask Siargao surf spot reference",
+  confidence: "medium",
+  checked: [
+    "known surf spot reference list",
+    "approximate straight-line distance ranking from shared browser location",
+  ],
+  notChecked: ["live surf quality", "road travel distance"],
 };
 
 const genericSourceSummary: AnswerSourceSummary = {
