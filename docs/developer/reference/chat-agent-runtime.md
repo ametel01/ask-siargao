@@ -5,6 +5,49 @@ route validates JSON and request shape, derives deterministic intent signals, ca
 `runAskSiargaoAgentTurn`, validates returned source labels, and returns the model-written message
 with structured tool and source metadata.
 
+The thin-harness implementation background is recorded in
+[`thin-agent-harness-spec.md`](thin-agent-harness-spec.md). The current runtime implements that
+contract with index-only default memory, model-selected public artifacts, and deterministic
+validation around tools, sources, privacy, and provider boundaries.
+
+## Final Payload Contract
+
+The Responses model should finish with JSON, not plain prose, when structured mode is enabled. The
+runtime parses JSON directly or from a fenced `json` block. The payload fields are:
+
+- `answer`: the only traveler-facing prose returned as `AgentTurnResult.message`;
+- `usedMemoryFiles`: filenames loaded or returned by current-turn memory retrieval;
+- `usedToolCallIds`: tool call IDs from the current turn that the final answer used;
+- `displayCardIds`: recommendation card IDs selected for public display;
+- `displayActionIds`: prompt or link action IDs selected for public display;
+- `displayItineraryIds`: itinerary artifact IDs selected for public display.
+
+`usedToolCallIds` must match audited current-turn tool calls. `usedMemoryFiles` must match files
+loaded by `load_agent_memory_file` or returned by `search_agent_memory` in the current turn. In
+strict mode, unknown tool or memory IDs fail the turn. In compatibility mode, unknown IDs are
+dropped and logged.
+
+Legacy plain-text final answers are still accepted while compatibility mode is enabled. Legacy
+answers return the model-written message but do not automatically expose tool-produced cards,
+actions, or itineraries.
+
+## Public Artifact Selection
+
+Tool results can carry internal recommendation cards, actions, and itinerary artifacts. Public
+responses expose only artifacts selected by the final payload ID arrays. Unselected tool artifacts
+remain internal but still contribute to source aggregation, validation, and artifact-selection
+counts.
+
+`createAgentTurnResult` builds an artifact registry from current-turn tool results, dedupes IDs, and
+selects public artifacts from the final payload. Unknown selected artifact IDs fail in strict mode
+and are dropped in compatibility mode. Explicit caller-supplied artifacts are preserved only for
+trusted deterministic tests or compatibility callers.
+
+`/api/chat` returns selected `cards`, `actions`, and `itineraries` already present on
+`AgentTurnResult`. It does not return artifact-selection diagnostics. Route logs include selected
+and unselected artifact counts so production debugging can identify hidden tool artifacts without
+logging artifact payloads.
+
 ## Add A Backend Chat Tool
 
 Add the tool in `src/server/chat/agent-tools.ts`.
@@ -65,25 +108,29 @@ files are not treated as model memory unless the runtime loads or indexes them.
 The current memory layers are:
 
 - instruction Markdown: `INDEX.md` is loaded by `loadAgentMemorySnapshot` and appended to every
-  Responses `instructions` call. It is the only domain-memory file loaded by default, and it tells
-  the model which reference files to load for the current request;
+  Responses `instructions` call. It is the only full domain-memory file loaded by default;
+- compact available-memory metadata: the prompt also includes filenames, titles, descriptions, and
+  trigger terms for reference files. It does not include full reference bodies, checksums, byte
+  lengths, relative paths, or vector-store IDs;
+- exact file loading: `load_agent_memory_file` loads up to three named reference files chosen from
+  the index and returns full bodies plus `loadedMemoryFileNames`;
 - vector-store `file_search`: reference files can be synced with
   `bun run agent-memory:sync`; when `OPENAI_AGENT_MEMORY_VECTOR_STORE_ID` is set, the chat runtime
   registers hosted `file_search` with that vector store;
 - backend memory fallback: when no vector store ID is configured, the runtime registers
   `search_agent_memory`, a deterministic local search tool over reference-role Markdown files for
-  local development and tests.
-
-The planned thin-harness implementation is specified in
-[`thin-agent-harness-spec.md`](thin-agent-harness-spec.md). That spec keeps the same index-only
-default memory model and adds Codex-style compact memory rendering plus model-selected public
-artifacts.
+  local development and tests. Search returns excerpts and matched filenames, not full file bodies.
 
 Every successful agent turn can include internal memory metadata: version ID, file IDs, roles,
 checksums, byte lengths, and optional vector-store ID. Public `/api/chat` responses expose only the
 memory version plus file IDs, names, and roles; vector-store IDs and checksums remain server/log
 metadata. Model-facing prompt and `search_agent_memory` tool payloads also omit vector-store IDs,
 checksums, relative paths, and byte lengths. Logs must not include raw memory document bodies.
+
+Memory retrieval is scoped to the current turn. It does not persist across turns, and it is
+policy/reference context only. It cannot justify `live_checked`, `fresh_cache`, `weather_checked`,
+`marine_checked`, `tide_forecast_checked`, `curated_local_guide`, or `provider_unavailable` source
+labels. Those labels require governed non-memory tool evidence.
 
 To add or edit agent memory:
 
@@ -136,17 +183,18 @@ model produces source labels that are not backed by tool evidence.
 `describe_source_policy` is descriptive policy metadata, not answer evidence. It should return the
 label explanations in `data.policies` and `text`, with an empty `sources` array.
 
-`file_search` and `search_agent_memory` are also policy/reference retrieval paths, not answer
-evidence. They must not create `live_checked`, `fresh_cache`, `weather_checked`,
-`curated_local_guide`, or `provider_unavailable` source summaries. Live/local factual claims still
-need governed tools such as weather, Google Places, or the curated local guide.
+`file_search`, `load_agent_memory_file`, and `search_agent_memory` are policy/reference retrieval
+paths, not answer evidence. They must not create checked, provider, curated, or
+provider-unavailable source summaries. Live/local factual claims still need governed tools such as
+weather, Google Places, local data tools, condition tools, or the curated local guide.
 
 ## Observability
 
 Runtime logs include request ID bindings, model, tool names, tool status, provider operation,
-provider failure status, source labels, source profile IDs, durations, and upstream request IDs.
-Logs must not include raw tool arguments, raw restricted provider payloads, provider response bodies,
-secrets, review text, bookings, or availability data.
+provider failure status, source labels, source profile IDs, durations, upstream request IDs, and
+artifact-selection counts. Logs must not include raw tool arguments, raw restricted provider
+payloads, provider response bodies, secrets, review text, bookings, availability data, exact browser
+coordinates, vector-store IDs in public responses, or raw memory document bodies.
 
 ## Legacy Adapter Boundary
 

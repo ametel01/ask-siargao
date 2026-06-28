@@ -25,13 +25,13 @@
 - [x] Step 7: Final Payload Memory Validation And Clear-Case Repair
 - [x] Step 8: Memory-Aware Source Consistency Validation
 - [x] Step 9: Chat Route Public Contract And Observability
-- [ ] Step 10: Documentation Alignment
+- [x] Step 10: Documentation Alignment
 - [ ] Step 11: Full Quality Gates And Manual Chat Checks
 
 ## Current Status
 
-- Current step: Step 10
-- Next action: Update developer documentation for the thin agent harness runtime contract.
+- Current step: Step 11
+- Next action: Run final quality gates and manual chat-contract checks.
 
 ## Baseline Gate Results
 
@@ -41,6 +41,26 @@
 - Bun tests passed: 504 tests across 49 files.
 
 ## Update Log
+
+### 2026-06-29 - Step 10 Complete
+
+- Updated the chat agent runtime reference with the structured final payload contract, selected public artifact behavior, compact memory metadata, strict/compatibility validation, and source-free memory retrieval boundaries.
+- Clarified the agent memory index so ordinary food/place prompts do not load surf or beach memory unless the user explicitly asks for that context.
+- Updated the docs index to treat the thin harness spec as implementation background rather than a proposed plan.
+- Re-read the changed docs for current-state wording and kept the page in developer reference form.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `bun test src/server/chat/agent-memory.test.ts`: passed, 7 tests.
+- `bun test src/server/chat/ask-siargao-agent.test.ts`: passed, 63 tests.
+- `bun test`: passed, 529 tests across 49 files.
+
+Commit:
+
+- Committed: `Document thin chat harness contract`
 
 ### 2026-06-29 - Step 9 Complete
 

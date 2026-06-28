@@ -11,6 +11,9 @@ policy and local-reference context only; live/current facts still require tools.
 - Load the smallest set of files that can answer the user's latest request.
 - For surf, beach, weather-sensitive, safety-sensitive, source, or tool-use
   questions, load the relevant file before the final answer.
+- Do not load surf or beach memory for ordinary food, breakfast, cafe,
+  restaurant, bar, or open-now place prompts unless the user explicitly asks for
+  surf or beach context.
 - Do not answer from general model knowledge when a memory file below covers the
   topic.
 - If no memory file covers the topic, say the knowledge is not available from Ask

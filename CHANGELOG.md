@@ -82,6 +82,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Documented the completed thin chat harness contract, including structured final payloads,
+  selected artifacts, compact memory metadata, and source-free memory retrieval boundaries.
 - Changed `/api/chat` observability to log selected and unselected artifact counts while keeping
   artifact-selection diagnostics and memory internals out of public responses.
 - Changed structured final payload handling to validate model-selected memory files against
