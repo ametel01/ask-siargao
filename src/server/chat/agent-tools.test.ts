@@ -283,7 +283,7 @@ describe("agent tools", () => {
         type: "function",
         name: "query_local_facts",
         description:
-          "Query approved local Siargao facts with structured filters only; no SQL, private data, or raw provider payloads.",
+          "Query approved local Siargao facts with structured filters only; no SQL, private data, or restricted provider bodies.",
         parameters: {
           type: "object",
           properties: {
@@ -428,7 +428,7 @@ describe("agent tools", () => {
       {
         name: "query_local_facts",
         description:
-          "Query approved local Siargao facts with structured filters only; no SQL, private data, or raw provider payloads.",
+          "Query approved local Siargao facts with structured filters only; no SQL, private data, or restricted provider bodies.",
       },
       {
         name: "get_source_evidence",
@@ -569,7 +569,7 @@ describe("agent tools", () => {
     );
     expect(JSON.parse(String(requests[0]?.body))).toMatchObject({ openNow: true });
     expect(result.text).toContain("Shaka Siargao");
-    expect(result.text).toContain("Field mask");
+    expect(result.text).not.toContain("Field mask");
     expect(result.sources[0]).toMatchObject({
       label: "live_checked",
       sourceName: "Google Places",
@@ -599,7 +599,18 @@ describe("agent tools", () => {
       sourceLabel: "Google Places - live checked",
     });
     expect(result.cards?.[0]?.fitReasons.join(" ")).toContain("Google rating 4.6");
-    expect(result.cards?.[0]?.caveats.join(" ")).toContain("review text");
+    expect(result.cards?.[0]?.caveats.join(" ")).toContain("Review text");
+    const travelerVisiblePayload = JSON.stringify({
+      text: result.text,
+      cards: result.cards,
+      actions: result.actions,
+    });
+    expect(travelerVisiblePayload).not.toContain("Enhanced chat lookup");
+    expect(travelerVisiblePayload).not.toContain("Do not store");
+    expect(travelerVisiblePayload).not.toContain("raw provider");
+    expect(travelerVisiblePayload).not.toContain("retention handling");
+    expect(travelerVisiblePayload).not.toContain("Field mask");
+    expect(travelerVisiblePayload).not.toContain("provider relevance");
     expect(result.actions?.map((action) => action.label)).toEqual([
       "Ask for alternatives",
       "Make this into a short plan",
@@ -1155,6 +1166,11 @@ describe("agent tools", () => {
     expect(result.cards?.[0]?.fitReasons.join(" ")).toContain("sandy shoreline");
     expect(result.cards?.[0]?.caveats.join(" ")).toContain("not a live tide");
     expect(result.cards?.[0]?.caveats.join(" ")).toContain("not a live Google Places identity");
+    expect(result.cards?.[0]?.caveats).toContain(
+      "Live road, tide, current, beach access, and lifeguard conditions were not checked.",
+    );
+    expect(result.cards?.[0]?.caveats).not.toContain("live road conditions");
+    expect(result.cards?.[0]?.caveats).not.toContain("beach access changes");
     expect(result.actions?.map((action) => action.label)).toEqual([
       "Check weather first",
       "Ask for alternatives",
@@ -1262,7 +1278,10 @@ describe("agent tools", () => {
     expect(data.candidates[0]?.fitReasons.join(" ")).toContain("Family/kids constraint");
     expect(data.candidates[0]?.caveats.join(" ")).toContain("Re-check conditions in person");
     expect(result.sources[0]?.notChecked.join(" ")).toContain("lifeguard or swimming safety");
-    expect(result.cards?.[0]?.caveats.join(" ")).toContain("lifeguard or swimming safety");
+    expect(result.cards?.[0]?.caveats).toContain(
+      "Live road, tide, current, beach access, and lifeguard conditions were not checked.",
+    );
+    expect(result.cards?.[0]?.caveats).not.toContain("lifeguard or swimming safety");
     expect(result.text).not.toContain("lifeguard checked");
   });
 
@@ -2079,7 +2098,7 @@ function googlePlacesContextFixture({
     search,
     fieldMask: googlePlacesChatSearchFieldMask,
     caveats: [
-      "It does not include review text, bookings, table availability, room availability, or verified local quality checks.",
+      "Review text, bookings, table availability, room availability, and independent local quality checks were not checked.",
     ],
     places: [
       {

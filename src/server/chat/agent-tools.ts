@@ -223,8 +223,8 @@ const sourcePolicyDescriptions: SourcePolicyDescription[] = [
     useWhen:
       "Use for live Places search/detail outputs with allowed identity, rating, hours, price, contact, and map-link fields.",
     caveats: [
-      "Google Places order is provider relevance, not an independent quality ranking.",
-      "Review text, bookings, table availability, room availability, and local quality checks are not included.",
+      "Use the result order as a shortlist, not a local quality ranking.",
+      "Review text, bookings, table availability, room availability, and local quality checks were not checked.",
     ],
   },
   {
@@ -233,7 +233,7 @@ const sourcePolicyDescriptions: SourcePolicyDescription[] = [
     useWhen:
       "Use for cached Places facts that are still inside the configured freshness and retention windows.",
     caveats: [
-      "Cached rows still require Google attribution and retention handling.",
+      "Cached rows can be stale even when they are recent.",
       "Do not imply live open-now status unless that field was present and fresh.",
     ],
   },
@@ -561,7 +561,7 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
       type: "function",
       name: "query_local_facts",
       description:
-        "Query approved local Siargao facts with structured filters only; no SQL, private data, or raw provider payloads.",
+        "Query approved local Siargao facts with structured filters only; no SQL, private data, or restricted provider bodies.",
       parameters: {
         type: "object",
         properties: {
@@ -1229,13 +1229,19 @@ function localGuideRecommendationCard({
     caveats: uniqueText([
       ...candidate.caveats,
       ...resultCaveats,
-      ...sourceSummary.notChecked,
+      localGuideUncheckedCaveat(sourceSummary),
       candidate.sourceNotes,
       "Map link is a Google Maps search, not a live Google Places identity check.",
     ]),
     sourceLabel: cardSourceLabel(sourceSummary),
     sources: [sourceSummary],
   };
+}
+
+function localGuideUncheckedCaveat(sourceSummary: AnswerSourceSummary) {
+  return sourceSummary.notChecked.length
+    ? "Live road, tide, current, beach access, and lifeguard conditions were not checked."
+    : undefined;
 }
 
 function localGuidePromptActions(
@@ -1740,11 +1746,9 @@ function googlePlacesCardFromPlace({
     fitReasons: googlePlacesFitReasons({ distanceLabel, index, openStatusLabel, place, search }),
     caveats: uniqueText([
       ...caveats,
-      ...sourceSummary.notChecked,
       ...(place.currentOpeningHours?.openNow === undefined
         ? ["Opening hours were not returned for this place."]
         : []),
-      "Google Places ordering is provider relevance, not an independent local quality ranking.",
     ]),
     sourceLabel: cardSourceLabel(sourceSummary),
     sources: [sourceSummary],
@@ -1925,7 +1929,6 @@ function renderGooglePlacesSearchText(context: GooglePlacesChatContext) {
       ];
       return fields.filter(Boolean).join(" - ");
     }),
-    `Field mask: ${context.fieldMask}.`,
     ...context.caveats,
   ].join("\n");
 }
@@ -1947,7 +1950,6 @@ function renderGooglePlacesDetailsText(
     googlePlacesRatingLabel(details),
     googlePlacesPriceLabel(details.priceLevel),
     details.googleMapsUri ? `Maps: ${details.googleMapsUri}` : undefined,
-    `Field mask: ${googlePlacesDetailsFieldMask}.`,
     ...googlePlacesDetailsCaveats,
   ];
   return fields.filter(Boolean).join("\n");
@@ -2129,13 +2131,12 @@ function slugPart(value: string) {
 }
 
 const googlePlacesCaveats = [
-  "Google Places output does not include review text.",
-  "Booking availability, table availability, room availability, and independent local quality checks are not checked.",
-  "Google Places content requires Google attribution and retention handling.",
+  "Review text was not checked.",
+  "Bookings, table availability, room availability, and independent local quality checks were not checked.",
 ];
 
 const googlePlacesDetailsCaveats = [
-  "Google Places details use the identity/details field mask only.",
+  "Google Places details can confirm identity, address, map links, ratings, and opening-hour signals when returned.",
   ...googlePlacesCaveats,
 ];
 

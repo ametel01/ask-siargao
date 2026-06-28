@@ -224,7 +224,9 @@ describe("Google Places chat lookup", () => {
     expect(fallbackMapsUrl.searchParams.get("query")).toBe("No URI Cafe, General Luna, Siargao");
     expect(fallbackMapsUrl.searchParams.get("query_place_id")).toBe("place_no_uri");
     expect(context.places[1]?.googleMapsUri).toBe("https://maps.google.com/?cid=123");
-    expect(context.caveats.join(" ")).toContain("does not include review text");
+    expect(context.caveats.join(" ")).toContain("Review text");
+    expect(context.caveats.join(" ")).not.toContain("Do not store");
+    expect(context.caveats.join(" ")).not.toContain("raw provider");
   });
 
   test("surfaces Google API errors", async () => {

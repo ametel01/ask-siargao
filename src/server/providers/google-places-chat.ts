@@ -241,9 +241,8 @@ export async function getGooglePlacesChatContext({
       fieldMask: googlePlacesChatSearchFieldMask,
       places,
       caveats: [
-        "Enhanced chat lookup includes Google Places identity, address, type, business status, rating signals, opening hours, price, website, phone, and map link when available.",
-        "It does not include review text, bookings, table availability, room availability, or verified local quality checks.",
-        "Do not store this raw provider response as reusable product data.",
+        "Google Places listings can confirm place identity, address, map links, ratings, and opening-hour signals when returned.",
+        "Review text, bookings, table availability, room availability, and independent local quality checks were not checked.",
       ],
     };
   } catch (error) {

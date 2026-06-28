@@ -276,8 +276,7 @@ async function findFreshGooglePlacesChatContext(
     places,
     caveats: [
       "Returned from fresh cached Google Places chat search rows.",
-      "It does not include review text, bookings, table availability, room availability, or verified local quality checks.",
-      "Cached Google Places content still requires Google attribution and retention handling.",
+      "Review text, bookings, table availability, room availability, and independent local quality checks were not checked.",
     ],
   };
 }
