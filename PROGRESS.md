@@ -18,7 +18,7 @@
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Agent Final Payload And Artifact Registry
 - [x] Step 2: Structured Final Output Parsing In The Agent Loop
-- [ ] Step 3: Dapa Breakfast Regression Coverage
+- [x] Step 3: Dapa Breakfast Regression Coverage
 - [ ] Step 4: Compact Agent Memory Catalog Rendering
 - [ ] Step 5: Catalog-Backed Memory Tools
 - [ ] Step 6: Prompt Construction Uses Available Memory Metadata
@@ -30,8 +30,8 @@
 
 ## Current Status
 
-- Current step: Step 3
-- Next action: Add Dapa breakfast regression coverage for unrelated beach-card suppression.
+- Current step: Step 4
+- Next action: Add compact agent-memory catalog metadata and renderer tests.
 
 ## Baseline Gate Results
 
@@ -41,6 +41,25 @@
 - Bun tests passed: 504 tests across 49 files.
 
 ## Update Log
+
+### 2026-06-29 - Step 3 Complete
+
+- Added a structured Dapa breakfast regression where `search_places` and `search_local_guide` both succeed but only the breakfast place card is selected for public display.
+- Added a legacy Dapa breakfast regression proving plain-text final output returns no unselected cards.
+- Verified beach cards from unrelated local-guide output remain internal unless selected.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `bun test src/server/chat/ask-siargao-agent.test.ts`: passed, 56 tests.
+- `bun test src/app/api/chat/route.test.ts`: passed, 59 tests.
+- `bun test`: passed, 515 tests across 49 files.
+
+Commit:
+
+- Pending: `Cover breakfast artifact selection regression`
 
 ### 2026-06-29 - Step 2 Complete
 
@@ -61,7 +80,7 @@ Validation:
 
 Commit:
 
-- Pending: `Parse structured agent final answers`
+- `b20ae51 Parse structured agent final answers`
 
 ### 2026-06-29 - Step 1 Complete
 

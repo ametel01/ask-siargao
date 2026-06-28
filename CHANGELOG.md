@@ -15,6 +15,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Prevented Dapa breakfast answers from exposing unrelated beach cards when multiple successful
+  tool calls produce mixed artifact types.
 - Aligned shared-trip public source policy so captured source freshness, checked/not-checked
   signals, source labels, and open-status labels remain visible with not-reverified caveats;
   structured shared itinerary fallbacks keep map links/areas/caveats; and Playwright now covers

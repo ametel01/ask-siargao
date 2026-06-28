@@ -180,6 +180,178 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     });
   });
 
+  test("Dapa breakfast structured final output returns restaurant card but not beach cards", async () => {
+    const breakfastCard = {
+      id: "card_dapa_breakfast",
+      kind: "place" as const,
+      title: "Dapa Breakfast House",
+      subtitle: "Dapa",
+      mapsUrl: "https://maps.example/dapa-breakfast",
+      fitReasons: ["Breakfast fit returned by Google Places."],
+      caveats: ["Menus and table availability were not checked."],
+      sourceLabel: "Google Places - live checked",
+    };
+    const beachCard = {
+      id: "card_doot_beach",
+      kind: "beach" as const,
+      title: "Doot Beach",
+      subtitle: "General Luna-side sandy beach",
+      fitReasons: ["Sandy beach fallback from local guide."],
+      caveats: ["Not relevant to a Dapa breakfast-only request."],
+      sourceLabel: "Ask Siargao curated local beach guide",
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_dapa_breakfast_multi_call",
+        _request_id: "req_dapa_breakfast_multi_call",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_places_breakfast",
+            name: "search_places",
+            arguments: JSON.stringify({
+              query: "breakfast in Dapa Siargao",
+              center: { latitude: 9.759, longitude: 126.053 },
+              radius_meters: 3000,
+              constraints: { included_type: "restaurant", open_now: null, page_size: 5 },
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_local_beaches",
+            name: "search_local_guide",
+            arguments: JSON.stringify({
+              query: "Dapa breakfast fallback beaches",
+              filters: null,
+            }),
+          },
+        ],
+      },
+      {
+        id: "resp_dapa_breakfast_final",
+        output_text: finalPayloadText({
+          answer: "For breakfast in Dapa, start with Dapa Breakfast House.",
+          usedToolCallIds: ["call_places_breakfast", "call_local_beaches"],
+          displayCardIds: [breakfastCard.id],
+        }),
+        _request_id: "req_dapa_breakfast_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      search_places: {
+        name: "search_places",
+        status: "success",
+        text: "Google Places returned breakfast options in Dapa.",
+        sources: [placesSourceSummary],
+        cards: [breakfastCard],
+      },
+      search_local_guide: {
+        name: "search_local_guide",
+        status: "success",
+        text: "Curated local guide returned unrelated beach cards.",
+        sources: [localGuideSourceSummary],
+        cards: [beachCard],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "I'll go to Dapa later, good places for breakfast?" }],
+        requestId: "agent_request_dapa_breakfast_regression",
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toContain("breakfast in Dapa");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "search_places",
+      "search_local_guide",
+    ]);
+    expect(result.sources).toEqual([placesSourceSummary, localGuideSourceSummary]);
+    expect(result.cards?.map((card) => card.id)).toEqual([breakfastCard.id]);
+    expect(JSON.stringify(result.cards)).not.toContain(beachCard.title);
+    expect(result.artifactSelection).toMatchObject({
+      selectedCardCount: 1,
+      unselectedCardCount: 1,
+    });
+  });
+
+  test("Dapa breakfast legacy final output returns no unselected cards", async () => {
+    const breakfastCard = {
+      id: "card_dapa_breakfast",
+      kind: "place" as const,
+      title: "Dapa Breakfast House",
+      fitReasons: ["Breakfast fit returned by Google Places."],
+      caveats: [],
+      sourceLabel: "Google Places - live checked",
+    };
+    const beachCard = {
+      id: "card_doot_beach",
+      kind: "beach" as const,
+      title: "Doot Beach",
+      fitReasons: ["Sandy beach fallback from local guide."],
+      caveats: [],
+      sourceLabel: "Ask Siargao curated local beach guide",
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_dapa_breakfast_legacy_multi_call",
+        _request_id: "req_dapa_breakfast_legacy_multi_call",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_places_breakfast",
+            name: "search_places",
+            arguments: JSON.stringify({ query: "breakfast in Dapa Siargao" }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_local_beaches",
+            name: "search_local_guide",
+            arguments: JSON.stringify({ query: "Dapa beaches", filters: null }),
+          },
+        ],
+      },
+      {
+        id: "resp_dapa_breakfast_legacy_final",
+        output_text: "For breakfast in Dapa, use the Places breakfast result.",
+        _request_id: "req_dapa_breakfast_legacy_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      search_places: {
+        name: "search_places",
+        status: "success",
+        text: "Google Places returned breakfast options in Dapa.",
+        sources: [placesSourceSummary],
+        cards: [breakfastCard],
+      },
+      search_local_guide: {
+        name: "search_local_guide",
+        status: "success",
+        text: "Curated local guide returned unrelated beach cards.",
+        sources: [localGuideSourceSummary],
+        cards: [beachCard],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "I'll go to Dapa later, good places for breakfast?" }],
+        requestId: "agent_request_dapa_breakfast_legacy_regression",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("breakfast in Dapa");
+    expect(result.cards).toBeUndefined();
+    expect(result.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalCardCount: 2,
+      unselectedCardCount: 2,
+    });
+  });
+
   test("keeps legacy plain-text compatibility without tool-result artifacts", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
