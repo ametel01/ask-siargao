@@ -6,6 +6,7 @@ import { z } from "zod";
 import type {
   AgentMemoryMetadata,
   AgentToolCallAudit,
+  AgentTurnResult,
   ChatClientContext,
   ChatClientGeolocationConsentScope,
   ChatClientGeolocationContext,
@@ -274,7 +275,12 @@ export async function chatResponse(
         toolCallCount: publicToolCalls.length,
         toolCalls: publicToolCalls.map(summarizeToolCallForLogs),
         sourceCount: result.sources.length,
+        cardCount: result.cards?.length ?? 0,
+        actionCount: result.actions?.length ?? 0,
         itineraryCount: result.itineraries?.length ?? 0,
+        ...(result.artifactSelection
+          ? { artifactSelection: summarizeArtifactSelectionForLogs(result.artifactSelection) }
+          : {}),
         upstreamRequestIds: result.upstreamRequestIds,
         agentMemoryVersionId: result.memory?.versionId,
         geolocation: summarizeGeolocationForLogs(clientContext.geolocation),
@@ -546,6 +552,24 @@ function summarizeToolCallForLogs(toolCall: AgentToolCallAudit) {
     sourceLabels: toolCall.sources.map((source) => source.label),
     sourceProfileIds: toolCall.sourceProfileIds,
     durationMs: toolCall.durationMs,
+  };
+}
+
+function summarizeArtifactSelectionForLogs(
+  artifactSelection: NonNullable<AgentTurnResult["artifactSelection"]>,
+) {
+  return {
+    mode: artifactSelection.mode,
+    structuredFinalPayload: artifactSelection.structuredFinalPayload,
+    totalCardCount: artifactSelection.totalCardCount,
+    totalActionCount: artifactSelection.totalActionCount,
+    totalItineraryCount: artifactSelection.totalItineraryCount,
+    selectedCardCount: artifactSelection.selectedCardCount,
+    selectedActionCount: artifactSelection.selectedActionCount,
+    selectedItineraryCount: artifactSelection.selectedItineraryCount,
+    unselectedCardCount: artifactSelection.unselectedCardCount,
+    unselectedActionCount: artifactSelection.unselectedActionCount,
+    unselectedItineraryCount: artifactSelection.unselectedItineraryCount,
   };
 }
 

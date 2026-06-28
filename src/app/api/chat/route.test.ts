@@ -89,6 +89,8 @@ describe("chat route", () => {
     expect(body.memory).toEqual(publicMemoryMetadata);
     expect(JSON.stringify(body.memory)).not.toContain("vs_route_memory");
     expect(JSON.stringify(body.memory)).not.toContain("checksum");
+    expect(JSON.stringify(body.memory)).not.toContain("byteLength");
+    expect(JSON.stringify(body.memory)).not.toContain("relativePath");
     expect(body.toolCalls).toEqual([]);
     expect(body.sources).toEqual([genericSourceSummary]);
     expect(body.cards).toBeUndefined();
@@ -716,6 +718,70 @@ describe("chat route", () => {
     expect(body.sources).toEqual([placesSourceSummary]);
     expect(body.cards).toEqual([placeRecommendationCard]);
     expect(body.actions).toEqual([promptAction]);
+  });
+
+  test("logs selected and unselected artifact counts without exposing selection metadata", async () => {
+    const logs = captureLogger();
+    const dependencies = chatDependencies({
+      message: "The model-written answer still recommends Shaka in markdown.",
+      toolCalls: [
+        toolCall({
+          name: "search_places",
+          status: "success",
+          sources: [placesSourceSummary],
+        }),
+      ],
+      sources: [placesSourceSummary],
+      cards: [placeRecommendationCard],
+      actions: [promptAction],
+      artifactSelection: {
+        mode: "strict",
+        structuredFinalPayload: true,
+        totalCardCount: 2,
+        totalActionCount: 2,
+        totalItineraryCount: 0,
+        selectedCardCount: 1,
+        selectedActionCount: 1,
+        selectedItineraryCount: 0,
+        unselectedCardCount: 1,
+        unselectedActionCount: 1,
+        unselectedItineraryCount: 0,
+        unknownCardIds: [],
+        unknownActionIds: [],
+        unknownItineraryIds: [],
+      },
+    });
+    dependencies.logger = logs.logger;
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Find cafes near Cloud 9 that are open now." }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+    const answeredLog = logs.events.find((event) => event.message === "Chat request answered.");
+
+    expect(response.status).toBe(200);
+    expect(body.cards).toEqual([placeRecommendationCard]);
+    expect(body.actions).toEqual([promptAction]);
+    expect(body.artifactSelection).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("unselected");
+    expect(answeredLog?.payload).toMatchObject({
+      cardCount: 1,
+      actionCount: 1,
+      itineraryCount: 0,
+      artifactSelection: {
+        mode: "strict",
+        structuredFinalPayload: true,
+        totalCardCount: 2,
+        selectedCardCount: 1,
+        unselectedCardCount: 1,
+        totalActionCount: 2,
+        selectedActionCount: 1,
+        unselectedActionCount: 1,
+      },
+    });
+    expect(JSON.stringify(answeredLog?.payload)).not.toContain("place_shaka");
   });
 
   test("validates selected card sources before returning them", async () => {
@@ -1411,6 +1477,7 @@ function chatDependencies(
         ...(result.cards ? { cards: result.cards } : {}),
         ...(result.actions ? { actions: result.actions } : {}),
         ...(result.itineraries ? { itineraries: result.itineraries } : {}),
+        ...(result.artifactSelection ? { artifactSelection: result.artifactSelection } : {}),
       };
     },
     requests,

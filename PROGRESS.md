@@ -24,14 +24,14 @@
 - [x] Step 6: Prompt Construction Uses Available Memory Metadata
 - [x] Step 7: Final Payload Memory Validation And Clear-Case Repair
 - [x] Step 8: Memory-Aware Source Consistency Validation
-- [ ] Step 9: Chat Route Public Contract And Observability
+- [x] Step 9: Chat Route Public Contract And Observability
 - [ ] Step 10: Documentation Alignment
 - [ ] Step 11: Full Quality Gates And Manual Chat Checks
 
 ## Current Status
 
-- Current step: Step 9
-- Next action: Align `/api/chat` public response contract and observability with selected artifacts and redacted memory metadata.
+- Current step: Step 10
+- Next action: Update developer documentation for the thin agent harness runtime contract.
 
 ## Baseline Gate Results
 
@@ -41,6 +41,26 @@
 - Bun tests passed: 504 tests across 49 files.
 
 ## Update Log
+
+### 2026-06-29 - Step 9 Complete
+
+- Added route logs for selected/unselected artifact counts without exposing artifact payloads or selection metadata publicly.
+- Kept `/api/chat` public responses limited to `AgentTurnResult.message`, selected artifacts already returned by runtime, redacted memory metadata, sources, and redacted tool calls.
+- Tightened public memory metadata coverage to exclude vector-store IDs, checksums, byte lengths, and relative paths.
+- Added route coverage proving artifact-selection diagnostics are log-only and selected artifacts still serialize normally.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `bun test src/app/api/chat/route.test.ts`: passed, 61 tests.
+- `bun test src/server/chat/agent-runtime.test.ts`: passed, 24 tests.
+- `bun test`: passed, 529 tests across 49 files.
+
+Commit:
+
+- Committed: `Expose only selected chat artifacts`
 
 ### 2026-06-29 - Step 8 Complete
 

@@ -82,6 +82,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed `/api/chat` observability to log selected and unselected artifact counts while keeping
+  artifact-selection diagnostics and memory internals out of public responses.
 - Changed structured final payload handling to validate model-selected memory files against
   current-turn memory observations and repair clear no-tool surf, beach, and source-policy answers
   by loading the exact indexed memory file first.
