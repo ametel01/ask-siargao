@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import Stripe from "stripe";
 
+import { POST } from "@/app/api/stripe/webhook/route";
 import { stripeWebhookResponse } from "@/app/api/stripe/webhook/webhook-route";
 import {
   type AuditLifecycleRecord,
@@ -14,11 +15,54 @@ import {
   type PaymentApplicationStore,
   type VerifiedPaymentEventRecord,
 } from "@/server/payments/webhook-application";
+import { resetRateLimitStoreForTests } from "@/server/security/rate-limit";
 
 const now = new Date("2026-06-23T08:00:00.000Z");
 const webhookSecret = "whsec_test_fixture_secret";
+const originalStripeRestrictedKey = process.env.STRIPE_RESTRICTED_KEY;
+const originalStripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
 describe("Stripe webhook route", () => {
+  beforeEach(() => {
+    resetRateLimitStoreForTests();
+    process.env.STRIPE_RESTRICTED_KEY = "rk_test_fixture";
+    process.env.STRIPE_WEBHOOK_SECRET = webhookSecret;
+  });
+
+  afterEach(() => {
+    resetRateLimitStoreForTests();
+    restoreEnvValue("STRIPE_RESTRICTED_KEY", originalStripeRestrictedKey);
+    restoreEnvValue("STRIPE_WEBHOOK_SECRET", originalStripeWebhookSecret);
+  });
+
+  test("does not let unsigned requests exhaust the verified webhook rate limit", async () => {
+    for (let index = 0; index < 41; index += 1) {
+      const response = await POST(unsignedRequest());
+
+      expect(response.status).toBe(400);
+      expect(response.headers.get("x-ratelimit-limit")).toBeNull();
+    }
+
+    const signedResponse = await POST(await signedRequest(ignoredEventPayload()));
+    const signedBody = await signedResponse.json();
+
+    expect(signedResponse.status).toBe(200);
+    expect(signedBody).toEqual({ received: true, ignored: true });
+  });
+
+  test("rate limits verified webhook events", async () => {
+    let response = await POST(await signedRequest(ignoredEventPayload()));
+
+    for (let index = 1; index < 41; index += 1) {
+      response = await POST(
+        await signedRequest(ignoredEventPayload({ eventId: `evt_ignored_${index}` })),
+      );
+    }
+
+    expect(response.status).toBe(429);
+    expect(await response.json()).toMatchObject({ error: "rate_limited" });
+  });
+
   test("applies valid paid checkout events and enqueues generation", async () => {
     const store = createMemoryPaymentStore(pendingPaymentAudit());
     const response = await stripeWebhookResponse(await signedRequest(checkoutSessionPayload()), {
@@ -108,6 +152,15 @@ describe("Stripe webhook route", () => {
   });
 });
 
+function restoreEnvValue(name: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+
+  process.env[name] = value;
+}
+
 function routeDependencies(store: PaymentApplicationStore) {
   return {
     applyVerifiedCheckoutPayment: (payment, rawEvent) =>
@@ -182,6 +235,13 @@ async function signedRequest(payload: string) {
   });
 }
 
+function unsignedRequest() {
+  return new Request("https://siargao.test/api/stripe/webhook", {
+    method: "POST",
+    body: ignoredEventPayload(),
+  });
+}
+
 function checkoutSessionPayload(
   input: { checkoutSessionId?: string; eventId?: string; paymentStatus?: "paid" | "unpaid" } = {},
 ) {
@@ -205,5 +265,24 @@ function checkoutSessionPayload(
     pending_webhooks: 1,
     request: null,
     type: "checkout.session.completed",
+  });
+}
+
+function ignoredEventPayload(input: { eventId?: string } = {}) {
+  return JSON.stringify({
+    id: input.eventId ?? "evt_test_ignored",
+    object: "event",
+    api_version: "2026-05-27.dahlia",
+    created: 1_782_194_400,
+    data: {
+      object: {
+        id: "cus_test_123",
+        object: "customer",
+      },
+    },
+    livemode: false,
+    pending_webhooks: 1,
+    request: null,
+    type: "customer.created",
   });
 }

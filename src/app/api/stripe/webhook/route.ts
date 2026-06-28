@@ -8,26 +8,21 @@ import { rateLimitedJson, rateLimitRequest } from "@/server/security/rate-limit"
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  const rateLimit = rateLimitRequest(request, "provider_call");
-  if (!rateLimit.allowed) {
-    return rateLimitedJson(rateLimit);
-  }
-
   const signature = request.headers.get("stripe-signature");
 
   if (!signature) {
     return Response.json({ error: "missing_stripe_signature" }, { status: 400 });
   }
 
+  let event: Awaited<ReturnType<typeof verifyStripeWebhookPayload>>;
+
   try {
     const payload = await request.text();
-    const event = await verifyStripeWebhookPayload({
+    event = await verifyStripeWebhookPayload({
       payload,
       signature,
       webhookSecret: stripeWebhookSecretFromEnv(),
     });
-
-    return await stripeWebhookResponseFromEvent(event);
   } catch (error) {
     return Response.json(
       {
@@ -37,4 +32,11 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+
+  const rateLimit = rateLimitRequest(request, "provider_call");
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
+  return await stripeWebhookResponseFromEvent(event);
 }
