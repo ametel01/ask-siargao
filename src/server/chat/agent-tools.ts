@@ -1788,22 +1788,44 @@ function googlePlacesFitReasons({
   search?: GooglePlacesChatSearch;
 }) {
   return uniqueText([
-    search ? `Returned #${index + 1} by Google Places for "${search.textQuery}".` : undefined,
+    search ? googlePlacesSearchFitReason(index, search) : undefined,
     search?.includedType && place.types.includes(search.includedType)
-      ? `Matches the requested ${humanizeGooglePlaceType(search.includedType)} type.`
+      ? `Listed as a ${humanizeGooglePlaceType(search.includedType)}, matching what you asked for.`
       : place.primaryType
-        ? `Google Places primary type: ${humanizeGooglePlaceType(place.primaryType)}.`
+        ? `Listed on Google Places as a ${humanizeGooglePlaceType(place.primaryType)}.`
         : undefined,
-    distanceLabel,
+    googlePlacesDistanceFitReason(distanceLabel),
     place.currentOpeningHours?.openNow === true
-      ? "Google Places returned an open-now signal."
+      ? "Good practical option right now: Google shows it as open."
       : undefined,
     place.currentOpeningHours?.openNow === false
-      ? "Google Places returned a not-open-now signal."
+      ? "Google does not show it as open right now."
       : undefined,
-    place.rating === undefined ? undefined : googlePlacesRatingLabel(place),
+    place.rating === undefined ? undefined : googlePlacesRatingFitReason(place),
     openStatusLabel === "Hours not returned by Google Places." ? openStatusLabel : undefined,
   ]);
+}
+
+function googlePlacesSearchFitReason(index: number, search: GooglePlacesChatSearch) {
+  if (index === 0) {
+    return `A top Google Places match for "${search.textQuery}".`;
+  }
+  return `Another strong Google Places match for "${search.textQuery}".`;
+}
+
+function googlePlacesDistanceFitReason(distanceLabel: string | undefined) {
+  if (!distanceLabel) {
+    return undefined;
+  }
+  const normalizedDistance = distanceLabel.replace(/\.$/, "").replace(" from search center", "");
+  return `Easy to reach from your search area: ${normalizedDistance.toLowerCase()}.`;
+}
+
+function googlePlacesRatingFitReason(
+  place: Pick<GooglePlacesChatPlace, "rating" | "userRatingCount">,
+) {
+  const ratingLabel = googlePlacesRatingLabel(place);
+  return ratingLabel?.replace(/^Google rating /, "Well rated on Google: ");
 }
 
 function googlePlacesPromptActions(

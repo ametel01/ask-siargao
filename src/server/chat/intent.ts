@@ -37,6 +37,7 @@ export type TripContextActiveGoal =
   | "beach_swimming"
   | "beach_sunset"
   | "rain_plan"
+  | "trip_advice"
   | "itinerary";
 
 export type TemporaryModifier =
@@ -334,6 +335,9 @@ function inferActiveGoal(
   if (/\bswim(?:ming)?|calm\s+water|beaches?|beach\s+day\b/i.test(latestUserTurn)) {
     return "beach_swimming";
   }
+  if (isBroadTripAdviceContent(latestUserTurn)) {
+    return "trip_advice";
+  }
   if (
     /\b(restaurants?|where\s+(?:can|should)\s+(?:we|i)\s+eat|food|dinner|lunch|breakfast|brunch|caf[eé]s?|coffee|bars?|drinks?)\b/i.test(
       latestUserTurn,
@@ -357,6 +361,21 @@ function inferActiveGoal(
     return "food";
   }
   return undefined;
+}
+
+function isBroadTripAdviceContent(content: string) {
+  const hasStayContext =
+    /\b(stay(?:ing)?|base(?:d)?|near|around|in)\b/i.test(content) &&
+    /\b(\d{1,2}\s*(?:days?|nights?)|week|weeks|trip|vacation|holiday)\b/i.test(content);
+  const asksForAdvice =
+    /\bwhat\s+should\s+(?:we|i)\s+know|what\s+do\s+(?:we|i)\s+need\s+to\s+know|any\s+tips|advice|recommendations?|worth\s+knowing\b/i.test(
+      content,
+    );
+  const tripNeedMatches = content.match(
+    /\b(quiet\s+sleep|sleep|hotel|stay|surf(?:ing)?|restaurants?|food|caf[eé]s?|airport|transfer|transport|ferry|arrival|departure|rain|weather|beaches?|activities?)\b/gi,
+  );
+
+  return hasStayContext && asksForAdvice && (tripNeedMatches?.length ?? 0) >= 2;
 }
 
 function inferTemporaryModifiers({

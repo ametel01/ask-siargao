@@ -85,6 +85,24 @@ describe("deriveTripContext", () => {
     expect(context.durableConstraints).not.toContain("budget_cheap");
   });
 
+  test("keeps multi-need stay advice broad instead of collapsing to food", () => {
+    const context = deriveTripContext([
+      {
+        role: "user",
+        content:
+          "I'm staying near Cloud 9 for 10 days. We want quiet sleep, surfing, good restaurants, and easy airport transfer. What should we know?",
+      },
+    ] satisfies AskSiargaoChatMessage[]);
+
+    expect(context).toMatchObject({
+      activeGoal: "trip_advice",
+      currentLocation: {
+        label: "Cloud 9",
+      },
+      transportMode: "van",
+    });
+  });
+
   test("keeps explicit budget language as durable context", () => {
     const context = deriveTripContext([
       { role: "user", content: "We're on a budget near Cloud 9." },

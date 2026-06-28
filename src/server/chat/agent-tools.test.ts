@@ -598,7 +598,10 @@ describe("agent tools", () => {
       openStatusLabel: "Open now according to Google Places.",
       sourceLabel: "Google Places - live checked",
     });
-    expect(result.cards?.[0]?.fitReasons.join(" ")).toContain("Google rating 4.6");
+    expect(result.cards?.[0]?.fitReasons).toContain(
+      'A top Google Places match for "cafes near Cloud 9 Siargao".',
+    );
+    expect(result.cards?.[0]?.fitReasons.join(" ")).toContain("Well rated on Google: 4.6");
     expect(result.cards?.[0]?.caveats.join(" ")).toContain("Review text");
     const travelerVisiblePayload = JSON.stringify({
       text: result.text,
@@ -1096,8 +1099,10 @@ describe("agent tools", () => {
       openStatusLabel: "Open now according to Google Places.",
       sourceLabel: "Google Places - live checked",
     });
-    expect(result.cards?.[0]?.fitReasons).toContain("Google Places returned an open-now signal.");
-    expect(result.cards?.[0]?.fitReasons).toContain("Google rating 4.7 from 321 ratings");
+    expect(result.cards?.[0]?.fitReasons).toContain(
+      "Good practical option right now: Google shows it as open.",
+    );
+    expect(result.cards?.[0]?.fitReasons).toContain("Well rated on Google: 4.7 from 321 ratings");
     expect(result.cards?.[0]?.caveats).not.toContain(
       "Opening hours were not returned for this place.",
     );

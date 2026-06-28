@@ -72,6 +72,7 @@ type ChatRequestIntent = {
   roadCondition: boolean;
   shouldDeclineNonSiargaoTopic: boolean;
   today: boolean;
+  tripAdvice: boolean;
   weatherSensitive: boolean;
   weather: boolean;
 };
@@ -231,12 +232,36 @@ export async function chatResponse(
       clientContext.geolocation,
     );
 
-    assertChatAnswerSourceConsistency({
+    const sourceValidationInput = {
       message: result.message,
       sources: chatAnswerSourcesForValidation(result.sources, result.itineraries),
       toolCalls: publicToolCalls,
       browserGeolocation: clientContext.geolocation,
-    });
+    };
+    let responseMessage = result.message;
+    try {
+      assertChatAnswerSourceConsistency(sourceValidationInput);
+    } catch (error) {
+      if (!(error instanceof SourceConsistencyError)) {
+        throw error;
+      }
+      const repairedMessage = repairMalformedRenderedSourceLines(result.message, error);
+      if (!repairedMessage) {
+        throw error;
+      }
+      assertChatAnswerSourceConsistency({
+        ...sourceValidationInput,
+        message: repairedMessage,
+      });
+      responseMessage = repairedMessage;
+      logger.warn(
+        {
+          issueCount: error.issues.length,
+          repairedLineCount: result.message.split("\n").length - repairedMessage.split("\n").length,
+        },
+        "Chat answer repaired by removing malformed rendered source lines.",
+      );
+    }
 
     logger.info(
       {
@@ -258,7 +283,7 @@ export async function chatResponse(
 
     return Response.json(
       {
-        message: result.message,
+        message: responseMessage,
         requestId: result.requestId,
         model: result.model,
         ...(result.upstreamRequestIds?.length
@@ -354,6 +379,38 @@ function chatAnswerSourcesForValidation(
   itineraries: readonly ItineraryPlan[] | undefined,
 ) {
   return [...sources, ...(itineraries?.flatMap((itinerary) => itinerary.sources) ?? [])];
+}
+
+function repairMalformedRenderedSourceLines(
+  message: string,
+  error: SourceConsistencyError,
+): string | undefined {
+  if (
+    error.issues.length === 0 ||
+    error.issues.some((issue) => issue.code !== "rendered_source_label_unknown")
+  ) {
+    return undefined;
+  }
+
+  const invalidLines = new Set(error.issues.flatMap((issue) => (issue.line ? [issue.line] : [])));
+  if (invalidLines.size === 0) {
+    return undefined;
+  }
+
+  const repaired = message
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+      return (
+        !invalidLines.has(trimmed) ||
+        (!trimmed.startsWith("Checked: ") && !trimmed.startsWith("Not checked: "))
+      );
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return repaired.length > 0 && repaired !== message ? repaired : undefined;
 }
 
 function normalizeChatClientContext(
@@ -585,6 +642,7 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
     (!bareRideBoatFollowUp && isRoadConditionContent(latestUserTurn)) ||
     (Boolean(conditionActivity) && isRoadConditionContent(inheritedConditionContext));
   const weather = isWeatherContent(latestUserTurn);
+  const tripAdvice = tripContext.activeGoal === "trip_advice";
   const weatherSensitive =
     weather ||
     Boolean(conditionActivity) ||
@@ -613,6 +671,7 @@ function interpretChatRequestIntent(messages: readonly AskSiargaoChatMessage[]):
     ...(placeIntent ? { placeIntent } : {}),
     roadCondition,
     today,
+    tripAdvice,
     weatherSensitive,
     weather,
   };
@@ -807,6 +866,7 @@ function summarizeIntentForAgent(intent: ChatRequestIntent) {
     roadCondition: intent.roadCondition,
     shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
     today: intent.today,
+    tripAdvice: intent.tripAdvice,
     weather: intent.weather,
     weatherSensitive: intent.weatherSensitive,
     tripContext: {
@@ -850,6 +910,7 @@ function summarizeIntentForLogs(intent: ChatRequestIntent) {
     roadCondition: intent.roadCondition,
     shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
     today: intent.today,
+    tripAdvice: intent.tripAdvice,
     weather: intent.weather,
     weatherSensitive: intent.weatherSensitive,
   };

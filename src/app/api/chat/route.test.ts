@@ -936,6 +936,35 @@ describe("chat route", () => {
     expect(signals?.intent.locationLabel).toBe("General Luna");
   });
 
+  test("marks multi-need Cloud 9 stay prompts as broad trip advice", async () => {
+    const dependencies = chatDependencies({
+      message:
+        "For 10 days near Cloud 9, treat sleep, surf, food, and transfer as separate planning needs.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content:
+              "I'm staying near Cloud 9 for 10 days. We want quiet sleep, surfing, good restaurants, and easy airport transfer. What should we know?",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.intent.tripAdvice).toBe(true);
+    expect(signals?.intent.activityPlan).toBe(false);
+    expect(signals?.intent.tripContext?.activeGoal).toBe("trip_advice");
+    expect(signals?.intent.placeIntent?.category).toBe("food");
+    expect(signals?.intent.conditionActivity).toBe("surfing");
+    expect(signals?.intent.locationLabel).toBe("Cloud 9");
+  });
+
   for (const prompt of [
     "Can you plan my airport transfer to General Luna?",
     "Can you plan my 2-hour airport transfer from General Luna?",
@@ -1152,6 +1181,33 @@ describe("chat route", () => {
     expect(dependencies.requests).toHaveLength(1);
   });
 
+  test("repairs malformed rendered source footers when structured tool evidence is valid", async () => {
+    const dependencies = chatDependencies({
+      message:
+        "Lost In Siargao is a practical nearby dinner option.\n\nChecked: these are **open now** via Google Places.\nNot checked: table availability, current wait times, or menu changes.",
+      toolCalls: [
+        toolCall({
+          name: "search_places",
+          status: "success",
+          sources: [placesSourceSummary],
+        }),
+      ],
+      sources: [placesSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Find dinner near Cloud 9." }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toBe("Lost In Siargao is a practical nearby dinner option.");
+    expect(body.message).not.toContain("Checked:");
+    expect(body.message).not.toContain("Not checked:");
+  });
+
   test("rejects rendered checked claims that do not match the tool-backed source text", async () => {
     const dependencies = chatDependencies({
       message:
@@ -1249,6 +1305,7 @@ type AgentSignals = {
     marineCondition?: boolean;
     placeIntent?: { category?: string };
     roadCondition?: boolean;
+    tripAdvice?: boolean;
     tripContext?: { activeGoal?: string };
     weatherSensitive?: boolean;
     weather?: boolean;
@@ -1382,7 +1439,7 @@ const placeRecommendationCard = {
   mapsUrl: "https://maps.google.com/?cid=shaka",
   distanceLabel: "About 50 m from search center.",
   openStatusLabel: "Open now according to Google Places.",
-  fitReasons: ["Returned #1 by Google Places for the request."],
+  fitReasons: ["A top Google Places match for the request."],
   caveats: ["Review text and bookings were not checked."],
   sourceLabel: "Google Places - live checked",
 };
