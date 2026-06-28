@@ -53,6 +53,29 @@ describe("chat source consistency", () => {
     expect(result.valid).toBe(true);
   });
 
+  test("rejects rendered checked claims whose text does not match the tool source", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message:
+        "I checked availability.\n\nChecked: Google Places (live checked; high confidence; profile source_google_places) - bookings.",
+      sources: [],
+      toolCalls: [
+        toolCall({
+          name: "search_places",
+          status: "success",
+          sources: [livePlacesSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        code: "rendered_checked_line_not_verifiable",
+        label: "live_checked",
+      }),
+    ]);
+  });
+
   test("accepts browser geolocation search-center claims only when Places tool-backed", () => {
     const geolocatedPlacesSource: AnswerSourceSummary = {
       ...livePlacesSourceSummary,

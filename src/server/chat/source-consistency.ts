@@ -40,6 +40,14 @@ type SourceClaim = {
   checkedText?: string;
 };
 
+type ToolSourceEvidence = {
+  toolName: string;
+  label: AnswerTrustLabel;
+  sourceName: string;
+  checkedText: string;
+  notCheckedText: string;
+};
+
 const renderedTrustLabels: Record<string, AnswerTrustLabel> = {
   "curated local guide": "curated_local_guide",
   "fresh cache": "fresh_cache",
@@ -274,7 +282,7 @@ function validateSourceClaim(
     ];
   }
 
-  if (isToolBackedLabelSupported(claim.label, evidence)) {
+  if (isToolBackedClaimSupported(claim, evidence)) {
     return [];
   }
 
@@ -294,6 +302,7 @@ function validateSourceClaim(
 
 function summarizeToolEvidence(toolCalls: readonly AgentToolCallAudit[]) {
   return {
+    toolSources: summarizeToolSources(toolCalls),
     browserGeolocationPlaces: toolCalls.some(
       (toolCall) =>
         toolCall.status === "success" &&
@@ -332,6 +341,21 @@ function summarizeToolEvidence(toolCalls: readonly AgentToolCallAudit[]) {
   };
 }
 
+function summarizeToolSources(toolCalls: readonly AgentToolCallAudit[]): ToolSourceEvidence[] {
+  return toolCalls.flatMap((toolCall) => {
+    if (toolCall.status !== "success") {
+      return [];
+    }
+    return toolCall.sources.map((source) => ({
+      toolName: toolCall.name,
+      label: source.label,
+      sourceName: normalizeText(source.sourceName),
+      checkedText: formatItems(normalizeItems(source.checked)),
+      notCheckedText: formatItems(normalizeItems(source.notChecked)),
+    }));
+  });
+}
+
 function isBrowserGeolocationCheckedClaim(claim: SourceClaim) {
   if (!claim.label || !isVerifyingLabel(claim.label)) {
     return false;
@@ -364,23 +388,54 @@ function hasToolSourceLabel(
   );
 }
 
-function isToolBackedLabelSupported(
-  label: AnswerTrustLabel,
+function isToolBackedClaimSupported(
+  claim: SourceClaim,
   evidence: ReturnType<typeof summarizeToolEvidence>,
 ) {
+  if (!claim.label) {
+    return false;
+  }
+  const toolNames = toolNamesForVerifyingLabel(claim.label);
+  if (!toolNames) {
+    return false;
+  }
+  return evidence.toolSources.some(
+    (toolSource) =>
+      toolNames.has(toolSource.toolName) &&
+      toolSource.label === claim.label &&
+      toolSource.sourceName === normalizeText(claim.sourceName) &&
+      doesClaimTextMatchToolSource(claim, toolSource),
+  );
+}
+
+function toolNamesForVerifyingLabel(label: AnswerTrustLabel) {
   switch (label) {
     case "live_checked":
-      return evidence.livePlaces;
+      return placesToolNames;
     case "fresh_cache":
-      return evidence.freshPlaces;
+      return new Set([...placesToolNames, "query_local_facts", "get_source_evidence"]);
     case "weather_checked":
-      return evidence.weather;
+      return new Set(["get_weather_forecast", "get_condition_judgment"]);
     case "curated_local_guide":
-      return evidence.localGuide;
+      return new Set([
+        "get_condition_judgment",
+        "search_local_guide",
+        "plan_local_itinerary",
+        "query_local_facts",
+        "get_source_evidence",
+      ]);
     case "not_verified":
     case "provider_unavailable":
-      return true;
+      return undefined;
   }
+}
+
+function doesClaimTextMatchToolSource(claim: SourceClaim, toolSource: ToolSourceEvidence) {
+  const claimText = normalizeText(claim.checkedText);
+  if (claim.origin === "rendered_source_line" && claim.lineKind === "not_checked") {
+    return claimText === toolSource.notCheckedText;
+  }
+  return claimText === toolSource.checkedText;
 }
 
 function isUnsupportedCheckedClaim(claim: SourceClaim) {
@@ -408,7 +463,7 @@ function sourceSummaryToClaim(source: AnswerSourceSummary): SourceClaim {
     origin: "structured_source",
     label: source.label,
     sourceName: source.sourceName,
-    checkedText: source.checked.join(" "),
+    checkedText: formatItems(normalizeItems(source.checked)),
   };
 }
 
@@ -465,6 +520,22 @@ function isVerifyingLabel(label: AnswerTrustLabel) {
 
 function normalizeText(value: string | undefined) {
   return value?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+function normalizeItems(items: readonly string[]) {
+  return items.map(normalizeText).filter((item) => item.length > 0);
+}
+
+function formatItems(items: readonly string[]) {
+  if (items.length === 1) {
+    return items[0] ?? "";
+  }
+  if (items.length === 2) {
+    return `${items[0]} and ${items[1]}`;
+  }
+  const lastItem = items.at(-1);
+  const leadingItems = items.slice(0, -1);
+  return `${leadingItems.join(", ")}, and ${lastItem}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

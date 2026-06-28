@@ -1152,6 +1152,32 @@ describe("chat route", () => {
     expect(dependencies.requests).toHaveLength(1);
   });
 
+  test("rejects rendered checked claims that do not match the tool-backed source text", async () => {
+    const dependencies = chatDependencies({
+      message:
+        "The model overclaims the checked source line.\n\nChecked: Google Places (live checked; high confidence; profile source_google_places) - bookings.",
+      toolCalls: [
+        toolCall({
+          name: "search_places",
+          status: "success",
+          sources: [placesSourceSummary],
+        }),
+      ],
+      sources: [placesSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Can I book this restaurant tonight?" }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(body.error).toBe("source_consistency_failed");
+    expect(body.message).toContain("verify the answer sources");
+  });
+
   test("rejects checked tide and surf labels at the route boundary", async () => {
     const checkedMarineSource: AnswerSourceSummary = {
       label: "weather_checked",
