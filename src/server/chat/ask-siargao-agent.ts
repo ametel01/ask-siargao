@@ -1,6 +1,10 @@
 import OpenAI from "openai";
 
-import { type AgentMemorySnapshot, loadAgentMemorySnapshot } from "@/server/chat/agent-memory";
+import {
+  type AgentMemorySnapshot,
+  loadAgentMemorySnapshot,
+  renderAvailableAgentMemory,
+} from "@/server/chat/agent-memory";
 import {
   type AgentFinalPayload,
   type AgentMemoryMetadata,
@@ -1770,6 +1774,7 @@ const askSiargaoBaseInstructions = [
 function buildAskSiargaoAgentInstructions(memorySnapshot: AgentMemorySnapshot) {
   return [
     askSiargaoBaseInstructions,
+    renderAvailableAgentMemory(memorySnapshot),
     "The following Ask Siargao memory index is loaded. Use it to decide which detailed files to load dynamically.",
     memorySnapshot.instructionMarkdown,
   ].join("\n\n");

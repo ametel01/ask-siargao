@@ -21,7 +21,7 @@
 - [x] Step 3: Dapa Breakfast Regression Coverage
 - [x] Step 4: Compact Agent Memory Catalog Rendering
 - [x] Step 5: Catalog-Backed Memory Tools
-- [ ] Step 6: Prompt Construction Uses Available Memory Metadata
+- [x] Step 6: Prompt Construction Uses Available Memory Metadata
 - [ ] Step 7: Final Payload Memory Validation And Clear-Case Repair
 - [ ] Step 8: Memory-Aware Source Consistency Validation
 - [ ] Step 9: Chat Route Public Contract And Observability
@@ -30,8 +30,8 @@
 
 ## Current Status
 
-- Current step: Step 6
-- Next action: Use compact available-memory metadata when constructing the agent prompt.
+- Current step: Step 7
+- Next action: Validate final-payload memory usage against current-turn memory retrieval observations.
 
 ## Baseline Gate Results
 
@@ -41,6 +41,26 @@
 - Bun tests passed: 504 tests across 49 files.
 
 ## Update Log
+
+### 2026-06-29 - Step 6 Complete
+
+- Wired compact available-memory metadata into the agent instructions before the loaded `INDEX.md`.
+- Kept full reference memory bodies out of default prompt construction while preserving the full index body.
+- Made available-memory rendering accept legacy-compatible snapshots by deriving document metadata from loaded files when needed.
+- Added agent-loop prompt coverage for compact memory metadata, reference filename discovery, and absent reference file bodies.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `bun test src/server/chat/ask-siargao-agent.test.ts`: passed, 57 tests.
+- `bun test src/server/chat/agent-memory.test.ts`: passed, 7 tests.
+- `bun test`: passed, 518 tests across 49 files.
+
+Commit:
+
+- Committed: `Use available memory metadata in agent prompts`
 
 ### 2026-06-29 - Step 5 Complete
 

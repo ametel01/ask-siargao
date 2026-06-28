@@ -186,11 +186,12 @@ export function loadAgentMemorySnapshot(
 }
 
 export function renderAvailableAgentMemory(
-  outcome: AgentMemoryLoadOutcome,
+  outcome: AgentMemorySnapshot | AgentMemoryLoadOutcome,
   options: RenderAvailableAgentMemoryOptions = {},
 ): string {
   const maxCharacters = options.maxCharacters ?? 4_000;
-  const referenceDocuments = outcome.documents.filter((document) => document.role === "reference");
+  const documents = memoryDocumentsFromSnapshot(outcome);
+  const referenceDocuments = documents.filter((document) => document.role === "reference");
   const headerLines = [
     "# Available Ask Siargao Agent Memory",
     "",
@@ -261,6 +262,15 @@ function documentMetadataFromFile(file: AgentMemoryFile): AgentMemoryDocumentMet
     description: file.description ?? "",
     triggerTerms: file.triggerTerms ?? [],
   };
+}
+
+function memoryDocumentsFromSnapshot(
+  outcome: AgentMemorySnapshot | AgentMemoryLoadOutcome,
+): readonly AgentMemoryDocumentMetadata[] {
+  if ("documents" in outcome) {
+    return outcome.documents;
+  }
+  return outcome.files.map(documentMetadataFromFile);
 }
 
 function renderInstructionMarkdown(files: readonly AgentMemoryInstructionFile[]) {

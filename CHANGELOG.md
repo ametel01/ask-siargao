@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed Ask Siargao agent prompt construction to include compact available-memory metadata before
+  the loaded index while keeping full reference memory bodies out of the default prompt.
 - Changed agent memory retrieval tool schemas to use the resolved turn memory catalog and return
   exact loaded memory filenames without exposing deployment metadata.
 - Changed the Ask Siargao agent loop to parse structured final payload JSON, validate current-turn

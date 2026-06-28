@@ -67,6 +67,41 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(firstInput.conversation?.[0]?.content).toContain("first afternoon");
   });
 
+  test("builds prompts with compact available memory metadata and only the index body", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_memory_prompt",
+        output_text: "Use source policy for source labels.",
+        _request_id: "req_memory_prompt",
+      },
+    ]);
+    const memorySnapshot = memorySnapshotFixture({
+      instructionContent: "INDEX_BODY_MARKER: choose the smallest relevant file.",
+      sourcePolicyContent: "REFERENCE_BODY_MARKER: full source-policy text must be loaded by tool.",
+    });
+
+    await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "What source labels can you use?" }],
+        requestId: "agent_request_memory_prompt",
+      },
+      {
+        client,
+        agentMemoryVectorStoreId: "",
+        memorySnapshot,
+        model: "gpt-test",
+      },
+    );
+
+    const instructions = String(client.requests[0]?.instructions);
+    expect(instructions).toContain("# Available Ask Siargao Agent Memory");
+    expect(instructions).toContain("Memory files are policy and local-reference context");
+    expect(instructions).toContain("ASK_SIARGAO_SOURCE_POLICY.md");
+    expect(instructions).toContain("Source-label policy and memory retrieval boundaries.");
+    expect(instructions).toContain("INDEX_BODY_MARKER");
+    expect(instructions).not.toContain("REFERENCE_BODY_MARKER");
+  });
+
   test("returns structured final payload answers from one model call", async () => {
     const client = fakeResponsesClient([
       {
@@ -3400,6 +3435,8 @@ function memorySnapshotFixture({
         fileName: "ASK_SIARGAO_SOURCE_POLICY.md",
         relativePath: "docs/agent-memory/ASK_SIARGAO_SOURCE_POLICY.md",
         role: "reference",
+        description: "Source-label policy and memory retrieval boundaries.",
+        triggerTerms: ["source labels", "memory policy"],
         checksum: "b".repeat(64),
         byteLength: sourcePolicyContent.length,
         content: sourcePolicyContent,
@@ -3413,6 +3450,8 @@ function memorySnapshotFixture({
         fileName: "ASK_SIARGAO_SOURCE_POLICY.md",
         relativePath: "docs/agent-memory/ASK_SIARGAO_SOURCE_POLICY.md",
         role: "reference",
+        description: "Source-label policy and memory retrieval boundaries.",
+        triggerTerms: ["source labels", "memory policy"],
         checksum: "b".repeat(64),
         byteLength: sourcePolicyContent.length,
         content: sourcePolicyContent,
