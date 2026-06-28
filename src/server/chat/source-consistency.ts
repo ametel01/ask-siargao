@@ -52,8 +52,10 @@ const renderedTrustLabels: Record<string, AnswerTrustLabel> = {
   "curated local guide": "curated_local_guide",
   "fresh cache": "fresh_cache",
   "live checked": "live_checked",
+  "marine checked": "marine_checked",
   "not verified": "not_verified",
   "provider unavailable": "provider_unavailable",
+  "tide forecast checked": "tide_forecast_checked",
   "weather checked": "weather_checked",
 };
 
@@ -251,7 +253,7 @@ function validateSourceClaim(
         line: claim.line,
         sourceName: claim.sourceName,
         message:
-          "Tide, surf, road, safety, and official-warning claims cannot be labeled checked yet.",
+          "Only marine_checked or tide_forecast_checked tool evidence may label marine, tide, wave, swell, or current fields as checked; road, safety, and official-warning claims remain unsupported unless a matching tool checks them.",
       },
     ];
   }
@@ -325,6 +327,16 @@ function summarizeToolEvidence(toolCalls: readonly AgentToolCallAudit[]) {
       toolCalls,
       new Set(["get_weather_forecast", "get_condition_judgment"]),
       "weather_checked",
+    ),
+    marine: hasToolSourceLabel(
+      toolCalls,
+      new Set(["get_marine_conditions", "get_condition_judgment"]),
+      "marine_checked",
+    ),
+    tideForecast: hasToolSourceLabel(
+      toolCalls,
+      new Set(["get_tide_forecast", "get_condition_judgment"]),
+      "tide_forecast_checked",
     ),
     localGuide: hasToolSourceLabel(
       toolCalls,
@@ -421,6 +433,10 @@ function toolNamesForVerifyingLabel(label: AnswerTrustLabel) {
       return new Set([...placesToolNames, "query_local_facts", "get_source_evidence"]);
     case "weather_checked":
       return new Set(["get_weather_forecast", "get_condition_judgment"]);
+    case "marine_checked":
+      return new Set(["get_marine_conditions", "get_condition_judgment"]);
+    case "tide_forecast_checked":
+      return new Set(["get_tide_forecast", "get_condition_judgment"]);
     case "curated_local_guide":
       return new Set([
         "get_condition_judgment",
@@ -451,15 +467,21 @@ function isUnsupportedCheckedClaim(claim: SourceClaim) {
     return false;
   }
   const text = [claim.sourceName, claim.checkedText].filter(Boolean).join(" ");
-  return (
-    /\b(tide|surf|swell|marine|currents)\b/i.test(text) ||
-    /\b(?:rip|sea|ocean)\s+current\b/i.test(text) ||
+  const hasMarineModelClaim =
+    /\b(tide|surf|swell|marine|waves?|sea[- ]?level)\b/i.test(text) ||
+    /\b(?:sea|ocean)\s+currents?\b/i.test(text);
+  const hasRoadOrOfficialSafetyClaim =
     /\b(?:road flooding|flooded roads?|road closures?|local closures?|transport warnings?)\b/i.test(
       text,
     ) ||
-    /\b(?:lifeguards?|swimming safety|marine safety|official warnings?|official transport warnings?|safety warnings?)\b/i.test(
+    /\b(?:rip currents?|lifeguards?|swimming safety|marine safety|official warnings?|official transport warnings?|safety warnings?)\b/i.test(
       text,
-    )
+    );
+  return (
+    hasRoadOrOfficialSafetyClaim ||
+    (hasMarineModelClaim &&
+      claim.label !== "marine_checked" &&
+      claim.label !== "tide_forecast_checked")
   );
 }
 
@@ -519,6 +541,8 @@ function isVerifyingLabel(label: AnswerTrustLabel) {
     label === "live_checked" ||
     label === "fresh_cache" ||
     label === "weather_checked" ||
+    label === "marine_checked" ||
+    label === "tide_forecast_checked" ||
     label === "curated_local_guide"
   );
 }

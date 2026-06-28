@@ -3,6 +3,8 @@ export type AnswerTrustLabel =
   | "fresh_cache"
   | "curated_local_guide"
   | "weather_checked"
+  | "marine_checked"
+  | "tide_forecast_checked"
   | "not_verified"
   | "provider_unavailable";
 
@@ -27,6 +29,8 @@ const verifyingLabels = new Set<AnswerTrustLabel>([
   "fresh_cache",
   "curated_local_guide",
   "weather_checked",
+  "marine_checked",
+  "tide_forecast_checked",
 ]);
 
 const trustLabelText: Record<AnswerTrustLabel, string> = {
@@ -34,6 +38,8 @@ const trustLabelText: Record<AnswerTrustLabel, string> = {
   fresh_cache: "fresh cache",
   curated_local_guide: "curated local guide",
   weather_checked: "weather checked",
+  marine_checked: "marine checked",
+  tide_forecast_checked: "tide forecast checked",
   not_verified: "not verified",
   provider_unavailable: "provider unavailable",
 };

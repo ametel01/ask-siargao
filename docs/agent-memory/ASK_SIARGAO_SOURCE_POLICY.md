@@ -26,10 +26,25 @@ source actually backs the fact.
 activity-planning answer. It does not check surf, swell, tides, road flooding,
 closures, or provider-independent safety.
 
+`marine_checked` means Open-Meteo Marine model data backed tide-proxy sea level,
+wave, swell, or ocean-current context. It does not mean an official tide table,
+tide-gauge measurement, navigation check, local operator call, lifeguard status,
+rip-current check, official marine warning, or safety clearance was checked.
+
+`tide_forecast_checked` means Tide-Forecast Dapa predicted page data backed
+high/low tide times, predicted tide heights, and embedded 3-hour sea-condition
+periods. It does not mean an official tide-gauge measurement, exact Cloud 9
+break reading, navigation check, local operator call, lifeguard status,
+rip-current check, official marine warning, or safety clearance was checked.
+
 Condition judgment outputs may use `weather_checked` only for Open-Meteo-backed
-weather signals. Their tide, surf, swell, current, road, lifeguard, and safety
-boundaries must remain `not_verified` or `provider_unavailable` until a
-provider-backed tool actually checks those signals.
+weather signals. They may use `marine_checked` only for Open-Meteo Marine
+modelled sea-level, wave, swell, and ocean-current fields. They may use
+`tide_forecast_checked` only for Tide-Forecast predicted tide timing/heights and
+embedded 3-hour sea-condition periods. Road, lifeguard, official-warning,
+navigation, local operator, exact-break, and safety boundaries must remain
+`not_verified` or `provider_unavailable` until a provider-backed tool actually
+checks those signals.
 
 `not_verified` means the answer uses generic model reasoning or stable context
 without a matching live, cached, weather, or curated tool output.
@@ -41,7 +56,7 @@ failed or was unavailable.
 
 Use "Checked:" lines only for tool-backed facts represented by verifying source
 labels: `live_checked`, `fresh_cache`, `curated_local_guide`, and
-`weather_checked`.
+`weather_checked`, `marine_checked`, and `tide_forecast_checked`.
 
 Use "Not checked:" lines for missing fields, unavailable providers, generic
 reasoning boundaries, or facts that the tool did not verify.
@@ -54,6 +69,17 @@ exist and how labels work, but source labels in final answers must come from
 tool outputs such as weather, Places, local guide, local facts, or source
 evidence.
 
+Source labels are internal trust markers, not default traveler-facing wording.
+In normal chat answers, do not print labels such as `tide_forecast_checked`,
+`marine_checked`, source profile IDs, provider operation names, or
+licensing notes. Translate them into plain language only when useful, such as "I
+checked the Dapa tide forecast" or "wave data was modelled."
+
+For surf-window questions, user-facing checked/not-checked wording should stay
+brief. Answer the best time first, then add at most one practical caveat when
+the unchecked boundary matters, for example that local safety or official warning
+status was not checked.
+
 ## Provider Caveats
 
 Google Places ordering is provider relevance, not an independent quality
@@ -62,6 +88,16 @@ rules.
 
 Open-Meteo weather data is useful for forecast planning, but it is not a marine,
 surf, tide, road, closure, or safety authority.
+
+Open-Meteo Marine data is useful for modelled tide-proxy sea level, wave, swell,
+and current planning, but it is not an official tide table, tide-gauge reading,
+navigation aid, local operator call, official-warning feed, or safety authority.
+
+Tide-Forecast Dapa page data is useful for predicted tide-table times/heights and
+embedded 3-hour sea-condition periods around Siargao. It is a nearby station
+proxy for Cloud 9 and General Luna, not an official tide-gauge reading, exact
+Cloud 9 break reading, navigation aid, local operator call, official-warning
+feed, or safety authority.
 
 Curated Ask Siargao local guide data is stable product-maintained knowledge. It
 does not replace live local checks when conditions can change.

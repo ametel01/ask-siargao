@@ -10,6 +10,7 @@ import {
   conditionRiskLevels,
   conditionSignalKinds,
   conditionSignalStatuses,
+  type MarineConditionsSnapshot,
   precipitationProbabilityRiskLevel,
   rainSumRiskLevel,
   windGustRiskLevel,
@@ -159,6 +160,34 @@ describe("condition judgment contracts", () => {
     expect(judgment.caveats).toContain(
       "Tide, surf, swell, currents, and lifeguard status were not checked.",
     );
+  });
+
+  test("uses Open-Meteo Marine model data for checked tide-proxy and sea-condition signals", () => {
+    const judgment = buildConditionJudgment({
+      request: requestFixture({
+        activity: "swimming",
+        beach_name: "Malinao Beach",
+        include_local_caveats: true,
+      }),
+      weatherSnapshot: weatherSnapshotFixture({ level: "low", windGust: 18 }),
+      marineSnapshot: marineSnapshotFixture(),
+      localGuideResult: searchSiargaoLocalGuide({ query: "Malinao Beach swimming" }),
+    });
+
+    expect(judgment.recommendation).toBe("flexible");
+    expect(judgment.signals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "tide", status: "checked" }),
+        expect.objectContaining({ kind: "surf", status: "checked" }),
+      ]),
+    );
+    expect(judgment.sources.map((source) => source.label)).toEqual([
+      "weather_checked",
+      "marine_checked",
+      "curated_local_guide",
+    ]);
+    expect(judgment.caveats.join(" ")).toContain("Open-Meteo model data");
+    expect(judgment.caveats.join(" ")).toContain("not an official tide table");
   });
 
   test("uses the matching named beach candidate for curated local caveats", () => {
@@ -523,5 +552,38 @@ function weatherSnapshotFixture({
         level: "low",
         peakDate: "2026-06-27",
       })),
+  };
+}
+
+function marineSnapshotFixture(): MarineConditionsSnapshot {
+  return {
+    status: "live",
+    locationName: "Siargao marine forecast near General Luna",
+    sourceName: "Open-Meteo Marine API",
+    sourceProfileId: "source_open_meteo_marine",
+    fetchedAt: "2026-06-28T04:00:00.000Z",
+    expiresAt: "2026-06-29T04:00:00.000Z",
+    confidence: "medium",
+    citationUrl: "https://marine-api.open-meteo.com/v1/marine",
+    evidenceIds: ["ev_open_meteo_marine_test"],
+    summary: "Open-Meteo Marine fixture summary.",
+    current: {
+      time: "2026-06-28T12:15",
+      seaLevelHeightMsl: 0.26,
+      waveHeight: 0.48,
+      swellWaveHeight: 0.38,
+      wavePeriod: 8.35,
+      swellWavePeriod: 6.75,
+      oceanCurrentVelocity: 1.3,
+      seaSurfaceTemperature: 30.7,
+    },
+    metrics: {
+      maxWaveHeight: 0.58,
+      maxSwellWaveHeight: 0.52,
+      maxOceanCurrentVelocity: 1.6,
+      minSeaLevelHeightMsl: 0.18,
+      maxSeaLevelHeightMsl: 0.33,
+      seaLevelHeightRangeMsl: 0.15,
+    },
   };
 }

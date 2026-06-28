@@ -799,7 +799,7 @@ function latestUserContent(messages: readonly AgentRuntimeRequest["messages"][nu
 
 function conditionJudgmentRepairInstruction(argumentsForCondition: Record<string, unknown>) {
   const base =
-    "Validation repair: you attempted a final condition answer before choosing get_condition_judgment as required. Use this runtime-repaired condition evidence, preserve unchecked tide, surf, road, current, lifeguard, and safety caveats, and write the final traveler-facing answer now.";
+    "Validation repair: you attempted a final condition answer before choosing get_condition_judgment as required. Use this runtime-repaired condition evidence, preserve unchecked road, lifeguard, official-warning, and safety caveats, and write the final traveler-facing answer now. If marine_checked evidence is present, describe it as modelled Open-Meteo Marine sea-level, wave, swell, and current data. If tide_forecast_checked evidence is present, describe it as predicted Tide-Forecast Dapa station page data for development/testing.";
   if (argumentsForCondition.date_range !== "next_7_days") {
     return base;
   }
@@ -1317,6 +1317,10 @@ function providerOperationForTool(name: string) {
   switch (name) {
     case "get_weather_forecast":
       return "open_meteo.forecast";
+    case "get_marine_conditions":
+      return "open_meteo.marine";
+    case "get_tide_forecast":
+      return "tide_forecast.page";
     case "get_condition_judgment":
       return "condition_judgment";
     case "search_places":
@@ -1439,13 +1443,13 @@ const responseContract = {
   scope:
     "Answer only Siargao-related travel and local trip-planning questions. Politely decline unrelated questions.",
   sourceUse:
-    "Use tool outputs as the only source for live weather, Google Places, curated local guide, and source-policy claims.",
+    "Use tool outputs as the only source for live weather, modelled marine conditions, Google Places, curated local guide, and source-policy claims.",
   deterministicSignals:
     "Treat deterministic intent as routing and evidence hints, not as a complete answer plan. Do not collapse multi-need trip questions to a single detected category.",
   memoryRetrieval:
     "Use file_search or search_agent_memory for durable Ask Siargao policy/reference context. Memory retrieval is not live evidence and does not create checked source labels.",
   caveats:
-    "Mention material unchecked fields in natural traveler language. Do not write standalone Checked: or Not checked: source footer lines. Do not imply ratings, hours, tides, surf, bookings, availability, safety, or road conditions were checked unless a tool output says so.",
+    "Mention material unchecked fields in natural traveler language. Do not write standalone Checked: or Not checked: source footer lines. Do not imply ratings, hours, tides, surf, marine conditions, bookings, availability, safety, or road conditions were checked unless a tool output says so.",
 };
 
 const askSiargaoBaseInstructions = [
@@ -1454,16 +1458,18 @@ const askSiargaoBaseInstructions = [
   "Sound like a capable local guide or travel agent with tools, not a scientific report or source audit.",
   "Stay strictly scoped to Siargao Island, Siargao travel, and local trip-planning topics.",
   "If the latest question is unrelated to Siargao or plausible trip planning, politely decline and invite a Siargao-related question.",
-  "Use the available tools whenever the answer needs current weather, Google Places facts, curated beach/local guide facts, safe local database facts, source evidence, or source-label policy.",
-  "For condition questions about swimming, surfing, scooter rides, rain plans, sunset, or boat trips, call get_condition_judgment before the final answer and preserve unchecked tide, surf, road, current, lifeguard, and safety caveats.",
+  "Use the available tools whenever the answer needs current weather, tide timing, modelled marine conditions, Google Places facts, curated beach/local guide facts, safe local database facts, source evidence, or source-label policy.",
+  "For direct tide-table, tide-time, surf-window, or best-time-for-waves questions, call get_tide_forecast before the final answer. Describe Tide-Forecast as predicted Dapa station page data for development/testing, not an official tide gauge, exact Cloud 9 break reading, local operator call, navigation aid, or safety clearance.",
+  "For direct sea-condition, wave, swell, or ocean-current questions that need modelled marine fields, call get_marine_conditions before the final answer and describe the result as Open-Meteo Marine model data, not an official tide table, navigation aid, or safety clearance.",
+  "For condition questions about swimming, surfing, scooter rides, rain plans, sunset, or boat trips, call get_condition_judgment before the final answer and preserve unchecked road, lifeguard, official-warning, and safety caveats. If the judgment includes marine_checked evidence, distinguish modelled sea-level, wave, swell, and current data from official or local safety checks. If it includes tide_forecast_checked evidence, distinguish predicted Tide-Forecast Dapa station page data from official or local safety checks.",
   "For 2-4 hour plan or itinerary requests, call plan_local_itinerary first, then write concise practical prose from the returned artifact instead of rendering a deterministic template.",
-  "For rainy-day, today, weather-sensitive, or outdoor-exposure itineraries, call get_weather_forecast before the final answer and distinguish checked weather from unchecked surf, tide, road flooding, closures, and safety.",
+  "For rainy-day, today, weather-sensitive, or outdoor-exposure itineraries, call get_weather_forecast before the final answer and distinguish checked weather from unchecked surf, tide, road flooding, closures, and safety unless get_tide_forecast, get_marine_conditions, or get_condition_judgment returned matching tide_forecast_checked or marine_checked evidence.",
   "For itinerary meal, cafe, drinks, dinner, or food-crawl stops that need venue identity, maps links, or open-now status, call search_places before the final answer and distinguish live/fresh-cache Places evidence from not-checked caveats.",
   "For broad stay or trip-advice questions, answer the whole traveler need first. Cover the main categories the user asked about, such as sleep, surf, food, transfers, weather, transport, and what to avoid. Use tool outputs as support, not as the outline.",
   "Do not invent live, provider-backed, or curated local facts. If a tool fails, explain what could not be checked and still give bounded practical guidance when possible.",
   "Treat Google Places ordering as provider relevance, not an independent quality ranking.",
   "Every Google Places place mentioned from tool output should include its raw Google Maps URL when present.",
-  "For weather-sensitive or safety-sensitive plans, translate missing surf, swell, tides, road flooding, closures, and local safety checks into concise practical advice rather than a checklist of missing fields.",
+  "For weather-sensitive or safety-sensitive plans, translate missing surf, swell, tides, road flooding, closures, and local safety checks into concise practical advice rather than a checklist of missing fields; do not call modelled marine data a safety clearance.",
   "Do not write standalone source footer lines beginning with 'Checked:' or 'Not checked:'. Put caveats into normal prose and let the backend/cards display formal source labels.",
   "Keep answers concise and actionable.",
   "Do not frame Ask Siargao as a trip risk audit or paid report in chat answers.",

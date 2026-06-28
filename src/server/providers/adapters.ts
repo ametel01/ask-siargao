@@ -4,6 +4,7 @@ import { SourceRegistry } from "@/server/providers/source-registry";
 export type ProviderAdapterKind =
   | "official_public_sector"
   | "weather"
+  | "marine"
   | "maps_geocoding"
   | "accommodation_api"
   | "review_poi_api"
@@ -70,6 +71,59 @@ const openMeteoAdapter: ProviderAdapterContract = {
   },
   retryPolicy: { maxAttempts: 3, backoffMs: 500 },
   rateLimit: "fair-use API",
+  freshnessWindowDays: 1,
+};
+
+const openMeteoMarineAdapter: ProviderAdapterContract = {
+  id: "adapter_open_meteo_marine",
+  kind: "marine",
+  profile: {
+    id: "source_open_meteo_marine",
+    sourceName: "Open-Meteo Marine API",
+    sourceType: "licensed_api",
+    accessMethod: "api",
+    allowedUse: "public_republish",
+    termsUrl: "https://open-meteo.com/en/terms",
+    rateLimit: "fair-use API",
+    freshnessWindowDays: 1,
+    authorityLevel: 4,
+    storesRawAllowed: true,
+    publishesRawAllowed: true,
+    requiresPartnerApproval: false,
+    knownStaleRisk: "low",
+    knownAiOrSeoContentRisk: "low",
+    notes:
+      "Permitted low-risk modelled marine source for tide-proxy sea level, waves, swell, currents, and sea-surface temperature. Not official tide-gauge, navigation, or safety authority data.",
+  },
+  retryPolicy: { maxAttempts: 3, backoffMs: 500 },
+  rateLimit: "fair-use API",
+  freshnessWindowDays: 1,
+};
+
+const tideForecastDevAdapter: ProviderAdapterContract = {
+  id: "adapter_tide_forecast_dev",
+  kind: "marine",
+  profile: {
+    id: "source_tide_forecast_dev",
+    sourceName: "Tide-Forecast Dapa page",
+    sourceType: "permitted_public_web",
+    accessMethod: "crawl",
+    allowedUse: "citation_only",
+    robotsPolicy: "respect_robots_and_terms",
+    termsUrl: "https://www.tide-forecast.com/pages/terms",
+    rateLimit: "dev/test low-rate page fetches only",
+    freshnessWindowDays: 1,
+    authorityLevel: 2,
+    storesRawAllowed: false,
+    publishesRawAllowed: false,
+    requiresPartnerApproval: true,
+    knownStaleRisk: "medium",
+    knownAiOrSeoContentRisk: "low",
+    notes:
+      "Development/testing source for Tide-Forecast Dapa tide table and embedded sea-condition periods. Production/commercial use needs appropriate Tide-Forecast/Meteo365 permission or license.",
+  },
+  retryPolicy: { maxAttempts: 1, backoffMs: 1_000 },
+  rateLimit: "dev/test low-rate page fetches only",
   freshnessWindowDays: 1,
 };
 
@@ -177,6 +231,8 @@ export function createDefaultSourceRegistry() {
   return new SourceRegistry([
     officialTransportAdapter.profile,
     openMeteoAdapter.profile,
+    openMeteoMarineAdapter.profile,
+    tideForecastDevAdapter.profile,
     googlePlacesAdapter.profile,
     publicTourismDirectoryAdapter.profile,
     userSubmittedEvidenceAdapter.profile,

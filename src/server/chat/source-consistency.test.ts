@@ -414,6 +414,40 @@ describe("chat source consistency", () => {
     ]);
   });
 
+  test("accepts marine_checked modelled tide, wave, swell, and current claims when tool-backed", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Open-Meteo Marine model data was checked.", [marineSourceSummary]),
+      sources: [marineSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "get_marine_conditions",
+          status: "success",
+          sources: [marineSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result).toEqual({ valid: true, issues: [] });
+  });
+
+  test("accepts tide_forecast_checked predicted tide and swell claims when tool-backed", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Tide-Forecast tide timing was checked.", [
+        tideForecastSourceSummary,
+      ]),
+      sources: [tideForecastSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "get_tide_forecast",
+          status: "success",
+          sources: [tideForecastSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result).toEqual({ valid: true, issues: [] });
+  });
+
   test("accepts current Places status wording without treating it as ocean current evidence", () => {
     const currentOpeningSource: AnswerSourceSummary = {
       ...livePlacesSourceSummary,
@@ -664,6 +698,36 @@ const weatherSourceSummary: AnswerSourceSummary = {
   confidence: "medium",
   checked: ["forecast for Siargao Island"],
   notChecked: ["surf reports"],
+};
+
+const marineSourceSummary: AnswerSourceSummary = {
+  label: "marine_checked",
+  sourceName: "Open-Meteo Marine API",
+  sourceProfileId: "source_open_meteo_marine",
+  fetchedAt: "2026-06-28T04:00:00.000Z",
+  confidence: "medium",
+  checked: [
+    "modelled sea level height MSL (tide proxy) for Siargao marine forecast near General Luna",
+    "modelled wave height",
+    "modelled swell wave height",
+    "modelled ocean current velocity",
+  ],
+  notChecked: ["official tide table", "lifeguard or swimming safety"],
+};
+
+const tideForecastSourceSummary: AnswerSourceSummary = {
+  label: "tide_forecast_checked",
+  sourceName: "Tide-Forecast Dapa page",
+  sourceProfileId: "source_tide_forecast_dev",
+  fetchedAt: "2026-06-28T10:00:00.000Z",
+  confidence: "low",
+  checked: [
+    "Tide-Forecast Dapa tide station predicted tide table for 2026-06-29",
+    "predicted high and low tide times",
+    "predicted tide heights",
+    "embedded Tide-Forecast 3-hour swell and wind periods",
+  ],
+  notChecked: ["official tide-gauge measurement", "lifeguard or swimming safety"],
 };
 
 const livePlacesSourceSummary: AnswerSourceSummary = {

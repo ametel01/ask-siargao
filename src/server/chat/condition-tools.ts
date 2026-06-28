@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { AnswerSourceSummary, AnswerTrustLabel } from "@/server/chat/answer-source-summary";
 import type { LocalGuideSearchResult } from "@/server/local/siargao-beaches";
+import type { TideForecastSnapshot } from "@/server/providers/tide-forecast";
 import type { WeatherSnapshot } from "@/server/public-pages/weather-snapshot";
 
 export const conditionSignalKinds = ["weather", "tide", "surf", "road", "manual_caveat"] as const;
@@ -27,6 +28,8 @@ const answerTrustLabels = [
   "fresh_cache",
   "curated_local_guide",
   "weather_checked",
+  "marine_checked",
+  "tide_forecast_checked",
   "not_verified",
   "provider_unavailable",
 ] as const satisfies readonly AnswerTrustLabel[];
@@ -82,7 +85,40 @@ export type ConditionJudgmentRequest = z.infer<typeof conditionJudgmentRequestSc
 export type BuildConditionJudgmentInput = {
   request: ConditionJudgmentRequest;
   weatherSnapshot?: WeatherSnapshot | null;
+  marineSnapshot?: MarineConditionsSnapshot | null;
+  tideForecastSnapshot?: TideForecastSnapshot | null;
   localGuideResult?: LocalGuideSearchResult | null;
+};
+
+export type MarineConditionsSnapshot = {
+  status: "live";
+  locationName: string;
+  sourceName: "Open-Meteo Marine API";
+  sourceProfileId: "source_open_meteo_marine";
+  fetchedAt: string;
+  expiresAt: string | null;
+  confidence: "medium" | "low";
+  citationUrl: string | null;
+  evidenceIds: string[];
+  summary: string;
+  current: {
+    time: string;
+    seaLevelHeightMsl: number | null;
+    waveHeight: number | null;
+    swellWaveHeight: number | null;
+    wavePeriod: number | null;
+    swellWavePeriod: number | null;
+    oceanCurrentVelocity: number | null;
+    seaSurfaceTemperature: number | null;
+  };
+  metrics: {
+    maxWaveHeight: number | null;
+    maxSwellWaveHeight: number | null;
+    maxOceanCurrentVelocity: number | null;
+    minSeaLevelHeightMsl: number | null;
+    maxSeaLevelHeightMsl: number | null;
+    seaLevelHeightRangeMsl: number | null;
+  };
 };
 
 export const conditionJudgmentToolParameters = {
@@ -143,7 +179,7 @@ export function buildConditionJudgment(input: BuildConditionJudgmentInput): Cond
   const weatherSignal = buildWeatherSignal(input.weatherSnapshot, request.date_range);
   const signals = [
     weatherSignal,
-    ...buildUncheckedMarineSignals(request.activity),
+    ...buildMarineSignals(request.activity, input.marineSnapshot, input.tideForecastSnapshot),
     ...buildUncheckedRoadSignals(request.activity),
     ...buildManualCaveatSignals(request, input.localGuideResult),
   ];
@@ -156,7 +192,7 @@ export function buildConditionJudgment(input: BuildConditionJudgmentInput): Cond
     recommendation,
     level: highestSignalLevel(signals),
     reasons: reasonsFor({ recommendation, request, signals }),
-    alternatives: alternativesFor(request.activity, recommendation),
+    alternatives: alternativesFor(request.activity, recommendation, signals),
     caveats: caveatsFor({ request, signals }),
     signals,
     sources,
@@ -179,6 +215,14 @@ export function windSpeedRiskLevel(value: number | null | undefined) {
 
 export function windGustRiskLevel(value: number | null | undefined) {
   return thresholdRiskLevel(value, { high: 55, medium: 35 });
+}
+
+export function marineWaveHeightRiskLevel(value: number | null | undefined) {
+  return thresholdRiskLevel(value, { high: 1.5, medium: 0.8 });
+}
+
+export function marineCurrentRiskLevel(value: number | null | undefined) {
+  return thresholdRiskLevel(value, { high: 3, medium: 1.5 });
 }
 
 function buildWeatherSignal(
@@ -247,10 +291,162 @@ function buildWeatherSignal(
   };
 }
 
-function buildUncheckedMarineSignals(activity: ConditionJudgmentRequest["activity"]) {
+function buildMarineSignals(
+  activity: ConditionJudgmentRequest["activity"],
+  marineSnapshot: MarineConditionsSnapshot | null | undefined,
+  tideForecastSnapshot: TideForecastSnapshot | null | undefined,
+): ConditionSignal[] {
   if (!["swimming", "surfing", "boat_trip"].includes(activity)) {
     return [];
   }
+  if (marineSnapshot || tideForecastSnapshot) {
+    return [
+      ...(tideForecastSnapshot ? buildCheckedTideForecastSignals(tideForecastSnapshot) : []),
+      ...(marineSnapshot
+        ? buildCheckedMarineSignals(marineSnapshot, Boolean(tideForecastSnapshot))
+        : []),
+    ];
+  }
+  return buildUncheckedMarineSignals();
+}
+
+function buildCheckedMarineSignals(
+  marineSnapshot: MarineConditionsSnapshot,
+  skipTideSignal = false,
+): ConditionSignal[] {
+  const source: AnswerSourceSummary = {
+    label: "marine_checked",
+    sourceName: marineSnapshot.sourceName,
+    sourceProfileId: marineSnapshot.sourceProfileId,
+    fetchedAt: marineSnapshot.fetchedAt,
+    confidence: marineSnapshot.confidence,
+    checked: [
+      `modelled sea level height MSL (tide proxy) for ${marineSnapshot.locationName}`,
+      "modelled wave height",
+      "modelled swell wave height",
+      "modelled ocean current velocity",
+    ],
+    notChecked: [
+      "official tide table",
+      "tide-gauge measurement",
+      "surf break quality",
+      "rip currents",
+      "lifeguard or swimming safety",
+      "official marine warnings",
+    ],
+  };
+  const surfSignal: ConditionSignal = {
+    kind: "surf",
+    status: "checked",
+    level: highestRiskLevel([
+      marineWaveHeightRiskLevel(marineSnapshot.metrics.maxWaveHeight),
+      marineWaveHeightRiskLevel(marineSnapshot.metrics.maxSwellWaveHeight),
+      marineCurrentRiskLevel(marineSnapshot.metrics.maxOceanCurrentVelocity),
+    ]),
+    label: "Open-Meteo Marine waves, swell, and current",
+    summary: [
+      `current wave ${formatMetric(marineSnapshot.current.waveHeight, "m")}`,
+      `swell ${formatMetric(marineSnapshot.current.swellWaveHeight, "m")}`,
+      `ocean current ${formatMetric(marineSnapshot.current.oceanCurrentVelocity, "km/h")}`,
+    ].join("; "),
+    checked: source.checked.slice(1),
+    notChecked: [
+      "surf break quality",
+      "rip currents",
+      "lifeguard or swimming safety",
+      "official marine warnings",
+    ],
+    evidenceIds: marineSnapshot.evidenceIds,
+    source,
+  };
+  if (skipTideSignal) {
+    return [surfSignal];
+  }
+  return [
+    {
+      kind: "tide",
+      status: "checked",
+      level: "low",
+      label: "Open-Meteo Marine sea level",
+      summary: [
+        `modelled sea level ${formatMetric(marineSnapshot.current.seaLevelHeightMsl, "m")} MSL at ${marineSnapshot.current.time}`,
+        `modelled range ${formatMetric(marineSnapshot.metrics.seaLevelHeightRangeMsl, "m")}`,
+      ].join("; "),
+      checked: [source.checked[0] ?? "modelled sea level height MSL"],
+      notChecked: ["official tide table", "tide-gauge measurement"],
+      evidenceIds: marineSnapshot.evidenceIds,
+      source,
+    },
+    surfSignal,
+  ];
+}
+
+function buildCheckedTideForecastSignals(snapshot: TideForecastSnapshot): ConditionSignal[] {
+  const source: AnswerSourceSummary = {
+    label: "tide_forecast_checked",
+    sourceName: snapshot.sourceName,
+    sourceProfileId: snapshot.sourceProfileId,
+    fetchedAt: snapshot.fetchedAt,
+    confidence: "low",
+    checked: [
+      `Tide-Forecast ${snapshot.stationName} predicted tide table for ${snapshot.targetDates.join(", ")}`,
+      "predicted high and low tide times",
+      "predicted tide heights",
+      ...(snapshot.seaPeriods.length > 0
+        ? ["embedded Tide-Forecast 3-hour swell and wind periods"]
+        : []),
+    ],
+    notChecked: [
+      "official tide-gauge measurement",
+      "exact Cloud 9 break reading",
+      "navigation safety",
+      "rip currents",
+      "lifeguard or swimming safety",
+      "official marine warnings",
+      "local operator call",
+    ],
+  };
+  const firstDay = snapshot.days[0];
+  const tideEvents = firstDay?.tides.filter((tide) => tide.type === "high" || tide.type === "low");
+  const bestWindow = snapshot.recommendedWindows[0];
+  return [
+    {
+      kind: "tide",
+      status: "checked",
+      level: "low",
+      label: "Tide-Forecast predicted tide table",
+      summary:
+        tideEvents && tideEvents.length > 0
+          ? tideEvents
+              .slice(0, 4)
+              .map((tide) => `${tide.type} ${tide.time} ${formatMetric(tide.heightMeters, "m")}`)
+              .join("; ")
+          : "Tide-Forecast predicted tide table was checked.",
+      checked: source.checked.slice(0, 3),
+      notChecked: source.notChecked,
+      evidenceIds: [`tide_forecast:${snapshot.stationName.replaceAll(/\s+/g, "_").toLowerCase()}`],
+      source,
+    },
+    {
+      kind: "surf",
+      status: snapshot.seaPeriods.length > 0 ? "checked" : "not_checked",
+      level: "low",
+      label: "Tide-Forecast surf timing window",
+      summary: bestWindow
+        ? `best daylight window ${bestWindow.localLabel}: ${bestWindow.reason}`
+        : "Tide timing was checked, but embedded swell/wind periods were unavailable.",
+      checked: snapshot.seaPeriods.length > 0 ? source.checked.slice(3) : [],
+      notChecked:
+        snapshot.seaPeriods.length > 0
+          ? source.notChecked
+          : ["swell period", "wind period", ...source.notChecked],
+      evidenceIds: [`tide_forecast:${snapshot.stationName.replaceAll(/\s+/g, "_").toLowerCase()}`],
+      source,
+    },
+  ] satisfies ConditionSignal[];
+}
+
+function buildUncheckedMarineSignals() {
   const source: AnswerSourceSummary = {
     label: "not_verified",
     sourceName: "Condition judgment unchecked marine signals",
@@ -263,7 +459,7 @@ function buildUncheckedMarineSignals(activity: ConditionJudgmentRequest["activit
     status: "not_checked",
     level: "medium",
     label: "Tide",
-    summary: "No tide provider is integrated in this implementation slice.",
+    summary: "No marine provider data was available for tide timing or height.",
     checked: [],
     notChecked: ["tide height", "tide timing"],
     evidenceIds: [],
@@ -274,7 +470,7 @@ function buildUncheckedMarineSignals(activity: ConditionJudgmentRequest["activit
     status: "not_checked",
     level: "medium",
     label: "Surf, swell, and current",
-    summary: "No surf, swell, or current provider is integrated in this implementation slice.",
+    summary: "No marine provider data was available for surf, swell, or current.",
     checked: [],
     notChecked: ["surf height", "swell", "currents"],
     evidenceIds: [],
@@ -371,10 +567,17 @@ function recommendationFor({
   if (weatherSignal?.level === "high") {
     return activity === "rain_plan" ? "flexible" : "avoid";
   }
+  if (hasCheckedHighMarineSignal(signals)) {
+    return activity === "swimming" ? "avoid" : "needs_local_confirmation";
+  }
   if (activity === "surfing" || activity === "boat_trip") {
     return "needs_local_confirmation";
   }
-  if (weatherSignal?.level === "medium" || hasUncheckedMarineSignal(signals)) {
+  if (
+    weatherSignal?.level === "medium" ||
+    hasUncheckedMarineSignal(signals) ||
+    hasCheckedMediumMarineSignal(signals)
+  ) {
     return "flexible";
   }
   return activity === "rain_plan" ? "flexible" : "good";
@@ -397,6 +600,12 @@ function reasonsFor({
     hasUncheckedMarineSignal(signals)
       ? "Tide, surf, swell, and current signals are explicitly not checked."
       : undefined,
+    hasCheckedOpenMeteoMarineSignal(signals)
+      ? "Open-Meteo Marine modelled sea-level, wave, swell, and current signals were checked."
+      : undefined,
+    hasCheckedTideForecastSignal(signals)
+      ? "Tide-Forecast predicted tide table and embedded sea-condition timing were checked."
+      : undefined,
     signals.some((signal) => signal.kind === "road")
       ? "Road flooding and closure signals are explicitly not checked."
       : undefined,
@@ -404,7 +613,7 @@ function reasonsFor({
       ? `Traveler constraints preserved: ${request.constraints.join("; ")}.`
       : undefined,
     recommendation === "avoid"
-      ? "The checked weather risk is high enough to favor a safer alternative."
+      ? "A checked condition signal is high enough to favor a safer alternative."
       : undefined,
   ];
   return compact(reasons).slice(0, 5);
@@ -413,6 +622,7 @@ function reasonsFor({
 function alternativesFor(
   activity: ConditionJudgmentRequest["activity"],
   recommendation: ConditionJudgment["recommendation"],
+  signals: readonly ConditionSignal[],
 ) {
   if (recommendation === "avoid") {
     if (activity === "scooter") {
@@ -437,7 +647,9 @@ function alternativesFor(
     return ["Keep a nearby covered fallback if cloud or rain builds before sunset."];
   }
   if (activity === "swimming") {
-    return ["Use a close sandy beach only after confirming tide, surf, and currents in person."];
+    return hasCheckedMarineSignal(signals)
+      ? ["Use a close sandy beach only after confirming local beach safety in person."]
+      : ["Use a close sandy beach only after confirming tide, surf, and currents in person."];
   }
   if (activity === "surfing" || activity === "boat_trip") {
     return ["Confirm marine conditions with a local operator before committing."];
@@ -459,6 +671,12 @@ function caveatsFor({
       : undefined,
     hasUncheckedMarineSignal(signals)
       ? "Tide, surf, swell, currents, and lifeguard status were not checked."
+      : undefined,
+    hasCheckedOpenMeteoMarineSignal(signals)
+      ? "Marine evidence is Open-Meteo model data, not an official tide table, tide-gauge reading, navigation aid, local operator call, or safety clearance."
+      : undefined,
+    hasCheckedTideForecastSignal(signals)
+      ? "Tide-Forecast evidence is predicted page data from the Dapa station proxy, not an official tide-gauge, exact Cloud 9 break reading, local operator call, or safety clearance."
       : undefined,
     signals.some((signal) => signal.kind === "road")
       ? "Road flooding, road closures, and official transport warnings were not checked."
@@ -528,6 +746,48 @@ function hasUncheckedMarineSignal(signals: readonly ConditionSignal[]) {
   return signals.some(
     (signal) =>
       (signal.kind === "tide" || signal.kind === "surf") && signal.status === "not_checked",
+  );
+}
+
+function hasCheckedMarineSignal(signals: readonly ConditionSignal[]) {
+  return signals.some(
+    (signal) => (signal.kind === "tide" || signal.kind === "surf") && signal.status === "checked",
+  );
+}
+
+function hasCheckedOpenMeteoMarineSignal(signals: readonly ConditionSignal[]) {
+  return signals.some(
+    (signal) =>
+      (signal.kind === "tide" || signal.kind === "surf") &&
+      signal.status === "checked" &&
+      signal.source.label === "marine_checked",
+  );
+}
+
+function hasCheckedTideForecastSignal(signals: readonly ConditionSignal[]) {
+  return signals.some(
+    (signal) =>
+      (signal.kind === "tide" || signal.kind === "surf") &&
+      signal.status === "checked" &&
+      signal.source.label === "tide_forecast_checked",
+  );
+}
+
+function hasCheckedMediumMarineSignal(signals: readonly ConditionSignal[]) {
+  return signals.some(
+    (signal) =>
+      (signal.kind === "tide" || signal.kind === "surf") &&
+      signal.status === "checked" &&
+      signal.level === "medium",
+  );
+}
+
+function hasCheckedHighMarineSignal(signals: readonly ConditionSignal[]) {
+  return signals.some(
+    (signal) =>
+      (signal.kind === "tide" || signal.kind === "surf") &&
+      signal.status === "checked" &&
+      signal.level === "high",
   );
 }
 

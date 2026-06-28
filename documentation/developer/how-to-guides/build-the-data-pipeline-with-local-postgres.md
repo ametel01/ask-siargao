@@ -164,6 +164,7 @@ Start with one low-risk adapter. Do not begin with broad web scraping or OTA pag
 Implemented first adapter:
 
 - Open-Meteo forecast ingestion for Siargao weather facts. The pure adapter lives in `src/server/providers/open-meteo.ts`, the Postgres ingestion runner lives in `src/server/providers/ingest-open-meteo.ts`, and the package script is `bun run db:ingest:open-meteo`.
+- Open-Meteo Marine ingestion for modelled Siargao sea-level, wave, swell, and current facts. The pure adapter lives in `src/server/providers/open-meteo-marine.ts`, the Postgres ingestion runner lives in `src/server/providers/ingest-open-meteo-marine.ts`, and the package script is `bun run db:ingest:open-meteo-marine`.
 
 Alternative first adapter:
 
@@ -187,6 +188,16 @@ Open-Meteo first-slice facts can be narrow:
 - Daily rain or wind risk for audit dates.
 - Weather facts that expire in one day.
 
+Open-Meteo Marine first-slice facts are also narrow:
+
+- Marine forecast freshness timestamp.
+- Modelled sea-level height and short-range sea-level range as tide-proxy context.
+- Modelled wave height, swell wave height, and ocean-current velocity.
+- Marine facts that expire in one day.
+
+Open-Meteo Marine facts must not be presented as official tide-gauge readings, official tide
+tables, navigation guidance, or safety authority data.
+
 Verification:
 
 - The adapter refuses unknown source profiles.
@@ -198,6 +209,7 @@ Useful current tests:
 
 ```sh
 bun test src/server/providers/open-meteo.test.ts
+bun test src/server/providers/open-meteo-marine.test.ts
 bun test src/server/providers/source-governance.test.ts
 ```
 
@@ -208,8 +220,9 @@ Run ingestion against Compose Postgres after migrations and seed data are in pla
 Implemented first ingestion command:
 
 - `bun run db:ingest:open-meteo`
+- `bun run db:ingest:open-meteo-marine`
 
-It inserts one Open-Meteo batch into these tables:
+Each ingestion command inserts one Open-Meteo batch into these tables:
 
   - `raw_snapshots`
   - `source_records`

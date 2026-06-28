@@ -47,6 +47,8 @@ const answerSourceSummarySchema = z.strictObject({
     "fresh_cache",
     "curated_local_guide",
     "weather_checked",
+    "marine_checked",
+    "tide_forecast_checked",
     "not_verified",
     "provider_unavailable",
   ]),

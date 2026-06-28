@@ -21,6 +21,7 @@ import {
   type ConditionJudgment,
   conditionJudgmentRequestSchema,
   conditionJudgmentToolParameters,
+  type MarineConditionsSnapshot,
   shouldIncludeConditionLocalCaveats,
 } from "@/server/chat/condition-tools";
 import {
@@ -66,6 +67,18 @@ import {
   type OpenMeteoForecastLocation,
   siargaoForecastLocations,
 } from "@/server/providers/open-meteo";
+import {
+  buildOpenMeteoMarineIngestionBatch,
+  type OpenMeteoMarineIngestionBatch,
+  type OpenMeteoMarineLocation,
+  siargaoMarineLocations,
+} from "@/server/providers/open-meteo-marine";
+import {
+  buildTideForecastSnapshot,
+  type TideForecastDateRange,
+  type TideForecastSnapshot,
+  tideForecastLocationForSiargaoLabel,
+} from "@/server/providers/tide-forecast";
 import {
   getLatestSiargaoWeatherSnapshot,
   type WeatherSnapshot,
@@ -127,6 +140,8 @@ export type AgentToolDependencies = {
     search: GooglePlacesChatSearch;
     trace?: { requestId?: string };
   }) => Promise<GooglePlacesChatContext>;
+  buildOpenMeteoMarineIngestionBatch?: typeof buildOpenMeteoMarineIngestionBatch;
+  buildTideForecastSnapshot?: typeof buildTideForecastSnapshot;
   getLatestSiargaoWeatherSnapshot?: typeof getLatestSiargaoWeatherSnapshot;
   googlePlacesApiKey?: string;
   googlePlacesDetailsDb?: GooglePlacesStoreDatabase;
@@ -143,6 +158,8 @@ type SearchLocalGuideArguments = z.infer<typeof searchLocalGuideSchema>;
 type LocalItineraryArguments = z.infer<typeof localItineraryRequestSchema>;
 type SearchAgentMemoryArguments = z.infer<typeof searchAgentMemorySchema>;
 type WeatherForecastArguments = z.infer<typeof weatherForecastSchema>;
+type MarineConditionsArguments = z.infer<typeof marineConditionsSchema>;
+type TideForecastArguments = z.infer<typeof tideForecastSchema>;
 type ConditionJudgmentArguments = z.infer<typeof conditionJudgmentRequestSchema>;
 type DescribeDatabaseSchemaArguments = z.infer<typeof describeDatabaseSchemaArgumentsSchema>;
 type QueryLocalFactsArguments = z.infer<typeof localFactsQuerySchema>;
@@ -154,6 +171,8 @@ const weatherForecastLocations = [
   "General Luna",
   "Del Carmen",
 ] as const;
+const marineConditionsLocations = weatherForecastLocations;
+const tideForecastLocations = ["Siargao Island", "Cloud 9", "General Luna", "Dapa"] as const;
 
 const defaultLocalFactsQueryTimeoutMs = 2_000;
 const describeSourcePolicySchema = z.strictObject({});
@@ -210,6 +229,14 @@ const weatherForecastSchema = z.strictObject({
   location: z.enum(weatherForecastLocations),
   date_range: z.enum(["today", "next_7_days"]),
 });
+const marineConditionsSchema = z.strictObject({
+  location: z.enum(marineConditionsLocations),
+  date_range: z.enum(["today", "next_48_hours"]),
+});
+const tideForecastSchema = z.strictObject({
+  location: z.enum(tideForecastLocations),
+  date_range: z.enum(["today", "tomorrow", "next_7_days"]),
+});
 const searchAgentMemorySchema = z.strictObject({
   query: z.string().trim().min(2).max(240),
   documents: optionalNullable(z.array(z.enum(agentMemoryReferenceDocumentNames)).min(1).max(5)),
@@ -251,6 +278,29 @@ const sourcePolicyDescriptions: SourcePolicyDescription[] = [
     useWhen: "Use when a usable live or stored Open-Meteo snapshot was available for the request.",
     caveats: [
       "Surf, swell, tides, road flooding, local closures, and provider-independent safety checks are not included.",
+    ],
+  },
+  {
+    label: "marine_checked",
+    meaning:
+      "Open-Meteo Marine model data backed tide-proxy sea level, wave, swell, or current context.",
+    useWhen:
+      "Use when get_marine_conditions or get_condition_judgment returned usable Open-Meteo Marine model data for the requested Siargao location.",
+    caveats: [
+      "This is modelled marine forecast data, not an official tide table, tide-gauge reading, navigation aid, or safety authority.",
+      "Surf break quality, rip currents, lifeguards, local operator calls, and official marine warnings are not checked.",
+    ],
+  },
+  {
+    label: "tide_forecast_checked",
+    meaning:
+      "Tide-Forecast Dapa page data backed predicted tide times/heights and embedded 3-hour sea-condition timing.",
+    useWhen:
+      "Use when get_tide_forecast or get_condition_judgment returned usable Tide-Forecast Dapa page data for Siargao tide or surf timing.",
+    caveats: [
+      "This development/testing integration uses Tide-Forecast page data and production commercial use needs appropriate Tide-Forecast/Meteo365 permission or license.",
+      "Dapa is a nearby station proxy for Cloud 9 and General Luna, not an exact break reading or safety clearance.",
+      "Official tide-gauge measurements, navigation safety, rip currents, lifeguards, local operator calls, and official marine warnings are not checked.",
     ],
   },
   {
@@ -304,12 +354,70 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
     execute: (args, _request, dependencies) =>
       getWeatherForecastToolResult(args as WeatherForecastArguments, dependencies),
   },
+  get_marine_conditions: {
+    definition: {
+      type: "function",
+      name: "get_marine_conditions",
+      description:
+        "Get governed Open-Meteo Marine model data for Siargao tide-proxy sea level, waves, swell, and ocean current. This is not official tide-table, navigation, or safety authority data.",
+      parameters: {
+        type: "object",
+        properties: {
+          location: {
+            type: "string",
+            enum: marineConditionsLocations,
+            description: "Known Siargao marine forecast location label.",
+          },
+          date_range: {
+            type: "string",
+            enum: ["today", "next_48_hours"],
+            description: "Marine model range to summarize.",
+          },
+        },
+        required: ["location", "date_range"],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+    schema: marineConditionsSchema,
+    execute: (args, _request, dependencies) =>
+      getMarineConditionsToolResult(args as MarineConditionsArguments, dependencies),
+  },
+  get_tide_forecast: {
+    definition: {
+      type: "function",
+      name: "get_tide_forecast",
+      description:
+        "Get Tide-Forecast Dapa predicted tide table data and embedded sea-condition periods for Siargao surf/tide timing during development/testing. This is not an official tide gauge, navigation aid, or safety clearance.",
+      parameters: {
+        type: "object",
+        properties: {
+          location: {
+            type: "string",
+            enum: tideForecastLocations,
+            description: "Known Siargao tide forecast location label.",
+          },
+          date_range: {
+            type: "string",
+            enum: ["today", "tomorrow", "next_7_days"],
+            description: "Tide forecast range to summarize.",
+          },
+        },
+        required: ["location", "date_range"],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+    schema: tideForecastSchema,
+    execute: (args, _request, dependencies) =>
+      getTideForecastToolResult(args as TideForecastArguments, dependencies),
+  },
   get_condition_judgment: {
     definition: {
       type: "function",
       name: "get_condition_judgment",
       description:
-        "Build a governed condition judgment for Siargao activities from checked Open-Meteo weather, curated local caveats, and explicit unchecked tide, surf, road, current, and safety signals. The AI must use the returned judgment as evidence and write the final answer itself.",
+        "Build a governed condition judgment for Siargao activities from checked Open-Meteo weather, checked Tide-Forecast tide/sea-period data when available, checked Open-Meteo Marine model data when available, curated local caveats, and explicit unchecked road, official-warning, lifeguard, and safety signals. The AI must use the returned judgment as evidence and write the final answer itself.",
       parameters: conditionJudgmentToolParameters,
       strict: true,
     },
@@ -702,6 +810,8 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
 
 const defaultFunctionToolNames = [
   "get_weather_forecast",
+  "get_marine_conditions",
+  "get_tide_forecast",
   "get_condition_judgment",
   "search_places",
   "get_place_details",
@@ -2209,6 +2319,62 @@ async function getWeatherForecastToolResult(
   }
 }
 
+async function getMarineConditionsToolResult(
+  args: MarineConditionsArguments,
+  dependencies: AgentToolDependencies,
+): Promise<AgentToolResult> {
+  try {
+    const snapshot = await getMarineConditionsSnapshot(args, dependencies);
+    const sourceSummary = marineConditionsSourceSummary(snapshot);
+    return {
+      name: "get_marine_conditions",
+      status: "success",
+      text: renderMarineConditionsText(snapshot, args),
+      data: normalizeMarineConditionsSnapshot(snapshot, args),
+      sources: [sourceSummary],
+    };
+  } catch (error) {
+    return {
+      name: "get_marine_conditions",
+      status: "error",
+      text:
+        error instanceof Error
+          ? `Open-Meteo Marine conditions lookup failed: ${error.message}`
+          : "Open-Meteo Marine conditions lookup failed.",
+      errorCode: "provider_unavailable",
+      sources: [marineProviderUnavailableSourceSummary(args.location)],
+    };
+  }
+}
+
+async function getTideForecastToolResult(
+  args: TideForecastArguments,
+  dependencies: AgentToolDependencies,
+): Promise<AgentToolResult> {
+  try {
+    const snapshot = await getTideForecastSnapshot(args, dependencies);
+    const sourceSummary = tideForecastSourceSummary(snapshot);
+    return {
+      name: "get_tide_forecast",
+      status: "success",
+      text: renderTideForecastText(snapshot),
+      data: normalizeTideForecastSnapshot(snapshot),
+      sources: [sourceSummary],
+    };
+  } catch (error) {
+    return {
+      name: "get_tide_forecast",
+      status: "error",
+      text:
+        error instanceof Error
+          ? `Tide-Forecast tide lookup failed: ${error.message}`
+          : "Tide-Forecast tide lookup failed.",
+      errorCode: "provider_unavailable",
+      sources: [tideForecastProviderUnavailableSourceSummary(args.location)],
+    };
+  }
+}
+
 async function getConditionJudgmentToolResult(
   args: ConditionJudgmentArguments,
   dependencies: AgentToolDependencies,
@@ -2216,10 +2382,14 @@ async function getConditionJudgmentToolResult(
   const getSnapshot =
     dependencies.getLatestSiargaoWeatherSnapshot ?? getLatestSiargaoWeatherSnapshot;
   const location = weatherForecastLocationForLabel(args.location);
-  const weatherSnapshot = await getConditionWeatherSnapshot({
-    getSnapshot,
-    location,
-  });
+  const [weatherSnapshot, marineSnapshot, tideForecastSnapshot] = await Promise.all([
+    getConditionWeatherSnapshot({
+      getSnapshot,
+      location,
+    }),
+    getConditionMarineSnapshot(args, dependencies),
+    getConditionTideForecastSnapshot(args, dependencies),
+  ]);
   const localGuideResult = !shouldIncludeConditionLocalCaveats(args)
     ? null
     : searchSiargaoLocalGuide({
@@ -2235,6 +2405,8 @@ async function getConditionJudgmentToolResult(
   const judgment = buildConditionJudgment({
     request: args,
     weatherSnapshot,
+    marineSnapshot,
+    tideForecastSnapshot,
     localGuideResult,
   });
 
@@ -2250,6 +2422,34 @@ async function getConditionJudgmentToolResult(
   };
 }
 
+async function getMarineConditionsSnapshot(
+  args: MarineConditionsArguments,
+  dependencies: AgentToolDependencies,
+): Promise<MarineConditionsSnapshot> {
+  const buildMarineBatch =
+    dependencies.buildOpenMeteoMarineIngestionBatch ?? buildOpenMeteoMarineIngestionBatch;
+  const location = marineConditionsLocationForLabel(args.location);
+  const batch = await buildMarineBatch({
+    fetchedAt: dependencies.now?.() ?? new Date(),
+    ...(location ? { location } : {}),
+  });
+  return marineSnapshotFromBatch(batch);
+}
+
+async function getTideForecastSnapshot(
+  args: TideForecastArguments,
+  dependencies: AgentToolDependencies,
+): Promise<TideForecastSnapshot> {
+  const buildSnapshot = dependencies.buildTideForecastSnapshot ?? buildTideForecastSnapshot;
+  const location = tideForecastLocationForSiargaoLabel(args.location);
+  return buildSnapshot({
+    dateRange: args.date_range as TideForecastDateRange,
+    fetchedAt: dependencies.now?.() ?? new Date(),
+    location,
+    requestedLocation: args.location,
+  });
+}
+
 async function getConditionWeatherSnapshot({
   getSnapshot,
   location,
@@ -2259,6 +2459,42 @@ async function getConditionWeatherSnapshot({
 }) {
   try {
     return await getSnapshot(location ? { location } : {});
+  } catch {
+    return null;
+  }
+}
+
+async function getConditionMarineSnapshot(
+  args: ConditionJudgmentArguments,
+  dependencies: AgentToolDependencies,
+) {
+  if (!["swimming", "surfing", "boat_trip"].includes(args.activity)) {
+    return null;
+  }
+  try {
+    const dateRange = args.date_range === "today" ? "today" : "next_48_hours";
+    return await getMarineConditionsSnapshot(
+      { location: args.location, date_range: dateRange },
+      dependencies,
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function getConditionTideForecastSnapshot(
+  args: ConditionJudgmentArguments,
+  dependencies: AgentToolDependencies,
+) {
+  if (!["swimming", "surfing", "boat_trip"].includes(args.activity)) {
+    return null;
+  }
+  try {
+    const dateRange = args.date_range === "today" ? "today" : "next_7_days";
+    return await getTideForecastSnapshot(
+      { location: tideForecastLocationForCondition(args.location), date_range: dateRange },
+      dependencies,
+    );
   } catch {
     return null;
   }
@@ -2300,6 +2536,111 @@ function weatherForecastLocationForLabel(
   }
 
   return undefined;
+}
+
+function marineConditionsLocationForLabel(
+  label: MarineConditionsArguments["location"],
+): OpenMeteoMarineLocation | undefined {
+  if (label === "Del Carmen") {
+    return siargaoMarineLocations.delCarmen;
+  }
+
+  if (label === "Cloud 9" || label === "General Luna") {
+    return siargaoMarineLocations.generalLuna;
+  }
+
+  return undefined;
+}
+
+function tideForecastLocationForCondition(
+  label: ConditionJudgmentArguments["location"],
+): TideForecastArguments["location"] {
+  return label === "Del Carmen" ? "Siargao Island" : label;
+}
+
+function marineSnapshotFromBatch(batch: OpenMeteoMarineIngestionBatch): MarineConditionsSnapshot {
+  const summary = batch.summary;
+  return {
+    status: "live",
+    locationName: batch.sourceRecord.name,
+    sourceName: "Open-Meteo Marine API",
+    sourceProfileId: "source_open_meteo_marine",
+    fetchedAt: batch.rawSnapshot.fetchedAt,
+    expiresAt: batch.refreshJob.scheduledAt,
+    confidence: marineConfidenceFromBatch(batch),
+    citationUrl: batch.requestUrl,
+    evidenceIds: batch.evidence.map((evidence) => evidence.id),
+    summary: renderMarineSummary(summary),
+    current: {
+      time: summary.current.time,
+      seaLevelHeightMsl: summary.current.seaLevelHeightMsl,
+      waveHeight: summary.current.waveHeight,
+      swellWaveHeight: summary.current.swellWaveHeight,
+      wavePeriod: summary.current.wavePeriod,
+      swellWavePeriod: summary.current.swellWavePeriod,
+      oceanCurrentVelocity: summary.current.oceanCurrentVelocity,
+      seaSurfaceTemperature: summary.current.seaSurfaceTemperature,
+    },
+    metrics: {
+      maxWaveHeight: summary.maxWaveHeight,
+      maxSwellWaveHeight: summary.maxSwellWaveHeight,
+      maxOceanCurrentVelocity: summary.maxOceanCurrentVelocity,
+      minSeaLevelHeightMsl: summary.minSeaLevelHeightMsl,
+      maxSeaLevelHeightMsl: summary.maxSeaLevelHeightMsl,
+      seaLevelHeightRangeMsl: summary.seaLevelHeightRangeMsl,
+    },
+  };
+}
+
+function marineConfidenceFromBatch(batch: OpenMeteoMarineIngestionBatch) {
+  return batch.facts.some((fact) => fact.confidenceLabel === "low") ? "low" : "medium";
+}
+
+function normalizeMarineConditionsSnapshot(
+  snapshot: MarineConditionsSnapshot,
+  args: MarineConditionsArguments,
+) {
+  return {
+    requestedLocation: args.location,
+    dateRange: args.date_range,
+    status: snapshot.status,
+    locationName: snapshot.locationName,
+    sourceName: snapshot.sourceName,
+    sourceProfileId: snapshot.sourceProfileId,
+    fetchedAt: snapshot.fetchedAt,
+    expiresAt: snapshot.expiresAt,
+    confidence: snapshot.confidence,
+    citationUrl: snapshot.citationUrl,
+    evidenceIds: snapshot.evidenceIds,
+    summary: snapshot.summary,
+    current: snapshot.current,
+    metrics: snapshot.metrics,
+    caveats: marineConditionsCaveats,
+  };
+}
+
+function normalizeTideForecastSnapshot(snapshot: TideForecastSnapshot) {
+  return {
+    requestedLocation: snapshot.requestedLocation,
+    dateRange: snapshot.dateRange,
+    status: snapshot.status,
+    stationName: snapshot.stationName,
+    stationUrl: snapshot.stationUrl,
+    stationLatitude: snapshot.stationLatitude,
+    stationLongitude: snapshot.stationLongitude,
+    proxyFor: snapshot.proxyFor,
+    sourceName: snapshot.sourceName,
+    sourceProfileId: snapshot.sourceProfileId,
+    fetchedAt: snapshot.fetchedAt,
+    serverTime: snapshot.serverTime,
+    forecastUpdatedAt: snapshot.forecastUpdatedAt,
+    confidence: "low",
+    targetDates: snapshot.targetDates,
+    days: snapshot.days,
+    seaPeriods: snapshot.seaPeriods,
+    recommendedWindows: snapshot.recommendedWindows,
+    caveats: snapshot.caveats,
+  };
 }
 
 function normalizeWeatherSnapshot(snapshot: WeatherSnapshot, args: WeatherForecastArguments) {
@@ -2355,6 +2696,80 @@ function renderWeatherForecastText(snapshot: WeatherSnapshot, args: WeatherForec
     .join(" ");
 }
 
+const marineConditionsCaveats = [
+  "Open-Meteo Marine is modelled marine forecast data, not an official tide table or tide-gauge measurement.",
+  "Navigation, lifeguard or swimming safety, rip currents, official marine warnings, and local operator calls were not checked.",
+];
+
+function renderMarineConditionsText(
+  snapshot: MarineConditionsSnapshot,
+  args: MarineConditionsArguments,
+) {
+  return [
+    `${snapshot.sourceName} modelled marine conditions for ${snapshot.locationName}.`,
+    `Current: sea level ${formatNullableNumber(
+      snapshot.current.seaLevelHeightMsl,
+      "m MSL",
+    )}; wave ${formatNullableNumber(snapshot.current.waveHeight, "m")}; swell ${formatNullableNumber(
+      snapshot.current.swellWaveHeight,
+      "m",
+    )}; ocean current ${formatNullableNumber(snapshot.current.oceanCurrentVelocity, "km/h")}.`,
+    args.date_range === "next_48_hours"
+      ? `Next-48-hour signals: max wave ${formatNullableNumber(
+          snapshot.metrics.maxWaveHeight,
+          "m",
+        )}; max swell ${formatNullableNumber(
+          snapshot.metrics.maxSwellWaveHeight,
+          "m",
+        )}; sea-level range ${formatNullableNumber(
+          snapshot.metrics.seaLevelHeightRangeMsl,
+          "m",
+        )}; max ocean current ${formatNullableNumber(
+          snapshot.metrics.maxOceanCurrentVelocity,
+          "km/h",
+        )}.`
+      : "",
+    `Caveat: ${marineConditionsCaveats.join(" ")}`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function renderTideForecastText(snapshot: TideForecastSnapshot) {
+  const tideLines = snapshot.days.map((day) => {
+    const events = day.tides
+      .filter((tide) => tide.type === "high" || tide.type === "low")
+      .slice(0, 4)
+      .map((tide) => `${tide.type} ${tide.time} ${formatNullableNumber(tide.heightMeters, "m")}`)
+      .join("; ");
+    return `${day.date}: ${events || "no high/low tide events available"}`;
+  });
+  const windowLines = snapshot.recommendedWindows.map(
+    (window) => `${window.localLabel} (${window.reason})`,
+  );
+  return [
+    `${snapshot.sourceName} predicted tide data for ${snapshot.requestedLocation} using ${snapshot.stationName}.`,
+    `Tides: ${tideLines.join(" | ")}.`,
+    windowLines.length
+      ? `Best daylight surf/tide windows from available tide and sea-period data: ${windowLines.join(" | ")}.`
+      : "No ranked daylight surf/tide window was available from the page data.",
+    `Caveat: ${snapshot.caveats.join(" ")}`,
+  ].join(" ");
+}
+
+function renderMarineSummary(summary: OpenMeteoMarineIngestionBatch["summary"]) {
+  return [
+    `current modelled sea level ${formatNullableNumber(
+      summary.current.seaLevelHeightMsl,
+      "m MSL",
+    )}`,
+    `wave ${formatNullableNumber(summary.current.waveHeight, "m")}`,
+    `swell ${formatNullableNumber(summary.current.swellWaveHeight, "m")}`,
+    `ocean current ${formatNullableNumber(summary.current.oceanCurrentVelocity, "km/h")}`,
+    `forecast sea-level range ${formatNullableNumber(summary.seaLevelHeightRangeMsl, "m")}`,
+  ].join("; ");
+}
+
 function weatherSignals(snapshot: WeatherSnapshot) {
   const today = snapshot.today;
   const signals = [today.condition];
@@ -2387,6 +2802,59 @@ function weatherForecastSourceSummary(snapshot: WeatherSnapshot): AnswerSourceSu
   return weatherProviderUnavailableSourceSummary(snapshot.locationName);
 }
 
+function marineConditionsSourceSummary(snapshot: MarineConditionsSnapshot): AnswerSourceSummary {
+  return {
+    label: "marine_checked",
+    sourceName: snapshot.sourceName,
+    sourceProfileId: snapshot.sourceProfileId,
+    fetchedAt: snapshot.fetchedAt,
+    confidence: snapshot.confidence,
+    checked: [
+      `modelled sea level height MSL (tide proxy) for ${snapshot.locationName}`,
+      "modelled wave height",
+      "modelled swell wave height",
+      "modelled ocean current velocity",
+    ],
+    notChecked: [
+      "official tide table",
+      "tide-gauge measurement",
+      "navigation safety",
+      "rip currents",
+      "lifeguard or swimming safety",
+      "official marine warnings",
+      "local operator call",
+    ],
+  };
+}
+
+function tideForecastSourceSummary(snapshot: TideForecastSnapshot): AnswerSourceSummary {
+  return {
+    label: "tide_forecast_checked",
+    sourceName: snapshot.sourceName,
+    sourceProfileId: snapshot.sourceProfileId,
+    fetchedAt: snapshot.fetchedAt,
+    confidence: "low",
+    checked: [
+      `Tide-Forecast ${snapshot.stationName} predicted tide table for ${snapshot.targetDates.join(", ")}`,
+      "predicted high and low tide times",
+      "predicted tide heights",
+      ...(snapshot.seaPeriods.length > 0
+        ? ["embedded Tide-Forecast 3-hour swell and wind periods"]
+        : []),
+    ],
+    notChecked: [
+      "official tide-gauge measurement",
+      "exact Cloud 9 break reading",
+      "navigation safety",
+      "rip currents",
+      "lifeguard or swimming safety",
+      "official marine warnings",
+      "local operator call",
+      "commercial production license",
+    ],
+  };
+}
+
 function weatherProviderUnavailableSourceSummary(locationName: string): AnswerSourceSummary {
   return {
     label: "provider_unavailable",
@@ -2401,6 +2869,44 @@ function weatherProviderUnavailableSourceSummary(locationName: string): AnswerSo
       "road flooding",
       "bookings",
       "review text",
+    ],
+  };
+}
+
+function marineProviderUnavailableSourceSummary(locationName: string): AnswerSourceSummary {
+  return {
+    label: "provider_unavailable",
+    sourceName: "Open-Meteo Marine API",
+    sourceProfileId: "source_open_meteo_marine",
+    confidence: "low",
+    checked: [],
+    notChecked: [
+      `Open-Meteo Marine modelled conditions for ${locationName}`,
+      "modelled sea level height MSL",
+      "modelled wave height",
+      "modelled swell wave height",
+      "modelled ocean current velocity",
+      "official tide table",
+      "navigation safety",
+      "official marine warnings",
+    ],
+  };
+}
+
+function tideForecastProviderUnavailableSourceSummary(locationName: string): AnswerSourceSummary {
+  return {
+    label: "provider_unavailable",
+    sourceName: "Tide-Forecast Dapa page",
+    sourceProfileId: "source_tide_forecast_dev",
+    confidence: "low",
+    checked: [],
+    notChecked: [
+      `Tide-Forecast predicted tide table for ${locationName}`,
+      "predicted high and low tide times",
+      "predicted tide heights",
+      "embedded sea-condition periods",
+      "official tide-gauge measurement",
+      "official marine warnings",
     ],
   };
 }

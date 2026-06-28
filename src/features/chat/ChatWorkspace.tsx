@@ -2291,6 +2291,8 @@ function isSavedSourceLabel(value: string): value is SavedTripItem["sources"][nu
     value === "fresh_cache" ||
     value === "curated_local_guide" ||
     value === "weather_checked" ||
+    value === "marine_checked" ||
+    value === "tide_forecast_checked" ||
     value === "not_verified" ||
     value === "provider_unavailable"
   );

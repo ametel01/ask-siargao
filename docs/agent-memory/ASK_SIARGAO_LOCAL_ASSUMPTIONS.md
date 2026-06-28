@@ -30,6 +30,27 @@ If the traveler asks for ocean, surf, swimming, island-hopping, or remote beach
 plans, mention missing tide/swell/current/safety checks when those were not
 verified.
 
+When Open-Meteo Marine data is checked, treat it as modelled sea-level, wave,
+swell, and current context only. It can reduce the "not checked" caveat for those
+model fields, but it does not replace official tide tables, tide-gauge readings,
+navigation advice, local boat/surf operator calls, lifeguards, rip-current
+checks, or safety status.
+
+When Tide-Forecast data is checked, treat it as predicted Dapa station tide
+timing/heights and embedded 3-hour sea-condition periods. It can support
+practical surf-window timing around Cloud 9/General Luna, but Dapa remains a
+nearby station proxy, not an exact Cloud 9 break reading, official tide-gauge
+measurement, local operator call, or safety clearance.
+
+Tide times change from day to day. If a traveler asks about tomorrow or another
+specific date, use the checked tide data for that requested date when available.
+Do not assume tomorrow's tides are the same as today's.
+
+For a practical Cloud 9 surf-window answer, lead with the best checked time
+window and one reason from tide/sea-period data. Mention reef, rocks, local
+warnings, or operator checks only as a short caution when they affect the next
+step.
+
 ## Beach And Activity Caveats
 
 Beach surface matters. Some Siargao beaches are sandy and easier for lounging;

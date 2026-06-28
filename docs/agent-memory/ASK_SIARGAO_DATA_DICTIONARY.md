@@ -17,6 +17,30 @@ Open-Meteo forecast data for known Siargao locations. Weather outputs may suppor
 weather-checked source summaries, but they do not check surf, swell, tides,
 road flooding, closures, or local safety conditions.
 
+`src/server/providers/open-meteo-marine` provides Open-Meteo Marine model data
+for known Siargao marine locations. Marine outputs may support `marine_checked`
+source summaries for tide-proxy sea level, wave height, swell height, and ocean
+current velocity. They do not check official tide tables, tide-gauge
+measurements, navigation safety, local operator calls, lifeguard status, rip
+currents, or official marine warnings.
+
+`src/server/providers/tide-forecast` provides Tide-Forecast Dapa predicted page
+data. Tide outputs may support `tide_forecast_checked` source summaries for
+high/low tide times, predicted tide heights, and embedded 3-hour sea-condition
+periods. They do not check official tide-gauge measurements, exact Cloud 9 break
+readings, navigation safety, local operator calls, lifeguard status, rip-current
+checks, or official marine warnings.
+
+Tide forecast outputs are date-specific. Use the requested target date returned
+by the tool for today, tomorrow, or the available forecast range. Do not infer
+tomorrow's tide times from today's table, and do not present a requested-date
+tide result as a next-7-days proxy when the tool returned that date.
+
+Ranked tide/surf windows from the tide forecast provider are timing evidence for
+when the tide and embedded sea-condition periods look better. They are not a
+go/no-go safety clearance and should not be treated as local surf-school,
+lifeguard, official-warning, or exact-break verification.
+
 `src/server/providers/google-places-*` modules provide governed Google Places
 search, details, cache, enrichment, retention, attribution, and allowed field-mask
 behavior. Chat outputs may include identity fields, ratings, user-rating counts,

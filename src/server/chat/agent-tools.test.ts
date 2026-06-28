@@ -16,6 +16,11 @@ import {
 import { googlePlacesDetailsFieldMask } from "@/server/providers/google-places-enrichment";
 import type { OpenMeteoForecastLocation } from "@/server/providers/open-meteo";
 import {
+  createOpenMeteoMarineIngestionBatch,
+  type OpenMeteoMarineIngestionBatch,
+} from "@/server/providers/open-meteo-marine";
+import type { TideForecastSnapshot } from "@/server/providers/tide-forecast";
+import {
   fallbackWeatherSnapshot,
   type WeatherSnapshot,
 } from "@/server/public-pages/weather-snapshot";
@@ -49,9 +54,57 @@ describe("agent tools", () => {
       },
       {
         type: "function",
+        name: "get_marine_conditions",
+        description:
+          "Get governed Open-Meteo Marine model data for Siargao tide-proxy sea level, waves, swell, and ocean current. This is not official tide-table, navigation, or safety authority data.",
+        parameters: {
+          type: "object",
+          properties: {
+            location: {
+              type: "string",
+              enum: ["Siargao Island", "Cloud 9", "General Luna", "Del Carmen"],
+              description: "Known Siargao marine forecast location label.",
+            },
+            date_range: {
+              type: "string",
+              enum: ["today", "next_48_hours"],
+              description: "Marine model range to summarize.",
+            },
+          },
+          required: ["location", "date_range"],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+      {
+        type: "function",
+        name: "get_tide_forecast",
+        description:
+          "Get Tide-Forecast Dapa predicted tide table data and embedded sea-condition periods for Siargao surf/tide timing during development/testing. This is not an official tide gauge, navigation aid, or safety clearance.",
+        parameters: {
+          type: "object",
+          properties: {
+            location: {
+              type: "string",
+              enum: ["Siargao Island", "Cloud 9", "General Luna", "Dapa"],
+              description: "Known Siargao tide forecast location label.",
+            },
+            date_range: {
+              type: "string",
+              enum: ["today", "tomorrow", "next_7_days"],
+              description: "Tide forecast range to summarize.",
+            },
+          },
+          required: ["location", "date_range"],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+      {
+        type: "function",
         name: "get_condition_judgment",
         description:
-          "Build a governed condition judgment for Siargao activities from checked Open-Meteo weather, curated local caveats, and explicit unchecked tide, surf, road, current, and safety signals. The AI must use the returned judgment as evidence and write the final answer itself.",
+          "Build a governed condition judgment for Siargao activities from checked Open-Meteo weather, checked Tide-Forecast tide/sea-period data when available, checked Open-Meteo Marine model data when available, curated local caveats, and explicit unchecked road, official-warning, lifeguard, and safety signals. The AI must use the returned judgment as evidence and write the final answer itself.",
         parameters: conditionJudgmentToolParameters,
         strict: true,
       },
@@ -396,9 +449,19 @@ describe("agent tools", () => {
           "Get the governed Open-Meteo weather forecast snapshot for a known Siargao location.",
       },
       {
+        name: "get_marine_conditions",
+        description:
+          "Get governed Open-Meteo Marine model data for Siargao tide-proxy sea level, waves, swell, and ocean current. This is not official tide-table, navigation, or safety authority data.",
+      },
+      {
+        name: "get_tide_forecast",
+        description:
+          "Get Tide-Forecast Dapa predicted tide table data and embedded sea-condition periods for Siargao surf/tide timing during development/testing. This is not an official tide gauge, navigation aid, or safety clearance.",
+      },
+      {
         name: "get_condition_judgment",
         description:
-          "Build a governed condition judgment for Siargao activities from checked Open-Meteo weather, curated local caveats, and explicit unchecked tide, surf, road, current, and safety signals. The AI must use the returned judgment as evidence and write the final answer itself.",
+          "Build a governed condition judgment for Siargao activities from checked Open-Meteo weather, checked Tide-Forecast tide/sea-period data when available, checked Open-Meteo Marine model data when available, curated local caveats, and explicit unchecked road, official-warning, lifeguard, and safety signals. The AI must use the returned judgment as evidence and write the final answer itself.",
       },
       {
         name: "search_places",
@@ -1656,6 +1719,88 @@ describe("agent tools", () => {
     });
   });
 
+  test("returns normalized Open-Meteo Marine model conditions", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_marine",
+        toolCallId: "call_marine",
+        name: "get_marine_conditions",
+        arguments: { location: "Cloud 9", date_range: "next_48_hours" },
+      },
+      {
+        buildOpenMeteoMarineIngestionBatch: async () => liveMarineBatch(),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("Open-Meteo Marine API modelled marine conditions");
+    expect(result.text).toContain("sea level 0.26m MSL");
+    expect(result.text).toContain("not an official tide table");
+    expect(result.sources[0]).toMatchObject({
+      label: "marine_checked",
+      sourceName: "Open-Meteo Marine API",
+      sourceProfileId: "source_open_meteo_marine",
+      checked: [
+        expect.stringContaining("modelled sea level height MSL"),
+        "modelled wave height",
+        "modelled swell wave height",
+        "modelled ocean current velocity",
+      ],
+    });
+    const data = result.data as {
+      requestedLocation: string;
+      dateRange: string;
+      current: { seaLevelHeightMsl: number };
+      metrics: { seaLevelHeightRangeMsl: number };
+      caveats: string[];
+    };
+    expect(data.requestedLocation).toBe("Cloud 9");
+    expect(data.dateRange).toBe("next_48_hours");
+    expect(data.current.seaLevelHeightMsl).toBe(0.26);
+    expect(data.metrics.seaLevelHeightRangeMsl).toBe(0.15);
+    expect(data.caveats.join(" ")).toContain("modelled marine forecast data");
+  });
+
+  test("returns Tide-Forecast predicted tide data and surf windows", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_tide_forecast",
+        toolCallId: "call_tide_forecast",
+        name: "get_tide_forecast",
+        arguments: { location: "Cloud 9", date_range: "tomorrow" },
+      },
+      {
+        buildTideForecastSnapshot: async (input) =>
+          liveTideForecastSnapshot(input.requestedLocation, input.dateRange),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("Tide-Forecast Dapa page predicted tide data");
+    expect(result.text).toContain("Best daylight surf/tide windows");
+    expect(result.text).toContain("not an official tide-gauge");
+    expect(result.sources[0]).toMatchObject({
+      label: "tide_forecast_checked",
+      sourceName: "Tide-Forecast Dapa page",
+      sourceProfileId: "source_tide_forecast_dev",
+      checked: [
+        expect.stringContaining("Dapa tide station predicted tide table"),
+        "predicted high and low tide times",
+        "predicted tide heights",
+        "embedded Tide-Forecast 3-hour swell and wind periods",
+      ],
+    });
+    const data = result.data as {
+      requestedLocation: string;
+      recommendedWindows: Array<{ localLabel: string; nearestTideType: string }>;
+    };
+    expect(data.requestedLocation).toBe("Cloud 9");
+    expect(data.recommendedWindows[0]).toMatchObject({
+      localLabel: "5:00 AM-8:00 AM",
+      nearestTideType: "high",
+    });
+  });
+
   test("returns a weather-backed condition judgment tool output", async () => {
     const result = await executeAgentTool(
       {
@@ -1672,15 +1817,19 @@ describe("agent tools", () => {
       },
       {
         getLatestSiargaoWeatherSnapshot: async () => liveWeatherSnapshot("General Luna"),
+        buildOpenMeteoMarineIngestionBatch: async () => liveMarineBatch(),
+        buildTideForecastSnapshot: async (input) =>
+          liveTideForecastSnapshot(input.requestedLocation, input.dateRange),
       },
     );
 
     expect(result.status).toBe("success");
     expect(result.text).toContain("Condition judgment for swimming at Malinao Beach");
-    expect(result.text).toContain("tide not_checked");
+    expect(result.text).toContain("tide checked");
     expect(result.sources.map((source) => source.label)).toEqual([
       "weather_checked",
-      "not_verified",
+      "tide_forecast_checked",
+      "marine_checked",
       "curated_local_guide",
     ]);
     const data = result.data as {
@@ -1693,8 +1842,8 @@ describe("agent tools", () => {
     expect(data.judgment.signals).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: "weather", status: "checked" }),
-        expect.objectContaining({ kind: "tide", status: "not_checked" }),
-        expect.objectContaining({ kind: "surf", status: "not_checked" }),
+        expect.objectContaining({ kind: "tide", status: "checked" }),
+        expect.objectContaining({ kind: "surf", status: "checked" }),
       ]),
     );
   });
@@ -1724,6 +1873,8 @@ describe("agent tools", () => {
         },
         {
           getLatestSiargaoWeatherSnapshot: async () => liveWeatherSnapshot(conditionCase.location),
+          buildOpenMeteoMarineIngestionBatch: unavailableMarineBatch,
+          buildTideForecastSnapshot: unavailableTideForecastSnapshot,
         },
       );
 
@@ -1749,6 +1900,8 @@ describe("agent tools", () => {
       },
       {
         getLatestSiargaoWeatherSnapshot: async () => liveWeatherSnapshot("General Luna"),
+        buildOpenMeteoMarineIngestionBatch: unavailableMarineBatch,
+        buildTideForecastSnapshot: unavailableTideForecastSnapshot,
       },
     );
 
@@ -1774,6 +1927,8 @@ describe("agent tools", () => {
       },
       {
         getLatestSiargaoWeatherSnapshot: async () => liveWeatherSnapshot("Siargao Island"),
+        buildOpenMeteoMarineIngestionBatch: unavailableMarineBatch,
+        buildTideForecastSnapshot: unavailableTideForecastSnapshot,
       },
     );
     const data = result.data as {
@@ -1806,6 +1961,8 @@ describe("agent tools", () => {
         getLatestSiargaoWeatherSnapshot: async () => {
           throw new Error("Open-Meteo unavailable");
         },
+        buildOpenMeteoMarineIngestionBatch: unavailableMarineBatch,
+        buildTideForecastSnapshot: unavailableTideForecastSnapshot,
       },
     );
 
@@ -1884,6 +2041,7 @@ describe("agent tools", () => {
     expect(result.text).toContain("fresh_cache");
     expect(result.text).toContain("curated_local_guide");
     expect(result.text).toContain("weather_checked");
+    expect(result.text).toContain("marine_checked");
     expect(result.text).toContain("not_verified");
     expect(result.text).toContain("provider_unavailable");
     expect(result.text).toContain("Never label generic model reasoning as live checked");
@@ -2081,6 +2239,114 @@ function liveWeatherSnapshot(locationName = "Siargao Island"): WeatherSnapshot {
       level: "low",
     },
   };
+}
+
+function liveMarineBatch(): OpenMeteoMarineIngestionBatch {
+  return createOpenMeteoMarineIngestionBatch({
+    fetchedAt: "2026-06-28T04:00:00.000Z",
+    payload: {
+      latitude: 9.79,
+      longitude: 126.12,
+      timezone: "Asia/Manila",
+      current: {
+        time: "2026-06-28T12:15",
+        interval: 900,
+        wave_height: 0.48,
+        wave_direction: 84,
+        wave_period: 8.35,
+        swell_wave_height: 0.38,
+        swell_wave_direction: 76,
+        swell_wave_period: 6.75,
+        sea_level_height_msl: 0.26,
+        sea_surface_temperature: 30.7,
+        ocean_current_velocity: 1.3,
+        ocean_current_direction: 180,
+      },
+      hourly: {
+        time: ["2026-06-28T12:00", "2026-06-28T13:00", "2026-06-28T14:00"],
+        wave_height: [0.48, 0.58, 0.51],
+        swell_wave_height: [0.38, 0.52, 0.45],
+        sea_level_height_msl: [0.24, 0.33, 0.18],
+        ocean_current_velocity: [1.3, 1.1, 1.6],
+      },
+    },
+    requestUrl: "https://marine-api.open-meteo.com/v1/marine?example=true",
+  });
+}
+
+function liveTideForecastSnapshot(
+  requestedLocation = "Cloud 9",
+  dateRange: "today" | "tomorrow" | "next_7_days" = "tomorrow",
+): TideForecastSnapshot {
+  return {
+    status: "live",
+    sourceName: "Tide-Forecast Dapa page",
+    sourceProfileId: "source_tide_forecast_dev",
+    stationName: "Dapa tide station",
+    stationUrl: "https://www.tide-forecast.com/locations/Dapa/tides/latest",
+    stationLatitude: 9.7594,
+    stationLongitude: 126.053,
+    requestedLocation,
+    proxyFor: "Cloud 9, General Luna, and nearby Siargao east-coast surf planning",
+    fetchedAt: "2026-06-28T10:00:00.000Z",
+    serverTime: "2026-06-28T10:27:30.000Z",
+    forecastUpdatedAt: "2026-06-28T13:49:53.000Z",
+    dateRange,
+    targetDates: ["2026-06-29"],
+    days: [
+      {
+        date: "2026-06-29",
+        sunriseTimestamp: 1782681420,
+        sunsetTimestamp: 1782727200,
+        tides: [
+          { timestamp: 1782680100, time: "4:55AM", heightMeters: 1.68, type: "high" },
+          { timestamp: 1782704880, time: "11:48AM", heightMeters: 0.21, type: "low" },
+          { timestamp: 1782728700, time: "6:25PM", heightMeters: 1.49, type: "high" },
+          { timestamp: 1782747840, time: "11:44PM", heightMeters: 0.81, type: "low" },
+        ],
+      },
+    ],
+    seaPeriods: [
+      {
+        timestamp: 1782680400,
+        startsAt: "2026-06-28T21:00:00.000Z",
+        localLabel: "5:00 AM",
+        weatherSummary: "clear",
+        windSpeedKmh: 10,
+        swellHeightMeters: 0.7,
+        swellPeriodSeconds: 10,
+        swellDirection: "NE",
+      },
+    ],
+    recommendedWindows: [
+      {
+        startsAt: "2026-06-28T21:00:00.000Z",
+        endsAt: "2026-06-29T00:00:00.000Z",
+        localLabel: "5:00 AM-8:00 AM",
+        score: 9.2,
+        tideHeightMeters: 1.68,
+        nearestTideType: "high",
+        nearestTideTime: "4:55AM",
+        swellHeightMeters: 0.7,
+        swellPeriodSeconds: 10,
+        windSpeedKmh: 10,
+        reason: "near high tide at 4:55AM (1.68m); swell 0.7m; 10s period; wind 10km/h",
+      },
+    ],
+    caveats: [
+      "Tide-Forecast page data is enabled for development/testing and commercial production use needs an appropriate Tide-Forecast/Meteo365 license.",
+      "Dapa is used as the nearby Tide-Forecast station proxy for Cloud 9 and General Luna surf timing.",
+      "This is predicted tide and forecast sea-condition data, not an official tide-gauge, navigation aid, lifeguard check, local operator call, or safety clearance.",
+    ],
+  };
+}
+
+async function unavailableMarineBatch(): Promise<OpenMeteoMarineIngestionBatch> {
+  throw new Error("Open-Meteo Marine unavailable");
+}
+
+async function unavailableTideForecastSnapshot(): Promise<TideForecastSnapshot> {
+  throw new Error("Tide-Forecast unavailable");
 }
 
 function googlePlacesContextFixture({

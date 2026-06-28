@@ -57,6 +57,7 @@ export async function seedSiargaoBaseline(query: QueryRunner) {
      values
        ('provider_official_transport', 'official-transport-sources', 'Official transport sources', 'official_transport'),
        ('provider_open_meteo', 'open-meteo', 'Open-Meteo', 'weather_api'),
+       ('provider_tide_forecast', 'tide-forecast', 'Tide-Forecast', 'marine_forecast_page'),
        ('provider_google_places', 'google-places', 'Google Places', 'places_api'),
        ('provider_user_evidence', 'user-submitted-evidence', 'User-submitted evidence', 'user_submitted_evidence')
      on conflict (id) do nothing`,
@@ -105,6 +106,34 @@ export async function seedSiargaoBaseline(query: QueryRunner) {
          true,
          false,
          'Seed profile for weather forecast and historical weather facts.'
+       ),
+       (
+         'source_open_meteo_marine',
+         'provider_open_meteo',
+         'Open-Meteo Marine API profile',
+         'licensed_api',
+         'api',
+         'public_republish',
+         1,
+         4,
+         true,
+         true,
+         false,
+         'Seed profile for modelled tide-proxy sea level, waves, swell, currents, and sea-surface temperature. Not official tide-gauge, navigation, or safety authority data.'
+       ),
+       (
+         'source_tide_forecast_dev',
+         'provider_tide_forecast',
+         'Tide-Forecast Dapa page profile',
+         'permitted_public_web',
+         'crawl',
+         'citation_only',
+         1,
+         2,
+         false,
+         false,
+         true,
+         'Development/testing profile for Tide-Forecast Dapa tide table and embedded sea-condition periods. Commercial production use needs Tide-Forecast/Meteo365 permission or license.'
        ),
        (
          'source_google_places',
