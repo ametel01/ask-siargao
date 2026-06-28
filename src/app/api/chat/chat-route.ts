@@ -96,6 +96,7 @@ const siargaoAreaBounds = {
 const maxGeolocationAgeMs = 30 * 60 * 1_000;
 const maxFutureGeolocationSkewMs = 5 * 60 * 1_000;
 const maxUsableAccuracyMeters = 3_000;
+const maxChatRequestBodyBytes = 32_768;
 
 const chatLogger = createComponentLogger("api.chat");
 
@@ -122,9 +123,27 @@ export async function chatResponse(
     requestId,
   });
 
+  const rawBody = await readChatRequestBodyText(request);
+  if (rawBody.status === "too_large") {
+    logger.warn(
+      {
+        durationMs: Date.now() - startedAt,
+        maxBytes: maxChatRequestBodyBytes,
+      },
+      "Chat request rejected: body too large.",
+    );
+    return Response.json(
+      {
+        error: "request_too_large",
+        message: `Request body must be ${maxChatRequestBodyBytes} bytes or smaller.`,
+      },
+      { status: 413, headers },
+    );
+  }
+
   let body: unknown;
   try {
-    body = await request.json();
+    body = JSON.parse(rawBody.text);
   } catch {
     logger.warn({ durationMs: Date.now() - startedAt }, "Chat request rejected: invalid JSON.");
     return Response.json(
@@ -292,6 +311,51 @@ export async function chatResponse(
       { status, headers },
     );
   }
+}
+
+async function readChatRequestBodyText(request: Request) {
+  const contentLength = Number.parseInt(request.headers.get("content-length") ?? "", 10);
+  if (Number.isFinite(contentLength) && contentLength > maxChatRequestBodyBytes) {
+    return { status: "too_large" as const };
+  }
+
+  if (!request.body) {
+    return { status: "ok" as const, text: "" };
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    totalBytes += value.byteLength;
+    if (totalBytes > maxChatRequestBodyBytes) {
+      await reader.cancel();
+      return { status: "too_large" as const };
+    }
+    chunks.push(value);
+  }
+
+  return {
+    status: "ok" as const,
+    text: new TextDecoder().decode(concatChunks(chunks, totalBytes)),
+  };
+}
+
+function concatChunks(chunks: readonly Uint8Array[], totalBytes: number) {
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return body;
 }
 
 function chatAnswerSourcesForValidation(

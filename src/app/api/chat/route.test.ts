@@ -27,6 +27,36 @@ describe("chat route", () => {
     expect(dependencies.requests).toHaveLength(0);
   });
 
+  test("rejects oversized content-length before reading or parsing the body", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      rawRequest("{}", { headers: { "content-length": "32769" } }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(413);
+    expect(body.error).toBe("request_too_large");
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("rejects streamed request bodies that exceed the chat byte limit", async () => {
+    const dependencies = chatDependencies();
+    const response = await chatResponse(
+      rawRequest(
+        JSON.stringify({
+          messages: [{ role: "user", content: "x".repeat(33_000) }],
+        }),
+      ),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(413);
+    expect(body.error).toBe("request_too_large");
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
   test("rejects requests without messages before calling the agent", async () => {
     const dependencies = chatDependencies();
     const response = await chatResponse(jsonRequest({ messages: [] }), dependencies);
@@ -1248,10 +1278,11 @@ function jsonRequest(body: unknown) {
   return rawRequest(JSON.stringify(body));
 }
 
-function rawRequest(body: string) {
+function rawRequest(body: string, init: RequestInit = {}) {
   return new Request("https://siargao.test/api/chat", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    ...init,
+    headers: { "content-type": "application/json", ...init.headers },
     body,
   });
 }
