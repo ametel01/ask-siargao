@@ -93,12 +93,47 @@ export type ItineraryStop = {
 };
 
 export type ItineraryPlan = {
+  id?: string;
   title: string;
   durationLabel: string;
   stops: readonly ItineraryStop[];
   fallbackStops: readonly ItineraryStop[];
   skip: readonly string[];
   sources: readonly AnswerSourceSummary[];
+};
+
+export type AgentFinalPayload = {
+  answer: string;
+  usedMemoryFiles: readonly string[];
+  usedToolCallIds: readonly string[];
+  displayCardIds: readonly string[];
+  displayActionIds: readonly string[];
+  displayItineraryIds: readonly string[];
+};
+
+export type AgentArtifactRegistry = {
+  cardsById: Map<string, RecommendationCard>;
+  actionsById: Map<string, ChatAction>;
+  itinerariesById: Map<string, ItineraryPlan>;
+};
+
+export type AgentArtifactSelectionMode = "compatibility" | "strict";
+
+export type AgentArtifactSelectionSummary = {
+  mode: AgentArtifactSelectionMode;
+  structuredFinalPayload: boolean;
+  totalCardCount: number;
+  totalActionCount: number;
+  totalItineraryCount: number;
+  selectedCardCount: number;
+  selectedActionCount: number;
+  selectedItineraryCount: number;
+  unselectedCardCount: number;
+  unselectedActionCount: number;
+  unselectedItineraryCount: number;
+  unknownCardIds: readonly string[];
+  unknownActionIds: readonly string[];
+  unknownItineraryIds: readonly string[];
 };
 
 export type AgentMemoryFileMetadata = {
@@ -128,6 +163,7 @@ export type AgentTurnResult = {
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
   itineraries?: readonly ItineraryPlan[];
+  artifactSelection?: AgentArtifactSelectionSummary;
 };
 
 export type ChatClientGeolocationConsentScope = "single_request" | "trip_session";
@@ -288,6 +324,8 @@ export function createAgentToolCallAudit({
 export function createAgentTurnResult({
   actions,
   cards,
+  artifactSelectionMode = "compatibility",
+  finalPayload,
   itineraries,
   message,
   model,
@@ -309,25 +347,25 @@ export function createAgentTurnResult({
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
   itineraries?: readonly ItineraryPlan[];
+  finalPayload?: AgentFinalPayload;
+  artifactSelectionMode?: AgentArtifactSelectionMode;
 }): AgentTurnResult {
   const sourceCarriers = toolResults ?? toolCalls;
   const artifactCarriers = toolResults ?? [];
+  const artifactRegistry = buildAgentArtifactRegistry(artifactCarriers);
   const mergedSources = sources ?? aggregateAgentSourceSummaries(sourceCarriers);
   const sourceReconciliation = itinerarySourceReconciliation(artifactCarriers, toolCalls);
   const reconciledSources = reconcileSourceSummaries(mergedSources, sourceReconciliation);
   const liveItineraryEvidence = itineraryLiveEvidence(artifactCarriers, toolCalls);
-  const mergedCards = dedupeCardsById([
-    ...(cards ?? []),
-    ...artifactCarriers.flatMap((result) => cardsWithCarrierSources(result)),
-  ]);
-  const mergedActions = dedupeById([
-    ...(actions ?? []),
-    ...artifactCarriers.flatMap((result) => result.actions ?? []),
-  ]);
-  const mergedItineraries = dedupeItineraries([
-    ...(itineraries ?? []),
-    ...artifactCarriers.flatMap((result) => result.itineraries ?? []),
-  ]).map((itinerary) =>
+  const selectedArtifacts = selectAgentArtifacts({
+    actions,
+    cards,
+    finalPayload,
+    itineraries,
+    mode: artifactSelectionMode,
+    registry: artifactRegistry,
+  });
+  const selectedItineraries = selectedArtifacts.itineraries.map((itinerary) =>
     reconcileItinerarySources(
       refreshItineraryArtifact(itinerary, liveItineraryEvidence),
       reconciledSources,
@@ -343,9 +381,196 @@ export function createAgentTurnResult({
     toolCalls,
     sources: reconciledSources,
     ...(memory ? { memory } : {}),
-    ...(mergedCards.length ? { cards: mergedCards } : {}),
-    ...(mergedActions.length ? { actions: mergedActions } : {}),
-    ...(mergedItineraries.length ? { itineraries: mergedItineraries } : {}),
+    artifactSelection: selectedArtifacts.summary,
+    ...(selectedArtifacts.cards.length ? { cards: selectedArtifacts.cards } : {}),
+    ...(selectedArtifacts.actions.length ? { actions: selectedArtifacts.actions } : {}),
+    ...(selectedItineraries.length ? { itineraries: selectedItineraries } : {}),
+  };
+}
+
+export function buildAgentArtifactRegistry(
+  toolResults: readonly AgentToolResultArtifactCarrier[],
+): AgentArtifactRegistry {
+  const cardsById = new Map<string, RecommendationCard>();
+  const actionsById = new Map<string, ChatAction>();
+  const itinerariesById = new Map<string, ItineraryPlan>();
+
+  for (const result of toolResults) {
+    for (const card of cardsWithCarrierSources(result)) {
+      const existingCard = cardsById.get(card.id);
+      if (!existingCard) {
+        cardsById.set(card.id, card);
+        continue;
+      }
+      if (!existingCard.sources?.length && card.sources?.length) {
+        cardsById.set(card.id, { ...existingCard, sources: card.sources });
+      }
+    }
+
+    for (const action of result.actions ?? []) {
+      if (!actionsById.has(action.id)) {
+        actionsById.set(action.id, action);
+      }
+    }
+
+    for (const itinerary of result.itineraries ?? []) {
+      const id = agentItineraryArtifactId(itinerary);
+      if (!itinerariesById.has(id)) {
+        itinerariesById.set(id, itinerary.id ? itinerary : { ...itinerary, id });
+      }
+    }
+  }
+
+  return {
+    cardsById,
+    actionsById,
+    itinerariesById,
+  };
+}
+
+export function agentItineraryArtifactId(itinerary: ItineraryPlan): string {
+  if (itinerary.id) {
+    return itinerary.id;
+  }
+  return `itinerary:${normalizeText(itinerary.title).toLowerCase()}:${normalizeText(
+    itinerary.durationLabel,
+  ).toLowerCase()}`;
+}
+
+function selectAgentArtifacts({
+  actions,
+  cards,
+  finalPayload,
+  itineraries,
+  mode,
+  registry,
+}: {
+  cards?: readonly RecommendationCard[];
+  actions?: readonly ChatAction[];
+  itineraries?: readonly ItineraryPlan[];
+  finalPayload?: AgentFinalPayload;
+  mode: AgentArtifactSelectionMode;
+  registry: AgentArtifactRegistry;
+}): {
+  cards: RecommendationCard[];
+  actions: ChatAction[];
+  itineraries: ItineraryPlan[];
+  summary: AgentArtifactSelectionSummary;
+} {
+  if (!finalPayload) {
+    const compatibilityCards = dedupeCardsById(cards ?? []);
+    const compatibilityActions = dedupeById(actions ?? []);
+    const compatibilityItineraries = dedupeItineraries(itineraries ?? []);
+    return {
+      cards: compatibilityCards,
+      actions: compatibilityActions,
+      itineraries: compatibilityItineraries,
+      summary: artifactSelectionSummary({
+        mode,
+        registry,
+        selectedCardCount: compatibilityCards.length,
+        selectedActionCount: compatibilityActions.length,
+        selectedItineraryCount: compatibilityItineraries.length,
+        structuredFinalPayload: false,
+        unknownCardIds: [],
+        unknownActionIds: [],
+        unknownItineraryIds: [],
+      }),
+    };
+  }
+
+  const selectedCardIds = unique(finalPayload.displayCardIds);
+  const selectedActionIds = unique(finalPayload.displayActionIds);
+  const selectedItineraryIds = unique(finalPayload.displayItineraryIds);
+  const unknownCardIds = selectedCardIds.filter((id) => !registry.cardsById.has(id));
+  const unknownActionIds = selectedActionIds.filter((id) => !registry.actionsById.has(id));
+  const unknownItineraryIds = selectedItineraryIds.filter(
+    (id) => !registry.itinerariesById.has(id),
+  );
+
+  if (
+    mode === "strict" &&
+    (unknownCardIds.length > 0 || unknownActionIds.length > 0 || unknownItineraryIds.length > 0)
+  ) {
+    throw new Error(
+      [
+        "Agent final payload selected unknown artifact ID(s).",
+        unknownCardIds.length ? `cards: ${unknownCardIds.join(", ")}` : "",
+        unknownActionIds.length ? `actions: ${unknownActionIds.join(", ")}` : "",
+        unknownItineraryIds.length ? `itineraries: ${unknownItineraryIds.join(", ")}` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
+  }
+
+  const selectedCards = selectedCardIds.flatMap((id) => {
+    const card = registry.cardsById.get(id);
+    return card ? [card] : [];
+  });
+  const selectedActions = selectedActionIds.flatMap((id) => {
+    const action = registry.actionsById.get(id);
+    return action ? [action] : [];
+  });
+  const selectedItineraries = selectedItineraryIds.flatMap((id) => {
+    const itinerary = registry.itinerariesById.get(id);
+    return itinerary ? [itinerary] : [];
+  });
+
+  return {
+    cards: selectedCards,
+    actions: selectedActions,
+    itineraries: selectedItineraries,
+    summary: artifactSelectionSummary({
+      mode,
+      registry,
+      selectedCardCount: selectedCards.length,
+      selectedActionCount: selectedActions.length,
+      selectedItineraryCount: selectedItineraries.length,
+      structuredFinalPayload: true,
+      unknownCardIds,
+      unknownActionIds,
+      unknownItineraryIds,
+    }),
+  };
+}
+
+function artifactSelectionSummary({
+  mode,
+  registry,
+  selectedActionCount,
+  selectedCardCount,
+  selectedItineraryCount,
+  structuredFinalPayload,
+  unknownActionIds,
+  unknownCardIds,
+  unknownItineraryIds,
+}: {
+  mode: AgentArtifactSelectionMode;
+  registry: AgentArtifactRegistry;
+  selectedCardCount: number;
+  selectedActionCount: number;
+  selectedItineraryCount: number;
+  structuredFinalPayload: boolean;
+  unknownCardIds: readonly string[];
+  unknownActionIds: readonly string[];
+  unknownItineraryIds: readonly string[];
+}): AgentArtifactSelectionSummary {
+  return {
+    mode,
+    structuredFinalPayload,
+    totalCardCount: registry.cardsById.size,
+    totalActionCount: registry.actionsById.size,
+    totalItineraryCount: registry.itinerariesById.size,
+    selectedCardCount,
+    selectedActionCount,
+    selectedItineraryCount,
+    unselectedCardCount: Math.max(0, registry.cardsById.size - selectedCardCount),
+    unselectedActionCount: Math.max(0, registry.actionsById.size - selectedActionCount),
+    unselectedItineraryCount: Math.max(0, registry.itinerariesById.size - selectedItineraryCount),
+    unknownCardIds,
+    unknownActionIds,
+    unknownItineraryIds,
   };
 }
 

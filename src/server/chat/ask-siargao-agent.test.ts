@@ -1377,7 +1377,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.sources).toEqual([localGuideSourceSummary]);
   });
 
-  test("executes an itinerary planning tool call and attaches itinerary artifacts", async () => {
+  test("executes an itinerary planning tool call and keeps legacy artifacts internal", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
         id: "resp_itinerary_call",
@@ -1426,7 +1426,12 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       name: "plan_local_itinerary",
       providerOperation: "local_itinerary.plan",
     });
-    expect(result.itineraries).toEqual([rainyCloud9Plan]);
+    expect(result.itineraries).toBeUndefined();
+    expect(result.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalItineraryCount: 1,
+      unselectedItineraryCount: 1,
+    });
     expect(result.sources).toEqual([localGuideSourceSummary]);
   });
 
@@ -1488,7 +1493,12 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(client.requests).toHaveLength(2);
     const automaticInput = parseAutomaticRequiredPlanInput(client.requests[1]?.input);
     expect(automaticInput.validationRepairItineraryPlan?.name).toBe("plan_local_itinerary");
-    expect(result.itineraries).toEqual([foodCrawlPlan]);
+    expect(result.itineraries).toBeUndefined();
+    expect(result.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalItineraryCount: 1,
+      unselectedItineraryCount: 1,
+    });
   });
 
   test("auto-executes condition evidence after itinerary repair for mixed prompts", async () => {
@@ -1574,17 +1584,12 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(
       parseAutomaticConditionInput(client.requests[2]?.input).validationRepairConditionJudgment,
     ).toMatchObject({ name: "get_condition_judgment" });
-    expect(result.itineraries).toBeDefined();
-    const itinerary = result.itineraries?.[0];
-    expect(itinerary).toMatchObject({
-      title: sandyBeachPlan.title,
-      stops: sandyBeachPlan.stops,
+    expect(result.itineraries).toBeUndefined();
+    expect(result.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalItineraryCount: 1,
+      unselectedItineraryCount: 1,
     });
-    expect(itinerary?.sources.map((source) => source.label)).toEqual([
-      "curated_local_guide",
-      "weather_checked",
-      "not_verified",
-    ]);
   });
 
   test("repairs failed itinerary planning before accepting final itinerary prose", async () => {
@@ -1667,7 +1672,12 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       theme: "sandy_beach_half_day",
       origin: "General Luna",
     });
-    expect(result.itineraries).toEqual([sandyBeachPlan]);
+    expect(result.itineraries).toBeUndefined();
+    expect(result.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalItineraryCount: 1,
+      unselectedItineraryCount: 1,
+    });
   });
 
   test("repairs direct sandy beach half-day prose without route activity-plan signals", async () => {
@@ -1711,7 +1721,12 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       theme: "sandy_beach_half_day",
       origin: "General Luna",
     });
-    expect(result.itineraries).toEqual([sandyBeachPlan]);
+    expect(result.itineraries).toBeUndefined();
+    expect(result.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalItineraryCount: 1,
+      unselectedItineraryCount: 1,
+    });
   });
 
   test("repairs scoped half-day itinerary prose when transport mode is van", async () => {
@@ -1761,7 +1776,12 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       duration_hours: 3,
       transport_mode: "van",
     });
-    expect(result.itineraries).toEqual([sandyBeachPlan]);
+    expect(result.itineraries).toBeUndefined();
+    expect(result.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalItineraryCount: 1,
+      unselectedItineraryCount: 1,
+    });
   });
 
   test("does not repair non-itinerary not-surfing food prompts", async () => {
@@ -1856,7 +1876,12 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       duration_hours: 3,
       needs_open_now: true,
     });
-    expect(result.itineraries).toEqual([foodCrawlPlan]);
+    expect(result.itineraries).toBeUndefined();
+    expect(result.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalItineraryCount: 1,
+      unselectedItineraryCount: 1,
+    });
   });
 
   for (const prompt of [
@@ -2018,16 +2043,15 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       "search_places",
     ]);
     expect(result.sources).toEqual([localGuideSourceSummary, placesSourceSummary]);
-    expect(result.itineraries?.[0]).toMatchObject({
-      title: sunsetDinnerPlan.title,
-      durationLabel: sunsetDinnerPlan.durationLabel,
-      stops: sunsetDinnerPlan.stops,
+    expect(result.itineraries).toBeUndefined();
+    expect(result.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalItineraryCount: 1,
+      unselectedItineraryCount: 1,
     });
-    expect(result.itineraries?.[0]?.sources).toContainEqual(localGuideSourceSummary);
-    expect(result.itineraries?.[0]?.sources).toContainEqual(placesSourceSummary);
   });
 
-  test("hydrates itinerary Places stops when production tools omit result toolCallId", async () => {
+  test("keeps hydrated itinerary artifacts internal when production tools omit result toolCallId", async () => {
     const placesArguments = {
       query: "dinner restaurants General Luna Siargao",
       center: { latitude: 9.784, longitude: 126.158 },
@@ -2111,9 +2135,13 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
 
     expect(result.toolCalls[1]?.toolCallId).toBe("call_places_without_result_id");
-    expect(result.itineraries?.[0]?.stops[1]).toMatchObject({
-      title: "Kermit Siargao",
-      mapsUrl: "https://maps.example/kermit",
+    expect(result.itineraries).toBeUndefined();
+    expect(result.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalCardCount: 1,
+      totalItineraryCount: 1,
+      unselectedCardCount: 1,
+      unselectedItineraryCount: 1,
     });
   });
 
@@ -2159,13 +2187,12 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
 
     expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual(["plan_local_itinerary"]);
-    expect(result.itineraries).toEqual([sandyBeachPlan]);
-    expect(result.itineraries?.[0]?.stops.map((stop) => stop.title).join(" ")).not.toMatch(
-      /surf lesson/i,
-    );
-    expect(result.itineraries?.[0]?.skip).toEqual(
-      expect.arrayContaining(["Surf-only Cloud 9 sessions"]),
-    );
+    expect(result.itineraries).toBeUndefined();
+    expect(result.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalItineraryCount: 1,
+      unselectedItineraryCount: 1,
+    });
     expect(result.message).toContain("skip surf-only stops");
   });
 
@@ -2288,7 +2315,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.message).toContain("not live checked");
   });
 
-  test("attaches tool-generated cards and actions to the final model-written answer", async () => {
+  test("keeps tool-generated cards and actions internal for legacy final answers", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
         id: "resp_artifact_call",
@@ -2343,8 +2370,15 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
 
     expect(result.message).toBe("The model wrote this final answer after reading the tool output.");
-    expect(result.cards).toEqual([{ ...card, sources: [localGuideSourceSummary] }]);
-    expect(result.actions).toEqual([action]);
+    expect(result.cards).toBeUndefined();
+    expect(result.actions).toBeUndefined();
+    expect(result.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalCardCount: 1,
+      totalActionCount: 1,
+      unselectedCardCount: 1,
+      unselectedActionCount: 1,
+    });
     expect(result.sources).toEqual([localGuideSourceSummary]);
     expect(JSON.stringify(result.toolCalls)).not.toContain("SECRET_CARD_PAYLOAD");
     expect(parseToolOutput(client.requests[1]?.input, 0).cards).toBeUndefined();
@@ -2447,17 +2481,14 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       "get_weather_forecast",
       "search_places",
     ]);
-    expect(result.itineraries?.[0]?.sources).toContainEqual(weatherSourceSummary);
-    expect(result.itineraries?.[0]?.sources).toContainEqual(openNowPlacesSourceSummary);
-    expect(result.itineraries?.[0]?.sources.flatMap((source) => source.notChecked)).not.toContain(
-      "weather forecast",
-    );
-    expect(result.itineraries?.[0]?.sources.flatMap((source) => source.notChecked)).not.toContain(
-      "live open-now status",
-    );
-    expect(result.itineraries?.[0]?.sources.flatMap((source) => source.notChecked)).toContain(
-      "surf",
-    );
+    expect(result.itineraries).toBeUndefined();
+    expect(result.sources).toContainEqual(weatherSourceSummary);
+    expect(result.sources).toContainEqual(openNowPlacesSourceSummary);
+    expect(result.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalItineraryCount: 1,
+      unselectedItineraryCount: 1,
+    });
   });
 
   test("executes safe local data tools through the tool loop", async () => {

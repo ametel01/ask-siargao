@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  type AgentFinalPayload,
   type AgentResponsesClient,
   type AgentToolExecutor,
   type AgentToolResult,
+  agentItineraryArtifactId,
   aggregateAgentSourceSummaries,
   createAgentToolCallAudit,
   createAgentTurnResult,
@@ -200,7 +202,7 @@ describe("agent runtime contracts", () => {
     });
   });
 
-  test("merges and de-duplicates cards and actions from tool results", () => {
+  test("does not expose tool-result cards and actions without final-payload selection", () => {
     const turn = createAgentTurnResult({
       message: "Use Doot first, then check a cafe near Cloud 9.",
       requestId: "agent_request_artifacts",
@@ -227,16 +229,54 @@ describe("agent runtime contracts", () => {
     });
 
     expect(turn.sources).toEqual([localGuideSourceSummary, placesSourceSummary]);
-    expect(turn.cards?.map((card) => card.title)).toEqual(["Doot Beach", "Cloud 9 Cafe"]);
-    expect(turn.cards?.[0]?.sources).toEqual([localGuideSourceSummary]);
-    expect(turn.cards?.[1]?.sources).toEqual([placesSourceSummary]);
-    expect(turn.actions?.map((action) => action.label)).toEqual([
-      "Check weather",
-      "Make a short plan",
-    ]);
+    expect(turn.cards).toBeUndefined();
+    expect(turn.actions).toBeUndefined();
+    expect(turn.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalCardCount: 2,
+      totalActionCount: 2,
+      unselectedCardCount: 2,
+      unselectedActionCount: 2,
+    });
   });
 
-  test("merges and de-duplicates itinerary artifacts from tool results", () => {
+  test("returns only cards and actions selected by final payload", () => {
+    const turn = createAgentTurnResult({
+      message: "Use the selected cafe card only.",
+      requestId: "agent_request_selected_artifacts",
+      model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayCardIds: [cloud9CafeCard.id],
+        displayActionIds: [planAction.id],
+      }),
+      toolResults: [
+        {
+          sources: [localGuideSourceSummary],
+          cards: [dootBeachCard],
+          actions: [weatherAction],
+        },
+        {
+          sources: [placesSourceSummary],
+          cards: [cloud9CafeCard],
+          actions: [planAction],
+        },
+      ],
+    });
+
+    expect(turn.sources).toEqual([localGuideSourceSummary, placesSourceSummary]);
+    expect(turn.cards?.map((card) => card.title)).toEqual(["Cloud 9 Cafe"]);
+    expect(turn.cards?.[0]?.sources).toEqual([placesSourceSummary]);
+    expect(turn.actions?.map((action) => action.label)).toEqual(["Make a short plan"]);
+    expect(turn.artifactSelection).toMatchObject({
+      structuredFinalPayload: true,
+      selectedCardCount: 1,
+      selectedActionCount: 1,
+      unselectedCardCount: 1,
+      unselectedActionCount: 1,
+    });
+  });
+
+  test("does not expose itinerary artifacts without final-payload selection", () => {
     const turn = createAgentTurnResult({
       message: "Here is a short rainy-day sequence.",
       requestId: "agent_request_itinerary_artifacts",
@@ -269,16 +309,44 @@ describe("agent runtime contracts", () => {
     });
 
     expect(turn.sources).toEqual([localGuideSourceSummary, weatherSourceSummary]);
-    expect(turn.itineraries?.map((plan) => plan.title)).toEqual([
-      "Rainy Cloud 9 Afternoon",
-      "Sunset plus Dinner",
-    ]);
-    expect(turn.itineraries?.[0]?.stops[0]?.title).toBe("Cloud 9 boardwalk");
-    expect(turn.itineraries?.[0]?.fallbackStops[0]?.title).toBe("Covered cafe near Cloud 9");
-    expect(turn.itineraries?.[0]?.skip).toContain("Exposed beach hopping if heavy rain starts");
+    expect(turn.itineraries).toBeUndefined();
+    expect(turn.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalItineraryCount: 2,
+      unselectedItineraryCount: 2,
+    });
   });
 
-  test("keeps existing card, action, and source aggregation when itineraries are present", () => {
+  test("returns only itinerary artifacts selected by final payload", () => {
+    const turn = createAgentTurnResult({
+      message: "Here is the selected sunset sequence.",
+      requestId: "agent_request_selected_itinerary_artifact",
+      model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayItineraryIds: [agentItineraryArtifactId(sunsetDinnerPlan)],
+      }),
+      toolResults: [
+        {
+          sources: [localGuideSourceSummary],
+          itineraries: [rainyCloud9Plan],
+        },
+        {
+          sources: [weatherSourceSummary],
+          itineraries: [sunsetDinnerPlan],
+        },
+      ],
+    });
+
+    expect(turn.sources).toEqual([localGuideSourceSummary, weatherSourceSummary]);
+    expect(turn.itineraries?.map((plan) => plan.title)).toEqual(["Sunset plus Dinner"]);
+    expect(turn.artifactSelection).toMatchObject({
+      structuredFinalPayload: true,
+      selectedItineraryCount: 1,
+      unselectedItineraryCount: 1,
+    });
+  });
+
+  test("keeps explicit trusted card and action artifacts while leaving tool artifacts internal", () => {
     const turn = createAgentTurnResult({
       message: "Use Doot, then a backup cafe if rain builds.",
       requestId: "agent_request_mixed_artifacts",
@@ -301,12 +369,64 @@ describe("agent runtime contracts", () => {
     });
 
     expect(turn.sources).toEqual([localGuideSourceSummary, placesSourceSummary]);
-    expect(turn.cards?.map((card) => card.title)).toEqual(["Doot Beach", "Cloud 9 Cafe"]);
-    expect(turn.actions?.map((action) => action.label)).toEqual([
-      "Check weather",
-      "Make a short plan",
-    ]);
-    expect(turn.itineraries?.map((plan) => plan.durationLabel)).toEqual(["2-3 hours"]);
+    expect(turn.cards?.map((card) => card.title)).toEqual(["Doot Beach"]);
+    expect(turn.actions?.map((action) => action.label)).toEqual(["Check weather"]);
+    expect(turn.itineraries).toBeUndefined();
+    expect(turn.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalCardCount: 2,
+      totalActionCount: 2,
+      totalItineraryCount: 1,
+      unselectedItineraryCount: 1,
+    });
+  });
+
+  test("drops unknown selected artifact IDs in compatibility mode", () => {
+    const turn = createAgentTurnResult({
+      message: "Unknown selected artifacts are ignored in compatibility mode.",
+      requestId: "agent_request_unknown_compat_artifacts",
+      model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayCardIds: ["missing_card", cloud9CafeCard.id],
+        displayActionIds: ["missing_action"],
+        displayItineraryIds: ["missing_itinerary"],
+      }),
+      toolResults: [
+        {
+          sources: [placesSourceSummary],
+          cards: [cloud9CafeCard],
+        },
+      ],
+    });
+
+    expect(turn.cards?.map((card) => card.id)).toEqual([cloud9CafeCard.id]);
+    expect(turn.actions).toBeUndefined();
+    expect(turn.itineraries).toBeUndefined();
+    expect(turn.artifactSelection).toMatchObject({
+      unknownCardIds: ["missing_card"],
+      unknownActionIds: ["missing_action"],
+      unknownItineraryIds: ["missing_itinerary"],
+    });
+  });
+
+  test("rejects unknown selected artifact IDs in strict mode", () => {
+    expect(() =>
+      createAgentTurnResult({
+        message: "Strict mode should reject missing artifacts.",
+        requestId: "agent_request_unknown_strict_artifacts",
+        model: "gpt-test",
+        artifactSelectionMode: "strict",
+        finalPayload: finalPayloadFixture({
+          displayCardIds: ["missing_card"],
+        }),
+        toolResults: [
+          {
+            sources: [placesSourceSummary],
+            cards: [cloud9CafeCard],
+          },
+        ],
+      }),
+    ).toThrow("unknown artifact ID");
   });
 
   test("does not clear itinerary Places caveats until every required Places check succeeds", () => {
@@ -354,6 +474,9 @@ describe("agent runtime contracts", () => {
       message: "Use the restaurant results, but cafe status failed.",
       requestId: "agent_request_partial_places",
       model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayItineraryIds: [agentItineraryArtifactId(foodCrawlPlan)],
+      }),
       toolCalls: [restaurantCall, failedCafeCall],
       toolResults: [
         {
@@ -418,6 +541,9 @@ describe("agent runtime contracts", () => {
       message: "Use the cafe identities, but do not claim open-now status.",
       requestId: "agent_request_identity_only_places",
       model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayItineraryIds: [agentItineraryArtifactId(rainyCloud9Plan)],
+      }),
       toolCalls: [identityOnlyPlacesCall],
       toolResults: [
         {
@@ -479,6 +605,9 @@ describe("agent runtime contracts", () => {
       message: "Weather and cafe checks are now complete.",
       requestId: "agent_request_reconciled_top_level_sources",
       model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayItineraryIds: [agentItineraryArtifactId(rainyCloud9Plan)],
+      }),
       toolCalls: [weatherCall, placesCall],
       toolResults: [
         {
@@ -542,6 +671,9 @@ describe("agent runtime contracts", () => {
       message: "Use this live dinner venue.",
       requestId: "agent_request_places_hydrated_itinerary",
       model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayItineraryIds: [agentItineraryArtifactId(sunsetDinnerPlan)],
+      }),
       toolCalls: [restaurantCall],
       toolResults: [
         {
@@ -629,6 +761,9 @@ describe("agent runtime contracts", () => {
       message: "The required cafe check failed, so keep the cafe stop generic.",
       requestId: "agent_request_unrelated_places_not_hydrated",
       model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayItineraryIds: [agentItineraryArtifactId(rainyCloud9Plan)],
+      }),
       toolCalls: [failedCafeCall, unrelatedRestaurantCall],
       toolResults: [
         {
@@ -675,6 +810,9 @@ describe("agent runtime contracts", () => {
       message: "Do not use closed venues in the structured itinerary.",
       requestId: "agent_request_closed_places_itinerary",
       model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayItineraryIds: [agentItineraryArtifactId(sunsetDinnerPlan)],
+      }),
       toolResults: [
         {
           name: "plan_local_itinerary",
@@ -719,6 +857,9 @@ describe("agent runtime contracts", () => {
       message: "Heavy rain makes the covered fallback the first stop.",
       requestId: "agent_request_weather_adjusted_itinerary",
       model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayItineraryIds: [agentItineraryArtifactId(rainyCloud9Plan)],
+      }),
       toolCalls: [weatherCall],
       toolResults: [
         {
@@ -781,6 +922,9 @@ describe("agent runtime contracts", () => {
       message: "Unrelated weather should not rearrange this itinerary.",
       requestId: "agent_request_unrelated_weather_itinerary",
       model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayItineraryIds: [agentItineraryArtifactId(rainyCloud9Plan)],
+      }),
       toolCalls: [weatherCall],
       toolResults: [
         {
@@ -850,6 +994,9 @@ describe("agent runtime contracts", () => {
       message: "Heavy rain should keep the outdoor fallback as a fallback.",
       requestId: "agent_request_weather_dry_break_fallback",
       model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayItineraryIds: [agentItineraryArtifactId(dryBreakPlan)],
+      }),
       toolCalls: [weatherCall],
       toolResults: [
         {
@@ -972,6 +1119,29 @@ function fakeToolExecutor(
       ...result,
       toolCallId: request.toolCallId,
     };
+  };
+}
+
+function finalPayloadFixture(
+  overrides: Partial<
+    Pick<
+      AgentFinalPayload,
+      | "answer"
+      | "displayActionIds"
+      | "displayCardIds"
+      | "displayItineraryIds"
+      | "usedMemoryFiles"
+      | "usedToolCallIds"
+    >
+  > = {},
+): AgentFinalPayload {
+  return {
+    answer: overrides.answer ?? "Selected artifact answer.",
+    usedMemoryFiles: overrides.usedMemoryFiles ?? [],
+    usedToolCallIds: overrides.usedToolCallIds ?? [],
+    displayCardIds: overrides.displayCardIds ?? [],
+    displayActionIds: overrides.displayActionIds ?? [],
+    displayItineraryIds: overrides.displayItineraryIds ?? [],
   };
 }
 

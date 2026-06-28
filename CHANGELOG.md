@@ -78,6 +78,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed chat runtime artifact handling so tool-produced cards, actions, and itineraries stay
+  internal unless a final payload selects their artifact IDs.
 - Documented saved trip sharing routes, anonymous local trip IDs, share-token behavior, and public
   shared-plan source/privacy boundaries in developer data and route references.
 - Recorded the pre-implementation quality baseline for the Priority 11 Saved Trip Sharing plan.
