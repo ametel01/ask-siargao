@@ -10,6 +10,7 @@ import type {
   ChatClientGeolocationConsentScope,
   ChatClientGeolocationContext,
   ItineraryPlan,
+  RecommendationCard,
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import {
@@ -235,7 +236,7 @@ export async function chatResponse(
 
     const sourceValidationInput = {
       message: result.message,
-      sources: chatAnswerSourcesForValidation(result.sources, result.itineraries),
+      sources: chatAnswerSourcesForValidation(result.sources, result.cards, result.itineraries),
       toolCalls: publicToolCalls,
       browserGeolocation: clientContext.geolocation,
     };
@@ -377,9 +378,14 @@ function concatChunks(chunks: readonly Uint8Array[], totalBytes: number) {
 
 function chatAnswerSourcesForValidation(
   sources: readonly AnswerSourceSummary[],
+  cards: readonly RecommendationCard[] | undefined,
   itineraries: readonly ItineraryPlan[] | undefined,
 ) {
-  return [...sources, ...(itineraries?.flatMap((itinerary) => itinerary.sources) ?? [])];
+  return [
+    ...sources,
+    ...(cards?.flatMap((card) => card.sources ?? []) ?? []),
+    ...(itineraries?.flatMap((itinerary) => itinerary.sources) ?? []),
+  ];
 }
 
 function repairMalformedRenderedSourceLines(

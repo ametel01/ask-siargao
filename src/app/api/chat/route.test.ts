@@ -718,6 +718,25 @@ describe("chat route", () => {
     expect(body.actions).toEqual([promptAction]);
   });
 
+  test("validates selected card sources before returning them", async () => {
+    const dependencies = chatDependencies({
+      message: "The model-written answer recommends Shaka from a public card.",
+      sources: [],
+      cards: [{ ...placeRecommendationCard, sources: [placesSourceSummary] }],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Find cafes near Cloud 9 that are open now." }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(body.error).toBe("source_consistency_failed");
+    expect(body.message).toContain("verify the answer sources");
+  });
+
   test("returns itinerary artifacts with markdown, metadata, tool calls, and sources", async () => {
     const itineraryToolCall = toolCall({
       name: "plan_local_itinerary",

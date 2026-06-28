@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Security
 
+- Prevented memory retrieval from backing checked, provider, curated, or provider-unavailable
+  source labels, and validated selected card sources before returning public chat responses.
 - Hardened shared-trip source-policy and privacy coverage so public shared DTOs preserve allowed
   source metadata while rejecting raw provider payloads, Google review fields, tool-call arguments,
   full chat transcripts, browser geolocation, and exact coordinates.

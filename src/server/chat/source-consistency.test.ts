@@ -281,6 +281,79 @@ describe("chat source consistency", () => {
     expect(result.valid).toBe(true);
   });
 
+  test("rejects memory retrieval as backing for checked provider or curated labels", () => {
+    const verifyingSources = [
+      livePlacesSourceSummary,
+      freshCachePlacesSourceSummary,
+      weatherSourceSummary,
+      marineSourceSummary,
+      tideForecastSourceSummary,
+      localGuideSourceSummary,
+    ];
+
+    for (const source of verifyingSources) {
+      const result = validateChatAnswerSourceConsistency({
+        message: "Memory retrieval is reference context, not checked evidence.",
+        sources: [source],
+        toolCalls: [
+          toolCall({
+            name: "load_agent_memory_file",
+            status: "success",
+            sources: [source],
+          }),
+        ],
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues.map((issue) => issue.code)).toContain(
+        "structured_source_not_tool_backed",
+      );
+    }
+  });
+
+  test("rejects memory retrieval as provider-unavailable evidence", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message: "Memory failed, but that is not a live provider failure.",
+      sources: [providerUnavailableSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "load_agent_memory_file",
+          status: "error",
+          errorCode: "provider_unavailable",
+          sources: [providerUnavailableSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain(
+      "provider_unavailable_without_tool_failure",
+    );
+  });
+
+  test("allows memory retrieval to coexist with governed source evidence", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Google Places backs the live claim; memory adds no label.", [
+        livePlacesSourceSummary,
+      ]),
+      sources: [livePlacesSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "load_agent_memory_file",
+          status: "success",
+          sources: [],
+        }),
+        toolCall({
+          name: "search_places",
+          status: "success",
+          sources: [livePlacesSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result.valid).toBe(true);
+  });
+
   test("keeps generic model reasoning as not verified without requiring tool output", () => {
     const result = validateChatAnswerSourceConsistency({
       message: withSourceLines("A relaxed General Luna afternoon is reasonable.", [

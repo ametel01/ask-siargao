@@ -60,6 +60,11 @@ const renderedTrustLabels: Record<string, AnswerTrustLabel> = {
 };
 
 const placesToolNames = new Set(["search_places", "get_place_details"]);
+const memoryRetrievalToolNames = new Set([
+  "load_agent_memory_file",
+  "search_agent_memory",
+  "file_search",
+]);
 const sourceLinePattern = /^(Checked|Not checked):\s+(.+?)\s+\(([^)]*)\)\s+-\s+(.+)\.$/u;
 
 export class SourceConsistencyError extends Error {
@@ -360,16 +365,17 @@ function summarizeToolEvidence(toolCalls: readonly AgentToolCallAudit[]) {
     ),
     providerUnavailable: toolCalls.some(
       (toolCall) =>
-        toolCall.status === "error" ||
-        toolCall.errorCode === "provider_unavailable" ||
-        toolCall.sources.some((source) => source.label === "provider_unavailable"),
+        !isMemoryRetrievalToolName(toolCall.name) &&
+        (toolCall.status === "error" ||
+          toolCall.errorCode === "provider_unavailable" ||
+          toolCall.sources.some((source) => source.label === "provider_unavailable")),
     ),
   };
 }
 
 function summarizeToolSources(toolCalls: readonly AgentToolCallAudit[]): ToolSourceEvidence[] {
   return toolCalls.flatMap((toolCall) => {
-    if (toolCall.status !== "success") {
+    if (toolCall.status !== "success" || isMemoryRetrievalToolName(toolCall.name)) {
       return [];
     }
     return toolCall.sources.map((source) => ({
@@ -413,9 +419,14 @@ function hasToolSourceLabel(
   return toolCalls.some(
     (toolCall) =>
       toolCall.status === "success" &&
+      !isMemoryRetrievalToolName(toolCall.name) &&
       toolNames.has(toolCall.name) &&
       toolCall.sources.some((source) => source.label === label),
   );
+}
+
+function isMemoryRetrievalToolName(name: string) {
+  return memoryRetrievalToolNames.has(name);
 }
 
 function isToolBackedClaimSupported(

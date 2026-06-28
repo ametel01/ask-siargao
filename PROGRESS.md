@@ -23,15 +23,15 @@
 - [x] Step 5: Catalog-Backed Memory Tools
 - [x] Step 6: Prompt Construction Uses Available Memory Metadata
 - [x] Step 7: Final Payload Memory Validation And Clear-Case Repair
-- [ ] Step 8: Memory-Aware Source Consistency Validation
+- [x] Step 8: Memory-Aware Source Consistency Validation
 - [ ] Step 9: Chat Route Public Contract And Observability
 - [ ] Step 10: Documentation Alignment
 - [ ] Step 11: Full Quality Gates And Manual Chat Checks
 
 ## Current Status
 
-- Current step: Step 8
-- Next action: Ensure memory retrieval cannot back live/provider/source labels in source consistency validation.
+- Current step: Step 9
+- Next action: Align `/api/chat` public response contract and observability with selected artifacts and redacted memory metadata.
 
 ## Baseline Gate Results
 
@@ -41,6 +41,26 @@
 - Bun tests passed: 504 tests across 49 files.
 
 ## Update Log
+
+### 2026-06-29 - Step 8 Complete
+
+- Excluded memory retrieval tools from source-consistency evidence for checked provider, weather, marine, tide, curated, and provider-unavailable labels.
+- Added source-consistency regressions proving memory retrieval cannot back verifying labels but can coexist with governed tool evidence.
+- Included selected card sources in `/api/chat` route source validation, matching existing itinerary source validation.
+- Added route coverage rejecting selected cards that carry verifying source labels without matching governed tool evidence.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `bun test src/server/chat/source-consistency.test.ts`: passed, 32 tests.
+- `bun test src/app/api/chat/route.test.ts`: passed, 60 tests.
+- `bun test`: passed, 528 tests across 49 files.
+
+Commit:
+
+- Committed: `Reject memory-backed checked source labels`
 
 ### 2026-06-29 - Step 7 Complete
 
