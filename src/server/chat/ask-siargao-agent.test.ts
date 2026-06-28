@@ -4,6 +4,7 @@ import type { Logger } from "pino";
 
 import type { AgentMemorySnapshot } from "@/server/chat/agent-memory";
 import type {
+  AgentFinalPayload,
   AgentResponsesClient,
   AgentResponsesCreateResult,
   AgentToolExecutor,
@@ -64,6 +65,213 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(JSON.stringify(firstInput.agentMemory)).not.toContain("byteLength");
     expect(JSON.stringify(firstInput.agentMemory)).not.toContain("relativePath");
     expect(firstInput.conversation?.[0]?.content).toContain("first afternoon");
+  });
+
+  test("returns structured final payload answers from one model call", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_structured_general",
+        output_text: finalPayloadText({
+          answer: "For a first Siargao day, keep Cloud 9 and General Luna easy.",
+        }),
+        _request_id: "req_structured_general",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "How should I spend my first afternoon?" }],
+        requestId: "agent_request_structured_general",
+      },
+      {
+        client,
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.message).toBe("For a first Siargao day, keep Cloud 9 and General Luna easy.");
+    expect(result.cards).toBeUndefined();
+    expect(result.actions).toBeUndefined();
+    expect(result.itineraries).toBeUndefined();
+    expect(result.artifactSelection).toMatchObject({
+      mode: "strict",
+      structuredFinalPayload: true,
+    });
+    expect(String(client.requests[0]?.instructions)).toContain("Return final answers as JSON");
+    expect(parseFirstInput(client.requests[0]?.input).responseContract?.finalOutput).toContain(
+      "Return the final response as a JSON object",
+    );
+  });
+
+  test("returns only tool artifacts selected by structured final payload", async () => {
+    const card = {
+      id: "card_doot",
+      kind: "beach" as const,
+      title: "Doot Beach",
+      subtitle: "General Luna-side sandy beach",
+      mapsUrl: "https://www.google.com/maps/search/?api=1&query=Doot%20Beach%20Siargao",
+      distanceLabel: "About 20 minutes by tricycle from General Luna",
+      fitReasons: ["Sandy shore", "Works for a quieter beach stop"],
+      caveats: ["Check tide and road conditions before leaving"],
+      sourceLabel: "Ask Siargao curated local beach guide",
+    };
+    const unselectedCard = {
+      ...card,
+      id: "card_malinao",
+      title: "Malinao Beach",
+    };
+    const action = {
+      id: "ask_weather",
+      label: "Check weather",
+      prompt: "Check weather before going to Doot Beach.",
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_structured_artifact_call",
+        requestId: "req_structured_artifact_call",
+        callId: "call_local",
+        name: "search_local_guide",
+        arguments: {
+          query: "sandy swimming beaches within 30 minutes",
+          filters: { beach_surface: "sand", swimming: true, max_ride_minutes: 30 },
+        },
+      }),
+      {
+        id: "resp_structured_artifact_final",
+        output_text: finalPayloadText({
+          answer: "Doot is the best fit to show.",
+          usedToolCallIds: ["call_local"],
+          displayCardIds: [card.id],
+          displayActionIds: [action.id],
+        }),
+        _request_id: "req_structured_artifact_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      search_local_guide: {
+        name: "search_local_guide",
+        status: "success",
+        text: "Curated local guide returned Doot and Malinao.",
+        sources: [localGuideSourceSummary],
+        cards: [card, unselectedCard],
+        actions: [action],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Sandy beaches with kids near General Luna?" }],
+        requestId: "agent_request_structured_artifacts",
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toBe("Doot is the best fit to show.");
+    expect(result.cards).toEqual([{ ...card, sources: [localGuideSourceSummary] }]);
+    expect(result.actions).toEqual([action]);
+    expect(result.artifactSelection).toMatchObject({
+      mode: "strict",
+      structuredFinalPayload: true,
+      selectedCardCount: 1,
+      selectedActionCount: 1,
+      unselectedCardCount: 1,
+    });
+  });
+
+  test("keeps legacy plain-text compatibility without tool-result artifacts", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_legacy_artifact_call",
+        requestId: "req_legacy_artifact_call",
+        callId: "call_local",
+        name: "search_local_guide",
+        arguments: { query: "sandy swimming beaches within 30 minutes", filters: null },
+      }),
+      {
+        id: "resp_legacy_artifact_final",
+        output_text: "The model wrote a legacy plain-text answer.",
+        _request_id: "req_legacy_artifact_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      search_local_guide: {
+        name: "search_local_guide",
+        status: "success",
+        text: "Curated local guide returned Doot Beach.",
+        sources: [localGuideSourceSummary],
+        cards: [
+          {
+            id: "card_doot",
+            kind: "beach",
+            title: "Doot Beach",
+            fitReasons: ["Sandy shore"],
+            caveats: [],
+            sourceLabel: "Ask Siargao curated local beach guide",
+          },
+        ],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Sandy beaches with kids near General Luna?" }],
+        requestId: "agent_request_legacy_artifacts",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toBe("The model wrote a legacy plain-text answer.");
+    expect(result.cards).toBeUndefined();
+    expect(result.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      totalCardCount: 1,
+      unselectedCardCount: 1,
+    });
+  });
+
+  test("rejects legacy final text when structured final output is required", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_required_structured_legacy",
+        output_text: "Legacy text should be rejected.",
+        _request_id: "req_required_structured_legacy",
+      },
+    ]);
+
+    await expect(
+      runAskSiargaoAgentTurn(
+        {
+          messages: [{ role: "user", content: "How should I spend my first afternoon?" }],
+          requestId: "agent_request_required_structured_legacy",
+        },
+        { client, model: "gpt-test", requireStructuredFinalOutput: true },
+      ),
+    ).rejects.toThrow("legacy plain text");
+  });
+
+  test("rejects unknown used tool call IDs in strict structured final output", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_unknown_used_tool",
+        output_text: finalPayloadText({
+          answer: "This payload cites a missing tool call.",
+          usedToolCallIds: ["missing_call"],
+        }),
+        _request_id: "req_unknown_used_tool",
+      },
+    ]);
+
+    await expect(
+      runAskSiargaoAgentTurn(
+        {
+          messages: [{ role: "user", content: "How should I spend my first afternoon?" }],
+          requestId: "agent_request_unknown_used_tool",
+        },
+        { client, model: "gpt-test", requireStructuredFinalOutput: true },
+      ),
+    ).rejects.toThrow("unknown tool call ID");
   });
 
   test("registers hosted file search when a vector store is configured", async () => {
@@ -2793,6 +3001,17 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
   });
 });
 
+function finalPayloadText(overrides: Partial<AgentFinalPayload> = {}) {
+  return JSON.stringify({
+    answer: overrides.answer ?? "Structured final answer.",
+    usedMemoryFiles: overrides.usedMemoryFiles ?? [],
+    usedToolCallIds: overrides.usedToolCallIds ?? [],
+    displayCardIds: overrides.displayCardIds ?? [],
+    displayActionIds: overrides.displayActionIds ?? [],
+    displayItineraryIds: overrides.displayItineraryIds ?? [],
+  } satisfies AgentFinalPayload);
+}
+
 function fakeResponsesClient(responses: AgentResponsesCreateResult[]) {
   const pending = [...responses];
   const requests: Record<string, unknown>[] = [];
@@ -2872,6 +3091,9 @@ function parseFirstInput(input: unknown): {
     versionId?: string;
     vectorStoreId?: string;
     files?: Array<Record<string, unknown>>;
+  };
+  responseContract?: {
+    finalOutput?: string;
   };
 } {
   return parseLastUserInputMessage(input) ?? {};

@@ -78,6 +78,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed the Ask Siargao agent loop to parse structured final payload JSON, validate current-turn
+  tool-call references, and keep legacy plain-text answers as no-artifact compatibility output.
 - Changed chat runtime artifact handling so tool-produced cards, actions, and itineraries stay
   internal unless a final payload selects their artifact IDs.
 - Documented saved trip sharing routes, anonymous local trip IDs, share-token behavior, and public

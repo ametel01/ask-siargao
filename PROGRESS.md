@@ -17,7 +17,7 @@
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Agent Final Payload And Artifact Registry
-- [ ] Step 2: Structured Final Output Parsing In The Agent Loop
+- [x] Step 2: Structured Final Output Parsing In The Agent Loop
 - [ ] Step 3: Dapa Breakfast Regression Coverage
 - [ ] Step 4: Compact Agent Memory Catalog Rendering
 - [ ] Step 5: Catalog-Backed Memory Tools
@@ -30,8 +30,8 @@
 
 ## Current Status
 
-- Current step: Step 2
-- Next action: Parse structured final payloads in the agent loop and pass selected artifact IDs to the runtime.
+- Current step: Step 3
+- Next action: Add Dapa breakfast regression coverage for unrelated beach-card suppression.
 
 ## Baseline Gate Results
 
@@ -41,6 +41,27 @@
 - Bun tests passed: 504 tests across 49 files.
 
 ## Update Log
+
+### 2026-06-29 - Step 2 Complete
+
+- Added JSON and fenced-JSON final payload parsing in the agent loop.
+- Added `requireStructuredFinalOutput` strict mode for tests and future rollout.
+- Validated current-turn `usedToolCallIds`, rejecting unknown IDs in strict mode and dropping them in compatibility mode.
+- Updated agent instructions and response contract to request final JSON with answer, used memory/tool IDs, and display artifact ID arrays.
+- Added structured final output tests for no-tool answers, selected tool artifacts, legacy compatibility, strict legacy rejection, and invalid tool-call IDs.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `bun test src/server/chat/ask-siargao-agent.test.ts`: passed, 54 tests.
+- `bun test src/server/chat/agent-runtime.test.ts`: passed, 24 tests.
+- `bun test`: passed, 513 tests across 49 files.
+
+Commit:
+
+- Pending: `Parse structured agent final answers`
 
 ### 2026-06-29 - Step 1 Complete
 
@@ -60,7 +81,7 @@ Validation:
 
 Commit:
 
-- Pending: `Select chat artifacts from final payload`
+- `dd4c104 Select chat artifacts from final payload`
 
 ### 2026-06-29 - Step 0 Complete
 

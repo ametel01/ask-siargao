@@ -2,6 +2,7 @@ import OpenAI from "openai";
 
 import { type AgentMemorySnapshot, loadAgentMemorySnapshot } from "@/server/chat/agent-memory";
 import {
+  type AgentFinalPayload,
   type AgentMemoryMetadata,
   type AgentResponsesClient,
   type AgentRuntimeDependencies,
@@ -35,6 +36,7 @@ export type AskSiargaoAgentDependencies = AgentRuntimeDependencies &
     includeAgentMemoryFallbackWithFileSearch?: boolean;
     loadMemorySnapshot?: () => AgentMemorySnapshot;
     now?: () => Date;
+    requireStructuredFinalOutput?: boolean;
   };
 
 type ParsedFunctionCall = {
@@ -339,14 +341,21 @@ export async function runAskSiargaoAgentTurn(
         },
         "Ask Siargao agent turn completed.",
       );
+      const finalPayload = parseFinalPayloadOrLegacyText(finalText, {
+        requireStructuredFinalOutput: dependencies.requireStructuredFinalOutput === true,
+        toolCalls,
+      });
       return createAgentTurnResult({
-        message: finalText,
+        message: finalPayload?.answer ?? finalText,
         requestId: resolved.requestId,
         model: resolved.model,
         memory,
         upstreamRequestIds,
         toolCalls,
         toolResults,
+        ...(finalPayload ? { finalPayload } : {}),
+        artifactSelectionMode:
+          dependencies.requireStructuredFinalOutput === true ? "strict" : "compatibility",
       });
     }
 
@@ -416,6 +425,125 @@ function responseOutputItems(output: unknown): ResponseInputItem[] {
   }
 
   return output.flatMap((item) => (isRecord(item) ? [item] : []));
+}
+
+function parseFinalPayloadOrLegacyText(
+  finalText: string,
+  {
+    requireStructuredFinalOutput,
+    toolCalls,
+  }: {
+    requireStructuredFinalOutput: boolean;
+    toolCalls: readonly AgentToolCallAudit[];
+  },
+): AgentFinalPayload | undefined {
+  const parsed = parseAgentFinalPayload(finalText);
+  if (!parsed) {
+    if (requireStructuredFinalOutput) {
+      throw new Error(
+        "Ask Siargao agent returned legacy plain text instead of final payload JSON.",
+      );
+    }
+    return undefined;
+  }
+
+  return validateFinalPayloadToolCallIds(parsed, toolCalls, requireStructuredFinalOutput);
+}
+
+function parseAgentFinalPayload(finalText: string): AgentFinalPayload | undefined {
+  const jsonText = extractFinalPayloadJson(finalText);
+  if (!jsonText) {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    return undefined;
+  }
+
+  if (!isRecord(parsed)) {
+    return undefined;
+  }
+  const answer = readString(parsed.answer)?.trim();
+  if (!answer) {
+    return undefined;
+  }
+
+  const usedMemoryFiles = readStringArray(parsed.usedMemoryFiles);
+  const usedToolCallIds = readStringArray(parsed.usedToolCallIds);
+  const displayCardIds = readStringArray(parsed.displayCardIds);
+  const displayActionIds = readStringArray(parsed.displayActionIds);
+  const displayItineraryIds = readStringArray(parsed.displayItineraryIds);
+  if (
+    !usedMemoryFiles ||
+    !usedToolCallIds ||
+    !displayCardIds ||
+    !displayActionIds ||
+    !displayItineraryIds
+  ) {
+    return undefined;
+  }
+
+  return {
+    answer,
+    usedMemoryFiles,
+    usedToolCallIds,
+    displayCardIds,
+    displayActionIds,
+    displayItineraryIds,
+  };
+}
+
+function extractFinalPayloadJson(finalText: string) {
+  const trimmed = finalText.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    return trimmed;
+  }
+
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/iu);
+  return fenced?.[1]?.trim();
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const strings = value.flatMap((item) => {
+    const text = readString(item)?.trim();
+    return text ? [text] : [];
+  });
+  return strings.length === value.length ? strings : undefined;
+}
+
+function validateFinalPayloadToolCallIds(
+  payload: AgentFinalPayload,
+  toolCalls: readonly AgentToolCallAudit[],
+  strict: boolean,
+): AgentFinalPayload {
+  const knownToolCallIds = new Set(
+    toolCalls.flatMap((toolCall) => (toolCall.toolCallId ? [toolCall.toolCallId] : [])),
+  );
+  const usedToolCallIds = uniqueText(payload.usedToolCallIds);
+  const unknownToolCallIds = usedToolCallIds.filter(
+    (toolCallId) => !knownToolCallIds.has(toolCallId),
+  );
+
+  if (strict && unknownToolCallIds.length > 0) {
+    throw new Error(
+      `Agent final payload referenced unknown tool call ID(s): ${unknownToolCallIds.join(", ")}`,
+    );
+  }
+
+  return {
+    ...payload,
+    usedMemoryFiles: uniqueText(payload.usedMemoryFiles),
+    usedToolCallIds: usedToolCallIds.filter((toolCallId) => knownToolCallIds.has(toolCallId)),
+    displayCardIds: uniqueText(payload.displayCardIds),
+    displayActionIds: uniqueText(payload.displayActionIds),
+    displayItineraryIds: uniqueText(payload.displayItineraryIds),
+  };
 }
 
 function missingInitialItineraryPlanRepairCall(
@@ -1610,6 +1738,8 @@ const responseContract = {
   tone: "practical local travel assistant",
   scope:
     "Answer only Siargao-related travel and local trip-planning questions. Politely decline unrelated questions.",
+  finalOutput:
+    "Return the final response as a JSON object with answer, usedMemoryFiles, usedToolCallIds, displayCardIds, displayActionIds, and displayItineraryIds. The answer field is the only traveler-facing prose. Display artifact ID arrays must include only cards, actions, or itineraries that should be shown publicly.",
   sourceUse:
     "Use tool outputs as the only source for live weather, modelled marine conditions, Google Places, curated local guide, and source-policy claims.",
   deterministicSignals:
@@ -1630,6 +1760,7 @@ const askSiargaoBaseInstructions = [
   "Do not answer from generic model knowledge when the loaded memory index lists a relevant file. If no loaded memory file covers the topic, say the Ask Siargao memory does not cover it and rely only on governed tools where appropriate.",
   "Use backend tools whenever the answer needs current weather, tide timing, modelled marine conditions, Google Places facts, curated guide facts, safe local database facts, source evidence, or source-label policy.",
   "Every final answer must be written by the AI from loaded memory and tool output; do not copy raw tool output as final prose.",
+  "Return final answers as JSON with keys answer, usedMemoryFiles, usedToolCallIds, displayCardIds, displayActionIds, and displayItineraryIds. Include only artifact IDs that should be displayed to the traveler.",
   "Do not invent live, provider-backed, or curated local facts. Memory retrieval is policy/reference context only, not live evidence.",
   "Do not write standalone source footer lines beginning with 'Checked:' or 'Not checked:'. Put caveats into normal prose and let the backend/cards display formal source labels.",
   "Keep answers concise and actionable.",
