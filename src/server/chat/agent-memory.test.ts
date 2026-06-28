@@ -3,7 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { loadAgentMemorySnapshot, requiredAgentMemoryManifest } from "@/server/chat/agent-memory";
+import {
+  loadAgentMemorySnapshot,
+  renderAvailableAgentMemory,
+  requiredAgentMemoryManifest,
+} from "@/server/chat/agent-memory";
 
 const temporaryRoots: string[] = [];
 
@@ -33,6 +37,12 @@ describe("agent memory loader", () => {
       "ASK_SIARGAO_SOURCE_POLICY.md",
       "ASK_SIARGAO_LOCAL_ASSUMPTIONS.md",
     ]);
+    expect(snapshot.documents.map((document) => document.fileName)).toEqual(
+      requiredAgentMemoryManifest.map((entry) => entry.fileName),
+    );
+    expect(snapshot.documents.every((document) => document.description.length > 0)).toBe(true);
+    expect(snapshot.documents.every((document) => document.triggerTerms.length > 0)).toBe(true);
+    expect(snapshot.errors).toEqual([]);
   });
 
   test("fails with a clear error when required memory files are missing", () => {
@@ -111,6 +121,34 @@ describe("agent memory loader", () => {
         }),
       ]),
     );
+  });
+
+  test("renders compact available memory metadata without full reference bodies", () => {
+    const snapshot = loadAgentMemorySnapshot();
+    const rendered = renderAvailableAgentMemory(snapshot);
+
+    for (const file of snapshot.referenceFiles) {
+      expect(rendered).toContain(file.fileName);
+      expect(rendered).toContain(file.title);
+    }
+    expect(rendered).toContain("policy and local-reference context, not live evidence");
+    expect(rendered).toContain("load_agent_memory_file");
+    expect(rendered).toContain("Memory files do not persist across turns");
+    expect(rendered).not.toContain("Hard Boundary: Surf Spots vs Beach Fallbacks");
+    expect(rendered).not.toContain("Safe local data tools must not expose private");
+    expect(rendered).not.toContain("checksum");
+    expect(rendered).not.toMatch(/[a-f0-9]{64}/);
+  });
+
+  test("keeps rendered memory metadata inside the configured budget when practical", () => {
+    const snapshot = loadAgentMemorySnapshot();
+    const rendered = renderAvailableAgentMemory(snapshot, { maxCharacters: 1_500 });
+
+    expect(rendered.length).toBeLessThanOrEqual(1_500);
+    for (const file of snapshot.referenceFiles) {
+      expect(rendered).toContain(file.fileName);
+    }
+    expect(rendered).not.toContain("Hard Boundary: Surf Spots vs Beach Fallbacks");
   });
 });
 

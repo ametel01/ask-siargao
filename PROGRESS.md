@@ -19,7 +19,7 @@
 - [x] Step 1: Agent Final Payload And Artifact Registry
 - [x] Step 2: Structured Final Output Parsing In The Agent Loop
 - [x] Step 3: Dapa Breakfast Regression Coverage
-- [ ] Step 4: Compact Agent Memory Catalog Rendering
+- [x] Step 4: Compact Agent Memory Catalog Rendering
 - [ ] Step 5: Catalog-Backed Memory Tools
 - [ ] Step 6: Prompt Construction Uses Available Memory Metadata
 - [ ] Step 7: Final Payload Memory Validation And Clear-Case Repair
@@ -30,8 +30,8 @@
 
 ## Current Status
 
-- Current step: Step 4
-- Next action: Add compact agent-memory catalog metadata and renderer tests.
+- Current step: Step 5
+- Next action: Back memory tool schemas and outputs with the memory catalog metadata.
 
 ## Baseline Gate Results
 
@@ -41,6 +41,25 @@
 - Bun tests passed: 504 tests across 49 files.
 
 ## Update Log
+
+### 2026-06-29 - Step 4 Complete
+
+- Added memory document metadata descriptions and trigger terms to the server allowlist.
+- Added `AgentMemoryLoadOutcome` and compact document metadata on loaded memory outcomes while preserving legacy-compatible snapshots for tests.
+- Added `renderAvailableAgentMemory` with budgeted compact reference-file discovery text.
+- Added tests proving `INDEX.md` stays the only instruction memory, metadata includes all reference files, rendered metadata stays compact, and full reference bodies/checksums are not rendered.
+
+Validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `bun test src/server/chat/agent-memory.test.ts`: passed, 7 tests.
+- `bun test`: passed, 517 tests across 49 files.
+
+Commit:
+
+- Pending: `Render compact agent memory catalog`
 
 ### 2026-06-29 - Step 3 Complete
 
@@ -59,7 +78,7 @@ Validation:
 
 Commit:
 
-- Pending: `Cover breakfast artifact selection regression`
+- `492301c Cover breakfast artifact selection regression`
 
 ### 2026-06-29 - Step 2 Complete
 

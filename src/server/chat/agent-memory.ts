@@ -10,6 +10,13 @@ export type AgentMemoryManifestEntry = {
   fileName: string;
   relativePath: string;
   role: AgentMemoryRole;
+  description?: string;
+  triggerTerms?: readonly string[];
+};
+
+export type AgentMemoryDocumentMetadata = AgentMemoryManifestEntry & {
+  description: string;
+  triggerTerms: readonly string[];
 };
 
 export type AgentMemoryFile = AgentMemoryManifestEntry & {
@@ -33,8 +40,23 @@ export type AgentMemorySnapshot = {
   referenceFiles: readonly AgentMemoryReferenceFile[];
 };
 
+export type AgentMemoryLoadOutcome = AgentMemorySnapshot & {
+  documents: readonly AgentMemoryDocumentMetadata[];
+  errors: readonly AgentMemoryLoadError[];
+};
+
+export type AgentMemoryLoadError = {
+  relativePath: string;
+  code: "missing";
+  message: string;
+};
+
 export type LoadAgentMemorySnapshotOptions = {
   rootDir?: string;
+};
+
+export type RenderAvailableAgentMemoryOptions = {
+  maxCharacters?: number;
 };
 
 export const requiredAgentMemoryManifest = [
@@ -44,6 +66,9 @@ export const requiredAgentMemoryManifest = [
     fileName: "INDEX.md",
     relativePath: "docs/agent-memory/INDEX.md",
     role: "instruction",
+    description:
+      "Default memory index that routes the model to the smallest relevant reference files.",
+    triggerTerms: ["memory routing", "which file to load", "agent memory index"],
   },
   {
     id: "ask_siargao_surf",
@@ -51,6 +76,9 @@ export const requiredAgentMemoryManifest = [
     fileName: "SURF.md",
     relativePath: "docs/agent-memory/SURF.md",
     role: "reference",
+    description:
+      "Surf spot recommendations, skill matching, surf zones, and boundaries between surf breaks and normal beaches.",
+    triggerTerms: ["surf", "waves", "Cloud 9", "Pacifico", "beginner surf", "near me surf"],
   },
   {
     id: "ask_siargao_local_guide_beaches",
@@ -58,6 +86,9 @@ export const requiredAgentMemoryManifest = [
     fileName: "LOCAL_GUIDE_BEACHES.md",
     relativePath: "docs/agent-memory/LOCAL_GUIDE_BEACHES.md",
     role: "reference",
+    description:
+      "Beach-day recommendations, swimming and sand tradeoffs, quiet/family beaches, access patterns, and beach fallback boundaries.",
+    triggerTerms: ["beach", "swimming", "sand", "family beach", "quiet beach", "island beach"],
   },
   {
     id: "ask_siargao_agent_skills",
@@ -65,6 +96,9 @@ export const requiredAgentMemoryManifest = [
     fileName: "ASK_SIARGAO_AGENT_SKILLS.md",
     relativePath: "docs/agent-memory/ASK_SIARGAO_AGENT_SKILLS.md",
     role: "reference",
+    description:
+      "Answer style, scope, final-answer expectations, surf-timing shape, and practical condition-answer phrasing.",
+    triggerTerms: ["answer style", "scope", "final answer", "condition phrasing", "surf timing"],
   },
   {
     id: "ask_siargao_tool_use_policy",
@@ -72,6 +106,9 @@ export const requiredAgentMemoryManifest = [
     fileName: "ASK_SIARGAO_TOOL_USE_POLICY.md",
     relativePath: "docs/agent-memory/ASK_SIARGAO_TOOL_USE_POLICY.md",
     role: "reference",
+    description:
+      "Rules for when weather, tide, marine, condition, Google Places, itinerary, database, source, or memory tools are required.",
+    triggerTerms: ["tool use", "weather tool", "places tool", "condition tool", "itinerary tool"],
   },
   {
     id: "ask_siargao_data_dictionary",
@@ -79,6 +116,9 @@ export const requiredAgentMemoryManifest = [
     fileName: "ASK_SIARGAO_DATA_DICTIONARY.md",
     relativePath: "docs/agent-memory/ASK_SIARGAO_DATA_DICTIONARY.md",
     role: "reference",
+    description:
+      "Safe chat runtime data surfaces, database and local-fact boundaries, query contracts, and disallowed fields.",
+    triggerTerms: ["database", "local facts", "data contract", "safe fields", "query boundary"],
   },
   {
     id: "ask_siargao_source_policy",
@@ -86,6 +126,9 @@ export const requiredAgentMemoryManifest = [
     fileName: "ASK_SIARGAO_SOURCE_POLICY.md",
     relativePath: "docs/agent-memory/ASK_SIARGAO_SOURCE_POLICY.md",
     role: "reference",
+    description:
+      "Checked/not-checked wording, source-label meanings, confidence boundaries, and memory-versus-live evidence rules.",
+    triggerTerms: ["source label", "checked", "not checked", "confidence", "live evidence"],
   },
   {
     id: "ask_siargao_local_assumptions",
@@ -93,12 +136,15 @@ export const requiredAgentMemoryManifest = [
     fileName: "ASK_SIARGAO_LOCAL_ASSUMPTIONS.md",
     relativePath: "docs/agent-memory/ASK_SIARGAO_LOCAL_ASSUMPTIONS.md",
     role: "reference",
+    description:
+      "Stable planning assumptions for traveler bases, ride-time caveats, weather sensitivity, ocean safety, and General Luna or Cloud 9 defaults.",
+    triggerTerms: ["assumptions", "ride time", "General Luna", "Cloud 9", "traveler base"],
   },
 ] as const satisfies readonly AgentMemoryManifestEntry[];
 
 export function loadAgentMemorySnapshot(
   options: LoadAgentMemorySnapshotOptions = {},
-): AgentMemorySnapshot {
+): AgentMemoryLoadOutcome {
   const rootDir = options.rootDir ?? process.cwd();
   const memoryDir = path.join(rootDir, "docs", "agent-memory");
   const missingFiles: string[] = [];
@@ -131,9 +177,89 @@ export function loadAgentMemorySnapshot(
 
   return {
     versionId: buildVersionId(files),
+    documents: files.map(documentMetadataFromFile),
     files,
     instructionMarkdown: renderInstructionMarkdown(files.filter(isInstructionFile)),
     referenceFiles: files.filter(isReferenceFile),
+    errors: [],
+  };
+}
+
+export function renderAvailableAgentMemory(
+  outcome: AgentMemoryLoadOutcome,
+  options: RenderAvailableAgentMemoryOptions = {},
+): string {
+  const maxCharacters = options.maxCharacters ?? 4_000;
+  const referenceDocuments = outcome.documents.filter((document) => document.role === "reference");
+  const headerLines = [
+    "# Available Ask Siargao Agent Memory",
+    "",
+    "Memory files are policy and local-reference context, not live evidence.",
+    "INDEX.md is already loaded. Use it to choose the smallest relevant set.",
+    "Load exact files with load_agent_memory_file when full guidance is needed.",
+    "Memory files do not persist across turns unless reloaded or already present in context.",
+    "",
+    "Reference files:",
+  ];
+  const header = headerLines.join("\n");
+  const fullLines = referenceDocuments.map((document) => renderMemoryMetadataLine(document));
+  const fullBlock = [header, ...fullLines].join("\n");
+  if (fullBlock.length <= maxCharacters) {
+    return fullBlock;
+  }
+
+  const minimalLines = referenceDocuments.map((document) => renderMemoryMetadataLine(document, 0));
+  const minimalBlock = [header, ...minimalLines].join("\n");
+  if (minimalBlock.length >= maxCharacters) {
+    return minimalBlock;
+  }
+
+  const availableDescriptionCharacters = Math.max(
+    0,
+    maxCharacters - minimalBlock.length - referenceDocuments.length,
+  );
+  const descriptionCharactersPerFile = Math.floor(
+    availableDescriptionCharacters / Math.max(1, referenceDocuments.length),
+  );
+  return [
+    header,
+    ...referenceDocuments.map((document) =>
+      renderMemoryMetadataLine(document, descriptionCharactersPerFile),
+    ),
+  ].join("\n");
+}
+
+function renderMemoryMetadataLine(
+  document: AgentMemoryDocumentMetadata,
+  descriptionBudget = document.description.length,
+) {
+  const description =
+    descriptionBudget > 0 ? truncateText(document.description, descriptionBudget) : "";
+  const triggerTerms = document.triggerTerms.length
+    ? ` Triggers: ${document.triggerTerms.join(", ")}.`
+    : "";
+  return `- ${document.fileName} — ${document.title} (${document.role}): ${description}${triggerTerms}`;
+}
+
+function truncateText(value: string, maxCharacters: number) {
+  if (value.length <= maxCharacters) {
+    return value;
+  }
+  if (maxCharacters <= 1) {
+    return "";
+  }
+  return `${value.slice(0, Math.max(0, maxCharacters - 1)).trimEnd()}…`;
+}
+
+function documentMetadataFromFile(file: AgentMemoryFile): AgentMemoryDocumentMetadata {
+  return {
+    id: file.id,
+    title: file.title,
+    fileName: file.fileName,
+    relativePath: file.relativePath,
+    role: file.role,
+    description: file.description ?? "",
+    triggerTerms: file.triggerTerms ?? [],
   };
 }
 

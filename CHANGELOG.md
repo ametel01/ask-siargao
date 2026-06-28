@@ -96,6 +96,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added compact Ask Siargao agent-memory metadata rendering so the model can discover reference
+  files without loading their full bodies by default.
 - Added progress tracking for the thin agent harness implementation so each plan step can record
   validation results, status, and commit references.
 - Added chat share-link creation for saved trip items, including selected-item controls, API-backed
