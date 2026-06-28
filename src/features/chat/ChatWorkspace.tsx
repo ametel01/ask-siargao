@@ -30,6 +30,7 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { InputGroup } from "@/components/ui/input-group";
 import { InputGroupAddon } from "@/components/ui/input-group-addon";
@@ -58,7 +59,7 @@ type ChatClientGeolocation = {
   longitude: number;
   accuracyMeters?: number;
   capturedAt: string;
-  consentScope: "single_request";
+  consentScope: "single_request" | "trip_session";
 };
 
 type ChatClientContext = {
@@ -345,46 +346,69 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
   );
   const savedPlanSharing = useSavedPlanSharing(savedTripState);
 
-  const requestLocation = useCallback(() => {
-    if (!("geolocation" in navigator)) {
-      setLocationState({ status: "unsupported" });
-      return;
-    }
+  const captureLocation = useCallback(
+    async (
+      consentScope: ChatClientGeolocation["consentScope"] = "single_request",
+    ): Promise<LocationCaptureState> => {
+      if (!("geolocation" in navigator)) {
+        const nextState = { status: "unsupported" } satisfies LocationCaptureState;
+        setLocationState(nextState);
+        return nextState;
+      }
 
-    setLocationState({ status: "requesting" });
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLocationState({
-          status: "ready",
-          geolocation: {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            ...(Number.isFinite(position.coords.accuracy)
-              ? { accuracyMeters: position.coords.accuracy }
-              : {}),
-            capturedAt: new Date(position.timestamp).toISOString(),
-            consentScope: "single_request",
+      setLocationState({ status: "requesting" });
+
+      return new Promise<LocationCaptureState>((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const nextState = {
+              status: "ready",
+              geolocation: {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                ...(Number.isFinite(position.coords.accuracy)
+                  ? { accuracyMeters: position.coords.accuracy }
+                  : {}),
+                capturedAt: new Date(position.timestamp).toISOString(),
+                consentScope,
+              },
+            } satisfies LocationCaptureState;
+            setLocationState(nextState);
+            resolve(nextState);
           },
-        });
-      },
-      (error) => {
-        setLocationState({
-          status: error.code === error.PERMISSION_DENIED ? "denied" : "unavailable",
-        });
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 60_000,
-        timeout: 10_000,
-      },
-    );
-  }, []);
+          (error) => {
+            const nextState = {
+              status: error.code === error.PERMISSION_DENIED ? "denied" : "unavailable",
+            } satisfies LocationCaptureState;
+            setLocationState(nextState);
+            resolve(nextState);
+          },
+          {
+            enableHighAccuracy: true,
+            maximumAge: 60_000,
+            timeout: 10_000,
+          },
+        );
+      });
+    },
+    [],
+  );
+
+  const requestLocation = useCallback(() => {
+    void captureLocation("trip_session");
+  }, [captureLocation]);
 
   const submitPrompt = useCallback(
     async (prompt: string) => {
       const trimmedPrompt = prompt.trim();
       if (!trimmedPrompt || isSending) {
         return;
+      }
+
+      setIsSending(true);
+      let requestLocationState = locationState;
+      if (shouldCaptureLocationForPrompt(trimmedPrompt, locationState)) {
+        requestLocationState = await captureLocation();
       }
 
       const timestamp = formatTimestamp();
@@ -404,10 +428,9 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
         status: "pending",
       };
       const requestMessages = buildChatRequestMessages(messages, trimmedPrompt);
-      const requestBody = buildChatRequestBody(requestMessages, locationState);
+      const requestBody = buildChatRequestBody(requestMessages, requestLocationState);
 
       setInputValue("");
-      setIsSending(true);
       setMessages((currentMessages) => [...currentMessages, userMessage, pendingAssistant]);
       if (requestBody.clientContext?.geolocation.consentScope === "single_request") {
         setLocationState({ status: "consumed" });
@@ -466,7 +489,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
         setIsSending(false);
       }
     },
-    [isSending, locationState, messages],
+    [captureLocation, isSending, locationState, messages],
   );
 
   const saveRecommendationCard = useCallback(
@@ -1643,6 +1666,8 @@ function ChatComposer({
   }
 
   const locationStatus = locationStatusText(locationState);
+  const locationIndicator = locationIndicatorState(locationState);
+  const locationActivationLabel = locationActivationButtonLabel(locationState);
   const locationReady = locationState.status === "ready";
   const locationRequesting = locationState.status === "requesting";
 
@@ -1708,12 +1733,35 @@ function ChatComposer({
             </InputGroupButton>
           </InputGroupAddon>
         </InputGroup>
-        <p
-          aria-live="polite"
-          className="m-0 mt-2 min-h-4 px-1 text-[0.72rem] leading-tight font-extrabold text-text-on-dark-muted"
-        >
-          {locationStatus}
-        </p>
+        <div className="mt-2 flex min-h-5 flex-wrap items-center gap-2 px-1">
+          <Badge
+            aria-label={`Location ${locationIndicator.label.toLowerCase()}`}
+            className={locationIndicator.className}
+            variant="outline"
+          >
+            <span className={locationIndicator.dotClassName} />
+            {locationIndicator.label}
+          </Badge>
+          <p
+            aria-live="polite"
+            className="m-0 text-[0.72rem] leading-tight font-extrabold text-text-on-dark-muted"
+          >
+            {locationStatus}
+          </p>
+          {locationActivationLabel ? (
+            <Button
+              className="h-7 rounded-md border-white/18 bg-white/10 px-2.5 text-[0.68rem] font-black text-text-on-dark hover:bg-white/15"
+              disabled={isSending || locationRequesting}
+              onClick={onRequestLocation}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <MapPin aria-hidden="true" size={12} />
+              {locationActivationLabel}
+            </Button>
+          ) : null}
+        </div>
       </form>
     </footer>
   );
@@ -1733,9 +1781,11 @@ function locationStatusText(locationState: LocationCaptureState) {
     case "requesting":
       return "Requesting location...";
     case "ready":
-      return "Location ready for the next question.";
+      return locationState.geolocation.consentScope === "trip_session"
+        ? "Location active for this chat."
+        : "Location ready for the next question.";
     case "denied":
-      return "Location permission denied.";
+      return "Location permission denied. Allow it in browser site settings, then try again.";
     case "unavailable":
       return "Location unavailable.";
     case "unsupported":
@@ -1744,6 +1794,62 @@ function locationStatusText(locationState: LocationCaptureState) {
       return "Location used for the last question.";
     case "idle":
       return "Location sharing is optional.";
+  }
+}
+
+function locationActivationButtonLabel(locationState: LocationCaptureState) {
+  switch (locationState.status) {
+    case "idle":
+    case "consumed":
+      return "Enable location";
+    case "denied":
+    case "unavailable":
+    case "unsupported":
+      return "Try again";
+    case "requesting":
+    case "ready":
+      return null;
+  }
+}
+
+function locationIndicatorState(locationState: LocationCaptureState) {
+  switch (locationState.status) {
+    case "ready":
+      return {
+        label: "Location active",
+        className:
+          "gap-1.5 rounded-md border-[#20d59b]/45 bg-[#20d59b]/16 px-2 py-0.5 text-[0.68rem] font-black text-[#6af0bd]",
+        dotClassName: "size-1.5 rounded-full bg-[#20d59b]",
+      };
+    case "requesting":
+      return {
+        label: "Location pending",
+        className:
+          "gap-1.5 rounded-md border-[#ffd98a]/45 bg-[#ffd98a]/14 px-2 py-0.5 text-[0.68rem] font-black text-[#ffe5a8]",
+        dotClassName: "size-1.5 rounded-full bg-[#ffd98a]",
+      };
+    case "denied":
+      return {
+        label: "Location blocked",
+        className:
+          "gap-1.5 rounded-md border-[#ffb4a8]/45 bg-[#ffb4a8]/14 px-2 py-0.5 text-[0.68rem] font-black text-[#ffd0d0]",
+        dotClassName: "size-1.5 rounded-full bg-[#ff8d7f]",
+      };
+    case "unavailable":
+    case "unsupported":
+      return {
+        label: "Location unavailable",
+        className:
+          "gap-1.5 rounded-md border-[#ffd98a]/35 bg-[#ffd98a]/10 px-2 py-0.5 text-[0.68rem] font-black text-[#ffe5a8]",
+        dotClassName: "size-1.5 rounded-full bg-[#ffd98a]",
+      };
+    default:
+      return {
+        label: "Location off",
+        className:
+          "gap-1.5 rounded-md border-white/18 bg-white/10 px-2 py-0.5 text-[0.68rem] font-black text-text-on-dark-muted",
+        dotClassName: "size-1.5 rounded-full bg-text-on-dark-muted",
+      };
   }
 }
 
@@ -2226,6 +2332,52 @@ function buildChatRequestMessages(messages: readonly InteractiveChatMessage[], p
       })),
     { role: "user" as const, content: truncateChatRequestMessage(prompt) },
   ];
+}
+
+function shouldCaptureLocationForPrompt(prompt: string, locationState: LocationCaptureState) {
+  if (locationState.status === "ready" || locationState.status === "requesting") {
+    return false;
+  }
+
+  if (locationState.status === "consumed") {
+    return hasDirectBrowserLocationPrompt(prompt);
+  }
+
+  if (
+    locationState.status === "denied" ||
+    locationState.status === "unavailable" ||
+    locationState.status === "unsupported"
+  ) {
+    return false;
+  }
+
+  return isLocationSensitivePrompt(prompt);
+}
+
+function isLocationSensitivePrompt(prompt: string) {
+  if (hasDirectBrowserLocationPrompt(prompt)) {
+    return true;
+  }
+
+  if (hasExplicitSiargaoArea(prompt)) {
+    return false;
+  }
+
+  return /\b(?:open\s+now|weather|rain|today|tonight|tomorrow|plan\b.{0,48}\bday|itinerary)\b/i.test(
+    prompt,
+  );
+}
+
+function hasDirectBrowserLocationPrompt(prompt: string) {
+  return /\b(?:near\s+me|nearby|around\s+me|close\s+to\s+me|my\s+(?:location|area)|current\s+location|where\s+i\s+am)\b/i.test(
+    prompt,
+  );
+}
+
+function hasExplicitSiargaoArea(prompt: string) {
+  return /\b(?:cloud\s*9|general\s+luna|del\s+carmen|dapa|pacifico|burgos|pilar|malinao|catangnan|union|maasin|santa\s+monica|san\s+isidro)\b/i.test(
+    prompt,
+  );
 }
 
 function buildChatRequestBody(

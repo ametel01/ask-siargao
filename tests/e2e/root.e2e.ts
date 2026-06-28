@@ -100,6 +100,17 @@ test("publishes crawl rules that keep private audit surfaces out of indexes", as
   await expect(page.getByRole("heading", { name: "Siargao trip risk audit" })).toHaveCount(0);
 });
 
+test("allows same-origin browser geolocation while blocking unrelated sensitive APIs", async ({
+  page,
+}) => {
+  const response = await page.request.get("/chat");
+  const permissionsPolicy = response.headers()["permissions-policy"];
+
+  expect(permissionsPolicy).toContain("geolocation=(self)");
+  expect(permissionsPolicy).toContain("camera=()");
+  expect(permissionsPolicy).toContain("microphone=()");
+});
+
 for (const width of [390, 768, 1024, 1366]) {
   test(`does not create horizontal overflow at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

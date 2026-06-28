@@ -235,8 +235,11 @@ test("sends granted browser geolocation once and consumes it after the request",
 
   await page.goto("/chat");
 
-  await page.getByRole("button", { name: "Share location once" }).click();
-  await expect(page.getByText("Location ready for the next question.")).toBeVisible();
+  await expect(page.getByText("Location off")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Enable location" })).toBeVisible();
+  await page.getByRole("button", { name: "Enable location" }).click();
+  await expect(page.getByText("Location active for this chat.")).toBeVisible();
+  await expect(page.getByText("Location active")).toBeVisible();
 
   const composerInput = page.getByLabel("Ask anything about Siargao");
   await composerInput.fill("What is open near me?");
@@ -249,7 +252,7 @@ test("sends granted browser geolocation once and consumes it after the request",
     latitude: 9.8116,
     longitude: 126.1651,
     accuracyMeters: 25,
-    consentScope: "single_request",
+    consentScope: "trip_session",
   });
   expect(mockChat.requests[0]?.clientContext?.geolocation?.capturedAt).toEqual(expect.any(String));
 
@@ -258,7 +261,58 @@ test("sends granted browser geolocation once and consumes it after the request",
 
   await expect.poll(() => mockChat.requests.length).toBe(2);
   expect(lastSubmittedContent(mockChat.requests[1])).toBe("What about tomorrow?");
-  expect(mockChat.requests[1]?.clientContext).toBeUndefined();
+  expect(mockChat.requests[1]?.clientContext?.geolocation).toMatchObject({
+    latitude: 9.8116,
+    longitude: 126.1651,
+    accuracyMeters: 25,
+    consentScope: "trip_session",
+  });
+  await expect(page.getByText("Location active for this chat.")).toBeVisible();
+});
+
+test("requests browser geolocation for a near-me prompt without the manual button", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition(success: PositionCallback) {
+          success({
+            coords: {
+              latitude: 9.8116,
+              longitude: 126.1651,
+              accuracy: 25,
+              altitude: null,
+              altitudeAccuracy: null,
+              heading: null,
+              speed: null,
+            },
+            timestamp: Date.now(),
+          } as GeolocationPosition);
+        },
+      },
+    });
+  });
+  const mockChat = await mockChatApi(page, {
+    message: "Mocked automatic near-me answer: I used the shared location.",
+  });
+
+  await page.goto("/chat");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("What is open near me?");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByText("Mocked automatic near-me answer:")).toBeVisible();
+  await expect(page.getByText("Location used for the last question.")).toBeVisible();
+  await expect.poll(() => mockChat.requests.length).toBe(1);
+  expect(mockChat.requests[0]?.clientContext?.geolocation).toMatchObject({
+    latitude: 9.8116,
+    longitude: 126.1651,
+    accuracyMeters: 25,
+    consentScope: "single_request",
+  });
 });
 
 test("continues without geolocation after permission is denied", async ({ page }) => {
@@ -284,8 +338,10 @@ test("continues without geolocation after permission is denied", async ({ page }
 
   await page.goto("/chat");
 
-  await page.getByRole("button", { name: "Share location once" }).click();
+  await page.getByRole("button", { name: "Enable location" }).click();
   await expect(page.getByText("Location permission denied.")).toBeVisible();
+  await expect(page.getByText("Location blocked")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
 
   const composerInput = page.getByLabel("Ask anything about Siargao");
   await composerInput.fill("What is open in General Luna?");
@@ -297,8 +353,67 @@ test("continues without geolocation after permission is denied", async ({ page }
   expect(mockChat.requests[0]?.clientContext).toBeUndefined();
 });
 
+test("continues without geolocation when automatic location permission is denied", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition(_success: PositionCallback, error?: PositionErrorCallback) {
+          error?.({
+            code: 1,
+            message: "User denied geolocation.",
+            PERMISSION_DENIED: 1,
+            POSITION_UNAVAILABLE: 2,
+            TIMEOUT: 3,
+          } as GeolocationPositionError);
+        },
+      },
+    });
+  });
+  const mockChat = await mockChatApi(page, {
+    message: "Mocked no-location near-me answer: I continued without browser location.",
+  });
+
+  await page.goto("/chat");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("What is open near me?");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByText("Location permission denied.")).toBeVisible();
+  await expect(page.getByText("Location blocked")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+  await expect(page.getByText("Mocked no-location near-me answer:")).toBeVisible();
+  await expect.poll(() => mockChat.requests.length).toBe(1);
+  expect(lastSubmittedContent(mockChat.requests[0])).toBe("What is open near me?");
+  expect(mockChat.requests[0]?.clientContext).toBeUndefined();
+});
+
 test("sends a mobile suggested prompt through the same chat API path", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition(success: PositionCallback) {
+          success({
+            coords: {
+              latitude: 9.8116,
+              longitude: 126.1651,
+              accuracy: 25,
+              altitude: null,
+              altitudeAccuracy: null,
+              heading: null,
+              speed: null,
+            },
+            timestamp: Date.now(),
+          } as GeolocationPosition);
+        },
+      },
+    });
+  });
   const mockChat = await mockChatApi(page, {
     message: "Mocked mobile answer: keep the day slow around Cloud 9 and Catangnan.",
   });
@@ -321,6 +436,12 @@ test("sends a mobile suggested prompt through the same chat API path", async ({ 
   ).toBeVisible();
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(lastSubmittedContent(mockChat.requests[0])).toBe("Help me plan a quiet Siargao day");
+  expect(mockChat.requests[0]?.clientContext?.geolocation).toMatchObject({
+    latitude: 9.8116,
+    longitude: 126.1651,
+    accuracyMeters: 25,
+    consentScope: "single_request",
+  });
   await expect(page.getByLabel("Ask anything about Siargao")).toBeVisible();
 });
 
