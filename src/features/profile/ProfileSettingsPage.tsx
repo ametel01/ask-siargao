@@ -10,6 +10,14 @@ import { Input } from "@/components/ui/input";
 import { clerkAppearance } from "@/features/auth/clerk-appearance";
 import { isClerkConfigured } from "@/features/auth/clerk-config";
 import type { UserProfileResponse } from "@/server/profile/user-profile-store";
+import {
+  AppBackdrop,
+  appBodyClass,
+  appPanelClass,
+  appShellClass,
+  BrandHeader,
+  PageHeader,
+} from "@/ui/components/ask-siargao";
 
 type ProfileFormState = {
   displayName: string;
@@ -106,8 +114,8 @@ export function ProfileSettingsPage() {
   }
 
   return (
-    <main className="min-h-dvh bg-[#f6f7f2] text-[#18211d]">
-      <div className="mx-auto grid w-full max-w-6xl gap-8 px-4 py-6 sm:px-6 lg:px-8">
+    <AppBackdrop>
+      <div className={`${appShellClass} max-w-6xl gap-8`}>
         <ProfileHeader />
 
         {status === "loading" ? (
@@ -120,12 +128,10 @@ export function ProfileSettingsPage() {
           <div className="grid gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
             <IdentityPanel profile={profile} />
             <form className="grid gap-5" onSubmit={saveProfile}>
-              <section className="grid gap-5 rounded-lg border border-[#d9ded3] bg-white p-5 shadow-sm">
+              <section className={`${appPanelClass} grid gap-5`}>
                 <div>
                   <h2 className="m-0 text-lg font-black">Travel profile</h2>
-                  <p className="m-0 mt-1 text-sm leading-6 text-[#58645d]">
-                    App profile details for Ask Siargao planning.
-                  </p>
+                  <p className={appBodyClass}>App profile details for Ask Siargao planning.</p>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
@@ -144,10 +150,10 @@ export function ProfileSettingsPage() {
                     value={form.travelStyle}
                     onChange={(travelStyle) => setForm((current) => ({ ...current, travelStyle }))}
                   />
-                  <label className="grid gap-2 text-sm font-extrabold text-[#27332d]">
+                  <label className="grid gap-2 text-sm font-extrabold text-text-default">
                     Budget level
                     <select
-                      className="h-10 rounded-md border border-[#cfd7cf] bg-white px-3 text-sm font-bold"
+                      className="h-10 rounded-md border border-border-default bg-white px-3 text-sm font-bold outline-none focus-visible:border-brand-lagoon-600 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
                       value={form.budgetLevel}
                       onChange={(event) =>
                         setForm((current) => ({ ...current, budgetLevel: event.target.value }))
@@ -197,10 +203,10 @@ export function ProfileSettingsPage() {
                   onChange={(tripNotes) => setForm((current) => ({ ...current, tripNotes }))}
                 />
 
-                <label className="flex items-center gap-3 rounded-md border border-[#d9ded3] bg-[#f8faf5] p-3 text-sm font-bold text-[#27332d]">
+                <label className="flex items-center gap-3 rounded-md border border-brand-lagoon-700/10 bg-brand-lagoon-100 p-3 text-sm font-bold text-text-default">
                   <input
                     checked={form.marketingConsent}
-                    className="size-4 accent-[#148a66]"
+                    className="size-4 accent-brand-lagoon-600"
                     type="checkbox"
                     onChange={(event) =>
                       setForm((current) => ({
@@ -217,36 +223,43 @@ export function ProfileSettingsPage() {
                     <Save className="size-4" />
                     {saveState === "saving" ? "Saving" : "Save profile"}
                   </Button>
-                  <span className="text-sm font-bold text-[#58645d]" role="status">
+                  <output className="text-sm font-bold text-text-muted">
                     {saveState === "saved"
                       ? "Profile saved"
                       : saveState === "error"
                         ? "Profile could not be saved"
                         : ""}
-                  </span>
+                  </output>
                 </div>
               </section>
             </form>
           </div>
         )}
       </div>
-    </main>
+    </AppBackdrop>
   );
 }
 
 function ProfileHeader() {
   return (
-    <header className="flex flex-wrap items-center justify-between gap-4 border-[#dce2d8] border-b pb-5">
-      <div>
-        <p className="m-0 text-xs font-black tracking-[0.16em] text-[#148a66] uppercase">
-          Ask Siargao
-        </p>
-        <h1 className="m-0 mt-2 text-3xl font-black text-[#17211c] sm:text-4xl">Profile</h1>
-      </div>
-      <Button asChild className="rounded-md" variant="outline">
-        <Link href="/chat">Back to chat</Link>
-      </Button>
-    </header>
+    <>
+      <BrandHeader
+        action={
+          <Button
+            asChild
+            className="rounded-md border-white/20 bg-white/10 text-text-on-dark hover:bg-white/15"
+            variant="outline"
+          >
+            <Link href="/chat">Back to chat</Link>
+          </Button>
+        }
+      />
+      <PageHeader
+        description="Keep personal trip preferences in one place so Ask Siargao can shape chat answers around how you travel."
+        eyebrow="Traveler profile"
+        title="Profile"
+      />
+    </>
   );
 }
 
@@ -256,14 +269,14 @@ function IdentityPanel({ profile }: { profile: UserProfileResponse }) {
     .join(" ");
 
   return (
-    <aside className="grid h-fit gap-4 rounded-lg border border-[#d9ded3] bg-white p-5 shadow-sm">
+    <aside className={`${appPanelClass} grid h-fit gap-4`}>
       <div className="flex items-center gap-3">
-        <span className="grid size-12 place-items-center rounded-full bg-[#e8f3ed] text-[#148a66]">
+        <span className="grid size-12 place-items-center rounded-full bg-brand-lagoon-100 text-brand-lagoon-700">
           <UserRound className="size-5" />
         </span>
         <div className="min-w-0">
           <h2 className="m-0 truncate text-base font-black">Account identity</h2>
-          <p className="m-0 truncate text-sm font-bold text-[#58645d]">
+          <p className="m-0 truncate text-sm font-bold text-text-muted">
             {fullName || profile.identity.email}
           </p>
         </div>
@@ -271,20 +284,20 @@ function IdentityPanel({ profile }: { profile: UserProfileResponse }) {
 
       <dl className="grid gap-3 text-sm">
         <div>
-          <dt className="font-black text-[#58645d]">Email</dt>
+          <dt className="font-black text-text-muted">Email</dt>
           <dd className="m-0 break-words font-bold">{profile.identity.email}</dd>
         </div>
         <div>
-          <dt className="font-black text-[#58645d]">Clerk user ID</dt>
+          <dt className="font-black text-text-muted">Clerk user ID</dt>
           <dd className="m-0 break-all font-mono text-xs">{profile.identity.userId}</dd>
         </div>
       </dl>
 
       {isClerkConfigured ? (
         <Show fallback={null} when="signed-in">
-          <div className="flex items-center gap-3 border-[#d9ded3] border-t pt-4">
+          <div className="flex items-center gap-3 border-border-default border-t pt-4">
             <UserButton appearance={clerkAppearance} />
-            <span className="text-sm font-bold text-[#58645d]">Manage account</span>
+            <span className="text-sm font-bold text-text-muted">Manage account</span>
           </div>
         </Show>
       ) : null}
@@ -294,11 +307,9 @@ function IdentityPanel({ profile }: { profile: UserProfileResponse }) {
 
 function SignedOutPanel() {
   return (
-    <section className="grid max-w-xl gap-4 rounded-lg border border-[#d9ded3] bg-white p-6 shadow-sm">
+    <section className={`${appPanelClass} grid max-w-xl gap-4`}>
       <h2 className="m-0 text-xl font-black">Sign in to manage your profile</h2>
-      <p className="m-0 text-sm leading-6 text-[#58645d]">
-        Ask Siargao keeps profile details with your signed-in account.
-      </p>
+      <p className={appBodyClass}>Ask Siargao keeps profile details with your signed-in account.</p>
       <div className="flex flex-wrap gap-3">
         {isClerkConfigured ? (
           <>
@@ -308,7 +319,11 @@ function SignedOutPanel() {
               </Button>
             </SignInButton>
             <SignUpButton mode="modal">
-              <Button className="rounded-md" type="button" variant="outline">
+              <Button
+                className="rounded-md border-border-default bg-white text-text-default hover:bg-brand-lagoon-100"
+                type="button"
+                variant="outline"
+              >
                 Sign up
               </Button>
             </SignUpButton>
@@ -318,7 +333,11 @@ function SignedOutPanel() {
             <Button asChild className="rounded-md">
               <Link href="/sign-in">Sign in</Link>
             </Button>
-            <Button asChild className="rounded-md" variant="outline">
+            <Button
+              asChild
+              className="rounded-md border-border-default bg-white text-text-default hover:bg-brand-lagoon-100"
+              variant="outline"
+            >
               <Link href="/sign-up">Sign up</Link>
             </Button>
           </>
@@ -330,7 +349,7 @@ function SignedOutPanel() {
 
 function StatusPanel({ title }: { title: string }) {
   return (
-    <section className="rounded-lg border border-[#d9ded3] bg-white p-6 shadow-sm">
+    <section className={appPanelClass}>
       <h2 className="m-0 text-xl font-black">{title}</h2>
     </section>
   );
@@ -348,11 +367,11 @@ function TextField({
   const inputId = fieldId(label);
 
   return (
-    <label className="grid gap-2 text-sm font-extrabold text-[#27332d]" htmlFor={inputId}>
+    <label className="grid gap-2 text-sm font-extrabold text-text-default" htmlFor={inputId}>
       {label}
       <Input
         id={inputId}
-        className="h-10 rounded-md border-[#cfd7cf] bg-white"
+        className="h-10 rounded-md border-border-default bg-white focus-visible:border-brand-lagoon-600 focus-visible:ring-brand-lagoon-500/20"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
@@ -372,11 +391,11 @@ function TextAreaField({
   const inputId = fieldId(label);
 
   return (
-    <label className="grid gap-2 text-sm font-extrabold text-[#27332d]" htmlFor={inputId}>
+    <label className="grid gap-2 text-sm font-extrabold text-text-default" htmlFor={inputId}>
       {label}
       <textarea
         id={inputId}
-        className="min-h-28 rounded-md border border-[#cfd7cf] bg-white px-3 py-2 text-sm font-semibold outline-none focus-visible:border-[#148a66] focus-visible:ring-3 focus-visible:ring-[#148a66]/20"
+        className="min-h-28 rounded-md border border-border-default bg-white px-3 py-2 text-sm font-semibold outline-none focus-visible:border-brand-lagoon-600 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
@@ -423,10 +442,10 @@ function nullableText(value: string) {
 }
 
 function commaList(value: string) {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return value.split(",").flatMap((item) => {
+    const trimmed = item.trim();
+    return trimmed ? [trimmed] : [];
+  });
 }
 
 function fieldId(label: string) {

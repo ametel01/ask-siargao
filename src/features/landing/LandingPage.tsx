@@ -197,7 +197,7 @@ function Hero() {
           <br />
           anything about
           <br />
-          <em className="font-semibold text-brand-violet-400 italic">your trip.</em>
+          <em className="font-semibold text-brand-lagoon-300 italic">your trip.</em>
         </h1>
         <p className="mt-4 mb-0 max-w-[470px] text-sm leading-[1.45] font-bold text-text-on-dark-muted md:text-lg">
           GPT-backed answers for where to stay, what to do, how to get around, and how the
@@ -216,11 +216,11 @@ function PromptCard() {
   return (
     <Card
       aria-label="Example Ask Siargao prompt"
-      className="relative grid min-h-[186px] gap-5 rounded-xl border-brand-violet-400/75 bg-white/97 p-5 text-text-default shadow-[0_0_0_1px_rgba(255,255,255,0.24),0_20px_56px_rgba(76,49,184,0.38)] md:p-6"
+      className="relative grid min-h-[186px] gap-5 rounded-xl border-brand-lagoon-300/75 bg-white/97 p-5 text-text-default shadow-[0_0_0_1px_rgba(255,255,255,0.24),0_20px_56px_rgba(20,184,166,0.22)] md:p-6"
     >
       <CardContent className="grid gap-3 p-0">
         <div className="flex items-start gap-3">
-          <Sparkles aria-hidden="true" className="shrink-0 text-brand-violet-550" />
+          <Sparkles aria-hidden="true" className="shrink-0 text-brand-lagoon-700" />
           <p className="m-0 max-w-[520px] text-sm leading-[1.48] font-bold text-text-strong md:text-lg">
             {examplePrompt}
           </p>
@@ -228,7 +228,7 @@ function PromptCard() {
         <div className="flex w-full items-end gap-2 self-end">
           <Button
             aria-label="Add trip detail"
-            className="size-10 border-[rgba(8,47,57,0.16)] bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+            className="size-10 border-[rgba(8,47,57,0.16)] bg-white text-brand-lagoon-700 hover:bg-brand-lagoon-100"
             size="icon"
             type="button"
             variant="outline"
@@ -237,7 +237,7 @@ function PromptCard() {
           </Button>
           <Button
             aria-label="Other source-backed local data is not connected yet"
-            className="size-10 border-[rgba(8,47,57,0.16)] bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+            className="size-10 border-[rgba(8,47,57,0.16)] bg-white text-brand-lagoon-700 hover:bg-brand-lagoon-100"
             size="icon"
             type="button"
             variant="outline"
@@ -274,7 +274,7 @@ function WeatherCard() {
               className="grid min-h-[35px] grid-cols-[1.25rem_1fr_auto] items-center gap-3 px-6 text-xs text-text-muted"
               key={label}
             >
-              <Icon aria-hidden="true" className="text-brand-violet-650" size={17} />
+              <Icon aria-hidden="true" className="text-brand-lagoon-700" size={17} />
               <span>{label}</span>
               {label === "Data status" ? (
                 <SignalBadge tone="medium">{value}</SignalBadge>
@@ -322,7 +322,7 @@ function TrustRow() {
     >
       {trustItems.map(([label, Icon]) => (
         <div
-          className="inline-flex items-center gap-2 px-2 text-xs font-extrabold text-white/88 not-last:md:border-r not-last:md:border-white/22 md:px-12 [&_svg]:text-brand-violet-400"
+          className="inline-flex items-center gap-2 px-2 text-xs font-extrabold text-white/88 not-last:md:border-r not-last:md:border-white/22 md:px-12 [&_svg]:text-brand-lagoon-300"
           key={label as string}
         >
           <Icon aria-hidden="true" size={18} />
@@ -341,11 +341,11 @@ function FeatureCards() {
     >
       {featureCards.map(({ body, icon: Icon, link, title }) => (
         <Card
-          className="min-h-56 rounded-xl border-0 bg-white/97 p-5 shadow-[0_18px_48px_rgba(8,8,38,0.18)] transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-[#fff7df] md:min-h-[162px] md:p-4 xl:min-h-[162px]"
+          className="min-h-56 rounded-xl border-0 bg-white/97 p-5 shadow-[0_18px_48px_rgba(8,8,38,0.18)] transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-brand-lagoon-100 md:min-h-[162px] md:p-4 xl:min-h-[162px]"
           key={title}
         >
           <CardContent className="grid grid-cols-[3.75rem_1fr] gap-x-4 p-0">
-            <span className="row-span-4 inline-flex size-14 items-center justify-center rounded-full bg-[rgba(108,70,232,0.1)] text-brand-violet-600">
+            <span className="row-span-4 inline-flex size-14 items-center justify-center rounded-full bg-brand-lagoon-100 text-brand-lagoon-700">
               <Icon aria-hidden="true" size={30} />
             </span>
             <h2 className="mt-0 mb-2 text-lg leading-tight font-extrabold text-text-strong">
@@ -353,7 +353,7 @@ function FeatureCards() {
             </h2>
             <p className="mt-0 mb-3 text-sm leading-[1.55] text-text-muted">{body}</p>
             <Link
-              className="inline-flex items-center gap-1 text-sm font-extrabold text-brand-violet-550 no-underline"
+              className="inline-flex items-center gap-1 text-sm font-extrabold text-brand-lagoon-700 no-underline"
               href="/chat"
             >
               {link} <ArrowRight aria-hidden="true" size={15} />

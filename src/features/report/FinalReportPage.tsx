@@ -3,6 +3,18 @@ import { AlertTriangle, CheckCircle2, ClipboardList, FileText, HelpCircle } from
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { ReportOutput, RiskItem } from "@/server/audit/schemas";
+import {
+  AppBackdrop,
+  appBodyClass,
+  appCardClass,
+  appCardContentClass,
+  appLabelClass,
+  appMetaClass,
+  appPanelClass,
+  appShellClass,
+  PageHeader,
+  SectionHeading,
+} from "@/ui/components/ask-siargao";
 
 const categoryLabels: Record<RiskItem["category"], string> = {
   arrival_departure_logistics: "Arrival logistics",
@@ -14,18 +26,10 @@ const categoryLabels: Record<RiskItem["category"], string> = {
   health_safety_admin: "Health and admin",
 };
 
-const backdropClass =
-  "min-h-screen bg-[radial-gradient(circle_at_18%_8%,rgba(135,92,246,0.2),transparent_32rem),linear-gradient(135deg,#05082a_0%,#090d3a_48%,#17105a_100%)] text-text-on-dark";
-const contentShell = "mx-auto grid max-w-[1180px] gap-6 px-5 py-8 md:px-8 md:py-12";
-const panelClass =
-  "rounded-lg border border-border-default bg-surface-default p-5 shadow-card md:p-6";
-const compactCardClass = "grid gap-2 rounded-md border-border-default bg-surface-tint p-4";
-const compactCardContentClass = "grid gap-2 p-0";
 const listClass = "m-0 grid gap-3 pl-5 text-sm leading-[1.65] text-text-default";
-const labelClass = "m-0 text-xs font-extrabold text-brand-violet-650 uppercase";
 const smallTitleClass = "m-0 text-base leading-[1.3] font-extrabold text-text-strong";
-const bodyClass = "m-0 text-sm leading-[1.65] text-text-muted";
-const metaClass = "m-0 text-xs leading-[1.55] font-extrabold text-text-default";
+const metricClass =
+  "grid gap-2 rounded-md border border-white/14 bg-white/10 p-4 shadow-[0_18px_48px_rgba(0,0,0,0.16)] backdrop-blur-md";
 
 export function FinalReportPage({
   auditRequestId,
@@ -35,24 +39,49 @@ export function FinalReportPage({
   report: ReportOutput;
 }) {
   return (
-    <main className={backdropClass}>
-      <section className={contentShell}>
-        <header className="grid max-w-[820px] gap-4 text-text-on-dark">
-          <p className="m-0 text-xs font-extrabold text-text-on-dark-muted uppercase">
-            Paid report {auditRequestId}
-          </p>
-          <h1 className="m-0 text-[2.5rem] leading-[1.1] font-extrabold md:text-5xl">
-            Siargao trip risk audit
-          </h1>
-          <p className="m-0 text-base leading-[1.7] text-text-on-dark-muted">
-            Overall rating: <strong>{report.overallRisk.toUpperCase()}</strong>.{" "}
-            {report.confidenceSummary}
-          </p>
-        </header>
+    <AppBackdrop>
+      <section className={appShellClass}>
+        <PageHeader
+          description={
+            <>
+              Overall rating: <strong>{report.overallRisk.toUpperCase()}</strong>.{" "}
+              {report.confidenceSummary}
+            </>
+          }
+          eyebrow={`Paid report ${auditRequestId}`}
+          title="Siargao trip risk audit"
+        />
+
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className={metricClass}>
+            <p className="m-0 text-xs font-extrabold tracking-[0.1em] text-brand-lagoon-300 uppercase">
+              Overall risk
+            </p>
+            <p className="m-0 font-heading text-3xl leading-none font-semibold text-[#fff9e9]">
+              {report.overallRisk.toUpperCase()}
+            </p>
+          </div>
+          <div className={metricClass}>
+            <p className="m-0 text-xs font-extrabold tracking-[0.1em] text-brand-lagoon-300 uppercase">
+              Top risks
+            </p>
+            <p className="m-0 font-heading text-3xl leading-none font-semibold text-[#fff9e9]">
+              {report.topRisks.length}
+            </p>
+          </div>
+          <div className={metricClass}>
+            <p className="m-0 text-xs font-extrabold tracking-[0.1em] text-brand-lagoon-300 uppercase">
+              Evidence items
+            </p>
+            <p className="m-0 font-heading text-3xl leading-none font-semibold text-[#fff9e9]">
+              {report.evidence.length}
+            </p>
+          </div>
+        </div>
 
         <div className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
-          <section className={panelClass}>
-            <PanelHeading icon={AlertTriangle} title="Top risks" />
+          <section className={appPanelClass}>
+            <SectionHeading icon={AlertTriangle} title="Top risks" />
             <div className="grid gap-4">
               {report.topRisks.map((risk) => (
                 <RiskBlock key={risk.id} risk={risk} />
@@ -60,8 +89,8 @@ export function FinalReportPage({
             </div>
           </section>
 
-          <section className={panelClass}>
-            <PanelHeading icon={ClipboardList} title="Recommendations" />
+          <section className={appPanelClass}>
+            <SectionHeading icon={ClipboardList} title="Recommendations" />
             <ul className={listClass}>
               {report.recommendedFixes.map((fix) => (
                 <li key={fix}>{fix}</li>
@@ -70,8 +99,8 @@ export function FinalReportPage({
           </section>
         </div>
 
-        <section className={panelClass}>
-          <PanelHeading icon={FileText} title="Category breakdown" />
+        <section className={appPanelClass}>
+          <SectionHeading icon={FileText} title="Category breakdown" />
           <div className="grid gap-3 md:grid-cols-2">
             {report.fullRiskTable.map((risk) => (
               <RiskSummary key={risk.id} risk={risk} />
@@ -80,8 +109,8 @@ export function FinalReportPage({
         </section>
 
         <div className="grid gap-5 lg:grid-cols-2">
-          <section className={panelClass}>
-            <PanelHeading icon={HelpCircle} title="Host questions" />
+          <section className={appPanelClass}>
+            <SectionHeading icon={HelpCircle} title="Host questions" />
             <ul className={listClass}>
               {report.hostQuestions.map((question) => (
                 <li key={question}>{question}</li>
@@ -89,15 +118,15 @@ export function FinalReportPage({
             </ul>
           </section>
 
-          <section className={panelClass}>
-            <PanelHeading icon={CheckCircle2} title="Evidence snapshot" />
+          <section className={appPanelClass}>
+            <SectionHeading icon={CheckCircle2} title="Evidence snapshot" />
             <div className="grid gap-3">
               {report.evidence.map((evidence) => (
-                <Card className={compactCardClass} key={evidence.evidenceId} size="sm">
-                  <CardContent className={compactCardContentClass}>
-                    <p className={labelClass}>{evidence.evidenceId}</p>
+                <Card className={appCardClass} key={evidence.evidenceId} size="sm">
+                  <CardContent className={appCardContentClass}>
+                    <p className={appLabelClass}>{evidence.evidenceId}</p>
                     <h3 className={smallTitleClass}>{evidence.label}</h3>
-                    <p className={bodyClass}>
+                    <p className={appBodyClass}>
                       {evidence.sourceName} · {evidence.confidence} confidence ·{" "}
                       {evidence.freshness}
                     </p>
@@ -108,8 +137,8 @@ export function FinalReportPage({
           </section>
         </div>
 
-        <section className={panelClass}>
-          <PanelHeading icon={FileText} title="Notes and limitations" />
+        <section className={appPanelClass}>
+          <SectionHeading icon={FileText} title="Notes and limitations" />
           <div className="grid gap-4 lg:grid-cols-3">
             <Note title="Source quality" value={report.sourceQualitySummary} />
             <Note title="Freshness" value={report.evidenceFreshnessNotes.join(" ")} />
@@ -117,18 +146,18 @@ export function FinalReportPage({
           </div>
         </section>
       </section>
-    </main>
+    </AppBackdrop>
   );
 }
 
 function RiskBlock({ risk }: { risk: RiskItem }) {
   return (
-    <Card className={compactCardClass} size="sm">
-      <CardContent className={compactCardContentClass}>
+    <Card className={appCardClass} size="sm">
+      <CardContent className={appCardContentClass}>
         <RiskHeading risk={risk} />
-        <p className={bodyClass}>{risk.whatMightBreak}</p>
-        <p className={bodyClass}>{risk.whyItMatters}</p>
-        <p className={metaClass}>
+        <p className={appBodyClass}>{risk.whatMightBreak}</p>
+        <p className={appBodyClass}>{risk.whyItMatters}</p>
+        <p className={appMetaClass}>
           Fix: {risk.recommendedFix} · Evidence{" "}
           {risk.evidence.map((item) => item.evidenceId).join(", ")}
         </p>
@@ -139,11 +168,11 @@ function RiskBlock({ risk }: { risk: RiskItem }) {
 
 function RiskSummary({ risk }: { risk: RiskItem }) {
   return (
-    <Card className={compactCardClass} size="sm">
-      <CardContent className={compactCardContentClass}>
+    <Card className={appCardClass} size="sm">
+      <CardContent className={appCardContentClass}>
         <RiskHeading risk={risk} />
-        <p className={bodyClass}>{risk.recommendedFix}</p>
-        <p className={metaClass}>
+        <p className={appBodyClass}>{risk.recommendedFix}</p>
+        <p className={appMetaClass}>
           {risk.confidence} confidence · Evidence{" "}
           {risk.evidence.map((item) => item.evidenceId).join(", ")}
         </p>
@@ -156,7 +185,7 @@ function RiskHeading({ risk }: { risk: RiskItem }) {
   return (
     <div className="grid gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        <p className={labelClass}>{categoryLabels[risk.category]}</p>
+        <p className={appLabelClass}>{categoryLabels[risk.category]}</p>
         <Badge variant={risk.level === "red" ? "destructive" : "secondary"}>
           {risk.level.toUpperCase()} risk
         </Badge>
@@ -168,22 +197,11 @@ function RiskHeading({ risk }: { risk: RiskItem }) {
 
 function Note({ title, value }: { title: string; value: string }) {
   return (
-    <Card className={compactCardClass} size="sm">
-      <CardContent className={compactCardContentClass}>
-        <p className={labelClass}>{title}</p>
-        <p className={bodyClass}>{value}</p>
+    <Card className={appCardClass} size="sm">
+      <CardContent className={appCardContentClass}>
+        <p className={appLabelClass}>{title}</p>
+        <p className={appBodyClass}>{value}</p>
       </CardContent>
     </Card>
-  );
-}
-
-function PanelHeading({ icon: Icon, title }: { icon: typeof FileText; title: string }) {
-  return (
-    <div className="mb-4 flex items-center gap-3">
-      <span className="inline-flex size-10 items-center justify-center rounded-md bg-surface-tint text-brand-violet-650">
-        <Icon aria-hidden="true" size={21} />
-      </span>
-      <h2 className="m-0 text-xl font-extrabold text-text-strong">{title}</h2>
-    </div>
   );
 }

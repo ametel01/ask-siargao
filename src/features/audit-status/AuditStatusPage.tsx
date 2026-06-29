@@ -4,9 +4,12 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { type AuditJobState, auditJobStates } from "@/server/audit/enums";
-
-const backdropClass =
-  "min-h-screen bg-[radial-gradient(circle_at_18%_8%,rgba(135,92,246,0.2),transparent_32rem),linear-gradient(135deg,#05082a_0%,#090d3a_48%,#17105a_100%)] text-text-on-dark";
+import {
+  AppBackdrop,
+  appPanelClass,
+  BrandHeader,
+  SectionHeading,
+} from "@/ui/components/ask-siargao";
 
 const statusCopy: Record<
   AuditJobState,
@@ -92,22 +95,12 @@ export function AuditStatusPage({
   const progressValue = auditProgressValue(state);
 
   return (
-    <main className={backdropClass}>
-      <section className="mx-auto grid min-h-screen max-w-[860px] items-center px-5 py-10 md:px-8 md:py-16">
-        <Card className="grid gap-5 rounded-lg border border-border-default bg-surface-default p-5 shadow-card md:p-8">
+    <AppBackdrop>
+      <section className="mx-auto grid min-h-screen max-w-[900px] items-center gap-6 px-5 py-8 md:px-8 md:py-12">
+        <BrandHeader label="Audit status" />
+        <Card className={`${appPanelClass} grid gap-5 md:p-8`}>
           <CardContent className="grid gap-5 p-0">
-            <div className="flex items-center gap-3">
-              <span
-                className={`inline-flex size-11 items-center justify-center rounded-md ${statusIconClass(
-                  copy.tone,
-                )}`}
-              >
-                <Icon aria-hidden="true" size={23} />
-              </span>
-              <p className="m-0 text-xs font-extrabold text-text-muted uppercase">
-                Audit {auditRequestId}
-              </p>
-            </div>
+            <SectionHeading icon={Icon} title={`Audit ${auditRequestId}`} />
             <h1 className="m-0 text-2xl leading-[1.15] font-extrabold text-text-strong md:text-3xl">
               {copy.title}
             </h1>
@@ -130,7 +123,7 @@ export function AuditStatusPage({
           </CardContent>
         </Card>
       </section>
-    </main>
+    </AppBackdrop>
   );
 }
 
@@ -156,14 +149,4 @@ function auditProgressValue(state: AuditJobState) {
   };
 
   return progressByState[state];
-}
-
-function statusIconClass(tone: "neutral" | "success" | "warning") {
-  if (tone === "success") {
-    return "bg-emerald-100 text-emerald-800";
-  }
-  if (tone === "warning") {
-    return "bg-amber-100 text-amber-800";
-  }
-  return "bg-surface-tint text-brand-violet-650";
 }
