@@ -2,6 +2,18 @@ import type { FetchLike } from "@/server/providers/open-meteo";
 
 const tideForecastBaseUrl = "https://www.tide-forecast.com";
 const timezone = "Asia/Manila";
+const dateKeyFormatter = new Intl.DateTimeFormat("en", {
+  timeZone: timezone,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+const localTimeFormatter = new Intl.DateTimeFormat("en", {
+  timeZone: timezone,
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
 
 export const tideForecastSourceProfileId = "source_tide_forecast_dev";
 
@@ -202,14 +214,26 @@ function parseFcgon(html: string): TideForecastFcgon {
     tideDays: parsed.tideDays.map(parseRawDay),
     serverTime: optionalNumber(parsed.serverTime),
     forecast_update_ts: optionalNumber(parsed.forecast_update_ts),
-    maps: Array.isArray(parsed.maps)
-      ? parsed.maps.filter(isRecord).map((map) => ({
-          lat: optionalString(map.lat),
-          lng: optionalString(map.lng),
-          filename: optionalString(map.filename),
-        }))
-      : undefined,
+    maps: parseFcgonMaps(parsed.maps),
   };
+}
+
+function parseFcgonMaps(value: unknown): TideForecastFcgon["maps"] {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const maps: NonNullable<TideForecastFcgon["maps"]> = [];
+  for (const map of value) {
+    if (!isRecord(map)) {
+      continue;
+    }
+    maps.push({
+      lat: optionalString(map.lat),
+      lng: optionalString(map.lng),
+      filename: optionalString(map.filename),
+    });
+  }
+  return maps;
 }
 
 function findFcgonEnd(html: string, start: number) {
@@ -280,9 +304,13 @@ function parseSeaPeriods(html: string): TideForecastSeaPeriod[] {
   if (!Array.isArray(rawPeriods)) {
     return [];
   }
-  return rawPeriods.filter(isRecord).map((period, index) => {
-    const timestamp = firstPeriodStart + periodDuration * index;
-    return {
+  const periods: TideForecastSeaPeriod[] = [];
+  for (const period of rawPeriods) {
+    if (!isRecord(period)) {
+      continue;
+    }
+    const timestamp = firstPeriodStart + periodDuration * periods.length;
+    periods.push({
       timestamp,
       startsAt: epochSecondsToIso(timestamp) ?? "",
       localLabel: localTimeLabel(timestamp),
@@ -291,8 +319,9 @@ function parseSeaPeriods(html: string): TideForecastSeaPeriod[] {
       swellHeightMeters: parseNullableNumber(period.swell_height),
       swellPeriodSeconds: parseNullableNumber(period.swell_period),
       swellDirection: optionalString(period.swell_direction) ?? null,
-    };
-  });
+    });
+  }
+  return periods;
 }
 
 function readHtmlAttribute(tag: string, name: string) {
@@ -317,10 +346,17 @@ function targetDatesForRange(
 ) {
   if (range === "next_7_days") {
     const today = dateKeyInTimezone(now);
-    return days
-      .filter((day) => day.date >= today)
-      .slice(0, 7)
-      .map((day) => day.date);
+    const targetDates: string[] = [];
+    for (const day of days) {
+      if (day.date < today) {
+        continue;
+      }
+      targetDates.push(day.date);
+      if (targetDates.length === 7) {
+        break;
+      }
+    }
+    return targetDates;
   }
   const offsetDays = range === "tomorrow" ? 1 : 0;
   return [dateKeyInTimezone(addUtcDays(now, offsetDays))];
@@ -334,36 +370,42 @@ function recommendSurfWindows(
     .flatMap((day) => day.tides)
     .sort((left, right) => left.timestamp - right.timestamp);
   const candidatePeriods = seaPeriods.length > 0 ? seaPeriods : highTideFallbackPeriods(days);
-  return candidatePeriods
-    .filter((period) => isDaylightPeriod(period.timestamp, days))
-    .map((period) => {
-      const tide = closestTide(period.timestamp, detailedTides);
-      const nearestEvent = closestTideEvent(period.timestamp, detailedTides);
-      const endsAtTimestamp = period.timestamp + 3 * 60 * 60;
-      const score = scoreSurfWindow(period, tide?.heightMeters ?? null, nearestEvent?.type ?? null);
-      return {
-        startsAt: epochSecondsToIso(period.timestamp) ?? "",
-        endsAt: epochSecondsToIso(endsAtTimestamp) ?? "",
-        localLabel: `${localTimeLabel(period.timestamp)}-${localTimeLabel(endsAtTimestamp)}`,
-        score,
-        tideHeightMeters: tide?.heightMeters ?? null,
-        nearestTideType: nearestEvent?.type ?? null,
-        nearestTideTime: nearestEvent?.time ?? null,
-        swellHeightMeters: period.swellHeightMeters,
-        swellPeriodSeconds: period.swellPeriodSeconds,
-        windSpeedKmh: period.windSpeedKmh,
-        reason: surfWindowReason(period, tide?.heightMeters ?? null, nearestEvent),
-      };
-    })
+  const windows: TideForecastRecommendedWindow[] = [];
+  for (const period of candidatePeriods) {
+    if (!isDaylightPeriod(period.timestamp, days)) {
+      continue;
+    }
+    const tide = closestTide(period.timestamp, detailedTides);
+    const nearestEvent = closestTideEvent(period.timestamp, detailedTides);
+    const endsAtTimestamp = period.timestamp + 3 * 60 * 60;
+    const score = scoreSurfWindow(period, tide?.heightMeters ?? null, nearestEvent?.type ?? null);
+    windows.push({
+      startsAt: epochSecondsToIso(period.timestamp) ?? "",
+      endsAt: epochSecondsToIso(endsAtTimestamp) ?? "",
+      localLabel: `${localTimeLabel(period.timestamp)}-${localTimeLabel(endsAtTimestamp)}`,
+      score,
+      tideHeightMeters: tide?.heightMeters ?? null,
+      nearestTideType: nearestEvent?.type ?? null,
+      nearestTideTime: nearestEvent?.time ?? null,
+      swellHeightMeters: period.swellHeightMeters,
+      swellPeriodSeconds: period.swellPeriodSeconds,
+      windSpeedKmh: period.windSpeedKmh,
+      reason: surfWindowReason(period, tide?.heightMeters ?? null, nearestEvent),
+    });
+  }
+  return windows
     .sort((left, right) => right.score - left.score || left.startsAt.localeCompare(right.startsAt))
     .slice(0, 3);
 }
 
 function highTideFallbackPeriods(days: readonly TideForecastDay[]): TideForecastSeaPeriod[] {
-  return days.flatMap((day) =>
-    day.tides
-      .filter((tide) => tide.type === "high")
-      .map((tide) => ({
+  const periods: TideForecastSeaPeriod[] = [];
+  for (const day of days) {
+    for (const tide of day.tides) {
+      if (tide.type !== "high") {
+        continue;
+      }
+      periods.push({
         timestamp: tide.timestamp - 60 * 60,
         startsAt: epochSecondsToIso(tide.timestamp - 60 * 60) ?? "",
         localLabel: localTimeLabel(tide.timestamp - 60 * 60),
@@ -372,8 +414,10 @@ function highTideFallbackPeriods(days: readonly TideForecastDay[]): TideForecast
         swellHeightMeters: null,
         swellPeriodSeconds: null,
         swellDirection: null,
-      })),
-  );
+      });
+    }
+  }
+  return periods;
 }
 
 function scoreSurfWindow(
@@ -442,23 +486,13 @@ function dateKeyFromTimestamp(timestamp: number) {
 }
 
 function dateKeyInTimezone(date: Date) {
-  const parts = new Intl.DateTimeFormat("en", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
+  const parts = dateKeyFormatter.formatToParts(date);
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;
 }
 
 function localTimeLabel(timestamp: number) {
-  return new Intl.DateTimeFormat("en", {
-    timeZone: timezone,
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  }).format(new Date(timestamp * 1000));
+  return localTimeFormatter.format(new Date(timestamp * 1000));
 }
 
 function epochSecondsToIso(value: number | undefined) {

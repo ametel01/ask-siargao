@@ -1,34 +1,9 @@
-export const clerkPublicRoutePatterns = [
-  "/",
-  "/chat",
-  "/sign-in(.*)",
-  "/sign-up(.*)",
-  "/trips/shared(.*)",
-  "/api/chat",
-  "/api/trips/saved(.*)",
-  "/api/trips/share(.*)",
-  "/api/public(.*)",
-  "/api/stripe/webhook",
-  "/api/clerk/webhooks",
-] as const;
-
 export const clerkProtectedRoutePatterns = [
   "/profile(.*)",
   "/chat/history(.*)",
   "/api/me(.*)",
   "/api/chat/threads(.*)",
   "/api/chat/ratings(.*)",
-] as const;
-
-export const clerkOptionalAuthRoutePatterns = [
-  "/api/chat",
-  "/api/trips/saved(.*)",
-  "/api/trips/share",
-] as const;
-
-export const clerkProxyRoutePatterns = [
-  ...clerkProtectedRoutePatterns,
-  ...clerkOptionalAuthRoutePatterns,
 ] as const;
 
 type ClerkRouteClassification = "protected" | "public" | "public-by-default";

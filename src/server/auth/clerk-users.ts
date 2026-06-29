@@ -1,4 +1,4 @@
-import type { UserDeletedJSON, UserJSON, UserWebhookEvent } from "@clerk/backend";
+import type { UserJSON, UserWebhookEvent } from "@clerk/backend";
 import { auth } from "@clerk/nextjs/server";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
@@ -87,18 +87,6 @@ export function normalizeClerkUser(user: UserJSON): ClerkUserInput {
     imageUrl: user.image_url || null,
     clerkUpdatedAt: timestampFromClerkMs(user.updated_at),
     lastSeenAt: timestampFromClerkMs(user.last_active_at),
-  };
-}
-
-export function normalizeDeletedClerkUser(user: UserDeletedJSON) {
-  if (!user.id) {
-    throw new Error("Deleted Clerk user payload did not include a user id.");
-  }
-
-  return {
-    id: user.id,
-    email: fallbackDeletedEmail(user.id),
-    deletedAt: new Date(),
   };
 }
 

@@ -4,6 +4,7 @@ import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { Save, UserRound } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, useEffect, useState } from "react";
+import useSWR from "swr";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,48 +46,48 @@ const emptyForm: ProfileFormState = {
   marketingConsent: false,
 };
 
+class ProfileFetchError extends Error {
+  constructor(readonly status: number) {
+    super("Profile could not be loaded.");
+  }
+}
+
+async function fetchProfile(url: string) {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new ProfileFetchError(response.status);
+  }
+
+  return (await response.json()) as UserProfileResponse;
+}
+
 export function ProfileSettingsPage() {
+  const {
+    data: loadedProfile,
+    error: profileError,
+    isLoading: isProfileLoading,
+  } = useSWR("/api/me/profile", fetchProfile, {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  });
   const [profile, setProfile] = useState<UserProfileResponse | null>(null);
   const [form, setForm] = useState<ProfileFormState>(emptyForm);
-  const [status, setStatus] = useState<"loading" | "ready" | "unauthenticated" | "error">(
-    "loading",
-  );
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   useEffect(() => {
-    let active = true;
-
-    async function loadProfile() {
-      try {
-        const response = await fetch("/api/me/profile", { cache: "no-store" });
-        if (!active) {
-          return;
-        }
-        if (response.status === 401) {
-          setStatus("unauthenticated");
-          return;
-        }
-        if (!response.ok) {
-          setStatus("error");
-          return;
-        }
-
-        const nextProfile = (await response.json()) as UserProfileResponse;
-        setProfile(nextProfile);
-        setForm(formFromProfile(nextProfile));
-        setStatus("ready");
-      } catch {
-        if (active) {
-          setStatus("error");
-        }
-      }
+    if (!loadedProfile) {
+      return;
     }
 
-    void loadProfile();
-    return () => {
-      active = false;
-    };
-  }, []);
+    setProfile(loadedProfile);
+    setForm(formFromProfile(loadedProfile));
+  }, [loadedProfile]);
+
+  const status = profileLoadStatus({
+    error: profileError,
+    isLoading: isProfileLoading,
+    profile,
+  });
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -419,6 +420,28 @@ function formFromProfile(profile: UserProfileResponse): ProfileFormState {
         : "",
     marketingConsent: profile.profile.marketingConsent,
   };
+}
+
+function profileLoadStatus({
+  error,
+  isLoading,
+  profile,
+}: {
+  error: unknown;
+  isLoading: boolean;
+  profile: UserProfileResponse | null;
+}): "loading" | "ready" | "unauthenticated" | "error" {
+  if (error instanceof ProfileFetchError && error.status === 401) {
+    return "unauthenticated";
+  }
+  if (error) {
+    return "error";
+  }
+  if (profile) {
+    return "ready";
+  }
+
+  return isLoading ? "loading" : "error";
 }
 
 function profilePatchFromForm(form: ProfileFormState) {

@@ -345,12 +345,16 @@ export async function runAskSiargaoAgentTurn(
             product: "Ask Siargao",
             instruction:
               "You attempted a final itinerary answer before required follow-up checks completed. Use these automatically executed safe tool outputs, preserve provider failures as caveats, and write the final traveler-facing answer now.",
-            automaticRequiredToolChecks: automaticToolOutputs.map((output) => ({
-              toolCallId: output.functionCall.callId,
-              name: output.functionCall.name,
-              arguments: publicToolArguments(output.functionCall),
-              result: JSON.parse(serializeToolOutput(output.result)),
-            })),
+            automaticRequiredToolChecks: automaticToolOutputs.map((output) => {
+              const { functionCall } = output;
+
+              return {
+                toolCallId: functionCall.callId,
+                name: functionCall.name,
+                arguments: publicToolArguments(functionCall),
+                result: JSON.parse(serializeToolOutput(output.result)),
+              };
+            }),
             responseContract,
           }),
         ];
@@ -2452,9 +2456,17 @@ function readFileNamesFromArrayPath(value: unknown, path: readonly string[]) {
   if (!Array.isArray(current)) {
     return [];
   }
-  return current
-    .flatMap((item) => (isRecord(item) ? [readString(item.fileName)] : []))
-    .filter((fileName): fileName is string => typeof fileName === "string");
+  const fileNames: string[] = [];
+  for (const item of current) {
+    if (!isRecord(item)) {
+      continue;
+    }
+    const fileName = readString(item.fileName);
+    if (typeof fileName === "string") {
+      fileNames.push(fileName);
+    }
+  }
+  return fileNames;
 }
 
 function readNumberPath(value: unknown, path: readonly string[]) {

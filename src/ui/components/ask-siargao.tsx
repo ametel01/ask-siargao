@@ -13,10 +13,9 @@ type IconComponent = ComponentType<{
   size?: number;
 }>;
 
-export const appBackdropClass =
-  "min-h-screen bg-[image:var(--gradient-app-backdrop)] text-text-on-dark";
+const appBackdropClass = "min-h-screen bg-[image:var(--gradient-app-backdrop)] text-text-on-dark";
 
-export const sunsetBackdropClass =
+const sunsetBackdropClass =
   "min-h-screen bg-[image:var(--gradient-sunset-backdrop)] bg-cover bg-center bg-no-repeat text-text-on-dark";
 
 export const appShellClass = "mx-auto grid w-full max-w-[1180px] gap-6 px-5 py-7 md:px-8 md:py-12";

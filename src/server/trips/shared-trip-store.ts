@@ -244,34 +244,6 @@ export async function listSavedTripItems(
   return result.rows.map(savedTripItemFromRow);
 }
 
-export async function listSavedTripItemsByUserId(
-  db: SharedTripStoreDatabase,
-  { includeDeleted = false, userId }: { userId: string; includeDeleted?: boolean },
-) {
-  const result = await db.query<SavedTripItemRow>(
-    `
-      select
-        saved_trip_items.id,
-        saved_trip_items.trip_id,
-        saved_trip_items.kind,
-        saved_trip_items.title,
-        saved_trip_items.payload_json,
-        saved_trip_items.sources_json,
-        saved_trip_items.created_at,
-        saved_trip_items.updated_at,
-        saved_trip_items.deleted_at
-      from saved_trip_items
-      inner join saved_trips on saved_trips.id = saved_trip_items.trip_id
-      where saved_trips.user_id = $1
-        and ($2::boolean or saved_trip_items.deleted_at is null)
-      order by saved_trip_items.created_at asc, saved_trip_items.id asc
-    `,
-    [userId, includeDeleted],
-  );
-
-  return result.rows.map(savedTripItemFromRow);
-}
-
 export async function removeSavedTripItem(
   db: SharedTripStoreDatabase,
   {

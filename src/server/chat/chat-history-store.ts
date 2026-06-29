@@ -269,14 +269,12 @@ export async function updateOwnedChatThread(
     ],
   );
 
-  if (input.deleted === true) {
-    return existing;
-  }
-
-  return loadOwnedChatThread(db, {
-    threadId: input.threadId,
-    userId: input.userId,
-  });
+  return input.deleted === true
+    ? existing
+    : loadOwnedChatThread(db, {
+        threadId: input.threadId,
+        userId: input.userId,
+      });
 }
 
 export async function appendChatHistoryMessage(

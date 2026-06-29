@@ -105,7 +105,7 @@ export async function upsertChatResponseRating(
   return { status: "rated", rating };
 }
 
-export async function loadChatResponseRating(
+async function loadChatResponseRating(
   db: DatabaseQueryClient,
   input: {
     messageId: string;

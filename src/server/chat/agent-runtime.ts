@@ -405,7 +405,7 @@ export function createAgentTurnResult({
   };
 }
 
-export function buildAgentArtifactRegistry(
+function buildAgentArtifactRegistry(
   toolResults: readonly AgentToolResultArtifactCarrier[],
 ): AgentArtifactRegistry {
   const cardsById = new Map<string, RecommendationCard>();

@@ -52,14 +52,33 @@ export function parseSurfSpotDistanceAnchors(markdown: string): SurfSpot[] {
 export function rankSurfSpotsNearby(input: RankSurfSpotsNearbyInput): RankedSurfSpot[] {
   const skillLevel = input.skillLevel ?? "any";
   const maxResults = normalizeMaxResults(input.maxResults);
-  return input.spots
-    .filter((spot) => input.includeBoatAccess !== false || spot.access !== "boat")
-    .filter((spot) => skillLevel === "any" || spot.skillLevels.includes(skillLevel))
-    .map((spot) => publicRankedSurfSpot(spot, input.center))
+  const rankedSpots: RankedSurfSpot[] = [];
+  for (const spot of input.spots) {
+    if (input.includeBoatAccess === false && spot.access === "boat") {
+      continue;
+    }
+    if (!surfSpotSupportsSkillLevel(spot, skillLevel)) {
+      continue;
+    }
+    rankedSpots.push(publicRankedSurfSpot(spot, input.center));
+  }
+  return rankedSpots
     .sort(
       (left, right) => left.distanceKm - right.distanceKm || left.name.localeCompare(right.name),
     )
     .slice(0, maxResults);
+}
+
+function surfSpotSupportsSkillLevel(spot: SurfSpot, skillLevel: SurfSpotSkillLevel) {
+  if (skillLevel === "any") {
+    return true;
+  }
+  for (const supportedLevel of spot.skillLevels) {
+    if (supportedLevel === skillLevel) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function parseSurfSpot(value: unknown): SurfSpot | undefined {

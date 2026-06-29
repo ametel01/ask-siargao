@@ -37,6 +37,8 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import useSWR from "swr";
+import useSWRMutation from "swr/mutation";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -179,6 +181,10 @@ type SavedTripState = {
   tripId: string;
   items: SavedTripItem[];
   updatedAt: string;
+};
+type SavedTripApiResponse = {
+  tripId?: string;
+  items?: SavedTripItem[];
 };
 type SavedPlanShareStatus = "idle" | "syncing" | "creating" | "ready" | "error";
 type SavedPlanCopyStatus = "idle" | "copied" | "error";
@@ -445,40 +451,44 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     [savedTripState],
   );
   const savedPlanSharing = useSavedPlanSharing(savedTripState);
+  const { data: authenticatedSavedTrip, mutate: refreshAuthenticatedSavedTrip } = useSWR(
+    "/api/trips/saved",
+    fetchAuthenticatedSavedTrip,
+    {
+      revalidateOnFocus: false,
+      shouldRetryOnError: false,
+    },
+  );
+  const { trigger: syncAuthenticatedSavedTripItems } = useSWRMutation(
+    "/api/trips/saved",
+    syncSavedTripItemsMutation,
+  );
+  const hasSyncedAuthenticatedSavedTrip = useRef(false);
 
   useEffect(() => {
+    if (!authenticatedSavedTrip || hasSyncedAuthenticatedSavedTrip.current) {
+      return;
+    }
+
+    hasSyncedAuthenticatedSavedTrip.current = true;
+    const initialAuthenticatedSavedTrip = authenticatedSavedTrip;
     let isActive = true;
 
     async function syncAuthenticatedSavedTrip() {
-      const initialResponse = await fetch("/api/trips/saved", { cache: "no-store" });
-      if (!initialResponse.ok) {
-        return;
-      }
-
       const currentState = getSavedTripSnapshot();
+      let nextSavedTrip: SavedTripApiResponse | null = initialAuthenticatedSavedTrip;
       if (currentState.items.length > 0) {
-        await postSavedTripItems({
+        await syncAuthenticatedSavedTripItems({
           tripId: currentState.tripId,
           items: currentState.items,
         });
+        nextSavedTrip = (await refreshAuthenticatedSavedTrip()) ?? nextSavedTrip;
       }
 
-      const response = await fetch("/api/trips/saved", { cache: "no-store" });
-      if (!response.ok) {
+      if (!isActive) {
         return;
       }
-
-      const body = (await response.json()) as { tripId?: string; items?: SavedTripItem[] };
-      if (!isActive || !body.items?.length) {
-        return;
-      }
-      const tripId = body.tripId ?? currentState.tripId;
-
-      writeSavedTripState({
-        tripId,
-        items: body.items.map((item) => ({ ...item, tripId })),
-        updatedAt: new Date().toISOString(),
-      });
+      writeAuthenticatedSavedTripState(nextSavedTrip, currentState.tripId);
     }
 
     void syncAuthenticatedSavedTrip().catch(() => {});
@@ -486,7 +496,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [authenticatedSavedTrip, refreshAuthenticatedSavedTrip, syncAuthenticatedSavedTripItems]);
 
   const refreshChatThreads = useCallback(async () => {
     try {
@@ -2965,6 +2975,29 @@ function interactiveMessageFromThreadMessage(
   };
 }
 
+async function fetchAuthenticatedSavedTrip(url: string): Promise<SavedTripApiResponse | null> {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    return null;
+  }
+
+  return (await response.json()) as SavedTripApiResponse;
+}
+
+async function syncSavedTripItemsMutation(
+  url: string,
+  {
+    arg,
+  }: {
+    arg: {
+      tripId: string;
+      items: readonly SavedTripItem[];
+    };
+  },
+) {
+  return saveSavedTripItems(url, arg);
+}
+
 async function postSavedTripItems({
   items,
   tripId,
@@ -2972,7 +3005,20 @@ async function postSavedTripItems({
   tripId: string;
   items: readonly SavedTripItem[];
 }) {
-  const response = await fetch("/api/trips/saved", {
+  await saveSavedTripItems("/api/trips/saved", { items, tripId });
+}
+
+async function saveSavedTripItems(
+  url: string,
+  {
+    items,
+    tripId,
+  }: {
+    tripId: string;
+    items: readonly SavedTripItem[];
+  },
+) {
+  const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ tripId, items }),
@@ -2981,6 +3027,8 @@ async function postSavedTripItems({
   if (!response.ok) {
     throw new Error(shareErrorMessage);
   }
+
+  return (await response.json()) as SavedTripApiResponse;
 }
 
 async function deleteSavedTripItem({ itemId, tripId }: { tripId: string; itemId: string }) {
@@ -3129,6 +3177,22 @@ function writeSavedTripState(state: SavedTripState) {
   for (const listener of savedTripListeners) {
     listener();
   }
+}
+
+function writeAuthenticatedSavedTripState(
+  savedTrip: SavedTripApiResponse | null,
+  fallbackTripId: string,
+) {
+  if (!savedTrip?.items?.length) {
+    return;
+  }
+  const tripId = savedTrip.tripId ?? fallbackTripId;
+
+  writeSavedTripState({
+    tripId,
+    items: savedTrip.items.map((item) => ({ ...item, tripId })),
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 function upsertSavedTripItem(state: SavedTripState, nextItem: SavedTripItem): SavedTripState {
