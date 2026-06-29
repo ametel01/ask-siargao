@@ -28,6 +28,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useMemo,
@@ -394,6 +395,38 @@ function createInitialSavedPlanShareState(): SavedPlanShareState {
 }
 
 export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }) {
+  const controller = useChatWorkspaceController(initialPrompt);
+
+  return <ChatWorkspaceView {...controller} />;
+}
+
+type ChatWorkspaceController = {
+  chatThreads: ChatThreadSummary[];
+  handlePromptSubmit: (prompt: string) => void;
+  historyStatus: "idle" | "loading" | "error";
+  inputValue: string;
+  isSending: boolean;
+  locationState: LocationCaptureState;
+  messageEndRef: RefObject<HTMLDivElement | null>;
+  messages: InteractiveChatMessage[];
+  openChatThread: (threadId: string) => Promise<void>;
+  archiveSelectedThread: () => Promise<void>;
+  deleteSelectedThread: () => Promise<void>;
+  rateAssistantMessage: (messageId: string, rating: ChatResponseRatingValue) => Promise<void>;
+  removeSavedItem: (itemId: string) => void;
+  renameSelectedThread: () => Promise<void>;
+  requestLocation: () => void;
+  saveItineraryPlan: (plan: ItineraryPlanArtifact) => void;
+  saveRecommendationCard: (card: RecommendationCardArtifact) => void;
+  savedItemIds: ReadonlySet<string>;
+  savedPlanSharing: ReturnType<typeof useSavedPlanSharing>;
+  savedTripState: SavedTripState;
+  selectedThreadId: string | null;
+  setInputValue: (value: string) => void;
+  startNewChat: () => void;
+};
+
+function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceController {
   const [inputValue, setInputValue] = useState(() => initialPrompt.trim());
   const [isSending, setIsSending] = useState(false);
   const [locationState, setLocationState] = useState<LocationCaptureState>({ status: "idle" });
@@ -783,10 +816,66 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
     messageEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
   });
 
-  const hasMessages = messages.length > 0;
-  const handlePromptSubmit = (prompt: string) => {
-    void submitPrompt(prompt);
+  const handlePromptSubmit = useCallback(
+    (prompt: string) => {
+      void submitPrompt(prompt);
+    },
+    [submitPrompt],
+  );
+
+  return {
+    chatThreads,
+    handlePromptSubmit,
+    historyStatus,
+    inputValue,
+    isSending,
+    locationState,
+    messageEndRef,
+    messages,
+    openChatThread,
+    archiveSelectedThread,
+    deleteSelectedThread,
+    rateAssistantMessage,
+    removeSavedItem,
+    renameSelectedThread,
+    requestLocation,
+    saveItineraryPlan,
+    saveRecommendationCard,
+    savedItemIds,
+    savedPlanSharing,
+    savedTripState,
+    selectedThreadId,
+    setInputValue,
+    startNewChat,
   };
+}
+
+function ChatWorkspaceView({
+  chatThreads,
+  handlePromptSubmit,
+  historyStatus,
+  inputValue,
+  isSending,
+  locationState,
+  messageEndRef,
+  messages,
+  openChatThread,
+  archiveSelectedThread,
+  deleteSelectedThread,
+  rateAssistantMessage,
+  removeSavedItem,
+  renameSelectedThread,
+  requestLocation,
+  saveItineraryPlan,
+  saveRecommendationCard,
+  savedItemIds,
+  savedPlanSharing,
+  savedTripState,
+  selectedThreadId,
+  setInputValue,
+  startNewChat,
+}: ChatWorkspaceController) {
+  const hasMessages = messages.length > 0;
 
   return (
     <main
