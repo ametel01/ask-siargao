@@ -477,13 +477,13 @@ test("renders structured recommendation cards and submits action prompts", async
   await page.getByRole("button", { name: "Send question" }).click();
 
   await expect(page.getByText("Mocked card answer:")).toBeVisible();
-  await expect(
-    page.getByTestId("recommendation-card").filter({ hasText: "Shaka Siargao" }),
-  ).toBeVisible();
-  await expect(page.getByText("About 50 m from search center.")).toBeVisible();
-  await expect(page.getByText("Open now according to Google Places.")).toBeVisible();
-  await expect(page.getByText("Google Places - live checked")).toBeVisible();
-  await expect(page.getByText("Review text and bookings were not checked.")).toBeVisible();
+  const card = page.getByTestId("recommendation-card").filter({ hasText: "Shaka Siargao" });
+  await expect(card).toBeVisible();
+  await expect(page.getByTestId("recommendation-source-badge")).toHaveText("Source: Google Places");
+  await expect(card.getByText("50 m away")).toBeVisible();
+  await expect(card.getByText("Open now")).toBeVisible();
+  await expect(card.getByText("Returned #1 by Google Places for this request.")).toHaveCount(0);
+  await expect(card.getByText("Review text and bookings were not checked.")).toHaveCount(0);
 
   const mapLink = page.getByRole("link", { name: "Open Shaka Siargao in Google Maps" });
   await expect(mapLink).toHaveAttribute("href", "https://maps.google.com/?cid=shaka");

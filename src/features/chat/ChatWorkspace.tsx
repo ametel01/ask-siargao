@@ -1240,8 +1240,8 @@ function chatSourceKey(source: ChatSourceArtifact) {
     sourceProfileId: source.sourceProfileId ?? "",
     fetchedAt: source.fetchedAt ?? "",
     confidence: source.confidence ?? "",
-    checked: [...source.checked].sort(),
-    notChecked: [...source.notChecked].sort(),
+    checked: source.checked.toSorted(),
+    notChecked: source.notChecked.toSorted(),
   });
 }
 
@@ -1270,6 +1270,157 @@ function formatCompactList(values: readonly string[]) {
   return values.slice(0, 3).join(", ");
 }
 
+function RecommendationSourceBadge({ cards }: { cards: readonly RecommendationCardArtifact[] }) {
+  const sourceNames = compactRecommendationSourceNames(cards);
+  if (sourceNames.length === 0) {
+    return null;
+  }
+
+  const visibleSources = sourceNames.slice(0, 2);
+  const hiddenCount = sourceNames.length - visibleSources.length;
+  const label = `${sourceNames.length === 1 ? "Source" : "Sources"}: ${visibleSources.join(", ")}${
+    hiddenCount > 0 ? ` +${hiddenCount}` : ""
+  }`;
+
+  return (
+    <span
+      className="inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border border-[#ffd36a]/18 bg-[#ffd36a]/10 px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold text-[#ffe2a2]"
+      data-testid="recommendation-source-badge"
+    >
+      <ShieldCheck aria-hidden="true" className="shrink-0" size={13} />
+      <span className="min-w-0 break-words">{label}</span>
+    </span>
+  );
+}
+
+function compactRecommendationSourceNames(cards: readonly RecommendationCardArtifact[]) {
+  const names: string[] = [];
+  const seen = new Set<string>();
+
+  for (const card of cards) {
+    const cardSourceNames = card.sources?.length
+      ? card.sources.map((source) => compactSourceName(source.sourceName))
+      : [compactSourceName(card.sourceLabel.split(" - ")[0] ?? card.sourceLabel)];
+
+    for (const name of cardSourceNames) {
+      const key = name.toLocaleLowerCase();
+      if (!name || seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      names.push(name);
+    }
+  }
+
+  return names;
+}
+
+function compactSourceName(value: string) {
+  return value
+    .replace(/\s+API(?:\s+profile)?$/i, "")
+    .replace(/\s+profile$/i, "")
+    .trim();
+}
+
+function compactRecommendationSubtitle(subtitle: string | undefined) {
+  if (!subtitle) {
+    return {};
+  }
+
+  const parts = subtitle.split(" - ").flatMap((part) => {
+    const trimmedPart = part.trim();
+    return trimmedPart ? [trimmedPart] : [];
+  });
+  if (parts.length === 0) {
+    return {};
+  }
+  if (parts.length === 1) {
+    return { meta: parts[0] };
+  }
+
+  const ratingPartIndex = parts.findIndex((part) => /google rating/i.test(part));
+  const ratingLabel =
+    ratingPartIndex >= 0 ? compactGoogleRatingLabel(parts[ratingPartIndex]) : undefined;
+  const categoryLabel = titleCaseShortLabel(parts[0]);
+  const addressParts = parts.slice(1).filter((_, index) => index + 1 !== ratingPartIndex);
+  const address = compactAddressLabel(addressParts.join(", "));
+
+  return {
+    meta: [categoryLabel, ratingLabel].filter(Boolean).join(" · "),
+    address,
+  };
+}
+
+function compactGoogleRatingLabel(value: string | undefined) {
+  if (!value) {
+    return undefined;
+  }
+
+  const match = value.match(/google rating\s+([\d.]+)\s+from\s+([\d,]+)\s+ratings?/i);
+  if (!match) {
+    return value.replace(/^google\s+/i, "").trim();
+  }
+
+  return `${match[1]} rating · ${match[2]} reviews`;
+}
+
+function titleCaseShortLabel(value: string) {
+  return value
+    .split(/\s+/)
+    .map((word) => (word ? `${word[0]?.toLocaleUpperCase()}${word.slice(1)}` : word))
+    .join(" ");
+}
+
+function compactAddressLabel(value: string) {
+  const addressParts = value
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part && !/^\d{4}\b/.test(part));
+  return addressParts.slice(0, 2).join(", ");
+}
+
+function compactDistanceLabel(label: string) {
+  const distanceMatch = label.match(/about\s+(.+?)\s+from\s+search\s+center/i);
+  if (distanceMatch?.[1]) {
+    return `${distanceMatch[1].trim()} away`;
+  }
+  return trimTrailingPeriod(label);
+}
+
+function compactOpenStatusLabel(label: string) {
+  if (/^open now/i.test(label)) {
+    return "Open now";
+  }
+  if (/hours not returned/i.test(label)) {
+    return "Hours not listed";
+  }
+
+  return trimTrailingPeriod(
+    label.replace(/\s+according to Google Places/gi, "").replace(/\s+from Google Places/gi, ""),
+  );
+}
+
+function usefulRecommendationReasons(reasons: readonly string[]) {
+  return reasons.filter((reason) => !isRedundantRecommendationReason(reason)).slice(0, 1);
+}
+
+function isRedundantRecommendationReason(reason: string) {
+  return [
+    /google places/i,
+    /matching what you asked/i,
+    /returned\s+#?\d+/i,
+    /\btop\b.*\bmatch\b/i,
+    /\blisted as\b/i,
+    /\beasy to reach\b/i,
+    /\bopen\b/i,
+    /\bwell rated\b/i,
+  ].some((pattern) => pattern.test(reason));
+}
+
+function trimTrailingPeriod(value: string) {
+  return value.trim().replace(/\.$/, "");
+}
+
 function RecommendationCards({
   cards,
   onRemoveSavedItem,
@@ -1287,13 +1438,18 @@ function RecommendationCards({
       className="grid min-w-0 gap-3 rounded-md border border-white/10 bg-white/[0.045] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
       data-testid="recommendation-cards"
     >
-      <h3 className="m-0 flex items-center gap-2 text-sm font-black text-white">
-        <Utensils aria-hidden="true" className="text-[#ffd36a]" size={17} />
-        Recommended Places
-      </h3>
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <h3 className="m-0 flex items-center gap-2 text-sm font-black text-white">
+          <Utensils aria-hidden="true" className="text-[#ffd36a]" size={17} />
+          Recommended Places
+        </h3>
+        <RecommendationSourceBadge cards={cards} />
+      </div>
       {cards.map((card) => {
         const savedItemId = savedItemIdForCard(card);
         const isSaved = savedItemIds.has(savedItemId);
+        const subtitle = compactRecommendationSubtitle(card.subtitle);
+        const usefulReasons = usefulRecommendationReasons(card.fitReasons);
 
         return (
           <article
@@ -1314,9 +1470,14 @@ function RecommendationCards({
                   <h4 className="m-0 text-sm leading-[1.25] font-black break-words text-white sm:text-base">
                     {card.title}
                   </h4>
-                  {card.subtitle ? (
+                  {subtitle.meta ? (
                     <p className="m-0 text-xs leading-[1.45] break-words text-text-on-dark-muted sm:text-sm">
-                      {card.subtitle}
+                      {subtitle.meta}
+                    </p>
+                  ) : null}
+                  {subtitle.address ? (
+                    <p className="m-0 text-xs leading-[1.45] break-words text-text-on-dark-muted">
+                      {subtitle.address}
                     </p>
                   ) : null}
                 </div>
@@ -1331,27 +1492,17 @@ function RecommendationCards({
 
               <div className="flex min-w-0 flex-wrap gap-2">
                 {card.distanceLabel ? (
-                  <CardSignal icon="distance" label={card.distanceLabel} />
+                  <CardSignal icon="distance" label={compactDistanceLabel(card.distanceLabel)} />
                 ) : null}
                 {card.openStatusLabel ? (
-                  <CardSignal icon="time" label={card.openStatusLabel} />
+                  <CardSignal icon="time" label={compactOpenStatusLabel(card.openStatusLabel)} />
                 ) : null}
-                <CardSignal label={card.sourceLabel} />
               </div>
 
-              {card.fitReasons.length ? (
-                <ul className="m-0 grid gap-1.5 pl-4 text-xs leading-[1.45] text-text-on-dark-muted sm:text-sm">
-                  {card.fitReasons.map((reason) => (
-                    <li className="break-words" key={reason}>
-                      {reason}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-
-              {card.caveats.length ? (
-                <p className="m-0 rounded-md border border-[#ffd98a]/20 bg-[#ffd98a]/10 px-3 py-2 text-xs leading-[1.45] break-words text-[#ffe5a8]">
-                  {card.caveats.join(" ")}
+              {usefulReasons.length ? (
+                <p className="m-0 text-xs leading-[1.45] break-words text-text-on-dark-muted sm:text-sm">
+                  <span className="font-black text-text-on-dark">Why this:</span>{" "}
+                  {usefulReasons.join(" ")}
                 </p>
               ) : null}
 
