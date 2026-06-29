@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { clerkAppearance } from "@/features/auth/clerk-appearance";
 import { isClerkConfigured } from "@/features/auth/clerk-config";
+import { AppBackdrop, appNightPanelClass, BrandLockup } from "@/ui/components/ask-siargao";
 
 export default function SignInPage() {
   if (!isClerkConfigured) {
@@ -11,24 +12,36 @@ export default function SignInPage() {
   }
 
   return (
-    <main className="grid min-h-dvh place-items-center bg-[linear-gradient(135deg,#05082a_0%,#091133_52%,#0e2c3d_100%)] px-4 py-10">
-      <SignIn appearance={clerkAppearance} />
-    </main>
+    <AppBackdrop className="grid place-items-center px-4 py-10">
+      <section className="grid justify-items-center gap-5">
+        <Link aria-label="Ask Siargao home" className="no-underline" href="/">
+          <BrandLockup />
+        </Link>
+        <SignIn appearance={clerkAppearance} />
+      </section>
+    </AppBackdrop>
   );
 }
 
 function ClerkUnavailable({ actionLabel }: { actionLabel: string }) {
   return (
-    <main className="grid min-h-dvh place-items-center bg-[linear-gradient(135deg,#05082a_0%,#091133_52%,#0e2c3d_100%)] px-4 py-10 text-text-on-dark">
-      <section className="grid max-w-md gap-4 rounded-lg border border-white/14 bg-white/10 p-6 shadow-[0_22px_70px_rgba(0,0,0,0.24)]">
-        <h1 className="m-0 text-2xl font-black">{actionLabel} unavailable</h1>
+    <AppBackdrop className="grid place-items-center px-4 py-10">
+      <section className={`${appNightPanelClass} grid max-w-md gap-4`}>
+        <BrandLockup />
+        <h1 className="m-0 font-heading text-3xl leading-none font-semibold text-[#fff9e9]">
+          {actionLabel} unavailable
+        </h1>
         <p className="m-0 text-sm leading-6 text-text-on-dark-muted">
           Clerk environment variables are not configured for this environment.
         </p>
-        <Button asChild className="w-fit rounded-md" type="button">
+        <Button
+          asChild
+          className="w-fit rounded-md bg-[image:var(--gradient-lagoon-cta)]"
+          type="button"
+        >
           <Link href="/chat">Back to chat</Link>
         </Button>
       </section>
-    </main>
+    </AppBackdrop>
   );
 }

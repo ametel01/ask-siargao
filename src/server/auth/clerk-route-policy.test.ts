@@ -29,4 +29,8 @@ describe("Clerk route policy", () => {
     expect(classifyClerkRoute("/chatty")).toBe("public-by-default");
     expect(classifyClerkRoute("https://ask-siargao.test/sign-in")).toBe("public");
   });
+
+  test("leaves Clerk auto-proxy traffic public by route policy", () => {
+    expect(classifyClerkRoute("/__clerk/some/path")).toBe("public-by-default");
+  });
 });

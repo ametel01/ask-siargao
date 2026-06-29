@@ -1,9 +1,9 @@
-import { shadcn } from "@clerk/ui/themes";
+import { dark, shadcn } from "@clerk/ui/themes";
 
 export const clerkAppearance = {
-  theme: shadcn,
+  theme: [dark, shadcn],
   variables: {
     borderRadius: "0.5rem",
-    colorPrimary: "#6c46e8",
+    colorPrimary: "#8ee6d8",
   },
 };

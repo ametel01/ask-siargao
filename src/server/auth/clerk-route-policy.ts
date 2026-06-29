@@ -20,6 +20,17 @@ export const clerkProtectedRoutePatterns = [
   "/api/chat/ratings(.*)",
 ] as const;
 
+export const clerkOptionalAuthRoutePatterns = [
+  "/api/chat",
+  "/api/trips/saved(.*)",
+  "/api/trips/share",
+] as const;
+
+export const clerkProxyRoutePatterns = [
+  ...clerkProtectedRoutePatterns,
+  ...clerkOptionalAuthRoutePatterns,
+] as const;
+
 type ClerkRouteClassification = "protected" | "public" | "public-by-default";
 
 const publicRouteExpressions = [

@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { isClerkServerConfigured } from "@/features/auth/clerk-config";
 import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/auth/clerk-users";
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { loadUserProfile, upsertUserProfile } from "@/server/profile/user-profile-store";
@@ -79,8 +80,12 @@ export async function patchProfileResponse(
 }
 
 async function ensureProfileUser(dependencies: ProfileRouteDependencies) {
+  if (!dependencies.auth && !isClerkServerConfigured) {
+    return null;
+  }
+
   return ensureCurrentUser({
-    auth: dependencies.auth,
+    ...(dependencies.auth ? { auth: dependencies.auth } : {}),
     db: dependencies.db,
     now: dependencies.now,
   });
