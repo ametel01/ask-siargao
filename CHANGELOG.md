@@ -111,6 +111,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Established progress and changelog tracking for the Clerk auth, session chat history,
+  profile, ratings, and authenticated saved-trips implementation plan.
 - Added compact Ask Siargao agent-memory metadata rendering so the model can discover reference
   files without loading their full bodies by default.
 - Added progress tracking for the thin agent harness implementation so each plan step can record
