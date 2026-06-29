@@ -277,6 +277,94 @@ describe("agent runtime contracts", () => {
     });
   });
 
+  test("resolves model-facing Places result aliases selected by final payload", () => {
+    const lokaCard = { ...cloud9CafeCard, id: "place_chijl2cnbe0jbdmrn2n32nzbh20", title: "Loka" };
+    const lostCard = {
+      ...cloud9CafeCard,
+      id: "place_chij_dotfad3azmrpmzv_yvfbha",
+      title: "Lost In Siargao",
+    };
+    const verDeCard = {
+      ...cloud9CafeCard,
+      id: "place_chijmcshixh3azmrg3af1jkvj1u",
+      title: "Ver De Siargao",
+    };
+
+    const turn = createAgentTurnResult({
+      message: "Show the selected live places.",
+      requestId: "agent_request_places_alias_artifacts",
+      model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayCardIds: [
+          "places_search_result_1",
+          "places/ChIJ_dOTfAD3AzMRpmZv_yvfBHA",
+          "places_search_result_3",
+        ],
+      }),
+      toolResults: [
+        {
+          sources: [placesSourceSummary],
+          cards: [lokaCard, lostCard, verDeCard],
+        },
+      ],
+    });
+
+    expect(turn.cards?.map((card) => card.title)).toEqual([
+      "Loka",
+      "Lost In Siargao",
+      "Ver De Siargao",
+    ]);
+    expect(turn.artifactSelection).toMatchObject({
+      selectedCardCount: 3,
+      unknownCardIds: [],
+      unselectedCardCount: 0,
+    });
+  });
+
+  test("selects Places cards explicitly named in the final answer", () => {
+    const coastalGroundsCard = {
+      ...cloud9CafeCard,
+      id: "place_chijdaeowq8jbdmrzu25fwq34ju",
+      title: "Coastal Grounds Coffee Siargao",
+    };
+    const weekendCard = {
+      ...cloud9CafeCard,
+      id: "place_chijbzxjiryjbdmrfwe2fwavmce",
+      title: "/WEEK ·END/ Café",
+    };
+    const cocoCard = {
+      ...cloud9CafeCard,
+      id: "place_chijywtp_rujbdmrz_wd8bdhkjk",
+      title: "Coco Cafe",
+    };
+
+    const turn = createAgentTurnResult({
+      message: "This should be replaced by final payload answer.",
+      requestId: "agent_request_answer_named_places",
+      model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        answer:
+          "Good nearby open cafe picks include Coastal Grounds Coffee Siargao, /WEEK ·END/ Café, and Coco Cafe.",
+      }),
+      toolResults: [
+        {
+          sources: [placesSourceSummary],
+          cards: [coastalGroundsCard, weekendCard, cocoCard],
+        },
+      ],
+    });
+
+    expect(turn.cards?.map((card) => card.title)).toEqual([
+      "Coastal Grounds Coffee Siargao",
+      "/WEEK ·END/ Café",
+      "Coco Cafe",
+    ]);
+    expect(turn.artifactSelection).toMatchObject({
+      selectedCardCount: 3,
+      unselectedCardCount: 0,
+    });
+  });
+
   test("keeps aggregate sources internal while exposing only message-selected sources", () => {
     const localGuideResult: AgentToolResult = {
       name: "search_local_guide",
@@ -374,6 +462,30 @@ describe("agent runtime contracts", () => {
       structuredFinalPayload: true,
       selectedItineraryCount: 1,
       unselectedItineraryCount: 1,
+    });
+  });
+
+  test("resolves model-facing itinerary aliases selected by final payload", () => {
+    const turn = createAgentTurnResult({
+      message: "Here is the selected Cloud 9 sunset sequence.",
+      requestId: "agent_request_itinerary_alias_artifacts",
+      model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayItineraryIds: ["itinerary_sunset_plus_dinner_cloud9"],
+      }),
+      toolResults: [
+        {
+          sources: [localGuideSourceSummary],
+          itineraries: [sunsetDinnerPlan],
+        },
+      ],
+    });
+
+    expect(turn.itineraries?.map((plan) => plan.title)).toEqual(["Sunset plus Dinner"]);
+    expect(turn.artifactSelection).toMatchObject({
+      selectedItineraryCount: 1,
+      unknownItineraryIds: [],
+      unselectedItineraryCount: 0,
     });
   });
 

@@ -11,6 +11,7 @@ import type {
   AgentToolResult,
   ItineraryPlan,
 } from "@/server/chat/agent-runtime";
+import { executeAgentTool } from "@/server/chat/agent-tools";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import { runAskSiargaoAgentTurn } from "@/server/chat/ask-siargao-agent";
 
@@ -405,6 +406,123 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       totalCardCount: 2,
       unselectedCardCount: 2,
     });
+  });
+
+  test("repairs direct food recommendations that try to finalize from local beach guide evidence", async () => {
+    const placeCard = {
+      id: "place_chij_lost_in_siargao",
+      kind: "place" as const,
+      title: "Lost In Siargao",
+      subtitle: "Restaurant - General Luna",
+      mapsUrl: "https://maps.example/lost-in-siargao",
+      openStatusLabel: "Open now according to Google Places.",
+      fitReasons: ["Good dinner fit returned by Google Places."],
+      caveats: ["Bookings and table availability were not checked."],
+      sourceLabel: "Google Places - live checked",
+      sources: [openNowPlacesSourceSummary],
+    };
+    const beachCard = {
+      id: "beach_doot",
+      kind: "beach" as const,
+      title: "Doot Beach",
+      subtitle: "General Luna-side sandy beach",
+      fitReasons: ["Sandy local-guide fallback."],
+      caveats: ["Not relevant to a restaurant request."],
+      sourceLabel: "Ask Siargao curated local beach guide",
+      sources: [localGuideSourceSummary],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_food_wrong_local_call",
+        requestId: "req_food_wrong_local_call",
+        callId: "call_local_beaches",
+        name: "search_local_guide",
+        arguments: {
+          query: "General Luna dinner fallback beaches",
+          filters: null,
+        },
+      }),
+      {
+        id: "resp_food_premature_beach_final",
+        output_text: finalPayloadText({
+          answer: "For tonight in General Luna, start with Doot Beach.",
+          usedToolCallIds: ["call_local_beaches"],
+          displayCardIds: [beachCard.id],
+        }),
+        _request_id: "req_food_premature_beach_final",
+      },
+      {
+        id: "resp_food_places_final",
+        output_text: finalPayloadText({
+          answer: "For dinner in General Luna, start with Lost In Siargao.",
+          usedToolCallIds: ["auto_required_evidence_1"],
+          displayCardIds: [placeCard.id, beachCard.id],
+        }),
+        _request_id: "req_food_places_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      search_local_guide: {
+        name: "search_local_guide",
+        status: "success",
+        text: "Curated local guide returned unrelated beach cards.",
+        sources: [localGuideSourceSummary],
+        cards: [beachCard],
+      },
+      search_places: {
+        name: "search_places",
+        status: "success",
+        text: "Google Places returned open dinner spots in General Luna.",
+        sources: [openNowPlacesSourceSummary],
+        cards: [placeCard],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Where should I eat in General Luna tonight?" }],
+        requestId: "agent_request_food_requires_places",
+        deterministicSignals: {
+          intent: {
+            activityPlan: false,
+            tripAdvice: false,
+            placeIntent: {
+              category: "food",
+              liveNeeds: ["recommendation"],
+              meal: "dinner",
+              location: "General Luna",
+              areaScope: "in_area",
+              radiusMeters: 12_000,
+            },
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("Lost In Siargao");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "search_local_guide",
+      "search_places",
+    ]);
+    expect(result.toolCalls[1]?.arguments).toMatchObject({
+      query: "restaurants and dinner spots in General Luna, Siargao",
+      constraints: { included_type: "restaurant", open_now: true, page_size: 8 },
+    });
+    expect(result.cards).toEqual([placeCard]);
+    expect(result.publicSources).toEqual([openNowPlacesSourceSummary]);
+    expect(result.artifactSelection).toMatchObject({
+      selectedCardCount: 1,
+      totalCardCount: 1,
+      unknownCardIds: [beachCard.id],
+    });
+    expect(client.requests).toHaveLength(3);
+    const automaticInput = parseLastUserInputMessage(client.requests[2]?.input) as {
+      automaticRequiredEvidenceChecks?: Array<{ name?: string }>;
+    };
+    expect(automaticInput.automaticRequiredEvidenceChecks?.map((check) => check.name)).toEqual([
+      "search_places",
+    ]);
   });
 
   test("keeps legacy plain-text compatibility without tool-result artifacts", async () => {
@@ -1441,6 +1559,147 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(JSON.stringify(client.requests)).not.toContain("126.088");
   });
 
+  test("repairs structured surf-near-me answers that omit ranked spots from the public payload", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_near_me_surf_memory",
+        requestId: "req_near_me_surf_memory",
+        callId: "call_surf_memory",
+        name: "load_agent_memory_file",
+        arguments: { documents: ["SURF.md"] },
+      }),
+      responseWithToolCall({
+        id: "resp_near_me_surf_tool",
+        requestId: "req_near_me_surf_tool",
+        callId: "call_surf_ranking",
+        name: "rank_surf_spots_nearby",
+        arguments: { skill_level: "any", max_results: 7 },
+      }),
+      {
+        id: "resp_near_me_surf_without_condition",
+        output_text: finalPayloadText({
+          answer: "I’d skip surfing today because conditions look risky.",
+          usedMemoryFiles: ["SURF.md"],
+          usedToolCallIds: ["call_surf_ranking"],
+        }),
+        _request_id: "req_near_me_surf_without_condition",
+      },
+      {
+        id: "resp_near_me_surf_omits_ranking",
+        output_text: finalPayloadText({
+          answer: "I’d skip surfing today because the checked condition judgment says high risk.",
+          usedMemoryFiles: ["SURF.md"],
+          usedToolCallIds: ["auto_required_condition_judgment_1"],
+        }),
+        _request_id: "req_near_me_surf_omits_ranking",
+      },
+      {
+        id: "resp_near_me_surf_repaired_public_ranking",
+        output_text: finalPayloadText({
+          answer:
+            "Nearest ranked spots from your shared location are Pacifico / Big Wish at about 0.2 km and Bamboo Garden at about 0.3 km, but I’d skip surfing today because the checked condition judgment says high risk.",
+          usedMemoryFiles: ["SURF.md"],
+          usedToolCallIds: ["call_surf_ranking", "auto_required_condition_judgment_1"],
+        }),
+        _request_id: "req_near_me_surf_repaired_public_ranking",
+      },
+    ]);
+    const browserCenter = { latitude: 9.952, longitude: 126.088 };
+    const memoryExecutor = memoryLoadExecutor();
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "load_agent_memory_file") {
+        return memoryExecutor(request);
+      }
+      if (request.name === "rank_surf_spots_nearby") {
+        return {
+          name: request.name,
+          status: "success",
+          text: "Ranked surf spots: 1. Pacifico / Big Wish - About 0.2 km straight-line. 2. Bamboo Garden - About 0.3 km straight-line.",
+          toolCallId: request.toolCallId,
+          data: {
+            centerSource: "browser_geolocation",
+            spots: [
+              {
+                name: "Pacifico / Big Wish",
+                distanceLabel: "About 0.2 km straight-line from your shared location.",
+              },
+              {
+                name: "Bamboo Garden",
+                distanceLabel: "About 0.3 km straight-line from your shared location.",
+              },
+            ],
+          },
+          sources: [localGuideSourceSummary],
+        };
+      }
+      if (request.name === "get_condition_judgment") {
+        return {
+          name: request.name,
+          status: "success",
+          text: "Condition judgment: high risk for surfing today.",
+          toolCallId: request.toolCallId,
+          sources: [weatherSourceSummary, conditionMarineSourceSummary],
+        };
+      }
+      return {
+        name: request.name,
+        status: "error",
+        text: `Unexpected tool ${request.name}.`,
+        errorCode: "unexpected_tool",
+        sources: [],
+      };
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "I want to go surfing today, which are the best spots near me?",
+          },
+        ],
+        requestId: "agent_request_repair_public_near_me_surf_payload",
+        clientContext: {
+          geolocation: {
+            status: "available",
+            source: "browser_geolocation",
+            consentScope: "trip_session",
+            ...browserCenter,
+            capturedAt: "2026-06-26T00:00:00.000Z",
+          },
+        },
+        deterministicSignals: {
+          intent: {
+            conditionActivity: "surfing",
+            nearMeUsesBrowserGeolocation: true,
+            nearby: true,
+            today: true,
+            weatherSensitive: true,
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("Pacifico / Big Wish");
+    expect(result.message).toContain("Bamboo Garden");
+    expect(result.publicSources).toContainEqual(localGuideSourceSummary);
+    expect(result.publicSources).toContainEqual(weatherSourceSummary);
+    expect(result.publicSources).toContainEqual(conditionMarineSourceSummary);
+
+    const repairInput = client.requests
+      .map((request) => parseLastUserInputMessage(request.input))
+      .find((input) => input?.validationRepairSurfSpotFinalPayload);
+    expect(repairInput?.validationRepairSurfSpotFinalPayload).toMatchObject({
+      toolCallId: "call_surf_ranking",
+      name: "rank_surf_spots_nearby",
+      issues: {
+        answerMissingRankedSpots: true,
+        usedToolCallIdsMissingRanking: true,
+      },
+    });
+  });
+
   test("executes a condition judgment tool call and feeds the evidence back to the model", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
@@ -2124,6 +2383,144 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.sources).toEqual([placesSourceSummary]);
   });
 
+  test("normalizes model-facing Places tool aliases and card IDs in final payloads", async () => {
+    const placeCard = {
+      id: "place_chij_dotfad3azmrpmzv_yvfbha",
+      kind: "place" as const,
+      title: "Lost In Siargao",
+      subtitle: "Restaurant - General Luna - Google rating 4.8 from 74 ratings",
+      mapsUrl: "https://maps.example/lost-in-siargao",
+      openStatusLabel: "Open now according to Google Places.",
+      fitReasons: ["A strong Google Places match for dinner in General Luna."],
+      caveats: ["Bookings and table availability were not checked."],
+      sourceLabel: "Google Places - live checked",
+      sources: [placesSourceSummary],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_food_places",
+        requestId: "req_food_places",
+        callId: "call_places_dinner",
+        name: "search_places",
+        arguments: {
+          query: "restaurants and dinner spots in General Luna, Siargao",
+          center: { latitude: 9.7847, longitude: 126.1636 },
+          radius_meters: 12_000,
+        },
+      }),
+      {
+        id: "resp_food_final",
+        output_text: finalPayloadText({
+          answer:
+            "Start with Lost In Siargao tonight. I checked Google Places for live open-now status and map links.",
+          usedToolCallIds: ["functions.search_places", "search_places"],
+          displayCardIds: ["places/ChIJ_dOTfAD3AzMRpmZv_yvfBHA"],
+        }),
+        _request_id: "req_food_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      search_places: {
+        name: "search_places",
+        status: "success",
+        text: "Google Places returned open dinner spots in General Luna.",
+        toolCallId: "call_places_dinner",
+        sources: [placesSourceSummary],
+        cards: [placeCard],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Where should I eat in General Luna tonight?" }],
+        requestId: "agent_request_food_places_aliases",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.publicSources).toEqual([placesSourceSummary]);
+    expect(result.cards).toEqual([placeCard]);
+    expect(result.artifactSelection?.unknownCardIds).toEqual([]);
+  });
+
+  test("exposes required Places cards when final payload omits display card IDs", async () => {
+    const placeCard = {
+      id: "place_chij_lost_in_siargao",
+      kind: "place" as const,
+      title: "Lost In Siargao",
+      subtitle: "Restaurant - General Luna",
+      mapsUrl: "https://maps.example/lost-in-siargao",
+      openStatusLabel: "Open now according to Google Places.",
+      fitReasons: ["Good dinner fit returned by Google Places."],
+      caveats: ["Bookings and table availability were not checked."],
+      sourceLabel: "Google Places - live checked",
+      sources: [openNowPlacesSourceSummary],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_food_places",
+        requestId: "req_food_places",
+        callId: "call_places_dinner",
+        name: "search_places",
+        arguments: {
+          query: "restaurants in General Luna open now dinner Siargao",
+          center: { latitude: 9.7869, longitude: 126.1615 },
+          radius_meters: 12_000,
+          constraints: { included_type: "restaurant", open_now: true, page_size: 5 },
+        },
+      }),
+      {
+        id: "resp_food_final_without_cards",
+        output_text: finalPayloadText({
+          answer: "Start with Lost In Siargao tonight.",
+          usedToolCallIds: ["search_places"],
+        }),
+        _request_id: "req_food_final_without_cards",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      search_places: {
+        name: "search_places",
+        status: "success",
+        text: "Google Places returned open dinner spots in General Luna.",
+        toolCallId: "call_places_dinner",
+        sources: [openNowPlacesSourceSummary],
+        cards: [placeCard],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Where should I eat in General Luna tonight?" }],
+        requestId: "agent_request_food_places_missing_card_ids",
+        deterministicSignals: {
+          intent: {
+            activityPlan: false,
+            tripAdvice: false,
+            placeIntent: {
+              category: "food",
+              liveNeeds: ["recommendation"],
+              meal: "dinner",
+              location: "General Luna",
+              areaScope: "in_area",
+              radiusMeters: 12_000,
+            },
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(client.requests).toHaveLength(2);
+    expect(result.message).toContain("Lost In Siargao");
+    expect(result.cards).toEqual([placeCard]);
+    expect(result.publicSources).toEqual([openNowPlacesSourceSummary]);
+    expect(result.artifactSelection).toMatchObject({
+      selectedCardCount: 1,
+      totalCardCount: 1,
+    });
+  });
+
   test("executes a curated local guide tool call", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
@@ -2381,6 +2778,102 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       totalItineraryCount: 1,
       unselectedItineraryCount: 1,
     });
+  });
+
+  test("repairs open-ended Cloud 9 activity plans after condition-only evidence", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_cloud9_condition_only",
+        requestId: "req_cloud9_condition_only",
+        callId: "call_condition",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "sightseeing",
+          location: "Cloud 9",
+          date_range: "today",
+          include_local_caveats: null,
+        },
+      }),
+      {
+        id: "resp_cloud9_condition_final",
+        output_text: "Condition-only answer without a structured plan.",
+        _request_id: "req_cloud9_condition_final",
+      },
+      {
+        id: "resp_cloud9_plan_without_checks",
+        output_text: "Plan answer after itinerary but before live Places.",
+        _request_id: "req_cloud9_plan_without_checks",
+      },
+      {
+        id: "resp_cloud9_checked_final",
+        output_text: "Final Cloud 9 activity plan after weather and Google Places checks.",
+        _request_id: "req_cloud9_checked_final",
+      },
+    ]);
+    const observedPlanArguments: Record<string, unknown>[] = [];
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "get_condition_judgment") {
+        return {
+          name: "get_condition_judgment",
+          status: "success",
+          text: "Condition judgment loaded.",
+          sources: [weatherSourceSummary],
+        };
+      }
+      if (request.name === "plan_local_itinerary") {
+        observedPlanArguments.push(request.arguments);
+        return executeAgentTool(request);
+      }
+      if (request.name === "get_weather_forecast") {
+        return {
+          name: "get_weather_forecast",
+          status: "success",
+          text: "Open-Meteo forecast loaded for Cloud 9.",
+          sources: [weatherSourceSummary],
+        };
+      }
+      if (request.name === "search_places") {
+        return {
+          name: "search_places",
+          status: "success",
+          text: "Google Places returned open cafe options.",
+          sources: [openNowPlacesSourceSummary],
+        };
+      }
+      throw new Error(`Unexpected tool call: ${request.name}`);
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "What should I do near Cloud 9 today?" }],
+        requestId: "agent_request_condition_only_cloud9_activity_plan",
+        deterministicSignals: {
+          intent: {
+            activityPlan: true,
+            conditionActivity: "sightseeing",
+            locationLabel: "Cloud 9",
+            nearby: true,
+            today: true,
+            weatherSensitive: true,
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(observedPlanArguments[0]).toMatchObject({
+      origin: "Cloud 9",
+      needs_open_now: true,
+      needs_weather_check: true,
+    });
+    expect(result.message).toContain("Google Places checks");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "get_condition_judgment",
+      "plan_local_itinerary",
+      "get_weather_forecast",
+      "search_places",
+    ]);
+    expect(result.sources).toContainEqual(openNowPlacesSourceSummary);
   });
 
   test("repairs failed itinerary planning before accepting final itinerary prose", async () => {
@@ -3280,6 +3773,99 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       totalItineraryCount: 1,
       unselectedItineraryCount: 1,
     });
+  });
+
+  test("repairs today Cloud 9 itinerary tool calls so live Places run before final prose", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_today_cloud9_plan",
+        requestId: "req_today_cloud9_plan",
+        callId: "call_plan",
+        name: "plan_local_itinerary",
+        arguments: {
+          theme: "non_surfer_half_day",
+          origin: "Cloud 9",
+          needs_weather_check: false,
+        },
+      }),
+      responseWithToolCall({
+        id: "resp_today_cloud9_weather",
+        requestId: "req_today_cloud9_weather",
+        callId: "call_weather",
+        name: "get_weather_forecast",
+        arguments: { location: "Cloud 9", date_range: "today" },
+      }),
+      {
+        id: "resp_today_cloud9_premature_final",
+        output_text: "Premature final answer after weather but without live places.",
+        _request_id: "req_today_cloud9_premature_final",
+      },
+      {
+        id: "resp_today_cloud9_checked_final",
+        output_text: "Weather and Google Places were checked before this final answer.",
+        _request_id: "req_today_cloud9_checked_final",
+      },
+    ]);
+    const observedPlanArguments: Record<string, unknown>[] = [];
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "plan_local_itinerary") {
+        observedPlanArguments.push(request.arguments);
+        return executeAgentTool(request);
+      }
+      if (request.name === "get_weather_forecast") {
+        return {
+          name: "get_weather_forecast",
+          status: "success",
+          text: "Open-Meteo forecast loaded for Cloud 9.",
+          sources: [weatherSourceSummary],
+        };
+      }
+      if (request.name === "search_places") {
+        return {
+          name: "search_places",
+          status: "success",
+          text: "Google Places returned open cafe options.",
+          sources: [openNowPlacesSourceSummary],
+        };
+      }
+      throw new Error(`Unexpected tool call: ${request.name}`);
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "What should I do near Cloud 9 today?" }],
+        requestId: "agent_request_today_cloud9_requires_places",
+        deterministicSignals: {
+          intent: {
+            activityPlan: true,
+            locationLabel: "Cloud 9",
+            nearby: true,
+            today: true,
+            weatherSensitive: true,
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(observedPlanArguments[0]).toMatchObject({
+      needs_open_now: true,
+      needs_weather_check: true,
+      origin: "Cloud 9",
+    });
+    expect(result.message).toContain("Google Places were checked");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "plan_local_itinerary",
+      "get_weather_forecast",
+      "search_places",
+    ]);
+    expect(client.requests).toHaveLength(4);
+    const automaticInput = parseAutomaticRequiredCheckInput(client.requests[3]?.input);
+    expect(automaticInput.automaticRequiredToolChecks?.map((check) => check.name)).toEqual([
+      "search_places",
+    ]);
+    expect(result.sources).toContainEqual(weatherSourceSummary);
+    expect(result.sources).toContainEqual(openNowPlacesSourceSummary);
   });
 
   test("executes safe local data tools through the tool loop", async () => {

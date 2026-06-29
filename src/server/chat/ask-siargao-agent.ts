@@ -32,6 +32,13 @@ import type {
   ItineraryRequiredToolChecks,
   LocalItineraryRequest,
 } from "@/server/chat/itinerary-tools";
+import {
+  buildRequiredEvidencePlan,
+  finalPayloadSatisfiesRequiredEvidence,
+  missingRequiredEvidenceToolCalls,
+  type RequiredEvidencePlan,
+  type RequiredEvidenceToolCall,
+} from "@/server/chat/required-evidence";
 import { createComponentLogger } from "@/server/observability/logger";
 
 export type AskSiargaoAgentDependencies = AgentRuntimeDependencies &
@@ -96,6 +103,7 @@ export async function runAskSiargaoAgentTurn(
     dependencies.agentMemoryVectorStoreId ?? process.env.OPENAI_AGENT_MEMORY_VECTOR_STORE_ID;
   const memory = createAgentMemoryMetadata(memorySnapshot, agentMemoryVectorStoreId);
   const instructions = buildAskSiargaoAgentInstructions(memorySnapshot);
+  const requiredEvidencePlan = buildRequiredEvidencePlan(resolved);
   const tools = buildAgentResponseTools(memorySnapshot, {
     vectorStoreId: agentMemoryVectorStoreId,
     forceMemoryFallback: dependencies.forceAgentMemorySearchFallback,
@@ -364,6 +372,64 @@ export async function runAskSiargaoAgentTurn(
         continue;
       }
 
+      const missingEvidenceChecks = missingRequiredEvidenceToolCalls(
+        requiredEvidencePlan,
+        toolCalls,
+      );
+      if (missingEvidenceChecks.length > 0) {
+        if (toolCalls.length + missingEvidenceChecks.length > maxToolCalls) {
+          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
+        }
+
+        const automaticToolOutputs = await Promise.all(
+          missingEvidenceChecks.map((requiredCall, index) =>
+            executeAndAuditTool({
+              executeTool,
+              functionCall: requiredEvidenceFunctionCall(requiredCall, index),
+              logger,
+              now: dependencies.now ?? (() => new Date()),
+              runtimeRequest: resolved,
+              requestId: resolved.requestId,
+            }),
+          ),
+        );
+        toolCalls.push(...automaticToolOutputs.map((output) => output.audit));
+        toolResults.push(...automaticToolOutputs.map((output) => output.result));
+
+        responseInput = [
+          ...responseInput,
+          ...responseOutputItems(response.output),
+          userInputMessage({
+            product: "Ask Siargao",
+            instruction:
+              "Validation repair: the user's intent requires live place evidence before a final recommendation. Use these automatically executed Places outputs as the public evidence, do not substitute beach or local-guide artifacts for food/place requests, and write the final traveler-facing answer now.",
+            automaticRequiredEvidenceChecks: automaticToolOutputs.map((output) => ({
+              toolCallId: output.functionCall.callId,
+              name: output.functionCall.name,
+              arguments: publicToolArguments(output.functionCall),
+              result: JSON.parse(serializeToolOutput(output.result)),
+            })),
+            responseContract,
+          }),
+        ];
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_000,
+          instructions,
+          tools,
+          ...(responseInclude ? { include: responseInclude } : {}),
+          input: responseInput,
+        });
+        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        collectHostedFileSearchMemoryFileNames(
+          response.output,
+          memorySnapshot,
+          hostedMemoryFileNames,
+        );
+        continue;
+      }
+
       const memoryRepairCall = missingClearMemoryLoadRepairCall(
         finalText,
         resolved,
@@ -421,6 +487,90 @@ export async function runAskSiargaoAgentTurn(
         continue;
       }
 
+      const surfSpotRankingPayloadRepair = missingSurfSpotRankingPayloadRepair(
+        finalText,
+        resolved,
+        toolCalls,
+        toolResults,
+        responseInput,
+      );
+      if (surfSpotRankingPayloadRepair) {
+        responseInput = [
+          ...responseInput,
+          ...responseOutputItems(response.output),
+          userInputMessage({
+            product: "Ask Siargao",
+            instruction:
+              "Validation repair: the user asked for closest surf spots near their shared location, and the ranked surf-spot tool output must shape the public answer. Return final JSON whose answer names the nearest ranked surf spots with approximate km distances, then layer any checked condition warning on top. Include the rank_surf_spots_nearby toolCallId in usedToolCallIds even when the recommendation is to skip surfing today.",
+            validationRepairSurfSpotFinalPayload: surfSpotRankingPayloadRepair,
+            responseContract,
+          }),
+        ];
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_000,
+          instructions,
+          tools,
+          ...(responseInclude ? { include: responseInclude } : {}),
+          input: responseInput,
+        });
+        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        collectHostedFileSearchMemoryFileNames(
+          response.output,
+          memorySnapshot,
+          hostedMemoryFileNames,
+        );
+        continue;
+      }
+
+      const parsedFinalPayload = parseFinalPayloadOrLegacyText(finalText, {
+        logger,
+        requireStructuredFinalOutput: dependencies.requireStructuredFinalOutput === true,
+        hostedMemoryFileNames,
+        toolCalls,
+        toolResults,
+      });
+      const finalPayload = exposeRequiredEvidenceArtifacts(
+        parsedFinalPayload,
+        requiredEvidencePlan,
+        toolResults,
+      );
+      if (
+        !finalPayloadSatisfiesRequiredEvidence(
+          requiredEvidencePlan,
+          finalPayload,
+          toolCalls,
+          toolResults,
+        )
+      ) {
+        responseInput = [
+          ...responseInput,
+          ...responseOutputItems(response.output),
+          userInputMessage({
+            product: "Ask Siargao",
+            instruction:
+              "Validation repair: your final payload did not expose the required live place evidence. Return final JSON that uses the successful search_places tool call, selects only place recommendation cards for this request, and does not display beach cards.",
+            responseContract,
+          }),
+        ];
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_000,
+          instructions,
+          tools,
+          ...(responseInclude ? { include: responseInclude } : {}),
+          input: responseInput,
+        });
+        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        collectHostedFileSearchMemoryFileNames(
+          response.output,
+          memorySnapshot,
+          hostedMemoryFileNames,
+        );
+        continue;
+      }
       logger.info(
         {
           durationMs: sumDurations(toolCalls),
@@ -431,13 +581,6 @@ export async function runAskSiargaoAgentTurn(
         },
         "Ask Siargao agent turn completed.",
       );
-      const finalPayload = parseFinalPayloadOrLegacyText(finalText, {
-        logger,
-        requireStructuredFinalOutput: dependencies.requireStructuredFinalOutput === true,
-        hostedMemoryFileNames,
-        toolCalls,
-        toolResults,
-      });
       return createAgentTurnResult({
         message: finalPayload?.answer ?? finalText,
         requestId: resolved.requestId,
@@ -447,6 +590,7 @@ export async function runAskSiargaoAgentTurn(
         toolCalls,
         toolResults,
         ...(finalPayload ? { finalPayload } : {}),
+        allowedCardKinds: requiredEvidencePlan.allowedCardKinds,
         artifactSelectionMode:
           dependencies.requireStructuredFinalOutput === true ? "strict" : "compatibility",
       });
@@ -703,7 +847,7 @@ function validateFinalPayloadToolCallIds(
   const knownToolCallIds = new Set(
     toolCalls.flatMap((toolCall) => (toolCall.toolCallId ? [toolCall.toolCallId] : [])),
   );
-  const usedToolCallIds = uniqueText(payload.usedToolCallIds);
+  const usedToolCallIds = expandFinalPayloadToolCallIds(payload.usedToolCallIds, toolCalls);
   const unknownToolCallIds = usedToolCallIds.filter(
     (toolCallId) => !knownToolCallIds.has(toolCallId),
   );
@@ -725,10 +869,55 @@ function validateFinalPayloadToolCallIds(
     ...payload,
     usedMemoryFiles: uniqueText(payload.usedMemoryFiles),
     usedToolCallIds: usedToolCallIds.filter((toolCallId) => knownToolCallIds.has(toolCallId)),
-    displayCardIds: uniqueText(payload.displayCardIds),
+    displayCardIds: normalizeFinalPayloadCardIds(payload.displayCardIds),
     displayActionIds: uniqueText(payload.displayActionIds),
     displayItineraryIds: uniqueText(payload.displayItineraryIds),
   };
+}
+
+function expandFinalPayloadToolCallIds(
+  values: readonly string[],
+  toolCalls: readonly AgentToolCallAudit[],
+) {
+  const knownToolCallIds = new Set(
+    toolCalls.flatMap((toolCall) => (toolCall.toolCallId ? [toolCall.toolCallId] : [])),
+  );
+  const calledToolNames = new Set(toolCalls.map((toolCall) => toolCall.name));
+  return uniqueText(
+    values.flatMap((value) => {
+      const normalizedValue = value.trim();
+      if (knownToolCallIds.has(normalizedValue)) {
+        return [normalizedValue];
+      }
+      const toolName = modelFacingToolNameReference(normalizedValue, calledToolNames);
+      if (!toolName) {
+        return [value];
+      }
+      const matchingToolCallIds = toolCalls.flatMap((toolCall) =>
+        toolCall.name === toolName && toolCall.toolCallId ? [toolCall.toolCallId] : [],
+      );
+      return matchingToolCallIds.length ? matchingToolCallIds : [value];
+    }),
+  );
+}
+
+function modelFacingToolNameReference(value: string, calledToolNames: ReadonlySet<string>) {
+  const normalizedValue = value.trim();
+  const match = /^functions\.([A-Za-z0-9_]+)$/u.exec(normalizedValue);
+  const candidate = match?.[1] ?? normalizedValue;
+  return calledToolNames.has(candidate) ? candidate : undefined;
+}
+
+function normalizeFinalPayloadCardIds(values: readonly string[]) {
+  return uniqueText(values.map(normalizeFinalPayloadCardId));
+}
+
+function normalizeFinalPayloadCardId(value: string) {
+  const placeResourceMatch = /^places\/(.+)$/u.exec(value.trim());
+  if (placeResourceMatch?.[1]) {
+    return `place_${slugPart(placeResourceMatch[1]).toLowerCase()}`;
+  }
+  return value;
 }
 
 function validateFinalPayloadMemoryFiles(
@@ -882,6 +1071,50 @@ function missingClearMemoryLoadRepairCall(
   };
 }
 
+function missingSurfSpotRankingPayloadRepair(
+  finalText: string,
+  request: AgentRuntimeRequest,
+  toolCalls: readonly AgentToolCallAudit[],
+  toolResults: readonly AgentToolResult[],
+  responseInput: readonly ResponseInputItem[],
+) {
+  if (!needsBrowserLocationSurfSpotRanking(request)) {
+    return undefined;
+  }
+  if (hasValidationRepairInput(responseInput, "validationRepairSurfSpotFinalPayload")) {
+    return undefined;
+  }
+
+  const finalPayload = parseAgentFinalPayload(finalText);
+  if (!finalPayload) {
+    return undefined;
+  }
+
+  const rankedOutput = successfulSurfSpotRankingOutput(toolCalls, toolResults);
+  if (!rankedOutput) {
+    return undefined;
+  }
+
+  const rankedSpotNames = surfSpotRankingSpotNames(rankedOutput.result);
+  const answerMentionsRankedSpot =
+    rankedSpotNames.length > 0 &&
+    rankedSpotNames.some((spotName) => normalizedIncludes(finalPayload.answer, spotName));
+  const usedRankingToolCall = finalPayload.usedToolCallIds.includes(rankedOutput.toolCallId);
+  if (answerMentionsRankedSpot && usedRankingToolCall) {
+    return undefined;
+  }
+
+  return {
+    toolCallId: rankedOutput.toolCallId,
+    name: "rank_surf_spots_nearby",
+    result: JSON.parse(serializeToolOutput(rankedOutput.result)),
+    issues: {
+      answerMissingRankedSpots: !answerMentionsRankedSpot,
+      usedToolCallIdsMissingRanking: !usedRankingToolCall,
+    },
+  };
+}
+
 function clearRequiredMemoryFileName(request: AgentRuntimeRequest) {
   const latestUserTurn = latestUserContent(request.messages);
   if (
@@ -933,6 +1166,79 @@ function hasMemoryLoadAttemptForFile(toolCalls: readonly AgentToolCallAudit[], f
       toolCall.name === "load_agent_memory_file" &&
       readStringArrayFromPath(toolCall.arguments, ["documents"]).includes(fileName),
   );
+}
+
+function hasValidationRepairInput(
+  responseInput: readonly ResponseInputItem[],
+  key: "validationRepairSurfSpotFinalPayload",
+) {
+  return responseInput.some((item) => {
+    const content = item.content;
+    if (!Array.isArray(content)) {
+      return false;
+    }
+    return content.some((entry) => {
+      if (!isRecord(entry) || typeof entry.text !== "string") {
+        return false;
+      }
+      const parsed = parseJsonRecord(entry.text);
+      return Boolean(parsed?.[key]);
+    });
+  });
+}
+
+function successfulSurfSpotRankingOutput(
+  toolCalls: readonly AgentToolCallAudit[],
+  toolResults: readonly AgentToolResult[],
+) {
+  const audit = toolCalls.find(
+    (
+      toolCall,
+    ): toolCall is AgentToolCallAudit & {
+      toolCallId: string;
+    } =>
+      toolCall.name === "rank_surf_spots_nearby" &&
+      toolCall.status === "success" &&
+      typeof toolCall.toolCallId === "string" &&
+      toolCall.toolCallId.length > 0,
+  );
+  if (!audit) {
+    return undefined;
+  }
+  const result = toolResults.find(
+    (toolResult) =>
+      toolResult.name === "rank_surf_spots_nearby" &&
+      toolResult.status === "success" &&
+      toolResult.toolCallId === audit.toolCallId,
+  );
+  return result ? { result, toolCallId: audit.toolCallId } : undefined;
+}
+
+function surfSpotRankingSpotNames(result: AgentToolResult) {
+  const spots = readUnknownArrayPath(result.data, ["spots"]);
+  return spots.flatMap((spot) => {
+    if (!isRecord(spot)) {
+      return [];
+    }
+    const name = readString(spot.name)?.trim();
+    return name ? [name] : [];
+  });
+}
+
+function normalizedIncludes(value: string, substring: string) {
+  return normalizeSearchText(value).includes(normalizeSearchText(substring));
+}
+
+function normalizeSearchText(value: string) {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function slugPart(value: string) {
+  return value
+    .replaceAll(/[^A-Za-z0-9_]+/g, "_")
+    .replaceAll(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
 }
 
 function memoryRepairId(fileName: string) {
@@ -1046,7 +1352,9 @@ function inferRequiredInitialItineraryPlanArguments(
     ...(needsWeatherCheck(userContext, request.deterministicSignals)
       ? { needs_weather_check: true }
       : {}),
-    ...(needsOpenNowCheck(theme, userContext) ? { needs_open_now: true } : {}),
+    ...(needsOpenNowCheck(theme, userContext, request.deterministicSignals)
+      ? { needs_open_now: true }
+      : {}),
     ...(mealPreference ? { meal_preference: mealPreference } : {}),
     ...(constraints.length ? { constraints } : {}),
   } satisfies Partial<LocalItineraryRequest>;
@@ -1073,6 +1381,10 @@ function isItineraryPlanningRequest(
     /\bhalf[-\s]?day\b/i.test(latestUserTurn);
   const hasRouteWithStops =
     /\b(?:route|sequence)\b/i.test(latestUserTurn) && /\bstops?\b/i.test(latestUserTurn);
+  const hasOpenEndedActivityPlanLanguage =
+    /\b(?:what\s+should\s+i\s+do|what\s+can\s+i\s+do|things?\s+to\s+do|activities?|day\s+plan|plan\s+(?:my|a|an|the)\s+day)\b/i.test(
+      latestUserTurn,
+    );
   const hasScopedItineraryLanguage =
     hasInitialThemeLanguage ||
     (hasScopedDuration &&
@@ -1081,7 +1393,10 @@ function isItineraryPlanningRequest(
       )) ||
     hasRouteWithStops;
 
-  return hasInitialThemeLanguage || (hasActivityPlanSignal && hasScopedItineraryLanguage);
+  return (
+    hasInitialThemeLanguage ||
+    (hasActivityPlanSignal && (hasScopedItineraryLanguage || hasOpenEndedActivityPlanLanguage))
+  );
 }
 
 function isExcludedItineraryRepairRequest(content: string) {
@@ -1347,13 +1662,28 @@ function needsWeatherCheck(
   );
 }
 
-function needsOpenNowCheck(theme: LocalItineraryRequest["theme"], content: string) {
+function needsOpenNowCheck(
+  theme: LocalItineraryRequest["theme"],
+  content: string,
+  deterministicSignals?: Record<string, unknown>,
+) {
   return (
     theme === "food_crawl" ||
     theme === "sunset_plus_dinner" ||
+    (readBooleanPath(deterministicSignals, ["intent", "today"]) === true &&
+      readBooleanPath(deterministicSignals, ["intent", "activityPlan"]) === true &&
+      itineraryThemeCanUseLivePlaces(theme)) ||
     /\b(food|dinner|lunch|breakfast|brunch|caf[eé]s?|coffee|drinks?|bars?|open(?:[-\s]?now)?|hours?)\b/i.test(
       content,
     )
+  );
+}
+
+function itineraryThemeCanUseLivePlaces(theme: LocalItineraryRequest["theme"]) {
+  return (
+    theme === "rainy_cloud_9_afternoon" ||
+    theme === "sandy_beach_half_day" ||
+    theme === "non_surfer_half_day"
   );
 }
 
@@ -1535,6 +1865,44 @@ function missingRequiredItineraryChecks(
   return missing;
 }
 
+function requiredEvidenceFunctionCall(
+  requiredCall: RequiredEvidenceToolCall,
+  index: number,
+): ParsedFunctionCall {
+  return {
+    callId: `auto_required_evidence_${index + 1}`,
+    name: requiredCall.name,
+    arguments: requiredCall.arguments,
+  };
+}
+
+function exposeRequiredEvidenceArtifacts(
+  finalPayload: AgentFinalPayload | undefined,
+  requiredEvidencePlan: RequiredEvidencePlan,
+  toolResults: readonly AgentToolResult[],
+) {
+  if (!finalPayload || requiredEvidencePlan.requiredToolCalls.length === 0) {
+    return finalPayload;
+  }
+
+  const placeCardIds = uniqueText(
+    toolResults.flatMap((result) =>
+      (result.cards ?? []).flatMap((card) => (card.kind === "place" ? [card.id] : [])),
+    ),
+  );
+  if (
+    placeCardIds.length === 0 ||
+    finalPayload.displayCardIds.some((cardId) => placeCardIds.includes(cardId))
+  ) {
+    return finalPayload;
+  }
+
+  return {
+    ...finalPayload,
+    displayCardIds: uniqueText([...finalPayload.displayCardIds, ...placeCardIds]),
+  };
+}
+
 function readRequiredToolChecks(data: AgentToolResult["data"]) {
   if (!isRecord(data) || !isRequiredToolChecks(data.requiredToolChecks)) {
     return undefined;
@@ -1672,14 +2040,16 @@ function applyRuntimeToolContext(
   functionCall: ParsedFunctionCall,
   request: AgentRuntimeRequest,
 ): ExecutableFunctionCall {
-  if (functionCall.name === "rank_surf_spots_nearby") {
+  const repairedFunctionCall = repairItineraryPlanningArguments(functionCall, request);
+
+  if (repairedFunctionCall.name === "rank_surf_spots_nearby") {
     const geolocation = usableBrowserGeolocation(request);
     if (!geolocation) {
-      return functionCall;
+      return repairedFunctionCall;
     }
 
     return {
-      ...functionCall,
+      ...repairedFunctionCall,
       toolContext: {
         surfSpotRanking: {
           center: {
@@ -1693,13 +2063,13 @@ function applyRuntimeToolContext(
     };
   }
 
-  if (functionCall.name !== "search_places") {
-    return functionCall;
+  if (repairedFunctionCall.name !== "search_places") {
+    return repairedFunctionCall;
   }
 
   const geolocation = usableBrowserGeolocation(request);
-  if (!geolocation || !shouldUseBrowserGeolocationForPlaces(functionCall, request)) {
-    return functionCall;
+  if (!geolocation || !shouldUseBrowserGeolocationForPlaces(repairedFunctionCall, request)) {
+    return repairedFunctionCall;
   }
 
   const center = {
@@ -1708,7 +2078,7 @@ function applyRuntimeToolContext(
   };
 
   return {
-    ...functionCall,
+    ...repairedFunctionCall,
     toolContext: {
       googlePlaces: {
         center,
@@ -1718,6 +2088,59 @@ function applyRuntimeToolContext(
       },
     },
   };
+}
+
+function repairItineraryPlanningArguments(
+  functionCall: ParsedFunctionCall,
+  request: AgentRuntimeRequest,
+): ParsedFunctionCall {
+  if (functionCall.name !== "plan_local_itinerary") {
+    return functionCall;
+  }
+
+  const latestUserTurn = latestRuntimeUserTurn(request);
+  const userContext = request.messages
+    .flatMap((message) => (message.role === "user" ? [message.content] : []))
+    .join(" ");
+  const theme = readLocalItineraryTheme(functionCall.arguments.theme);
+  const repairedArguments: Record<string, unknown> = {
+    ...functionCall.arguments,
+    ...(needsWeatherCheck(userContext, request.deterministicSignals)
+      ? { needs_weather_check: true }
+      : {}),
+    ...(theme && needsOpenNowCheck(theme, userContext, request.deterministicSignals)
+      ? { needs_open_now: true }
+      : {}),
+  };
+
+  if (
+    !repairedArguments.origin &&
+    isItineraryPlanningRequest(latestUserTurn, request.deterministicSignals)
+  ) {
+    const origin = inferItineraryOrigin(userContext, request.deterministicSignals);
+    if (origin) {
+      repairedArguments.origin = origin;
+    }
+  }
+
+  return {
+    ...functionCall,
+    arguments: repairedArguments,
+  };
+}
+
+function readLocalItineraryTheme(value: unknown): LocalItineraryRequest["theme"] | undefined {
+  return typeof value === "string" && isLocalItineraryTheme(value) ? value : undefined;
+}
+
+function isLocalItineraryTheme(value: string): value is LocalItineraryRequest["theme"] {
+  return (
+    value === "rainy_cloud_9_afternoon" ||
+    value === "sunset_plus_dinner" ||
+    value === "sandy_beach_half_day" ||
+    value === "food_crawl" ||
+    value === "non_surfer_half_day"
+  );
 }
 
 function usableBrowserGeolocation(
@@ -1987,6 +2410,15 @@ function readString(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+function parseJsonRecord(value: string) {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function readStringPath(value: unknown, path: readonly string[]) {
   let current = value;
   for (const segment of path) {
@@ -2058,6 +2490,17 @@ function readStringArrayPath(value: unknown, path: readonly string[]) {
   return Array.isArray(current)
     ? current.filter((item): item is string => typeof item === "string" && item.length > 0)
     : [];
+}
+
+function readUnknownArrayPath(value: unknown, path: readonly string[]) {
+  let current = value;
+  for (const segment of path) {
+    if (!isRecord(current)) {
+      return [];
+    }
+    current = current[segment];
+  }
+  return Array.isArray(current) ? current : [];
 }
 
 function isItineraryTransportMode(

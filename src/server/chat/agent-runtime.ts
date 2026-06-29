@@ -324,6 +324,7 @@ export function createAgentToolCallAudit({
 
 export function createAgentTurnResult({
   actions,
+  allowedCardKinds,
   cards,
   artifactSelectionMode = "compatibility",
   finalPayload,
@@ -347,6 +348,7 @@ export function createAgentTurnResult({
   sources?: readonly AnswerSourceSummary[];
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
+  allowedCardKinds?: readonly RecommendationCardKind[];
   itineraries?: readonly ItineraryPlan[];
   finalPayload?: AgentFinalPayload;
   artifactSelectionMode?: AgentArtifactSelectionMode;
@@ -360,6 +362,7 @@ export function createAgentTurnResult({
   const liveItineraryEvidence = itineraryLiveEvidence(artifactCarriers, toolCalls);
   const selectedArtifacts = selectAgentArtifacts({
     actions,
+    allowedCardKinds,
     cards,
     finalPayload,
     itineraries,
@@ -453,6 +456,7 @@ export function agentItineraryArtifactId(itinerary: ItineraryPlan): string {
 
 function selectAgentArtifacts({
   actions,
+  allowedCardKinds,
   cards,
   finalPayload,
   itineraries,
@@ -461,6 +465,7 @@ function selectAgentArtifacts({
 }: {
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
+  allowedCardKinds?: readonly RecommendationCardKind[];
   itineraries?: readonly ItineraryPlan[];
   finalPayload?: AgentFinalPayload;
   mode: AgentArtifactSelectionMode;
@@ -471,8 +476,21 @@ function selectAgentArtifacts({
   itineraries: ItineraryPlan[];
   summary: AgentArtifactSelectionSummary;
 } {
+  const cardRegistry = allowedCardKinds?.length
+    ? {
+        ...registry,
+        cardsById: new Map(
+          [...registry.cardsById.entries()].filter(([, card]) =>
+            allowedCardKinds.includes(card.kind),
+          ),
+        ),
+      }
+    : registry;
+
   if (!finalPayload) {
-    const compatibilityCards = dedupeCardsById(cards ?? []);
+    const compatibilityCards = dedupeCardsById(cards ?? []).filter(
+      (card) => !allowedCardKinds?.length || allowedCardKinds.includes(card.kind),
+    );
     const compatibilityActions = dedupeById(actions ?? []);
     const compatibilityItineraries = dedupeItineraries(itineraries ?? []);
     return {
@@ -481,7 +499,7 @@ function selectAgentArtifacts({
       itineraries: compatibilityItineraries,
       summary: artifactSelectionSummary({
         mode,
-        registry,
+        registry: cardRegistry,
         selectedCardCount: compatibilityCards.length,
         selectedActionCount: compatibilityActions.length,
         selectedItineraryCount: compatibilityItineraries.length,
@@ -493,14 +511,24 @@ function selectAgentArtifacts({
     };
   }
 
-  const selectedCardIds = unique(finalPayload.displayCardIds);
-  const selectedActionIds = unique(finalPayload.displayActionIds);
-  const selectedItineraryIds = unique(finalPayload.displayItineraryIds);
-  const unknownCardIds = selectedCardIds.filter((id) => !registry.cardsById.has(id));
-  const unknownActionIds = selectedActionIds.filter((id) => !registry.actionsById.has(id));
-  const unknownItineraryIds = selectedItineraryIds.filter(
-    (id) => !registry.itinerariesById.has(id),
-  );
+  const selectedCardIds = resolveSelectedArtifactIds({
+    ids: finalPayload.displayCardIds,
+    registryIds: [...cardRegistry.cardsById.keys()],
+    aliases: artifactIdAliases([...cardRegistry.cardsById.keys()], "card"),
+  });
+  const selectedActionIds = resolveSelectedArtifactIds({
+    ids: finalPayload.displayActionIds,
+    registryIds: [...registry.actionsById.keys()],
+    aliases: artifactIdAliases([...registry.actionsById.keys()], "action"),
+  });
+  const selectedItineraryIds = resolveSelectedArtifactIds({
+    ids: finalPayload.displayItineraryIds,
+    registryIds: [...registry.itinerariesById.keys()],
+    aliases: itineraryArtifactIdAliases([...registry.itinerariesById.values()]),
+  });
+  const unknownCardIds = selectedCardIds.unknownIds;
+  const unknownActionIds = selectedActionIds.unknownIds;
+  const unknownItineraryIds = selectedItineraryIds.unknownIds;
 
   if (
     mode === "strict" &&
@@ -518,15 +546,19 @@ function selectAgentArtifacts({
     );
   }
 
-  const selectedCards = selectedCardIds.flatMap((id) => {
-    const card = registry.cardsById.get(id);
+  const resolvedCardIds = unique([
+    ...selectedCardIds.resolvedIds,
+    ...referencedCardIds(finalPayload.answer, cardRegistry.cardsById),
+  ]);
+  const selectedCards = resolvedCardIds.flatMap((id) => {
+    const card = cardRegistry.cardsById.get(id);
     return card ? [card] : [];
   });
-  const selectedActions = selectedActionIds.flatMap((id) => {
+  const selectedActions = selectedActionIds.resolvedIds.flatMap((id) => {
     const action = registry.actionsById.get(id);
     return action ? [action] : [];
   });
-  const selectedItineraries = selectedItineraryIds.flatMap((id) => {
+  const selectedItineraries = selectedItineraryIds.resolvedIds.flatMap((id) => {
     const itinerary = registry.itinerariesById.get(id);
     return itinerary ? [itinerary] : [];
   });
@@ -537,7 +569,7 @@ function selectAgentArtifacts({
     itineraries: selectedItineraries,
     summary: artifactSelectionSummary({
       mode,
-      registry,
+      registry: cardRegistry,
       selectedCardCount: selectedCards.length,
       selectedActionCount: selectedActions.length,
       selectedItineraryCount: selectedItineraries.length,
@@ -547,6 +579,139 @@ function selectAgentArtifacts({
       unknownItineraryIds,
     }),
   };
+}
+
+function referencedCardIds(answer: string, cardsById: ReadonlyMap<string, RecommendationCard>) {
+  const normalizedAnswer = normalizeMatchText(answer);
+  if (!normalizedAnswer) {
+    return [];
+  }
+
+  return [...cardsById.entries()].flatMap(([id, card]) => {
+    const normalizedTitle = normalizeMatchText(card.title);
+    if (normalizedTitle.length < 4) {
+      return [];
+    }
+    return normalizedAnswer.includes(normalizedTitle) ? [id] : [];
+  });
+}
+
+function resolveSelectedArtifactIds({
+  aliases,
+  ids,
+  registryIds,
+}: {
+  ids: readonly string[];
+  registryIds: readonly string[];
+  aliases: ArtifactAliasResolver;
+}) {
+  const registryIdSet = new Set(registryIds);
+  const resolvedIds: string[] = [];
+  const unknownIds: string[] = [];
+  const seenResolvedIds = new Set<string>();
+
+  for (const id of unique(ids)) {
+    const resolvedId = registryIdSet.has(id)
+      ? id
+      : (aliases.get(artifactAliasKey(id)) ?? aliases.get(slugPart(id)));
+
+    if (!resolvedId || !registryIdSet.has(resolvedId)) {
+      unknownIds.push(id);
+      continue;
+    }
+    if (seenResolvedIds.has(resolvedId)) {
+      continue;
+    }
+    resolvedIds.push(resolvedId);
+    seenResolvedIds.add(resolvedId);
+  }
+
+  return { resolvedIds, unknownIds };
+}
+
+type ArtifactAliasResolver = {
+  get(value: string): string | undefined;
+};
+
+function artifactIdAliases(ids: readonly string[], kind: "action" | "card") {
+  const aliases = new Map<string, string>();
+
+  ids.forEach((id, index) => {
+    addArtifactAlias(aliases, id, id);
+    addArtifactAlias(aliases, slugPart(id), id);
+
+    const ordinal = String(index + 1);
+    if (kind === "card") {
+      for (const prefix of [
+        "card",
+        "result",
+        "search_result",
+        "place_result",
+        "places_result",
+        "place_search_result",
+        "places_search_result",
+      ]) {
+        addArtifactAlias(aliases, `${prefix}_${ordinal}`, id);
+      }
+      if (id.startsWith("place_")) {
+        addArtifactAlias(aliases, `places/${id.slice("place_".length)}`, id);
+      }
+    } else {
+      addArtifactAlias(aliases, `action_${ordinal}`, id);
+    }
+  });
+
+  return aliases;
+}
+
+function itineraryArtifactIdAliases(itineraries: readonly ItineraryPlan[]) {
+  const aliases = new Map<string, string>();
+
+  itineraries.forEach((itinerary, index) => {
+    const id = agentItineraryArtifactId(itinerary);
+    const titleSlug = slugPart(itinerary.title);
+    const titleAndDurationSlug = slugPart(`${itinerary.title} ${itinerary.durationLabel}`);
+
+    addArtifactAlias(aliases, id, id);
+    addArtifactAlias(aliases, slugPart(id), id);
+    addArtifactAlias(aliases, `itinerary_${index + 1}`, id);
+    addArtifactAlias(aliases, `itinerary_${titleSlug}`, id);
+    addArtifactAlias(aliases, `itinerary_${titleAndDurationSlug}`, id);
+    addArtifactAlias(aliases, titleSlug, id);
+    addArtifactAlias(aliases, titleAndDurationSlug, id);
+  });
+
+  return {
+    get(value: string) {
+      const exactMatch = aliases.get(value);
+      if (exactMatch) {
+        return exactMatch;
+      }
+
+      const itineraryMatch = value.match(/^itinerary_(.+)$/);
+      if (!itineraryMatch) {
+        return undefined;
+      }
+
+      const slug = itineraryMatch[1] ?? "";
+      const prefixMatches = itineraries.flatMap((itinerary) => {
+        const titleSlug = slugPart(itinerary.title);
+        return slug.startsWith(titleSlug) ? [agentItineraryArtifactId(itinerary)] : [];
+      });
+      return prefixMatches.length === 1 ? prefixMatches[0] : undefined;
+    },
+  };
+}
+
+function addArtifactAlias(aliases: Map<string, string>, alias: string, id: string) {
+  const key = artifactAliasKey(alias);
+  if (key && !aliases.has(key)) {
+    aliases.set(key, id);
+  }
+}
+
+function artifactAliasKey(value: string) {
+  return normalizeText(value).toLowerCase();
 }
 
 function artifactSelectionSummary({
@@ -1411,4 +1576,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeText(value: string) {
   return value.replaceAll(/\s+/g, " ").trim();
+}
+
+function normalizeMatchText(value: string) {
+  return value
+    .normalize("NFKD")
+    .replaceAll(/[\u0300-\u036f]/g, "")
+    .replaceAll(/[^a-zA-Z0-9]+/g, " ")
+    .replaceAll(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function slugPart(value: string) {
+  return value
+    .trim()
+    .replaceAll(/[^a-zA-Z0-9]+/g, "_")
+    .replaceAll(/^_+|_+$/g, "")
+    .toLowerCase();
 }
