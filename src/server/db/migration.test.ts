@@ -13,6 +13,9 @@ import {
   auditRequests,
   auditRuns,
   candidateEntities,
+  chatMessages,
+  chatResponseRatings,
+  chatThreads,
   entities,
   entityMatches,
   evidence,
@@ -44,6 +47,7 @@ import {
   sourcePermissions,
   sourceProfiles,
   sourceRecords,
+  userProfiles,
   users,
 } from "@/server/db/schema";
 import {
@@ -61,6 +65,10 @@ describe("Step 3 database migration", () => {
 
     const requiredTables = [
       "users",
+      "user_profiles",
+      "chat_threads",
+      "chat_messages",
+      "chat_response_ratings",
       "saved_trips",
       "saved_trip_items",
       "shared_trip_plans",
@@ -130,6 +138,10 @@ describe("Step 3 database migration", () => {
 
     const schemaTables = [
       users,
+      userProfiles,
+      chatThreads,
+      chatMessages,
+      chatResponseRatings,
       savedTrips,
       savedTripItems,
       sharedTripPlans,
@@ -174,6 +186,246 @@ describe("Step 3 database migration", () => {
     const schemaTableNames: string[] = schemaTables.map((table) => getTableName(table));
 
     expect(schemaTableNames.toSorted()).toEqual(migratedTables.toSorted());
+  });
+
+  test("keeps migrated auth and chat table columns, keys, and indexes in parity", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    await runInitialMigration(db);
+
+    const columns = await db.query<{
+      table_name: string;
+      column_name: string;
+      data_type: string;
+      is_nullable: "YES" | "NO";
+      column_default: string | null;
+    }>(
+      `
+        select table_name, column_name, data_type, is_nullable, column_default
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = any($1::text[])
+        order by table_name, ordinal_position
+      `,
+      [authTableNames],
+    );
+    const columnsByTable = groupRows(columns.rows, (row) => row.table_name);
+
+    expect(
+      columnsByTable.users?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+        column.column_default,
+      ]),
+    ).toEqual([
+      ["id", "text", "NO", null],
+      ["email", "text", "NO", null],
+      ["first_name", "text", "YES", null],
+      ["last_name", "text", "YES", null],
+      ["image_url", "text", "YES", null],
+      ["clerk_updated_at", "timestamp with time zone", "YES", null],
+      ["last_seen_at", "timestamp with time zone", "YES", null],
+      ["deleted_at", "timestamp with time zone", "YES", null],
+      ["created_at", "timestamp with time zone", "NO", "now()"],
+      ["updated_at", "timestamp with time zone", "NO", "now()"],
+    ]);
+    expect(
+      columnsByTable.user_profiles?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+        column.column_default,
+      ]),
+    ).toEqual([
+      ["user_id", "text", "NO", null],
+      ["display_name", "text", "YES", null],
+      ["home_country", "text", "YES", null],
+      ["travel_style", "text", "YES", null],
+      ["budget_level", "text", "YES", null],
+      ["dietary_notes", "text", "YES", null],
+      ["accessibility_notes", "text", "YES", null],
+      ["interests_json", "jsonb", "NO", "'[]'::jsonb"],
+      ["preferred_areas_json", "jsonb", "NO", "'[]'::jsonb"],
+      ["trip_context_json", "jsonb", "NO", "'{}'::jsonb"],
+      ["marketing_consent", "boolean", "NO", "false"],
+      ["created_at", "timestamp with time zone", "NO", "now()"],
+      ["updated_at", "timestamp with time zone", "NO", "now()"],
+    ]);
+    expect(
+      columnsByTable.chat_threads?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+        column.column_default,
+      ]),
+    ).toEqual([
+      ["id", "text", "NO", null],
+      ["user_id", "text", "NO", null],
+      ["title", "text", "NO", "'New Siargao chat'::text"],
+      ["summary", "text", "YES", null],
+      ["status", "text", "NO", "'active'::text"],
+      ["source", "text", "NO", "'chat_workspace'::text"],
+      ["last_message_at", "timestamp with time zone", "YES", null],
+      ["archived_at", "timestamp with time zone", "YES", null],
+      ["deleted_at", "timestamp with time zone", "YES", null],
+      ["created_at", "timestamp with time zone", "NO", "now()"],
+      ["updated_at", "timestamp with time zone", "NO", "now()"],
+    ]);
+    expect(
+      columnsByTable.chat_messages?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+        column.column_default,
+      ]),
+    ).toEqual([
+      ["id", "text", "NO", null],
+      ["thread_id", "text", "NO", null],
+      ["user_id", "text", "NO", null],
+      ["role", "text", "NO", null],
+      ["content", "text", "NO", null],
+      ["status", "text", "NO", "'complete'::text"],
+      ["request_id", "text", "YES", null],
+      ["model", "text", "YES", null],
+      ["client_message_id", "text", "YES", null],
+      ["sources_json", "jsonb", "NO", "'[]'::jsonb"],
+      ["cards_json", "jsonb", "NO", "'[]'::jsonb"],
+      ["actions_json", "jsonb", "NO", "'[]'::jsonb"],
+      ["itineraries_json", "jsonb", "NO", "'[]'::jsonb"],
+      ["tool_calls_json", "jsonb", "NO", "'[]'::jsonb"],
+      ["context_summary_json", "jsonb", "NO", "'{}'::jsonb"],
+      ["error_code", "text", "YES", null],
+      ["created_at", "timestamp with time zone", "NO", "now()"],
+    ]);
+    expect(
+      columnsByTable.chat_response_ratings?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+        column.column_default,
+      ]),
+    ).toEqual([
+      ["id", "text", "NO", null],
+      ["message_id", "text", "NO", null],
+      ["thread_id", "text", "NO", null],
+      ["user_id", "text", "NO", null],
+      ["rating", "text", "NO", null],
+      ["reason_codes_json", "jsonb", "NO", "'[]'::jsonb"],
+      ["comment", "text", "YES", null],
+      ["created_at", "timestamp with time zone", "NO", "now()"],
+      ["updated_at", "timestamp with time zone", "NO", "now()"],
+    ]);
+
+    const primaryKeys = await db.query<{
+      table_name: string;
+      column_name: string;
+      ordinal_position: number;
+    }>(
+      `
+        select tc.table_name, kcu.column_name, kcu.ordinal_position
+        from information_schema.table_constraints tc
+        join information_schema.key_column_usage kcu
+          on tc.constraint_name = kcu.constraint_name
+          and tc.table_schema = kcu.table_schema
+        where tc.table_schema = 'public'
+          and tc.constraint_type = 'PRIMARY KEY'
+          and tc.table_name = any($1::text[])
+        order by tc.table_name, kcu.ordinal_position
+      `,
+      [authTableNames],
+    );
+    expect(groupColumnNames(primaryKeys.rows)).toEqual({
+      chat_messages: ["id"],
+      chat_response_ratings: ["id"],
+      chat_threads: ["id"],
+      user_profiles: ["user_id"],
+      users: ["id"],
+    });
+
+    const foreignKeys = await db.query<{
+      table_name: string;
+      column_name: string;
+      foreign_table_name: string;
+      foreign_column_name: string;
+    }>(
+      `
+        select
+          tc.table_name,
+          kcu.column_name,
+          ccu.table_name as foreign_table_name,
+          ccu.column_name as foreign_column_name
+        from information_schema.table_constraints tc
+        join information_schema.key_column_usage kcu
+          on tc.constraint_name = kcu.constraint_name
+          and tc.table_schema = kcu.table_schema
+        join information_schema.constraint_column_usage ccu
+          on tc.constraint_name = ccu.constraint_name
+          and tc.table_schema = ccu.table_schema
+        where tc.table_schema = 'public'
+          and tc.constraint_type = 'FOREIGN KEY'
+          and tc.table_name = any($1::text[])
+        order by tc.table_name, kcu.column_name
+      `,
+      [authTableNames],
+    );
+    expect(
+      foreignKeys.rows.map((row) => [
+        row.table_name,
+        row.column_name,
+        row.foreign_table_name,
+        row.foreign_column_name,
+      ]),
+    ).toEqual([
+      ["chat_messages", "thread_id", "chat_threads", "id"],
+      ["chat_messages", "user_id", "users", "id"],
+      ["chat_response_ratings", "message_id", "chat_messages", "id"],
+      ["chat_response_ratings", "thread_id", "chat_threads", "id"],
+      ["chat_response_ratings", "user_id", "users", "id"],
+      ["chat_threads", "user_id", "users", "id"],
+      ["user_profiles", "user_id", "users", "id"],
+    ]);
+
+    const indexes = await db.query<{ tablename: string; indexname: string; indexdef: string }>(
+      `
+        select tablename, indexname, indexdef
+        from pg_indexes
+        where schemaname = 'public'
+          and tablename = any($1::text[])
+        order by tablename, indexname
+      `,
+      [authTableNames],
+    );
+    expect(
+      Object.fromEntries(
+        indexes.rows.map((row) => [`${row.tablename}.${row.indexname}`, row.indexdef]),
+      ),
+    ).toMatchObject({
+      "chat_messages.chat_messages_request_id_idx":
+        "CREATE INDEX chat_messages_request_id_idx ON public.chat_messages USING btree (request_id)",
+      "chat_messages.chat_messages_thread_id_created_at_idx":
+        "CREATE INDEX chat_messages_thread_id_created_at_idx ON public.chat_messages USING btree (thread_id, created_at)",
+      "chat_messages.chat_messages_user_id_created_at_idx":
+        "CREATE INDEX chat_messages_user_id_created_at_idx ON public.chat_messages USING btree (user_id, created_at)",
+      "chat_response_ratings.chat_response_ratings_thread_id_idx":
+        "CREATE INDEX chat_response_ratings_thread_id_idx ON public.chat_response_ratings USING btree (thread_id)",
+      "chat_response_ratings.chat_response_ratings_user_id_created_at_idx":
+        "CREATE INDEX chat_response_ratings_user_id_created_at_idx ON public.chat_response_ratings USING btree (user_id, created_at)",
+      "chat_response_ratings.chat_response_ratings_user_id_message_id_idx":
+        "CREATE UNIQUE INDEX chat_response_ratings_user_id_message_id_idx ON public.chat_response_ratings USING btree (user_id, message_id)",
+      "chat_threads.chat_threads_user_id_deleted_at_idx":
+        "CREATE INDEX chat_threads_user_id_deleted_at_idx ON public.chat_threads USING btree (user_id, deleted_at)",
+      "chat_threads.chat_threads_user_id_updated_at_idx":
+        "CREATE INDEX chat_threads_user_id_updated_at_idx ON public.chat_threads USING btree (user_id, updated_at)",
+      "user_profiles.user_profiles_updated_at_idx":
+        "CREATE INDEX user_profiles_updated_at_idx ON public.user_profiles USING btree (updated_at)",
+      "users.users_deleted_at_idx":
+        "CREATE INDEX users_deleted_at_idx ON public.users USING btree (deleted_at)",
+      "users.users_last_seen_at_idx":
+        "CREATE INDEX users_last_seen_at_idx ON public.users USING btree (last_seen_at)",
+    });
+
+    await db.close();
   });
 
   test("keeps migrated trip table columns, keys, and indexes in parity", async () => {
@@ -359,6 +611,10 @@ describe("Step 3 database migration", () => {
         "CREATE INDEX saved_trips_client_trip_key_hash_idx ON public.saved_trips USING btree (client_trip_key_hash)",
       "saved_trips.saved_trips_pkey":
         "CREATE UNIQUE INDEX saved_trips_pkey ON public.saved_trips USING btree (id)",
+      "saved_trips.saved_trips_user_client_trip_key_hash_idx":
+        "CREATE UNIQUE INDEX saved_trips_user_client_trip_key_hash_idx ON public.saved_trips USING btree (user_id, client_trip_key_hash) WHERE (user_id IS NOT NULL)",
+      "saved_trips.saved_trips_user_id_idx":
+        "CREATE INDEX saved_trips_user_id_idx ON public.saved_trips USING btree (user_id)",
       "shared_trip_plans.shared_trip_plans_expires_at_idx":
         "CREATE INDEX shared_trip_plans_expires_at_idx ON public.shared_trip_plans USING btree (expires_at)",
       "shared_trip_plans.shared_trip_plans_pkey":
@@ -373,6 +629,13 @@ describe("Step 3 database migration", () => {
   });
 });
 
+const authTableNames = [
+  "users",
+  "user_profiles",
+  "chat_threads",
+  "chat_messages",
+  "chat_response_ratings",
+];
 const tripTableNames = ["saved_trips", "saved_trip_items", "shared_trip_plans"];
 
 function groupRows<T extends Record<string, unknown>, Key extends keyof T>(

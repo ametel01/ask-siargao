@@ -7,9 +7,9 @@ Source requirements:
 
 ## Current Status
 
-- Status: Step 2 complete.
-- Current step: Step 3 - Auth Data Schema and Migration.
-- Next step: Step 3 - Auth Data Schema and Migration.
+- Status: Step 3 complete.
+- Current step: Step 4 - Clerk User Sync and Auth Helpers.
+- Next step: Step 4 - Clerk User Sync and Auth Helpers.
 - Tracking rule: Update this file after every completed step with validation results,
   commit reference when available, current status, and next step.
 - Changelog rule: Update `CHANGELOG.md` after each step is completed and validated,
@@ -20,7 +20,7 @@ Source requirements:
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Baseline Quality Gate Run
 - [x] Step 2: Clerk Shell Integration
-- [ ] Step 3: Auth Data Schema and Migration
+- [x] Step 3: Auth Data Schema and Migration
 - [ ] Step 4: Clerk User Sync and Auth Helpers
 - [ ] Step 5: Profile API and UI
 - [ ] Step 6: Authenticated Chat Persistence
@@ -91,5 +91,32 @@ Source requirements:
   - Passed: `bun run test:e2e` (`32 passed`)
 - Note: Database migrate and seed gates must run sequentially because they share the
   generated `.tmp/pglite-step3` database.
-- Commit: Pending; this entry is included in the Step 2 commit.
+- Commit: `1aec620` - `Add Clerk auth shell`.
 - Next step: Step 3 - Auth Data Schema and Migration.
+
+### 2026-06-29 - Step 3: Auth Data Schema and Migration
+
+- Status: Complete.
+- Changes:
+  - Extended `users` with Clerk identity cache fields, last-seen and deletion
+    timestamps, and supporting indexes.
+  - Added `user_profiles`, `chat_threads`, `chat_messages`, and
+    `chat_response_ratings` to the Drizzle schema and initial SQL migration.
+  - Added authenticated saved-trip lookup indexes while preserving the existing
+    anonymous global `client_trip_key_hash` uniqueness behavior.
+  - Expanded migration parity coverage for auth, profile, chat, rating, and
+    saved-trip columns, keys, foreign keys, defaults, and indexes.
+- Validation:
+  - Passed: `bun run format` (`Formatted 226 files in 48ms. No fixes applied.`)
+  - Passed: `bun run lint` (`Checked 227 files in 102ms. No fixes applied.`)
+  - Passed: `bun run typecheck --incremental false`
+  - Passed: `bun test` (`548 pass`, `0 fail`)
+  - Passed: `bun run db:migrate:test` (`Migrated 45 tables`)
+  - Passed: `bun run db:seed:test` (`Seeded 5 areas, 3 routes, and 6 source profiles`)
+  - Passed: `bun run build`
+  - Passed: `bun run test:e2e` (`32 passed`)
+- Note: Anonymous saved trips still keep globally unique `client_trip_key_hash`
+  values; authenticated lookup uses an additional partial `(user_id,
+  client_trip_key_hash)` index for future owner-scoped behavior.
+- Commit: Pending; this entry is included in the Step 3 commit.
+- Next step: Step 4 - Clerk User Sync and Auth Helpers.

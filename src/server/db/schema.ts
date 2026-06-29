@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   date,
@@ -9,14 +10,53 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
-export const users = pgTable("users", {
-  id: text("id").primaryKey(),
-  email: text("email").notNull().unique(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const users = pgTable(
+  "users",
+  {
+    id: text("id").primaryKey(),
+    email: text("email").notNull().unique(),
+    firstName: text("first_name"),
+    lastName: text("last_name"),
+    imageUrl: text("image_url"),
+    clerkUpdatedAt: timestamp("clerk_updated_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("users_deleted_at_idx").on(table.deletedAt),
+    index("users_last_seen_at_idx").on(table.lastSeenAt),
+  ],
+);
+
+export const userProfiles = pgTable(
+  "user_profiles",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => users.id),
+    displayName: text("display_name"),
+    homeCountry: text("home_country"),
+    travelStyle: text("travel_style"),
+    budgetLevel: text("budget_level"),
+    dietaryNotes: text("dietary_notes"),
+    accessibilityNotes: text("accessibility_notes"),
+    interestsJson: jsonb("interests_json").$type<string[]>().notNull().default([]),
+    preferredAreasJson: jsonb("preferred_areas_json").$type<string[]>().notNull().default([]),
+    tripContextJson: jsonb("trip_context_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    marketingConsent: boolean("marketing_consent").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("user_profiles_updated_at_idx").on(table.updatedAt)],
+);
 
 export const savedTrips = pgTable(
   "saved_trips",
@@ -28,7 +68,103 @@ export const savedTrips = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("saved_trips_client_trip_key_hash_idx").on(table.clientTripKeyHash)],
+  (table) => [
+    index("saved_trips_client_trip_key_hash_idx").on(table.clientTripKeyHash),
+    index("saved_trips_user_id_idx").on(table.userId),
+    uniqueIndex("saved_trips_user_client_trip_key_hash_idx")
+      .on(table.userId, table.clientTripKeyHash)
+      .where(sql`${table.userId} is not null`),
+  ],
+);
+
+export const chatThreads = pgTable(
+  "chat_threads",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    title: text("title").notNull().default("New Siargao chat"),
+    summary: text("summary"),
+    status: text("status").notNull().default("active"),
+    source: text("source").notNull().default("chat_workspace"),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("chat_threads_user_id_updated_at_idx").on(table.userId, table.updatedAt),
+    index("chat_threads_user_id_deleted_at_idx").on(table.userId, table.deletedAt),
+  ],
+);
+
+export const chatMessages = pgTable(
+  "chat_messages",
+  {
+    id: text("id").primaryKey(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => chatThreads.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    role: text("role").notNull(),
+    content: text("content").notNull(),
+    status: text("status").notNull().default("complete"),
+    requestId: text("request_id"),
+    model: text("model"),
+    clientMessageId: text("client_message_id"),
+    sourcesJson: jsonb("sources_json").$type<Record<string, unknown>[]>().notNull().default([]),
+    cardsJson: jsonb("cards_json").$type<Record<string, unknown>[]>().notNull().default([]),
+    actionsJson: jsonb("actions_json").$type<Record<string, unknown>[]>().notNull().default([]),
+    itinerariesJson: jsonb("itineraries_json")
+      .$type<Record<string, unknown>[]>()
+      .notNull()
+      .default([]),
+    toolCallsJson: jsonb("tool_calls_json")
+      .$type<Record<string, unknown>[]>()
+      .notNull()
+      .default([]),
+    contextSummaryJson: jsonb("context_summary_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    errorCode: text("error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("chat_messages_thread_id_created_at_idx").on(table.threadId, table.createdAt),
+    index("chat_messages_user_id_created_at_idx").on(table.userId, table.createdAt),
+    index("chat_messages_request_id_idx").on(table.requestId),
+  ],
+);
+
+export const chatResponseRatings = pgTable(
+  "chat_response_ratings",
+  {
+    id: text("id").primaryKey(),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => chatMessages.id),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => chatThreads.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    rating: text("rating").notNull(),
+    reasonCodesJson: jsonb("reason_codes_json").$type<string[]>().notNull().default([]),
+    comment: text("comment"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("chat_response_ratings_user_id_message_id_idx").on(table.userId, table.messageId),
+    index("chat_response_ratings_user_id_created_at_idx").on(table.userId, table.createdAt),
+    index("chat_response_ratings_thread_id_idx").on(table.threadId),
+  ],
 );
 
 export const savedTripItems = pgTable(

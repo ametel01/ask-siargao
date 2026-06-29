@@ -84,6 +84,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Extended the user schema for Clerk identity caching, last-seen tracking, and soft deletion.
+- Added authenticated saved-trip lookup indexes while preserving anonymous
+  `client_trip_key_hash` compatibility.
 - Documented the completed thin chat harness contract, including structured final payloads,
   selected artifacts, compact memory metadata, and source-free memory retrieval boundaries.
 - Changed `/api/chat` observability to log selected and unselected artifact counts while keeping
@@ -111,6 +114,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added database tables for Ask Siargao user profiles, persisted chat threads,
+  persisted chat messages, and assistant response ratings.
 - Added Clerk auth shell integration with guarded `ClerkProvider` wiring, protected route
   proxy policy, prebuilt sign-in and sign-up pages, chat header auth actions, and route-policy
   coverage.

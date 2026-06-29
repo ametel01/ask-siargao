@@ -1,9 +1,43 @@
 CREATE TABLE IF NOT EXISTS users (
   id text PRIMARY KEY,
   email text NOT NULL UNIQUE,
+  first_name text,
+  last_name text,
+  image_url text,
+  clerk_updated_at timestamptz,
+  last_seen_at timestamptz,
+  deleted_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS image_url text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS clerk_updated_at timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+
+CREATE INDEX IF NOT EXISTS users_deleted_at_idx ON users(deleted_at);
+CREATE INDEX IF NOT EXISTS users_last_seen_at_idx ON users(last_seen_at);
+
+CREATE TABLE IF NOT EXISTS user_profiles (
+  user_id text PRIMARY KEY REFERENCES users(id),
+  display_name text,
+  home_country text,
+  travel_style text,
+  budget_level text,
+  dietary_notes text,
+  accessibility_notes text,
+  interests_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  preferred_areas_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  trip_context_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  marketing_consent boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS user_profiles_updated_at_idx ON user_profiles(updated_at);
 
 CREATE TABLE IF NOT EXISTS saved_trips (
   id text PRIMARY KEY,
@@ -16,6 +50,83 @@ CREATE TABLE IF NOT EXISTS saved_trips (
 
 CREATE INDEX IF NOT EXISTS saved_trips_client_trip_key_hash_idx
   ON saved_trips(client_trip_key_hash);
+
+CREATE INDEX IF NOT EXISTS saved_trips_user_id_idx ON saved_trips(user_id);
+
+-- Anonymous saved trips keep a globally unique client_trip_key_hash. The partial
+-- authenticated index supports owner-scoped lookup without weakening that legacy behavior.
+CREATE UNIQUE INDEX IF NOT EXISTS saved_trips_user_client_trip_key_hash_idx
+  ON saved_trips(user_id, client_trip_key_hash)
+  WHERE user_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS chat_threads (
+  id text PRIMARY KEY,
+  user_id text NOT NULL REFERENCES users(id),
+  title text NOT NULL DEFAULT 'New Siargao chat',
+  summary text,
+  status text NOT NULL DEFAULT 'active',
+  source text NOT NULL DEFAULT 'chat_workspace',
+  last_message_at timestamptz,
+  archived_at timestamptz,
+  deleted_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS chat_threads_user_id_updated_at_idx
+  ON chat_threads(user_id, updated_at);
+
+CREATE INDEX IF NOT EXISTS chat_threads_user_id_deleted_at_idx
+  ON chat_threads(user_id, deleted_at);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id text PRIMARY KEY,
+  thread_id text NOT NULL REFERENCES chat_threads(id),
+  user_id text NOT NULL REFERENCES users(id),
+  role text NOT NULL,
+  content text NOT NULL,
+  status text NOT NULL DEFAULT 'complete',
+  request_id text,
+  model text,
+  client_message_id text,
+  sources_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  cards_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  actions_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  itineraries_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  tool_calls_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  context_summary_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  error_code text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS chat_messages_thread_id_created_at_idx
+  ON chat_messages(thread_id, created_at);
+
+CREATE INDEX IF NOT EXISTS chat_messages_user_id_created_at_idx
+  ON chat_messages(user_id, created_at);
+
+CREATE INDEX IF NOT EXISTS chat_messages_request_id_idx ON chat_messages(request_id);
+
+CREATE TABLE IF NOT EXISTS chat_response_ratings (
+  id text PRIMARY KEY,
+  message_id text NOT NULL REFERENCES chat_messages(id),
+  thread_id text NOT NULL REFERENCES chat_threads(id),
+  user_id text NOT NULL REFERENCES users(id),
+  rating text NOT NULL,
+  reason_codes_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  comment text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS chat_response_ratings_user_id_message_id_idx
+  ON chat_response_ratings(user_id, message_id);
+
+CREATE INDEX IF NOT EXISTS chat_response_ratings_user_id_created_at_idx
+  ON chat_response_ratings(user_id, created_at);
+
+CREATE INDEX IF NOT EXISTS chat_response_ratings_thread_id_idx
+  ON chat_response_ratings(thread_id);
 
 CREATE TABLE IF NOT EXISTS saved_trip_items (
   id text NOT NULL,
