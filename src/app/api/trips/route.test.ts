@@ -135,7 +135,6 @@ describe("saved trip API routes", () => {
     expect(listBody.items.map((savedItem: { id: string }) => savedItem.id)).toEqual([
       "place_shaka",
     ]);
-
     const deleteResponse = await deleteSavedTripItemResponse(
       jsonRequest("/api/trips/saved/place_shaka", { tripId }, "DELETE"),
       { itemId: "place_shaka", dependencies },
@@ -149,6 +148,95 @@ describe("saved trip API routes", () => {
     );
     const afterDeleteBody = await afterDeleteResponse.json();
     expect(afterDeleteBody.items).toEqual([]);
+
+    await dependencies.close();
+  });
+
+  test("migrates an unowned local trip to the authenticated user and lists by owner", async () => {
+    const dependencies = await tripRouteDependencies({ userId: "user_saved_trips" });
+    const tripId = "local_trip_auth_123456";
+    await saveRouteItem(dependencies, tripId, shakaCard);
+
+    const tripRows = await dependencies.db.query<{ user_id: string | null }>(
+      "select user_id from saved_trips where client_trip_key_hash = $1",
+      [hashClientTripKey(tripId)],
+    );
+    const listResponse = await savedTripsResponse(
+      new Request("https://siargao.test/api/trips/saved", { method: "GET" }),
+      dependencies,
+    );
+    const listBody = await listResponse.json();
+
+    expect(tripRows.rows[0]?.user_id).toBe("user_saved_trips");
+    expect(listResponse.status).toBe(200);
+    expect(listBody.items.map((savedItem: { id: string }) => savedItem.id)).toEqual([
+      "place_shaka",
+    ]);
+    expect(listBody.tripId).toBe(`saved_trip_${hashClientTripKey(tripId)}`);
+
+    const secondItem = savedTripItemFromRecommendationCard({
+      card: { ...shakaCard, id: "place_kermit", title: "Kermit Siargao" },
+      sources: [placesSource],
+      savedAt: nowIso,
+      tripId: listBody.tripId,
+    });
+    const serverTripIdSaveResponse = await savedTripsResponse(
+      jsonRequest("/api/trips/saved", {
+        tripId: listBody.tripId,
+        items: [secondItem],
+      }),
+      dependencies,
+    );
+    const ownedTripCount = await dependencies.db.query<{ count: string }>(
+      "select count(*)::text as count from saved_trips where user_id = $1",
+      ["user_saved_trips"],
+    );
+
+    expect(serverTripIdSaveResponse.status).toBe(200);
+    expect(ownedTripCount.rows[0]?.count).toBe("1");
+
+    const deleteResponse = await deleteSavedTripItemResponse(
+      jsonRequest("/api/trips/saved/place_shaka", {}, "DELETE"),
+      { itemId: "place_shaka", dependencies },
+    );
+    const deleteBody = await deleteResponse.json();
+    expect(deleteResponse.status).toBe(200);
+    expect(deleteBody.removed).toBe(true);
+
+    await dependencies.close();
+  });
+
+  test("prevents cross-user saved trip delete and share creation", async () => {
+    const dependencies = await tripRouteDependencies({ userId: "user_saved_owner" });
+    const tripId = "local_trip_owned_123456";
+    await saveRouteItem(dependencies, tripId, shakaCard);
+    const intruderDependencies = withTripRouteUser(dependencies, "user_saved_intruder");
+
+    const deleteResponse = await deleteSavedTripItemResponse(
+      jsonRequest("/api/trips/saved/place_shaka", { tripId }, "DELETE"),
+      { itemId: "place_shaka", dependencies: intruderDependencies },
+    );
+    const shareResponse = await createSharedTripResponse(
+      jsonRequest("/api/trips/share", {
+        tripId,
+        title: "Wrong owner",
+        itemIds: ["place_shaka"],
+      }),
+      intruderDependencies,
+    );
+    const ownerListResponse = await savedTripsResponse(
+      new Request("https://siargao.test/api/trips/saved", { method: "GET" }),
+      dependencies,
+    );
+    const ownerListBody = await ownerListResponse.json();
+
+    expect(deleteResponse.status).toBe(404);
+    expect(await deleteResponse.json()).toEqual({ error: "saved_trip_not_found" });
+    expect(shareResponse.status).toBe(404);
+    expect(await shareResponse.json()).toEqual({ error: "saved_trip_not_found" });
+    expect(ownerListBody.items.map((savedItem: { id: string }) => savedItem.id)).toEqual([
+      "place_shaka",
+    ]);
 
     await dependencies.close();
   });
@@ -237,6 +325,7 @@ describe("saved trip API routes", () => {
       "Open now from Google Places",
     );
     expect(JSON.stringify(shareBody)).not.toContain("Where should I eat?");
+    expect(JSON.stringify(shareBody)).not.toContain("user_");
     expect(JSON.stringify(shareBody)).not.toContain("rawProviderPayload");
     expect(JSON.stringify(shareBody)).not.toContain("9.8116");
     expect(JSON.stringify(shareBody)).not.toContain("126.1651");
@@ -357,7 +446,9 @@ type TestTripRouteDependencies = TripRouteDependencies & {
   setNow: (value: string) => void;
 };
 
-async function tripRouteDependencies(): Promise<TestTripRouteDependencies> {
+async function tripRouteDependencies(
+  options: { userId?: string | null } = {},
+): Promise<TestTripRouteDependencies> {
   const db = new PGlite();
   await runInitialMigration(db);
   let now = nowIso;
@@ -365,6 +456,7 @@ async function tripRouteDependencies(): Promise<TestTripRouteDependencies> {
 
   return {
     db,
+    ...(options.userId !== undefined ? { auth: authForUser(options.userId) } : {}),
     now: () => new Date(now),
     createId: (prefix) => `${prefix}_${tokenCount + 1}`,
     createPublicToken: () => {
@@ -376,6 +468,23 @@ async function tripRouteDependencies(): Promise<TestTripRouteDependencies> {
       now = value;
     },
   };
+}
+
+function withTripRouteUser(
+  dependencies: TestTripRouteDependencies,
+  userId: string | null,
+): TestTripRouteDependencies {
+  return {
+    ...dependencies,
+    auth: authForUser(userId),
+  };
+}
+
+function authForUser(userId: string | null) {
+  return async () => ({
+    userId,
+    sessionClaims: userId ? { email: `${userId}@example.com` } : null,
+  });
 }
 
 function jsonRequest(path: string, body: unknown, method = "POST") {

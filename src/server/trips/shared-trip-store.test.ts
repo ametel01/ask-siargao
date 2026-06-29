@@ -87,6 +87,48 @@ describe("shared trip persistence store", () => {
     await db.close();
   });
 
+  test("migrates unowned browser trips but rejects owner conflicts", async () => {
+    const db = await openSharedTripStoreTestDatabase();
+    await insertUser(db, "user_trip_owner");
+    await insertUser(db, "user_trip_intruder");
+
+    await upsertSavedTrip(db, {
+      id: "trip_migrate",
+      clientTripKey: "browser-trip-key-migrate",
+      title: "Anonymous plan",
+      now: "2026-06-28T01:00:00.000Z",
+    });
+    const migrated = await upsertSavedTrip(db, {
+      id: "trip_migrate_ignored",
+      clientTripKey: "browser-trip-key-migrate",
+      userId: "user_trip_owner",
+      title: "Owned plan",
+      now: "2026-06-28T01:01:00.000Z",
+    });
+
+    expect(migrated.id).toBe("trip_migrate");
+    expect(migrated.userId).toBe("user_trip_owner");
+    await expect(
+      upsertSavedTrip(db, {
+        id: "trip_migrate_intruder",
+        clientTripKey: "browser-trip-key-migrate",
+        userId: "user_trip_intruder",
+        title: "Intruder plan",
+        now: "2026-06-28T01:02:00.000Z",
+      }),
+    ).rejects.toThrow("another user");
+    await expect(
+      upsertSavedTrip(db, {
+        id: "trip_migrate_anonymous",
+        clientTripKey: "browser-trip-key-migrate",
+        title: "Anonymous overwrite",
+        now: "2026-06-28T01:03:00.000Z",
+      }),
+    ).rejects.toThrow("another user");
+
+    await db.close();
+  });
+
   test("creates share tokens with hashed storage and selected item lookup", async () => {
     const db = await openSharedTripStoreTestDatabase();
     const trip = await seedTripWithItems(db, "trip_share", "browser-trip-key-share");
@@ -385,6 +427,17 @@ async function seedTripWithItems(
     ],
   });
   return trip;
+}
+
+async function insertUser(db: PGlite, userId: string) {
+  await db.query(
+    `
+      insert into users (id, email, created_at, updated_at)
+      values ($1, $2, now(), now())
+      on conflict (id) do nothing
+    `,
+    [userId, `${userId}@example.com`],
+  );
 }
 
 const placesSource: AnswerSourceSummary = {

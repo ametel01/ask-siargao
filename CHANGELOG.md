@@ -9,6 +9,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Security
 
+- Added saved-trip owner checks so authenticated delete and share attempts for
+  another user's saved trip return `404` and public share DTOs still omit owner,
+  profile, chat, provider payload, and geolocation data.
 - Stored authenticated chat history now keeps browser geolocation as summaries
   without exact coordinates and persists tool-call summaries without raw
   arguments.
@@ -87,6 +90,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed saved-trip sync so signed-in users can claim unowned local saved trips,
+  list owned saved items without `tripId`, and reuse their owned server trip id
+  while anonymous saved-trip behavior remains compatible.
 - Extended the user schema for Clerk identity caching, last-seen tracking, and soft deletion.
 - Added authenticated saved-trip lookup indexes while preserving anonymous
   `client_trip_key_hash` compatibility.

@@ -93,12 +93,19 @@ export async function upsertSavedTrip(
         title = excluded.title,
         user_id = coalesce(excluded.user_id, saved_trips.user_id),
         updated_at = excluded.updated_at
+      where saved_trips.user_id is null
+        or (excluded.user_id is not null and saved_trips.user_id = excluded.user_id)
       returning id, user_id, client_trip_key_hash, title, created_at, updated_at
     `,
     [id, userId ?? null, clientTripKeyHash, title, now],
   );
 
-  return savedTripRecordFromRow(requiredRow(result.rows, "saved trip"));
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error("Saved trip belongs to another user.");
+  }
+
+  return savedTripRecordFromRow(row);
 }
 
 export async function lookupSavedTripByClientTripKey(
@@ -113,6 +120,43 @@ export async function lookupSavedTripByClientTripKey(
       limit 1
     `,
     [hashClientTripKey(clientTripKey)],
+  );
+  const row = result.rows[0];
+
+  return row ? savedTripRecordFromRow(row) : null;
+}
+
+export async function lookupSavedTripById(
+  db: SharedTripStoreDatabase,
+  { tripId }: { tripId: string },
+): Promise<SavedTripRecord | null> {
+  const result = await db.query<SavedTripRow>(
+    `
+      select id, user_id, client_trip_key_hash, title, created_at, updated_at
+      from saved_trips
+      where id = $1
+      limit 1
+    `,
+    [tripId],
+  );
+  const row = result.rows[0];
+
+  return row ? savedTripRecordFromRow(row) : null;
+}
+
+export async function lookupLatestSavedTripByUserId(
+  db: SharedTripStoreDatabase,
+  { userId }: { userId: string },
+): Promise<SavedTripRecord | null> {
+  const result = await db.query<SavedTripRow>(
+    `
+      select id, user_id, client_trip_key_hash, title, created_at, updated_at
+      from saved_trips
+      where user_id = $1
+      order by updated_at desc, created_at desc, id asc
+      limit 1
+    `,
+    [userId],
   );
   const row = result.rows[0];
 
@@ -200,6 +244,34 @@ export async function listSavedTripItems(
   return result.rows.map(savedTripItemFromRow);
 }
 
+export async function listSavedTripItemsByUserId(
+  db: SharedTripStoreDatabase,
+  { includeDeleted = false, userId }: { userId: string; includeDeleted?: boolean },
+) {
+  const result = await db.query<SavedTripItemRow>(
+    `
+      select
+        saved_trip_items.id,
+        saved_trip_items.trip_id,
+        saved_trip_items.kind,
+        saved_trip_items.title,
+        saved_trip_items.payload_json,
+        saved_trip_items.sources_json,
+        saved_trip_items.created_at,
+        saved_trip_items.updated_at,
+        saved_trip_items.deleted_at
+      from saved_trip_items
+      inner join saved_trips on saved_trips.id = saved_trip_items.trip_id
+      where saved_trips.user_id = $1
+        and ($2::boolean or saved_trip_items.deleted_at is null)
+      order by saved_trip_items.created_at asc, saved_trip_items.id asc
+    `,
+    [userId, includeDeleted],
+  );
+
+  return result.rows.map(savedTripItemFromRow);
+}
+
 export async function removeSavedTripItem(
   db: SharedTripStoreDatabase,
   {
@@ -216,6 +288,33 @@ export async function removeSavedTripItem(
       returning id
     `,
     [tripId, itemId, now],
+  );
+
+  return result.rows.length > 0;
+}
+
+export async function removeSavedTripItemByUserId(
+  db: SharedTripStoreDatabase,
+  {
+    itemId,
+    now = new Date().toISOString(),
+    userId,
+  }: { userId: string; itemId: string; now?: string },
+) {
+  const result = await db.query<{ id: string }>(
+    `
+      update saved_trip_items
+      set deleted_at = $3, updated_at = $3
+      where id = $2
+        and deleted_at is null
+        and trip_id in (
+          select id
+          from saved_trips
+          where user_id = $1
+        )
+      returning id
+    `,
+    [userId, itemId, now],
   );
 
   return result.rows.length > 0;

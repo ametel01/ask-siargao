@@ -7,9 +7,9 @@ Source requirements:
 
 ## Current Status
 
-- Status: Step 8 complete.
-- Current step: Step 9 - Authenticated Saved Trips and Migration.
-- Next step: Step 9 - Authenticated Saved Trips and Migration.
+- Status: Step 9 complete.
+- Current step: Step 10 - Documentation, Privacy Review, and Final Release Gate.
+- Next step: Step 10 - Documentation, Privacy Review, and Final Release Gate.
 - Tracking rule: Update this file after every completed step with validation results,
   commit reference when available, current status, and next step.
 - Changelog rule: Update `CHANGELOG.md` after each step is completed and validated,
@@ -26,7 +26,7 @@ Source requirements:
 - [x] Step 6: Authenticated Chat Persistence
 - [x] Step 7: Chat Thread APIs and History UI
 - [x] Step 8: Assistant Response Ratings
-- [ ] Step 9: Authenticated Saved Trips and Migration
+- [x] Step 9: Authenticated Saved Trips and Migration
 - [ ] Step 10: Documentation, Privacy Review, and Final Release Gate
 
 ## Update Log
@@ -264,5 +264,38 @@ Source requirements:
   - Passed: `bun run db:seed:test` (`Seeded 5 areas, 3 routes, and 6 source profiles`)
   - Passed: `bun run build`
   - Passed: `bun run test:e2e` (`34 passed`)
-- Commit: Pending; this entry is included in the Step 8 commit.
+- Commit: `1528730` - `Add assistant response ratings`.
 - Next step: Step 9 - Authenticated Saved Trips and Migration.
+
+### 2026-06-29 - Step 9: Authenticated Saved Trips and Migration
+
+- Status: Complete.
+- Changes:
+  - Added owner-aware saved-trip store helpers for authenticated listing,
+    lookup by owned server trip id, local-trip migration, and owner-scoped
+    deletion.
+  - Updated saved-trip routes so signed-in users can list saved items without a
+    `tripId`, migrate an unowned local trip to their account, and continue using
+    anonymous `tripId` behavior when signed out.
+  - Added owner checks so cross-user saved-trip delete and share attempts return
+    `404` without mutating another user's saved items.
+  - Updated `/chat` saved-plan sync so signed-in browsers hydrate owned saved
+    items and safely migrate current local saved items.
+  - Added Bun coverage for anonymous compatibility, authenticated listing,
+    local-trip migration, server trip id reuse, cross-user delete/share denial,
+    and owner-conflict store behavior.
+  - Added Playwright coverage for signed-in saved-trip hydration from the owned
+    server list.
+  - Updated route references for authenticated saved-trip ownership and public
+    share privacy.
+- Validation:
+  - Passed: `bun run format` (`Formatted 246 files in 42ms. No fixes applied.`)
+  - Passed: `bun run lint` (`Checked 247 files in 89ms. No fixes applied.`)
+  - Passed: `bun run typecheck --incremental false`
+  - Passed: `bun test` (`580 pass`, `0 fail`)
+  - Passed: `bun run db:migrate:test` (`Migrated 45 tables`)
+  - Passed: `bun run db:seed:test` (`Seeded 5 areas, 3 routes, and 6 source profiles`)
+  - Passed: `bun run build`
+  - Passed: `bun run test:e2e` (`35 passed`)
+- Commit: Pending; this entry is included in the Step 9 commit.
+- Next step: Step 10 - Documentation, Privacy Review, and Final Release Gate.

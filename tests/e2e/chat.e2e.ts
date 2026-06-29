@@ -827,6 +827,54 @@ test("saves local cards and itineraries with dedupe, removal, and reload persist
   );
 });
 
+test("hydrates signed-in saved trips from the owned server list", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 900 });
+  const serverTripId = "saved_trip_authenticated";
+  const serverItem: E2ESavedTripItem = {
+    id: "place_shaka",
+    tripId: serverTripId,
+    kind: "place",
+    title: "Shaka Siargao",
+    createdAt: "2026-06-28T01:00:00.000Z",
+    updatedAt: "2026-06-28T01:00:00.000Z",
+    payload: {
+      type: "recommendation_card",
+      card: {
+        id: "place_shaka",
+        kind: "place",
+        title: "Shaka Siargao",
+        subtitle: "Cafe - Cloud 9, General Luna",
+        mapsUrl: "https://maps.google.com/?cid=shaka",
+        fitReasons: ["Saved from a signed-in session."],
+        caveats: ["Opening hours can change."],
+        sourceLabel: "Google Places - live checked",
+      },
+    },
+    sources: [mockPlacesSource],
+    mapsUrl: "https://maps.google.com/?cid=shaka",
+    caveats: ["Opening hours can change."],
+  };
+
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        tripId: serverTripId,
+        items: [serverItem],
+      }),
+    });
+  });
+
+  await page.goto("/chat");
+
+  await expect(page.getByTestId("saved-plan-tray")).toContainText("1 item saved locally");
+  await expect(page.getByTestId("saved-plan-item")).toContainText("Shaka Siargao");
+  const savedState = await readSavedTripStorage(page);
+  expect(savedState.tripId).toBe(serverTripId);
+  expect(savedState.items.map((item) => item.id)).toEqual(["place_shaka"]);
+});
+
 test("creates and copies or opens a share link from saved cards and itineraries", async ({
   page,
 }) => {
@@ -848,6 +896,15 @@ test("creates and copies or opens a share link from saved cards and itineraries"
   const shareUrl = new URL("/trips/shared/token_playwright", "http://127.0.0.1:3100").toString();
 
   await page.route("**/api/trips/saved", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "invalid_saved_trip_request" }),
+      });
+      return;
+    }
+
     const body = route.request().postDataJSON() as SavedTripItemsRequestBody;
     savedRequests.push(body);
     await route.fulfill({
@@ -1006,6 +1063,15 @@ test("prevents empty share selections and keeps local saves after share API fail
   await page.setViewportSize({ width: 1024, height: 900 });
   let savedSyncRequests = 0;
   await page.route("**/api/trips/saved", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "invalid_saved_trip_request" }),
+      });
+      return;
+    }
+
     savedSyncRequests += 1;
     await route.fulfill({
       status: 503,

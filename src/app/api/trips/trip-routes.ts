@@ -1,14 +1,20 @@
 import { z } from "zod";
 
+import { isClerkServerConfigured } from "@/features/auth/clerk-config";
+import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/auth/clerk-users";
 import { getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import {
   createSharedTripPlan,
   generateShareToken,
   hashClientTripKey,
   listSavedTripItems,
+  lookupLatestSavedTripByUserId,
   lookupSavedTripByClientTripKey,
+  lookupSavedTripById,
   lookupSharedTripPlanByToken,
   removeSavedTripItem,
+  removeSavedTripItemByUserId,
+  type SavedTripRecord,
   type SharedTripStoreDatabase,
   upsertSavedTrip,
   upsertSavedTripItems,
@@ -20,6 +26,7 @@ import {
 } from "@/server/trips/shared-trip-types";
 
 export type TripRouteDependencies = {
+  auth?: EnsureCurrentUserDependencies["auth"];
   db: SharedTripStoreDatabase;
   now: () => Date;
   createId: (prefix: string) => string;
@@ -27,7 +34,7 @@ export type TripRouteDependencies = {
 };
 
 const deleteSavedTripItemRequestSchema = z.strictObject({
-  tripId: localTripIdSchema,
+  tripId: localTripIdSchema.optional(),
 });
 
 function createDefaultTripRouteDependencies(): TripRouteDependencies {
@@ -68,11 +75,22 @@ export async function savedTripsResponse(
     );
   }
 
-  const trip = await upsertSavedTrip(dependencies.db, {
-    id: savedTripRecordId(parsed.data.tripId),
-    clientTripKey: parsed.data.tripId,
-    now: dependencies.now().toISOString(),
-  });
+  const currentUser = await resolveTripUser(dependencies);
+  let trip: SavedTripRecord;
+  try {
+    trip =
+      (currentUser
+        ? await lookupOwnedSavedTripById(dependencies, parsed.data.tripId, currentUser.userId)
+        : null) ??
+      (await upsertSavedTrip(dependencies.db, {
+        id: savedTripRecordId(parsed.data.tripId),
+        clientTripKey: parsed.data.tripId,
+        userId: currentUser?.userId,
+        now: dependencies.now().toISOString(),
+      }));
+  } catch {
+    return savedTripNotFound(headers);
+  }
   const items = await upsertSavedTripItems(dependencies.db, {
     tripId: trip.id,
     items: parsed.data.items,
@@ -120,16 +138,37 @@ export async function deleteSavedTripItemResponse(
     );
   }
 
-  const trip = await lookupSavedTripByClientTripKey(dependencies.db, {
-    clientTripKey: parsed.data.tripId,
-  });
-  const removed = trip
-    ? await removeSavedTripItem(dependencies.db, {
-        tripId: trip.id,
-        itemId,
-        now: dependencies.now().toISOString(),
-      })
-    : false;
+  const currentUser = await resolveTripUser(dependencies);
+  if (!currentUser && !parsed.data.tripId) {
+    return invalidTripRequest("invalid_saved_trip_delete_request", [
+      { path: "tripId", message: "Expected a valid tripId field." },
+    ]);
+  }
+
+  let removed = false;
+  if (currentUser && !parsed.data.tripId) {
+    removed = await removeSavedTripItemByUserId(dependencies.db, {
+      userId: currentUser.userId,
+      itemId,
+      now: dependencies.now().toISOString(),
+    });
+  } else if (parsed.data.tripId) {
+    const tripResult = await lookupSavedTripForRequest(dependencies, {
+      currentUserId: currentUser?.userId ?? null,
+      tripId: parsed.data.tripId,
+    });
+    if (tripResult.status === "denied") {
+      return savedTripNotFound(headers);
+    }
+    const trip = tripResult.trip;
+    removed = trip
+      ? await removeSavedTripItem(dependencies.db, {
+          tripId: trip.id,
+          itemId,
+          now: dependencies.now().toISOString(),
+        })
+      : false;
+  }
 
   return Response.json({ removed }, { headers });
 }
@@ -160,9 +199,15 @@ export async function createSharedTripResponse(
   }
 
   try {
-    const trip = await lookupSavedTripByClientTripKey(dependencies.db, {
-      clientTripKey: parsed.data.tripId,
+    const currentUser = await resolveTripUser(dependencies);
+    const tripResult = await lookupSavedTripForRequest(dependencies, {
+      currentUserId: currentUser?.userId ?? null,
+      tripId: parsed.data.tripId,
     });
+    if (tripResult.status === "denied") {
+      return savedTripNotFound(headers);
+    }
+    const trip = tripResult.trip;
     if (!trip) {
       throw new Error("Saved trip could not be found for sharing.");
     }
@@ -227,19 +272,84 @@ async function listSavedTripsResponse(
   headers?: HeadersInit,
 ) {
   const url = new URL(request.url);
-  const parsed = localTripIdSchema.safeParse(url.searchParams.get("tripId"));
+  const currentUser = await resolveTripUser(dependencies);
+  const tripId = url.searchParams.get("tripId");
+  if (currentUser && !tripId) {
+    const trip = await lookupLatestSavedTripByUserId(dependencies.db, {
+      userId: currentUser.userId,
+    });
+    const items = trip ? await listSavedTripItems(dependencies.db, { tripId: trip.id }) : [];
+    return Response.json({ tripId: trip?.id, items }, { headers });
+  }
+
+  const parsed = localTripIdSchema.safeParse(tripId);
   if (!parsed.success) {
     return invalidTripRequest("invalid_saved_trip_request", [
       { path: "tripId", message: "Expected a valid tripId query parameter." },
     ]);
   }
 
-  const trip = await lookupSavedTripByClientTripKey(dependencies.db, {
-    clientTripKey: parsed.data,
+  const tripResult = await lookupSavedTripForRequest(dependencies, {
+    currentUserId: currentUser?.userId ?? null,
+    tripId: parsed.data,
   });
+  if (tripResult.status === "denied") {
+    return savedTripNotFound(headers);
+  }
+  const trip = tripResult.trip;
   const items = trip ? await listSavedTripItems(dependencies.db, { tripId: trip.id }) : [];
 
   return Response.json({ tripId: parsed.data, items }, { headers });
+}
+
+async function lookupSavedTripForRequest(
+  dependencies: TripRouteDependencies,
+  input: { tripId: string; currentUserId: string | null },
+): Promise<{ status: "ok"; trip: SavedTripRecord | null } | { status: "denied" }> {
+  if (input.currentUserId) {
+    const byId = await lookupSavedTripById(dependencies.db, { tripId: input.tripId });
+    if (byId) {
+      return byId.userId === input.currentUserId
+        ? { status: "ok", trip: byId }
+        : { status: "denied" };
+    }
+  }
+
+  const byClientKey = await lookupSavedTripByClientTripKey(dependencies.db, {
+    clientTripKey: input.tripId,
+  });
+  if (byClientKey?.userId && byClientKey.userId !== input.currentUserId) {
+    return { status: "denied" };
+  }
+
+  return { status: "ok", trip: byClientKey };
+}
+
+async function lookupOwnedSavedTripById(
+  dependencies: TripRouteDependencies,
+  tripId: string,
+  userId: string,
+) {
+  const trip = await lookupSavedTripById(dependencies.db, { tripId });
+  if (!trip) {
+    return null;
+  }
+  if (trip.userId !== userId) {
+    throw new Error("Saved trip belongs to another user.");
+  }
+  return trip;
+}
+
+async function resolveTripUser(dependencies: TripRouteDependencies) {
+  if (!dependencies.auth && !isClerkServerConfigured) {
+    return null;
+  }
+
+  return ensureCurrentUser({
+    ...(dependencies.auth ? { auth: dependencies.auth } : {}),
+    db: dependencies.db,
+    now: dependencies.now,
+  });
 }
 
 function invalidTripRequest(error: string, issues: Array<{ path: string; message: string }>) {
@@ -250,6 +360,10 @@ function invalidTripRequest(error: string, issues: Array<{ path: string; message
     },
     { status: 400 },
   );
+}
+
+function savedTripNotFound(headers?: HeadersInit) {
+  return Response.json({ error: "saved_trip_not_found" }, { status: 404, headers });
 }
 
 function savedTripRecordId(clientTripKey: string) {

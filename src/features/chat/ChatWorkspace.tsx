@@ -391,6 +391,48 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
   );
   const savedPlanSharing = useSavedPlanSharing(savedTripState);
 
+  useEffect(() => {
+    let isActive = true;
+
+    async function syncAuthenticatedSavedTrip() {
+      const initialResponse = await fetch("/api/trips/saved", { cache: "no-store" });
+      if (!initialResponse.ok) {
+        return;
+      }
+
+      const currentState = getSavedTripSnapshot();
+      if (currentState.items.length > 0) {
+        await postSavedTripItems({
+          tripId: currentState.tripId,
+          items: currentState.items,
+        });
+      }
+
+      const response = await fetch("/api/trips/saved", { cache: "no-store" });
+      if (!response.ok) {
+        return;
+      }
+
+      const body = (await response.json()) as { tripId?: string; items?: SavedTripItem[] };
+      if (!isActive || !body.items?.length) {
+        return;
+      }
+      const tripId = body.tripId ?? currentState.tripId;
+
+      writeSavedTripState({
+        tripId,
+        items: body.items.map((item) => ({ ...item, tripId })),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    void syncAuthenticatedSavedTrip().catch(() => {});
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
   const refreshChatThreads = useCallback(async () => {
     try {
       const response = await fetch("/api/chat/threads", { cache: "no-store" });
