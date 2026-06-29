@@ -724,12 +724,8 @@ test("renders itinerary plans with stops, fallbacks, skip guidance, sources, and
   await expect(page.getByTestId("itinerary-fallbacks").getByText("Fallbacks")).toBeVisible();
   await expect(page.getByTestId("itinerary-fallbacks")).toContainText("Use during active rain");
   await expect(page.getByTestId("itinerary-skip")).toContainText("Exposed beach hopping");
-  await expect(page.getByTestId("itinerary-sources")).toContainText(
-    "curated local guide - Ask Siargao local guide, high confidence",
-  );
-  await expect(page.getByTestId("itinerary-sources")).toContainText(
-    "Not checked by Ask Siargao local guide: live weather",
-  );
+  await expect(page.getByTestId("itinerary-sources")).toContainText("Local guide");
+  await expect(page.getByTestId("itinerary-sources")).not.toContainText("Not checked");
 });
 
 test("saves local cards and itineraries with dedupe, removal, and reload persistence", async ({
@@ -1022,9 +1018,9 @@ test("creates and copies or opens a share link from saved cards and itineraries"
   await expect(
     popup.getByText("Checked by Google Places API: current opening status"),
   ).toBeVisible();
-  await expect(
-    popup.getByText("Not checked by Google Places API: table availability"),
-  ).toBeVisible();
+  await expect(popup.getByText("Not checked by Google Places API: table availability")).toHaveCount(
+    0,
+  );
   await expect(popup.getByText("Ask Siargao local guide - curated local guide")).toBeVisible();
   await expect(
     popup.getByText("Checked by Ask Siargao local guide: rainy-day Cloud 9 fallback pattern"),
@@ -1033,7 +1029,7 @@ test("creates and copies or opens a share link from saved cards and itineraries"
     popup.getByText(
       "Not checked by Browser saved trip: Saved from browser and not reverified by Ask Siargao before sharing.",
     ),
-  ).toHaveCount(2);
+  ).toHaveCount(0);
   await expect(popup.getByText(prompt)).toHaveCount(0);
   await popup.close();
 });
@@ -1161,9 +1157,7 @@ test("renders initial itinerary theme fixtures without generic brainstorm fallba
     .filter({ hasText: "General Luna Food Crawl" });
   await expect(foodPlan).toContainText("First food stop");
   await expect(foodPlan).toContainText("Second food stop");
-  await expect(foodPlan.getByTestId("itinerary-sources")).toContainText(
-    "Not checked by Itinerary planner unchecked live signals: live open-now status",
-  );
+  await expect(foodPlan.getByTestId("itinerary-sources")).not.toContainText("Not checked");
 });
 
 test("keeps recommendation cards inside the mobile chat column", async ({ page }) => {
@@ -1271,7 +1265,7 @@ test("keeps itinerary plans inside the mobile chat column", async ({ page }) => 
     .toBe(true);
 });
 
-test("renders numbered assistant plans and source caveats as separate blocks", async ({ page }) => {
+test("renders numbered assistant plans while hiding unchecked source footers", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockChatApi(page, {
     message: [
@@ -1309,7 +1303,7 @@ test("renders numbered assistant plans and source caveats as separate blocks", a
       hasText:
         "Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - Google Places open-now results and road flooding.",
     }),
-  ).toHaveCount(1);
+  ).toHaveCount(0);
   await expect(page.getByTestId("itinerary-plans")).toHaveCount(0);
 
   const orderedListCount = await page
@@ -1318,7 +1312,7 @@ test("renders numbered assistant plans and source caveats as separate blocks", a
     .locator("ol")
     .count();
   expect(orderedListCount).toBe(1);
-  await expect(sourceLines).toHaveCount(3);
+  await expect(sourceLines).toHaveCount(2);
 });
 
 test("wraps long assistant links without rendering preview cards", async ({ page }) => {

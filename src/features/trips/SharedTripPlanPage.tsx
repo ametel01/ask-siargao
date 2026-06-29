@@ -1,10 +1,26 @@
-import { Clock, ExternalLink, MapPin, Navigation } from "lucide-react";
+import { Clock, ExternalLink, MapPin, Navigation, ShieldCheck, Star } from "lucide-react";
 
 import type { SavedTripItem, SharedTripPlan } from "@/server/trips/shared-trip-types";
-import { BrandLockup, PalmMark } from "@/ui/components/ask-siargao";
+import {
+  AppBackdrop,
+  appBodyClass,
+  appCardClass,
+  appPanelClass,
+  appShellClass,
+  BrandHeader,
+  PalmMark,
+} from "@/ui/components/ask-siargao";
 
 type SharedItineraryPlan = Extract<SavedTripItem["payload"], { type: "itinerary_plan" }>["plan"];
 type SharedItineraryStop = SharedItineraryPlan["stops"][number];
+
+const sharedArticleClass = `${appPanelClass} grid min-w-0 gap-4`;
+const sharedIconClass =
+  "inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-brand-lagoon-100 text-brand-lagoon-700";
+const sharedSignalClass =
+  "inline-flex max-w-full rounded-md border border-brand-lagoon-700/10 bg-brand-lagoon-100 px-2.5 py-1.5 text-xs font-extrabold text-brand-lagoon-700";
+const appNightUnavailableClass =
+  "grid max-w-xl justify-items-start gap-5 rounded-md border border-white/14 bg-surface-night-panel p-6 shadow-[0_22px_70px_rgba(0,0,0,0.28)] backdrop-blur-md";
 
 export function SharedTripPlanPage({ plan }: { plan: SharedTripPlan | null }) {
   if (!plan) {
@@ -12,26 +28,24 @@ export function SharedTripPlanPage({ plan }: { plan: SharedTripPlan | null }) {
   }
 
   return (
-    <main
-      aria-label="Shared Siargao trip plan"
-      className="min-h-screen bg-[linear-gradient(135deg,#f7fbf8_0%,#eef7f1_48%,#f7f1e4_100%)] text-text-default"
-    >
-      <div className="mx-auto grid w-full max-w-5xl gap-8 px-4 py-6 sm:px-6 lg:px-8">
-        <header className="flex min-w-0 items-center justify-between gap-4 border-[#14624a]/12 border-b pb-5">
-          <BrandLockup className="[&_span:first-child]:text-text-strong [&_span:last-child]:text-text-strong" />
-          <span className="inline-flex shrink-0 items-center rounded-md border border-[#14624a]/18 bg-white/70 px-3 py-2 text-xs font-extrabold text-[#14624a]">
-            Shared plan
-          </span>
-        </header>
+    <AppBackdrop aria-label="Shared Siargao trip plan" variant="sunset">
+      <div className={`${appShellClass} max-w-5xl gap-8`}>
+        <BrandHeader
+          action={
+            <span className="inline-flex shrink-0 items-center rounded-md border border-brand-lagoon-300/30 bg-brand-lagoon-500/16 px-3 py-2 text-xs font-extrabold text-brand-lagoon-100">
+              Shared plan
+            </span>
+          }
+        />
 
-        <section className="grid min-w-0 gap-3">
-          <p className="m-0 text-xs font-extrabold tracking-[0.08em] text-[#14624a] uppercase">
+        <section className="grid min-w-0 gap-3 text-text-on-dark">
+          <p className="m-0 text-xs font-extrabold tracking-[0.12em] text-brand-lagoon-300 uppercase">
             Ask Siargao
           </p>
-          <h1 className="m-0 max-w-3xl text-3xl leading-[1.05] font-black text-text-strong sm:text-5xl">
+          <h1 className="m-0 max-w-3xl text-balance font-heading text-4xl leading-[0.98] font-semibold text-[#fff9e9] sm:text-5xl">
             {plan.title}
           </h1>
-          <p className="m-0 max-w-2xl text-sm leading-[1.7] text-text-soft sm:text-base">
+          <p className="m-0 max-w-2xl text-sm leading-[1.7] font-bold text-text-on-dark-muted sm:text-base">
             Selected saved recommendations and itinerary stops only. Full chat history is not part
             of this shared page.
           </p>
@@ -43,28 +57,29 @@ export function SharedTripPlanPage({ plan }: { plan: SharedTripPlan | null }) {
           ))}
         </section>
       </div>
-    </main>
+    </AppBackdrop>
   );
 }
 
 function SharedTripUnavailableState() {
   return (
-    <main
+    <AppBackdrop
       aria-label="Shared Siargao trip plan unavailable"
-      className="grid min-h-screen place-items-center bg-[linear-gradient(135deg,#f7fbf8_0%,#eef7f1_48%,#f7f1e4_100%)] px-4 text-text-default"
+      className="grid place-items-center px-4"
+      variant="sunset"
     >
-      <section className="grid max-w-xl justify-items-start gap-5">
+      <section className={appNightUnavailableClass}>
         <PalmMark className="size-12" />
         <div className="grid gap-3">
-          <h1 className="m-0 text-3xl leading-[1.1] font-black text-text-strong sm:text-4xl">
+          <h1 className="m-0 font-heading text-4xl leading-[1] font-semibold text-[#fff9e9]">
             Shared plan unavailable
           </h1>
-          <p className="m-0 text-sm leading-[1.7] text-text-soft sm:text-base">
+          <p className="m-0 text-sm leading-[1.7] font-bold text-text-on-dark-muted sm:text-base">
             This shared Siargao plan cannot be opened. Ask the traveler for a fresh link.
           </p>
         </div>
       </section>
-    </main>
+    </AppBackdrop>
   );
 }
 
@@ -78,9 +93,9 @@ function SharedTripItem({ item }: { item: SavedTripItem }) {
   }
 
   return (
-    <article className="grid min-w-0 gap-2 rounded-lg border border-[#14624a]/12 bg-white/82 p-4 shadow-[0_16px_44px_rgba(22,60,49,0.08)]">
+    <article className={appCardClass}>
       <h2 className="m-0 text-lg font-black text-text-strong">{item.title}</h2>
-      <p className="m-0 text-sm leading-[1.6] text-text-default">{item.payload.text}</p>
+      <p className={appBodyClass}>{item.payload.text}</p>
     </article>
   );
 }
@@ -92,12 +107,9 @@ function SharedRecommendationItem({ item }: { item: SavedTripItem }) {
 
   const card = item.payload.card;
   return (
-    <article
-      className="grid min-w-0 gap-4 rounded-lg border border-[#14624a]/12 bg-white/86 p-4 shadow-[0_16px_44px_rgba(22,60,49,0.08)]"
-      data-testid="shared-trip-card"
-    >
+    <article className={sharedArticleClass} data-testid="shared-trip-card">
       <div className="flex min-w-0 items-start gap-3">
-        <div className="inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-[#d8f1e6] text-[#14624a]">
+        <div className={sharedIconClass}>
           {card.kind === "beach" ? (
             <Navigation aria-hidden="true" size={18} />
           ) : (
@@ -130,19 +142,16 @@ function SharedItineraryItem({ item }: { item: SavedTripItem }) {
 
   const plan = item.payload.plan;
   return (
-    <article
-      className="grid min-w-0 gap-5 rounded-lg border border-[#14624a]/12 bg-white/86 p-4 shadow-[0_16px_44px_rgba(22,60,49,0.08)]"
-      data-testid="shared-trip-itinerary"
-    >
+    <article className={`${sharedArticleClass} gap-5`} data-testid="shared-trip-itinerary">
       <div className="flex min-w-0 items-start gap-3">
-        <div className="inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-[#d8f1e6] text-[#14624a]">
+        <div className={sharedIconClass}>
           <Navigation aria-hidden="true" size={18} />
         </div>
         <div className="grid min-w-0 flex-1 gap-1">
           <h2 className="m-0 text-lg leading-[1.2] font-black break-words text-text-strong">
             {plan.title}
           </h2>
-          <span className="inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border border-[#14624a]/10 bg-[#f7fbf8] px-2.5 py-1 text-xs font-extrabold text-text-soft">
+          <span className="inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border border-brand-lagoon-700/10 bg-brand-lagoon-100 px-2.5 py-1 text-xs font-extrabold text-brand-lagoon-700">
             <Clock aria-hidden="true" className="shrink-0" size={13} />
             <span className="min-w-0 break-words">{plan.durationLabel}</span>
           </span>
@@ -179,7 +188,7 @@ function ItineraryStopList({
             className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] gap-3"
             key={`${stop.sequence}-${stop.title}`}
           >
-            <span className="inline-flex size-7 items-center justify-center rounded-md bg-[#ecf5f0] text-xs font-black text-[#14624a]">
+            <span className="inline-flex size-7 items-center justify-center rounded-md bg-brand-lagoon-100 text-xs font-black text-brand-lagoon-700">
               {stop.sequence}
             </span>
             <div className="grid min-w-0 gap-1.5">
@@ -208,15 +217,31 @@ function SignalList({ labels }: { labels: Array<string | undefined> }) {
   return (
     <div className="flex min-w-0 flex-wrap gap-2">
       {values.map((label) => (
-        <span
-          className="inline-flex max-w-full rounded-md border border-[#14624a]/10 bg-[#f7fbf8] px-2.5 py-1.5 text-xs font-extrabold text-text-soft"
-          key={label}
-        >
-          <span className="min-w-0 break-words">{label}</span>
-        </span>
+        <SharedSignalBadge key={label} label={label} />
       ))}
     </div>
   );
+}
+
+function SharedSignalBadge({ label }: { label: string }) {
+  const Icon = sharedSignalIcon(label);
+
+  return (
+    <span className={`${sharedSignalClass} items-center gap-1.5`}>
+      <Icon aria-hidden="true" className="shrink-0" size={13} />
+      <span className="min-w-0 break-words">{label}</span>
+    </span>
+  );
+}
+
+function sharedSignalIcon(label: string) {
+  if (/\bopen\b|\bhours?\b/i.test(label)) {
+    return Clock;
+  }
+  if (/\bsource\b|\bchecked\b|\bguide\b/i.test(label)) {
+    return ShieldCheck;
+  }
+  return MapPin;
 }
 
 function BulletList({ items }: { items: readonly string[] }) {
@@ -236,13 +261,14 @@ function BulletList({ items }: { items: readonly string[] }) {
 }
 
 function CaveatList({ items }: { items: readonly string[] }) {
-  if (items.length === 0) {
+  const visibleItems = publicDisplayCaveats(items);
+  if (visibleItems.length === 0) {
     return null;
   }
 
   return (
     <ul className="m-0 grid gap-1.5 rounded-md border border-[#e4d8b8] bg-[#fff9e8] px-4 py-3 text-xs leading-[1.45] text-[#66521c]">
-      {items.map((item) => (
+      {visibleItems.map((item) => (
         <li className="break-words" key={item}>
           {item}
         </li>
@@ -252,7 +278,8 @@ function CaveatList({ items }: { items: readonly string[] }) {
 }
 
 function SourceSummaryList({ sources }: { sources: SharedTripPlan["items"][number]["sources"] }) {
-  if (sources.length === 0) {
+  const visibleSources = sources.filter(isActuallyCheckedSource);
+  if (visibleSources.length === 0) {
     return null;
   }
 
@@ -260,37 +287,96 @@ function SourceSummaryList({ sources }: { sources: SharedTripPlan["items"][numbe
     <section className="grid gap-2" data-testid="shared-trip-sources">
       <h3 className="m-0 text-xs font-black text-text-strong">Sources</h3>
       <div className="flex flex-wrap gap-2">
-        {sources.map((source) => (
+        {visibleSources.map((source) => (
           <span
-            className="inline-flex max-w-full rounded-md border border-[#14624a]/10 bg-[#f7fbf8] px-2.5 py-1.5 text-xs font-extrabold text-text-soft"
+            className={`${sharedSignalClass} items-center gap-1.5`}
             key={`${source.label}-${source.sourceName}-${source.fetchedAt ?? "no-fetch"}`}
           >
-            <span className="min-w-0 break-words">
-              {source.sourceName} - {source.label.replaceAll("_", " ")}
-              {source.fetchedAt ? ` - fetched ${source.fetchedAt}` : ""}
-            </span>
+            <SharedSourceIcon source={source} />
+            <span className="min-w-0 break-words">{sharedSourceLabel(source)}</span>
           </span>
         ))}
       </div>
       <BulletList
-        items={sources.flatMap((source) =>
+        items={visibleSources.flatMap((source) =>
           source.checked.map((item) => `Checked by ${source.sourceName}: ${item}`),
-        )}
-      />
-      <BulletList
-        items={sources.flatMap((source) =>
-          source.notChecked.map((item) => `Not checked by ${source.sourceName}: ${item}`),
         )}
       />
     </section>
   );
 }
 
+function SharedSourceIcon({
+  source,
+}: {
+  source: SharedTripPlan["items"][number]["sources"][number];
+}) {
+  const Icon =
+    source.label === "weather_checked"
+      ? Clock
+      : source.label === "curated_local_guide"
+        ? Star
+        : source.label === "marine_checked" || source.label === "tide_forecast_checked"
+          ? Navigation
+          : ShieldCheck;
+
+  return <Icon aria-hidden="true" className="shrink-0" size={13} />;
+}
+
+function sharedSourceLabel(source: SharedTripPlan["items"][number]["sources"][number]) {
+  return `${compactSourceName(source.sourceName)} - ${source.label.replaceAll("_", " ")}`;
+}
+
+function compactSourceName(value: string) {
+  return value
+    .replace(/\s+API(?:\s+profile)?$/i, "")
+    .replace(/\s+profile$/i, "")
+    .trim();
+}
+
+function isActuallyCheckedSource(source: SharedTripPlan["items"][number]["sources"][number]) {
+  return source.label !== "not_verified" && source.label !== "provider_unavailable";
+}
+
+function publicDisplayCaveats(caveats: readonly string[]) {
+  return caveats.filter((caveat) => !isInternalVerificationGap(caveat));
+}
+
+function isInternalVerificationGap(value: string) {
+  return [
+    /\bnot\s+checked\b/i,
+    /\bwasn['’]?t\s+(?:separately\s+)?checked\b/i,
+    /\bwere\s+not\s+checked\b/i,
+    /\bno\s+live\b.{0,90}\bcheck\b/i,
+    /\bunchecked\b/i,
+    /\bnot\s+verified\b/i,
+    /\bI\s+(?:didn['’]?t|did\s+not)\s+(?:live[-\s]?)?check\b/i,
+    /\b(?:live[-\s]?)?check(?:ed|ing)?\s+(?:was|were|is|are)?\s*(?:not|needed|needs)\b/i,
+    /\bcurated\s+local\s+guide\s+estimate\b/i,
+    /\bexact\s+ride\s+time\s+depends\b/i,
+    /\buser\s+constraints\s+preserved\b/i,
+    /\borigin-specific\s+route\s+timing\b/i,
+    /\bthis\s+artifact\b/i,
+    /\bsource\s+caveats?\b/i,
+    /\bavoid\s+overclaiming\b/i,
+    /\buse\s+(?:search_places|places)\b/i,
+    /\bplaces\s+evidence\b/i,
+    /\b(?:open|opening|cafe|menu|booking|availability|crowd|quietness).{0,80}\bshould\s+be\s+checked\b/i,
+    /\bclaim(?:ing)?\b.{0,80}\b(?:open|status|hours|safety|reliability)\b/i,
+    /\bwithout\b.{0,80}\b(?:condition|safety|tide|surf|road).{0,40}\bcheck/i,
+  ].some((pattern) => pattern.test(value));
+}
+
 function PlanNoteSection({ items, title }: { title: string; items: readonly string[] }) {
+  const visibleItems = publicDisplayCaveats(items);
+  if (visibleItems.length === 0) {
+    return null;
+  }
+
   return (
     <section className="grid gap-2">
       <h3 className="m-0 text-xs font-black text-text-strong">{title}</h3>
-      <BulletList items={items} />
+      <BulletList items={visibleItems} />
     </section>
   );
 }
@@ -299,7 +385,7 @@ function MapLink({ href, title }: { href: string; title: string }) {
   return (
     <a
       aria-label={`Open ${title} in Google Maps`}
-      className="inline-flex min-h-9 w-fit max-w-full items-center gap-2 rounded-md border border-[#14624a]/25 bg-white px-3 py-2 text-xs font-extrabold text-[#14624a] no-underline hover:bg-[#edf8f2]"
+      className="inline-flex min-h-9 w-fit max-w-full items-center gap-2 rounded-md border border-brand-lagoon-700/25 bg-white px-3 py-2 text-xs font-extrabold text-brand-lagoon-700 no-underline transition hover:bg-brand-lagoon-100"
       href={href}
       rel="noreferrer"
       target="_blank"

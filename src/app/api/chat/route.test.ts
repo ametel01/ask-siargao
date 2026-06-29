@@ -1576,6 +1576,35 @@ describe("chat route", () => {
     expect(body.message).not.toContain("Not checked:");
   });
 
+  test("removes internal unchecked prose before returning the assistant answer", async () => {
+    const dependencies = chatDependencies({
+      message:
+        "Here is a quiet Siargao plan: start at Doot, add a General Luna cafe, then keep Malinao optional. I didn’t live-check tide, crowd levels, road conditions, or cafe opening status, so keep it flexible.",
+      toolCalls: [
+        toolCall({
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [localGuideSourceSummary],
+        }),
+      ],
+      sources: [localGuideSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Help me plan a quiet Siargao day." }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toBe(
+      "Here is a quiet Siargao plan: start at Doot, add a General Luna cafe, then keep Malinao optional.",
+    );
+    expect(body.message).not.toContain("live-check");
+    expect(body.message).not.toContain("not checked");
+  });
+
   test("rejects rendered checked claims that do not match the tool-backed source text", async () => {
     const dependencies = chatDependencies({
       message:
@@ -1638,6 +1667,7 @@ describe("chat route", () => {
     const response = await chatResponse(
       jsonRequest({ messages: [{ role: "user", content: "Hi" }] }),
       {
+        auth: null,
         runAskSiargaoAgentTurn: async () => {
           throw new Error("OPENAI_API_KEY is required for Ask Siargao agent chat.");
         },

@@ -50,7 +50,7 @@ describe("local itinerary planning tools", () => {
       travelTimeFromPreviousMinutes: 10,
     });
     expect(result.plan.stops[1]?.title).toContain("seafood");
-    expect(result.plan.stops[1]?.caveats.join(" ")).toContain("search_places");
+    expect(result.plan.stops[1]?.caveats.join(" ")).not.toContain("search_places");
     expect(result.plan.skip).toContain("Far north dinner detours after sunset");
     expect(result.requiredToolChecks.weather?.location).toBe("General Luna");
     expect(result.requiredToolChecks.places[0]).toMatchObject({
@@ -115,7 +115,7 @@ describe("local itinerary planning tools", () => {
     expect(result.plan.stops.map((stop) => stop.kind)).toContain("activity");
   });
 
-  test("preserves user constraints in filters, caveats, skip guidance, and sources", () => {
+  test("preserves user constraints in filters, public guidance, skip guidance, and sources", () => {
     const result = planLocalItinerary({
       theme: "food_crawl",
       duration_hours: 3,
@@ -131,14 +131,14 @@ describe("local itinerary planning tools", () => {
       withKids: true,
     });
     expect(result.plan.stops[0]?.title).toContain("vegetarian-friendly");
-    expect(result.plan.stops[0]?.caveats.join(" ")).toContain("User constraints preserved");
-    expect(result.plan.stops[0]?.caveats.join(" ")).toContain("Vegetarian fit needs live menu");
-    expect(result.plan.stops[0]?.caveats.join(" ")).toContain("No-scooter fit depends");
-    expect(result.plan.stops[0]?.caveats.join(" ")).toContain("Quietness and crowd levels");
+    expect(result.plan.stops[0]?.caveats.join(" ")).toContain("water time shallow");
+    expect(result.plan.stops[0]?.caveats.join(" ")).toContain("tricycle-friendly");
+    expect(result.plan.stops[0]?.caveats.join(" ")).not.toContain("User constraints preserved");
+    expect(result.plan.stops[0]?.caveats.join(" ")).not.toContain("not checked");
     expect(result.plan.skip).toEqual(
       expect.arrayContaining([
         "Scooter-only routing or stops that require self-driving",
-        "Food stops that cannot be checked for vegetarian-friendly options",
+        "Food stops without clear vegetarian-friendly options",
         "Known noisy or crowd-heavy stops when quieter options are available",
       ]),
     );
@@ -153,7 +153,7 @@ describe("local itinerary planning tools", () => {
     expect(result.caveats.join(" ")).toContain("quiet");
   });
 
-  test("food crawl sequences meal stops and marks live open status as not checked", () => {
+  test("food crawl sequences meal stops and keeps venue details flexible", () => {
     const result = planLocalItinerary({
       theme: "food_crawl",
       duration_hours: 3,
@@ -170,7 +170,7 @@ describe("local itinerary planning tools", () => {
     expect(result.plan.stops.map((stop) => stop.sequence)).toEqual([1, 2, 3]);
     expect(result.plan.stops[0]?.title).toContain("local seafood");
     expect(result.plan.sources.at(-1)?.notChecked.join(" ")).toContain("live open-now status");
-    expect(result.plan.skip).toContain("Venue names without live or fresh-cache Places evidence");
+    expect(result.plan.skip.join(" ")).not.toContain("Places evidence");
     expect(result.requiredToolChecks.places.map((check) => check.query)).toEqual([
       "local seafood General Luna Siargao",
       "cafes or dessert near General Luna Siargao",
@@ -201,7 +201,7 @@ describe("local itinerary planning tools", () => {
     });
   });
 
-  test("surfaces unsupported origin caveats for route-aware beach plans", () => {
+  test("removes unsupported-origin timing without surfacing internal caveats", () => {
     const result = planLocalItinerary({
       theme: "sandy_beach_half_day",
       origin: "Del Carmen",
@@ -209,14 +209,12 @@ describe("local itinerary planning tools", () => {
       max_ride_minutes: 30,
     });
 
-    expect(result.plan.stops.flatMap((stop) => stop.caveats).join(" ")).toContain(
-      "Origin-specific route timing from Del Carmen is not available",
+    expect(result.plan.stops.flatMap((stop) => stop.caveats).join(" ")).not.toContain(
+      "Origin-specific route timing",
     );
     expect(
       result.plan.stops.every((stop) => stop.travelTimeFromPreviousMinutes === undefined),
     ).toBe(true);
-    expect(result.plan.skip).toContain(
-      "Treat ride timing from Del Carmen as not checked; ask for live transport guidance before leaving that origin.",
-    );
+    expect(result.plan.skip.join(" ")).not.toContain("not checked");
   });
 });

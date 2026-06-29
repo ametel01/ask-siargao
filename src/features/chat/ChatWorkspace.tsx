@@ -53,6 +53,28 @@ const suggestedPrompts = [
   "Help me plan a quiet Siargao day",
 ];
 
+const chatSignedOutActions = (
+  <>
+    <SignInButton mode="modal">
+      <Button
+        className="hidden h-10 rounded-md border-white/20 bg-white/10 px-3 text-xs font-extrabold text-text-on-dark hover:bg-white/15 sm:inline-flex"
+        type="button"
+        variant="outline"
+      >
+        Sign in
+      </Button>
+    </SignInButton>
+    <SignUpButton mode="modal">
+      <Button
+        className="h-10 rounded-md border-brand-lagoon-300/35 bg-brand-lagoon-500 px-3 text-xs font-extrabold text-brand-navy-980 hover:bg-brand-lagoon-300"
+        type="button"
+      >
+        Sign up
+      </Button>
+    </SignUpButton>
+  </>
+);
+
 const chatErrorMessage = "Ask Siargao could not answer right now. Please try again.";
 const shareErrorMessage = "Share link could not be created. Your saved items are still here.";
 const maxChatRequestMessageLength = 2_000;
@@ -769,7 +791,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
   return (
     <main
       aria-label="Ask Siargao chat workspace"
-      className="h-dvh min-h-screen overflow-hidden bg-[radial-gradient(circle_at_18%_10%,rgba(135,92,246,0.22),transparent_28rem),linear-gradient(135deg,#05082a_0%,#091133_46%,#0e2c3d_100%)] text-text-on-dark"
+      className="h-dvh min-h-screen overflow-hidden bg-[image:var(--gradient-app-backdrop)] text-text-on-dark"
     >
       <section className="mx-auto grid h-full min-h-0 w-full max-w-6xl grid-rows-[auto_minmax(0,1fr)_auto]">
         <header className="flex min-h-[72px] items-center justify-between gap-4 border-white/12 border-b px-4 py-3 sm:px-6 lg:min-h-[88px] lg:px-8">
@@ -778,7 +800,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
           </Link>
           <div className="flex shrink-0 items-center gap-2">
             <span className="hidden items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-2 text-xs font-extrabold text-text-on-dark-muted sm:inline-flex">
-              <span className="size-2 rounded-full bg-[#20d59b]" />
+              <span className="size-2 rounded-full bg-brand-lagoon-500" />
               Siargao trip assistant
             </span>
             <ChatAuthActions />
@@ -894,28 +916,6 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
 }
 
 function ChatAuthActions() {
-  const signedOutActions = (
-    <>
-      <SignInButton mode="modal">
-        <Button
-          className="hidden h-10 rounded-md border-white/20 bg-white/10 px-3 text-xs font-extrabold text-text-on-dark hover:bg-white/15 sm:inline-flex"
-          type="button"
-          variant="outline"
-        >
-          Sign in
-        </Button>
-      </SignInButton>
-      <SignUpButton mode="modal">
-        <Button
-          className="h-10 rounded-md border-[#20d59b]/35 bg-[#20d59b] px-3 text-xs font-extrabold text-[#062015] hover:bg-[#6af0bd]"
-          type="button"
-        >
-          Sign up
-        </Button>
-      </SignUpButton>
-    </>
-  );
-
   if (!isClerkConfigured) {
     return (
       <>
@@ -928,7 +928,7 @@ function ChatAuthActions() {
         </Button>
         <Button
           asChild
-          className="h-10 rounded-md border-[#20d59b]/35 bg-[#20d59b] px-3 text-xs font-extrabold text-[#062015] hover:bg-[#6af0bd]"
+          className="h-10 rounded-md border-brand-lagoon-300/35 bg-brand-lagoon-500 px-3 text-xs font-extrabold text-brand-navy-980 hover:bg-brand-lagoon-300"
         >
           <Link href="/sign-up">Sign up</Link>
         </Button>
@@ -937,7 +937,7 @@ function ChatAuthActions() {
   }
 
   return (
-    <Show fallback={signedOutActions} when="signed-in">
+    <Show fallback={chatSignedOutActions} when="signed-in">
       <UserButton
         appearance={clerkAppearance}
         fallback={
@@ -1005,7 +1005,7 @@ function ChatHistoryPanel({
             </>
           ) : null}
           <Button
-            className="h-8 rounded-md border-[#20d59b]/35 bg-[#20d59b] px-2 text-xs font-extrabold text-[#062015] hover:bg-[#6af0bd]"
+            className="h-8 rounded-md border-brand-lagoon-300/35 bg-brand-lagoon-500 px-2 text-xs font-extrabold text-brand-navy-980 hover:bg-brand-lagoon-300"
             onClick={onStartNewChat}
             type="button"
           >
@@ -1025,7 +1025,7 @@ function ChatHistoryPanel({
             <button
               className={`max-w-56 shrink-0 rounded-md border px-3 py-2 text-left text-xs font-extrabold transition ${
                 thread.id === selectedThreadId
-                  ? "border-[#20d59b] bg-[#20d59b] text-[#062015]"
+                  ? "border-brand-lagoon-500 bg-brand-lagoon-500 text-brand-navy-980"
                   : "border-white/15 bg-white/10 text-text-on-dark hover:bg-white/15"
               }`}
               key={thread.id}
@@ -1187,7 +1187,7 @@ function AssistantRatingControls({
         aria-label="Rate assistant response helpful"
         aria-pressed={rating === "up"}
         className={`size-8 rounded-md border-white/16 text-text-on-dark hover:bg-white/15 ${
-          rating === "up" ? "bg-[#20d59b] text-[#062015]" : "bg-white/8"
+          rating === "up" ? "bg-brand-lagoon-500 text-brand-navy-980" : "bg-white/8"
         }`}
         disabled={disabled}
         onClick={() => onRateAssistantMessage(messageId, "up")}
@@ -1253,7 +1253,7 @@ function SavedPlanTray({
     >
       <div className="flex min-w-0 items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-[#20d59b]/18 text-[#6af0bd]">
+          <div className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-brand-lagoon-500/18 text-brand-lagoon-300">
             <BookmarkCheck aria-hidden="true" size={16} />
           </div>
           <div className="min-w-0">
@@ -1265,7 +1265,7 @@ function SavedPlanTray({
           </div>
         </div>
         <Button
-          className="shrink-0 rounded-md border-[#20d59b]/30 bg-[#20d59b] px-3 text-xs font-extrabold text-[#062015] hover:bg-[#6af0bd] disabled:opacity-55"
+          className="shrink-0 rounded-md border-brand-lagoon-300/30 bg-brand-lagoon-500 px-3 text-xs font-extrabold text-brand-navy-980 hover:bg-brand-lagoon-300 disabled:opacity-55"
           disabled={!hasSelectedItems || isSharing}
           onClick={onCreateShareLink}
           size="sm"
@@ -1291,7 +1291,7 @@ function SavedPlanTray({
               data-testid="saved-plan-item"
               key={item.id}
             >
-              <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-white/12 text-[#6af0bd]">
+              <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-white/12 text-brand-lagoon-300">
                 {item.kind === "itinerary" ? (
                   <Navigation aria-hidden="true" size={14} />
                 ) : (
@@ -1302,7 +1302,7 @@ function SavedPlanTray({
                 <input
                   aria-label={`Include ${item.title} in shared plan`}
                   checked={isIncluded}
-                  className="size-4 shrink-0 accent-[#20d59b]"
+                  className="size-4 shrink-0 accent-brand-lagoon-500"
                   onChange={(event) => onToggleShareItem(item.id, event.currentTarget.checked)}
                   type="checkbox"
                 />
@@ -1339,7 +1339,7 @@ function SavedPlanTray({
 
       {shareUrl ? (
         <div
-          className="grid min-w-0 gap-2 rounded-md border border-[#20d59b]/20 bg-[#062015]/28 p-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]"
+          className="grid min-w-0 gap-2 rounded-md border border-brand-lagoon-300/20 bg-brand-lagoon-700/18 p-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]"
           data-testid="saved-plan-share-link"
         >
           <input
@@ -1524,6 +1524,8 @@ function ItineraryPlans({
 }
 
 function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
+  const visibleCaveats = publicDisplayCaveats(stop.caveats);
+
   return (
     <li className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] gap-3">
       <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-brand-lavender-200/40 bg-brand-violet-650 text-xs font-black text-white shadow-[0_0_0_4px_rgba(111,73,242,0.16)]">
@@ -1555,9 +1557,9 @@ function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
           {stop.rationale}
         </p>
 
-        {stop.caveats.length ? (
+        {visibleCaveats.length ? (
           <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-[#ffd98a]">
-            {stop.caveats.map((caveat) => (
+            {visibleCaveats.map((caveat) => (
               <li className="break-words" key={caveat}>
                 {caveat}
               </li>
@@ -1568,7 +1570,7 @@ function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
         {stop.mapsUrl ? (
           <a
             aria-label={`Open ${stop.title} in Google Maps`}
-            className="inline-flex min-h-9 w-fit max-w-full items-center gap-2 rounded-md border border-[#14624a]/25 bg-white px-3 py-2 text-xs font-extrabold text-[#14624a] no-underline hover:bg-[#edf8f2]"
+            className="inline-flex min-h-9 w-fit max-w-full items-center gap-2 rounded-md border border-brand-lagoon-700/25 bg-white px-3 py-2 text-xs font-extrabold text-brand-lagoon-700 no-underline hover:bg-brand-lagoon-100"
             href={stop.mapsUrl}
             rel="noreferrer"
             target="_blank"
@@ -1592,11 +1594,16 @@ function ItineraryNoteSection({
   testId: string;
   title: string;
 }) {
+  const visibleItems = publicDisplayCaveats(items);
+  if (visibleItems.length === 0) {
+    return null;
+  }
+
   return (
     <section className="grid min-w-0 gap-1.5" data-testid={testId}>
       <h4 className="m-0 text-xs font-black text-white">{title}</h4>
       <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-text-on-dark-muted sm:text-sm">
-        {items.map((item) => (
+        {visibleItems.map((item) => (
           <li className="break-words" key={item}>
             {item}
           </li>
@@ -1607,30 +1614,19 @@ function ItineraryNoteSection({
 }
 
 function ItinerarySources({ sources }: { sources: ItineraryPlanArtifact["sources"] }) {
+  const visibleSources = publicDisplaySources(sources);
+  if (visibleSources.length === 0) {
+    return null;
+  }
+
   return (
     <section className="grid min-w-0 gap-2" data-testid="itinerary-sources">
       <h4 className="m-0 text-xs font-black text-white">Sources</h4>
       <div className="flex min-w-0 flex-wrap gap-2">
-        {sources.map((source) => (
-          <span
-            className="inline-flex max-w-full items-center rounded-md border border-white/8 bg-white/[0.07] px-2.5 py-1.5 text-[0.72rem] leading-tight font-extrabold text-text-on-dark-muted"
-            key={chatSourceKey(source)}
-          >
-            <span className="min-w-0 break-words">{formatItinerarySourceLabel(source)}</span>
-          </span>
+        {visibleSources.map((source) => (
+          <SourceIconBadge key={chatSourceKey(source)} source={source} />
         ))}
       </div>
-      {sources.some((source) => source.notChecked.length > 0) ? (
-        <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-[#ffe5a8]">
-          {sources.flatMap((source) =>
-            source.notChecked.map((item) => (
-              <li className="break-words" key={`${source.sourceName}-${item}`}>
-                Not checked by {source.sourceName}: {item}
-              </li>
-            )),
-          )}
-        </ul>
-      ) : null}
     </section>
   );
 }
@@ -1641,11 +1637,6 @@ function sortItineraryStops(stops: readonly ItineraryStopArtifact[]) {
 
 function formatItineraryStopSummary(stop: ItineraryStopArtifact) {
   return [stop.title, stop.area, stop.rationale].filter(Boolean).join(" - ");
-}
-
-function formatItinerarySourceLabel(source: ItineraryPlanArtifact["sources"][number]) {
-  const confidence = source.confidence ? `, ${source.confidence} confidence` : "";
-  return `${formatTrustLabel(source.label)} - ${source.sourceName}${confidence}`;
 }
 
 function formatTrustLabel(value: string) {
@@ -1669,15 +1660,16 @@ function cardAreaLabel(card: RecommendationCardArtifact | undefined) {
 }
 
 function sourceConfidenceLabel(sources: readonly ChatSourceArtifact[]) {
-  if (sources.length === 0) {
+  const visibleSources = publicDisplaySources(sources);
+  if (visibleSources.length === 0) {
     return "Caveated";
   }
-  const highConfidence = sources.some((source) => source.confidence === "high");
-  const liveChecked = sources.some((source) => source.label === "live_checked");
+  const highConfidence = visibleSources.some((source) => source.confidence === "high");
+  const liveChecked = visibleSources.some((source) => source.label === "live_checked");
   if (liveChecked && highConfidence) {
     return "Live checked";
   }
-  return `${formatTrustLabel(sources[0]?.label ?? "not_verified")}`;
+  return sourceBadgeTitle(visibleSources[0] ?? sources[0]);
 }
 
 function dedupeChatSources(sources: readonly ChatSourceArtifact[]) {
@@ -1707,16 +1699,10 @@ function chatSourceKey(source: ChatSourceArtifact) {
 }
 
 function sourceSummaryText(sources: readonly ChatSourceArtifact[]) {
-  const checkedSources = sources.filter(isActuallyCheckedSource);
-  const caveatSources = sources.filter((source) => !isActuallyCheckedSource(source));
-  const checkedText = checkedSources.length
-    ? `Actually checked: ${formatCompactList(checkedSources.map(sourceDisplayName))}`
-    : "Actually checked: no live source";
-  const caveatText = caveatSources.length
-    ? `Caveats: ${formatCompactList(caveatSources.map(sourceDisplayName))}`
-    : "";
-
-  return [checkedText, caveatText].filter(Boolean).join(" • ");
+  const visibleSources = publicDisplaySources(sources);
+  return visibleSources.length
+    ? `Checked: ${formatCompactList(visibleSources.map(sourceDisplayName))}`
+    : "Checked source details unavailable";
 }
 
 function isActuallyCheckedSource(source: ChatSourceArtifact) {
@@ -1725,6 +1711,98 @@ function isActuallyCheckedSource(source: ChatSourceArtifact) {
 
 function sourceDisplayName(source: ChatSourceArtifact) {
   return source.sourceName || formatTrustLabel(source.label);
+}
+
+function publicDisplaySources(sources: readonly ChatSourceArtifact[]) {
+  return sources.filter(isActuallyCheckedSource);
+}
+
+function publicDisplayCaveats(caveats: readonly string[]) {
+  return caveats.filter((caveat) => !isInternalVerificationGap(caveat));
+}
+
+function isInternalVerificationGap(value: string) {
+  return [
+    /\bnot\s+checked\b/i,
+    /\bwasn['’]?t\s+(?:separately\s+)?checked\b/i,
+    /\bwere\s+not\s+checked\b/i,
+    /\bno\s+live\b.{0,90}\bcheck\b/i,
+    /\bunchecked\b/i,
+    /\bnot\s+verified\b/i,
+    /\bI\s+(?:didn['’]?t|did\s+not)\s+(?:live[-\s]?)?check\b/i,
+    /\b(?:live[-\s]?)?check(?:ed|ing)?\s+(?:was|were|is|are)?\s*(?:not|needed|needs)\b/i,
+    /\bcurated\s+local\s+guide\s+estimate\b/i,
+    /\bexact\s+ride\s+time\s+depends\b/i,
+    /\buser\s+constraints\s+preserved\b/i,
+    /\borigin-specific\s+route\s+timing\b/i,
+    /\bthis\s+artifact\b/i,
+    /\bsource\s+caveats?\b/i,
+    /\bavoid\s+overclaiming\b/i,
+    /\buse\s+(?:search_places|places)\b/i,
+    /\bplaces\s+evidence\b/i,
+    /\b(?:open|opening|cafe|menu|booking|availability|crowd|quietness).{0,80}\bshould\s+be\s+checked\b/i,
+    /\bclaim(?:ing)?\b.{0,80}\b(?:open|status|hours|safety|reliability)\b/i,
+    /\bwithout\b.{0,80}\b(?:condition|safety|tide|surf|road).{0,40}\bcheck/i,
+  ].some((pattern) => pattern.test(value));
+}
+
+function SourceIconBadge({ source }: { source: ChatSourceArtifact }) {
+  const badge = sourceBadgeInfo(source);
+  const Icon = badge.icon;
+
+  return (
+    <span
+      className={`inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold ${badge.className}`}
+      data-testid="source-icon-badge"
+    >
+      <Icon aria-hidden="true" className="shrink-0" size={13} />
+      <span className="min-w-0 break-words">{badge.label}</span>
+    </span>
+  );
+}
+
+function sourceBadgeInfo(source: ChatSourceArtifact) {
+  if (source.label === "weather_checked") {
+    return {
+      icon: Clock,
+      label: "Weather checked",
+      className: "border-sky-300/20 bg-sky-300/10 text-sky-100",
+    };
+  }
+  if (source.label === "marine_checked" || source.label === "tide_forecast_checked") {
+    return {
+      icon: Navigation,
+      label: source.label === "marine_checked" ? "Marine checked" : "Tide checked",
+      className: "border-brand-lagoon-300/20 bg-brand-lagoon-300/10 text-brand-lagoon-100",
+    };
+  }
+  if (source.label === "curated_local_guide") {
+    return {
+      icon: Star,
+      label: "Local guide",
+      className: "border-[#ffd36a]/18 bg-[#ffd36a]/10 text-[#ffe2a2]",
+    };
+  }
+  if (source.label === "fresh_cache") {
+    return {
+      icon: ShieldCheck,
+      label: "Fresh source",
+      className: "border-brand-lavender-200/20 bg-brand-violet-650/20 text-brand-lavender-200",
+    };
+  }
+
+  return {
+    icon: ShieldCheck,
+    label: source.label === "live_checked" ? "Live checked" : sourceBadgeTitle(source),
+    className: "border-brand-lagoon-300/20 bg-brand-lagoon-300/10 text-brand-lagoon-100",
+  };
+}
+
+function sourceBadgeTitle(source: ChatSourceArtifact | undefined) {
+  if (!source) {
+    return "Checked";
+  }
+  return titleCaseShortLabel(formatTrustLabel(source.label));
 }
 
 function formatCompactList(values: readonly string[]) {
@@ -2006,7 +2084,7 @@ function SaveToggleButton({
       aria-label={isSaved ? `Remove ${title} from saved plan` : `Save ${title}`}
       className={
         isSaved
-          ? "size-9 shrink-0 rounded-md border-[#20d59b]/35 bg-[#20d59b] text-[#062015] hover:bg-[#6af0bd]"
+          ? "size-9 shrink-0 rounded-md border-brand-lagoon-300/35 bg-brand-lagoon-500 text-brand-navy-980 hover:bg-brand-lagoon-300"
           : "size-9 shrink-0 rounded-md border-white/12 bg-white/[0.08] text-text-on-dark hover:bg-white/[0.13]"
       }
       onClick={() => {
@@ -2086,7 +2164,7 @@ function ChatActionButtons({
 }
 
 function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifact[] }) {
-  const visibleSources = dedupeChatSources(sources);
+  const visibleSources = publicDisplaySources(dedupeChatSources(sources));
   if (visibleSources.length === 0) {
     return null;
   }
@@ -2099,7 +2177,7 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
         <span className="grid min-w-0 gap-1">
           <span className="flex items-center gap-2 text-sm font-black text-white">
-            <ShieldCheck aria-hidden="true" className="text-[#6af0bd]" size={16} />
+            <ShieldCheck aria-hidden="true" className="text-brand-lagoon-300" size={16} />
             Sources & Confidence
           </span>
           <span className="min-w-0 text-xs font-bold text-text-on-dark-muted">
@@ -2122,10 +2200,7 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
             key={chatSourceKey(source)}
           >
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-brand-violet-650/20 px-2 py-1 text-[0.7rem] font-black text-brand-lavender-200">
-                <Star aria-hidden="true" size={12} />
-                {formatTrustLabel(source.label)}
-              </span>
+              <SourceIconBadge source={source} />
               <span className="text-xs font-black text-white">{source.sourceName}</span>
               {source.confidence ? (
                 <span className="text-[0.7rem] font-bold text-text-on-dark-muted">
@@ -2135,12 +2210,7 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
             </div>
             {source.checked.length ? (
               <p className="m-0 text-xs leading-[1.45] text-text-on-dark-muted">
-                Actually checked: {formatCompactList(source.checked)}
-              </p>
-            ) : null}
-            {source.notChecked.length ? (
-              <p className="m-0 text-xs leading-[1.45] text-[#ffe5a8]">
-                Not checked: {formatCompactList(source.notChecked)}
+                Checked details: {formatCompactList(source.checked)}
               </p>
             ) : null}
           </div>
@@ -2151,7 +2221,7 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
 }
 
 function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" | "error" }) {
-  const blocks = parseAssistantMarkdownBlocks(text);
+  const blocks = parseAssistantMarkdownBlocks(stripInternalDisclosureText(text));
   const textClass = tone === "error" ? "text-text-on-dark" : "text-text-on-dark-muted";
   const strongClass = "font-extrabold text-white";
   const linkClass =
@@ -2221,6 +2291,30 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
       })}
     </div>
   );
+}
+
+function stripInternalDisclosureText(value: string) {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => stripInternalDisclosureSentences(line))
+    .filter((line) => line.trim().length > 0)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function stripInternalDisclosureSentences(line: string) {
+  const trimmedLine = line.trim();
+  if (/^not checked:/i.test(trimmedLine)) {
+    return "";
+  }
+
+  return line
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !isInternalVerificationGap(sentence))
+    .join(" ")
+    .trim();
 }
 
 function InlineMarkdown({
@@ -2319,6 +2413,9 @@ function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
     }
 
     if (sourceMatch) {
+      if (sourceMatch[1]?.toLocaleLowerCase() === "not checked") {
+        continue;
+      }
       flushParagraph();
       flushList();
       const label = sourceMatch[1] ?? "";
@@ -2527,8 +2624,8 @@ function ChatComposer({
               aria-pressed={locationReady}
               className={
                 locationReady
-                  ? "size-11 rounded-md bg-[#14624a] text-white hover:bg-[#0f503d]"
-                  : "size-11 rounded-md text-text-soft hover:bg-[#ecf5f0] hover:text-[#14624a]"
+                  ? "size-11 rounded-md bg-brand-lagoon-700 text-white hover:bg-brand-lagoon-600"
+                  : "size-11 rounded-md text-text-soft hover:bg-brand-lagoon-100 hover:text-brand-lagoon-700"
               }
               disabled={isSending || locationRequesting}
               onClick={onRequestLocation}
@@ -2564,7 +2661,7 @@ function ChatComposer({
           <InputGroupAddon align="inline-end" className="pt-1.5">
             <InputGroupButton
               aria-label="Send question"
-              className="size-11 rounded-md bg-brand-violet-650 text-white hover:bg-brand-violet-600"
+              className="size-11 rounded-md bg-[image:var(--gradient-cta)] text-white hover:shadow-violet-glow"
               disabled={isSending || inputValue.trim().length === 0}
               size="icon-sm"
               type="submit"
@@ -2662,8 +2759,8 @@ function locationIndicatorState(locationState: LocationCaptureState) {
       return {
         label: "Location active",
         className:
-          "gap-1.5 rounded-md border-[#20d59b]/45 bg-[#20d59b]/16 px-2 py-0.5 text-[0.68rem] font-black text-[#6af0bd]",
-        dotClassName: "size-1.5 rounded-full bg-[#20d59b]",
+          "gap-1.5 rounded-md border-brand-lagoon-300/45 bg-brand-lagoon-500/16 px-2 py-0.5 text-[0.68rem] font-black text-brand-lagoon-300",
+        dotClassName: "size-1.5 rounded-full bg-brand-lagoon-500",
       };
     case "requesting":
       return {

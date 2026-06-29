@@ -38,20 +38,20 @@ describe("SharedTripPlanPage", () => {
 
     expect(html).toContain("Cloud 9 saved plan");
     expect(html).toContain("Shaka Siargao");
-    expect(html).toContain("Review text and bookings were not checked.");
+    expect(html).not.toContain("Review text and bookings were not checked.");
     expect(html).toContain("Rain-aware Cloud 9 afternoon");
     expect(html).toContain("Cloud 9 boardwalk");
     expect(html).toContain("Covered cafe backup");
     expect(html).toContain("General Luna");
-    expect(html).toContain("Live open status should be checked before leaving.");
+    expect(html).not.toContain("Live open status should be checked before leaving.");
     expect(html).toContain("Open now from Google Places");
     expect(html).toContain("Google Places - live checked");
-    expect(html).toContain("Google Places API - live checked - fetched 2026-06-28T00:45:00.000Z");
+    expect(html).not.toContain("Google Places API - live checked - fetched");
     expect(html).toContain("Checked by Google Places API: place identity");
-    expect(html).toContain("Open-Meteo weather API - weather checked");
+    expect(html).toContain("Open-Meteo weather - weather checked");
     expect(html).toContain("Checked by Open-Meteo weather API: forecast for General Luna");
-    expect(html).toContain("Not checked by Open-Meteo weather API: surf reports");
-    expect(html).toContain(
+    expect(html).not.toContain("Not checked by Open-Meteo weather API: surf reports");
+    expect(html).not.toContain(
       "Not checked by Browser saved trip: Saved from browser and not reverified by Ask Siargao before sharing.",
     );
     expect(html).toContain("https://www.google.com/maps/search/?api=1&amp;query=Shaka%20Siargao");

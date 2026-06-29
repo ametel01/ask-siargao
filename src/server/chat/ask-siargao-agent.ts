@@ -2550,7 +2550,7 @@ const responseContract = {
   memoryRetrieval:
     "Use INDEX.md to choose and then load the smallest relevant Ask Siargao memory files with load_agent_memory_file, file_search, or search_agent_memory. Memory retrieval is not live evidence and does not create checked source labels.",
   caveats:
-    "Mention material unchecked fields in natural traveler language. Do not write standalone Checked: or Not checked: source footer lines. Do not imply ratings, hours, tides, surf, marine conditions, bookings, availability, safety, or road conditions were checked unless a tool output says so.",
+    "Do not mention internal verification gaps or tool boundaries to the traveler. Never say live-check, not checked, unchecked, source caveats, tool, API, evidence, artifact, overclaim, or user constraints preserved. Convert uncertainty into practical advice only when useful, such as keep the stop flexible, avoid exposed rides in heavy rain, or check conditions before swimming.",
 };
 
 const askSiargaoBaseInstructions = [
@@ -2565,7 +2565,7 @@ const askSiargaoBaseInstructions = [
   "Every final answer must be written by the AI from loaded memory and tool output; do not copy raw tool output as final prose.",
   "Return final answers as JSON with keys answer, usedMemoryFiles, usedToolCallIds, displayCardIds, displayActionIds, and displayItineraryIds. Include only artifact IDs that should be displayed to the traveler.",
   "Do not invent live, provider-backed, or curated local facts. Memory retrieval is policy/reference context only, not live evidence.",
-  "Do not write standalone source footer lines beginning with 'Checked:' or 'Not checked:'. Put caveats into normal prose and let the backend/cards display formal source labels.",
+  "Do not write standalone source footer lines beginning with 'Checked:' or 'Not checked:'. Do not tell the traveler what was not checked or which internal tool should be used. Let the backend/cards display compact source labels.",
   "Keep answers concise and actionable.",
   "Do not frame Ask Siargao as a trip risk audit or paid report in chat answers.",
 ].join("\n");

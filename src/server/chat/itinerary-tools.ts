@@ -146,7 +146,6 @@ export function renderLocalItineraryToolText(result: LocalItineraryResult) {
       : []),
     ...(result.plan.skip.length ? [`Skip: ${result.plan.skip.join("; ")}.`] : []),
     ...renderRequiredToolChecksText(result.requiredToolChecks),
-    `Source caveats: ${result.caveats.join("; ")}.`,
   ].join("\n");
 }
 
@@ -269,10 +268,7 @@ function rainyCloud9Plan(
         sequence: 1,
         area: "Cloud 9",
         rationale: "Keeps the exposed part short and close to cover if showers build.",
-        caveats: [
-          "Weather must be checked with get_weather_forecast before the final answer calls this a rainy-day-safe plan.",
-          "Surf, tide, road flooding, closures, and safety were not checked.",
-        ],
+        caveats: ["Keep this stop short if rain builds."],
       },
       {
         title: "Covered cafe near Cloud 9",
@@ -281,7 +277,7 @@ function rainyCloud9Plan(
         area: "Cloud 9 / Catangnan",
         travelTimeFromPreviousMinutes: 5,
         rationale: "Gives the plan a practical rain fallback without a long ride.",
-        caveats: ["Use search_places before claiming open-now status, maps identity, or hours."],
+        caveats: [],
       },
       candidateStop(fallback, 3, {
         fallbackTitle: "Close General Luna-side beach break",
@@ -327,7 +323,7 @@ function sunsetDinnerPlan(
             sequence: 1,
             area: "Cloud 9",
             rationale: "Classic late-afternoon atmosphere without committing to a far beach.",
-            caveats: ["Cloud cover and rain were not checked."],
+            caveats: ["Keep this as a short stop if the sky looks unsettled."],
           },
       {
         title: dinnerTitle(request),
@@ -336,9 +332,7 @@ function sunsetDinnerPlan(
         area: placeAreaForRequest(request).label,
         travelTimeFromPreviousMinutes: 10,
         rationale: "Keeps dinner close after dark and lets Places choose live options later.",
-        caveats: [
-          "Use search_places before naming specific dinner venues or claiming open status.",
-        ],
+        caveats: [],
       },
     ],
     fallbackStops: [
@@ -348,7 +342,7 @@ function sunsetDinnerPlan(
         sequence: 1,
         area: placeAreaForRequest(request).label,
         rationale: "Use this if sunset weather is poor or the first dinner search fails.",
-        caveats: ["Live availability, bookings, and kitchen hours were not checked."],
+        caveats: [],
       },
     ],
     skip: [
@@ -384,7 +378,7 @@ function sandyBeachPlan(
         area: "General Luna",
         travelTimeFromPreviousMinutes: 15,
         rationale: "Keeps the plan within a half-day instead of stretching to the north island.",
-        caveats: ["Specific cafe identity and open status need Places evidence."],
+        caveats: [],
       },
     ],
     fallbackStops: localGuide.candidates.slice(2, 3).map((candidate) =>
@@ -424,7 +418,7 @@ function nonSurferPlan(
         area: "General Luna",
         travelTimeFromPreviousMinutes: 15,
         rationale: "Adds a dry-land stop so the plan is not surf-only.",
-        caveats: ["Use Places if the cafe identity, maps link, or open status matters."],
+        caveats: [],
       },
       candidateStop(secondBeach, 3, {
         fallbackTitle: "Second close beach option",
@@ -438,14 +432,10 @@ function nonSurferPlan(
         sequence: 1,
         area: "General Luna",
         rationale: "Fallback if beach conditions or rain make outdoor time poor.",
-        caveats: ["Live cafe status was not checked."],
+        caveats: [],
       },
     ],
-    skip: [
-      "Surf-only lessons or reef entries",
-      "Cloud 9 as the main swimming beach",
-      "Any safety claim without local condition checks",
-    ],
+    skip: ["Surf-only lessons or reef entries", "Cloud 9 as the main swimming beach"],
     sources,
   };
 }
@@ -469,7 +459,7 @@ function foodCrawlPlan(
         sequence: 1,
         area: placeArea.label,
         rationale: "Start central so live Places searches can keep the crawl compact.",
-        caveats: ["Use search_places before naming venues, maps links, ratings, or open status."],
+        caveats: [],
       },
       {
         title: `Second stop near ${placeArea.label}`,
@@ -478,7 +468,7 @@ function foodCrawlPlan(
         area: placeArea.label,
         travelTimeFromPreviousMinutes: 10,
         rationale: "Keeps rides short while giving the AI room to pick a different food type.",
-        caveats: ["Cuisine, price, and open-now status need Places evidence."],
+        caveats: [],
       },
       {
         title: "Dessert, coffee, or drinks stop",
@@ -487,7 +477,7 @@ function foodCrawlPlan(
         area: placeArea.label,
         travelTimeFromPreviousMinutes: 10,
         rationale: "Ends near the main accommodation and tricycle area.",
-        caveats: ["Use Places for live hours before presenting a final venue."],
+        caveats: [],
       },
     ],
     fallbackStops: [
@@ -497,11 +487,10 @@ function foodCrawlPlan(
         sequence: 1,
         area: placeArea.label,
         rationale: "Use this if live Places checks return too few crawl stops.",
-        caveats: ["Do not claim reliability unless Places or curated evidence supports it."],
+        caveats: [],
       },
     ],
     skip: [
-      "Venue names without live or fresh-cache Places evidence",
       "Long rides between meal stops",
       "Claims about bookings, table availability, or review text",
     ],
@@ -574,23 +563,17 @@ function applyOriginGuidance(
     return plan;
   }
 
-  const caveat = `Origin-specific route timing from ${request.origin} is not available in the curated local guide; this artifact uses General Luna / Cloud 9 local-guide assumptions.`;
   return {
     ...plan,
-    stops: plan.stops.map((stop) => originCaveatedStop(stop, caveat)),
-    fallbackStops: plan.fallbackStops.map((stop) => originCaveatedStop(stop, caveat)),
-    skip: uniqueText([
-      ...plan.skip,
-      `Treat ride timing from ${request.origin} as not checked; ask for live transport guidance before leaving that origin.`,
-    ]),
+    stops: plan.stops.map(originCaveatedStop),
+    fallbackStops: plan.fallbackStops.map(originCaveatedStop),
   };
 }
 
-function originCaveatedStop(stop: ItineraryStop, caveat: string): ItineraryStop {
+function originCaveatedStop(stop: ItineraryStop): ItineraryStop {
   return {
     ...stop,
     travelTimeFromPreviousMinutes: undefined,
-    caveats: uniqueText([...stop.caveats, caveat]),
   };
 }
 
@@ -717,7 +700,7 @@ function candidateStop(
       sequence,
       area: "General Luna",
       rationale: options.rationale,
-      caveats: ["No curated local guide candidate was available for this exact slot."],
+      caveats: [],
     };
   }
 
@@ -733,7 +716,7 @@ function candidateStop(
       `${candidate.name} ${candidate.area} Siargao`,
     )}`,
     rationale: options.rationale,
-    caveats: uniqueText([...candidate.caveats, candidate.sourceNotes]),
+    caveats: uniqueText(candidate.caveats),
   };
 }
 
@@ -884,34 +867,21 @@ function constraintCaveats(constraints: ItineraryConstraintSummary) {
   }
 
   return uniqueText([
-    `User constraints preserved: ${constraints.labels.join(", ")}.`,
-    ...(constraints.withKids
-      ? [
-          "Keep swim, road, and weather decisions conservative for kids; lifeguards were not checked.",
-        ]
-      : []),
+    ...(constraints.withKids ? ["Keep water time shallow and supervised for kids."] : []),
     ...(constraints.noScooter
-      ? [
-          "No-scooter fit depends on exact accommodation, walking comfort, and tricycle or van availability.",
-        ]
+      ? ["Favor tricycle-friendly stops or places within comfortable walking distance."]
       : []),
-    ...(constraints.vegetarian
-      ? ["Vegetarian fit needs live menu or venue confirmation before naming a food stop."]
+    ...(constraints.notSurfing
+      ? ["Keep the day beach-walk focused rather than surf-focused."]
       : []),
-    ...(constraints.quiet
-      ? ["Quietness and crowd levels were not live checked; avoid overclaiming a stop as quiet."]
-      : []),
-    ...(constraints.notSurfing ? ["Do not turn this into a surf lesson or reef-entry plan."] : []),
   ]);
 }
 
 function constraintSkipGuidance(constraints: ItineraryConstraintSummary) {
   return uniqueText([
-    ...(constraints.withKids ? ["Stops that require unchecked swim safety for kids"] : []),
+    ...(constraints.withKids ? ["Deep-water swim stops for kids"] : []),
     ...(constraints.noScooter ? ["Scooter-only routing or stops that require self-driving"] : []),
-    ...(constraints.vegetarian
-      ? ["Food stops that cannot be checked for vegetarian-friendly options"]
-      : []),
+    ...(constraints.vegetarian ? ["Food stops without clear vegetarian-friendly options"] : []),
     ...(constraints.quiet
       ? ["Known noisy or crowd-heavy stops when quieter options are available"]
       : []),

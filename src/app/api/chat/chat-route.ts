@@ -278,32 +278,32 @@ export async function chatResponse(
       result.cards,
       result.itineraries,
     );
+    let responseMessage = stripInternalDisclosureText(result.message);
     const sourceValidationInput = {
-      message: result.message,
+      message: responseMessage,
       sources: publicAnswerSources,
       toolCalls: publicToolCalls,
       browserGeolocation: clientContext.geolocation,
     };
-    let responseMessage = result.message;
     try {
       assertChatAnswerSourceConsistency(sourceValidationInput);
     } catch (error) {
       if (!(error instanceof SourceConsistencyError)) {
         throw error;
       }
-      const repairedMessage = repairMalformedRenderedSourceLines(result.message, error);
+      const repairedMessage = repairMalformedRenderedSourceLines(responseMessage, error);
       if (!repairedMessage) {
         throw error;
       }
+      responseMessage = stripInternalDisclosureText(repairedMessage);
       assertChatAnswerSourceConsistency({
         ...sourceValidationInput,
-        message: repairedMessage,
+        message: responseMessage,
       });
-      responseMessage = repairedMessage;
       logger.warn(
         {
           issueCount: error.issues.length,
-          repairedLineCount: result.message.split("\n").length - repairedMessage.split("\n").length,
+          repairedLineCount: result.message.split("\n").length - responseMessage.split("\n").length,
         },
         "Chat answer repaired by removing malformed rendered source lines.",
       );
@@ -531,6 +531,55 @@ function repairMalformedRenderedSourceLines(
     .trim();
 
   return repaired.length > 0 && repaired !== message ? repaired : undefined;
+}
+
+function stripInternalDisclosureText(value: string) {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => stripInternalDisclosureSentences(line))
+    .filter((line) => line.trim().length > 0)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function stripInternalDisclosureSentences(line: string) {
+  const trimmedLine = line.trim();
+  if (/^not checked:/i.test(trimmedLine)) {
+    return "";
+  }
+
+  return line
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !isInternalDisclosure(sentence))
+    .join(" ")
+    .trim();
+}
+
+function isInternalDisclosure(value: string) {
+  return [
+    /\bnot\s+checked\b/i,
+    /\bwasn['’]?t\s+(?:separately\s+)?checked\b/i,
+    /\bwere\s+not\s+checked\b/i,
+    /\bno\s+live\b.{0,90}\bcheck\b/i,
+    /\bunchecked\b/i,
+    /\bnot\s+verified\b/i,
+    /\bI\s+(?:didn['’]?t|did\s+not)\s+(?:live[-\s]?)?check\b/i,
+    /\b(?:live[-\s]?)?check(?:ed|ing)?\s+(?:was|were|is|are)?\s*(?:not|needed|needs)\b/i,
+    /\bcurated\s+local\s+guide\s+estimate\b/i,
+    /\bexact\s+ride\s+time\s+depends\b/i,
+    /\buser\s+constraints\s+preserved\b/i,
+    /\borigin-specific\s+route\s+timing\b/i,
+    /\bthis\s+artifact\b/i,
+    /\bsource\s+caveats?\b/i,
+    /\bavoid\s+overclaiming\b/i,
+    /\buse\s+(?:search_places|places)\b/i,
+    /\bplaces\s+evidence\b/i,
+    /\b(?:open|opening|cafe|menu|booking|availability|crowd|quietness).{0,80}\bshould\s+be\s+checked\b/i,
+    /\bclaim(?:ing)?\b.{0,80}\b(?:open|status|hours|safety|reliability)\b/i,
+    /\bwithout\b.{0,80}\b(?:condition|safety|tide|surf|road).{0,40}\bcheck/i,
+  ].some((pattern) => pattern.test(value));
 }
 
 function normalizeChatClientContext(

@@ -351,7 +351,10 @@ function publicSavedTripPayloadFromStored(
   if (payload.type === "recommendation_card") {
     return {
       type: "recommendation_card",
-      card: payload.card,
+      card: {
+        ...payload.card,
+        caveats: publicDisplayCaveats(payload.card.caveats),
+      },
     };
   }
 
@@ -360,6 +363,9 @@ function publicSavedTripPayloadFromStored(
       type: "itinerary_plan",
       plan: {
         ...payload.plan,
+        stops: payload.plan.stops.map(publicItineraryStopFromStored),
+        fallbackStops: payload.plan.fallbackStops.map(publicItineraryStopFromStored),
+        skip: publicDisplayCaveats(payload.plan.skip),
         sources: publicSourcesFromStored(payload.plan.sources),
       },
     };
@@ -390,7 +396,7 @@ function publicSavedItemDisplayFields(payload: SavedTripItem["payload"]) {
 }
 
 function publicSourcesFromStored(sources: readonly AnswerSourceSummary[]) {
-  const normalizedSources = sources.map(normalizeSourceSummary);
+  const normalizedSources = sources.map(publicSourceSummaryFromStored);
   const hasBrowserSavedCaveat = normalizedSources.some(
     (source) =>
       source.label === browserSavedNotReverifiedSource.label &&
@@ -401,7 +407,52 @@ function publicSourcesFromStored(sources: readonly AnswerSourceSummary[]) {
     return normalizedSources;
   }
 
-  return [...normalizedSources, normalizeSourceSummary(browserSavedNotReverifiedSource)];
+  return [...normalizedSources, publicSourceSummaryFromStored(browserSavedNotReverifiedSource)];
+}
+
+function publicSourceSummaryFromStored(source: AnswerSourceSummary) {
+  return {
+    ...normalizeSourceSummary(source),
+    notChecked: [],
+  };
+}
+
+function publicItineraryStopFromStored(
+  stop: Extract<SavedTripItem["payload"], { type: "itinerary_plan" }>["plan"]["stops"][number],
+) {
+  return {
+    ...stop,
+    caveats: publicDisplayCaveats(stop.caveats),
+  };
+}
+
+function publicDisplayCaveats(caveats: readonly string[]) {
+  return caveats.filter((caveat) => !isInternalVerificationGap(caveat));
+}
+
+function isInternalVerificationGap(value: string) {
+  return [
+    /\bnot\s+checked\b/i,
+    /\bwasn['’]?t\s+(?:separately\s+)?checked\b/i,
+    /\bwere\s+not\s+checked\b/i,
+    /\bno\s+live\b.{0,90}\bcheck\b/i,
+    /\bunchecked\b/i,
+    /\bnot\s+verified\b/i,
+    /\bI\s+(?:didn['’]?t|did\s+not)\s+(?:live[-\s]?)?check\b/i,
+    /\b(?:live[-\s]?)?check(?:ed|ing)?\s+(?:was|were|is|are)?\s*(?:not|needed|needs)\b/i,
+    /\bcurated\s+local\s+guide\s+estimate\b/i,
+    /\bexact\s+ride\s+time\s+depends\b/i,
+    /\buser\s+constraints\s+preserved\b/i,
+    /\borigin-specific\s+route\s+timing\b/i,
+    /\bthis\s+artifact\b/i,
+    /\bsource\s+caveats?\b/i,
+    /\bavoid\s+overclaiming\b/i,
+    /\buse\s+(?:search_places|places)\b/i,
+    /\bplaces\s+evidence\b/i,
+    /\b(?:open|opening|cafe|menu|booking|availability|crowd|quietness).{0,80}\bshould\s+be\s+checked\b/i,
+    /\bclaim(?:ing)?\b.{0,80}\b(?:open|status|hours|safety|reliability)\b/i,
+    /\bwithout\b.{0,80}\b(?:condition|safety|tide|surf|road).{0,40}\bcheck/i,
+  ].some((pattern) => pattern.test(value));
 }
 
 function normalizeText(value: string, maxLength: number) {
