@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 
 type ChatRequestBody = {
+  threadId?: string;
   messages?: Array<{
     role?: string;
     content?: string;
@@ -164,6 +165,135 @@ test("sends a desktop composer message to the chat API and renders the assistant
   expect(composerBox).not.toBeNull();
   expect(composerBox?.y ?? 0).toBeGreaterThanOrEqual(0);
   expect((composerBox?.y ?? 0) + (composerBox?.height ?? 0)).toBeLessThanOrEqual(1153);
+});
+
+test("loads signed-in chat history and preserves the thread after reload", async ({ page }) => {
+  const chatRequests: ChatRequestBody[] = [];
+  const thread = {
+    id: "thread_existing",
+    title: "Cloud 9 plan",
+    status: "active",
+    createdAt: "2026-06-29T01:00:00.000Z",
+    updatedAt: "2026-06-29T01:00:00.000Z",
+    lastMessageAt: "2026-06-29T01:01:00.000Z",
+  };
+  const messages = [
+    {
+      id: "message_user_existing",
+      role: "user",
+      content: "Where should I eat near Cloud 9?",
+      status: "complete",
+      sources: [],
+      cards: [],
+      actions: [],
+      itineraries: [],
+      createdAt: "2026-06-29T01:00:00.000Z",
+    },
+    {
+      id: "message_assistant_existing",
+      role: "assistant",
+      content: "Try Shaka for breakfast and Bravo for dinner.",
+      status: "complete",
+      sources: [],
+      cards: [],
+      actions: [],
+      itineraries: [],
+      createdAt: "2026-06-29T01:01:00.000Z",
+    },
+  ];
+
+  await page.route("**/api/chat/threads**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+
+    if (request.method() === "GET" && url.pathname === "/api/chat/threads") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ threads: [thread] }),
+      });
+      return;
+    }
+
+    if (request.method() === "GET" && url.pathname === "/api/chat/threads/thread_existing") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ thread, messages }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "not_found" }),
+    });
+  });
+
+  await page.route("**/api/chat", async (route) => {
+    chatRequests.push(route.request().postDataJSON() as ChatRequestBody);
+    messages.push(
+      {
+        id: "message_user_follow_up",
+        role: "user",
+        content: "What should I add after Shaka?",
+        status: "complete",
+        sources: [],
+        cards: [],
+        actions: [],
+        itineraries: [],
+        createdAt: "2026-06-29T01:02:00.000Z",
+      },
+      {
+        id: "message_assistant_follow_up",
+        role: "assistant",
+        content: "Add Bravo after Shaka for an easy General Luna dinner.",
+        status: "complete",
+        sources: [],
+        cards: [],
+        actions: [],
+        itineraries: [],
+        createdAt: "2026-06-29T01:03:00.000Z",
+      },
+    );
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message: "Add Bravo after Shaka for an easy General Luna dinner.",
+        model: "gpt-5.5-test",
+        requestId: "req_playwright_chat_history",
+        threadId: thread.id,
+        userMessageId: "message_user_follow_up",
+        assistantMessageId: "message_assistant_follow_up",
+      }),
+    });
+  });
+
+  await page.goto("/chat");
+
+  await expect(page.getByRole("heading", { name: "Chat history" })).toBeVisible();
+  await page.getByRole("button", { name: /Cloud 9 plan/ }).click();
+  await expect(page.getByText("Where should I eat near Cloud 9?")).toBeVisible();
+  await expect(page.getByText("Try Shaka for breakfast and Bravo for dinner.")).toBeVisible();
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("What should I add after Shaka?");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(
+    page.getByText("Add Bravo after Shaka for an easy General Luna dinner."),
+  ).toBeVisible();
+  await expect.poll(() => chatRequests.length).toBe(1);
+  expect(chatRequests[0]?.threadId).toBe("thread_existing");
+
+  await page.reload();
+  await page.getByRole("button", { name: /Cloud 9 plan/ }).click();
+  await expect(
+    page.getByText("Add Bravo after Shaka for an easy General Luna dinner."),
+  ).toBeVisible();
 });
 
 test("wraps long user text inside the composer and user message bubble", async ({ page }) => {

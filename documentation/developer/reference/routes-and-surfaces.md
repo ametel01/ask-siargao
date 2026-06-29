@@ -5,7 +5,7 @@
 | Route | Purpose | Indexing |
 | --- | --- | --- |
 | `/` | Ask Siargao chat-first landing page | Public |
-| `/chat` | Ask Siargao assistant workspace mockup with trip context, chat, weather, and surf panels | Public |
+| `/chat` | Ask Siargao assistant workspace with anonymous chat and signed-in chat history | Public |
 | `/trips/shared/[token]` | Public shared saved-trip plan with selected cards/itineraries only | `noindex, nofollow` metadata |
 | `/profile` | Signed-in Ask Siargao profile settings for app-specific travel preferences | Private authenticated surface |
 | `/audits/[auditRequestId]/status` | Post-checkout processing/status page | Private audit surface |
@@ -33,6 +33,8 @@
 | Route | Method | Purpose | Protection |
 | --- | --- | --- | --- |
 | `/api/chat` | `POST` | Validate chat turns, run the Ask Siargao agent, and persist owner-scoped thread/messages when a Clerk session is present | Public for anonymous stateless chat; Clerk-authenticated requests persist owned turns |
+| `/api/chat/threads` | `GET`, `POST` | List the current user's non-deleted chat threads newest first or create an empty owned thread | Clerk-authenticated user only |
+| `/api/chat/threads/[threadId]` | `GET`, `PATCH`, `DELETE` | Hydrate an owned chat thread with messages, rename or archive it, or soft-delete it | Clerk-authenticated owner only; cross-user access returns `404` |
 
 Authenticated chat persistence stores user and assistant-visible message content, public sources,
 selected public artifacts, redacted tool-call summaries without raw arguments, and browser-location

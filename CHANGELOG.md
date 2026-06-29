@@ -117,6 +117,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added authenticated chat thread APIs and signed-in `/chat` history controls for
+  listing, hydrating, creating, renaming, archiving, deleting, and reloading
+  owned conversation threads.
 - Added authenticated `/api/chat` persistence for owned chat threads and
   user/assistant message rows while preserving anonymous stateless chat behavior.
 - Added authenticated profile management with `/api/me/profile`, `/profile`,

@@ -171,6 +171,26 @@ type SavedPlanShareAction =
   | { type: "copied" }
   | { type: "copy_error" };
 
+type ChatThreadSummary = {
+  id: string;
+  title: string;
+  archivedAt?: string | null;
+  updatedAt?: string;
+  lastMessageAt?: string | null;
+};
+
+type ChatThreadDetailMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  status: string;
+  sources?: ChatSourceArtifact[];
+  cards?: RecommendationCardArtifact[];
+  actions?: ChatActionArtifact[];
+  itineraries?: ItineraryPlanArtifact[];
+  createdAt: string;
+};
+
 const serverSavedTripSnapshot: SavedTripState = {
   tripId: "local_trip_pending",
   items: [],
@@ -342,6 +362,9 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
   const [isSending, setIsSending] = useState(false);
   const [locationState, setLocationState] = useState<LocationCaptureState>({ status: "idle" });
   const [messages, setMessages] = useState<InteractiveChatMessage[]>([]);
+  const [chatThreads, setChatThreads] = useState<ChatThreadSummary[]>([]);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [historyStatus, setHistoryStatus] = useState<"idle" | "loading" | "error">("idle");
   const savedTripState = useSyncExternalStore(
     subscribeSavedTripState,
     getSavedTripSnapshot,
@@ -353,6 +376,100 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
     [savedTripState],
   );
   const savedPlanSharing = useSavedPlanSharing(savedTripState);
+
+  const refreshChatThreads = useCallback(async () => {
+    try {
+      const response = await fetch("/api/chat/threads", { cache: "no-store" });
+      if (response.status === 401 || response.status === 404) {
+        setChatThreads([]);
+        return;
+      }
+      if (!response.ok) {
+        setHistoryStatus("error");
+        return;
+      }
+
+      const body = (await response.json()) as { threads?: ChatThreadSummary[] };
+      setChatThreads(body.threads ?? []);
+      setHistoryStatus("idle");
+    } catch {
+      setHistoryStatus("error");
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshChatThreads();
+  }, [refreshChatThreads]);
+
+  const openChatThread = useCallback(async (threadId: string) => {
+    setHistoryStatus("loading");
+    try {
+      const response = await fetch(`/api/chat/threads/${threadId}`, { cache: "no-store" });
+      if (!response.ok) {
+        setHistoryStatus("error");
+        return;
+      }
+
+      const body = (await response.json()) as {
+        messages?: ChatThreadDetailMessage[];
+        thread?: ChatThreadSummary;
+      };
+      setSelectedThreadId(threadId);
+      setMessages((body.messages ?? []).map(interactiveMessageFromThreadMessage));
+      setHistoryStatus("idle");
+    } catch {
+      setHistoryStatus("error");
+    }
+  }, []);
+
+  const startNewChat = useCallback(() => {
+    setSelectedThreadId(null);
+    setMessages([]);
+    setInputValue("");
+  }, []);
+
+  const renameSelectedThread = useCallback(async () => {
+    if (!selectedThreadId) {
+      return;
+    }
+
+    const currentTitle =
+      chatThreads.find((thread) => thread.id === selectedThreadId)?.title ?? "Siargao chat";
+    const title = window.prompt("Thread title", currentTitle)?.trim();
+    if (!title) {
+      return;
+    }
+
+    await fetch(`/api/chat/threads/${selectedThreadId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    await refreshChatThreads();
+  }, [chatThreads, refreshChatThreads, selectedThreadId]);
+
+  const archiveSelectedThread = useCallback(async () => {
+    if (!selectedThreadId) {
+      return;
+    }
+
+    await fetch(`/api/chat/threads/${selectedThreadId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ archived: true }),
+    });
+    await refreshChatThreads();
+  }, [refreshChatThreads, selectedThreadId]);
+
+  const deleteSelectedThread = useCallback(async () => {
+    if (!selectedThreadId) {
+      return;
+    }
+
+    await fetch(`/api/chat/threads/${selectedThreadId}`, { method: "DELETE" });
+    startNewChat();
+    await refreshChatThreads();
+  }, [refreshChatThreads, selectedThreadId, startNewChat]);
 
   const captureLocation = useCallback(
     async (
@@ -436,7 +553,11 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
         status: "pending",
       };
       const requestMessages = buildChatRequestMessages(messages, trimmedPrompt);
-      const requestBody = buildChatRequestBody(requestMessages, requestLocationState);
+      const requestBody = buildChatRequestBody(
+        requestMessages,
+        requestLocationState,
+        selectedThreadId,
+      );
 
       setInputValue("");
       setMessages((currentMessages) => [...currentMessages, userMessage, pendingAssistant]);
@@ -456,12 +577,18 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
           actions?: ChatActionArtifact[];
           itineraries?: ItineraryPlanArtifact[];
           sources?: ChatSourceArtifact[];
+          threadId?: string;
         };
 
         const responseMessage = body.message;
 
         if (!response.ok || !responseMessage) {
           throw new Error(chatErrorMessage);
+        }
+
+        if (body.threadId) {
+          setSelectedThreadId(body.threadId);
+          void refreshChatThreads();
         }
 
         setMessages((currentMessages) =>
@@ -498,7 +625,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
         setIsSending(false);
       }
     },
-    [captureLocation, isSending, locationState, messages],
+    [captureLocation, isSending, locationState, messages, refreshChatThreads, selectedThreadId],
   );
 
   const saveRecommendationCard = useCallback(
@@ -587,6 +714,26 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
 
         <div className="min-h-0 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
           <div className="mx-auto grid min-h-full max-w-3xl content-start gap-5">
+            {(chatThreads.length > 0 || historyStatus !== "idle") && (
+              <ChatHistoryPanel
+                historyStatus={historyStatus}
+                onArchiveSelectedThread={() => {
+                  void archiveSelectedThread();
+                }}
+                onDeleteSelectedThread={() => {
+                  void deleteSelectedThread();
+                }}
+                onOpenThread={(threadId) => {
+                  void openChatThread(threadId);
+                }}
+                onRenameSelectedThread={() => {
+                  void renameSelectedThread();
+                }}
+                onStartNewChat={startNewChat}
+                selectedThreadId={selectedThreadId}
+                threads={chatThreads}
+              />
+            )}
             <SavedPlanTray
               copyStatus={savedPlanSharing.copyStatus}
               excludedShareItemIds={savedPlanSharing.excludedShareItemIds}
@@ -700,6 +847,100 @@ function ChatAuthActions() {
         }
       />
     </Show>
+  );
+}
+
+function ChatHistoryPanel({
+  historyStatus,
+  onArchiveSelectedThread,
+  onDeleteSelectedThread,
+  onOpenThread,
+  onRenameSelectedThread,
+  onStartNewChat,
+  selectedThreadId,
+  threads,
+}: {
+  historyStatus: "idle" | "loading" | "error";
+  onArchiveSelectedThread: () => void;
+  onDeleteSelectedThread: () => void;
+  onOpenThread: (threadId: string) => void;
+  onRenameSelectedThread: () => void;
+  onStartNewChat: () => void;
+  selectedThreadId: string | null;
+  threads: ChatThreadSummary[];
+}) {
+  return (
+    <section className="grid gap-3 rounded-lg border border-white/12 bg-white/10 p-3 shadow-[0_18px_42px_rgba(0,0,0,0.18)]">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="m-0 text-sm font-black text-text-on-dark">Chat history</h2>
+        <div className="flex items-center gap-2">
+          {selectedThreadId ? (
+            <>
+              <Button
+                className="h-8 rounded-md border-white/20 bg-white/10 px-2 text-xs text-text-on-dark hover:bg-white/15"
+                onClick={onRenameSelectedThread}
+                type="button"
+                variant="outline"
+              >
+                Rename
+              </Button>
+              <Button
+                aria-label="Archive selected chat"
+                className="size-8 rounded-md border-white/20 bg-white/10 text-text-on-dark hover:bg-white/15"
+                onClick={onArchiveSelectedThread}
+                size="icon"
+                type="button"
+                variant="outline"
+              >
+                <Clock aria-hidden="true" size={15} />
+              </Button>
+              <Button
+                aria-label="Delete selected chat"
+                className="size-8 rounded-md border-white/20 bg-white/10 text-text-on-dark hover:bg-white/15"
+                onClick={onDeleteSelectedThread}
+                size="icon"
+                type="button"
+                variant="outline"
+              >
+                <Trash2 aria-hidden="true" size={15} />
+              </Button>
+            </>
+          ) : null}
+          <Button
+            className="h-8 rounded-md border-[#20d59b]/35 bg-[#20d59b] px-2 text-xs font-extrabold text-[#062015] hover:bg-[#6af0bd]"
+            onClick={onStartNewChat}
+            type="button"
+          >
+            New
+          </Button>
+        </div>
+      </div>
+      {historyStatus === "error" ? (
+        <p className="m-0 text-xs font-bold text-[#ffc8c8]">Chat history unavailable</p>
+      ) : null}
+      {historyStatus === "loading" ? (
+        <p className="m-0 text-xs font-bold text-text-on-dark-muted">Loading thread</p>
+      ) : null}
+      <nav aria-label="Previous chats">
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {threads.map((thread) => (
+            <button
+              className={`max-w-56 shrink-0 rounded-md border px-3 py-2 text-left text-xs font-extrabold transition ${
+                thread.id === selectedThreadId
+                  ? "border-[#20d59b] bg-[#20d59b] text-[#062015]"
+                  : "border-white/15 bg-white/10 text-text-on-dark hover:bg-white/15"
+              }`}
+              key={thread.id}
+              onClick={() => onOpenThread(thread.id)}
+              type="button"
+            >
+              <span className="block truncate">{thread.title}</span>
+              {thread.archivedAt ? <span className="block opacity-70">Archived</span> : null}
+            </button>
+          ))}
+        </div>
+      </nav>
+    </section>
   );
 }
 
@@ -2359,6 +2600,22 @@ function createMessageId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
+function interactiveMessageFromThreadMessage(
+  message: ChatThreadDetailMessage,
+): InteractiveChatMessage {
+  return {
+    id: message.id,
+    role: message.role,
+    text: message.content,
+    timestamp: chatTimeFormatter.format(new Date(message.createdAt)),
+    status: message.status === "error" ? "error" : "complete",
+    cards: message.cards,
+    actions: message.actions,
+    itineraries: message.itineraries,
+    sources: message.sources,
+  };
+}
+
 async function postSavedTripItems({
   items,
   tripId,
@@ -2827,9 +3084,15 @@ function hasExplicitSiargaoArea(prompt: string) {
 function buildChatRequestBody(
   messages: ReturnType<typeof buildChatRequestMessages>,
   locationState: LocationCaptureState,
-): { messages: ReturnType<typeof buildChatRequestMessages>; clientContext?: ChatClientContext } {
+  threadId: string | null,
+): {
+  messages: ReturnType<typeof buildChatRequestMessages>;
+  clientContext?: ChatClientContext;
+  threadId?: string;
+} {
   return {
     messages,
+    ...(threadId ? { threadId } : {}),
     ...(locationState.status === "ready"
       ? { clientContext: { geolocation: locationState.geolocation } }
       : {}),

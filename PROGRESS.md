@@ -7,9 +7,9 @@ Source requirements:
 
 ## Current Status
 
-- Status: Step 6 complete.
-- Current step: Step 7 - Chat Thread APIs and History UI.
-- Next step: Step 7 - Chat Thread APIs and History UI.
+- Status: Step 7 complete.
+- Current step: Step 8 - Assistant Response Ratings.
+- Next step: Step 8 - Assistant Response Ratings.
 - Tracking rule: Update this file after every completed step with validation results,
   commit reference when available, current status, and next step.
 - Changelog rule: Update `CHANGELOG.md` after each step is completed and validated,
@@ -24,7 +24,7 @@ Source requirements:
 - [x] Step 4: Clerk User Sync and Auth Helpers
 - [x] Step 5: Profile API and UI
 - [x] Step 6: Authenticated Chat Persistence
-- [ ] Step 7: Chat Thread APIs and History UI
+- [x] Step 7: Chat Thread APIs and History UI
 - [ ] Step 8: Assistant Response Ratings
 - [ ] Step 9: Authenticated Saved Trips and Migration
 - [ ] Step 10: Documentation, Privacy Review, and Final Release Gate
@@ -202,5 +202,38 @@ Source requirements:
   - Passed: `bun run db:seed:test` (`Seeded 5 areas, 3 routes, and 6 source profiles`)
   - Passed: `bun run build`
   - Passed: `bun run test:e2e` (`33 passed`)
-- Commit: Pending; this entry is included in the Step 6 commit.
+- Commit: `799f59e` - `Persist authenticated chat turns`.
 - Next step: Step 7 - Chat Thread APIs and History UI.
+
+### 2026-06-29 - Step 7: Chat Thread APIs and History UI
+
+- Status: Complete.
+- Changes:
+  - Added authenticated `/api/chat/threads` list and create support for owned
+    non-deleted chat threads sorted newest first.
+  - Added authenticated `/api/chat/threads/[threadId]` support for hydrating
+    owned threads with messages, renaming, archiving, and soft deleting.
+  - Expanded chat-history store helpers for thread listing, ownership-checked
+    hydration, metadata mapping, and status updates.
+  - Added the signed-in chat history panel to `/chat` with previous-thread
+    loading, new-thread start behavior, rename, archive, and delete controls.
+  - Connected signed-in chat sends to the selected thread while anonymous chat
+    keeps no visible history state.
+  - Added Bun API coverage for anonymous `401`, ownership `404`, list ordering,
+    creation, hydration with messages and artifacts, title update, archive, and
+    soft delete.
+  - Added Playwright coverage for loading previous signed-in messages, sending
+    a follow-up to the selected thread, and reopening the thread after reload.
+  - Updated route references for the chat history APIs and signed-in `/chat`
+    behavior.
+- Validation:
+  - Passed: `bun run format` (`Formatted 242 files in 43ms. Fixed 1 file.`)
+  - Passed: `bun run lint` (`Checked 243 files in 88ms. No fixes applied.`)
+  - Passed: `bun run typecheck --incremental false`
+  - Passed: `bun test` (`572 pass`, `0 fail`)
+  - Passed: `bun run db:migrate:test` (`Migrated 45 tables`)
+  - Passed: `bun run db:seed:test` (`Seeded 5 areas, 3 routes, and 6 source profiles`)
+  - Passed: `bun run build`
+  - Passed: `bun run test:e2e` (`34 passed`)
+- Commit: Pending; this entry is included in the Step 7 commit.
+- Next step: Step 8 - Assistant Response Ratings.

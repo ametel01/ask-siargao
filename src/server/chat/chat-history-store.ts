@@ -4,6 +4,25 @@ export type ChatHistoryThread = {
   id: string;
   userId: string;
   title: string;
+  status?: string;
+  lastMessageAt?: string | null;
+  archivedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+export type ChatHistoryMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  status: string;
+  requestId: string | null;
+  model: string | null;
+  sources: unknown[];
+  cards: unknown[];
+  actions: unknown[];
+  itineraries: unknown[];
+  createdAt: string;
 };
 
 export type ChatHistoryMessageInput = {
@@ -85,6 +104,157 @@ export async function loadOwnedChatThread(
         title: row.title,
       } satisfies ChatHistoryThread)
     : null;
+}
+
+export async function listOwnedChatThreads(
+  db: DatabaseQueryClient,
+  input: {
+    userId: string;
+  },
+) {
+  const result = await db.query<{
+    id: string;
+    user_id: string;
+    title: string;
+    status: string;
+    last_message_at: Date | string | null;
+    archived_at: Date | string | null;
+    created_at: Date | string;
+    updated_at: Date | string;
+  }>(
+    `
+      select id, user_id, title, status, last_message_at, archived_at, created_at, updated_at
+      from chat_threads
+      where user_id = $1
+        and deleted_at is null
+      order by coalesce(last_message_at, updated_at, created_at) desc, created_at desc
+    `,
+    [input.userId],
+  );
+
+  return result.rows.map(chatThreadFromRow);
+}
+
+export async function loadOwnedChatThreadWithMessages(
+  db: DatabaseQueryClient,
+  input: {
+    threadId: string;
+    userId: string;
+  },
+) {
+  const thread = await loadOwnedChatThread(db, input);
+  if (!thread) {
+    return null;
+  }
+
+  const messages = await db.query<{
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    status: string;
+    request_id: string | null;
+    model: string | null;
+    sources_json: unknown;
+    cards_json: unknown;
+    actions_json: unknown;
+    itineraries_json: unknown;
+    created_at: Date | string;
+  }>(
+    `
+      select
+        id,
+        role,
+        content,
+        status,
+        request_id,
+        model,
+        sources_json,
+        cards_json,
+        actions_json,
+        itineraries_json,
+        created_at
+      from chat_messages
+      where thread_id = $1
+        and user_id = $2
+      order by created_at, id
+    `,
+    [input.threadId, input.userId],
+  );
+
+  return {
+    thread,
+    messages: messages.rows.map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      status: message.status,
+      requestId: message.request_id,
+      model: message.model,
+      sources: arrayFromJson(message.sources_json),
+      cards: arrayFromJson(message.cards_json),
+      actions: arrayFromJson(message.actions_json),
+      itineraries: arrayFromJson(message.itineraries_json),
+      createdAt: timestampToIso(message.created_at),
+    })),
+  };
+}
+
+export async function updateOwnedChatThread(
+  db: DatabaseQueryClient,
+  input: {
+    threadId: string;
+    userId: string;
+    title?: string;
+    archived?: boolean;
+    deleted?: boolean;
+    now: Date;
+  },
+) {
+  const existing = await loadOwnedChatThread(db, {
+    threadId: input.threadId,
+    userId: input.userId,
+  });
+  if (!existing) {
+    return null;
+  }
+
+  const now = input.now.toISOString();
+  await db.query(
+    `
+      update chat_threads
+      set title = coalesce($3, title),
+          archived_at = case
+            when $4::boolean is true then coalesce(archived_at, $6)
+            when $4::boolean is false then null
+            else archived_at
+          end,
+          deleted_at = case
+            when $5::boolean is true then coalesce(deleted_at, $6)
+            when $5::boolean is false then null
+            else deleted_at
+          end,
+          updated_at = $6
+      where id = $1
+        and user_id = $2
+    `,
+    [
+      input.threadId,
+      input.userId,
+      input.title ?? null,
+      input.archived ?? null,
+      input.deleted ?? null,
+      now,
+    ],
+  );
+
+  if (input.deleted === true) {
+    return existing;
+  }
+
+  return loadOwnedChatThread(db, {
+    threadId: input.threadId,
+    userId: input.userId,
+  });
 }
 
 export async function appendChatHistoryMessage(
@@ -170,4 +340,51 @@ export async function touchChatThread(
     `,
     [input.threadId, input.lastMessageAt.toISOString()],
   );
+}
+
+function chatThreadFromRow(row: {
+  id: string;
+  user_id: string;
+  title: string;
+  status: string;
+  last_message_at: Date | string | null;
+  archived_at: Date | string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+}) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    title: row.title,
+    status: row.status,
+    lastMessageAt: timestampToIso(row.last_message_at),
+    archivedAt: timestampToIso(row.archived_at),
+    createdAt: timestampToIso(row.created_at),
+    updatedAt: timestampToIso(row.updated_at),
+  } satisfies ChatHistoryThread;
+}
+
+function arrayFromJson(value: unknown) {
+  const parsed = parseJsonValue(value);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function parseJsonValue(value: unknown) {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function timestampToIso(value: Date | string | null) {
+  if (!value) {
+    return null;
+  }
+
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
