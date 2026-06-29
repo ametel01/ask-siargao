@@ -4,6 +4,7 @@ import {
   Bookmark,
   BookmarkCheck,
   Check,
+  ChevronDown,
   Clock,
   Copy,
   ExternalLink,
@@ -13,8 +14,11 @@ import {
   MessageSquarePlus,
   Navigation,
   Send,
+  ShieldCheck,
   Sparkles,
+  Star,
   Trash2,
+  Utensils,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -85,6 +89,7 @@ type InteractiveChatMessage = {
   cards?: readonly RecommendationCardArtifact[];
   actions?: readonly ChatActionArtifact[];
   itineraries?: readonly ItineraryPlanArtifact[];
+  sources?: readonly ChatSourceArtifact[];
 };
 
 type RecommendationCardArtifact = {
@@ -467,6 +472,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
                   cards: body.cards,
                   actions: body.actions,
                   itineraries: body.itineraries,
+                  sources: body.sources,
                 }
               : message,
           ),
@@ -678,14 +684,14 @@ function ChatMessage({
   }
 
   return (
-    <article className="grid max-w-[min(92%,46rem)] grid-cols-[36px_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[44px_minmax(0,1fr)] sm:gap-4">
+    <article className="grid max-w-[min(96%,56rem)] grid-cols-[36px_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[44px_minmax(0,1fr)] sm:gap-4">
       <PalmMark className="mt-1 size-8 sm:size-10" />
       <div
         data-testid="assistant-message-bubble"
         className={
           isError
             ? "min-w-0 overflow-hidden rounded-lg border border-[#ffb4a8]/45 bg-[#421915]/82 px-5 py-4 shadow-[0_18px_44px_rgba(0,0,0,0.18)]"
-            : "min-w-0 overflow-hidden rounded-lg border border-white/14 bg-white/95 px-5 py-4 text-text-default shadow-[0_18px_44px_rgba(0,0,0,0.16)]"
+            : "min-w-0 overflow-hidden rounded-lg border border-white/14 bg-[linear-gradient(145deg,rgba(22,35,73,0.96),rgba(12,24,55,0.94))] px-4 py-4 text-text-on-dark shadow-[0_22px_70px_rgba(0,0,0,0.24)] ring-1 ring-white/5 sm:px-5"
         }
       >
         <div className="flex min-w-0 items-start gap-3">
@@ -698,6 +704,7 @@ function ChatMessage({
           ) : null}
           <div className="grid min-w-0 flex-1 gap-4">
             <AssistantMarkdownText text={message.text} tone={isError ? "error" : "default"} />
+            {!isError && !isPending ? <AssistantGlance message={message} /> : null}
             {!isError && !isPending && message.itineraries?.length ? (
               <ItineraryPlans
                 onRemoveSavedItem={onRemoveSavedItem}
@@ -721,10 +728,15 @@ function ChatMessage({
                 onSubmitPrompt={onSubmitPrompt}
               />
             ) : null}
+            {!isError && !isPending && message.sources?.length ? (
+              <AssistantSourcesPanel sources={message.sources} />
+            ) : null}
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-extrabold">
-          <time className={isError ? "text-[#ffd5ce]" : "text-text-soft"}>{message.timestamp}</time>
+          <time className={isError ? "text-[#ffd5ce]" : "text-text-on-dark-muted"}>
+            {message.timestamp}
+          </time>
         </div>
         {isError && message.retryPrompt ? (
           <Button
@@ -911,6 +923,73 @@ function SavedPlanTray({
   );
 }
 
+function AssistantGlance({ message }: { message: InteractiveChatMessage }) {
+  const primaryPlan = message.itineraries?.[0];
+  const primaryCard = message.cards?.[0];
+  const sources = message.sources ?? primaryPlan?.sources ?? primaryCard?.sources ?? [];
+  const items = [
+    {
+      icon: primaryPlan ? Navigation : Utensils,
+      label: primaryPlan ? "Plan" : "Type",
+      value: primaryPlan ? primaryPlan.title : primaryCard ? primaryCard.kind : undefined,
+    },
+    {
+      icon: MapPin,
+      label: "Area",
+      value: primaryPlan ? itineraryPrimaryArea(primaryPlan) : cardAreaLabel(primaryCard),
+    },
+    {
+      icon: Clock,
+      label: "Timing",
+      value: primaryPlan?.durationLabel ?? primaryCard?.openStatusLabel ?? "Tonight",
+    },
+    {
+      icon: ShieldCheck,
+      label: "Confidence",
+      value: sourceConfidenceLabel(sources),
+    },
+  ].filter((item): item is { icon: typeof Utensils; label: string; value: string } =>
+    Boolean(item.value),
+  );
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <section
+      aria-label="At a glance"
+      className="grid min-w-0 gap-3 rounded-md border border-white/10 bg-white/[0.045] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+    >
+      <h3 className="m-0 flex items-center gap-2 text-sm font-black text-white">
+        <Sparkles aria-hidden="true" className="text-[#ffd36a]" size={17} />
+        At a Glance
+      </h3>
+      <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {items.map((item) => {
+          const Icon = item.icon;
+          return (
+            <div
+              className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] items-center gap-2 rounded-md border border-white/8 bg-white/[0.055] px-3 py-2"
+              key={`${item.label}-${item.value}`}
+            >
+              <span className="inline-flex size-7 items-center justify-center rounded-md bg-brand-violet-650/22 text-brand-lavender-200">
+                <Icon aria-hidden="true" size={15} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[0.68rem] leading-tight font-black text-text-on-dark-muted">
+                  {item.label}
+                </span>
+                <span className="block truncate text-xs font-black text-white">{item.value}</span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function ItineraryPlans({
   onRemoveSavedItem,
   onSaveItineraryPlan,
@@ -931,19 +1010,19 @@ function ItineraryPlans({
         return (
           <section
             aria-label={plan.title}
-            className="grid min-w-0 gap-4 border-[#c9dfd4] border-t pt-4"
+            className="grid min-w-0 gap-4 rounded-md border border-white/10 bg-white/[0.045] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
             data-testid="itinerary-plan"
             key={`${plan.title}-${plan.durationLabel}`}
           >
             <div className="flex min-w-0 items-start gap-3">
-              <div className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-[#d8f1e6] text-[#14624a]">
+              <div className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-brand-violet-650/22 text-brand-lavender-200">
                 <Navigation aria-hidden="true" size={17} />
               </div>
               <div className="grid min-w-0 flex-1 gap-1">
-                <h3 className="m-0 text-sm leading-[1.25] font-black break-words text-text-strong sm:text-base">
+                <h3 className="m-0 text-sm leading-[1.25] font-black break-words text-white sm:text-base">
                   {plan.title}
                 </h3>
-                <span className="inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border border-black/5 bg-[#f7fbf8] px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold text-text-soft">
+                <span className="inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border border-white/8 bg-white/[0.07] px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold text-text-on-dark-muted">
                   <Clock aria-hidden="true" className="shrink-0" size={13} />
                   <span className="min-w-0 break-words">{plan.durationLabel}</span>
                 </span>
@@ -986,16 +1065,16 @@ function ItineraryPlans({
 function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
   return (
     <li className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] gap-3">
-      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-[#ecf5f0] text-xs font-black text-[#14624a]">
+      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-brand-lavender-200/40 bg-brand-violet-650 text-xs font-black text-white shadow-[0_0_0_4px_rgba(111,73,242,0.16)]">
         {stop.sequence}
       </span>
       <div className="grid min-w-0 gap-1.5">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <h4 className="m-0 min-w-0 text-sm leading-[1.3] font-black break-words text-text-strong">
+          <h4 className="m-0 min-w-0 text-sm leading-[1.3] font-black break-words text-white">
             {stop.title}
           </h4>
           {stop.area ? (
-            <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-black/5 bg-[#f7fbf8] px-2 py-1 text-[0.7rem] leading-tight font-extrabold text-text-soft">
+            <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-white/8 bg-white/[0.07] px-2 py-1 text-[0.7rem] leading-tight font-extrabold text-text-on-dark-muted">
               <MapPin aria-hidden="true" className="shrink-0" size={12} />
               <span className="min-w-0 break-words">{stop.area}</span>
             </span>
@@ -1003,7 +1082,7 @@ function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
         </div>
 
         {stop.travelTimeFromPreviousMinutes ? (
-          <p className="m-0 inline-flex min-w-0 items-center gap-1.5 text-xs leading-[1.45] font-bold break-words text-text-soft">
+          <p className="m-0 inline-flex min-w-0 items-center gap-1.5 text-xs leading-[1.45] font-bold break-words text-text-on-dark-muted">
             <Clock aria-hidden="true" className="shrink-0" size={13} />
             <span className="min-w-0 break-words">
               About {stop.travelTimeFromPreviousMinutes} minutes from the previous stop.
@@ -1011,12 +1090,12 @@ function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
           </p>
         ) : null}
 
-        <p className="m-0 text-xs leading-[1.5] break-words text-text-default sm:text-sm">
+        <p className="m-0 text-xs leading-[1.5] break-words text-text-on-dark-muted sm:text-sm">
           {stop.rationale}
         </p>
 
         {stop.caveats.length ? (
-          <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-[#66521c]">
+          <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-[#ffd98a]">
             {stop.caveats.map((caveat) => (
               <li className="break-words" key={caveat}>
                 {caveat}
@@ -1054,8 +1133,8 @@ function ItineraryNoteSection({
 }) {
   return (
     <section className="grid min-w-0 gap-1.5" data-testid={testId}>
-      <h4 className="m-0 text-xs font-black text-text-strong">{title}</h4>
-      <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-text-default sm:text-sm">
+      <h4 className="m-0 text-xs font-black text-white">{title}</h4>
+      <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-text-on-dark-muted sm:text-sm">
         {items.map((item) => (
           <li className="break-words" key={item}>
             {item}
@@ -1069,19 +1148,19 @@ function ItineraryNoteSection({
 function ItinerarySources({ sources }: { sources: ItineraryPlanArtifact["sources"] }) {
   return (
     <section className="grid min-w-0 gap-2" data-testid="itinerary-sources">
-      <h4 className="m-0 text-xs font-black text-text-strong">Sources</h4>
+      <h4 className="m-0 text-xs font-black text-white">Sources</h4>
       <div className="flex min-w-0 flex-wrap gap-2">
         {sources.map((source) => (
           <span
-            className="inline-flex max-w-full items-center rounded-md border border-black/5 bg-[#f7fbf8] px-2.5 py-1.5 text-[0.72rem] leading-tight font-extrabold text-text-soft"
-            key={`${source.label}-${source.sourceName}-${source.sourceProfileId ?? "profile"}`}
+            className="inline-flex max-w-full items-center rounded-md border border-white/8 bg-white/[0.07] px-2.5 py-1.5 text-[0.72rem] leading-tight font-extrabold text-text-on-dark-muted"
+            key={chatSourceKey(source)}
           >
             <span className="min-w-0 break-words">{formatItinerarySourceLabel(source)}</span>
           </span>
         ))}
       </div>
       {sources.some((source) => source.notChecked.length > 0) ? (
-        <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-[#66521c]">
+        <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-[#ffe5a8]">
           {sources.flatMap((source) =>
             source.notChecked.map((item) => (
               <li className="break-words" key={`${source.sourceName}-${item}`}>
@@ -1112,6 +1191,85 @@ function formatTrustLabel(value: string) {
   return value.replaceAll("_", " ");
 }
 
+function itineraryPrimaryArea(plan: ItineraryPlanArtifact) {
+  const areas = [...new Set(plan.stops.flatMap((stop) => (stop.area ? [stop.area] : [])))].slice(
+    0,
+    2,
+  );
+  return areas.length ? areas.join(" + ") : "Siargao";
+}
+
+function cardAreaLabel(card: RecommendationCardArtifact | undefined) {
+  if (!card) {
+    return undefined;
+  }
+  const subtitleArea = card.subtitle?.split(" - ")[1]?.trim();
+  return subtitleArea || "Siargao";
+}
+
+function sourceConfidenceLabel(sources: readonly ChatSourceArtifact[]) {
+  if (sources.length === 0) {
+    return "Caveated";
+  }
+  const highConfidence = sources.some((source) => source.confidence === "high");
+  const liveChecked = sources.some((source) => source.label === "live_checked");
+  if (liveChecked && highConfidence) {
+    return "Live checked";
+  }
+  return `${formatTrustLabel(sources[0]?.label ?? "not_verified")}`;
+}
+
+function dedupeChatSources(sources: readonly ChatSourceArtifact[]) {
+  const results: ChatSourceArtifact[] = [];
+  const seen = new Set<string>();
+  for (const source of sources) {
+    const key = chatSourceKey(source);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    results.push(source);
+  }
+  return results;
+}
+
+function chatSourceKey(source: ChatSourceArtifact) {
+  return JSON.stringify({
+    label: source.label,
+    sourceName: source.sourceName,
+    sourceProfileId: source.sourceProfileId ?? "",
+    fetchedAt: source.fetchedAt ?? "",
+    confidence: source.confidence ?? "",
+    checked: [...source.checked].sort(),
+    notChecked: [...source.notChecked].sort(),
+  });
+}
+
+function sourceSummaryText(sources: readonly ChatSourceArtifact[]) {
+  const checkedSources = sources.filter(isActuallyCheckedSource);
+  const caveatSources = sources.filter((source) => !isActuallyCheckedSource(source));
+  const checkedText = checkedSources.length
+    ? `Actually checked: ${formatCompactList(checkedSources.map(sourceDisplayName))}`
+    : "Actually checked: no live source";
+  const caveatText = caveatSources.length
+    ? `Caveats: ${formatCompactList(caveatSources.map(sourceDisplayName))}`
+    : "";
+
+  return [checkedText, caveatText].filter(Boolean).join(" • ");
+}
+
+function isActuallyCheckedSource(source: ChatSourceArtifact) {
+  return source.label !== "not_verified" && source.label !== "provider_unavailable";
+}
+
+function sourceDisplayName(source: ChatSourceArtifact) {
+  return source.sourceName || formatTrustLabel(source.label);
+}
+
+function formatCompactList(values: readonly string[]) {
+  return values.slice(0, 3).join(", ");
+}
+
 function RecommendationCards({
   cards,
   onRemoveSavedItem,
@@ -1124,87 +1282,97 @@ function RecommendationCards({
   savedItemIds: ReadonlySet<string>;
 }) {
   return (
-    <div className="grid min-w-0 gap-3" data-testid="recommendation-cards">
+    <section
+      aria-label="Recommended places"
+      className="grid min-w-0 gap-3 rounded-md border border-white/10 bg-white/[0.045] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+      data-testid="recommendation-cards"
+    >
+      <h3 className="m-0 flex items-center gap-2 text-sm font-black text-white">
+        <Utensils aria-hidden="true" className="text-[#ffd36a]" size={17} />
+        Recommended Places
+      </h3>
       {cards.map((card) => {
         const savedItemId = savedItemIdForCard(card);
         const isSaved = savedItemIds.has(savedItemId);
 
         return (
           <article
-            className="grid min-w-0 gap-3 rounded-md border border-[#c9dfd4] bg-[#f7fbf8] p-3 shadow-[0_12px_28px_rgba(22,60,49,0.08)]"
+            className="grid min-w-0 gap-3 rounded-md border border-white/8 bg-white/[0.055] p-3"
             data-testid="recommendation-card"
             key={card.id}
           >
-            <div className="flex min-w-0 items-start gap-3">
-              <div className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-[#d8f1e6] text-[#14624a]">
-                {card.kind === "beach" ? (
-                  <Navigation aria-hidden="true" size={17} />
-                ) : (
-                  <MapPin aria-hidden="true" size={17} />
-                )}
+            <div className="grid min-w-0 gap-3">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-md bg-[linear-gradient(135deg,rgba(111,73,242,0.72),rgba(32,213,155,0.38))] text-white shadow-[0_10px_30px_rgba(111,73,242,0.22)]">
+                  {card.kind === "beach" ? (
+                    <Navigation aria-hidden="true" size={17} />
+                  ) : (
+                    <Utensils aria-hidden="true" size={18} />
+                  )}
+                </div>
+                <div className="grid min-w-0 flex-1 gap-1">
+                  <h4 className="m-0 text-sm leading-[1.25] font-black break-words text-white sm:text-base">
+                    {card.title}
+                  </h4>
+                  {card.subtitle ? (
+                    <p className="m-0 text-xs leading-[1.45] break-words text-text-on-dark-muted sm:text-sm">
+                      {card.subtitle}
+                    </p>
+                  ) : null}
+                </div>
+                <SaveToggleButton
+                  isSaved={isSaved}
+                  itemId={savedItemId}
+                  onRemoveSavedItem={onRemoveSavedItem}
+                  onSave={() => onSaveRecommendationCard(card)}
+                  title={card.title}
+                />
               </div>
-              <div className="grid min-w-0 flex-1 gap-1">
-                <h3 className="m-0 text-sm leading-[1.25] font-black break-words text-text-strong sm:text-base">
-                  {card.title}
-                </h3>
-                {card.subtitle ? (
-                  <p className="m-0 text-xs leading-[1.45] break-words text-text-soft sm:text-sm">
-                    {card.subtitle}
-                  </p>
+
+              <div className="flex min-w-0 flex-wrap gap-2">
+                {card.distanceLabel ? (
+                  <CardSignal icon="distance" label={card.distanceLabel} />
                 ) : null}
+                {card.openStatusLabel ? (
+                  <CardSignal icon="time" label={card.openStatusLabel} />
+                ) : null}
+                <CardSignal label={card.sourceLabel} />
               </div>
-              <SaveToggleButton
-                isSaved={isSaved}
-                itemId={savedItemId}
-                onRemoveSavedItem={onRemoveSavedItem}
-                onSave={() => onSaveRecommendationCard(card)}
-                title={card.title}
-              />
-            </div>
 
-            <div className="flex min-w-0 flex-wrap gap-2">
-              {card.distanceLabel ? (
-                <CardSignal icon="distance" label={card.distanceLabel} />
+              {card.fitReasons.length ? (
+                <ul className="m-0 grid gap-1.5 pl-4 text-xs leading-[1.45] text-text-on-dark-muted sm:text-sm">
+                  {card.fitReasons.map((reason) => (
+                    <li className="break-words" key={reason}>
+                      {reason}
+                    </li>
+                  ))}
+                </ul>
               ) : null}
-              {card.openStatusLabel ? (
-                <CardSignal icon="time" label={card.openStatusLabel} />
+
+              {card.caveats.length ? (
+                <p className="m-0 rounded-md border border-[#ffd98a]/20 bg-[#ffd98a]/10 px-3 py-2 text-xs leading-[1.45] break-words text-[#ffe5a8]">
+                  {card.caveats.join(" ")}
+                </p>
               ) : null}
-              <CardSignal label={card.sourceLabel} />
+
+              {card.mapsUrl ? (
+                <a
+                  aria-label={`Open ${card.title} in Google Maps`}
+                  className="inline-flex min-h-9 w-fit max-w-full items-center gap-2 rounded-md border border-white/12 bg-white/[0.08] px-3 py-2 text-xs font-extrabold text-text-on-dark no-underline hover:bg-white/[0.12]"
+                  href={card.mapsUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  <MapPin aria-hidden="true" className="shrink-0" size={15} />
+                  <span className="min-w-0 break-words">Open map</span>
+                  <ExternalLink aria-hidden="true" className="shrink-0" size={14} />
+                </a>
+              ) : null}
             </div>
-
-            {card.fitReasons.length ? (
-              <ul className="m-0 grid gap-1.5 pl-4 text-xs leading-[1.45] text-text-default sm:text-sm">
-                {card.fitReasons.map((reason) => (
-                  <li className="break-words" key={reason}>
-                    {reason}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-
-            {card.caveats.length ? (
-              <p className="m-0 rounded-md border border-[#e4d8b8] bg-[#fff9e8] px-3 py-2 text-xs leading-[1.45] break-words text-[#66521c]">
-                {card.caveats.join(" ")}
-              </p>
-            ) : null}
-
-            {card.mapsUrl ? (
-              <a
-                aria-label={`Open ${card.title} in Google Maps`}
-                className="inline-flex min-h-9 w-fit max-w-full items-center gap-2 rounded-md border border-[#14624a]/25 bg-white px-3 py-2 text-xs font-extrabold text-[#14624a] no-underline hover:bg-[#edf8f2]"
-                href={card.mapsUrl}
-                rel="noreferrer"
-                target="_blank"
-              >
-                <MapPin aria-hidden="true" className="shrink-0" size={15} />
-                <span className="min-w-0 break-words">Open map</span>
-                <ExternalLink aria-hidden="true" className="shrink-0" size={14} />
-              </a>
-            ) : null}
           </article>
         );
       })}
-    </div>
+    </section>
   );
 }
 
@@ -1226,8 +1394,8 @@ function SaveToggleButton({
       aria-label={isSaved ? `Remove ${title} from saved plan` : `Save ${title}`}
       className={
         isSaved
-          ? "size-9 shrink-0 rounded-md border-[#14624a]/25 bg-[#14624a] text-white hover:bg-[#0f503d]"
-          : "size-9 shrink-0 rounded-md border-[#14624a]/25 bg-white text-[#14624a] hover:bg-[#edf8f2]"
+          ? "size-9 shrink-0 rounded-md border-[#20d59b]/35 bg-[#20d59b] text-[#062015] hover:bg-[#6af0bd]"
+          : "size-9 shrink-0 rounded-md border-white/12 bg-white/[0.08] text-text-on-dark hover:bg-white/[0.13]"
       }
       onClick={() => {
         if (isSaved) {
@@ -1251,7 +1419,7 @@ function SaveToggleButton({
 
 function CardSignal({ icon, label }: { icon?: "distance" | "time"; label: string }) {
   return (
-    <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-black/5 bg-white px-2.5 py-1.5 text-[0.72rem] leading-tight font-extrabold text-text-soft">
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-white/8 bg-white/[0.07] px-2.5 py-1.5 text-[0.72rem] leading-tight font-extrabold text-text-on-dark-muted">
       {icon === "distance" ? <MapPin aria-hidden="true" className="shrink-0" size={13} /> : null}
       {icon === "time" ? <Clock aria-hidden="true" className="shrink-0" size={13} /> : null}
       <span className="min-w-0 break-words">{label}</span>
@@ -1274,7 +1442,7 @@ function ChatActionButtons({
         action.href ? (
           <Button
             asChild
-            className="h-auto min-h-9 rounded-md border-[#14624a]/25 bg-white px-3 py-2 text-xs font-extrabold text-[#14624a] hover:bg-[#edf8f2]"
+            className="h-auto min-h-9 rounded-md border-white/12 bg-white/[0.08] px-3 py-2 text-xs font-extrabold text-text-on-dark hover:bg-white/[0.13]"
             key={action.id}
             size="sm"
             variant="outline"
@@ -1285,7 +1453,7 @@ function ChatActionButtons({
           </Button>
         ) : (
           <Button
-            className="h-auto min-h-9 rounded-md border-brand-violet-650/25 bg-brand-violet-650/10 px-3 py-2 text-xs font-extrabold text-brand-violet-650 hover:bg-brand-violet-650/15"
+            className="h-auto min-h-9 rounded-md border-brand-lavender-200/25 bg-brand-violet-650/20 px-3 py-2 text-xs font-extrabold text-brand-lavender-200 hover:bg-brand-violet-650/28"
             disabled={disabled || !action.prompt}
             key={action.id}
             onClick={() => {
@@ -1305,15 +1473,79 @@ function ChatActionButtons({
   );
 }
 
+function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifact[] }) {
+  const visibleSources = dedupeChatSources(sources);
+  if (visibleSources.length === 0) {
+    return null;
+  }
+
+  return (
+    <details
+      className="group rounded-md border border-white/10 bg-white/[0.045] p-3"
+      data-testid="assistant-sources-panel"
+    >
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+        <span className="grid min-w-0 gap-1">
+          <span className="flex items-center gap-2 text-sm font-black text-white">
+            <ShieldCheck aria-hidden="true" className="text-[#6af0bd]" size={16} />
+            Sources & Confidence
+          </span>
+          <span className="min-w-0 text-xs font-bold text-text-on-dark-muted">
+            {sourceSummaryText(visibleSources)}
+          </span>
+        </span>
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.06] px-2.5 py-1.5 text-xs font-black text-text-on-dark-muted">
+          View sources
+          <ChevronDown
+            aria-hidden="true"
+            className="transition-transform group-open:rotate-180"
+            size={14}
+          />
+        </span>
+      </summary>
+      <div className="mt-3 grid gap-2">
+        {visibleSources.map((source) => (
+          <div
+            className="grid gap-1 rounded-md border border-white/8 bg-black/10 p-3"
+            key={chatSourceKey(source)}
+          >
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-brand-violet-650/20 px-2 py-1 text-[0.7rem] font-black text-brand-lavender-200">
+                <Star aria-hidden="true" size={12} />
+                {formatTrustLabel(source.label)}
+              </span>
+              <span className="text-xs font-black text-white">{source.sourceName}</span>
+              {source.confidence ? (
+                <span className="text-[0.7rem] font-bold text-text-on-dark-muted">
+                  {source.confidence} confidence
+                </span>
+              ) : null}
+            </div>
+            {source.checked.length ? (
+              <p className="m-0 text-xs leading-[1.45] text-text-on-dark-muted">
+                Actually checked: {formatCompactList(source.checked)}
+              </p>
+            ) : null}
+            {source.notChecked.length ? (
+              <p className="m-0 text-xs leading-[1.45] text-[#ffe5a8]">
+                Not checked: {formatCompactList(source.notChecked)}
+              </p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" | "error" }) {
   const blocks = parseAssistantMarkdownBlocks(text);
-  const textClass = tone === "error" ? "text-text-on-dark" : "text-text-default";
-  const strongClass =
-    tone === "error" ? "font-extrabold text-white" : "font-extrabold text-text-strong";
+  const textClass = tone === "error" ? "text-text-on-dark" : "text-text-on-dark-muted";
+  const strongClass = "font-extrabold text-white";
   const linkClass =
     tone === "error"
       ? "font-extrabold text-white underline decoration-white/45 underline-offset-4 break-words"
-      : "font-extrabold text-brand-violet-650 underline decoration-brand-violet-650/35 underline-offset-4 break-words";
+      : "font-extrabold text-brand-lavender-200 underline decoration-brand-lavender-200/45 underline-offset-4 break-words";
 
   return (
     <div className="grid min-w-0 max-w-full flex-1 gap-3 overflow-hidden [overflow-wrap:anywhere]">
@@ -1355,7 +1587,7 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
           return (
             <p
               className={`m-0 max-w-full rounded-md border border-black/5 bg-black/[0.035] px-3 py-2 text-xs leading-[1.45] break-words sm:text-sm ${
-                tone === "error" ? "text-[#ffd5ce]" : "text-text-soft"
+                tone === "error" ? "text-[#ffd5ce]" : "text-text-on-dark-muted"
               }`}
               data-testid="assistant-source-line"
               key={block.key}
