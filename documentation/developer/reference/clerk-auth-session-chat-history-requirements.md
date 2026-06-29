@@ -681,6 +681,20 @@ Add or update Playwright tests for:
 - Whether saved trip migration should happen automatically on first sign-in or
   only after explicit user confirmation.
 
+## Implemented Decisions
+
+- Anonymous `/chat` remains available; signed-in users get persisted owner-scoped
+  chat, ratings, profile, and saved-trip behavior.
+- `user.deleted` anonymizes local app-cached identity fields and marks the user
+  row with `deleted_at` so dependent foreign keys remain valid.
+- Assistant response ratings are binary `up` or `down`, with optional reason
+  codes and comments.
+- Profile details are stored and editable but are not injected into agent prompts
+  in this implementation slice.
+- Saved-trip migration happens during signed-in saved-trip sync. A local trip key
+  can be claimed only when the matching saved trip is unowned or already owned by
+  the current Clerk user; conflicting owner attempts fail safely.
+
 ## Source References
 
 Official Clerk references checked for this requirements pass:

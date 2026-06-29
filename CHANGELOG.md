@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Security
 
+- Documented the final authenticated data privacy checklist for persisted chat,
+  ratings, profile, saved-trip ownership, and public shared-trip boundaries.
 - Added saved-trip owner checks so authenticated delete and share attempts for
   another user's saved trip return `404` and public share DTOs still omit owner,
   profile, chat, provider payload, and geolocation data.
@@ -90,6 +92,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Recorded final Clerk/auth implementation decisions and release-gate validation
+  for the authenticated chat history, profile, ratings, and saved-trips plan.
 - Changed saved-trip sync so signed-in users can claim unowned local saved trips,
   list owned saved items without `tripId`, and reuse their owned server trip id
   while anonymous saved-trip behavior remains compatible.

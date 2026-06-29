@@ -63,6 +63,20 @@ transcripts, client geolocation, tool-call arguments, raw provider payloads, Goo
 owner IDs, profile details, and exact coordinates. Expired or deleted share tokens return a generic
 unavailable/not-found response without exposing token status.
 
+## Authenticated Data Privacy Checklist
+
+- Chat history stores user and assistant-visible message content, public sources, selected public
+  artifacts, redacted tool-call summaries, and browser-location summaries only.
+- Chat history does not persist exact browser coordinates, raw provider payloads, non-public Google
+  review text, or Google review author attribution.
+- Chat thread, rating, profile, and authenticated saved-trip routes derive ownership from Clerk
+  auth, never request body user IDs.
+- Cross-user chat thread, message rating, saved-trip delete, and saved-trip share attempts return
+  `404`.
+- Public shared-trip links expose only selected public saved artifacts and do not include owner IDs,
+  profile details, chat transcripts, browser geolocation, raw provider payloads, or exact
+  coordinates.
+
 ## Public Knowledge Surfaces
 
 Each public page family is generated from the same repository-backed `PublicKnowledgePage` governed facts. The local demo repository is built from persisted-page-shaped fixtures, while production should read the same shape from governed public page and evidence rows.
