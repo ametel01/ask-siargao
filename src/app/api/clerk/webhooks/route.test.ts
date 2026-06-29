@@ -1,0 +1,127 @@
+import { describe, expect, test } from "bun:test";
+import type { UserWebhookEvent, WebhookEvent } from "@clerk/backend";
+
+import { clerkWebhookResponse } from "@/app/api/clerk/webhooks/clerk-webhook-route";
+
+describe("Clerk webhook route", () => {
+  test("rejects requests that fail Clerk webhook verification", async () => {
+    const response = await clerkWebhookResponse(clerkWebhookRequest(), {
+      applyClerkUserWebhookEvent: async () => ({ status: "upserted", userId: "unreached" }),
+      verifyWebhook: async () => {
+        throw new Error("No matching svix signature.");
+      },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({
+      error: "invalid_clerk_webhook",
+      message: "No matching svix signature.",
+    });
+  });
+
+  test("syncs verified Clerk user lifecycle events before returning success", async () => {
+    const appliedEvents: string[] = [];
+    const response = await clerkWebhookResponse(clerkWebhookRequest(), {
+      applyClerkUserWebhookEvent: async (event) => {
+        appliedEvents.push(event.type);
+        if (event.type === "user.deleted") {
+          return { status: "deleted", userId: event.data.id ?? "missing" };
+        }
+
+        return {
+          status: "upserted",
+          userId: event.data.id,
+        };
+      },
+      verifyWebhook: async () => userEvent("user.updated", "user_sync"),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      received: true,
+      status: "upserted",
+      userId: "user_sync",
+    });
+    expect(appliedEvents).toEqual(["user.updated"]);
+  });
+
+  test("does not return 2xx when local Clerk user sync fails", async () => {
+    const response = await clerkWebhookResponse(clerkWebhookRequest(), {
+      applyClerkUserWebhookEvent: async () => {
+        throw new Error("database unavailable");
+      },
+      verifyWebhook: async () => userEvent("user.created", "user_fail"),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body).toMatchObject({
+      error: "clerk_user_sync_failed",
+      message: "database unavailable",
+    });
+  });
+
+  test("ignores verified non-user Clerk events", async () => {
+    const response = await clerkWebhookResponse(clerkWebhookRequest(), {
+      applyClerkUserWebhookEvent: async () => {
+        throw new Error("Non-user events should not sync users.");
+      },
+      verifyWebhook: async () =>
+        ({
+          type: "session.created",
+          object: "event",
+          data: { id: "sess_123" },
+          event_attributes: {
+            http_request: { client_ip: "127.0.0.1", user_agent: "bun-test" },
+          },
+        }) as WebhookEvent,
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ received: true, ignored: true });
+  });
+});
+
+function clerkWebhookRequest() {
+  return new Request("https://siargao.test/api/clerk/webhooks", {
+    method: "POST",
+    body: "{}",
+  });
+}
+
+function userEvent(type: "user.created" | "user.updated" | "user.deleted", userId: string) {
+  if (type === "user.deleted") {
+    return {
+      type,
+      object: "event",
+      data: {
+        object: "user",
+        id: userId,
+        deleted: true,
+      },
+      event_attributes: {
+        http_request: { client_ip: "127.0.0.1", user_agent: "bun-test" },
+      },
+    } satisfies UserWebhookEvent;
+  }
+
+  return {
+    type,
+    object: "event",
+    data: {
+      id: userId,
+      email_addresses: [],
+      first_name: null,
+      last_name: null,
+      image_url: "",
+      primary_email_address_id: null,
+      updated_at: Date.parse("2026-06-29T01:00:00.000Z"),
+      last_active_at: null,
+    },
+    event_attributes: {
+      http_request: { client_ip: "127.0.0.1", user_agent: "bun-test" },
+    },
+  } as unknown as UserWebhookEvent;
+}

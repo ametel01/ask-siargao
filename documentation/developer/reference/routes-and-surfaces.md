@@ -20,6 +20,12 @@
 | `/api/audit/checkout` | `POST` | Create Stripe Checkout only for complete, eligible audits | Checkout rate limit |
 | `/api/stripe/webhook` | `POST` | Verify Stripe webhook signatures and record payment success | Provider-call rate limit and webhook secret |
 
+## Auth APIs
+
+| Route | Method | Purpose | Protection |
+| --- | --- | --- | --- |
+| `/api/clerk/webhooks` | `POST` | Verify Clerk webhook signatures and sync local user identity cache rows for user create, update, and delete events | Public at the Clerk proxy layer; Clerk webhook signature required |
+
 ## Saved Trip Sharing APIs
 
 The `/chat` workspace lets unauthenticated travelers save recommendation cards and itinerary

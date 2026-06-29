@@ -7,7 +7,7 @@ The app reads these environment variables.
 | `NEXT_PUBLIC_APP_URL` | Public/client-safe | Checkout URLs and canonical public URLs | Defaults exist in some local code paths, but set this in deployed environments. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Public/client-safe | Clerk frontend SDK | Required by `ClerkProvider`, `SignIn`, `SignUp`, and chat auth UI. |
 | `CLERK_SECRET_KEY` | Server only | Clerk `auth()`, route protection, and backend API calls | Must not use the `NEXT_PUBLIC_` prefix. |
-| `CLERK_WEBHOOK_SIGNING_SECRET` | Server only | Clerk webhook verification | Required by `/api/clerk/webhooks` when Step 4 adds webhook sync. |
+| `CLERK_WEBHOOK_SIGNING_SECRET` | Server only | Clerk webhook verification | Required by `/api/clerk/webhooks`. |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | Public/client-safe | Clerk sign-in routing | Set to `/sign-in` for the local prebuilt auth page. |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL` | Public/client-safe | Clerk post-sign-in redirects | Recommended default: `/chat`. |
 | `NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL` | Public/client-safe | Clerk post-sign-up redirects | Recommended default: `/chat`. |

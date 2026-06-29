@@ -114,6 +114,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added Clerk webhook user sync and auth helper behavior, including verified
+  `user.created`, `user.updated`, and `user.deleted` handling, local user
+  upserts, last-seen tracking, and deleted-user anonymization.
 - Added database tables for Ask Siargao user profiles, persisted chat threads,
   persisted chat messages, and assistant response ratings.
 - Added Clerk auth shell integration with guarded `ClerkProvider` wiring, protected route

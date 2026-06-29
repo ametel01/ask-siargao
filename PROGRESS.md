@@ -7,9 +7,9 @@ Source requirements:
 
 ## Current Status
 
-- Status: Step 3 complete.
-- Current step: Step 4 - Clerk User Sync and Auth Helpers.
-- Next step: Step 4 - Clerk User Sync and Auth Helpers.
+- Status: Step 4 complete.
+- Current step: Step 5 - Profile API and UI.
+- Next step: Step 5 - Profile API and UI.
 - Tracking rule: Update this file after every completed step with validation results,
   commit reference when available, current status, and next step.
 - Changelog rule: Update `CHANGELOG.md` after each step is completed and validated,
@@ -21,7 +21,7 @@ Source requirements:
 - [x] Step 1: Baseline Quality Gate Run
 - [x] Step 2: Clerk Shell Integration
 - [x] Step 3: Auth Data Schema and Migration
-- [ ] Step 4: Clerk User Sync and Auth Helpers
+- [x] Step 4: Clerk User Sync and Auth Helpers
 - [ ] Step 5: Profile API and UI
 - [ ] Step 6: Authenticated Chat Persistence
 - [ ] Step 7: Chat Thread APIs and History UI
@@ -118,5 +118,30 @@ Source requirements:
 - Note: Anonymous saved trips still keep globally unique `client_trip_key_hash`
   values; authenticated lookup uses an additional partial `(user_id,
   client_trip_key_hash)` index for future owner-scoped behavior.
-- Commit: Pending; this entry is included in the Step 3 commit.
+- Commit: `ebc52c0` - `Add auth data schema`.
 - Next step: Step 4 - Clerk User Sync and Auth Helpers.
+
+### 2026-06-29 - Step 4: Clerk User Sync and Auth Helpers
+
+- Status: Complete.
+- Changes:
+  - Added a server-only Clerk user helper for auth-derived user IDs,
+    eventual-consistency local user upserts, last-seen tracking, webhook payload
+    normalization, and deleted-user anonymization.
+  - Added `POST /api/clerk/webhooks` with Clerk `verifyWebhook()` verification
+    and local handling for `user.created`, `user.updated`, and `user.deleted`.
+  - Added route and helper tests for verification failure, successful sync,
+    mutation failure, create/update upserts, delete anonymization, signed-out
+    requests, and auth-derived identity.
+  - Updated route and environment references for the Clerk webhook endpoint.
+- Validation:
+  - Passed: `bun run format` (`Formatted 231 files in 40ms. No fixes applied.`)
+  - Passed: `bun run lint` (`Checked 232 files in 83ms. No fixes applied.`)
+  - Passed: `bun run typecheck --incremental false`
+  - Passed: `bun test` (`558 pass`, `0 fail`)
+  - Passed: `bun run db:migrate:test` (`Migrated 45 tables`)
+  - Passed: `bun run db:seed:test` (`Seeded 5 areas, 3 routes, and 6 source profiles`)
+  - Passed: `bun run build`
+  - Passed: `bun run test:e2e` (`32 passed`)
+- Commit: Pending; this entry is included in the Step 4 commit.
+- Next step: Step 5 - Profile API and UI.
