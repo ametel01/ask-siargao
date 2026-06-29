@@ -65,6 +65,68 @@ test("renders local admin diagnostics without leaking sample secrets", async ({ 
   await expect(page.getByText(/sk_test_should_not_render/i)).toHaveCount(0);
 });
 
+test("edits profile details and reloads the persisted values", async ({ page }) => {
+  let profile = {
+    identity: {
+      userId: "user_e2e_profile",
+      email: "traveler@example.com",
+      firstName: "Alex",
+      lastName: "Traveler",
+      imageUrl: null,
+    },
+    profile: {
+      displayName: "Alex",
+      homeCountry: "Australia",
+      travelStyle: "Surf mornings",
+      budgetLevel: "mid_range",
+      dietaryNotes: "",
+      accessibilityNotes: "",
+      interests: ["surf"],
+      preferredAreas: ["Cloud 9"],
+      tripContext: { notes: "Arriving in August" },
+      marketingConsent: false,
+      createdAt: "2026-06-29T04:00:00.000Z",
+      updatedAt: "2026-06-29T04:00:00.000Z",
+    },
+  };
+
+  await page.route("**/api/me/profile", async (route) => {
+    if (route.request().method() === "PATCH") {
+      const patch = route.request().postDataJSON() as Partial<typeof profile.profile>;
+      profile = {
+        ...profile,
+        profile: {
+          ...profile.profile,
+          ...patch,
+          updatedAt: "2026-06-29T05:00:00.000Z",
+        },
+      };
+    }
+
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(profile),
+    });
+  });
+
+  await page.goto("/profile");
+  await expect(page.getByRole("heading", { exact: true, name: "Profile" })).toBeVisible();
+
+  await page.getByLabel("Display name").fill("Alex in Siargao");
+  await page.getByLabel("Preferred areas").fill("Cloud 9, Pacifico");
+  await page.getByLabel("Trip notes").fill("Arriving in September");
+  await page.getByLabel("Send occasional Ask Siargao product updates").check();
+  await page.getByRole("button", { name: "Save profile" }).click();
+
+  await expect(page.getByText("Profile saved")).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByLabel("Display name")).toHaveValue("Alex in Siargao");
+  await expect(page.getByLabel("Preferred areas")).toHaveValue("Cloud 9, Pacifico");
+  await expect(page.getByLabel("Trip notes")).toHaveValue("Arriving in September");
+  await expect(page.getByLabel("Send occasional Ask Siargao product updates")).toBeChecked();
+});
+
 test("renders public human, markdown, JSON, sitemap, and llms surfaces", async ({ page }) => {
   await page.goto("/accommodations/example-surf-stay");
 

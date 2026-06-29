@@ -7,9 +7,9 @@ Source requirements:
 
 ## Current Status
 
-- Status: Step 4 complete.
-- Current step: Step 5 - Profile API and UI.
-- Next step: Step 5 - Profile API and UI.
+- Status: Step 5 complete.
+- Current step: Step 6 - Authenticated Chat Persistence.
+- Next step: Step 6 - Authenticated Chat Persistence.
 - Tracking rule: Update this file after every completed step with validation results,
   commit reference when available, current status, and next step.
 - Changelog rule: Update `CHANGELOG.md` after each step is completed and validated,
@@ -22,7 +22,7 @@ Source requirements:
 - [x] Step 2: Clerk Shell Integration
 - [x] Step 3: Auth Data Schema and Migration
 - [x] Step 4: Clerk User Sync and Auth Helpers
-- [ ] Step 5: Profile API and UI
+- [x] Step 5: Profile API and UI
 - [ ] Step 6: Authenticated Chat Persistence
 - [ ] Step 7: Chat Thread APIs and History UI
 - [ ] Step 8: Assistant Response Ratings
@@ -143,5 +143,32 @@ Source requirements:
   - Passed: `bun run db:seed:test` (`Seeded 5 areas, 3 routes, and 6 source profiles`)
   - Passed: `bun run build`
   - Passed: `bun run test:e2e` (`32 passed`)
-- Commit: Pending; this entry is included in the Step 4 commit.
+- Commit: `d4e5258` - `Sync Clerk users locally`.
 - Next step: Step 5 - Profile API and UI.
+
+### 2026-06-29 - Step 5: Profile API and UI
+
+- Status: Complete.
+- Changes:
+  - Added `/api/me/profile` with authenticated `GET` and `PATCH`, strict
+    validation, create-on-first-edit behavior, and immutable Clerk-owned identity
+    fields.
+  - Added profile store helpers for reading Clerk-derived identity with
+    Ask Siargao profile details and upserting application profile fields.
+  - Added `/profile` with editable travel profile fields, separated account
+    identity display, and Clerk account-management affordance when configured.
+  - Added Bun API tests for authorization, validation, first edit persistence,
+    and identity field immutability.
+  - Added Playwright coverage for profile edits persisting after reload.
+  - Updated route references for the profile page and API.
+- Validation:
+  - Passed: `bun run format` (`Formatted 237 files in 39ms. No fixes applied.`)
+  - Passed: `bun run lint` (`Checked 238 files in 86ms. No fixes applied.`)
+  - Passed: `bun run typecheck --incremental false`
+  - Passed: `bun test` (`562 pass`, `0 fail`)
+  - Passed: `bun run db:migrate:test` (`Migrated 45 tables`)
+  - Passed: `bun run db:seed:test` (`Seeded 5 areas, 3 routes, and 6 source profiles`)
+  - Passed: `bun run build`
+  - Passed: `bun run test:e2e` (`33 passed`)
+- Commit: Pending; this entry is included in the Step 5 commit.
+- Next step: Step 6 - Authenticated Chat Persistence.

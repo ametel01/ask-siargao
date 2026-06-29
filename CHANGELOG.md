@@ -114,6 +114,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added authenticated profile management with `/api/me/profile`, `/profile`,
+  Ask Siargao travel preferences, immutable Clerk-owned identity fields, and
+  browser coverage for persisted edits.
 - Added Clerk webhook user sync and auth helper behavior, including verified
   `user.created`, `user.updated`, and `user.deleted` handling, local user
   upserts, last-seen tracking, and deleted-user anonymization.

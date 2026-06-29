@@ -7,6 +7,7 @@
 | `/` | Ask Siargao chat-first landing page | Public |
 | `/chat` | Ask Siargao assistant workspace mockup with trip context, chat, weather, and surf panels | Public |
 | `/trips/shared/[token]` | Public shared saved-trip plan with selected cards/itineraries only | `noindex, nofollow` metadata |
+| `/profile` | Signed-in Ask Siargao profile settings for app-specific travel preferences | Private authenticated surface |
 | `/audits/[auditRequestId]/status` | Post-checkout processing/status page | Private audit surface |
 | `/audits/[auditRequestId]/report?token=...` | Signed-token paid report delivery for published, paid, reviewer-approved audits | `x-robots-tag: noindex, nofollow` |
 | `/audits/demo/report` | Synthetic report fixture for local QA only | `x-robots-tag: noindex, nofollow` |
@@ -25,6 +26,7 @@
 | Route | Method | Purpose | Protection |
 | --- | --- | --- | --- |
 | `/api/clerk/webhooks` | `POST` | Verify Clerk webhook signatures and sync local user identity cache rows for user create, update, and delete events | Public at the Clerk proxy layer; Clerk webhook signature required |
+| `/api/me/profile` | `GET`, `PATCH` | Return Clerk-derived identity fields and read or update Ask Siargao-specific profile details | Clerk-authenticated user only |
 
 ## Saved Trip Sharing APIs
 
