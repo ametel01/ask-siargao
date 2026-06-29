@@ -101,6 +101,25 @@ export const requiredAgentMemoryManifest = [
     triggerTerms: ["answer style", "scope", "final answer", "condition phrasing", "surf timing"],
   },
   {
+    id: "ask_siargao_answer_patterns",
+    title: "Ask Siargao Answer Patterns",
+    fileName: "ASK_SIARGAO_ANSWER_PATTERNS.md",
+    relativePath: "docs/agent-memory/ASK_SIARGAO_ANSWER_PATTERNS.md",
+    role: "reference",
+    description:
+      "Request-type answer patterns for direct-answer-first local judgments, constraint preservation, practical fallbacks, and bad answer smells.",
+    triggerTerms: [
+      "answer patterns",
+      "direct answer",
+      "request type",
+      "local judgment",
+      "bad answer smells",
+      "itinerary review",
+      "transport logistics",
+      "safety service",
+    ],
+  },
+  {
     id: "ask_siargao_tool_use_policy",
     title: "Ask Siargao Tool Use Policy",
     fileName: "ASK_SIARGAO_TOOL_USE_POLICY.md",

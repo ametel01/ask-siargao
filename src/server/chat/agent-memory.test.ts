@@ -32,6 +32,7 @@ describe("agent memory loader", () => {
       "SURF.md",
       "LOCAL_GUIDE_BEACHES.md",
       "ASK_SIARGAO_AGENT_SKILLS.md",
+      "ASK_SIARGAO_ANSWER_PATTERNS.md",
       "ASK_SIARGAO_TOOL_USE_POLICY.md",
       "ASK_SIARGAO_DATA_DICTIONARY.md",
       "ASK_SIARGAO_SOURCE_POLICY.md",
@@ -86,8 +87,13 @@ describe("agent memory loader", () => {
     );
     expect(snapshot.instructionMarkdown).toContain("SURF.md");
     expect(snapshot.instructionMarkdown).toContain("ASK_SIARGAO_TOOL_USE_POLICY.md");
+    expect(snapshot.instructionMarkdown).toContain("ASK_SIARGAO_ANSWER_PATTERNS.md");
     expect(snapshot.instructionMarkdown).not.toContain(
       "Every final answer must be written by the AI",
+    );
+    expect(snapshot.instructionMarkdown).not.toContain("Bad Answer Smells");
+    expect(snapshot.instructionMarkdown).not.toContain(
+      "Generic tourist lists that do not answer the exact request",
     );
     expect(snapshot.instructionMarkdown).not.toContain("get_condition_judgment");
     expect(snapshot.instructionMarkdown).not.toContain("checksum:");
@@ -119,8 +125,44 @@ describe("agent memory loader", () => {
           role: "reference",
           content: expect.stringContaining("Memory retrieval is policy/reference context"),
         }),
+        expect.objectContaining({
+          fileName: "ASK_SIARGAO_ANSWER_PATTERNS.md",
+          role: "reference",
+          content: expect.stringContaining("Bad Answer Smells"),
+        }),
       ]),
     );
+  });
+
+  test("registers answer patterns as required reference memory with useful metadata", () => {
+    const snapshot = loadAgentMemorySnapshot();
+
+    const manifestEntry = requiredAgentMemoryManifest.find(
+      (entry) => entry.fileName === "ASK_SIARGAO_ANSWER_PATTERNS.md",
+    );
+    const document = snapshot.documents.find(
+      (entry) => entry.fileName === "ASK_SIARGAO_ANSWER_PATTERNS.md",
+    );
+    const referenceFile = snapshot.referenceFiles.find(
+      (file) => file.fileName === "ASK_SIARGAO_ANSWER_PATTERNS.md",
+    );
+    const rendered = renderAvailableAgentMemory(snapshot);
+
+    expect(manifestEntry).toEqual(
+      expect.objectContaining({
+        role: "reference",
+        relativePath: "docs/agent-memory/ASK_SIARGAO_ANSWER_PATTERNS.md",
+      }),
+    );
+    expect(document?.description).toContain("Request-type answer patterns");
+    expect(document?.triggerTerms).toEqual(
+      expect.arrayContaining(["direct answer", "bad answer smells", "transport logistics"]),
+    );
+    expect(referenceFile?.content).toContain("Direct Answer First");
+    expect(rendered).toContain("ASK_SIARGAO_ANSWER_PATTERNS.md");
+    expect(rendered).toContain("Request-type answer patterns");
+    expect(rendered).toContain("direct answer");
+    expect(rendered).not.toContain("Generic tourist lists that do not answer the exact request");
   });
 
   test("renders compact available memory metadata without full reference bodies", () => {
@@ -142,9 +184,9 @@ describe("agent memory loader", () => {
 
   test("keeps rendered memory metadata inside the configured budget when practical", () => {
     const snapshot = loadAgentMemorySnapshot();
-    const rendered = renderAvailableAgentMemory(snapshot, { maxCharacters: 1_500 });
+    const rendered = renderAvailableAgentMemory(snapshot, { maxCharacters: 2_000 });
 
-    expect(rendered.length).toBeLessThanOrEqual(1_500);
+    expect(rendered.length).toBeLessThanOrEqual(2_000);
     for (const file of snapshot.referenceFiles) {
       expect(rendered).toContain(file.fileName);
     }
@@ -181,6 +223,8 @@ function fixtureContentFor(fileName: string) {
       return "Beach guide fallbacks are not surf spot recommendations.";
     case "ASK_SIARGAO_AGENT_SKILLS.md":
       return "Every final answer must be written by the AI.";
+    case "ASK_SIARGAO_ANSWER_PATTERNS.md":
+      return "Answer the exact traveler request first and avoid generic tourist lists.";
     case "ASK_SIARGAO_TOOL_USE_POLICY.md":
       return "Live local facts still require tools.";
     case "ASK_SIARGAO_DATA_DICTIONARY.md":
