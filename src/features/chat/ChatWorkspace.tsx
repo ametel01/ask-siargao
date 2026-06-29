@@ -18,6 +18,8 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
   Utensils,
 } from "lucide-react";
@@ -84,10 +86,13 @@ type LocationCaptureState =
 
 type InteractiveChatMessage = {
   id: string;
+  messageId?: string;
   role: "user" | "assistant";
   text: string;
   timestamp: string;
   status?: "pending" | "complete" | "error";
+  rating?: ChatResponseRatingValue | null;
+  ratingStatus?: "saving";
   retryPrompt?: string;
   cards?: readonly RecommendationCardArtifact[];
   actions?: readonly ChatActionArtifact[];
@@ -171,6 +176,14 @@ type SavedPlanShareAction =
   | { type: "copied" }
   | { type: "copy_error" };
 
+type ChatResponseRatingValue = "up" | "down";
+
+type ChatMessageRating = {
+  rating: ChatResponseRatingValue;
+  reasonCodes?: string[];
+  comment?: string | null;
+};
+
 type ChatThreadSummary = {
   id: string;
   title: string;
@@ -188,6 +201,7 @@ type ChatThreadDetailMessage = {
   cards?: RecommendationCardArtifact[];
   actions?: ChatActionArtifact[];
   itineraries?: ItineraryPlanArtifact[];
+  rating?: ChatMessageRating | null;
   createdAt: string;
 };
 
@@ -471,6 +485,43 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
     await refreshChatThreads();
   }, [refreshChatThreads, selectedThreadId, startNewChat]);
 
+  const rateAssistantMessage = useCallback(
+    async (messageId: string, rating: ChatResponseRatingValue) => {
+      setMessages((currentMessages) =>
+        currentMessages.map((message) =>
+          message.messageId === messageId ? { ...message, ratingStatus: "saving" } : message,
+        ),
+      );
+
+      try {
+        const response = await fetch("/api/chat/ratings", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ messageId, rating }),
+        });
+        const body = (await response.json()) as { rating?: ChatMessageRating };
+        if (!response.ok || !body.rating) {
+          throw new Error("rating_failed");
+        }
+
+        setMessages((currentMessages) =>
+          currentMessages.map((message) =>
+            message.messageId === messageId
+              ? { ...message, rating: body.rating?.rating, ratingStatus: undefined }
+              : message,
+          ),
+        );
+      } catch {
+        setMessages((currentMessages) =>
+          currentMessages.map((message) =>
+            message.messageId === messageId ? { ...message, ratingStatus: undefined } : message,
+          ),
+        );
+      }
+    },
+    [],
+  );
+
   const captureLocation = useCallback(
     async (
       consentScope: ChatClientGeolocation["consentScope"] = "single_request",
@@ -578,6 +629,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
           itineraries?: ItineraryPlanArtifact[];
           sources?: ChatSourceArtifact[];
           threadId?: string;
+          assistantMessageId?: string;
         };
 
         const responseMessage = body.message;
@@ -596,6 +648,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
             message.id === pendingAssistantId
               ? {
                   ...message,
+                  messageId: body.assistantMessageId ?? message.messageId,
                   text: responseMessage,
                   timestamp: formatTimestamp(),
                   status: "complete",
@@ -761,6 +814,9 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
                       disabled={isSending}
                       key={message.id}
                       message={message}
+                      onRateAssistantMessage={(messageId, rating) => {
+                        void rateAssistantMessage(messageId, rating);
+                      }}
                       onRetryPrompt={handlePromptSubmit}
                       onSaveItineraryPlan={saveItineraryPlan}
                       onSaveRecommendationCard={saveRecommendationCard}
@@ -948,6 +1004,7 @@ function ChatMessage({
   disabled,
   message,
   onRetryPrompt,
+  onRateAssistantMessage,
   onRemoveSavedItem,
   onSaveItineraryPlan,
   onSaveRecommendationCard,
@@ -956,6 +1013,7 @@ function ChatMessage({
 }: {
   disabled: boolean;
   message: InteractiveChatMessage;
+  onRateAssistantMessage: (messageId: string, rating: ChatResponseRatingValue) => void;
   onRetryPrompt: (prompt: string) => void;
   onRemoveSavedItem: (itemId: string) => void;
   onSaveItineraryPlan: (plan: ItineraryPlanArtifact) => void;
@@ -1037,6 +1095,15 @@ function ChatMessage({
           <time className={isError ? "text-[#ffd5ce]" : "text-text-on-dark-muted"}>
             {message.timestamp}
           </time>
+          {!isError && !isPending && message.messageId ? (
+            <AssistantRatingControls
+              disabled={disabled || message.ratingStatus === "saving"}
+              messageId={message.messageId}
+              onRateAssistantMessage={onRateAssistantMessage}
+              rating={message.rating ?? null}
+              saving={message.ratingStatus === "saving"}
+            />
+          ) : null}
         </div>
         {isError && message.retryPrompt ? (
           <Button
@@ -1051,6 +1118,58 @@ function ChatMessage({
         ) : null}
       </div>
     </article>
+  );
+}
+
+function AssistantRatingControls({
+  disabled,
+  messageId,
+  onRateAssistantMessage,
+  rating,
+  saving,
+}: {
+  disabled: boolean;
+  messageId: string;
+  onRateAssistantMessage: (messageId: string, rating: ChatResponseRatingValue) => void;
+  rating: ChatResponseRatingValue | null;
+  saving: boolean;
+}) {
+  return (
+    <fieldset
+      aria-busy={saving}
+      className="ml-auto inline-flex items-center gap-1"
+      disabled={disabled}
+    >
+      <legend className="sr-only">Rate assistant response</legend>
+      <Button
+        aria-label="Rate assistant response helpful"
+        aria-pressed={rating === "up"}
+        className={`size-8 rounded-md border-white/16 text-text-on-dark hover:bg-white/15 ${
+          rating === "up" ? "bg-[#20d59b] text-[#062015]" : "bg-white/8"
+        }`}
+        disabled={disabled}
+        onClick={() => onRateAssistantMessage(messageId, "up")}
+        size="icon"
+        type="button"
+        variant="outline"
+      >
+        <ThumbsUp aria-hidden="true" size={14} />
+      </Button>
+      <Button
+        aria-label="Rate assistant response not helpful"
+        aria-pressed={rating === "down"}
+        className={`size-8 rounded-md border-white/16 text-text-on-dark hover:bg-white/15 ${
+          rating === "down" ? "bg-[#ffd98a] text-[#201705]" : "bg-white/8"
+        }`}
+        disabled={disabled}
+        onClick={() => onRateAssistantMessage(messageId, "down")}
+        size="icon"
+        type="button"
+        variant="outline"
+      >
+        <ThumbsDown aria-hidden="true" size={14} />
+      </Button>
+    </fieldset>
   );
 }
 
@@ -2605,10 +2724,12 @@ function interactiveMessageFromThreadMessage(
 ): InteractiveChatMessage {
   return {
     id: message.id,
+    messageId: message.role === "assistant" ? message.id : undefined,
     role: message.role,
     text: message.content,
     timestamp: chatTimeFormatter.format(new Date(message.createdAt)),
     status: message.status === "error" ? "error" : "complete",
+    rating: message.rating?.rating ?? null,
     cards: message.cards,
     actions: message.actions,
     itineraries: message.itineraries,

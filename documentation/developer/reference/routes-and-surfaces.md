@@ -35,6 +35,7 @@
 | `/api/chat` | `POST` | Validate chat turns, run the Ask Siargao agent, and persist owner-scoped thread/messages when a Clerk session is present | Public for anonymous stateless chat; Clerk-authenticated requests persist owned turns |
 | `/api/chat/threads` | `GET`, `POST` | List the current user's non-deleted chat threads newest first or create an empty owned thread | Clerk-authenticated user only |
 | `/api/chat/threads/[threadId]` | `GET`, `PATCH`, `DELETE` | Hydrate an owned chat thread with messages, rename or archive it, or soft-delete it | Clerk-authenticated owner only; cross-user access returns `404` |
+| `/api/chat/ratings` | `PUT` | Create or update the current user's rating for an owned assistant message | Clerk-authenticated owner only; cross-user access returns `404` and user-message targets return `400` |
 
 Authenticated chat persistence stores user and assistant-visible message content, public sources,
 selected public artifacts, redacted tool-call summaries without raw arguments, and browser-location

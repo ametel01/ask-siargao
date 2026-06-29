@@ -9,6 +9,7 @@ import {
   patchChatThreadResponse,
 } from "@/app/api/chat/threads/thread-routes";
 import { appendChatHistoryMessage, createChatThread } from "@/server/chat/chat-history-store";
+import { upsertChatResponseRating } from "@/server/chat/chat-response-ratings-store";
 import { runInitialMigration } from "@/server/db/test-database";
 
 describe("chat thread API routes", () => {
@@ -91,6 +92,15 @@ describe("chat thread API routes", () => {
       "Detail plan",
       "2026-06-29T01:00:00.000Z",
     );
+    await upsertChatResponseRating(db, {
+      id: "rating_detail",
+      messageId: "thread_detail_assistant",
+      userId: "user_detail",
+      rating: "up",
+      reasonCodes: ["helpful"],
+      comment: null,
+      now: new Date("2026-06-29T01:02:00.000Z"),
+    });
 
     const response = await getChatThreadResponse("thread_detail", dependencies);
     const body = await response.json();
@@ -103,6 +113,11 @@ describe("chat thread API routes", () => {
       "assistant",
     ]);
     expect(body.messages[1].cards).toEqual([{ id: "card_1", title: "Cloud 9" }]);
+    expect(body.messages[1].rating).toMatchObject({
+      rating: "up",
+      reasonCodes: ["helpful"],
+      comment: null,
+    });
 
     await db.close();
   });

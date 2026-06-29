@@ -1,3 +1,4 @@
+import type { ChatResponseRatingValue } from "@/server/chat/chat-response-ratings-store";
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 
 export type ChatHistoryThread = {
@@ -22,6 +23,11 @@ export type ChatHistoryMessage = {
   cards: unknown[];
   actions: unknown[];
   itineraries: unknown[];
+  rating: {
+    rating: ChatResponseRatingValue;
+    reasonCodes: string[];
+    comment: string | null;
+  } | null;
   createdAt: string;
 };
 
@@ -158,25 +164,34 @@ export async function loadOwnedChatThreadWithMessages(
     cards_json: unknown;
     actions_json: unknown;
     itineraries_json: unknown;
+    response_rating: ChatResponseRatingValue | null;
+    response_rating_reason_codes_json: unknown;
+    response_rating_comment: string | null;
     created_at: Date | string;
   }>(
     `
       select
-        id,
-        role,
-        content,
-        status,
-        request_id,
-        model,
-        sources_json,
-        cards_json,
-        actions_json,
-        itineraries_json,
-        created_at
+        chat_messages.id,
+        chat_messages.role,
+        chat_messages.content,
+        chat_messages.status,
+        chat_messages.request_id,
+        chat_messages.model,
+        chat_messages.sources_json,
+        chat_messages.cards_json,
+        chat_messages.actions_json,
+        chat_messages.itineraries_json,
+        chat_response_ratings.rating as response_rating,
+        chat_response_ratings.reason_codes_json as response_rating_reason_codes_json,
+        chat_response_ratings.comment as response_rating_comment,
+        chat_messages.created_at
       from chat_messages
-      where thread_id = $1
-        and user_id = $2
-      order by created_at, id
+      left join chat_response_ratings
+        on chat_response_ratings.message_id = chat_messages.id
+        and chat_response_ratings.user_id = $2
+      where chat_messages.thread_id = $1
+        and chat_messages.user_id = $2
+      order by chat_messages.created_at, chat_messages.id
     `,
     [input.threadId, input.userId],
   );
@@ -194,6 +209,13 @@ export async function loadOwnedChatThreadWithMessages(
       cards: arrayFromJson(message.cards_json),
       actions: arrayFromJson(message.actions_json),
       itineraries: arrayFromJson(message.itineraries_json),
+      rating: message.response_rating
+        ? {
+            rating: message.response_rating,
+            reasonCodes: stringArrayFromJson(message.response_rating_reason_codes_json),
+            comment: message.response_rating_comment,
+          }
+        : null,
       createdAt: timestampToIso(message.created_at),
     })),
   };
@@ -367,6 +389,10 @@ function chatThreadFromRow(row: {
 function arrayFromJson(value: unknown) {
   const parsed = parseJsonValue(value);
   return Array.isArray(parsed) ? parsed : [];
+}
+
+function stringArrayFromJson(value: unknown) {
+  return arrayFromJson(value).filter((item): item is string => typeof item === "string");
 }
 
 function parseJsonValue(value: unknown) {

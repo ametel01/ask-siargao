@@ -117,6 +117,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added assistant response ratings with authenticated `/api/chat/ratings`
+  upserts, owned assistant-message checks, accessible thumbs controls, and
+  reload-hydrated selected state.
 - Added authenticated chat thread APIs and signed-in `/chat` history controls for
   listing, hydrating, creating, renaming, archiving, deleting, and reloading
   owned conversation threads.

@@ -7,9 +7,9 @@ Source requirements:
 
 ## Current Status
 
-- Status: Step 7 complete.
-- Current step: Step 8 - Assistant Response Ratings.
-- Next step: Step 8 - Assistant Response Ratings.
+- Status: Step 8 complete.
+- Current step: Step 9 - Authenticated Saved Trips and Migration.
+- Next step: Step 9 - Authenticated Saved Trips and Migration.
 - Tracking rule: Update this file after every completed step with validation results,
   commit reference when available, current status, and next step.
 - Changelog rule: Update `CHANGELOG.md` after each step is completed and validated,
@@ -25,7 +25,7 @@ Source requirements:
 - [x] Step 5: Profile API and UI
 - [x] Step 6: Authenticated Chat Persistence
 - [x] Step 7: Chat Thread APIs and History UI
-- [ ] Step 8: Assistant Response Ratings
+- [x] Step 8: Assistant Response Ratings
 - [ ] Step 9: Authenticated Saved Trips and Migration
 - [ ] Step 10: Documentation, Privacy Review, and Final Release Gate
 
@@ -235,5 +235,34 @@ Source requirements:
   - Passed: `bun run db:seed:test` (`Seeded 5 areas, 3 routes, and 6 source profiles`)
   - Passed: `bun run build`
   - Passed: `bun run test:e2e` (`34 passed`)
-- Commit: Pending; this entry is included in the Step 7 commit.
+- Commit: `ac5f213` - `Add chat history experience`.
 - Next step: Step 8 - Assistant Response Ratings.
+
+### 2026-06-29 - Step 8: Assistant Response Ratings
+
+- Status: Complete.
+- Changes:
+  - Added authenticated `PUT /api/chat/ratings` support for creating and
+    updating one rating per owned assistant message.
+  - Added rating store helpers that verify ownership through the chat thread,
+    reject user-message targets, and return `404` for cross-user messages.
+  - Extended thread hydration so assistant messages include the current user's
+    saved rating state.
+  - Added accessible thumbs up/down controls to completed persisted assistant
+    messages with disabled saving state and selected saved state.
+  - Added Bun API coverage for rating upsert, anonymous `401`, cross-user
+    `404`, user-message rejection, comment length, and reason-code validation.
+  - Extended Playwright history coverage so a saved thumbs-up rating survives
+    reload and thread hydration.
+  - Updated route references for `/api/chat/ratings`.
+- Validation:
+  - Passed: `bun run format` (`Formatted 246 files in 41ms. No fixes applied.`)
+  - Passed: `bun run lint` (`Checked 247 files in 87ms. No fixes applied.`)
+  - Passed: `bun run typecheck --incremental false`
+  - Passed: `bun test` (`577 pass`, `0 fail`)
+  - Passed: `bun run db:migrate:test` (`Migrated 45 tables`)
+  - Passed: `bun run db:seed:test` (`Seeded 5 areas, 3 routes, and 6 source profiles`)
+  - Passed: `bun run build`
+  - Passed: `bun run test:e2e` (`34 passed`)
+- Commit: Pending; this entry is included in the Step 8 commit.
+- Next step: Step 9 - Authenticated Saved Trips and Migration.

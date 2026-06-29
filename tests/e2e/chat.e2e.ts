@@ -17,6 +17,23 @@ type ChatRequestBody = {
   };
 };
 
+type E2EThreadMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  status: "complete";
+  sources: [];
+  cards: [];
+  actions: [];
+  itineraries: [];
+  rating?: {
+    rating: "up" | "down";
+    reasonCodes: string[];
+    comment: string | null;
+  } | null;
+  createdAt: string;
+};
+
 type MockSourceSummary = {
   label: string;
   sourceName: string;
@@ -177,7 +194,7 @@ test("loads signed-in chat history and preserves the thread after reload", async
     updatedAt: "2026-06-29T01:00:00.000Z",
     lastMessageAt: "2026-06-29T01:01:00.000Z",
   };
-  const messages = [
+  const messages: E2EThreadMessage[] = [
     {
       id: "message_user_existing",
       role: "user",
@@ -198,6 +215,7 @@ test("loads signed-in chat history and preserves the thread after reload", async
       cards: [],
       actions: [],
       itineraries: [],
+      rating: null,
       createdAt: "2026-06-29T01:01:00.000Z",
     },
   ];
@@ -254,6 +272,7 @@ test("loads signed-in chat history and preserves the thread after reload", async
         cards: [],
         actions: [],
         itineraries: [],
+        rating: null,
         createdAt: "2026-06-29T01:03:00.000Z",
       },
     );
@@ -272,12 +291,55 @@ test("loads signed-in chat history and preserves the thread after reload", async
     });
   });
 
+  await page.route("**/api/chat/ratings", async (route) => {
+    const requestBody = route.request().postDataJSON() as {
+      messageId?: string;
+      rating?: "up" | "down";
+    };
+    expect(requestBody).toMatchObject({
+      messageId: "message_assistant_existing",
+      rating: "up",
+    });
+
+    const savedRating = {
+      id: "rating_existing",
+      messageId: "message_assistant_existing",
+      threadId: thread.id,
+      userId: "user_history",
+      rating: "up" as const,
+      reasonCodes: [],
+      comment: null,
+      createdAt: "2026-06-29T01:02:00.000Z",
+      updatedAt: "2026-06-29T01:02:00.000Z",
+    };
+    messages[1] = {
+      ...messages[1],
+      rating: {
+        rating: savedRating.rating,
+        reasonCodes: savedRating.reasonCodes,
+        comment: savedRating.comment,
+      },
+    };
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ rating: savedRating }),
+    });
+  });
+
   await page.goto("/chat");
 
   await expect(page.getByRole("heading", { name: "Chat history" })).toBeVisible();
   await page.getByRole("button", { name: /Cloud 9 plan/ }).click();
   await expect(page.getByText("Where should I eat near Cloud 9?")).toBeVisible();
   await expect(page.getByText("Try Shaka for breakfast and Bravo for dinner.")).toBeVisible();
+  const helpfulButton = page.getByRole("button", {
+    name: "Rate assistant response helpful",
+  });
+  await expect(helpfulButton).toHaveAttribute("aria-pressed", "false");
+  await helpfulButton.click();
+  await expect(helpfulButton).toHaveAttribute("aria-pressed", "true");
 
   const composerInput = page.getByLabel("Ask anything about Siargao");
   await composerInput.fill("What should I add after Shaka?");
@@ -294,6 +356,9 @@ test("loads signed-in chat history and preserves the thread after reload", async
   await expect(
     page.getByText("Add Bravo after Shaka for an easy General Luna dinner."),
   ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Rate assistant response helpful" }).first(),
+  ).toHaveAttribute("aria-pressed", "true");
 });
 
 test("wraps long user text inside the composer and user message bubble", async ({ page }) => {
