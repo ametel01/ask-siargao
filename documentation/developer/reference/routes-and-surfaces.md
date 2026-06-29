@@ -28,6 +28,16 @@
 | `/api/clerk/webhooks` | `POST` | Verify Clerk webhook signatures and sync local user identity cache rows for user create, update, and delete events | Public at the Clerk proxy layer; Clerk webhook signature required |
 | `/api/me/profile` | `GET`, `PATCH` | Return Clerk-derived identity fields and read or update Ask Siargao-specific profile details | Clerk-authenticated user only |
 
+## Chat APIs
+
+| Route | Method | Purpose | Protection |
+| --- | --- | --- | --- |
+| `/api/chat` | `POST` | Validate chat turns, run the Ask Siargao agent, and persist owner-scoped thread/messages when a Clerk session is present | Public for anonymous stateless chat; Clerk-authenticated requests persist owned turns |
+
+Authenticated chat persistence stores user and assistant-visible message content, public sources,
+selected public artifacts, redacted tool-call summaries without raw arguments, and browser-location
+context summaries without exact coordinates.
+
 ## Saved Trip Sharing APIs
 
 The `/chat` workspace lets unauthenticated travelers save recommendation cards and itinerary

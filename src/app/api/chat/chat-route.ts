@@ -3,6 +3,8 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Logger } from "pino";
 import { z } from "zod";
 
+import { isClerkServerConfigured } from "@/features/auth/clerk-config";
+import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/auth/clerk-users";
 import type {
   AgentMemoryMetadata,
   AgentToolCallAudit,
@@ -21,16 +23,25 @@ import {
   type AskSiargaoAgentDependencies,
   runAskSiargaoAgentTurn as defaultRunAskSiargaoAgentTurn,
 } from "@/server/chat/ask-siargao-agent";
+import {
+  appendChatHistoryMessage,
+  type ChatHistoryThread,
+  createChatThread,
+  loadOwnedChatThread,
+  touchChatThread,
+} from "@/server/chat/chat-history-store";
 import { deriveTripContext, type TripContext } from "@/server/chat/intent";
 import { interpretPlaceIntent, type PlaceIntent } from "@/server/chat/place-intent";
 import {
   assertChatAnswerSourceConsistency,
   SourceConsistencyError,
 } from "@/server/chat/source-consistency";
+import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 import { createComponentLogger } from "@/server/observability/logger";
 
 const chatRequestSchema = z.strictObject({
+  threadId: z.string().min(1).max(128).optional(),
   messages: z
     .array(
       z.object({
@@ -58,8 +69,19 @@ const chatRequestSchema = z.strictObject({
 type ParsedChatClientContext = z.infer<typeof chatRequestSchema>["clientContext"];
 
 export type ChatRouteDependencies = AskSiargaoAgentDependencies & {
+  auth?: EnsureCurrentUserDependencies["auth"] | null;
+  createId?: (prefix: string) => string;
+  db?: DatabaseQueryClient;
   runAskSiargaoAgentTurn?: typeof defaultRunAskSiargaoAgentTurn;
+  now?: () => Date;
   logger?: Logger;
+};
+
+type AuthenticatedChatPersistence = {
+  db: DatabaseQueryClient;
+  thread: ChatHistoryThread;
+  userId: string;
+  userMessageId: string;
 };
 
 type ChatRequestIntent = {
@@ -187,6 +209,19 @@ export async function chatResponse(
   const clientContext = normalizeChatClientContext(parsed.data.clientContext, new Date(startedAt));
   const intent = interpretChatRequestIntent(messages, clientContext);
   const latestUserMessage = getLatestUserMessage(messages);
+  const authenticatedPersistence = await prepareAuthenticatedChatPersistence({
+    dependencies,
+    latestUserMessage,
+    threadId: parsed.data.threadId,
+    clientContext,
+    intent,
+    now: new Date(startedAt),
+  });
+
+  if (authenticatedPersistence?.status === "not_found") {
+    return Response.json({ error: "chat_thread_not_found" }, { status: 404, headers });
+  }
+
   logger.info(
     {
       messageCount: messages.length,
@@ -275,6 +310,32 @@ export async function chatResponse(
     }
     assertRenderedSourceLinesArePublic(responseMessage, publicAnswerSources);
 
+    let assistantMessageId: string | undefined;
+    if (authenticatedPersistence?.status === "ready") {
+      assistantMessageId = createChatRouteId(dependencies, "chat_message");
+      const completedAt = new Date();
+      await appendChatHistoryMessage(authenticatedPersistence.db, {
+        id: assistantMessageId,
+        threadId: authenticatedPersistence.thread.id,
+        userId: authenticatedPersistence.userId,
+        role: "assistant",
+        content: responseMessage,
+        requestId: result.requestId,
+        model: result.model,
+        sources: result.publicSources,
+        cards: result.cards ?? [],
+        actions: result.actions ?? [],
+        itineraries: result.itineraries ?? [],
+        toolCalls: summarizeToolCallsForStoredHistory(publicToolCalls),
+        contextSummary: summarizeClientContextForStoredHistory(clientContext, intent),
+        createdAt: completedAt,
+      });
+      await touchChatThread(authenticatedPersistence.db, {
+        threadId: authenticatedPersistence.thread.id,
+        lastMessageAt: completedAt,
+      });
+    }
+
     logger.info(
       {
         branch: "agent_runtime",
@@ -314,6 +375,13 @@ export async function chatResponse(
         ...(result.cards?.length ? { cards: result.cards } : {}),
         ...(result.actions?.length ? { actions: result.actions } : {}),
         ...(result.itineraries?.length ? { itineraries: result.itineraries } : {}),
+        ...(authenticatedPersistence?.status === "ready"
+          ? {
+              threadId: authenticatedPersistence.thread.id,
+              userMessageId: authenticatedPersistence.userMessageId,
+              assistantMessageId,
+            }
+          : {}),
       },
       { headers },
     );
@@ -547,6 +615,109 @@ function summarizeClientContextForMetadata(clientContext: ChatClientContext) {
   };
 }
 
+async function prepareAuthenticatedChatPersistence({
+  clientContext,
+  dependencies,
+  intent,
+  latestUserMessage,
+  now,
+  threadId,
+}: {
+  clientContext: ChatClientContext;
+  dependencies: ChatRouteDependencies;
+  intent: ChatRequestIntent;
+  latestUserMessage: AskSiargaoChatMessage | undefined;
+  now: Date;
+  threadId: string | undefined;
+}) {
+  if (latestUserMessage?.role !== "user") {
+    return null;
+  }
+
+  const currentUser = await resolveAuthenticatedChatUser(dependencies, now);
+  if (!currentUser) {
+    return null;
+  }
+
+  const db = dependencies.db ?? getDefaultDatabaseQueryClient();
+  const thread = threadId
+    ? await loadOwnedChatThread(db, { threadId, userId: currentUser.userId })
+    : await createChatThread(db, {
+        id: createChatRouteId(dependencies, "chat_thread"),
+        userId: currentUser.userId,
+        title: chatThreadTitleFromMessage(latestUserMessage.content),
+        now,
+      });
+
+  if (!thread) {
+    return { status: "not_found" as const };
+  }
+
+  const userMessageId = createChatRouteId(dependencies, "chat_message");
+  await appendChatHistoryMessage(db, {
+    id: userMessageId,
+    threadId: thread.id,
+    userId: currentUser.userId,
+    role: "user",
+    content: latestUserMessage.content,
+    contextSummary: summarizeClientContextForStoredHistory(clientContext, intent),
+    createdAt: now,
+  });
+  await touchChatThread(db, { threadId: thread.id, lastMessageAt: now });
+
+  return {
+    status: "ready" as const,
+    db,
+    thread,
+    userId: currentUser.userId,
+    userMessageId,
+  } satisfies AuthenticatedChatPersistence & { status: "ready" };
+}
+
+async function resolveAuthenticatedChatUser(dependencies: ChatRouteDependencies, now: Date) {
+  if (dependencies.auth === null) {
+    return null;
+  }
+  if (!dependencies.auth && !isClerkServerConfigured) {
+    return null;
+  }
+
+  return ensureCurrentUser({
+    ...(dependencies.auth ? { auth: dependencies.auth } : {}),
+    db: dependencies.db ?? getDefaultDatabaseQueryClient(),
+    now: () => now,
+  });
+}
+
+function summarizeClientContextForStoredHistory(
+  clientContext: ChatClientContext,
+  intent: ChatRequestIntent,
+) {
+  const geolocation = clientContext.geolocation;
+  return {
+    geolocation: {
+      status: geolocation.status,
+      source: geolocation.source,
+      consentScope: geolocation.consentScope,
+      usedAsProximityAnchor:
+        geolocation.status === "available" && intent.nearMeUsesBrowserGeolocation,
+    },
+  };
+}
+
+function createChatRouteId(dependencies: ChatRouteDependencies, prefix: string) {
+  return dependencies.createId?.(prefix) ?? `${prefix}_${randomUUID()}`;
+}
+
+function chatThreadTitleFromMessage(message: string) {
+  const singleLine = message.replace(/\s+/g, " ").trim();
+  if (!singleLine) {
+    return "New Siargao chat";
+  }
+
+  return singleLine.length > 72 ? `${singleLine.slice(0, 69)}...` : singleLine;
+}
+
 function summarizeClientContextForAgent(clientContext: ChatClientContext) {
   const geolocation = clientContext.geolocation;
   return {
@@ -592,6 +763,21 @@ function summarizeToolCallForLogs(toolCall: AgentToolCallAudit) {
     sourceProfileIds: toolCall.sourceProfileIds,
     durationMs: toolCall.durationMs,
   };
+}
+
+function summarizeToolCallsForStoredHistory(toolCalls: readonly AgentToolCallAudit[]) {
+  return toolCalls.map((toolCall) => ({
+    id: toolCall.id,
+    name: toolCall.name,
+    status: toolCall.status,
+    errorCode: toolCall.errorCode,
+    providerOperation: toolCall.providerOperation,
+    sourceProfileIds: toolCall.sourceProfileIds,
+    sources: toolCall.sources,
+    startedAt: toolCall.startedAt,
+    completedAt: toolCall.completedAt,
+    durationMs: toolCall.durationMs,
+  }));
 }
 
 function summarizeArtifactSelectionForLogs(

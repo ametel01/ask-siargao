@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
 
 import type { Logger } from "pino";
 
@@ -15,6 +16,8 @@ import type {
   ItineraryPlan,
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
+import { createChatThread } from "@/server/chat/chat-history-store";
+import { runInitialMigration } from "@/server/db/test-database";
 
 describe("chat route", () => {
   test("rejects malformed JSON request bodies before calling the agent", async () => {
@@ -100,6 +103,177 @@ describe("chat route", () => {
       "Where should we eat near Cloud 9?",
     );
     expect(dependencies.requests[0]?.metadata?.route).toBe("/api/chat");
+  });
+
+  test("persists authenticated chat turns with public artifacts and redacted context", async () => {
+    const db = await openChatRouteTestDatabase();
+    const dependencies = chatDependencies({
+      message: "Two nearby options look good.",
+      sources: [genericSourceSummary],
+      cards: [genericRecommendationCard],
+      toolCalls: [
+        toolCall({
+          name: "search_google_places",
+          status: "success",
+          sources: [genericSourceSummary],
+          arguments: {
+            latitude: 9.8116,
+            longitude: 126.1651,
+            query: "cafes near me",
+          },
+        }),
+      ],
+    });
+    dependencies.db = db;
+    dependencies.auth = async () => ({
+      userId: "user_chat",
+      sessionClaims: { email: "chat@example.com" },
+    });
+    dependencies.createId = deterministicIds();
+    const geolocation = validGeolocation();
+
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "What cafes are open near me?" }],
+        clientContext: { geolocation },
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+    const threads = await db.query<{ id: string; user_id: string }>(
+      "select id, user_id from chat_threads",
+    );
+    const messages = await db.query<{
+      role: string;
+      content: string;
+      sources_json: unknown;
+      cards_json: unknown;
+      tool_calls_json: unknown;
+      context_summary_json: unknown;
+    }>(
+      "select role, content, sources_json, cards_json, tool_calls_json, context_summary_json from chat_messages order by created_at, id",
+    );
+    const serializedMessages = JSON.stringify(messages.rows);
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      threadId: "chat_thread_1",
+      userMessageId: "chat_message_2",
+      assistantMessageId: "chat_message_3",
+    });
+    expect(threads.rows).toEqual([{ id: "chat_thread_1", user_id: "user_chat" }]);
+    expect(messages.rows.map((message) => message.role)).toEqual(["user", "assistant"]);
+    expect(messages.rows[0]?.content).toBe("What cafes are open near me?");
+    expect(messages.rows[1]?.content).toBe("Two nearby options look good.");
+    expect(serializedMessages).not.toContain(String(geolocation.latitude));
+    expect(serializedMessages).not.toContain(String(geolocation.longitude));
+    expect(serializedMessages).toContain("usedAsProximityAnchor");
+    expect(serializedMessages).not.toContain("cafes near me");
+
+    await db.close();
+  });
+
+  test("appends authenticated chat to an owned thread", async () => {
+    const db = await openChatRouteTestDatabase();
+    const dependencies = chatDependencies({
+      message: "Continue the same plan.",
+      sources: [genericSourceSummary],
+    });
+    dependencies.db = db;
+    dependencies.auth = async () => ({
+      userId: "user_append",
+      sessionClaims: { email: "append@example.com" },
+    });
+    dependencies.createId = deterministicIds();
+
+    const firstResponse = await chatResponse(
+      jsonRequest({ messages: [{ role: "user", content: "Plan lunch near Cloud 9" }] }),
+      dependencies,
+    );
+    const firstBody = await firstResponse.json();
+    const secondResponse = await chatResponse(
+      jsonRequest({
+        threadId: firstBody.threadId,
+        messages: [{ role: "user", content: "Add a coffee stop" }],
+      }),
+      dependencies,
+    );
+    const secondBody = await secondResponse.json();
+    const threads = await db.query<{ count: number }>(
+      "select count(*)::int as count from chat_threads",
+    );
+    const messages = await db.query<{ role: string }>(
+      "select role from chat_messages order by created_at, id",
+    );
+
+    expect(secondResponse.status).toBe(200);
+    expect(secondBody.threadId).toBe(firstBody.threadId);
+    expect(threads.rows[0]?.count).toBe(1);
+    expect(messages.rows.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+
+    await db.close();
+  });
+
+  test("returns 404 for authenticated chat thread access owned by another user", async () => {
+    const db = await openChatRouteTestDatabase();
+    await insertUser(db, "user_owner", "owner@example.com");
+    await createChatThread(db, {
+      id: "thread_other_user",
+      userId: "user_owner",
+      title: "Private thread",
+      now: new Date("2026-06-29T05:00:00.000Z"),
+    });
+    const dependencies = chatDependencies();
+    dependencies.db = db;
+    dependencies.auth = async () => ({
+      userId: "user_intruder",
+      sessionClaims: { email: "intruder@example.com" },
+    });
+
+    const response = await chatResponse(
+      jsonRequest({
+        threadId: "thread_other_user",
+        messages: [{ role: "user", content: "Continue this thread" }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+    const messages = await db.query<{ count: number }>(
+      "select count(*)::int as count from chat_messages",
+    );
+
+    expect(response.status).toBe(404);
+    expect(body.error).toBe("chat_thread_not_found");
+    expect(messages.rows[0]?.count).toBe(0);
+
+    await db.close();
+  });
+
+  test("keeps anonymous chat stateless even when a threadId is sent", async () => {
+    const dependencies = chatDependencies({
+      message: "Anonymous chat still works.",
+      sources: [genericSourceSummary],
+    });
+
+    const response = await chatResponse(
+      jsonRequest({
+        threadId: "thread_ignored_for_anonymous",
+        messages: [{ role: "user", content: "Where should I eat?" }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toBe("Anonymous chat still works.");
+    expect(body.threadId).toBeUndefined();
+    expect(body.userMessageId).toBeUndefined();
+    expect(body.assistantMessageId).toBeUndefined();
   });
 
   test("accepts valid Siargao geolocation client context as deterministic browser context", async () => {
@@ -1537,6 +1711,7 @@ function chatDependencies(
   const dependencies: ChatRouteDependencies & {
     requests: typeof requests;
   } = {
+    auth: null,
     runAskSiargaoAgentTurn: async (request) => {
       requests.push(request);
       return {
@@ -1558,6 +1733,30 @@ function chatDependencies(
   };
 
   return dependencies;
+}
+
+async function openChatRouteTestDatabase() {
+  const db = new PGlite();
+  await runInitialMigration(db);
+  return db;
+}
+
+async function insertUser(db: PGlite, userId: string, email: string) {
+  await db.query(
+    `
+      insert into users (id, email, created_at, updated_at)
+      values ($1, $2, now(), now())
+    `,
+    [userId, email],
+  );
+}
+
+function deterministicIds() {
+  let nextId = 0;
+  return (prefix: string) => {
+    nextId += 1;
+    return `${prefix}_${nextId}`;
+  };
 }
 
 function jsonRequest(body: unknown) {

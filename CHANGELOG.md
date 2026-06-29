@@ -9,6 +9,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Security
 
+- Stored authenticated chat history now keeps browser geolocation as summaries
+  without exact coordinates and persists tool-call summaries without raw
+  arguments.
 - Prevented memory retrieval from backing checked, provider, curated, or provider-unavailable
   source labels, and validated selected card sources before returning public chat responses.
 - Hardened shared-trip source-policy and privacy coverage so public shared DTOs preserve allowed
@@ -114,6 +117,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added authenticated `/api/chat` persistence for owned chat threads and
+  user/assistant message rows while preserving anonymous stateless chat behavior.
 - Added authenticated profile management with `/api/me/profile`, `/profile`,
   Ask Siargao travel preferences, immutable Clerk-owned identity fields, and
   browser coverage for persisted edits.

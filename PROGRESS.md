@@ -7,9 +7,9 @@ Source requirements:
 
 ## Current Status
 
-- Status: Step 5 complete.
-- Current step: Step 6 - Authenticated Chat Persistence.
-- Next step: Step 6 - Authenticated Chat Persistence.
+- Status: Step 6 complete.
+- Current step: Step 7 - Chat Thread APIs and History UI.
+- Next step: Step 7 - Chat Thread APIs and History UI.
 - Tracking rule: Update this file after every completed step with validation results,
   commit reference when available, current status, and next step.
 - Changelog rule: Update `CHANGELOG.md` after each step is completed and validated,
@@ -23,7 +23,7 @@ Source requirements:
 - [x] Step 3: Auth Data Schema and Migration
 - [x] Step 4: Clerk User Sync and Auth Helpers
 - [x] Step 5: Profile API and UI
-- [ ] Step 6: Authenticated Chat Persistence
+- [x] Step 6: Authenticated Chat Persistence
 - [ ] Step 7: Chat Thread APIs and History UI
 - [ ] Step 8: Assistant Response Ratings
 - [ ] Step 9: Authenticated Saved Trips and Migration
@@ -170,5 +170,37 @@ Source requirements:
   - Passed: `bun run db:seed:test` (`Seeded 5 areas, 3 routes, and 6 source profiles`)
   - Passed: `bun run build`
   - Passed: `bun run test:e2e` (`33 passed`)
-- Commit: Pending; this entry is included in the Step 5 commit.
+- Commit: `5b7ee6f` - `Add user profile management`.
 - Next step: Step 6 - Authenticated Chat Persistence.
+
+### 2026-06-29 - Step 6: Authenticated Chat Persistence
+
+- Status: Complete.
+- Changes:
+  - Extended `/api/chat` with optional `threadId` support.
+  - Added chat-history store helpers for creating owned threads, checking
+    ownership, appending user and assistant messages, and updating thread
+    timestamps.
+  - Authenticated chat now ensures the local Clerk user, creates or verifies an
+    owned thread, persists the latest user turn, persists the validated assistant
+    response, and returns `threadId`, `userMessageId`, and
+    `assistantMessageId`.
+  - Anonymous chat remains stateless and does not return private thread fields.
+  - Stored chat history keeps public sources/artifacts, redacted tool-call
+    summaries without raw arguments, and browser-location context summaries
+    without exact coordinates.
+  - Added Bun coverage for authenticated persistence, appending to owned
+    threads, cross-user `404`, anonymous stateless behavior, and persisted
+    privacy redaction.
+  - Updated route references for authenticated `/api/chat` persistence.
+- Validation:
+  - Passed: `bun run format` (`Formatted 238 files in 41ms. No fixes applied.`)
+  - Passed: `bun run lint` (`Checked 239 files in 85ms. No fixes applied.`)
+  - Passed: `bun run typecheck --incremental false`
+  - Passed: `bun test` (`566 pass`, `0 fail`)
+  - Passed: `bun run db:migrate:test` (`Migrated 45 tables`)
+  - Passed: `bun run db:seed:test` (`Seeded 5 areas, 3 routes, and 6 source profiles`)
+  - Passed: `bun run build`
+  - Passed: `bun run test:e2e` (`33 passed`)
+- Commit: Pending; this entry is included in the Step 6 commit.
+- Next step: Step 7 - Chat Thread APIs and History UI.
