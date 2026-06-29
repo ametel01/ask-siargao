@@ -9,5 +9,6 @@ Use these pages when working on the Ask Siargao codebase.
 - [Script reference](reference/scripts.md): Bun scripts and quality gates.
 - [Routes and surfaces reference](reference/routes-and-surfaces.md): app pages, API routes, public machine-readable surfaces, and private surfaces.
 - [Demo data reference](reference/demo-data.md): synthetic and permitted local QA fixtures.
+- [Clerk auth, session, chat history, profile, and rating requirements](reference/clerk-auth-session-chat-history-requirements.md): technical requirements for authenticated user state and persisted chat features.
 - [Audit lifecycle and boundaries](explanation/audit-lifecycle-and-boundaries.md): how intake, payment, generation, public data, and privacy boundaries fit together.
 - [Siargao chatbot data pipeline](explanation/siargao-chatbot-data-pipeline.md): product direction and lazy fact acquisition model for the chat-first tour-operator assistant.
