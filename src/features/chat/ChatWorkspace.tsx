@@ -1,5 +1,6 @@
 "use client";
 
+import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import {
   Bookmark,
   BookmarkCheck,
@@ -39,6 +40,8 @@ import { Button } from "@/components/ui/button";
 import { InputGroup } from "@/components/ui/input-group";
 import { InputGroupAddon } from "@/components/ui/input-group-addon";
 import { InputGroupButton } from "@/components/ui/input-group-button";
+import { clerkAppearance } from "@/features/auth/clerk-appearance";
+import { isClerkConfigured } from "@/features/auth/clerk-config";
 import type { SavedTripItem } from "@/server/trips/shared-trip-types";
 import { BrandLockup, PalmMark } from "@/ui/components/ask-siargao";
 
@@ -556,6 +559,7 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
               <span className="size-2 rounded-full bg-[#20d59b]" />
               Siargao trip assistant
             </span>
+            <ChatAuthActions />
             <Button
               aria-label="Go to home"
               asChild
@@ -641,6 +645,61 @@ export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }
         />
       </section>
     </main>
+  );
+}
+
+function ChatAuthActions() {
+  const signedOutActions = (
+    <>
+      <SignInButton mode="modal">
+        <Button
+          className="hidden h-10 rounded-md border-white/20 bg-white/10 px-3 text-xs font-extrabold text-text-on-dark hover:bg-white/15 sm:inline-flex"
+          type="button"
+          variant="outline"
+        >
+          Sign in
+        </Button>
+      </SignInButton>
+      <SignUpButton mode="modal">
+        <Button
+          className="h-10 rounded-md border-[#20d59b]/35 bg-[#20d59b] px-3 text-xs font-extrabold text-[#062015] hover:bg-[#6af0bd]"
+          type="button"
+        >
+          Sign up
+        </Button>
+      </SignUpButton>
+    </>
+  );
+
+  if (!isClerkConfigured) {
+    return (
+      <>
+        <Button
+          asChild
+          className="hidden h-10 rounded-md border-white/20 bg-white/10 px-3 text-xs font-extrabold text-text-on-dark hover:bg-white/15 sm:inline-flex"
+          variant="outline"
+        >
+          <Link href="/sign-in">Sign in</Link>
+        </Button>
+        <Button
+          asChild
+          className="h-10 rounded-md border-[#20d59b]/35 bg-[#20d59b] px-3 text-xs font-extrabold text-[#062015] hover:bg-[#6af0bd]"
+        >
+          <Link href="/sign-up">Sign up</Link>
+        </Button>
+      </>
+    );
+  }
+
+  return (
+    <Show fallback={signedOutActions} when="signed-in">
+      <UserButton
+        appearance={clerkAppearance}
+        fallback={
+          <span className="inline-flex size-10 animate-pulse rounded-md border border-white/20 bg-white/10" />
+        }
+      />
+    </Show>
   );
 }
 

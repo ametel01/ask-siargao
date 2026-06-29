@@ -34,6 +34,8 @@
     "doctor": "npx react-doctor@latest"
   },
   "dependencies": {
+    "@clerk/nextjs": "^7.5.9",
+    "@clerk/ui": "^1.23.0",
     "@electric-sql/pglite": "^0.5.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AuthProvider } from "@/features/auth/AuthProvider";
 import "@/theme/global.css";
 
 const bodyFont = Nunito_Sans({
@@ -31,8 +32,10 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   return (
     <html className={`${bodyFont.variable} ${displayFont.variable}`} lang="en">
       <body>
-        <TooltipProvider>{children}</TooltipProvider>
-        <Toaster position="top-center" richColors />
+        <AuthProvider>
+          <TooltipProvider>{children}</TooltipProvider>
+          <Toaster position="top-center" richColors />
+        </AuthProvider>
       </body>
     </html>
   );

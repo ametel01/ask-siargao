@@ -7,9 +7,9 @@ Source requirements:
 
 ## Current Status
 
-- Status: Step 1 complete.
-- Current step: Step 2 - Clerk Shell Integration.
-- Next step: Step 2 - Clerk Shell Integration.
+- Status: Step 2 complete.
+- Current step: Step 3 - Auth Data Schema and Migration.
+- Next step: Step 3 - Auth Data Schema and Migration.
 - Tracking rule: Update this file after every completed step with validation results,
   commit reference when available, current status, and next step.
 - Changelog rule: Update `CHANGELOG.md` after each step is completed and validated,
@@ -19,7 +19,7 @@ Source requirements:
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Baseline Quality Gate Run
-- [ ] Step 2: Clerk Shell Integration
+- [x] Step 2: Clerk Shell Integration
 - [ ] Step 3: Auth Data Schema and Migration
 - [ ] Step 4: Clerk User Sync and Auth Helpers
 - [ ] Step 5: Profile API and UI
@@ -62,5 +62,34 @@ Source requirements:
   - Passed: `bun run build`
   - Passed: `bun run test:e2e` (`32 passed`)
 - Changelog: No entry needed; this was a baseline-only tracking step.
-- Commit: Pending; this entry is included in the Step 1 commit.
+- Commit: `07da0f4` - `Record baseline quality gates`.
 - Next step: Step 2 - Clerk Shell Integration.
+
+### 2026-06-29 - Step 2: Clerk Shell Integration
+
+- Status: Complete.
+- Changes:
+  - Added `@clerk/nextjs` and Clerk shadcn theme support.
+  - Added guarded Clerk provider wiring so configured environments use `ClerkProvider`
+    while local and test environments without Clerk keys keep anonymous chat usable.
+  - Added `src/proxy.ts` for protected Clerk routes and route-policy tests for public
+    and authenticated data surfaces.
+  - Added `/sign-in` and `/sign-up` pages with Clerk prebuilt components when Clerk is
+    configured.
+  - Added signed-out sign-in/sign-up actions and signed-in `UserButton` support to the
+    chat header.
+  - Documented Clerk environment variables in `.env.example` and
+    `documentation/developer/reference/environment.md`.
+- Validation:
+  - Passed: `bun run format` (`Formatted 226 files in 40ms. No fixes applied.`)
+  - Passed: `bun run lint` (`Checked 227 files in 95ms. No fixes applied.`)
+  - Passed: `bun run typecheck --incremental false`
+  - Passed: `bun test` (`547 pass`, `0 fail`)
+  - Passed: `bun run db:migrate:test` (`Migrated 41 tables`)
+  - Passed: `bun run db:seed:test` (`Seeded 5 areas, 3 routes, and 6 source profiles`)
+  - Passed: `bun run build`
+  - Passed: `bun run test:e2e` (`32 passed`)
+- Note: Database migrate and seed gates must run sequentially because they share the
+  generated `.tmp/pglite-step3` database.
+- Commit: Pending; this entry is included in the Step 2 commit.
+- Next step: Step 3 - Auth Data Schema and Migration.

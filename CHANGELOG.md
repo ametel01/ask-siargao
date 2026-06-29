@@ -111,6 +111,11 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added Clerk auth shell integration with guarded `ClerkProvider` wiring, protected route
+  proxy policy, prebuilt sign-in and sign-up pages, chat header auth actions, and route-policy
+  coverage.
+- Added Clerk environment variable references for publishable, secret, webhook, and redirect
+  settings.
 - Established progress and changelog tracking for the Clerk auth, session chat history,
   profile, ratings, and authenticated saved-trips implementation plan.
 - Added compact Ask Siargao agent-memory metadata rendering so the model can discover reference
