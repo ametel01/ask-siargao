@@ -17,6 +17,8 @@ Ask Siargao gives practical, current trip decisions for Siargao by letting an AI
 - Deterministic code may classify, retrieve, rank, validate, and enforce source policy, but it must not replace the model's final response with preset prose.
 - The AI should decide when to call tools for weather, Places, curated local knowledge, database facts, and source inspection.
 - Treat Google Places and Open-Meteo as governed providers with field masks, freshness windows, retention rules, and source caveats.
+- Treat nightlife as event-first, venue-second: event sources establish what is
+  happening, while Google Places enriches selected venues.
 - Keep local Siargao curation as structured data and expose it to the AI through tools or retrieval memory.
 - Give the AI persistent product memory through Markdown instructions, file search/vector stores, or backend tools.
 - Return answers that a traveler can act on: place, distance, open signal, map link, reason, caveat, and fallback.
@@ -34,6 +36,8 @@ Milestone 4 onward should correct that direction. The foundations remain useful 
 - `src/server/providers/google-places-chat-cache.ts` checks fresh cached Google Places rows before calling the live provider and persists live results.
 - `src/server/local/siargao-beaches.ts` contains deterministic curated beach guidance with ride-time, surface, use-case, tide-note, and caveat fields.
 - `src/server/providers/open-meteo.ts` and `src/server/public-pages/weather-snapshot.ts` provide weather forecast ingestion and chat-ready snapshots.
+- `docs/agent-memory/` provides request-routed local knowledge; nightlife needs
+  its own memory file instead of relying on generic bar/place assumptions.
 - `src/features/chat/ChatWorkspace.tsx` renders assistant markdown, links, source lines, and a chat composer.
 - `src/server/db/schema.ts` already includes source-governance, fact, evidence, Google Places, weather, public content, and payment-related tables.
 
@@ -128,6 +132,60 @@ The text renderer can initially produce markdown from this object. Priority 4 sh
 - Add route tests in `src/app/api/chat/route.test.ts` for open-now, nearby, covered cafe, and specific-place follow-ups.
 - Add recommendation-agent tests for deterministic `PlaceIntent` routing and cache-backed answers.
 - Add Google Places cache tests for stale rows, partial cache rows, and live refresh fallback.
+
+## Priority 1a: Nightlife Event Routes
+
+### Outcome
+
+When a traveler asks where to party, go out, hear live music, join a pub quiz,
+or find the main General Luna nightlife move tonight, Ask Siargao should return
+a timed route backed by event evidence. It should not answer with only a Google
+Places bar shortlist.
+
+### User Stories
+
+- As a traveler in General Luna, I can ask "What are the best party places
+  tonight?" and get a warm-up, main-party, late-option, and softer-option route.
+- As a traveler planning around weather, I can see whether late-night rain
+  changes the route or transport choice.
+- As an operator, I can distinguish event schedule evidence from venue identity
+  evidence and avoid overclaiming unverified crowd or door-policy details.
+
+### Technical Specification
+
+Add a `nightlifeEventPlan` intent and a `search_nightlife_events` tool.
+
+The tool should:
+
+- query fresh event facts first;
+- refresh approved sources when cached facts are missing or stale;
+- prioritize official venue pages, SiargaoVibes, official public venue social
+  pages, and partner-submitted events;
+- treat Reddit, travel blogs, and YouTube as low-confidence discovery or
+  atmosphere signals;
+- return event occurrences, source summaries, unverified boundaries, and venue
+  IDs for Google Places enrichment.
+
+Add `docs/agent-memory/NIGHTLIFE.md` and route party/nightlife prompts to it
+from `docs/agent-memory/INDEX.md`. Runtime manifest and tests must include the
+new memory file before deployment.
+
+### Acceptance Criteria
+
+- "What are the best party places in General Luna tonight?" requires event
+  evidence before Places-only venue evidence.
+- The final answer defaults to a route, not a directory.
+- Google Places is used for map/open/venue fields, not event truth.
+- The answer distinguishes checked event schedule, checked venue details,
+  weather context, and unchecked crowd/door/cancellation signals.
+
+### Test Plan
+
+- Add intent tests for `tonight`, `party`, `DJ`, `live music`, `foam party`,
+  and `pub quiz`.
+- Add tool tests for event expiry and source-priority ordering.
+- Add route tests that fail if the General Luna party prompt returns only
+  Google Places bar cards.
 
 ## Priority 2: Contextual Follow-Up And Trip Memory
 
