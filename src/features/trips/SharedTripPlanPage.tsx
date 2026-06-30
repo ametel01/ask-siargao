@@ -1,4 +1,4 @@
-import { Clock, ExternalLink, MapPin, Navigation, ShieldCheck, Star } from "lucide-react";
+import { Clock, ExternalLink, MapPin, Navigation, ShieldCheck, Sparkles, Star } from "lucide-react";
 
 import type { SavedTripItem, SharedTripPlan } from "@/server/trips/shared-trip-types";
 import {
@@ -127,6 +127,7 @@ function SharedRecommendationItem({ item }: { item: SavedTripItem }) {
       </div>
 
       <SignalList labels={[card.distanceLabel, card.openStatusLabel, card.sourceLabel]} />
+      <SharedArtifactDecision decision={card.decision} />
       <BulletList items={card.fitReasons} />
       <CaveatList items={card.caveats} />
       <SourceSummaryList sources={item.sources} />
@@ -155,6 +156,7 @@ function SharedItineraryItem({ item }: { item: SavedTripItem }) {
             <Clock aria-hidden="true" className="shrink-0" size={13} />
             <span className="min-w-0 break-words">{plan.durationLabel}</span>
           </span>
+          <SharedArtifactDecision decision={plan.decision} />
         </div>
       </div>
 
@@ -232,6 +234,49 @@ function SharedSignalBadge({ label }: { label: string }) {
       <span className="min-w-0 break-words">{label}</span>
     </span>
   );
+}
+
+function SharedArtifactDecision({
+  decision,
+}: {
+  decision?:
+    | Extract<SavedTripItem["payload"], { type: "recommendation_card" }>["card"]["decision"]
+    | SharedItineraryPlan["decision"];
+}) {
+  if (!decision) {
+    return null;
+  }
+
+  return (
+    <section
+      aria-label={`${sharedDecisionLabel(decision.label)}. ${decision.bestAction}`}
+      className="grid min-w-0 gap-1 rounded-md border border-brand-lagoon-700/10 bg-brand-lagoon-100 px-3 py-2"
+      data-testid="shared-trip-decision"
+    >
+      <h3 className="m-0 inline-flex max-w-full items-center gap-1.5 text-xs font-black text-brand-lagoon-700 uppercase">
+        <Sparkles aria-hidden="true" className="shrink-0" size={13} />
+        <span className="min-w-0 break-words">{sharedDecisionLabel(decision.label)}</span>
+      </h3>
+      <p className="m-0 text-sm leading-[1.45] font-bold break-words text-text-default">
+        {decision.bestAction}
+      </p>
+    </section>
+  );
+}
+
+function sharedDecisionLabel(label: NonNullable<SharedItineraryPlan["decision"]>["label"]) {
+  switch (label) {
+    case "best_fit":
+      return "Best fit";
+    case "good_now":
+      return "Good now";
+    case "fallback":
+      return "Fallback";
+    case "avoid_today":
+      return "Avoid today";
+    case "needs_confirmation":
+      return "Needs confirmation";
+  }
 }
 
 function sharedSignalIcon(label: string) {

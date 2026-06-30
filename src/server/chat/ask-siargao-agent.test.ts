@@ -152,11 +152,19 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       fitReasons: ["Sandy shore", "Works for a quieter beach stop"],
       caveats: ["Check tide and road conditions before leaving"],
       sourceLabel: "Ask Siargao curated local beach guide",
+      decision: {
+        label: "best_fit" as const,
+        bestAction: "Choose Doot for the easiest sandy stop near General Luna.",
+      },
     };
     const unselectedCard = {
       ...card,
       id: "card_malinao",
       title: "Malinao Beach",
+      decision: {
+        label: "fallback" as const,
+        bestAction: "Keep Malinao as the backup if Doot is crowded.",
+      },
     };
     const action = {
       id: "ask_weather",
@@ -226,6 +234,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
 
     expect(result.message).toBe("Doot is the best fit to show.");
     expect(result.cards).toEqual([{ ...card, sources: [localGuideSourceSummary] }]);
+    expect(JSON.stringify(result.cards)).not.toContain("Keep Malinao as the backup");
     expect(result.actions).toEqual([action]);
     expect(result.artifactSelection).toMatchObject({
       mode: "strict",

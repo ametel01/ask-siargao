@@ -56,6 +56,21 @@ export type AgentToolCallAudit = {
 
 export type RecommendationCardKind = "place" | "beach";
 
+export const artifactDecisionLabels = [
+  "best_fit",
+  "good_now",
+  "fallback",
+  "avoid_today",
+  "needs_confirmation",
+] as const;
+
+export type ArtifactDecisionLabel = (typeof artifactDecisionLabels)[number];
+
+export type ArtifactDecisionMetadata = {
+  label: ArtifactDecisionLabel;
+  bestAction: string;
+};
+
 export type RecommendationCard = {
   id: string;
   kind: RecommendationCardKind;
@@ -67,6 +82,7 @@ export type RecommendationCard = {
   fitReasons: readonly string[];
   caveats: readonly string[];
   sourceLabel: string;
+  decision?: ArtifactDecisionMetadata;
   sources?: readonly AnswerSourceSummary[];
 };
 
@@ -96,6 +112,7 @@ export type ItineraryPlan = {
   id?: string;
   title: string;
   durationLabel: string;
+  decision?: ArtifactDecisionMetadata;
   stops: readonly ItineraryStop[];
   fallbackStops: readonly ItineraryStop[];
   skip: readonly string[];

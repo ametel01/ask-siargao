@@ -38,8 +38,12 @@ describe("SharedTripPlanPage", () => {
 
     expect(html).toContain("Cloud 9 saved plan");
     expect(html).toContain("Shaka Siargao");
+    expect(html).toContain("Good now");
+    expect(html).toContain("Go now if you want a quick Cloud 9 breakfast.");
     expect(html).not.toContain("Review text and bookings were not checked.");
     expect(html).toContain("Rain-aware Cloud 9 afternoon");
+    expect(html).toContain("Fallback");
+    expect(html).toContain("Move indoors if rain gets heavier.");
     expect(html).toContain("Cloud 9 boardwalk");
     expect(html).toContain("Covered cafe backup");
     expect(html).toContain("General Luna");
@@ -108,11 +112,19 @@ const shakaCard: RecommendationCard = {
   fitReasons: ["Near Cloud 9", "Good light breakfast stop"],
   caveats: ["Review text and bookings were not checked."],
   sourceLabel: "Google Places - live checked",
+  decision: {
+    label: "good_now",
+    bestAction: "Go now if you want a quick Cloud 9 breakfast.",
+  },
 };
 
 const rainyPlan: ItineraryPlan = {
   title: "Rain-aware Cloud 9 afternoon",
   durationLabel: "3 hours",
+  decision: {
+    label: "fallback",
+    bestAction: "Move indoors if rain gets heavier.",
+  },
   stops: [
     {
       title: "Cloud 9 boardwalk",

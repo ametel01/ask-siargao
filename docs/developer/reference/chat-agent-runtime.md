@@ -38,6 +38,12 @@ responses expose only artifacts selected by the final payload ID arrays. Unselec
 remain internal but still contribute to source aggregation, validation, and artifact-selection
 counts.
 
+Recommendation cards and itinerary plans may include optional `decision` metadata with a bounded
+label (`best_fit`, `good_now`, `fallback`, `avoid_today`, or `needs_confirmation`) and one concise
+`bestAction` string. The metadata travels with selected public artifacts only; it is not a separate
+artifact family and must not mention tools, runtime repair, validation mechanics, or private source
+policy details.
+
 `createAgentTurnResult` builds an artifact registry from current-turn tool results, dedupes IDs, and
 selects public artifacts from the final payload. Unknown selected artifact IDs fail in strict mode
 and are dropped in compatibility mode. Explicit caller-supplied artifacts are preserved only for
