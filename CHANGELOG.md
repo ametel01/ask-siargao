@@ -7,6 +7,10 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ## [Unreleased]
 
+### Added
+
+- Started progress tracking for the web research layer implementation plan.
+
 ### Security
 
 - Documented the final authenticated data privacy checklist for persisted chat,
