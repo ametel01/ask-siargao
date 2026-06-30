@@ -47,7 +47,36 @@ import { InputGroupAddon } from "@/components/ui/input-group-addon";
 import { InputGroupButton } from "@/components/ui/input-group-button";
 import { clerkAppearance } from "@/features/auth/clerk-appearance";
 import { isClerkConfigured } from "@/features/auth/clerk-config";
-import type { SavedTripItem } from "@/server/trips/shared-trip-types";
+import type {
+  ArtifactDecisionMetadata,
+  ChatClientContext,
+  ChatClientGeolocation,
+  ChatSourceArtifact,
+  ItineraryPlanArtifact,
+  ItineraryStopArtifact,
+  RecommendationCardArtifact,
+  SavedTripApiResponse,
+  SavedTripItem,
+  SavedTripState,
+} from "@/features/chat/saved-trip-client";
+import {
+  buildSavedItemFromCard,
+  buildSavedItemFromItinerary,
+  buildSharedPlanTitle,
+  deleteSavedTripItem,
+  fetchAuthenticatedSavedTrip,
+  getSavedTripServerSnapshot,
+  getSavedTripSnapshot,
+  postSavedTripItems,
+  postSharedTripPlan,
+  savedItemIdForCard,
+  savedItemIdForItinerary,
+  subscribeSavedTripState,
+  syncSavedTripItemsMutation,
+  upsertSavedTripItem,
+  writeAuthenticatedSavedTripState,
+  writeSavedTripState,
+} from "@/features/chat/saved-trip-client";
 import { BrandLockup, PalmMark } from "@/ui/components/ask-siargao";
 
 const suggestedPrompts = [
@@ -82,23 +111,10 @@ const chatErrorMessage = "Ask Siargao could not answer right now. Please try aga
 const shareErrorMessage = "Share link could not be created. Your saved items are still here.";
 const maxChatRequestMessageLength = 2_000;
 const maxPriorChatRequestMessages = 6;
-const savedTripStorageKey = "ask-siargao:saved-trip:v1";
 const chatTimeFormatter = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
   minute: "2-digit",
 });
-
-type ChatClientGeolocation = {
-  latitude: number;
-  longitude: number;
-  accuracyMeters?: number;
-  capturedAt: string;
-  consentScope: "single_request" | "trip_session";
-};
-
-type ChatClientContext = {
-  geolocation: ChatClientGeolocation;
-};
 
 type LocationCaptureState =
   | { status: "idle" }
@@ -126,21 +142,6 @@ type InteractiveChatMessage = {
   sources?: readonly ChatSourceArtifact[];
 };
 
-type RecommendationCardArtifact = {
-  id: string;
-  kind: "place" | "beach";
-  title: string;
-  subtitle?: string;
-  mapsUrl?: string;
-  distanceLabel?: string;
-  openStatusLabel?: string;
-  fitReasons: readonly string[];
-  caveats: readonly string[];
-  sourceLabel: string;
-  decision?: ArtifactDecisionMetadata;
-  sources?: readonly ChatSourceArtifact[];
-};
-
 type ChatActionArtifact = {
   id: string;
   label: string;
@@ -158,52 +159,6 @@ type DecisionSummaryArtifact = {
   timing?: string;
   area?: string;
   sources: readonly ChatSourceArtifact[];
-};
-
-type ItineraryStopArtifact = {
-  title: string;
-  kind: "place" | "beach" | "activity" | "meal" | "transfer";
-  sequence: number;
-  area?: string;
-  travelTimeFromPreviousMinutes?: number;
-  mapsUrl?: string;
-  rationale: string;
-  caveats: readonly string[];
-};
-
-type ItineraryPlanArtifact = {
-  title: string;
-  durationLabel: string;
-  decision?: ArtifactDecisionMetadata;
-  stops: readonly ItineraryStopArtifact[];
-  fallbackStops: readonly ItineraryStopArtifact[];
-  skip: readonly string[];
-  sources: readonly ChatSourceArtifact[];
-};
-
-type ArtifactDecisionMetadata = {
-  label: "best_fit" | "good_now" | "fallback" | "avoid_today" | "needs_confirmation";
-  bestAction: string;
-};
-
-type ChatSourceArtifact = {
-  label: string;
-  sourceName: string;
-  sourceProfileId?: string;
-  fetchedAt?: string;
-  confidence?: "high" | "medium" | "low";
-  checked: readonly string[];
-  notChecked: readonly string[];
-};
-
-type SavedTripState = {
-  tripId: string;
-  items: SavedTripItem[];
-  updatedAt: string;
-};
-type SavedTripApiResponse = {
-  tripId?: string;
-  items?: SavedTripItem[];
 };
 type SavedPlanShareStatus = "idle" | "syncing" | "creating" | "ready" | "error";
 type SavedPlanCopyStatus = "idle" | "copied" | "error";
@@ -253,14 +208,6 @@ type ChatThreadDetailMessage = {
   rating?: ChatMessageRating | null;
   createdAt: string;
 };
-
-const serverSavedTripSnapshot: SavedTripState = {
-  tripId: "local_trip_pending",
-  items: [],
-  updatedAt: "1970-01-01T00:00:00.000Z",
-};
-let savedTripSnapshotCache: { rawValue: string | null; state: SavedTripState } | null = null;
-const savedTripListeners = new Set<() => void>();
 
 type ChatComposerProps = {
   inputValue: string;
@@ -3142,105 +3089,6 @@ function interactiveMessageFromThreadMessage(
   };
 }
 
-async function fetchAuthenticatedSavedTrip(url: string): Promise<SavedTripApiResponse | null> {
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) {
-    return null;
-  }
-
-  return (await response.json()) as SavedTripApiResponse;
-}
-
-async function syncSavedTripItemsMutation(
-  url: string,
-  {
-    arg,
-  }: {
-    arg: {
-      tripId: string;
-      items: readonly SavedTripItem[];
-    };
-  },
-) {
-  return saveSavedTripItems(url, arg);
-}
-
-async function postSavedTripItems({
-  items,
-  tripId,
-}: {
-  tripId: string;
-  items: readonly SavedTripItem[];
-}) {
-  await saveSavedTripItems("/api/trips/saved", { items, tripId });
-}
-
-async function saveSavedTripItems(
-  url: string,
-  {
-    items,
-    tripId,
-  }: {
-    tripId: string;
-    items: readonly SavedTripItem[];
-  },
-) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ tripId, items }),
-  });
-
-  if (!response.ok) {
-    throw new Error(shareErrorMessage);
-  }
-
-  return (await response.json()) as SavedTripApiResponse;
-}
-
-async function deleteSavedTripItem({ itemId, tripId }: { tripId: string; itemId: string }) {
-  const response = await fetch(`/api/trips/saved/${encodeURIComponent(itemId)}`, {
-    method: "DELETE",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ tripId }),
-  });
-
-  if (!response.ok) {
-    throw new Error("Saved item could not be deleted.");
-  }
-}
-
-async function postSharedTripPlan({
-  itemIds,
-  title,
-  tripId,
-}: {
-  tripId: string;
-  itemIds: readonly string[];
-  title: string;
-}) {
-  const response = await fetch("/api/trips/share", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ tripId, itemIds, title }),
-  });
-  const body = (await response.json()) as { shareUrl?: unknown };
-
-  if (!response.ok || typeof body.shareUrl !== "string") {
-    throw new Error(shareErrorMessage);
-  }
-
-  return { shareUrl: body.shareUrl };
-}
-
-function buildSharedPlanTitle(items: readonly SavedTripItem[]) {
-  if (items.length === 1) {
-    return `${items[0]?.title ?? "Siargao"} saved plan`;
-  }
-
-  return `Siargao saved plan - ${items.length} items`;
-}
-
 function withoutSetValue(values: ReadonlySet<string>, value: string) {
   if (!values.has(value)) {
     return values;
@@ -3259,355 +3107,6 @@ function withSetValue(values: ReadonlySet<string>, value: string) {
   const nextValues = new Set(values);
   nextValues.add(value);
   return nextValues;
-}
-
-function createEmptySavedTripState(): SavedTripState {
-  const now = new Date().toISOString();
-  return {
-    tripId: createAnonymousTripId(),
-    items: [],
-    updatedAt: now,
-  };
-}
-
-function readSavedTripState(): SavedTripState {
-  if (typeof window === "undefined") {
-    return serverSavedTripSnapshot;
-  }
-
-  try {
-    const storedValue = localStorage.getItem(savedTripStorageKey);
-    if (!storedValue) {
-      return createEmptySavedTripState();
-    }
-
-    const parsedValue = JSON.parse(storedValue) as Partial<SavedTripState>;
-    const tripId = isUsableIdentifier(parsedValue.tripId)
-      ? parsedValue.tripId
-      : createAnonymousTripId();
-    const items = Array.isArray(parsedValue.items)
-      ? dedupeSavedItems(parsedValue.items.filter(isSavedTripItemLike))
-      : [];
-
-    return {
-      tripId,
-      items,
-      updatedAt:
-        typeof parsedValue.updatedAt === "string"
-          ? parsedValue.updatedAt
-          : new Date().toISOString(),
-    };
-  } catch {
-    return createEmptySavedTripState();
-  }
-}
-
-function getSavedTripServerSnapshot() {
-  return serverSavedTripSnapshot;
-}
-
-function getSavedTripSnapshot() {
-  if (typeof window === "undefined") {
-    return serverSavedTripSnapshot;
-  }
-
-  const rawValue = localStorage.getItem(savedTripStorageKey);
-  if (savedTripSnapshotCache && savedTripSnapshotCache.rawValue === rawValue) {
-    return savedTripSnapshotCache.state;
-  }
-
-  const state = readSavedTripState();
-  savedTripSnapshotCache = { rawValue, state };
-  return state;
-}
-
-function subscribeSavedTripState(callback: () => void) {
-  savedTripListeners.add(callback);
-  const handleStorage = (event: StorageEvent) => {
-    if (event.key === savedTripStorageKey) {
-      savedTripSnapshotCache = null;
-      callback();
-    }
-  };
-
-  window.addEventListener("storage", handleStorage);
-  return () => {
-    savedTripListeners.delete(callback);
-    window.removeEventListener("storage", handleStorage);
-  };
-}
-
-function writeSavedTripState(state: SavedTripState) {
-  const rawValue = JSON.stringify(state);
-  localStorage.setItem(savedTripStorageKey, rawValue);
-  savedTripSnapshotCache = { rawValue, state };
-  for (const listener of savedTripListeners) {
-    listener();
-  }
-}
-
-function writeAuthenticatedSavedTripState(
-  savedTrip: SavedTripApiResponse | null,
-  fallbackTripId: string,
-) {
-  if (!savedTrip?.items?.length) {
-    return;
-  }
-  const tripId = savedTrip.tripId ?? fallbackTripId;
-
-  writeSavedTripState({
-    tripId,
-    items: savedTrip.items.map((item) => ({ ...item, tripId })),
-    updatedAt: new Date().toISOString(),
-  });
-}
-
-function upsertSavedTripItem(state: SavedTripState, nextItem: SavedTripItem): SavedTripState {
-  let replacedExistingItem = false;
-  const items: SavedTripItem[] = [];
-
-  for (const item of state.items) {
-    if (item.id !== nextItem.id) {
-      items.push(item);
-      continue;
-    }
-
-    if (!replacedExistingItem) {
-      items.push({ ...nextItem, createdAt: item.createdAt });
-      replacedExistingItem = true;
-    }
-  }
-
-  if (!replacedExistingItem) {
-    items.push(nextItem);
-  }
-
-  return {
-    ...state,
-    items,
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-function dedupeSavedItems(items: readonly SavedTripItem[]) {
-  const seenItemIds = new Set<string>();
-  const results: SavedTripItem[] = [];
-
-  for (const item of items) {
-    if (seenItemIds.has(item.id)) {
-      continue;
-    }
-    seenItemIds.add(item.id);
-    results.push(item);
-  }
-
-  return results;
-}
-
-function buildSavedItemFromCard(card: RecommendationCardArtifact, tripId: string): SavedTripItem {
-  const now = new Date().toISOString();
-  const itemId = savedItemIdForCard(card);
-  const title = normalizeSavedText(card.title, 180);
-  const caveats = normalizeSavedTextArray(card.caveats, 16);
-  const sources = normalizeSavedSources(card.sources ?? []);
-
-  return {
-    id: itemId,
-    tripId,
-    kind: card.kind,
-    title,
-    createdAt: now,
-    updatedAt: now,
-    payload: {
-      type: "recommendation_card",
-      card: {
-        id: normalizeSavedIdentifier(card.id),
-        kind: card.kind,
-        title,
-        ...(card.subtitle ? { subtitle: normalizeSavedText(card.subtitle, 180) } : {}),
-        ...(card.mapsUrl ? { mapsUrl: card.mapsUrl } : {}),
-        ...(card.distanceLabel
-          ? { distanceLabel: normalizeSavedText(card.distanceLabel, 80) }
-          : {}),
-        ...(card.openStatusLabel
-          ? { openStatusLabel: normalizeSavedText(card.openStatusLabel, 80) }
-          : {}),
-        fitReasons: normalizeSavedTextArray(card.fitReasons, 8),
-        caveats,
-        sourceLabel: normalizeSavedText(card.sourceLabel, 180),
-        ...(card.decision ? { decision: normalizeSavedDecision(card.decision) } : {}),
-      },
-    },
-    sources,
-    ...(card.mapsUrl ? { mapsUrl: card.mapsUrl } : {}),
-    caveats,
-  };
-}
-
-function buildSavedItemFromItinerary(plan: ItineraryPlanArtifact, tripId: string): SavedTripItem {
-  const now = new Date().toISOString();
-  const itemId = savedItemIdForItinerary(plan);
-  const title = normalizeSavedText(plan.title, 180);
-  const sources = normalizeSavedSources(plan.sources);
-
-  return {
-    id: itemId,
-    tripId,
-    kind: "itinerary",
-    title,
-    createdAt: now,
-    updatedAt: now,
-    payload: {
-      type: "itinerary_plan",
-      plan: {
-        title,
-        durationLabel: normalizeSavedText(plan.durationLabel, 80),
-        ...(plan.decision ? { decision: normalizeSavedDecision(plan.decision) } : {}),
-        stops: plan.stops.map(normalizeSavedItineraryStop),
-        fallbackStops: plan.fallbackStops.map(normalizeSavedItineraryStop),
-        skip: normalizeSavedTextArray(plan.skip, 12),
-        sources,
-      },
-    },
-    sources,
-    caveats: normalizeSavedTextArray(
-      [
-        ...plan.skip,
-        ...plan.stops.flatMap((stop) => stop.caveats),
-        ...plan.fallbackStops.flatMap((stop) => stop.caveats),
-      ],
-      16,
-    ),
-  };
-}
-
-function savedItemIdForCard(card: RecommendationCardArtifact) {
-  return normalizeSavedIdentifier(`${card.kind}:${card.id}`);
-}
-
-function savedItemIdForItinerary(plan: ItineraryPlanArtifact) {
-  return normalizeSavedIdentifier(`itinerary:${plan.title}:${plan.durationLabel}`);
-}
-
-function createAnonymousTripId() {
-  const randomValue =
-    globalThis.crypto && "randomUUID" in globalThis.crypto
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return normalizeSavedIdentifier(`local_trip_${randomValue}`);
-}
-
-function normalizeSavedItineraryStop(stop: ItineraryStopArtifact) {
-  return {
-    title: normalizeSavedText(stop.title, 180),
-    kind: stop.kind,
-    sequence: stop.sequence,
-    ...(stop.area ? { area: normalizeSavedText(stop.area, 120) } : {}),
-    ...(typeof stop.travelTimeFromPreviousMinutes === "number"
-      ? { travelTimeFromPreviousMinutes: stop.travelTimeFromPreviousMinutes }
-      : {}),
-    ...(stop.mapsUrl ? { mapsUrl: stop.mapsUrl } : {}),
-    rationale: normalizeSavedText(stop.rationale, 500),
-    caveats: normalizeSavedTextArray(stop.caveats, 12),
-  };
-}
-
-function normalizeSavedSources(sources: readonly ChatSourceArtifact[]): SavedTripItem["sources"] {
-  return sources.map((source) => ({
-    label: normalizeSavedSourceLabel(source.label),
-    sourceName: normalizeSavedText(source.sourceName, 180),
-    ...(source.sourceProfileId
-      ? { sourceProfileId: normalizeSavedText(source.sourceProfileId, 180) }
-      : {}),
-    ...(source.fetchedAt ? { fetchedAt: source.fetchedAt } : {}),
-    ...(source.confidence ? { confidence: source.confidence } : {}),
-    checked: normalizeSavedTextArray(source.checked, 12, 180),
-    notChecked: normalizeSavedTextArray(source.notChecked, 16, 180),
-  }));
-}
-
-function normalizeSavedDecision(decision: ArtifactDecisionMetadata) {
-  return {
-    label: decision.label,
-    bestAction: normalizeSavedText(decision.bestAction, 180),
-  };
-}
-
-function normalizeSavedTextArray(values: readonly string[], maxItems: number, maxLength = 500) {
-  const results: string[] = [];
-
-  for (const value of values) {
-    const normalizedValue = normalizeSavedText(value, maxLength);
-    if (normalizedValue.length === 0) {
-      continue;
-    }
-
-    results.push(normalizedValue);
-    if (results.length >= maxItems) {
-      break;
-    }
-  }
-
-  return results;
-}
-
-function normalizeSavedText(value: string, maxLength: number) {
-  return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
-}
-
-function normalizeSavedIdentifier(value: string) {
-  const normalizedValue = value
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-zA-Z0-9:_-]/g, "-")
-    .replace(/-+/g, "-")
-    .slice(0, 128);
-  return normalizedValue.length > 0 ? normalizedValue : "saved_item";
-}
-
-function isUsableIdentifier(value: unknown): value is string {
-  return typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9:_-]{7,127}$/.test(value);
-}
-
-function normalizeSavedSourceLabel(value: string): SavedTripItem["sources"][number]["label"] {
-  return isSavedSourceLabel(value) ? value : "not_verified";
-}
-
-function isSavedSourceLabel(value: string): value is SavedTripItem["sources"][number]["label"] {
-  return (
-    value === "live_checked" ||
-    value === "fresh_cache" ||
-    value === "event_checked" ||
-    value === "venue_checked" ||
-    value === "curated_local_guide" ||
-    value === "weather_checked" ||
-    value === "marine_checked" ||
-    value === "tide_forecast_checked" ||
-    value === "community_signal" ||
-    value === "not_verified" ||
-    value === "provider_unavailable"
-  );
-}
-
-function isSavedTripItemLike(value: unknown): value is SavedTripItem {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const item = value as Partial<SavedTripItem>;
-  return (
-    typeof item.id === "string" &&
-    typeof item.title === "string" &&
-    typeof item.createdAt === "string" &&
-    typeof item.updatedAt === "string" &&
-    (item.kind === "place" ||
-      item.kind === "beach" ||
-      item.kind === "itinerary" ||
-      item.kind === "note") &&
-    typeof item.payload === "object" &&
-    Array.isArray(item.sources) &&
-    Array.isArray(item.caveats)
-  );
 }
 
 function formatTimestamp() {
