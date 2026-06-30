@@ -20,7 +20,7 @@ import {
   nightlifeCommunitySourceProfileIds,
   nightlifeEventSourceProfileIds,
 } from "@/server/providers/adapters";
-import { SourcePolicyError } from "@/server/providers/source-registry";
+import { SourcePolicyError, SourceRegistry } from "@/server/providers/source-registry";
 
 const fetchedAt = "2026-06-23T00:00:00.000Z";
 
@@ -284,6 +284,30 @@ describe("source registry and fact governance", () => {
       publishesRawAllowed: false,
       freshnessWindowDays: 1,
     });
+  });
+
+  test("returns isolated source profile snapshots", () => {
+    const registry = createDefaultSourceRegistry();
+    const requiredProfile = registry.require("source_open_meteo");
+    const listedProfile = registry.list().find((profile) => profile.id === "source_open_meteo");
+
+    requiredProfile.freshnessWindowDays = 99;
+    if (listedProfile) {
+      listedProfile.freshnessWindowDays = 88;
+    }
+
+    expect(registry.require("source_open_meteo").freshnessWindowDays).toBe(1);
+  });
+
+  test("rejects source profiles without a finite freshness window", () => {
+    const profile = {
+      ...createDefaultSourceRegistry().require("source_open_meteo"),
+      freshnessWindowDays: Number.NaN,
+    };
+
+    expect(() => new SourceRegistry([profile])).toThrow(
+      "Source profile source_open_meteo has an invalid freshness window.",
+    );
   });
 
   test("disallows private social groups and keeps community sources out of event truth", () => {
