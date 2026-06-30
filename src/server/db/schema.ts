@@ -216,6 +216,49 @@ export const sharedTripPlans = pgTable(
   ],
 );
 
+export const tripPasses = pgTable(
+  "trip_passes",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").references(() => users.id),
+    email: text("email"),
+    status: text("status").notNull(),
+    stripeCheckoutSessionId: text("stripe_checkout_session_id").unique(),
+    stripePaymentIntentId: text("stripe_payment_intent_id"),
+    stripeEventId: text("stripe_event_id").unique(),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("trip_passes_user_id_idx").on(table.userId),
+    index("trip_passes_status_expires_at_idx").on(table.status, table.expiresAt),
+  ],
+);
+
+export const tripUsageMeters = pgTable(
+  "trip_usage_meters",
+  {
+    id: text("id").primaryKey(),
+    tripPassId: text("trip_pass_id")
+      .notNull()
+      .references(() => tripPasses.id),
+    meterType: text("meter_type").notNull(),
+    used: integer("used").notNull().default(0),
+    limit: integer("limit").notNull(),
+    resetAt: timestamp("reset_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("trip_usage_meters_trip_pass_id_meter_type_idx").on(
+      table.tripPassId,
+      table.meterType,
+    ),
+    index("trip_usage_meters_trip_pass_id_idx").on(table.tripPassId),
+  ],
+);
+
 export const areas = pgTable("areas", {
   id: text("id").primaryKey(),
   slug: text("slug").notNull().unique(),

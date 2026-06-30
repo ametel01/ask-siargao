@@ -48,6 +48,8 @@ import {
   sourcePermissions,
   sourceProfiles,
   sourceRecords,
+  tripPasses,
+  tripUsageMeters,
   userProfiles,
   users,
 } from "@/server/db/schema";
@@ -83,6 +85,8 @@ describe("Step 3 database migration", () => {
       "saved_trips",
       "saved_trip_items",
       "shared_trip_plans",
+      "trip_passes",
+      "trip_usage_meters",
       "audit_requests",
       "audit_inputs",
       "audit_runs",
@@ -160,6 +164,8 @@ describe("Step 3 database migration", () => {
       savedTrips,
       savedTripItems,
       sharedTripPlans,
+      tripPasses,
+      tripUsageMeters,
       areas,
       routes,
       providers,
@@ -519,6 +525,42 @@ describe("Step 3 database migration", () => {
       ["created_at", "timestamp with time zone", "NO", "now()"],
       ["updated_at", "timestamp with time zone", "NO", "now()"],
     ]);
+    expect(
+      columnsByTable.trip_passes?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+        column.column_default,
+      ]),
+    ).toEqual([
+      ["id", "text", "NO", null],
+      ["user_id", "text", "YES", null],
+      ["email", "text", "YES", null],
+      ["status", "text", "NO", null],
+      ["stripe_checkout_session_id", "text", "YES", null],
+      ["stripe_payment_intent_id", "text", "YES", null],
+      ["stripe_event_id", "text", "YES", null],
+      ["starts_at", "timestamp with time zone", "NO", null],
+      ["expires_at", "timestamp with time zone", "NO", null],
+      ["created_at", "timestamp with time zone", "NO", "now()"],
+      ["updated_at", "timestamp with time zone", "NO", "now()"],
+    ]);
+    expect(
+      columnsByTable.trip_usage_meters?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+        column.column_default,
+      ]),
+    ).toEqual([
+      ["id", "text", "NO", null],
+      ["trip_pass_id", "text", "NO", null],
+      ["meter_type", "text", "NO", null],
+      ["used", "integer", "NO", "0"],
+      ["limit", "integer", "NO", null],
+      ["reset_at", "timestamp with time zone", "YES", null],
+      ["updated_at", "timestamp with time zone", "NO", "now()"],
+    ]);
 
     const primaryKeys = await db.query<{
       table_name: string;
@@ -542,6 +584,8 @@ describe("Step 3 database migration", () => {
       saved_trip_items: ["trip_id", "id"],
       saved_trips: ["id"],
       shared_trip_plans: ["id"],
+      trip_passes: ["id"],
+      trip_usage_meters: ["id"],
     });
 
     const uniqueKeys = await db.query<{ table_name: string; column_name: string }>(
@@ -561,6 +605,7 @@ describe("Step 3 database migration", () => {
     expect(groupColumnNames(uniqueKeys.rows)).toEqual({
       saved_trips: ["client_trip_key_hash"],
       shared_trip_plans: ["public_token_hash"],
+      trip_passes: ["stripe_checkout_session_id", "stripe_event_id"],
     });
 
     const foreignKeys = await db.query<{
@@ -600,6 +645,8 @@ describe("Step 3 database migration", () => {
       ["saved_trip_items", "trip_id", "saved_trips", "id"],
       ["saved_trips", "user_id", "users", "id"],
       ["shared_trip_plans", "trip_id", "saved_trips", "id"],
+      ["trip_passes", "user_id", "users", "id"],
+      ["trip_usage_meters", "trip_pass_id", "trip_passes", "id"],
     ]);
 
     const indexes = await db.query<{ tablename: string; indexname: string; indexdef: string }>(
@@ -639,6 +686,22 @@ describe("Step 3 database migration", () => {
         "CREATE INDEX shared_trip_plans_public_token_hash_idx ON public.shared_trip_plans USING btree (public_token_hash)",
       "shared_trip_plans.shared_trip_plans_trip_id_idx":
         "CREATE INDEX shared_trip_plans_trip_id_idx ON public.shared_trip_plans USING btree (trip_id)",
+      "trip_passes.trip_passes_pkey":
+        "CREATE UNIQUE INDEX trip_passes_pkey ON public.trip_passes USING btree (id)",
+      "trip_passes.trip_passes_status_expires_at_idx":
+        "CREATE INDEX trip_passes_status_expires_at_idx ON public.trip_passes USING btree (status, expires_at)",
+      "trip_passes.trip_passes_stripe_checkout_session_id_key":
+        "CREATE UNIQUE INDEX trip_passes_stripe_checkout_session_id_key ON public.trip_passes USING btree (stripe_checkout_session_id)",
+      "trip_passes.trip_passes_stripe_event_id_key":
+        "CREATE UNIQUE INDEX trip_passes_stripe_event_id_key ON public.trip_passes USING btree (stripe_event_id)",
+      "trip_passes.trip_passes_user_id_idx":
+        "CREATE INDEX trip_passes_user_id_idx ON public.trip_passes USING btree (user_id)",
+      "trip_usage_meters.trip_usage_meters_pkey":
+        "CREATE UNIQUE INDEX trip_usage_meters_pkey ON public.trip_usage_meters USING btree (id)",
+      "trip_usage_meters.trip_usage_meters_trip_pass_id_idx":
+        "CREATE INDEX trip_usage_meters_trip_pass_id_idx ON public.trip_usage_meters USING btree (trip_pass_id)",
+      "trip_usage_meters.trip_usage_meters_trip_pass_id_meter_type_idx":
+        "CREATE UNIQUE INDEX trip_usage_meters_trip_pass_id_meter_type_idx ON public.trip_usage_meters USING btree (trip_pass_id, meter_type)",
     });
 
     await db.close();
@@ -652,7 +715,13 @@ const authTableNames = [
   "chat_messages",
   "chat_response_ratings",
 ];
-const tripTableNames = ["saved_trips", "saved_trip_items", "shared_trip_plans"];
+const tripTableNames = [
+  "saved_trips",
+  "saved_trip_items",
+  "shared_trip_plans",
+  "trip_passes",
+  "trip_usage_meters",
+];
 
 function groupRows<T extends Record<string, unknown>, Key extends keyof T>(
   rows: readonly T[],

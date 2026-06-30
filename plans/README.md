@@ -41,7 +41,7 @@ once the lower-risk fixes are clear.
 | 008 | Separate public tool calls from internal tool audits | P1 | medium | none | DONE |
 | 009 | Consolidate live place evidence planning | P1 | medium | none | DONE |
 | 010 | Pin Bun runtime in CI | P2 | small | none | DONE |
-| 011 | Add trip pass usage meter foundation | P2 | large | none | TODO |
+| 011 | Add trip pass usage meter foundation | P2 | large | none | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED
 (with one-line rationale).
