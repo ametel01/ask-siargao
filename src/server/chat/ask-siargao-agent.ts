@@ -405,8 +405,7 @@ export async function runAskSiargaoAgentTurn(
           ...responseOutputItems(response.output),
           userInputMessage({
             product: "Ask Siargao",
-            instruction:
-              "Validation repair: the user's intent requires live place evidence before a final recommendation. Use these automatically executed Places outputs as the public evidence, do not substitute beach or local-guide artifacts for food/place requests, and write the final traveler-facing answer now.",
+            instruction: requiredEvidenceRepairInstruction(missingEvidenceChecks),
             automaticRequiredEvidenceChecks: automaticToolOutputs.map((output) => ({
               toolCallId: output.functionCall.callId,
               name: output.functionCall.name,
@@ -554,7 +553,7 @@ export async function runAskSiargaoAgentTurn(
           userInputMessage({
             product: "Ask Siargao",
             instruction:
-              "Validation repair: your final payload did not expose the required live place evidence. Return final JSON that uses the successful search_places tool call, selects only place recommendation cards for this request, and does not display beach cards.",
+              "Validation repair: your final payload did not satisfy the required evidence contract. If the required provider check succeeded, use the successful checked tool evidence and select only matching public artifacts. If the required provider check was unavailable, revise to a caveated final JSON answer with no checked/live claims and no place cards or checked source claims from the failed provider output.",
             responseContract,
           }),
         ];
@@ -1885,13 +1884,18 @@ function exposeRequiredEvidenceArtifacts(
   requiredEvidencePlan: RequiredEvidencePlan,
   toolResults: readonly AgentToolResult[],
 ) {
-  if (!finalPayload || requiredEvidencePlan.requiredToolCalls.length === 0) {
+  const requiresPlaceEvidence = requiredEvidencePlan.requiredToolCalls.some(
+    (requiredCall) => requiredCall.name === "search_places",
+  );
+  if (!finalPayload || !requiresPlaceEvidence) {
     return finalPayload;
   }
 
   const placeCardIds = uniqueText(
     toolResults.flatMap((result) =>
-      (result.cards ?? []).flatMap((card) => (card.kind === "place" ? [card.id] : [])),
+      isCheckedPlacesEvidenceResult(result)
+        ? (result.cards ?? []).flatMap((card) => (card.kind === "place" ? [card.id] : []))
+        : [],
     ),
   );
   if (
@@ -1905,6 +1909,40 @@ function exposeRequiredEvidenceArtifacts(
     ...finalPayload,
     displayCardIds: uniqueText([...finalPayload.displayCardIds, ...placeCardIds]),
   };
+}
+
+function requiredEvidenceRepairInstruction(
+  missingEvidenceChecks: readonly RequiredEvidenceToolCall[],
+) {
+  const names = new Set(missingEvidenceChecks.map((check) => check.name));
+  const contracts = missingEvidenceChecks.map((check) => {
+    if (check.name === "search_places") {
+      return "place recommendations require governed Google Places search/detail evidence; provider-unavailable results must remain caveated and must not be described as live checked";
+    }
+    return "current weather answers require governed Open-Meteo forecast evidence; provider-unavailable results must remain caveated and must not be described as checked weather";
+  });
+  return [
+    `Validation repair: the user's request requires ${uniqueText(contracts).join("; ")} before checked final claims.`,
+    names.has("search_places")
+      ? "Use the automatically executed Places outputs as place evidence, and do not substitute beach, memory, or local-guide artifacts for food/place requests."
+      : "",
+    names.has("get_weather_forecast")
+      ? "Use the automatically executed weather output as condition evidence, and keep unchecked tide, surf, road, or official-warning limits explicit when relevant."
+      : "",
+    "Write the final traveler-facing answer now without exposing runtime repair mechanics.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function isCheckedPlacesEvidenceResult(result: AgentToolResult) {
+  return (
+    result.name === "search_places" &&
+    result.status === "success" &&
+    result.sources.some(
+      (source) => source.label === "live_checked" || source.label === "fresh_cache",
+    )
+  );
 }
 
 function readRequiredToolChecks(data: AgentToolResult["data"]) {

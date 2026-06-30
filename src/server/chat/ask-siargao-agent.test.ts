@@ -2281,25 +2281,27 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
   });
 
-  test("does not auto-execute condition judgment for weather-only prose", async () => {
+  test("auto-executes weather evidence before accepting weather-only prose", async () => {
     const client = fakeResponsesClient([
       {
         id: "resp_direct_weather",
-        output_text: "Direct weather answer without condition repair.",
+        output_text: "Direct weather answer without forecast evidence.",
         _request_id: "req_direct_weather",
       },
+      {
+        id: "resp_after_weather_repair",
+        output_text: "Final weather answer after checking Open-Meteo forecast evidence.",
+        _request_id: "req_after_weather_repair",
+      },
     ]);
-    let toolCallCount = 0;
-    const executeTool: AgentToolExecutor = async (request) => {
-      toolCallCount += 1;
-      return {
-        name: request.name,
-        status: "error",
-        text: `Unexpected tool ${request.name}.`,
-        errorCode: "unexpected_tool",
-        sources: [],
-      };
-    };
+    const executeTool = fakeToolExecutor({
+      get_weather_forecast: {
+        name: "get_weather_forecast",
+        status: "success",
+        text: "Open-Meteo forecast loaded for General Luna.",
+        sources: [weatherSourceSummary],
+      },
+    });
 
     const result = await runAskSiargaoAgentTurn(
       {
@@ -2316,9 +2318,23 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       { client, executeTool, model: "gpt-test" },
     );
 
-    expect(result.message).toContain("without condition repair");
-    expect(result.toolCalls).toEqual([]);
-    expect(toolCallCount).toBe(0);
+    expect(result.message).toContain("after checking Open-Meteo");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual(["get_weather_forecast"]);
+    expect(result.toolCalls[0]?.arguments).toEqual({
+      location: "General Luna",
+      date_range: "today",
+    });
+    expect(result.sources).toEqual([weatherSourceSummary]);
+    expect(client.requests).toHaveLength(2);
+    const automaticInput = parseLastUserInputMessage(client.requests[1]?.input) as {
+      automaticRequiredEvidenceChecks?: Array<{ name?: string }>;
+      instruction?: string;
+    };
+    expect(automaticInput.automaticRequiredEvidenceChecks?.map((check) => check.name)).toEqual([
+      "get_weather_forecast",
+    ]);
+    expect(automaticInput.instruction).toContain("current weather answers require governed");
+    expect(automaticInput.instruction).not.toContain("place recommendations require");
   });
 
   test("executes Google Places search and details tool calls", async () => {
@@ -4047,6 +4063,206 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(parseToolOutput(client.requests[1]?.input, 0).errorCode).toBe("provider_unavailable");
   });
 
+  test("required Places provider failures remain caveated instead of retrying as checked evidence", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_required_failed_places_call",
+        requestId: "req_required_failed_places_call",
+        callId: "call_required_places",
+        name: "search_places",
+        arguments: {
+          query: "restaurants and dinner spots in General Luna, Siargao",
+          center: { latitude: 9.8006, longitude: 126.1586 },
+          radius_meters: 12_000,
+          constraints: { included_type: "restaurant", open_now: true, page_size: 8 },
+        },
+      }),
+      {
+        id: "resp_required_failed_places_final",
+        output_text: finalPayloadText({
+          answer:
+            "Google Places was unavailable, so I cannot call any dinner option live checked tonight.",
+          usedToolCallIds: ["call_required_places"],
+        }),
+        _request_id: "req_required_failed_places_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      search_places: {
+        name: "search_places",
+        status: "error",
+        text: "Google Places search failed: provider timeout.",
+        errorCode: "provider_unavailable",
+        sources: [providerUnavailableSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Where should I eat in General Luna tonight?" }],
+        requestId: "agent_request_required_places_provider_failure",
+        deterministicSignals: {
+          intent: {
+            activityPlan: false,
+            tripAdvice: false,
+            placeIntent: {
+              category: "food",
+              liveNeeds: ["recommendation"],
+              meal: "dinner",
+              location: "General Luna",
+              areaScope: "in_area",
+              radiusMeters: 12_000,
+            },
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("cannot call any dinner option live checked");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual(["search_places"]);
+    expect(result.toolCalls[0]).toMatchObject({
+      status: "error",
+      errorCode: "provider_unavailable",
+    });
+    expect(result.cards).toBeUndefined();
+    expect(result.publicSources).toEqual([providerUnavailableSourceSummary]);
+    expect(client.requests).toHaveLength(2);
+  });
+
+  test("repairs required Places provider failures when the final payload overclaims checked evidence", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_overclaimed_failed_places_call",
+        requestId: "req_overclaimed_failed_places_call",
+        callId: "call_overclaimed_places",
+        name: "search_places",
+        arguments: {
+          query: "restaurants and dinner spots in General Luna, Siargao",
+          center: { latitude: 9.8006, longitude: 126.1586 },
+          radius_meters: 12_000,
+          constraints: { included_type: "restaurant", open_now: true, page_size: 8 },
+        },
+      }),
+      {
+        id: "resp_overclaimed_failed_places_final",
+        output_text: finalPayloadText({
+          answer: "I checked Google Places live, and the dinner options are live checked tonight.",
+          usedToolCallIds: ["call_overclaimed_places"],
+        }),
+        _request_id: "req_overclaimed_failed_places_final",
+      },
+      {
+        id: "resp_caveated_failed_places_final",
+        output_text: finalPayloadText({
+          answer:
+            "Google Places was unavailable, so I could not check live dinner options tonight; verify before going.",
+          usedToolCallIds: ["call_overclaimed_places"],
+        }),
+        _request_id: "req_caveated_failed_places_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      search_places: {
+        name: "search_places",
+        status: "error",
+        text: "Google Places search failed: provider timeout.",
+        errorCode: "provider_unavailable",
+        sources: [providerUnavailableSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Where should I eat in General Luna tonight?" }],
+        requestId: "agent_request_required_places_provider_failure_overclaim",
+        deterministicSignals: {
+          intent: {
+            activityPlan: false,
+            tripAdvice: false,
+            placeIntent: {
+              category: "food",
+              liveNeeds: ["recommendation"],
+              meal: "dinner",
+              location: "General Luna",
+              areaScope: "in_area",
+              radiusMeters: 12_000,
+            },
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("could not check live dinner options");
+    expect(result.message).not.toContain("live checked tonight");
+    expect(result.cards).toBeUndefined();
+    expect(result.publicSources).toEqual([providerUnavailableSourceSummary]);
+    expect(client.requests).toHaveLength(3);
+    const repairInput = parseLastUserInputMessage(client.requests[2]?.input);
+    expect(repairInput?.instruction).toContain("no checked/live claims");
+    expect(repairInput?.instruction).toContain("failed provider output");
+  });
+
+  test("repairs required weather provider failures when the final payload overclaims checked evidence", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_direct_weather_without_evidence",
+        output_text: "Direct weather answer without forecast evidence.",
+        _request_id: "req_direct_weather_without_evidence",
+      },
+      {
+        id: "resp_overclaimed_failed_weather_final",
+        output_text: finalPayloadText({
+          answer: "I checked Open-Meteo, and the forecast was checked live for General Luna.",
+          usedToolCallIds: ["auto_required_evidence_1"],
+        }),
+        _request_id: "req_overclaimed_failed_weather_final",
+      },
+      {
+        id: "resp_caveated_failed_weather_final",
+        output_text: finalPayloadText({
+          answer:
+            "Open-Meteo was unavailable, so I could not check the forecast for General Luna; treat this as not verified.",
+          usedToolCallIds: ["auto_required_evidence_1"],
+        }),
+        _request_id: "req_caveated_failed_weather_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      get_weather_forecast: {
+        name: "get_weather_forecast",
+        status: "error",
+        text: "Open-Meteo forecast failed: provider timeout.",
+        errorCode: "provider_unavailable",
+        sources: [weatherProviderUnavailableSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Will it rain in General Luna today?" }],
+        requestId: "agent_request_required_weather_provider_failure_overclaim",
+        deterministicSignals: {
+          intent: {
+            locationLabel: "General Luna",
+            weather: true,
+            weatherSensitive: true,
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("could not check the forecast");
+    expect(result.message).not.toContain("checked live");
+    expect(result.publicSources).toEqual([weatherProviderUnavailableSourceSummary]);
+    expect(client.requests).toHaveLength(3);
+    const repairInput = parseLastUserInputMessage(client.requests[2]?.input);
+    expect(repairInput?.instruction).toContain("no checked/live claims");
+    expect(repairInput?.instruction).toContain("failed provider output");
+  });
+
   test("logs tool-loop metadata without raw tool output payloads", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
@@ -4638,4 +4854,13 @@ const providerUnavailableSourceSummary: AnswerSourceSummary = {
   confidence: "low",
   checked: [],
   notChecked: ["Google Places lookup"],
+};
+
+const weatherProviderUnavailableSourceSummary: AnswerSourceSummary = {
+  label: "provider_unavailable",
+  sourceName: "Open-Meteo weather API",
+  sourceProfileId: "source_open_meteo",
+  confidence: "low",
+  checked: [],
+  notChecked: ["weather forecast"],
 };

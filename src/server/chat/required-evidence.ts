@@ -11,11 +11,24 @@ export type RequiredEvidencePlan = {
   allowedCardKinds?: readonly RecommendationCardKind[];
 };
 
-export type RequiredEvidenceToolCall = {
-  name: "search_places";
+type RequiredEvidenceToolCallBase = {
   arguments: Record<string, unknown>;
   acceptedSourceLabels: readonly string[];
+  terminalSourceLabels: readonly string[];
+  purpose: string;
+};
+
+export type RequiredEvidenceToolCall =
+  | RequiredPlaceEvidenceToolCall
+  | RequiredWeatherEvidenceToolCall;
+
+export type RequiredPlaceEvidenceToolCall = RequiredEvidenceToolCallBase & {
+  name: "search_places";
   requiresOpenNow: boolean;
+};
+
+export type RequiredWeatherEvidenceToolCall = RequiredEvidenceToolCallBase & {
+  name: "get_weather_forecast";
 };
 
 type PlaceIntentSignal = {
@@ -42,26 +55,23 @@ const gazetteer = {
 export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): RequiredEvidencePlan {
   const intent = readIntentSignal(request.deterministicSignals);
   const placeIntent = readPlaceIntentSignal(intent?.placeIntent);
+  const requiredToolCalls: RequiredEvidenceToolCall[] = [];
+  let allowedCardKinds: RequiredEvidencePlan["allowedCardKinds"];
+
   if (
-    !placeIntent ||
-    intent?.activityPlan === true ||
-    intent?.tripAdvice === true ||
-    !requiresPlacesEvidence(placeIntent)
+    placeIntent &&
+    intent?.activityPlan !== true &&
+    intent?.tripAdvice !== true &&
+    requiresPlacesEvidence(placeIntent)
   ) {
-    return { requiredToolCalls: [] };
-  }
-
-  const center = placesSearchCenter(request, placeIntent);
-  if (!center) {
-    return { requiredToolCalls: [], allowedCardKinds: ["place"] };
-  }
-
-  const includedType = includedTypeForPlaceCategory(placeIntent.category);
-  const requiresOpenNow = requiresOpenNowEvidence(placeIntent);
-  return {
-    requiredToolCalls: [
-      {
+    const center = placesSearchCenter(request, placeIntent);
+    allowedCardKinds = ["place"];
+    if (center) {
+      const includedType = includedTypeForPlaceCategory(placeIntent.category);
+      const requiresOpenNow = requiresOpenNowEvidence(placeIntent);
+      requiredToolCalls.push({
         name: "search_places",
+        purpose: "place_recommendation",
         arguments: {
           query: placesSearchQuery(placeIntent),
           center,
@@ -73,10 +83,28 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
           },
         },
         acceptedSourceLabels: ["live_checked", "fresh_cache"],
+        terminalSourceLabels: ["provider_unavailable"],
         requiresOpenNow,
+      });
+    }
+  }
+
+  if (requiresWeatherEvidence(intent)) {
+    requiredToolCalls.push({
+      name: "get_weather_forecast",
+      purpose: "weather_forecast",
+      arguments: {
+        location: weatherLocation(intent),
+        date_range: weatherDateRange(request),
       },
-    ],
-    allowedCardKinds: ["place"],
+      acceptedSourceLabels: ["weather_checked"],
+      terminalSourceLabels: ["provider_unavailable"],
+    });
+  }
+
+  return {
+    requiredToolCalls,
+    ...(allowedCardKinds ? { allowedCardKinds } : {}),
   };
 }
 
@@ -85,7 +113,7 @@ export function missingRequiredEvidenceToolCalls(
   toolCalls: readonly AgentToolCallAudit[],
 ): RequiredEvidenceToolCall[] {
   return plan.requiredToolCalls.filter(
-    (requiredCall) => !hasSatisfyingToolCall(requiredCall, toolCalls),
+    (requiredCall) => !hasCompletedToolCall(requiredCall, toolCalls),
   );
 }
 
@@ -99,9 +127,22 @@ export function finalPayloadSatisfiesRequiredEvidence(
     return true;
   }
   if (
-    !plan.requiredToolCalls.every((requiredCall) => hasSatisfyingToolCall(requiredCall, toolCalls))
+    !plan.requiredToolCalls.every((requiredCall) => hasCompletedToolCall(requiredCall, toolCalls))
   ) {
     return false;
+  }
+  const unsatisfiedRequiredCalls = plan.requiredToolCalls.filter(
+    (requiredCall) => !hasSatisfyingToolCall(requiredCall, toolCalls),
+  );
+  if (unsatisfiedRequiredCalls.length > 0) {
+    return terminalOnlyFinalPayloadIsCaveated(finalPayload, unsatisfiedRequiredCalls);
+  }
+  const placeRequiredCalls = plan.requiredToolCalls.filter(
+    (requiredCall): requiredCall is RequiredPlaceEvidenceToolCall =>
+      requiredCall.name === "search_places",
+  );
+  if (placeRequiredCalls.length === 0) {
+    return true;
   }
   if (!finalPayload) {
     return toolResults.some((result) => result.cards?.some((card) => card.kind === "place"));
@@ -112,6 +153,54 @@ export function finalPayloadSatisfiesRequiredEvidence(
     ),
   );
   return finalPayload.displayCardIds.some((id) => placeCardIds.has(id));
+}
+
+function terminalOnlyFinalPayloadIsCaveated(
+  finalPayload: AgentFinalPayload | undefined,
+  unsatisfiedRequiredCalls: readonly RequiredEvidenceToolCall[],
+) {
+  if (!finalPayload) {
+    return false;
+  }
+  const hasUnsatisfiedPlacesCheck = unsatisfiedRequiredCalls.some(
+    (requiredCall) => requiredCall.name === "search_places",
+  );
+  if (hasUnsatisfiedPlacesCheck && finalPayload.displayCardIds.length > 0) {
+    return false;
+  }
+  return !hasCheckedEvidenceOverclaim(finalPayload.answer, unsatisfiedRequiredCalls);
+}
+
+function hasCheckedEvidenceOverclaim(
+  answer: string,
+  unsatisfiedRequiredCalls: readonly RequiredEvidenceToolCall[],
+) {
+  const normalizedAnswer = stripNegatedCheckedClaims(answer.toLowerCase().replace(/\s+/g, " "));
+  return unsatisfiedRequiredCalls.some((requiredCall) => {
+    if (requiredCall.name === "search_places") {
+      return hasPlacesCheckedClaim(normalizedAnswer);
+    }
+    return hasWeatherCheckedClaim(normalizedAnswer);
+  });
+}
+
+function stripNegatedCheckedClaims(value: string) {
+  return value.replaceAll(
+    /\b(?:not|cannot|can't|could not|couldn't|unable to|no|without|unavailable,?\s+so)\s+[^.?!]{0,120}\b(?:check|checked|verify|verified|confirm|confirmed|live[-\s]?checked|checked\s+live)\b/giu,
+    "",
+  );
+}
+
+function hasPlacesCheckedClaim(value: string) {
+  return /\b(?:live[-\s]?checked|checked\s+live|live\s+check(?:ed)?(?:\s+says)?|checked\s+(?:google\s+places|places|open[-\s]?now|open status|map link|place identity)|(?:google\s+places|places)\s+(?:was|were)?\s*(?:checked|verified|confirmed)|according to google\s+places|open now according to google\s+places)\b/iu.test(
+    value,
+  );
+}
+
+function hasWeatherCheckedClaim(value: string) {
+  return /\b(?:weather[-\s]?checked|checked\s+live|live\s+check(?:ed)?(?:\s+says)?|checked\s+(?:weather|forecast|open[-\s]?meteo|rain|wind)|(?:weather|forecast|open[-\s]?meteo)\s+(?:was|were)?\s*(?:checked|verified|confirmed)|according to open[-\s]?meteo)\b/iu.test(
+    value,
+  );
 }
 
 function readIntentSignal(value: unknown) {
@@ -135,6 +224,40 @@ function readPlaceIntentSignal(value: unknown): PlaceIntentSignal | undefined {
     avoid: Array.isArray(value.avoid) ? value.avoid : [],
     areaScope: readString(value.areaScope),
   };
+}
+
+function requiresWeatherEvidence(intent: Record<string, unknown> | undefined) {
+  return (
+    intent?.weather === true &&
+    intent.conditionActivity === undefined &&
+    intent.activityPlan !== true &&
+    intent.tripAdvice !== true
+  );
+}
+
+function weatherLocation(intent: Record<string, unknown> | undefined) {
+  const locationLabel = readString(intent?.locationLabel);
+  if (
+    locationLabel === "Cloud 9" ||
+    locationLabel === "General Luna" ||
+    locationLabel === "Del Carmen" ||
+    locationLabel === "Siargao Island"
+  ) {
+    return locationLabel;
+  }
+  return "Siargao Island";
+}
+
+function weatherDateRange(request: AgentRuntimeRequest) {
+  const latestUserTurn = request.messages
+    .filter((message) => message.role === "user")
+    .at(-1)?.content;
+  return latestUserTurn &&
+    /\b(tomorrow|tmrw|next\s+7\s+days?|next\s+seven\s+days?|this\s+week|next\s+week|weekend|later\s+this\s+week|in\s+(?:[2-7]|two|three|four|five|six|seven)\s+days?)\b/i.test(
+      latestUserTurn,
+    )
+    ? "next_7_days"
+    : "today";
 }
 
 function requiresPlacesEvidence(placeIntent: PlaceIntentSignal) {
@@ -214,8 +337,24 @@ function hasSatisfyingToolCall(
       toolCall.sources.some(
         (source) =>
           requiredCall.acceptedSourceLabels.includes(source.label) &&
-          (!requiredCall.requiresOpenNow ||
+          (requiredCall.name !== "search_places" ||
+            !requiredCall.requiresOpenNow ||
             source.checked.some((item) => /\bopen[- ]?now signal\b/i.test(item))),
+      ),
+  );
+}
+
+function hasCompletedToolCall(
+  requiredCall: RequiredEvidenceToolCall,
+  toolCalls: readonly AgentToolCallAudit[],
+) {
+  return toolCalls.some(
+    (toolCall) =>
+      toolCall.name === requiredCall.name &&
+      toolCall.sources.some(
+        (source) =>
+          requiredCall.acceptedSourceLabels.includes(source.label) ||
+          requiredCall.terminalSourceLabels.includes(source.label),
       ),
   );
 }
