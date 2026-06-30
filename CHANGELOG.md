@@ -127,6 +127,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Established Hallmark audit redesign progress tracking so each visual remediation step records
+  validation results, status, and commit references.
 - Added assistant response ratings with authenticated `/api/chat/ratings`
   upserts, owned assistant-message checks, accessible thumbs controls, and
   reload-hydrated selected state.
