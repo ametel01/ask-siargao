@@ -28,6 +28,12 @@ Add Bun tests next to the code they cover using `*.test.ts`. Put browser-level c
 
 Recent commits use short imperative summaries, for example `Record chat and provider maintenance`. Keep commits focused and describe the behavior changed. Pull requests should include a concise summary, linked issue or plan when applicable, validation commands run, and screenshots for changed UI surfaces.
 
+## Agent Team Review Preflight
+
+Before a coordinator hands a PR to `maintainer-reviewer`, record the PR author, current draft state, intended formal approver identity, and whether GitHub can accept that approver's decision. The checker and maintainer-reviewer remain separate roles: checker evidence does not replace maintainer review, and reviewer preflight does not replace checker gates.
+
+If GitHub cannot accept the intended formal approver because they are the PR author or otherwise ineligible, record that as an administrative blocker in `STATUS.md` with the next non-author human approver action. Do not classify the blocker as a code finding, do not treat a same-author `COMMENT` review as a formal approval, and do not weaken CI, quality gates, branch protection, or reviewer independence.
+
 ## Security & Configuration Tips
 
 Keep secrets in `.env.local` and follow `documentation/developer/reference/environment.md`. Server-only keys must not use the `NEXT_PUBLIC_` prefix. Preserve Google Places field-mask, retention, and source-governance constraints when changing provider ingestion.
