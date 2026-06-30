@@ -175,11 +175,7 @@ export function searchNightlifeEvents(
   const requestedInterests = new Set(input.interests ?? []);
   const candidates = weeklyEventFacts
     .filter((event) => event.dayOfWeek === localDate.weekday)
-    .filter(
-      (event) =>
-        requestedInterests.size === 0 ||
-        event.interests.some((interest) => requestedInterests.has(interest)),
-    )
+    .filter((event) => eventMatchesRequestedInterests(event, requestedInterests))
     .sort(compareNightlifeCandidates);
 
   return {
@@ -239,6 +235,23 @@ function routeSummaryText(result: NightlifeEventSearchResult) {
 
 function routeStop(label: string, candidate: NightlifeEventCandidate | undefined) {
   return candidate ? `${label}: ${candidate.venueName} (${candidate.eventName})` : undefined;
+}
+
+function eventMatchesRequestedInterests(
+  event: NightlifeEventCandidate,
+  requestedInterests: ReadonlySet<NightlifeEventInterest>,
+) {
+  if (requestedInterests.size === 0) {
+    return true;
+  }
+  if (event.interests.some((interest) => requestedInterests.has(interest))) {
+    return true;
+  }
+  return isBroadRouteSearch(requestedInterests) && event.routeRole === "warm_up";
+}
+
+function isBroadRouteSearch(requestedInterests: ReadonlySet<NightlifeEventInterest>) {
+  return requestedInterests.has("party") || requestedInterests.has("bar_hopping");
 }
 
 function nightlifeSourceSummary({
