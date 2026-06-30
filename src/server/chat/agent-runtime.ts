@@ -36,6 +36,7 @@ export type AgentToolResult = {
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
   itineraries?: readonly ItineraryPlan[];
+  decisionSummaries?: readonly DecisionSummary[];
 };
 
 export type AgentToolCallAudit = {
@@ -119,6 +120,17 @@ export type ItineraryPlan = {
   sources: readonly AnswerSourceSummary[];
 };
 
+export type DecisionSummary = {
+  id: string;
+  bestAction: string;
+  basis: string;
+  fallback?: string;
+  avoid?: string;
+  timing?: string;
+  area?: string;
+  sources: readonly AnswerSourceSummary[];
+};
+
 export type AgentFinalPayload = {
   answer: string;
   usedMemoryFiles: readonly string[];
@@ -126,12 +138,14 @@ export type AgentFinalPayload = {
   displayCardIds: readonly string[];
   displayActionIds: readonly string[];
   displayItineraryIds: readonly string[];
+  displayDecisionSummaryIds: readonly string[];
 };
 
 export type AgentArtifactRegistry = {
   cardsById: Map<string, RecommendationCard>;
   actionsById: Map<string, ChatAction>;
   itinerariesById: Map<string, ItineraryPlan>;
+  decisionSummariesById: Map<string, DecisionSummary>;
 };
 
 export type AgentArtifactSelectionMode = "compatibility" | "strict";
@@ -142,15 +156,19 @@ export type AgentArtifactSelectionSummary = {
   totalCardCount: number;
   totalActionCount: number;
   totalItineraryCount: number;
+  totalDecisionSummaryCount: number;
   selectedCardCount: number;
   selectedActionCount: number;
   selectedItineraryCount: number;
+  selectedDecisionSummaryCount: number;
   unselectedCardCount: number;
   unselectedActionCount: number;
   unselectedItineraryCount: number;
+  unselectedDecisionSummaryCount: number;
   unknownCardIds: readonly string[];
   unknownActionIds: readonly string[];
   unknownItineraryIds: readonly string[];
+  unknownDecisionSummaryIds: readonly string[];
 };
 
 export type AgentMemoryFileMetadata = {
@@ -181,6 +199,7 @@ export type AgentTurnResult = {
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
   itineraries?: readonly ItineraryPlan[];
+  decisionSummaries?: readonly DecisionSummary[];
   artifactSelection?: AgentArtifactSelectionSummary;
 };
 
@@ -272,6 +291,7 @@ export type AgentArtifactCarrier = {
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
   itineraries?: readonly ItineraryPlan[];
+  decisionSummaries?: readonly DecisionSummary[];
 };
 
 type AgentToolResultArtifactCarrier = AgentArtifactCarrier & {
@@ -343,6 +363,7 @@ export function createAgentTurnResult({
   actions,
   allowedCardKinds,
   cards,
+  decisionSummaries,
   artifactSelectionMode = "compatibility",
   finalPayload,
   itineraries,
@@ -367,6 +388,7 @@ export function createAgentTurnResult({
   actions?: readonly ChatAction[];
   allowedCardKinds?: readonly RecommendationCardKind[];
   itineraries?: readonly ItineraryPlan[];
+  decisionSummaries?: readonly DecisionSummary[];
   finalPayload?: AgentFinalPayload;
   artifactSelectionMode?: AgentArtifactSelectionMode;
 }): AgentTurnResult {
@@ -381,6 +403,7 @@ export function createAgentTurnResult({
     actions,
     allowedCardKinds,
     cards,
+    decisionSummaries,
     finalPayload,
     itineraries,
     mode: artifactSelectionMode,
@@ -401,6 +424,7 @@ export function createAgentTurnResult({
           ),
           ...selectedArtifacts.cards.map((card) => ({ sources: card.sources ?? [] })),
           ...selectedItineraries.map((itinerary) => ({ sources: itinerary.sources })),
+          ...selectedArtifacts.decisionSummaries.map((summary) => ({ sources: summary.sources })),
         ]),
         sourceReconciliation,
       )
@@ -419,6 +443,9 @@ export function createAgentTurnResult({
     ...(selectedArtifacts.cards.length ? { cards: selectedArtifacts.cards } : {}),
     ...(selectedArtifacts.actions.length ? { actions: selectedArtifacts.actions } : {}),
     ...(selectedItineraries.length ? { itineraries: selectedItineraries } : {}),
+    ...(selectedArtifacts.decisionSummaries.length
+      ? { decisionSummaries: selectedArtifacts.decisionSummaries }
+      : {}),
   };
 }
 
@@ -428,6 +455,7 @@ function buildAgentArtifactRegistry(
   const cardsById = new Map<string, RecommendationCard>();
   const actionsById = new Map<string, ChatAction>();
   const itinerariesById = new Map<string, ItineraryPlan>();
+  const decisionSummariesById = new Map<string, DecisionSummary>();
 
   for (const result of toolResults) {
     for (const card of cardsWithCarrierSources(result)) {
@@ -453,12 +481,19 @@ function buildAgentArtifactRegistry(
         itinerariesById.set(id, itinerary.id ? itinerary : { ...itinerary, id });
       }
     }
+
+    for (const summary of result.decisionSummaries ?? []) {
+      if (!decisionSummariesById.has(summary.id)) {
+        decisionSummariesById.set(summary.id, summary);
+      }
+    }
   }
 
   return {
     cardsById,
     actionsById,
     itinerariesById,
+    decisionSummariesById,
   };
 }
 
@@ -475,6 +510,7 @@ function selectAgentArtifacts({
   actions,
   allowedCardKinds,
   cards,
+  decisionSummaries,
   finalPayload,
   itineraries,
   mode,
@@ -484,6 +520,7 @@ function selectAgentArtifacts({
   actions?: readonly ChatAction[];
   allowedCardKinds?: readonly RecommendationCardKind[];
   itineraries?: readonly ItineraryPlan[];
+  decisionSummaries?: readonly DecisionSummary[];
   finalPayload?: AgentFinalPayload;
   mode: AgentArtifactSelectionMode;
   registry: AgentArtifactRegistry;
@@ -491,6 +528,7 @@ function selectAgentArtifacts({
   cards: RecommendationCard[];
   actions: ChatAction[];
   itineraries: ItineraryPlan[];
+  decisionSummaries: DecisionSummary[];
   summary: AgentArtifactSelectionSummary;
 } {
   const cardRegistry = allowedCardKinds?.length
@@ -510,20 +548,24 @@ function selectAgentArtifacts({
     );
     const compatibilityActions = dedupeById(actions ?? []);
     const compatibilityItineraries = dedupeItineraries(itineraries ?? []);
+    const compatibilityDecisionSummaries = dedupeById(decisionSummaries ?? []);
     return {
       cards: compatibilityCards,
       actions: compatibilityActions,
       itineraries: compatibilityItineraries,
+      decisionSummaries: compatibilityDecisionSummaries,
       summary: artifactSelectionSummary({
         mode,
         registry: cardRegistry,
         selectedCardCount: compatibilityCards.length,
         selectedActionCount: compatibilityActions.length,
         selectedItineraryCount: compatibilityItineraries.length,
+        selectedDecisionSummaryCount: compatibilityDecisionSummaries.length,
         structuredFinalPayload: false,
         unknownCardIds: [],
         unknownActionIds: [],
         unknownItineraryIds: [],
+        unknownDecisionSummaryIds: [],
       }),
     };
   }
@@ -543,13 +585,22 @@ function selectAgentArtifacts({
     registryIds: [...registry.itinerariesById.keys()],
     aliases: itineraryArtifactIdAliases([...registry.itinerariesById.values()]),
   });
+  const selectedDecisionSummaryIds = resolveSelectedArtifactIds({
+    ids: finalPayload.displayDecisionSummaryIds,
+    registryIds: [...registry.decisionSummariesById.keys()],
+    aliases: artifactIdAliases([...registry.decisionSummariesById.keys()], "decision_summary"),
+  });
   const unknownCardIds = selectedCardIds.unknownIds;
   const unknownActionIds = selectedActionIds.unknownIds;
   const unknownItineraryIds = selectedItineraryIds.unknownIds;
+  const unknownDecisionSummaryIds = selectedDecisionSummaryIds.unknownIds;
 
   if (
     mode === "strict" &&
-    (unknownCardIds.length > 0 || unknownActionIds.length > 0 || unknownItineraryIds.length > 0)
+    (unknownCardIds.length > 0 ||
+      unknownActionIds.length > 0 ||
+      unknownItineraryIds.length > 0 ||
+      unknownDecisionSummaryIds.length > 0)
   ) {
     throw new Error(
       [
@@ -557,6 +608,9 @@ function selectAgentArtifacts({
         unknownCardIds.length ? `cards: ${unknownCardIds.join(", ")}` : "",
         unknownActionIds.length ? `actions: ${unknownActionIds.join(", ")}` : "",
         unknownItineraryIds.length ? `itineraries: ${unknownItineraryIds.join(", ")}` : "",
+        unknownDecisionSummaryIds.length
+          ? `decision summaries: ${unknownDecisionSummaryIds.join(", ")}`
+          : "",
       ]
         .filter(Boolean)
         .join(" "),
@@ -579,21 +633,28 @@ function selectAgentArtifacts({
     const itinerary = registry.itinerariesById.get(id);
     return itinerary ? [itinerary] : [];
   });
+  const selectedDecisionSummaries = selectedDecisionSummaryIds.resolvedIds.flatMap((id) => {
+    const summary = registry.decisionSummariesById.get(id);
+    return summary ? [summary] : [];
+  });
 
   return {
     cards: selectedCards,
     actions: selectedActions,
     itineraries: selectedItineraries,
+    decisionSummaries: selectedDecisionSummaries,
     summary: artifactSelectionSummary({
       mode,
       registry: cardRegistry,
       selectedCardCount: selectedCards.length,
       selectedActionCount: selectedActions.length,
       selectedItineraryCount: selectedItineraries.length,
+      selectedDecisionSummaryCount: selectedDecisionSummaries.length,
       structuredFinalPayload: true,
       unknownCardIds,
       unknownActionIds,
       unknownItineraryIds,
+      unknownDecisionSummaryIds,
     }),
   };
 }
@@ -650,7 +711,7 @@ type ArtifactAliasResolver = {
   get(value: string): string | undefined;
 };
 
-function artifactIdAliases(ids: readonly string[], kind: "action" | "card") {
+function artifactIdAliases(ids: readonly string[], kind: "action" | "card" | "decision_summary") {
   const aliases = new Map<string, string>();
 
   ids.forEach((id, index) => {
@@ -673,8 +734,11 @@ function artifactIdAliases(ids: readonly string[], kind: "action" | "card") {
       if (id.startsWith("place_")) {
         addArtifactAlias(aliases, `places/${id.slice("place_".length)}`, id);
       }
-    } else {
+    } else if (kind === "action") {
       addArtifactAlias(aliases, `action_${ordinal}`, id);
+    } else {
+      addArtifactAlias(aliases, `decision_summary_${ordinal}`, id);
+      addArtifactAlias(aliases, `summary_${ordinal}`, id);
     }
   });
 
@@ -736,10 +800,12 @@ function artifactSelectionSummary({
   registry,
   selectedActionCount,
   selectedCardCount,
+  selectedDecisionSummaryCount,
   selectedItineraryCount,
   structuredFinalPayload,
   unknownActionIds,
   unknownCardIds,
+  unknownDecisionSummaryIds,
   unknownItineraryIds,
 }: {
   mode: AgentArtifactSelectionMode;
@@ -747,10 +813,12 @@ function artifactSelectionSummary({
   selectedCardCount: number;
   selectedActionCount: number;
   selectedItineraryCount: number;
+  selectedDecisionSummaryCount: number;
   structuredFinalPayload: boolean;
   unknownCardIds: readonly string[];
   unknownActionIds: readonly string[];
   unknownItineraryIds: readonly string[];
+  unknownDecisionSummaryIds: readonly string[];
 }): AgentArtifactSelectionSummary {
   return {
     mode,
@@ -758,15 +826,22 @@ function artifactSelectionSummary({
     totalCardCount: registry.cardsById.size,
     totalActionCount: registry.actionsById.size,
     totalItineraryCount: registry.itinerariesById.size,
+    totalDecisionSummaryCount: registry.decisionSummariesById.size,
     selectedCardCount,
     selectedActionCount,
     selectedItineraryCount,
+    selectedDecisionSummaryCount,
     unselectedCardCount: Math.max(0, registry.cardsById.size - selectedCardCount),
     unselectedActionCount: Math.max(0, registry.actionsById.size - selectedActionCount),
     unselectedItineraryCount: Math.max(0, registry.itinerariesById.size - selectedItineraryCount),
+    unselectedDecisionSummaryCount: Math.max(
+      0,
+      registry.decisionSummariesById.size - selectedDecisionSummaryCount,
+    ),
     unknownCardIds,
     unknownActionIds,
     unknownItineraryIds,
+    unknownDecisionSummaryIds,
   };
 }
 

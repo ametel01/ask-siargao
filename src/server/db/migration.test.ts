@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { getTableName } from "drizzle-orm";
 
 import { siargaoTaxonomy } from "@/server/audit/destinations/siargao/taxonomy";
@@ -51,13 +52,23 @@ import {
   users,
 } from "@/server/db/schema";
 import {
-  migrationPath,
+  getMigrationPaths,
   openTestDatabase,
   resetTestDatabase,
   runInitialMigration,
 } from "@/server/db/test-database";
 
 describe("Step 3 database migration", () => {
+  test("discovers ordered schema migrations", async () => {
+    const migrationNames = (await getMigrationPaths()).map((migrationPath) =>
+      path.basename(migrationPath),
+    );
+
+    expect(migrationNames).toEqual(migrationNames.toSorted());
+    expect(migrationNames).toContain("0000_initial_schema.sql");
+    expect(migrationNames).toContain("0001_chat_decision_summaries.sql");
+  });
+
   test("creates required core tables and accepts taxonomy seed rows", async () => {
     await resetTestDatabase();
     const db = await openTestDatabase();
@@ -131,7 +142,11 @@ describe("Step 3 database migration", () => {
   });
 
   test("keeps typed Drizzle schema exports in parity with migrated tables", async () => {
-    const migrationSql = await readFile(migrationPath, "utf8");
+    const migrationSql = (
+      await Promise.all(
+        (await getMigrationPaths()).map((migrationPath) => readFile(migrationPath, "utf8")),
+      )
+    ).join("\n");
     const migratedTables = [
       ...migrationSql.matchAll(/CREATE TABLE IF NOT EXISTS\s+([a-z_]+)/g),
     ].map((match) => match[1]);
@@ -293,6 +308,7 @@ describe("Step 3 database migration", () => {
       ["cards_json", "jsonb", "NO", "'[]'::jsonb"],
       ["actions_json", "jsonb", "NO", "'[]'::jsonb"],
       ["itineraries_json", "jsonb", "NO", "'[]'::jsonb"],
+      ["decision_summaries_json", "jsonb", "NO", "'[]'::jsonb"],
       ["tool_calls_json", "jsonb", "NO", "'[]'::jsonb"],
       ["context_summary_json", "jsonb", "NO", "'{}'::jsonb"],
       ["error_code", "text", "YES", null],

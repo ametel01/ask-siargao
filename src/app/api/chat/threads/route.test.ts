@@ -113,6 +113,25 @@ describe("chat thread API routes", () => {
       "assistant",
     ]);
     expect(body.messages[1].cards).toEqual([{ id: "card_1", title: "Cloud 9" }]);
+    expect(body.messages[1].decisionSummaries).toEqual([
+      {
+        id: "condition_decision:swimming:cloud_9:today",
+        bestAction: "Keep swimming flexible.",
+        basis: "Weather is usable, but surf reports are not checked.",
+        timing: "today",
+        area: "Cloud 9",
+        sources: [
+          {
+            label: "weather_checked",
+            sourceName: "Open-Meteo weather API",
+            sourceProfileId: "source_open_meteo",
+            confidence: "medium",
+            checked: ["forecast for Siargao Island"],
+            notChecked: ["surf reports"],
+          },
+        ],
+      },
+    ]);
     expect(body.messages[1].rating).toMatchObject({
       rating: "up",
       reasonCodes: ["helpful"],
@@ -224,6 +243,28 @@ async function createThreadWithMessage(
     role: "assistant",
     content: "Try Cloud 9.",
     cards: [{ id: "card_1", title: "Cloud 9" }],
+    decisionSummaries:
+      threadId === "thread_detail"
+        ? [
+            {
+              id: "condition_decision:swimming:cloud_9:today",
+              bestAction: "Keep swimming flexible.",
+              basis: "Weather is usable, but surf reports are not checked.",
+              timing: "today",
+              area: "Cloud 9",
+              sources: [
+                {
+                  label: "weather_checked",
+                  sourceName: "Open-Meteo weather API",
+                  sourceProfileId: "source_open_meteo",
+                  confidence: "medium",
+                  checked: ["forecast for Siargao Island"],
+                  notChecked: ["surf reports"],
+                },
+              ],
+            },
+          ]
+        : [],
     createdAt: new Date(Date.parse(createdAt) + 1_000),
   });
 }

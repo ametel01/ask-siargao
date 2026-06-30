@@ -3,8 +3,9 @@ import path from "node:path";
 
 import { PGlite } from "@electric-sql/pglite";
 
+import { listMigrationPaths } from "@/server/db/migration-files";
+
 const testDatabaseDir = path.join(process.cwd(), ".tmp", "pglite-step3");
-export const migrationPath = path.join(process.cwd(), "drizzle", "0000_initial_schema.sql");
 
 export async function resetTestDatabase() {
   await rm(testDatabaseDir, { force: true, recursive: true });
@@ -17,6 +18,12 @@ export async function openTestDatabase() {
 }
 
 export async function runInitialMigration(db: PGlite) {
-  const sql = await readFile(migrationPath, "utf8");
-  await db.exec(sql);
+  for (const migrationPath of await getMigrationPaths()) {
+    const sql = await readFile(migrationPath, "utf8");
+    await db.exec(sql);
+  }
+}
+
+export async function getMigrationPaths() {
+  return listMigrationPaths();
 }

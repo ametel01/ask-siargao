@@ -9,6 +9,7 @@ import {
   aggregateAgentSourceSummaries,
   createAgentToolCallAudit,
   createAgentTurnResult,
+  type DecisionSummary,
   type ItineraryPlan,
   resolveAgentRuntimeRequest,
 } from "@/server/chat/agent-runtime";
@@ -498,6 +499,79 @@ describe("agent runtime contracts", () => {
       unknownItineraryIds: [],
       unselectedItineraryCount: 0,
     });
+  });
+
+  test("returns only decision summaries selected by final payload", () => {
+    const turn = createAgentTurnResult({
+      message: "Keep the swim flexible and confirm locally.",
+      requestId: "agent_request_selected_decision_summary",
+      model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayDecisionSummaryIds: [swimmingDecisionSummary.id],
+      }),
+      toolResults: [
+        {
+          sources: [weatherSourceSummary],
+          decisionSummaries: [swimmingDecisionSummary, unselectedScooterDecisionSummary],
+        },
+      ],
+    });
+
+    expect(turn.decisionSummaries).toEqual([swimmingDecisionSummary]);
+    expect(turn.publicSources).toEqual([weatherSourceSummary]);
+    expect(turn.artifactSelection).toMatchObject({
+      structuredFinalPayload: true,
+      totalDecisionSummaryCount: 2,
+      selectedDecisionSummaryCount: 1,
+      unselectedDecisionSummaryCount: 1,
+      unknownDecisionSummaryIds: [],
+    });
+  });
+
+  test("drops unknown decision summary IDs in compatibility mode", () => {
+    const turn = createAgentTurnResult({
+      message: "Answer without a selected panel.",
+      requestId: "agent_request_unknown_decision_summary_compat",
+      model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayDecisionSummaryIds: ["missing_summary"],
+      }),
+      toolResults: [
+        {
+          sources: [weatherSourceSummary],
+          decisionSummaries: [swimmingDecisionSummary],
+        },
+      ],
+    });
+
+    expect(turn.decisionSummaries).toBeUndefined();
+    expect(turn.publicSources).toEqual([]);
+    expect(turn.artifactSelection).toMatchObject({
+      totalDecisionSummaryCount: 1,
+      selectedDecisionSummaryCount: 0,
+      unselectedDecisionSummaryCount: 1,
+      unknownDecisionSummaryIds: ["missing_summary"],
+    });
+  });
+
+  test("fails unknown decision summary IDs in strict mode", () => {
+    expect(() =>
+      createAgentTurnResult({
+        message: "Strict answer.",
+        requestId: "agent_request_unknown_decision_summary_strict",
+        model: "gpt-test",
+        artifactSelectionMode: "strict",
+        finalPayload: finalPayloadFixture({
+          displayDecisionSummaryIds: ["missing_summary"],
+        }),
+        toolResults: [
+          {
+            sources: [weatherSourceSummary],
+            decisionSummaries: [swimmingDecisionSummary],
+          },
+        ],
+      }),
+    ).toThrow(/decision summaries: missing_summary/);
   });
 
   test("keeps explicit trusted card and action artifacts while leaving tool artifacts internal", () => {
@@ -1284,6 +1358,7 @@ function finalPayloadFixture(
       | "answer"
       | "displayActionIds"
       | "displayCardIds"
+      | "displayDecisionSummaryIds"
       | "displayItineraryIds"
       | "usedMemoryFiles"
       | "usedToolCallIds"
@@ -1297,6 +1372,7 @@ function finalPayloadFixture(
     displayCardIds: overrides.displayCardIds ?? [],
     displayActionIds: overrides.displayActionIds ?? [],
     displayItineraryIds: overrides.displayItineraryIds ?? [],
+    displayDecisionSummaryIds: overrides.displayDecisionSummaryIds ?? [],
   };
 }
 
@@ -1336,6 +1412,27 @@ const localGuideSourceSummary: AnswerSourceSummary = {
   confidence: "medium",
   checked: ["beach surface notes", "ride-time notes"],
   notChecked: ["live tide", "lifeguard status"],
+};
+
+const swimmingDecisionSummary: DecisionSummary = {
+  id: "condition_decision:swimming:cloud_9:today",
+  bestAction: "Keep swimming flexible.",
+  basis: "Weather is usable, but surf reports are not checked.",
+  fallback: "Use a nearby covered stop if conditions worsen.",
+  avoid: "Avoid treating this as beach safety clearance.",
+  timing: "today",
+  area: "Cloud 9",
+  sources: [weatherSourceSummary],
+};
+
+const unselectedScooterDecisionSummary: DecisionSummary = {
+  id: "condition_decision:scooter:cloud_9:today",
+  bestAction: "Avoid a long scooter ride for now.",
+  basis: "Rain risk is high enough to prefer a shorter transfer.",
+  fallback: "Use a tricycle or wait for a dry break.",
+  timing: "today",
+  area: "Cloud 9",
+  sources: [localGuideSourceSummary],
 };
 
 const providerUnavailableSourceSummary: AnswerSourceSummary = {

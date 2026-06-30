@@ -2121,6 +2121,9 @@ describe("agent tools", () => {
     expect(result.status).toBe("success");
     expect(result.text).toContain("Condition judgment for swimming at Malinao Beach");
     expect(result.text).toContain("tide checked");
+    expect(result.text).toContain(
+      "Decision summary artifact: condition_decision:swimming:malinao_beach:today",
+    );
     expect(result.sources.map((source) => source.label)).toEqual([
       "weather_checked",
       "tide_forecast_checked",
@@ -2132,8 +2135,27 @@ describe("agent tools", () => {
         recommendation: string;
         signals: Array<{ kind: string; status: string }>;
       };
+      decisionSummary: {
+        id: string;
+        bestAction: string;
+        basis: string;
+        timing: string;
+        area: string;
+      };
     };
     expect(data.judgment.recommendation).toBe("flexible");
+    expect(data.decisionSummary).toMatchObject({
+      id: "condition_decision:swimming:malinao_beach:today",
+      bestAction: "Keep swimming flexible.",
+      timing: "today",
+      area: "Malinao Beach",
+    });
+    expect(result.decisionSummaries).toEqual([
+      expect.objectContaining({
+        id: data.decisionSummary.id,
+        sources: result.sources,
+      }),
+    ]);
     expect(data.judgment.signals).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: "weather", status: "checked" }),
@@ -2271,8 +2293,17 @@ describe("agent tools", () => {
         recommendation: string;
         signals: Array<{ kind: string; status: string }>;
       };
+      decisionSummary: {
+        bestAction: string;
+        avoid: string;
+      };
     };
     expect(data.judgment.recommendation).toBe("needs_local_confirmation");
+    expect(data.decisionSummary).toMatchObject({
+      bestAction: "Confirm locally before committing to boat trip.",
+      avoid: "Avoid treating this as checked safety clearance.",
+    });
+    expect(result.decisionSummaries?.[0]?.sources[0]?.label).toBe("provider_unavailable");
     expect(data.judgment.signals).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: "weather", status: "unavailable" }),

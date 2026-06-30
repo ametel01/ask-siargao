@@ -1,7 +1,6 @@
-import path from "node:path";
-
 import postgres from "postgres";
 
+import { listMigrationPaths } from "@/server/db/migration-files";
 import { createComponentLogger } from "@/server/observability/logger";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -12,20 +11,23 @@ if (!databaseUrl) {
   throw new Error("DATABASE_URL is required to run database migrations.");
 }
 
-const migrationPath = path.join(process.cwd(), "drizzle", "0000_initial_schema.sql");
 const sql = postgres(databaseUrl, { max: 1, prepare: false });
 const startedAt = performance.now();
 
 try {
+  const migrationPaths = await listMigrationPaths();
+
   migrationLogger.info(
     {
       databaseUrl: databaseUrlForLog(databaseUrl),
-      migrationPath,
+      migrationPaths,
     },
     "Database migration started.",
   );
 
-  await sql.file(migrationPath);
+  for (const migrationPath of migrationPaths) {
+    await sql.file(migrationPath);
+  }
 
   const tables = await sql<
     { table_name: string }[]

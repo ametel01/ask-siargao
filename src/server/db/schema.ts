@@ -123,6 +123,10 @@ export const chatMessages = pgTable(
       .$type<Record<string, unknown>[]>()
       .notNull()
       .default([]),
+    decisionSummariesJson: jsonb("decision_summaries_json")
+      .$type<Record<string, unknown>[]>()
+      .notNull()
+      .default([]),
     toolCallsJson: jsonb("tool_calls_json")
       .$type<Record<string, unknown>[]>()
       .notNull()

@@ -122,6 +122,7 @@ type InteractiveChatMessage = {
   cards?: readonly RecommendationCardArtifact[];
   actions?: readonly ChatActionArtifact[];
   itineraries?: readonly ItineraryPlanArtifact[];
+  decisionSummaries?: readonly DecisionSummaryArtifact[];
   sources?: readonly ChatSourceArtifact[];
 };
 
@@ -146,6 +147,17 @@ type ChatActionArtifact = {
   type?: "link" | "prompt" | "navigation";
   href?: string;
   prompt?: string;
+};
+
+type DecisionSummaryArtifact = {
+  id: string;
+  bestAction: string;
+  basis: string;
+  fallback?: string;
+  avoid?: string;
+  timing?: string;
+  area?: string;
+  sources: readonly ChatSourceArtifact[];
 };
 
 type ItineraryStopArtifact = {
@@ -237,6 +249,7 @@ type ChatThreadDetailMessage = {
   cards?: RecommendationCardArtifact[];
   actions?: ChatActionArtifact[];
   itineraries?: ItineraryPlanArtifact[];
+  decisionSummaries?: DecisionSummaryArtifact[];
   rating?: ChatMessageRating | null;
   createdAt: string;
 };
@@ -741,6 +754,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
           cards?: RecommendationCardArtifact[];
           actions?: ChatActionArtifact[];
           itineraries?: ItineraryPlanArtifact[];
+          decisionSummaries?: DecisionSummaryArtifact[];
           sources?: ChatSourceArtifact[];
           threadId?: string;
           assistantMessageId?: string;
@@ -769,6 +783,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
                   cards: body.cards,
                   actions: body.actions,
                   itineraries: body.itineraries,
+                  decisionSummaries: body.decisionSummaries,
                   sources: body.sources,
                 }
               : message,
@@ -1211,6 +1226,9 @@ function ChatMessage({
           <div className="grid min-w-0 flex-1 gap-4">
             <AssistantMarkdownText text={message.text} tone={isError ? "error" : "default"} />
             {!isError && !isPending ? <AssistantGlance message={message} /> : null}
+            {!isError && !isPending && message.decisionSummaries?.length ? (
+              <DecisionSummaryPanels summaries={message.decisionSummaries} />
+            ) : null}
             {!isError && !isPending && message.itineraries?.length ? (
               <ItineraryPlans
                 onRemoveSavedItem={onRemoveSavedItem}
@@ -1493,22 +1511,36 @@ function SavedPlanTray({
 function AssistantGlance({ message }: { message: InteractiveChatMessage }) {
   const primaryPlan = message.itineraries?.[0];
   const primaryCard = message.cards?.[0];
-  const sources = message.sources ?? primaryPlan?.sources ?? primaryCard?.sources ?? [];
+  const primarySummary = message.decisionSummaries?.[0];
+  const sources =
+    message.sources ??
+    primaryPlan?.sources ??
+    primaryCard?.sources ??
+    primarySummary?.sources ??
+    [];
   const items = [
     {
-      icon: primaryPlan ? Navigation : Utensils,
-      label: primaryPlan ? "Plan" : "Type",
-      value: primaryPlan ? primaryPlan.title : primaryCard ? primaryCard.kind : undefined,
+      icon: primaryPlan ? Navigation : primarySummary ? ShieldCheck : Utensils,
+      label: primaryPlan ? "Plan" : primarySummary ? "Move" : "Type",
+      value: primaryPlan
+        ? primaryPlan.title
+        : primarySummary
+          ? primarySummary.bestAction
+          : primaryCard
+            ? primaryCard.kind
+            : undefined,
     },
     {
       icon: MapPin,
       label: "Area",
-      value: primaryPlan ? itineraryPrimaryArea(primaryPlan) : cardAreaLabel(primaryCard),
+      value: primaryPlan
+        ? itineraryPrimaryArea(primaryPlan)
+        : (primarySummary?.area ?? cardAreaLabel(primaryCard)),
     },
     {
       icon: Clock,
       label: "Timing",
-      value: primaryPlan?.durationLabel ?? primaryCard?.openStatusLabel ?? "Tonight",
+      value: primaryPlan?.durationLabel ?? primarySummary?.timing ?? primaryCard?.openStatusLabel,
     },
     {
       icon: ShieldCheck,
@@ -1554,6 +1586,74 @@ function AssistantGlance({ message }: { message: InteractiveChatMessage }) {
         })}
       </div>
     </section>
+  );
+}
+
+function DecisionSummaryPanels({ summaries }: { summaries: readonly DecisionSummaryArtifact[] }) {
+  return (
+    <section aria-label="Best move" className="grid min-w-0 gap-3">
+      {summaries.map((summary) => (
+        <article
+          className="grid min-w-0 gap-3 rounded-md border border-brand-lagoon-300/22 bg-brand-lagoon-300/10 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+          data-testid="decision-summary-panel"
+          key={summary.id}
+        >
+          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+            <div className="grid min-w-0 gap-1">
+              <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.68rem] leading-tight font-black text-brand-lagoon-200 uppercase">
+                <Navigation aria-hidden="true" className="shrink-0" size={13} />
+                Best move
+              </span>
+              <h3 className="m-0 text-base leading-tight font-black break-words text-white">
+                {summary.bestAction}
+              </h3>
+            </div>
+            <div className="flex min-w-0 flex-wrap gap-1.5 sm:justify-end">
+              {summary.area ? <DecisionSummaryChip icon={MapPin} label={summary.area} /> : null}
+              {summary.timing ? <DecisionSummaryChip icon={Clock} label={summary.timing} /> : null}
+            </div>
+          </div>
+          <p className="m-0 text-sm leading-[1.45] font-bold break-words text-text-on-dark-muted">
+            {summary.basis}
+          </p>
+          {summary.fallback || summary.avoid ? (
+            <div className="grid min-w-0 gap-2 sm:grid-cols-2">
+              {summary.fallback ? (
+                <DecisionSummaryGuidance label="Fallback" value={summary.fallback} />
+              ) : null}
+              {summary.avoid ? (
+                <DecisionSummaryGuidance label="Avoid" value={summary.avoid} />
+              ) : null}
+            </div>
+          ) : null}
+          {summary.sources.length ? (
+            <div className="flex min-w-0 flex-wrap gap-2" data-testid="decision-summary-sources">
+              {summary.sources.map((source) => (
+                <SourceIconBadge key={chatSourceKey(source)} source={source} />
+              ))}
+            </div>
+          ) : null}
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function DecisionSummaryChip({ icon: Icon, label }: { icon: typeof Clock; label: string }) {
+  return (
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.06] px-2 py-1 text-xs font-extrabold text-text-on-dark-muted">
+      <Icon aria-hidden="true" className="shrink-0" size={13} />
+      <span className="min-w-0 truncate">{label}</span>
+    </span>
+  );
+}
+
+function DecisionSummaryGuidance({ label, value }: { label: string; value: string }) {
+  return (
+    <p className="m-0 rounded-md border border-white/8 bg-white/[0.045] px-3 py-2 text-xs leading-[1.45] font-bold break-words text-text-on-dark-muted">
+      <span className="font-black text-white">{label}: </span>
+      {value}
+    </p>
   );
 }
 
@@ -3016,6 +3116,7 @@ function interactiveMessageFromThreadMessage(
     cards: message.cards,
     actions: message.actions,
     itineraries: message.itineraries,
+    decisionSummaries: message.decisionSummaries,
     sources: message.sources,
   };
 }

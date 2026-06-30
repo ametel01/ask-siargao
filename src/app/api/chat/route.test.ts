@@ -13,6 +13,7 @@ import type {
   AgentRuntimeRequest,
   AgentToolCallAudit,
   AgentTurnResult,
+  DecisionSummary,
   ItineraryPlan,
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
@@ -148,10 +149,11 @@ describe("chat route", () => {
       content: string;
       sources_json: unknown;
       cards_json: unknown;
+      decision_summaries_json: unknown;
       tool_calls_json: unknown;
       context_summary_json: unknown;
     }>(
-      "select role, content, sources_json, cards_json, tool_calls_json, context_summary_json from chat_messages order by created_at, id",
+      "select role, content, sources_json, cards_json, decision_summaries_json, tool_calls_json, context_summary_json from chat_messages order by created_at, id",
     );
     const serializedMessages = JSON.stringify(messages.rows);
 
@@ -167,6 +169,7 @@ describe("chat route", () => {
     expect(messages.rows[1]?.content).toBe("Two nearby options look good.");
     expect(body.cards).toEqual([genericRecommendationCard]);
     expect(messages.rows[1]?.cards_json).toEqual([genericRecommendationCard]);
+    expect(messages.rows[1]?.decision_summaries_json).toEqual([]);
     expect(serializedMessages).not.toContain(String(geolocation.latitude));
     expect(serializedMessages).not.toContain(String(geolocation.longitude));
     expect(serializedMessages).toContain("usedAsProximityAnchor");
@@ -916,15 +919,19 @@ describe("chat route", () => {
         totalCardCount: 2,
         totalActionCount: 2,
         totalItineraryCount: 0,
+        totalDecisionSummaryCount: 0,
         selectedCardCount: 1,
         selectedActionCount: 1,
         selectedItineraryCount: 0,
+        selectedDecisionSummaryCount: 0,
         unselectedCardCount: 1,
         unselectedActionCount: 1,
         unselectedItineraryCount: 0,
+        unselectedDecisionSummaryCount: 0,
         unknownCardIds: ["missing_card"],
         unknownActionIds: ["missing_action"],
         unknownItineraryIds: [],
+        unknownDecisionSummaryIds: [],
       },
     });
     dependencies.logger = logs.logger;
@@ -955,6 +962,9 @@ describe("chat route", () => {
         totalActionCount: 2,
         selectedActionCount: 1,
         unselectedActionCount: 1,
+        totalDecisionSummaryCount: 0,
+        selectedDecisionSummaryCount: 0,
+        unselectedDecisionSummaryCount: 0,
         unknownCardIds: ["missing_card"],
         unknownActionIds: ["missing_action"],
       },
@@ -1098,6 +1108,83 @@ describe("chat route", () => {
     const response = await chatResponse(
       jsonRequest({
         messages: [{ role: "user", content: "Plan a rainy Cloud 9 afternoon for 3 hours." }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(body.error).toBe("source_consistency_failed");
+  });
+
+  test("returns selected decision summaries with governed sources", async () => {
+    const logs = captureLogger();
+    const weatherToolCall = toolCall({
+      name: "get_condition_judgment",
+      status: "success",
+      sources: [weatherSourceSummary],
+    });
+    const dependencies = chatDependencies({
+      message: "Keep the swim flexible and confirm the beach locally.",
+      toolCalls: [weatherToolCall],
+      sources: [weatherSourceSummary],
+      publicSources: [weatherSourceSummary],
+      decisionSummaries: [swimmingDecisionSummary],
+      artifactSelection: {
+        mode: "strict",
+        structuredFinalPayload: true,
+        totalCardCount: 0,
+        totalActionCount: 0,
+        totalItineraryCount: 0,
+        totalDecisionSummaryCount: 2,
+        selectedCardCount: 0,
+        selectedActionCount: 0,
+        selectedItineraryCount: 0,
+        selectedDecisionSummaryCount: 1,
+        unselectedCardCount: 0,
+        unselectedActionCount: 0,
+        unselectedItineraryCount: 0,
+        unselectedDecisionSummaryCount: 1,
+        unknownCardIds: [],
+        unknownActionIds: [],
+        unknownItineraryIds: [],
+        unknownDecisionSummaryIds: [],
+      },
+    });
+    dependencies.logger = logs.logger;
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Should I swim at Cloud 9 today?" }],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.decisionSummaries).toEqual([swimmingDecisionSummary]);
+    expect(body.sources).toEqual([weatherSourceSummary]);
+    const answeredLog = logs.events.find((event) => event.message === "Chat request answered.");
+    expect(answeredLog?.payload).toMatchObject({
+      decisionSummaryCount: 1,
+      artifactSelection: {
+        totalDecisionSummaryCount: 2,
+        selectedDecisionSummaryCount: 1,
+        unselectedDecisionSummaryCount: 1,
+      },
+    });
+  });
+
+  test("validates selected decision summary sources before returning them", async () => {
+    const dependencies = chatDependencies({
+      message: "Here is a decision summary with an invalid checked source.",
+      toolCalls: [],
+      sources: [genericSourceSummary],
+      publicSources: [genericSourceSummary],
+      decisionSummaries: [swimmingDecisionSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Should I swim at Cloud 9 today?" }],
       }),
       dependencies,
     );
@@ -1758,6 +1845,7 @@ function chatDependencies(
         ...(result.cards ? { cards: result.cards } : {}),
         ...(result.actions ? { actions: result.actions } : {}),
         ...(result.itineraries ? { itineraries: result.itineraries } : {}),
+        ...(result.decisionSummaries ? { decisionSummaries: result.decisionSummaries } : {}),
         ...(result.artifactSelection ? { artifactSelection: result.artifactSelection } : {}),
       };
     },
@@ -1936,6 +2024,17 @@ const weatherSourceSummary: AnswerSourceSummary = {
   confidence: "medium",
   checked: ["forecast for Siargao Island"],
   notChecked: ["surf reports"],
+};
+
+const swimmingDecisionSummary: DecisionSummary = {
+  id: "condition_decision:swimming:cloud_9:today",
+  bestAction: "Keep swimming flexible.",
+  basis: "Weather is usable, but surf reports are not checked.",
+  fallback: "Use a nearby covered stop if conditions worsen.",
+  avoid: "Avoid treating this as beach safety clearance.",
+  timing: "today",
+  area: "Cloud 9",
+  sources: [weatherSourceSummary],
 };
 
 const conditionMarineSourceSummary: AnswerSourceSummary = {

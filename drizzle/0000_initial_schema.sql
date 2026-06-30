@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   cards_json jsonb NOT NULL DEFAULT '[]'::jsonb,
   actions_json jsonb NOT NULL DEFAULT '[]'::jsonb,
   itineraries_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  decision_summaries_json jsonb NOT NULL DEFAULT '[]'::jsonb,
   tool_calls_json jsonb NOT NULL DEFAULT '[]'::jsonb,
   context_summary_json jsonb NOT NULL DEFAULT '{}'::jsonb,
   error_code text,

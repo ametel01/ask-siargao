@@ -4403,6 +4403,7 @@ function finalPayloadText(overrides: Partial<AgentFinalPayload> = {}) {
     displayCardIds: overrides.displayCardIds ?? [],
     displayActionIds: overrides.displayActionIds ?? [],
     displayItineraryIds: overrides.displayItineraryIds ?? [],
+    displayDecisionSummaryIds: overrides.displayDecisionSummaryIds ?? [],
   } satisfies AgentFinalPayload);
 }
 
