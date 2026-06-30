@@ -1436,6 +1436,106 @@ describe("chat route", () => {
     expect(signals?.intent.today).toBe(true);
     expect(signals?.intent.locationLabel).toBe("General Luna");
     expect(signals?.intent.placeIntent?.category).toBe("bar");
+    expect(signals?.intent.researchIntent).toMatchObject({
+      intent: "recommendation",
+      location: "General Luna",
+      dateContext: "tonight",
+      requiredFreshness: "same_day",
+      coveredRequestClass: "current_recommendation",
+    });
+    expect(signals?.intent.researchIntent?.sourceTypes).toEqual(
+      expect.arrayContaining(["official", "local_directory", "social", "community"]),
+    );
+  });
+
+  test("marks current restaurant recommendations for required web research", async () => {
+    const dependencies = chatDependencies({
+      message: "The model answers the dinner question.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Best dinner in General Luna tonight?" }],
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.intent.placeIntent?.category).toBe("food");
+    expect(signals?.intent.researchIntent).toMatchObject({
+      intent: "recommendation",
+      location: "General Luna",
+      dateContext: "tonight",
+      requiredFreshness: "same_day",
+      coveredRequestClass: "current_recommendation",
+    });
+    expect(signals?.intent.researchIntent?.sourceTypes).toEqual(
+      expect.arrayContaining(["maps", "official", "local_directory"]),
+    );
+  });
+
+  test("marks ferry schedules, tour prices, and safety disruptions for required web research", async () => {
+    for (const scenario of [
+      {
+        prompt: "Dapa to Surigao ferry schedule tomorrow?",
+        expected: {
+          intent: "schedule",
+          dateContext: "tomorrow",
+          coveredRequestClass: "schedule",
+        },
+      },
+      {
+        prompt: "How much is a Sugba Lagoon tour right now?",
+        expected: {
+          intent: "price",
+          dateContext: "today",
+          coveredRequestClass: "price",
+        },
+      },
+      {
+        prompt: "Any road closures or brownout advisories in Siargao today?",
+        expected: {
+          intent: "safety",
+          dateContext: "today",
+          coveredRequestClass: "safety_disruption",
+        },
+      },
+    ]) {
+      const dependencies = chatDependencies({
+        message: "The model answers the current public-fact question.",
+        sources: [genericSourceSummary],
+      });
+      const response = await chatResponse(
+        jsonRequest({
+          messages: [{ role: "user", content: scenario.prompt }],
+        }),
+        dependencies,
+      );
+      const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+      expect(response.status).toBe(200);
+      expect(signals?.intent.researchIntent).toMatchObject(scenario.expected);
+      expect(signals?.intent.researchIntent?.reason).toBeTruthy();
+    }
+  });
+
+  test("does not require web research for stable beach recommendations", async () => {
+    const dependencies = chatDependencies({
+      message: "The model answers from stable local beach guidance.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Best sandy beach near General Luna for swimming?" }],
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.intent.beach).toBe(true);
+    expect(signals?.intent.researchIntent).toBeUndefined();
   });
 
   test("does not mark not-surfing food prompts as activity plans", async () => {
@@ -2112,6 +2212,15 @@ type AgentSignals = {
     nearby?: boolean;
     nightlifePlan?: boolean;
     placeIntent?: { category?: string };
+    researchIntent?: {
+      coveredRequestClass?: string;
+      dateContext?: string;
+      intent?: string;
+      location?: string;
+      reason?: string;
+      requiredFreshness?: string;
+      sourceTypes?: readonly string[];
+    };
     roadCondition?: boolean;
     today?: boolean;
     tripAdvice?: boolean;

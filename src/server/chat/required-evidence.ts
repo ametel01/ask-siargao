@@ -17,14 +17,21 @@ export type RequiredEvidencePlan = {
 type RequiredEvidenceToolCallBase = {
   arguments: Record<string, unknown>;
   acceptedSourceLabels: readonly string[];
+  dependsOn?: readonly string[];
+  runBefore?: readonly string[];
   terminalSourceLabels: readonly string[];
   purpose: string;
 };
 
 export type RequiredEvidenceToolCall =
+  | RequiredWebResearchEvidenceToolCall
   | RequiredPlaceEvidenceToolCall
   | RequiredWeatherEvidenceToolCall
   | RequiredNightlifeEventEvidenceToolCall;
+
+export type RequiredWebResearchEvidenceToolCall = RequiredEvidenceToolCallBase & {
+  name: "research_web";
+};
 
 export type RequiredPlaceEvidenceToolCall = RequiredEvidenceToolCallBase & {
   name: "search_places";
@@ -68,8 +75,35 @@ const gazetteer = {
 export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): RequiredEvidencePlan {
   const intent = readIntentSignal(request.deterministicSignals);
   const placeIntent = readPlaceIntentSignal(intent?.placeIntent);
+  const researchIntent = readResearchIntentSignal(intent?.researchIntent);
   const requiredToolCalls: RequiredEvidenceToolCall[] = [];
   let allowedCardKinds: RequiredEvidencePlan["allowedCardKinds"];
+
+  if (researchIntent) {
+    requiredToolCalls.push({
+      name: "research_web",
+      purpose: "current_public_web_research",
+      arguments: {
+        query: researchIntent.query,
+        intent: researchIntent.intent,
+        ...(researchIntent.location ? { location: researchIntent.location } : {}),
+        ...(researchIntent.dateContext ? { dateContext: researchIntent.dateContext } : {}),
+        ...(researchIntent.sourceTypes ? { sourceTypes: researchIntent.sourceTypes } : {}),
+        ...(researchIntent.requiredFreshness
+          ? { requiredFreshness: researchIntent.requiredFreshness }
+          : {}),
+        maxSources: 6,
+      },
+      acceptedSourceLabels: [
+        "official_checked",
+        "directory_checked",
+        "web_researched",
+        "community_signal",
+      ],
+      terminalSourceLabels: ["insufficient_web_evidence", "provider_unavailable"],
+      runBefore: ["search_places", "get_weather_forecast", "search_nightlife_events"],
+    });
+  }
 
   if (requiresNightlifeEventEvidence(intent)) {
     allowedCardKinds = ["place"];
@@ -83,6 +117,7 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
       },
       acceptedSourceLabels: ["event_checked"],
       terminalSourceLabels: ["no_current_event_facts", "provider_unavailable"],
+      ...(researchIntent ? { dependsOn: ["research_web"] } : {}),
     });
     requiredToolCalls.push({
       name: "search_places",
@@ -99,6 +134,7 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
       },
       acceptedSourceLabels: ["live_checked", "fresh_cache"],
       terminalSourceLabels: ["provider_unavailable"],
+      ...(researchIntent ? { dependsOn: ["research_web", "search_nightlife_events"] } : {}),
       requiresOpenNow: true,
     });
     requiredToolCalls.push({
@@ -110,6 +146,7 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
       },
       acceptedSourceLabels: ["weather_checked"],
       terminalSourceLabels: ["provider_unavailable"],
+      ...(researchIntent ? { dependsOn: ["research_web"] } : {}),
     });
   }
 
@@ -140,6 +177,7 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
         },
         acceptedSourceLabels: ["live_checked", "fresh_cache"],
         terminalSourceLabels: ["provider_unavailable"],
+        ...(researchIntent ? { dependsOn: ["research_web"] } : {}),
         requiresOpenNow,
       });
     }
@@ -155,6 +193,7 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
       },
       acceptedSourceLabels: ["weather_checked"],
       terminalSourceLabels: ["provider_unavailable"],
+      ...(researchIntent ? { dependsOn: ["research_web"] } : {}),
     });
   }
 
@@ -286,6 +325,9 @@ function hasCheckedEvidenceOverclaim(
     if (requiredCall.name === "search_nightlife_events") {
       return hasNightlifeEventCheckedClaim(normalizedAnswer);
     }
+    if (requiredCall.name === "research_web") {
+      return hasWebResearchCheckedClaim(normalizedAnswer);
+    }
     return hasWeatherCheckedClaim(normalizedAnswer);
   });
 }
@@ -311,6 +353,12 @@ function hasWeatherCheckedClaim(value: string) {
 
 function hasNightlifeEventCheckedClaim(value: string) {
   return /\b(?:event[-\s]?(?:schedule|facts?|evidence)\s+(?:was|were)?\s*(?:checked|verified|confirmed)|checked\s+(?:event|nightlife|party)\s+(?:schedule|facts?|evidence)|according\s+to\s+(?:approved\s+)?(?:event|nightlife|party)\s+(?:schedule|facts?|evidence)|schedule[-\s]?checked|event[-\s]?checked)\b/iu.test(
+    value,
+  );
+}
+
+function hasWebResearchCheckedClaim(value: string) {
+  return /\b(?:web[-\s]?researched|official[-\s]?checked|directory[-\s]?checked|checked\s+(?:official|directory|public\s+web|web)\s+(?:sources?|evidence)|according\s+to\s+(?:official|public\s+web|directory)\s+(?:sources?|evidence))\b/iu.test(
     value,
   );
 }
@@ -344,6 +392,27 @@ function readPlaceIntentSignal(value: unknown): PlaceIntentSignal | undefined {
             : [],
         }
       : undefined,
+  };
+}
+
+function readResearchIntentSignal(value: unknown) {
+  if (!isRecord(value) || value.required !== true) {
+    return undefined;
+  }
+  const query = readString(value.query);
+  const intent = readString(value.intent);
+  if (!query || !intent) {
+    return undefined;
+  }
+  return {
+    query,
+    intent,
+    location: readString(value.location),
+    dateContext: readString(value.dateContext),
+    sourceTypes: Array.isArray(value.sourceTypes)
+      ? value.sourceTypes.filter((item): item is string => typeof item === "string")
+      : undefined,
+    requiredFreshness: readString(value.requiredFreshness),
   };
 }
 

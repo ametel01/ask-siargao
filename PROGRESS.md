@@ -5,9 +5,9 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 
 ## Current Status
 
-- Status: Step 5 complete
-- Current step: Add General Research Intent And Required Evidence Planning
-- Next step: Step 6 - Add General Research Intent And Required Evidence Planning
+- Status: Step 6 complete
+- Current step: Enforce Research-Before-Enrichment Runtime Ordering
+- Next step: Step 7 - Enforce Research-Before-Enrichment Runtime Ordering
 
 ## Step Checklist
 
@@ -17,7 +17,7 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 - [x] Step 3: Implement Deterministic Research Scoring Without Network Calls
 - [x] Step 4: Register `research_web` As A Chat Tool
 - [x] Step 5: Enforce Web Research Source Consistency
-- [ ] Step 6: Add General Research Intent And Required Evidence Planning
+- [x] Step 6: Add General Research Intent And Required Evidence Planning
 - [ ] Step 7: Enforce Research-Before-Enrichment Runtime Ordering
 - [ ] Step 8: Convert Places To Entity-Specific Enrichment
 - [ ] Step 9: Reject Legacy Final Answers For Research-Required Prompts
@@ -140,3 +140,23 @@ Update this file after every completed step with:
 - Changelog updated under `## [Unreleased]`.
 - Commit reference: this commit (`Validate web research source labels`).
 - Next step: Step 6 - Add General Research Intent And Required Evidence Planning.
+
+### 2026-07-01 - Step 6 Completed
+
+- Added deterministic `researchIntent` signals for current recommendations, schedules,
+  availability/closures, prices/current rates, safety/disruptions/advisories, and current
+  comparisons.
+- Extended required-evidence planning with `research_web`, accepted/terminal web source labels, and
+  dependency metadata for downstream Places/weather/nightlife enrichment.
+- Added focused `required-evidence` tests and route-boundary tests for nightlife, restaurant,
+  ferry/transport schedule, tour price, safety/disruption, and stable beach recommendations that do
+  not require public web research.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/app/api/chat/route.test.ts src/server/chat/ask-siargao-agent.test.ts src/server/chat/required-evidence.test.ts` - 160 tests passed
+  - `bun test` - 685 tests passed
+- Changelog updated under `## [Unreleased]`.
+- Commit reference: this commit (`Plan required web research for current prompts`).
+- Next step: Step 7 - Enforce Research-Before-Enrichment Runtime Ordering.

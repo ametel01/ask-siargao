@@ -38,6 +38,12 @@ import {
   assertChatAnswerSourceConsistency,
   SourceConsistencyError,
 } from "@/server/chat/source-consistency";
+import type {
+  WebResearchDateContext,
+  WebResearchFreshnessLevel,
+  WebResearchIntent,
+  WebResearchSourceType,
+} from "@/server/chat/web-research";
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 import { createComponentLogger } from "@/server/observability/logger";
@@ -100,12 +106,31 @@ type ChatRequestIntent = {
   nearMeUsesBrowserGeolocation: boolean;
   nightlifePlan: boolean;
   placeIntent?: PlaceIntent;
+  researchIntent?: ChatResearchIntent;
   roadCondition: boolean;
   shouldDeclineNonSiargaoTopic: boolean;
   today: boolean;
   tripAdvice: boolean;
   weatherSensitive: boolean;
   weather: boolean;
+};
+
+type ChatResearchIntent = {
+  required: true;
+  intent: WebResearchIntent;
+  query: string;
+  location?: string;
+  dateContext?: WebResearchDateContext;
+  sourceTypes: readonly WebResearchSourceType[];
+  requiredFreshness?: WebResearchFreshnessLevel;
+  reason: string;
+  coveredRequestClass:
+    | "current_recommendation"
+    | "schedule"
+    | "availability"
+    | "price"
+    | "safety_disruption"
+    | "current_comparison";
 };
 
 type PublicAgentMemoryMetadata = {
@@ -962,6 +987,14 @@ function interpretChatRequestIntent(
     nearMeUsesBrowserGeolocation,
     nightlifePlan,
     ...(placeIntent ? { placeIntent } : {}),
+    researchIntent: inferResearchIntent({
+      latestUserTurn,
+      locationLabel,
+      nightlifePlan,
+      placeIntent,
+      today,
+      weatherSensitive,
+    }),
     roadCondition,
     today,
     tripAdvice,
@@ -1185,6 +1218,198 @@ function inferChatLocationLabelFromTripContext(
   return undefined;
 }
 
+function inferResearchIntent({
+  latestUserTurn,
+  locationLabel,
+  nightlifePlan,
+  placeIntent,
+  today,
+  weatherSensitive,
+}: {
+  latestUserTurn: string;
+  locationLabel?: ChatRequestIntent["locationLabel"];
+  nightlifePlan: boolean;
+  placeIntent: PlaceIntent | null;
+  today: boolean;
+  weatherSensitive: boolean;
+}): ChatResearchIntent | undefined {
+  const location = locationLabel ?? placeIntent?.location ?? undefined;
+  const dateContext = inferResearchDateContext(latestUserTurn, today);
+  const currentish =
+    Boolean(dateContext && dateContext !== "none") || hasCurrentStatusSignal(latestUserTurn);
+
+  if (hasSafetyDisruptionSignal(latestUserTurn)) {
+    return {
+      required: true,
+      intent: "safety",
+      query: latestUserTurn,
+      ...(location ? { location } : {}),
+      ...(dateContext ? { dateContext } : {}),
+      sourceTypes: ["government", "news", "weather", "community"],
+      requiredFreshness: currentish ? "same_day" : "week",
+      reason: "safety, disruption, closure, or advisory request needs current public evidence",
+      coveredRequestClass: "safety_disruption",
+    };
+  }
+
+  if (hasPriceSignal(latestUserTurn)) {
+    return {
+      required: true,
+      intent: "price",
+      query: latestUserTurn,
+      ...(location ? { location } : {}),
+      ...(dateContext ? { dateContext } : {}),
+      sourceTypes: ["official", "local_directory", "guide"],
+      requiredFreshness: currentish ? "week" : "month",
+      reason: "price, rate, fee, or promo request needs public web evidence",
+      coveredRequestClass: "price",
+    };
+  }
+
+  if (hasScheduleSignal(latestUserTurn)) {
+    return {
+      required: true,
+      intent: "schedule",
+      query: latestUserTurn,
+      ...(location ? { location } : {}),
+      ...(dateContext ? { dateContext } : {}),
+      sourceTypes: ["official", "government", "local_directory", "news"],
+      requiredFreshness: currentish ? "same_day" : "week",
+      reason: "schedule, timetable, or event-time request needs current public evidence",
+      coveredRequestClass: "schedule",
+    };
+  }
+
+  if (hasAvailabilitySignal(latestUserTurn)) {
+    return {
+      required: true,
+      intent: "availability",
+      query: latestUserTurn,
+      ...(location ? { location } : {}),
+      ...(dateContext ? { dateContext } : {}),
+      sourceTypes: ["official", "government", "local_directory", "maps", "news"],
+      requiredFreshness: currentish ? "same_day" : "week",
+      reason: "availability, closure, running, or cancellation request needs public web evidence",
+      coveredRequestClass: "availability",
+    };
+  }
+
+  if (nightlifePlan) {
+    return {
+      required: true,
+      intent: "recommendation",
+      query: latestUserTurn,
+      location: location ?? "General Luna",
+      ...(dateContext ? { dateContext } : {}),
+      sourceTypes: ["official", "local_directory", "social", "guide", "community"],
+      requiredFreshness: "same_day",
+      reason: "current nightlife recommendations need public event and venue web evidence",
+      coveredRequestClass: "current_recommendation",
+    };
+  }
+
+  if (placeIntent && currentish && hasRecommendationSignal(latestUserTurn)) {
+    return {
+      required: true,
+      intent: "recommendation",
+      query: latestUserTurn,
+      ...(location ? { location } : {}),
+      ...(dateContext ? { dateContext } : {}),
+      sourceTypes: sourceTypesForCurrentPlaceRecommendation(placeIntent),
+      requiredFreshness: "same_day",
+      reason: "current place recommendation needs public web evidence before enrichment",
+      coveredRequestClass: "current_recommendation",
+    };
+  }
+
+  if (currentish && hasComparisonSignal(latestUserTurn) && !weatherSensitive) {
+    return {
+      required: true,
+      intent: "recommendation",
+      query: latestUserTurn,
+      ...(location ? { location } : {}),
+      ...(dateContext ? { dateContext } : {}),
+      sourceTypes: ["official", "local_directory", "guide", "community"],
+      requiredFreshness: "week",
+      reason: "current comparison needs public reputation or status evidence",
+      coveredRequestClass: "current_comparison",
+    };
+  }
+
+  return undefined;
+}
+
+function inferResearchDateContext(
+  content: string,
+  today: boolean,
+): WebResearchDateContext | undefined {
+  if (/\btonight|this\s+(?:evening|night)|late[-\s]?night\b/i.test(content)) {
+    return "tonight";
+  }
+  if (/\btomorrow|tmrw\b/i.test(content)) {
+    return "tomorrow";
+  }
+  if (/\bnext\s+7\s+days?|next\s+seven\s+days?|this\s+week|next\s+week|weekend\b/i.test(content)) {
+    return "next_7_days";
+  }
+  if (today || /\btoday|right\s+now|now|currently|current\b/i.test(content)) {
+    return "today";
+  }
+  return undefined;
+}
+
+function sourceTypesForCurrentPlaceRecommendation(
+  placeIntent: PlaceIntent,
+): readonly WebResearchSourceType[] {
+  if (placeIntent.category === "food" || placeIntent.category === "coffee") {
+    return ["maps", "official", "local_directory", "guide", "social"];
+  }
+  if (placeIntent.category === "bar") {
+    return ["official", "local_directory", "social", "guide", "community"];
+  }
+  return ["official", "local_directory", "guide", "community"];
+}
+
+function hasCurrentStatusSignal(content: string) {
+  return /\b(today|tonight|tomorrow|right\s+now|now|currently|current|latest|still|open|closed|running|cancelled|canceled|happening)\b/i.test(
+    content,
+  );
+}
+
+function hasRecommendationSignal(content: string) {
+  return /\b(best|recommend(?:ed|ations?)?|where\s+(?:should|can)\s+(?:we|i)|any\s+good|top|worth\s+it)\b/i.test(
+    content,
+  );
+}
+
+function hasComparisonSignal(content: string) {
+  return /\b(compare|which\s+(?:is|one)|better|best|vs\.?|versus)\b/i.test(content);
+}
+
+function hasScheduleSignal(content: string) {
+  return /\b(schedule|timetable|times?|what\s+time|when\s+(?:is|are|does)|ferry|flight|event|events|dj\s+set|lineup)\b/i.test(
+    content,
+  );
+}
+
+function hasAvailabilitySignal(content: string) {
+  return /\b(open|closed|running|available|still\s+happening|happening|cancelled|canceled|postponed|sold\s+out|book(?:ing)?|reserve)\b/i.test(
+    content,
+  );
+}
+
+function hasPriceSignal(content: string) {
+  return /\b(how\s+much|price|prices|rate|rates|fee|fees|cost|promo|promotion|current\s+rate|tour\s+price)\b/i.test(
+    content,
+  );
+}
+
+function hasSafetyDisruptionSignal(content: string) {
+  return /\b(road\s+closures?|closed\s+roads?|brownouts?|power\s+outage|advisories?|warnings?|storm\s+impact|disruption|cancel(?:led|ed|ations?)|suspended|flood(?:ed|ing)?|unsafe|safety|accident)\b/i.test(
+    content,
+  );
+}
+
 function summarizeIntentForAgent(intent: ChatRequestIntent) {
   return {
     activityPlan: intent.activityPlan,
@@ -1197,6 +1422,7 @@ function summarizeIntentForAgent(intent: ChatRequestIntent) {
     nearMeUsesBrowserGeolocation: intent.nearMeUsesBrowserGeolocation,
     nightlifePlan: intent.nightlifePlan,
     placeIntent: intent.placeIntent,
+    researchIntent: intent.researchIntent,
     roadCondition: intent.roadCondition,
     shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
     today: intent.today,
@@ -1251,6 +1477,17 @@ function summarizeIntentForLogs(intent: ChatRequestIntent) {
           category: intent.placeIntent.category,
           liveNeeds: intent.placeIntent.liveNeeds,
           location: intent.placeIntent.location,
+        }
+      : undefined,
+    researchIntent: intent.researchIntent
+      ? {
+          intent: intent.researchIntent.intent,
+          dateContext: intent.researchIntent.dateContext,
+          location: intent.researchIntent.location,
+          sourceTypes: intent.researchIntent.sourceTypes,
+          requiredFreshness: intent.researchIntent.requiredFreshness,
+          reason: intent.researchIntent.reason,
+          coveredRequestClass: intent.researchIntent.coveredRequestClass,
         }
       : undefined,
     roadCondition: intent.roadCondition,
