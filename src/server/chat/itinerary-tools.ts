@@ -178,12 +178,14 @@ function localGuideQuery(
   constraints: ItineraryConstraintSummary,
 ) {
   const transportMode = request.transport_mode ?? (constraints.noScooter ? "walk" : undefined);
+  const originArea = localGuideOriginAreaForRequest(request);
   switch (request.theme) {
     case "rainy_cloud_9_afternoon":
       return {
         query: "rainy Cloud 9 afternoon short ride fallback",
         filters: {
           rainFit: true,
+          originArea,
           maxRideMinutes: Math.min(request.max_ride_minutes, 30),
           transportMode,
           withKids: constraints.withKids,
@@ -194,6 +196,7 @@ function localGuideQuery(
         query: "sunset late-afternoon beach stop near General Luna",
         filters: {
           sunset: true,
+          originArea,
           maxRideMinutes: Math.min(request.max_ride_minutes, 30),
           transportMode,
           withKids: constraints.withKids,
@@ -204,6 +207,7 @@ function localGuideQuery(
         query: "sandy beach half day close to General Luna",
         filters: {
           beachSurface: "sand" as const,
+          originArea,
           swimming: true,
           maxRideMinutes: Math.min(request.max_ride_minutes, 30),
           transportMode,
@@ -215,6 +219,7 @@ function localGuideQuery(
         query: "non surfer half day sandy beach walk near General Luna",
         filters: {
           beachSurface: "sand" as const,
+          originArea,
           swimming: true,
           maxRideMinutes: Math.min(request.max_ride_minutes, 35),
           transportMode,
@@ -231,6 +236,25 @@ function localGuideQuery(
         },
       };
   }
+}
+
+function localGuideOriginAreaForRequest(request: LocalItineraryResult["request"]) {
+  if (/\bcloud\s*9|catangnan\b/i.test(request.origin)) {
+    return "Cloud 9";
+  }
+  if (/\bgeneral\s+luna\b/i.test(request.origin)) {
+    return "General Luna";
+  }
+  if (/\bmalinao\b/i.test(request.origin)) {
+    return "Malinao";
+  }
+  if (/\bpacifico\b/i.test(request.origin)) {
+    return "Pacifico";
+  }
+  if (/\balegria\b/i.test(request.origin)) {
+    return "Alegria";
+  }
+  return undefined;
 }
 
 function buildPlan(

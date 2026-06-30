@@ -42,6 +42,7 @@ import {
   queryLocalFacts,
   sourceEvidenceArgumentsSchema,
 } from "@/server/chat/local-data-tools";
+import { rankLocalRecommendationCandidates } from "@/server/chat/local-recommendation";
 import {
   type LocalGuideCandidate,
   type LocalGuideSearchResult,
@@ -226,6 +227,7 @@ const searchLocalGuideSchema = z.strictObject({
   filters: optionalNullable(
     z.strictObject({
       beach_surface: optionalNullable(z.enum(["sand", "mixed", "rocky", "any"])),
+      origin_area: optionalNullable(z.string().trim().min(2).max(80)),
       swimming: optionalNullable(z.boolean()),
       sunset: optionalNullable(z.boolean()),
       rain_fit: optionalNullable(z.boolean()),
@@ -546,6 +548,11 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
                 enum: ["sand", "mixed", "rocky", "any", null],
                 description: "Preferred beach surface.",
               },
+              origin_area: {
+                type: ["string", "null"],
+                description:
+                  "Named Siargao area to prioritize before broader island options, such as Cloud 9, General Luna, Malinao, Pacifico, or Alegria.",
+              },
               swimming: {
                 type: ["boolean", "null"],
                 description: "Whether swimming fit should be prioritized.",
@@ -576,6 +583,7 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
             },
             required: [
               "beach_surface",
+              "origin_area",
               "swimming",
               "sunset",
               "rain_fit",
@@ -1194,7 +1202,10 @@ async function searchPlacesToolResult(
         requiresOpenNow: args.constraints?.open_now === true,
       },
     );
-    const contextWithCenterCaveats = withGooglePlacesCenterCaveats(context, placesToolContext);
+    const contextWithCenterCaveats = withGooglePlacesLocalFitRanking(
+      withGooglePlacesCenterCaveats(context, placesToolContext),
+      args.query,
+    );
     const sourceSummary = googlePlacesSearchSourceSummary(context, placesToolContext);
     const cards = googlePlacesSearchCards(contextWithCenterCaveats, sourceSummary);
     const actions = googlePlacesPromptActions(cards, contextWithCenterCaveats.search.textQuery);
@@ -1253,6 +1264,37 @@ function withGooglePlacesCenterCaveats(
       "Search center came from consented browser geolocation; exact coordinates are not displayed.",
     ],
   };
+}
+
+function withGooglePlacesLocalFitRanking(
+  context: GooglePlacesChatContext,
+  query: string,
+): GooglePlacesChatContext {
+  if (context.status !== "available" || context.places.length <= 1) {
+    return context;
+  }
+
+  const constraints = localFitConstraintsFromPlacesQuery(query);
+  const rankedPlaces = rankLocalRecommendationCandidates(
+    context.places.map((place) => ({
+      ...place,
+      name: place.displayName,
+      distanceMeters: googlePlacesDistanceMeters(context.search.center, place),
+    })),
+    { constraints, center: context.search.center },
+  );
+  return {
+    ...context,
+    places: rankedPlaces,
+  };
+}
+
+function localFitConstraintsFromPlacesQuery(query: string) {
+  return uniqueText([
+    /\brain|rainy|covered|indoors?|inside\b/i.test(query) ? "covered_seating" : undefined,
+    /\bbeachfront|beach\s*front|beach\b/i.test(query) ? "beachfront" : undefined,
+    /\bwith\s+kids|kids|family|families\b/i.test(query) ? "family_friendly" : undefined,
+  ]);
 }
 
 function enforceRequiredOpenNowContext(
@@ -1356,6 +1398,7 @@ function searchLocalGuideToolResult(args: SearchLocalGuideArguments): AgentToolR
     query: args.query,
     filters: {
       ...(args.filters?.beach_surface ? { beachSurface: args.filters.beach_surface } : {}),
+      ...(args.filters?.origin_area ? { originArea: args.filters.origin_area } : {}),
       ...(args.filters?.swimming !== undefined ? { swimming: args.filters.swimming } : {}),
       ...(args.filters?.sunset !== undefined ? { sunset: args.filters.sunset } : {}),
       ...(args.filters?.rain_fit !== undefined ? { rainFit: args.filters.rain_fit } : {}),
@@ -1570,13 +1613,28 @@ function renderLocalGuideText(result: LocalGuideSearchResult) {
 }
 
 function localGuideRecommendationCards(result: LocalGuideSearchResult): RecommendationCard[] {
-  return result.candidates.slice(0, 4).map((candidate, index) =>
-    localGuideRecommendationCard({
-      candidate,
-      index,
-      resultCaveats: result.caveats,
-      sourceSummary: result.sourceSummary,
-    }),
+  return result.candidates
+    .filter((candidate) => shouldDisplayLocalGuideCard(candidate, result))
+    .slice(0, 4)
+    .map((candidate, index) =>
+      localGuideRecommendationCard({
+        candidate,
+        index,
+        resultCaveats: result.caveats,
+        sourceSummary: result.sourceSummary,
+      }),
+    );
+}
+
+function shouldDisplayLocalGuideCard(
+  candidate: LocalGuideCandidate,
+  result: LocalGuideSearchResult,
+) {
+  if (candidate.surface !== "rocky") {
+    return true;
+  }
+  return Boolean(
+    result.filters.beachName || result.filters.beachSurface === "rocky" || result.filters.sunset,
   );
 }
 
@@ -2191,7 +2249,13 @@ function googlePlacesFitReasons({
   openStatusLabel: string;
   place: Pick<
     GooglePlacesChatPlace,
-    "currentOpeningHours" | "primaryType" | "rating" | "types" | "userRatingCount"
+    | "currentOpeningHours"
+    | "displayName"
+    | "formattedAddress"
+    | "primaryType"
+    | "rating"
+    | "types"
+    | "userRatingCount"
   >;
   search?: GooglePlacesChatSearch;
 }) {
@@ -2202,6 +2266,7 @@ function googlePlacesFitReasons({
       : place.primaryType
         ? `Listed on Google Places as a ${humanizeGooglePlaceType(place.primaryType)}.`
         : undefined,
+    ...googlePlacesConstraintFitReasons(place, search),
     googlePlacesDistanceFitReason(distanceLabel),
     place.currentOpeningHours?.openNow === true
       ? "Good practical option right now: Google shows it as open."
@@ -2211,6 +2276,32 @@ function googlePlacesFitReasons({
       : undefined,
     place.rating === undefined ? undefined : googlePlacesRatingFitReason(place),
     openStatusLabel === "Hours not returned by Google Places." ? openStatusLabel : undefined,
+  ]);
+}
+
+function googlePlacesConstraintFitReasons(
+  place: Pick<GooglePlacesChatPlace, "formattedAddress" | "primaryType" | "types"> & {
+    displayName?: string;
+  },
+  search: GooglePlacesChatSearch | undefined,
+) {
+  if (!search) {
+    return [];
+  }
+  const text = [place.displayName, place.formattedAddress, place.primaryType, ...place.types]
+    .join(" ")
+    .toLowerCase();
+  const query = search.textQuery.toLowerCase();
+  return uniqueText([
+    /\brain|rainy|covered|indoors?|inside\b/.test(query) && text.includes("covered")
+      ? "covered wording matched the rainy-day constraint"
+      : undefined,
+    /\bbeachfront|beach\s*front|beach\b/.test(query) && text.includes("beach")
+      ? "beach wording matched the place constraint"
+      : undefined,
+    /\bwith\s+kids|kids|family|families\b/.test(query) && text.includes("family")
+      ? "family wording matched the traveler profile"
+      : undefined,
   ]);
 }
 
@@ -2284,6 +2375,19 @@ function googlePlacesDistanceLabel(
     return `About ${Math.max(50, Math.round(distanceMeters / 50) * 50)} m from search center.`;
   }
   return `About ${formatOneDecimal(distanceMeters / 1000)} km from search center.`;
+}
+
+function googlePlacesDistanceMeters(
+  center: GooglePlacesChatSearch["center"],
+  place: Pick<GooglePlacesChatPlace, "latitude" | "longitude">,
+) {
+  if (place.latitude === undefined || place.longitude === undefined) {
+    return undefined;
+  }
+  return haversineDistanceMeters(center, {
+    latitude: place.latitude,
+    longitude: place.longitude,
+  });
 }
 
 function haversineDistanceMeters(

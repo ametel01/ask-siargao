@@ -177,6 +177,22 @@ describe("local data tools contracts", () => {
     expect(sunset.facts.every((fact) => fact.tags.includes("sunset"))).toBe(true);
   });
 
+  test("uses named area as a local-fit hint for curated guide fact ordering", async () => {
+    const result = await queryLocalFacts({
+      entityTypes: ["beach"],
+      area: "Pacifico",
+      tags: ["sandy"],
+      limit: 3,
+    });
+
+    expect(result.facts[0]).toMatchObject({
+      name: "Pacifico Beach",
+      area: "Pacifico / San Isidro",
+    });
+    expect(result.facts[0]?.claim).toContain("Named-area fit for Pacifico");
+    expect(result.facts.map((fact) => fact.name)).not.toContain("Malinao Beach");
+  });
+
   test("queries approved database route rows through an injected query runner", async () => {
     const queryTexts: string[] = [];
     const result = await queryLocalFacts(

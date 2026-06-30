@@ -79,6 +79,27 @@ describe("local itinerary planning tools", () => {
     expect(result.plan.skip.join(" ")).toContain("Pacifico Beach and Alegria Beach");
   });
 
+  test("named-area sandy half-day prioritizes the requested area over General Luna defaults", () => {
+    const result = planLocalItinerary({
+      theme: "sandy_beach_half_day",
+      origin: "Pacifico",
+      duration_hours: 3,
+      max_ride_minutes: 30,
+      transport_mode: "tricycle",
+    });
+
+    expect(result.localGuide.filters).toMatchObject({
+      originArea: "Pacifico",
+      maxRideMinutes: 30,
+    });
+    expect(result.localGuide.candidates[0]?.name).toBe("Pacifico Beach");
+    expect(result.localGuide.candidates[0]?.fitReasons).toContain("Named-area fit for Pacifico.");
+    expect(result.plan.stops[0]?.title).toBe("Pacifico Beach");
+    expect(
+      result.localGuide.excluded.find((candidate) => candidate.name === "Doot Beach")?.reason,
+    ).toContain("not a close Pacifico proximity match");
+  });
+
   test("does not label General Luna ride estimates as previous-stop travel times", () => {
     const result = planLocalItinerary({
       theme: "sandy_beach_half_day",
