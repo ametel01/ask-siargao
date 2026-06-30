@@ -5,9 +5,9 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 
 ## Current Status
 
-- Status: Step 3 complete
-- Current step: Register `research_web` As A Chat Tool
-- Next step: Step 4 - Register `research_web` As A Chat Tool
+- Status: Step 4 complete
+- Current step: Enforce Web Research Source Consistency
+- Next step: Step 5 - Enforce Web Research Source Consistency
 
 ## Step Checklist
 
@@ -15,7 +15,7 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 - [x] Step 1: Baseline Quality Gates
 - [x] Step 2: Add Web Research Types And Source Labels
 - [x] Step 3: Implement Deterministic Research Scoring Without Network Calls
-- [ ] Step 4: Register `research_web` As A Chat Tool
+- [x] Step 4: Register `research_web` As A Chat Tool
 - [ ] Step 5: Enforce Web Research Source Consistency
 - [ ] Step 6: Add General Research Intent And Required Evidence Planning
 - [ ] Step 7: Enforce Research-Before-Enrichment Runtime Ordering
@@ -105,3 +105,20 @@ Update this file after every completed step with:
 - Changelog updated under `## [Unreleased]`.
 - Commit reference: this commit (`Add deterministic web research scoring`).
 - Next step: Step 4 - Register `research_web` As A Chat Tool.
+
+### 2026-07-01 - Step 4 Completed
+
+- Registered `research_web` as a strict backend chat tool with nullable provider-valid arguments,
+  Zod validation, dependency-injected public web research provider slots, bounded model-facing
+  text/data, and source summaries for available, insufficient, and provider-unavailable states.
+- Added tests for strict schema shape, nullable arguments, successful research output,
+  insufficient web evidence, provider-unavailable behavior, and restricted payload exclusion.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/chat/agent-tools.test.ts src/server/chat/web-research.test.ts` - 79 tests passed
+  - `bun test` - 672 tests passed
+- Changelog updated under `## [Unreleased]`.
+- Commit reference: this commit (`Register web research chat tool`).
+- Next step: Step 5 - Enforce Web Research Source Consistency.

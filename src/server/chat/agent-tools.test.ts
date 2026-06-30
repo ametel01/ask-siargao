@@ -110,6 +110,95 @@ describe("agent tools", () => {
       },
       {
         type: "function",
+        name: "research_web",
+        description:
+          "Research current public web evidence for Siargao recommendations, schedules, availability, prices, safety, disruptions, and other public facts before using Places, weather, memory, or local tools as enrichment.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Natural-language public web research query scoped to the user request.",
+            },
+            intent: {
+              type: "string",
+              enum: [
+                "recommendation",
+                "schedule",
+                "availability",
+                "price",
+                "safety",
+                "how_to",
+                "fact",
+              ],
+              description:
+                "Reason public web research is needed: recommendation, schedule, availability, price, safety, how_to, or fact.",
+            },
+            location: {
+              type: ["string", "null"],
+              description:
+                "Optional Siargao location or area to target, such as General Luna, Dapa, Del Carmen, or Cloud 9.",
+            },
+            localDate: {
+              type: ["string", "null"],
+              pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+              description:
+                "Optional local Philippines date in YYYY-MM-DD format when the request is date-sensitive.",
+            },
+            dateContext: {
+              type: ["string", "null"],
+              enum: ["today", "tonight", "tomorrow", "next_7_days", "date_range", "none", null],
+              description:
+                "Optional date context such as today, tonight, tomorrow, next_7_days, date_range, or none.",
+            },
+            sourceTypes: {
+              type: ["array", "null"],
+              items: {
+                type: "string",
+                enum: [
+                  "official",
+                  "government",
+                  "local_directory",
+                  "maps",
+                  "guide",
+                  "social",
+                  "community",
+                  "news",
+                  "weather",
+                ],
+              },
+              description:
+                "Optional source classes to target, such as official, government, local_directory, maps, guide, social, community, news, or weather.",
+            },
+            requiredFreshness: {
+              type: ["string", "null"],
+              enum: ["live", "same_day", "week", "month", "stable", null],
+              description:
+                "Optional minimum freshness expectation: live, same_day, week, month, or stable.",
+            },
+            maxSources: {
+              type: ["integer", "null"],
+              minimum: 1,
+              maximum: 8,
+              description: "Maximum number of scored sources and findings to return.",
+            },
+          },
+          required: [
+            "query",
+            "intent",
+            "location",
+            "localDate",
+            "dateContext",
+            "sourceTypes",
+            "requiredFreshness",
+            "maxSources",
+          ],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+      {
+        type: "function",
         name: "search_nightlife_events",
         description:
           "Search approved General Luna nightlife event facts before using Google Places for venue details. Use for tonight, party, nightlife, bar-hopping, DJ, live-music, foam-party, pub-quiz, trivia, and drinks-tonight route answers. This returns event schedule evidence, source profile IDs, freshness/expiry metadata, refresh decisions, and route roles, not live crowd size, door policy, guest list, table availability, last-minute cancellation, or exact closing time.",
@@ -575,6 +664,11 @@ describe("agent tools", () => {
           "Build a governed condition judgment for Siargao activities from checked Open-Meteo weather, checked Tide-Forecast tide/sea-period data when available, checked Open-Meteo Marine model data when available, curated local caveats, and explicit unchecked road, official-warning, lifeguard, and safety signals. The AI must use the returned judgment as evidence and write the final answer itself.",
       },
       {
+        name: "research_web",
+        description:
+          "Research current public web evidence for Siargao recommendations, schedules, availability, prices, safety, disruptions, and other public facts before using Places, weather, memory, or local tools as enrichment.",
+      },
+      {
         name: "search_nightlife_events",
         description:
           "Search approved General Luna nightlife event facts before using Google Places for venue details. Use for tonight, party, nightlife, bar-hopping, DJ, live-music, foam-party, pub-quiz, trivia, and drinks-tonight route answers. This returns event schedule evidence, source profile IDs, freshness/expiry metadata, refresh decisions, and route roles, not live crowd size, door policy, guest list, table availability, last-minute cancellation, or exact closing time.",
@@ -717,6 +811,34 @@ describe("agent tools", () => {
       },
       { now: () => new Date("2026-06-30T12:00:00+08:00") },
     );
+    const researchResult = await executeAgentTool(
+      {
+        requestId: "agent_request_nullable_research",
+        name: "research_web",
+        arguments: {
+          query: "best dinner General Luna",
+          intent: "recommendation",
+          location: null,
+          localDate: null,
+          dateContext: null,
+          sourceTypes: null,
+          requiredFreshness: null,
+          maxSources: null,
+        },
+      },
+      {
+        webResearchProvider: async () => [
+          {
+            url: "https://maps.google.com/place/example",
+            title: "Nullable Dinner Place",
+            sourceType: "maps",
+            snippet: "Nullable Dinner Place is open tonight in General Luna.",
+            publishedOrUpdatedAt: "2026-07-01T10:00:00+08:00",
+          },
+        ],
+        now: () => new Date("2026-07-01T12:00:00+08:00"),
+      },
+    );
     const localFactsResult = await executeAgentTool(
       {
         requestId: "agent_request_nullable_local_facts",
@@ -738,7 +860,138 @@ describe("agent tools", () => {
     expect(itineraryResult.status).toBe("success");
     expect(conditionResult.status).toBe("success");
     expect(nightlifeResult.status).toBe("success");
+    expect(researchResult.status).toBe("success");
     expect(localFactsResult.status).toBe("success");
+  });
+
+  test("returns bounded successful web research output with source summaries", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_research_success",
+        name: "research_web",
+        arguments: {
+          query: "Goodies Wednesday party",
+          intent: "schedule",
+          location: "General Luna",
+          localDate: "2026-07-01",
+          dateContext: "today",
+          sourceTypes: ["official", "local_directory"],
+          requiredFreshness: "same_day",
+          maxSources: 3,
+        },
+      },
+      {
+        webResearchProvider: async (request, context) => {
+          expect(request.query).toBe("Goodies Wednesday party");
+          expect(context.searchedQueries.join("\n")).toContain("wednesday");
+          return [
+            {
+              url: "https://siargaovibes.com/events/funky-wednesday",
+              title: "Funky Wednesday at Goodies",
+              sourceType: "local_directory",
+              pageSummary: "Goodies lists Funky Wednesday from 8 PM to 12 AM.",
+              publishedOrUpdatedAt: "2026-07-01T09:00:00+08:00",
+              entities: [{ name: "Goodies", kind: "place", area: "General Luna" }],
+            },
+          ];
+        },
+        now: () => new Date("2026-07-01T12:00:00+08:00"),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.errorCode).toBeUndefined();
+    expect(result.text).toContain("Public web research status: available.");
+    expect(result.text).toContain("Goodies lists Funky Wednesday");
+    expect(result.sources[0]).toMatchObject({
+      label: "directory_checked",
+      sourceName: "Funky Wednesday at Goodies",
+      sourceProfileId: "source_web_local_directory",
+      checked: ["Goodies lists Funky Wednesday from 8 PM to 12 AM."],
+    });
+    const data = result.data as { status?: string; entities?: Array<{ name: string }> };
+    expect(data.status).toBe("available");
+    expect(data.entities?.[0]?.name).toBe("Goodies");
+    expect(JSON.stringify(result)).not.toContain("rawPageText");
+    expect(JSON.stringify(result)).not.toContain("providerPayload");
+  });
+
+  test("returns insufficient web evidence as a terminal source state", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_research_insufficient",
+        name: "research_web",
+        arguments: {
+          query: "party locations General Luna tonight",
+          intent: "recommendation",
+          location: "General Luna",
+          localDate: "2026-07-01",
+          dateContext: "tonight",
+          sourceTypes: ["guide"],
+          requiredFreshness: "same_day",
+          maxSources: 2,
+        },
+      },
+      {
+        webResearchProvider: async () => [
+          {
+            url: "https://old-blog.example/siargao-nightlife",
+            title: "Old Siargao Nightlife Guide",
+            sourceType: "guide",
+            snippet: "In 2023, several General Luna bars were popular.",
+            publishedOrUpdatedAt: "2023-01-01T08:00:00+08:00",
+          },
+        ],
+        now: () => new Date("2026-07-01T12:00:00+08:00"),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("Public web research status: insufficient.");
+    expect(result.sources).toEqual([
+      expect.objectContaining({
+        label: "insufficient_web_evidence",
+        checked: [],
+        notChecked: expect.arrayContaining([
+          "sufficient current public evidence for the requested fact or recommendation",
+        ]),
+      }),
+    ]);
+  });
+
+  test("returns provider-unavailable web research output without throwing", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_research_provider_unavailable",
+        name: "research_web",
+        arguments: {
+          query: "ferry cancellations today",
+          intent: "safety",
+          location: "Siargao",
+          localDate: "2026-07-01",
+          dateContext: "today",
+          sourceTypes: null,
+          requiredFreshness: null,
+          maxSources: null,
+        },
+      },
+      {
+        webResearchProvider: async () => {
+          throw new Error("search provider timeout");
+        },
+        now: () => new Date("2026-07-01T12:00:00+08:00"),
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("provider_unavailable");
+    expect(result.text).toContain("Public web research provider unavailable");
+    expect(result.sources[0]).toMatchObject({
+      label: "provider_unavailable",
+      checked: [],
+    });
+    const data = result.data as { status?: string };
+    expect(data.status).toBe("provider_unavailable");
   });
 
   test("ranks surf spots from browser geolocation without exposing coordinates", async () => {

@@ -50,6 +50,18 @@ import {
   searchNightlifeEvents,
 } from "@/server/chat/nightlife-events";
 import {
+  buildWebResearchQueries,
+  type ResearchFinding,
+  type ResearchWebRequest,
+  type ResearchWebResultData,
+  runWebResearch,
+  type WebResearchProviderResult,
+  webResearchDateContexts,
+  webResearchFreshnessLevels,
+  webResearchIntents,
+  webResearchSourceTypes,
+} from "@/server/chat/web-research";
+import {
   type LocalGuideCandidate,
   type LocalGuideSearchResult,
   searchSiargaoLocalGuide,
@@ -144,6 +156,19 @@ type SourcePolicyToolData = {
   policies: SourcePolicyDescription[];
 };
 
+export type WebResearchSearchProvider = (
+  request: ResearchWebRequest,
+  context: {
+    requestId: string;
+    searchedQueries: readonly string[];
+  },
+) => Promise<readonly WebResearchProviderResult[]>;
+
+export type WebPageFetchProvider = (input: {
+  url: string;
+  requestId: string;
+}) => Promise<{ url: string; title: string; pageSummary: string; publishedOrUpdatedAt?: string }>;
+
 export type AgentToolDependencies = {
   enrichGooglePlacesDetails?: typeof enrichGooglePlacesDetails;
   findFreshPlaceDetails?: typeof findFreshPlaceDetails;
@@ -164,6 +189,8 @@ export type AgentToolDependencies = {
   localFactsQueryTimeoutMs?: number;
   memorySnapshot?: AgentMemorySnapshot;
   now?: () => Date;
+  webPageFetcher?: WebPageFetchProvider;
+  webResearchProvider?: WebResearchSearchProvider;
 };
 
 type SearchPlacesArguments = z.infer<typeof searchPlacesSchema>;
@@ -178,6 +205,7 @@ type MarineConditionsArguments = z.infer<typeof marineConditionsSchema>;
 type TideForecastArguments = z.infer<typeof tideForecastSchema>;
 type ConditionJudgmentArguments = z.infer<typeof conditionJudgmentRequestSchema>;
 type SearchNightlifeEventsArguments = z.infer<typeof searchNightlifeEventsSchema>;
+type ResearchWebArguments = z.infer<typeof researchWebSchema>;
 type DescribeDatabaseSchemaArguments = z.infer<typeof describeDatabaseSchemaArgumentsSchema>;
 type QueryLocalFactsArguments = z.infer<typeof localFactsQuerySchema>;
 type SourceEvidenceArguments = z.infer<typeof sourceEvidenceArgumentsSchema>;
@@ -252,6 +280,16 @@ const rankSurfSpotsNearbySchema = z.strictObject({
 const weatherForecastSchema = z.strictObject({
   location: z.enum(weatherForecastLocations),
   date_range: z.enum(["today", "next_7_days"]),
+});
+const researchWebSchema = z.strictObject({
+  query: z.string().trim().min(2).max(320),
+  intent: z.enum(webResearchIntents),
+  location: optionalNullable(z.string().trim().min(2).max(120)),
+  localDate: optionalNullable(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
+  dateContext: optionalNullable(z.enum(webResearchDateContexts)),
+  sourceTypes: optionalNullable(z.array(z.enum(webResearchSourceTypes)).min(1).max(8)),
+  requiredFreshness: optionalNullable(z.enum(webResearchFreshnessLevels)),
+  maxSources: optionalNullable(z.number().int().min(1).max(8)),
 });
 const searchNightlifeEventsSchema = z.strictObject({
   location: z.enum(["General Luna"]),
@@ -542,6 +580,82 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
     schema: conditionJudgmentRequestSchema,
     execute: (args, _request, dependencies) =>
       getConditionJudgmentToolResult(args as ConditionJudgmentArguments, dependencies),
+  },
+  research_web: {
+    definition: {
+      type: "function",
+      name: "research_web",
+      description:
+        "Research current public web evidence for Siargao recommendations, schedules, availability, prices, safety, disruptions, and other public facts before using Places, weather, memory, or local tools as enrichment.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Natural-language public web research query scoped to the user request.",
+          },
+          intent: {
+            type: "string",
+            enum: webResearchIntents,
+            description:
+              "Reason public web research is needed: recommendation, schedule, availability, price, safety, how_to, or fact.",
+          },
+          location: {
+            type: ["string", "null"],
+            description:
+              "Optional Siargao location or area to target, such as General Luna, Dapa, Del Carmen, or Cloud 9.",
+          },
+          localDate: {
+            type: ["string", "null"],
+            pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+            description:
+              "Optional local Philippines date in YYYY-MM-DD format when the request is date-sensitive.",
+          },
+          dateContext: {
+            type: ["string", "null"],
+            enum: [...webResearchDateContexts, null],
+            description:
+              "Optional date context such as today, tonight, tomorrow, next_7_days, date_range, or none.",
+          },
+          sourceTypes: {
+            type: ["array", "null"],
+            items: {
+              type: "string",
+              enum: webResearchSourceTypes,
+            },
+            description:
+              "Optional source classes to target, such as official, government, local_directory, maps, guide, social, community, news, or weather.",
+          },
+          requiredFreshness: {
+            type: ["string", "null"],
+            enum: [...webResearchFreshnessLevels, null],
+            description:
+              "Optional minimum freshness expectation: live, same_day, week, month, or stable.",
+          },
+          maxSources: {
+            type: ["integer", "null"],
+            minimum: 1,
+            maximum: 8,
+            description: "Maximum number of scored sources and findings to return.",
+          },
+        },
+        required: [
+          "query",
+          "intent",
+          "location",
+          "localDate",
+          "dateContext",
+          "sourceTypes",
+          "requiredFreshness",
+          "maxSources",
+        ],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+    schema: researchWebSchema,
+    execute: (args, request, dependencies) =>
+      researchWebToolResult(args as ResearchWebArguments, request, dependencies),
   },
   search_nightlife_events: {
     definition: {
@@ -1038,6 +1152,7 @@ const defaultFunctionToolNames = [
   "get_marine_conditions",
   "get_tide_forecast",
   "get_condition_judgment",
+  "research_web",
   "search_nightlife_events",
   "search_places",
   "get_place_details",
@@ -2852,6 +2967,181 @@ function searchNightlifeEventsToolResult(
     },
     sources: result.sources,
   };
+}
+
+async function researchWebToolResult(
+  args: ResearchWebArguments,
+  request: AgentToolExecutionRequest,
+  dependencies: AgentToolDependencies,
+): Promise<AgentToolResult> {
+  const researchRequest = researchWebRequestFromArguments(args);
+  const searchedQueries = buildWebResearchQueries(researchRequest);
+  const provider = dependencies.webResearchProvider;
+
+  if (!provider) {
+    const result = runWebResearch(researchRequest, [], {
+      now: dependencies.now?.(),
+      providerUnavailable: true,
+    });
+    return researchWebProviderUnavailableToolResult(result);
+  }
+
+  try {
+    const providerResults = await provider(researchRequest, {
+      requestId: request.requestId,
+      searchedQueries,
+    });
+    const result = runWebResearch(researchRequest, providerResults, {
+      now: dependencies.now?.(),
+    });
+
+    return {
+      name: "research_web",
+      status: "success",
+      text: renderResearchWebText(result),
+      data: result,
+      sources: researchWebSourceSummaries(result),
+    };
+  } catch (error) {
+    const result = runWebResearch(researchRequest, [], {
+      now: dependencies.now?.(),
+      providerUnavailable: true,
+    });
+    return {
+      name: "research_web",
+      status: "error",
+      text:
+        error instanceof Error
+          ? `Public web research provider unavailable: ${error.message}`
+          : "Public web research provider unavailable.",
+      data: result,
+      errorCode: "provider_unavailable",
+      sources: researchWebProviderUnavailableSources(result),
+    };
+  }
+}
+
+function researchWebProviderUnavailableToolResult(result: ResearchWebResultData): AgentToolResult {
+  return {
+    name: "research_web",
+    status: "error",
+    text: renderResearchWebText(result),
+    data: result,
+    errorCode: "provider_unavailable",
+    sources: researchWebProviderUnavailableSources(result),
+  };
+}
+
+function researchWebRequestFromArguments(args: ResearchWebArguments): ResearchWebRequest {
+  return {
+    query: args.query,
+    intent: args.intent,
+    ...(args.location ? { location: args.location } : {}),
+    ...(args.localDate ? { localDate: args.localDate } : {}),
+    ...(args.dateContext ? { dateContext: args.dateContext } : {}),
+    ...(args.sourceTypes ? { sourceTypes: args.sourceTypes } : {}),
+    ...(args.requiredFreshness ? { requiredFreshness: args.requiredFreshness } : {}),
+    ...(args.maxSources ? { maxSources: args.maxSources } : {}),
+  };
+}
+
+function renderResearchWebText(result: ResearchWebResultData) {
+  const lines = [
+    `Public web research status: ${result.status}.`,
+    `Normalized query: ${result.normalizedQuery}.`,
+    `Searched queries: ${result.searchedQueries.join(" | ")}.`,
+  ];
+
+  if (result.findings.length > 0) {
+    lines.push("Findings:");
+    lines.push(
+      ...result.findings.map(
+        (finding, index) =>
+          `${index + 1}. ${finding.claim} (${finding.answerRole}; ${finding.confidence} confidence; ${finding.sourceType}; ${finding.sourceTitle}; ${finding.sourceUrl}).`,
+      ),
+    );
+  } else {
+    lines.push("Findings: none.");
+  }
+
+  if (result.entities.length > 0) {
+    lines.push(
+      `Selected entities: ${result.entities
+        .map((entity) =>
+          [
+            entity.name,
+            entity.kind,
+            entity.area,
+            entity.needsPlacesEnrichment ? "needs Places enrichment" : undefined,
+          ]
+            .filter(Boolean)
+            .join(" / "),
+        )
+        .join("; ")}.`,
+    );
+  }
+
+  if (result.notChecked.length > 0) {
+    lines.push(`Not checked: ${result.notChecked.join("; ")}.`);
+  }
+
+  return lines.join("\n");
+}
+
+function researchWebSourceSummaries(result: ResearchWebResultData): AnswerSourceSummary[] {
+  if (result.status === "provider_unavailable") {
+    return researchWebProviderUnavailableSources(result);
+  }
+  if (result.status === "insufficient") {
+    return [
+      {
+        label: "insufficient_web_evidence",
+        sourceName: "Public web research",
+        sourceProfileId: "source_web_research",
+        confidence: "low",
+        checked: [],
+        notChecked: [...result.notChecked],
+      },
+    ];
+  }
+
+  return result.findings.map((finding) => ({
+    label: researchWebLabelForFinding(finding),
+    sourceName: finding.sourceTitle,
+    sourceProfileId: `source_web_${finding.sourceType}`,
+    ...(finding.publishedOrUpdatedAt ? { fetchedAt: finding.publishedOrUpdatedAt } : {}),
+    confidence: finding.confidence,
+    checked: [finding.claim],
+    notChecked: [...result.notChecked],
+  }));
+}
+
+function researchWebProviderUnavailableSources(
+  result: ResearchWebResultData,
+): AnswerSourceSummary[] {
+  return [
+    {
+      label: "provider_unavailable",
+      sourceName: "Public web research provider",
+      sourceProfileId: "source_web_research",
+      confidence: "low",
+      checked: [],
+      notChecked: [...result.notChecked],
+    },
+  ];
+}
+
+function researchWebLabelForFinding(finding: ResearchFinding): AnswerTrustLabel {
+  if (finding.sourceType === "official" || finding.sourceType === "government") {
+    return "official_checked";
+  }
+  if (finding.sourceType === "local_directory") {
+    return "directory_checked";
+  }
+  if (finding.sourceType === "community" || finding.sourceType === "social") {
+    return "community_signal";
+  }
+  return "web_researched";
 }
 
 async function getWeatherForecastToolResult(

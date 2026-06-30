@@ -12,6 +12,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Started progress tracking for the web research layer implementation plan.
 - Added deterministic web research query planning, source classification, source scoring, finding
   extraction, entity hints, and no-network regression coverage.
+- Added the strict `research_web` chat tool with dependency-injected public web evidence,
+  source-backed output, insufficient-evidence handling, and provider-unavailable responses.
 - Added web research source labels and typed research contracts for the planned `research_web`
   chat tool.
 
