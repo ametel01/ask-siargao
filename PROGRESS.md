@@ -5,14 +5,14 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 
 ## Current Status
 
-- Status: Step 0 complete
-- Current step: Baseline Quality Gates
-- Next step: Step 1 - Baseline Quality Gates
+- Status: Step 1 complete
+- Current step: Add Web Research Types And Source Labels
+- Next step: Step 2 - Add Web Research Types And Source Labels
 
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
-- [ ] Step 1: Baseline Quality Gates
+- [x] Step 1: Baseline Quality Gates
 - [ ] Step 2: Add Web Research Types And Source Labels
 - [ ] Step 3: Implement Deterministic Research Scoring Without Network Calls
 - [ ] Step 4: Register `research_web` As A Chat Tool
@@ -53,3 +53,20 @@ Update this file after every completed step with:
 - Changelog updated under `## [Unreleased]`.
 - Commit reference: this commit (`Track web research implementation progress`).
 - Next step: Step 1 - Baseline Quality Gates.
+
+### 2026-07-01 - Step 1 Completed
+
+- Baseline validation passed:
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test` - 656 tests passed
+  - `bun run db:migrate:test` - migrated 47 tables
+  - `bun run db:seed:test` - seeded 5 areas, 3 routes, and 6 source profiles
+  - `bun run build`
+  - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY= CLERK_WEBHOOK_SIGNING_SECRET= bun run test:e2e` - 36 tests passed
+- Local caveat: default `bun run test:e2e` timed out waiting for Playwright's web server readiness
+  because the workstation `.env` enables Clerk middleware and `/robots.txt` readiness requests hit
+  Clerk proxy socket errors. The sanitized e2e command above passed.
+- Changelog: no entry required for baseline-only validation.
+- Commit reference: this commit (`Record web research baseline gates`).
+- Next step: Step 2 - Add Web Research Types And Source Labels.
