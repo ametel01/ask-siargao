@@ -5,9 +5,9 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 
 ## Current Status
 
-- Status: Step 6 complete
-- Current step: Enforce Research-Before-Enrichment Runtime Ordering
-- Next step: Step 7 - Enforce Research-Before-Enrichment Runtime Ordering
+- Status: Step 7 complete
+- Current step: Convert Places To Entity-Specific Enrichment
+- Next step: Step 8 - Convert Places To Entity-Specific Enrichment
 
 ## Step Checklist
 
@@ -18,7 +18,7 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 - [x] Step 4: Register `research_web` As A Chat Tool
 - [x] Step 5: Enforce Web Research Source Consistency
 - [x] Step 6: Add General Research Intent And Required Evidence Planning
-- [ ] Step 7: Enforce Research-Before-Enrichment Runtime Ordering
+- [x] Step 7: Enforce Research-Before-Enrichment Runtime Ordering
 - [ ] Step 8: Convert Places To Entity-Specific Enrichment
 - [ ] Step 9: Reject Legacy Final Answers For Research-Required Prompts
 - [ ] Step 10: Wire The Production Web Search Provider
@@ -160,3 +160,22 @@ Update this file after every completed step with:
 - Changelog updated under `## [Unreleased]`.
 - Commit reference: this commit (`Plan required web research for current prompts`).
 - Next step: Step 7 - Enforce Research-Before-Enrichment Runtime Ordering.
+
+### 2026-07-01 - Step 7 Completed
+
+- Staged missing required evidence by dependency so downstream Places/weather/nightlife enrichment
+  waits for satisfying `research_web` evidence.
+- Updated runtime preflight and batch execution so model-requested early Places calls run after
+  `research_web`, and dependent enrichment is skipped when research returns insufficient or
+  provider-unavailable evidence.
+- Added runtime regressions for research-before-Places ordering and skipped dependent Places after
+  insufficient web research.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/chat/ask-siargao-agent.test.ts src/server/chat/required-evidence.test.ts` - 87 tests passed
+  - `bun test` - 687 tests passed
+- Changelog updated under `## [Unreleased]`.
+- Commit reference: this commit (`Enforce research before enrichment`).
+- Next step: Step 8 - Convert Places To Entity-Specific Enrichment.

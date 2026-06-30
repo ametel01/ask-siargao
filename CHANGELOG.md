@@ -37,6 +37,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Prevented dependency-blocked required evidence checks from running before their required web
+  research evidence is available.
 - Required public web-research labels to be backed by successful `research_web` tool evidence,
   keeping memory, generic reasoning, wrong-tool output, and insufficient evidence from becoming
   checked web claims.
@@ -110,6 +112,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Enforced required web research before dependent Places, weather, or nightlife enrichment and
+  skipped dependent enrichment when required research returns terminal insufficient/unavailable
+  evidence.
 - Verified Hallmark audit remediation with final smell scans, viewport evidence, and a sanitized
   full CI gate; final landing overlays now use named gradient tokens.
 - Simplified audited app/report surfaces by making shared app panels and cards less nested,

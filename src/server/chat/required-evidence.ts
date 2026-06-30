@@ -211,6 +211,8 @@ export function missingRequiredEvidenceToolCalls(
   return plan.requiredToolCalls.filter(
     (requiredCall) =>
       !nightlifePlacesEnrichmentIsUnavailable(requiredCall, plan, toolResults) &&
+      !dependencyHasTerminalEvidence(requiredCall, plan, toolCalls) &&
+      dependenciesHaveSatisfyingEvidence(requiredCall, plan, toolCalls) &&
       !hasCompletedToolCall(requiredCall, toolCalls),
   );
 }
@@ -225,12 +227,18 @@ export function finalPayloadSatisfiesRequiredEvidence(
     return true;
   }
   if (
-    !plan.requiredToolCalls.every((requiredCall) => hasCompletedToolCall(requiredCall, toolCalls))
+    !plan.requiredToolCalls.every(
+      (requiredCall) =>
+        hasCompletedToolCall(requiredCall, toolCalls) ||
+        dependencyHasTerminalEvidence(requiredCall, plan, toolCalls),
+    )
   ) {
     return false;
   }
   const unsatisfiedRequiredCalls = plan.requiredToolCalls.filter(
-    (requiredCall) => !hasSatisfyingToolCall(requiredCall, toolCalls),
+    (requiredCall) =>
+      !dependencyHasTerminalEvidence(requiredCall, plan, toolCalls) &&
+      !hasSatisfyingToolCall(requiredCall, toolCalls),
   );
   if (unsatisfiedRequiredCalls.length > 0) {
     return terminalOnlyFinalPayloadIsCaveated(finalPayload, unsatisfiedRequiredCalls);
@@ -589,6 +597,39 @@ function hasCompletedToolCall(
           requiredCall.terminalSourceLabels.includes(source.label),
       ),
   );
+}
+
+function hasTerminalToolCall(
+  requiredCall: RequiredEvidenceToolCall,
+  toolCalls: readonly AgentToolCallAudit[],
+) {
+  return toolCalls.some(
+    (toolCall) =>
+      toolCall.name === requiredCall.name &&
+      toolCall.sources.some((source) => requiredCall.terminalSourceLabels.includes(source.label)),
+  );
+}
+
+function dependenciesHaveSatisfyingEvidence(
+  requiredCall: RequiredEvidenceToolCall,
+  plan: RequiredEvidencePlan,
+  toolCalls: readonly AgentToolCallAudit[],
+) {
+  return (requiredCall.dependsOn ?? []).every((dependencyName) => {
+    const dependencyCall = plan.requiredToolCalls.find((call) => call.name === dependencyName);
+    return dependencyCall ? hasSatisfyingToolCall(dependencyCall, toolCalls) : true;
+  });
+}
+
+function dependencyHasTerminalEvidence(
+  requiredCall: RequiredEvidenceToolCall,
+  plan: RequiredEvidencePlan,
+  toolCalls: readonly AgentToolCallAudit[],
+) {
+  return (requiredCall.dependsOn ?? []).some((dependencyName) => {
+    const dependencyCall = plan.requiredToolCalls.find((call) => call.name === dependencyName);
+    return dependencyCall ? hasTerminalToolCall(dependencyCall, toolCalls) : false;
+  });
 }
 
 export function nightlifePlacesEnrichmentIsUnavailable(

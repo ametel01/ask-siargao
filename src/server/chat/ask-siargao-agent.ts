@@ -1120,6 +1120,34 @@ function requiredEvidencePreflightFunctionCalls(
   requiredEvidencePlan: RequiredEvidencePlan,
   toolCalls: readonly AgentToolCallAudit[],
 ): ParsedFunctionCall[] {
+  const researchRequiredCall = requiredEvidencePlan.requiredToolCalls.find(
+    (requiredCall) => requiredCall.name === "research_web",
+  );
+  const hasCompletedResearch = toolCalls.some(
+    (toolCall) =>
+      toolCall.name === "research_web" &&
+      (toolCall.status === "success" ||
+        toolCall.sources.some((source) =>
+          ["insufficient_web_evidence", "provider_unavailable"].includes(source.label),
+        )),
+  );
+  const hasResearchDependentFunctionCall =
+    Boolean(researchRequiredCall) &&
+    !hasCompletedResearch &&
+    functionCalls.some((functionCall) =>
+      requiredEvidencePlan.requiredToolCalls.some(
+        (requiredCall) =>
+          requiredCall.name === functionCall.name &&
+          requiredCall.dependsOn?.includes("research_web"),
+      ),
+    );
+  if (researchRequiredCall && hasResearchDependentFunctionCall) {
+    return [
+      requiredEvidenceFunctionCall(researchRequiredCall, 0, "auto_preflight_required_evidence"),
+      ...functionCalls,
+    ];
+  }
+
   if (
     !functionCalls.some((functionCall) => functionCall.name === "search_places") ||
     functionCalls.some((functionCall) => functionCall.name === "search_nightlife_events") ||
@@ -2249,7 +2277,54 @@ async function executeAndAuditToolBatch({
   runtimeRequest: AgentRuntimeRequest;
   requestId: string;
   toolResults: readonly AgentToolResult[];
-}) {
+}): Promise<ExecutedAgentToolOutput[]> {
+  const researchIndex = functionCalls.findIndex(
+    (functionCall) => functionCall.name === "research_web",
+  );
+  const hasResearchDependentCalls = functionCalls.some((functionCall) =>
+    requiredEvidencePlan.requiredToolCalls.some(
+      (requiredCall) =>
+        requiredCall.name === functionCall.name && requiredCall.dependsOn?.includes("research_web"),
+    ),
+  );
+
+  if (researchIndex >= 0 && hasResearchDependentCalls) {
+    const researchOutput = await executeAndAuditTool({
+      executeTool,
+      functionCall: functionCalls[researchIndex] as ParsedFunctionCall,
+      logger,
+      now,
+      runtimeRequest,
+      requestId,
+    });
+    const researchBackedToolResults = [...toolResults, researchOutput.result];
+    const remainingFunctionCalls = functionCalls.filter((_, index) => index !== researchIndex);
+    if (!researchWebResultIsAvailable(researchOutput.result)) {
+      const skippedOutputs = remainingFunctionCalls.map((functionCall) =>
+        skippedResearchDependentToolOutput({
+          functionCall,
+          logger,
+          now,
+          reason:
+            "Skipped dependent enrichment because required public web research did not return usable evidence.",
+        }),
+      );
+      return [researchOutput, ...skippedOutputs];
+    }
+
+    const remainingOutputs = await executeAndAuditToolBatch({
+      executeTool,
+      functionCalls: remainingFunctionCalls,
+      logger,
+      now,
+      requiredEvidencePlan,
+      runtimeRequest,
+      requestId,
+      toolResults: researchBackedToolResults,
+    });
+    return [researchOutput, ...remainingOutputs];
+  }
+
   const nightlifeEventIndex = functionCalls.findIndex(
     (functionCall) => functionCall.name === "search_nightlife_events",
   );
@@ -2309,6 +2384,15 @@ async function executeAndAuditToolBatch({
   );
 }
 
+function researchWebResultIsAvailable(result: AgentToolResult) {
+  return (
+    result.name === "research_web" &&
+    result.status === "success" &&
+    isRecord(result.data) &&
+    result.data.status === "available"
+  );
+}
+
 type AgentFunctionCallExecutionPlan =
   | {
       kind: "execute";
@@ -2318,6 +2402,12 @@ type AgentFunctionCallExecutionPlan =
       kind: "skip_nightlife_places";
       functionCall: ParsedFunctionCall;
     };
+
+type ExecutedAgentToolOutput = {
+  audit: AgentToolCallAudit;
+  functionCall: ParsedFunctionCall;
+  result: AgentToolResult;
+};
 
 function eventBackedNightlifePlacesFunctionCall(
   functionCall: ParsedFunctionCall,
@@ -2419,7 +2509,7 @@ function skippedNightlifePlacesToolOutput({
   functionCall: ParsedFunctionCall;
   logger: ReturnType<typeof createComponentLogger>;
   now: () => Date;
-}) {
+}): ExecutedAgentToolOutput {
   const startedAt = now();
   const completedAt = now();
   const result = {
@@ -2469,6 +2559,63 @@ function skippedNightlifePlacesToolOutput({
   return { audit, functionCall, result };
 }
 
+function skippedResearchDependentToolOutput({
+  functionCall,
+  logger,
+  now,
+  reason,
+}: {
+  functionCall: ParsedFunctionCall;
+  logger: ReturnType<typeof createComponentLogger>;
+  now: () => Date;
+  reason: string;
+}): ExecutedAgentToolOutput {
+  const startedAt = now();
+  const completedAt = now();
+  const result = {
+    name: functionCall.name,
+    toolCallId: functionCall.callId,
+    status: "error",
+    errorCode: "provider_unavailable",
+    text: reason,
+    sources: [
+      {
+        label: "provider_unavailable",
+        sourceName: `${functionCall.name} dependent enrichment`,
+        fetchedAt: completedAt.toISOString(),
+        confidence: "low",
+        checked: [],
+        notChecked: ["dependent enrichment after required public web research"],
+      },
+    ],
+  } satisfies AgentToolResult;
+  const audit = createAgentToolCallAudit({
+    toolCallId: functionCall.callId,
+    name: functionCall.name,
+    arguments: publicToolArguments(functionCall),
+    result,
+    startedAt,
+    completedAt,
+    providerOperation: providerOperationForTool(functionCall.name),
+  });
+
+  logger.info(
+    {
+      toolCallId: functionCall.callId,
+      toolName: functionCall.name,
+      durationMs: audit.durationMs,
+      status: audit.status,
+      errorCode: audit.errorCode,
+      providerOperation: audit.providerOperation,
+      sourceLabels: audit.sources.map((source) => source.label),
+      sourceProfileIds: audit.sourceProfileIds,
+    },
+    "Ask Siargao agent dependent tool call skipped after terminal web research.",
+  );
+
+  return { audit, functionCall, result };
+}
+
 async function executeAndAuditTool({
   executeTool,
   functionCall,
@@ -2483,7 +2630,7 @@ async function executeAndAuditTool({
   now: () => Date;
   runtimeRequest: AgentRuntimeRequest;
   requestId: string;
-}) {
+}): Promise<ExecutedAgentToolOutput> {
   const executableFunctionCall = applyRuntimeToolContext(functionCall, runtimeRequest);
   const startedAt = now();
   const result = await executeTool({

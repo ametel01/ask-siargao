@@ -87,6 +87,10 @@ describe("required evidence planning", () => {
       dependsOn: ["research_web"],
       requiresOpenNow: true,
     });
+    expect(missingRequiredEvidenceToolCalls(plan, [])).toEqual([plan.requiredToolCalls[0]]);
+    expect(missingRequiredEvidenceToolCalls(plan, [successfulResearchToolCall()])).toEqual([
+      plan.requiredToolCalls[1],
+    ]);
   });
 
   test("requires web research for ferry schedules, tour prices, and safety disruptions", () => {
@@ -219,4 +223,20 @@ function toolCall({
     ),
     sources,
   };
+}
+
+function successfulResearchToolCall() {
+  return toolCall({
+    name: "research_web",
+    sources: [
+      {
+        label: "official_checked",
+        sourceName: "Official dinner source",
+        sourceProfileId: "source_web_official",
+        confidence: "high",
+        checked: ["current dinner hours"],
+        notChecked: ["bookings"],
+      },
+    ],
+  });
 }
