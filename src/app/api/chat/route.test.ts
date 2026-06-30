@@ -1174,6 +1174,39 @@ describe("chat route", () => {
     });
   });
 
+  test("returns cross-request public artifacts without internal selection diagnostics", async () => {
+    for (const scenario of routeAnswerQualityScenarios()) {
+      const dependencies = chatDependencies(scenario.agentResult);
+      const response = await chatResponse(
+        jsonRequest({
+          messages: [{ role: "user", content: scenario.prompt }],
+        }),
+        dependencies,
+      );
+      const body = await response.json();
+      const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+      expect(response.status, scenario.name).toBe(200);
+      expect(body.message, scenario.name).toStartWith(scenario.expectedOpening);
+      assertRouteTravelerProseHasNoInternalMechanics(body.message);
+      expect(body.sources, scenario.name).toEqual(scenario.expectedSources);
+      expect(body.cards?.map((card: { id: string }) => card.id) ?? [], scenario.name).toEqual(
+        scenario.expectedCardIds,
+      );
+      expect(
+        body.decisionSummaries?.map((summary: { id: string }) => summary.id) ?? [],
+        scenario.name,
+      ).toEqual(scenario.expectedDecisionSummaryIds);
+      expect(body.itineraries?.map((itinerary: { id?: string }) => itinerary.id) ?? []).toEqual(
+        scenario.expectedItineraryIds,
+      );
+      expect(body.artifactSelection, scenario.name).toBeUndefined();
+      expect(JSON.stringify(body), scenario.name).not.toContain("unselected");
+      expect(JSON.stringify(body), scenario.name).not.toContain("artifactSelection");
+      scenario.assertSignals(signals);
+    }
+  });
+
   test("validates selected decision summary sources before returning them", async () => {
     const dependencies = chatDependencies({
       message: "Here is a decision summary with an invalid checked source.",
@@ -1774,6 +1807,242 @@ describe("chat route", () => {
     expect(dependencies.runAskSiargaoAgentTurn).toBeDefined();
   });
 });
+
+type RouteAnswerQualityScenario = {
+  name: string;
+  prompt: string;
+  agentResult: Partial<AgentTurnResult>;
+  expectedOpening: string;
+  expectedSources: readonly AnswerSourceSummary[];
+  expectedCardIds: readonly string[];
+  expectedDecisionSummaryIds: readonly string[];
+  expectedItineraryIds: readonly string[];
+  assertSignals: (signals: AgentSignals | undefined) => void;
+};
+
+function routeAnswerQualityScenarios(): RouteAnswerQualityScenario[] {
+  const dapaBreakfastCard = {
+    id: "place_dapa_breakfast_house",
+    kind: "place" as const,
+    title: "Dapa Breakfast House",
+    subtitle: "Breakfast in Dapa",
+    mapsUrl: "https://maps.example/dapa-breakfast-house",
+    fitReasons: ["Fits Dapa before-ferry breakfast without a General Luna detour."],
+    caveats: ["Table availability was not confirmed."],
+    sourceLabel: "Google Places - live checked",
+    sources: [placesSourceSummary],
+  };
+  const weatherUnavailableSourceSummary: AnswerSourceSummary = {
+    label: "provider_unavailable",
+    sourceName: "Open-Meteo weather API",
+    sourceProfileId: "source_open_meteo",
+    confidence: "low",
+    checked: [],
+    notChecked: ["weather forecast"],
+  };
+  const weatherDecisionSummary: DecisionSummary = {
+    id: "decision:cloud_9_sunset:hold_for_confirmation",
+    bestAction: "Keep Cloud 9 sunset optional.",
+    basis: "The forecast could not be checked for the rain window.",
+    fallback: "Use a covered General Luna stop until the sky is locally clear.",
+    timing: "today",
+    area: "Cloud 9",
+    sources: [weatherUnavailableSourceSummary],
+  };
+  const reviewDecisionSummary: DecisionSummary = {
+    id: "decision:review:dapa_ferry",
+    bestAction: "Keep Cloud 9, move dinner closer to Dapa.",
+    basis: "Pacifico dinner adds too much travel before an early ferry.",
+    avoid: "Avoid the far-north dinner leg that night.",
+    timing: "tomorrow night",
+    area: "General Luna / Dapa",
+    sources: [localGuideSourceSummary],
+  };
+
+  return [
+    {
+      name: "Dapa breakfast place card",
+      prompt: "I'm in Dapa before the ferry. Where should we get budget breakfast?",
+      agentResult: {
+        message:
+          "Go to Dapa Breakfast House before the ferry; it keeps breakfast cheap and avoids a General Luna detour.",
+        toolCalls: [
+          toolCall({
+            name: "search_places",
+            status: "success",
+            sources: [placesSourceSummary],
+          }),
+        ],
+        sources: [placesSourceSummary],
+        publicSources: [placesSourceSummary],
+        cards: [dapaBreakfastCard],
+        artifactSelection: routeArtifactSelection({
+          totalCardCount: 2,
+          selectedCardCount: 1,
+          unselectedCardCount: 1,
+        }),
+      },
+      expectedOpening: "Go to Dapa Breakfast House",
+      expectedSources: [placesSourceSummary],
+      expectedCardIds: [dapaBreakfastCard.id],
+      expectedDecisionSummaryIds: [],
+      expectedItineraryIds: [],
+      assertSignals: (signals) => {
+        expect(signals?.intent.placeIntent?.category).toBe("food");
+        expect(signals?.intent.activityPlan).toBe(false);
+      },
+    },
+    {
+      name: "Cloud 9 weather decision summary",
+      prompt: "Is Cloud 9 sunset still worth it today if rain is coming?",
+      agentResult: {
+        message:
+          "Keep Cloud 9 sunset optional today; use a covered General Luna stop until the sky is locally clear.",
+        toolCalls: [
+          toolCall({
+            name: "get_condition_judgment",
+            status: "error",
+            errorCode: "provider_unavailable",
+            sources: [weatherUnavailableSourceSummary],
+          }),
+        ],
+        sources: [weatherUnavailableSourceSummary],
+        publicSources: [weatherUnavailableSourceSummary],
+        decisionSummaries: [weatherDecisionSummary],
+        artifactSelection: routeArtifactSelection({
+          totalDecisionSummaryCount: 1,
+          selectedDecisionSummaryCount: 1,
+        }),
+      },
+      expectedOpening: "Keep Cloud 9 sunset optional today",
+      expectedSources: [weatherUnavailableSourceSummary],
+      expectedCardIds: [],
+      expectedDecisionSummaryIds: [weatherDecisionSummary.id],
+      expectedItineraryIds: [],
+      assertSignals: (signals) => {
+        expect(signals?.intent.conditionActivity).toBe("sunset");
+        expect(signals?.intent.weatherSensitive).toBe(true);
+      },
+    },
+    {
+      name: "Malinao swim decision summary",
+      prompt: "Is Malinao a good beach for swimming with kids today?",
+      agentResult: {
+        message:
+          "Use Malinao as a cautious kids swim stop today, and switch plans if the water looks rough.",
+        toolCalls: [
+          toolCall({
+            name: "get_condition_judgment",
+            status: "success",
+            sources: [weatherSourceSummary, conditionMarineSourceSummary],
+          }),
+        ],
+        sources: [weatherSourceSummary, conditionMarineSourceSummary],
+        publicSources: [weatherSourceSummary, conditionMarineSourceSummary],
+        decisionSummaries: [swimmingDecisionSummary],
+        artifactSelection: routeArtifactSelection({
+          totalDecisionSummaryCount: 2,
+          selectedDecisionSummaryCount: 1,
+          unselectedDecisionSummaryCount: 1,
+        }),
+      },
+      expectedOpening: "Use Malinao as a cautious kids swim stop today",
+      expectedSources: [weatherSourceSummary, conditionMarineSourceSummary],
+      expectedCardIds: [],
+      expectedDecisionSummaryIds: [swimmingDecisionSummary.id],
+      expectedItineraryIds: [],
+      assertSignals: (signals) => {
+        expect(signals?.intent.conditionActivity).toBe("swimming");
+        expect(signals?.intent.marineCondition).toBe(true);
+        expect(signals?.intent.activityPlan).toBe(false);
+      },
+    },
+    {
+      name: "itinerary review decision summary",
+      prompt:
+        "Can you critique my itinerary: Cloud 9 sunset, Pacifico dinner, then an 8 AM Dapa ferry?",
+      agentResult: {
+        message:
+          "Keep Cloud 9 sunset, but move dinner closer to General Luna or Dapa before the 8 AM ferry.",
+        toolCalls: [
+          toolCall({
+            name: "plan_local_itinerary",
+            status: "success",
+            sources: [localGuideSourceSummary],
+          }),
+        ],
+        sources: [localGuideSourceSummary],
+        publicSources: [localGuideSourceSummary],
+        decisionSummaries: [reviewDecisionSummary],
+        artifactSelection: routeArtifactSelection({
+          totalItineraryCount: 1,
+          selectedItineraryCount: 0,
+          unselectedItineraryCount: 1,
+          totalDecisionSummaryCount: 1,
+          selectedDecisionSummaryCount: 1,
+        }),
+      },
+      expectedOpening: "Keep Cloud 9 sunset",
+      expectedSources: [localGuideSourceSummary],
+      expectedCardIds: [],
+      expectedDecisionSummaryIds: [reviewDecisionSummary.id],
+      expectedItineraryIds: [],
+      assertSignals: (signals) => {
+        expect(signals?.intent.activityPlan).toBe(false);
+      },
+    },
+  ];
+}
+
+function routeArtifactSelection(
+  overrides: Partial<NonNullable<AgentTurnResult["artifactSelection"]>>,
+): NonNullable<AgentTurnResult["artifactSelection"]> {
+  return {
+    mode: "strict",
+    structuredFinalPayload: true,
+    totalCardCount: 0,
+    totalActionCount: 0,
+    totalItineraryCount: 0,
+    totalDecisionSummaryCount: 0,
+    selectedCardCount: 0,
+    selectedActionCount: 0,
+    selectedItineraryCount: 0,
+    selectedDecisionSummaryCount: 0,
+    unselectedCardCount: 0,
+    unselectedActionCount: 0,
+    unselectedItineraryCount: 0,
+    unselectedDecisionSummaryCount: 0,
+    unknownCardIds: [],
+    unknownActionIds: [],
+    unknownItineraryIds: [],
+    unknownDecisionSummaryIds: [],
+    ...overrides,
+  };
+}
+
+function assertRouteTravelerProseHasNoInternalMechanics(message: string) {
+  const normalizedMessage = message.toLowerCase();
+  for (const bannedTerm of [
+    " tool",
+    "api",
+    "artifact",
+    "required check",
+    "fallback promotion",
+    "source caveat",
+    "live_checked",
+    "not_checked",
+    "not checked",
+    "not verified",
+    "source-profile",
+    "source profile",
+    "vector-store",
+    "vector store",
+    "validation",
+    "repair",
+  ]) {
+    expect(normalizedMessage).not.toContain(bannedTerm);
+  }
+}
 
 type AgentSignals = {
   clientContext: {
