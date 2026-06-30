@@ -1,72 +1,98 @@
-# 002 - Reconcile Shared-Trip Source Disclosure
+# 002 - Align Shared-Trip Source Disclosure Docs With The Public Contract
 
-Status: ready  
-Priority: P0  
-Effort: medium  
-Risk: medium  
-Depends on: plan 001 recommended first  
-Category: product contract and tests  
-Planned at: `2026-06-30` against `e8b08d4`
+Status: ready
+Priority: P2
+Effort: small
+Risk: low
+Depends on: none
+Category: docs and product contract
+Planned at: `2026-06-30` against `a9d1775`
+
+> Executor instructions: follow this plan step by step. Run each verification command before
+> handing off. If a STOP condition occurs, stop and report instead of expanding scope.
+>
+> Drift check, run first:
+>
+> ```sh
+> git diff --stat a9d1775..HEAD -- src/server/trips/shared-trip-types.ts src/server/trips/shared-trip-types.test.ts src/server/trips/shared-trip-store.test.ts src/features/trips/SharedTripPlanPage.tsx src/features/trips/SharedTripPlanPage.test.tsx 'src/app/trips/shared/[token]/page.test.tsx' documentation/developer/reference/routes-and-surfaces.md
+> ```
+>
+> If any in-scope file changed since this plan was written, compare the current code to the
+> excerpts below before editing.
 
 ## Goal
 
-Resolve the conflicting shared-trip public contract around source freshness and `notChecked`
-metadata, then update serialization, UI, tests, and docs so they all say the same thing.
+Make the developer route documentation match the current public shared-trip source contract.
+At `a9d1775`, public shared trips intentionally preserve safe checked source labels and freshness
+signals, but strip `notChecked` details from the public payload and UI. The docs still say public
+shared plans expose checked/not-checked arrays, so future agents may reintroduce the older behavior.
 
-Use the existing developer docs as the default contract: shared plans expose safe source
-summaries, freshness timestamps, checked/not-checked arrays, and caveats, while continuing to
-reject chat transcripts, geolocation, and raw provider payloads.
+This plan is a documentation and contract-alignment task. It does not reopen the product decision
+unless the maintainer explicitly wants public shared pages to show `notChecked` caveats.
 
 ## Current Evidence
 
-Five tests failed before this plan.
+`src/server/trips/shared-trip-types.ts` normalizes public sources and strips `notChecked`:
 
-Server serialization strips `notChecked`:
+```ts
+function publicSourceSummaryFromStored(source: AnswerSourceSummary) {
+  return {
+    ...normalizeSourceSummary(source),
+    notChecked: [],
+  };
+}
+```
 
-- `src/server/trips/shared-trip-types.ts`
-  - `publicSourceSummaryFromStored()` returns normalized sources with `notChecked: []`.
+`src/features/trips/SharedTripPlanPage.tsx` only renders actually checked public sources:
 
-Docs say the public shared route should expose source summaries with checked and not-checked
-arrays:
+```ts
+function SourceSummaryList({ sources }: { sources: SharedTripPlan["items"][number]["sources"] }) {
+  const visibleSources = sources.filter(isActuallyCheckedSource);
+  if (visibleSources.length === 0) {
+    return null;
+  }
+```
+
+Current tests encode this hidden-`notChecked` contract:
+
+- `src/server/trips/shared-trip-types.test.ts` expects public sources such as
+  `{ ...placesSource, notChecked: [] }`.
+- `src/server/trips/shared-trip-store.test.ts` expects shared-plan snapshots to return sources
+  with empty `notChecked` arrays.
+- `src/features/trips/SharedTripPlanPage.test.tsx` expects not-checked caveats such as
+  `Not checked by Open-Meteo weather API: surf reports` not to render.
+
+The route reference is stale:
+
+```md
+Shared plans expose selected saved artifacts, map links, source summaries, freshness
+timestamps, checked/not-checked arrays, and caveats.
+```
+
+## Commands You Will Need
+
+| Purpose | Command | Expected on success |
+| --- | --- | --- |
+| Search contract text | `rg -n "checked/not-checked|notChecked|Not checked" documentation src/server/trips src/features/trips 'src/app/trips/shared/[token]/page.test.tsx'` | Shows only intentional references |
+| Shared-trip tests | `bun test src/server/trips/shared-trip-types.test.ts src/server/trips/shared-trip-store.test.ts src/features/trips/SharedTripPlanPage.test.tsx 'src/app/trips/shared/[token]/page.test.tsx'` | All pass |
+| Lint | `bun run lint` | Exit 0 |
+| Typecheck | `bun run typecheck --incremental false` | Exit 0, no errors |
+| Full unit baseline | `bun test` | Exit 0 |
+
+## Scope
+
+In scope:
 
 - `documentation/developer/reference/routes-and-surfaces.md`
-  - shared plans expose selected saved artifacts, map links, source summaries, freshness
-    timestamps, checked/not-checked arrays, and caveats.
+- Shared-trip tests only if the docs need a clearer regression assertion.
+- `src/server/trips/shared-trip-types.ts` only for comments or naming that clarify the existing
+  public contract.
 
-Tests disagree:
+Out of scope:
 
-- `src/server/trips/shared-trip-types.test.ts` expects original `notChecked` values to remain.
-- `src/server/trips/shared-trip-store.test.ts` expects browser-saved not-reverified caveats.
-- `src/app/trips/shared/[token]/page.test.tsx` expects freshness and not-checked text.
-- `src/features/trips/SharedTripPlanPage.test.tsx` expects freshness and not-checked text not to
-  render.
-
-## Product Decision
-
-Unless the product owner says otherwise during execution, implement this contract:
-
-- Public shared trips may include source `checked`, `notChecked`, `fetchedAt`, and public
-  caveats.
-- Values must be source-governance metadata only, not raw provider payloads or chat content.
-- Browser-saved trip sources should clearly say they were not reverified.
-- The UI should show source metadata compactly enough to be useful without making the shared
-  page feel like a debug dump.
-
-## In Scope
-
-- `src/server/trips/shared-trip-types.ts`
-- `src/server/trips/shared-trip-types.test.ts`
-- `src/server/trips/shared-trip-store.test.ts`
-- `src/features/trips/SharedTripPlanPage.tsx`
-- `src/features/trips/SharedTripPlanPage.test.tsx`
-- `src/app/trips/shared/[token]/page.test.tsx`
-- `documentation/developer/reference/routes-and-surfaces.md` if wording needs clarification.
-
-## Out of Scope
-
-- Exposing chat transcripts.
-- Exposing raw Google Places, SerpAPI, or provider payloads.
-- Changing token generation or shared-trip authorization.
+- Exposing `notChecked` caveats publicly.
+- Changing token generation, shared-trip authorization, or persistence.
+- Exposing chat transcripts, geolocation, raw provider payloads, or raw source observations.
 - Adding paid trip passes, refresh budgets, or revenue-model behavior.
 
 ## Implementation Steps
@@ -74,84 +100,87 @@ Unless the product owner says otherwise during execution, implement this contrac
 1. Create a branch:
 
    ```sh
-   git switch -c advisor/002-shared-trip-source-disclosure
+   git switch -c advisor/002-shared-trip-source-contract-docs
    ```
 
-2. Inspect current source summary helpers and render paths:
+2. Inspect the current implementation and tests:
 
    ```sh
-   rg -n "publicSourceSummaryFromStored|notChecked|fetchedAt|browserSavedNotReverified" src/server/trips src/features/trips src/app/trips
+   rg -n "publicSourceSummaryFromStored|isActuallyCheckedSource|notChecked|checked/not-checked" src/server/trips src/features/trips 'src/app/trips/shared/[token]/page.test.tsx' documentation/developer/reference/routes-and-surfaces.md
    ```
 
-3. Update server normalization:
+3. Update `documentation/developer/reference/routes-and-surfaces.md`.
 
-   - preserve safe `checked` values;
-   - preserve safe `notChecked` values instead of replacing them with `[]`;
-   - preserve `fetchedAt` when present;
-   - keep filtering/removal for raw payloads, internal ids, chat text, and location precision that
-     should not be public.
+   Replace wording that says public shared plans expose `checked/not-checked arrays` with the
+   current contract:
 
-4. If there is no sanitizer for public source checklist strings, add one close to the existing
-   source-summary code. Keep it conservative:
+   - public shared plans expose selected saved artifacts, safe map links, sanitized source
+     summaries, source labels, confidence/freshness metadata, checked-source details, and public
+     display caveats;
+   - public shared plans strip not-checked details from persisted source summaries before sharing;
+   - public shared plans reject full chat messages, coordinates, raw tool calls, and raw provider
+     payloads.
 
-   - trim whitespace;
-   - drop empty entries;
-   - cap very long strings;
-   - do not allow objects or raw payload fields through.
+4. If the existing tests do not make the contract obvious after reading them, add one focused
+   assertion to `src/server/trips/shared-trip-types.test.ts`:
 
-5. Update shared page rendering:
+   - a stored source with `notChecked: ["table availability"]` becomes public with
+     `notChecked: []`;
+   - checked source details and `fetchedAt` still survive public serialization.
 
-   - render freshness in a compact source line, for example `Fetched 2026-...`;
-   - render not-checked values as source-governance caveats, not as errors;
-   - make browser-saved not-reverified status visible.
+   Do not change UI behavior in this plan.
 
-6. Reconcile tests to the selected contract:
+5. Run the targeted shared-trip tests.
 
-   - server tests should assert `notChecked` survives public serialization when safe;
-   - store tests should assert browser-saved sources include the not-reverified caveat;
-   - page and feature tests should both expect the same visible behavior.
+   ```sh
+   bun test src/server/trips/shared-trip-types.test.ts src/server/trips/shared-trip-store.test.ts src/features/trips/SharedTripPlanPage.test.tsx 'src/app/trips/shared/[token]/page.test.tsx'
+   ```
 
-7. Update docs if the implementation uses more precise language than the current route reference.
+   Expected: all pass.
 
-## Verification
+6. Run broad checks.
 
-Run targeted tests:
+   ```sh
+   bun run lint
+   bun run typecheck --incremental false
+   bun test
+   ```
 
-```sh
-bun test src/server/trips/shared-trip-types.test.ts src/server/trips/shared-trip-store.test.ts src/features/trips/SharedTripPlanPage.test.tsx 'src/app/trips/shared/[token]/page.test.tsx'
-```
+   Expected: all pass.
 
-Then, after plan 001 is complete:
+## Test Plan
 
-```sh
-bun test
-bun run lint
-bun run typecheck --incremental false
-```
-
-Expected:
-
-- the targeted shared-trip tests pass;
-- full Bun suite passes when combined with plan 001;
-- lint and typecheck pass.
+- Prefer existing shared-trip serialization and page tests. Add only a narrow regression assertion
+  if the current hidden-`notChecked` behavior is not already explicit enough.
+- Do not add e2e coverage for this documentation-only correction unless visible UI behavior changes.
 
 ## Done Criteria
 
-- Serialization, UI, tests, and docs agree on source freshness and `notChecked`.
-- Public shared trips still do not expose chat transcripts, geolocation, or raw provider payloads.
-- Browser-saved trip sources communicate that they were not reverified.
-- Verification commands pass.
+- `documentation/developer/reference/routes-and-surfaces.md` no longer claims that public shared
+  plans expose not-checked arrays.
+- The docs explicitly say not-checked source details are stripped from public shared plans.
+- Existing shared-trip tests still pass.
+- `bun run lint`, `bun run typecheck --incremental false`, and `bun test` pass.
+- `plans/README.md` status row is updated.
 
-## Stop Conditions
+## STOP Conditions
 
-Stop and ask for a product decision if:
+Stop and report if:
 
-- the product owner wants `notChecked` hidden from public shared pages;
-- source metadata now contains sensitive fields that cannot be safely sanitized;
-- implementing this requires changing the shared token or persistence model.
+- The maintainer wants public shared pages to show not-checked caveats after all. That is a product
+  behavior change and needs a different plan.
+- The implementation has drifted and now preserves public `notChecked` values intentionally.
+- Updating the docs reveals another public contract conflict outside shared-trip source metadata.
 
-## Suggested Commit
+## Maintenance Notes
+
+Future work can still choose to expose selected not-checked caveats publicly, but that should be a
+deliberate product change with serialization, UI, and tests updated together. Until then, keep
+shared-trip public payloads conservative: checked facts and freshness can be visible; unverified
+details and private capture context stay out.
+
+Suggested commit:
 
 ```text
-Reconcile shared trip source disclosure
+Document shared trip source contract
 ```

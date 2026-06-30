@@ -4,9 +4,9 @@ Status: ready
 Priority: P1  
 Effort: medium  
 Risk: medium  
-Depends on: plans 001 and 002 for a fully green final `bun test` run  
+Depends on: none
 Category: security and data minimization  
-Planned at: `2026-06-30` against `ccdd368`
+Planned at: `2026-06-30` against `a9d1775`
 
 > Executor instructions: follow this plan step by step. Run each verification command before
 > handing off. If a STOP condition occurs, stop and report instead of expanding scope.
@@ -14,7 +14,7 @@ Planned at: `2026-06-30` against `ccdd368`
 > Drift check, run first:
 >
 > ```sh
-> git diff --stat ccdd368..HEAD -- src/server/chat/agent-runtime.ts src/app/api/chat/chat-route.ts src/server/chat/agent-tools.ts src/server/chat/source-consistency.ts src/server/chat/agent-runtime.test.ts src/app/api/chat/route.test.ts src/server/chat/agent-tools.test.ts
+> git diff --stat a9d1775..HEAD -- src/server/chat/agent-runtime.ts src/app/api/chat/chat-route.ts src/server/chat/agent-tools.ts src/server/chat/source-consistency.ts src/server/chat/agent-runtime.test.ts src/app/api/chat/route.test.ts src/server/chat/agent-tools.test.ts
 > ```
 >
 > If any in-scope file changed since this plan was written, compare the current code to the
@@ -95,12 +95,12 @@ duration, but not arguments or result text.
 | Purpose | Command | Expected on success |
 | --- | --- | --- |
 | Search | `rg -n "resultText|redactToolCallsForPublicResponse|toolCalls:" src/server/chat src/app/api/chat` | Shows only expected references |
-| Targeted route tests | `bun test src/app/api/chat/route.test.ts` | All tests in the file pass once plans 001/002 are resolved if they affect the file |
+| Targeted route tests | `bun test src/app/api/chat/route.test.ts` | All tests in the file pass |
 | Runtime tests | `bun test src/server/chat/agent-runtime.test.ts` | All tests pass |
 | Tool tests | `bun test src/server/chat/agent-tools.test.ts` | All tests pass |
 | Lint | `bun run lint` | Exit 0 |
 | Typecheck | `bun run typecheck --incremental false` | Exit 0, no errors |
-| Full unit baseline | `bun test` | Exit 0 after plans 001 and 002 land |
+| Full unit baseline | `bun test` | Exit 0 |
 
 ## Scope
 
@@ -120,7 +120,7 @@ Out of scope:
 - Changing source-summary rendering or final answer copy except for provider failure text.
 - Reworking chat history schema.
 - Removing internal audit fields needed by source consistency validation.
-- Fixing the existing unrelated test baseline from plans 001 and 002.
+- Fixing unrelated test failures outside the public tool-call DTO work.
 
 ## Implementation Steps
 
@@ -270,7 +270,7 @@ Out of scope:
 - Stored chat history remains summarized and does not gain raw arguments or result text.
 - Google Places provider exception messages are not copied into tool output text.
 - Targeted tests, lint, and typecheck pass.
-- `bun test` passes after plans 001 and 002 restore the known baseline.
+- `bun test` passes.
 - `plans/README.md` status row is updated.
 
 ## STOP Conditions

@@ -4,9 +4,9 @@ Status: ready
 Priority: P2  
 Effort: large  
 Risk: medium  
-Depends on: plans 001 and 002 for a fully green final `bun test` run  
+Depends on: none
 Category: direction and product foundation  
-Planned at: `2026-06-30` against `ccdd368`
+Planned at: `2026-06-30` against `a9d1775`
 
 > Executor instructions: follow this plan step by step. Run each verification command before
 > handing off. If a STOP condition occurs, stop and report instead of expanding scope.
@@ -14,7 +14,7 @@ Planned at: `2026-06-30` against `ccdd368`
 > Drift check, run first:
 >
 > ```sh
-> git diff --stat ccdd368..HEAD -- docs/PRD.md docs/TECH.md docs/DATA_STRATEGY.md src/server/db/schema.ts src/server/db/migration.test.ts src/server/payments src/app/api/stripe/webhook src/app/api/chat src/server/chat drizzle
+> git diff --stat a9d1775..HEAD -- docs/PRD.md docs/TECH.md docs/DATA_STRATEGY.md src/server/db/schema.ts src/server/db/migration.test.ts src/server/payments src/app/api/stripe/webhook src/app/api/chat src/server/chat drizzle
 > ```
 >
 > If any in-scope file changed since this plan was written, compare the current code to the
@@ -111,7 +111,7 @@ does not yet activate a chat trip pass or initialize trip usage meters.
 | DB seed | `bun run db:seed:test` | Exit 0 |
 | Lint | `bun run lint` | Exit 0 |
 | Typecheck | `bun run typecheck --incremental false` | Exit 0, no errors |
-| Full unit baseline | `bun test` | Exit 0 after plans 001 and 002 land |
+| Full unit baseline | `bun test` | Exit 0 |
 
 ## Scope
 
@@ -287,7 +287,7 @@ Out of scope:
 - Existing audit payment tests still pass.
 - DB migrate/seed test commands pass.
 - Lint and typecheck pass.
-- `bun test` passes after plans 001 and 002 restore the known baseline.
+- `bun test` passes.
 - `plans/README.md` status row is updated.
 
 ## STOP Conditions

@@ -6,7 +6,7 @@ Effort: small
 Risk: low  
 Depends on: none  
 Category: developer workflow and dependency posture  
-Planned at: `2026-06-30` against `ccdd368`
+Planned at: `2026-06-30` against `a9d1775`
 
 > Executor instructions: follow this plan step by step. Run each verification command before
 > handing off. If a STOP condition occurs, stop and report instead of expanding scope.
@@ -14,7 +14,7 @@ Planned at: `2026-06-30` against `ccdd368`
 > Drift check, run first:
 >
 > ```sh
-> git diff --stat ccdd368..HEAD -- package.json .github/workflows/ci.yml README.md docs documentation AGENTS.md
+> git diff --stat a9d1775..HEAD -- package.json .github/workflows/ci.yml README.md docs documentation AGENTS.md
 > ```
 >
 > If any in-scope file changed since this plan was written, compare the current code to the
@@ -79,7 +79,7 @@ Existing CI gates in `.github/workflows/ci.yml:26-51` are:
 | YAML/JSON search | `rg -n "bun-version|packageManager|bun@" package.json .github/workflows README.md docs documentation AGENTS.md` | Shows intended references |
 | Lint | `bun run lint` | Exit 0 |
 | Typecheck | `bun run typecheck --incremental false` | Exit 0, no errors |
-| Unit baseline | `bun test` | Exit 0 after plans 001 and 002 land |
+| Unit baseline | `bun test` | Exit 0 |
 
 ## Scope
 
@@ -181,15 +181,13 @@ Out of scope:
    bun test
    ```
 
-   Expected: lint and typecheck pass. If `bun test` still shows the known 571 passing / 11 failing
-   baseline from plans 001 and 002, record that and do not fix those failures in this plan.
+   Expected: lint, typecheck, and unit tests pass.
 
 ## Test Plan
 
 - No new code tests are required for the metadata/workflow change.
 - Run lint and typecheck to catch JSON/YAML formatting issues and repository type drift.
-- Run `bun test` as the broad local signal; known failures from plans 001 and 002 are not part of
-  this plan.
+- Run `bun test` as the broad local signal.
 
 ## Done Criteria
 

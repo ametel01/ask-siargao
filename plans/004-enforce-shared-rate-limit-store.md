@@ -6,7 +6,7 @@ Effort: medium
 Risk: medium  
 Depends on: none  
 Category: security and production safety  
-Planned at: `2026-06-30` against `e8b08d4`
+Planned at: `2026-06-30` against `a9d1775`
 
 ## Goal
 

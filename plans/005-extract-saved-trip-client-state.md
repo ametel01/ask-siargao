@@ -4,9 +4,9 @@ Status: ready
 Priority: P2  
 Effort: large  
 Risk: medium  
-Depends on: plans 001 and 002 recommended first  
+Depends on: none
 Category: maintainability  
-Planned at: `2026-06-30` against `e8b08d4`
+Planned at: `2026-06-30` against `a9d1775`
 
 ## Goal
 
@@ -72,7 +72,7 @@ This makes unit tests possible without relying on a full browser environment.
    git switch -c advisor/005-extract-saved-trip-client
    ```
 
-2. Make sure plans 001 and 002 are already merged or locally applied, then confirm the baseline:
+2. Confirm the saved-trip and shared-trip baseline is green before extracting:
 
    ```sh
    bun test src/app/api/trips/route.test.ts src/server/trips/shared-trip-types.test.ts src/server/trips/shared-trip-store.test.ts
@@ -156,7 +156,7 @@ Stop and update this plan if:
 
 - the extraction reveals saved-trip behavior is coupled to streaming state in a way that requires a
   product-visible rewrite;
-- existing tests are still failing from plans 001 or 002;
+- the saved-trip or shared-trip baseline tests fail before this extraction begins;
 - the new module would need to own React rendering or UI state to compile.
 
 ## Suggested Commit

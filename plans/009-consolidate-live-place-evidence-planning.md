@@ -4,9 +4,9 @@ Status: ready
 Priority: P1  
 Effort: medium  
 Risk: medium  
-Depends on: plans 001 and 002 for a fully green final `bun test` run  
+Depends on: none
 Category: correctness and product quality  
-Planned at: `2026-06-30` against `ccdd368`
+Planned at: `2026-06-30` against `a9d1775`
 
 > Executor instructions: follow this plan step by step. Run each verification command before
 > handing off. If a STOP condition occurs, stop and report instead of expanding scope.
@@ -14,7 +14,7 @@ Planned at: `2026-06-30` against `ccdd368`
 > Drift check, run first:
 >
 > ```sh
-> git diff --stat ccdd368..HEAD -- docs/ASK_SIARGAO_ROADMAP.md src/server/chat/place-intent.ts src/server/chat/required-evidence.ts src/server/chat/recommendation-agent.ts src/server/chat/place-intent.test.ts src/server/chat/ask-siargao-agent.test.ts src/server/chat/recommendation-agent.test.ts
+> git diff --stat a9d1775..HEAD -- docs/ASK_SIARGAO_ROADMAP.md src/server/chat/place-intent.ts src/server/chat/required-evidence.ts src/server/chat/recommendation-agent.ts src/server/chat/place-intent.test.ts src/server/chat/ask-siargao-agent.test.ts src/server/chat/recommendation-agent.test.ts
 > ```
 >
 > If any in-scope file changed since this plan was written, compare the current code to the
@@ -120,7 +120,7 @@ coverage does not protect the production ask-agent path.
 | Recommendation tests | `bun test src/server/chat/recommendation-agent.test.ts` | All tests pass |
 | Lint | `bun run lint` | Exit 0 |
 | Typecheck | `bun run typecheck --incremental false` | Exit 0, no errors |
-| Full unit baseline | `bun test` | Exit 0 after plans 001 and 002 land |
+| Full unit baseline | `bun test` | Exit 0 |
 
 ## Scope
 
@@ -282,7 +282,7 @@ Out of scope:
   asks for pharmacy, clinic, ATM, laundry, or scooter rental.
 - Food, coffee, bar, dinner, nearby, and specific-place tests still pass.
 - Targeted tests, lint, and typecheck pass.
-- `bun test` passes after plans 001 and 002 restore the known baseline.
+- `bun test` passes.
 - `plans/README.md` status row is updated.
 
 ## STOP Conditions

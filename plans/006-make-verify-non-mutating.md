@@ -4,9 +4,9 @@ Status: ready
 Priority: P2  
 Effort: small  
 Risk: low  
-Depends on: plans 001 and 002 for a fully green final run  
+Depends on: none
 Category: developer workflow  
-Planned at: `2026-06-30` against `e8b08d4`
+Planned at: `2026-06-30` against `a9d1775`
 
 ## Goal
 
@@ -47,7 +47,7 @@ CI currently runs:
 
 - Changing CI workflow semantics.
 - Replacing Biome.
-- Fixing test failures from plans 001 and 002.
+- Fixing unrelated test failures, if any are introduced before this plan is executed.
 - Adding paid-pass or revenue-model checks.
 
 ## Recommended Script Shape
@@ -100,7 +100,7 @@ If choosing option B, update docs so contributors know `verify:ci` is the merge 
 
 ## Verification
 
-After plans 001 and 002 are complete, run:
+Run:
 
 ```sh
 bun run verify
@@ -120,8 +120,8 @@ Expected:
 - `git status --short` shows no formatting-only changes caused by verification;
 - docs match the final script names.
 
-If implementing this before plans 001 and 002, `bun run verify` may still fail because of the
-known test baseline. In that case, record the expected failure and rerun after those plans land.
+At `a9d1775`, the full `bun test` baseline is green, so `bun run verify` should pass after the
+script is made non-mutating unless this plan introduces a regression.
 
 ## Done Criteria
 

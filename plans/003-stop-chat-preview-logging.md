@@ -6,7 +6,7 @@ Effort: small
 Risk: low  
 Depends on: none  
 Category: privacy and observability  
-Planned at: `2026-06-30` against `e8b08d4`
+Planned at: `2026-06-30` against `a9d1775`
 
 ## Goal
 

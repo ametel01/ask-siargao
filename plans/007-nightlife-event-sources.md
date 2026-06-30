@@ -1,12 +1,26 @@
 # 007 - Add Nightlife Event Sources And Route-Style Answers
 
-Status: draft  
-Priority: P0  
-Effort: medium-large  
+Status: ready
+Priority: P2
+Effort: large
 Risk: medium  
 Depends on: existing chat agent tools, source registry, Google Places chat adapter  
 Category: product quality, source governance, local recommendations  
-Planned at: `2026-06-30`
+Planned at: `2026-06-30` against `a9d1775`
+
+## Reconciliation Note
+
+At `a9d1775`, the stable agent-memory slice already exists:
+
+- `docs/agent-memory/NIGHTLIFE.md`
+- `docs/agent-memory/INDEX.md` nightlife routing entries
+- `src/server/chat/agent-memory.ts` `ask_siargao_nightlife` manifest entry
+- tests proving `NIGHTLIFE.md` is loadable
+
+Do not recreate that memory file. This plan now focuses on the missing runtime product slice:
+nightlife intent, event occurrence data, approved source profiles/adapters, a
+`search_nightlife_events` tool, route-style answers, and tests that prevent a Google Places-only
+nightlife answer.
 
 ## Goal
 
@@ -72,6 +86,8 @@ Ask Siargao knows tonight's Siargao move, not just which bars exist on Google Ma
 - Source labels and confidence wording that distinguish events, venues, weather, and unchecked
   crowd signals.
 - Regression tests for the General Luna party query.
+- Updates to `docs/agent-memory/NIGHTLIFE.md` only if implementation changes the source/tool
+  boundary it documents.
 
 ## Out of Scope
 
@@ -80,6 +96,7 @@ Ask Siargao knows tonight's Siargao move, not just which bars exist on Google Ma
 - Rebuilding a full web search engine.
 - Booking, ticketing, table reservations, guest list management, or payments.
 - Guaranteeing live crowd size, door policy, table availability, or last-minute cancellation status.
+- Recreating the already-present `NIGHTLIFE.md` memory document or reworking unrelated memory files.
 
 ## Feature Requirements
 
@@ -352,74 +369,13 @@ Suggested labels:
 Avoid using generic "Live checked" for the whole answer when only Google Places venue fields were
 checked.
 
-### 9. Agent Memory Knowledge Files
+### 9. Existing Agent Memory Knowledge Files
 
-Stable nightlife knowledge should live in `docs/agent-memory` as Markdown, the same way surf,
-beach, source-policy, and tool-use knowledge are handled today.
+Stable nightlife knowledge already lives in `docs/agent-memory/NIGHTLIFE.md`. Treat it as the
+durable reference and source-priority policy for this work. Specific event occurrences should live
+in event facts with expiry, not as same-day facts embedded in memory.
 
-Add a new reference memory file:
-
-```text
-docs/agent-memory/NIGHTLIFE.md
-```
-
-This file should contain stable local-reference knowledge, not unbounded raw provider content.
-
-It should include:
-
-- the General Luna nightlife mental model: warm-up, main party, late option, softer/live-music
-  alternative;
-- known nightlife areas such as Tourism Road, Boardwalk, Cloud 9/Catangnan, and beachfront venues;
-- recurring party-night candidates and their source URLs;
-- venue-fit notes: solo-friendly, tourist-heavy, live music, sports bar, foam party, DJ/club night,
-  date-friendly, chill drinks;
-- source priority rules for nightlife, matching the freshness matrix above;
-- caveats that event schedules change and last-minute confirmation needs live/source checks;
-- answer-shape guidance for route-style nightlife responses;
-- boundaries: memory is not live evidence, does not verify tonight's crowd, and does not replace
-  `search_nightlife_events`, Google Places, or weather tools.
-
-Do not put fragile same-day facts directly into `NIGHTLIFE.md` unless they are represented as
-recurring patterns with a `last_verified` date and source URL. Specific event occurrences should
-live in event facts with expiry.
-
-Example structure:
-
-```md
-# Siargao Nightlife
-
-## Loading Rules
-
-Load this file for party, nightlife, bar-hopping, drinks tonight, DJ, live music,
-foam party, pub quiz, trivia, late-night, and where-to-go-out prompts.
-
-## Stable Planning Model
-
-- Early warm-up: ...
-- Main party: ...
-- Late option: ...
-- Softer option: ...
-
-## Recurring Event Candidates
-
-| Venue | Pattern | Source URL | Last verified | Confidence | Caveat |
-| --- | --- | --- | --- | --- | --- |
-
-## Source Priority
-
-...
-```
-
-Wire the file into the runtime:
-
-- update `docs/agent-memory/INDEX.md` with a `NIGHTLIFE.md` entry and loading rules;
-- update `src/server/chat/agent-memory.ts` `requiredAgentMemoryManifest` with an
-  `ask_siargao_nightlife` reference entry;
-- include trigger terms such as `party`, `nightlife`, `bar hopping`, `drinks`, `DJ`, `live music`,
-  `foam party`, `pub quiz`, `trivia`, `late night`, `tonight`;
-- update agent-memory tests so the available-memory list includes `NIGHTLIFE.md`;
-- update chat-route or agent tests so nightlife prompts call `load_agent_memory_file` for
-  `NIGHTLIFE.md` before the final answer when the model needs local-reference context.
+Current runtime loading rule to preserve:
 
 Runtime loading rule:
 
@@ -432,7 +388,8 @@ and weather for tonight route movement when relevant.
 ```
 
 This keeps durable product knowledge in Markdown while preserving the separation between stable
-local knowledge and live event evidence.
+local knowledge and live event evidence. Update the memory docs only if the implemented
+`search_nightlife_events` contract changes the documented tool or source boundaries.
 
 ## MVP Data Seed
 
@@ -583,7 +540,8 @@ Kill or narrow if:
 5. Add Google Places venue enrichment after event lookup.
 6. Add weather check for tonight route movement.
 7. Add source profiles for approved event sources.
-8. Add admin or seed workflow for maintaining recurring events.
+8. Update `NIGHTLIFE.md` only if the implemented tool contract differs from the existing memory.
+9. Add admin or seed workflow for maintaining recurring events.
 
 ## Suggested Commit
 
