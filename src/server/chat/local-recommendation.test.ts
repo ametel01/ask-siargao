@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { normalizeLocalRecommendation } from "@/server/chat/local-recommendation";
+import {
+  normalizeLocalRecommendation,
+  rankLocalRecommendationCandidates,
+} from "@/server/chat/local-recommendation";
 
 describe("normalizeLocalRecommendation", () => {
   test("maps candidate identity, map link, open-now status, and live source freshness", () => {
@@ -101,6 +104,78 @@ describe("normalizeLocalRecommendation", () => {
       index: 1,
     });
 
+    expect(recommendation.caveats).toContain("Covered seating is not verified by Google Places.");
+    expect(recommendation.caveats).toContain(
+      "Beachfront fit is inferred from provider text and not independently verified.",
+    );
+  });
+
+  test("ranks constraint-matching nearby Places candidates before generic matches", () => {
+    const ranked = rankLocalRecommendationCandidates(
+      [
+        {
+          placeId: "place_generic",
+          name: "Generic Cafe",
+          types: ["cafe"],
+          googleMapsUri: "https://maps.google.com/?cid=generic",
+          distanceMeters: 250,
+          currentOpeningHours: { openNow: true },
+          source: {
+            provider: "google_places",
+            fetchedAt: "2026-06-26T01:00:00.000Z",
+            freshness: "live",
+          },
+        },
+        {
+          placeId: "place_covered",
+          name: "Covered Family Cafe",
+          types: ["cafe", "family_restaurant"],
+          googleMapsUri: "https://maps.google.com/?cid=covered",
+          distanceMeters: 1_500,
+          currentOpeningHours: { openNow: true },
+          source: {
+            provider: "google_places",
+            fetchedAt: "2026-06-26T01:00:00.000Z",
+            freshness: "live",
+          },
+        },
+      ],
+      { constraints: ["covered_seating", "family_friendly"] },
+    );
+
+    expect(ranked.map((candidate) => candidate.name)).toEqual([
+      "Covered Family Cafe",
+      "Generic Cafe",
+    ]);
+  });
+
+  test("adds constraint fit reasons without treating Google text as verified local proof", () => {
+    const recommendation = normalizeLocalRecommendation({
+      candidate: {
+        placeId: "place_covered",
+        name: "Covered Beach Cafe",
+        types: ["cafe"],
+        googleMapsUri: "https://maps.google.com/?cid=covered",
+        distanceMeters: 800,
+        currentOpeningHours: { openNow: true },
+        source: {
+          provider: "google_places",
+          fetchedAt: "2026-06-26T01:00:00.000Z",
+          freshness: "live",
+        },
+      },
+      category: "coffee",
+      centerLabel: "Cloud 9",
+      constraints: ["covered_seating", "beachfront"],
+      index: 0,
+    });
+
+    expect(recommendation.fitReasons).toEqual(
+      expect.arrayContaining([
+        "covered-seating wording matched the rainy-day constraint",
+        "beachfront wording matched the place constraint",
+      ]),
+    );
     expect(recommendation.caveats).toContain("Covered seating is not verified by Google Places.");
     expect(recommendation.caveats).toContain(
       "Beachfront fit is inferred from provider text and not independently verified.",

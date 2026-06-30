@@ -44,6 +44,33 @@ export type LocalRecommendationCandidateInput = {
   source: LocalRecommendation["source"];
 };
 
+export type LocalRecommendationRankingContext = {
+  constraints: readonly string[];
+  center?: {
+    latitude: number;
+    longitude: number;
+  };
+};
+
+type LocalRecommendationSortableCandidate = Pick<
+  LocalRecommendationCandidateInput,
+  "currentOpeningHours" | "distanceMeters" | "formattedAddress" | "name" | "primaryType" | "types"
+>;
+
+export function rankLocalRecommendationCandidates<
+  Candidate extends LocalRecommendationSortableCandidate,
+>(
+  candidates: readonly Candidate[],
+  context: LocalRecommendationRankingContext = { constraints: [] },
+): Candidate[] {
+  return [...candidates].sort(
+    (left, right) =>
+      localRecommendationScore(right, context) - localRecommendationScore(left, context) ||
+      normalizedDistance(left) - normalizedDistance(right) ||
+      left.name.localeCompare(right.name),
+  );
+}
+
 export function normalizeLocalRecommendation({
   candidate,
   category,
@@ -71,7 +98,7 @@ export function normalizeLocalRecommendation({
     ...(candidate.rating !== undefined ? { rating: candidate.rating } : {}),
     ...(candidate.userRatingCount !== undefined ? { reviewCount: candidate.userRatingCount } : {}),
     ...(candidate.priceLevel ? { priceLevel: candidate.priceLevel } : {}),
-    fitReasons: recommendationFitReasons(candidate, index, centerLabel),
+    fitReasons: recommendationFitReasons(candidate, index, centerLabel, constraints),
     caveats: recommendationCaveats(constraints),
     source: candidate.source,
   };
@@ -81,6 +108,7 @@ function recommendationFitReasons(
   candidate: LocalRecommendationCandidateInput,
   index: number,
   centerLabel: string,
+  constraints: readonly string[],
 ) {
   const fitReasons: string[] = [];
   if (candidate.distanceMeters !== undefined) {
@@ -88,6 +116,7 @@ function recommendationFitReasons(
   } else if (index === 0) {
     fitReasons.push("top-ranked match");
   }
+  fitReasons.push(...constraintFitReasons(candidate, constraints));
   fitReasons.push(openingHoursLabel(candidate.currentOpeningHours));
   return fitReasons;
 }
@@ -101,6 +130,71 @@ function recommendationCaveats(constraints: readonly string[]) {
     caveats.push("Beachfront fit is inferred from provider text and not independently verified.");
   }
   return caveats;
+}
+
+function constraintFitReasons(
+  candidate: LocalRecommendationCandidateInput,
+  constraints: readonly string[],
+) {
+  return uniqueText([
+    constraints.includes("covered_seating") && candidateTextIncludes(candidate, "covered")
+      ? "covered-seating wording matched the rainy-day constraint"
+      : undefined,
+    constraints.includes("beachfront") && candidateTextIncludes(candidate, "beach")
+      ? "beachfront wording matched the place constraint"
+      : undefined,
+    constraints.includes("family_friendly") && candidateTextIncludes(candidate, "family")
+      ? "family-friendly wording matched the traveler profile"
+      : undefined,
+  ]);
+}
+
+function localRecommendationScore(
+  candidate: LocalRecommendationSortableCandidate,
+  context: LocalRecommendationRankingContext,
+) {
+  let score = 0;
+  if (candidate.currentOpeningHours?.openNow === true) {
+    score += 12;
+  }
+  if (candidate.currentOpeningHours?.openNow === false) {
+    score -= 12;
+  }
+  if (candidate.distanceMeters !== undefined) {
+    score += Math.max(0, 16 - candidate.distanceMeters / 350);
+  }
+  if (
+    context.constraints.includes("covered_seating") &&
+    candidateTextIncludes(candidate, "covered")
+  ) {
+    score += 8;
+  }
+  if (context.constraints.includes("beachfront") && candidateTextIncludes(candidate, "beach")) {
+    score += 6;
+  }
+  if (
+    context.constraints.includes("family_friendly") &&
+    candidateTextIncludes(candidate, "family")
+  ) {
+    score += 5;
+  }
+  return score;
+}
+
+function normalizedDistance(candidate: LocalRecommendationSortableCandidate) {
+  return candidate.distanceMeters ?? Number.POSITIVE_INFINITY;
+}
+
+function candidateTextIncludes(candidate: LocalRecommendationSortableCandidate, term: string) {
+  const text = [
+    candidate.name,
+    candidate.formattedAddress,
+    candidate.primaryType,
+    ...candidate.types,
+  ]
+    .join(" ")
+    .toLowerCase();
+  return text.includes(term);
 }
 
 function openingHoursLabel(hours: GooglePlacesOpeningHours | undefined) {
@@ -132,4 +226,15 @@ function formatDistance(distanceMeters: number) {
     return `${Math.round(distanceMeters)} m`;
   }
   return `${(distanceMeters / 1_000).toFixed(1)} km`;
+}
+
+function uniqueText(values: readonly (string | undefined)[]) {
+  return [
+    ...new Set(
+      values.flatMap((value) => {
+        const normalizedValue = value?.replaceAll(/\s+/g, " ").trim();
+        return normalizedValue ? [normalizedValue] : [];
+      }),
+    ),
+  ];
 }

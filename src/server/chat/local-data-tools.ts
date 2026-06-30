@@ -508,7 +508,8 @@ function queryCuratedGuideFacts(query: LocalFactsQuery): LocalFactResultItem[] {
     query: query.text ?? [...(query.tags ?? []), query.area ?? "Siargao beaches"].join(" "),
     filters: {
       beachSurface: query.tags?.includes("sandy") ? "sand" : "any",
-      maxRideMinutes: 180,
+      maxRideMinutes: query.area ? 30 : 180,
+      ...(query.area ? { originArea: query.area } : {}),
       rainFit: query.tags?.includes("rain-fit"),
       sunset: query.tags?.includes("sunset"),
       swimming: query.tags?.includes("swimming"),

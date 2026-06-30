@@ -17,6 +17,7 @@ export type SurfSpot = {
 export type RankedSurfSpot = Omit<SurfSpot, "latitude" | "longitude"> & {
   distanceKm: number;
   distanceLabel: string;
+  fitReasons: readonly string[];
 };
 
 export type RankSurfSpotsNearbyInput = {
@@ -60,7 +61,7 @@ export function rankSurfSpotsNearby(input: RankSurfSpotsNearbyInput): RankedSurf
     if (!surfSpotSupportsSkillLevel(spot, skillLevel)) {
       continue;
     }
-    rankedSpots.push(publicRankedSurfSpot(spot, input.center));
+    rankedSpots.push(publicRankedSurfSpot(spot, input.center, skillLevel));
   }
   return rankedSpots
     .sort(
@@ -112,6 +113,7 @@ function parseSurfSpot(value: unknown): SurfSpot | undefined {
 function publicRankedSurfSpot(
   spot: SurfSpot,
   center: { latitude: number; longitude: number },
+  skillLevel: SurfSpotSkillLevel,
 ): RankedSurfSpot {
   const distanceKm = haversineDistanceMeters(center, spot) / 1000;
   return {
@@ -124,6 +126,13 @@ function publicRankedSurfSpot(
     caveats: spot.caveats,
     distanceKm: Number(formatOneDecimal(distanceKm)),
     distanceLabel: `About ${formatOneDecimal(distanceKm)} km straight-line from your shared location.`,
+    fitReasons: [
+      skillLevel === "any"
+        ? "included before skill-specific filtering"
+        : `matches ${skillLevel} surf ability filter`,
+      `ranked by approximate straight-line distance from your shared location`,
+      spot.access === "boat" ? "boat access required" : `${spot.access} access`,
+    ],
   };
 }
 

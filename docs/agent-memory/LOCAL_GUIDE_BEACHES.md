@@ -25,6 +25,15 @@ This file covers publicly documented and tourist-relevant beaches, sandbars, isl
 - For remote beaches, advise bringing water, food, cash, sun protection, reef shoes, and a dry bag.
 - For under-documented or low-confidence spots, avoid giving exact operational claims unless verified locally.
 - Do not oversell beaches as “perfect swimming” unless the entry explicitly says so.
+- Rank by local fit before generic fame: named area, shared location, weather,
+  transport, kids/family, time of day, swimming intent, and ride-time limits can
+  all move a beach up, down, or out of the shortlist.
+- If the user says nearby, near me, by Cloud 9, from Pacifico, no scooter, rainy,
+  with kids, or late afternoon, do not just repeat the broad “best beaches”
+  order. Explain the fit and skip remote options when they no longer match.
+- Keep swimming and surf separate. Cloud 9, Pacifico, and Guiwan can be surf
+  context, but swimming answers should prioritize beach surface, tide/current
+  caution, and calm-water fit rather than surf popularity.
 - If the user asks for a short recommendation, prioritize Alegria, Daku, Naked Island, Guyam, Pacifico, Malinao, Secret/Guiwan, Magpupungko, Kawhagan, Pamomoan, and Corregidor.
 - If the user asks for beaches near General Luna, prioritize General Luna Beach, Cloud 9, Malinao, Doot, Secret/Giwan, Libertad/Mahaybo, Daku, Guyam, Naked Island, and Corregidor by boat.
 - If the user asks for quiet / less crowded beaches, prioritize Alegria, Malinao, Santa Fe, Salvacion/Duoy, Pasikon, Himaya, Burgos/Baybay, Tangbo, Mam-on, La Januza, and San Benito island-hopping spots.

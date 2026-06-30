@@ -200,6 +200,11 @@ describe("agent tools", () => {
                   enum: ["sand", "mixed", "rocky", "any", null],
                   description: "Preferred beach surface.",
                 },
+                origin_area: {
+                  type: ["string", "null"],
+                  description:
+                    "Named Siargao area to prioritize before broader island options, such as Cloud 9, General Luna, Malinao, Pacifico, or Alegria.",
+                },
                 swimming: {
                   type: ["boolean", "null"],
                   description: "Whether swimming fit should be prioritized.",
@@ -230,6 +235,7 @@ describe("agent tools", () => {
               },
               required: [
                 "beach_surface",
+                "origin_area",
                 "swimming",
                 "sunset",
                 "rain_fit",
@@ -714,6 +720,35 @@ describe("agent tools", () => {
     });
   });
 
+  test("filters nearby surf ranking by ability before distance ordering", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_surf_ranking_beginner",
+      name: "rank_surf_spots_nearby",
+      arguments: {
+        skill_level: "beginner",
+        max_results: 3,
+        include_boat_access: false,
+      },
+      toolContext: {
+        surfSpotRanking: {
+          centerSource: "browser_geolocation",
+          consentScope: "single_request",
+          center: { latitude: 9.8147, longitude: 126.1654 },
+        },
+      },
+    });
+
+    const data = result.data as {
+      spots?: Array<{ name: string; skillLevels: string[]; fitReasons: string[] }>;
+    };
+    expect(data.spots?.map((spot) => spot.name)).not.toContain("Cloud 9");
+    expect(data.spots?.[0]?.name).toBe("Jacking Horse");
+    expect(data.spots?.[0]?.skillLevels).toContain("beginner");
+    expect(data.spots?.[0]?.fitReasons).toContain("matches beginner surf ability filter");
+    expect(JSON.stringify(result)).not.toContain("9.8147");
+    expect(JSON.stringify(result)).not.toContain("126.1654");
+  });
+
   test("requires browser geolocation for surf spot ranking", async () => {
     const result = await executeAgentTool({
       requestId: "agent_request_surf_ranking_no_location",
@@ -1047,6 +1082,62 @@ describe("agent tools", () => {
     expect(result.text).toContain("Cached Dinner Grill");
     expect(result.cards?.[0]?.sourceLabel).toBe("Google Places - fresh cache");
     expect(result.cards?.[0]?.mapsUrl).toContain("Cached%20Dinner%20Grill");
+  });
+
+  test("re-ranks Places outputs when local-fit constraints match returned public fields", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_places_local_fit",
+        name: "search_places",
+        arguments: {
+          query: "covered family cafes near Cloud 9 Siargao",
+          center: { latitude: 9.814, longitude: 126.165 },
+          radius_meters: 4_000,
+          constraints: { included_type: "cafe", open_now: true, page_size: 3 },
+        },
+      },
+      {
+        getGooglePlacesChatContext: async ({ search }) => {
+          const context = googlePlacesContextFixture({ placeName: "Generic Cafe", search });
+          return {
+            ...context,
+            places: [
+              {
+                ...context.places[0],
+                placeId: "place_generic_cafe",
+                resourceName: "places/Generic Cafe",
+                displayName: "Generic Cafe",
+                latitude: 9.8145,
+                longitude: 126.165,
+              },
+              {
+                ...context.places[0],
+                placeId: "place_covered_family_cafe",
+                resourceName: "places/Covered Family Cafe",
+                displayName: "Covered Family Cafe",
+                formattedAddress: "Covered beach lane, Cloud 9",
+                latitude: 9.803,
+                longitude: 126.161,
+              },
+            ],
+          };
+        },
+      },
+    );
+
+    const data = result.data as { places?: Array<{ displayName: string }> };
+    expect(data.places?.map((place) => place.displayName)).toEqual([
+      "Covered Family Cafe",
+      "Generic Cafe",
+    ]);
+    expect(result.text).toContain("1. Covered Family Cafe");
+    expect(result.cards?.[0]?.title).toBe("Covered Family Cafe");
+    expect(result.cards?.[0]?.fitReasons).toEqual(
+      expect.arrayContaining([
+        "covered wording matched the rainy-day constraint",
+        "family wording matched the traveler profile",
+      ]),
+    );
   });
 
   test("does not fabricate a Places card map URL when no returned map URL is available", async () => {
@@ -1494,6 +1585,67 @@ describe("agent tools", () => {
     );
     expect(result.cards?.[0]?.caveats).not.toContain("lifeguard or swimming safety");
     expect(result.text).not.toContain("lifeguard checked");
+  });
+
+  test("prioritizes named-area local guide matches before broader island options", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_local_pacifico",
+      name: "search_local_guide",
+      arguments: {
+        query: "sandy beach near Pacifico for a short stop",
+        filters: {
+          beach_surface: "sand",
+          origin_area: "Pacifico",
+          max_ride_minutes: 30,
+        },
+      },
+    });
+
+    const data = result.data as {
+      candidates: Array<{ name: string; fitReasons: string[] }>;
+      excluded: Array<{ name: string; reason: string }>;
+    };
+    expect(data.candidates[0]?.name).toBe("Pacifico Beach");
+    expect(data.candidates[0]?.fitReasons).toContain("Named-area fit for Pacifico.");
+    expect(data.excluded.find((candidate) => candidate.name === "Alegria Beach")?.reason).toContain(
+      "not a close Pacifico proximity match",
+    );
+    expect(result.cards?.[0]?.title).toBe("Pacifico Beach");
+    expect(result.cards?.[0]?.fitReasons).toContain("Named-area fit for Pacifico.");
+  });
+
+  test("changes local guide ranking and exclusions for rainy no-scooter family constraints", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_local_no_scooter_family",
+      name: "search_local_guide",
+      arguments: {
+        query: "rainy with kids and no scooter beach fallback",
+        filters: {
+          beach_surface: "sand",
+          rain_fit: true,
+          transport_mode: "walk",
+          with_kids: true,
+        },
+      },
+    });
+
+    const data = result.data as {
+      filters: { maxRideMinutes?: number; transportMode?: string; withKids?: boolean };
+      candidates: Array<{ name: string; fitReasons: string[]; caveats: string[] }>;
+      excluded: Array<{ name: string; reason: string }>;
+    };
+    expect(data.filters).toMatchObject({
+      maxRideMinutes: 20,
+      transportMode: "walk",
+      withKids: true,
+    });
+    expect(data.candidates[0]?.name).toBe("Malinao Beach");
+    expect(data.candidates[0]?.fitReasons.join(" ")).toContain("No-scooter/walking constraint");
+    expect(data.candidates[0]?.fitReasons.join(" ")).toContain("Family/kids constraint");
+    expect(data.candidates[0]?.caveats.join(" ")).toContain("Rain fit does not include");
+    expect(data.excluded.find((candidate) => candidate.name === "Doot Beach")?.reason).toContain(
+      "outside the 20-minute filter",
+    );
   });
 
   test("rejects local guide origin filters until origin-specific ride times exist", async () => {
