@@ -133,8 +133,8 @@ export function LandingPage() {
       <section
         aria-label="Ask Siargao landing page"
         className={cn(
-          "relative min-h-screen w-full overflow-hidden bg-[image:var(--gradient-hero-overlay),linear-gradient(180deg,rgba(5,8,42,0.05)_0%,rgba(6,47,53,0.16)_42%,rgba(5,8,42,0.86)_100%),url('/images/hero-bg.png')] bg-[position:center_center,center_center,center_center] bg-[size:100%_100%,100%_100%,cover] bg-no-repeat shadow-coastal-frame",
-          "before:pointer-events-none before:absolute before:inset-0 before:z-0 before:bg-[image:radial-gradient(circle_at_62%_26%,rgba(255,155,131,0.08),transparent_23rem),radial-gradient(circle_at_86%_14%,rgba(142,230,216,0.1),transparent_21rem)] before:content-['']",
+          "relative min-h-screen w-full overflow-hidden bg-[image:var(--gradient-hero-overlay),var(--gradient-hero-shade),url('/images/hero-bg.png')] bg-[position:center_center,center_center,center_center] bg-[size:100%_100%,100%_100%,cover] bg-no-repeat shadow-coastal-frame",
+          "before:pointer-events-none before:absolute before:inset-0 before:z-0 before:bg-[image:var(--gradient-hero-atmosphere)] before:content-['']",
         )}
       >
         <div className="relative z-2 flex min-h-screen w-full flex-col px-[clamp(1.25rem,5vw,5.5rem)]">
@@ -244,7 +244,7 @@ function PromptCard() {
   return (
     <Card
       aria-label="Example Ask Siargao prompt"
-      className="relative grid min-h-[186px] gap-5 rounded-xl border-brand-lagoon-300/75 bg-white/97 p-5 text-text-default shadow-[0_0_0_1px_rgba(255,255,255,0.24),0_20px_56px_rgba(20,184,166,0.22)] md:p-6"
+      className="relative grid min-h-[186px] gap-5 rounded-xl border-brand-lagoon-300/75 bg-surface-glass p-5 text-text-default shadow-panel md:p-6"
     >
       <CardContent className="grid gap-3 p-0">
         <div className="flex items-start gap-3">
@@ -256,7 +256,7 @@ function PromptCard() {
         <div className="flex w-full items-end gap-2 self-end">
           <Button
             aria-label="Add trip detail"
-            className="size-10 border-[rgba(8,47,57,0.16)] bg-white text-brand-lagoon-700 hover:bg-brand-lagoon-100"
+            className="size-10 border-border-default bg-surface-default text-brand-lagoon-700 hover:bg-brand-lagoon-100"
             size="icon"
             type="button"
             variant="outline"
@@ -265,7 +265,7 @@ function PromptCard() {
           </Button>
           <Button
             aria-label="Other source-backed local data is not connected yet"
-            className="size-10 border-[rgba(8,47,57,0.16)] bg-white text-brand-lagoon-700 hover:bg-brand-lagoon-100"
+            className="size-10 border-border-default bg-surface-default text-brand-lagoon-700 hover:bg-brand-lagoon-100"
             size="icon"
             type="button"
             variant="outline"
@@ -287,7 +287,7 @@ function PromptCard() {
 function WeatherCard() {
   return (
     <Card
-      className="min-h-auto overflow-hidden rounded-xl border-brand-lavender-200/95 bg-white/96 p-0 text-text-default shadow-[0_20px_58px_rgba(8,8,38,0.24)] backdrop-blur-md min-[900px]:min-h-[193px]"
+      className="min-h-auto overflow-hidden rounded-xl border-border-default bg-surface-glass p-0 text-text-default shadow-panel backdrop-blur-md min-[900px]:min-h-[193px]"
       id="weather"
     >
       <CardContent className="p-0">
@@ -327,7 +327,7 @@ function SuggestionChips() {
         {suggestionChips.map(({ icon: Icon, label, prompt }) => (
           <Button
             asChild
-            className="min-h-9 rounded-full border border-brand-lavender-400/65 bg-brand-navy-980/36 px-5 text-xs font-bold text-white/92 shadow-[0_10px_30px_rgba(0,0,0,0.16)] hover:bg-brand-navy-900/60 hover:text-white"
+            className="min-h-9 rounded-full border border-border-on-dark bg-surface-night-card px-5 text-xs font-bold text-text-on-dark shadow-night-card hover:bg-surface-night-card-strong hover:text-text-on-dark"
             key={label}
             variant="outline"
           >

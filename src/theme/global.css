@@ -81,6 +81,15 @@
     rgba(6, 47, 53, 0.72) 48%,
     rgba(20, 184, 166, 0.24) 100%
   );
+  --gradient-hero-shade: linear-gradient(
+    180deg,
+    rgba(5, 8, 42, 0.05) 0%,
+    rgba(6, 47, 53, 0.16) 42%,
+    rgba(5, 8, 42, 0.86) 100%
+  );
+  --gradient-hero-atmosphere:
+    radial-gradient(circle at 62% 26%, rgba(255, 155, 131, 0.08), transparent 23rem),
+    radial-gradient(circle at 86% 14%, rgba(142, 230, 216, 0.1), transparent 21rem);
   --gradient-coastal-overlay: linear-gradient(
     90deg,
     rgba(5, 8, 42, 0.94) 0%,
@@ -279,6 +288,8 @@ summary::-webkit-details-marker {
   --shadow-coastal-frame: var(--shadow-coastal-frame);
   --shadow-night-card: var(--shadow-night-card);
   --background-image-gradient-hero-overlay: var(--gradient-hero-overlay);
+  --background-image-gradient-hero-shade: var(--gradient-hero-shade);
+  --background-image-gradient-hero-atmosphere: var(--gradient-hero-atmosphere);
   --background-image-gradient-coastal-overlay: var(--gradient-coastal-overlay);
   --background-image-gradient-cta: var(--gradient-cta);
   --background-image-gradient-lagoon-cta: var(--gradient-lagoon-cta);

@@ -92,6 +92,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Verified Hallmark audit remediation with final smell scans, viewport evidence, and a sanitized
+  full CI gate; final landing overlays now use named gradient tokens.
 - Simplified audited app/report surfaces by making shared app panels and cards less nested,
   moving report content to row-style groups, and tokenizing chat/shared-trip warning accents.
 - Replaced the generic landing feature-card grid with a mixed trip-planning workbench and concrete

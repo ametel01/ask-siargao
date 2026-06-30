@@ -5,8 +5,7 @@ Source audit: `/Users/alexmetelli/source/ask-siargao/HALLMARK_AUDIT.md`
 
 ## Current Status
 
-Step 5 is complete. The shared app shell, report, chat saved-plan, and shared-trip surfaces now use
-flatter section rows, semantic tokens, and fewer decorative uppercase labels.
+Complete. All Hallmark audit remediation steps are implemented, validated, recorded, and committed.
 
 ## Step Checklist
 
@@ -16,7 +15,7 @@ flatter section rows, semantic tokens, and fewer decorative uppercase labels.
 - [x] Step 3: Landing Hero, Navigation, And Prompt Workspace
 - [x] Step 4: Landing Planning Content And Feature Layout
 - [x] Step 5: App Shell, Report, Chat, And Shared-Trip Surface Cleanup
-- [ ] Step 6: Final Hallmark Verification And Release-Gate Pass
+- [x] Step 6: Final Hallmark Verification And Release-Gate Pass
 
 ## Update Rule
 
@@ -322,3 +321,75 @@ Commit:
 Next step:
 
 - Step 6: Final Hallmark Verification And Release-Gate Pass
+
+### Step 6: Final Hallmark Verification And Release-Gate Pass
+
+Status: Complete
+
+Changes:
+
+- Re-read `HALLMARK_AUDIT.md` and checked every Critical, Major, and Minor finding against the
+  final code.
+- Moved the last landing hero shade/atmosphere layers and white-heavy prompt/weather/chip surfaces
+  onto named theme surface, shadow, and gradient tokens.
+- Added final changelog and progress evidence for the completed remediation.
+
+Final audit finding review:
+
+- Critical `purple-gradient hero`: fixed. The landing hero keeps the real photo, uses lagoon-led
+  CTA and overlay tokens, and the final viewport probe found `0` violet/purple hero class matches.
+- Critical `AI nav`: fixed. The landing page now uses compact trip-mode links and a `/chat`
+  command affordance instead of the five-link SaaS nav.
+- Critical `pure black, pure white`: fixed for audited defaults and touched visible surfaces.
+  `rg "#ffffff" src/theme/global.css` has no matches, and touched landing/chat/shared/report
+  components no longer contain raw hex, `rgba(...)`, or inline gradient color math.
+- Critical `card-in-card`: fixed. `appCardClass` defaults to row-style grouped content, and report
+  and shared-trip probes found `data-slot="card"` count `0`.
+- Major `italic headers`: fixed. Landing viewport probes found `h1 em/i` count `0`.
+- Major `icon-tile feature card`: fixed. The stock four-card feature grid was replaced with the
+  mixed trip-planning workbench; final landing probes confirmed `Planning checks for Siargao`.
+- Major `transition-all`: fixed. `rg "transition-all"` across audited primitives/features found no
+  matches.
+- Major `mid-render token improvisation`: fixed in audited touched surfaces. Final scans across
+  landing, chat, shared-trip, report, app shell, button variants, and badge variants found no raw
+  hex, `rgba(...)`, or inline gradient color math.
+- Major `eyebrow on every section`: fixed for shared defaults and audited surfaces. `PageHeader`
+  eyebrow is optional and no longer uppercase by default; remaining uppercase report labels are
+  status/count metric categories.
+- Minor `straight quotes`: fixed in touched authored landing copy. Final contraction scan for the
+  audited landing copy found no straight-apostrophe contractions.
+- Deferred findings: none.
+
+Final viewport evidence:
+
+- `/` at 390, 768, 1024, and 1366px: no horizontal overflow; `/chat` link present; H1 had no
+  italic element; hero violet/purple class count `0`; planning workbench text visible.
+- `/audits/demo/report` at 1366px: no horizontal overflow; `Siargao trip risk audit` and `ev_route`
+  visible; `data-slot="card"` count `0`; decorative `Ask Siargao` label absent.
+- `/chat` at 1366px with a saved-plan localStorage fixture: no horizontal overflow; saved-plan tray
+  visible; `data-slot="card"` count `0`; uppercase class count `0`.
+- Component-rendered shared-trip fixture at 1366px: no horizontal overflow; source summary visible;
+  `data-slot="card"` count `0`.
+
+Final validation:
+
+- `bun run format`: passed.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY= CLERK_WEBHOOK_SIGNING_SECRET= bun run
+  verify:ci`: passed, including lint, clean typecheck, 655 Bun tests, `db:migrate:test`,
+  `db:seed:test`, build, and 36 Playwright tests.
+- `bun x react-doctor@latest --verbose --scope changed`: passed, no changed-scope issues, score
+  100/100.
+- `bun run doctor`: passed with advisory output, 15 warnings, score 85/100.
+- Local caveat retained from earlier steps: running `bun run test:e2e` without clearing local Clerk
+  env can still time out at readiness because this workstation's `.env` enables Clerk middleware
+  for `/robots.txt`; the sanitized e2e and full `verify:ci` gates passed.
+
+Commit:
+
+- `Verify Hallmark audit remediation`
+
+Next step:
+
+- None. The Hallmark audit remediation plan is complete.
