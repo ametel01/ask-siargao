@@ -5,16 +5,16 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 
 ## Current Status
 
-- Status: Step 2 complete
-- Current step: Implement Deterministic Research Scoring Without Network Calls
-- Next step: Step 3 - Implement Deterministic Research Scoring Without Network Calls
+- Status: Step 3 complete
+- Current step: Register `research_web` As A Chat Tool
+- Next step: Step 4 - Register `research_web` As A Chat Tool
 
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Baseline Quality Gates
 - [x] Step 2: Add Web Research Types And Source Labels
-- [ ] Step 3: Implement Deterministic Research Scoring Without Network Calls
+- [x] Step 3: Implement Deterministic Research Scoring Without Network Calls
 - [ ] Step 4: Register `research_web` As A Chat Tool
 - [ ] Step 5: Enforce Web Research Source Consistency
 - [ ] Step 6: Add General Research Intent And Required Evidence Planning
@@ -87,3 +87,21 @@ Update this file after every completed step with:
 - Changelog updated under `## [Unreleased]`.
 - Commit reference: this commit (`Add web research source contracts`).
 - Next step: Step 3 - Implement Deterministic Research Scoring Without Network Calls.
+
+### 2026-07-01 - Step 3 Completed
+
+- Implemented deterministic no-network web research query expansion, source classification,
+  source scoring, bounded finding extraction, entity extraction hints, insufficient-evidence
+  handling, and provider-unavailable shaping.
+- Added regression coverage for nightlife/event, restaurant, ferry/transport, tour price,
+  safety/disruption, official-vs-guide ranking, negative evidence, stale weak sources, non-nightlife
+  current recommendations, and restricted payload exclusion.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/chat/web-research.test.ts` - 12 tests passed
+  - `bun test` - 669 tests passed
+- Changelog updated under `## [Unreleased]`.
+- Commit reference: this commit (`Add deterministic web research scoring`).
+- Next step: Step 4 - Register `research_web` As A Chat Tool.
