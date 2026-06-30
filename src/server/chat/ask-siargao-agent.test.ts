@@ -609,7 +609,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
             "auto_required_evidence_1",
             "auto_required_memory_load_nightlife",
           ],
-          displayCardIds: [],
+          displayCardIds: [placeCard.id, offRoutePlaceCard.id],
         }),
         _request_id: "req_nightlife_route_final",
       },

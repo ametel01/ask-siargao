@@ -1936,6 +1936,16 @@ function exposeRequiredEvidenceArtifacts(
   }
 
   const placeCardIds = requiredEvidencePlaceCardIds(requiredEvidencePlan, toolResults);
+  const requiresNightlifeRouteEvidence = requiredEvidencePlan.requiredToolCalls.some(
+    (requiredCall) => requiredCall.name === "search_nightlife_events",
+  );
+  if (requiresNightlifeRouteEvidence && placeCardIds.length > 0) {
+    return {
+      ...finalPayload,
+      displayCardIds: placeCardIds,
+    };
+  }
+
   if (
     placeCardIds.length === 0 ||
     finalPayload.displayCardIds.some((cardId) => placeCardIds.includes(cardId))
