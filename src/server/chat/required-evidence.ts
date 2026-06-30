@@ -3,8 +3,10 @@ import type {
   AgentRuntimeRequest,
   AgentToolCallAudit,
   AgentToolResult,
+  RecommendationCard,
   RecommendationCardKind,
 } from "@/server/chat/agent-runtime";
+import type { NightlifeEventInterest } from "@/server/chat/nightlife-events";
 import { buildPlaceSearchPlan, inferIncludedType } from "@/server/chat/place-search-plan";
 
 export type RequiredEvidencePlan = {
@@ -21,7 +23,8 @@ type RequiredEvidenceToolCallBase = {
 
 export type RequiredEvidenceToolCall =
   | RequiredPlaceEvidenceToolCall
-  | RequiredWeatherEvidenceToolCall;
+  | RequiredWeatherEvidenceToolCall
+  | RequiredNightlifeEventEvidenceToolCall;
 
 export type RequiredPlaceEvidenceToolCall = RequiredEvidenceToolCallBase & {
   name: "search_places";
@@ -30,6 +33,10 @@ export type RequiredPlaceEvidenceToolCall = RequiredEvidenceToolCallBase & {
 
 export type RequiredWeatherEvidenceToolCall = RequiredEvidenceToolCallBase & {
   name: "get_weather_forecast";
+};
+
+export type RequiredNightlifeEventEvidenceToolCall = RequiredEvidenceToolCallBase & {
+  name: "search_nightlife_events";
 };
 
 type PlaceIntentSignal = {
@@ -64,8 +71,51 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
   const requiredToolCalls: RequiredEvidenceToolCall[] = [];
   let allowedCardKinds: RequiredEvidencePlan["allowedCardKinds"];
 
+  if (requiresNightlifeEventEvidence(intent)) {
+    allowedCardKinds = ["place"];
+    requiredToolCalls.push({
+      name: "search_nightlife_events",
+      purpose: "nightlife_event_schedule",
+      arguments: {
+        location: "General Luna",
+        date: "tonight",
+        interests: nightlifeInterests(intent),
+      },
+      acceptedSourceLabels: ["curated_local_guide"],
+      terminalSourceLabels: ["provider_unavailable"],
+    });
+    requiredToolCalls.push({
+      name: "search_places",
+      purpose: "nightlife_venue_enrichment",
+      arguments: {
+        query: "selected General Luna nightlife event route venues Siargao",
+        center: gazetteer["general luna"],
+        radius_meters: 6_000,
+        constraints: {
+          included_type: "bar",
+          open_now: true,
+          page_size: 8,
+        },
+      },
+      acceptedSourceLabels: ["live_checked", "fresh_cache"],
+      terminalSourceLabels: ["provider_unavailable"],
+      requiresOpenNow: true,
+    });
+    requiredToolCalls.push({
+      name: "get_weather_forecast",
+      purpose: "nightlife_route_weather",
+      arguments: {
+        location: "General Luna",
+        date_range: "today",
+      },
+      acceptedSourceLabels: ["weather_checked"],
+      terminalSourceLabels: ["provider_unavailable"],
+    });
+  }
+
   if (
     placeIntent &&
+    !requiresNightlifeEventEvidence(intent) &&
     intent?.activityPlan !== true &&
     intent?.tripAdvice !== true &&
     requiresPlacesEvidence(placeIntent)
@@ -151,14 +201,52 @@ export function finalPayloadSatisfiesRequiredEvidence(
     return true;
   }
   if (!finalPayload) {
-    return toolResults.some((result) => result.cards?.some((card) => card.kind === "place"));
+    return requiredEvidencePlaceCardIds(plan, toolResults).length > 0;
   }
-  const placeCardIds = new Set(
+  const placeCardIds = new Set(requiredEvidencePlaceCardIds(plan, toolResults));
+  return finalPayload.displayCardIds.some((id) => placeCardIds.has(id));
+}
+
+export function requiredEvidencePlaceCardIds(
+  plan: RequiredEvidencePlan,
+  toolResults: readonly AgentToolResult[],
+) {
+  const nightlifeVenueNames = selectedNightlifeEventVenueNames(toolResults);
+  return uniqueText(
     toolResults.flatMap((result) =>
-      (result.cards ?? []).flatMap((card) => (card.kind === "place" ? [card.id] : [])),
+      isCheckedPlacesEvidenceResult(result)
+        ? (result.cards ?? []).flatMap((card) =>
+            card.kind === "place" &&
+            requiredEvidenceAcceptsPlaceCard(plan, card, nightlifeVenueNames)
+              ? [card.id]
+              : [],
+          )
+        : [],
     ),
   );
-  return finalPayload.displayCardIds.some((id) => placeCardIds.has(id));
+}
+
+export function selectedNightlifeEventVenueNames(
+  toolResults: readonly Pick<AgentToolResult, "name" | "status" | "data">[],
+) {
+  const routeVenueNames = uniqueText(
+    toolResults.flatMap((result) =>
+      result.name === "search_nightlife_events" && result.status === "success"
+        ? readNightlifeRouteVenueNames(result.data)
+        : [],
+    ),
+  );
+  if (routeVenueNames.length > 0) {
+    return routeVenueNames;
+  }
+
+  return uniqueText(
+    toolResults.flatMap((result) =>
+      result.name === "search_nightlife_events" && result.status === "success"
+        ? readNightlifeCandidateVenueNames(result.data)
+        : [],
+    ),
+  );
 }
 
 function terminalOnlyFinalPayloadIsCaveated(
@@ -186,6 +274,9 @@ function hasCheckedEvidenceOverclaim(
     if (requiredCall.name === "search_places") {
       return hasPlacesCheckedClaim(normalizedAnswer);
     }
+    if (requiredCall.name === "search_nightlife_events") {
+      return hasNightlifeEventCheckedClaim(normalizedAnswer);
+    }
     return hasWeatherCheckedClaim(normalizedAnswer);
   });
 }
@@ -205,6 +296,12 @@ function hasPlacesCheckedClaim(value: string) {
 
 function hasWeatherCheckedClaim(value: string) {
   return /\b(?:weather[-\s]?checked|checked\s+live|live\s+check(?:ed)?(?:\s+says)?|checked\s+(?:weather|forecast|open[-\s]?meteo|rain|wind)|(?:weather|forecast|open[-\s]?meteo)\s+(?:was|were)?\s*(?:checked|verified|confirmed)|according to open[-\s]?meteo)\b/iu.test(
+    value,
+  );
+}
+
+function hasNightlifeEventCheckedClaim(value: string) {
+  return /\b(?:event[-\s]?(?:schedule|facts?|evidence)\s+(?:was|were)?\s*(?:checked|verified|confirmed)|checked\s+(?:event|nightlife|party)\s+(?:schedule|facts?|evidence)|according\s+to\s+(?:approved\s+)?(?:event|nightlife|party)\s+(?:schedule|facts?|evidence)|schedule[-\s]?checked|event[-\s]?checked)\b/iu.test(
     value,
   );
 }
@@ -244,10 +341,45 @@ function readPlaceIntentSignal(value: unknown): PlaceIntentSignal | undefined {
 function requiresWeatherEvidence(intent: Record<string, unknown> | undefined) {
   return (
     intent?.weather === true &&
+    intent?.nightlifePlan !== true &&
     intent.conditionActivity === undefined &&
     intent.activityPlan !== true &&
     intent.tripAdvice !== true
   );
+}
+
+function requiresNightlifeEventEvidence(intent: Record<string, unknown> | undefined) {
+  return intent?.nightlifePlan === true;
+}
+
+function nightlifeInterests(intent: Record<string, unknown> | undefined): NightlifeEventInterest[] {
+  const latestUserTurn = readString(intent?.latestUserTurn) ?? "";
+  const interests = new Set<NightlifeEventInterest>();
+  if (/\bpub\s*quiz|quiz\b/i.test(latestUserTurn)) {
+    interests.add("pub_quiz");
+  }
+  if (/\btrivia\b/i.test(latestUserTurn)) {
+    interests.add("trivia");
+  }
+  if (/\bfoam\b/i.test(latestUserTurn)) {
+    interests.add("foam_party");
+  }
+  if (/\bdj\b/i.test(latestUserTurn)) {
+    interests.add("dj");
+  }
+  if (/\blive\s*music|band\b/i.test(latestUserTurn)) {
+    interests.add("live_music");
+  }
+  if (/\bbar[-\s]?hopp?ing|bar\s+crawl\b/i.test(latestUserTurn)) {
+    interests.add("bar_hopping");
+  }
+  if (/\bdrinks?|cocktails?|beers?\b/i.test(latestUserTurn)) {
+    interests.add("drinks");
+  }
+  if (interests.size === 0 || /\bparty|nightlife|where\s+.*go\s+out\b/i.test(latestUserTurn)) {
+    interests.add("party");
+  }
+  return [...interests];
 }
 
 function weatherLocation(intent: Record<string, unknown> | undefined) {
@@ -379,6 +511,68 @@ function hasCompletedToolCall(
           requiredCall.terminalSourceLabels.includes(source.label),
       ),
   );
+}
+
+function isCheckedPlacesEvidenceResult(result: AgentToolResult) {
+  return (
+    result.name === "search_places" &&
+    result.status === "success" &&
+    result.sources.some(
+      (source) => source.label === "live_checked" || source.label === "fresh_cache",
+    )
+  );
+}
+
+function requiredEvidenceAcceptsPlaceCard(
+  plan: RequiredEvidencePlan,
+  card: RecommendationCard,
+  nightlifeVenueNames: readonly string[],
+) {
+  if (
+    !plan.requiredToolCalls.some((requiredCall) => requiredCall.name === "search_nightlife_events")
+  ) {
+    return true;
+  }
+  return nightlifeVenueNames.some((venueName) => placeCardMatchesVenue(card, venueName));
+}
+
+function placeCardMatchesVenue(card: RecommendationCard, venueName: string) {
+  const title = normalizeCardVenueText(card.title);
+  const venue = normalizeCardVenueText(venueName);
+  return title === venue || title.includes(venue) || venue.includes(title);
+}
+
+function readNightlifeRouteVenueNames(data: AgentToolResult["data"]) {
+  if (!isRecord(data) || !isRecord(data.route)) {
+    return [];
+  }
+  return Object.values(data.route).flatMap((candidate) => readCandidateVenueName(candidate));
+}
+
+function readNightlifeCandidateVenueNames(data: AgentToolResult["data"]) {
+  if (!isRecord(data) || !Array.isArray(data.candidates)) {
+    return [];
+  }
+  return data.candidates.flatMap((candidate) => readCandidateVenueName(candidate));
+}
+
+function readCandidateVenueName(value: unknown) {
+  return isRecord(value) && typeof value.venueName === "string" ? [value.venueName] : [];
+}
+
+function normalizeCardVenueText(value: string) {
+  return value
+    .normalize("NFKD")
+    .replaceAll(/[\u0300-\u036f]/g, "")
+    .replaceAll(/&/g, "and")
+    .replaceAll(/[^a-z0-9]+/gi, " ")
+    .replaceAll(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function uniqueText(values: readonly string[]) {
+  return [...new Set(values)];
 }
 
 function normalizeLookupKey(value: string) {

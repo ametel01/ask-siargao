@@ -17,6 +17,11 @@ contains opening-hour status.
 does not check tides, currents, live road conditions, access changes, lifeguards,
 or safety status.
 
+`search_nightlife_events` may use `curated_local_guide` for approved General
+Luna event facts. It checks the curated event schedule facts returned by the
+tool, not live crowd size, door policy, guest list, table availability,
+last-minute cancellation, or exact closing time.
+
 Safe local fact outputs from `query_local_facts` or `get_source_evidence` may
 also use `curated_local_guide` when curated local guide data backed the fact.
 They may use `fresh_cache` only when a governed fresh cache or public-republish

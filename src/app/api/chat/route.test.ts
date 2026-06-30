@@ -1412,6 +1412,32 @@ describe("chat route", () => {
     expect(signals?.intent.locationLabel).toBe("General Luna");
   });
 
+  test("marks General Luna party tonight as nightlife event planning, not only a bar lookup", async () => {
+    const dependencies = chatDependencies({
+      message: "Use BARREL as warm-up and Barbosa as the main party tonight.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "What are the best party places in General Luna tonight?",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+
+    expect(response.status).toBe(200);
+    expect(signals?.intent.nightlifePlan).toBe(true);
+    expect(signals?.intent.weatherSensitive).toBe(true);
+    expect(signals?.intent.today).toBe(true);
+    expect(signals?.intent.locationLabel).toBe("General Luna");
+    expect(signals?.intent.placeIntent?.category).toBe("bar");
+  });
+
   test("does not mark not-surfing food prompts as activity plans", async () => {
     const dependencies = chatDependencies({
       message: "The model answers the food question without an itinerary artifact.",
@@ -2084,8 +2110,10 @@ type AgentSignals = {
     marineCondition?: boolean;
     nearMeUsesBrowserGeolocation?: boolean;
     nearby?: boolean;
+    nightlifePlan?: boolean;
     placeIntent?: { category?: string };
     roadCondition?: boolean;
+    today?: boolean;
     tripAdvice?: boolean;
     tripContext?: { activeGoal?: string; currentLocation?: unknown };
     weatherSensitive?: boolean;

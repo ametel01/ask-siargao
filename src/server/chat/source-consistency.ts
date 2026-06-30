@@ -363,6 +363,7 @@ function summarizeToolEvidence(
         "query_local_facts",
         "get_source_evidence",
         "rank_surf_spots_nearby",
+        "search_nightlife_events",
       ]),
       "curated_local_guide",
     ),
@@ -485,6 +486,7 @@ function toolNamesForVerifyingLabel(label: AnswerTrustLabel) {
         "query_local_facts",
         "get_source_evidence",
         "rank_surf_spots_nearby",
+        "search_nightlife_events",
       ]);
     case "not_verified":
     case "provider_unavailable":

@@ -38,6 +38,8 @@ import {
   missingRequiredEvidenceToolCalls,
   type RequiredEvidencePlan,
   type RequiredEvidenceToolCall,
+  requiredEvidencePlaceCardIds,
+  selectedNightlifeEventVenueNames,
 } from "@/server/chat/required-evidence";
 import { createComponentLogger } from "@/server/observability/logger";
 
@@ -385,18 +387,18 @@ export async function runAskSiargaoAgentTurn(
           throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
         }
 
-        const automaticToolOutputs = await Promise.all(
-          missingEvidenceChecks.map((requiredCall, index) =>
-            executeAndAuditTool({
-              executeTool,
-              functionCall: requiredEvidenceFunctionCall(requiredCall, index),
-              logger,
-              now: dependencies.now ?? (() => new Date()),
-              runtimeRequest: resolved,
-              requestId: resolved.requestId,
-            }),
+        const automaticToolOutputs = await executeAndAuditToolBatch({
+          executeTool,
+          functionCalls: missingEvidenceChecks.map((requiredCall, index) =>
+            requiredEvidenceFunctionCall(requiredCall, index),
           ),
-        );
+          logger,
+          now: dependencies.now ?? (() => new Date()),
+          requiredEvidencePlan,
+          runtimeRequest: resolved,
+          requestId: resolved.requestId,
+          toolResults,
+        });
         toolCalls.push(...automaticToolOutputs.map((output) => output.audit));
         toolResults.push(...automaticToolOutputs.map((output) => output.result));
 
@@ -599,7 +601,11 @@ export async function runAskSiargaoAgentTurn(
       });
     }
 
-    const functionCalls = extractFunctionCalls(response.output);
+    const functionCalls = requiredEvidencePreflightFunctionCalls(
+      extractFunctionCalls(response.output),
+      requiredEvidencePlan,
+      toolCalls,
+    );
     if (functionCalls.length === 0) {
       throw new Error("OpenAI response did not include output_text.");
     }
@@ -608,18 +614,16 @@ export async function runAskSiargaoAgentTurn(
       throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
     }
 
-    const toolOutputs = await Promise.all(
-      functionCalls.map((functionCall) =>
-        executeAndAuditTool({
-          executeTool,
-          functionCall,
-          logger,
-          now: dependencies.now ?? (() => new Date()),
-          runtimeRequest: resolved,
-          requestId: resolved.requestId,
-        }),
-      ),
-    );
+    const toolOutputs = await executeAndAuditToolBatch({
+      executeTool,
+      functionCalls,
+      logger,
+      now: dependencies.now ?? (() => new Date()),
+      requiredEvidencePlan,
+      runtimeRequest: resolved,
+      requestId: resolved.requestId,
+      toolResults,
+    });
     toolCalls.push(...toolOutputs.map((output) => output.audit));
     toolResults.push(...toolOutputs.map((output) => output.result));
 
@@ -1046,6 +1050,34 @@ function missingSurfSpotRankingRepairCall(
   };
 }
 
+function requiredEvidencePreflightFunctionCalls(
+  functionCalls: readonly ParsedFunctionCall[],
+  requiredEvidencePlan: RequiredEvidencePlan,
+  toolCalls: readonly AgentToolCallAudit[],
+): ParsedFunctionCall[] {
+  if (
+    !functionCalls.some((functionCall) => functionCall.name === "search_places") ||
+    functionCalls.some((functionCall) => functionCall.name === "search_nightlife_events") ||
+    toolCalls.some(
+      (toolCall) => toolCall.name === "search_nightlife_events" && toolCall.status === "success",
+    )
+  ) {
+    return [...functionCalls];
+  }
+
+  const nightlifeRequiredCall = requiredEvidencePlan.requiredToolCalls.find(
+    (requiredCall) => requiredCall.name === "search_nightlife_events",
+  );
+  if (!nightlifeRequiredCall) {
+    return [...functionCalls];
+  }
+
+  return [
+    requiredEvidenceFunctionCall(nightlifeRequiredCall, 0, "auto_preflight_required_evidence"),
+    ...functionCalls,
+  ];
+}
+
 function missingClearMemoryLoadRepairCall(
   finalText: string,
   request: AgentRuntimeRequest,
@@ -1144,6 +1176,13 @@ function clearRequiredMemoryFileName(request: AgentRuntimeRequest) {
     )
   ) {
     return "ASK_SIARGAO_DATA_DICTIONARY.md";
+  }
+  if (
+    /\b(?:party|nightlife|bar[-\s]?hopp?ing|bar\s+crawl|dj|live\s*music|foam\s*party|pub\s*quiz|trivia|late[-\s]?night|drinks?\s+tonight|where\s+(?:should|can)\s+(?:we|i)\s+go\s+out)\b/i.test(
+      latestUserTurn,
+    )
+  ) {
+    return "NIGHTLIFE.md";
   }
   if (isFoodOrPlaceMemoryExclusion(latestUserTurn)) {
     return undefined;
@@ -1875,9 +1914,10 @@ function missingRequiredItineraryChecks(
 function requiredEvidenceFunctionCall(
   requiredCall: RequiredEvidenceToolCall,
   index: number,
+  prefix = "auto_required_evidence",
 ): ParsedFunctionCall {
   return {
-    callId: `auto_required_evidence_${index + 1}`,
+    callId: `${prefix}_${index + 1}`,
     name: requiredCall.name,
     arguments: requiredCall.arguments,
   };
@@ -1895,13 +1935,17 @@ function exposeRequiredEvidenceArtifacts(
     return finalPayload;
   }
 
-  const placeCardIds = uniqueText(
-    toolResults.flatMap((result) =>
-      isCheckedPlacesEvidenceResult(result)
-        ? (result.cards ?? []).flatMap((card) => (card.kind === "place" ? [card.id] : []))
-        : [],
-    ),
+  const placeCardIds = requiredEvidencePlaceCardIds(requiredEvidencePlan, toolResults);
+  const requiresNightlifeRouteEvidence = requiredEvidencePlan.requiredToolCalls.some(
+    (requiredCall) => requiredCall.name === "search_nightlife_events",
   );
+  if (requiresNightlifeRouteEvidence && placeCardIds.length > 0) {
+    return {
+      ...finalPayload,
+      displayCardIds: placeCardIds,
+    };
+  }
+
   if (
     placeCardIds.length === 0 ||
     finalPayload.displayCardIds.some((cardId) => placeCardIds.includes(cardId))
@@ -1937,16 +1981,6 @@ function requiredEvidenceRepairInstruction(
   ]
     .filter(Boolean)
     .join(" ");
-}
-
-function isCheckedPlacesEvidenceResult(result: AgentToolResult) {
-  return (
-    result.name === "search_places" &&
-    result.status === "success" &&
-    result.sources.some(
-      (source) => source.label === "live_checked" || source.label === "fresh_cache",
-    )
-  );
 }
 
 function readRequiredToolChecks(data: AgentToolResult["data"]) {
@@ -2017,6 +2051,132 @@ function normalizeRequiredToolArguments(value: unknown): string {
         ]),
     ),
   );
+}
+
+async function executeAndAuditToolBatch({
+  executeTool,
+  functionCalls,
+  logger,
+  now,
+  requiredEvidencePlan,
+  runtimeRequest,
+  requestId,
+  toolResults,
+}: {
+  executeTool: (request: AgentToolExecutionRequest) => Promise<AgentToolResult>;
+  functionCalls: readonly ParsedFunctionCall[];
+  logger: ReturnType<typeof createComponentLogger>;
+  now: () => Date;
+  requiredEvidencePlan: RequiredEvidencePlan;
+  runtimeRequest: AgentRuntimeRequest;
+  requestId: string;
+  toolResults: readonly AgentToolResult[];
+}) {
+  const nightlifeEventIndex = functionCalls.findIndex(
+    (functionCall) => functionCall.name === "search_nightlife_events",
+  );
+  const hasPlacesEnrichment = functionCalls.some(
+    (functionCall) => functionCall.name === "search_places",
+  );
+
+  if (nightlifeEventIndex >= 0 && hasPlacesEnrichment) {
+    const nightlifeEventOutput = await executeAndAuditTool({
+      executeTool,
+      functionCall: functionCalls[nightlifeEventIndex] as ParsedFunctionCall,
+      logger,
+      now,
+      runtimeRequest,
+      requestId,
+    });
+    const eventBackedToolResults = [...toolResults, nightlifeEventOutput.result];
+    const remainingFunctionCalls = functionCalls
+      .filter((_, index) => index !== nightlifeEventIndex)
+      .map((functionCall) =>
+        eventBackedNightlifePlacesFunctionCall(
+          functionCall,
+          requiredEvidencePlan,
+          eventBackedToolResults,
+        ),
+      );
+    const remainingOutputs = await Promise.all(
+      remainingFunctionCalls.map((functionCall) =>
+        executeAndAuditTool({
+          executeTool,
+          functionCall,
+          logger,
+          now,
+          runtimeRequest,
+          requestId,
+        }),
+      ),
+    );
+    return [nightlifeEventOutput, ...remainingOutputs];
+  }
+
+  return Promise.all(
+    functionCalls
+      .map((functionCall) =>
+        eventBackedNightlifePlacesFunctionCall(functionCall, requiredEvidencePlan, toolResults),
+      )
+      .map((functionCall) =>
+        executeAndAuditTool({
+          executeTool,
+          functionCall,
+          logger,
+          now,
+          runtimeRequest,
+          requestId,
+        }),
+      ),
+  );
+}
+
+function eventBackedNightlifePlacesFunctionCall(
+  functionCall: ParsedFunctionCall,
+  requiredEvidencePlan: RequiredEvidencePlan,
+  toolResults: readonly AgentToolResult[],
+): ParsedFunctionCall {
+  if (
+    functionCall.name !== "search_places" ||
+    !requiredEvidencePlan.requiredToolCalls.some(
+      (requiredCall) => requiredCall.name === "search_nightlife_events",
+    )
+  ) {
+    return functionCall;
+  }
+
+  const venueNames = selectedNightlifeEventVenueNames(toolResults);
+  if (venueNames.length === 0) {
+    return functionCall;
+  }
+
+  const requiredPlacesCall = requiredEvidencePlan.requiredToolCalls.find(
+    (requiredCall) => requiredCall.name === "search_places",
+  );
+  const requiredArguments = requiredPlacesCall?.arguments ?? {};
+  const requiredConstraints = isRecord(requiredArguments.constraints)
+    ? requiredArguments.constraints
+    : {};
+  return {
+    ...functionCall,
+    arguments: {
+      ...requiredArguments,
+      ...functionCall.arguments,
+      query: `${venueNames.join(" ")} General Luna Siargao nightlife venues`,
+      center: isRecord(functionCall.arguments.center)
+        ? functionCall.arguments.center
+        : requiredArguments.center,
+      radius_meters:
+        typeof functionCall.arguments.radius_meters === "number"
+          ? functionCall.arguments.radius_meters
+          : requiredArguments.radius_meters,
+      constraints: {
+        ...requiredConstraints,
+        ...(isRecord(functionCall.arguments.constraints) ? functionCall.arguments.constraints : {}),
+        page_size: Math.min(Math.max(venueNames.length, 1), 8),
+      },
+    },
+  };
 }
 
 async function executeAndAuditTool({

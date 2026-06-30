@@ -45,6 +45,11 @@ import {
 } from "@/server/chat/local-data-tools";
 import { rankLocalRecommendationCandidates } from "@/server/chat/local-recommendation";
 import {
+  nightlifeEventInterestValues,
+  renderNightlifeEventsText,
+  searchNightlifeEvents,
+} from "@/server/chat/nightlife-events";
+import {
   type LocalGuideCandidate,
   type LocalGuideSearchResult,
   searchSiargaoLocalGuide,
@@ -172,6 +177,7 @@ type WeatherForecastArguments = z.infer<typeof weatherForecastSchema>;
 type MarineConditionsArguments = z.infer<typeof marineConditionsSchema>;
 type TideForecastArguments = z.infer<typeof tideForecastSchema>;
 type ConditionJudgmentArguments = z.infer<typeof conditionJudgmentRequestSchema>;
+type SearchNightlifeEventsArguments = z.infer<typeof searchNightlifeEventsSchema>;
 type DescribeDatabaseSchemaArguments = z.infer<typeof describeDatabaseSchemaArgumentsSchema>;
 type QueryLocalFactsArguments = z.infer<typeof localFactsQuerySchema>;
 type SourceEvidenceArguments = z.infer<typeof sourceEvidenceArgumentsSchema>;
@@ -246,6 +252,11 @@ const rankSurfSpotsNearbySchema = z.strictObject({
 const weatherForecastSchema = z.strictObject({
   location: z.enum(weatherForecastLocations),
   date_range: z.enum(["today", "next_7_days"]),
+});
+const searchNightlifeEventsSchema = z.strictObject({
+  location: z.enum(["General Luna"]),
+  date: z.enum(["tonight", "today"]),
+  interests: optionalNullable(z.array(z.enum(nightlifeEventInterestValues)).max(6)),
 });
 const marineConditionsSchema = z.strictObject({
   location: z.enum(marineConditionsLocations),
@@ -445,6 +456,44 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
     schema: conditionJudgmentRequestSchema,
     execute: (args, _request, dependencies) =>
       getConditionJudgmentToolResult(args as ConditionJudgmentArguments, dependencies),
+  },
+  search_nightlife_events: {
+    definition: {
+      type: "function",
+      name: "search_nightlife_events",
+      description:
+        "Search approved General Luna nightlife event facts before using Google Places for venue details. Use for tonight, party, nightlife, bar-hopping, DJ, live-music, foam-party, pub-quiz, trivia, and drinks-tonight route answers. This returns event schedule evidence and route roles, not live crowd size, door policy, guest list, table availability, last-minute cancellation, or exact closing time.",
+      parameters: {
+        type: "object",
+        properties: {
+          location: {
+            type: "string",
+            enum: ["General Luna"],
+            description: "Nightlife area currently supported by approved event facts.",
+          },
+          date: {
+            type: "string",
+            enum: ["tonight", "today"],
+            description: "Time-bound nightlife date to check.",
+          },
+          interests: {
+            type: ["array", "null"],
+            items: {
+              type: "string",
+              enum: nightlifeEventInterestValues,
+            },
+            description:
+              "Optional nightlife interests from the user, such as party, dj, pub_quiz, trivia, foam_party, or drinks.",
+          },
+        },
+        required: ["location", "date", "interests"],
+        additionalProperties: false,
+      },
+      strict: true,
+    },
+    schema: searchNightlifeEventsSchema,
+    execute: (args, _request, dependencies) =>
+      searchNightlifeEventsToolResult(args as SearchNightlifeEventsArguments, dependencies),
   },
   search_places: {
     definition: {
@@ -903,6 +952,7 @@ const defaultFunctionToolNames = [
   "get_marine_conditions",
   "get_tide_forecast",
   "get_condition_judgment",
+  "search_nightlife_events",
   "search_places",
   "get_place_details",
   "search_local_guide",
@@ -2682,6 +2732,40 @@ const inertGooglePlacesStoreDatabase: GooglePlacesStoreDatabase = {
     return { rows: [] };
   },
 };
+
+function searchNightlifeEventsToolResult(
+  args: SearchNightlifeEventsArguments,
+  dependencies: AgentToolDependencies,
+): AgentToolResult {
+  const result = searchNightlifeEvents({
+    location: args.location,
+    date: args.date,
+    ...(args.interests ? { interests: args.interests } : {}),
+    now: dependencies.now?.() ?? new Date(),
+  });
+
+  return {
+    name: "search_nightlife_events",
+    status: "success",
+    text: renderNightlifeEventsText(result),
+    data: {
+      status: result.status,
+      location: result.location,
+      requestedDate: result.requestedDate,
+      localDate: result.localDate,
+      dayOfWeek: result.dayOfWeek,
+      candidates: result.candidates,
+      route: result.route,
+      boundaries: {
+        checked: result.source.checked,
+        notChecked: result.source.notChecked,
+      },
+      nextStep:
+        "Use Google Places only after this event lookup to enrich selected venue identity, map links, address, business status, opening-hour signal, ratings, and review counts.",
+    },
+    sources: [result.source],
+  };
+}
 
 async function getWeatherForecastToolResult(
   args: WeatherForecastArguments,

@@ -123,7 +123,11 @@ function inferPlaceCategory(content: string): PlaceCategory | null {
   if (/\b(caf[eé]s?|coffee)\b/i.test(content)) {
     return "coffee";
   }
-  if (/\b(bars?|nightlife|drinks?)\b/i.test(content)) {
+  if (
+    /\b(bars?|nightlife|drinks?|party|bar[-\s]?hopp?ing|dj|live\s*music|foam\s*party|pub\s*quiz|trivia)\b/i.test(
+      content,
+    )
+  ) {
     return "bar";
   }
   if (isServicePlaceContent(content)) {
