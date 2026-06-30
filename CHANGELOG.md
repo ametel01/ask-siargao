@@ -9,6 +9,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added final cross-domain web research regressions for provider-unavailable answers, nightlife,
+  restaurants, ferry schedules, tour prices, safety advisories, stable beach prompts, insufficient
+  evidence, and mixed Places card selection.
 - Added a configurable public web-search provider for `research_web` using OpenAI hosted
   `web_search` when `WEB_RESEARCH_PROVIDER=openai` is configured.
 - Started progress tracking for the web research layer implementation plan.
@@ -29,6 +32,12 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Converted Google Places for research-covered prompts into research-selected entity enrichment,
   preventing broad Places candidates from appearing as fallback recommendation cards.
 
+### Removed
+
+- Removed legacy fallback acceptance for research-required prompts: broad Places, weather-only, and
+  memory-only answers are rejected unless current public web evidence is successful or the answer
+  transparently states that it could not be verified.
+
 ### Security
 
 - Documented the final authenticated data privacy checklist for persisted chat,
@@ -47,6 +56,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Kept provider-unavailable public web research in the same transparent, card-free failure path as
+  insufficient evidence.
 - Rejected weather-only, memory-only, and broad Places fallback final answers for prompts that
   require public web research, forcing transparent unavailable/insufficient evidence caveats or
   researched findings instead.

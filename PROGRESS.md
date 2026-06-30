@@ -5,9 +5,9 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 
 ## Current Status
 
-- Status: Step 12 complete
-- Current step: Cross-Domain Regression And Release Gates
-- Next step: Step 13 - Cross-Domain Regression And Release Gates
+- Status: Complete
+- Current step: All planned steps complete
+- Next step: None
 
 ## Step Checklist
 
@@ -24,7 +24,7 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 - [x] Step 10: Wire The Production Web Search Provider
 - [x] Step 11: Add Optional Short-Lived Research Persistence
 - [x] Step 12: Update Agent Memory And Developer Documentation
-- [ ] Step 13: Cross-Domain Regression And Release Gates
+- [x] Step 13: Cross-Domain Regression And Release Gates
 
 ## Update Rule
 
@@ -287,3 +287,32 @@ Update this file after every completed step with:
 - Changelog updated under `## [Unreleased]`.
 - Commit reference: this commit (`Document research-first agent policy`).
 - Next step: Step 13 - Cross-Domain Regression And Release Gates.
+
+### 2026-07-01 - Step 13 Completed
+
+- Added a final required-evidence regression for provider-unavailable `research_web` responses,
+  ensuring the accepted answer stays transparent and card-free instead of falling back to Google
+  Maps or other legacy ranking paths.
+- Confirmed cross-domain coverage for General Luna nightlife tonight, current restaurants, ferry
+  schedules, tour prices/current rates, safety/disruption advisories, stable beach prompts that do
+  not require research, insufficient evidence, provider-unavailable evidence, and mixed Places card
+  selection.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/chat/required-evidence.test.ts src/server/chat/ask-siargao-agent.test.ts src/app/api/chat/route.test.ts` - 169 tests passed
+  - `bun test` - 697 tests passed
+  - `bun run db:migrate:test` - migrated 47 tables
+  - `bun run db:seed:test` - seeded 5 areas, 3 routes, and 6 source profiles
+  - `bun run build`
+  - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY= CLERK_WEBHOOK_SIGNING_SECRET= bun run test:e2e` - 36 tests passed
+  - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY= CLERK_WEBHOOK_SIGNING_SECRET= bun run verify:ci` - passed full sanitized CI-equivalent chain
+- Local caveat: default `bun run test:e2e` and default `bun run verify:ci` still fail in this
+  workstation environment at the Playwright web-server readiness check because the local `.env`
+  Clerk proxy causes `/robots.txt` socket hang-ups. The sanitized commands above disable the local
+  Clerk env and pass.
+- Changelog updated under `## [Unreleased]`.
+- Commit reference: this commit (`Validate web research regressions`).
+- Residual risk: production web research remains opt-in and requires `WEB_RESEARCH_PROVIDER=openai`
+  plus `OPENAI_API_KEY`.

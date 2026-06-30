@@ -392,6 +392,59 @@ describe("required evidence planning", () => {
       ),
     ).toBe(true);
   });
+
+  test("requires provider-unavailable web research to stay transparent and card-free", () => {
+    const plan = currentResearchOnlyPlan();
+    const toolCalls = [
+      toolCall({
+        name: "research_web",
+        status: "error",
+        sources: [
+          {
+            label: "provider_unavailable",
+            sourceName: "Public web research",
+            sourceProfileId: "source_web_research",
+            confidence: "low",
+            checked: [],
+            notChecked: ["current public web research"],
+          },
+        ],
+      }),
+    ];
+    const toolResults = [
+      {
+        name: "research_web",
+        toolCallId: "call_research",
+        status: "error",
+        text: "Public web research provider unavailable.",
+        data: { status: "provider_unavailable" },
+        sources: toolCalls[0]?.sources ?? [],
+      } satisfies AgentToolResult,
+    ];
+
+    expect(
+      finalPayloadSatisfiesRequiredEvidence(
+        plan,
+        finalPayload({
+          answer: "Use the highest-rated open place from Google Maps.",
+          usedToolCallIds: ["call_research"],
+        }),
+        toolCalls,
+        toolResults,
+      ),
+    ).toBe(false);
+    expect(
+      finalPayloadSatisfiesRequiredEvidence(
+        plan,
+        finalPayload({
+          answer: "I could not verify current public web evidence for dinner tonight.",
+          usedToolCallIds: ["call_research"],
+        }),
+        toolCalls,
+        toolResults,
+      ),
+    ).toBe(true);
+  });
 });
 
 function requestWithIntent(intent: Record<string, unknown>): AgentRuntimeRequest {
@@ -412,16 +465,18 @@ function researchIntent(fields: Record<string, unknown>) {
 
 function toolCall({
   name,
+  status = "success",
   sources,
 }: {
   name: string;
+  status?: AgentToolCallAudit["status"];
   sources: AgentToolCallAudit["sources"];
 }): AgentToolCallAudit {
   return {
     id: `audit_${name}`,
     name,
     arguments: {},
-    status: "success",
+    status,
     durationMs: 1,
     startedAt: "2026-07-01T00:00:00.000Z",
     completedAt: "2026-07-01T00:00:00.001Z",
