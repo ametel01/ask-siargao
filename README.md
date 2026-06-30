@@ -35,13 +35,8 @@ Primary browser surfaces:
 Quality gates:
 
 ```sh
-bun run lint
-bun run typecheck --incremental false
-bun test
-bun run db:migrate:test
-bun run db:seed:test
-bun run build
-bun run test:e2e
+bun run verify
+bun run verify:ci
 ```
 
-`bun run lint` is the non-mutating Biome check used by CI. Run `bun run format` only when you want Biome to write formatting fixes.
+`bun run verify` is the fast non-mutating local check. `bun run verify:ci` mirrors the full CI release gate, including test database validation, build, and Playwright. Run `bun run format` only when you want Biome to write formatting fixes.

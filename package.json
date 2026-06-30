@@ -29,7 +29,8 @@
     "format": "biome format --write .",
     "lint": "biome check .",
     "typecheck": "tsc --noEmit",
-    "verify": "bun run format && bun run lint && bun run typecheck && bun run test",
+    "verify": "bun run lint && bun run typecheck --incremental false && bun test",
+    "verify:ci": "bun run verify && bun run db:migrate:test && bun run db:seed:test && bun run build && bun run test:e2e",
     "test": "bun test",
     "test:e2e": "playwright test",
     "doctor": "npx react-doctor@latest"
