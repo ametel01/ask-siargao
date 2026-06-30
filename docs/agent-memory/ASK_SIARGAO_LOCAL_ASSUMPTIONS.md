@@ -16,11 +16,6 @@ Cloud 9 and General Luna-side recommendations are not automatically convenient
 for Pacifico, Burgos, Alegria, Del Carmen, Dapa, or island-hopping departure
 points. Ask or caveat when area matters.
 
-When the user names an area or shares browser location for a nearby request,
-rank close/local-fit options before broader island classics. Do not default to
-Cloud 9 or General Luna if the evidence points to Pacifico, Alegria, Del Carmen,
-Dapa, or another area.
-
 Do not imply precise travel times unless a governed tool or curated data gives a
 bounded ride-time range. Prefer approximate ranges and mention when the route was
 not live checked.
@@ -62,18 +57,9 @@ Beach surface matters. Some Siargao beaches are sandy and easier for lounging;
 others are mixed, reefy, rocky, tide-dependent, or better for scenery than
 swimming.
 
-For swimming requests, use beach/swimming fit rather than surf-break logic.
-Surf-famous or reefy places can still be scenic, but they should not outrank
-calmer sandy beach options unless the user asked for surf.
-
 Kid-friendly, no-scooter, late-night, rainy-day, and mobility-constrained plans
 need more caution than generic beach lists. Ask a clarifying question or choose
 closer, simpler options when the constraint changes the answer materially.
-
-Rainy, late-day, no-scooter, and with-kids constraints must change the shortlist,
-not just the prose. Prefer short transfers, easy fallback stops, less remote
-routes, and conservative caveats; explicitly skip far-away options when the
-constraint makes them a poor fit.
 
 ## Tourist Assumption Traps
 

@@ -20,8 +20,7 @@ runtime parses JSON directly or from a fenced `json` block. The payload fields a
 - `usedToolCallIds`: tool call IDs from the current turn that the final answer used;
 - `displayCardIds`: recommendation card IDs selected for public display;
 - `displayActionIds`: prompt or link action IDs selected for public display;
-- `displayItineraryIds`: itinerary artifact IDs selected for public display;
-- `displayDecisionSummaryIds`: decision-summary artifact IDs selected for public display.
+- `displayItineraryIds`: itinerary artifact IDs selected for public display.
 
 `usedToolCallIds` must match audited current-turn tool calls. `usedMemoryFiles` must match files
 loaded by `load_agent_memory_file` or returned by `search_agent_memory` in the current turn. In
@@ -30,38 +29,24 @@ dropped and logged.
 
 Legacy plain-text final answers are still accepted while compatibility mode is enabled. Legacy
 answers return the model-written message but do not automatically expose tool-produced cards,
-actions, itineraries, or decision summaries.
+actions, or itineraries.
 
 ## Public Artifact Selection
 
-Tool results can carry internal recommendation cards, actions, itinerary artifacts, and decision
-summaries. Public
+Tool results can carry internal recommendation cards, actions, and itinerary artifacts. Public
 responses expose only artifacts selected by the final payload ID arrays. Unselected tool artifacts
 remain internal but still contribute to source aggregation, validation, and artifact-selection
 counts.
-
-Decision summaries are compact public next-move artifacts for non-itinerary answers. They include a
-stable `id`, concise `bestAction`, short `basis`, optional `fallback` or `avoid` guidance, optional
-`timing` or `area`, and governed `AnswerSourceSummary[]`. They are not saveable trip items and are
-not rendered on public shared-trip pages.
-
-Recommendation cards and itinerary plans may include optional `decision` metadata with a bounded
-label (`best_fit`, `good_now`, `fallback`, `avoid_today`, or `needs_confirmation`) and one concise
-`bestAction` string. The metadata travels with selected public artifacts only; it is not a separate
-artifact family and must not mention tools, runtime repair, validation mechanics, or private source
-policy details.
 
 `createAgentTurnResult` builds an artifact registry from current-turn tool results, dedupes IDs, and
 selects public artifacts from the final payload. Unknown selected artifact IDs fail in strict mode
 and are dropped in compatibility mode. Explicit caller-supplied artifacts are preserved only for
 trusted deterministic tests or compatibility callers.
 
-`/api/chat` returns selected `cards`, `actions`, `itineraries`, and `decisionSummaries` already
-present on `AgentTurnResult`. It does not return artifact-selection diagnostics. Route logs include
-selected and unselected artifact counts so production debugging can identify hidden tool artifacts
-without logging artifact payloads. Public source validation accepts rendered source lines only when
-they are backed by selected tool calls, selected cards, selected itineraries, or selected decision
-summaries.
+`/api/chat` returns selected `cards`, `actions`, and `itineraries` already present on
+`AgentTurnResult`. It does not return artifact-selection diagnostics. Route logs include selected
+and unselected artifact counts so production debugging can identify hidden tool artifacts without
+logging artifact payloads.
 
 ## Add A Backend Chat Tool
 
