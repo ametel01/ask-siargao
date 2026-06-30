@@ -14,7 +14,7 @@
     "stack:down:volumes": "bun run src/server/container/stack.ts down-volumes",
     "stack:logs": "bun run src/server/container/stack.ts logs",
     "stack:ps": "bun run src/server/container/stack.ts ps",
-    "build": "zsh -lc 'rm -rf .next && NEXT_PRIVATE_BUILD_WORKER=0 ./node_modules/.bin/next build'",
+    "build": "rm -rf .next && NEXT_PRIVATE_BUILD_WORKER=0 ./node_modules/.bin/next build",
     "db:migrate": "bun run src/server/db/migrate.ts",
     "db:seed": "bun run src/server/db/seed.ts",
     "db:discover:google-places": "bun run src/server/providers/discover-google-places.ts",
