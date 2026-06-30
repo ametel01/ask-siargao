@@ -800,12 +800,14 @@ function parseAgentFinalPayload(finalText: string): AgentFinalPayload | undefine
   const displayCardIds = readStringArray(parsed.displayCardIds);
   const displayActionIds = readStringArray(parsed.displayActionIds);
   const displayItineraryIds = readStringArray(parsed.displayItineraryIds);
+  const displayDecisionSummaryIds = readStringArray(parsed.displayDecisionSummaryIds);
   if (
     !usedMemoryFiles ||
     !usedToolCallIds ||
     !displayCardIds ||
     !displayActionIds ||
-    !displayItineraryIds
+    !displayItineraryIds ||
+    !displayDecisionSummaryIds
   ) {
     return undefined;
   }
@@ -817,6 +819,7 @@ function parseAgentFinalPayload(finalText: string): AgentFinalPayload | undefine
     displayCardIds,
     displayActionIds,
     displayItineraryIds,
+    displayDecisionSummaryIds,
   };
 }
 
@@ -875,6 +878,7 @@ function validateFinalPayloadToolCallIds(
     displayCardIds: normalizeFinalPayloadCardIds(payload.displayCardIds),
     displayActionIds: uniqueText(payload.displayActionIds),
     displayItineraryIds: uniqueText(payload.displayItineraryIds),
+    displayDecisionSummaryIds: uniqueText(payload.displayDecisionSummaryIds),
   };
 }
 
@@ -2592,7 +2596,7 @@ const responseContract = {
   scope:
     "Answer only Siargao-related travel and local trip-planning questions. Politely decline unrelated questions.",
   finalOutput:
-    "Return the final response as a JSON object with answer, usedMemoryFiles, usedToolCallIds, displayCardIds, displayActionIds, and displayItineraryIds. The answer field is the only traveler-facing prose. Display artifact ID arrays must include only cards, actions, or itineraries that should be shown publicly.",
+    "Return the final response as a JSON object with answer, usedMemoryFiles, usedToolCallIds, displayCardIds, displayActionIds, displayItineraryIds, and displayDecisionSummaryIds. The answer field is the only traveler-facing prose. Display artifact ID arrays must include only cards, actions, itineraries, or decision summaries that should be shown publicly.",
   sourceUse:
     "Use tool outputs as the only source for live weather, modelled marine conditions, Google Places, curated local guide, and source-policy claims.",
   deterministicSignals:
@@ -2613,7 +2617,7 @@ const askSiargaoBaseInstructions = [
   "Do not answer from generic model knowledge when the loaded memory index lists a relevant file. If no loaded memory file covers the topic, say the Ask Siargao memory does not cover it and rely only on governed tools where appropriate.",
   "Use backend tools whenever the answer needs current weather, tide timing, modelled marine conditions, Google Places facts, curated guide facts, safe local database facts, source evidence, or source-label policy.",
   "Every final answer must be written by the AI from loaded memory and tool output; do not copy raw tool output as final prose.",
-  "Return final answers as JSON with keys answer, usedMemoryFiles, usedToolCallIds, displayCardIds, displayActionIds, and displayItineraryIds. Include only artifact IDs that should be displayed to the traveler.",
+  "Return final answers as JSON with keys answer, usedMemoryFiles, usedToolCallIds, displayCardIds, displayActionIds, displayItineraryIds, and displayDecisionSummaryIds. Include only artifact IDs that should be displayed to the traveler.",
   "Do not invent live, provider-backed, or curated local facts. Memory retrieval is policy/reference context only, not live evidence.",
   "Do not write standalone source footer lines beginning with 'Checked:' or 'Not checked:'. Do not tell the traveler what was not checked or which internal tool should be used. Let the backend/cards display compact source labels.",
   "Keep answers concise and actionable.",

@@ -26,6 +26,7 @@ type E2EThreadMessage = {
   cards: [];
   actions: [];
   itineraries: [];
+  decisionSummaries: unknown[];
   rating?: {
     rating: "up" | "down";
     reasonCodes: string[];
@@ -83,6 +84,16 @@ type MockItineraryPlan = {
   stops: MockItineraryStop[];
   fallbackStops: MockItineraryStop[];
   skip: string[];
+  sources: MockSourceSummary[];
+};
+type MockDecisionSummary = {
+  id: string;
+  bestAction: string;
+  basis: string;
+  fallback?: string;
+  avoid?: string;
+  timing?: string;
+  area?: string;
   sources: MockSourceSummary[];
 };
 type MockDecisionMetadata = {
@@ -210,6 +221,7 @@ test("loads signed-in chat history and preserves the thread after reload", async
       cards: [],
       actions: [],
       itineraries: [],
+      decisionSummaries: [],
       createdAt: "2026-06-29T01:00:00.000Z",
     },
     {
@@ -221,6 +233,17 @@ test("loads signed-in chat history and preserves the thread after reload", async
       cards: [],
       actions: [],
       itineraries: [],
+      decisionSummaries: [
+        {
+          id: "condition_decision:breakfast:cloud_9:today",
+          bestAction: "Start with breakfast near Cloud 9.",
+          basis: "The existing thread selected a compact next move.",
+          fallback: "Keep Bravo for dinner if breakfast runs long.",
+          timing: "today",
+          area: "Cloud 9",
+          sources: [mockWeatherSource],
+        },
+      ],
       rating: null,
       createdAt: "2026-06-29T01:01:00.000Z",
     },
@@ -267,6 +290,7 @@ test("loads signed-in chat history and preserves the thread after reload", async
         cards: [],
         actions: [],
         itineraries: [],
+        decisionSummaries: [],
         createdAt: "2026-06-29T01:02:00.000Z",
       },
       {
@@ -278,6 +302,7 @@ test("loads signed-in chat history and preserves the thread after reload", async
         cards: [],
         actions: [],
         itineraries: [],
+        decisionSummaries: [],
         rating: null,
         createdAt: "2026-06-29T01:03:00.000Z",
       },
@@ -340,6 +365,9 @@ test("loads signed-in chat history and preserves the thread after reload", async
   await page.getByRole("button", { name: /Cloud 9 plan/ }).click();
   await expect(page.getByText("Where should I eat near Cloud 9?")).toBeVisible();
   await expect(page.getByText("Try Shaka for breakfast and Bravo for dinner.")).toBeVisible();
+  await expect(page.getByTestId("decision-summary-panel")).toContainText(
+    "Start with breakfast near Cloud 9.",
+  );
   const helpfulButton = page.getByRole("button", {
     name: "Rate assistant response helpful",
   });
@@ -362,6 +390,9 @@ test("loads signed-in chat history and preserves the thread after reload", async
   await expect(
     page.getByText("Add Bravo after Shaka for an easy General Luna dinner."),
   ).toBeVisible();
+  await expect(page.getByTestId("decision-summary-panel")).toContainText(
+    "Start with breakfast near Cloud 9.",
+  );
   await expect(
     page.getByRole("button", { name: "Rate assistant response helpful" }).first(),
   ).toHaveAttribute("aria-pressed", "true");
@@ -702,6 +733,42 @@ test("renders structured recommendation cards and submits action prompts", async
 
   await expect.poll(() => mockChat.requests.length).toBe(2);
   expect(lastSubmittedContent(mockChat.requests[1])).toBe(actionPrompt);
+});
+
+test("renders selected decision summaries and hides unselected summaries", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 900 });
+  const mockChat = await mockChatApi(page, {
+    message: "Mocked condition answer: keep the swim flexible today.",
+    sources: [mockWeatherSource],
+    decisionSummaries: [
+      {
+        id: "condition_decision:swimming:cloud_9:today",
+        bestAction: "Keep swimming flexible.",
+        basis: "Weather is usable, but surf reports are not checked.",
+        fallback: "Use a nearby covered stop if conditions worsen.",
+        avoid: "Avoid treating this as beach safety clearance.",
+        timing: "today",
+        area: "Cloud 9",
+        sources: [mockWeatherSource],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Should I swim at Cloud 9 today?");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByText("Mocked condition answer:")).toBeVisible();
+  const panel = page.getByTestId("decision-summary-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText("Best move");
+  await expect(panel).toContainText("Keep swimming flexible.");
+  await expect(panel).toContainText("Weather is usable, but surf reports are not checked.");
+  await expect(panel).toContainText("Fallback: Use a nearby covered stop if conditions worsen.");
+  await expect(panel).toContainText("Avoid: Avoid treating this as beach safety clearance.");
+  await expect(panel.getByTestId("decision-summary-sources")).toContainText("Weather checked");
+  await expect(page.getByText("Avoid a long scooter ride for now.")).toHaveCount(0);
+  await expect.poll(() => mockChat.requests.length).toBe(1);
 });
 
 test("renders itinerary plans with stops, fallbacks, skip guidance, sources, and map links", async ({
@@ -1561,6 +1628,7 @@ async function mockChatApi(
   {
     actions,
     cards,
+    decisionSummaries,
     itineraries,
     message,
     sources,
@@ -1568,6 +1636,7 @@ async function mockChatApi(
   }: {
     actions?: MockChatAction[];
     cards?: MockRecommendationCard[];
+    decisionSummaries?: MockDecisionSummary[];
     itineraries?: MockItineraryPlan[];
     message: string;
     sources?: MockSourceSummary[];
@@ -1594,6 +1663,7 @@ async function mockChatApi(
         requestId: "req_playwright_chat",
         ...(sources?.length ? { sources } : {}),
         ...(cards?.length ? { cards } : {}),
+        ...(decisionSummaries?.length ? { decisionSummaries } : {}),
         ...(actions?.length ? { actions } : {}),
         ...(itineraries?.length ? { itineraries } : {}),
       }),
@@ -1756,6 +1826,16 @@ const mockPlacesSource: MockSourceSummary = {
   confidence: "high",
   checked: ["place identity", "current opening status"],
   notChecked: ["review text", "table availability"],
+};
+
+const mockWeatherSource: MockSourceSummary = {
+  label: "weather_checked",
+  sourceName: "Open-Meteo weather API",
+  sourceProfileId: "source_open_meteo",
+  fetchedAt: "2026-06-28T00:45:00.000Z",
+  confidence: "medium",
+  checked: ["forecast for Cloud 9"],
+  notChecked: ["surf reports", "lifeguard status"],
 };
 
 const browserSavedNotReverifiedSource: MockSourceSummary = {

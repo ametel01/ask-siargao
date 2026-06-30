@@ -23,6 +23,7 @@ export type ChatHistoryMessage = {
   cards: unknown[];
   actions: unknown[];
   itineraries: unknown[];
+  decisionSummaries: unknown[];
   rating: {
     rating: ChatResponseRatingValue;
     reasonCodes: string[];
@@ -45,6 +46,7 @@ export type ChatHistoryMessageInput = {
   cards?: readonly unknown[];
   actions?: readonly unknown[];
   itineraries?: readonly unknown[];
+  decisionSummaries?: readonly unknown[];
   toolCalls?: readonly unknown[];
   contextSummary?: Record<string, unknown>;
   errorCode?: string | null;
@@ -164,6 +166,7 @@ export async function loadOwnedChatThreadWithMessages(
     cards_json: unknown;
     actions_json: unknown;
     itineraries_json: unknown;
+    decision_summaries_json: unknown;
     response_rating: ChatResponseRatingValue | null;
     response_rating_reason_codes_json: unknown;
     response_rating_comment: string | null;
@@ -181,6 +184,7 @@ export async function loadOwnedChatThreadWithMessages(
         chat_messages.cards_json,
         chat_messages.actions_json,
         chat_messages.itineraries_json,
+        chat_messages.decision_summaries_json,
         chat_response_ratings.rating as response_rating,
         chat_response_ratings.reason_codes_json as response_rating_reason_codes_json,
         chat_response_ratings.comment as response_rating_comment,
@@ -209,6 +213,7 @@ export async function loadOwnedChatThreadWithMessages(
       cards: arrayFromJson(message.cards_json),
       actions: arrayFromJson(message.actions_json),
       itineraries: arrayFromJson(message.itineraries_json),
+      decisionSummaries: arrayFromJson(message.decision_summaries_json),
       rating: message.response_rating
         ? {
             rating: message.response_rating,
@@ -297,6 +302,7 @@ export async function appendChatHistoryMessage(
         cards_json,
         actions_json,
         itineraries_json,
+        decision_summaries_json,
         tool_calls_json,
         context_summary_json,
         error_code,
@@ -318,8 +324,9 @@ export async function appendChatHistoryMessage(
         $13::jsonb,
         $14::jsonb,
         $15::jsonb,
-        $16,
-        $17
+        $16::jsonb,
+        $17,
+        $18
       )
     `,
     [
@@ -336,6 +343,7 @@ export async function appendChatHistoryMessage(
       JSON.stringify(input.cards ?? []),
       JSON.stringify(input.actions ?? []),
       JSON.stringify(input.itineraries ?? []),
+      JSON.stringify(input.decisionSummaries ?? []),
       JSON.stringify(input.toolCalls ?? []),
       JSON.stringify(input.contextSummary ?? {}),
       input.errorCode ?? null,

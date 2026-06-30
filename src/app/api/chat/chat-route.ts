@@ -12,6 +12,7 @@ import type {
   ChatClientContext,
   ChatClientGeolocationConsentScope,
   ChatClientGeolocationContext,
+  DecisionSummary,
   ItineraryPlan,
   RecommendationCard,
 } from "@/server/chat/agent-runtime";
@@ -277,6 +278,7 @@ export async function chatResponse(
       result.publicSources,
       result.cards,
       result.itineraries,
+      result.decisionSummaries,
     );
     let responseMessage = stripInternalDisclosureText(result.message);
     const sourceValidationInput = {
@@ -326,6 +328,7 @@ export async function chatResponse(
         cards: result.cards ?? [],
         actions: result.actions ?? [],
         itineraries: result.itineraries ?? [],
+        decisionSummaries: result.decisionSummaries ?? [],
         toolCalls: summarizeToolCallsForStoredHistory(publicToolCalls),
         contextSummary: summarizeClientContextForStoredHistory(clientContext, intent),
         createdAt: completedAt,
@@ -350,6 +353,7 @@ export async function chatResponse(
         cardCount: result.cards?.length ?? 0,
         actionCount: result.actions?.length ?? 0,
         itineraryCount: result.itineraries?.length ?? 0,
+        decisionSummaryCount: result.decisionSummaries?.length ?? 0,
         ...(result.artifactSelection
           ? { artifactSelection: summarizeArtifactSelectionForLogs(result.artifactSelection) }
           : {}),
@@ -375,6 +379,9 @@ export async function chatResponse(
         ...(result.cards?.length ? { cards: result.cards } : {}),
         ...(result.actions?.length ? { actions: result.actions } : {}),
         ...(result.itineraries?.length ? { itineraries: result.itineraries } : {}),
+        ...(result.decisionSummaries?.length
+          ? { decisionSummaries: result.decisionSummaries }
+          : {}),
         ...(authenticatedPersistence?.status === "ready"
           ? {
               threadId: authenticatedPersistence.thread.id,
@@ -465,11 +472,13 @@ function chatAnswerSourcesForValidation(
   sources: readonly AnswerSourceSummary[],
   cards: readonly RecommendationCard[] | undefined,
   itineraries: readonly ItineraryPlan[] | undefined,
+  decisionSummaries: readonly DecisionSummary[] | undefined,
 ) {
   return [
     ...sources,
     ...(cards?.flatMap((card) => card.sources ?? []) ?? []),
     ...(itineraries?.flatMap((itinerary) => itinerary.sources) ?? []),
+    ...(decisionSummaries?.flatMap((summary) => summary.sources) ?? []),
   ];
 }
 
@@ -838,12 +847,15 @@ function summarizeArtifactSelectionForLogs(
     totalCardCount: artifactSelection.totalCardCount,
     totalActionCount: artifactSelection.totalActionCount,
     totalItineraryCount: artifactSelection.totalItineraryCount,
+    totalDecisionSummaryCount: artifactSelection.totalDecisionSummaryCount,
     selectedCardCount: artifactSelection.selectedCardCount,
     selectedActionCount: artifactSelection.selectedActionCount,
     selectedItineraryCount: artifactSelection.selectedItineraryCount,
+    selectedDecisionSummaryCount: artifactSelection.selectedDecisionSummaryCount,
     unselectedCardCount: artifactSelection.unselectedCardCount,
     unselectedActionCount: artifactSelection.unselectedActionCount,
     unselectedItineraryCount: artifactSelection.unselectedItineraryCount,
+    unselectedDecisionSummaryCount: artifactSelection.unselectedDecisionSummaryCount,
     ...(artifactSelection.unknownCardIds.length
       ? { unknownCardIds: artifactSelection.unknownCardIds }
       : {}),
@@ -852,6 +864,9 @@ function summarizeArtifactSelectionForLogs(
       : {}),
     ...(artifactSelection.unknownItineraryIds.length
       ? { unknownItineraryIds: artifactSelection.unknownItineraryIds }
+      : {}),
+    ...(artifactSelection.unknownDecisionSummaryIds.length
+      ? { unknownDecisionSummaryIds: artifactSelection.unknownDecisionSummaryIds }
       : {}),
   };
 }
