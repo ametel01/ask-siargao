@@ -4,7 +4,7 @@ This tutorial gets a fresh checkout to a working local app with seeded test data
 
 ## Prerequisites
 
-- Bun
+- Bun `1.3.13`, matching `package.json` and CI
 - A shell that can run the scripts in `package.json`
 - No external Postgres service is required for the test migration and seed commands; they use PGlite.
 

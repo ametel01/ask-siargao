@@ -40,7 +40,7 @@ once the lower-risk fixes are clear.
 | 007 | Add nightlife event sources and route-style answers | P2 | large | existing chat/source systems | TODO |
 | 008 | Separate public tool calls from internal tool audits | P1 | medium | none | TODO |
 | 009 | Consolidate live place evidence planning | P1 | medium | none | TODO |
-| 010 | Pin Bun runtime in CI | P2 | small | none | TODO |
+| 010 | Pin Bun runtime in CI | P2 | small | none | DONE |
 | 011 | Add trip pass usage meter foundation | P2 | large | none | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED
