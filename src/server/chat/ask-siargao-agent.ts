@@ -599,7 +599,11 @@ export async function runAskSiargaoAgentTurn(
       });
     }
 
-    const functionCalls = extractFunctionCalls(response.output);
+    const functionCalls = requiredEvidencePreflightFunctionCalls(
+      extractFunctionCalls(response.output),
+      requiredEvidencePlan,
+      toolCalls,
+    );
     if (functionCalls.length === 0) {
       throw new Error("OpenAI response did not include output_text.");
     }
@@ -1046,6 +1050,34 @@ function missingSurfSpotRankingRepairCall(
   };
 }
 
+function requiredEvidencePreflightFunctionCalls(
+  functionCalls: readonly ParsedFunctionCall[],
+  requiredEvidencePlan: RequiredEvidencePlan,
+  toolCalls: readonly AgentToolCallAudit[],
+): ParsedFunctionCall[] {
+  if (
+    !functionCalls.some((functionCall) => functionCall.name === "search_places") ||
+    functionCalls.some((functionCall) => functionCall.name === "search_nightlife_events") ||
+    toolCalls.some(
+      (toolCall) => toolCall.name === "search_nightlife_events" && toolCall.status === "success",
+    )
+  ) {
+    return [...functionCalls];
+  }
+
+  const nightlifeRequiredCall = requiredEvidencePlan.requiredToolCalls.find(
+    (requiredCall) => requiredCall.name === "search_nightlife_events",
+  );
+  if (!nightlifeRequiredCall) {
+    return [...functionCalls];
+  }
+
+  return [
+    requiredEvidenceFunctionCall(nightlifeRequiredCall, 0, "auto_preflight_required_evidence"),
+    ...functionCalls,
+  ];
+}
+
 function missingClearMemoryLoadRepairCall(
   finalText: string,
   request: AgentRuntimeRequest,
@@ -1144,6 +1176,13 @@ function clearRequiredMemoryFileName(request: AgentRuntimeRequest) {
     )
   ) {
     return "ASK_SIARGAO_DATA_DICTIONARY.md";
+  }
+  if (
+    /\b(?:party|nightlife|bar[-\s]?hopp?ing|bar\s+crawl|dj|live\s*music|foam\s*party|pub\s*quiz|trivia|late[-\s]?night|drinks?\s+tonight|where\s+(?:should|can)\s+(?:we|i)\s+go\s+out)\b/i.test(
+      latestUserTurn,
+    )
+  ) {
+    return "NIGHTLIFE.md";
   }
   if (isFoodOrPlaceMemoryExclusion(latestUserTurn)) {
     return undefined;
@@ -1875,9 +1914,10 @@ function missingRequiredItineraryChecks(
 function requiredEvidenceFunctionCall(
   requiredCall: RequiredEvidenceToolCall,
   index: number,
+  prefix = "auto_required_evidence",
 ): ParsedFunctionCall {
   return {
-    callId: `auto_required_evidence_${index + 1}`,
+    callId: `${prefix}_${index + 1}`,
     name: requiredCall.name,
     arguments: requiredCall.arguments,
   };

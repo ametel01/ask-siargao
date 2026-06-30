@@ -536,6 +536,175 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     ]);
   });
 
+  test("preflights nightlife event evidence before Places and repairs weather for General Luna party routes", async () => {
+    const placeCard = {
+      id: "place_barbosa",
+      kind: "place" as const,
+      title: "Barbosa",
+      subtitle: "General Luna",
+      mapsUrl: "https://maps.example/barbosa",
+      openStatusLabel: "Open now according to Google Places.",
+      fitReasons: ["Venue identity and map details returned by Google Places."],
+      caveats: ["Places is venue detail evidence, not the nightlife ranking source."],
+      sourceLabel: "Google Places - live checked",
+      sources: [openNowPlacesSourceSummary],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_nightlife_wrong_places_first",
+        requestId: "req_nightlife_wrong_places_first",
+        callId: "call_places_first",
+        name: "search_places",
+        arguments: {
+          query: "bars in General Luna Siargao",
+          center: { latitude: 9.8006, longitude: 126.1586 },
+          radius_meters: 6_000,
+          constraints: { included_type: "bar", open_now: true, page_size: 8 },
+        },
+      }),
+      {
+        id: "resp_nightlife_missing_weather",
+        output_text: finalPayloadText({
+          answer: "Start with BARREL, make Barbosa the main party, then keep a late option.",
+          usedToolCallIds: ["auto_preflight_required_evidence_1", "call_places_first"],
+          displayCardIds: [placeCard.id],
+        }),
+        _request_id: "req_nightlife_missing_weather",
+      },
+      {
+        id: "resp_nightlife_missing_memory",
+        output_text: finalPayloadText({
+          answer:
+            "Tonight in General Luna, use BARREL as the warm-up, Barbosa as the main party, Siargao Beach Club as the late option, and Mama Coco as the softer option. Since this moves between venues, keep a tricycle buffer if rain picks up. Event schedules, venue details, and weather were checked; live crowd size, door policy, guest list, table availability, last-minute cancellation, and exact closing time were not.",
+          usedToolCallIds: [
+            "auto_preflight_required_evidence_1",
+            "call_places_first",
+            "auto_required_evidence_1",
+          ],
+          displayCardIds: [placeCard.id],
+        }),
+        _request_id: "req_nightlife_missing_memory",
+      },
+      {
+        id: "resp_nightlife_route_final",
+        output_text: finalPayloadText({
+          answer:
+            "Tonight in General Luna, use BARREL as the warm-up, Barbosa as the main party, Siargao Beach Club as the late option, and Mama Coco as the softer option. Since this moves between venues, keep a tricycle buffer if rain picks up. Event schedules, venue details, weather, and nightlife reference context were checked; live crowd size, door policy, guest list, table availability, last-minute cancellation, and exact closing time were not.",
+          usedMemoryFiles: ["NIGHTLIFE.md"],
+          usedToolCallIds: [
+            "auto_preflight_required_evidence_1",
+            "call_places_first",
+            "auto_required_evidence_1",
+            "auto_required_memory_load_nightlife",
+          ],
+          displayCardIds: [placeCard.id],
+        }),
+        _request_id: "req_nightlife_route_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      search_nightlife_events: {
+        name: "search_nightlife_events",
+        status: "success",
+        text: "Approved events: BARREL warm-up, Barbosa main party, Siargao Beach Club late option, Mama Coco softer option.",
+        sources: [nightlifeEventSourceSummary],
+      },
+      search_places: {
+        name: "search_places",
+        status: "success",
+        text: "Google Places returned General Luna venue details.",
+        sources: [openNowPlacesSourceSummary],
+        cards: [placeCard],
+      },
+      get_weather_forecast: {
+        name: "get_weather_forecast",
+        status: "success",
+        text: "Open-Meteo weather forecast for General Luna.",
+        sources: [weatherSourceSummary],
+      },
+      load_agent_memory_file: {
+        name: "load_agent_memory_file",
+        status: "success",
+        text: "Loaded NIGHTLIFE.md",
+        data: { loadedMemoryFileNames: ["NIGHTLIFE.md"] },
+        sources: [],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "What are the best party places in General Luna tonight?",
+          },
+        ],
+        requestId: "agent_request_nightlife_route",
+        deterministicSignals: {
+          intent: {
+            latestUserTurn: "What are the best party places in General Luna tonight?",
+            nightlifePlan: true,
+            weather: false,
+            activityPlan: false,
+            tripAdvice: false,
+            placeIntent: {
+              category: "bar",
+              liveNeeds: ["recommendation"],
+              meal: null,
+              location: "General Luna",
+              areaScope: "in_area",
+              radiusMeters: 12_000,
+            },
+          },
+        },
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toContain("BARREL");
+    expect(result.message).toContain("Barbosa");
+    expect(result.message).toContain("rain");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "search_nightlife_events",
+      "search_places",
+      "get_weather_forecast",
+      "load_agent_memory_file",
+    ]);
+    expect(result.toolCalls[0]?.toolCallId).toBe("auto_preflight_required_evidence_1");
+    expect(result.toolCalls[0]?.arguments).toMatchObject({
+      location: "General Luna",
+      date: "tonight",
+      interests: ["party"],
+    });
+    expect(result.toolCalls[1]?.toolCallId).toBe("call_places_first");
+    expect(result.toolCalls[2]?.arguments).toMatchObject({
+      location: "General Luna",
+      date_range: "today",
+    });
+    expect(result.publicSources).toEqual([
+      nightlifeEventSourceSummary,
+      openNowPlacesSourceSummary,
+      weatherSourceSummary,
+    ]);
+    expect(result.cards).toEqual([placeCard]);
+    expect(result.memory?.files.some((file) => file.fileName === "NIGHTLIFE.md")).toBe(true);
+    expect(client.requests).toHaveLength(4);
+    const firstInput = parseLastUserInputMessage(client.requests[0]?.input) as {
+      deterministicSignals?: { intent?: { nightlifePlan?: boolean } };
+    };
+    expect(firstInput.deterministicSignals?.intent?.nightlifePlan).toBe(true);
+    const repairInput = parseLastUserInputMessage(client.requests[2]?.input) as {
+      automaticRequiredEvidenceChecks?: Array<{ name?: string }>;
+    };
+    expect(repairInput.automaticRequiredEvidenceChecks?.map((check) => check.name)).toEqual([
+      "get_weather_forecast",
+    ]);
+    const memoryRepairInput = parseLastUserInputMessage(client.requests[3]?.input) as {
+      validationRepairMemoryLoad?: { name?: string };
+    };
+    expect(memoryRepairInput.validationRepairMemoryLoad?.name).toBe("load_agent_memory_file");
+  });
+
   test("auto-executes required Places evidence for activity-place and service prompts", async () => {
     for (const scenario of [
       {
@@ -5651,6 +5820,27 @@ const localGuideSourceSummary: AnswerSourceSummary = {
   confidence: "medium",
   checked: ["beach surface notes", "ride-time notes"],
   notChecked: ["live tide", "lifeguard status"],
+};
+
+const nightlifeEventSourceSummary: AnswerSourceSummary = {
+  label: "curated_local_guide",
+  sourceName: "Ask Siargao approved nightlife event facts",
+  sourceProfileId: "source_ask_siargao_nightlife_events",
+  fetchedAt: "2026-06-30T04:00:00.000Z",
+  confidence: "medium",
+  checked: [
+    "approved General Luna nightlife event facts for Tuesday",
+    "route roles: warm-up, main party, late option, and softer option when available",
+  ],
+  notChecked: [
+    "same-day venue social posts",
+    "live crowd size",
+    "door policy",
+    "guest list",
+    "table availability",
+    "last-minute cancellation",
+    "exact closing time",
+  ],
 };
 
 const genericSourceSummary: AnswerSourceSummary = {

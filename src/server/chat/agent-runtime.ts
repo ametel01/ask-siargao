@@ -11,6 +11,7 @@ export type AskSiargaoAgentToolName =
   | "get_marine_conditions"
   | "get_tide_forecast"
   | "get_condition_judgment"
+  | "search_nightlife_events"
   | "search_places"
   | "get_place_details"
   | "search_local_guide"

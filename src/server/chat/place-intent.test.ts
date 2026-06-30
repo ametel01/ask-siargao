@@ -44,6 +44,18 @@ describe("interpretPlaceIntent", () => {
     expect(intent?.constraints).toContain("beachfront");
   });
 
+  test("classifies time-bound party prompts as bar place intents for later venue enrichment", () => {
+    const intent = interpretPlaceIntent([
+      { role: "user", content: "What are the best party places in General Luna tonight?" },
+    ]);
+
+    expect(intent).toMatchObject({
+      category: "bar",
+      location: "General Luna",
+    });
+    expect(intent?.liveNeeds).toContain("recommendation");
+  });
+
   test("classifies local service requests as place intents", () => {
     const intent = interpretPlaceIntent([
       { role: "user", content: "Nearest ATM or laundry near Dapa ferry terminal?" },

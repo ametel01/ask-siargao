@@ -231,6 +231,24 @@ describe("chat source consistency", () => {
     expect(result.valid).toBe(true);
   });
 
+  test("accepts curated nightlife event facts from the nightlife event tool", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Use BARREL as warm-up and Barbosa as the main party.", [
+        nightlifeEventSourceSummary,
+      ]),
+      sources: [nightlifeEventSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "search_nightlife_events",
+          status: "success",
+          sources: [nightlifeEventSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result).toEqual({ valid: true, issues: [] });
+  });
+
   test("accepts curated itinerary sources backed by the itinerary planning tool", () => {
     const result = validateChatAnswerSourceConsistency({
       message: withSourceLines("Use the sequenced itinerary and keep the caveats visible.", [
@@ -849,6 +867,27 @@ const localGuideSourceSummary: AnswerSourceSummary = {
   confidence: "medium",
   checked: ["beach surface notes", "ride-time notes"],
   notChecked: ["live tide", "lifeguard status"],
+};
+
+const nightlifeEventSourceSummary: AnswerSourceSummary = {
+  label: "curated_local_guide",
+  sourceName: "Ask Siargao approved nightlife event facts",
+  sourceProfileId: "source_ask_siargao_nightlife_events",
+  fetchedAt: "2026-06-30T04:00:00.000Z",
+  confidence: "medium",
+  checked: [
+    "approved General Luna nightlife event facts for Tuesday",
+    "route roles: warm-up, main party, late option, and softer option when available",
+  ],
+  notChecked: [
+    "same-day venue social posts",
+    "live crowd size",
+    "door policy",
+    "guest list",
+    "table availability",
+    "last-minute cancellation",
+    "exact closing time",
+  ],
 };
 
 const surfSpotRankingSourceSummary: AnswerSourceSummary = {
