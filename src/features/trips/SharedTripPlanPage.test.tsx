@@ -46,12 +46,14 @@ describe("SharedTripPlanPage", () => {
     expect(html).not.toContain("Live open status should be checked before leaving.");
     expect(html).toContain("Open now from Google Places");
     expect(html).toContain("Google Places - live checked");
-    expect(html).not.toContain("Google Places API - live checked - fetched");
+    expect(html).toContain("Google Places API - live checked - fetched 2026-06-28T00:45:00.000Z");
     expect(html).toContain("Checked by Google Places API: place identity");
-    expect(html).toContain("Open-Meteo weather - weather checked");
+    expect(html).toContain(
+      "Open-Meteo weather API - weather checked - fetched 2026-06-28T00:30:00.000Z",
+    );
     expect(html).toContain("Checked by Open-Meteo weather API: forecast for General Luna");
-    expect(html).not.toContain("Not checked by Open-Meteo weather API: surf reports");
-    expect(html).not.toContain(
+    expect(html).toContain("Not checked by Open-Meteo weather API: surf reports");
+    expect(html).toContain(
       "Not checked by Browser saved trip: Saved from browser and not reverified by Ask Siargao before sharing.",
     );
     expect(html).toContain("https://www.google.com/maps/search/?api=1&amp;query=Shaka%20Siargao");

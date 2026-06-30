@@ -411,10 +411,7 @@ function publicSourcesFromStored(sources: readonly AnswerSourceSummary[]) {
 }
 
 function publicSourceSummaryFromStored(source: AnswerSourceSummary) {
-  return {
-    ...normalizeSourceSummary(source),
-    notChecked: [],
-  };
+  return normalizeSourceSummary(source);
 }
 
 function publicItineraryStopFromStored(

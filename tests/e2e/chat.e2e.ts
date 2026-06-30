@@ -1018,9 +1018,9 @@ test("creates and copies or opens a share link from saved cards and itineraries"
   await expect(
     popup.getByText("Checked by Google Places API: current opening status"),
   ).toBeVisible();
-  await expect(popup.getByText("Not checked by Google Places API: table availability")).toHaveCount(
-    0,
-  );
+  await expect(
+    popup.getByText("Not checked by Google Places API: table availability"),
+  ).toBeVisible();
   await expect(popup.getByText("Ask Siargao local guide - curated local guide")).toBeVisible();
   await expect(
     popup.getByText("Checked by Ask Siargao local guide: rainy-day Cloud 9 fallback pattern"),
@@ -1029,7 +1029,7 @@ test("creates and copies or opens a share link from saved cards and itineraries"
     popup.getByText(
       "Not checked by Browser saved trip: Saved from browser and not reverified by Ask Siargao before sharing.",
     ),
-  ).toHaveCount(0);
+  ).toHaveCount(2);
   await expect(popup.getByText(prompt)).toHaveCount(0);
   await popup.close();
 });
@@ -1157,7 +1157,7 @@ test("renders initial itinerary theme fixtures without generic brainstorm fallba
     .filter({ hasText: "General Luna Food Crawl" });
   await expect(foodPlan).toContainText("First food stop");
   await expect(foodPlan).toContainText("Second food stop");
-  await expect(foodPlan.getByTestId("itinerary-sources")).not.toContainText("Not checked");
+  await expect(sunsetPlan.getByTestId("itinerary-sources")).toContainText("Local guide");
 });
 
 test("keeps recommendation cards inside the mobile chat column", async ({ page }) => {

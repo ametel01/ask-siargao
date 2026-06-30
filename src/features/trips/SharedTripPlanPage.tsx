@@ -278,7 +278,13 @@ function CaveatList({ items }: { items: readonly string[] }) {
 }
 
 function SourceSummaryList({ sources }: { sources: SharedTripPlan["items"][number]["sources"] }) {
-  const visibleSources = sources.filter(isActuallyCheckedSource);
+  const visibleSources = sources.filter(hasPublicSourceContext);
+  const checkedSources = visibleSources.filter(isActuallyCheckedSource);
+  const sourceDetails = visibleSources.flatMap((source) => [
+    ...source.checked.map((item) => `Checked by ${source.sourceName}: ${item}`),
+    ...source.notChecked.map((item) => `Not checked by ${source.sourceName}: ${item}`),
+  ]);
+
   if (visibleSources.length === 0) {
     return null;
   }
@@ -286,22 +292,20 @@ function SourceSummaryList({ sources }: { sources: SharedTripPlan["items"][numbe
   return (
     <section className="grid gap-2" data-testid="shared-trip-sources">
       <h3 className="m-0 text-xs font-black text-text-strong">Sources</h3>
-      <div className="flex flex-wrap gap-2">
-        {visibleSources.map((source) => (
-          <span
-            className={`${sharedSignalClass} items-center gap-1.5`}
-            key={`${source.label}-${source.sourceName}-${source.fetchedAt ?? "no-fetch"}`}
-          >
-            <SharedSourceIcon source={source} />
-            <span className="min-w-0 break-words">{sharedSourceLabel(source)}</span>
-          </span>
-        ))}
-      </div>
-      <BulletList
-        items={visibleSources.flatMap((source) =>
-          source.checked.map((item) => `Checked by ${source.sourceName}: ${item}`),
-        )}
-      />
+      {checkedSources.length ? (
+        <div className="flex flex-wrap gap-2">
+          {checkedSources.map((source) => (
+            <span
+              className={`${sharedSignalClass} items-center gap-1.5`}
+              key={`${source.label}-${source.sourceName}-${source.fetchedAt ?? "no-fetch"}`}
+            >
+              <SharedSourceIcon source={source} />
+              <span className="min-w-0 break-words">{sharedSourceLabel(source)}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <BulletList items={sourceDetails} />
     </section>
   );
 }
@@ -324,18 +328,21 @@ function SharedSourceIcon({
 }
 
 function sharedSourceLabel(source: SharedTripPlan["items"][number]["sources"][number]) {
-  return `${compactSourceName(source.sourceName)} - ${source.label.replaceAll("_", " ")}`;
-}
-
-function compactSourceName(value: string) {
-  return value
-    .replace(/\s+API(?:\s+profile)?$/i, "")
-    .replace(/\s+profile$/i, "")
-    .trim();
+  return [
+    source.sourceName,
+    source.label.replaceAll("_", " "),
+    source.fetchedAt ? `fetched ${source.fetchedAt}` : undefined,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" - ");
 }
 
 function isActuallyCheckedSource(source: SharedTripPlan["items"][number]["sources"][number]) {
   return source.label !== "not_verified" && source.label !== "provider_unavailable";
+}
+
+function hasPublicSourceContext(source: SharedTripPlan["items"][number]["sources"][number]) {
+  return source.checked.length > 0 || source.notChecked.length > 0;
 }
 
 function publicDisplayCaveats(caveats: readonly string[]) {
