@@ -844,6 +844,24 @@ describe("chat source consistency", () => {
     ]);
   });
 
+  test("accepts stale nightlife event lookup as terminal unavailable evidence", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Approved priority event sources need refresh for tonight.", [
+        staleNightlifeSourceSummary,
+      ]),
+      sources: [staleNightlifeSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "search_nightlife_events",
+          status: "success",
+          sources: [staleNightlifeSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result).toEqual({ valid: true, issues: [] });
+  });
+
   test("throws a controlled source consistency error for route enforcement", () => {
     expect(() =>
       assertChatAnswerSourceConsistency({
@@ -1023,4 +1041,17 @@ const providerUnavailableSourceSummary: AnswerSourceSummary = {
   confidence: "low",
   checked: [],
   notChecked: ["Google Places lookup"],
+};
+
+const staleNightlifeSourceSummary: AnswerSourceSummary = {
+  label: "provider_unavailable",
+  sourceName: "Approved General Luna nightlife event source profiles",
+  sourceProfileId: "source_nightlife_official_venue_websites",
+  fetchedAt: "2026-07-07T04:00:00.000Z",
+  confidence: "low",
+  checked: [],
+  notChecked: [
+    "current General Luna nightlife event facts for Tuesday",
+    "same-day event schedule until approved priority sources are refreshed",
+  ],
 };

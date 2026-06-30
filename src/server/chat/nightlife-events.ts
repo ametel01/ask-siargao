@@ -475,13 +475,14 @@ function nightlifeSourceSummaries({
 
 function fallbackNightlifeSourceSummary(dayOfWeek: string, fetchedAt: string): AnswerSourceSummary {
   return {
-    label: "event_checked",
+    label: "provider_unavailable",
     sourceName: "Approved General Luna nightlife event source profiles",
     sourceProfileId: priorityNightlifeEventSourceProfileIds[0],
     fetchedAt,
     confidence: "low",
-    checked: [`approved General Luna nightlife event facts for ${dayOfWeek}`],
+    checked: [],
     notChecked: [
+      `current General Luna nightlife event facts for ${dayOfWeek}`,
       ...nightlifeNotChecked,
       "same-day event schedule until approved priority sources are refreshed",
     ],

@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  renderAnswerSourceLines,
+  renderAnswerSourceSummaryMarkdown,
+} from "@/server/chat/answer-source-summary";
+import {
   type NightlifeEventInterest,
   renderNightlifeEventsText,
   searchNightlifeEvents,
@@ -170,12 +174,34 @@ describe("nightlife events", () => {
       localDate: "2026-07-07",
       dayOfWeek: "Tuesday",
       candidates: [],
+      sources: [
+        {
+          label: "provider_unavailable",
+          sourceName: "Approved General Luna nightlife event source profiles",
+          checked: [],
+        },
+      ],
       refreshDecision: {
         status: "recommended",
         checkedFreshHighMediumEventCount: 0,
         minimumFreshHighMediumEventCount: 2,
       },
     });
+    expect(result.source.label).toBe("provider_unavailable");
+    expect(result.sources[0]?.notChecked).toEqual(
+      expect.arrayContaining([
+        "current General Luna nightlife event facts for Tuesday",
+        "same-day event schedule until approved priority sources are refreshed",
+      ]),
+    );
+    expect(result.sources.map((source) => source.label)).not.toContain("event_checked");
+    expect(result.sources.flatMap((source) => source.checked)).toEqual([]);
+    expect(
+      renderAnswerSourceLines(result.sources).some((line) => line.startsWith("Checked:")),
+    ).toBe(false);
+    expect(renderAnswerSourceSummaryMarkdown(result.sources)).toContain(
+      "Not checked: Approved General Luna nightlife event source profiles (provider unavailable; low confidence; profile source_nightlife_official_venue_websites; fetched 2026-07-07T04:00:00.000Z) - current General Luna nightlife event facts for Tuesday",
+    );
     expect(renderNightlifeEventsText(result)).toContain(
       "Do not substitute Google Places bar rankings as event evidence.",
     );

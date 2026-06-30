@@ -2462,6 +2462,43 @@ describe("agent tools", () => {
     expect(JSON.stringify(result)).not.toContain("guest list checked");
   });
 
+  test("does not label stale nightlife baselines as event checked", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_stale_nightlife",
+        name: "search_nightlife_events",
+        arguments: {
+          location: "General Luna",
+          date: "tonight",
+          interests: ["party"],
+        },
+      },
+      { now: () => new Date("2026-07-07T12:00:00+08:00") },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.sources.map((source) => source.label)).toEqual(["provider_unavailable"]);
+    expect(result.sources[0]?.checked).toEqual([]);
+    expect(result.sources[0]?.notChecked).toEqual(
+      expect.arrayContaining([
+        "current General Luna nightlife event facts for Tuesday",
+        "same-day event schedule until approved priority sources are refreshed",
+      ]),
+    );
+    expect(result.text).toContain(
+      "No approved General Luna nightlife event facts matched Tuesday 2026-07-07.",
+    );
+    const data = result.data as {
+      boundaries?: { checked?: string[]; notChecked?: string[] };
+      refreshDecision?: { status?: string; checkedFreshHighMediumEventCount?: number };
+    };
+    expect(data.boundaries?.checked).toEqual([]);
+    expect(data.refreshDecision).toMatchObject({
+      status: "recommended",
+      checkedFreshHighMediumEventCount: 0,
+    });
+  });
+
   test("returns machine-readable source policy output", async () => {
     const result = await executeAgentTool({
       requestId: "agent_request_1",
