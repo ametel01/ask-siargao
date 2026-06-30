@@ -21,17 +21,16 @@ const sunsetBackdropClass =
 export const appShellClass = "mx-auto grid w-full max-w-[1180px] gap-6 px-5 py-7 md:px-8 md:py-12";
 
 export const appPanelClass =
-  "rounded-md border border-border-on-dark bg-surface-glass p-5 text-text-default shadow-panel md:p-6";
+  "rounded-none border border-border-on-dark bg-surface-glass p-5 text-text-default shadow-panel md:p-6";
 
 export const appNightPanelClass =
   "rounded-md border border-border-on-dark bg-surface-night-panel p-5 text-text-on-dark shadow-strong backdrop-blur-md md:p-6";
 
 export const appCardClass =
-  "grid gap-2 rounded-md border border-border-default bg-surface-tint p-4 shadow-card";
+  "grid gap-2 rounded-none border-0 border-border-default border-t bg-transparent p-0 pt-4 shadow-none first:border-t-0 first:pt-0";
 
 export const appCardContentClass = "grid gap-2 p-0";
-export const appLabelClass =
-  "m-0 text-xs font-extrabold tracking-[0.08em] text-brand-lagoon-700 uppercase";
+export const appLabelClass = "m-0 text-xs leading-tight font-extrabold text-brand-lagoon-700";
 export const appBodyClass = "m-0 text-sm leading-[1.65] text-text-muted";
 export const appMetaClass = "m-0 text-xs leading-[1.55] font-extrabold text-text-default";
 export const appOutlineBadgeClass = "border-border-strong bg-surface-default text-text-default";
@@ -95,7 +94,7 @@ export function PageHeader({
   children?: ReactNode;
   className?: string;
   description?: ReactNode;
-  eyebrow: ReactNode;
+  eyebrow?: ReactNode;
   title: ReactNode;
 }) {
   return (
@@ -106,9 +105,11 @@ export function PageHeader({
       )}
     >
       <div className="grid max-w-[840px] gap-3">
-        <p className="m-0 text-xs font-extrabold tracking-[0.12em] text-brand-lagoon-300 uppercase">
-          {eyebrow}
-        </p>
+        {eyebrow ? (
+          <p className="m-0 text-sm leading-tight font-extrabold text-brand-lagoon-300">
+            {eyebrow}
+          </p>
+        ) : null}
         <h1 className="m-0 text-balance font-heading text-4xl leading-[0.98] font-semibold text-text-on-dark md:text-5xl">
           {title}
         </h1>

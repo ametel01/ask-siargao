@@ -1036,7 +1036,7 @@ function ChatHistoryPanel({
   threads: ChatThreadSummary[];
 }) {
   return (
-    <section className="grid gap-3 rounded-lg border border-white/12 bg-white/10 p-3 shadow-[0_18px_42px_rgba(0,0,0,0.18)]">
+    <section className="grid gap-3 rounded-lg border border-border-on-dark bg-surface-night-card p-3 shadow-night-card">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="m-0 text-sm font-black text-text-on-dark">Chat history</h2>
         <div className="flex items-center gap-2">
@@ -1082,7 +1082,7 @@ function ChatHistoryPanel({
         </div>
       </div>
       {historyStatus === "error" ? (
-        <p className="m-0 text-xs font-bold text-[#ffc8c8]">Chat history unavailable</p>
+        <p className="m-0 text-xs font-bold text-text-alert">Chat history unavailable</p>
       ) : null}
       {historyStatus === "loading" ? (
         <p className="m-0 text-xs font-bold text-text-on-dark-muted">Loading thread</p>
@@ -1272,7 +1272,7 @@ function AssistantRatingControls({
         aria-label="Rate assistant response not helpful"
         aria-pressed={rating === "down"}
         className={`size-8 rounded-md border-white/16 text-text-on-dark hover:bg-white/15 ${
-          rating === "down" ? "bg-[#ffd98a] text-[#201705]" : "bg-white/8"
+          rating === "down" ? "bg-surface-caveat text-text-caveat" : "bg-white/8"
         }`}
         disabled={disabled}
         onClick={() => onRateAssistantMessage(messageId, "down")}
@@ -1505,10 +1505,10 @@ function AssistantGlance({ message }: { message: InteractiveChatMessage }) {
   return (
     <section
       aria-label="At a glance"
-      className="grid min-w-0 gap-3 rounded-md border border-white/10 bg-white/[0.045] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+      className="grid min-w-0 gap-3 rounded-md border border-white/10 bg-white/[0.045] p-3 shadow-none"
     >
       <h3 className="m-0 flex items-center gap-2 text-sm font-black text-white">
-        <Sparkles aria-hidden="true" className="text-[#ffd36a]" size={17} />
+        <Sparkles aria-hidden="true" className="text-brand-sunset-gold" size={17} />
         At a Glance
       </h3>
       <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -1519,7 +1519,7 @@ function AssistantGlance({ message }: { message: InteractiveChatMessage }) {
               className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] items-center gap-2 rounded-md border border-white/8 bg-white/[0.055] px-3 py-2"
               key={`${item.label}-${item.value}`}
             >
-              <span className="inline-flex size-7 items-center justify-center rounded-md bg-brand-violet-650/22 text-brand-lavender-200">
+              <span className="inline-flex size-7 items-center justify-center rounded-md bg-brand-lagoon-500/18 text-brand-lagoon-300">
                 <Icon aria-hidden="true" size={15} />
               </span>
               <span className="min-w-0">
@@ -1541,7 +1541,7 @@ function DecisionSummaryPanels({ summaries }: { summaries: readonly DecisionSumm
     <section aria-label="Best move" className="grid min-w-0 gap-3">
       {summaries.map((summary) => (
         <article
-          className="grid min-w-0 gap-3 rounded-md border border-brand-lagoon-300/22 bg-brand-lagoon-300/10 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+          className="grid min-w-0 gap-3 rounded-md border border-brand-lagoon-300/22 bg-brand-lagoon-300/10 p-3 shadow-none"
           data-testid="decision-summary-panel"
           key={summary.id}
         >
@@ -1660,7 +1660,7 @@ function ItineraryPlans({
         return (
           <section
             aria-label={plan.title}
-            className="grid min-w-0 gap-4 rounded-md border border-white/10 bg-white/[0.045] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+            className="grid min-w-0 gap-4 rounded-md border border-white/10 bg-white/[0.045] p-3 shadow-none"
             data-testid="itinerary-plan"
             key={`${plan.title}-${plan.durationLabel}`}
           >
@@ -1718,7 +1718,7 @@ function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
 
   return (
     <li className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] gap-3">
-      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-brand-lavender-200/40 bg-brand-violet-650 text-xs font-black text-white shadow-[0_0_0_4px_rgba(111,73,242,0.16)]">
+      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-brand-lagoon-300/35 bg-brand-lagoon-500 text-xs font-black text-brand-navy-980 shadow-lagoon-glow">
         {stop.sequence}
       </span>
       <div className="grid min-w-0 gap-1.5">
@@ -1748,7 +1748,7 @@ function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
         </p>
 
         {visibleCaveats.length ? (
-          <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-[#ffd98a]">
+          <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-brand-sunset-gold">
             {visibleCaveats.map((caveat) => (
               <li className="break-words" key={caveat}>
                 {caveat}
@@ -1970,7 +1970,7 @@ function sourceBadgeInfo(source: ChatSourceArtifact) {
     return {
       icon: ShieldCheck,
       label: "Event checked",
-      className: "border-[#ffd36a]/18 bg-[#ffd36a]/10 text-[#ffe2a2]",
+      className: "border-brand-sunset-gold/20 bg-brand-sunset-gold/10 text-brand-sunset-peach",
     };
   }
   if (source.label === "venue_checked") {
@@ -1991,7 +1991,7 @@ function sourceBadgeInfo(source: ChatSourceArtifact) {
     return {
       icon: Star,
       label: "Local guide",
-      className: "border-[#ffd36a]/18 bg-[#ffd36a]/10 text-[#ffe2a2]",
+      className: "border-brand-sunset-gold/20 bg-brand-sunset-gold/10 text-brand-sunset-peach",
     };
   }
   if (source.label === "fresh_cache") {
@@ -2034,7 +2034,7 @@ function RecommendationSourceBadge({ cards }: { cards: readonly RecommendationCa
 
   return (
     <span
-      className="inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border border-[#ffd36a]/18 bg-[#ffd36a]/10 px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold text-[#ffe2a2]"
+      className="inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border border-brand-sunset-gold/20 bg-brand-sunset-gold/10 px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold text-brand-sunset-peach"
       data-testid="recommendation-source-badge"
     >
       <ShieldCheck aria-hidden="true" className="shrink-0" size={13} />
@@ -2185,12 +2185,12 @@ function RecommendationCards({
   return (
     <section
       aria-label="Recommended places"
-      className="grid min-w-0 gap-3 rounded-md border border-white/10 bg-white/[0.045] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+      className="grid min-w-0 gap-3 rounded-md border border-white/10 bg-white/[0.045] p-3 shadow-none"
       data-testid="recommendation-cards"
     >
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
         <h3 className="m-0 flex items-center gap-2 text-sm font-black text-white">
-          <Utensils aria-hidden="true" className="text-[#ffd36a]" size={17} />
+          <Utensils aria-hidden="true" className="text-brand-sunset-gold" size={17} />
           Recommended Places
         </h3>
         <RecommendationSourceBadge cards={cards} />
@@ -2209,7 +2209,7 @@ function RecommendationCards({
           >
             <div className="grid min-w-0 gap-3">
               <div className="flex min-w-0 items-start gap-3">
-                <div className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-md bg-[linear-gradient(135deg,rgba(111,73,242,0.72),rgba(32,213,155,0.38))] text-white shadow-[0_10px_30px_rgba(111,73,242,0.22)]">
+                <div className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-md bg-brand-lagoon-500/18 text-brand-lagoon-300 shadow-lagoon-glow">
                   {card.kind === "beach" ? (
                     <Navigation aria-hidden="true" size={17} />
                   ) : (
@@ -2481,7 +2481,7 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
           return (
             <p
               className={`m-0 max-w-full rounded-md border border-black/5 bg-black/[0.035] px-3 py-2 text-xs leading-[1.45] break-words sm:text-sm ${
-                tone === "error" ? "text-[#ffd5ce]" : "text-text-on-dark-muted"
+                tone === "error" ? "text-text-alert" : "text-text-on-dark-muted"
               }`}
               data-testid="assistant-source-line"
               key={block.key}
@@ -2827,7 +2827,7 @@ function ChatComposer({
   return (
     <footer className="border-white/12 border-t bg-brand-navy-980/92 px-4 py-3 backdrop-blur-md sm:px-6 lg:px-8">
       <form aria-label="Ask Siargao composer" className="mx-auto max-w-3xl" onSubmit={handleSubmit}>
-        <InputGroup className="min-h-[58px] items-start rounded-lg border-white/18 bg-white/96 p-2 shadow-[0_22px_70px_rgba(0,0,0,0.28)]">
+        <InputGroup className="min-h-[58px] items-start rounded-lg border-white/18 bg-white/96 p-2 shadow-strong">
           <InputGroupAddon align="inline-start" className="pt-1.5">
             <InputGroupButton
               aria-label={
@@ -2978,23 +2978,23 @@ function locationIndicatorState(locationState: LocationCaptureState) {
       return {
         label: "Location pending",
         className:
-          "gap-1.5 rounded-md border-[#ffd98a]/45 bg-[#ffd98a]/14 px-2 py-0.5 text-[0.68rem] font-black text-[#ffe5a8]",
-        dotClassName: "size-1.5 rounded-full bg-[#ffd98a]",
+          "gap-1.5 rounded-md border-brand-sunset-gold/45 bg-brand-sunset-gold/14 px-2 py-0.5 text-[0.68rem] font-black text-brand-sunset-peach",
+        dotClassName: "size-1.5 rounded-full bg-brand-sunset-gold",
       };
     case "denied":
       return {
         label: "Location blocked",
         className:
-          "gap-1.5 rounded-md border-[#ffb4a8]/45 bg-[#ffb4a8]/14 px-2 py-0.5 text-[0.68rem] font-black text-[#ffd0d0]",
-        dotClassName: "size-1.5 rounded-full bg-[#ff8d7f]",
+          "gap-1.5 rounded-md border-border-alert bg-surface-alert px-2 py-0.5 text-[0.68rem] font-black text-text-alert",
+        dotClassName: "size-1.5 rounded-full bg-brand-sunset-coral",
       };
     case "unavailable":
     case "unsupported":
       return {
         label: "Location unavailable",
         className:
-          "gap-1.5 rounded-md border-[#ffd98a]/35 bg-[#ffd98a]/10 px-2 py-0.5 text-[0.68rem] font-black text-[#ffe5a8]",
-        dotClassName: "size-1.5 rounded-full bg-[#ffd98a]",
+          "gap-1.5 rounded-md border-brand-sunset-gold/35 bg-brand-sunset-gold/10 px-2 py-0.5 text-[0.68rem] font-black text-brand-sunset-peach",
+        dotClassName: "size-1.5 rounded-full bg-brand-sunset-gold",
       };
     default:
       return {
@@ -3045,13 +3045,10 @@ function ChatEmptyState({
   return (
     <div className="grid min-h-full content-center gap-8 py-10 sm:py-14">
       <div className="grid max-w-2xl gap-4">
-        <div className="inline-flex size-12 items-center justify-center rounded-lg bg-white/12 text-brand-violet-400">
+        <div className="inline-flex size-12 items-center justify-center rounded-lg bg-surface-night-card text-brand-lagoon-300">
           <Sparkles aria-hidden="true" size={24} />
         </div>
         <div className="grid gap-3">
-          <p className="m-0 text-xs font-extrabold tracking-[0.08em] text-brand-lavender-200/75 uppercase">
-            Ask Siargao
-          </p>
           <h1 className="m-0 text-3xl leading-[1.05] font-black text-text-on-dark sm:text-5xl">
             Ask a real question about your Siargao trip.
           </h1>

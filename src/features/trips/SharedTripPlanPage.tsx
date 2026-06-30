@@ -39,9 +39,6 @@ export function SharedTripPlanPage({ plan }: { plan: SharedTripPlan | null }) {
         />
 
         <section className="grid min-w-0 gap-3 text-text-on-dark">
-          <p className="m-0 text-xs font-extrabold tracking-[0.12em] text-brand-lagoon-300 uppercase">
-            Ask Siargao
-          </p>
           <h1 className="m-0 max-w-3xl text-balance font-heading text-4xl leading-[0.98] font-semibold text-text-on-dark sm:text-5xl">
             {plan.title}
           </h1>

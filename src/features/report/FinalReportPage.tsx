@@ -1,13 +1,11 @@
 import { AlertTriangle, CheckCircle2, ClipboardList, FileText, HelpCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import type { ReportOutput, RiskItem } from "@/server/audit/schemas";
 import {
   AppBackdrop,
   appBodyClass,
   appCardClass,
-  appCardContentClass,
   appLabelClass,
   appMetaClass,
   appPanelClass,
@@ -29,7 +27,8 @@ const categoryLabels: Record<RiskItem["category"], string> = {
 const listClass = "m-0 grid gap-3 pl-5 text-sm leading-[1.65] text-text-default";
 const smallTitleClass = "m-0 text-base leading-[1.3] font-extrabold text-text-strong";
 const metricClass =
-  "grid gap-2 rounded-md border border-white/14 bg-white/10 p-4 shadow-[0_18px_48px_rgba(0,0,0,0.16)] backdrop-blur-md";
+  "grid gap-2 rounded-none border border-border-on-dark bg-surface-night-card p-4 shadow-night-card backdrop-blur-md";
+const metricValueClass = "m-0 font-heading text-3xl leading-none font-semibold text-text-on-dark";
 
 export function FinalReportPage({
   auditRequestId,
@@ -48,34 +47,31 @@ export function FinalReportPage({
               {report.confidenceSummary}
             </>
           }
-          eyebrow={`Paid report ${auditRequestId}`}
           title="Siargao trip risk audit"
-        />
+        >
+          <span className="inline-flex w-fit rounded-md border border-border-on-dark bg-surface-night-card px-3 py-2 text-xs font-extrabold text-text-on-dark-muted">
+            Paid report {auditRequestId}
+          </span>
+        </PageHeader>
 
         <div className="grid gap-4 sm:grid-cols-3">
           <div className={metricClass}>
             <p className="m-0 text-xs font-extrabold tracking-[0.1em] text-brand-lagoon-300 uppercase">
               Overall risk
             </p>
-            <p className="m-0 font-heading text-3xl leading-none font-semibold text-[#fff9e9]">
-              {report.overallRisk.toUpperCase()}
-            </p>
+            <p className={metricValueClass}>{report.overallRisk.toUpperCase()}</p>
           </div>
           <div className={metricClass}>
             <p className="m-0 text-xs font-extrabold tracking-[0.1em] text-brand-lagoon-300 uppercase">
               Top risks
             </p>
-            <p className="m-0 font-heading text-3xl leading-none font-semibold text-[#fff9e9]">
-              {report.topRisks.length}
-            </p>
+            <p className={metricValueClass}>{report.topRisks.length}</p>
           </div>
           <div className={metricClass}>
             <p className="m-0 text-xs font-extrabold tracking-[0.1em] text-brand-lagoon-300 uppercase">
               Evidence items
             </p>
-            <p className="m-0 font-heading text-3xl leading-none font-semibold text-[#fff9e9]">
-              {report.evidence.length}
-            </p>
+            <p className={metricValueClass}>{report.evidence.length}</p>
           </div>
         </div>
 
@@ -122,16 +118,13 @@ export function FinalReportPage({
             <SectionHeading icon={CheckCircle2} title="Evidence snapshot" />
             <div className="grid gap-3">
               {report.evidence.map((evidence) => (
-                <Card className={appCardClass} key={evidence.evidenceId} size="sm">
-                  <CardContent className={appCardContentClass}>
-                    <p className={appLabelClass}>{evidence.evidenceId}</p>
-                    <h3 className={smallTitleClass}>{evidence.label}</h3>
-                    <p className={appBodyClass}>
-                      {evidence.sourceName} · {evidence.confidence} confidence ·{" "}
-                      {evidence.freshness}
-                    </p>
-                  </CardContent>
-                </Card>
+                <article className={appCardClass} key={evidence.evidenceId}>
+                  <p className={appLabelClass}>{evidence.evidenceId}</p>
+                  <h3 className={smallTitleClass}>{evidence.label}</h3>
+                  <p className={appBodyClass}>
+                    {evidence.sourceName} · {evidence.confidence} confidence · {evidence.freshness}
+                  </p>
+                </article>
               ))}
             </div>
           </section>
@@ -152,32 +145,28 @@ export function FinalReportPage({
 
 function RiskBlock({ risk }: { risk: RiskItem }) {
   return (
-    <Card className={appCardClass} size="sm">
-      <CardContent className={appCardContentClass}>
-        <RiskHeading risk={risk} />
-        <p className={appBodyClass}>{risk.whatMightBreak}</p>
-        <p className={appBodyClass}>{risk.whyItMatters}</p>
-        <p className={appMetaClass}>
-          Fix: {risk.recommendedFix} · Evidence{" "}
-          {risk.evidence.map((item) => item.evidenceId).join(", ")}
-        </p>
-      </CardContent>
-    </Card>
+    <article className={appCardClass}>
+      <RiskHeading risk={risk} />
+      <p className={appBodyClass}>{risk.whatMightBreak}</p>
+      <p className={appBodyClass}>{risk.whyItMatters}</p>
+      <p className={appMetaClass}>
+        Fix: {risk.recommendedFix} · Evidence{" "}
+        {risk.evidence.map((item) => item.evidenceId).join(", ")}
+      </p>
+    </article>
   );
 }
 
 function RiskSummary({ risk }: { risk: RiskItem }) {
   return (
-    <Card className={appCardClass} size="sm">
-      <CardContent className={appCardContentClass}>
-        <RiskHeading risk={risk} />
-        <p className={appBodyClass}>{risk.recommendedFix}</p>
-        <p className={appMetaClass}>
-          {risk.confidence} confidence · Evidence{" "}
-          {risk.evidence.map((item) => item.evidenceId).join(", ")}
-        </p>
-      </CardContent>
-    </Card>
+    <article className={appCardClass}>
+      <RiskHeading risk={risk} />
+      <p className={appBodyClass}>{risk.recommendedFix}</p>
+      <p className={appMetaClass}>
+        {risk.confidence} confidence · Evidence{" "}
+        {risk.evidence.map((item) => item.evidenceId).join(", ")}
+      </p>
+    </article>
   );
 }
 
@@ -197,11 +186,9 @@ function RiskHeading({ risk }: { risk: RiskItem }) {
 
 function Note({ title, value }: { title: string; value: string }) {
   return (
-    <Card className={appCardClass} size="sm">
-      <CardContent className={appCardContentClass}>
-        <p className={appLabelClass}>{title}</p>
-        <p className={appBodyClass}>{value}</p>
-      </CardContent>
-    </Card>
+    <article className={appCardClass}>
+      <p className={appLabelClass}>{title}</p>
+      <p className={appBodyClass}>{value}</p>
+    </article>
   );
 }

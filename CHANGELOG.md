@@ -92,6 +92,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Simplified audited app/report surfaces by making shared app panels and cards less nested,
+  moving report content to row-style groups, and tokenizing chat/shared-trip warning accents.
 - Replaced the generic landing feature-card grid with a mixed trip-planning workbench and concrete
   prompt chips that keep `/chat` prompt links intact.
 - Redesigned the landing first viewport with a coastal photo overlay, compact trip-mode

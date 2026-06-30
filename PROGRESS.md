@@ -5,8 +5,8 @@ Source audit: `/Users/alexmetelli/source/ask-siargao/HALLMARK_AUDIT.md`
 
 ## Current Status
 
-Step 4 is complete. The landing page now uses a varied trip-planning workbench instead of a stock
-equal-card feature grid.
+Step 5 is complete. The shared app shell, report, chat saved-plan, and shared-trip surfaces now use
+flatter section rows, semantic tokens, and fewer decorative uppercase labels.
 
 ## Step Checklist
 
@@ -15,7 +15,7 @@ equal-card feature grid.
 - [x] Step 2: Theme Tokens And Shared Primitive Cleanup
 - [x] Step 3: Landing Hero, Navigation, And Prompt Workspace
 - [x] Step 4: Landing Planning Content And Feature Layout
-- [ ] Step 5: App Shell, Report, Chat, And Shared-Trip Surface Cleanup
+- [x] Step 5: App Shell, Report, Chat, And Shared-Trip Surface Cleanup
 - [ ] Step 6: Final Hallmark Verification And Release-Gate Pass
 
 ## Update Rule
@@ -262,3 +262,63 @@ Commit:
 Next step:
 
 - Step 5: App Shell, Report, Chat, And Shared-Trip Surface Cleanup
+
+### Step 5: App Shell, Report, Chat, And Shared-Trip Surface Cleanup
+
+Status: Complete
+
+Changes:
+
+- Changed `appPanelClass` and `appCardClass` so audited app sections default to flat framed
+  panels with row-style grouped content instead of rounded card-in-card composition.
+- Made `PageHeader` eyebrow content optional and removed the default decorative uppercase style.
+- Reworked `FinalReportPage` risks, evidence, category breakdown, and notes from nested `Card`
+  components into unframed row groups while keeping report fields visible.
+- Removed decorative `Ask Siargao` eyebrow labels from the shared-trip heading and chat empty state.
+- Tokenized remaining chat warning/accent colors and shadows touched by the saved-plan/chat audited
+  surface, including alert, caveat, sunset, lagoon, and night-card roles.
+
+Acceptance evidence:
+
+- `rg "#[0-9a-fA-F]{3,8}|rgba\\(|linear-gradient\\("
+  src/features/chat/ChatWorkspace.tsx src/features/trips/SharedTripPlanPage.tsx
+  src/features/report/FinalReportPage.tsx src/ui/components/ask-siargao.tsx`: no matches.
+- `rg "eyebrow: ReactNode|tracking-\\[0\\.12em\\].*uppercase|tracking-\\[0\\.08em\\].*uppercase"
+  src/ui/components/ask-siargao.tsx src/features/report/FinalReportPage.tsx
+  src/features/chat/ChatWorkspace.tsx src/features/trips/SharedTripPlanPage.tsx`: no matches.
+- Playwright viewport probe at 390px and 1366px for `/audits/demo/report`: no horizontal overflow,
+  report heading and `ev_route` evidence visible, `data-slot="card"` count `0`, decorative
+  `Ask Siargao` label absent.
+- Playwright viewport probe at 390px and 1366px for `/chat` with a saved-plan localStorage
+  fixture: no horizontal overflow, saved-plan tray visible, `data-slot="card"` count `0`,
+  uppercase class count `0`, decorative `Ask Siargao` label absent.
+- Component-rendered shared-trip fixture probe at 390px and 1366px: no horizontal overflow,
+  source summary visible, `data-slot="card"` count `0`, caveat token classes present, decorative
+  `Ask Siargao` label absent.
+
+Validation:
+
+- `bun run format`: passed, no fixes applied after the final edit.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `bun test`: passed, 655 tests.
+- `bun test src/features/trips/SharedTripPlanPage.test.tsx
+  'src/app/trips/shared/[token]/page.test.tsx' src/server/security/security.test.ts
+  src/server/qa/release-candidate-demo.test.ts`: passed, 20 tests.
+- `bun run db:migrate:test && bun run db:seed:test`: first concurrent run failed after migration
+  because seed saw missing PGlite tables while other test work was still active; sequential rerun
+  passed and seeded 5 areas, 3 routes, and 6 source profiles.
+- `bun run build`: passed.
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY= CLERK_WEBHOOK_SIGNING_SECRET= bun run
+  test:e2e`: passed, 36 tests.
+- `bun x react-doctor@latest --verbose --scope changed`: passed, no changed-scope issues, score
+  100/100.
+- `bun run doctor`: passed with advisory output, 15 warnings, score 85/100.
+
+Commit:
+
+- `Simplify audited app surfaces`
+
+Next step:
+
+- Step 6: Final Hallmark Verification And Release-Gate Pass
