@@ -14,18 +14,18 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
     "Staying near Cloud 9 for 10 days",
   );
   await expect(page.getByRole("heading", { name: "Planning checks for Siargao" })).toBeVisible();
-  await expect(page.getByText("Try asking about...")).toBeVisible();
+  await expect(page.getByText("Start with a real trip constraint")).toBeVisible();
   await expect(page.getByText("GPT-backed answers", { exact: true })).toBeVisible();
   await expect(page.getByText("Weather snapshot support")).toBeVisible();
   await expect(page.getByText("Live local data")).toHaveCount(0);
   await expect(page.getByText("Freshness + confidence shown")).toHaveCount(0);
   await expect(page.getByText("Updated 12 min ago")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Find the right areas" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Weather-aware planning" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Choose the right base" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Make the weather call" })).toBeVisible();
   await expect(
     page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: /Ask Siargao/i }),
   ).toHaveAttribute("href", /\/chat\?prompt=/);
-  await expect(page.getByRole("link", { name: "quiet hotel?" })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Cloud 9 quiet sleep" })).toHaveAttribute(
     "href",
     /\/chat\?prompt=Is%20my%20accommodation/,
   );

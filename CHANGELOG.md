@@ -92,6 +92,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Replaced the generic landing feature-card grid with a mixed trip-planning workbench and concrete
+  prompt chips that keep `/chat` prompt links intact.
 - Redesigned the landing first viewport with a coastal photo overlay, compact trip-mode
   navigation, a `/chat` command affordance, roman H1 emphasis, and polished prompt copy.
 - Refined the visual foundation with coastal paper, reef, caveat, alert, night-card, and lagoon CTA

@@ -5,8 +5,8 @@ Source audit: `/Users/alexmetelli/source/ask-siargao/HALLMARK_AUDIT.md`
 
 ## Current Status
 
-Step 3 is complete. The landing first viewport has a coastal overlay, compact trip-mode navigation,
-and roman H1 emphasis.
+Step 4 is complete. The landing page now uses a varied trip-planning workbench instead of a stock
+equal-card feature grid.
 
 ## Step Checklist
 
@@ -14,7 +14,7 @@ and roman H1 emphasis.
 - [x] Step 1: Baseline Gate And Visual Evidence Capture
 - [x] Step 2: Theme Tokens And Shared Primitive Cleanup
 - [x] Step 3: Landing Hero, Navigation, And Prompt Workspace
-- [ ] Step 4: Landing Planning Content And Feature Layout
+- [x] Step 4: Landing Planning Content And Feature Layout
 - [ ] Step 5: App Shell, Report, Chat, And Shared-Trip Surface Cleanup
 - [ ] Step 6: Final Hallmark Verification And Release-Gate Pass
 
@@ -218,3 +218,47 @@ Commit:
 Next step:
 
 - Step 4: Landing Planning Content And Feature Layout
+
+### Step 4: Landing Planning Content And Feature Layout
+
+Status: Complete
+
+Changes:
+
+- Replaced the four equal icon-card feature grid with a mixed-span trip-planning workbench covering
+  base choice, weather calls, food routing, and transfer realism.
+- Reworked the suggestion chips into concrete trip constraints while preserving encoded `/chat`
+  prompt links.
+- Updated landing e2e assertions for the new prompt labels and workbench headings.
+
+Acceptance evidence:
+
+- `rg "FeatureCards|featureCards|Find the right areas|Weather-aware planning|Try asking about|quiet hotel\\?"
+  src/features/landing/LandingPage.tsx tests/e2e/root.e2e.ts`: no matches.
+- `rg "CardContent className=\\\"grid grid-cols\\[3\\.75rem_1fr\\]|rounded-full bg-brand-lagoon-100"
+  src/features/landing/LandingPage.tsx`: no matches.
+- Root Playwright overflow tests passed at 390, 768, 1024, and 1366px.
+
+Validation:
+
+- `bun run format`: passed, fixed formatting in one touched file.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY= CLERK_WEBHOOK_SIGNING_SECRET= bun run
+  test:e2e -- tests/e2e/root.e2e.ts`: passed, 12 tests.
+- `bun test`: passed, 655 tests.
+- `bun run build`: passed.
+- `bun run db:migrate:test && bun run db:seed:test`: passed.
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY= CLERK_WEBHOOK_SIGNING_SECRET= bun run
+  test:e2e`: passed, 36 tests.
+- `bun x react-doctor@latest --verbose --scope changed`: passed, no changed-scope issues, score
+  100/100.
+- `bun run doctor`: passed with advisory output, 15 warnings, score 85/100.
+
+Commit:
+
+- `Replace generic landing feature grid`
+
+Next step:
+
+- Step 5: App Shell, Report, Chat, And Shared-Trip Surface Cleanup
