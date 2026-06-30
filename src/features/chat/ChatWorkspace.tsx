@@ -2019,6 +2019,27 @@ function sourceBadgeInfo(source: ChatSourceArtifact) {
       className: "border-brand-lagoon-300/20 bg-brand-lagoon-300/10 text-brand-lagoon-100",
     };
   }
+  if (source.label === "event_checked") {
+    return {
+      icon: ShieldCheck,
+      label: "Event checked",
+      className: "border-[#ffd36a]/18 bg-[#ffd36a]/10 text-[#ffe2a2]",
+    };
+  }
+  if (source.label === "venue_checked") {
+    return {
+      icon: ShieldCheck,
+      label: "Venue checked",
+      className: "border-brand-lavender-200/20 bg-brand-violet-650/20 text-brand-lavender-200",
+    };
+  }
+  if (source.label === "community_signal") {
+    return {
+      icon: Star,
+      label: "Community signal",
+      className: "border-white/15 bg-white/8 text-white/75",
+    };
+  }
   if (source.label === "curated_local_guide") {
     return {
       icon: Star,
@@ -3556,10 +3577,13 @@ function isSavedSourceLabel(value: string): value is SavedTripItem["sources"][nu
   return (
     value === "live_checked" ||
     value === "fresh_cache" ||
+    value === "event_checked" ||
+    value === "venue_checked" ||
     value === "curated_local_guide" ||
     value === "weather_checked" ||
     value === "marine_checked" ||
     value === "tide_forecast_checked" ||
+    value === "community_signal" ||
     value === "not_verified" ||
     value === "provider_unavailable"
   );

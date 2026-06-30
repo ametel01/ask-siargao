@@ -60,8 +60,9 @@ them as current.
 | Sibol | Live-music / softer drinks option | `https://www.siargaolocal.com/business/sibol-siargao/` | 2026-06-30 | medium | Local guide pages describe stable venue fit, not a guaranteed event tonight. |
 | El Lobo | Reported Monday/Wednesday/Friday main-night option | `https://smallgirlbigbackpack.com/siargao-nightlife-and-party-schedule/` | 2026-06-30 | low | Guide/community-style signal only; verify official social page before recommending as an anchor. |
 
-Do not add a venue to this table without a source URL, verification date, and
-caveat.
+Do not add a venue to this table without a source URL or manual verification
+note, verification date, weekday/date, time label, confidence, review or expiry
+date, and caveat. Stale baseline rows are not same-day truth.
 
 ## Weekly Party Map
 

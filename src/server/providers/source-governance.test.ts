@@ -15,8 +15,12 @@ import {
   toSourceCredibilityScoreRecord,
 } from "@/server/facts/scoring";
 import { ingestLocalVerifiedAccommodation } from "@/server/providers/accommodation-ingestion";
-import { createDefaultSourceRegistry } from "@/server/providers/adapters";
-import { SourcePolicyError } from "@/server/providers/source-registry";
+import {
+  createDefaultSourceRegistry,
+  nightlifeCommunitySourceProfileIds,
+  nightlifeEventSourceProfileIds,
+} from "@/server/providers/adapters";
+import { SourcePolicyError, SourceRegistry } from "@/server/providers/source-registry";
 
 const fetchedAt = "2026-06-23T00:00:00.000Z";
 
@@ -235,6 +239,96 @@ describe("source registry and fact governance", () => {
         registry,
       ),
     ).toThrow(SourcePolicyError);
+  });
+
+  test("registers explicit nightlife and event source profiles", () => {
+    const registry = createDefaultSourceRegistry();
+    const requiredProfiles = [
+      "source_nightlife_official_venue_websites",
+      "source_nightlife_official_multi_venue_event_pages",
+      "source_nightlife_local_event_directories",
+      "source_nightlife_venue_submitted_events",
+      "source_nightlife_public_official_social_posts",
+      "source_nightlife_local_guides",
+      "source_nightlife_travel_news_corroboration",
+      "source_nightlife_review_travel_platforms",
+      "source_nightlife_reddit_public_threads",
+      "source_nightlife_youtube_videos",
+      "source_nightlife_broad_travel_blogs",
+      "source_google_places",
+      "source_open_meteo",
+    ];
+
+    for (const sourceProfileId of requiredProfiles) {
+      expect(registry.require(sourceProfileId)).toMatchObject({
+        id: sourceProfileId,
+        freshnessWindowDays: expect.any(Number),
+        allowedUse: expect.any(String),
+        storesRawAllowed: expect.any(Boolean),
+        publishesRawAllowed: expect.any(Boolean),
+        knownStaleRisk: expect.any(String),
+      });
+    }
+
+    expect(registry.require("source_nightlife_venue_submitted_events")).toMatchObject({
+      accessMethod: "partner",
+      allowedUse: "public_republish",
+      requiresPartnerApproval: true,
+      storesRawAllowed: true,
+      publishesRawAllowed: true,
+    });
+    expect(registry.require("source_nightlife_public_official_social_posts")).toMatchObject({
+      accessMethod: "official_page",
+      allowedUse: "citation_only",
+      storesRawAllowed: false,
+      publishesRawAllowed: false,
+      freshnessWindowDays: 1,
+    });
+  });
+
+  test("returns isolated source profile snapshots", () => {
+    const registry = createDefaultSourceRegistry();
+    const requiredProfile = registry.require("source_open_meteo");
+    const listedProfile = registry.list().find((profile) => profile.id === "source_open_meteo");
+
+    requiredProfile.freshnessWindowDays = 99;
+    if (listedProfile) {
+      listedProfile.freshnessWindowDays = 88;
+    }
+
+    expect(registry.require("source_open_meteo").freshnessWindowDays).toBe(1);
+  });
+
+  test("rejects source profiles without a finite freshness window", () => {
+    const profile = {
+      ...createDefaultSourceRegistry().require("source_open_meteo"),
+      freshnessWindowDays: Number.NaN,
+    };
+
+    expect(() => new SourceRegistry([profile])).toThrow(
+      "Source profile source_open_meteo has an invalid freshness window.",
+    );
+  });
+
+  test("disallows private social groups and keeps community sources out of event truth", () => {
+    const registry = createDefaultSourceRegistry();
+
+    expect(registry.decide("source_nightlife_private_social_groups")).toMatchObject({
+      canFetch: false,
+      canExtractFacts: false,
+      canUseInPaidAudit: false,
+      canCitePublicly: false,
+    });
+    expect(() =>
+      registry.assertCanEnterFactGraph("source_nightlife_private_social_groups"),
+    ).toThrow(SourcePolicyError);
+
+    for (const sourceProfileId of nightlifeCommunitySourceProfileIds) {
+      const profile = registry.require(sourceProfileId);
+      expect(profile.authorityLevel).toBeLessThanOrEqual(3);
+      expect(profile.notes).toMatch(/not|cannot|only|discovery|context|verify/i);
+      expect([...nightlifeEventSourceProfileIds]).not.toContain(sourceProfileId);
+    }
   });
 
   test("governed evidence inherits public republication policy", () => {

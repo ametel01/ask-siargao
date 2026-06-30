@@ -60,14 +60,15 @@ export class SourceRegistry {
   }
 
   register(profile: SourceProfile) {
-    if (profile.freshnessWindowDays < 0) {
+    if (!Number.isFinite(profile.freshnessWindowDays) || profile.freshnessWindowDays < 0) {
       throw new SourcePolicyError(`Source profile ${profile.id} has an invalid freshness window.`);
     }
-    this.#profiles.set(profile.id, profile);
+    this.#profiles.set(profile.id, copySourceProfile(profile));
   }
 
   get(sourceId: string) {
-    return this.#profiles.get(sourceId);
+    const profile = this.#profiles.get(sourceId);
+    return profile ? copySourceProfile(profile) : undefined;
   }
 
   require(sourceId: string) {
@@ -94,8 +95,12 @@ export class SourceRegistry {
   }
 
   list() {
-    return [...this.#profiles.values()];
+    return [...this.#profiles.values()].map(copySourceProfile);
   }
+}
+
+function copySourceProfile(profile: SourceProfile): SourceProfile {
+  return { ...profile };
 }
 
 function decideSourcePermissions(profile: SourceProfile): SourcePermissionDecision {

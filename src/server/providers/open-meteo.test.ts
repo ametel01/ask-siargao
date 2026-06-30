@@ -108,6 +108,20 @@ describe("Open-Meteo adapter", () => {
     ]);
   });
 
+  test("keeps default profile freshness deterministic after profile consumers mutate snapshots", () => {
+    const profile = createDefaultSourceRegistry().require("source_open_meteo");
+    profile.freshnessWindowDays = Number.NaN;
+
+    const batch = createOpenMeteoIngestionBatch({
+      fetchedAt: "2026-06-24T04:00:00.000Z",
+      payload: fixture,
+      requestUrl: "https://api.open-meteo.com/v1/forecast?example=true",
+    });
+
+    expect(batch.refreshJob.scheduledAt).toBe("2026-06-25T04:00:00.000Z");
+    expect(batch.facts.every((fact) => fact.expiresAt === "2026-06-25T04:00:00.000Z")).toBe(true);
+  });
+
   test("rejects malformed daily arrays before fact extraction", () => {
     expect(() =>
       parseOpenMeteoForecastResponse({

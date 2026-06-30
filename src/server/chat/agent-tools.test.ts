@@ -112,7 +112,7 @@ describe("agent tools", () => {
         type: "function",
         name: "search_nightlife_events",
         description:
-          "Search approved General Luna nightlife event facts before using Google Places for venue details. Use for tonight, party, nightlife, bar-hopping, DJ, live-music, foam-party, pub-quiz, trivia, and drinks-tonight route answers. This returns event schedule evidence and route roles, not live crowd size, door policy, guest list, table availability, last-minute cancellation, or exact closing time.",
+          "Search approved General Luna nightlife event facts before using Google Places for venue details. Use for tonight, party, nightlife, bar-hopping, DJ, live-music, foam-party, pub-quiz, trivia, and drinks-tonight route answers. This returns event schedule evidence, source profile IDs, freshness/expiry metadata, refresh decisions, and route roles, not live crowd size, door policy, guest list, table availability, last-minute cancellation, or exact closing time.",
         parameters: {
           type: "object",
           properties: {
@@ -577,7 +577,7 @@ describe("agent tools", () => {
       {
         name: "search_nightlife_events",
         description:
-          "Search approved General Luna nightlife event facts before using Google Places for venue details. Use for tonight, party, nightlife, bar-hopping, DJ, live-music, foam-party, pub-quiz, trivia, and drinks-tonight route answers. This returns event schedule evidence and route roles, not live crowd size, door policy, guest list, table availability, last-minute cancellation, or exact closing time.",
+          "Search approved General Luna nightlife event facts before using Google Places for venue details. Use for tonight, party, nightlife, bar-hopping, DJ, live-music, foam-party, pub-quiz, trivia, and drinks-tonight route answers. This returns event schedule evidence, source profile IDs, freshness/expiry metadata, refresh decisions, and route roles, not live crowd size, door policy, guest list, table availability, last-minute cancellation, or exact closing time.",
       },
       {
         name: "search_places",
@@ -2437,22 +2437,66 @@ describe("agent tools", () => {
     expect(result.text).toContain("Route roles:");
     expect(result.text).toContain("Not checked: same-day venue social posts");
     expect(result.sources[0]).toMatchObject({
-      label: "curated_local_guide",
-      sourceName: "Ask Siargao approved nightlife event facts",
+      label: "event_checked",
+      sourceName: "Local nightlife event directories",
+      sourceProfileId: "source_nightlife_local_event_directories",
       checked: [
         "approved General Luna nightlife event facts for Tuesday",
+        "verified event occurrences: BARREL, Mama Coco",
         "route roles: warm-up, main party, late option, and softer option when available",
       ],
     });
     const data = result.data as {
       route?: { warmUp?: { venueName?: string }; mainParty?: { venueName?: string } };
       nextStep?: string;
+      refreshDecision?: { status?: string; checkedFreshHighMediumEventCount?: number };
     };
     expect(data.route?.warmUp?.venueName).toBe("BARREL");
     expect(data.route?.mainParty?.venueName).toBe("Barbosa");
+    expect(data.refreshDecision).toMatchObject({
+      status: "not_needed",
+      checkedFreshHighMediumEventCount: 4,
+    });
     expect(data.nextStep).toContain("Use Google Places only after this event lookup");
     expect(JSON.stringify(result)).not.toContain("raw");
     expect(JSON.stringify(result)).not.toContain("guest list checked");
+  });
+
+  test("does not label stale nightlife baselines as event checked", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_stale_nightlife",
+        name: "search_nightlife_events",
+        arguments: {
+          location: "General Luna",
+          date: "tonight",
+          interests: ["party"],
+        },
+      },
+      { now: () => new Date("2026-07-07T12:00:00+08:00") },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.sources.map((source) => source.label)).toEqual(["provider_unavailable"]);
+    expect(result.sources[0]?.checked).toEqual([]);
+    expect(result.sources[0]?.notChecked).toEqual(
+      expect.arrayContaining([
+        "current General Luna nightlife event facts for Tuesday",
+        "same-day event schedule until approved priority sources are refreshed",
+      ]),
+    );
+    expect(result.text).toContain(
+      "No approved General Luna nightlife event facts matched Tuesday 2026-07-07.",
+    );
+    const data = result.data as {
+      boundaries?: { checked?: string[]; notChecked?: string[] };
+      refreshDecision?: { status?: string; checkedFreshHighMediumEventCount?: number };
+    };
+    expect(data.boundaries?.checked).toEqual([]);
+    expect(data.refreshDecision).toMatchObject({
+      status: "recommended",
+      checkedFreshHighMediumEventCount: 0,
+    });
   });
 
   test("returns machine-readable source policy output", async () => {
@@ -2466,9 +2510,12 @@ describe("agent tools", () => {
     expect(result.status).toBe("success");
     expect(result.text).toContain("live_checked");
     expect(result.text).toContain("fresh_cache");
+    expect(result.text).toContain("event_checked");
+    expect(result.text).toContain("venue_checked");
     expect(result.text).toContain("curated_local_guide");
     expect(result.text).toContain("weather_checked");
     expect(result.text).toContain("marine_checked");
+    expect(result.text).toContain("community_signal");
     expect(result.text).toContain("not_verified");
     expect(result.text).toContain("provider_unavailable");
     expect(result.text).toContain("Never label generic model reasoning as live checked");

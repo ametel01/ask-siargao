@@ -13,14 +13,20 @@ availability, or independent quality verification.
 must not imply live open-now status unless the fresh cached field actually
 contains opening-hour status.
 
+`event_checked` means `search_nightlife_events` returned fresh, unexpired
+General Luna nightlife event occurrence facts from approved event source
+profiles. It checks the event schedule facts returned by the tool, not Google
+Places rankings, review platforms, travel blogs, community chatter, live crowd
+size, door policy, guest list, table availability, last-minute cancellation, or
+exact closing time.
+
+`venue_checked` means a governed venue-detail source backed venue identity or
+map-detail fields such as map link, address, business status, opening-hour
+signal, rating, or review count. It does not verify tonight's event schedule.
+
 `curated_local_guide` means Ask Siargao curated guide data backed the answer. It
 does not check tides, currents, live road conditions, access changes, lifeguards,
 or safety status.
-
-`search_nightlife_events` may use `curated_local_guide` for approved General
-Luna event facts. It checks the curated event schedule facts returned by the
-tool, not live crowd size, door policy, guest list, table availability,
-last-minute cancellation, or exact closing time.
 
 Safe local fact outputs from `query_local_facts` or `get_source_evidence` may
 also use `curated_local_guide` when curated local guide data backed the fact.
@@ -42,6 +48,10 @@ periods. It does not mean an official tide-gauge measurement, exact Cloud 9
 break reading, navigation check, local operator call, lifeguard status,
 rip-current check, official marine warning, or safety clearance was checked.
 
+`community_signal` means a profiled public community/travel source supplied
+low-confidence context or discovery. It cannot rank venues, cannot verify
+tonight's event schedule, and cannot replace `event_checked`.
+
 Condition judgment outputs may use `weather_checked` only for Open-Meteo-backed
 weather signals. They may use `marine_checked` only for Open-Meteo Marine
 modelled sea-level, wave, swell, and ocean-current fields. They may use
@@ -57,17 +67,12 @@ without a matching live, cached, weather, or curated tool output.
 `provider_unavailable` means a provider or cache lookup needed for the answer
 failed or was unavailable.
 
-Planned nightlife/event labels such as `event_checked`, `venue_checked`, and
-`community_signal` are not valid until `src/server/chat/answer-source-summary.ts`
-and source-consistency validation explicitly support them. Until then, nightlife
-tools must use current labels only and express event/venue/community boundaries
-inside `checked` and `notChecked` text.
-
 ## Checked And Not Checked Wording
 
 Use "Checked:" lines only for tool-backed facts represented by verifying source
 labels: `live_checked`, `fresh_cache`, `curated_local_guide`, and
-`weather_checked`, `marine_checked`, and `tide_forecast_checked`.
+`event_checked`, `venue_checked`, `weather_checked`, `marine_checked`,
+`tide_forecast_checked`, and `community_signal`.
 
 Use "Not checked:" lines for missing fields, unavailable providers, generic
 reasoning boundaries, or facts that the tool did not verify.
@@ -119,3 +124,25 @@ payment records, or internal model traces.
 
 Generic model reasoning can help with synthesis and trip planning, but it must be
 labeled as not verified when no governed tool checked the claim.
+
+## Nightlife Source Governance
+
+`search_nightlife_events` treats official venue websites, official multi-venue
+event pages, local event directories, venue-submitted events, and public official
+venue social posts as approved event-source classes when their source profiles
+allow the use. Weekly baseline rows must carry a source URL or manual
+verification note, last-verified timestamp, weekday/date, time label,
+confidence, and expiry or review timestamp.
+
+Same-day General Luna nightlife strategy resolves the Siargao local date and
+weekday, checks fresh cached high/medium event-backed options first, and
+recommends refreshing approved priority sources when fewer than two fresh
+high/medium event-backed options are available. Expired event occurrences and
+stale recurring baselines must not be treated as same-day truth.
+
+Local guides, travel/news corroboration, review/travel platforms, Reddit public
+threads, YouTube videos, and broad travel blogs are community or discovery
+signals unless a more specific approved event-source profile supports the exact
+use. Private or semi-private Facebook groups are disallowed unless content is
+explicitly submitted by a user, venue, or partner with permission through an
+approved submitted-source profile.

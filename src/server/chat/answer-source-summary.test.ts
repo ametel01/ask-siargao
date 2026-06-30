@@ -79,6 +79,44 @@ describe("answer source summaries", () => {
     ]);
   });
 
+  test("renders nightlife event, venue, and community labels distinctly", () => {
+    const summaries: AnswerSourceSummary[] = [
+      {
+        label: "event_checked",
+        sourceName: "Local nightlife event directories",
+        sourceProfileId: "source_nightlife_local_event_directories",
+        confidence: "medium",
+        checked: ["approved event occurrence"],
+        notChecked: ["crowd size"],
+      },
+      {
+        label: "venue_checked",
+        sourceName: "Google Places API",
+        sourceProfileId: "source_google_places",
+        confidence: "medium",
+        checked: ["venue identity"],
+        notChecked: ["event schedule"],
+      },
+      {
+        label: "community_signal",
+        sourceName: "Reddit public nightlife threads",
+        sourceProfileId: "source_nightlife_reddit_public_threads",
+        confidence: "low",
+        checked: ["community rhythm signal"],
+        notChecked: ["tonight's event schedule"],
+      },
+    ];
+
+    expect(renderAnswerSourceLines(summaries)).toEqual([
+      "Checked: Local nightlife event directories (event checked; medium confidence; profile source_nightlife_local_event_directories) - approved event occurrence.",
+      "Checked: Google Places API (venue checked; medium confidence; profile source_google_places) - venue identity.",
+      "Checked: Reddit public nightlife threads (community signal; low confidence; profile source_nightlife_reddit_public_threads) - community rhythm signal.",
+      "Not checked: Local nightlife event directories (event checked; medium confidence; profile source_nightlife_local_event_directories) - crowd size.",
+      "Not checked: Google Places API (venue checked; medium confidence; profile source_google_places) - event schedule.",
+      "Not checked: Reddit public nightlife threads (community signal; low confidence; profile source_nightlife_reddit_public_threads) - tonight's event schedule.",
+    ]);
+  });
+
   test("does not invent checked items for empty or unavailable summaries", () => {
     const summaries: AnswerSourceSummary[] = [
       {

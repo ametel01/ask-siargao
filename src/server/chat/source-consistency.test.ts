@@ -261,7 +261,7 @@ describe("chat source consistency", () => {
     expect(result.valid).toBe(true);
   });
 
-  test("accepts curated nightlife event facts from the nightlife event tool", () => {
+  test("accepts event-checked nightlife facts from approved source profiles", () => {
     const result = validateChatAnswerSourceConsistency({
       message: withSourceLines("Use BARREL as warm-up and Barbosa as the main party.", [
         nightlifeEventSourceSummary,
@@ -277,6 +277,73 @@ describe("chat source consistency", () => {
     });
 
     expect(result).toEqual({ valid: true, issues: [] });
+  });
+
+  test("rejects event-checked nightlife facts without an approved source profile", () => {
+    const missingProfileSource: AnswerSourceSummary = {
+      ...nightlifeEventSourceSummary,
+      sourceProfileId: undefined,
+    };
+    const disallowedProfileSource: AnswerSourceSummary = {
+      ...nightlifeEventSourceSummary,
+      sourceProfileId: "source_nightlife_private_social_groups",
+    };
+
+    for (const source of [missingProfileSource, disallowedProfileSource]) {
+      const result = validateChatAnswerSourceConsistency({
+        message: withSourceLines("Do not accept unprofiled event truth.", [source]),
+        sources: [source],
+        toolCalls: [
+          toolCall({
+            name: "search_nightlife_events",
+            status: "success",
+            sources: [source],
+          }),
+        ],
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues.map((issue) => issue.code)).toContain(
+        "structured_source_not_tool_backed",
+      );
+    }
+  });
+
+  test("accepts profiled community signals but rejects them as event truth", () => {
+    const validCommunity = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Community rhythm is context only.", [communitySignalSourceSummary]),
+      sources: [communitySignalSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "search_nightlife_events",
+          status: "success",
+          sources: [communitySignalSourceSummary],
+        }),
+      ],
+    });
+    const communityAsEventTruth: AnswerSourceSummary = {
+      ...communitySignalSourceSummary,
+      label: "event_checked",
+    };
+    const invalidCommunity = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Community posts cannot verify tonight's schedule.", [
+        communityAsEventTruth,
+      ]),
+      sources: [communityAsEventTruth],
+      toolCalls: [
+        toolCall({
+          name: "search_nightlife_events",
+          status: "success",
+          sources: [communityAsEventTruth],
+        }),
+      ],
+    });
+
+    expect(validCommunity).toEqual({ valid: true, issues: [] });
+    expect(invalidCommunity.valid).toBe(false);
+    expect(invalidCommunity.issues.map((issue) => issue.code)).toContain(
+      "structured_source_not_tool_backed",
+    );
   });
 
   test("accepts curated itinerary sources backed by the itinerary planning tool", () => {
@@ -777,6 +844,24 @@ describe("chat source consistency", () => {
     ]);
   });
 
+  test("accepts stale nightlife event lookup as terminal unavailable evidence", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Approved priority event sources need refresh for tonight.", [
+        staleNightlifeSourceSummary,
+      ]),
+      sources: [staleNightlifeSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "search_nightlife_events",
+          status: "success",
+          sources: [staleNightlifeSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result).toEqual({ valid: true, issues: [] });
+  });
+
   test("throws a controlled source consistency error for route enforcement", () => {
     expect(() =>
       assertChatAnswerSourceConsistency({
@@ -900,13 +985,14 @@ const localGuideSourceSummary: AnswerSourceSummary = {
 };
 
 const nightlifeEventSourceSummary: AnswerSourceSummary = {
-  label: "curated_local_guide",
-  sourceName: "Ask Siargao approved nightlife event facts",
-  sourceProfileId: "source_ask_siargao_nightlife_events",
+  label: "event_checked",
+  sourceName: "Local nightlife event directories",
+  sourceProfileId: "source_nightlife_local_event_directories",
   fetchedAt: "2026-06-30T04:00:00.000Z",
   confidence: "medium",
   checked: [
     "approved General Luna nightlife event facts for Tuesday",
+    "verified event occurrences: BARREL, Mama Coco",
     "route roles: warm-up, main party, late option, and softer option when available",
   ],
   notChecked: [
@@ -918,6 +1004,16 @@ const nightlifeEventSourceSummary: AnswerSourceSummary = {
     "last-minute cancellation",
     "exact closing time",
   ],
+};
+
+const communitySignalSourceSummary: AnswerSourceSummary = {
+  label: "community_signal",
+  sourceName: "Reddit public nightlife threads",
+  sourceProfileId: "source_nightlife_reddit_public_threads",
+  fetchedAt: "2026-06-30T04:00:00.000Z",
+  confidence: "low",
+  checked: ["public community nightlife rhythm signal"],
+  notChecked: ["tonight's event schedule", "venue confirmation", "crowd size"],
 };
 
 const surfSpotRankingSourceSummary: AnswerSourceSummary = {
@@ -945,4 +1041,17 @@ const providerUnavailableSourceSummary: AnswerSourceSummary = {
   confidence: "low",
   checked: [],
   notChecked: ["Google Places lookup"],
+};
+
+const staleNightlifeSourceSummary: AnswerSourceSummary = {
+  label: "provider_unavailable",
+  sourceName: "Approved General Luna nightlife event source profiles",
+  sourceProfileId: "source_nightlife_official_venue_websites",
+  fetchedAt: "2026-07-07T04:00:00.000Z",
+  confidence: "low",
+  checked: [],
+  notChecked: [
+    "current General Luna nightlife event facts for Tuesday",
+    "same-day event schedule until approved priority sources are refreshed",
+  ],
 };
