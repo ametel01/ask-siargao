@@ -34,7 +34,7 @@ once the lower-risk fixes are clear.
 | --- | --- | --- | --- | --- | --- |
 | 002 | Align shared-trip source disclosure docs with the public contract | P2 | small | none | TODO |
 | 003 | Stop logging plaintext chat previews | P1 | small | none | TODO |
-| 004 | Enforce shared production rate-limit storage | P1 | medium | none | TODO |
+| 004 | Enforce shared production rate-limit storage | P1 | medium | none | DONE |
 | 005 | Extract saved-trip client state from ChatWorkspace | P2 | large | none | TODO |
 | 006 | Make local verification non-mutating and CI-aligned | P2 | small | none | TODO |
 | 007 | Add nightlife event sources and route-style answers | P2 | large | existing chat/source systems | TODO |

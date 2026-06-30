@@ -31,3 +31,14 @@ The app reads these environment variables.
 | `NEXT_PUBLIC_POSTHOG_HOST` | Public/client-safe | PostHog host | Defaults in `.env.example` to the US PostHog ingest host. |
 
 Server-only secrets must not use the `NEXT_PUBLIC_` prefix. `getServerSecret` rejects public-prefixed names so sensitive provider keys do not move into client-facing bundles.
+
+## Production Rate-Limit Storage
+
+Production rate limiting fails closed when the active `RateLimitStore` has `scope: "process"`.
+Development and test can use the default process-local memory store, but production must inject a
+shared, atomic store with `scope: "shared"` by calling `configureRateLimitStore` before handling
+rate-limited requests.
+
+No Redis, Upstash, or Vercel KV adapter is bundled yet. When one is added, it must preserve atomic
+increment and expiry semantics across all production instances. There is no environment override for
+process-local production rate limits.
