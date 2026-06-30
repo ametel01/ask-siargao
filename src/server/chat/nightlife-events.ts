@@ -475,7 +475,7 @@ function nightlifeSourceSummaries({
 
 function fallbackNightlifeSourceSummary(dayOfWeek: string, fetchedAt: string): AnswerSourceSummary {
   return {
-    label: "provider_unavailable",
+    label: "no_current_event_facts",
     sourceName: "Approved General Luna nightlife event source profiles",
     sourceProfileId: priorityNightlifeEventSourceProfileIds[0],
     fetchedAt,

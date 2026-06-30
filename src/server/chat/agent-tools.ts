@@ -307,12 +307,69 @@ const sourcePolicyDescriptions: SourcePolicyDescription[] = [
     ],
   },
   {
+    label: "no_current_event_facts",
+    meaning:
+      "The nightlife event tool ran, but approved current event facts did not match the requested local date.",
+    useWhen:
+      "Use as terminal event-source state only; combine with loaded NIGHTLIFE.md stable route memory when answering the traveler.",
+    caveats: [
+      "This is not a provider outage.",
+      "Do not treat stable memory baselines as event_checked facts.",
+      "Do not collapse party-route answers to weather-only advice when NIGHTLIFE.md contains a stable baseline route.",
+    ],
+  },
+  {
     label: "venue_checked",
     meaning: "A governed venue-detail source backed venue identity or map-detail fields.",
     useWhen:
       "Use for venue identity, map links, address, business status, opening-hour signals, ratings, or review counts when a venue-detail tool returns those fields.",
     caveats: [
       "Venue checks do not verify tonight's event schedule, live crowd size, door policy, bookings, or table availability.",
+    ],
+  },
+  {
+    label: "web_researched",
+    meaning:
+      "A bounded public web research tool found useful source evidence for the requested public facts.",
+    useWhen:
+      "Use for research_web findings from accepted public source classes when the evidence is useful but not strictly official or directory-backed.",
+    caveats: [
+      "Do not use for raw model browsing or generic reasoning.",
+      "Do not imply a live provider API check.",
+      "The source class, freshness, and confidence still determine how strongly the answer can lean on the finding.",
+    ],
+  },
+  {
+    label: "official_checked",
+    meaning: "An official public source was checked for the requested entity, status, or schedule.",
+    useWhen:
+      "Use for research_web findings from official venue, operator, government, event organizer, ferry company, resort, tour operator, or equivalent public sources.",
+    caveats: [
+      "Official pages can still be stale; preserve published, updated, or matched date context when available.",
+      "Do not use for unofficial reposts, guides, reviews, or community chatter.",
+    ],
+  },
+  {
+    label: "directory_checked",
+    meaning:
+      "A local directory or event-calendar source was checked for the requested public fact.",
+    useWhen:
+      "Use for research_web findings from accepted Siargao directories, event calendars, or local business listings.",
+    caveats: [
+      "Directory evidence is usually weaker than official-source evidence for cancellations, closures, and one-off changes.",
+      "Keep source confidence explicit when the directory row is recurring or undated.",
+    ],
+  },
+  {
+    label: "insufficient_web_evidence",
+    meaning:
+      "The web research tool ran, but did not find enough reliable current public evidence for the request.",
+    useWhen:
+      "Use as a terminal research_web state when search/fetch succeeds but the sources are too weak, stale, broad, or contradictory to answer as verified.",
+    caveats: [
+      "This is not positive evidence.",
+      "Do not unlock broad Places, weather, or memory-only fallback answers when current public research was required.",
+      "Render as not checked or a transparent caveat, not as a checked source claim.",
     ],
   },
   {

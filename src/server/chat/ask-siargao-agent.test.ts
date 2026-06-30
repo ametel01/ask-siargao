@@ -659,7 +659,20 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         toolCallId: request.toolCallId,
         status: "success",
         text: "Loaded NIGHTLIFE.md",
-        data: { loadedMemoryFileNames: ["NIGHTLIFE.md"] },
+        data: {
+          loadedMemoryFileNames: ["NIGHTLIFE.md"],
+          files: [
+            {
+              fileName: "NIGHTLIFE.md",
+              content: [
+                "# Siargao Nightlife",
+                "| Day | Early / warm-up | Main party window | Anchor candidates | Best read |",
+                "| --- | --- | --- | --- | --- |",
+                "| Wednesday | 7:30-9 PM | 8 PM-midnight / 9 PM+ | Goodies, Mama Coco, El Lobo | Midweek dance night. |",
+              ].join("\n"),
+            },
+          ],
+        },
         sources: [],
       };
     };
@@ -698,23 +711,24 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.message).toContain("Barbosa");
     expect(result.message).toContain("rain");
     expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "load_agent_memory_file",
       "search_nightlife_events",
       "search_places",
       "get_weather_forecast",
-      "load_agent_memory_file",
     ]);
-    expect(result.toolCalls[0]?.toolCallId).toBe("auto_preflight_required_evidence_1");
-    expect(result.toolCalls[0]?.arguments).toMatchObject({
+    expect(result.toolCalls[0]?.toolCallId).toBe("auto_required_memory_load_nightlife");
+    expect(result.toolCalls[1]?.toolCallId).toBe("auto_preflight_required_evidence_1");
+    expect(result.toolCalls[1]?.arguments).toMatchObject({
       location: "General Luna",
       date: "tonight",
       interests: ["party"],
     });
-    expect(result.toolCalls[1]?.toolCallId).toBe("call_places_first");
-    expect(result.toolCalls[1]?.arguments).toMatchObject({
+    expect(result.toolCalls[2]?.toolCallId).toBe("call_places_first");
+    expect(result.toolCalls[2]?.arguments).toMatchObject({
       query: "BARREL Barbosa Siargao Beach Club Mama Coco General Luna Siargao nightlife venues",
       constraints: { included_type: "bar", open_now: true, page_size: 4 },
     });
-    expect(result.toolCalls[2]?.arguments).toMatchObject({
+    expect(result.toolCalls[3]?.arguments).toMatchObject({
       location: "General Luna",
       date_range: "today",
     });
@@ -726,10 +740,14 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.cards).toEqual([placeCard]);
     expect(JSON.stringify(result.cards)).not.toContain(offRoutePlaceCard.title);
     expect(result.memory?.files.some((file) => file.fileName === "NIGHTLIFE.md")).toBe(true);
-    expect(client.requests).toHaveLength(4);
+    expect(client.requests).toHaveLength(3);
     const firstInput = parseLastUserInputMessage(client.requests[0]?.input) as {
+      automaticRequiredMemoryLoads?: Array<{ name?: string }>;
       deterministicSignals?: { intent?: { nightlifePlan?: boolean } };
     };
+    expect(firstInput.automaticRequiredMemoryLoads?.map((load) => load.name)).toEqual([
+      "load_agent_memory_file",
+    ]);
     expect(firstInput.deterministicSignals?.intent?.nightlifePlan).toBe(true);
     const repairInput = parseLastUserInputMessage(client.requests[2]?.input) as {
       automaticRequiredEvidenceChecks?: Array<{ name?: string }>;
@@ -737,10 +755,6 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(repairInput.automaticRequiredEvidenceChecks?.map((check) => check.name)).toEqual([
       "get_weather_forecast",
     ]);
-    const memoryRepairInput = parseLastUserInputMessage(client.requests[3]?.input) as {
-      validationRepairMemoryLoad?: { name?: string };
-    };
-    expect(memoryRepairInput.validationRepairMemoryLoad?.name).toBe("load_agent_memory_file");
   });
 
   test("direct-final repair completes nightlife event lookup before Places enrichment", async () => {
@@ -854,7 +868,20 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         toolCallId: request.toolCallId,
         status: "success",
         text: "Loaded NIGHTLIFE.md",
-        data: { loadedMemoryFileNames: ["NIGHTLIFE.md"] },
+        data: {
+          loadedMemoryFileNames: ["NIGHTLIFE.md"],
+          files: [
+            {
+              fileName: "NIGHTLIFE.md",
+              content: [
+                "# Siargao Nightlife",
+                "| Day | Early / warm-up | Main party window | Anchor candidates | Best read |",
+                "| --- | --- | --- | --- | --- |",
+                "| Wednesday | 7:30-9 PM | 8 PM-midnight / 9 PM+ | Goodies, Mama Coco, El Lobo | Midweek dance night. |",
+              ].join("\n"),
+            },
+          ],
+        },
         sources: [],
       };
     };
@@ -874,16 +901,16 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
 
     expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "load_agent_memory_file",
       "search_nightlife_events",
       "search_places",
       "get_weather_forecast",
-      "load_agent_memory_file",
     ]);
     expect(result.toolCalls.map((toolCall) => toolCall.toolCallId)).toEqual([
+      "auto_required_memory_load_nightlife",
       "auto_required_evidence_1",
       "auto_required_evidence_2",
       "auto_required_evidence_3",
-      "auto_required_memory_load_nightlife",
     ]);
     expect(result.cards).toEqual([selectedPlaceCard]);
     expect(JSON.stringify(result.cards)).not.toContain(offRoutePlaceCard.title);
@@ -901,6 +928,176 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(repairInput.automaticRequiredEvidenceChecks?.[1]?.arguments?.query).toBe(
       "BARREL Barbosa Siargao Beach Club Mama Coco General Luna Siargao nightlife venues",
     );
+  });
+
+  test("does not run generic Places enrichment when nightlife lookup has no route venues", async () => {
+    const nightlifeUnavailableSource: AnswerSourceSummary = {
+      label: "no_current_event_facts",
+      sourceName: "Approved General Luna nightlife event source profiles",
+      sourceProfileId: "source_nightlife_official_venue_websites",
+      fetchedAt: "2026-06-30T20:45:23.585Z",
+      confidence: "low",
+      checked: [],
+      notChecked: ["current General Luna nightlife event facts for Wednesday"],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_nightlife_generic_places_first",
+        requestId: "req_nightlife_generic_places_first",
+        callId: "call_generic_places",
+        name: "search_places",
+        arguments: {
+          query: "bars nightlife party General Luna Siargao",
+          center: { latitude: 9.8006, longitude: 126.1586 },
+          radius_meters: 6_000,
+          constraints: { included_type: "bar", open_now: true, page_size: 8 },
+        },
+      }),
+      {
+        id: "resp_nightlife_no_events_missing_weather",
+        output_text: finalPayloadText({
+          answer:
+            "Use the stable Wednesday route baseline, but keep it flexible because current event venues did not return.",
+          usedToolCallIds: ["auto_preflight_required_evidence_1", "call_generic_places"],
+          displayCardIds: [],
+        }),
+        _request_id: "req_nightlife_no_events_missing_weather",
+      },
+      {
+        id: "resp_nightlife_no_events_weather_only",
+        output_text: finalPayloadText({
+          answer:
+            "Today in General Luna the weather looks rough for bar-hopping between spots. If you want, I can give you a short indoor-to-outdoor party route for tonight based on this weather.",
+          usedMemoryFiles: ["NIGHTLIFE.md"],
+          usedToolCallIds: [
+            "auto_required_memory_load_nightlife",
+            "auto_preflight_required_evidence_1",
+            "call_generic_places",
+            "auto_required_evidence_1",
+          ],
+          displayCardIds: [],
+        }),
+        _request_id: "req_nightlife_no_events_weather_only",
+      },
+      {
+        id: "resp_nightlife_no_events_final_after_memory_baseline",
+        output_text: finalPayloadText({
+          answer:
+            "Tonight's baseline General Luna route is Mama Coco or Sibol for warm-up, Goodies as the main party, then El Lobo or Siargao Beach Club as the fallback if the room is quiet. I do not have current event confirmation from the event lookup, so keep it flexible and take a tricycle if rain picks up.",
+          usedMemoryFiles: ["NIGHTLIFE.md"],
+          usedToolCallIds: [
+            "auto_required_memory_load_nightlife",
+            "auto_preflight_required_evidence_1",
+            "call_generic_places",
+            "auto_required_evidence_1",
+          ],
+          displayCardIds: [],
+        }),
+        _request_id: "req_nightlife_no_events_final_after_memory_baseline",
+      },
+    ]);
+    let placesActuallyCalled = false;
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "search_nightlife_events") {
+        return {
+          name: "search_nightlife_events",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "No approved General Luna nightlife event facts matched Wednesday 2026-07-01. Do not substitute Google Places bar rankings as event evidence.",
+          data: {
+            status: "no_events",
+            location: "General Luna",
+            requestedDate: "tonight",
+            localDate: "2026-07-01",
+            dayOfWeek: "Wednesday",
+            candidates: [],
+            route: {},
+            boundaries: {
+              checked: [],
+              notChecked: ["current General Luna nightlife event facts for Wednesday"],
+            },
+          },
+          sources: [nightlifeUnavailableSource],
+        };
+      }
+
+      if (request.name === "search_places") {
+        placesActuallyCalled = true;
+        throw new Error("Generic Places enrichment should not run without event-route venues.");
+      }
+
+      if (request.name === "get_weather_forecast") {
+        return {
+          name: "get_weather_forecast",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Open-Meteo weather forecast for General Luna.",
+          sources: [weatherSourceSummary],
+        };
+      }
+
+      return {
+        name: "load_agent_memory_file",
+        toolCallId: request.toolCallId,
+        status: "success",
+        text: "Loaded NIGHTLIFE.md",
+        data: {
+          loadedMemoryFileNames: ["NIGHTLIFE.md"],
+          files: [
+            {
+              fileName: "NIGHTLIFE.md",
+              content: [
+                "# Siargao Nightlife",
+                "| Day | Early / warm-up | Main party window | Anchor candidates | Best read |",
+                "| --- | --- | --- | --- | --- |",
+                "| Wednesday | 7:30-9 PM | 8 PM-midnight / 9 PM+ | Goodies, Mama Coco, El Lobo | Midweek dance night. |",
+              ].join("\n"),
+            },
+          ],
+        },
+        sources: [],
+      };
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "What are the best party places in General Luna tonight?",
+          },
+        ],
+        requestId: "agent_request_nightlife_no_event_places_skip",
+        deterministicSignals: nightlifeRouteSignals(),
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(placesActuallyCalled).toBe(false);
+    expect(result.toolCalls.map((toolCall) => [toolCall.name, toolCall.status])).toEqual([
+      ["load_agent_memory_file", "success"],
+      ["search_nightlife_events", "success"],
+      ["search_places", "error"],
+      ["get_weather_forecast", "success"],
+    ]);
+    expect(result.toolCalls[2]).toMatchObject({
+      toolCallId: "call_generic_places",
+      errorCode: "provider_unavailable",
+    });
+    expect(result.cards).toBeUndefined();
+    expect(result.message).toContain("Goodies");
+    expect(result.message).toContain("Mama Coco");
+    expect(result.message).not.toContain("If you want");
+    const baselineRepairInput = parseLastUserInputMessage(client.requests[3]?.input) as {
+      validationRepairNightlifeMemoryBaseline?: {
+        baselineVenueNames?: string[];
+        dayOfWeek?: string;
+      };
+    };
+    expect(baselineRepairInput.validationRepairNightlifeMemoryBaseline).toMatchObject({
+      dayOfWeek: "Wednesday",
+      baselineVenueNames: ["Goodies", "Mama Coco", "El Lobo"],
+    });
   });
 
   test("auto-executes required Places evidence for activity-place and service prompts", async () => {

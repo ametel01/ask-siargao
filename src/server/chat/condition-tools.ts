@@ -33,6 +33,11 @@ const answerTrustLabels = [
   "marine_checked",
   "tide_forecast_checked",
   "community_signal",
+  "no_current_event_facts",
+  "web_researched",
+  "official_checked",
+  "directory_checked",
+  "insufficient_web_evidence",
   "not_verified",
   "provider_unavailable",
 ] as const satisfies readonly AnswerTrustLabel[];

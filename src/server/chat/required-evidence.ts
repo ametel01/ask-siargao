@@ -82,7 +82,7 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
         interests: nightlifeInterests(intent),
       },
       acceptedSourceLabels: ["event_checked"],
-      terminalSourceLabels: ["provider_unavailable"],
+      terminalSourceLabels: ["no_current_event_facts", "provider_unavailable"],
     });
     requiredToolCalls.push({
       name: "search_places",
@@ -167,9 +167,12 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
 export function missingRequiredEvidenceToolCalls(
   plan: RequiredEvidencePlan,
   toolCalls: readonly AgentToolCallAudit[],
+  toolResults: readonly AgentToolResult[] = [],
 ): RequiredEvidenceToolCall[] {
   return plan.requiredToolCalls.filter(
-    (requiredCall) => !hasCompletedToolCall(requiredCall, toolCalls),
+    (requiredCall) =>
+      !nightlifePlacesEnrichmentIsUnavailable(requiredCall, plan, toolResults) &&
+      !hasCompletedToolCall(requiredCall, toolCalls),
   );
 }
 
@@ -254,6 +257,12 @@ function terminalOnlyFinalPayloadIsCaveated(
   unsatisfiedRequiredCalls: readonly RequiredEvidenceToolCall[],
 ) {
   if (!finalPayload) {
+    return false;
+  }
+  const hasUnsatisfiedNightlifeCheck = unsatisfiedRequiredCalls.some(
+    (requiredCall) => requiredCall.name === "search_nightlife_events",
+  );
+  if (hasUnsatisfiedNightlifeCheck && finalPayload.displayCardIds.length > 0) {
     return false;
   }
   const hasUnsatisfiedPlacesCheck = unsatisfiedRequiredCalls.some(
@@ -511,6 +520,25 @@ function hasCompletedToolCall(
           requiredCall.terminalSourceLabels.includes(source.label),
       ),
   );
+}
+
+export function nightlifePlacesEnrichmentIsUnavailable(
+  requiredCall: RequiredEvidenceToolCall,
+  plan: RequiredEvidencePlan,
+  toolResults: readonly Pick<AgentToolResult, "name" | "status" | "data">[],
+) {
+  return (
+    requiredCall.name === "search_places" &&
+    plan.requiredToolCalls.some((call) => call.name === "search_nightlife_events") &&
+    nightlifeEventLookupCompleted(toolResults) &&
+    selectedNightlifeEventVenueNames(toolResults).length === 0
+  );
+}
+
+function nightlifeEventLookupCompleted(
+  toolResults: readonly Pick<AgentToolResult, "name" | "status" | "data">[],
+) {
+  return toolResults.some((result) => result.name === "search_nightlife_events");
 }
 
 function isCheckedPlacesEvidenceResult(result: AgentToolResult) {

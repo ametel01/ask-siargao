@@ -10,6 +10,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 ### Added
 
 - Started progress tracking for the web research layer implementation plan.
+- Added web research source labels and typed research contracts for the planned `research_web`
+  chat tool.
 
 ### Security
 
@@ -29,6 +31,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Preserved loaded nightlife memory baselines when current event lookup has no matching event
+  facts, so nightlife recommendation answers no longer collapse to weather-only or generic
+  Places fallbacks.
 - Aligned browser-geolocation e2e coverage with the current trip-session active-location state after
   sending a near-me chat request.
 - Prevented Dapa breakfast answers from exposing unrelated beach cards when multiple successful

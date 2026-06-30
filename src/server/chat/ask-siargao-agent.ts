@@ -36,6 +36,7 @@ import {
   buildRequiredEvidencePlan,
   finalPayloadSatisfiesRequiredEvidence,
   missingRequiredEvidenceToolCalls,
+  nightlifePlacesEnrichmentIsUnavailable,
   type RequiredEvidencePlan,
   type RequiredEvidenceToolCall,
   requiredEvidencePlaceCardIds,
@@ -124,6 +125,22 @@ export async function runAskSiargaoAgentTurn(
     "Ask Siargao agent turn started.",
   );
 
+  const initialMemoryLoadCall = initialNightlifeMemoryLoadCall(resolved);
+  const initialMemoryOutputs = initialMemoryLoadCall
+    ? [
+        await executeAndAuditTool({
+          executeTool,
+          functionCall: initialMemoryLoadCall,
+          logger,
+          now: dependencies.now ?? (() => new Date()),
+          runtimeRequest: resolved,
+          requestId: resolved.requestId,
+        }),
+      ]
+    : [];
+  toolCalls.push(...initialMemoryOutputs.map((output) => output.audit));
+  toolResults.push(...initialMemoryOutputs.map((output) => output.result));
+
   let responseInput: ResponseInputItem[] = [
     userInputMessage({
       product: "Ask Siargao",
@@ -131,6 +148,18 @@ export async function runAskSiargaoAgentTurn(
       requestMetadata: resolved.metadata,
       deterministicSignals: modelFacingDeterministicSignals(resolved),
       agentMemory: summarizeMemoryForModel(memory),
+      ...(initialMemoryOutputs.length > 0
+        ? {
+            instruction:
+              "Required memory preflight: use this loaded Ask Siargao memory as local reference context before choosing tools or answering. Keep memory separate from live/current evidence.",
+            automaticRequiredMemoryLoads: initialMemoryOutputs.map((output) => ({
+              toolCallId: output.functionCall.callId,
+              name: output.functionCall.name,
+              arguments: publicToolArguments(output.functionCall),
+              result: JSON.parse(serializeToolOutput(output.result)),
+            })),
+          }
+        : {}),
       responseContract: responseContract,
     }),
   ];
@@ -381,6 +410,7 @@ export async function runAskSiargaoAgentTurn(
       const missingEvidenceChecks = missingRequiredEvidenceToolCalls(
         requiredEvidencePlan,
         toolCalls,
+        toolResults,
       );
       if (missingEvidenceChecks.length > 0) {
         if (toolCalls.length + missingEvidenceChecks.length > maxToolCalls) {
@@ -541,6 +571,41 @@ export async function runAskSiargaoAgentTurn(
         requiredEvidencePlan,
         toolResults,
       );
+      const nightlifeMemoryBaselineRepair = missingNightlifeMemoryBaselineRepair(
+        finalPayload,
+        resolved,
+        toolResults,
+        responseInput,
+      );
+      if (nightlifeMemoryBaselineRepair) {
+        responseInput = [
+          ...responseInput,
+          ...responseOutputItems(response.output),
+          userInputMessage({
+            product: "Ask Siargao",
+            instruction:
+              "Validation repair: current nightlife event facts did not return usable event-route venues, but NIGHTLIFE.md is loaded and contains a stable baseline route for the matched local weekday. Do not collapse the answer to weather-only advice and do not ask whether the traveler wants the party route. Answer the move first from the memory baseline, then add weather or transport as a modifier. Make clear that the named route is baseline local guidance, not event_checked current evidence. Select no place cards from the skipped or failed Places enrichment.",
+            validationRepairNightlifeMemoryBaseline: nightlifeMemoryBaselineRepair,
+            responseContract,
+          }),
+        ];
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_000,
+          instructions,
+          tools,
+          ...(responseInclude ? { include: responseInclude } : {}),
+          input: responseInput,
+        });
+        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        collectHostedFileSearchMemoryFileNames(
+          response.output,
+          memorySnapshot,
+          hostedMemoryFileNames,
+        );
+        continue;
+      }
       if (
         !finalPayloadSatisfiesRequiredEvidence(
           requiredEvidencePlan,
@@ -1110,6 +1175,21 @@ function missingClearMemoryLoadRepairCall(
   };
 }
 
+function initialNightlifeMemoryLoadCall(
+  request: AgentRuntimeRequest,
+): ParsedFunctionCall | undefined {
+  const requiredFileName = clearRequiredMemoryFileName(request);
+  if (requiredFileName !== "NIGHTLIFE.md") {
+    return undefined;
+  }
+
+  return {
+    callId: `auto_required_memory_load_${memoryRepairId(requiredFileName)}`,
+    name: "load_agent_memory_file",
+    arguments: { documents: [requiredFileName] },
+  };
+}
+
 function missingSurfSpotRankingPayloadRepair(
   finalText: string,
   request: AgentRuntimeRequest,
@@ -1152,6 +1232,104 @@ function missingSurfSpotRankingPayloadRepair(
       usedToolCallIdsMissingRanking: !usedRankingToolCall,
     },
   };
+}
+
+function missingNightlifeMemoryBaselineRepair(
+  finalPayload: AgentFinalPayload | undefined,
+  request: AgentRuntimeRequest,
+  toolResults: readonly AgentToolResult[],
+  responseInput: readonly ResponseInputItem[],
+) {
+  if (!finalPayload || !requiresNightlifeMemoryBaseline(request)) {
+    return undefined;
+  }
+  if (hasValidationRepairInput(responseInput, "validationRepairNightlifeMemoryBaseline")) {
+    return undefined;
+  }
+
+  const noEventFacts = noCurrentNightlifeEventFactsResult(toolResults);
+  if (!noEventFacts) {
+    return undefined;
+  }
+  const dayOfWeek = readString(
+    isRecord(noEventFacts.data) ? noEventFacts.data.dayOfWeek : undefined,
+  );
+  if (!dayOfWeek) {
+    return undefined;
+  }
+  const baselineVenueNames = nightlifeMemoryBaselineVenueNames(toolResults, dayOfWeek);
+  if (baselineVenueNames.length === 0) {
+    return undefined;
+  }
+
+  const mentionedVenueNames = baselineVenueNames.filter((venueName) =>
+    normalizedIncludes(finalPayload.answer, venueName),
+  );
+  if (mentionedVenueNames.length >= Math.min(2, baselineVenueNames.length)) {
+    return undefined;
+  }
+
+  return {
+    dayOfWeek,
+    baselineVenueNames,
+    mentionedVenueNames,
+    noCurrentEventFactsToolCallId: noEventFacts.toolCallId,
+    issue: "nightlife_answer_omitted_loaded_memory_baseline_route",
+  };
+}
+
+function requiresNightlifeMemoryBaseline(request: AgentRuntimeRequest) {
+  return clearRequiredMemoryFileName(request) === "NIGHTLIFE.md";
+}
+
+function noCurrentNightlifeEventFactsResult(toolResults: readonly AgentToolResult[]) {
+  return toolResults.find(
+    (result) =>
+      result.name === "search_nightlife_events" &&
+      result.status === "success" &&
+      (readString(result.data && isRecord(result.data) ? result.data.status : undefined) ===
+        "no_events" ||
+        result.sources.some((source) => source.label === "no_current_event_facts")),
+  );
+}
+
+function nightlifeMemoryBaselineVenueNames(
+  toolResults: readonly AgentToolResult[],
+  dayOfWeek: string,
+) {
+  const memoryContent = loadedMemoryFileContent(toolResults, "NIGHTLIFE.md");
+  if (!memoryContent) {
+    return [];
+  }
+  const weeklyRow = memoryContent
+    .split("\n")
+    .find((line) => line.trimStart().startsWith(`| ${dayOfWeek} |`));
+  if (!weeklyRow) {
+    return [];
+  }
+  const columns = weeklyRow.split("|").map((column) => column.trim());
+  const anchorCandidates = columns[4] ?? "";
+  return uniqueText(
+    anchorCandidates
+      .split(/,|\//u)
+      .map((value) => value.replaceAll("`", "").trim())
+      .filter((value) => value.length > 0)
+      .filter((value) => !/\b(?:late|fallback|option|pattern|fun day)\b/iu.test(value)),
+  );
+}
+
+function loadedMemoryFileContent(toolResults: readonly AgentToolResult[], fileName: string) {
+  for (const result of toolResults) {
+    if (result.name !== "load_agent_memory_file") {
+      continue;
+    }
+    for (const file of readUnknownArrayPath(result.data, ["files"])) {
+      if (isRecord(file) && file.fileName === fileName && typeof file.content === "string") {
+        return file.content;
+      }
+    }
+  }
+  return undefined;
 }
 
 function clearRequiredMemoryFileName(request: AgentRuntimeRequest) {
@@ -1216,7 +1394,7 @@ function hasMemoryLoadAttemptForFile(toolCalls: readonly AgentToolCallAudit[], f
 
 function hasValidationRepairInput(
   responseInput: readonly ResponseInputItem[],
-  key: "validationRepairSurfSpotFinalPayload",
+  key: "validationRepairNightlifeMemoryBaseline" | "validationRepairSurfSpotFinalPayload",
 ) {
   return responseInput.some((item) => {
     const content = item.content;
@@ -2100,7 +2278,7 @@ async function executeAndAuditToolBatch({
       );
     const remainingOutputs = await Promise.all(
       remainingFunctionCalls.map((functionCall) =>
-        executeAndAuditTool({
+        executeOrSkipNightlifePlacesTool({
           executeTool,
           functionCall,
           logger,
@@ -2119,7 +2297,7 @@ async function executeAndAuditToolBatch({
         eventBackedNightlifePlacesFunctionCall(functionCall, requiredEvidencePlan, toolResults),
       )
       .map((functionCall) =>
-        executeAndAuditTool({
+        executeOrSkipNightlifePlacesTool({
           executeTool,
           functionCall,
           logger,
@@ -2131,52 +2309,164 @@ async function executeAndAuditToolBatch({
   );
 }
 
+type AgentFunctionCallExecutionPlan =
+  | {
+      kind: "execute";
+      functionCall: ParsedFunctionCall;
+    }
+  | {
+      kind: "skip_nightlife_places";
+      functionCall: ParsedFunctionCall;
+    };
+
 function eventBackedNightlifePlacesFunctionCall(
   functionCall: ParsedFunctionCall,
   requiredEvidencePlan: RequiredEvidencePlan,
   toolResults: readonly AgentToolResult[],
-): ParsedFunctionCall {
+): AgentFunctionCallExecutionPlan {
   if (
     functionCall.name !== "search_places" ||
     !requiredEvidencePlan.requiredToolCalls.some(
       (requiredCall) => requiredCall.name === "search_nightlife_events",
     )
   ) {
-    return functionCall;
+    return { kind: "execute", functionCall };
   }
 
   const venueNames = selectedNightlifeEventVenueNames(toolResults);
-  if (venueNames.length === 0) {
-    return functionCall;
-  }
-
   const requiredPlacesCall = requiredEvidencePlan.requiredToolCalls.find(
     (requiredCall) => requiredCall.name === "search_places",
   );
+  if (
+    requiredPlacesCall &&
+    nightlifePlacesEnrichmentIsUnavailable(requiredPlacesCall, requiredEvidencePlan, toolResults)
+  ) {
+    return { kind: "skip_nightlife_places", functionCall };
+  }
+  if (venueNames.length === 0) {
+    return { kind: "execute", functionCall };
+  }
+
   const requiredArguments = requiredPlacesCall?.arguments ?? {};
   const requiredConstraints = isRecord(requiredArguments.constraints)
     ? requiredArguments.constraints
     : {};
   return {
-    ...functionCall,
-    arguments: {
-      ...requiredArguments,
-      ...functionCall.arguments,
-      query: `${venueNames.join(" ")} General Luna Siargao nightlife venues`,
-      center: isRecord(functionCall.arguments.center)
-        ? functionCall.arguments.center
-        : requiredArguments.center,
-      radius_meters:
-        typeof functionCall.arguments.radius_meters === "number"
-          ? functionCall.arguments.radius_meters
-          : requiredArguments.radius_meters,
-      constraints: {
-        ...requiredConstraints,
-        ...(isRecord(functionCall.arguments.constraints) ? functionCall.arguments.constraints : {}),
-        page_size: Math.min(Math.max(venueNames.length, 1), 8),
+    kind: "execute",
+    functionCall: {
+      ...functionCall,
+      arguments: {
+        ...requiredArguments,
+        ...functionCall.arguments,
+        query: `${venueNames.join(" ")} General Luna Siargao nightlife venues`,
+        center: isRecord(functionCall.arguments.center)
+          ? functionCall.arguments.center
+          : requiredArguments.center,
+        radius_meters:
+          typeof functionCall.arguments.radius_meters === "number"
+            ? functionCall.arguments.radius_meters
+            : requiredArguments.radius_meters,
+        constraints: {
+          ...requiredConstraints,
+          ...(isRecord(functionCall.arguments.constraints)
+            ? functionCall.arguments.constraints
+            : {}),
+          page_size: Math.min(Math.max(venueNames.length, 1), 8),
+        },
       },
     },
   };
+}
+
+async function executeOrSkipNightlifePlacesTool({
+  executeTool,
+  functionCall,
+  logger,
+  now,
+  runtimeRequest,
+  requestId,
+}: {
+  executeTool: (request: AgentToolExecutionRequest) => Promise<AgentToolResult>;
+  functionCall: AgentFunctionCallExecutionPlan;
+  logger: ReturnType<typeof createComponentLogger>;
+  now: () => Date;
+  runtimeRequest: AgentRuntimeRequest;
+  requestId: string;
+}) {
+  if (functionCall.kind === "execute") {
+    return executeAndAuditTool({
+      executeTool,
+      functionCall: functionCall.functionCall,
+      logger,
+      now,
+      runtimeRequest,
+      requestId,
+    });
+  }
+
+  return skippedNightlifePlacesToolOutput({
+    functionCall: functionCall.functionCall,
+    logger,
+    now,
+  });
+}
+
+function skippedNightlifePlacesToolOutput({
+  functionCall,
+  logger,
+  now,
+}: {
+  functionCall: ParsedFunctionCall;
+  logger: ReturnType<typeof createComponentLogger>;
+  now: () => Date;
+}) {
+  const startedAt = now();
+  const completedAt = now();
+  const result = {
+    name: "search_places",
+    toolCallId: functionCall.callId,
+    status: "error",
+    errorCode: "provider_unavailable",
+    text: "Skipped Google Places nightlife enrichment because no selected event-route venues were available.",
+    sources: [
+      {
+        label: "provider_unavailable",
+        sourceName: "Google Places nightlife venue enrichment",
+        sourceProfileId: "source_google_places",
+        fetchedAt: completedAt.toISOString(),
+        confidence: "low",
+        checked: [],
+        notChecked: [
+          "venue identity, map links, opening-hour signals, ratings, and review counts for selected event-route venues",
+        ],
+      },
+    ],
+  } satisfies AgentToolResult;
+  const audit = createAgentToolCallAudit({
+    toolCallId: functionCall.callId,
+    name: functionCall.name,
+    arguments: publicToolArguments(functionCall),
+    result,
+    startedAt,
+    completedAt,
+    providerOperation: providerOperationForTool(functionCall.name),
+  });
+
+  logger.info(
+    {
+      toolCallId: functionCall.callId,
+      toolName: functionCall.name,
+      durationMs: audit.durationMs,
+      status: audit.status,
+      errorCode: audit.errorCode,
+      providerOperation: audit.providerOperation,
+      sourceLabels: audit.sources.map((source) => source.label),
+      sourceProfileIds: audit.sourceProfileIds,
+    },
+    "Ask Siargao agent tool call skipped.",
+  );
+
+  return { audit, functionCall, result };
 }
 
 async function executeAndAuditTool({

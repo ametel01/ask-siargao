@@ -117,6 +117,52 @@ describe("answer source summaries", () => {
     ]);
   });
 
+  test("renders public web research labels without treating weak evidence as checked", () => {
+    const summaries: AnswerSourceSummary[] = [
+      {
+        label: "official_checked",
+        sourceName: "Barbosa official schedule",
+        sourceProfileId: "source_web_official",
+        confidence: "high",
+        checked: ["Wednesday closed schedule"],
+        notChecked: ["last-minute private events"],
+      },
+      {
+        label: "directory_checked",
+        sourceName: "SiargaoVibes",
+        sourceProfileId: "source_web_local_directory",
+        confidence: "medium",
+        checked: ["Goodies Funky Wednesday listing"],
+        notChecked: ["live crowd size"],
+      },
+      {
+        label: "web_researched",
+        sourceName: "Recent Siargao nightlife guide",
+        sourceProfileId: "source_web_guide",
+        confidence: "low",
+        checked: ["El Lobo Wednesday guide signal"],
+        notChecked: ["official same-day confirmation"],
+      },
+      {
+        label: "insufficient_web_evidence",
+        sourceName: "Public web research",
+        confidence: "low",
+        checked: ["ignored weak check"],
+        notChecked: ["current ferry disruption evidence"],
+      },
+    ];
+
+    expect(renderAnswerSourceLines(summaries)).toEqual([
+      "Checked: Barbosa official schedule (official checked; high confidence; profile source_web_official) - Wednesday closed schedule.",
+      "Checked: SiargaoVibes (directory checked; medium confidence; profile source_web_local_directory) - Goodies Funky Wednesday listing.",
+      "Checked: Recent Siargao nightlife guide (web researched; low confidence; profile source_web_guide) - El Lobo Wednesday guide signal.",
+      "Not checked: Barbosa official schedule (official checked; high confidence; profile source_web_official) - last-minute private events.",
+      "Not checked: SiargaoVibes (directory checked; medium confidence; profile source_web_local_directory) - live crowd size.",
+      "Not checked: Recent Siargao nightlife guide (web researched; low confidence; profile source_web_guide) - official same-day confirmation.",
+      "Not checked: Public web research (insufficient web evidence; low confidence) - current ferry disruption evidence.",
+    ]);
+  });
+
   test("does not invent checked items for empty or unavailable summaries", () => {
     const summaries: AnswerSourceSummary[] = [
       {

@@ -61,6 +61,7 @@ const renderedTrustLabels: Record<string, AnswerTrustLabel> = {
   "fresh cache": "fresh_cache",
   "live checked": "live_checked",
   "marine checked": "marine_checked",
+  "no current event facts": "no_current_event_facts",
   "not verified": "not_verified",
   "provider unavailable": "provider_unavailable",
   "tide forecast checked": "tide_forecast_checked",
@@ -509,6 +510,7 @@ function toolNamesForVerifyingLabel(label: AnswerTrustLabel) {
         "search_nightlife_events",
       ]);
     case "community_signal":
+    case "no_current_event_facts":
       return new Set(["search_nightlife_events"]);
     case "not_verified":
     case "provider_unavailable":
@@ -525,6 +527,9 @@ function validateSourceProfileForLabel(claim: SourceClaim): SourceConsistencyIss
   }
   if (claim.label === "community_signal") {
     return validateRequiredSourceProfile(claim, new Set(nightlifeCommunitySourceProfileIds));
+  }
+  if (claim.label === "no_current_event_facts") {
+    return validateRequiredSourceProfile(claim, new Set(nightlifeEventSourceProfileIds));
   }
   return undefined;
 }
@@ -550,7 +555,11 @@ function validateRequiredSourceProfile(
 }
 
 function doesSourceProfileMatch(claim: SourceClaim, toolSource: ToolSourceEvidence) {
-  if (claim.label === "event_checked" || claim.label === "community_signal") {
+  if (
+    claim.label === "event_checked" ||
+    claim.label === "community_signal" ||
+    claim.label === "no_current_event_facts"
+  ) {
     return Boolean(
       claim.sourceProfileId &&
         toolSource.sourceProfileId &&

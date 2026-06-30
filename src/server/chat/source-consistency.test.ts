@@ -1044,7 +1044,7 @@ const providerUnavailableSourceSummary: AnswerSourceSummary = {
 };
 
 const staleNightlifeSourceSummary: AnswerSourceSummary = {
-  label: "provider_unavailable",
+  label: "no_current_event_facts",
   sourceName: "Approved General Luna nightlife event source profiles",
   sourceProfileId: "source_nightlife_official_venue_websites",
   fetchedAt: "2026-07-07T04:00:00.000Z",

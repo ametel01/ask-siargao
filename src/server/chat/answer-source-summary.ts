@@ -8,6 +8,11 @@ export type AnswerTrustLabel =
   | "marine_checked"
   | "tide_forecast_checked"
   | "community_signal"
+  | "no_current_event_facts"
+  | "web_researched"
+  | "official_checked"
+  | "directory_checked"
+  | "insufficient_web_evidence"
   | "not_verified"
   | "provider_unavailable";
 
@@ -37,6 +42,9 @@ const verifyingLabels = new Set<AnswerTrustLabel>([
   "marine_checked",
   "tide_forecast_checked",
   "community_signal",
+  "web_researched",
+  "official_checked",
+  "directory_checked",
 ]);
 
 const trustLabelText: Record<AnswerTrustLabel, string> = {
@@ -49,6 +57,11 @@ const trustLabelText: Record<AnswerTrustLabel, string> = {
   marine_checked: "marine checked",
   tide_forecast_checked: "tide forecast checked",
   community_signal: "community signal",
+  no_current_event_facts: "no current event facts",
+  web_researched: "web researched",
+  official_checked: "official checked",
+  directory_checked: "directory checked",
+  insufficient_web_evidence: "insufficient web evidence",
   not_verified: "not verified",
   provider_unavailable: "provider unavailable",
 };

@@ -2477,7 +2477,7 @@ describe("agent tools", () => {
     );
 
     expect(result.status).toBe("success");
-    expect(result.sources.map((source) => source.label)).toEqual(["provider_unavailable"]);
+    expect(result.sources.map((source) => source.label)).toEqual(["no_current_event_facts"]);
     expect(result.sources[0]?.checked).toEqual([]);
     expect(result.sources[0]?.notChecked).toEqual(
       expect.arrayContaining([
@@ -2517,7 +2517,11 @@ describe("agent tools", () => {
     expect(result.text).toContain("marine_checked");
     expect(result.text).toContain("community_signal");
     expect(result.text).toContain("not_verified");
-    expect(result.text).toContain("provider_unavailable");
+    expect(result.text).toContain("no_current_event_facts");
+    expect(result.text).toContain("web_researched");
+    expect(result.text).toContain("official_checked");
+    expect(result.text).toContain("directory_checked");
+    expect(result.text).toContain("insufficient_web_evidence");
     expect(result.text).toContain("Never label generic model reasoning as live checked");
     expect(result.sources).toEqual([]);
     const data = result.data as { policies: Array<{ label: string }> };

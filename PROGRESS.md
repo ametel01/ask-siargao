@@ -5,15 +5,15 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 
 ## Current Status
 
-- Status: Step 1 complete
-- Current step: Add Web Research Types And Source Labels
-- Next step: Step 2 - Add Web Research Types And Source Labels
+- Status: Step 2 complete
+- Current step: Implement Deterministic Research Scoring Without Network Calls
+- Next step: Step 3 - Implement Deterministic Research Scoring Without Network Calls
 
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Baseline Quality Gates
-- [ ] Step 2: Add Web Research Types And Source Labels
+- [x] Step 2: Add Web Research Types And Source Labels
 - [ ] Step 3: Implement Deterministic Research Scoring Without Network Calls
 - [ ] Step 4: Register `research_web` As A Chat Tool
 - [ ] Step 5: Enforce Web Research Source Consistency
@@ -70,3 +70,20 @@ Update this file after every completed step with:
 - Changelog: no entry required for baseline-only validation.
 - Commit reference: this commit (`Record web research baseline gates`).
 - Next step: Step 2 - Add Web Research Types And Source Labels.
+
+### 2026-07-01 - Step 2 Completed
+
+- Added the typed `research_web` contract, public web-research source labels, schema mirrors, and
+  source-policy descriptions.
+- Preserved the prerequisite chat-source cleanup already in the worktree for current nightlife
+  prompts: no-current-event-facts is not treated as checked event evidence, and loaded
+  `NIGHTLIFE.md` baseline guidance is kept separate from current public evidence.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/chat/answer-source-summary.test.ts src/server/chat/agent-tools.test.ts src/server/trips/shared-trip-types.test.ts src/server/chat/condition-tools.test.ts` - 98 tests passed
+  - `bun test` - 657 tests passed
+- Changelog updated under `## [Unreleased]`.
+- Commit reference: this commit (`Add web research source contracts`).
+- Next step: Step 3 - Implement Deterministic Research Scoring Without Network Calls.
