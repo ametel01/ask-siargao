@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
-import type { AgentRuntimeRequest, AgentToolCallAudit } from "@/server/chat/agent-runtime";
+import type {
+  AgentRuntimeRequest,
+  AgentToolCallAudit,
+  AgentToolResult,
+} from "@/server/chat/agent-runtime";
 import {
   buildRequiredEvidencePlan,
   missingRequiredEvidenceToolCalls,
+  requiredEvidencePlaceCardIds,
 } from "@/server/chat/required-evidence";
 
 describe("required evidence planning", () => {
@@ -185,6 +190,106 @@ describe("required evidence planning", () => {
 
     expect(missingRequiredEvidenceToolCalls(plan, toolCalls)).toEqual([]);
   });
+
+  test("does not fall back to broad Places when successful research selects no entities", () => {
+    const plan = buildRequiredEvidencePlan(
+      requestWithIntent({
+        latestUserTurn: "best dinner in General Luna tonight",
+        today: true,
+        locationLabel: "General Luna",
+        placeIntent: {
+          category: "food",
+          liveNeeds: ["recommendation", "open_now"],
+          meal: "dinner",
+          location: "General Luna",
+        },
+        researchIntent: researchIntent({
+          query: "best dinner in General Luna tonight",
+          intent: "recommendation",
+          location: "General Luna",
+          dateContext: "tonight",
+          sourceTypes: ["maps", "official", "local_directory", "guide", "social"],
+          requiredFreshness: "same_day",
+        }),
+      }),
+    );
+
+    expect(
+      missingRequiredEvidenceToolCalls(
+        plan,
+        [successfulResearchToolCall()],
+        [researchToolResult({ entities: [] })],
+      ),
+    ).toEqual([]);
+  });
+
+  test("accepts only Places cards that match research-selected entities", () => {
+    const plan = buildRequiredEvidencePlan(
+      requestWithIntent({
+        latestUserTurn: "best dinner in General Luna tonight",
+        today: true,
+        locationLabel: "General Luna",
+        placeIntent: {
+          category: "food",
+          liveNeeds: ["recommendation", "open_now"],
+          meal: "dinner",
+          location: "General Luna",
+        },
+        researchIntent: researchIntent({
+          query: "best dinner in General Luna tonight",
+          intent: "recommendation",
+          location: "General Luna",
+          dateContext: "tonight",
+          sourceTypes: ["maps", "official", "local_directory", "guide", "social"],
+          requiredFreshness: "same_day",
+        }),
+      }),
+    );
+
+    expect(
+      requiredEvidencePlaceCardIds(plan, [
+        researchToolResult({
+          entities: [{ name: "Roots Siargao", kind: "place", needsPlacesEnrichment: true }],
+        }),
+        {
+          name: "search_places",
+          toolCallId: "call_places",
+          status: "success",
+          text: "Google Places returned selected and unrelated candidates.",
+          sources: [
+            {
+              label: "live_checked",
+              sourceName: "Google Places",
+              sourceProfileId: "source_google_places",
+              confidence: "medium",
+              checked: ["place details"],
+              notChecked: [],
+            },
+          ],
+          cards: [
+            {
+              id: "place_roots",
+              kind: "place",
+              title: "Roots Siargao",
+              subtitle: "General Luna",
+              fitReasons: [],
+              caveats: [],
+              sourceLabel: "Google Places - live checked",
+            },
+            {
+              id: "place_random",
+              kind: "place",
+              title: "Random Bar",
+              subtitle: "General Luna",
+              fitReasons: [],
+              caveats: [],
+              sourceLabel: "Google Places - live checked",
+            },
+          ],
+        },
+      ]),
+    ).toEqual(["place_roots"]);
+  });
 });
 
 function requestWithIntent(intent: Record<string, unknown>): AgentRuntimeRequest {
@@ -239,4 +344,31 @@ function successfulResearchToolCall() {
       },
     ],
   });
+}
+
+function researchToolResult({
+  entities,
+}: {
+  entities: readonly Record<string, unknown>[];
+}): AgentToolResult {
+  return {
+    name: "research_web",
+    toolCallId: "call_research",
+    status: "success",
+    text: "Public web research returned selected entities.",
+    data: {
+      status: "available",
+      entities,
+    },
+    sources: [
+      {
+        label: "official_checked",
+        sourceName: "Official source",
+        sourceProfileId: "source_web_official",
+        confidence: "high",
+        checked: ["current evidence"],
+        notChecked: [],
+      },
+    ],
+  };
 }

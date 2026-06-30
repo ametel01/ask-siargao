@@ -19,6 +19,11 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Added web research source labels and typed research contracts for the planned `research_web`
   chat tool.
 
+### Changed
+
+- Converted Google Places for research-covered prompts into research-selected entity enrichment,
+  preventing broad Places candidates from appearing as fallback recommendation cards.
+
 ### Security
 
 - Documented the final authenticated data privacy checklist for persisted chat,

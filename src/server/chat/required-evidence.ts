@@ -210,6 +210,7 @@ export function missingRequiredEvidenceToolCalls(
 ): RequiredEvidenceToolCall[] {
   return plan.requiredToolCalls.filter(
     (requiredCall) =>
+      !researchPlacesEnrichmentIsUnavailable(requiredCall, plan, toolResults) &&
       !nightlifePlacesEnrichmentIsUnavailable(requiredCall, plan, toolResults) &&
       !dependencyHasTerminalEvidence(requiredCall, plan, toolCalls) &&
       dependenciesHaveSatisfyingEvidence(requiredCall, plan, toolCalls) &&
@@ -262,12 +263,13 @@ export function requiredEvidencePlaceCardIds(
   toolResults: readonly AgentToolResult[],
 ) {
   const nightlifeVenueNames = selectedNightlifeEventVenueNames(toolResults);
+  const researchEntityNames = selectedResearchEntityNames(toolResults);
   return uniqueText(
     toolResults.flatMap((result) =>
       isCheckedPlacesEvidenceResult(result)
         ? (result.cards ?? []).flatMap((card) =>
             card.kind === "place" &&
-            requiredEvidenceAcceptsPlaceCard(plan, card, nightlifeVenueNames)
+            requiredEvidenceAcceptsPlaceCard(plan, card, nightlifeVenueNames, researchEntityNames)
               ? [card.id]
               : [],
           )
@@ -294,6 +296,18 @@ export function selectedNightlifeEventVenueNames(
     toolResults.flatMap((result) =>
       result.name === "search_nightlife_events" && result.status === "success"
         ? readNightlifeCandidateVenueNames(result.data)
+        : [],
+    ),
+  );
+}
+
+export function selectedResearchEntityNames(
+  toolResults: readonly Pick<AgentToolResult, "name" | "status" | "data">[],
+) {
+  return uniqueText(
+    toolResults.flatMap((result) =>
+      result.name === "research_web" && result.status === "success"
+        ? readResearchEntityNames(result.data)
         : [],
     ),
   );
@@ -645,10 +659,30 @@ export function nightlifePlacesEnrichmentIsUnavailable(
   );
 }
 
+export function researchPlacesEnrichmentIsUnavailable(
+  requiredCall: RequiredEvidenceToolCall,
+  plan: RequiredEvidencePlan,
+  toolResults: readonly Pick<AgentToolResult, "name" | "status" | "data">[],
+) {
+  return (
+    requiredCall.name === "search_places" &&
+    requiredCall.dependsOn?.includes("research_web") === true &&
+    plan.requiredToolCalls.some((call) => call.name === "research_web") &&
+    researchLookupCompleted(toolResults) &&
+    selectedResearchEntityNames(toolResults).length === 0
+  );
+}
+
 function nightlifeEventLookupCompleted(
   toolResults: readonly Pick<AgentToolResult, "name" | "status" | "data">[],
 ) {
   return toolResults.some((result) => result.name === "search_nightlife_events");
+}
+
+function researchLookupCompleted(
+  toolResults: readonly Pick<AgentToolResult, "name" | "status" | "data">[],
+) {
+  return toolResults.some((result) => result.name === "research_web");
 }
 
 function isCheckedPlacesEvidenceResult(result: AgentToolResult) {
@@ -665,7 +699,16 @@ function requiredEvidenceAcceptsPlaceCard(
   plan: RequiredEvidencePlan,
   card: RecommendationCard,
   nightlifeVenueNames: readonly string[],
+  researchEntityNames: readonly string[],
 ) {
+  const requiresResearchSelectedEntities = plan.requiredToolCalls.some(
+    (requiredCall) =>
+      requiredCall.name === "search_places" &&
+      requiredCall.dependsOn?.includes("research_web") === true,
+  );
+  if (requiresResearchSelectedEntities) {
+    return researchEntityNames.some((entityName) => placeCardMatchesVenue(card, entityName));
+  }
   if (
     !plan.requiredToolCalls.some((requiredCall) => requiredCall.name === "search_nightlife_events")
   ) {
@@ -696,6 +739,27 @@ function readNightlifeCandidateVenueNames(data: AgentToolResult["data"]) {
 
 function readCandidateVenueName(value: unknown) {
   return isRecord(value) && typeof value.venueName === "string" ? [value.venueName] : [];
+}
+
+function readResearchEntityNames(data: AgentToolResult["data"]) {
+  if (!isRecord(data) || !Array.isArray(data.entities)) {
+    return [];
+  }
+  return data.entities.flatMap((entity) => {
+    if (!isRecord(entity) || typeof entity.name !== "string") {
+      return [];
+    }
+    if (entity.needsPlacesEnrichment === false) {
+      return [];
+    }
+    if (
+      typeof entity.kind === "string" &&
+      !["place", "operator", "event", "service", "activity"].includes(entity.kind)
+    ) {
+      return [];
+    }
+    return [entity.name];
+  });
 }
 
 function normalizeCardVenueText(value: string) {

@@ -943,6 +943,18 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       sourceLabel: "Google Places - live checked",
       sources: [openNowPlacesSourceSummary],
     };
+    const unrelatedPlaceCard = {
+      id: "place_unrelated",
+      kind: "place" as const,
+      title: "Random Bar",
+      subtitle: "General Luna",
+      mapsUrl: "https://maps.example/random-bar",
+      openStatusLabel: "Open now according to Google Places.",
+      fitReasons: ["Returned by a broad Google Places result."],
+      caveats: ["Not selected by public web research."],
+      sourceLabel: "Google Places - live checked",
+      sources: [openNowPlacesSourceSummary],
+    };
     const client = fakeResponsesClient([
       responseWithToolCall({
         id: "resp_research_places_wrong_order",
@@ -961,7 +973,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         output_text: finalPayloadText({
           answer: "Roots is the best dinner move tonight after checking public web evidence.",
           usedToolCallIds: ["auto_preflight_required_evidence_1", "call_places_first"],
-          displayCardIds: [placeCard.id],
+          displayCardIds: [placeCard.id, unrelatedPlaceCard.id],
         }),
         _request_id: "req_research_places_final",
       },
@@ -975,19 +987,24 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
           toolCallId: request.toolCallId,
           status: "success",
           text: "Public web research found Roots dinner evidence.",
-          data: { status: "available" },
+          data: {
+            status: "available",
+            entities: [{ name: "Roots Siargao", kind: "place", needsPlacesEnrichment: true }],
+          },
           sources: [officialWebSourceSummary],
         };
       }
       if (request.name === "search_places") {
         expect(researchFinished).toBe(true);
+        expect(request.arguments.query).toBe("Roots Siargao Siargao place details");
+        expect(request.arguments.constraints).toMatchObject({ page_size: 1 });
         return {
           name: "search_places",
           toolCallId: request.toolCallId,
           status: "success",
           text: "Google Places returned Roots.",
           sources: [openNowPlacesSourceSummary],
-          cards: [placeCard],
+          cards: [placeCard, unrelatedPlaceCard],
         };
       }
       throw new Error(`Unexpected tool ${request.name}`);
@@ -1010,6 +1027,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.toolCalls[1]?.toolCallId).toBe("call_places_first");
     expect(result.publicSources).toEqual([officialWebSourceSummary, openNowPlacesSourceSummary]);
     expect(result.cards).toEqual([placeCard]);
+    expect(JSON.stringify(result.cards)).not.toContain(unrelatedPlaceCard.title);
   });
 
   test("skips dependent Places enrichment after insufficient required web research", async () => {

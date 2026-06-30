@@ -40,7 +40,9 @@ import {
   type RequiredEvidencePlan,
   type RequiredEvidenceToolCall,
   requiredEvidencePlaceCardIds,
+  researchPlacesEnrichmentIsUnavailable,
   selectedNightlifeEventVenueNames,
+  selectedResearchEntityNames,
 } from "@/server/chat/required-evidence";
 import { createComponentLogger } from "@/server/observability/logger";
 
@@ -2145,7 +2147,15 @@ function exposeRequiredEvidenceArtifacts(
   const requiresNightlifeRouteEvidence = requiredEvidencePlan.requiredToolCalls.some(
     (requiredCall) => requiredCall.name === "search_nightlife_events",
   );
-  if (requiresNightlifeRouteEvidence && placeCardIds.length > 0) {
+  const requiresResearchSelectedPlaces = requiredEvidencePlan.requiredToolCalls.some(
+    (requiredCall) =>
+      requiredCall.name === "search_places" &&
+      requiredCall.dependsOn?.includes("research_web") === true,
+  );
+  if (
+    (requiresNightlifeRouteEvidence || requiresResearchSelectedPlaces) &&
+    placeCardIds.length > 0
+  ) {
     return {
       ...finalPayload,
       displayCardIds: placeCardIds,
@@ -2345,7 +2355,7 @@ async function executeAndAuditToolBatch({
     const remainingFunctionCalls = functionCalls
       .filter((_, index) => index !== nightlifeEventIndex)
       .map((functionCall) =>
-        eventBackedNightlifePlacesFunctionCall(
+        evidenceBackedPlacesFunctionCall(
           functionCall,
           requiredEvidencePlan,
           eventBackedToolResults,
@@ -2353,7 +2363,7 @@ async function executeAndAuditToolBatch({
       );
     const remainingOutputs = await Promise.all(
       remainingFunctionCalls.map((functionCall) =>
-        executeOrSkipNightlifePlacesTool({
+        executeOrSkipPlacesTool({
           executeTool,
           functionCall,
           logger,
@@ -2369,10 +2379,10 @@ async function executeAndAuditToolBatch({
   return Promise.all(
     functionCalls
       .map((functionCall) =>
-        eventBackedNightlifePlacesFunctionCall(functionCall, requiredEvidencePlan, toolResults),
+        evidenceBackedPlacesFunctionCall(functionCall, requiredEvidencePlan, toolResults),
       )
       .map((functionCall) =>
-        executeOrSkipNightlifePlacesTool({
+        executeOrSkipPlacesTool({
           executeTool,
           functionCall,
           logger,
@@ -2399,8 +2409,11 @@ type AgentFunctionCallExecutionPlan =
       functionCall: ParsedFunctionCall;
     }
   | {
-      kind: "skip_nightlife_places";
+      kind: "skip_places_enrichment";
       functionCall: ParsedFunctionCall;
+      reason: string;
+      sourceName: string;
+      notChecked: readonly string[];
     };
 
 type ExecutedAgentToolOutput = {
@@ -2409,35 +2422,86 @@ type ExecutedAgentToolOutput = {
   result: AgentToolResult;
 };
 
-function eventBackedNightlifePlacesFunctionCall(
+function evidenceBackedPlacesFunctionCall(
   functionCall: ParsedFunctionCall,
   requiredEvidencePlan: RequiredEvidencePlan,
   toolResults: readonly AgentToolResult[],
 ): AgentFunctionCallExecutionPlan {
+  if (functionCall.name !== "search_places") {
+    return { kind: "execute", functionCall };
+  }
+
+  const requiredPlacesCall = requiredEvidencePlan.requiredToolCalls.find(
+    (requiredCall) => requiredCall.name === "search_places",
+  );
+  if (!requiredPlacesCall) {
+    return { kind: "execute", functionCall };
+  }
+
+  const researchEntityNames = selectedResearchEntityNames(toolResults);
   if (
-    functionCall.name !== "search_places" ||
-    !requiredEvidencePlan.requiredToolCalls.some(
-      (requiredCall) => requiredCall.name === "search_nightlife_events",
-    )
+    researchPlacesEnrichmentIsUnavailable(requiredPlacesCall, requiredEvidencePlan, toolResults)
   ) {
+    return {
+      kind: "skip_places_enrichment",
+      functionCall,
+      reason:
+        "Skipped Google Places enrichment because public web research did not select entities for place-detail lookup.",
+      sourceName: "Google Places research-selected entity enrichment",
+      notChecked: [
+        "venue identity, map links, opening-hour signals, ratings, and review counts for research-selected entities",
+      ],
+    };
+  }
+  if (researchEntityNames.length > 0) {
+    return entityBackedPlacesFunctionCall(
+      functionCall,
+      requiredPlacesCall.arguments,
+      researchEntityNames,
+      "Siargao place details",
+    );
+  }
+
+  const hasNightlifeEventRequirement = requiredEvidencePlan.requiredToolCalls.some(
+    (requiredCall) => requiredCall.name === "search_nightlife_events",
+  );
+  if (!hasNightlifeEventRequirement) {
     return { kind: "execute", functionCall };
   }
 
   const venueNames = selectedNightlifeEventVenueNames(toolResults);
-  const requiredPlacesCall = requiredEvidencePlan.requiredToolCalls.find(
-    (requiredCall) => requiredCall.name === "search_places",
-  );
   if (
-    requiredPlacesCall &&
     nightlifePlacesEnrichmentIsUnavailable(requiredPlacesCall, requiredEvidencePlan, toolResults)
   ) {
-    return { kind: "skip_nightlife_places", functionCall };
+    return {
+      kind: "skip_places_enrichment",
+      functionCall,
+      reason:
+        "Skipped Google Places nightlife enrichment because no selected event-route venues were available.",
+      sourceName: "Google Places nightlife venue enrichment",
+      notChecked: [
+        "venue identity, map links, opening-hour signals, ratings, and review counts for selected event-route venues",
+      ],
+    };
   }
   if (venueNames.length === 0) {
     return { kind: "execute", functionCall };
   }
 
-  const requiredArguments = requiredPlacesCall?.arguments ?? {};
+  return entityBackedPlacesFunctionCall(
+    functionCall,
+    requiredPlacesCall.arguments,
+    venueNames,
+    "General Luna Siargao nightlife venues",
+  );
+}
+
+function entityBackedPlacesFunctionCall(
+  functionCall: ParsedFunctionCall,
+  requiredArguments: Record<string, unknown>,
+  entityNames: readonly string[],
+  querySuffix: string,
+): AgentFunctionCallExecutionPlan {
   const requiredConstraints = isRecord(requiredArguments.constraints)
     ? requiredArguments.constraints
     : {};
@@ -2448,7 +2512,7 @@ function eventBackedNightlifePlacesFunctionCall(
       arguments: {
         ...requiredArguments,
         ...functionCall.arguments,
-        query: `${venueNames.join(" ")} General Luna Siargao nightlife venues`,
+        query: `${entityNames.join(" ")} ${querySuffix}`,
         center: isRecord(functionCall.arguments.center)
           ? functionCall.arguments.center
           : requiredArguments.center,
@@ -2461,14 +2525,14 @@ function eventBackedNightlifePlacesFunctionCall(
           ...(isRecord(functionCall.arguments.constraints)
             ? functionCall.arguments.constraints
             : {}),
-          page_size: Math.min(Math.max(venueNames.length, 1), 8),
+          page_size: Math.min(Math.max(entityNames.length, 1), 8),
         },
       },
     },
   };
 }
 
-async function executeOrSkipNightlifePlacesTool({
+async function executeOrSkipPlacesTool({
   executeTool,
   functionCall,
   logger,
@@ -2494,21 +2558,30 @@ async function executeOrSkipNightlifePlacesTool({
     });
   }
 
-  return skippedNightlifePlacesToolOutput({
+  return skippedPlacesToolOutput({
     functionCall: functionCall.functionCall,
     logger,
     now,
+    notChecked: functionCall.notChecked,
+    reason: functionCall.reason,
+    sourceName: functionCall.sourceName,
   });
 }
 
-function skippedNightlifePlacesToolOutput({
+function skippedPlacesToolOutput({
   functionCall,
   logger,
+  notChecked,
   now,
+  reason,
+  sourceName,
 }: {
   functionCall: ParsedFunctionCall;
   logger: ReturnType<typeof createComponentLogger>;
+  notChecked: readonly string[];
   now: () => Date;
+  reason: string;
+  sourceName: string;
 }): ExecutedAgentToolOutput {
   const startedAt = now();
   const completedAt = now();
@@ -2517,18 +2590,16 @@ function skippedNightlifePlacesToolOutput({
     toolCallId: functionCall.callId,
     status: "error",
     errorCode: "provider_unavailable",
-    text: "Skipped Google Places nightlife enrichment because no selected event-route venues were available.",
+    text: reason,
     sources: [
       {
         label: "provider_unavailable",
-        sourceName: "Google Places nightlife venue enrichment",
+        sourceName,
         sourceProfileId: "source_google_places",
         fetchedAt: completedAt.toISOString(),
         confidence: "low",
         checked: [],
-        notChecked: [
-          "venue identity, map links, opening-hour signals, ratings, and review counts for selected event-route venues",
-        ],
+        notChecked: [...notChecked],
       },
     ],
   } satisfies AgentToolResult;

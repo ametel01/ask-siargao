@@ -5,9 +5,9 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 
 ## Current Status
 
-- Status: Step 7 complete
-- Current step: Convert Places To Entity-Specific Enrichment
-- Next step: Step 8 - Convert Places To Entity-Specific Enrichment
+- Status: Step 8 complete
+- Current step: Reject Legacy Final Answers For Research-Required Prompts
+- Next step: Step 9 - Reject Legacy Final Answers For Research-Required Prompts
 
 ## Step Checklist
 
@@ -19,7 +19,7 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 - [x] Step 5: Enforce Web Research Source Consistency
 - [x] Step 6: Add General Research Intent And Required Evidence Planning
 - [x] Step 7: Enforce Research-Before-Enrichment Runtime Ordering
-- [ ] Step 8: Convert Places To Entity-Specific Enrichment
+- [x] Step 8: Convert Places To Entity-Specific Enrichment
 - [ ] Step 9: Reject Legacy Final Answers For Research-Required Prompts
 - [ ] Step 10: Wire The Production Web Search Provider
 - [ ] Step 11: Add Optional Short-Lived Research Persistence
@@ -179,3 +179,22 @@ Update this file after every completed step with:
 - Changelog updated under `## [Unreleased]`.
 - Commit reference: this commit (`Enforce research before enrichment`).
 - Next step: Step 8 - Convert Places To Entity-Specific Enrichment.
+
+### 2026-07-01 - Step 8 Completed
+
+- Converted Google Places calls for research-covered recommendation prompts into entity-specific
+  enrichment based on `research_web` selected entities.
+- Skipped Places enrichment when successful public web research produced no enrichable entities,
+  instead of allowing broad Places candidates as fallback cards.
+- Filtered required Places artifacts so mixed selected/unrelated card IDs expose only cards matching
+  research-selected entities.
+- Preserved broad Places behavior for prompts that do not require `research_web`.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/chat/ask-siargao-agent.test.ts src/server/chat/agent-runtime.test.ts src/server/chat/required-evidence.test.ts` - 121 tests passed
+  - `bun test` - 689 tests passed
+- Changelog updated under `## [Unreleased]`.
+- Commit reference: this commit (`Use Places as research entity enrichment`).
+- Next step: Step 9 - Reject Legacy Final Answers For Research-Required Prompts.
