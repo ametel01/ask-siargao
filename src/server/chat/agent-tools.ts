@@ -297,6 +297,25 @@ const sourcePolicyDescriptions: SourcePolicyDescription[] = [
     ],
   },
   {
+    label: "event_checked",
+    meaning: "Approved nightlife event-source profiles backed event occurrence or schedule facts.",
+    useWhen:
+      "Use when search_nightlife_events returned fresh, unexpired General Luna nightlife event occurrences from approved event source profiles.",
+    caveats: [
+      "Google Places, review platforms, travel blogs, and community chatter are not event truth.",
+      "Same-day facts expire after the event window and stale recurring baselines require refresh before being treated as current.",
+    ],
+  },
+  {
+    label: "venue_checked",
+    meaning: "A governed venue-detail source backed venue identity or map-detail fields.",
+    useWhen:
+      "Use for venue identity, map links, address, business status, opening-hour signals, ratings, or review counts when a venue-detail tool returns those fields.",
+    caveats: [
+      "Venue checks do not verify tonight's event schedule, live crowd size, door policy, bookings, or table availability.",
+    ],
+  },
+  {
     label: "curated_local_guide",
     meaning: "Ask Siargao curated local guide data backed the answer.",
     useWhen: "Use for local beach and trip-planning facts maintained by Ask Siargao.",
@@ -333,6 +352,16 @@ const sourcePolicyDescriptions: SourcePolicyDescription[] = [
       "This development/testing integration uses Tide-Forecast page data and production commercial use needs appropriate Tide-Forecast/Meteo365 permission or license.",
       "Dapa is a nearby station proxy for Cloud 9 and General Luna, not an exact break reading or safety clearance.",
       "Official tide-gauge measurements, navigation safety, rip currents, lifeguards, local operator calls, and official marine warnings are not checked.",
+    ],
+  },
+  {
+    label: "community_signal",
+    meaning: "A low-confidence public community or broad travel signal was available.",
+    useWhen:
+      "Use only when a profiled, allowed public community/travel source is returned by a governed tool as context or discovery.",
+    caveats: [
+      "Community signals cannot rank venues or verify tonight's event schedule.",
+      "Private or semi-private groups are disallowed unless explicitly submitted with permission through an approved profile.",
     ],
   },
   {
@@ -462,7 +491,7 @@ const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<un
       type: "function",
       name: "search_nightlife_events",
       description:
-        "Search approved General Luna nightlife event facts before using Google Places for venue details. Use for tonight, party, nightlife, bar-hopping, DJ, live-music, foam-party, pub-quiz, trivia, and drinks-tonight route answers. This returns event schedule evidence and route roles, not live crowd size, door policy, guest list, table availability, last-minute cancellation, or exact closing time.",
+        "Search approved General Luna nightlife event facts before using Google Places for venue details. Use for tonight, party, nightlife, bar-hopping, DJ, live-music, foam-party, pub-quiz, trivia, and drinks-tonight route answers. This returns event schedule evidence, source profile IDs, freshness/expiry metadata, refresh decisions, and route roles, not live crowd size, door policy, guest list, table availability, last-minute cancellation, or exact closing time.",
       parameters: {
         type: "object",
         properties: {
@@ -2757,13 +2786,14 @@ function searchNightlifeEventsToolResult(
       candidates: result.candidates,
       route: result.route,
       boundaries: {
-        checked: result.source.checked,
-        notChecked: result.source.notChecked,
+        checked: result.sources.flatMap((source) => source.checked),
+        notChecked: [...new Set(result.sources.flatMap((source) => source.notChecked))],
       },
+      refreshDecision: result.refreshDecision,
       nextStep:
         "Use Google Places only after this event lookup to enrich selected venue identity, map links, address, business status, opening-hour signal, ratings, and review counts.",
     },
-    sources: [result.source],
+    sources: result.sources,
   };
 }
 

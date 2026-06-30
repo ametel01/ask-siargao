@@ -51,10 +51,13 @@ const answerSourceSummarySchema = z.strictObject({
   label: z.enum([
     "live_checked",
     "fresh_cache",
+    "event_checked",
+    "venue_checked",
     "curated_local_guide",
     "weather_checked",
     "marine_checked",
     "tide_forecast_checked",
+    "community_signal",
     "not_verified",
     "provider_unavailable",
   ]),

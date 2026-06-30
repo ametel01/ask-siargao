@@ -81,7 +81,7 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
         date: "tonight",
         interests: nightlifeInterests(intent),
       },
-      acceptedSourceLabels: ["curated_local_guide"],
+      acceptedSourceLabels: ["event_checked"],
       terminalSourceLabels: ["provider_unavailable"],
     });
     requiredToolCalls.push({

@@ -1,4 +1,8 @@
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
+import {
+  type nightlifeCommunitySourceProfileIds,
+  nightlifeEventSourceProfileIds,
+} from "@/server/providers/adapters";
 
 export const nightlifeEventInterestValues = [
   "party",
@@ -14,6 +18,7 @@ export const nightlifeEventInterestValues = [
 export type NightlifeEventInterest = (typeof nightlifeEventInterestValues)[number];
 
 export type NightlifeRouteRole = "warm_up" | "main_party" | "late_option" | "softer_option";
+export type NightlifeEventConfidence = "high" | "medium" | "low";
 
 export type NightlifeEventCandidate = {
   id: string;
@@ -27,11 +32,30 @@ export type NightlifeEventCandidate = {
   routeRole: NightlifeRouteRole;
   intensity: "low" | "medium" | "high";
   interests: readonly NightlifeEventInterest[];
+  sourceProfileId: NightlifeEventSourceProfileId;
   sourceName: string;
-  sourceUrl: string;
+  sourceUrl?: string;
+  manualVerificationNote?: string;
   sourceBasis: string;
-  confidence: "high" | "medium" | "low";
+  confidence: NightlifeEventConfidence;
+  observedAt: string;
+  lastVerifiedAt: string;
+  expiresAt: string;
+  reviewAfter: string;
   notes: readonly string[];
+};
+
+export type NightlifeEventSourceProfileId = (typeof nightlifeEventSourceProfileIds)[number];
+export type NightlifeCommunitySourceProfileId = (typeof nightlifeCommunitySourceProfileIds)[number];
+
+export type NightlifePriorityRefreshDecision = {
+  status: "not_needed" | "recommended";
+  reason: string;
+  localDate: string;
+  dayOfWeek: string;
+  checkedFreshHighMediumEventCount: number;
+  minimumFreshHighMediumEventCount: number;
+  prioritySourceProfileIds: readonly NightlifeEventSourceProfileId[];
 };
 
 export type NightlifeEventSearchInput = {
@@ -54,12 +78,30 @@ export type NightlifeEventSearchResult = {
     lateOption?: NightlifeEventCandidate;
     softerOption?: NightlifeEventCandidate;
   };
+  sources: readonly AnswerSourceSummary[];
   source: AnswerSourceSummary;
+  refreshDecision: NightlifePriorityRefreshDecision;
 };
 
-const sourceProfileId = "source_ask_siargao_nightlife_events";
+type WeeklyNightlifeEventFact = Omit<
+  NightlifeEventCandidate,
+  "observedAt" | "expiresAt" | "sourceProfileId"
+> & {
+  sourceProfileId: NightlifeEventSourceProfileId | NightlifeCommunitySourceProfileId;
+  expiresAtLocalTime: string;
+  expiresAtDayOffset?: number;
+};
 
-const weeklyEventFacts: readonly NightlifeEventCandidate[] = [
+const minimumFreshHighMediumEventCount = 2;
+const priorityNightlifeEventSourceProfileIds: readonly NightlifeEventSourceProfileId[] = [
+  "source_nightlife_official_venue_websites",
+  "source_nightlife_official_multi_venue_event_pages",
+  "source_nightlife_local_event_directories",
+  "source_nightlife_venue_submitted_events",
+  "source_nightlife_public_official_social_posts",
+];
+
+const weeklyEventFacts: readonly WeeklyNightlifeEventFact[] = [
   {
     id: "nightlife_barrel_tuesday_pub_quiz",
     venueName: "BARREL",
@@ -72,10 +114,14 @@ const weeklyEventFacts: readonly NightlifeEventCandidate[] = [
     routeRole: "warm_up",
     intensity: "medium",
     interests: ["pub_quiz", "trivia", "drinks", "bar_hopping"],
+    sourceProfileId: "source_nightlife_local_event_directories",
     sourceName: "SiargaoVibes event listing",
     sourceUrl: "https://siargaovibes.com/activities/tuesdays-pub-quiz-at-barrel/",
     sourceBasis: "Local event listing for Tuesday pub quiz at BARREL.",
     confidence: "medium",
+    lastVerifiedAt: "2026-06-30T09:00:00+08:00",
+    reviewAfter: "2026-07-01T09:00:00+08:00",
+    expiresAtLocalTime: "21:30",
     notes: ["Best used as a social warm-up before a louder main party."],
   },
   {
@@ -89,10 +135,15 @@ const weeklyEventFacts: readonly NightlifeEventCandidate[] = [
     routeRole: "main_party",
     intensity: "high",
     interests: ["party", "dj", "drinks", "bar_hopping"],
+    sourceProfileId: "source_nightlife_official_venue_websites",
     sourceName: "Barbosa official weekly schedule",
     sourceUrl: "https://www.barbosasiargao.com/schedule-1",
     sourceBasis: "Official weekly schedule lists Tuesday Disco Tropico.",
     confidence: "high",
+    lastVerifiedAt: "2026-06-30T09:00:00+08:00",
+    reviewAfter: "2026-07-01T09:00:00+08:00",
+    expiresAtLocalTime: "02:00",
+    expiresAtDayOffset: 1,
     notes: ["Strong Tuesday anchor when the user wants the main party."],
   },
   {
@@ -106,10 +157,15 @@ const weeklyEventFacts: readonly NightlifeEventCandidate[] = [
     routeRole: "softer_option",
     intensity: "medium",
     interests: ["party", "dj", "live_music", "drinks", "bar_hopping"],
+    sourceProfileId: "source_nightlife_local_event_directories",
     sourceName: "SiargaoVibes nightlife listing",
     sourceUrl: "https://siargaovibes.com/nightlife/mama-coco-siargao-events-schedule/",
     sourceBasis: "Local nightlife listing describes the Tuesday Latin Night pattern.",
     confidence: "medium",
+    lastVerifiedAt: "2026-06-30T09:00:00+08:00",
+    reviewAfter: "2026-07-01T09:00:00+08:00",
+    expiresAtLocalTime: "02:00",
+    expiresAtDayOffset: 1,
     notes: ["Use as a softer dance option if Barbosa is too intense."],
   },
   {
@@ -123,10 +179,15 @@ const weeklyEventFacts: readonly NightlifeEventCandidate[] = [
     routeRole: "late_option",
     intensity: "high",
     interests: ["party", "foam_party", "dj", "drinks", "bar_hopping"],
+    sourceProfileId: "source_nightlife_public_official_social_posts",
     sourceName: "Siargao Beach Club official social profile",
     sourceUrl: "https://www.instagram.com/siargaobeachclubph/",
     sourceBasis: "Official social profile is the approved check point for the foam-party pattern.",
     confidence: "medium",
+    lastVerifiedAt: "2026-06-30T09:00:00+08:00",
+    reviewAfter: "2026-07-01T09:00:00+08:00",
+    expiresAtLocalTime: "02:00",
+    expiresAtDayOffset: 1,
     notes: ["Treat as a late option, not as proof of same-day crowd size."],
   },
   {
@@ -141,10 +202,15 @@ const weeklyEventFacts: readonly NightlifeEventCandidate[] = [
     routeRole: "main_party",
     intensity: "high",
     interests: ["party", "dj", "drinks", "bar_hopping"],
+    sourceProfileId: "source_nightlife_local_event_directories",
     sourceName: "SiargaoVibes nightlife listing",
     sourceUrl: "https://siargaovibes.com/nightlife/thursdays-at-bed-brew/",
     sourceBasis: "Local nightlife listing describes the Thursday Bed & Brew party.",
     confidence: "medium",
+    lastVerifiedAt: "2026-06-30T09:00:00+08:00",
+    reviewAfter: "2026-07-04T09:00:00+08:00",
+    expiresAtLocalTime: "00:30",
+    expiresAtDayOffset: 1,
     notes: ["Use as the Thursday anchor when present."],
   },
   {
@@ -159,24 +225,63 @@ const weeklyEventFacts: readonly NightlifeEventCandidate[] = [
     routeRole: "main_party",
     intensity: "high",
     interests: ["party", "dj", "live_music", "drinks", "bar_hopping"],
+    sourceProfileId: "source_nightlife_local_event_directories",
     sourceName: "SiargaoVibes nightlife listing",
     sourceUrl: "https://siargaovibes.com/nightlife/saturdays-at-harana/",
     sourceBasis:
       "Listing describes a recurring Saturday party pattern; official same-day confirmation remains unchecked.",
     confidence: "medium",
+    lastVerifiedAt: "2026-06-30T09:00:00+08:00",
+    reviewAfter: "2026-07-04T09:00:00+08:00",
+    expiresAtLocalTime: "01:30",
+    expiresAtDayOffset: 1,
     notes: ["Good Saturday anchor, but do not claim last-minute lineup confirmation."],
+  },
+  {
+    id: "nightlife_el_lobo_monday_community_pattern",
+    venueName: "El Lobo",
+    eventName: "Reported Monday/Wednesday/Friday party rhythm",
+    location: "General Luna",
+    dayOfWeek: "Monday",
+    startTime: "21:00",
+    localTimeWindow: "9 PM-late",
+    routeRole: "main_party",
+    intensity: "medium",
+    interests: ["party", "dj", "drinks", "bar_hopping"],
+    sourceProfileId: "source_nightlife_local_guides",
+    sourceName: "Broad nightlife guide",
+    sourceUrl: "https://smallgirlbigbackpack.com/siargao-nightlife-and-party-schedule/",
+    sourceBasis:
+      "Background guide reports a recurring party rhythm, but it is not an approved event-schedule source.",
+    confidence: "low",
+    lastVerifiedAt: "2026-06-30T09:00:00+08:00",
+    reviewAfter: "2026-07-30T09:00:00+08:00",
+    expiresAtLocalTime: "02:00",
+    expiresAtDayOffset: 1,
+    notes: ["Community-style discovery signal only; do not use as same-day event truth."],
   },
 ];
 
 export function searchNightlifeEvents(
   input: NightlifeEventSearchInput,
 ): NightlifeEventSearchResult {
-  const localDate = manilaDateParts(input.now ?? new Date());
+  const now = input.now ?? new Date();
+  const localDate = manilaDateParts(now);
   const requestedInterests = new Set(input.interests ?? []);
   const candidates = weeklyEventFacts
     .filter((event) => event.dayOfWeek === localDate.weekday)
+    .filter(isApprovedEventSourceFact)
+    .filter((event) => isFreshForSameDay(event, now))
+    .map((event) => eventOccurrenceFromWeeklyFact(event, localDate.date))
+    .filter((event) => !isExpiredOccurrence(event, now))
     .filter((event) => eventMatchesRequestedInterests(event, requestedInterests))
     .sort(compareNightlifeCandidates);
+  const refreshDecision = buildPriorityRefreshDecision(candidates, localDate);
+  const sources = nightlifeSourceSummaries({
+    candidates,
+    dayOfWeek: localDate.weekday,
+    fetchedAt: now.toISOString(),
+  });
 
   return {
     status: candidates.length > 0 ? "available" : "no_events",
@@ -186,11 +291,9 @@ export function searchNightlifeEvents(
     dayOfWeek: localDate.weekday,
     candidates,
     route: routeFromCandidates(candidates),
-    source: nightlifeSourceSummary({
-      candidateCount: candidates.length,
-      dayOfWeek: localDate.weekday,
-      fetchedAt: (input.now ?? new Date()).toISOString(),
-    }),
+    sources,
+    source: sources[0] ?? fallbackNightlifeSourceSummary(localDate.weekday, now.toISOString()),
+    refreshDecision,
   };
 }
 
@@ -207,9 +310,10 @@ export function renderNightlifeEventsText(result: NightlifeEventSearchResult) {
     `Approved General Luna nightlife event facts for ${result.dayOfWeek} ${result.localDate}:`,
     ...result.candidates.map(
       (candidate, index) =>
-        `${index + 1}. ${candidate.venueName} - ${candidate.eventName} (${candidate.localTimeWindow}; ${candidate.routeRole.replaceAll("_", " ")}; ${candidate.intensity} intensity; source: ${candidate.sourceName}).`,
+        `${index + 1}. ${candidate.venueName} - ${candidate.eventName} (${candidate.localTimeWindow}; ${candidate.routeRole.replaceAll("_", " ")}; ${candidate.intensity} intensity; confidence: ${candidate.confidence}; profile: ${candidate.sourceProfileId}; verified: ${candidate.lastVerifiedAt}; expires: ${candidate.expiresAt}; source: ${candidate.sourceName}).`,
     ),
     routeSummaryText(result),
+    refreshDecisionText(result.refreshDecision),
     `Not checked: ${nightlifeNotChecked.join("; ")}.`,
   ].join("\n");
 }
@@ -237,6 +341,45 @@ function routeStop(label: string, candidate: NightlifeEventCandidate | undefined
   return candidate ? `${label}: ${candidate.venueName} (${candidate.eventName})` : undefined;
 }
 
+function isApprovedEventSourceFact(
+  event: WeeklyNightlifeEventFact,
+): event is WeeklyNightlifeEventFact & { sourceProfileId: NightlifeEventSourceProfileId } {
+  return (nightlifeEventSourceProfileIds as readonly string[]).includes(event.sourceProfileId);
+}
+
+function isFreshForSameDay(event: WeeklyNightlifeEventFact, now: Date) {
+  return new Date(event.reviewAfter).getTime() >= now.getTime();
+}
+
+function eventOccurrenceFromWeeklyFact(
+  event: WeeklyNightlifeEventFact & { sourceProfileId: NightlifeEventSourceProfileId },
+  localDate: string,
+): NightlifeEventCandidate {
+  return {
+    ...event,
+    observedAt: `${localDate}T${event.startTime}:00+08:00`,
+    expiresAt: eventExpiresAt(event, localDate),
+  };
+}
+
+function eventExpiresAt(event: WeeklyNightlifeEventFact, localDate: string) {
+  const eventDate = manilaDateWithOffset(localDate, event.expiresAtDayOffset ?? 0);
+  return `${eventDate}T${event.expiresAtLocalTime}:00+08:00`;
+}
+
+function manilaDateWithOffset(localDate: string, offsetDays: number) {
+  if (offsetDays === 0) {
+    return localDate;
+  }
+  const date = new Date(`${localDate}T00:00:00+08:00`);
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return manilaDateParts(date).date;
+}
+
+function isExpiredOccurrence(event: NightlifeEventCandidate, now: Date) {
+  return new Date(event.expiresAt).getTime() <= now.getTime();
+}
+
 function eventMatchesRequestedInterests(
   event: NightlifeEventCandidate,
   requestedInterests: ReadonlySet<NightlifeEventInterest>,
@@ -254,30 +397,120 @@ function isBroadRouteSearch(requestedInterests: ReadonlySet<NightlifeEventIntere
   return requestedInterests.has("party") || requestedInterests.has("bar_hopping");
 }
 
-function nightlifeSourceSummary({
-  candidateCount,
+function buildPriorityRefreshDecision(
+  candidates: readonly NightlifeEventCandidate[],
+  localDate: ReturnType<typeof manilaDateParts>,
+): NightlifePriorityRefreshDecision {
+  const checkedFreshHighMediumEventCount = candidates.filter((candidate) =>
+    highOrMediumConfidence(candidate.confidence),
+  ).length;
+  if (checkedFreshHighMediumEventCount >= minimumFreshHighMediumEventCount) {
+    return {
+      status: "not_needed",
+      reason:
+        "Fresh high/medium confidence event-backed options meet the same-day General Luna minimum.",
+      localDate: localDate.date,
+      dayOfWeek: localDate.weekday,
+      checkedFreshHighMediumEventCount,
+      minimumFreshHighMediumEventCount,
+      prioritySourceProfileIds: priorityNightlifeEventSourceProfileIds,
+    };
+  }
+
+  return {
+    status: "recommended",
+    reason:
+      "Fewer than two fresh high/medium confidence event-backed options are available; refresh approved priority event sources before treating the answer as current.",
+    localDate: localDate.date,
+    dayOfWeek: localDate.weekday,
+    checkedFreshHighMediumEventCount,
+    minimumFreshHighMediumEventCount,
+    prioritySourceProfileIds: priorityNightlifeEventSourceProfileIds,
+  };
+}
+
+function highOrMediumConfidence(confidence: NightlifeEventConfidence) {
+  return confidence === "high" || confidence === "medium";
+}
+
+function refreshDecisionText(decision: NightlifePriorityRefreshDecision) {
+  return `Same-day refresh decision: ${decision.status} (${decision.checkedFreshHighMediumEventCount}/${decision.minimumFreshHighMediumEventCount} fresh high/medium event-backed options; ${decision.reason}).`;
+}
+
+function nightlifeSourceSummaries({
+  candidates,
   dayOfWeek,
   fetchedAt,
 }: {
-  candidateCount: number;
+  candidates: readonly NightlifeEventCandidate[];
   dayOfWeek: string;
   fetchedAt: string;
-}): AnswerSourceSummary {
-  return {
-    label: "curated_local_guide",
-    sourceName: "Ask Siargao approved nightlife event facts",
+}): readonly AnswerSourceSummary[] {
+  const sourceGroups = new Map<NightlifeEventSourceProfileId, NightlifeEventCandidate[]>();
+  for (const candidate of candidates) {
+    sourceGroups.set(candidate.sourceProfileId, [
+      ...(sourceGroups.get(candidate.sourceProfileId) ?? []),
+      candidate,
+    ]);
+  }
+
+  if (sourceGroups.size === 0) {
+    return [fallbackNightlifeSourceSummary(dayOfWeek, fetchedAt)];
+  }
+
+  return [...sourceGroups.entries()].map(([sourceProfileId, sourceCandidates]) => ({
+    label: "event_checked",
+    sourceName: nightlifeSourceSummaryName(sourceProfileId),
     sourceProfileId,
     fetchedAt,
-    confidence: candidateCount > 0 ? "medium" : "low",
-    checked:
-      candidateCount > 0
-        ? [
-            `approved General Luna nightlife event facts for ${dayOfWeek}`,
-            "route roles: warm-up, main party, late option, and softer option when available",
-          ]
-        : [`approved General Luna nightlife event facts for ${dayOfWeek}`],
+    confidence: strongestConfidence(sourceCandidates),
+    checked: [
+      `approved General Luna nightlife event facts for ${dayOfWeek}`,
+      `verified event occurrences: ${sourceCandidates.map((candidate) => candidate.venueName).join(", ")}`,
+      "route roles: warm-up, main party, late option, and softer option when available",
+    ],
     notChecked: nightlifeNotChecked,
+  }));
+}
+
+function fallbackNightlifeSourceSummary(dayOfWeek: string, fetchedAt: string): AnswerSourceSummary {
+  return {
+    label: "event_checked",
+    sourceName: "Approved General Luna nightlife event source profiles",
+    sourceProfileId: priorityNightlifeEventSourceProfileIds[0],
+    fetchedAt,
+    confidence: "low",
+    checked: [`approved General Luna nightlife event facts for ${dayOfWeek}`],
+    notChecked: [
+      ...nightlifeNotChecked,
+      "same-day event schedule until approved priority sources are refreshed",
+    ],
   };
+}
+
+function strongestConfidence(candidates: readonly NightlifeEventCandidate[]) {
+  if (candidates.some((candidate) => candidate.confidence === "high")) {
+    return "high";
+  }
+  if (candidates.some((candidate) => candidate.confidence === "medium")) {
+    return "medium";
+  }
+  return "low";
+}
+
+function nightlifeSourceSummaryName(sourceProfileId: NightlifeEventSourceProfileId) {
+  switch (sourceProfileId) {
+    case "source_nightlife_official_venue_websites":
+      return "Official nightlife venue websites";
+    case "source_nightlife_official_multi_venue_event_pages":
+      return "Official multi-venue nightlife event pages";
+    case "source_nightlife_local_event_directories":
+      return "Local nightlife event directories";
+    case "source_nightlife_venue_submitted_events":
+      return "Venue-submitted nightlife events";
+    case "source_nightlife_public_official_social_posts":
+      return "Public official venue social posts";
+  }
 }
 
 const nightlifeNotChecked = [

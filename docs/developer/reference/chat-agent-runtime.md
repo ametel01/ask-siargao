@@ -171,17 +171,17 @@ Every tool-backed claim should return `AnswerSourceSummary` entries:
 
 - `live_checked` for successful live Google Places search/detail outputs;
 - `fresh_cache` for fresh cached Google Places outputs;
+- `event_checked` for fresh, unexpired nightlife event occurrences from approved event profiles;
+- `venue_checked` for governed venue-detail sources when a tool uses that explicit venue label;
 - `weather_checked` for usable Open-Meteo forecast snapshots;
 - `curated_local_guide` for curated Ask Siargao guide data;
+- `community_signal` for low-confidence public community/travel context that cannot verify event truth;
 - `provider_unavailable` for failed or fallback provider checks;
 - `not_verified` for generic model reasoning with no matching tool evidence.
 
-Planned nightlife/event work may add `event_checked`, `venue_checked`, or
-`community_signal`, but those labels are not valid until
-`src/server/chat/answer-source-summary.ts`, source-consistency validation, and
-tool tests support them. Before that implementation lands, nightlife tools
-should use existing labels and put event/venue/community distinctions inside
-`checked` and `notChecked` fields.
+Nightlife event labels require explicit source profile IDs. Community/travel
+signals must stay low confidence and cannot be upgraded into `event_checked`
+schedule truth.
 
 `src/server/chat/source-consistency.ts` validates structured `sources` and rendered `Checked:` /
 `Not checked:` lines against actual audited tool calls. The route returns a controlled `502` if the

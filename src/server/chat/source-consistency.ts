@@ -1,5 +1,9 @@
 import type { AgentToolCallAudit, ChatClientGeolocationContext } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary, AnswerTrustLabel } from "@/server/chat/answer-source-summary";
+import {
+  nightlifeCommunitySourceProfileIds,
+  nightlifeEventSourceProfileIds,
+} from "@/server/providers/adapters";
 
 export type SourceConsistencyIssueCode =
   | "browser_geolocation_claim_not_tool_backed"
@@ -37,6 +41,7 @@ type SourceClaim = {
   lineKind?: "checked" | "not_checked";
   line?: string;
   sourceName?: string;
+  sourceProfileId?: string;
   checkedText?: string;
 };
 
@@ -44,18 +49,22 @@ type ToolSourceEvidence = {
   toolName: string;
   label: AnswerTrustLabel;
   sourceName: string;
+  sourceProfileId?: string;
   checkedText: string;
   notCheckedText: string;
 };
 
 const renderedTrustLabels: Record<string, AnswerTrustLabel> = {
   "curated local guide": "curated_local_guide",
+  "community signal": "community_signal",
+  "event checked": "event_checked",
   "fresh cache": "fresh_cache",
   "live checked": "live_checked",
   "marine checked": "marine_checked",
   "not verified": "not_verified",
   "provider unavailable": "provider_unavailable",
   "tide forecast checked": "tide_forecast_checked",
+  "venue checked": "venue_checked",
   "weather checked": "weather_checked",
 };
 
@@ -278,6 +287,11 @@ function validateSourceClaim(
     ];
   }
 
+  const sourceProfileIssue = validateSourceProfileForLabel(claim);
+  if (sourceProfileIssue) {
+    return [sourceProfileIssue];
+  }
+
   if (isBrowserGeolocationCheckedClaim(claim) && !evidence.browserGeolocationTool) {
     return [
       {
@@ -386,6 +400,7 @@ function summarizeToolSources(toolCalls: readonly AgentToolCallAudit[]): ToolSou
       toolName: toolCall.name,
       label: source.label,
       sourceName: normalizeText(source.sourceName),
+      ...(source.sourceProfileId ? { sourceProfileId: source.sourceProfileId } : {}),
       checkedText: formatItems(normalizeItems(source.checked)),
       notCheckedText: formatItems(normalizeItems(source.notChecked)),
     }));
@@ -462,12 +477,17 @@ function isToolBackedClaimSupported(
       toolNames.has(toolSource.toolName) &&
       toolSource.label === claim.label &&
       toolSource.sourceName === normalizeText(claim.sourceName) &&
+      doesSourceProfileMatch(claim, toolSource) &&
       doesClaimTextMatchToolSource(claim, toolSource),
   );
 }
 
 function toolNamesForVerifyingLabel(label: AnswerTrustLabel) {
   switch (label) {
+    case "event_checked":
+      return new Set(["search_nightlife_events"]);
+    case "venue_checked":
+      return placesToolNames;
     case "live_checked":
       return placesToolNames;
     case "fresh_cache":
@@ -488,10 +508,56 @@ function toolNamesForVerifyingLabel(label: AnswerTrustLabel) {
         "rank_surf_spots_nearby",
         "search_nightlife_events",
       ]);
+    case "community_signal":
+      return new Set(["search_nightlife_events"]);
     case "not_verified":
     case "provider_unavailable":
       return undefined;
   }
+}
+
+function validateSourceProfileForLabel(claim: SourceClaim): SourceConsistencyIssue | undefined {
+  if (!claim.label) {
+    return undefined;
+  }
+  if (claim.label === "event_checked") {
+    return validateRequiredSourceProfile(claim, new Set(nightlifeEventSourceProfileIds));
+  }
+  if (claim.label === "community_signal") {
+    return validateRequiredSourceProfile(claim, new Set(nightlifeCommunitySourceProfileIds));
+  }
+  return undefined;
+}
+
+function validateRequiredSourceProfile(
+  claim: SourceClaim,
+  allowedSourceProfileIds: ReadonlySet<string>,
+): SourceConsistencyIssue | undefined {
+  if (claim.sourceProfileId && allowedSourceProfileIds.has(claim.sourceProfileId)) {
+    return undefined;
+  }
+  return {
+    code:
+      claim.origin === "rendered_source_line"
+        ? "rendered_checked_line_not_verifiable"
+        : "structured_source_not_tool_backed",
+    label: claim.label,
+    line: claim.line,
+    sourceName: claim.sourceName,
+    message:
+      "Event and community source claims require an explicit approved source profile for the label.",
+  };
+}
+
+function doesSourceProfileMatch(claim: SourceClaim, toolSource: ToolSourceEvidence) {
+  if (claim.label === "event_checked" || claim.label === "community_signal") {
+    return Boolean(
+      claim.sourceProfileId &&
+        toolSource.sourceProfileId &&
+        claim.sourceProfileId === toolSource.sourceProfileId,
+    );
+  }
+  return true;
 }
 
 function doesClaimTextMatchToolSource(claim: SourceClaim, toolSource: ToolSourceEvidence) {
@@ -537,6 +603,7 @@ function sourceSummaryToClaim(source: AnswerSourceSummary): SourceClaim {
     origin: "structured_source",
     label: source.label,
     sourceName: source.sourceName,
+    sourceProfileId: source.sourceProfileId,
     checkedText: formatItems(normalizeItems(source.checked)),
   };
 }
@@ -564,6 +631,7 @@ function renderedSourceLineToClaim(line: string): SourceClaim {
     line,
     sourceName: match[2],
     label: readRenderedTrustLabel(match[3]),
+    sourceProfileId: readRenderedSourceProfileId(match[3]),
     checkedText: match[4],
   };
 }
@@ -585,13 +653,26 @@ function isGenericReasoningSource(sourceName: string | undefined) {
 
 function isVerifyingLabel(label: AnswerTrustLabel) {
   return (
+    label === "event_checked" ||
+    label === "venue_checked" ||
     label === "live_checked" ||
     label === "fresh_cache" ||
     label === "weather_checked" ||
     label === "marine_checked" ||
     label === "tide_forecast_checked" ||
+    label === "community_signal" ||
     label === "curated_local_guide"
   );
+}
+
+function readRenderedSourceProfileId(metadata: string) {
+  const parts = metadata.split(";").map((part) => normalizeText(part));
+  for (const part of parts) {
+    if (part.startsWith("profile ")) {
+      return part.slice("profile ".length).trim();
+    }
+  }
+  return undefined;
 }
 
 function normalizeText(value: string | undefined) {

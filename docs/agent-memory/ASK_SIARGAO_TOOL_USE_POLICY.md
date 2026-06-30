@@ -57,7 +57,11 @@ restaurants, bars, services, attractions, or nearby options.
 Use `search_nightlife_events`, when available, before `search_places` for
 party, nightlife, bar-hopping, DJ, live-music, foam-party, pub-quiz, trivia, or
 drinks-tonight prompts. Nightlife questions need event evidence first; Google
-Places is venue enrichment, not proof of tonight's party.
+Places is venue enrichment, not proof of tonight's party. Treat
+`event_checked` nightlife output as event schedule evidence only when it comes
+from approved event source profiles and is still fresh/unexpired for the
+resolved Siargao local date. Treat `community_signal` output as low-confidence
+context only; it cannot verify tonight's schedule or replace the event check.
 
 Use `get_place_details` when the traveler asks about a specific place and the
 answer needs governed Google Places details or a map link.
@@ -134,6 +138,10 @@ traveler asks for a risk breakdown.
 If a local-data tool returns no matching facts or missing source evidence, say
 what was not found instead of broadening the request to private data, unrestricted
 tables, or model-only claims.
+
+If `search_nightlife_events` returns a refresh recommendation, do not treat stale
+recurring baseline rows or Google Places bar rankings as same-day event truth.
+Say that the event source refresh is needed for a current answer.
 
 ## Uncertainty Wording
 

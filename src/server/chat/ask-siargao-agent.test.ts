@@ -6092,13 +6092,14 @@ const localGuideSourceSummary: AnswerSourceSummary = {
 };
 
 const nightlifeEventSourceSummary: AnswerSourceSummary = {
-  label: "curated_local_guide",
-  sourceName: "Ask Siargao approved nightlife event facts",
-  sourceProfileId: "source_ask_siargao_nightlife_events",
+  label: "event_checked",
+  sourceName: "Local nightlife event directories",
+  sourceProfileId: "source_nightlife_local_event_directories",
   fetchedAt: "2026-06-30T04:00:00.000Z",
   confidence: "medium",
   checked: [
     "approved General Luna nightlife event facts for Tuesday",
+    "verified event occurrences: BARREL, Mama Coco",
     "route roles: warm-up, main party, late option, and softer option when available",
   ],
   notChecked: [

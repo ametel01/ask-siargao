@@ -1,10 +1,13 @@
 export type AnswerTrustLabel =
   | "live_checked"
   | "fresh_cache"
+  | "event_checked"
+  | "venue_checked"
   | "curated_local_guide"
   | "weather_checked"
   | "marine_checked"
   | "tide_forecast_checked"
+  | "community_signal"
   | "not_verified"
   | "provider_unavailable";
 
@@ -27,19 +30,25 @@ export type RenderAnswerSourceSummaryOptions = {
 const verifyingLabels = new Set<AnswerTrustLabel>([
   "live_checked",
   "fresh_cache",
+  "event_checked",
+  "venue_checked",
   "curated_local_guide",
   "weather_checked",
   "marine_checked",
   "tide_forecast_checked",
+  "community_signal",
 ]);
 
 const trustLabelText: Record<AnswerTrustLabel, string> = {
   live_checked: "live checked",
   fresh_cache: "fresh cache",
+  event_checked: "event checked",
+  venue_checked: "venue checked",
   curated_local_guide: "curated local guide",
   weather_checked: "weather checked",
   marine_checked: "marine checked",
   tide_forecast_checked: "tide forecast checked",
+  community_signal: "community signal",
   not_verified: "not verified",
   provider_unavailable: "provider unavailable",
 };
