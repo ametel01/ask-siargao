@@ -1340,7 +1340,8 @@ describe("agent tools", () => {
     expect(result.status).toBe("error");
     expect(result.errorCode).toBe("provider_unavailable");
     expect(result.sources[0]?.label).toBe("provider_unavailable");
-    expect(result.text).toContain("PERMISSION_DENIED");
+    expect(result.text).toBe("Google Places search is temporarily unavailable.");
+    expect(result.text).not.toContain("PERMISSION_DENIED");
     expect(result.cards).toBeUndefined();
     expect(result.actions).toBeUndefined();
   });
@@ -1484,7 +1485,8 @@ describe("agent tools", () => {
     expect(result.status).toBe("error");
     expect(result.errorCode).toBe("provider_unavailable");
     expect(result.sources[0]?.label).toBe("provider_unavailable");
-    expect(result.text).toContain("PERMISSION_DENIED");
+    expect(result.text).toBe("Google Places details are temporarily unavailable.");
+    expect(result.text).not.toContain("PERMISSION_DENIED");
   });
 
   test("returns sand-only curated beach guide candidates", async () => {

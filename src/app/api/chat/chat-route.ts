@@ -7,15 +7,16 @@ import { isClerkServerConfigured } from "@/features/auth/clerk-config";
 import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/auth/clerk-users";
 import type {
   AgentMemoryMetadata,
-  AgentToolCallAudit,
   AgentTurnResult,
   ChatClientContext,
   ChatClientGeolocationConsentScope,
   ChatClientGeolocationContext,
   DecisionSummary,
   ItineraryPlan,
+  PublicAgentToolCall,
   RecommendationCard,
 } from "@/server/chat/agent-runtime";
+import { publicAgentToolCallsFromAudits } from "@/server/chat/agent-runtime";
 import {
   type AnswerSourceSummary,
   renderAnswerSourceLines,
@@ -270,10 +271,7 @@ export async function chatResponse(
         logger,
       },
     );
-    const publicToolCalls = redactToolCallsForPublicResponse(
-      result.toolCalls,
-      clientContext.geolocation,
-    );
+    const publicToolCalls = publicAgentToolCallsFromAudits(result.toolCalls);
 
     const publicAnswerSources = chatAnswerSourcesForValidation(
       result.publicSources,
@@ -285,7 +283,7 @@ export async function chatResponse(
     const sourceValidationInput = {
       message: responseMessage,
       sources: publicAnswerSources,
-      toolCalls: publicToolCalls,
+      toolCalls: result.toolCalls,
       browserGeolocation: clientContext.geolocation,
     };
     try {
@@ -812,7 +810,7 @@ function summarizeMemoryForResponse(memory: AgentMemoryMetadata): PublicAgentMem
   };
 }
 
-function summarizeToolCallForLogs(toolCall: AgentToolCallAudit) {
+function summarizeToolCallForLogs(toolCall: PublicAgentToolCall) {
   return {
     name: toolCall.name,
     status: toolCall.status,
@@ -824,7 +822,7 @@ function summarizeToolCallForLogs(toolCall: AgentToolCallAudit) {
   };
 }
 
-function summarizeToolCallsForStoredHistory(toolCalls: readonly AgentToolCallAudit[]) {
+function summarizeToolCallsForStoredHistory(toolCalls: readonly PublicAgentToolCall[]) {
   return toolCalls.map((toolCall) => ({
     id: toolCall.id,
     name: toolCall.name,
@@ -872,66 +870,12 @@ function summarizeArtifactSelectionForLogs(
   };
 }
 
-function isProviderFailureToolCall(toolCall: AgentToolCallAudit) {
+function isProviderFailureToolCall(toolCall: PublicAgentToolCall) {
   return (
     toolCall.status === "error" ||
     toolCall.errorCode === "provider_unavailable" ||
     toolCall.sources.some((source) => source.label === "provider_unavailable")
   );
-}
-
-function redactToolCallsForPublicResponse(
-  toolCalls: readonly AgentToolCallAudit[],
-  geolocation: ChatClientGeolocationContext,
-) {
-  if (!hasExactBrowserGeolocation(geolocation)) {
-    return toolCalls;
-  }
-
-  return toolCalls.map((toolCall) => {
-    if (toolCall.name !== "search_places") {
-      return toolCall;
-    }
-
-    const center = toolCall.arguments.center;
-    if (!isRecord(center) || !centerMatchesBrowserGeolocation(center, geolocation)) {
-      return toolCall;
-    }
-
-    return {
-      ...toolCall,
-      arguments: {
-        ...toolCall.arguments,
-        center: browserGeolocationCenterReference(),
-      },
-    };
-  });
-}
-
-function hasExactBrowserGeolocation(
-  geolocation: ChatClientGeolocationContext,
-): geolocation is ChatClientGeolocationContext & { latitude: number; longitude: number } {
-  return (
-    geolocation.status === "available" &&
-    geolocation.source === "browser_geolocation" &&
-    typeof geolocation.latitude === "number" &&
-    typeof geolocation.longitude === "number"
-  );
-}
-
-function centerMatchesBrowserGeolocation(
-  center: Record<string, unknown>,
-  geolocation: ChatClientGeolocationContext & { latitude: number; longitude: number },
-) {
-  return center.latitude === geolocation.latitude && center.longitude === geolocation.longitude;
-}
-
-function browserGeolocationCenterReference() {
-  return { source: "browser_geolocation" };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isRecommendationQuestion(intent: ChatRequestIntent) {

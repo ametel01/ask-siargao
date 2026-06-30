@@ -11,6 +11,7 @@ import {
   createAgentTurnResult,
   type DecisionSummary,
   type ItineraryPlan,
+  publicAgentToolCallFromAudit,
   resolveAgentRuntimeRequest,
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
@@ -104,6 +105,54 @@ describe("agent runtime contracts", () => {
     expect(audit.errorCode).toBe("provider_unavailable");
     expect(audit.sources[0]?.label).toBe("provider_unavailable");
     expect(audit.resultText).toContain("Google Places");
+  });
+
+  test("maps internal audits to public tool calls without arguments or result text", () => {
+    const audit = createAgentToolCallAudit({
+      auditId: "audit_public_places",
+      toolCallId: "call_public_places",
+      name: "search_places",
+      arguments: {
+        query: "distinctive raw cafe query",
+        center: { latitude: 9.8116, longitude: 126.1651 },
+      },
+      result: {
+        name: "search_places",
+        status: "error",
+        text: "Google Places search failed: PRIVATE_PROVIDER_TIMEOUT",
+        errorCode: "provider_unavailable",
+        sources: [providerUnavailableSourceSummary],
+      },
+      providerOperation: "google_places.chat_search",
+      startedAt: new Date("2026-06-26T00:00:01.000Z"),
+      completedAt: new Date("2026-06-26T00:00:01.050Z"),
+    });
+
+    const publicToolCall = publicAgentToolCallFromAudit(audit);
+
+    expect(audit.arguments).toEqual({
+      query: "distinctive raw cafe query",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+    });
+    expect(audit.resultText).toContain("PRIVATE_PROVIDER_TIMEOUT");
+    expect(publicToolCall).toEqual({
+      id: "audit_public_places",
+      toolCallId: "call_public_places",
+      name: "search_places",
+      status: "error",
+      durationMs: 50,
+      startedAt: "2026-06-26T00:00:01.000Z",
+      completedAt: "2026-06-26T00:00:01.050Z",
+      errorCode: "provider_unavailable",
+      providerOperation: "google_places.chat_search",
+      sourceProfileIds: ["source_google_places"],
+      sources: [providerUnavailableSourceSummary],
+    });
+    expect(JSON.stringify(publicToolCall)).not.toContain("arguments");
+    expect(JSON.stringify(publicToolCall)).not.toContain("resultText");
+    expect(JSON.stringify(publicToolCall)).not.toContain("distinctive raw cafe query");
+    expect(JSON.stringify(publicToolCall)).not.toContain("9.8116");
+    expect(JSON.stringify(publicToolCall)).not.toContain("PRIVATE_PROVIDER_TIMEOUT");
   });
 
   test("aggregates source summaries from audited tool calls without duplicates", () => {
