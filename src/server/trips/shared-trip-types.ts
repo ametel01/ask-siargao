@@ -1,6 +1,12 @@
 import { z } from "zod";
 
-import type { ItineraryPlan, ItineraryStop, RecommendationCard } from "@/server/chat/agent-runtime";
+import {
+  type ArtifactDecisionMetadata,
+  artifactDecisionLabels,
+  type ItineraryPlan,
+  type ItineraryStop,
+  type RecommendationCard,
+} from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 
 const savedTripItemKinds = ["place", "beach", "itinerary", "note"] as const;
@@ -60,6 +66,11 @@ const answerSourceSummarySchema = z.strictObject({
   notChecked: normalizedTextArraySchema(16, maxShortTextLength),
 });
 
+const artifactDecisionMetadataSchema = z.strictObject({
+  label: z.enum(artifactDecisionLabels),
+  bestAction: trimmedString(maxShortTextLength),
+});
+
 const recommendationCardPayloadSchema = z.strictObject({
   id: savedTripItemIdSchema,
   kind: z.enum(["place", "beach"]),
@@ -71,6 +82,7 @@ const recommendationCardPayloadSchema = z.strictObject({
   fitReasons: normalizedTextArraySchema(8),
   caveats: normalizedTextArraySchema(12),
   sourceLabel: trimmedString(maxShortTextLength),
+  decision: artifactDecisionMetadataSchema.optional(),
 });
 
 const itineraryStopPayloadSchema = z.strictObject({
@@ -92,6 +104,7 @@ const itineraryStopPayloadSchema = z.strictObject({
 const itineraryPlanPayloadSchema = z.strictObject({
   title: trimmedString(maxShortTextLength),
   durationLabel: trimmedString(80),
+  decision: artifactDecisionMetadataSchema.optional(),
   stops: z.array(itineraryStopPayloadSchema).min(1).max(20),
   fallbackStops: z.array(itineraryStopPayloadSchema).max(12),
   skip: normalizedTextArraySchema(12),
@@ -241,6 +254,7 @@ export function savedTripItemFromRecommendationCard({
         fitReasons: normalizeTextArray(card.fitReasons, 8),
         caveats: normalizeTextArray(card.caveats, 12),
         sourceLabel: normalizeText(card.sourceLabel, maxShortTextLength),
+        ...(card.decision ? { decision: normalizeArtifactDecision(card.decision) } : {}),
       },
     },
     sources: sources.map(normalizeSourceSummary),
@@ -272,6 +286,7 @@ export function savedTripItemFromItineraryPlan({
       plan: {
         ...plan,
         title: normalizeText(plan.title, maxShortTextLength),
+        ...(plan.decision ? { decision: normalizeArtifactDecision(plan.decision) } : {}),
         stops: plan.stops.map(normalizeItineraryStop),
         fallbackStops: plan.fallbackStops.map(normalizeItineraryStop),
         skip: normalizeTextArray(plan.skip, 12),
@@ -327,6 +342,13 @@ function normalizeSourceSummary(source: AnswerSourceSummary) {
       : {}),
     checked: normalizeTextArray(source.checked, 12, maxShortTextLength),
     notChecked: normalizeTextArray(source.notChecked, 16, maxShortTextLength),
+  };
+}
+
+function normalizeArtifactDecision(decision: ArtifactDecisionMetadata): ArtifactDecisionMetadata {
+  return {
+    label: decision.label,
+    bestAction: normalizeText(decision.bestAction, maxShortTextLength),
   };
 }
 

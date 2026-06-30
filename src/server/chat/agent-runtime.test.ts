@@ -267,7 +267,12 @@ describe("agent runtime contracts", () => {
     expect(turn.publicSources).toEqual([placesSourceSummary]);
     expect(turn.cards?.map((card) => card.title)).toEqual(["Cloud 9 Cafe"]);
     expect(turn.cards?.[0]?.sources).toEqual([placesSourceSummary]);
+    expect(turn.cards?.[0]?.decision).toEqual({
+      label: "good_now",
+      bestAction: "Use this for the closest quick snack before checking the surf.",
+    });
     expect(turn.actions?.map((action) => action.label)).toEqual(["Make a short plan"]);
+    expect(JSON.stringify(turn.cards)).not.toContain("Keep Doot as the quieter backup.");
     expect(turn.artifactSelection).toMatchObject({
       structuredFinalPayload: true,
       selectedCardCount: 1,
@@ -393,6 +398,7 @@ describe("agent runtime contracts", () => {
     expect(turn.sources).toEqual([localGuideSourceSummary, placesSourceSummary]);
     expect(turn.publicSources).toEqual([placesSourceSummary]);
     expect(turn.cards).toBeUndefined();
+    expect(JSON.stringify(turn)).not.toContain("Use this only if the selected plan falls through.");
   });
 
   test("does not expose itinerary artifacts without final-payload selection", () => {
@@ -458,6 +464,11 @@ describe("agent runtime contracts", () => {
 
     expect(turn.sources).toEqual([localGuideSourceSummary, weatherSourceSummary]);
     expect(turn.itineraries?.map((plan) => plan.title)).toEqual(["Sunset plus Dinner"]);
+    expect(turn.itineraries?.[0]?.decision).toEqual({
+      label: "best_fit",
+      bestAction: "Start near sunset, then keep dinner in General Luna.",
+    });
+    expect(JSON.stringify(turn.itineraries)).not.toContain("Move this indoors if rain starts.");
     expect(turn.artifactSelection).toMatchObject({
       structuredFinalPayload: true,
       selectedItineraryCount: 1,
@@ -1354,6 +1365,10 @@ const dootBeachCard = {
   fitReasons: ["Sandy shore", "Works for a quieter beach stop"],
   caveats: ["Check tide and road conditions before leaving"],
   sourceLabel: "Ask Siargao curated local beach guide",
+  decision: {
+    label: "fallback" as const,
+    bestAction: "Keep Doot as the quieter backup.",
+  },
 };
 
 const cloud9CafeCard = {
@@ -1367,6 +1382,10 @@ const cloud9CafeCard = {
   fitReasons: ["Close to the surf tower"],
   caveats: ["Bookings and review text were not checked"],
   sourceLabel: "Google Places - live checked",
+  decision: {
+    label: "good_now" as const,
+    bestAction: "Use this for the closest quick snack before checking the surf.",
+  },
 };
 
 const generalLunaRestaurantCard = {
@@ -1403,6 +1422,10 @@ const planAction = {
 const rainyCloud9Plan: ItineraryPlan = {
   title: "Rainy Cloud 9 Afternoon",
   durationLabel: "2-3 hours",
+  decision: {
+    label: "fallback",
+    bestAction: "Move this indoors if rain starts.",
+  },
   stops: [
     {
       title: "Cloud 9 boardwalk",
@@ -1440,6 +1463,10 @@ const rainyCloud9Plan: ItineraryPlan = {
 const sunsetDinnerPlan: ItineraryPlan = {
   title: "Sunset plus Dinner",
   durationLabel: "3-4 hours",
+  decision: {
+    label: "best_fit",
+    bestAction: "Start near sunset, then keep dinner in General Luna.",
+  },
   stops: [
     {
       title: "General Luna sunset stop",

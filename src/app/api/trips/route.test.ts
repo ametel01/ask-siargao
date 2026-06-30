@@ -324,6 +324,10 @@ describe("saved trip API routes", () => {
     expect(shareBody.plan.items[0].payload.card.openStatusLabel).toBe(
       "Open now from Google Places",
     );
+    expect(shareBody.plan.items[0].payload.card.decision).toEqual({
+      label: "good_now",
+      bestAction: "Go now if you want a quick Cloud 9 breakfast.",
+    });
     expect(JSON.stringify(shareBody)).not.toContain("Where should I eat?");
     expect(JSON.stringify(shareBody)).not.toContain("user_");
     expect(JSON.stringify(shareBody)).not.toContain("rawProviderPayload");
@@ -346,6 +350,10 @@ describe("saved trip API routes", () => {
       placesSource,
       browserSavedNotReverifiedSource,
     ]);
+    expect(lookupBody.plan.items[0].payload.card.decision).toEqual({
+      label: "good_now",
+      bestAction: "Go now if you want a quick Cloud 9 breakfast.",
+    });
 
     await dependencies.close();
   });
@@ -526,4 +534,8 @@ const shakaCard: RecommendationCard = {
   fitReasons: ["Near Cloud 9", "Good light breakfast stop"],
   caveats: ["Open-now can change quickly."],
   sourceLabel: "Google Places - live checked",
+  decision: {
+    label: "good_now",
+    bestAction: "Go now if you want a quick Cloud 9 breakfast.",
+  },
 };

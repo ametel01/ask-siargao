@@ -55,6 +55,7 @@ type MockRecommendationCard = {
   fitReasons: string[];
   caveats: string[];
   sourceLabel: string;
+  decision?: MockDecisionMetadata;
   sources?: MockSourceSummary[];
 };
 
@@ -78,10 +79,15 @@ type MockItineraryStop = {
 type MockItineraryPlan = {
   title: string;
   durationLabel: string;
+  decision?: MockDecisionMetadata;
   stops: MockItineraryStop[];
   fallbackStops: MockItineraryStop[];
   skip: string[];
   sources: MockSourceSummary[];
+};
+type MockDecisionMetadata = {
+  label: "best_fit" | "good_now" | "fallback" | "avoid_today" | "needs_confirmation";
+  bestAction: string;
 };
 type E2ERecommendationPayload = {
   type: "recommendation_card";
@@ -655,6 +661,10 @@ test("renders structured recommendation cards and submits action prompts", async
         fitReasons: ["Returned #1 by Google Places for this request."],
         caveats: ["Review text and bookings were not checked."],
         sourceLabel: "Google Places - live checked",
+        decision: {
+          label: "good_now",
+          bestAction: "Go now if you want the closest checked cafe option.",
+        },
         sources: [mockPlacesSource],
       },
     ],
@@ -675,6 +685,10 @@ test("renders structured recommendation cards and submits action prompts", async
   const card = page.getByTestId("recommendation-card").filter({ hasText: "Shaka Siargao" });
   await expect(card).toBeVisible();
   await expect(page.getByTestId("recommendation-source-badge")).toHaveText("Source: Google Places");
+  await expect(card.getByTestId("artifact-decision")).toContainText("Good now");
+  await expect(card.getByTestId("artifact-decision")).toContainText(
+    "Go now if you want the closest checked cafe option.",
+  );
   await expect(card.getByText("50 m away")).toBeVisible();
   await expect(card.getByText("Open now")).toBeVisible();
   await expect(card.getByText("Returned #1 by Google Places for this request.")).toHaveCount(0);
@@ -707,6 +721,10 @@ test("renders itinerary plans with stops, fallbacks, skip guidance, sources, and
   const plan = page.getByTestId("itinerary-plan").filter({ hasText: "Rainy Cloud 9 Afternoon" });
   await expect(page.getByText("Here is a compact rainy Cloud 9 plan.")).toBeVisible();
   await expect(plan).toBeVisible();
+  await expect(plan.getByTestId("artifact-decision")).toContainText("Fallback");
+  await expect(plan.getByTestId("artifact-decision")).toContainText(
+    "Move indoors if rain gets heavier.",
+  );
   await expect(plan.getByText("3-4 hours")).toBeVisible();
   const stops = plan.getByTestId("itinerary-stops");
   await expect(stops.getByRole("listitem").filter({ hasText: "Cloud 9 boardwalk" })).toBeVisible();
@@ -757,6 +775,10 @@ test("saves local cards and itineraries with dedupe, removal, and reload persist
         fitReasons: ["Returned #1 by Google Places for this request."],
         caveats: ["Review text and bookings were not checked."],
         sourceLabel: "Google Places - live checked",
+        decision: {
+          label: "good_now",
+          bestAction: "Go now if you want the closest checked cafe option.",
+        },
         sources: [mockPlacesSource],
       },
     ],
@@ -787,6 +809,21 @@ test("saves local cards and itineraries with dedupe, removal, and reload persist
     sourceName: "Google Places API",
     checked: ["place identity", "current opening status"],
     notChecked: ["review text", "table availability"],
+  });
+  expect(
+    savedCard?.payload.type === "recommendation_card" ? savedCard.payload.card.decision : undefined,
+  ).toEqual({
+    label: "good_now",
+    bestAction: "Go now if you want the closest checked cafe option.",
+  });
+  const savedItinerary = savedState.items.find((item) => item.kind === "itinerary");
+  expect(
+    savedItinerary?.payload.type === "itinerary_plan"
+      ? savedItinerary.payload.plan.decision
+      : undefined,
+  ).toEqual({
+    label: "fallback",
+    bestAction: "Move indoors if rain gets heavier.",
   });
   const savedJson = JSON.stringify(savedState);
   expect(savedJson).not.toContain(prompt);
@@ -958,6 +995,10 @@ test("creates and copies or opens a share link from saved cards and itineraries"
         fitReasons: ["Returned #1 by Google Places for this request."],
         caveats: ["Review text and bookings were not checked."],
         sourceLabel: "Google Places - live checked",
+        decision: {
+          label: "good_now",
+          bestAction: "Go now if you want the closest checked cafe option.",
+        },
         sources: [mockPlacesSource],
       },
     ],
@@ -987,6 +1028,23 @@ test("creates and copies or opens a share link from saved cards and itineraries"
     checked: ["place identity", "current opening status"],
     notChecked: ["review text", "table availability"],
   });
+  expect(
+    savedPlaceRequest?.payload.type === "recommendation_card"
+      ? savedPlaceRequest.payload.card.decision
+      : undefined,
+  ).toEqual({
+    label: "good_now",
+    bestAction: "Go now if you want the closest checked cafe option.",
+  });
+  const savedItineraryRequest = savedRequests[0]?.items?.find((item) => item.kind === "itinerary");
+  expect(
+    savedItineraryRequest?.payload.type === "itinerary_plan"
+      ? savedItineraryRequest.payload.plan.decision
+      : undefined,
+  ).toEqual({
+    label: "fallback",
+    bestAction: "Move indoors if rain gets heavier.",
+  });
   expect(savedRequests[0]?.messages).toBeUndefined();
   expect(savedRequests[0]?.clientContext).toBeUndefined();
   expect(JSON.stringify(savedRequests[0])).not.toContain(prompt);
@@ -1011,6 +1069,12 @@ test("creates and copies or opens a share link from saved cards and itineraries"
   await expect(popup).toHaveURL(shareUrl);
   await expect(popup.getByRole("heading", { name: "Siargao saved plan - 2 items" })).toBeVisible();
   await expect(popup.getByText("Open now according to Google Places.")).toBeVisible();
+  await expect(popup.getByText("Good now")).toBeVisible();
+  await expect(
+    popup.getByText("Go now if you want the closest checked cafe option."),
+  ).toBeVisible();
+  await expect(popup.getByRole("heading", { name: "Fallback" })).toBeVisible();
+  await expect(popup.getByText("Move indoors if rain gets heavier.")).toBeVisible();
   await expect(popup.getByText("Google Places - live checked")).toBeVisible();
   await expect(
     popup.getByText("Google Places API - live checked - fetched 2026-06-28T00:45:00.000Z"),
@@ -1607,12 +1671,12 @@ function renderSharedTripItem(item: E2ESavedTripItem) {
     ]
       .filter((value): value is string => Boolean(value))
       .map((value) => `<p>${escapeHtml(value)}</p>`)
-      .join("")}${renderSources(item.sources)}</article>`;
+      .join("")}${renderDecision(card.decision)}${renderSources(item.sources)}</article>`;
   }
 
   if (item.payload.type === "itinerary_plan") {
     const plan = item.payload.plan;
-    return `<article><h2>${escapeHtml(plan.title)}</h2>${renderSources(plan.sources)}</article>`;
+    return `<article><h2>${escapeHtml(plan.title)}</h2>${renderDecision(plan.decision)}${renderSources(plan.sources)}</article>`;
   }
 
   return `<article><h2>${escapeHtml(item.title)}</h2><p>${escapeHtml(item.payload.text)}</p></article>`;
@@ -1634,6 +1698,31 @@ function renderSources(sources: MockSourceSummary[]) {
     .join("")}</section>`;
 }
 
+function renderDecision(decision?: MockDecisionMetadata) {
+  if (!decision) {
+    return "";
+  }
+
+  return `<section><h3>${escapeHtml(decisionLabelText(decision.label))}</h3><p>${escapeHtml(
+    decision.bestAction,
+  )}</p></section>`;
+}
+
+function decisionLabelText(label: MockDecisionMetadata["label"]) {
+  switch (label) {
+    case "best_fit":
+      return "Best fit";
+    case "good_now":
+      return "Good now";
+    case "fallback":
+      return "Fallback";
+    case "avoid_today":
+      return "Avoid today";
+    case "needs_confirmation":
+      return "Needs confirmation";
+  }
+}
+
 function escapeHtml(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -1645,13 +1734,7 @@ function escapeHtml(value: string) {
 
 type SavedTripStorageState = {
   tripId: string;
-  items: Array<{
-    id: string;
-    kind: "place" | "beach" | "itinerary" | "note";
-    title: string;
-    sources?: MockSourceSummary[];
-    updatedAt: string;
-  }>;
+  items: E2ESavedTripItem[];
   updatedAt: string;
 };
 
@@ -1687,6 +1770,10 @@ function mockRainyCloud9Itinerary(): MockItineraryPlan {
   return {
     title: "Rainy Cloud 9 Afternoon",
     durationLabel: "3-4 hours",
+    decision: {
+      label: "fallback",
+      bestAction: "Move indoors if rain gets heavier.",
+    },
     stops: [
       {
         title: "Cloud 9 boardwalk",

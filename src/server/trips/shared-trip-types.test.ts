@@ -43,6 +43,10 @@ describe("shared trip artifact contracts", () => {
           kind: "place",
           title: "Shaka Siargao",
           caveats: ["Open-now can change quickly."],
+          decision: {
+            label: "good_now",
+            bestAction: "Go now if you want a quick Cloud 9 breakfast.",
+          },
         },
       },
       sources: [placesSource],
@@ -60,6 +64,12 @@ describe("shared trip artifact contracts", () => {
 
     expect(item.kind).toBe("itinerary");
     expect(item.title).toBe("Rain-aware Cloud 9 afternoon");
+    expect(item.payload.type === "itinerary_plan" ? item.payload.plan.decision : undefined).toEqual(
+      {
+        label: "fallback",
+        bestAction: "Move indoors if rain gets heavier.",
+      },
+    );
     expect(item.sources).toEqual([...rainyPlan.sources]);
     expect(item.payload.type).toBe("itinerary_plan");
     expect(item.payload.type === "itinerary_plan" ? item.payload.plan.stops : []).toHaveLength(2);
@@ -125,6 +135,7 @@ describe("shared trip artifact contracts", () => {
     ).toEqual([placesSource, weatherSource, browserSavedNotReverifiedSource]);
     expect(JSON.stringify(publicPlan)).toContain("live_checked");
     expect(JSON.stringify(publicPlan)).toContain("weather_checked");
+    expect(JSON.stringify(publicPlan)).toContain("Move indoors if rain gets heavier.");
     expect(JSON.stringify(publicPlan)).toContain("current opening status");
     expect(JSON.stringify(publicPlan)).toContain("Saved from browser and not reverified");
   });
@@ -154,6 +165,14 @@ describe("shared trip artifact contracts", () => {
         ? publicItem.payload.card.sourceLabel
         : undefined,
     ).toBe("Google Places - live checked");
+    expect(
+      publicItem?.payload.type === "recommendation_card"
+        ? publicItem.payload.card.decision
+        : undefined,
+    ).toEqual({
+      label: "good_now",
+      bestAction: "Go now if you want a quick Cloud 9 breakfast.",
+    });
     expect(publicItem?.sources).toEqual([placesSource, browserSavedNotReverifiedSource]);
     expect(JSON.stringify(publicPlan)).toContain("Google Places - live checked");
     expect(JSON.stringify(publicPlan)).toContain("Open now from Google Places");
@@ -183,6 +202,36 @@ describe("shared trip artifact contracts", () => {
       savedTripItemSchema.safeParse({
         ...baseItem,
         mapsUrl: "javascript:alert(1)",
+      }).success,
+    ).toBe(false);
+    expect(
+      savedTripItemSchema.safeParse({
+        ...baseItem,
+        payload: {
+          ...baseItem.payload,
+          card: {
+            ...(baseItem.payload.type === "recommendation_card" ? baseItem.payload.card : {}),
+            decision: {
+              label: "maybe",
+              bestAction: "Use this only when the label is valid.",
+            },
+          },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      savedTripItemSchema.safeParse({
+        ...baseItem,
+        payload: {
+          ...baseItem.payload,
+          card: {
+            ...(baseItem.payload.type === "recommendation_card" ? baseItem.payload.card : {}),
+            decision: {
+              label: "best_fit",
+              bestAction: "",
+            },
+          },
+        },
       }).success,
     ).toBe(false);
   });
@@ -412,11 +461,19 @@ const placeCard: RecommendationCard = {
   fitReasons: ["Near Cloud 9", "Good light breakfast stop"],
   caveats: ["Open-now can change quickly."],
   sourceLabel: "Google Places - live checked",
+  decision: {
+    label: "good_now",
+    bestAction: "Go now if you want a quick Cloud 9 breakfast.",
+  },
 };
 
 const rainyPlan: ItineraryPlan = {
   title: "Rain-aware Cloud 9 afternoon",
   durationLabel: "3 hours",
+  decision: {
+    label: "fallback",
+    bestAction: "Move indoors if rain gets heavier.",
+  },
   stops: [
     {
       title: "Cloud 9 boardwalk",

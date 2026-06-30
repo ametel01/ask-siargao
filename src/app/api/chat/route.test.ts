@@ -165,6 +165,8 @@ describe("chat route", () => {
     expect(messages.rows.map((message) => message.role)).toEqual(["user", "assistant"]);
     expect(messages.rows[0]?.content).toBe("What cafes are open near me?");
     expect(messages.rows[1]?.content).toBe("Two nearby options look good.");
+    expect(body.cards).toEqual([genericRecommendationCard]);
+    expect(messages.rows[1]?.cards_json).toEqual([genericRecommendationCard]);
     expect(serializedMessages).not.toContain(String(geolocation.latitude));
     expect(serializedMessages).not.toContain(String(geolocation.longitude));
     expect(serializedMessages).toContain("usedAsProximityAnchor");
@@ -1874,6 +1876,10 @@ const placeRecommendationCard = {
   fitReasons: ["A top Google Places match for the request."],
   caveats: ["Review text and bookings were not checked."],
   sourceLabel: "Google Places - live checked",
+  decision: {
+    label: "good_now" as const,
+    bestAction: "Go now if you want the closest checked cafe option.",
+  },
 };
 
 const genericRecommendationCard = {
@@ -1883,6 +1889,10 @@ const genericRecommendationCard = {
   fitReasons: ["Useful stable context for first-night planning."],
   caveats: ["No live provider check was run."],
   sourceLabel: "Generic model reasoning - not verified",
+  decision: {
+    label: "needs_confirmation" as const,
+    bestAction: "Confirm the exact stop before adding it to tonight's plan.",
+  },
 };
 
 const promptAction = {
@@ -1962,6 +1972,10 @@ const localGuideSourceSummary: AnswerSourceSummary = {
 const rainyCloud9Itinerary: ItineraryPlan = {
   title: "Rainy Cloud 9 Afternoon",
   durationLabel: "3-4 hours",
+  decision: {
+    label: "fallback",
+    bestAction: "Use this if showers make beach time uncomfortable.",
+  },
   stops: [
     {
       title: "Cloud 9 boardwalk",

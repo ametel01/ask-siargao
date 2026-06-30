@@ -136,6 +136,7 @@ type RecommendationCardArtifact = {
   fitReasons: readonly string[];
   caveats: readonly string[];
   sourceLabel: string;
+  decision?: ArtifactDecisionMetadata;
   sources?: readonly ChatSourceArtifact[];
 };
 
@@ -161,10 +162,16 @@ type ItineraryStopArtifact = {
 type ItineraryPlanArtifact = {
   title: string;
   durationLabel: string;
+  decision?: ArtifactDecisionMetadata;
   stops: readonly ItineraryStopArtifact[];
   fallbackStops: readonly ItineraryStopArtifact[];
   skip: readonly string[];
   sources: readonly ChatSourceArtifact[];
+};
+
+type ArtifactDecisionMetadata = {
+  label: "best_fit" | "good_now" | "fallback" | "avoid_today" | "needs_confirmation";
+  bestAction: string;
 };
 
 type ChatSourceArtifact = {
@@ -1550,6 +1557,42 @@ function AssistantGlance({ message }: { message: InteractiveChatMessage }) {
   );
 }
 
+function ArtifactDecision({ decision }: { decision?: ArtifactDecisionMetadata }) {
+  if (!decision) {
+    return null;
+  }
+
+  return (
+    <div
+      className="mt-1 grid min-w-0 gap-1 rounded-md border border-brand-lagoon-300/18 bg-brand-lagoon-300/10 px-2.5 py-2"
+      data-testid="artifact-decision"
+    >
+      <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.7rem] leading-tight font-black text-brand-lagoon-200 uppercase">
+        <Sparkles aria-hidden="true" className="shrink-0" size={12} />
+        <span className="min-w-0 break-words">{artifactDecisionLabel(decision.label)}</span>
+      </span>
+      <p className="m-0 text-xs leading-[1.4] font-bold break-words text-text-on-dark-muted">
+        {decision.bestAction}
+      </p>
+    </div>
+  );
+}
+
+function artifactDecisionLabel(label: ArtifactDecisionMetadata["label"]) {
+  switch (label) {
+    case "best_fit":
+      return "Best fit";
+    case "good_now":
+      return "Good now";
+    case "fallback":
+      return "Fallback";
+    case "avoid_today":
+      return "Avoid today";
+    case "needs_confirmation":
+      return "Needs confirmation";
+  }
+}
+
 function ItineraryPlans({
   onRemoveSavedItem,
   onSaveItineraryPlan,
@@ -1586,6 +1629,7 @@ function ItineraryPlans({
                   <Clock aria-hidden="true" className="shrink-0" size={13} />
                   <span className="min-w-0 break-words">{plan.durationLabel}</span>
                 </span>
+                <ArtifactDecision decision={plan.decision} />
               </div>
               <SaveToggleButton
                 isSaved={isSaved}
@@ -2118,6 +2162,7 @@ function RecommendationCards({
                       {subtitle.address}
                     </p>
                   ) : null}
+                  <ArtifactDecision decision={card.decision} />
                 </div>
                 <SaveToggleButton
                   isSaved={isSaved}
@@ -3268,6 +3313,7 @@ function buildSavedItemFromCard(card: RecommendationCardArtifact, tripId: string
         fitReasons: normalizeSavedTextArray(card.fitReasons, 8),
         caveats,
         sourceLabel: normalizeSavedText(card.sourceLabel, 180),
+        ...(card.decision ? { decision: normalizeSavedDecision(card.decision) } : {}),
       },
     },
     sources,
@@ -3294,6 +3340,7 @@ function buildSavedItemFromItinerary(plan: ItineraryPlanArtifact, tripId: string
       plan: {
         title,
         durationLabel: normalizeSavedText(plan.durationLabel, 80),
+        ...(plan.decision ? { decision: normalizeSavedDecision(plan.decision) } : {}),
         stops: plan.stops.map(normalizeSavedItineraryStop),
         fallbackStops: plan.fallbackStops.map(normalizeSavedItineraryStop),
         skip: normalizeSavedTextArray(plan.skip, 12),
@@ -3355,6 +3402,13 @@ function normalizeSavedSources(sources: readonly ChatSourceArtifact[]): SavedTri
     checked: normalizeSavedTextArray(source.checked, 12, 180),
     notChecked: normalizeSavedTextArray(source.notChecked, 16, 180),
   }));
+}
+
+function normalizeSavedDecision(decision: ArtifactDecisionMetadata) {
+  return {
+    label: decision.label,
+    bestAction: normalizeSavedText(decision.bestAction, 180),
+  };
 }
 
 function normalizeSavedTextArray(values: readonly string[], maxItems: number, maxLength = 500) {
