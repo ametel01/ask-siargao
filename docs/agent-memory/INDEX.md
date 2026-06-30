@@ -9,8 +9,9 @@ policy and local-reference context only; live/current facts still require tools.
 ## Loading Rules
 
 - Load the smallest set of files that can answer the user's latest request.
-- For surf, beach, weather-sensitive, safety-sensitive, source, or tool-use
-  questions, load the relevant file before the final answer.
+- For surf, beach, weather-sensitive, safety-sensitive, source, tool-use, or
+  current public-web research questions, load the relevant file before the final
+  answer.
 - Do not load surf or beach memory for ordinary food, breakfast, cafe,
   restaurant, bar, or open-now place prompts unless the user explicitly asks for
   surf or beach context.
@@ -22,6 +23,10 @@ policy and local-reference context only; live/current facts still require tools.
   topic.
 - If no memory file covers the topic, say the knowledge is not available from Ask
   Siargao memory and use governed tools only where appropriate.
+- For current/date-specific recommendations, schedules, prices, availability,
+  closures, disruptions, advisories, and current comparisons, use `research_web`
+  before accepting a final answer. Memory is not a substitute for public web
+  research.
 
 ## Files
 
@@ -54,17 +59,26 @@ For "party tonight", "nightlife tonight", "where should we go out", "DJ",
 `NIGHTLIFE.md` before the final answer. Then use current event, Google Places,
 and weather tools where relevant; do not treat memory as live event proof.
 
+For same-day nightlife prompts, `research_web` and current event checks come
+before Places and weather. Places enriches researched venues only.
+
 ### ASK_SIARGAO_TOOL_USE_POLICY.md
 
 Use for deciding which backend tools are required for weather, tide, marine,
 condition, Google Places, local guide, itinerary, database, source evidence, or
-agent-memory retrieval questions.
+agent-memory retrieval questions. Also use for current public-web research
+requirements and the ordering between `research_web`, Places, weather, memory,
+and local-guide tools.
 
 ### ASK_SIARGAO_SOURCE_POLICY.md
 
 Use for checked/not-checked wording, source-label meaning, confidence boundaries,
 provider caveats, and preventing memory or generic reasoning from becoming live
 evidence.
+
+Also use for public web source labels, weak web evidence, and overclaiming
+rules around `web_researched`, `official_checked`, `directory_checked`, and
+`insufficient_web_evidence`.
 
 ### ASK_SIARGAO_DATA_DICTIONARY.md
 
@@ -88,3 +102,6 @@ Use for request-type answer shape across place, food, cafe, bar, service,
 activity, weather, condition, surf, tide, beach, swimming, transport,
 logistics, accommodation-area, itinerary-review, safety, medical, and urgent
 local-service questions.
+
+Also use for ranked research-backed answer shapes and the failure shape when
+current public evidence is insufficient or unavailable.

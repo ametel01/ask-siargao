@@ -23,6 +23,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Documented the research-first agent memory and developer policy for current public-web requests,
+  including source labels, answer shapes, provider failure behavior, and Places/weather/memory
+  ordering boundaries.
 - Converted Google Places for research-covered prompts into research-selected entity enrichment,
   preventing broad Places candidates from appearing as fallback recommendation cards.
 

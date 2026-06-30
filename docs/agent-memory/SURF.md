@@ -43,6 +43,22 @@ local surfer.
   distance only; road distance, travel time, exact lineup pins, access changes,
   and live surf quality remain unchecked.
 
+## Current Public Research Hints
+
+For current surf-school, board-rental, lesson-price, contest/event,
+access-change, closure, or safety-advisory questions, use `research_web` before
+answering as checked current fact. Useful query templates include:
+
+```text
+Siargao surf school [place/service] current price official
+Cloud 9 Siargao surf event [date/week] official
+Siargao surf advisory closure Cloud 9 official government
+```
+
+For normal surf-spot fit questions, this file plus governed tide, marine,
+weather, condition, and nearby-ranking tools are usually enough. Do not use
+public web research to expose hidden/local breaks or private community content.
+
 ---
 
 ## Machine-Readable Distance Ranking Anchors

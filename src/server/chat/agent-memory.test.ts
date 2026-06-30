@@ -81,9 +81,10 @@ describe("agent memory loader", () => {
 
   test("instruction memory only includes the dynamic memory index", () => {
     const snapshot = loadAgentMemorySnapshot();
+    const normalizedInstructionMarkdown = snapshot.instructionMarkdown.replace(/\s+/g, " ");
 
     expect(snapshot.instructionMarkdown).toContain("This is the only domain-memory file");
-    expect(snapshot.instructionMarkdown).toContain(
+    expect(normalizedInstructionMarkdown).toContain(
       "load the relevant file before the final answer",
     );
     expect(snapshot.instructionMarkdown).toContain("SURF.md");

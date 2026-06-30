@@ -172,6 +172,11 @@ type ResearchEntity = {
 The tool should return evidence and entities, not final prose. The model still writes the final
 answer from tool output.
 
+Implementation note: the first production adapter is `src/server/providers/web-search.ts`, enabled
+only when `WEB_RESEARCH_PROVIDER=openai` is configured. It uses the OpenAI Responses hosted
+`web_search` tool to return structured source summaries that are then scored by
+`src/server/chat/web-research.ts`.
+
 ### Add A Research Planner
 
 Add deterministic planning before the model freely chooses tools.
@@ -356,6 +361,11 @@ Files to change:
 
 Use a short-lived cache for web search and extracted findings. Do not store arbitrary raw web pages
 as product truth.
+
+Current implementation decision: persistence is deferred. The first provider path passes normalized
+source summaries directly into the tool loop and does not durably store raw pages, raw Responses
+payloads, private/social content, or unrestricted web summaries. Add the storage below only when
+cost, latency, replay/debugging, or governed attribution reuse creates a real product need.
 
 Suggested storage:
 
@@ -582,11 +592,11 @@ Cover:
 
 ## Open Decisions
 
-- Which web search provider to use first: hosted model web search, Bing, Tavily, SerpAPI, or a
-  custom search endpoint.
+- Whether to add a second web search provider after the first OpenAI hosted `web_search` adapter.
 - Whether public social pages are fetched directly, searched only by snippets, or excluded until a
   source policy is written.
-- Whether raw fetched page text is stored at all, or only extracted findings and attribution.
+- Whether normalized web research evidence needs short-lived persistence; raw fetched page text
+  remains out of durable storage unless source policy explicitly allows it.
 - How much web research budget an anonymous request gets versus an authenticated trip pass.
 - Whether `research_web` should be one tool or split into `plan_web_research`, `search_web`, and
   `fetch_web_sources` for deeper auditability.

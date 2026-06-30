@@ -62,6 +62,50 @@ Add the tool in `src/server/chat/agent-tools.ts`.
 Do not add a hardcoded final-answer branch to `/api/chat`. Deterministic code can classify,
 validate, fetch, rank, and normalize data, but final prose belongs to the model.
 
+## Public Web Research
+
+`research_web` is the governed public-web evidence tool for current facts and current
+recommendations that can change outside Ask Siargao memory. Deterministic route intent marks these
+requests with `researchIntent`, and `src/server/chat/required-evidence.ts` makes `research_web`
+required before downstream enrichment.
+
+Covered request classes include current/date-specific:
+
+- nightlife, bar, DJ, live-music, and party recommendations;
+- restaurant, cafe, bar, service, and other editorial place recommendations;
+- ferry, transport, tour, price, availability, closure, disruption, advisory, and current
+  comparison questions.
+
+When `research_web` succeeds, final payload validation requires the answer to cite the research tool
+call and mention the selected finding/entity. When it returns insufficient or provider-unavailable
+evidence, final payload validation rejects weather-only, memory-only, and broad Places fallback
+answers. The accepted failure shape is a clear statement that current public evidence could not be
+verified, with no place cards.
+
+For research-covered place recommendations, Google Places is entity enrichment only. The runtime
+rewrites broad Places calls to the entities selected by `research_web`, and public card filtering
+keeps only matching Places cards. Places may still be the primary tool for stable nearby/open-now
+service discovery prompts that do not require `research_web`, such as pharmacy, coffee open now, or
+restaurants near a named place.
+
+Production web research is opt-in. Set `WEB_RESEARCH_PROVIDER=openai` and `OPENAI_API_KEY` to enable
+the OpenAI Responses hosted `web_search` adapter in `src/server/providers/web-search.ts`.
+`OPENAI_WEB_SEARCH_MODEL` can override the extraction model. If no provider is configured,
+`research_web` returns explicit `provider_unavailable` evidence instead of silently falling back to
+memory, weather, or Places.
+
+`research_web` source labels are:
+
+- `official_checked` for official/operator/government/public organizer evidence;
+- `directory_checked` for accepted local directories, event calendars, or listings;
+- `web_researched` for useful accepted public web evidence that is not official or directory-backed;
+- `community_signal` for low-confidence public community/social context;
+- `insufficient_web_evidence` for terminal weak/stale/broad/conflicting public evidence;
+- `provider_unavailable` for provider failure.
+
+These labels must be backed by `research_web` tool output. Memory retrieval and model reasoning
+cannot create them.
+
 ## Local Itinerary Tool
 
 `plan_local_itinerary` is a planning-evidence tool, not a final-answer renderer. Its handler lives
@@ -176,6 +220,9 @@ Every tool-backed claim should return `AnswerSourceSummary` entries:
 - `weather_checked` for usable Open-Meteo forecast snapshots;
 - `curated_local_guide` for curated Ask Siargao guide data;
 - `community_signal` for low-confidence public community/travel context that cannot verify event truth;
+- `official_checked`, `directory_checked`, and `web_researched` for successful `research_web`
+  output;
+- `insufficient_web_evidence` for terminal weak/stale/broad/conflicting `research_web` output;
 - `provider_unavailable` for failed or fallback provider checks;
 - `not_verified` for generic model reasoning with no matching tool evidence.
 

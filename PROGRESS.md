@@ -5,9 +5,9 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 
 ## Current Status
 
-- Status: Step 11 complete
-- Current step: Update Agent Memory And Developer Documentation
-- Next step: Step 12 - Update Agent Memory And Developer Documentation
+- Status: Step 12 complete
+- Current step: Cross-Domain Regression And Release Gates
+- Next step: Step 13 - Cross-Domain Regression And Release Gates
 
 ## Step Checklist
 
@@ -23,7 +23,7 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 - [x] Step 9: Reject Legacy Final Answers For Research-Required Prompts
 - [x] Step 10: Wire The Production Web Search Provider
 - [x] Step 11: Add Optional Short-Lived Research Persistence
-- [ ] Step 12: Update Agent Memory And Developer Documentation
+- [x] Step 12: Update Agent Memory And Developer Documentation
 - [ ] Step 13: Cross-Domain Regression And Release Gates
 
 ## Update Rule
@@ -262,3 +262,28 @@ Update this file after every completed step with:
 - Changelog: no entry, because persistence was explicitly deferred with no behavior change.
 - Commit reference: this commit (`Defer web research persistence`).
 - Next step: Step 12 - Update Agent Memory And Developer Documentation.
+
+### 2026-07-01 - Step 12 Completed
+
+- Updated agent memory to make `research_web` the required first evidence step for covered
+  current public-web requests, before Places, weather, memory-only baselines, or local-guide
+  fallback behavior.
+- Documented public web source labels, overclaiming boundaries, ranked research-backed answer
+  shapes, and the required transparent failure shape for insufficient or unavailable current
+  evidence.
+- Added domain memory query/source-priority hints for nightlife and current surf-related requests,
+  keeping memory as policy/context instead of hardcoded answer patches.
+- Updated developer documentation for research ordering, source labels, provider configuration,
+  failure behavior, and the deferred persistence decision.
+- Adjusted the memory-loader test to normalize Markdown whitespace when asserting index policy
+  text.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/chat/agent-memory.test.ts src/server/chat/agent-tools.test.ts src/server/chat/source-consistency.test.ts` - 117 tests passed
+  - `bun run agent-memory:sync -- --dry-run` - expected changed memory files would upload
+  - `bun test` - 696 tests passed
+- Changelog updated under `## [Unreleased]`.
+- Commit reference: this commit (`Document research-first agent policy`).
+- Next step: Step 13 - Cross-Domain Regression And Release Gates.

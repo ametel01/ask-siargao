@@ -119,14 +119,22 @@ For current nightlife questions:
 
 - Load this file for local context.
 - Use source-policy and tool-use memory when checked/not-checked wording matters.
+- Use `research_web` for same-day or date-specific party, DJ, event, and
+  "where should we go tonight" prompts. Good query templates include:
+  - `General Luna Siargao party tonight [local date or weekday] official`
+  - `[venue name] Siargao [weekday/date] event schedule official Instagram`
+  - `SiargaoVibes [venue/event] [weekday/date] General Luna`
 - Use `search_nightlife_events` when available for current event occurrences.
-- Use Google Places tools only to enrich selected venues with map, address,
-  business status, ratings, and opening-hour signals.
+- Use Google Places tools only to enrich venues selected by `research_web` or
+  `search_nightlife_events` with map, address, business status, ratings, and
+  opening-hour signals.
 - Use weather tools for tonight routes that require moving between venues.
 
 If `search_nightlife_events` is unavailable or returns no events, say event
-sources were not checked or did not return usable event data. Then give bounded
-stable guidance from this file and Google Places venue checks if available.
+sources were not checked or did not return usable event data. If `research_web`
+also fails or is insufficient, give bounded stable guidance from this file only
+with a clear caveat that current public evidence could not be verified. Do not
+turn broad Google Places bar results or weather into the party ranking.
 
 ## Answer Shape
 

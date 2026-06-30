@@ -52,6 +52,28 @@ rip-current check, official marine warning, or safety clearance was checked.
 low-confidence context or discovery. It cannot rank venues, cannot verify
 tonight's event schedule, and cannot replace `event_checked`.
 
+`web_researched` means `research_web` found useful public web evidence from an
+accepted source class for the request. It is not necessarily official. It must
+come from `research_web`, not memory retrieval, generic model reasoning, Google
+Places enrichment, or weather output.
+
+`official_checked` means `research_web` found public evidence from an official
+venue, operator, government, event organizer, ferry company, resort, tour
+operator, or equivalent source. It checks only the claim returned by the
+research tool; it does not verify booking availability, private messages, live
+crowd size, or last-minute changes unless the source itself says so.
+
+`directory_checked` means `research_web` found useful public evidence from an
+accepted local directory, event calendar, business listing, or similar local
+source. It is weaker than official evidence for conflicts, closures, or exact
+same-day changes.
+
+`insufficient_web_evidence` means `research_web` searched or attempted public
+web evidence but the returned sources were too weak, stale, broad,
+contradictory, or unavailable for a checked positive answer. It is a terminal
+not-checked state, not a checked source. Use it to explain uncertainty, not to
+rank venues or display place cards.
+
 Condition judgment outputs may use `weather_checked` only for Open-Meteo-backed
 weather signals. They may use `marine_checked` only for Open-Meteo Marine
 modelled sea-level, wave, swell, and ocean-current fields. They may use
@@ -72,7 +94,8 @@ failed or was unavailable.
 Use "Checked:" lines only for tool-backed facts represented by verifying source
 labels: `live_checked`, `fresh_cache`, `curated_local_guide`, and
 `event_checked`, `venue_checked`, `weather_checked`, `marine_checked`,
-`tide_forecast_checked`, and `community_signal`.
+`tide_forecast_checked`, `community_signal`, `web_researched`,
+`official_checked`, and `directory_checked`.
 
 Use "Not checked:" lines for missing fields, unavailable providers, generic
 reasoning boundaries, or facts that the tool did not verify.
@@ -87,9 +110,14 @@ evidence.
 
 Source labels are internal trust markers, not default traveler-facing wording.
 In normal chat answers, do not print labels such as `tide_forecast_checked`,
-`marine_checked`, source profile IDs, provider operation names, or
+`marine_checked`, `official_checked`, source profile IDs, provider operation names, or
 licensing notes. Translate them into plain language only when useful, such as "I
 checked the Dapa tide forecast" or "wave data was modelled."
+
+When `research_web` returns insufficient or unavailable evidence, the public
+answer must say the current public evidence could not be verified. Do not
+replace that with a broad Places card, a weather-only answer, a stable memory
+route, or "locals say" phrasing.
 
 For surf-window questions, user-facing checked/not-checked wording should stay
 brief. Answer the best time first, then add at most one practical caveat when
@@ -124,6 +152,14 @@ payment records, or internal model traces.
 
 Generic model reasoning can help with synthesis and trip planning, but it must be
 labeled as not verified when no governed tool checked the claim.
+
+Public web research source priority depends on the request. For official
+schedules, closures, prices, advisories, and availability, prefer official or
+government/operator pages first. For discovery and local listings, local
+directories and maps can support the shortlist, while community/social evidence
+stays corroborating context unless an approved source profile allows stronger
+use. If sources conflict, cite the strongest source class and surface the
+conflict instead of averaging claims.
 
 ## Nightlife Source Governance
 
