@@ -5,12 +5,13 @@ Source audit: `/Users/alexmetelli/source/ask-siargao/HALLMARK_AUDIT.md`
 
 ## Current Status
 
-Step 0 is complete. No application behavior or styling has been changed.
+Step 1 is complete. Baseline gates and viewport notes are recorded. No source UI files have been
+changed.
 
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
-- [ ] Step 1: Baseline Gate And Visual Evidence Capture
+- [x] Step 1: Baseline Gate And Visual Evidence Capture
 - [ ] Step 2: Theme Tokens And Shared Primitive Cleanup
 - [ ] Step 3: Landing Hero, Navigation, And Prompt Workspace
 - [ ] Step 4: Landing Planning Content And Feature Layout
@@ -64,3 +65,62 @@ Commit:
 Next step:
 
 - Step 1: Baseline Gate And Visual Evidence Capture
+
+### Step 1: Baseline Gate And Visual Evidence Capture
+
+Status: Complete
+
+Changes:
+
+- Ran baseline quality gates before visual implementation.
+- Captured browser baseline notes for `/`, `/chat`, `/audits/demo/report`, and a shared-trip
+  fixture state covered by existing e2e tests.
+- Recorded local environment caveats for Clerk-enabled e2e readiness and the database-backed
+  shared-trip route.
+
+Baseline command:
+
+- `bun run lint && bun run typecheck --incremental false && bun test`: passed.
+  - `bun run lint`: passed.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed, 655 tests.
+
+Viewport notes:
+
+- `/` at 1366px and 390px: no horizontal overflow. The baseline shows the audited findings:
+  five-link SaaS-style nav plus "Open assistant"; H1 text `Ask Siargao anything about your trip.`
+  includes one italic/emphasized phrase; class inspection found 7 violet/purple class strings,
+  24 white surface/text class strings, and 27 rounded class strings.
+- `/chat` at 1366px with a saved-plan localStorage fixture: no horizontal overflow. Saved-plan tray
+  rendered with `1 item saved locally, 1 selected to share`; baseline class inspection found 2
+  violet/purple class strings, 18 white class strings, 26 rounded class strings, and the `ASK
+  SIARGAO` uppercase label.
+- `/audits/demo/report` at 1366px: no horizontal overflow. The report rendered `Siargao trip risk
+  audit`, `Top risks`, `ev_route`, and `Notes and limitations`; baseline class inspection found 17
+  uppercase class strings, 10 white class strings, and 36 rounded class strings.
+- Shared-trip fixture state at 1366px, using the existing e2e-style fulfilled
+  `/trips/shared/token_baseline` route: rendered `Siargao saved plan - 2 items`, `Shaka Siargao`,
+  `Good now`, `Rainy Cloud 9 Afternoon`, `Fallback`, and source caveats.
+- Real `/trips/shared/not-real` in this local dev environment returned a 500 due to
+  `PostgresError: password authentication failed for user "user"`; route-level Bun tests and e2e
+  fulfilled-route coverage passed.
+
+Validation:
+
+- `bun run format`: passed, no fixes applied.
+- `bun run lint && bun run typecheck --incremental false && bun test`: passed, 655 tests.
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY= CLERK_WEBHOOK_SIGNING_SECRET= bun run
+  verify:ci`: passed, including lint, clean typecheck, 655 Bun tests, `db:migrate:test`,
+  `db:seed:test`, build, and 36 Playwright tests.
+- `bun run test:e2e` without overriding local Clerk env remains a local environment caveat:
+  Playwright readiness times out because `.env` enables Clerk middleware and `/robots.txt`
+  readiness requests hit Clerk proxy rewrite errors.
+- `bun run doctor`: passed with advisory output, 15 warnings, score 85/100.
+
+Commit:
+
+- `Record Hallmark redesign baseline`
+
+Next step:
+
+- Step 2: Theme Tokens And Shared Primitive Cleanup

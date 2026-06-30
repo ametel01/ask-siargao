@@ -92,6 +92,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Recorded the Hallmark audit redesign baseline, including pre-change quality gates and viewport
+  notes for the landing, chat saved-plan, report, and shared-trip surfaces.
 - Recorded final Clerk/auth implementation decisions and release-gate validation
   for the authenticated chat history, profile, ratings, and saved-trips plan.
 - Changed saved-trip sync so signed-in users can claim unowned local saved trips,
