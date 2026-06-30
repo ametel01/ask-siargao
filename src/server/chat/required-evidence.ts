@@ -3,6 +3,7 @@ import type {
   AgentRuntimeRequest,
   AgentToolCallAudit,
   AgentToolResult,
+  RecommendationCard,
   RecommendationCardKind,
 } from "@/server/chat/agent-runtime";
 import type { NightlifeEventInterest } from "@/server/chat/nightlife-events";
@@ -87,8 +88,7 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
       name: "search_places",
       purpose: "nightlife_venue_enrichment",
       arguments: {
-        query:
-          "BARREL Barbosa Mama Coco Siargao Beach Club Bed & Brew Harana Surf Resort General Luna Siargao",
+        query: "selected General Luna nightlife event route venues Siargao",
         center: gazetteer["general luna"],
         radius_meters: 6_000,
         constraints: {
@@ -201,14 +201,52 @@ export function finalPayloadSatisfiesRequiredEvidence(
     return true;
   }
   if (!finalPayload) {
-    return toolResults.some((result) => result.cards?.some((card) => card.kind === "place"));
+    return requiredEvidencePlaceCardIds(plan, toolResults).length > 0;
   }
-  const placeCardIds = new Set(
+  const placeCardIds = new Set(requiredEvidencePlaceCardIds(plan, toolResults));
+  return finalPayload.displayCardIds.some((id) => placeCardIds.has(id));
+}
+
+export function requiredEvidencePlaceCardIds(
+  plan: RequiredEvidencePlan,
+  toolResults: readonly AgentToolResult[],
+) {
+  const nightlifeVenueNames = selectedNightlifeEventVenueNames(toolResults);
+  return uniqueText(
     toolResults.flatMap((result) =>
-      (result.cards ?? []).flatMap((card) => (card.kind === "place" ? [card.id] : [])),
+      isCheckedPlacesEvidenceResult(result)
+        ? (result.cards ?? []).flatMap((card) =>
+            card.kind === "place" &&
+            requiredEvidenceAcceptsPlaceCard(plan, card, nightlifeVenueNames)
+              ? [card.id]
+              : [],
+          )
+        : [],
     ),
   );
-  return finalPayload.displayCardIds.some((id) => placeCardIds.has(id));
+}
+
+export function selectedNightlifeEventVenueNames(
+  toolResults: readonly Pick<AgentToolResult, "name" | "status" | "data">[],
+) {
+  const routeVenueNames = uniqueText(
+    toolResults.flatMap((result) =>
+      result.name === "search_nightlife_events" && result.status === "success"
+        ? readNightlifeRouteVenueNames(result.data)
+        : [],
+    ),
+  );
+  if (routeVenueNames.length > 0) {
+    return routeVenueNames;
+  }
+
+  return uniqueText(
+    toolResults.flatMap((result) =>
+      result.name === "search_nightlife_events" && result.status === "success"
+        ? readNightlifeCandidateVenueNames(result.data)
+        : [],
+    ),
+  );
 }
 
 function terminalOnlyFinalPayloadIsCaveated(
@@ -473,6 +511,68 @@ function hasCompletedToolCall(
           requiredCall.terminalSourceLabels.includes(source.label),
       ),
   );
+}
+
+function isCheckedPlacesEvidenceResult(result: AgentToolResult) {
+  return (
+    result.name === "search_places" &&
+    result.status === "success" &&
+    result.sources.some(
+      (source) => source.label === "live_checked" || source.label === "fresh_cache",
+    )
+  );
+}
+
+function requiredEvidenceAcceptsPlaceCard(
+  plan: RequiredEvidencePlan,
+  card: RecommendationCard,
+  nightlifeVenueNames: readonly string[],
+) {
+  if (
+    !plan.requiredToolCalls.some((requiredCall) => requiredCall.name === "search_nightlife_events")
+  ) {
+    return true;
+  }
+  return nightlifeVenueNames.some((venueName) => placeCardMatchesVenue(card, venueName));
+}
+
+function placeCardMatchesVenue(card: RecommendationCard, venueName: string) {
+  const title = normalizeCardVenueText(card.title);
+  const venue = normalizeCardVenueText(venueName);
+  return title === venue || title.includes(venue) || venue.includes(title);
+}
+
+function readNightlifeRouteVenueNames(data: AgentToolResult["data"]) {
+  if (!isRecord(data) || !isRecord(data.route)) {
+    return [];
+  }
+  return Object.values(data.route).flatMap((candidate) => readCandidateVenueName(candidate));
+}
+
+function readNightlifeCandidateVenueNames(data: AgentToolResult["data"]) {
+  if (!isRecord(data) || !Array.isArray(data.candidates)) {
+    return [];
+  }
+  return data.candidates.flatMap((candidate) => readCandidateVenueName(candidate));
+}
+
+function readCandidateVenueName(value: unknown) {
+  return isRecord(value) && typeof value.venueName === "string" ? [value.venueName] : [];
+}
+
+function normalizeCardVenueText(value: string) {
+  return value
+    .normalize("NFKD")
+    .replaceAll(/[\u0300-\u036f]/g, "")
+    .replaceAll(/&/g, "and")
+    .replaceAll(/[^a-z0-9]+/gi, " ")
+    .replaceAll(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function uniqueText(values: readonly string[]) {
+  return [...new Set(values)];
 }
 
 function normalizeLookupKey(value: string) {

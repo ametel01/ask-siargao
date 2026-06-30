@@ -549,6 +549,18 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       sourceLabel: "Google Places - live checked",
       sources: [openNowPlacesSourceSummary],
     };
+    const offRoutePlaceCard = {
+      id: "place_bed_brew",
+      kind: "place" as const,
+      title: "Bed & Brew",
+      subtitle: "General Luna",
+      mapsUrl: "https://maps.example/bed-brew",
+      openStatusLabel: "Open now according to Google Places.",
+      fitReasons: ["Venue identity and map details returned by Google Places."],
+      caveats: ["This venue was not selected by the Tuesday event route."],
+      sourceLabel: "Google Places - live checked",
+      sources: [openNowPlacesSourceSummary],
+    };
     const client = fakeResponsesClient([
       responseWithToolCall({
         id: "resp_nightlife_wrong_places_first",
@@ -597,39 +609,60 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
             "auto_required_evidence_1",
             "auto_required_memory_load_nightlife",
           ],
-          displayCardIds: [placeCard.id],
+          displayCardIds: [],
         }),
         _request_id: "req_nightlife_route_final",
       },
     ]);
-    const executeTool = fakeToolExecutor({
-      search_nightlife_events: {
-        name: "search_nightlife_events",
-        status: "success",
-        text: "Approved events: BARREL warm-up, Barbosa main party, Siargao Beach Club late option, Mama Coco softer option.",
-        sources: [nightlifeEventSourceSummary],
-      },
-      search_places: {
-        name: "search_places",
-        status: "success",
-        text: "Google Places returned General Luna venue details.",
-        sources: [openNowPlacesSourceSummary],
-        cards: [placeCard],
-      },
-      get_weather_forecast: {
-        name: "get_weather_forecast",
-        status: "success",
-        text: "Open-Meteo weather forecast for General Luna.",
-        sources: [weatherSourceSummary],
-      },
-      load_agent_memory_file: {
+    let nightlifeLookupFinished = false;
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "search_nightlife_events") {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        nightlifeLookupFinished = true;
+        return {
+          name: "search_nightlife_events",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Approved events: BARREL warm-up, Barbosa main party, Siargao Beach Club late option, Mama Coco softer option.",
+          data: nightlifeEventRouteData(),
+          sources: [nightlifeEventSourceSummary],
+        };
+      }
+
+      if (request.name === "search_places") {
+        expect(nightlifeLookupFinished).toBe(true);
+        expect(request.arguments.query).toBe(
+          "BARREL Barbosa Siargao Beach Club Mama Coco General Luna Siargao nightlife venues",
+        );
+        return {
+          name: "search_places",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Google Places returned selected and off-route General Luna venue details.",
+          sources: [openNowPlacesSourceSummary],
+          cards: [placeCard, offRoutePlaceCard],
+        };
+      }
+
+      if (request.name === "get_weather_forecast") {
+        return {
+          name: "get_weather_forecast",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Open-Meteo weather forecast for General Luna.",
+          sources: [weatherSourceSummary],
+        };
+      }
+
+      return {
         name: "load_agent_memory_file",
+        toolCallId: request.toolCallId,
         status: "success",
         text: "Loaded NIGHTLIFE.md",
         data: { loadedMemoryFileNames: ["NIGHTLIFE.md"] },
         sources: [],
-      },
-    });
+      };
+    };
 
     const result = await runAskSiargaoAgentTurn(
       {
@@ -677,6 +710,10 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       interests: ["party"],
     });
     expect(result.toolCalls[1]?.toolCallId).toBe("call_places_first");
+    expect(result.toolCalls[1]?.arguments).toMatchObject({
+      query: "BARREL Barbosa Siargao Beach Club Mama Coco General Luna Siargao nightlife venues",
+      constraints: { included_type: "bar", open_now: true, page_size: 4 },
+    });
     expect(result.toolCalls[2]?.arguments).toMatchObject({
       location: "General Luna",
       date_range: "today",
@@ -687,6 +724,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       weatherSourceSummary,
     ]);
     expect(result.cards).toEqual([placeCard]);
+    expect(JSON.stringify(result.cards)).not.toContain(offRoutePlaceCard.title);
     expect(result.memory?.files.some((file) => file.fileName === "NIGHTLIFE.md")).toBe(true);
     expect(client.requests).toHaveLength(4);
     const firstInput = parseLastUserInputMessage(client.requests[0]?.input) as {
@@ -703,6 +741,166 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       validationRepairMemoryLoad?: { name?: string };
     };
     expect(memoryRepairInput.validationRepairMemoryLoad?.name).toBe("load_agent_memory_file");
+  });
+
+  test("direct-final repair completes nightlife event lookup before Places enrichment", async () => {
+    const selectedPlaceCard = {
+      id: "place_barrel",
+      kind: "place" as const,
+      title: "BARREL",
+      subtitle: "General Luna",
+      mapsUrl: "https://maps.example/barrel",
+      openStatusLabel: "Open now according to Google Places.",
+      fitReasons: ["Venue identity and map details returned by Google Places."],
+      caveats: ["Places is venue detail evidence, not the nightlife ranking source."],
+      sourceLabel: "Google Places - live checked",
+      sources: [openNowPlacesSourceSummary],
+    };
+    const offRoutePlaceCard = {
+      id: "place_bed_brew",
+      kind: "place" as const,
+      title: "Bed & Brew",
+      subtitle: "General Luna",
+      mapsUrl: "https://maps.example/bed-brew",
+      openStatusLabel: "Open now according to Google Places.",
+      fitReasons: ["Venue identity and map details returned by Google Places."],
+      caveats: ["This venue was not selected by the Tuesday event route."],
+      sourceLabel: "Google Places - live checked",
+      sources: [openNowPlacesSourceSummary],
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_nightlife_direct_final_without_tools",
+        output_text: finalPayloadText({
+          answer:
+            "Tonight in General Luna, start with BARREL, then continue toward Barbosa if you want the main party.",
+        }),
+        _request_id: "req_nightlife_direct_final_without_tools",
+      },
+      {
+        id: "resp_nightlife_direct_final_after_evidence",
+        output_text: finalPayloadText({
+          answer:
+            "Tonight in General Luna, start with BARREL, make Barbosa the main party, keep Siargao Beach Club late, and use Mama Coco as the softer option. Weather and venue details were checked.",
+          usedToolCallIds: [
+            "auto_required_evidence_1",
+            "auto_required_evidence_2",
+            "auto_required_evidence_3",
+          ],
+          displayCardIds: [],
+        }),
+        _request_id: "req_nightlife_direct_final_after_evidence",
+      },
+      {
+        id: "resp_nightlife_direct_final_after_memory",
+        output_text: finalPayloadText({
+          answer:
+            "Tonight in General Luna, start with BARREL, make Barbosa the main party, keep Siargao Beach Club late, and use Mama Coco as the softer option. Weather, venue details, and nightlife reference context were checked.",
+          usedMemoryFiles: ["NIGHTLIFE.md"],
+          usedToolCallIds: [
+            "auto_required_evidence_1",
+            "auto_required_evidence_2",
+            "auto_required_evidence_3",
+            "auto_required_memory_load_nightlife",
+          ],
+          displayCardIds: [],
+        }),
+        _request_id: "req_nightlife_direct_final_after_memory",
+      },
+    ]);
+
+    let nightlifeLookupFinished = false;
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "search_nightlife_events") {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        nightlifeLookupFinished = true;
+        return {
+          name: "search_nightlife_events",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Approved events: BARREL warm-up, Barbosa main party, Siargao Beach Club late option, Mama Coco softer option.",
+          data: nightlifeEventRouteData(),
+          sources: [nightlifeEventSourceSummary],
+        };
+      }
+
+      if (request.name === "search_places") {
+        expect(nightlifeLookupFinished).toBe(true);
+        expect(request.arguments.query).toBe(
+          "BARREL Barbosa Siargao Beach Club Mama Coco General Luna Siargao nightlife venues",
+        );
+        return {
+          name: "search_places",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Google Places returned selected and off-route General Luna venue details.",
+          sources: [openNowPlacesSourceSummary],
+          cards: [selectedPlaceCard, offRoutePlaceCard],
+        };
+      }
+
+      if (request.name === "get_weather_forecast") {
+        return {
+          name: "get_weather_forecast",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Open-Meteo weather forecast for General Luna.",
+          sources: [weatherSourceSummary],
+        };
+      }
+
+      return {
+        name: "load_agent_memory_file",
+        toolCallId: request.toolCallId,
+        status: "success",
+        text: "Loaded NIGHTLIFE.md",
+        data: { loadedMemoryFileNames: ["NIGHTLIFE.md"] },
+        sources: [],
+      };
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "What are the best party places in General Luna tonight?",
+          },
+        ],
+        requestId: "agent_request_nightlife_direct_final_repair",
+        deterministicSignals: nightlifeRouteSignals(),
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "search_nightlife_events",
+      "search_places",
+      "get_weather_forecast",
+      "load_agent_memory_file",
+    ]);
+    expect(result.toolCalls.map((toolCall) => toolCall.toolCallId)).toEqual([
+      "auto_required_evidence_1",
+      "auto_required_evidence_2",
+      "auto_required_evidence_3",
+      "auto_required_memory_load_nightlife",
+    ]);
+    expect(result.cards).toEqual([selectedPlaceCard]);
+    expect(JSON.stringify(result.cards)).not.toContain(offRoutePlaceCard.title);
+    const repairInput = parseLastUserInputMessage(client.requests[1]?.input) as {
+      automaticRequiredEvidenceChecks?: Array<{
+        name?: string;
+        arguments?: Record<string, unknown>;
+      }>;
+    };
+    expect(repairInput.automaticRequiredEvidenceChecks?.map((check) => check.name)).toEqual([
+      "search_nightlife_events",
+      "search_places",
+      "get_weather_forecast",
+    ]);
+    expect(repairInput.automaticRequiredEvidenceChecks?.[1]?.arguments?.query).toBe(
+      "BARREL Barbosa Siargao Beach Club Mama Coco General Luna Siargao nightlife venues",
+    );
   });
 
   test("auto-executes required Places evidence for activity-place and service prompts", async () => {
@@ -5453,6 +5651,77 @@ function recommendationCard({
     caveats,
     sourceLabel,
     sources,
+  };
+}
+
+function nightlifeRouteSignals() {
+  return {
+    intent: {
+      latestUserTurn: "What are the best party places in General Luna tonight?",
+      nightlifePlan: true,
+      weather: false,
+      activityPlan: false,
+      tripAdvice: false,
+      placeIntent: {
+        category: "bar",
+        liveNeeds: ["recommendation"],
+        meal: null,
+        location: "General Luna",
+        areaScope: "in_area",
+        radiusMeters: 12_000,
+      },
+    },
+  };
+}
+
+function nightlifeEventRouteData() {
+  const barrel = nightlifeEventCandidate("BARREL", "warm_up");
+  const barbosa = nightlifeEventCandidate("Barbosa", "main_party");
+  const siargaoBeachClub = nightlifeEventCandidate("Siargao Beach Club", "late_option");
+  const mamaCoco = nightlifeEventCandidate("Mama Coco", "softer_option");
+
+  return {
+    status: "available",
+    location: "General Luna",
+    requestedDate: "tonight",
+    localDate: "2026-06-30",
+    dayOfWeek: "Tuesday",
+    candidates: [barrel, barbosa, siargaoBeachClub, mamaCoco],
+    route: {
+      warmUp: barrel,
+      mainParty: barbosa,
+      lateOption: siargaoBeachClub,
+      softerOption: mamaCoco,
+    },
+    boundaries: {
+      checked: nightlifeEventSourceSummary.checked,
+      notChecked: nightlifeEventSourceSummary.notChecked,
+    },
+    nextStep:
+      "Use Google Places only after this event lookup to enrich selected venue identity, map links, address, business status, opening-hour signal, ratings, and review counts.",
+  };
+}
+
+function nightlifeEventCandidate(
+  venueName: string,
+  routeRole: "warm_up" | "main_party" | "late_option" | "softer_option",
+) {
+  return {
+    id: `nightlife_${venueName.toLowerCase().replaceAll(/[^a-z0-9]+/g, "_")}`,
+    venueName,
+    eventName: `${venueName} Tuesday event`,
+    location: "General Luna",
+    dayOfWeek: "Tuesday",
+    startTime: "21:00",
+    localTimeWindow: "9 PM-late",
+    routeRole,
+    intensity: routeRole === "softer_option" ? "medium" : "high",
+    interests: ["party"],
+    sourceName: "Ask Siargao approved nightlife event facts",
+    sourceUrl: "https://example.test/nightlife",
+    sourceBasis: "Test approved nightlife event route.",
+    confidence: "medium",
+    notes: [],
   };
 }
 
