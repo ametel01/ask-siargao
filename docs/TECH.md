@@ -31,7 +31,7 @@ The LLM should not have direct unrestricted provider access. It may propose retr
 - ORM: Drizzle, matching the current codebase direction.
 - Payments: Stripe Checkout.
 - LLM: OpenAI Responses API or a small adapter around the current OpenAI SDK.
-- Provider data: Google Places, Open-Meteo, and later approved partner or official sources.
+- Provider data: Google Places, Open-Meteo, approved event sources, and later approved partner or official sources.
 - Background jobs: start with explicit scripts and request-time jobs; add Redis, Inngest, Trigger.dev, or equivalent when async workload requires it.
 
 ## Frontend Surfaces
@@ -60,7 +60,8 @@ The first screen should let users paste a plan or ask a question. It should not 
 1. Persist user message.
 2. Extract or update trip context.
 3. Classify intent.
-4. Determine required fact types and freshness windows.
+4. Determine required fact types and freshness windows. Time-bound nightlife prompts should
+   produce event requirements before generic place requirements.
 5. Query internal facts.
 6. If facts are sufficient, build answer context from DB.
 7. If facts are stale or missing, check usage meters and source policy.
@@ -118,6 +119,8 @@ Key modules:
 - `ProviderRegistry`: enforces source profiles, allowed use, field masks, raw-storage rules, and rate limits.
 - `UsageMeter`: tracks chat messages, live refreshes, heavy recommendation searches, weather refreshes, and route lookups.
 - `AnswerGenerator`: calls the LLM with bounded facts and returns structured answer content.
+- `NightlifeEventAdapter`: checks approved event sources, normalizes recurring and dated nightlife
+  occurrences, and returns event facts for route-style answers.
 
 ## Data Model
 
@@ -204,6 +207,30 @@ Manual or user-submitted evidence:
 - Can support private trip answers.
 - Should not become public unless the user or provider grants publication rights.
 
+Nightlife and event source rules:
+
+- Query official venue websites first for recurring schedules, closed days, and official event
+  names.
+- Query local event directories such as SiargaoVibes for dated occurrences and upcoming event
+  pages.
+- Use official public Instagram or Facebook venue pages only through an allowed access method and
+  store extracted facts, not raw social-media bodies.
+- Treat Reddit and broad travel guides as low-confidence community or discovery signals.
+- Use Google Places only for venue identity, map links, ratings, business status, and opening-hour
+  signals. Do not rank nightlife from Google Places relevance alone.
+- Event facts expire after the event. Recurring patterns must carry a source URL and review date.
+
+Nightlife answer flow:
+
+```text
+nightlife prompt
+  -> load NIGHTLIFE.md for stable local context
+  -> search_nightlife_events for current event occurrences
+  -> search_places or get_place_details for selected venue enrichment
+  -> get_weather_forecast for tonight route movement when relevant
+  -> LLM writes route-style answer with event, venue, weather, and unchecked boundaries
+```
+
 ## Usage Meters
 
 The base paid pass should meter expensive operations separately from ordinary chat.
@@ -258,6 +285,8 @@ LLM must not:
 - decide provider retention policy
 - call external APIs directly without deterministic gating
 - expose restricted raw provider content
+- treat stable memory, Google Places relevance, or community chatter as proof of tonight's event
+  schedule
 
 ## Testing Decisions
 

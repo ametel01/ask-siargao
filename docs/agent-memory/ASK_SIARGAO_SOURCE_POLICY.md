@@ -52,6 +52,12 @@ without a matching live, cached, weather, or curated tool output.
 `provider_unavailable` means a provider or cache lookup needed for the answer
 failed or was unavailable.
 
+Planned nightlife/event labels such as `event_checked`, `venue_checked`, and
+`community_signal` are not valid until `src/server/chat/answer-source-summary.ts`
+and source-consistency validation explicitly support them. Until then, nightlife
+tools must use current labels only and express event/venue/community boundaries
+inside `checked` and `notChecked` text.
+
 ## Checked And Not Checked Wording
 
 Use "Checked:" lines only for tool-backed facts represented by verifying source

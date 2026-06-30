@@ -91,6 +91,28 @@ export const requiredAgentMemoryManifest = [
     triggerTerms: ["beach", "swimming", "sand", "family beach", "quiet beach", "island beach"],
   },
   {
+    id: "ask_siargao_nightlife",
+    title: "Siargao Nightlife",
+    fileName: "NIGHTLIFE.md",
+    relativePath: "docs/agent-memory/NIGHTLIFE.md",
+    role: "reference",
+    description:
+      "General Luna nightlife routes, party rhythm, event-source priority, venue fit, and boundaries between stable nightlife memory and live event evidence.",
+    triggerTerms: [
+      "party",
+      "nightlife",
+      "bar hopping",
+      "drinks",
+      "DJ",
+      "live music",
+      "foam party",
+      "pub quiz",
+      "trivia",
+      "late night",
+      "tonight",
+    ],
+  },
+  {
     id: "ask_siargao_agent_skills",
     title: "Ask Siargao Agent Skills",
     fileName: "ASK_SIARGAO_AGENT_SKILLS.md",

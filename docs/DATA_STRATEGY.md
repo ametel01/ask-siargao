@@ -182,6 +182,31 @@ Use provider sources based on the type of answer needed:
 
 Do not scrape prohibited sources. Competitor directories and booking platforms can be research benchmarks or partnership targets, but should not become raw data sources without permission.
 
+### Nightlife And Event Sources
+
+Nightlife questions need event freshness before venue freshness. For "tonight",
+"this weekend", "party", "DJ", "live music", "foam party", "pub quiz", or
+similar prompts, use this source order:
+
+| Priority | Source class | Use | Freshness |
+| ---: | --- | --- | --- |
+| 1 | Official venue website or schedule page | Recurring schedule, closed days, official event names | Same-day for `tonight`; 7 days otherwise |
+| 2 | Local event directory such as SiargaoVibes | Dated occurrences, upcoming dates, event times | Expires after event end |
+| 3 | Official public venue Instagram/Facebook page | Last-minute updates, flyers, guest DJs, cancellations | Same-day for `tonight`; 24 hours for active posts |
+| 4 | Venue-submitted or partner-submitted event | Explicitly permitted event facts | Expires after event end or partner-supplied review date |
+| 5 | Local guide or directory such as Siargao Local | Stable venue fit and atmosphere | 30 days for vibe facts |
+| 6 | Travel/news articles | Background recurring patterns | 30-90 days, never primary same-day truth |
+| 7 | Review/travel platforms | Vibe and atmosphere signals | 14-30 days where terms allow derived use |
+| 8 | Reddit/community public chatter | Low-confidence crowd rhythm | 30 days for broad rhythm; not same-day truth |
+| 9 | YouTube/travel blogs | Discovery and atmosphere | 30-90 days, not event proof |
+| 10 | Google Places | Venue identity, map, rating, open-hour signal | Existing Google Places policy |
+| 11 | Open-Meteo | Late-night route weather | 1-3 hours |
+
+Store normalized event facts, source URLs, confidence, observed timestamps, and
+expiry. Do not store raw social-media bodies, private group content, raw review
+corpora, or unrestricted provider payloads. Google Places must enrich selected
+venues; it must not be treated as the primary event source.
+
 ## Google Places Handling
 
 Google Places should be used as a live provider and identity source, not as a database to clone.

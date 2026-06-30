@@ -67,6 +67,8 @@ Ask Siargao can be better when the user's question is practical and local:
 - "What should I do if it rains?"
 - "Which options are close enough by scooter?"
 - "Can I trust this plan with current weather and local constraints?"
+- "What is the actual party route in General Luna tonight?"
+- "Where is the main DJ/live-music/foam-party move this week?"
 
 The user should choose Ask Siargao when they need a fast, grounded Siargao
 decision, not a broad brainstorm.
@@ -83,6 +85,12 @@ default:
 - Google Places cache and retention policy.
 - Siargao-specific scope guardrails.
 - Source caveats that distinguish checked data from unchecked assumptions.
+- Agent-memory files for stable local knowledge that can be loaded by request
+  context.
+
+The major current nightlife gap is that Google Places can identify bars, but it
+does not know the island's party flow. Nightlife answers need event sources and
+route-style synthesis, not a top-rated bar directory.
 
 These are the right ingredients. The product direction now is to put them behind
 an AI tool-calling agent, not behind deterministic answer templates.
@@ -167,6 +175,7 @@ status:
 - Weather today.
 - Rain plans.
 - Current restaurant or cafe options.
+- Tonight's party, DJ, live-music, pub-quiz, foam-party, or event schedule.
 - Place existence and map links.
 
 The AI should call backend tools for those checks rather than relying on hidden
@@ -188,10 +197,12 @@ Every recommendation should help the tourist decide and move:
 
 Ask Siargao should be explicit about evidence:
 
-- Live checked.
+- Venue details checked.
+- Event schedule checked.
 - Fresh cache.
 - Curated local guide.
 - Weather checked.
+- Community signal.
 - Not checked.
 - Needs local confirmation.
 
@@ -209,6 +220,7 @@ The product should maintain Markdown knowledge files such as:
 - source-governance policy;
 - database/data dictionary;
 - Siargao-specific local guide notes;
+- nightlife and event-route knowledge;
 - answer-quality rules.
 
 These files can be attached to the agent through instructions, OpenAI file
@@ -251,7 +263,21 @@ Use Google Places through AI-called tools whenever the user asks:
 The AI should call the Places tool, inspect the results, and write the final
 recommendation.
 
-### 4. Local Itinerary Builder
+### 4. Nightlife Event Route Mode
+
+For party and nightlife prompts, Ask Siargao should answer the island move:
+
+- warm-up;
+- main party;
+- late option;
+- softer or live-music alternative;
+- weather or transport caveat when relevant.
+
+The AI should load nightlife memory, check current event sources, enrich selected
+venues with Google Places, and avoid ranking tonight's party from Places results
+alone.
+
+### 5. Local Itinerary Builder
 
 Build 2-4 hour plans, not only lists:
 

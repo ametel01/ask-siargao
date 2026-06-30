@@ -150,8 +150,8 @@ labels. Those labels require governed non-memory tool evidence.
 To add or edit agent memory:
 
 1. Edit the relevant file under `docs/agent-memory/`.
-2. Keep `INDEX.md` short and stable; use reference files for surf, beach, data dictionary, source
-   policy, tool-use policy, answer-shape, and local assumption material.
+2. Keep `INDEX.md` short and stable; use reference files for surf, beach, nightlife, data
+   dictionary, source policy, tool-use policy, answer-shape, and local assumption material.
 3. Run `bun test src/server/chat/agent-memory.test.ts`.
 4. Run `bun run agent-memory:sync -- --dry-run` to confirm the reference-file sync plan.
 5. For deployed file search, run `bun run agent-memory:sync` with `OPENAI_API_KEY`, then configure
@@ -191,6 +191,13 @@ Every tool-backed claim should return `AnswerSourceSummary` entries:
 - `provider_unavailable` for failed or fallback provider checks;
 - `not_verified` for generic model reasoning with no matching tool evidence.
 
+Planned nightlife/event work may add `event_checked`, `venue_checked`, or
+`community_signal`, but those labels are not valid until
+`src/server/chat/answer-source-summary.ts`, source-consistency validation, and
+tool tests support them. Before that implementation lands, nightlife tools
+should use existing labels and put event/venue/community distinctions inside
+`checked` and `notChecked` fields.
+
 `src/server/chat/source-consistency.ts` validates structured `sources` and rendered `Checked:` /
 `Not checked:` lines against actual audited tool calls. The route returns a controlled `502` if the
 model produces source labels that are not backed by tool evidence.
@@ -201,7 +208,8 @@ label explanations in `data.policies` and `text`, with an empty `sources` array.
 `file_search`, `load_agent_memory_file`, and `search_agent_memory` are policy/reference retrieval
 paths, not answer evidence. They must not create checked, provider, curated, or
 provider-unavailable source summaries. Live/local factual claims still need governed tools such as
-weather, Google Places, local data tools, condition tools, or the curated local guide.
+weather, Google Places, future nightlife event lookup, local data tools, condition tools, or the
+curated local guide.
 
 ## Observability
 
@@ -222,5 +230,5 @@ or migrate that boundary.
 
 The current runtime does not include persistent long-term chat memory, unrestricted database access,
 SQL tools, booking/table/room availability checks, review-text ingestion for chat answers,
-surf/swell/tide integrations, road-closure feeds, or automatic repair-pass prompting after
-source-consistency failures.
+implemented nightlife event-source adapters, road-closure feeds, or automatic repair-pass prompting
+after source-consistency failures.

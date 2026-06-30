@@ -9,6 +9,8 @@ The product should answer practical questions such as:
 - Will this accommodation be quiet enough to sleep?
 - Is this place good for a family?
 - What parties or events should I go to during my dates?
+- What is tonight's actual General Luna party route, not just which bars are
+  listed on Google Maps?
 - What are the best restaurants, beaches, clinics, scooter rentals, and transfer options near me?
 - How do I get from the airport or port to my accommodation?
 - How does today's weather change the plan?
@@ -90,7 +92,9 @@ The MVP should support:
 - Airport or port transfer guidance.
 - Scooter rental recommendations.
 - Today's weather and short-term forecast.
-- Basic party or event suggestions when data is available.
+- Event-backed nightlife routes when data is available, including warm-up,
+  main-party, late-option, and softer-option suggestions with source freshness
+  boundaries.
 
 The assistant should work first for General Luna, Cloud 9, Malinao, and common airport or port arrival flows.
 
@@ -100,6 +104,7 @@ The assistant should work first for General Luna, Cloud 9, Malinao, and common a
 user starts chat
   -> assistant extracts trip context
   -> system resolves accommodation or area
+  -> system classifies time-bound intents such as tonight, nearby, open now, and party route
   -> system checks fresh facts in DB
   -> system fetches provider data when facts are missing or stale
   -> provider observations are normalized into facts
@@ -112,6 +117,12 @@ The LLM can classify intent and draft answers, but deterministic code owns provi
 ## Data Policy
 
 Use permitted sources only. Do not scrape prohibited sources. Do not build a raw mirror of Google Places, booking sites, or local directories.
+
+For nightlife and event answers, use approved event and venue sources in priority
+order: official venue pages, local event directories, official public venue
+social pages where allowed, local guides, community signals as low-confidence
+context, Google Places for venue enrichment, and weather for route conditions.
+Do not treat Google Places open-now status as proof of tonight's event schedule.
 
 Store:
 

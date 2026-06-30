@@ -54,6 +54,11 @@ Use `search_places` when the traveler asks for current or provider-backed place
 recommendations, ratings, opening status, Google Maps links, cafes,
 restaurants, bars, services, attractions, or nearby options.
 
+Use `search_nightlife_events`, when available, before `search_places` for
+party, nightlife, bar-hopping, DJ, live-music, foam-party, pub-quiz, trivia, or
+drinks-tonight prompts. Nightlife questions need event evidence first; Google
+Places is venue enrichment, not proof of tonight's party.
+
 Use `get_place_details` when the traveler asks about a specific place and the
 answer needs governed Google Places details or a map link.
 
@@ -87,8 +92,8 @@ Use `describe_source_policy` when source labels, checked/not-checked wording, or
 provider caveats need to be explained to the model before answering.
 
 Use agent-memory retrieval tools, when available, to look up durable Ask Siargao
-policy, data-dictionary, source-policy, or local-assumption memory. Memory
-retrieval is policy/reference context, not live evidence.
+policy, data-dictionary, source-policy, nightlife, or local-assumption memory.
+Memory retrieval is policy/reference context, not live evidence.
 
 ## Provider Failure Handling
 
@@ -98,8 +103,9 @@ practical guidance only where stable context supports it.
 
 If a live status was not checked, say so. If a cache was used, do not imply that
 open-now, booking, table availability, room availability, reviews, surf, swell,
-tides, road flooding, closures, or safety conditions were checked unless a tool
-output explicitly says so. If `get_marine_conditions` or `get_condition_judgment`
+tides, event schedule, crowd size, door policy, road flooding, closures, or
+safety conditions were checked unless a tool output explicitly says so. If
+`get_marine_conditions` or `get_condition_judgment`
 returns `marine_checked`, treat modelled sea-level, wave, swell, and current
 data as checked. If `get_tide_forecast` returns `tide_forecast_checked`, treat
 predicted Tide-Forecast Dapa tide-table timing/heights and embedded 3-hour

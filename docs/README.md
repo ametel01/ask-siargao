@@ -2,7 +2,7 @@
 
 These documents capture planning and research notes for Ask Siargao.
 
-The current product direction is Ask Siargao: a Siargao-focused chatbot tour operator. Travelers paste or type a trip plan, then ask practical questions about accommodations, areas, restaurants, beaches, parties, transfers, clinics, scooter rentals, weather, and fit for their own requirements.
+The current product direction is Ask Siargao: a Siargao-focused chatbot tour operator. Travelers paste or type a trip plan, then ask practical questions about accommodations, areas, restaurants, beaches, event-backed nightlife routes, transfers, clinics, scooter rentals, weather, and fit for their own requirements.
 
 ## Current Source Of Truth
 
@@ -15,6 +15,10 @@ The current product direction is Ask Siargao: a Siargao-focused chatbot tour ope
 - [STARTUP_IDEA_LAB](STARTUP_IDEA_LAB.md): product positioning, pricing, validation, and go-to-market thesis.
 - [LANDING_STYLE_REQUIREMENTS](LANDING_STYLE_REQUIREMENTS.md): current landing and chat-entry UX requirements.
 - [COMPETITORS](COMPETITORS.md): market research and competitor observations.
+
+Agent memory under [agent-memory](agent-memory/) is runtime-facing product
+knowledge. It is not historical research: changes there must stay aligned with
+the chat memory manifest and tests.
 
 ## Historical Research
 

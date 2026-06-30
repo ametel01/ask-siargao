@@ -31,6 +31,7 @@ describe("agent memory loader", () => {
     expect(snapshot.referenceFiles.map((file) => file.fileName)).toEqual([
       "SURF.md",
       "LOCAL_GUIDE_BEACHES.md",
+      "NIGHTLIFE.md",
       "ASK_SIARGAO_AGENT_SKILLS.md",
       "ASK_SIARGAO_ANSWER_PATTERNS.md",
       "ASK_SIARGAO_TOOL_USE_POLICY.md",
@@ -114,6 +115,11 @@ describe("agent memory loader", () => {
           fileName: "LOCAL_GUIDE_BEACHES.md",
           role: "reference",
           content: expect.stringContaining("Do not use this file alone to answer surf-spot"),
+        }),
+        expect.objectContaining({
+          fileName: "NIGHTLIFE.md",
+          role: "reference",
+          content: expect.stringContaining("General Luna nightlife is a sequence"),
         }),
         expect.objectContaining({
           fileName: "ASK_SIARGAO_DATA_DICTIONARY.md",
@@ -221,6 +227,8 @@ function fixtureContentFor(fileName: string) {
       return "Surf spots are separate from beach fallbacks.";
     case "LOCAL_GUIDE_BEACHES.md":
       return "Beach guide fallbacks are not surf spot recommendations.";
+    case "NIGHTLIFE.md":
+      return "Nightlife answers should be route-style and event-first.";
     case "ASK_SIARGAO_AGENT_SKILLS.md":
       return "Every final answer must be written by the AI.";
     case "ASK_SIARGAO_ANSWER_PATTERNS.md":

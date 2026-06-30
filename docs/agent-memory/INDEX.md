@@ -14,6 +14,10 @@ policy and local-reference context only; live/current facts still require tools.
 - Do not load surf or beach memory for ordinary food, breakfast, cafe,
   restaurant, bar, or open-now place prompts unless the user explicitly asks for
   surf or beach context.
+- Load nightlife memory for party, nightlife, bar-hopping, DJ, live music, foam
+  party, pub quiz, trivia, late-night, or drinks-tonight prompts. Nightlife
+  memory is stable local context only; current events still require governed
+  tools.
 - Do not answer from general model knowledge when a memory file below covers the
   topic.
 - If no memory file covers the topic, say the knowledge is not available from Ask
@@ -38,6 +42,17 @@ Luna, Cloud 9, or any other named base from memory alone.
 Use for beach-day recommendations, swimming beaches, sandy/rocky beach tradeoffs,
 quiet beaches, family beach choices, island beaches, sandbars, beach access
 patterns, and when a place is a beach fallback rather than a surf spot.
+
+### NIGHTLIFE.md
+
+Use for General Luna nightlife, party-route answer shape, bar-hopping context,
+recurring party-night candidates, venue-fit notes, nightlife source priority,
+and boundaries between stable nightlife memory and live event evidence.
+
+For "party tonight", "nightlife tonight", "where should we go out", "DJ",
+"live music", "foam party", "pub quiz", or similar prompts, load
+`NIGHTLIFE.md` before the final answer. Then use current event, Google Places,
+and weather tools where relevant; do not treat memory as live event proof.
 
 ### ASK_SIARGAO_TOOL_USE_POLICY.md
 
