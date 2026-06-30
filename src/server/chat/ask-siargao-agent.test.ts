@@ -9,7 +9,9 @@ import type {
   AgentResponsesCreateResult,
   AgentToolExecutor,
   AgentToolResult,
+  DecisionSummary,
   ItineraryPlan,
+  RecommendationCard,
 } from "@/server/chat/agent-runtime";
 import { executeAgentTool } from "@/server/chat/agent-tools";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
@@ -4272,6 +4274,80 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(repairInput?.instruction).toContain("failed provider output");
   });
 
+  test("covers cross-request answer-quality regressions with selected public artifacts", async () => {
+    for (const scenario of answerQualityRegressionScenarios()) {
+      const client = fakeResponsesClient([
+        {
+          id: `resp_${scenario.name}_tool_calls`,
+          _request_id: `req_${scenario.name}_tool_calls`,
+          output: scenario.toolCalls.map((toolCall) => ({
+            type: "function_call",
+            call_id: toolCall.callId,
+            name: toolCall.name,
+            arguments: JSON.stringify(toolCall.arguments),
+          })),
+        },
+        {
+          id: `resp_${scenario.name}_final`,
+          output_text: finalPayloadText(scenario.finalPayload),
+          _request_id: `req_${scenario.name}_final`,
+        },
+      ]);
+
+      let result: Awaited<ReturnType<typeof runAskSiargaoAgentTurn>>;
+      try {
+        result = await runAskSiargaoAgentTurn(
+          {
+            messages: [{ role: "user", content: scenario.prompt }],
+            requestId: `agent_request_${scenario.name}`,
+            deterministicSignals: scenario.deterministicSignals,
+          },
+          {
+            client,
+            executeTool: fakeToolExecutor(scenario.toolResults),
+            model: "gpt-test",
+            requireStructuredFinalOutput: true,
+          },
+        );
+      } catch (error) {
+        throw new Error(`${scenario.name}: ${(error as Error).message}`);
+      }
+
+      expect(result.message, scenario.name).toStartWith(scenario.expectedOpening);
+      for (const expectedText of scenario.expectedMessageText) {
+        expect(result.message, scenario.name).toContain(expectedText);
+      }
+      assertTravelerProseHasNoInternalMechanics(result.message);
+      assertDecisionGuidanceIsSpecific(result.message, scenario.expectedDecisionGuidance);
+      expect(
+        result.toolCalls.map((toolCall) => toolCall.name),
+        scenario.name,
+      ).toEqual(scenario.toolCalls.map((toolCall) => toolCall.name));
+      expect(result.publicSources, scenario.name).toEqual(scenario.expectedPublicSources);
+      expect(result.cards?.map((card) => card.id) ?? [], scenario.name).toEqual([
+        ...scenario.expectedCardIds,
+      ]);
+      expect(result.itineraries?.map((itinerary) => itinerary.id) ?? [], scenario.name).toEqual([
+        ...scenario.expectedItineraryIds,
+      ]);
+      expect(result.decisionSummaries?.map((summary) => summary.id) ?? [], scenario.name).toEqual([
+        ...scenario.expectedDecisionSummaryIds,
+      ]);
+      expect(result.artifactSelection, scenario.name).toMatchObject(
+        scenario.expectedArtifactSelection,
+      );
+
+      const publicArtifacts = JSON.stringify({
+        cards: result.cards ?? [],
+        itineraries: result.itineraries ?? [],
+        decisionSummaries: result.decisionSummaries ?? [],
+      });
+      for (const leakedText of scenario.unselectedArtifactText) {
+        expect(publicArtifacts, scenario.name).not.toContain(leakedText);
+      }
+    }
+  });
+
   test("logs tool-loop metadata without raw tool output payloads", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
@@ -4394,6 +4470,722 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     ).rejects.toThrow("OpenAI response did not include output_text");
   });
 });
+
+type AnswerQualityScenario = {
+  name: string;
+  prompt: string;
+  deterministicSignals?: Record<string, unknown>;
+  toolCalls: Array<{
+    callId: string;
+    name: AgentToolResult["name"];
+    arguments: Record<string, unknown>;
+  }>;
+  toolResults: Partial<Record<AgentToolResult["name"], AgentToolResult>>;
+  finalPayload: Partial<AgentFinalPayload>;
+  expectedOpening: string;
+  expectedMessageText: readonly string[];
+  expectedDecisionGuidance?: string;
+  expectedPublicSources: readonly AnswerSourceSummary[];
+  expectedCardIds: readonly string[];
+  expectedItineraryIds: readonly string[];
+  expectedDecisionSummaryIds: readonly string[];
+  expectedArtifactSelection: Record<string, unknown>;
+  unselectedArtifactText: readonly string[];
+};
+
+function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
+  const dapaBreakfastCard = recommendationCard({
+    id: "place_dapa_breakfast_house",
+    title: "Dapa Breakfast House",
+    subtitle: "Breakfast in Dapa",
+    fitReasons: ["Matches the Dapa breakfast area constraint."],
+    caveats: ["Table availability was not confirmed."],
+  });
+  const irrelevantBeachCard = recommendationCard({
+    id: "beach_doot_unused_for_breakfast",
+    kind: "beach",
+    title: "Doot Beach",
+    subtitle: "General Luna-side beach",
+    sourceLabel: "Ask Siargao curated local beach guide",
+    sources: [localGuideSourceSummary],
+    fitReasons: ["Useful for beaches, not breakfast."],
+    caveats: ["Irrelevant to this food request."],
+  });
+  const cloud9RainPlan: ItineraryPlan = {
+    id: "itinerary:cloud_9:rainy_3_hours",
+    title: "Rainy Cloud 9 Three-Hour Plan",
+    durationLabel: "3 hours",
+    decision: {
+      label: "fallback",
+      bestAction: "Use a short Cloud 9 stop plus a covered cafe if showers build.",
+    },
+    stops: [
+      {
+        title: "Cloud 9 boardwalk",
+        kind: "activity",
+        sequence: 1,
+        area: "Cloud 9",
+        rationale: "Keeps the iconic stop short in rain.",
+        caveats: ["Move under cover if showers start."],
+      },
+      {
+        title: "Covered cafe near Cloud 9",
+        kind: "meal",
+        sequence: 2,
+        area: "Cloud 9",
+        travelTimeFromPreviousMinutes: 5,
+        rationale: "Preserves the three-hour timing without a long wet ride.",
+        caveats: ["Open status should be confirmed before leaving."],
+      },
+    ],
+    fallbackStops: [
+      {
+        title: "General Luna covered cafe",
+        kind: "meal",
+        sequence: 1,
+        area: "General Luna",
+        rationale: "Better if rain is already heavy.",
+        caveats: ["Confirm the venue is open."],
+      },
+    ],
+    skip: ["Long exposed beach hopping"],
+    sources: [localGuideSourceSummary, weatherSourceSummary],
+  };
+  const weatherUnavailableSummary: DecisionSummary = {
+    id: "decision:cloud_9_sunset:weather_unavailable",
+    bestAction: "Do not make Cloud 9 sunset the whole plan yet.",
+    basis: "The forecast provider was unavailable, so the rain window is not confirmed.",
+    fallback: "Keep a covered General Luna stop ready until you can confirm the sky locally.",
+    timing: "today",
+    area: "Cloud 9",
+    sources: [weatherProviderUnavailableSourceSummary],
+  };
+  const tideSourceSummary: AnswerSourceSummary = {
+    label: "weather_checked",
+    sourceName: "Tide-Forecast tide table",
+    sourceProfileId: "source_tide_forecast",
+    fetchedAt: "2026-06-26T00:00:00.000Z",
+    confidence: "medium",
+    checked: ["tide timing for Pacifico"],
+    notChecked: ["lesson availability", "lifeguard status"],
+  };
+  const pacificoSurfSummary: DecisionSummary = {
+    id: "decision:pacifico_beginner_surf:tide",
+    bestAction: "Book Pacifico only if your coach confirms a beginner window.",
+    basis:
+      "The tide timing works better around the checked window, but lesson availability is separate.",
+    avoid: "Avoid paddling out alone as a beginner.",
+    timing: "tomorrow morning",
+    area: "Pacifico",
+    sources: [tideSourceSummary, localGuideSourceSummary],
+  };
+  const malinaoSwimSummary: DecisionSummary = {
+    id: "decision:malinao:kids_swim",
+    bestAction: "Use Malinao as a tentative kids swim stop, not a guaranteed swim.",
+    basis:
+      "Weather evidence is usable, while tide, currents, and lifeguard status still need local eyes.",
+    fallback: "Switch to a sand play or cafe stop if the water looks rough.",
+    timing: "today",
+    area: "Malinao",
+    sources: [weatherSourceSummary, conditionMarineSourceSummary],
+  };
+  const delCarmenTransportSummary: DecisionSummary = {
+    id: "decision:del_carmen:scooter_boat_rain",
+    bestAction: "Leave extra time for Del Carmen and keep the boat leg conditional.",
+    basis: "Road exposure and marine conditions both matter for this rainy transfer chain.",
+    fallback: "Use a van or delay the boat if rain or chop builds.",
+    timing: "today",
+    area: "Del Carmen",
+    sources: [weatherSourceSummary, conditionMarineSourceSummary],
+  };
+  const areaChoiceSummary: DecisionSummary = {
+    id: "decision:general_luna_vs_malinao:quiet_family_budget",
+    bestAction: "Choose Malinao for quiet sleep; use General Luna for meals by tricycle.",
+    basis:
+      "It preserves the kids, quiet, and budget constraints better than staying in the busiest strip.",
+    avoid: "Avoid booking directly on the Cloud 9 road if quiet sleep is the priority.",
+    area: "Malinao",
+    sources: [localGuideSourceSummary],
+  };
+  const itineraryReviewPlan: ItineraryPlan = {
+    id: "itinerary:review_input_only",
+    title: "Reviewed Traveler Draft",
+    durationLabel: "tomorrow",
+    stops: [
+      {
+        title: "Cloud 9 sunset",
+        kind: "activity",
+        sequence: 1,
+        area: "Cloud 9",
+        rationale: "Fine as the anchor.",
+        caveats: ["Weather can change the value."],
+      },
+      {
+        title: "Pacifico dinner",
+        kind: "meal",
+        sequence: 2,
+        area: "Pacifico",
+        rationale: "Too far before an early ferry.",
+        caveats: ["Open status was not checked."],
+      },
+    ],
+    fallbackStops: [],
+    skip: ["Pacifico dinner before an early Dapa ferry"],
+    sources: [localGuideSourceSummary],
+  };
+  const itineraryReviewSummary: DecisionSummary = {
+    id: "decision:review:dapa_ferry_cloud9_pacifico",
+    bestAction: "Keep Cloud 9, but move dinner back toward General Luna or Dapa.",
+    basis: "Pacifico adds too much northbound travel before an 8 AM Dapa ferry.",
+    avoid: "Avoid making Pacifico the dinner stop on that night.",
+    timing: "tomorrow night",
+    area: "General Luna / Dapa",
+    sources: [localGuideSourceSummary],
+  };
+  const dapaClinicCard = recommendationCard({
+    id: "place_dapa_clinic",
+    title: "Dapa Community Clinic",
+    subtitle: "Clinic near Dapa ferry area",
+    fitReasons: ["Closest checked service fit for an urgent Dapa reef-cut request."],
+    caveats: ["Current wait time and treatment availability were not confirmed."],
+  });
+  const irrelevantSurfCard = recommendationCard({
+    id: "surf_cloud_9_unused_for_clinic",
+    kind: "beach",
+    title: "Cloud 9 surf tower",
+    subtitle: "Surf landmark",
+    sourceLabel: "Ask Siargao curated local beach guide",
+    sources: [localGuideSourceSummary],
+    fitReasons: ["Not a medical service."],
+    caveats: ["Irrelevant to urgent care."],
+  });
+
+  return [
+    {
+      name: "food_place_dapa_breakfast",
+      prompt: "I'm in Dapa before the ferry. Where should we get budget breakfast?",
+      toolCalls: [
+        {
+          callId: "call_places_dapa_breakfast",
+          name: "search_places",
+          arguments: {
+            query: "budget breakfast in Dapa Siargao",
+            constraints: { included_type: "restaurant", page_size: 5 },
+          },
+        },
+        {
+          callId: "call_local_irrelevant_beach",
+          name: "search_local_guide",
+          arguments: { query: "Dapa beach fallback", filters: null },
+        },
+      ],
+      toolResults: {
+        search_places: {
+          name: "search_places",
+          status: "success",
+          text: "Google Places returned Dapa breakfast options.",
+          sources: [placesSourceSummary],
+          cards: [dapaBreakfastCard],
+        },
+        search_local_guide: {
+          name: "search_local_guide",
+          status: "success",
+          text: "Curated local guide returned beach ideas.",
+          sources: [localGuideSourceSummary],
+          cards: [irrelevantBeachCard],
+        },
+      },
+      finalPayload: {
+        answer:
+          "Go with Dapa Breakfast House before the ferry; it fits Dapa, breakfast, and a budget stop without adding a General Luna detour.",
+        usedToolCallIds: ["call_places_dapa_breakfast"],
+        displayCardIds: [dapaBreakfastCard.id],
+      },
+      expectedOpening: "Go with Dapa Breakfast House",
+      expectedMessageText: ["Dapa", "breakfast", "budget", "ferry"],
+      expectedPublicSources: [placesSourceSummary],
+      expectedCardIds: [dapaBreakfastCard.id],
+      expectedItineraryIds: [],
+      expectedDecisionSummaryIds: [],
+      expectedArtifactSelection: {
+        selectedCardCount: 1,
+        unselectedCardCount: 1,
+        selectedDecisionSummaryCount: 0,
+        selectedItineraryCount: 0,
+      },
+      unselectedArtifactText: [irrelevantBeachCard.title],
+    },
+    {
+      name: "open_activity_cloud9_rain",
+      prompt: "We have 3 hours near Cloud 9 today and rain may come. What should we do?",
+      toolCalls: [
+        {
+          callId: "call_cloud9_activity_plan",
+          name: "plan_local_itinerary",
+          arguments: {
+            theme: "rainy_cloud_9_afternoon",
+            origin: "Cloud 9",
+            duration_hours: 3,
+            needs_weather_check: true,
+          },
+        },
+        {
+          callId: "call_cloud9_weather",
+          name: "get_weather_forecast",
+          arguments: { location: "Cloud 9", date_range: "today" },
+        },
+      ],
+      toolResults: {
+        plan_local_itinerary: {
+          name: "plan_local_itinerary",
+          status: "success",
+          text: "Prepared a rainy Cloud 9 local-fit plan.",
+          sources: [localGuideSourceSummary],
+          itineraries: [cloud9RainPlan],
+        },
+        get_weather_forecast: {
+          name: "get_weather_forecast",
+          status: "success",
+          text: "Open-Meteo forecast loaded for Cloud 9.",
+          sources: [weatherSourceSummary],
+        },
+      },
+      finalPayload: {
+        answer:
+          "Do the short Cloud 9 boardwalk first, then switch to the covered cafe if showers build within your 3-hour window.",
+        usedToolCallIds: ["call_cloud9_activity_plan", "call_cloud9_weather"],
+        displayItineraryIds: [cloud9RainPlan.id ?? ""],
+      },
+      expectedOpening: "Do the short Cloud 9 boardwalk first",
+      expectedMessageText: ["Cloud 9", "covered cafe", "3-hour", "showers"],
+      expectedDecisionGuidance: "if showers build",
+      expectedPublicSources: [localGuideSourceSummary, weatherSourceSummary],
+      expectedCardIds: [],
+      expectedItineraryIds: [cloud9RainPlan.id ?? ""],
+      expectedDecisionSummaryIds: [],
+      expectedArtifactSelection: {
+        selectedItineraryCount: 1,
+        unselectedItineraryCount: 0,
+        selectedCardCount: 0,
+        selectedDecisionSummaryCount: 0,
+      },
+      unselectedArtifactText: [],
+    },
+    {
+      name: "weather_go_no_go_cloud9_unavailable",
+      prompt: "Is Cloud 9 sunset still worth it today if rain is coming?",
+      toolCalls: [
+        {
+          callId: "call_cloud9_weather_unavailable",
+          name: "get_condition_judgment",
+          arguments: {
+            activity: "sunset",
+            location: "Cloud 9",
+            date_range: "today",
+            beach_name: "Cloud 9",
+          },
+        },
+      ],
+      toolResults: {
+        get_condition_judgment: {
+          name: "get_condition_judgment",
+          status: "error",
+          text: "Open-Meteo forecast failed before a sunset judgment could be checked.",
+          errorCode: "provider_unavailable",
+          sources: [weatherProviderUnavailableSourceSummary],
+          decisionSummaries: [weatherUnavailableSummary],
+        },
+      },
+      finalPayload: {
+        answer:
+          "Do not make Cloud 9 sunset the whole plan yet; keep a covered General Luna stop ready until you can confirm the sky locally.",
+        usedToolCallIds: ["call_cloud9_weather_unavailable"],
+        displayDecisionSummaryIds: [weatherUnavailableSummary.id],
+      },
+      expectedOpening: "Do not make Cloud 9 sunset the whole plan yet",
+      expectedMessageText: ["Cloud 9", "covered General Luna", "confirm the sky locally"],
+      expectedDecisionGuidance: "keep a covered General Luna stop ready",
+      expectedPublicSources: [weatherProviderUnavailableSourceSummary],
+      expectedCardIds: [],
+      expectedItineraryIds: [],
+      expectedDecisionSummaryIds: [weatherUnavailableSummary.id],
+      expectedArtifactSelection: {
+        selectedDecisionSummaryCount: 1,
+        unselectedDecisionSummaryCount: 0,
+        selectedCardCount: 0,
+        selectedItineraryCount: 0,
+      },
+      unselectedArtifactText: [],
+    },
+    {
+      name: "surf_tide_pacifico_beginner",
+      prompt: "Beginner surf in Pacifico tomorrow morning: does the tide make it worth booking?",
+      toolCalls: [
+        {
+          callId: "call_surf_memory",
+          name: "load_agent_memory_file",
+          arguments: { documents: ["SURF.md"] },
+        },
+        {
+          callId: "call_pacifico_tide",
+          name: "get_tide_forecast",
+          arguments: { location: "Pacifico", date_range: "next_7_days" },
+        },
+        {
+          callId: "call_pacifico_surf_rank",
+          name: "rank_surf_spots_nearby",
+          arguments: { skill_level: "beginner", max_results: 3 },
+        },
+      ],
+      toolResults: {
+        load_agent_memory_file: {
+          name: "load_agent_memory_file",
+          status: "success",
+          text: "Loaded memory files: SURF.md",
+          data: {
+            loadedMemoryFileNames: ["SURF.md"],
+            files: [{ fileName: "SURF.md", content: "Surf reference body." }],
+          },
+          sources: [],
+        },
+        get_tide_forecast: {
+          name: "get_tide_forecast",
+          status: "success",
+          text: "Tide timing loaded for Pacifico tomorrow morning.",
+          sources: [tideSourceSummary],
+          decisionSummaries: [pacificoSurfSummary],
+        },
+        rank_surf_spots_nearby: {
+          name: "rank_surf_spots_nearby",
+          status: "success",
+          text: "Pacifico is a relevant north Siargao surf area for beginner coaching.",
+          sources: [localGuideSourceSummary],
+        },
+      },
+      finalPayload: {
+        answer:
+          "Book Pacifico only if your coach confirms a beginner window tomorrow morning; the tide timing helps, but do not paddle out alone.",
+        usedMemoryFiles: ["SURF.md"],
+        usedToolCallIds: ["call_pacifico_tide", "call_pacifico_surf_rank"],
+        displayDecisionSummaryIds: [pacificoSurfSummary.id],
+      },
+      expectedOpening: "Book Pacifico only if your coach confirms",
+      expectedMessageText: ["Pacifico", "beginner", "tomorrow morning", "tide"],
+      expectedDecisionGuidance: "do not paddle out alone",
+      expectedPublicSources: [tideSourceSummary, localGuideSourceSummary],
+      expectedCardIds: [],
+      expectedItineraryIds: [],
+      expectedDecisionSummaryIds: [pacificoSurfSummary.id],
+      expectedArtifactSelection: {
+        selectedDecisionSummaryCount: 1,
+        selectedCardCount: 0,
+        selectedItineraryCount: 0,
+      },
+      unselectedArtifactText: [],
+    },
+    {
+      name: "beach_swimming_malinao_kids",
+      prompt: "Is Malinao a good beach for swimming with kids today?",
+      toolCalls: [
+        {
+          callId: "call_malinao_swim_condition",
+          name: "get_condition_judgment",
+          arguments: {
+            activity: "swimming",
+            location: "General Luna",
+            date_range: "today",
+            beach_name: "Malinao Beach",
+            constraints: ["with kids"],
+          },
+        },
+      ],
+      toolResults: {
+        get_condition_judgment: {
+          name: "get_condition_judgment",
+          status: "success",
+          text: "Condition judgment loaded for Malinao with kids.",
+          sources: [weatherSourceSummary, conditionMarineSourceSummary],
+          decisionSummaries: [malinaoSwimSummary],
+          cards: [irrelevantSurfCard],
+        },
+      },
+      finalPayload: {
+        answer:
+          "Use Malinao as a tentative kids swim stop today, but only enter if the water looks calm when you arrive.",
+        usedToolCallIds: ["call_malinao_swim_condition"],
+        displayDecisionSummaryIds: [malinaoSwimSummary.id],
+      },
+      expectedOpening: "Use Malinao as a tentative kids swim stop today",
+      expectedMessageText: ["Malinao", "kids", "today", "water looks calm"],
+      expectedDecisionGuidance: "only enter if the water looks calm",
+      expectedPublicSources: [weatherSourceSummary, conditionMarineSourceSummary],
+      expectedCardIds: [],
+      expectedItineraryIds: [],
+      expectedDecisionSummaryIds: [malinaoSwimSummary.id],
+      expectedArtifactSelection: {
+        selectedDecisionSummaryCount: 1,
+        unselectedCardCount: 1,
+        selectedCardCount: 0,
+      },
+      unselectedArtifactText: [irrelevantSurfCard.title],
+    },
+    {
+      name: "transport_del_carmen_rain_boat",
+      prompt: "Can we scooter to Del Carmen before a Sugba boat trip today if it rains?",
+      toolCalls: [
+        {
+          callId: "call_del_carmen_transport",
+          name: "get_condition_judgment",
+          arguments: {
+            activity: "boat_trip",
+            location: "Del Carmen",
+            date_range: "today",
+            beach_name: "Sugba Lagoon",
+          },
+        },
+      ],
+      toolResults: {
+        get_condition_judgment: {
+          name: "get_condition_judgment",
+          status: "success",
+          text: "Condition judgment loaded for Del Carmen road and boat exposure.",
+          sources: [weatherSourceSummary, conditionMarineSourceSummary],
+          decisionSummaries: [delCarmenTransportSummary],
+        },
+      },
+      finalPayload: {
+        answer:
+          "Leave extra time for Del Carmen and keep the Sugba boat leg conditional if rain or chop builds.",
+        usedToolCallIds: ["call_del_carmen_transport"],
+        displayDecisionSummaryIds: [delCarmenTransportSummary.id],
+      },
+      expectedOpening: "Leave extra time for Del Carmen",
+      expectedMessageText: ["Del Carmen", "Sugba", "rain", "boat"],
+      expectedDecisionGuidance: "keep the Sugba boat leg conditional",
+      expectedPublicSources: [weatherSourceSummary, conditionMarineSourceSummary],
+      expectedCardIds: [],
+      expectedItineraryIds: [],
+      expectedDecisionSummaryIds: [delCarmenTransportSummary.id],
+      expectedArtifactSelection: {
+        selectedDecisionSummaryCount: 1,
+        selectedCardCount: 0,
+        selectedItineraryCount: 0,
+      },
+      unselectedArtifactText: [],
+    },
+    {
+      name: "accommodation_area_choice_malinao",
+      prompt: "Should we stay in General Luna or Malinao with kids, quiet sleep, and a budget?",
+      toolCalls: [
+        {
+          callId: "call_area_choice",
+          name: "search_local_guide",
+          arguments: {
+            query: "General Luna versus Malinao quiet family budget stay",
+            filters: { area_choice: true },
+          },
+        },
+      ],
+      toolResults: {
+        search_local_guide: {
+          name: "search_local_guide",
+          status: "success",
+          text: "Curated local guide returned area-fit tradeoffs.",
+          sources: [localGuideSourceSummary],
+          decisionSummaries: [areaChoiceSummary],
+        },
+      },
+      finalPayload: {
+        answer:
+          "Choose Malinao for quiet sleep with kids on a budget; keep General Luna as the meal and errand area by tricycle.",
+        usedToolCallIds: ["call_area_choice"],
+        displayDecisionSummaryIds: [areaChoiceSummary.id],
+      },
+      expectedOpening: "Choose Malinao for quiet sleep",
+      expectedMessageText: ["Malinao", "General Luna", "kids", "budget"],
+      expectedDecisionGuidance: "keep General Luna as the meal and errand area",
+      expectedPublicSources: [localGuideSourceSummary],
+      expectedCardIds: [],
+      expectedItineraryIds: [],
+      expectedDecisionSummaryIds: [areaChoiceSummary.id],
+      expectedArtifactSelection: {
+        selectedDecisionSummaryCount: 1,
+        selectedCardCount: 0,
+        selectedItineraryCount: 0,
+      },
+      unselectedArtifactText: [],
+    },
+    {
+      name: "itinerary_review_dapa_ferry",
+      prompt:
+        "Review my plan: Cloud 9 sunset, dinner in Pacifico, then an 8 AM Dapa ferry tomorrow.",
+      toolCalls: [
+        {
+          callId: "call_itinerary_review",
+          name: "plan_local_itinerary",
+          arguments: {
+            theme: "itinerary_review",
+            origin: "Cloud 9",
+            destination: "Dapa ferry terminal",
+          },
+        },
+      ],
+      toolResults: {
+        plan_local_itinerary: {
+          name: "plan_local_itinerary",
+          status: "success",
+          text: "Reviewed the proposed route timing.",
+          sources: [localGuideSourceSummary],
+          itineraries: [itineraryReviewPlan],
+          decisionSummaries: [itineraryReviewSummary],
+        },
+      },
+      finalPayload: {
+        answer:
+          "Keep Cloud 9 sunset, but move dinner back toward General Luna or Dapa before the 8 AM ferry.",
+        usedToolCallIds: ["call_itinerary_review"],
+        displayDecisionSummaryIds: [itineraryReviewSummary.id],
+      },
+      expectedOpening: "Keep Cloud 9 sunset",
+      expectedMessageText: ["General Luna", "Dapa", "8 AM ferry"],
+      expectedDecisionGuidance: "move dinner back",
+      expectedPublicSources: [localGuideSourceSummary],
+      expectedCardIds: [],
+      expectedItineraryIds: [],
+      expectedDecisionSummaryIds: [itineraryReviewSummary.id],
+      expectedArtifactSelection: {
+        selectedDecisionSummaryCount: 1,
+        selectedItineraryCount: 0,
+        unselectedItineraryCount: 1,
+      },
+      unselectedArtifactText: [itineraryReviewPlan.title],
+    },
+    {
+      name: "safety_local_service_dapa_clinic",
+      prompt: "Urgent: closest clinic or pharmacy near Dapa ferry for a reef cut?",
+      toolCalls: [
+        {
+          callId: "call_dapa_clinic_places",
+          name: "search_places",
+          arguments: {
+            query: "clinic pharmacy near Dapa ferry Siargao",
+            constraints: { included_type: "health", page_size: 5 },
+          },
+        },
+        {
+          callId: "call_dapa_service_irrelevant_surf",
+          name: "search_local_guide",
+          arguments: { query: "Dapa reef cut surf spots", filters: null },
+        },
+      ],
+      toolResults: {
+        search_places: {
+          name: "search_places",
+          status: "success",
+          text: "Google Places returned nearby Dapa clinic and pharmacy service options.",
+          sources: [placesSourceSummary],
+          cards: [dapaClinicCard],
+        },
+        search_local_guide: {
+          name: "search_local_guide",
+          status: "success",
+          text: "Curated local guide returned an unrelated surf landmark.",
+          sources: [localGuideSourceSummary],
+          cards: [irrelevantSurfCard],
+        },
+      },
+      finalPayload: {
+        answer:
+          "Go to the Dapa clinic first for an urgent reef cut; call ahead or use the nearest pharmacy only for basic supplies.",
+        usedToolCallIds: ["call_dapa_clinic_places"],
+        displayCardIds: [dapaClinicCard.id],
+      },
+      expectedOpening: "Go to the Dapa clinic first",
+      expectedMessageText: ["urgent reef cut", "Dapa", "pharmacy"],
+      expectedDecisionGuidance: "call ahead",
+      expectedPublicSources: [placesSourceSummary],
+      expectedCardIds: [dapaClinicCard.id],
+      expectedItineraryIds: [],
+      expectedDecisionSummaryIds: [],
+      expectedArtifactSelection: {
+        selectedCardCount: 1,
+        unselectedCardCount: 1,
+        selectedDecisionSummaryCount: 0,
+        selectedItineraryCount: 0,
+      },
+      unselectedArtifactText: [irrelevantSurfCard.title],
+    },
+  ];
+}
+
+function recommendationCard({
+  caveats,
+  fitReasons,
+  id,
+  kind = "place",
+  sourceLabel = "Google Places - live checked",
+  sources = [placesSourceSummary],
+  subtitle,
+  title,
+}: {
+  id: string;
+  title: string;
+  subtitle?: string;
+  kind?: RecommendationCard["kind"];
+  sourceLabel?: string;
+  sources?: readonly AnswerSourceSummary[];
+  fitReasons: readonly string[];
+  caveats: readonly string[];
+}): RecommendationCard {
+  return {
+    id,
+    kind,
+    title,
+    ...(subtitle ? { subtitle } : {}),
+    mapsUrl: `https://maps.example/${id}`,
+    fitReasons,
+    caveats,
+    sourceLabel,
+    sources,
+  };
+}
+
+function assertTravelerProseHasNoInternalMechanics(message: string) {
+  const normalizedMessage = message.toLowerCase();
+  for (const bannedTerm of [
+    " tool",
+    "api",
+    "artifact",
+    "required check",
+    "fallback promotion",
+    "source caveat",
+    "live_checked",
+    "not_checked",
+    "not checked",
+    "not verified",
+    "source-profile",
+    "source profile",
+    "vector-store",
+    "vector store",
+    "validation",
+    "repair",
+  ]) {
+    expect(normalizedMessage).not.toContain(bannedTerm);
+  }
+}
+
+function assertDecisionGuidanceIsSpecific(message: string, expectedGuidance?: string) {
+  const normalizedMessage = message.toLowerCase();
+  const guidanceTerms = ["fallback", "avoid", "confirm", "call ahead", "if ", "only if"];
+  const hasGuidance = guidanceTerms.some((term) => normalizedMessage.includes(term));
+
+  if (expectedGuidance) {
+    expect(message).toContain(expectedGuidance);
+    return;
+  }
+
+  expect(hasGuidance).toBe(false);
+}
 
 function finalPayloadText(overrides: Partial<AgentFinalPayload> = {}) {
   return JSON.stringify({
