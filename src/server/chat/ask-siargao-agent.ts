@@ -45,6 +45,7 @@ import {
   selectedResearchEntityNames,
 } from "@/server/chat/required-evidence";
 import { createComponentLogger } from "@/server/observability/logger";
+import { createConfiguredWebResearchProvider } from "@/server/providers/web-search";
 
 export type AskSiargaoAgentDependencies = AgentRuntimeDependencies &
   AgentToolDependencies & {
@@ -93,7 +94,11 @@ export async function runAskSiargaoAgentTurn(
   const client = dependencies.client ?? createOpenAIAgentClient();
   const memorySnapshot =
     dependencies.memorySnapshot ?? dependencies.loadMemorySnapshot?.() ?? loadAgentMemorySnapshot();
-  const toolDependencies: AgentToolDependencies = { ...dependencies, memorySnapshot };
+  const toolDependencies: AgentToolDependencies = {
+    ...dependencies,
+    memorySnapshot,
+    webResearchProvider: dependencies.webResearchProvider ?? createConfiguredWebResearchProvider(),
+  };
   const executeTool =
     dependencies.executeTool ??
     ((toolRequest: AgentToolExecutionRequest) => executeAgentTool(toolRequest, toolDependencies));

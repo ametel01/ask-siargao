@@ -55,7 +55,6 @@ import {
   type ResearchWebRequest,
   type ResearchWebResultData,
   runWebResearch,
-  type WebResearchProviderResult,
   webResearchDateContexts,
   webResearchFreshnessLevels,
   webResearchIntents,
@@ -105,6 +104,7 @@ import {
   type TideForecastSnapshot,
   tideForecastLocationForSiargaoLabel,
 } from "@/server/providers/tide-forecast";
+import type { WebResearchSearchProvider } from "@/server/providers/web-search";
 import {
   getLatestSiargaoWeatherSnapshot,
   type WeatherSnapshot,
@@ -155,14 +155,6 @@ type SourcePolicyDescription = {
 type SourcePolicyToolData = {
   policies: SourcePolicyDescription[];
 };
-
-export type WebResearchSearchProvider = (
-  request: ResearchWebRequest,
-  context: {
-    requestId: string;
-    searchedQueries: readonly string[];
-  },
-) => Promise<readonly WebResearchProviderResult[]>;
 
 export type WebPageFetchProvider = (input: {
   url: string;

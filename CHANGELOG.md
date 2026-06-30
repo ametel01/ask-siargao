@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added a configurable public web-search provider for `research_web` using OpenAI hosted
+  `web_search` when `WEB_RESEARCH_PROVIDER=openai` is configured.
 - Started progress tracking for the web research layer implementation plan.
 - Added deterministic web research query planning, source classification, source scoring, finding
   extraction, entity hints, and no-network regression coverage.

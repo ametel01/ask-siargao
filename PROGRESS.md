@@ -5,9 +5,9 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 
 ## Current Status
 
-- Status: Step 9 complete
-- Current step: Wire The Production Web Search Provider
-- Next step: Step 10 - Wire The Production Web Search Provider
+- Status: Step 10 complete
+- Current step: Add Optional Short-Lived Research Persistence
+- Next step: Step 11 - Add Optional Short-Lived Research Persistence
 
 ## Step Checklist
 
@@ -21,7 +21,7 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 - [x] Step 7: Enforce Research-Before-Enrichment Runtime Ordering
 - [x] Step 8: Convert Places To Entity-Specific Enrichment
 - [x] Step 9: Reject Legacy Final Answers For Research-Required Prompts
-- [ ] Step 10: Wire The Production Web Search Provider
+- [x] Step 10: Wire The Production Web Search Provider
 - [ ] Step 11: Add Optional Short-Lived Research Persistence
 - [ ] Step 12: Update Agent Memory And Developer Documentation
 - [ ] Step 13: Cross-Domain Regression And Release Gates
@@ -218,3 +218,25 @@ Update this file after every completed step with:
 - Changelog updated under `## [Unreleased]`.
 - Commit reference: this commit (`Reject legacy fallbacks for researched prompts`).
 - Next step: Step 10 - Wire The Production Web Search Provider.
+
+### 2026-07-01 - Step 10 Completed
+
+- Added `src/server/providers/web-search.ts`, a repo-owned web research provider adapter for
+  OpenAI Responses hosted `web_search`.
+- Kept public web research explicitly opt-in with `WEB_RESEARCH_PROVIDER=openai`; unconfigured
+  environments continue returning `provider_unavailable` from `research_web`.
+- Wired the default chat agent runtime to use the configured provider when present, while preserving
+  injected fake providers for deterministic tests.
+- Added provider tests for opt-in behavior, hosted tool request shape, structured source parsing,
+  malformed output handling, and restricted payload exclusion.
+- Documented `WEB_RESEARCH_PROVIDER` and `OPENAI_WEB_SEARCH_MODEL` in the environment reference.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/chat/agent-tools.test.ts src/server/chat/web-research.test.ts src/server/providers/web-search.test.ts` - 82 tests passed
+  - `bun test` - 696 tests passed
+  - `bun run build`
+- Changelog updated under `## [Unreleased]`.
+- Commit reference: this commit (`Wire configurable web search provider`).
+- Next step: Step 11 - Add Optional Short-Lived Research Persistence.
