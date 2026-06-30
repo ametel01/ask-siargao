@@ -20,8 +20,9 @@ Repository revision reviewed: `a9d1775`
 10. [011 - Add trip pass usage meter foundation](011-add-trip-pass-usage-meter-foundation.md)
 
 Plan 001 was deleted during reconciliation because the saved-trip route tests were fixed
-independently before execution. Plan 002 is no longer a baseline-repair plan; it now aligns
-documentation and tests around the current public shared-trip source contract.
+independently before execution. Plan 002 was corrected after the issue #23 maintainer decision:
+issue #8 / PR #9 is authoritative, so public shared trips preserve governed traveler-safe
+`notChecked` source context while private/internal data remains hidden.
 
 Plans 003, 004, and 008 are the highest-leverage security/privacy work. Plan 009 is the highest
 product-correctness item after the security fixes. Plans 006 and 010 improve verification and CI
@@ -32,7 +33,7 @@ once the lower-risk fixes are clear.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 | --- | --- | --- | --- | --- | --- |
-| 002 | Align shared-trip source disclosure docs with the public contract | P2 | small | none | TODO |
+| 002 | Align shared-trip source disclosure docs with the public contract | P2 | small | none | DONE |
 | 003 | Stop logging plaintext chat previews | P1 | small | none | TODO |
 | 004 | Enforce shared production rate-limit storage | P1 | medium | none | DONE |
 | 005 | Extract saved-trip client state from ChatWorkspace | P2 | large | none | DONE |

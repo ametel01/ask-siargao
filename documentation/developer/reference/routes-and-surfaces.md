@@ -57,11 +57,17 @@ saved items.
 | `/api/trips/share` | `POST` | Create a public share token for selected saved item IDs after verifying anonymous or signed-in ownership | Public API rate limit; cross-user owned trips return `404` |
 | `/api/trips/share/[token]` | `GET` | Return a shared plan DTO for a valid, non-expired, non-deleted token | Public API rate limit |
 
-Shared plans render only selected saved artifacts, map links, source summaries, freshness
-timestamps, checked/not-checked arrays, and caveats. Save/share schemas reject full chat
-transcripts, client geolocation, tool-call arguments, raw provider payloads, Google review fields,
-owner IDs, profile details, and exact coordinates. Expired or deleted share tokens return a generic
-unavailable/not-found response without exposing token status.
+Shared plans render only selected saved artifacts, safe map links, sanitized source summaries,
+source labels, confidence/freshness metadata, checked-source details, governed traveler-safe
+`notChecked` source context, and public display caveats. Public `notChecked` rows describe source
+coverage limits that are safe for travelers to see, such as source-specific topics that were not
+verified before sharing. They are distinct from private/internal verification-gap caveats: saved
+cards, itinerary stops, and skip notes filter internal caveats before public rendering.
+
+Save/share schemas reject full chat messages/transcripts, client geolocation and exact coordinates,
+raw tool calls or arguments, raw provider payloads, private source observations, Google review
+fields/text/author data, owner IDs, profile details, and secret tokens. Expired or deleted share
+tokens return a generic unavailable/not-found response without exposing token status.
 
 ## Authenticated Data Privacy Checklist
 
@@ -73,9 +79,11 @@ unavailable/not-found response without exposing token status.
   auth, never request body user IDs.
 - Cross-user chat thread, message rating, saved-trip delete, and saved-trip share attempts return
   `404`.
-- Public shared-trip links expose only selected public saved artifacts and do not include owner IDs,
-  profile details, chat transcripts, browser geolocation, raw provider payloads, or exact
-  coordinates.
+- Public shared-trip links expose only selected public saved artifacts, sanitized source labels and
+  summaries, checked-source details, governed traveler-safe `notChecked` source context, and public
+  display caveats; they do not include owner IDs, profile details, chat transcripts, browser
+  geolocation, raw provider payloads, private source observations, Google review text/author data,
+  secret tokens, or exact coordinates.
 
 ## Public Knowledge Surfaces
 
