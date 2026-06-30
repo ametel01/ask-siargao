@@ -971,7 +971,8 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       {
         id: "resp_research_places_final",
         output_text: finalPayloadText({
-          answer: "Roots is the best dinner move tonight after checking public web evidence.",
+          answer:
+            "Roots Siargao is the best dinner move tonight after checking public web evidence.",
           usedToolCallIds: ["auto_preflight_required_evidence_1", "call_places_first"],
           displayCardIds: [placeCard.id, unrelatedPlaceCard.id],
         }),
@@ -1028,6 +1029,102 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.publicSources).toEqual([officialWebSourceSummary, openNowPlacesSourceSummary]);
     expect(result.cards).toEqual([placeCard]);
     expect(JSON.stringify(result.cards)).not.toContain(unrelatedPlaceCard.title);
+  });
+
+  test("repairs researched recommendations that omit primary research findings", async () => {
+    const placeCard = {
+      id: "place_roots",
+      kind: "place" as const,
+      title: "Roots Siargao",
+      subtitle: "General Luna",
+      mapsUrl: "https://maps.example/roots",
+      openStatusLabel: "Open now according to Google Places.",
+      fitReasons: ["Returned by required Google Places evidence."],
+      caveats: ["Review text and bookings were not checked."],
+      sourceLabel: "Google Places - live checked",
+      sources: [openNowPlacesSourceSummary],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_research_omitted_places",
+        requestId: "req_research_omitted_places",
+        callId: "call_places_first",
+        name: "search_places",
+        arguments: {
+          query: "best dinner General Luna Siargao",
+          center: { latitude: 9.8006, longitude: 126.1586 },
+          radius_meters: 12_000,
+          constraints: { included_type: "restaurant", open_now: true, page_size: 8 },
+        },
+      }),
+      {
+        id: "resp_research_omitted_final",
+        output_text: finalPayloadText({
+          answer: "Use a covered dinner spot tonight.",
+          usedToolCallIds: ["auto_preflight_required_evidence_1", "call_places_first"],
+          displayCardIds: [placeCard.id],
+        }),
+        _request_id: "req_research_omitted_final",
+      },
+      {
+        id: "resp_research_omitted_repaired",
+        output_text: finalPayloadText({
+          answer: "Roots Siargao is the strongest dinner candidate tonight.",
+          usedToolCallIds: ["auto_preflight_required_evidence_1", "call_places_first"],
+          displayCardIds: [placeCard.id],
+        }),
+        _request_id: "req_research_omitted_repaired",
+      },
+    ]);
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "research_web") {
+        return {
+          name: "research_web",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Public web research found Roots dinner evidence.",
+          data: {
+            status: "available",
+            findings: [
+              {
+                claim: "Roots Siargao is the strongest dinner candidate tonight.",
+                answerRole: "primary",
+              },
+            ],
+            entities: [{ name: "Roots Siargao", kind: "place", needsPlacesEnrichment: true }],
+          },
+          sources: [officialWebSourceSummary],
+        };
+      }
+      if (request.name === "search_places") {
+        return {
+          name: "search_places",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Google Places returned Roots.",
+          sources: [openNowPlacesSourceSummary],
+          cards: [placeCard],
+        };
+      }
+      throw new Error(`Unexpected tool ${request.name}`);
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Best dinner in General Luna tonight?" }],
+        requestId: "agent_request_repair_researched_answer_without_primary_finding",
+        deterministicSignals: dinnerResearchSignals(),
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toContain("Roots Siargao");
+    expect(result.cards).toEqual([placeCard]);
+    expect(client.requests).toHaveLength(3);
+    const repairInput = parseLastUserInputMessage(client.requests[2]?.input) as {
+      instruction?: string;
+    };
+    expect(repairInput.instruction).toContain("required evidence contract");
   });
 
   test("skips dependent Places enrichment after insufficient required web research", async () => {
@@ -1091,6 +1188,71 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       "insufficient_web_evidence",
       "provider_unavailable",
     ]);
+  });
+
+  test("repairs weather-only prose after insufficient required web research", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_research_weather_only_places_first",
+        requestId: "req_research_weather_only_places_first",
+        callId: "call_places_first",
+        name: "search_places",
+        arguments: {
+          query: "best dinner General Luna Siargao",
+          center: { latitude: 9.8006, longitude: 126.1586 },
+          radius_meters: 12_000,
+          constraints: { included_type: "restaurant", open_now: true, page_size: 8 },
+        },
+      }),
+      {
+        id: "resp_research_weather_only_final",
+        output_text: finalPayloadText({
+          answer: "Tonight looks rainy, so stay somewhere covered near Tourism Road.",
+          usedToolCallIds: ["auto_preflight_required_evidence_1", "call_places_first"],
+          displayCardIds: [],
+        }),
+        _request_id: "req_research_weather_only_final",
+      },
+      {
+        id: "resp_research_weather_only_repaired",
+        output_text: finalPayloadText({
+          answer:
+            "I could not verify current public web evidence for dinner tonight, so I would not rank specific venues from a generic fallback.",
+          usedToolCallIds: ["auto_preflight_required_evidence_1", "call_places_first"],
+          displayCardIds: [],
+        }),
+        _request_id: "req_research_weather_only_repaired",
+      },
+    ]);
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "research_web") {
+        return {
+          name: "research_web",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Public web research was insufficient.",
+          data: { status: "insufficient" },
+          sources: [insufficientWebEvidenceSourceSummary],
+        };
+      }
+      if (request.name === "search_places") {
+        throw new Error("Places should be skipped after insufficient research.");
+      }
+      throw new Error(`Unexpected tool ${request.name}`);
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Best dinner in General Luna tonight?" }],
+        requestId: "agent_request_repair_weather_only_after_insufficient_research",
+        deterministicSignals: dinnerResearchSignals(),
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toContain("could not verify current public web evidence");
+    expect(result.cards).toBeUndefined();
+    expect(client.requests).toHaveLength(3);
   });
 
   test("does not run generic Places enrichment when nightlife lookup has no route venues", async () => {

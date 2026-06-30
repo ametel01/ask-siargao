@@ -42,6 +42,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Rejected weather-only, memory-only, and broad Places fallback final answers for prompts that
+  require public web research, forcing transparent unavailable/insufficient evidence caveats or
+  researched findings instead.
 - Prevented dependency-blocked required evidence checks from running before their required web
   research evidence is available.
 - Required public web-research labels to be backed by successful `research_web` tool evidence,

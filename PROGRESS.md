@@ -5,9 +5,9 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 
 ## Current Status
 
-- Status: Step 8 complete
-- Current step: Reject Legacy Final Answers For Research-Required Prompts
-- Next step: Step 9 - Reject Legacy Final Answers For Research-Required Prompts
+- Status: Step 9 complete
+- Current step: Wire The Production Web Search Provider
+- Next step: Step 10 - Wire The Production Web Search Provider
 
 ## Step Checklist
 
@@ -20,7 +20,7 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 - [x] Step 6: Add General Research Intent And Required Evidence Planning
 - [x] Step 7: Enforce Research-Before-Enrichment Runtime Ordering
 - [x] Step 8: Convert Places To Entity-Specific Enrichment
-- [ ] Step 9: Reject Legacy Final Answers For Research-Required Prompts
+- [x] Step 9: Reject Legacy Final Answers For Research-Required Prompts
 - [ ] Step 10: Wire The Production Web Search Provider
 - [ ] Step 11: Add Optional Short-Lived Research Persistence
 - [ ] Step 12: Update Agent Memory And Developer Documentation
@@ -198,3 +198,23 @@ Update this file after every completed step with:
 - Changelog updated under `## [Unreleased]`.
 - Commit reference: this commit (`Use Places as research entity enrichment`).
 - Next step: Step 9 - Reject Legacy Final Answers For Research-Required Prompts.
+
+### 2026-07-01 - Step 9 Completed
+
+- Added final-payload validation so successful `research_web` evidence must be cited by tool call
+  and reflected in the traveler-facing answer.
+- Required insufficient or unavailable public web research to produce transparent caveats with no
+  place cards, preventing weather-only, memory-only, or broad Places fallback answer shapes.
+- Extended repair guidance so models recover by leading with researched findings when available, or
+  by saying current public evidence could not be verified when research is insufficient.
+- Added required-evidence and runtime regressions for omitted research findings, weather-only
+  fallback prose after insufficient research, and card-free terminal research failure answers.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/chat/ask-siargao-agent.test.ts src/server/chat/required-evidence.test.ts src/app/api/chat/route.test.ts` - 168 tests passed
+  - `bun test` - 693 tests passed
+- Changelog updated under `## [Unreleased]`.
+- Commit reference: this commit (`Reject legacy fallbacks for researched prompts`).
+- Next step: Step 10 - Wire The Production Web Search Provider.

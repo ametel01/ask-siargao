@@ -2180,6 +2180,9 @@ function requiredEvidenceRepairInstruction(
 ) {
   const names = new Set(missingEvidenceChecks.map((check) => check.name));
   const contracts = missingEvidenceChecks.map((check) => {
+    if (check.name === "research_web") {
+      return "current recommendations require public web research; insufficient or unavailable web research must be stated plainly instead of replaced by weather, memory, or broad Places guesses";
+    }
     if (check.name === "search_places") {
       return "place recommendations require governed Google Places search/detail evidence; provider-unavailable results must remain caveated and must not be described as live checked";
     }
@@ -2189,6 +2192,9 @@ function requiredEvidenceRepairInstruction(
     `Validation repair: the user's request requires ${uniqueText(contracts).join("; ")} before checked final claims.`,
     names.has("search_places")
       ? "Use the automatically executed Places outputs as place evidence, and do not substitute beach, memory, or local-guide artifacts for food/place requests."
+      : "",
+    names.has("research_web")
+      ? "If public web research succeeded, lead with the primary research findings and include the research_web toolCallId. If it was insufficient or unavailable, say current public evidence could not be verified and select no place cards."
       : "",
     names.has("get_weather_forecast")
       ? "Use the automatically executed weather output as condition evidence, and keep unchecked tide, surf, road, or official-warning limits explicit when relevant."

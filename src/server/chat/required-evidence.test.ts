@@ -7,6 +7,7 @@ import type {
 } from "@/server/chat/agent-runtime";
 import {
   buildRequiredEvidencePlan,
+  finalPayloadSatisfiesRequiredEvidence,
   missingRequiredEvidenceToolCalls,
   requiredEvidencePlaceCardIds,
 } from "@/server/chat/required-evidence";
@@ -290,6 +291,107 @@ describe("required evidence planning", () => {
       ]),
     ).toEqual(["place_roots"]);
   });
+
+  test("requires successful research to be cited and reflected in the final answer", () => {
+    const plan = currentResearchOnlyPlan();
+    const researchResult = researchToolResult({
+      entities: [{ name: "Roots Siargao", kind: "place", needsPlacesEnrichment: true }],
+      findings: [
+        {
+          claim: "Roots Siargao is the strongest dinner candidate tonight.",
+          answerRole: "primary",
+        },
+      ],
+    });
+    const toolCalls = [successfulResearchToolCall()];
+
+    expect(
+      finalPayloadSatisfiesRequiredEvidence(
+        plan,
+        finalPayload({
+          answer: "Use a covered dinner spot tonight.",
+          usedToolCallIds: ["call_research"],
+        }),
+        toolCalls,
+        [researchResult],
+      ),
+    ).toBe(false);
+    expect(
+      finalPayloadSatisfiesRequiredEvidence(
+        plan,
+        finalPayload({
+          answer: "Roots Siargao is the strongest dinner candidate tonight.",
+          usedToolCallIds: ["call_research"],
+        }),
+        toolCalls,
+        [researchResult],
+      ),
+    ).toBe(true);
+  });
+
+  test("requires terminal research failures to be transparent and card-free", () => {
+    const plan = currentResearchOnlyPlan();
+    const toolCalls = [
+      toolCall({
+        name: "research_web",
+        sources: [
+          {
+            label: "insufficient_web_evidence",
+            sourceName: "Public web research",
+            sourceProfileId: "source_web_research",
+            confidence: "low",
+            checked: [],
+            notChecked: ["current dinner evidence"],
+          },
+        ],
+      }),
+    ];
+    const toolResults = [
+      {
+        name: "research_web",
+        toolCallId: "call_research",
+        status: "success",
+        text: "Public web research was insufficient.",
+        data: { status: "insufficient" },
+        sources: toolCalls[0]?.sources ?? [],
+      } satisfies AgentToolResult,
+    ];
+
+    expect(
+      finalPayloadSatisfiesRequiredEvidence(
+        plan,
+        finalPayload({
+          answer: "Rain looks rough, so stay somewhere covered.",
+          usedToolCallIds: ["call_research"],
+        }),
+        toolCalls,
+        toolResults,
+      ),
+    ).toBe(false);
+    expect(
+      finalPayloadSatisfiesRequiredEvidence(
+        plan,
+        finalPayload({
+          answer: "I could not verify current public web evidence for dinner tonight.",
+          usedToolCallIds: ["call_research"],
+          displayCardIds: ["place_random"],
+        }),
+        toolCalls,
+        toolResults,
+      ),
+    ).toBe(false);
+    expect(
+      finalPayloadSatisfiesRequiredEvidence(
+        plan,
+        finalPayload({
+          answer: "I could not verify current public web evidence for dinner tonight.",
+          usedToolCallIds: ["call_research"],
+        }),
+        toolCalls,
+        toolResults,
+      ),
+    ).toBe(true);
+  });
 });
 
 function requestWithIntent(intent: Record<string, unknown>): AgentRuntimeRequest {
@@ -348,8 +450,10 @@ function successfulResearchToolCall() {
 
 function researchToolResult({
   entities,
+  findings = [],
 }: {
   entities: readonly Record<string, unknown>[];
+  findings?: readonly Record<string, unknown>[];
 }): AgentToolResult {
   return {
     name: "research_web",
@@ -359,6 +463,7 @@ function researchToolResult({
     data: {
       status: "available",
       entities,
+      findings,
     },
     sources: [
       {
@@ -370,5 +475,43 @@ function researchToolResult({
         notChecked: [],
       },
     ],
+  };
+}
+
+function currentResearchOnlyPlan() {
+  return buildRequiredEvidencePlan(
+    requestWithIntent({
+      latestUserTurn: "what is the current dinner pop-up in General Luna tonight",
+      today: true,
+      locationLabel: "General Luna",
+      researchIntent: researchIntent({
+        query: "what is the current dinner pop-up in General Luna tonight",
+        intent: "recommendation",
+        location: "General Luna",
+        dateContext: "tonight",
+        sourceTypes: ["maps", "official", "local_directory", "guide", "social"],
+        requiredFreshness: "same_day",
+      }),
+    }),
+  );
+}
+
+function finalPayload({
+  answer,
+  displayCardIds = [],
+  usedToolCallIds,
+}: {
+  answer: string;
+  displayCardIds?: readonly string[];
+  usedToolCallIds: readonly string[];
+}) {
+  return {
+    answer,
+    usedMemoryFiles: [],
+    usedToolCallIds,
+    displayCardIds,
+    displayActionIds: [],
+    displayItineraryIds: [],
+    displayDecisionSummaryIds: [],
   };
 }

@@ -242,7 +242,16 @@ export function finalPayloadSatisfiesRequiredEvidence(
       !hasSatisfyingToolCall(requiredCall, toolCalls),
   );
   if (unsatisfiedRequiredCalls.length > 0) {
+    if (
+      unsatisfiedRequiredCalls.some((requiredCall) => requiredCall.name === "research_web") &&
+      !finalPayloadUsesResearchToolCall(finalPayload, toolResults)
+    ) {
+      return false;
+    }
     return terminalOnlyFinalPayloadIsCaveated(finalPayload, unsatisfiedRequiredCalls);
+  }
+  if (!finalPayloadUsesAvailableResearchEvidence(plan, finalPayload, toolResults)) {
+    return false;
   }
   const placeRequiredCalls = plan.requiredToolCalls.filter(
     (requiredCall): requiredCall is RequiredPlaceEvidenceToolCall =>
@@ -332,7 +341,80 @@ function terminalOnlyFinalPayloadIsCaveated(
   if (hasUnsatisfiedPlacesCheck && finalPayload.displayCardIds.length > 0) {
     return false;
   }
+  const hasUnsatisfiedResearchCheck = unsatisfiedRequiredCalls.some(
+    (requiredCall) => requiredCall.name === "research_web",
+  );
+  if (hasUnsatisfiedResearchCheck) {
+    return (
+      finalPayload.displayCardIds.length === 0 && hasResearchFailureCaveat(finalPayload.answer)
+    );
+  }
   return !hasCheckedEvidenceOverclaim(finalPayload.answer, unsatisfiedRequiredCalls);
+}
+
+function finalPayloadUsesAvailableResearchEvidence(
+  plan: RequiredEvidencePlan,
+  finalPayload: AgentFinalPayload | undefined,
+  toolResults: readonly AgentToolResult[],
+) {
+  if (!plan.requiredToolCalls.some((requiredCall) => requiredCall.name === "research_web")) {
+    return true;
+  }
+  const availableResearchResults = toolResults.filter(isAvailableResearchResult);
+  if (availableResearchResults.length === 0) {
+    return true;
+  }
+  if (!finalPayloadUsesResearchToolCall(finalPayload, availableResearchResults)) {
+    return false;
+  }
+  const anchors = selectedResearchAnswerAnchorTexts(availableResearchResults);
+  if (anchors.length === 0) {
+    return true;
+  }
+  return anchors.some((anchor) => normalizedIncludes(finalPayload?.answer ?? "", anchor));
+}
+
+function finalPayloadUsesResearchToolCall(
+  finalPayload: AgentFinalPayload | undefined,
+  toolResults: readonly Pick<AgentToolResult, "name" | "toolCallId">[],
+) {
+  if (!finalPayload) {
+    return false;
+  }
+  const researchToolCallIds = new Set(
+    toolResults.flatMap((result) =>
+      result.name === "research_web" && result.toolCallId ? [result.toolCallId] : [],
+    ),
+  );
+  if (researchToolCallIds.size === 0) {
+    return true;
+  }
+  return finalPayload.usedToolCallIds.some((toolCallId) => researchToolCallIds.has(toolCallId));
+}
+
+function isAvailableResearchResult(result: AgentToolResult) {
+  return (
+    result.name === "research_web" &&
+    result.status === "success" &&
+    isRecord(result.data) &&
+    result.data.status === "available"
+  );
+}
+
+function selectedResearchAnswerAnchorTexts(toolResults: readonly AgentToolResult[]) {
+  return uniqueText(
+    toolResults.flatMap((result) => [
+      ...readResearchAllEntityNames(result.data),
+      ...readPrimaryResearchFindingAnchors(result.data),
+    ]),
+  ).filter((anchor) => anchor.length >= 4);
+}
+
+function hasResearchFailureCaveat(answer: string) {
+  const normalizedAnswer = answer.toLowerCase().replace(/\s+/g, " ");
+  return /\b(?:could not|couldn't|cannot|can't|unable to|not able to|did not)\s+(?:verify|confirm|check|find)\b[^.?!]{0,120}\b(?:current|public web|web|online|source|evidence|event|schedule|availability|price|rate)\b/iu.test(
+    normalizedAnswer,
+  );
 }
 
 function hasCheckedEvidenceOverclaim(
@@ -762,6 +844,35 @@ function readResearchEntityNames(data: AgentToolResult["data"]) {
   });
 }
 
+function readResearchAllEntityNames(data: AgentToolResult["data"]) {
+  if (!isRecord(data) || !Array.isArray(data.entities)) {
+    return [];
+  }
+  return data.entities.flatMap((entity) =>
+    isRecord(entity) && typeof entity.name === "string" ? [entity.name] : [],
+  );
+}
+
+function readPrimaryResearchFindingAnchors(data: AgentToolResult["data"]) {
+  if (!isRecord(data) || !Array.isArray(data.findings)) {
+    return [];
+  }
+  return data.findings.flatMap((finding) => {
+    if (
+      !isRecord(finding) ||
+      typeof finding.claim !== "string" ||
+      (finding.answerRole !== "primary" && finding.answerRole !== "supporting")
+    ) {
+      return [];
+    }
+    const claim = finding.claim.replaceAll(/\s+/g, " ").trim();
+    if (claim.length < 12 || claim.length > 180) {
+      return [];
+    }
+    return [claim];
+  });
+}
+
 function normalizeCardVenueText(value: string) {
   return value
     .normalize("NFKD")
@@ -779,6 +890,10 @@ function uniqueText(values: readonly string[]) {
 
 function normalizeLookupKey(value: string) {
   return value.replaceAll(/\s+/g, " ").trim().toLowerCase();
+}
+
+function normalizedIncludes(value: string, expected: string) {
+  return normalizeLookupKey(value).includes(normalizeLookupKey(expected));
 }
 
 function readString(value: unknown) {
