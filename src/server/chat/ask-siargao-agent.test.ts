@@ -536,6 +536,143 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     ]);
   });
 
+  test("auto-executes required Places evidence for activity-place and service prompts", async () => {
+    for (const scenario of [
+      {
+        name: "activity_place_beachfront",
+        prompt: "beachfront places near General Luna",
+        placeName: "General Luna Beachfront Spot",
+        placeIntent: {
+          category: "activity_place",
+          liveNeeds: ["recommendation"],
+          meal: null,
+          location: "General Luna",
+          areaScope: "nearby",
+          radiusMeters: 6_000,
+          constraints: ["beachfront"],
+          latestUserTurn: "beachfront places near General Luna",
+          recentUserContext: "",
+        },
+        expectedArguments: {
+          query: "beachfront places near General Luna Siargao",
+          radius_meters: 6_000,
+          constraints: { open_now: false, page_size: 8 },
+        },
+      },
+      {
+        name: "service_pharmacy",
+        prompt: "Any pharmacy nearby?",
+        placeName: "General Luna Pharmacy",
+        placeIntent: {
+          category: "service",
+          liveNeeds: ["recommendation"],
+          meal: null,
+          location: "General Luna",
+          areaScope: "nearby",
+          radiusMeters: 6_000,
+          constraints: [],
+          latestUserTurn: "Any pharmacy nearby?",
+          recentUserContext: "",
+        },
+        expectedArguments: {
+          query: "pharmacy near General Luna Siargao",
+          radius_meters: 6_000,
+          constraints: { included_type: "pharmacy", open_now: false, page_size: 8 },
+        },
+      },
+      {
+        name: "service_atm",
+        prompt: "Nearest ATM to Dapa ferry terminal?",
+        placeName: "Dapa ATM",
+        placeIntent: {
+          category: "service",
+          liveNeeds: ["nearby", "recommendation"],
+          meal: null,
+          location: "Dapa",
+          areaScope: "nearby",
+          radiusMeters: 6_000,
+          constraints: [],
+          latestUserTurn: "Nearest ATM to Dapa ferry terminal?",
+          recentUserContext: "",
+        },
+        expectedArguments: {
+          query: "atm near Dapa Siargao",
+          radius_meters: 6_000,
+          constraints: { included_type: "atm", open_now: false, page_size: 8 },
+        },
+      },
+    ]) {
+      const placeCard = {
+        id: `place_${scenario.name}`,
+        kind: "place" as const,
+        title: scenario.placeName,
+        subtitle: "Google Places result",
+        mapsUrl: `https://maps.example/${scenario.name}`,
+        fitReasons: ["Returned by required Google Places evidence."],
+        caveats: ["Verify details before going."],
+        sourceLabel: "Google Places - live checked",
+        sources: [placesSourceSummary],
+      };
+      const client = fakeResponsesClient([
+        {
+          id: `resp_${scenario.name}_premature_final`,
+          output_text: finalPayloadText({
+            answer: `Try ${scenario.placeName}.`,
+            usedToolCallIds: [],
+            displayCardIds: [],
+          }),
+          _request_id: `req_${scenario.name}_premature_final`,
+        },
+        {
+          id: `resp_${scenario.name}_places_final`,
+          output_text: finalPayloadText({
+            answer: `After checking Google Places, try ${scenario.placeName}.`,
+            usedToolCallIds: ["auto_required_evidence_1"],
+            displayCardIds: [placeCard.id],
+          }),
+          _request_id: `req_${scenario.name}_places_final`,
+        },
+      ]);
+      const executeTool = fakeToolExecutor({
+        search_places: {
+          name: "search_places",
+          status: "success",
+          text: "Google Places returned matching place results.",
+          sources: [placesSourceSummary],
+          cards: [placeCard],
+        },
+      });
+
+      const result = await runAskSiargaoAgentTurn(
+        {
+          messages: [{ role: "user", content: scenario.prompt }],
+          requestId: `agent_request_${scenario.name}`,
+          deterministicSignals: {
+            intent: {
+              activityPlan: false,
+              tripAdvice: false,
+              placeIntent: scenario.placeIntent,
+            },
+          },
+        },
+        { client, executeTool, model: "gpt-test" },
+      );
+
+      expect(result.message).toContain(scenario.placeName);
+      expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual(["search_places"]);
+      expect(result.toolCalls[0]?.arguments).toMatchObject(scenario.expectedArguments);
+      expect(String(result.toolCalls[0]?.arguments.query)).not.toContain("services near");
+      expect(result.cards).toEqual([placeCard]);
+      expect(result.publicSources).toEqual([placesSourceSummary]);
+      const automaticInput = parseLastUserInputMessage(client.requests[1]?.input) as {
+        automaticRequiredEvidenceChecks?: Array<{ name?: string }>;
+      };
+      expect(automaticInput.automaticRequiredEvidenceChecks?.map((check) => check.name)).toEqual([
+        "search_places",
+      ]);
+    }
+  });
+
   test("keeps legacy plain-text compatibility without tool-result artifacts", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({

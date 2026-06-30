@@ -9,6 +9,7 @@ import {
 } from "@/server/chat/answer-source-summary";
 import { normalizeLocalRecommendation } from "@/server/chat/local-recommendation";
 import { interpretPlaceIntent, type PlaceIntent } from "@/server/chat/place-intent";
+import { buildPlaceSearchPlan, inferServiceSearchTerm } from "@/server/chat/place-search-plan";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 import { createComponentLogger } from "@/server/observability/logger";
 import {
@@ -644,17 +645,14 @@ function actionFromPlaceIntent(intent: PlaceIntent): RecommendationAction | unde
     return undefined;
   }
 
-  const searchTerm = inferPlaceSearchTerm(intent);
-  const locationPhrase =
-    intent.areaScope === "nearby" ? `near ${centerLabel}` : `in ${centerLabel}`;
-  const includedType = inferIncludedType(searchTerm);
+  const searchPlan = buildPlaceSearchPlan(intent);
 
   return {
     type: "search_places",
-    query: `${searchTerm} ${locationPhrase} Siargao`,
+    query: searchPlan.query,
     centerLabel,
     radiusMeters: intent.radiusMeters,
-    ...(includedType ? { includedType } : {}),
+    ...(searchPlan.includedType ? { includedType: searchPlan.includedType } : {}),
   };
 }
 
@@ -663,118 +661,6 @@ function specificPlaceSearchQuery(intent: PlaceIntent) {
     return `${intent.placeName} ${intent.location} Siargao`;
   }
   return `${intent.placeName} Siargao`;
-}
-
-function inferPlaceSearchTerm(intent: PlaceIntent) {
-  const primaryIntentText = `${intent.latestUserTurn} ${intent.recentUserContext}`;
-  const budgetFocused =
-    intent.constraints.includes("cheaper") ||
-    intent.constraints.includes("budget") ||
-    intent.tripContext.temporaryModifiers.includes("cheaper");
-  const familyFocused = intent.constraints.includes("family_friendly");
-
-  if (intent.category === "service") {
-    return inferServiceSearchTerm(primaryIntentText);
-  }
-  if (intent.category === "bar") {
-    return "bar";
-  }
-  if (intent.category === "coffee") {
-    if (budgetFocused) {
-      return "budget cafe";
-    }
-    if (familyFocused) {
-      return "family cafe";
-    }
-    return /\bbeachfront\b/i.test(primaryIntentText) ? "beachfront cafe" : "cafe";
-  }
-  if (intent.category === "activity_place") {
-    if (/\bbeachfront\b/i.test(primaryIntentText)) {
-      return "beachfront places";
-    }
-    if (/\bcovered|indoors?|inside\b/i.test(primaryIntentText)) {
-      return "covered places";
-    }
-    return "places to go";
-  }
-  if (/\bseafood\b/i.test(primaryIntentText)) {
-    return "seafood restaurant";
-  }
-  if (
-    /\bbeachfront\b/i.test(primaryIntentText) &&
-    /\b(caf[eé]s?|coffee)\b/i.test(primaryIntentText)
-  ) {
-    return "beachfront cafe";
-  }
-  if (/\bbeachfront\b/i.test(primaryIntentText)) {
-    return "beachfront restaurant";
-  }
-  if (/\b(caf[eé]s?|coffee)\b/i.test(primaryIntentText)) {
-    return "cafe";
-  }
-  if (/\b(bars?|nightlife|drinks?)\b/i.test(primaryIntentText)) {
-    return "bar";
-  }
-  if (/\bproper|sit[-\s]?down|not\s+car[ie]nderia\b/i.test(intent.latestUserTurn)) {
-    return "sit down restaurant";
-  }
-  if (budgetFocused) {
-    return "cheap restaurant";
-  }
-  if (familyFocused) {
-    return "family restaurant";
-  }
-  if (intent.meal === "breakfast") {
-    return "breakfast restaurants";
-  }
-  if (intent.meal === "lunch") {
-    return "lunch restaurants";
-  }
-  if (intent.meal === "dinner") {
-    return "dinner restaurants";
-  }
-  return "good restaurant";
-}
-
-function inferServiceSearchTerm(content: string) {
-  if (/\bpharmac(?:y|ies)|drugstores?\b/i.test(content)) {
-    return "pharmacy";
-  }
-  if (/\bclinics?\b/i.test(content)) {
-    return "clinic";
-  }
-  if (/\batms?|cash\s+machines?\b/i.test(content)) {
-    return "atm";
-  }
-  if (/\blaundr(?:y|ies)\b/i.test(content)) {
-    return "laundry";
-  }
-  if (/\bscooter\s+rentals?|motorbike\s+rentals?\b/i.test(content)) {
-    return "scooter rental";
-  }
-  return "local service";
-}
-
-function inferIncludedType(searchTerm: string) {
-  if (/\bcafe\b/i.test(searchTerm)) {
-    return "cafe";
-  }
-  if (/\bbar\b/i.test(searchTerm)) {
-    return "bar";
-  }
-  if (/\bpharmacy\b/i.test(searchTerm)) {
-    return "pharmacy";
-  }
-  if (/\batm\b/i.test(searchTerm)) {
-    return "atm";
-  }
-  if (/\blaundry\b/i.test(searchTerm)) {
-    return "laundry";
-  }
-  if (!/\brestaurant|breakfast|lunch|dinner|seafood|sit down\b/i.test(searchTerm)) {
-    return undefined;
-  }
-  return "restaurant";
 }
 
 function inferPreferredTerms(intent: PlaceIntent) {

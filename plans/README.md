@@ -39,7 +39,7 @@ once the lower-risk fixes are clear.
 | 006 | Make local verification non-mutating and CI-aligned | P2 | small | none | TODO |
 | 007 | Add nightlife event sources and route-style answers | P2 | large | existing chat/source systems | TODO |
 | 008 | Separate public tool calls from internal tool audits | P1 | medium | none | TODO |
-| 009 | Consolidate live place evidence planning | P1 | medium | none | TODO |
+| 009 | Consolidate live place evidence planning | P1 | medium | none | DONE |
 | 010 | Pin Bun runtime in CI | P2 | small | none | DONE |
 | 011 | Add trip pass usage meter foundation | P2 | large | none | TODO |
 
