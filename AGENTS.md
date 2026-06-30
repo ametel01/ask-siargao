@@ -34,6 +34,16 @@ Before a coordinator hands a PR to `maintainer-reviewer`, record the PR author, 
 
 If GitHub cannot accept the intended formal approver because they are the PR author or otherwise ineligible, record that as an administrative blocker in `STATUS.md` with the next non-author human approver action. Do not classify the blocker as a code finding, do not treat a same-author `COMMENT` review as a formal approval, and do not weaken CI, quality gates, branch protection, or reviewer independence.
 
+## Agent Team Evidence Review
+
+When an issue or completion contract says an evidence tool must run before another tool, interpret that as a semantic ordering requirement: tool A completes before tool B starts unless the issue explicitly permits concurrency. Spec agents should turn ordered evidence wording, such as "event lookup before Places", into explicit acceptance criteria and required checker evidence.
+
+Checker agents should inspect or require regressions that fail when a downstream evidence tool starts prematurely while upstream evidence is still pending. Broad green lint, typecheck, test, CI, or review gates do not replace this semantic check when evidence ordering is part of the contract.
+
+For selected-artifact filtering fixes, checker agents should cover both omitted or auto-selected artifact paths and adversarial explicit mixed-selection paths when relevant. For chat recommendation cards, include mixed `displayCardIds` cases that combine allowed and disallowed cards.
+
+If semantic ordering or artifact-selection checks are skipped, record them in `STATUS.md` as coverage gaps with the short reason, residual risk, and the next checker or maintainer action. Preserve checker independence, maintainer-review independence, #30 approver preflight, and all existing quality gates.
+
 ## Security & Configuration Tips
 
 Keep secrets in `.env.local` and follow `documentation/developer/reference/environment.md`. Server-only keys must not use the `NEXT_PUBLIC_` prefix. Preserve Google Places field-mask, retention, and source-governance constraints when changing provider ingestion.
