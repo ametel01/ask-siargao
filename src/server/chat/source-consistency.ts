@@ -85,7 +85,7 @@ export function validateChatAnswerSourceConsistency({
   sources = [],
   toolCalls = [],
 }: SourceConsistencyValidationInput): SourceConsistencyValidationResult {
-  const evidence = summarizeToolEvidence(toolCalls);
+  const evidence = summarizeToolEvidence(toolCalls, browserGeolocation);
   const claims = [
     ...sources.map(sourceSummaryToClaim),
     ...extractRenderedSourceClaims(message ?? ""),
@@ -311,19 +311,22 @@ function validateSourceClaim(
   ];
 }
 
-function summarizeToolEvidence(toolCalls: readonly AgentToolCallAudit[]) {
+function summarizeToolEvidence(
+  toolCalls: readonly AgentToolCallAudit[],
+  browserGeolocation: ChatClientGeolocationContext | undefined,
+) {
   const browserGeolocationPlaces = toolCalls.some(
     (toolCall) =>
       toolCall.status === "success" &&
       toolCall.name === "search_places" &&
-      hasBrowserGeolocationSearchCenterArgument(toolCall.arguments) &&
+      hasBrowserGeolocationSearchCenterArgument(toolCall.arguments, browserGeolocation) &&
       toolCall.sources.some((source) => hasBrowserGeolocationCheckedText(source.checked)),
   );
   const browserGeolocationSurfRanking = toolCalls.some(
     (toolCall) =>
       toolCall.status === "success" &&
       toolCall.name === "rank_surf_spots_nearby" &&
-      hasBrowserGeolocationSearchCenterArgument(toolCall.arguments) &&
+      hasBrowserGeolocationSearchCenterArgument(toolCall.arguments, browserGeolocation) &&
       toolCall.sources.some((source) => hasBrowserGeolocationCheckedText(source.checked)),
   );
   return {
@@ -406,9 +409,22 @@ function hasBrowserGeolocationCheckedText(values: readonly string[]) {
   );
 }
 
-function hasBrowserGeolocationSearchCenterArgument(argumentsValue: Record<string, unknown>) {
+function hasBrowserGeolocationSearchCenterArgument(
+  argumentsValue: Record<string, unknown>,
+  browserGeolocation: ChatClientGeolocationContext | undefined,
+) {
   const center = argumentsValue.center;
-  return isRecord(center) && center.source === "browser_geolocation";
+  if (!isRecord(center)) {
+    return false;
+  }
+  if (center.source === "browser_geolocation") {
+    return true;
+  }
+  return (
+    hasExactBrowserGeolocation(browserGeolocation) &&
+    center.latitude === browserGeolocation.latitude &&
+    center.longitude === browserGeolocation.longitude
+  );
 }
 
 function hasToolSourceLabel(

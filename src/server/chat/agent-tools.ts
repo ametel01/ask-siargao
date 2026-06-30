@@ -1222,14 +1222,11 @@ async function searchPlacesToolResult(
       ...(cards.length ? { cards } : {}),
       ...(actions.length ? { actions } : {}),
     };
-  } catch (error) {
+  } catch {
     return {
       name: "search_places",
       status: "error",
-      text:
-        error instanceof Error
-          ? `Google Places search failed: ${error.message}`
-          : "Google Places search failed.",
+      text: "Google Places search is temporarily unavailable.",
       errorCode: "provider_unavailable",
       sources: [googlePlacesProviderUnavailableSourceSummary("Google Places search lookup")],
     };
@@ -1380,14 +1377,11 @@ async function getPlaceDetailsToolResult(
       ...(cards.length ? { cards } : {}),
       ...(actions.length ? { actions } : {}),
     };
-  } catch (error) {
+  } catch {
     return {
       name: "get_place_details",
       status: "error",
-      text:
-        error instanceof Error
-          ? `Google Places details lookup failed: ${error.message}`
-          : "Google Places details lookup failed.",
+      text: "Google Places details are temporarily unavailable.",
       errorCode: "provider_unavailable",
       sources: [googlePlacesProviderUnavailableSourceSummary("Google Places details lookup")],
     };

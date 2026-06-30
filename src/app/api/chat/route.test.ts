@@ -16,6 +16,7 @@ import type {
   AgentTurnResult,
   DecisionSummary,
   ItineraryPlan,
+  PublicAgentToolCall,
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import { createChatThread } from "@/server/chat/chat-history-store";
@@ -109,22 +110,24 @@ describe("chat route", () => {
 
   test("persists authenticated chat turns with public artifacts and redacted context", async () => {
     const db = await openChatRouteTestDatabase();
+    const rawProviderPhrase = "PRIVATE_PROVIDER_TIMEOUT_ROUTE_4815";
+    const rawToolCall = toolCall({
+      name: "search_google_places",
+      status: "error",
+      errorCode: "provider_unavailable",
+      sources: [providerUnavailableSourceSummary],
+      arguments: {
+        latitude: 9.8116,
+        longitude: 126.1651,
+        query: "distinctive raw cafes near me papaya 4815",
+      },
+    });
+    rawToolCall.resultText = `Google Places search failed: ${rawProviderPhrase}`;
     const dependencies = chatDependencies({
       message: "Two nearby options look good.",
       sources: [genericSourceSummary],
       cards: [genericRecommendationCard],
-      toolCalls: [
-        toolCall({
-          name: "search_google_places",
-          status: "success",
-          sources: [genericSourceSummary],
-          arguments: {
-            latitude: 9.8116,
-            longitude: 126.1651,
-            query: "cafes near me",
-          },
-        }),
-      ],
+      toolCalls: [rawToolCall],
     });
     dependencies.db = db;
     dependencies.auth = async () => ({
@@ -169,12 +172,19 @@ describe("chat route", () => {
     expect(messages.rows[0]?.content).toBe("What cafes are open near me?");
     expect(messages.rows[1]?.content).toBe("Two nearby options look good.");
     expect(body.cards).toEqual([genericRecommendationCard]);
+    expect(body.toolCalls).toEqual([publicToolCall(rawToolCall)]);
     expect(messages.rows[1]?.cards_json).toEqual([genericRecommendationCard]);
     expect(messages.rows[1]?.decision_summaries_json).toEqual([]);
+    expect(messages.rows[1]?.tool_calls_json).toEqual([publicToolCall(rawToolCall)]);
+    expect(JSON.stringify(body.toolCalls)).not.toContain("arguments");
+    expect(JSON.stringify(body.toolCalls)).not.toContain("resultText");
     expect(serializedMessages).not.toContain(String(geolocation.latitude));
     expect(serializedMessages).not.toContain(String(geolocation.longitude));
     expect(serializedMessages).toContain("usedAsProximityAnchor");
-    expect(serializedMessages).not.toContain("cafes near me");
+    expect(serializedMessages).not.toContain("distinctive raw cafes near me papaya 4815");
+    expect(serializedMessages).not.toContain(rawProviderPhrase);
+    expect(JSON.stringify(body)).not.toContain("distinctive raw cafes near me papaya 4815");
+    expect(JSON.stringify(body)).not.toContain(rawProviderPhrase);
 
     await db.close();
   });
@@ -796,19 +806,18 @@ describe("chat route", () => {
   });
 
   test("returns browser-location Places source metadata when tool-backed", async () => {
+    const placesToolCall = toolCall({
+      name: "search_places",
+      status: "success",
+      arguments: {
+        query: "cafes near me",
+        center: { latitude: 9.8116, longitude: 126.1651 },
+      },
+      sources: [browserLocationPlacesSourceSummary],
+    });
     const dependencies = chatDependencies({
       message: "The model recommends a cafe near your shared location.",
-      toolCalls: [
-        toolCall({
-          name: "search_places",
-          status: "success",
-          arguments: {
-            query: "cafes near me",
-            center: { latitude: 9.8116, longitude: 126.1651 },
-          },
-          sources: [browserLocationPlacesSourceSummary],
-        }),
-      ],
+      toolCalls: [placesToolCall],
       sources: [browserLocationPlacesSourceSummary],
       cards: [
         {
@@ -832,7 +841,7 @@ describe("chat route", () => {
     expect(response.status).toBe(200);
     expect(body.sources).toEqual([browserLocationPlacesSourceSummary]);
     expect(body.sources[0].checked).toContain("browser geolocation search center");
-    expect(body.toolCalls[0].arguments.center).toEqual({ source: "browser_geolocation" });
+    expect(body.toolCalls[0]).toEqual(publicToolCall(placesToolCall));
     expect(body.cards[0].caveats.join(" ")).toContain("browser geolocation");
     expect(JSON.stringify(body.toolCalls)).not.toContain("9.8116");
     expect(JSON.stringify(body.toolCalls)).not.toContain("126.1651");
@@ -1088,7 +1097,7 @@ describe("chat route", () => {
     expect(body.message).toBe("Here is the model-written itinerary answer.");
     expect(body.requestId).toBe(dependencies.requests[0]?.requestId);
     expect(body.model).toBe("gpt-test");
-    expect(body.toolCalls).toEqual([itineraryToolCall]);
+    expect(body.toolCalls).toEqual([publicToolCall(itineraryToolCall)]);
     expect(body.sources).toEqual([localGuideSourceSummary]);
     expect(body.memory).toEqual(publicMemoryMetadata);
     expect(body.itineraries).toEqual([rainyCloud9Itinerary]);
@@ -2225,6 +2234,22 @@ function toolCall({
       source.sourceProfileId ? [source.sourceProfileId] : [],
     ),
     sources,
+  };
+}
+
+function publicToolCall(toolCall: AgentToolCallAudit): PublicAgentToolCall {
+  return {
+    id: toolCall.id,
+    ...(toolCall.toolCallId ? { toolCallId: toolCall.toolCallId } : {}),
+    name: toolCall.name,
+    status: toolCall.status,
+    durationMs: toolCall.durationMs,
+    startedAt: toolCall.startedAt,
+    completedAt: toolCall.completedAt,
+    ...(toolCall.errorCode ? { errorCode: toolCall.errorCode } : {}),
+    ...(toolCall.providerOperation ? { providerOperation: toolCall.providerOperation } : {}),
+    sourceProfileIds: toolCall.sourceProfileIds,
+    sources: toolCall.sources,
   };
 }
 

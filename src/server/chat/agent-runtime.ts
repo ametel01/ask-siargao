@@ -55,6 +55,20 @@ export type AgentToolCallAudit = {
   sources: readonly AnswerSourceSummary[];
 };
 
+export type PublicAgentToolCall = {
+  id: string;
+  toolCallId?: string;
+  name: string;
+  status: AgentToolCallStatus;
+  durationMs: number;
+  startedAt: string;
+  completedAt: string;
+  errorCode?: string;
+  providerOperation?: string;
+  sourceProfileIds: readonly string[];
+  sources: readonly AnswerSourceSummary[];
+};
+
 export type RecommendationCardKind = "place" | "beach";
 
 export const artifactDecisionLabels = [
@@ -357,6 +371,28 @@ export function createAgentToolCallAudit({
     sourceProfileIds: extractSourceProfileIds(result.sources),
     sources: result.sources,
   };
+}
+
+export function publicAgentToolCallFromAudit(toolCall: AgentToolCallAudit): PublicAgentToolCall {
+  return {
+    id: toolCall.id,
+    ...(toolCall.toolCallId ? { toolCallId: toolCall.toolCallId } : {}),
+    name: toolCall.name,
+    status: toolCall.status,
+    durationMs: toolCall.durationMs,
+    startedAt: toolCall.startedAt,
+    completedAt: toolCall.completedAt,
+    ...(toolCall.errorCode ? { errorCode: toolCall.errorCode } : {}),
+    ...(toolCall.providerOperation ? { providerOperation: toolCall.providerOperation } : {}),
+    sourceProfileIds: toolCall.sourceProfileIds,
+    sources: toolCall.sources,
+  };
+}
+
+export function publicAgentToolCallsFromAudits(
+  toolCalls: readonly AgentToolCallAudit[],
+): PublicAgentToolCall[] {
+  return toolCalls.map(publicAgentToolCallFromAudit);
 }
 
 export function createAgentTurnResult({

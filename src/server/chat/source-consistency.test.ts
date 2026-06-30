@@ -163,6 +163,36 @@ describe("chat source consistency", () => {
     ]);
   });
 
+  test("accepts browser geolocation claims when internal audit center matches request context", () => {
+    const geolocatedPlacesSource: AnswerSourceSummary = {
+      ...livePlacesSourceSummary,
+      checked: [...livePlacesSourceSummary.checked, "browser geolocation search center"],
+    };
+    const result = validateChatAnswerSourceConsistency({
+      browserGeolocation: {
+        status: "available",
+        source: "browser_geolocation",
+        consentScope: "single_request",
+        latitude: 9.8116,
+        longitude: 126.1651,
+      },
+      message: withSourceLines("Used your shared location as the nearby search center.", [
+        geolocatedPlacesSource,
+      ]),
+      sources: [geolocatedPlacesSource],
+      toolCalls: [
+        toolCall({
+          name: "search_places",
+          arguments: { center: { latitude: 9.8116, longitude: 126.1651 } },
+          status: "success",
+          sources: [geolocatedPlacesSource],
+        }),
+      ],
+    });
+
+    expect(result).toEqual({ valid: true, issues: [] });
+  });
+
   test("rejects shared-location prose claims without geolocated Places evidence", () => {
     const result = validateChatAnswerSourceConsistency({
       message: withSourceLines("I used your shared location to find nearby cafes.", [
