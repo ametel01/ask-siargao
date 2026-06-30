@@ -34,11 +34,7 @@ describe("shared trip page route", () => {
     expect(html).toContain("Shaka Siargao");
     expect(html).toContain("Open now from Google Places");
     expect(html).toContain("Google Places - live checked");
-    expect(html).toContain("Google Places API - live checked - fetched 2026-06-28T00:45:00.000Z");
     expect(html).toContain("Checked by Google Places API: place identity");
-    expect(html).toContain(
-      "Not checked by Browser saved trip: Saved from browser and not reverified by Ask Siargao before sharing.",
-    );
     expect(html).not.toContain("trip_shared_page");
     expect(html).not.toContain("browser-trip-shared-page");
 

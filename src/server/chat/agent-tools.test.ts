@@ -465,6 +465,7 @@ describe("agent tools", () => {
                 enum: [
                   "SURF.md",
                   "LOCAL_GUIDE_BEACHES.md",
+                  "NIGHTLIFE.md",
                   "ASK_SIARGAO_AGENT_SKILLS.md",
                   "ASK_SIARGAO_ANSWER_PATTERNS.md",
                   "ASK_SIARGAO_TOOL_USE_POLICY.md",

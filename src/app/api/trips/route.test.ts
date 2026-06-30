@@ -464,7 +464,7 @@ async function tripRouteDependencies(
 
   return {
     db,
-    ...(options.userId !== undefined ? { auth: authForUser(options.userId) } : {}),
+    auth: authForUser(options.userId ?? null),
     now: () => new Date(now),
     createId: (prefix) => `${prefix}_${tokenCount + 1}`,
     createPublicToken: () => {
