@@ -15,6 +15,8 @@ The root experience now presents the Ask Siargao landing page and links into a s
 
 Use the developer docs for the full local run path. The short version is:
 
+Use Bun `1.3.13`, matching `package.json` and CI.
+
 ```sh
 bun install
 cp .env.example .env.local
