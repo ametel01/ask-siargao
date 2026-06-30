@@ -92,6 +92,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Redesigned the landing first viewport with a coastal photo overlay, compact trip-mode
+  navigation, a `/chat` command affordance, roman H1 emphasis, and polished prompt copy.
 - Refined the visual foundation with coastal paper, reef, caveat, alert, night-card, and lagoon CTA
   tokens, plus explicit shared button and badge transitions.
 - Recorded the Hallmark audit redesign baseline, including pre-change quality gates and viewport

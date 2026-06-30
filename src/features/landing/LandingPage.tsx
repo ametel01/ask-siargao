@@ -31,7 +31,11 @@ import {
 import { cn } from "@/lib/utils";
 import { GradientLink, SignalBadge } from "@/ui/components/ask-siargao";
 
-const navItems = ["How it works", "Where to stay", "What's happening", "Weather", "Saved places"];
+const tripModeItems = [
+  { label: "Stay fit", href: "#where-to-stay" },
+  { label: "Rain plan", href: "#weather" },
+  { label: "Save route", href: "#saved-places" },
+];
 
 const weatherRows: {
   label: string;
@@ -45,7 +49,7 @@ const weatherRows: {
 ];
 
 const examplePrompt =
-  "I'm staying near Cloud 9 for 10 days. We want quiet sleep, surfing, good restaurants, and easy airport transfer. What should we know?";
+  "Staying near Cloud 9 for 10 days with quiet sleep, surfing, good restaurants, and easy airport transfer. What should we know?";
 
 const suggestionChips = [
   {
@@ -69,8 +73,8 @@ const suggestionChips = [
     icon: CalendarDays,
   },
   {
-    label: "weather today",
-    prompt: "What should today's Siargao weather change about our plans?",
+    label: "weather now",
+    prompt: "How should Siargao weather change our plans today?",
     icon: CloudSun,
   },
 ];
@@ -114,8 +118,8 @@ export function LandingPage() {
       <section
         aria-label="Ask Siargao landing page"
         className={cn(
-          "relative min-h-screen w-full overflow-hidden bg-[image:linear-gradient(90deg,rgba(5,8,42,0.98)_0%,rgba(5,8,42,0.9)_27%,rgba(21,15,73,0.42)_53%,rgba(5,8,42,0.1)_100%),linear-gradient(180deg,rgba(5,8,42,0.1)_0%,rgba(5,8,42,0.08)_40%,rgba(5,8,42,0.85)_100%),url('/images/hero-bg.png')] bg-[position:center_center,center_center,center_center] bg-[size:100%_100%,100%_100%,cover] bg-no-repeat shadow-coastal-frame",
-          "before:pointer-events-none before:absolute before:inset-0 before:z-0 before:bg-[image:radial-gradient(circle_at_62%_26%,rgba(255,155,131,0.08),transparent_23rem),radial-gradient(circle_at_88%_15%,rgba(135,92,246,0.07),transparent_19rem)] before:content-['']",
+          "relative min-h-screen w-full overflow-hidden bg-[image:var(--gradient-hero-overlay),linear-gradient(180deg,rgba(5,8,42,0.05)_0%,rgba(6,47,53,0.16)_42%,rgba(5,8,42,0.86)_100%),url('/images/hero-bg.png')] bg-[position:center_center,center_center,center_center] bg-[size:100%_100%,100%_100%,cover] bg-no-repeat shadow-coastal-frame",
+          "before:pointer-events-none before:absolute before:inset-0 before:z-0 before:bg-[image:radial-gradient(circle_at_62%_26%,rgba(255,155,131,0.08),transparent_23rem),radial-gradient(circle_at_86%_14%,rgba(142,230,216,0.1),transparent_21rem)] before:content-['']",
         )}
       >
         <div className="relative z-2 flex min-h-screen w-full flex-col px-[clamp(1.25rem,5vw,5.5rem)]">
@@ -137,24 +141,33 @@ function Header() {
       <Link className="no-underline" href="/">
         <LandingBrand />
       </Link>
-      <NavigationMenu className="ml-auto hidden min-[900px]:flex xl:ml-[12.5rem]" viewport={false}>
-        <NavigationMenuList className="gap-9 xl:gap-11">
-          {navItems.map((item) => (
-            <NavigationMenuItem key={item}>
+      <NavigationMenu className="ml-auto hidden min-[900px]:flex" viewport={false}>
+        <NavigationMenuList className="rounded-full border border-border-on-dark bg-surface-night-card px-2 py-1 backdrop-blur-md">
+          {tripModeItems.map((item) => (
+            <NavigationMenuItem key={item.label}>
               <NavigationMenuLink asChild>
                 <a
-                  className="text-xs font-extrabold text-white/88 no-underline transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:text-text-on-dark focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-brand-violet-400 xl:text-sm"
-                  href={`#${slug(item)}`}
+                  className="rounded-full px-3 py-2 text-xs font-extrabold text-text-on-dark-muted no-underline transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-surface-night-card-strong hover:text-text-on-dark focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-brand-lagoon-300 xl:text-sm"
+                  href={item.href}
                 >
-                  {item}
+                  {item.label}
                 </a>
               </NavigationMenuLink>
             </NavigationMenuItem>
           ))}
         </NavigationMenuList>
       </NavigationMenu>
+      <Button
+        asChild
+        className="hidden min-h-[46px] rounded-full border-border-on-dark bg-surface-night-card px-4 text-xs font-extrabold text-text-on-dark hover:bg-surface-night-card-strong min-[900px]:inline-flex"
+        variant="outline"
+      >
+        <Link href="/chat">
+          <Send aria-hidden="true" size={15} /> Ask a trip question
+        </Link>
+      </Button>
       <GradientLink
-        className="hidden min-h-[54px] shrink-0 rounded-lg px-6 md:inline-flex"
+        className="hidden min-h-[54px] shrink-0 rounded-lg px-6 md:inline-flex min-[900px]:hidden"
         href="/chat"
       >
         <Sparkles aria-hidden="true" size={17} /> Open assistant
@@ -177,7 +190,7 @@ function Header() {
 function LandingBrand() {
   return (
     <span className="inline-flex items-center gap-4 text-text-on-dark">
-      <span className="inline-flex size-12 items-center justify-center rounded-full border-2 border-white/92 text-white shadow-[0_10px_26px_rgba(0,0,0,0.18)]">
+      <span className="inline-flex size-12 items-center justify-center rounded-full border-2 border-text-on-dark text-text-on-dark shadow-night-card">
         <TreePalm aria-hidden="true" size={30} strokeWidth={2.1} />
       </span>
       <span className="font-heading text-2xl leading-none font-bold md:text-3xl">Ask Siargao</span>
@@ -192,12 +205,12 @@ function Hero() {
       id="how-it-works"
     >
       <div className="max-w-[620px] self-start">
-        <h1 className="m-0 text-balance font-heading text-[3.35rem] leading-[0.88] font-semibold text-[#fff9e9] sm:text-[4.35rem] md:text-[5rem] xl:text-[6rem]">
+        <h1 className="m-0 text-balance font-heading text-[3.35rem] leading-[0.88] font-semibold text-text-on-dark sm:text-[4.35rem] md:text-[5rem] xl:text-[6rem]">
           Ask Siargao
           <br />
           anything about
           <br />
-          <em className="font-semibold text-brand-lagoon-300 italic">your trip.</em>
+          <span className="font-semibold text-brand-lagoon-300">your trip.</span>
         </h1>
         <p className="mt-4 mb-0 max-w-[470px] text-sm leading-[1.45] font-bold text-text-on-dark-muted md:text-lg">
           GPT-backed answers for where to stay, what to do, how to get around, and how the
@@ -371,13 +384,6 @@ function MobileFooter() {
       Built for travelers · Loved by locals
     </p>
   );
-}
-
-function slug(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
 }
 
 function chatPromptHref(prompt: string) {

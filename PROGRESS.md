@@ -5,14 +5,15 @@ Source audit: `/Users/alexmetelli/source/ask-siargao/HALLMARK_AUDIT.md`
 
 ## Current Status
 
-Step 2 is complete. Coastal theme tokens and shared primitive transitions are updated.
+Step 3 is complete. The landing first viewport has a coastal overlay, compact trip-mode navigation,
+and roman H1 emphasis.
 
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Baseline Gate And Visual Evidence Capture
 - [x] Step 2: Theme Tokens And Shared Primitive Cleanup
-- [ ] Step 3: Landing Hero, Navigation, And Prompt Workspace
+- [x] Step 3: Landing Hero, Navigation, And Prompt Workspace
 - [ ] Step 4: Landing Planning Content And Feature Layout
 - [ ] Step 5: App Shell, Report, Chat, And Shared-Trip Surface Cleanup
 - [ ] Step 6: Final Hallmark Verification And Release-Gate Pass
@@ -172,3 +173,48 @@ Commit:
 Next step:
 
 - Step 3: Landing Hero, Navigation, And Prompt Workspace
+
+### Step 3: Landing Hero, Navigation, And Prompt Workspace
+
+Status: Complete
+
+Changes:
+
+- Replaced the first-viewport purple/violet hero overlay classes with the coastal overlay token,
+  reef-toned gradient, and subtle lagoon/coral atmosphere over the existing Siargao photo.
+- Replaced the five-link marketing nav with three compact trip-mode anchors and a `/chat` command
+  affordance.
+- Removed italic H1 emphasis by replacing the `<em>` trip phrase with roman lagoon text.
+- Rewrote touched prompt/copy strings to avoid straight-apostrophe contractions.
+- Updated landing e2e assertions for the new desktop chat command and prompt copy.
+
+Viewport evidence:
+
+- Playwright inspection at 390, 768, 1024, and 1366px: no horizontal overflow.
+- H1 text remained `Ask Siargao anything about your trip.` and `h1 em/i` count was `0`.
+- `/chat` links were present in the first viewport at each inspected width.
+- Landing hero class inspection found `0` violet/purple hero classes at each inspected width.
+
+Validation:
+
+- `bun run format`: passed, no fixes applied.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY= CLERK_WEBHOOK_SIGNING_SECRET= bun run
+  test:e2e -- tests/e2e/root.e2e.ts`: passed, 12 tests.
+- `bun test`: passed, 655 tests.
+- `bun run db:migrate:test && bun run db:seed:test`: passed.
+- `bun run build`: passed.
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY= CLERK_WEBHOOK_SIGNING_SECRET= bun run
+  test:e2e`: passed, 36 tests.
+- `bun x react-doctor@latest --verbose --scope changed`: passed, no changed-scope issues, score
+  100/100.
+- `bun run doctor`: passed with advisory output, 15 warnings, score 85/100.
+
+Commit:
+
+- `Redesign landing first viewport`
+
+Next step:
+
+- Step 4: Landing Planning Content And Feature Layout

@@ -6,12 +6,12 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: /ask siargao anything about your trip/i }),
   ).toBeVisible();
-  await expect(page.getByRole("link", { name: /open assistant/i })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: /ask a trip question/i })).toHaveAttribute(
     "href",
     "/chat",
   );
   await expect(page.getByLabel("Example Ask Siargao prompt")).toContainText(
-    "I'm staying near Cloud 9 for 10 days",
+    "Staying near Cloud 9 for 10 days",
   );
   await expect(page.getByRole("heading", { name: "Planning checks for Siargao" })).toBeVisible();
   await expect(page.getByText("Try asking about...")).toBeVisible();
