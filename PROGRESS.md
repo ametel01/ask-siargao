@@ -5,9 +5,9 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 
 ## Current Status
 
-- Status: Step 10 complete
-- Current step: Add Optional Short-Lived Research Persistence
-- Next step: Step 11 - Add Optional Short-Lived Research Persistence
+- Status: Step 11 complete
+- Current step: Update Agent Memory And Developer Documentation
+- Next step: Step 12 - Update Agent Memory And Developer Documentation
 
 ## Step Checklist
 
@@ -22,7 +22,7 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 - [x] Step 8: Convert Places To Entity-Specific Enrichment
 - [x] Step 9: Reject Legacy Final Answers For Research-Required Prompts
 - [x] Step 10: Wire The Production Web Search Provider
-- [ ] Step 11: Add Optional Short-Lived Research Persistence
+- [x] Step 11: Add Optional Short-Lived Research Persistence
 - [ ] Step 12: Update Agent Memory And Developer Documentation
 - [ ] Step 13: Cross-Domain Regression And Release Gates
 
@@ -240,3 +240,25 @@ Update this file after every completed step with:
 - Changelog updated under `## [Unreleased]`.
 - Commit reference: this commit (`Wire configurable web search provider`).
 - Next step: Step 11 - Add Optional Short-Lived Research Persistence.
+
+### 2026-07-01 - Step 11 Completed
+
+- Persistence decision: deferred. Step 10 now runs public web research through an opt-in provider
+  and passes normalized source summaries directly into deterministic scoring without durable raw
+  page storage.
+- Rationale: there is no current product requirement for cross-request web-research reuse, debug
+  replay, or latency/cost caching that justifies new Drizzle tables, pruning jobs, or source-term
+  retention complexity.
+- Retention rule until persistence is revisited: do not store full fetched pages, raw Responses
+  payloads, private/social content, or unrestricted web summaries durably. If caching becomes
+  necessary, implement `web_research_runs`, `web_research_sources`, and `web_research_findings`
+  with explicit TTLs and pruning before enabling durable reuse.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/db/migration.test.ts src/server/providers` - 62 tests passed
+  - `bun test` - 696 tests passed
+- Changelog: no entry, because persistence was explicitly deferred with no behavior change.
+- Commit reference: this commit (`Defer web research persistence`).
+- Next step: Step 12 - Update Agent Memory And Developer Documentation.
