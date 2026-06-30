@@ -7,16 +7,10 @@ Use this checklist before treating the current build as a release candidate.
 Run the full gate suite from a clean working tree or after reviewing intentional local changes.
 
 ```sh
-bun run lint
-bun run typecheck --incremental false
-bun test
-bun run db:migrate:test
-bun run db:seed:test
-bun run build
-bun run test:e2e
+bun run verify:ci
 ```
 
-`lint` runs Biome through the non-mutating `biome check .` gate. Use `bun run format` only when you want Biome to write formatting fixes. React Doctor runs in a separate advisory GitHub workflow and is available locally with `bun run doctor`.
+`bun run verify:ci` mirrors the CI release gate: lint, clean typecheck, Bun tests, test database migrate/seed, build, and Playwright e2e. `bun run verify` runs the fast non-mutating local subset. Use `bun run format` only when you want Biome to write formatting fixes. React Doctor runs in a separate advisory GitHub workflow and is available locally with `bun run doctor`.
 
 ## Manual Product QA
 

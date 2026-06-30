@@ -27,6 +27,8 @@ Scripts are defined in `package.json`.
 | `bun run format` | `biome format --write .` | Write Biome formatting fixes. |
 | `bun run lint` | `biome check .` | Run the non-mutating Biome check used by CI. |
 | `bun run typecheck` | `tsc --noEmit` | Run TypeScript type checking. |
+| `bun run verify` | `bun run lint && bun run typecheck --incremental false && bun test` | Run the fast non-mutating local verification gate. |
+| `bun run verify:ci` | `bun run verify && bun run db:migrate:test && bun run db:seed:test && bun run build && bun run test:e2e` | Run the full CI-equivalent release gate locally. |
 | `bun test` | `bun test` | Run Bun unit and integration tests. |
 | `bun run test:e2e` | `playwright test` | Run Playwright browser tests. |
 | `bun run doctor` | `npx react-doctor@latest` | Run the advisory React Doctor scan locally. |
@@ -34,13 +36,7 @@ Scripts are defined in `package.json`.
 The release-candidate gate is:
 
 ```sh
-bun run lint
-bun run typecheck --incremental false
-bun test
-bun run db:migrate:test
-bun run db:seed:test
-bun run build
-bun run test:e2e
+bun run verify:ci
 ```
 
-`bun run format` is a fix command, not a verification gate.
+`bun run format` is a fix command, not a verification gate. `bun run verify` and `bun run verify:ci` are non-mutating verification commands.
