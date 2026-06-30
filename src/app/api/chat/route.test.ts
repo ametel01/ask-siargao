@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 
 import type { Logger } from "pino";
@@ -1592,6 +1593,7 @@ describe("chat route", () => {
 
   test("logs route metadata for tool calls and provider failures without restricted payloads", async () => {
     const logs = captureLogger();
+    const sensitivePhrase = "private card phrase pineapple vault 4242";
     const failingToolCall = toolCall({
       name: "search_places",
       status: "error",
@@ -1608,7 +1610,7 @@ describe("chat route", () => {
     dependencies.logger = logs.logger;
     const response = await chatResponse(
       jsonRequest({
-        messages: [{ role: "user", content: "Restaurants open now near General Luna?" }],
+        messages: [{ role: "user", content: sensitivePhrase }],
         clientContext: { geolocation: validGeolocation() },
       }),
       dependencies,
@@ -1647,7 +1649,14 @@ describe("chat route", () => {
       source: "browser_geolocation",
       consentScope: "single_request",
     });
+    expect(receivedLog?.payload.latestUserMessage).toEqual({
+      length: sensitivePhrase.length,
+      hash: truncatedSha256(sensitivePhrase),
+    });
     expect(JSON.stringify(answeredLog?.payload)).not.toContain("SECRET_TOKEN");
+    expect(
+      JSON.stringify({ childBindings: logs.childBindings, events: logs.events }),
+    ).not.toContain(sensitivePhrase);
     expect(JSON.stringify(logs.events)).not.toContain("9.8116");
     expect(JSON.stringify(logs.events)).not.toContain("126.1651");
   });
@@ -2184,6 +2193,10 @@ function captureLogger() {
   } as unknown as Logger;
 
   return { childBindings, events, logger };
+}
+
+function truncatedSha256(value: string) {
+  return createHash("sha256").update(value).digest("hex").slice(0, 16);
 }
 
 function toolCall({

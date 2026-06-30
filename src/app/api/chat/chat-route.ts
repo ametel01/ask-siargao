@@ -1339,6 +1339,5 @@ function summarizeMessageForLogs(content: string) {
   return {
     length: content.length,
     hash: createHash("sha256").update(content).digest("hex").slice(0, 16),
-    preview: content.replaceAll(/\s+/g, " ").trim().slice(0, 160),
   };
 }
