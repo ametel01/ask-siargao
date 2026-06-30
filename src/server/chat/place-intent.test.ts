@@ -44,6 +44,18 @@ describe("interpretPlaceIntent", () => {
     expect(intent?.constraints).toContain("beachfront");
   });
 
+  test("classifies local service requests as place intents", () => {
+    const intent = interpretPlaceIntent([
+      { role: "user", content: "Nearest ATM or laundry near Dapa ferry terminal?" },
+    ]);
+
+    expect(intent).toMatchObject({
+      category: "service",
+      areaScope: "nearby",
+      location: "Dapa",
+    });
+  });
+
   test("inherits place category for open-now follow-ups", () => {
     const intent = interpretPlaceIntent([
       { role: "user", content: "where should we get dinner near Cloud 9?" },

@@ -143,6 +143,64 @@ describe("RecommendationAgent", () => {
     expect(response.message).toContain("General Luna Pharmacy");
   });
 
+  test("searches activity-place prompts with narrow place queries and no included type", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "General Luna Beachfront Spot",
+          rating: 4.2,
+          userRatingCount: 80,
+        });
+      },
+    });
+
+    const response = await agent.answer({
+      messages: [{ role: "user", content: "beachfront places near General Luna" }],
+    });
+
+    expect(response.status).toBe("answered");
+    expect(searches).toHaveLength(1);
+    expect(searches[0]).toMatchObject({
+      textQuery: "beachfront places near General Luna Siargao",
+      radiusMeters: 6_000,
+    });
+    expect(searches[0]?.includedType).toBeUndefined();
+    expect(response.message).toContain("General Luna Beachfront Spot");
+  });
+
+  test("omits unsupported included type for clinic service-place requests", async () => {
+    const searches: GooglePlacesChatSearch[] = [];
+    const agent = new RecommendationAgent({
+      placesAdapter: async ({ fetchedAt, search }) => {
+        searches.push(search);
+        return googlePlacesContext({
+          fetchedAt,
+          search,
+          placeName: "General Luna Clinic",
+          rating: 4.0,
+          userRatingCount: 30,
+        });
+      },
+    });
+
+    const response = await agent.answer({
+      messages: [{ role: "user", content: "nearest clinic near General Luna" }],
+    });
+
+    expect(response.status).toBe("answered");
+    expect(searches).toHaveLength(1);
+    expect(searches[0]).toMatchObject({
+      textQuery: "clinic near General Luna Siargao",
+      radiusMeters: 6_000,
+    });
+    expect(searches[0]?.includedType).toBeUndefined();
+    expect(response.message).toContain("General Luna Clinic");
+  });
+
   test("searches a narrow identity query for specific-place map-link requests", async () => {
     const searches: GooglePlacesChatSearch[] = [];
     const agent = new RecommendationAgent({

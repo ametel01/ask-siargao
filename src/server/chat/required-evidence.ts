@@ -5,6 +5,7 @@ import type {
   AgentToolResult,
   RecommendationCardKind,
 } from "@/server/chat/agent-runtime";
+import { buildPlaceSearchPlan, inferIncludedType } from "@/server/chat/place-search-plan";
 
 export type RequiredEvidencePlan = {
   requiredToolCalls: readonly RequiredEvidenceToolCall[];
@@ -40,6 +41,11 @@ type PlaceIntentSignal = {
   constraints?: readonly unknown[];
   avoid?: readonly unknown[];
   areaScope?: string | null;
+  latestUserTurn?: string;
+  recentUserContext?: string;
+  tripContext?: {
+    temporaryModifiers?: readonly unknown[];
+  };
 };
 
 const gazetteer = {
@@ -67,7 +73,7 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
     const center = placesSearchCenter(request, placeIntent);
     allowedCardKinds = ["place"];
     if (center) {
-      const includedType = includedTypeForPlaceCategory(placeIntent.category);
+      const includedType = includedTypeForPlaceIntent(placeIntent);
       const requiresOpenNow = requiresOpenNowEvidence(placeIntent);
       requiredToolCalls.push({
         name: "search_places",
@@ -77,7 +83,7 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
           center,
           radius_meters: placeIntent.radiusMeters ?? 12_000,
           constraints: {
-            included_type: includedType,
+            ...(includedType ? { included_type: includedType } : {}),
             open_now: requiresOpenNow,
             page_size: 8,
           },
@@ -223,6 +229,15 @@ function readPlaceIntentSignal(value: unknown): PlaceIntentSignal | undefined {
     constraints: Array.isArray(value.constraints) ? value.constraints : [],
     avoid: Array.isArray(value.avoid) ? value.avoid : [],
     areaScope: readString(value.areaScope),
+    latestUserTurn: readString(value.latestUserTurn),
+    recentUserContext: readString(value.recentUserContext),
+    tripContext: isRecord(value.tripContext)
+      ? {
+          temporaryModifiers: Array.isArray(value.tripContext.temporaryModifiers)
+            ? value.tripContext.temporaryModifiers
+            : [],
+        }
+      : undefined,
   };
 }
 
@@ -265,6 +280,7 @@ function requiresPlacesEvidence(placeIntent: PlaceIntentSignal) {
     placeIntent.category === "food" ||
     placeIntent.category === "coffee" ||
     placeIntent.category === "bar" ||
+    placeIntent.category === "activity_place" ||
     placeIntent.category === "specific_place" ||
     placeIntent.category === "service"
   );
@@ -286,17 +302,23 @@ function placesSearchCenter(request: AgentRuntimeRequest, placeIntent: PlaceInte
   return gazetteer[location as keyof typeof gazetteer] ?? gazetteer["general luna"];
 }
 
-function includedTypeForPlaceCategory(category: string | undefined) {
-  if (category === "coffee") {
+function includedTypeForPlaceIntent(placeIntent: PlaceIntentSignal) {
+  if (placeIntent.category === "service" || placeIntent.category === "activity_place") {
+    return inferIncludedType(buildPlaceSearchPlan(placeIntent).searchTerm);
+  }
+  if (placeIntent.category === "specific_place") {
+    return undefined;
+  }
+  if (placeIntent.category === "coffee") {
     return "cafe";
   }
-  if (category === "bar") {
+  if (placeIntent.category === "bar") {
     return "bar";
   }
-  if (category === "food") {
+  if (placeIntent.category === "food") {
     return "restaurant";
   }
-  return null;
+  return undefined;
 }
 
 function requiresOpenNowEvidence(placeIntent: PlaceIntentSignal) {
@@ -308,6 +330,9 @@ function requiresOpenNowEvidence(placeIntent: PlaceIntentSignal) {
 
 function placesSearchQuery(placeIntent: PlaceIntentSignal) {
   const location = placeIntent.location ?? "General Luna";
+  if (placeIntent.category === "service" || placeIntent.category === "activity_place") {
+    return buildPlaceSearchPlan(placeIntent).query;
+  }
   if (placeIntent.category === "coffee") {
     return `cafes near ${location} Siargao`;
   }
@@ -319,9 +344,6 @@ function placesSearchQuery(placeIntent: PlaceIntentSignal) {
   }
   if (placeIntent.meal) {
     return `${placeIntent.meal} restaurants in ${location}, Siargao`;
-  }
-  if (placeIntent.category === "service") {
-    return `services near ${location} Siargao`;
   }
   return `restaurants and places to eat in ${location}, Siargao`;
 }
