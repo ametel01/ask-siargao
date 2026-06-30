@@ -92,6 +92,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Refined the visual foundation with coastal paper, reef, caveat, alert, night-card, and lagoon CTA
+  tokens, plus explicit shared button and badge transitions.
 - Recorded the Hallmark audit redesign baseline, including pre-change quality gates and viewport
   notes for the landing, chat saved-plan, report, and shared-trip surfaces.
 - Recorded final Clerk/auth implementation decisions and release-gate validation

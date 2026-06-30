@@ -1138,7 +1138,7 @@ function ChatMessage({
   if (isUser) {
     return (
       <article
-        className="min-w-0 max-w-[min(88%,42rem)] justify-self-end overflow-hidden rounded-lg bg-[image:var(--gradient-cta)] px-5 py-4 text-text-on-dark shadow-[0_18px_44px_rgba(76,49,184,0.25)]"
+        className="min-w-0 max-w-[min(88%,42rem)] justify-self-end overflow-hidden rounded-lg bg-[image:var(--gradient-cta)] px-5 py-4 text-text-on-dark shadow-cta"
         data-testid="user-message-bubble"
       >
         <p className="m-0 whitespace-pre-wrap break-words text-sm leading-[1.55] font-extrabold [overflow-wrap:anywhere] sm:text-base">
@@ -1158,8 +1158,8 @@ function ChatMessage({
         data-testid="assistant-message-bubble"
         className={
           isError
-            ? "min-w-0 overflow-hidden rounded-lg border border-[#ffb4a8]/45 bg-[#421915]/82 px-5 py-4 shadow-[0_18px_44px_rgba(0,0,0,0.18)]"
-            : "min-w-0 overflow-hidden rounded-lg border border-white/14 bg-[linear-gradient(145deg,rgba(22,35,73,0.96),rgba(12,24,55,0.94))] px-4 py-4 text-text-on-dark shadow-[0_22px_70px_rgba(0,0,0,0.24)] ring-1 ring-white/5 sm:px-5"
+            ? "min-w-0 overflow-hidden rounded-lg border border-border-alert bg-surface-alert px-5 py-4 shadow-night-card"
+            : "min-w-0 overflow-hidden rounded-lg border border-border-on-dark bg-surface-night-panel px-4 py-4 text-text-on-dark shadow-strong ring-1 ring-border-on-dark sm:px-5"
         }
       >
         <div className="flex min-w-0 items-start gap-3">
@@ -1205,7 +1205,7 @@ function ChatMessage({
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-extrabold">
-          <time className={isError ? "text-[#ffd5ce]" : "text-text-on-dark-muted"}>
+          <time className={isError ? "text-text-alert" : "text-text-on-dark-muted"}>
             {message.timestamp}
           </time>
           {!isError && !isPending && message.messageId ? (
@@ -1220,7 +1220,7 @@ function ChatMessage({
         </div>
         {isError && message.retryPrompt ? (
           <Button
-            className="mt-4 h-9 rounded-md border-[#ffd5ce]/45 bg-white/10 px-3 text-xs font-extrabold text-text-on-dark hover:bg-white/15"
+            className="mt-4 h-9 rounded-md border-border-alert bg-surface-night-card px-3 text-xs font-extrabold text-text-on-dark hover:bg-surface-night-card-strong"
             disabled={disabled}
             onClick={() => onRetryPrompt(message.retryPrompt ?? "")}
             type="button"
@@ -1319,7 +1319,7 @@ function SavedPlanTray({
   return (
     <section
       aria-label="Saved plan"
-      className="grid min-w-0 gap-3 rounded-lg border border-white/14 bg-white/10 p-3 text-text-on-dark shadow-[0_18px_44px_rgba(0,0,0,0.14)] backdrop-blur-md"
+      className="grid min-w-0 gap-3 rounded-lg border border-border-on-dark bg-surface-night-card p-3 text-text-on-dark shadow-night-card backdrop-blur-md"
       data-testid="saved-plan-tray"
     >
       <div className="flex min-w-0 items-center justify-between gap-3">
@@ -1358,11 +1358,11 @@ function SavedPlanTray({
 
           return (
             <div
-              className="grid min-w-[14rem] max-w-[19rem] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-white/14 bg-white/12 px-3 py-2"
+              className="grid min-w-[14rem] max-w-[19rem] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border-on-dark bg-surface-night-card-strong px-3 py-2"
               data-testid="saved-plan-item"
               key={item.id}
             >
-              <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-white/12 text-brand-lagoon-300">
+              <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-surface-night-card text-brand-lagoon-300">
                 {item.kind === "itinerary" ? (
                   <Navigation aria-hidden="true" size={14} />
                 ) : (
@@ -1383,7 +1383,7 @@ function SavedPlanTray({
               </label>
               <Button
                 aria-label={`Remove ${item.title} from saved plan`}
-                className="size-8 shrink-0 rounded-md border-white/18 bg-white/10 text-text-on-dark hover:bg-white/15"
+                className="size-8 shrink-0 rounded-md border-border-on-dark bg-surface-night-card text-text-on-dark hover:bg-surface-night-card-strong"
                 onClick={() => onRemoveItem(item.id)}
                 size="icon"
                 type="button"
@@ -1397,13 +1397,13 @@ function SavedPlanTray({
       </div>
 
       {!hasSelectedItems ? (
-        <p className="m-0 text-xs font-bold text-[#ffd98a]" data-testid="saved-plan-share-empty">
+        <p className="m-0 text-xs font-bold text-text-caveat" data-testid="saved-plan-share-empty">
           Select at least one saved item to create a share link.
         </p>
       ) : null}
 
       {shareStatus === "error" ? (
-        <p className="m-0 text-xs font-bold text-[#ffd0d0]" data-testid="saved-plan-share-error">
+        <p className="m-0 text-xs font-bold text-text-alert" data-testid="saved-plan-share-error">
           {shareErrorMessage}
         </p>
       ) : null}
@@ -1415,12 +1415,12 @@ function SavedPlanTray({
         >
           <input
             aria-label="Share link"
-            className="min-h-9 min-w-0 rounded-md border border-white/16 bg-white/10 px-3 text-xs font-bold text-text-on-dark outline-none"
+            className="min-h-9 min-w-0 rounded-md border border-border-on-dark bg-surface-night-card px-3 text-xs font-bold text-text-on-dark outline-none"
             readOnly
             value={shareUrl}
           />
           <Button
-            className="rounded-md border-white/18 bg-white/10 text-xs font-extrabold text-text-on-dark hover:bg-white/15"
+            className="rounded-md border-border-on-dark bg-surface-night-card text-xs font-extrabold text-text-on-dark hover:bg-surface-night-card-strong"
             onClick={onCopyShareLink}
             size="sm"
             type="button"
@@ -1435,7 +1435,7 @@ function SavedPlanTray({
           </Button>
           <Button
             asChild
-            className="rounded-md border-white/18 bg-white/10 text-xs font-extrabold text-text-on-dark hover:bg-white/15"
+            className="rounded-md border-border-on-dark bg-surface-night-card text-xs font-extrabold text-text-on-dark hover:bg-surface-night-card-strong"
             size="sm"
             variant="outline"
           >
@@ -1445,7 +1445,7 @@ function SavedPlanTray({
             </a>
           </Button>
           {copyStatus === "error" ? (
-            <p className="m-0 text-xs font-bold text-[#ffd0d0] sm:col-span-3">
+            <p className="m-0 text-xs font-bold text-text-alert sm:col-span-3">
               Copy failed. The link is still available above.
             </p>
           ) : null}

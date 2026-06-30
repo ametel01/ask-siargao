@@ -25,6 +25,13 @@
   --brand-lagoon-500: #14b8a6;
   --brand-lagoon-300: #8ee6d8;
   --brand-lagoon-100: #ddfbf4;
+  --brand-reef-900: #062f35;
+  --brand-reef-800: #0c4650;
+  --brand-reef-700: #12616b;
+  --brand-paper-50: #fffdf7;
+  --brand-paper-100: #fbf6e8;
+  --brand-paper-150: #f5eddc;
+  --brand-paper-200: #eadfc9;
   --brand-lavender-50: #fbfaff;
   --brand-lavender-100: #f5f3ff;
   --brand-lavender-150: #eeeafd;
@@ -38,59 +45,67 @@
   --confidence-high-soft: #e6f8ee;
   --confidence-medium: #d99b23;
   --confidence-medium-soft: #fff4cf;
-  --surface-default: #ffffff;
-  --surface-soft: #fbfaff;
-  --surface-tint: #f7f5ff;
-  --surface-glass: rgba(255, 255, 255, 0.94);
+  --surface-default: var(--brand-paper-50);
+  --surface-soft: var(--brand-paper-100);
+  --surface-tint: var(--brand-paper-150);
+  --surface-glass: rgba(255, 253, 247, 0.94);
   --surface-dark-glass: rgba(9, 13, 58, 0.72);
-  --surface-night-panel: rgba(11, 15, 55, 0.82);
-  --surface-night-card: rgba(255, 255, 255, 0.1);
+  --surface-night-panel: rgba(6, 47, 53, 0.84);
+  --surface-night-card: rgba(255, 249, 233, 0.1);
+  --surface-night-card-strong: rgba(255, 249, 233, 0.16);
+  --surface-caveat: #fff4cf;
+  --surface-alert: rgba(66, 25, 21, 0.82);
   --text-strong: #0d104a;
   --text-default: #17184f;
   --text-muted: #5f5f87;
   --text-soft: #8483a8;
-  --text-on-dark: #ffffff;
+  --text-on-dark: #fff9e9;
   --text-on-dark-muted: #d8d5f4;
+  --text-caveat: #66521c;
+  --text-alert: #ffd5ce;
   --risk-low: #60aa60;
   --risk-low-dark: #2e8a38;
   --risk-medium: #e6a928;
   --risk-high: #d84b55;
   --border-default: #ddd8ef;
   --border-strong: #c8bee9;
-  --border-on-dark: rgba(255, 255, 255, 0.34);
+  --border-on-dark: rgba(255, 249, 233, 0.28);
+  --border-on-dark-strong: rgba(255, 249, 233, 0.38);
+  --border-caveat: #e4d8b8;
+  --border-alert: rgba(255, 180, 168, 0.45);
   --shadow-default-color: rgba(14, 12, 56, 0.16);
   --shadow-strong-color: rgba(8, 8, 38, 0.32);
   --gradient-hero-overlay: linear-gradient(
     90deg,
-    rgba(5, 8, 42, 0.96) 0%,
-    rgba(16, 18, 74, 0.72) 46%,
-    rgba(93, 62, 209, 0.22) 100%
+    rgba(5, 8, 42, 0.95) 0%,
+    rgba(6, 47, 53, 0.72) 48%,
+    rgba(20, 184, 166, 0.24) 100%
   );
   --gradient-coastal-overlay: linear-gradient(
     90deg,
     rgba(5, 8, 42, 0.94) 0%,
-    rgba(9, 13, 58, 0.76) 48%,
-    rgba(76, 49, 184, 0.34) 100%
+    rgba(6, 47, 53, 0.78) 48%,
+    rgba(20, 184, 166, 0.28) 100%
   );
-  --gradient-cta: linear-gradient(135deg, #875cf6 0%, #6c46e8 56%, #4c31b8 100%);
+  --gradient-cta: linear-gradient(135deg, #14b8a6 0%, #0f8f81 58%, #0a6f67 100%);
   --gradient-lagoon-cta: linear-gradient(135deg, #14b8a6 0%, #0f8f81 58%, #0a6f67 100%);
   --gradient-price-card: linear-gradient(145deg, #271776 0%, #17105a 56%, #0c103f 100%);
   --gradient-app-backdrop:
     radial-gradient(circle at 18% 8%, rgba(142, 230, 216, 0.19), transparent 30rem),
     radial-gradient(circle at 78% 0%, rgba(255, 214, 90, 0.14), transparent 23rem),
-    linear-gradient(135deg, #05082a 0%, #090d3a 47%, #102c38 100%);
+    linear-gradient(135deg, #05082a 0%, #062f35 50%, #102c38 100%);
   --gradient-sunset-backdrop:
     linear-gradient(
       135deg,
       rgba(5, 8, 42, 0.94) 0%,
-      rgba(9, 13, 58, 0.86) 44%,
+      rgba(6, 47, 53, 0.86) 44%,
       rgba(16, 44, 56, 0.78) 100%
     ),
     url("/images/siargao-sunset.png");
   --gradient-panel: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.98) 0%,
-    rgba(248, 246, 255, 0.96) 100%
+    rgba(255, 253, 247, 0.98) 0%,
+    rgba(245, 237, 220, 0.96) 100%
   );
   --font-body: var(--font-sans), "Avenir Next", "Segoe UI", system-ui, sans-serif;
   --font-heading: var(--font-display), "Iowan Old Style", Georgia, "Times New Roman", serif;
@@ -101,17 +116,18 @@
   --shadow-card: 0 14px 36px rgba(14, 12, 56, 0.12);
   --shadow-panel: 0 18px 48px rgba(14, 12, 56, 0.16);
   --shadow-strong: 0 22px 54px rgba(8, 8, 38, 0.28);
-  --shadow-cta: 0 10px 28px rgba(108, 70, 232, 0.34);
+  --shadow-cta: 0 10px 28px rgba(20, 184, 166, 0.3);
   --shadow-violet-glow: 0 18px 46px rgba(124, 81, 240, 0.38);
   --shadow-lagoon-glow: 0 16px 42px rgba(20, 184, 166, 0.28);
   --shadow-coastal-frame: 0 24px 80px rgba(0, 0, 0, 0.42);
+  --shadow-night-card: 0 18px 44px rgba(0, 0, 0, 0.16);
   --background: var(--brand-navy-980);
   --foreground: var(--text-on-dark);
   --card: var(--surface-glass);
   --card-foreground: var(--text-strong);
   --popover: var(--surface-default);
   --popover-foreground: var(--text-strong);
-  --primary: var(--brand-violet-650);
+  --primary: var(--brand-lagoon-700);
   --primary-foreground: var(--text-on-dark);
   --secondary: var(--brand-lavender-100);
   --secondary-foreground: var(--text-strong);
@@ -122,8 +138,8 @@
   --destructive: var(--risk-high);
   --border: var(--border-default);
   --input: var(--border-default);
-  --ring: var(--brand-violet-400);
-  --chart-1: var(--brand-violet-500);
+  --ring: var(--brand-lagoon-300);
+  --chart-1: var(--brand-lagoon-500);
   --chart-2: var(--confidence-high);
   --chart-3: var(--confidence-medium);
   --chart-4: var(--brand-sunset-coral);
@@ -131,12 +147,12 @@
   --radius: 0.625rem;
   --sidebar: var(--brand-navy-950);
   --sidebar-foreground: var(--text-on-dark);
-  --sidebar-primary: var(--brand-violet-650);
+  --sidebar-primary: var(--brand-lagoon-600);
   --sidebar-primary-foreground: var(--text-on-dark);
   --sidebar-accent: var(--surface-dark-glass);
   --sidebar-accent-foreground: var(--text-on-dark);
   --sidebar-border: var(--border-on-dark);
-  --sidebar-ring: var(--brand-violet-400);
+  --sidebar-ring: var(--brand-lagoon-300);
 }
 
 * {
@@ -152,8 +168,8 @@ body {
   margin: 0;
   color: var(--text-on-dark);
   background:
-    radial-gradient(circle at 18% 8%, rgba(135, 92, 246, 0.2), transparent 32rem),
-    linear-gradient(135deg, #05082a 0%, #090d3a 48%, #17105a 100%);
+    radial-gradient(circle at 18% 8%, rgba(20, 184, 166, 0.18), transparent 32rem),
+    linear-gradient(135deg, #05082a 0%, #062f35 48%, #102c38 100%);
   font-family: var(--font-body);
   letter-spacing: 0;
 }
@@ -206,6 +222,13 @@ summary::-webkit-details-marker {
   --color-brand-lagoon-500: var(--brand-lagoon-500);
   --color-brand-lagoon-300: var(--brand-lagoon-300);
   --color-brand-lagoon-100: var(--brand-lagoon-100);
+  --color-brand-reef-900: var(--brand-reef-900);
+  --color-brand-reef-800: var(--brand-reef-800);
+  --color-brand-reef-700: var(--brand-reef-700);
+  --color-brand-paper-50: var(--brand-paper-50);
+  --color-brand-paper-100: var(--brand-paper-100);
+  --color-brand-paper-150: var(--brand-paper-150);
+  --color-brand-paper-200: var(--brand-paper-200);
   --color-brand-lavender-50: var(--brand-lavender-50);
   --color-brand-lavender-100: var(--brand-lavender-100);
   --color-brand-lavender-150: var(--brand-lavender-150);
@@ -226,12 +249,17 @@ summary::-webkit-details-marker {
   --color-surface-dark-glass: var(--surface-dark-glass);
   --color-surface-night-panel: var(--surface-night-panel);
   --color-surface-night-card: var(--surface-night-card);
+  --color-surface-night-card-strong: var(--surface-night-card-strong);
+  --color-surface-caveat: var(--surface-caveat);
+  --color-surface-alert: var(--surface-alert);
   --color-text-strong: var(--text-strong);
   --color-text-default: var(--text-default);
   --color-text-muted: var(--text-muted);
   --color-text-soft: var(--text-soft);
   --color-text-on-dark: var(--text-on-dark);
   --color-text-on-dark-muted: var(--text-on-dark-muted);
+  --color-text-caveat: var(--text-caveat);
+  --color-text-alert: var(--text-alert);
   --color-risk-low: var(--risk-low);
   --color-risk-low-dark: var(--risk-low-dark);
   --color-risk-medium: var(--risk-medium);
@@ -239,6 +267,9 @@ summary::-webkit-details-marker {
   --color-border-default: var(--border-default);
   --color-border-strong: var(--border-strong);
   --color-border-on-dark: var(--border-on-dark);
+  --color-border-on-dark-strong: var(--border-on-dark-strong);
+  --color-border-caveat: var(--border-caveat);
+  --color-border-alert: var(--border-alert);
   --shadow-card: var(--shadow-card);
   --shadow-panel: var(--shadow-panel);
   --shadow-strong: var(--shadow-strong);
@@ -246,6 +277,7 @@ summary::-webkit-details-marker {
   --shadow-violet-glow: var(--shadow-violet-glow);
   --shadow-lagoon-glow: var(--shadow-lagoon-glow);
   --shadow-coastal-frame: var(--shadow-coastal-frame);
+  --shadow-night-card: var(--shadow-night-card);
   --background-image-gradient-hero-overlay: var(--gradient-hero-overlay);
   --background-image-gradient-coastal-overlay: var(--gradient-coastal-overlay);
   --background-image-gradient-cta: var(--gradient-cta);
@@ -301,7 +333,7 @@ summary::-webkit-details-marker {
   --card-foreground: var(--text-on-dark);
   --popover: var(--brand-navy-950);
   --popover-foreground: var(--text-on-dark);
-  --primary: var(--brand-violet-500);
+  --primary: var(--brand-lagoon-500);
   --primary-foreground: var(--text-on-dark);
   --secondary: var(--brand-navy-850);
   --secondary-foreground: var(--text-on-dark);
@@ -311,21 +343,21 @@ summary::-webkit-details-marker {
   --accent-foreground: var(--text-on-dark);
   --destructive: var(--risk-high);
   --border: var(--border-on-dark);
-  --input: rgba(255, 255, 255, 0.15);
-  --ring: var(--brand-violet-400);
-  --chart-1: var(--brand-violet-400);
+  --input: rgba(255, 249, 233, 0.15);
+  --ring: var(--brand-lagoon-300);
+  --chart-1: var(--brand-lagoon-300);
   --chart-2: var(--confidence-high);
   --chart-3: var(--confidence-medium);
   --chart-4: var(--brand-sunset-gold);
   --chart-5: var(--brand-lavender-400);
   --sidebar: var(--brand-navy-950);
   --sidebar-foreground: var(--text-on-dark);
-  --sidebar-primary: var(--brand-violet-500);
+  --sidebar-primary: var(--brand-lagoon-500);
   --sidebar-primary-foreground: var(--text-on-dark);
   --sidebar-accent: var(--brand-navy-850);
   --sidebar-accent-foreground: var(--text-on-dark);
   --sidebar-border: var(--border-on-dark);
-  --sidebar-ring: var(--brand-violet-400);
+  --sidebar-ring: var(--brand-lagoon-300);
 }
 
 @layer base {

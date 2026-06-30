@@ -20,7 +20,7 @@ const sharedIconClass =
 const sharedSignalClass =
   "inline-flex max-w-full rounded-md border border-brand-lagoon-700/10 bg-brand-lagoon-100 px-2.5 py-1.5 text-xs font-extrabold text-brand-lagoon-700";
 const appNightUnavailableClass =
-  "grid max-w-xl justify-items-start gap-5 rounded-md border border-white/14 bg-surface-night-panel p-6 shadow-[0_22px_70px_rgba(0,0,0,0.28)] backdrop-blur-md";
+  "grid max-w-xl justify-items-start gap-5 rounded-md border border-border-on-dark bg-surface-night-panel p-6 shadow-strong backdrop-blur-md";
 
 export function SharedTripPlanPage({ plan }: { plan: SharedTripPlan | null }) {
   if (!plan) {
@@ -42,7 +42,7 @@ export function SharedTripPlanPage({ plan }: { plan: SharedTripPlan | null }) {
           <p className="m-0 text-xs font-extrabold tracking-[0.12em] text-brand-lagoon-300 uppercase">
             Ask Siargao
           </p>
-          <h1 className="m-0 max-w-3xl text-balance font-heading text-4xl leading-[0.98] font-semibold text-[#fff9e9] sm:text-5xl">
+          <h1 className="m-0 max-w-3xl text-balance font-heading text-4xl leading-[0.98] font-semibold text-text-on-dark sm:text-5xl">
             {plan.title}
           </h1>
           <p className="m-0 max-w-2xl text-sm leading-[1.7] font-bold text-text-on-dark-muted sm:text-base">
@@ -71,7 +71,7 @@ function SharedTripUnavailableState() {
       <section className={appNightUnavailableClass}>
         <PalmMark className="size-12" />
         <div className="grid gap-3">
-          <h1 className="m-0 font-heading text-4xl leading-[1] font-semibold text-[#fff9e9]">
+          <h1 className="m-0 font-heading text-4xl leading-[1] font-semibold text-text-on-dark">
             Shared plan unavailable
           </h1>
           <p className="m-0 text-sm leading-[1.7] font-bold text-text-on-dark-muted sm:text-base">
@@ -312,7 +312,7 @@ function CaveatList({ items }: { items: readonly string[] }) {
   }
 
   return (
-    <ul className="m-0 grid gap-1.5 rounded-md border border-[#e4d8b8] bg-[#fff9e8] px-4 py-3 text-xs leading-[1.45] text-[#66521c]">
+    <ul className="m-0 grid gap-1.5 rounded-md border border-border-caveat bg-surface-caveat px-4 py-3 text-xs leading-[1.45] text-text-caveat">
       {visibleItems.map((item) => (
         <li className="break-words" key={item}>
           {item}

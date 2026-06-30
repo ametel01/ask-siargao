@@ -21,13 +21,13 @@ const sunsetBackdropClass =
 export const appShellClass = "mx-auto grid w-full max-w-[1180px] gap-6 px-5 py-7 md:px-8 md:py-12";
 
 export const appPanelClass =
-  "rounded-md border border-white/16 bg-white/94 p-5 text-text-default shadow-[0_22px_60px_rgba(5,8,42,0.24)] md:p-6";
+  "rounded-md border border-border-on-dark bg-surface-glass p-5 text-text-default shadow-panel md:p-6";
 
 export const appNightPanelClass =
-  "rounded-md border border-white/14 bg-surface-night-panel p-5 text-text-on-dark shadow-[0_22px_70px_rgba(0,0,0,0.28)] backdrop-blur-md md:p-6";
+  "rounded-md border border-border-on-dark bg-surface-night-panel p-5 text-text-on-dark shadow-strong backdrop-blur-md md:p-6";
 
 export const appCardClass =
-  "grid gap-2 rounded-md border border-border-default bg-surface-tint p-4 shadow-[0_12px_34px_rgba(14,12,56,0.08)]";
+  "grid gap-2 rounded-md border border-border-default bg-surface-tint p-4 shadow-card";
 
 export const appCardContentClass = "grid gap-2 p-0";
 export const appLabelClass =
@@ -41,7 +41,7 @@ export function PalmMark({ className }: { className?: string }) {
     <Avatar
       aria-hidden="true"
       className={cn(
-        "inline-flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full border-0 bg-transparent shadow-[0_8px_20px_rgba(0,0,0,0.22)]",
+        "inline-flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full border-0 bg-transparent shadow-night-card",
         className,
       )}
     >
@@ -101,7 +101,7 @@ export function PageHeader({
   return (
     <header
       className={cn(
-        "grid gap-4 border-white/12 border-b pb-5 text-text-on-dark md:grid-cols-[minmax(0,1fr)_auto] md:items-end",
+        "grid gap-4 border-border-on-dark border-b pb-5 text-text-on-dark md:grid-cols-[minmax(0,1fr)_auto] md:items-end",
         className,
       )}
     >
@@ -109,7 +109,7 @@ export function PageHeader({
         <p className="m-0 text-xs font-extrabold tracking-[0.12em] text-brand-lagoon-300 uppercase">
           {eyebrow}
         </p>
-        <h1 className="m-0 text-balance font-heading text-4xl leading-[0.98] font-semibold text-[#fff9e9] md:text-5xl">
+        <h1 className="m-0 text-balance font-heading text-4xl leading-[0.98] font-semibold text-text-on-dark md:text-5xl">
           {title}
         </h1>
         {description ? (
@@ -136,7 +136,7 @@ export function BrandHeader({
   return (
     <header
       className={cn(
-        "flex min-w-0 flex-wrap items-center justify-between gap-4 border-white/12 border-b pb-5",
+        "flex min-w-0 flex-wrap items-center justify-between gap-4 border-border-on-dark border-b pb-5",
         className,
       )}
     >
@@ -146,7 +146,7 @@ export function BrandHeader({
       {action ? (
         <div className="flex shrink-0 flex-wrap items-center gap-3">{action}</div>
       ) : (
-        <span className="inline-flex shrink-0 rounded-md border border-white/16 bg-white/10 px-3 py-2 text-xs font-extrabold text-text-on-dark-muted">
+        <span className="inline-flex shrink-0 rounded-md border border-border-on-dark bg-surface-night-card px-3 py-2 text-xs font-extrabold text-text-on-dark-muted">
           {label}
         </span>
       )}
@@ -180,7 +180,7 @@ export function GradientLink({
     <Button
       asChild
       className={cn(
-        "min-h-[42px] rounded-md bg-[image:var(--gradient-cta)] px-4 font-extrabold text-text-on-dark shadow-cta transition-[box-shadow,transform] duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:-translate-y-px hover:shadow-violet-glow focus-visible:ring-brand-violet-400",
+        "min-h-[42px] rounded-md bg-[image:var(--gradient-cta)] px-4 font-extrabold text-text-on-dark shadow-cta transition-[box-shadow,transform] duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:-translate-y-px hover:shadow-lagoon-glow focus-visible:ring-brand-lagoon-300",
         className,
       )}
     >
@@ -202,7 +202,7 @@ export function SignalBadge({
     fresh: "bg-brand-lagoon-100 text-brand-lagoon-700",
     high: "bg-confidence-high-soft text-confidence-high",
     medium: "bg-confidence-medium-soft text-confidence-medium",
-    local: "bg-[rgba(108,70,232,0.08)] text-brand-violet-650",
+    local: "bg-brand-lagoon-100 text-brand-lagoon-700",
   }[tone];
 
   return (

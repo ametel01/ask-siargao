@@ -5,14 +5,13 @@ Source audit: `/Users/alexmetelli/source/ask-siargao/HALLMARK_AUDIT.md`
 
 ## Current Status
 
-Step 1 is complete. Baseline gates and viewport notes are recorded. No source UI files have been
-changed.
+Step 2 is complete. Coastal theme tokens and shared primitive transitions are updated.
 
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Baseline Gate And Visual Evidence Capture
-- [ ] Step 2: Theme Tokens And Shared Primitive Cleanup
+- [x] Step 2: Theme Tokens And Shared Primitive Cleanup
 - [ ] Step 3: Landing Hero, Navigation, And Prompt Workspace
 - [ ] Step 4: Landing Planning Content And Feature Layout
 - [ ] Step 5: App Shell, Report, Chat, And Shared-Trip Surface Cleanup
@@ -124,3 +123,52 @@ Commit:
 Next step:
 
 - Step 2: Theme Tokens And Shared Primitive Cleanup
+
+### Step 2: Theme Tokens And Shared Primitive Cleanup
+
+Status: Complete
+
+Changes:
+
+- Added coastal paper, reef, caveat, alert, night-card, border, and shadow tokens in
+  `src/theme/global.css`.
+- Moved default semantic surfaces away from pure `#ffffff` and shifted primary/ring/CTA globals
+  toward lagoon-led values.
+- Replaced `transition-all` in `buttonVariants` and `badgeVariants` with explicit transition
+  properties.
+- Updated the saved-plan tray, assistant dark/error bubbles, shared-trip caveats, and shared app
+  shell constants to consume the new semantic tokens.
+
+Acceptance evidence:
+
+- `rg "transition-all" src/components/ui/button-variants.ts src/components/ui/badge-variants.ts`:
+  no matches.
+- `rg "#ffffff" src/theme/global.css`: no matches.
+- `rg "#e4d8b8|#fff9e8|#66521c|border-white/14 bg-white/10|shadow-\\[0_18px_44px_rgba\\(0,0,0,0.14\\)"
+  src/features/chat/ChatWorkspace.tsx src/features/trips/SharedTripPlanPage.tsx
+  src/ui/components/ask-siargao.tsx`: no matches.
+
+Validation:
+
+- `bun run format`: passed, no fixes applied.
+- `bun run lint`: passed.
+- `bun run typecheck --incremental false`: passed.
+- `bun test`: passed, 655 tests.
+- `bun run db:migrate:test`: passed, 47 tables migrated in the Step 3 test database.
+- `bun run db:seed:test`: first attempt failed with `ErrnoError errno 20` while I ran it
+  concurrently with `db:migrate:test`; sequential rerun passed and seeded 5 areas, 3 routes, and 6
+  source profiles.
+- `bun run build`: passed.
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY= CLERK_WEBHOOK_SIGNING_SECRET= bun run
+  test:e2e`: passed, 36 tests.
+- `bun x react-doctor@latest --verbose --scope changed`: passed, no changed-scope issues, score
+  100/100.
+- `bun run doctor`: passed with advisory output, 15 warnings, score 85/100.
+
+Commit:
+
+- `Refine coastal theme tokens`
+
+Next step:
+
+- Step 3: Landing Hero, Navigation, And Prompt Workspace
