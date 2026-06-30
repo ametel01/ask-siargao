@@ -5,9 +5,9 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 
 ## Current Status
 
-- Status: Step 4 complete
-- Current step: Enforce Web Research Source Consistency
-- Next step: Step 5 - Enforce Web Research Source Consistency
+- Status: Step 5 complete
+- Current step: Add General Research Intent And Required Evidence Planning
+- Next step: Step 6 - Add General Research Intent And Required Evidence Planning
 
 ## Step Checklist
 
@@ -16,7 +16,7 @@ Source design doc: `documentation/developer/explanation/web-research-layer.md`
 - [x] Step 2: Add Web Research Types And Source Labels
 - [x] Step 3: Implement Deterministic Research Scoring Without Network Calls
 - [x] Step 4: Register `research_web` As A Chat Tool
-- [ ] Step 5: Enforce Web Research Source Consistency
+- [x] Step 5: Enforce Web Research Source Consistency
 - [ ] Step 6: Add General Research Intent And Required Evidence Planning
 - [ ] Step 7: Enforce Research-Before-Enrichment Runtime Ordering
 - [ ] Step 8: Convert Places To Entity-Specific Enrichment
@@ -122,3 +122,21 @@ Update this file after every completed step with:
 - Changelog updated under `## [Unreleased]`.
 - Commit reference: this commit (`Register web research chat tool`).
 - Next step: Step 5 - Enforce Web Research Source Consistency.
+
+### 2026-07-01 - Step 5 Completed
+
+- Enforced source consistency for `web_researched`, `official_checked`, `directory_checked`, and
+  `insufficient_web_evidence`.
+- Public web labels now require successful `research_web` tool evidence; memory retrieval, generic
+  reasoning, wrong-tool output, and community-to-official upgrades are rejected.
+- `insufficient_web_evidence` is accepted only as a terminal not-checked research state and cannot
+  render as checked positive evidence.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/server/chat/source-consistency.test.ts src/app/api/chat/route.test.ts` - 114 tests passed
+  - `bun test` - 677 tests passed
+- Changelog updated under `## [Unreleased]`.
+- Commit reference: this commit (`Validate web research source labels`).
+- Next step: Step 6 - Add General Research Intent And Required Evidence Planning.

@@ -35,6 +35,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Required public web-research labels to be backed by successful `research_web` tool evidence,
+  keeping memory, generic reasoning, wrong-tool output, and insufficient evidence from becoming
+  checked web claims.
 - Preserved loaded nightlife memory baselines when current event lookup has no matching event
   facts, so nightlife recommendation answers no longer collapse to weather-only or generic
   Places fallbacks.

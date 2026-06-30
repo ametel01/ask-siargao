@@ -346,6 +346,127 @@ describe("chat source consistency", () => {
     );
   });
 
+  test("accepts web research labels only when backed by research_web evidence", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Goodies and Barbosa were checked on public web sources.", [
+        officialWebSourceSummary,
+        directoryWebSourceSummary,
+        guideWebSourceSummary,
+      ]),
+      sources: [officialWebSourceSummary, directoryWebSourceSummary, guideWebSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "research_web",
+          status: "success",
+          sources: [officialWebSourceSummary, directoryWebSourceSummary, guideWebSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result).toEqual({ valid: true, issues: [] });
+  });
+
+  test("rejects memory retrieval as backing for web research labels", () => {
+    for (const source of [
+      officialWebSourceSummary,
+      directoryWebSourceSummary,
+      guideWebSourceSummary,
+    ]) {
+      const result = validateChatAnswerSourceConsistency({
+        message: withSourceLines("Memory cannot be public web evidence.", [source]),
+        sources: [source],
+        toolCalls: [
+          toolCall({
+            name: "load_agent_memory_file",
+            status: "success",
+            sources: [source],
+          }),
+        ],
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues.map((issue) => issue.code)).toContain(
+        "structured_source_not_tool_backed",
+      );
+    }
+  });
+
+  test("rejects web labels from the wrong successful tool", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Places cannot back official web checks.", [
+        officialWebSourceSummary,
+      ]),
+      sources: [officialWebSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "search_places",
+          status: "success",
+          sources: [officialWebSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain("structured_source_not_tool_backed");
+  });
+
+  test("accepts insufficient web evidence only as a not-checked research_web state", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Current ferry disruption evidence could not be verified.", [
+        insufficientWebEvidenceSourceSummary,
+      ]),
+      sources: [insufficientWebEvidenceSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "research_web",
+          status: "success",
+          sources: [insufficientWebEvidenceSourceSummary],
+        }),
+      ],
+    });
+    const invalidCheckedLine = validateChatAnswerSourceConsistency({
+      message:
+        "Do not render weak evidence as checked.\n\nChecked: Public web research (insufficient web evidence; low confidence; profile source_web_research) - current ferry disruption evidence.",
+      sources: [],
+      toolCalls: [
+        toolCall({
+          name: "research_web",
+          status: "success",
+          sources: [insufficientWebEvidenceSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result).toEqual({ valid: true, issues: [] });
+    expect(invalidCheckedLine.valid).toBe(false);
+    expect(invalidCheckedLine.issues.map((issue) => issue.code)).toEqual([
+      "unsupported_checked_label",
+    ]);
+  });
+
+  test("does not allow community web evidence to be upgraded into official evidence", () => {
+    const upgradedCommunity: AnswerSourceSummary = {
+      ...webCommunitySourceSummary,
+      label: "official_checked",
+    };
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Community chatter cannot become official truth.", [
+        upgradedCommunity,
+      ]),
+      sources: [upgradedCommunity],
+      toolCalls: [
+        toolCall({
+          name: "research_web",
+          status: "success",
+          sources: [webCommunitySourceSummary],
+        }),
+      ],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain("structured_source_not_tool_backed");
+  });
+
   test("accepts curated itinerary sources backed by the itinerary planning tool", () => {
     const result = validateChatAnswerSourceConsistency({
       message: withSourceLines("Use the sequenced itinerary and keep the caveats visible.", [
@@ -1014,6 +1135,54 @@ const communitySignalSourceSummary: AnswerSourceSummary = {
   confidence: "low",
   checked: ["public community nightlife rhythm signal"],
   notChecked: ["tonight's event schedule", "venue confirmation", "crowd size"],
+};
+
+const officialWebSourceSummary: AnswerSourceSummary = {
+  label: "official_checked",
+  sourceName: "BARBOSA Official Schedule",
+  sourceProfileId: "source_web_official",
+  fetchedAt: "2026-07-01T09:00:00.000Z",
+  confidence: "high",
+  checked: ["Wednesday: closed"],
+  notChecked: ["last-minute private events"],
+};
+
+const directoryWebSourceSummary: AnswerSourceSummary = {
+  label: "directory_checked",
+  sourceName: "SiargaoVibes",
+  sourceProfileId: "source_web_local_directory",
+  fetchedAt: "2026-07-01T09:00:00.000Z",
+  confidence: "medium",
+  checked: ["Goodies lists Funky Wednesday from 8 PM to 12 AM"],
+  notChecked: ["live crowd size"],
+};
+
+const guideWebSourceSummary: AnswerSourceSummary = {
+  label: "web_researched",
+  sourceName: "Recent Siargao nightlife guide",
+  sourceProfileId: "source_web_guide",
+  fetchedAt: "2026-03-02T09:00:00.000Z",
+  confidence: "low",
+  checked: ["El Lobo has a Wednesday guide signal"],
+  notChecked: ["official same-day confirmation"],
+};
+
+const webCommunitySourceSummary: AnswerSourceSummary = {
+  label: "community_signal",
+  sourceName: "Reddit public nightlife threads",
+  sourceProfileId: "source_web_community",
+  confidence: "low",
+  checked: ["public community nightlife rhythm signal"],
+  notChecked: ["official event schedule"],
+};
+
+const insufficientWebEvidenceSourceSummary: AnswerSourceSummary = {
+  label: "insufficient_web_evidence",
+  sourceName: "Public web research",
+  sourceProfileId: "source_web_research",
+  confidence: "low",
+  checked: [],
+  notChecked: ["current ferry disruption evidence"],
 };
 
 const surfSpotRankingSourceSummary: AnswerSourceSummary = {
