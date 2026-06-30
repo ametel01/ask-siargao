@@ -110,6 +110,48 @@ describe("agent tools", () => {
       },
       {
         type: "function",
+        name: "search_nightlife_events",
+        description:
+          "Search approved General Luna nightlife event facts before using Google Places for venue details. Use for tonight, party, nightlife, bar-hopping, DJ, live-music, foam-party, pub-quiz, trivia, and drinks-tonight route answers. This returns event schedule evidence and route roles, not live crowd size, door policy, guest list, table availability, last-minute cancellation, or exact closing time.",
+        parameters: {
+          type: "object",
+          properties: {
+            location: {
+              type: "string",
+              enum: ["General Luna"],
+              description: "Nightlife area currently supported by approved event facts.",
+            },
+            date: {
+              type: "string",
+              enum: ["tonight", "today"],
+              description: "Time-bound nightlife date to check.",
+            },
+            interests: {
+              type: ["array", "null"],
+              items: {
+                type: "string",
+                enum: [
+                  "party",
+                  "bar_hopping",
+                  "dj",
+                  "live_music",
+                  "foam_party",
+                  "pub_quiz",
+                  "trivia",
+                  "drinks",
+                ],
+              },
+              description:
+                "Optional nightlife interests from the user, such as party, dj, pub_quiz, trivia, foam_party, or drinks.",
+            },
+          },
+          required: ["location", "date", "interests"],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+      {
+        type: "function",
         name: "search_places",
         description:
           "Search governed Google Places results for Siargao places using allowed chat-search fields.",
@@ -533,6 +575,11 @@ describe("agent tools", () => {
           "Build a governed condition judgment for Siargao activities from checked Open-Meteo weather, checked Tide-Forecast tide/sea-period data when available, checked Open-Meteo Marine model data when available, curated local caveats, and explicit unchecked road, official-warning, lifeguard, and safety signals. The AI must use the returned judgment as evidence and write the final answer itself.",
       },
       {
+        name: "search_nightlife_events",
+        description:
+          "Search approved General Luna nightlife event facts before using Google Places for venue details. Use for tonight, party, nightlife, bar-hopping, DJ, live-music, foam-party, pub-quiz, trivia, and drinks-tonight route answers. This returns event schedule evidence and route roles, not live crowd size, door policy, guest list, table availability, last-minute cancellation, or exact closing time.",
+      },
+      {
         name: "search_places",
         description:
           "Search governed Google Places results for Siargao places using allowed chat-search fields.",
@@ -658,6 +705,18 @@ describe("agent tools", () => {
         getLatestSiargaoWeatherSnapshot: async () => liveWeatherSnapshot("Cloud 9"),
       },
     );
+    const nightlifeResult = await executeAgentTool(
+      {
+        requestId: "agent_request_nullable_nightlife",
+        name: "search_nightlife_events",
+        arguments: {
+          location: "General Luna",
+          date: "tonight",
+          interests: null,
+        },
+      },
+      { now: () => new Date("2026-06-30T12:00:00+08:00") },
+    );
     const localFactsResult = await executeAgentTool(
       {
         requestId: "agent_request_nullable_local_facts",
@@ -678,6 +737,7 @@ describe("agent tools", () => {
     expect(surfRankingResult.status).toBe("success");
     expect(itineraryResult.status).toBe("success");
     expect(conditionResult.status).toBe("success");
+    expect(nightlifeResult.status).toBe("success");
     expect(localFactsResult.status).toBe("success");
   });
 
@@ -2353,6 +2413,44 @@ describe("agent tools", () => {
     expect(result.errorCode).toBe("provider_unavailable");
     expect(result.text).toContain("HTTP 503");
     expect(result.sources[0]?.notChecked.join(" ")).toContain("General Luna");
+  });
+
+  test("returns governed nightlife event route evidence before venue enrichment", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_nightlife",
+        name: "search_nightlife_events",
+        arguments: {
+          location: "General Luna",
+          date: "tonight",
+          interests: ["party", "pub_quiz"],
+        },
+      },
+      { now: () => new Date("2026-06-30T12:00:00+08:00") },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("BARREL - Tuesday Pub Quiz");
+    expect(result.text).toContain("Barbosa - Disco Tropico");
+    expect(result.text).toContain("Route roles:");
+    expect(result.text).toContain("Not checked: same-day venue social posts");
+    expect(result.sources[0]).toMatchObject({
+      label: "curated_local_guide",
+      sourceName: "Ask Siargao approved nightlife event facts",
+      checked: [
+        "approved General Luna nightlife event facts for Tuesday",
+        "route roles: warm-up, main party, late option, and softer option when available",
+      ],
+    });
+    const data = result.data as {
+      route?: { warmUp?: { venueName?: string }; mainParty?: { venueName?: string } };
+      nextStep?: string;
+    };
+    expect(data.route?.warmUp?.venueName).toBe("BARREL");
+    expect(data.route?.mainParty?.venueName).toBe("Barbosa");
+    expect(data.nextStep).toContain("Use Google Places only after this event lookup");
+    expect(JSON.stringify(result)).not.toContain("raw");
+    expect(JSON.stringify(result)).not.toContain("guest list checked");
   });
 
   test("returns machine-readable source policy output", async () => {

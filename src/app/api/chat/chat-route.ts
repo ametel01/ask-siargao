@@ -97,6 +97,7 @@ type ChatRequestIntent = {
   missingContext: boolean;
   nearby: boolean;
   nearMeUsesBrowserGeolocation: boolean;
+  nightlifePlan: boolean;
   placeIntent?: PlaceIntent;
   roadCondition: boolean;
   shouldDeclineNonSiargaoTopic: boolean;
@@ -961,9 +962,10 @@ function interpretChatRequestIntent(
     isBeachConstraintContent(latestUserTurn) && isBeachContent(recentUserContext);
   const locationLabel =
     inferChatLocationLabelFromTripContext(tripContext) ?? inferChatLocationLabel(fullUserContext);
-  const today = /\btoday|right\s+now|now|this\s+(?:morning|afternoon|evening)\b/i.test(
-    fullUserContext,
-  );
+  const today =
+    /\btoday|tonight|right\s+now|now|this\s+(?:morning|afternoon|evening|night)\b/i.test(
+      fullUserContext,
+    );
   const nearby = /\bnear(?:by)?|around|close\s+to|that\s+area|in\s+that\s+area|by\s+/i.test(
     fullUserContext,
   );
@@ -983,6 +985,7 @@ function interpretChatRequestIntent(
     (!bareRideBoatFollowUp && isRoadConditionContent(latestUserTurn)) ||
     (Boolean(conditionActivity) && isRoadConditionContent(inheritedConditionContext));
   const weather = isWeatherContent(latestUserTurn);
+  const nightlifePlan = isNightlifePlanContent(latestUserTurn);
   const tripAdvice = tripContext.activeGoal === "trip_advice";
   const weatherSensitive =
     weather ||
@@ -993,7 +996,8 @@ function interpretChatRequestIntent(
     /\brainy|rain(?:ing)?|showers?|storm|windy|surf|waves?|conditions?|cloudy\b/i.test(
       latestUserTurn,
     ) ||
-    ((today || nearby) && isActivityPlanContent(latestUserTurn));
+    ((today || nearby) && isActivityPlanContent(latestUserTurn)) ||
+    nightlifePlan;
   const excludesActivityPlan = isLogisticsOrCritiquePlanContent(latestUserTurn);
   const activityPlan =
     !excludesActivityPlan &&
@@ -1003,13 +1007,16 @@ function interpretChatRequestIntent(
     latestUserTurn,
     recentUserContext,
     tripContext,
-    ...(locationLabel ? { locationLabel } : {}),
+    ...(locationLabel || nightlifePlan
+      ? { locationLabel: locationLabel ?? ("General Luna" as const) }
+      : {}),
     activityPlan,
     beach: latestBeach || contextualBeach,
     ...(conditionActivity ? { conditionActivity } : {}),
     marineCondition,
     nearby,
     nearMeUsesBrowserGeolocation,
+    nightlifePlan,
     ...(placeIntent ? { placeIntent } : {}),
     roadCondition,
     today,
@@ -1067,6 +1074,17 @@ function isActivityPlanContent(content: string) {
       content,
     );
   return directActivityLanguage || scopedPlanLanguage;
+}
+
+function isNightlifePlanContent(content: string) {
+  const nightlifeSignal =
+    /\b(?:party|nightlife|bar[-\s]?hopp?ing|bar\s+crawl|dj|live\s*music|foam\s*party|pub\s*quiz|trivia|drinks?\s+tonight|where\s+(?:should|can)\s+(?:we|i)\s+go\s+out)\b/i.test(
+      content,
+    );
+  const timeBoundSignal =
+    /\b(?:tonight|today|right\s+now|now|this\s+(?:evening|night)|late[-\s]?night)\b/i.test(content);
+  const generalLunaSignal = /\b(?:general\s+luna|\bgl\b|siargao)\b/i.test(content);
+  return nightlifeSignal && (timeBoundSignal || generalLunaSignal);
 }
 
 function isLogisticsOrCritiquePlanContent(content: string) {
@@ -1233,6 +1251,7 @@ function summarizeIntentForAgent(intent: ChatRequestIntent) {
     missingContext: intent.missingContext,
     nearby: intent.nearby,
     nearMeUsesBrowserGeolocation: intent.nearMeUsesBrowserGeolocation,
+    nightlifePlan: intent.nightlifePlan,
     placeIntent: intent.placeIntent,
     roadCondition: intent.roadCondition,
     shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
@@ -1274,6 +1293,7 @@ function summarizeIntentForLogs(intent: ChatRequestIntent) {
     missingContext: intent.missingContext,
     nearby: intent.nearby,
     nearMeUsesBrowserGeolocation: intent.nearMeUsesBrowserGeolocation,
+    nightlifePlan: intent.nightlifePlan,
     tripContext: {
       activeGoal: intent.tripContext.activeGoal,
       currentLocation: intent.tripContext.currentLocation?.label,
