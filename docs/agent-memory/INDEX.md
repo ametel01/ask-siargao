@@ -66,3 +66,10 @@ Cloud 9 defaults when the user gives no better base.
 
 Use for answer style, role/scope, final-answer expectations, surf-timing answer
 shape, and practical condition-answer phrasing.
+
+### ASK_SIARGAO_ANSWER_PATTERNS.md
+
+Use for request-type answer shape across place, food, cafe, bar, service,
+activity, weather, condition, surf, tide, beach, swimming, transport,
+logistics, accommodation-area, itinerary-review, safety, medical, and urgent
+local-service questions.

@@ -460,6 +460,7 @@ describe("agent tools", () => {
                   "SURF.md",
                   "LOCAL_GUIDE_BEACHES.md",
                   "ASK_SIARGAO_AGENT_SKILLS.md",
+                  "ASK_SIARGAO_ANSWER_PATTERNS.md",
                   "ASK_SIARGAO_TOOL_USE_POLICY.md",
                   "ASK_SIARGAO_DATA_DICTIONARY.md",
                   "ASK_SIARGAO_SOURCE_POLICY.md",
