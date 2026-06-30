@@ -49,7 +49,6 @@ export type RateLimiterOptions = {
   store?: RateLimitStore;
   trustProxyHeaders?: boolean;
   env?: string;
-  warn?: (message: string) => void;
 };
 
 type MemoryRateLimitStore = Omit<RateLimitStore, "reset"> & {
@@ -99,17 +98,9 @@ export function createMemoryRateLimitStore(): MemoryRateLimitStore {
 export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter {
   const store = options.store ?? defaultMemoryStore;
   const trustProxyHeaders = options.trustProxyHeaders ?? process.env.TRUST_PROXY_HEADERS === "true";
-  const env = options.env ?? process.env.NODE_ENV;
-  const warn = options.warn ?? console.warn;
-  let warnedAboutMemoryStore = false;
 
   function checkRateLimit(input: RateLimitInput): RateLimitResult {
-    if (env === "production" && store.scope !== "shared" && !warnedAboutMemoryStore) {
-      warn(
-        "Production rate limiting is using process-local memory. Configure a shared RateLimitStore before deployment.",
-      );
-      warnedAboutMemoryStore = true;
-    }
+    assertProductionRateLimitStore(store, options.env ?? process.env.NODE_ENV);
 
     const policy = policies[input.policy];
     const nowMs = (input.now ?? new Date()).getTime();
@@ -146,6 +137,16 @@ export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter
       store.reset?.();
     },
   };
+}
+
+function assertProductionRateLimitStore(store: RateLimitStore, env: string | undefined) {
+  if (env !== "production" || store.scope === "shared") {
+    return;
+  }
+
+  throw new Error(
+    'Production rate limiting requires a shared RateLimitStore. Configure a shared rate-limit store with scope "shared" before deployment; process-local memory is only supported in development and test.',
+  );
 }
 
 const defaultMemoryStore = createMemoryRateLimitStore();

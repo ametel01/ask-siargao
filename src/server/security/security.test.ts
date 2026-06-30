@@ -8,6 +8,7 @@ import {
   configureRateLimitStore,
   createMemoryRateLimitStore,
   createRateLimiter,
+  type RateLimitStore,
   resetRateLimitStoreForTests,
 } from "@/server/security/rate-limit";
 
@@ -58,6 +59,66 @@ describe("rate limiting", () => {
     expect(reset.allowed).toBe(true);
     expect(reset.remaining).toBe(3);
     expect(store.size()).toBe(1);
+  });
+
+  test("keeps process-local memory available outside production", () => {
+    const store = createMemoryRateLimitStore();
+    const limiter = createRateLimiter({ store, env: "test" });
+    const result = limiter.checkRateLimit({
+      key: "traveler",
+      policy: "checkout",
+      now: new Date("2026-06-23T08:00:00.000Z"),
+    });
+
+    expect(result.allowed).toBe(true);
+    expect(store.size()).toBe(1);
+  });
+
+  test("fails closed before using process-local memory in production", () => {
+    const store = createMemoryRateLimitStore();
+    const limiter = createRateLimiter({ store, env: "production" });
+
+    expect(() =>
+      limiter.checkRateLimit({
+        key: "traveler",
+        policy: "checkout",
+        now: new Date("2026-06-23T08:00:00.000Z"),
+      }),
+    ).toThrow(/Configure a shared rate-limit store/);
+    expect(store.size()).toBe(0);
+  });
+
+  test("default process-local limiter fails closed in production", () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    setEnvValue("NODE_ENV", "production");
+    resetRateLimitStoreForTests();
+
+    try {
+      expect(() =>
+        checkRateLimit({
+          key: "traveler",
+          policy: "checkout",
+          now: new Date("2026-06-23T08:00:00.000Z"),
+        }),
+      ).toThrow(/shared RateLimitStore/);
+    } finally {
+      setEnvValue("NODE_ENV", originalNodeEnv);
+      resetRateLimitStoreForTests();
+    }
+  });
+
+  test("allows an injected shared store in production", () => {
+    const sharedStore = createFakeSharedRateLimitStore();
+    const limiter = createRateLimiter({ store: sharedStore, env: "production" });
+
+    const result = limiter.checkRateLimit({
+      key: "traveler",
+      policy: "checkout",
+      now: new Date("2026-06-23T08:00:00.000Z"),
+    });
+
+    expect(result.allowed).toBe(true);
+    expect(sharedStore.size()).toBe(1);
   });
 
   test("does not trust spoofed forwarding headers by default", () => {
@@ -130,6 +191,34 @@ describe("rate limiting", () => {
     resetRateLimitStoreForTests();
   });
 });
+
+function createFakeSharedRateLimitStore() {
+  const buckets = new Map<string, { count: number; resetAt: number }>();
+
+  return {
+    scope: "shared",
+    increment(bucketKey, windowMs, nowMs) {
+      const bucket = buckets.get(bucketKey) ?? { count: 0, resetAt: nowMs + windowMs };
+
+      bucket.count += 1;
+      buckets.set(bucketKey, bucket);
+
+      return bucket;
+    },
+    size() {
+      return buckets.size;
+    },
+  } satisfies RateLimitStore & { size(): number };
+}
+
+function setEnvValue(name: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+
+  process.env[name] = value;
+}
 
 describe("privacy and observability", () => {
   test("captures viability metrics without private trip details", () => {

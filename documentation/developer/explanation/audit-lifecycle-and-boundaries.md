@@ -24,7 +24,7 @@ Telemetry uses sanitized payloads. Intake metrics keep coarse completion attribu
 
 ## Operational Boundaries
 
-Rate limits cover intake, checkout, public APIs, report access, and provider/webhook calls. Local development uses a process-local in-memory store with expiry cleanup. Production deployments that run more than one instance must inject a shared, atomic `RateLimitStore` through `configureRateLimitStore` backed by trusted infrastructure such as Redis, Upstash, Vercel KV, or a platform-owned equivalent. If production falls back to process-local memory, the app emits a warning because each instance would maintain separate buckets.
+Rate limits cover intake, checkout, public APIs, report access, and provider/webhook calls. Local development and tests use a process-local in-memory store with expiry cleanup. Production deployments must inject a shared, atomic `RateLimitStore` through `configureRateLimitStore` backed by trusted infrastructure such as Redis, Upstash, Vercel KV, or a platform-owned equivalent. If production would use process-local memory, the limiter fails closed before consuming a bucket because each instance would otherwise maintain separate buckets.
 
 Request identity does not trust `x-forwarded-for` or `x-real-ip` by default. Set `TRUST_PROXY_HEADERS=true` only when the deployment is behind a trusted proxy that owns and sanitizes those headers; otherwise requests use the local fallback identity so spoofed forwarding headers cannot create fresh buckets.
 
