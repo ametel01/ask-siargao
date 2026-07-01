@@ -4,12 +4,7 @@ import {
   renderAnswerSourceLines,
   renderAnswerSourceSummaryMarkdown,
 } from "@/server/chat/answer-source-summary";
-import {
-  type NightlifeEventInterest,
-  renderNightlifeEventsText,
-  searchNightlifeEvents,
-} from "@/server/chat/nightlife-events";
-import { buildRequiredEvidencePlan } from "@/server/chat/required-evidence";
+import { renderNightlifeEventsText, searchNightlifeEvents } from "@/server/chat/nightlife-events";
 
 describe("nightlife events", () => {
   test("returns Tuesday General Luna route candidates ordered by time and intensity", () => {
@@ -102,35 +97,11 @@ describe("nightlife events", () => {
     );
   });
 
-  test("keeps BARREL as warm-up for the canonical required-evidence party route", () => {
-    const plan = buildRequiredEvidencePlan({
-      messages: [
-        {
-          role: "user",
-          content: "What are the best party places in General Luna tonight?",
-        },
-      ],
-      deterministicSignals: {
-        intent: {
-          latestUserTurn: "What are the best party places in General Luna tonight?",
-          nightlifePlan: true,
-        },
-      },
-    });
-    const nightlifeCall = plan.requiredToolCalls.find(
-      (requiredCall) => requiredCall.name === "search_nightlife_events",
-    );
-
-    expect(nightlifeCall?.arguments).toMatchObject({
-      location: "General Luna",
-      date: "tonight",
-      interests: ["party"],
-    });
-
+  test("keeps BARREL as warm-up for explicit party event lookup", () => {
     const result = searchNightlifeEvents({
       location: "General Luna",
       date: "tonight",
-      interests: nightlifeCall?.arguments.interests as NightlifeEventInterest[],
+      interests: ["party"],
       now: new Date("2026-06-30T12:00:00+08:00"),
     });
 

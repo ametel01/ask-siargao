@@ -5,9 +5,9 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 
 ## Current Status
 
-- Status: Step 3 complete
-- Current step: Step 4 - Remove Route-Derived Required Evidence Planning
-- Next step: Step 4 - Remove Route-Derived Required Evidence Planning
+- Status: Step 4 complete
+- Current step: Step 5 - Remove Auto-Injected Required Evidence Repairs From Route Classifiers
+- Next step: Step 5 - Remove Auto-Injected Required Evidence Repairs From Route Classifiers
 
 ## Step Checklist
 
@@ -15,7 +15,7 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 - [x] Step 1: Fix Web Research Structured Output Schema
 - [x] Step 2: Add Behavioral Regression Tests for Model-Owned Routing
 - [x] Step 3: Trim Route-Level Deterministic Signals
-- [ ] Step 4: Remove Route-Derived Required Evidence Planning
+- [x] Step 4: Remove Route-Derived Required Evidence Planning
 - [ ] Step 5: Remove Auto-Injected Required Evidence Repairs From Route Classifiers
 - [ ] Step 6: Make Provider Failures Non-Terminal
 - [ ] Step 7: Strengthen Model Tool-Choice Instructions
@@ -116,3 +116,28 @@ Update this file after every completed step with:
 - Changelog: updated under `Changed` for the functional route signal behavior change.
 - Commit reference: this commit (`Stop passing deterministic chat routing intent`).
 - Next step: Step 4 - Remove Route-Derived Required Evidence Planning.
+
+### 2026-07-01 - Step 4 Completed
+
+- Removed route-derived required-evidence planning from `buildRequiredEvidencePlan()`, including
+  helpers that converted deterministic `placeIntent`, `researchIntent`, weather, and nightlife
+  signals into mandatory tool calls.
+- Reworked required-evidence tests so plan construction verifies that route classifier signals do
+  not manufacture tool requirements, while validation and card filtering are covered through
+  explicit plan fixtures.
+- Updated the nightlife event test that previously derived party lookup arguments from required
+  evidence planning so it now exercises the event lookup directly.
+- Validation passed:
+  - `bun test src/server/chat/required-evidence.test.ts` - 8 tests passed
+  - `bun test src/server/chat/nightlife-events.test.ts` - 6 tests passed
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+- Validation with expected remaining failures:
+  - `bun test src/server/chat/ask-siargao-agent.test.ts` - 74 passed, 15 failed.
+  - `bun test` - 692 passed, 15 failed.
+  - Status: failures are legacy route-derived automatic required-evidence repair expectations
+    queued for Step 5, plus the existing model-selected web research provider-failure regression
+    queued for Step 6.
+- Changelog: updated under `Removed` for the functional required-evidence planning removal.
+- Commit reference: this commit (`Remove route-derived required evidence planning`).
+- Next step: Step 5 - Remove Auto-Injected Required Evidence Repairs From Route Classifiers.

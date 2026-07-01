@@ -68,11 +68,6 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 - Reduced `/api/chat` model-facing deterministic signals to safe client context, safe conversation
   context, and scope flags instead of route-derived intent and tool-routing hints.
-- Enforced required public web research before dependent Places, weather, or nightlife enrichment;
-  dependent enrichment is skipped when required research returns terminal insufficient or
-  unavailable evidence.
-- Converted Google Places for research-covered prompts into research-selected entity enrichment so
-  broad Places candidates are not shown as fallback recommendation cards.
 - Changed saved-trip sync so signed-in users can claim unowned local saved trips, list owned saved
   items without `tripId`, and reuse their owned server trip id while anonymous saved-trip behavior
   remains compatible.
@@ -103,6 +98,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Removed
 
+- Removed route-derived required evidence planning so deterministic classifier signals no longer
+  manufacture mandatory `research_web`, `search_places`, weather, or nightlife event calls.
 - Removed legacy fallback acceptance for research-required prompts: broad Places, weather-only, and
   memory-only answers are rejected unless current public web evidence is successful or the answer
   transparently states that it could not be verified.
