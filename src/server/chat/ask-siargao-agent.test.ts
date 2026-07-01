@@ -419,6 +419,320 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     });
   });
 
+  test("lets the model choose web and Places tools for scooter rental lookup", async () => {
+    const scooterWebSource: AnswerSourceSummary = {
+      label: "directory_checked",
+      sourceName: "Public scooter rental directory",
+      sourceProfileId: "source_web_directory",
+      fetchedAt: "2026-07-01T09:00:00.000Z",
+      confidence: "medium",
+      checked: ["General Luna scooter rental listings"],
+      notChecked: ["walk-in availability", "deposit requirements"],
+    };
+    const scooterPlaceCard: RecommendationCard = {
+      id: "place_island_scooter_rental",
+      kind: "place",
+      title: "Island Scooter Rental",
+      subtitle: "General Luna",
+      mapsUrl: "https://maps.example/island-scooter-rental",
+      fitReasons: ["Returned by the model-selected Places lookup."],
+      caveats: ["Helmet availability, deposit, and daily rate were not checked."],
+      sourceLabel: "Google Places - live checked",
+      sources: [placesSourceSummary],
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_scooter_rental_model_tools",
+        _request_id: "req_scooter_rental_model_tools",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_scooter_web",
+            name: "research_web",
+            arguments: JSON.stringify({
+              query: "scooter rental General Luna Siargao",
+              intent: "recommendation",
+              location: "General Luna",
+              sourceTypes: ["official", "local_directory", "maps", "guide"],
+              requiredFreshness: "stable",
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_scooter_places",
+            name: "search_places",
+            arguments: JSON.stringify({
+              query: "scooter rental General Luna Siargao",
+              center: { latitude: 9.8006, longitude: 126.1586 },
+              radius_meters: 8_000,
+              constraints: { included_type: null, open_now: null, page_size: 5 },
+            }),
+          },
+        ],
+      },
+      {
+        id: "resp_scooter_rental_final",
+        output_text: finalPayloadText({
+          answer:
+            "For scooter rental in General Luna, start with Island Scooter Rental and confirm deposit, helmet, and current daily rate before paying.",
+          usedToolCallIds: ["call_scooter_web", "call_scooter_places"],
+          displayCardIds: [scooterPlaceCard.id],
+        }),
+        _request_id: "req_scooter_rental_final",
+      },
+    ]);
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "research_web") {
+        expect(request.arguments.query).toBe("scooter rental General Luna Siargao");
+        return {
+          name: "research_web",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Public web research returned General Luna scooter rental listings.",
+          data: {
+            status: "available",
+            findings: [
+              {
+                claim: "General Luna has public scooter rental listings.",
+                answerRole: "primary",
+              },
+            ],
+            entities: [
+              {
+                name: "Island Scooter Rental",
+                kind: "service",
+                area: "General Luna",
+                needsPlacesEnrichment: true,
+              },
+            ],
+          },
+          sources: [scooterWebSource],
+        };
+      }
+      if (request.name === "search_places") {
+        expect(request.arguments.query).toBe("scooter rental General Luna Siargao");
+        return {
+          name: "search_places",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Google Places returned scooter rental options.",
+          sources: [placesSourceSummary],
+          cards: [scooterPlaceCard],
+        };
+      }
+      throw new Error(`Unexpected tool ${request.name}`);
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "where can I rent a scooter in General Luna?" }],
+        requestId: "agent_request_scooter_rental_model_tools",
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toContain("scooter rental");
+    expect(result.toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall.name])).toEqual([
+      ["call_scooter_web", "research_web"],
+      ["call_scooter_places", "search_places"],
+    ]);
+    expect(result.cards).toEqual([scooterPlaceCard]);
+    expect(result.publicSources).toEqual([scooterWebSource, placesSourceSummary]);
+  });
+
+  test("keeps successful Places evidence when model-selected web research fails", async () => {
+    const webUnavailableSource: AnswerSourceSummary = {
+      label: "provider_unavailable",
+      sourceName: "Public web research",
+      sourceProfileId: "source_web_research",
+      confidence: "low",
+      checked: [],
+      notChecked: ["current public web scooter rental evidence"],
+    };
+    const scooterPlaceCard: RecommendationCard = {
+      id: "place_general_luna_scooters",
+      kind: "place",
+      title: "General Luna Scooters",
+      subtitle: "General Luna",
+      mapsUrl: "https://maps.example/general-luna-scooters",
+      fitReasons: ["Returned by Google Places after public web research failed."],
+      caveats: ["Public web research was unavailable; call ahead before relying on it."],
+      sourceLabel: "Google Places - live checked",
+      sources: [placesSourceSummary],
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_scooter_web_failed_places_ok",
+        _request_id: "req_scooter_web_failed_places_ok",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_scooter_web_failed",
+            name: "research_web",
+            arguments: JSON.stringify({
+              query: "scooter rental General Luna Siargao",
+              intent: "recommendation",
+              location: "General Luna",
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_scooter_places_ok",
+            name: "search_places",
+            arguments: JSON.stringify({
+              query: "scooter rental General Luna Siargao",
+              constraints: { included_type: null, open_now: null, page_size: 5 },
+            }),
+          },
+        ],
+      },
+      {
+        id: "resp_scooter_web_failed_places_final",
+        output_text: finalPayloadText({
+          answer:
+            "Google Places returned General Luna Scooters. I could not verify public web evidence, so confirm the current rate and deposit before going.",
+          usedToolCallIds: ["call_scooter_web_failed", "call_scooter_places_ok"],
+          displayCardIds: [scooterPlaceCard.id],
+        }),
+        _request_id: "req_scooter_web_failed_places_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      research_web: {
+        name: "research_web",
+        status: "error",
+        text: "Public web research provider unavailable.",
+        errorCode: "provider_unavailable",
+        data: { status: "provider_unavailable" },
+        sources: [webUnavailableSource],
+      },
+      search_places: {
+        name: "search_places",
+        status: "success",
+        text: "Google Places returned scooter rental options.",
+        sources: [placesSourceSummary],
+        cards: [scooterPlaceCard],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "where can I rent a scooter in General Luna?" }],
+        requestId: "agent_request_scooter_web_failed_places_ok",
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toContain("General Luna Scooters");
+    expect(result.message).not.toBe(
+      "I could not verify current public web evidence for this request.",
+    );
+    expect(result.toolCalls.map((toolCall) => [toolCall.name, toolCall.status])).toEqual([
+      ["research_web", "error"],
+      ["search_places", "success"],
+    ]);
+    expect(result.cards).toEqual([scooterPlaceCard]);
+    expect(result.publicSources).toEqual([webUnavailableSource, placesSourceSummary]);
+  });
+
+  test("keeps successful web research when model-selected Places lookup fails", async () => {
+    const scooterWebSource: AnswerSourceSummary = {
+      label: "directory_checked",
+      sourceName: "Public scooter rental directory",
+      sourceProfileId: "source_web_directory",
+      fetchedAt: "2026-07-01T09:00:00.000Z",
+      confidence: "medium",
+      checked: ["General Luna scooter rental listings"],
+      notChecked: ["Google Maps details", "walk-in availability"],
+    };
+    const placesUnavailableSource: AnswerSourceSummary = {
+      label: "provider_unavailable",
+      sourceName: "Google Places",
+      sourceProfileId: "source_google_places",
+      confidence: "low",
+      checked: [],
+      notChecked: ["Google Places lookup"],
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_scooter_web_ok_places_failed",
+        _request_id: "req_scooter_web_ok_places_failed",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_scooter_web_ok",
+            name: "research_web",
+            arguments: JSON.stringify({
+              query: "scooter rental General Luna Siargao",
+              intent: "recommendation",
+              location: "General Luna",
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_scooter_places_failed",
+            name: "search_places",
+            arguments: JSON.stringify({
+              query: "scooter rental General Luna Siargao",
+              constraints: { included_type: null, open_now: null, page_size: 5 },
+            }),
+          },
+        ],
+      },
+      {
+        id: "resp_scooter_web_ok_places_failed_final",
+        output_text: finalPayloadText({
+          answer:
+            "Public web research found General Luna scooter rental listings, but Google Places was unavailable, so verify the map pin and current rate before going.",
+          usedToolCallIds: ["call_scooter_web_ok", "call_scooter_places_failed"],
+          displayCardIds: [],
+        }),
+        _request_id: "req_scooter_web_ok_places_failed_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      research_web: {
+        name: "research_web",
+        status: "success",
+        text: "Public web research returned General Luna scooter rental listings.",
+        data: {
+          status: "available",
+          findings: [
+            {
+              claim: "Public web research found General Luna scooter rental listings.",
+              answerRole: "primary",
+            },
+          ],
+        },
+        sources: [scooterWebSource],
+      },
+      search_places: {
+        name: "search_places",
+        status: "error",
+        text: "Google Places unavailable.",
+        errorCode: "provider_unavailable",
+        data: { status: "provider_unavailable" },
+        sources: [placesUnavailableSource],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "where can I rent a scooter in General Luna?" }],
+        requestId: "agent_request_scooter_web_ok_places_failed",
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toContain("Public web research found");
+    expect(result.toolCalls.map((toolCall) => [toolCall.name, toolCall.status])).toEqual([
+      ["research_web", "success"],
+      ["search_places", "error"],
+    ]);
+    expect(result.cards).toBeUndefined();
+    expect(result.publicSources).toEqual([scooterWebSource, placesUnavailableSource]);
+  });
+
   test("repairs direct food recommendations that try to finalize from local beach guide evidence", async () => {
     const placeCard = {
       id: "place_chij_lost_in_siargao",

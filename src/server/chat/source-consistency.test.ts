@@ -53,6 +53,31 @@ describe("chat source consistency", () => {
     expect(result.valid).toBe(true);
   });
 
+  test("rejects live checked labels when Places failed even if web research succeeded", () => {
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Use the listed scooter rental, but call ahead.", [
+        livePlacesSourceSummary,
+        officialWebSourceSummary,
+      ]),
+      sources: [livePlacesSourceSummary, officialWebSourceSummary],
+      toolCalls: [
+        toolCall({
+          name: "research_web",
+          status: "success",
+          sources: [officialWebSourceSummary],
+        }),
+        toolCall({
+          name: "search_places",
+          status: "error",
+          sources: [providerUnavailableSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain("structured_source_not_tool_backed");
+  });
+
   test("rejects rendered checked claims whose text does not match the tool source", () => {
     const result = validateChatAnswerSourceConsistency({
       message:

@@ -108,6 +108,29 @@ describe("chat route", () => {
     expect(dependencies.requests[0]?.metadata?.route).toBe("/api/chat");
   });
 
+  test("passes scooter rental lookup without scooter condition routing hints", async () => {
+    const dependencies = chatDependencies({
+      message: "The model can choose web or Places tools for scooter rentals.",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "where can I rent a scooter in General Luna?" }],
+      }),
+      dependencies,
+    );
+    const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
+    const intent = signals?.intent;
+
+    expect(response.status).toBe(200);
+    expect(dependencies.requests[0]?.messages[0]?.content).toBe(
+      "where can I rent a scooter in General Luna?",
+    );
+    expect(intent?.conditionActivity).toBeUndefined();
+    expect(intent?.roadCondition ?? false).toBe(false);
+    expect(intent?.weatherSensitive ?? false).toBe(false);
+  });
+
   test("persists authenticated chat turns with public artifacts and redacted context", async () => {
     const db = await openChatRouteTestDatabase();
     const rawProviderPhrase = "PRIVATE_PROVIDER_TIMEOUT_ROUTE_4815";

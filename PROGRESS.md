@@ -5,15 +5,15 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 
 ## Current Status
 
-- Status: Step 1 complete
-- Current step: Step 2 - Add Behavioral Regression Tests for Model-Owned Routing
-- Next step: Step 2 - Add Behavioral Regression Tests for Model-Owned Routing
+- Status: Step 2 complete with expected failing regressions
+- Current step: Step 3 - Trim Route-Level Deterministic Signals
+- Next step: Step 3 - Trim Route-Level Deterministic Signals
 
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Fix Web Research Structured Output Schema
-- [ ] Step 2: Add Behavioral Regression Tests for Model-Owned Routing
+- [x] Step 2: Add Behavioral Regression Tests for Model-Owned Routing
 - [ ] Step 3: Trim Route-Level Deterministic Signals
 - [ ] Step 4: Remove Route-Derived Required Evidence Planning
 - [ ] Step 5: Remove Auto-Injected Required Evidence Repairs From Route Classifiers
@@ -74,3 +74,25 @@ Update this file after every completed step with:
   - `bun test` - 704 tests passed
 - Commit reference: this commit (`Fix web research strict schema`).
 - Next step: Step 2 - Add Behavioral Regression Tests for Model-Owned Routing.
+
+### 2026-07-01 - Step 2 Completed
+
+- Added behavior-level scooter rental regressions covering route-boundary intent, model-selected
+  `research_web` and `search_places` calls, provider-failure recovery, web-only fallback after
+  Places failure, and source validation for unsupported `live_checked` labels.
+- Expected focused failures recorded for later implementation steps:
+  - `bun test src/app/api/chat/route.test.ts` fails because `where can I rent a scooter in General Luna?`
+    still reaches the agent with `conditionActivity: "scooter"`.
+  - `bun test src/server/chat/ask-siargao-agent.test.ts` fails because failed model-selected
+    `research_web` still triggers the terminal generic web-evidence fallback even when
+    `search_places` succeeds.
+- Validation passed:
+  - `bun test src/server/chat/source-consistency.test.ts` - 43 tests passed
+  - `bun test src/server/chat/required-evidence.test.ts` - 10 tests passed
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+- Changelog: no entry because this step is regression coverage only under the current changelog
+  policy.
+- Commit reference: this commit (`Add model-owned routing regressions`).
+- Next step: Step 3 - Trim Route-Level Deterministic Signals.
