@@ -5,9 +5,9 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 
 ## Current Status
 
-- Status: Step 5 complete
-- Current step: Step 6 - Make Provider Failures Non-Terminal
-- Next step: Step 6 - Make Provider Failures Non-Terminal
+- Status: Step 6 complete
+- Current step: Step 7 - Strengthen Model Tool-Choice Instructions
+- Next step: Step 7 - Strengthen Model Tool-Choice Instructions
 
 ## Step Checklist
 
@@ -17,7 +17,7 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 - [x] Step 3: Trim Route-Level Deterministic Signals
 - [x] Step 4: Remove Route-Derived Required Evidence Planning
 - [x] Step 5: Remove Auto-Injected Required Evidence Repairs From Route Classifiers
-- [ ] Step 6: Make Provider Failures Non-Terminal
+- [x] Step 6: Make Provider Failures Non-Terminal
 - [ ] Step 7: Strengthen Model Tool-Choice Instructions
 - [ ] Step 8: Preserve and Extend Source Validation
 - [ ] Step 9: Remove or Quarantine Brittle Classifier Tests and Dead Routing Helpers
@@ -165,3 +165,23 @@ Update this file after every completed step with:
 - Changelog: updated under `Removed` for the functional automatic required-evidence repair removal.
 - Commit reference: this commit (`Remove automatic classifier evidence repairs`).
 - Next step: Step 6 - Make Provider Failures Non-Terminal.
+
+### 2026-07-01 - Step 6 Completed
+
+- Removed the terminal web-research fallback short-circuit so provider-unavailable `research_web`
+  results remain model-visible tool outputs.
+- Preserved model-selected provider-failure recovery: successful Places evidence can answer when
+  web research fails, and successful web research can answer when Places fails.
+- Removed private fallback helpers that generated fixed generic public-web failure prose before the
+  model could write the final answer.
+- Validation passed:
+  - `bun test src/server/chat/ask-siargao-agent.test.ts --test-name-pattern "keeps successful Places evidence|keeps successful web research|provider failures"` -
+    3 passed, 2 skipped
+  - `bun test src/server/chat/ask-siargao-agent.test.ts` - 76 passed, 14 skipped
+  - `bun test src/app/api/chat/route.test.ts` - 76 tests passed
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test` - 694 passed, 14 skipped
+- Changelog: updated under `Changed` for non-terminal provider-failure handling.
+- Commit reference: this commit (`Let model handle provider failures`).
+- Next step: Step 7 - Strengthen Model Tool-Choice Instructions.

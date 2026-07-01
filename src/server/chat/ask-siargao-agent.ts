@@ -75,10 +75,6 @@ const defaultMaxToolCalls = 8;
 const defaultMaxTurns = 6;
 const maxConversationMessages = 10;
 const agentLogger = createComponentLogger("chat_agent");
-const manilaWeekdayFormatter = new Intl.DateTimeFormat("en-US", {
-  weekday: "long",
-  timeZone: "Asia/Manila",
-});
 
 function createOpenAIAgentClient(apiKey = process.env.OPENAI_API_KEY): AgentResponsesClient {
   if (!apiKey) {
@@ -186,37 +182,6 @@ export async function runAskSiargaoAgentTurn(
 
   for (let turn = 0; turn < maxTurns; turn += 1) {
     const finalText = response.output_text?.trim();
-    const terminalWebResearchFallback = terminalWebResearchFallbackPayload(
-      resolved,
-      toolResults,
-      dependencies.now ?? (() => new Date()),
-    );
-    if (terminalWebResearchFallback) {
-      logger.info(
-        {
-          durationMs: sumDurations(toolCalls),
-          model: resolved.model,
-          toolCallCount: toolCalls.length,
-          upstreamRequestCount: upstreamRequestIds.length,
-          agentMemoryVersionId: memory.versionId,
-        },
-        "Ask Siargao agent turn completed after terminal web research.",
-      );
-      return createAgentTurnResult({
-        message: terminalWebResearchFallback.answer,
-        requestId: resolved.requestId,
-        model: resolved.model,
-        memory,
-        upstreamRequestIds,
-        toolCalls,
-        toolResults,
-        finalPayload: terminalWebResearchFallback,
-        allowedCardKinds: requiredEvidencePlan.allowedCardKinds,
-        artifactSelectionMode:
-          dependencies.requireStructuredFinalOutput === true ? "strict" : "compatibility",
-      });
-    }
-
     if (finalText) {
       const itineraryPlanRepairCall = missingInitialItineraryPlanRepairCall(
         resolved,
@@ -1251,102 +1216,6 @@ function missingNightlifeMemoryBaselineRepair(
     noCurrentEventFactsToolCallId: noEventFacts.toolCallId,
     issue: "nightlife_answer_omitted_loaded_memory_baseline_route",
   };
-}
-
-function terminalWebResearchFallbackPayload(
-  request: AgentRuntimeRequest,
-  toolResults: readonly AgentToolResult[],
-  now: () => Date,
-): AgentFinalPayload | undefined {
-  const terminalResearchResult = terminalRequiredWebResearchResult(toolResults);
-  if (!terminalResearchResult) {
-    return undefined;
-  }
-
-  const nightlifeAnswer = terminalNightlifeWebResearchFallbackAnswer(request, toolResults, now);
-  const answer =
-    nightlifeAnswer ??
-    "I could not verify current public web evidence for this request right now. I cannot make a checked current recommendation from the web source layer until that evidence is available.";
-
-  return {
-    answer,
-    usedMemoryFiles: nightlifeAnswer ? ["NIGHTLIFE.md"] : [],
-    usedToolCallIds: terminalResearchResult.toolCallId ? [terminalResearchResult.toolCallId] : [],
-    displayCardIds: [],
-    displayActionIds: [],
-    displayItineraryIds: [],
-    displayDecisionSummaryIds: [],
-  };
-}
-
-function terminalRequiredWebResearchResult(toolResults: readonly AgentToolResult[]) {
-  return toolResults.find(
-    (result) =>
-      result.name === "research_web" &&
-      result.toolCallId &&
-      (result.errorCode === "provider_unavailable" ||
-        result.sources.some((source) => source.label === "provider_unavailable")),
-  );
-}
-
-function terminalNightlifeWebResearchFallbackAnswer(
-  request: AgentRuntimeRequest,
-  toolResults: readonly AgentToolResult[],
-  now: () => Date,
-) {
-  if (!requiresNightlifeMemoryBaseline(request)) {
-    return undefined;
-  }
-
-  const dayOfWeek = nightlifeBaselineDayOfWeek(request, now);
-  const baselineVenueNames = nightlifeMemoryBaselineVenueNames(toolResults, dayOfWeek);
-  if (baselineVenueNames.length === 0) {
-    return undefined;
-  }
-
-  if (dayOfWeek === "Wednesday" && baselineVenueNames.includes("Goodies")) {
-    return [
-      "For Wednesday night in General Luna, use this as the baseline route:",
-      "",
-      "1. Goodies, around 8 PM-midnight, as the strongest Wednesday dance anchor.",
-      "2. Mama Coco, around 9 PM+, if you want reggaeton, Afro, or dancehall instead.",
-      "3. El Lobo as the late fallback if the first stop slows down.",
-      "",
-      "I could not verify current public web evidence right now, so treat this as stable NIGHTLIFE.md baseline guidance, not same-day confirmed event evidence. Keep the route tight around Tourism Road and use a tricycle if rain or drinking is involved.",
-    ].join("\n");
-  }
-
-  const [firstVenue, secondVenue, thirdVenue] = baselineVenueNames;
-  const routeLines = [
-    firstVenue ? `1. Warm-up: ${firstVenue}.` : undefined,
-    secondVenue ? `2. Main party: ${secondVenue}.` : undefined,
-    thirdVenue ? `3. Late option: ${thirdVenue}.` : undefined,
-  ].flatMap((line) => (line ? [line] : []));
-
-  return [
-    `For ${dayOfWeek} night in General Luna, use this as the baseline route:`,
-    "",
-    ...routeLines,
-    "",
-    "I could not verify current public web evidence right now, so treat this as stable NIGHTLIFE.md baseline guidance, not same-day confirmed event evidence. Keep the route tight around Tourism Road and stay flexible if one stop is quiet.",
-  ].join("\n");
-}
-
-function nightlifeBaselineDayOfWeek(request: AgentRuntimeRequest, now: () => Date) {
-  const explicitDay = explicitWeekday(latestUserContent(request.messages));
-  if (explicitDay) {
-    return explicitDay;
-  }
-  return manilaWeekdayFormatter.format(now());
-}
-
-function explicitWeekday(value: string) {
-  const match = /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/iu.exec(value);
-  if (!match?.[1]) {
-    return undefined;
-  }
-  const lower = match[1].toLowerCase();
-  return `${lower.slice(0, 1).toUpperCase()}${lower.slice(1)}`;
 }
 
 function requiresNightlifeMemoryBaseline(request: AgentRuntimeRequest) {

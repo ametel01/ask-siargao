@@ -66,6 +66,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed chat provider-failure handling so failed `research_web` or `search_places` calls stay in
+  the model-visible tool transcript and successful evidence from another provider can still shape
+  the final answer.
 - Reduced `/api/chat` model-facing deterministic signals to safe client context, safe conversation
   context, and scope flags instead of route-derived intent and tool-routing hints.
 - Changed saved-trip sync so signed-in users can claim unowned local saved trips, list owned saved
@@ -102,16 +105,11 @@ and this project adheres to Semantic Versioning when releases are tagged.
   runtime so it no longer synthesizes `auto_required_evidence_*` tool calls.
 - Removed route-derived required evidence planning so deterministic classifier signals no longer
   manufacture mandatory `research_web`, `search_places`, weather, or nightlife event calls.
-- Removed legacy fallback acceptance for research-required prompts: broad Places, weather-only, and
-  memory-only answers are rejected unless current public web evidence is successful or the answer
-  transparently states that it could not be verified.
 
 ### Fixed
 
 - Fixed the OpenAI web research structured-output schema so strict result and nested entity
   properties are required with nullable optional values instead of schema-invalid omissions.
-- Kept provider-unavailable public web research in the same transparent, card-free failure path as
-  insufficient evidence.
 - Prevented dependent required-evidence checks from running before required web research evidence is
   available.
 - Required public web-research labels to be backed by successful `research_web` tool evidence.
