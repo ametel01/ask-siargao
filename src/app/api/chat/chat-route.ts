@@ -284,7 +284,7 @@ export async function chatResponse(
         },
         deterministicSignals: {
           clientContext: summarizeClientContextForAgent(clientContext),
-          intent: summarizeIntentForAgent(intent),
+          context: summarizeContextForAgent(intent),
           scope: {
             shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
             missingContext: intent.missingContext,
@@ -1410,25 +1410,11 @@ function hasSafetyDisruptionSignal(content: string) {
   );
 }
 
-function summarizeIntentForAgent(intent: ChatRequestIntent) {
+function summarizeContextForAgent(intent: ChatRequestIntent) {
   return {
-    activityPlan: intent.activityPlan,
-    beach: intent.beach,
-    conditionActivity: intent.conditionActivity,
     locationLabel: intent.locationLabel,
-    marineCondition: intent.marineCondition,
-    missingContext: intent.missingContext,
     nearby: intent.nearby,
     nearMeUsesBrowserGeolocation: intent.nearMeUsesBrowserGeolocation,
-    nightlifePlan: intent.nightlifePlan,
-    placeIntent: intent.placeIntent,
-    researchIntent: intent.researchIntent,
-    roadCondition: intent.roadCondition,
-    shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
-    today: intent.today,
-    tripAdvice: intent.tripAdvice,
-    weather: intent.weather,
-    weatherSensitive: intent.weatherSensitive,
     tripContext: {
       activeGoal: intent.tripContext.activeGoal,
       currentArea: intent.tripContext.currentArea,

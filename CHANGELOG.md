@@ -66,6 +66,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Reduced `/api/chat` model-facing deterministic signals to safe client context, safe conversation
+  context, and scope flags instead of route-derived intent and tool-routing hints.
 - Enforced required public web research before dependent Places, weather, or nightlife enrichment;
   dependent enrichment is skipped when required research returns terminal insufficient or
   unavailable evidence.

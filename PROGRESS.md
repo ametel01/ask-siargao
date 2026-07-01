@@ -5,16 +5,16 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 
 ## Current Status
 
-- Status: Step 2 complete with expected failing regressions
-- Current step: Step 3 - Trim Route-Level Deterministic Signals
-- Next step: Step 3 - Trim Route-Level Deterministic Signals
+- Status: Step 3 complete
+- Current step: Step 4 - Remove Route-Derived Required Evidence Planning
+- Next step: Step 4 - Remove Route-Derived Required Evidence Planning
 
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Fix Web Research Structured Output Schema
 - [x] Step 2: Add Behavioral Regression Tests for Model-Owned Routing
-- [ ] Step 3: Trim Route-Level Deterministic Signals
+- [x] Step 3: Trim Route-Level Deterministic Signals
 - [ ] Step 4: Remove Route-Derived Required Evidence Planning
 - [ ] Step 5: Remove Auto-Injected Required Evidence Repairs From Route Classifiers
 - [ ] Step 6: Make Provider Failures Non-Terminal
@@ -96,3 +96,23 @@ Update this file after every completed step with:
   policy.
 - Commit reference: this commit (`Add model-owned routing regressions`).
 - Next step: Step 3 - Trim Route-Level Deterministic Signals.
+
+### 2026-07-01 - Step 3 Completed
+
+- Changed `/api/chat` agent input so route interpretation is logged internally but model-facing
+  `deterministicSignals` now contains safe `clientContext`, safe `context`, and `scope` fields
+  instead of a route-derived `intent` object.
+- Removed model-facing tool-routing hints including `conditionActivity`, `placeIntent`,
+  `researchIntent`, `weatherSensitive`, `roadCondition`, `marineCondition`, `activityPlan`, and
+  related classifier fields from the route-to-agent payload.
+- Validation passed:
+  - `bun test src/app/api/chat/route.test.ts` - 76 tests passed
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+- Validation with known remaining failure:
+  - `bun test` - 708 passed, 1 failed:
+    `Ask Siargao Responses tool-loop runtime > keeps successful Places evidence when model-selected web research fails`.
+  - Status: expected failure from Step 2 provider-failure regression; planned for Step 6.
+- Changelog: updated under `Changed` for the functional route signal behavior change.
+- Commit reference: this commit (`Stop passing deterministic chat routing intent`).
+- Next step: Step 4 - Remove Route-Derived Required Evidence Planning.

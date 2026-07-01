@@ -120,15 +120,13 @@ describe("chat route", () => {
       dependencies,
     );
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
-    const intent = signals?.intent;
 
     expect(response.status).toBe(200);
     expect(dependencies.requests[0]?.messages[0]?.content).toBe(
       "where can I rent a scooter in General Luna?",
     );
-    expect(intent?.conditionActivity).toBeUndefined();
-    expect(intent?.roadCondition ?? false).toBe(false);
-    expect(intent?.weatherSensitive ?? false).toBe(false);
+    expectNoRouteOwnedToolSignals(signals);
+    expect(signals?.context.locationLabel).toBe("General Luna");
   });
 
   test("persists authenticated chat turns with public artifacts and redacted context", async () => {
@@ -331,6 +329,7 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
+    expectNoRouteOwnedToolSignals(signals);
     expect(dependencies.requests[0]?.clientContext?.geolocation).toEqual({
       status: "available",
       source: "browser_geolocation",
@@ -384,12 +383,12 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.conditionActivity).toBe("surfing");
-    expect(signals?.intent.nearby).toBe(true);
-    expect(signals?.intent.nearMeUsesBrowserGeolocation).toBe(true);
-    expect(signals?.intent.locationLabel).toBeUndefined();
-    expect(signals?.intent.tripContext?.currentLocation).toBeUndefined();
-    expect(signals?.intent.browserGeolocation).toMatchObject({
+    expectNoRouteOwnedToolSignals(signals);
+    expect(signals?.context.nearby).toBe(true);
+    expect(signals?.context.nearMeUsesBrowserGeolocation).toBe(true);
+    expect(signals?.context.locationLabel).toBeUndefined();
+    expect(signals?.context.tripContext?.currentLocation).toBeUndefined();
+    expect(signals?.context.browserGeolocation).toMatchObject({
       useAsProximityAnchor: true,
       source: "browser_geolocation",
       exactCoordinatesHidden: true,
@@ -414,6 +413,7 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
+    expectNoRouteOwnedToolSignals(signals);
     expect(signals?.clientContext.geolocation).toEqual({
       status: "missing",
       source: "browser_geolocation",
@@ -479,6 +479,7 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
+    expectNoRouteOwnedToolSignals(signals);
     expect(signals?.clientContext.geolocation).toEqual({
       status: "out_of_area",
       source: "browser_geolocation",
@@ -538,6 +539,7 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
+    expectNoRouteOwnedToolSignals(signals);
     expect(body.message).toContain("Siargao travel");
     expect(dependencies.requests).toHaveLength(1);
     expect(signals?.scope.shouldDeclineNonSiargaoTopic).toBe(true);
@@ -558,6 +560,7 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
+    expectNoRouteOwnedToolSignals(signals);
     expect(body.message).toContain("Which Siargao place");
     expect(dependencies.requests).toHaveLength(1);
     expect(signals?.scope.missingContext).toBe(true);
@@ -584,10 +587,10 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
+    expectNoRouteOwnedToolSignals(signals);
     expect(body.message).toContain("model-written forecast");
     expect(body.toolCalls[0]).toMatchObject({ name: "get_weather_forecast" });
     expect(body.sources).toEqual([weatherSourceSummary]);
-    expect(signals?.intent.weather).toBe(true);
   });
 
   test("passes condition hints for swimming prompts without forcing an itinerary", async () => {
@@ -604,10 +607,7 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.conditionActivity).toBe("swimming");
-    expect(signals?.intent.marineCondition).toBe(true);
-    expect(signals?.intent.weatherSensitive).toBe(true);
-    expect(signals?.intent.activityPlan).toBe(false);
+    expectNoRouteOwnedToolSignals(signals);
   });
 
   test("passes condition hints for mixed scooter and boat prompts", async () => {
@@ -629,11 +629,7 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.conditionActivity).toBe("boat_trip");
-    expect(signals?.intent.roadCondition).toBe(true);
-    expect(signals?.intent.marineCondition).toBe(true);
-    expect(signals?.intent.weatherSensitive).toBe(true);
-    expect(signals?.intent.activityPlan).toBe(false);
+    expectNoRouteOwnedToolSignals(signals);
   });
 
   test("does not classify land or scooter tour prompts as boat trips", async () => {
@@ -651,10 +647,7 @@ describe("chat route", () => {
       const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
       expect(response.status).toBe(200);
-      expect(signals?.intent.conditionActivity).toBe("scooter");
-      expect(signals?.intent.roadCondition).toBe(true);
-      expect(signals?.intent.marineCondition).toBe(false);
-      expect(signals?.intent.weatherSensitive).toBe(true);
+      expectNoRouteOwnedToolSignals(signals);
     }
   });
 
@@ -672,10 +665,7 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.conditionActivity).toBe("boat_trip");
-    expect(signals?.intent.marineCondition).toBe(true);
-    expect(signals?.intent.roadCondition).toBe(false);
-    expect(signals?.intent.weatherSensitive).toBe(true);
+    expectNoRouteOwnedToolSignals(signals);
   });
 
   test("inherits boat context for bare ride follow-ups", async () => {
@@ -696,11 +686,8 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.conditionActivity).toBe("boat_trip");
-    expect(signals?.intent.locationLabel).toBe("Del Carmen");
-    expect(signals?.intent.marineCondition).toBe(true);
-    expect(signals?.intent.roadCondition).toBe(false);
-    expect(signals?.intent.weatherSensitive).toBe(true);
+    expectNoRouteOwnedToolSignals(signals);
+    expect(signals?.context.locationLabel).toBe("Del Carmen");
   });
 
   test("classifies wave questions for Sugba boats as boat condition judgments", async () => {
@@ -717,9 +704,7 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.conditionActivity).toBe("boat_trip");
-    expect(signals?.intent.marineCondition).toBe(true);
-    expect(signals?.intent.weatherSensitive).toBe(true);
+    expectNoRouteOwnedToolSignals(signals);
   });
 
   test("inherits condition intent for temporal follow-ups", async () => {
@@ -740,9 +725,7 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.conditionActivity).toBe("swimming");
-    expect(signals?.intent.marineCondition).toBe(true);
-    expect(signals?.intent.weatherSensitive).toBe(true);
+    expectNoRouteOwnedToolSignals(signals);
   });
 
   for (const scenario of [
@@ -793,11 +776,10 @@ describe("chat route", () => {
       const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
       expect(response.status).toBe(200);
+      expectNoRouteOwnedToolSignals(signals);
       expect(body.message).toBe(scenario.message);
       expect(body.toolCalls[0]).toMatchObject({ name: "get_condition_judgment" });
       expect(body.sources).toEqual([weatherSourceSummary, conditionMarineSourceSummary]);
-      expect(signals?.intent.conditionActivity).toBe(scenario.expectedActivity);
-      expect(signals?.intent.weatherSensitive).toBe(true);
     });
   }
 
@@ -823,9 +805,9 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
+    expectNoRouteOwnedToolSignals(signals);
     expect(body.toolCalls[0]).toMatchObject({ name: "search_places" });
     expect(body.sources).toEqual([placesSourceSummary]);
-    expect(signals?.intent.placeIntent?.category).toBe("coffee");
   });
 
   test("returns browser-location Places source metadata when tool-backed", async () => {
@@ -1283,37 +1265,25 @@ describe("chat route", () => {
       name: "rainy Cloud 9 afternoon",
       prompt: "Plan a rainy Cloud 9 afternoon for 3 hours.",
       itinerary: () => rainyCloud9Itinerary,
-      assertSignals: (signals: AgentSignals | undefined) => {
-        expect(signals?.intent.activityPlan).toBe(true);
-        expect(signals?.intent.weatherSensitive).toBe(true);
-      },
+      assertSignals: expectNoRouteOwnedToolSignals,
     },
     {
       name: "sunset plus dinner",
       prompt: "Plan sunset plus dinner in General Luna tonight.",
       itinerary: () => sunsetDinnerItinerary,
-      assertSignals: (signals: AgentSignals | undefined) => {
-        expect(signals?.intent.activityPlan).toBe(true);
-        expect(signals?.intent.placeIntent?.category).toBe("food");
-      },
+      assertSignals: expectNoRouteOwnedToolSignals,
     },
     {
       name: "sandy beach half-day",
       prompt: "Plan a sandy beach half-day within 30 minutes from General Luna.",
       itinerary: () => sandyBeachItinerary,
-      assertSignals: (signals: AgentSignals | undefined) => {
-        expect(signals?.intent.activityPlan).toBe(true);
-        expect(signals?.intent.beach).toBe(true);
-      },
+      assertSignals: expectNoRouteOwnedToolSignals,
     },
     {
       name: "food crawl",
       prompt: "Plan a three-hour food crawl in General Luna.",
       itinerary: () => foodCrawlItinerary,
-      assertSignals: (signals: AgentSignals | undefined) => {
-        expect(signals?.intent.activityPlan).toBe(true);
-        expect(signals?.intent.placeIntent?.category).toBe("food");
-      },
+      assertSignals: expectNoRouteOwnedToolSignals,
     },
   ]) {
     test(`returns itinerary artifacts for ${scenario.name} prompts`, async () => {
@@ -1340,6 +1310,7 @@ describe("chat route", () => {
       const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
       expect(response.status).toBe(200);
+      expectNoRouteOwnedToolSignals(signals);
       expect(body.message).toContain("Model-written");
       expect(body.itineraries).toEqual([itinerary]);
       scenario.assertSignals(signals);
@@ -1360,9 +1331,8 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.activityPlan).toBe(true);
-    expect(signals?.intent.beach).toBe(true);
-    expect(signals?.intent.locationLabel).toBe("General Luna");
+    expectNoRouteOwnedToolSignals(signals);
+    expect(signals?.context.locationLabel).toBe("General Luna");
   });
 
   test("marks scoped half-day prompts by van as activity plans", async () => {
@@ -1384,8 +1354,8 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.activityPlan).toBe(true);
-    expect(signals?.intent.locationLabel).toBe("General Luna");
+    expectNoRouteOwnedToolSignals(signals);
+    expect(signals?.context.locationLabel).toBe("General Luna");
   });
 
   test("marks scoped food-crawl prompts before ferry transfer as activity plans", async () => {
@@ -1407,9 +1377,8 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.activityPlan).toBe(true);
-    expect(signals?.intent.placeIntent?.category).toBe("food");
-    expect(signals?.intent.locationLabel).toBe("General Luna");
+    expectNoRouteOwnedToolSignals(signals);
+    expect(signals?.context.locationLabel).toBe("General Luna");
   });
 
   test("marks scoped half-day route before airport pickup as an activity plan", async () => {
@@ -1431,11 +1400,11 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.activityPlan).toBe(true);
-    expect(signals?.intent.locationLabel).toBe("General Luna");
+    expectNoRouteOwnedToolSignals(signals);
+    expect(signals?.context.locationLabel).toBe("General Luna");
   });
 
-  test("marks General Luna party tonight as nightlife event planning, not only a bar lookup", async () => {
+  test("passes General Luna party prompts without research routing hints", async () => {
     const dependencies = chatDependencies({
       message: "Use BARREL as warm-up and Barbosa as the main party tonight.",
       sources: [genericSourceSummary],
@@ -1454,24 +1423,11 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.nightlifePlan).toBe(true);
-    expect(signals?.intent.weatherSensitive).toBe(true);
-    expect(signals?.intent.today).toBe(true);
-    expect(signals?.intent.locationLabel).toBe("General Luna");
-    expect(signals?.intent.placeIntent?.category).toBe("bar");
-    expect(signals?.intent.researchIntent).toMatchObject({
-      intent: "recommendation",
-      location: "General Luna",
-      dateContext: "tonight",
-      requiredFreshness: "same_day",
-      coveredRequestClass: "current_recommendation",
-    });
-    expect(signals?.intent.researchIntent?.sourceTypes).toEqual(
-      expect.arrayContaining(["official", "local_directory", "social", "community"]),
-    );
+    expectNoRouteOwnedToolSignals(signals);
+    expect(signals?.context.locationLabel).toBe("General Luna");
   });
 
-  test("marks current restaurant recommendations for required web research", async () => {
+  test("passes current restaurant recommendations without research routing hints", async () => {
     const dependencies = chatDependencies({
       message: "The model answers the dinner question.",
       sources: [genericSourceSummary],
@@ -1485,45 +1441,15 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.placeIntent?.category).toBe("food");
-    expect(signals?.intent.researchIntent).toMatchObject({
-      intent: "recommendation",
-      location: "General Luna",
-      dateContext: "tonight",
-      requiredFreshness: "same_day",
-      coveredRequestClass: "current_recommendation",
-    });
-    expect(signals?.intent.researchIntent?.sourceTypes).toEqual(
-      expect.arrayContaining(["maps", "official", "local_directory"]),
-    );
+    expectNoRouteOwnedToolSignals(signals);
+    expect(signals?.context.locationLabel).toBe("General Luna");
   });
 
-  test("marks ferry schedules, tour prices, and safety disruptions for required web research", async () => {
+  test("passes current public-fact prompts without research routing hints", async () => {
     for (const scenario of [
-      {
-        prompt: "Dapa to Surigao ferry schedule tomorrow?",
-        expected: {
-          intent: "schedule",
-          dateContext: "tomorrow",
-          coveredRequestClass: "schedule",
-        },
-      },
-      {
-        prompt: "How much is a Sugba Lagoon tour right now?",
-        expected: {
-          intent: "price",
-          dateContext: "today",
-          coveredRequestClass: "price",
-        },
-      },
-      {
-        prompt: "Any road closures or brownout advisories in Siargao today?",
-        expected: {
-          intent: "safety",
-          dateContext: "today",
-          coveredRequestClass: "safety_disruption",
-        },
-      },
+      "Dapa to Surigao ferry schedule tomorrow?",
+      "How much is a Sugba Lagoon tour right now?",
+      "Any road closures or brownout advisories in Siargao today?",
     ]) {
       const dependencies = chatDependencies({
         message: "The model answers the current public-fact question.",
@@ -1531,19 +1457,18 @@ describe("chat route", () => {
       });
       const response = await chatResponse(
         jsonRequest({
-          messages: [{ role: "user", content: scenario.prompt }],
+          messages: [{ role: "user", content: scenario }],
         }),
         dependencies,
       );
       const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
       expect(response.status).toBe(200);
-      expect(signals?.intent.researchIntent).toMatchObject(scenario.expected);
-      expect(signals?.intent.researchIntent?.reason).toBeTruthy();
+      expectNoRouteOwnedToolSignals(signals);
     }
   });
 
-  test("does not require web research for stable beach recommendations", async () => {
+  test("passes stable beach recommendations without research routing hints", async () => {
     const dependencies = chatDependencies({
       message: "The model answers from stable local beach guidance.",
       sources: [genericSourceSummary],
@@ -1557,8 +1482,8 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.beach).toBe(true);
-    expect(signals?.intent.researchIntent).toBeUndefined();
+    expectNoRouteOwnedToolSignals(signals);
+    expect(signals?.context.locationLabel).toBe("General Luna");
   });
 
   test("does not mark not-surfing food prompts as activity plans", async () => {
@@ -1580,9 +1505,8 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.activityPlan).toBe(false);
-    expect(signals?.intent.placeIntent?.category).toBe("food");
-    expect(signals?.intent.locationLabel).toBe("General Luna");
+    expectNoRouteOwnedToolSignals(signals);
+    expect(signals?.context.locationLabel).toBe("General Luna");
   });
 
   test("marks multi-need Cloud 9 stay prompts as broad trip advice", async () => {
@@ -1606,12 +1530,9 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
-    expect(signals?.intent.tripAdvice).toBe(true);
-    expect(signals?.intent.activityPlan).toBe(false);
-    expect(signals?.intent.tripContext?.activeGoal).toBe("trip_advice");
-    expect(signals?.intent.placeIntent?.category).toBe("food");
-    expect(signals?.intent.conditionActivity).toBe("surfing");
-    expect(signals?.intent.locationLabel).toBe("Cloud 9");
+    expectNoRouteOwnedToolSignals(signals);
+    expect(signals?.context.tripContext?.activeGoal).toBe("trip_advice");
+    expect(signals?.context.locationLabel).toBe("Cloud 9");
   });
 
   for (const prompt of [
@@ -1635,7 +1556,7 @@ describe("chat route", () => {
       const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
       expect(response.status).toBe(200);
-      expect(signals?.intent.activityPlan).toBe(false);
+      expectNoRouteOwnedToolSignals(signals);
     });
   }
 
@@ -1686,9 +1607,9 @@ describe("chat route", () => {
     const signals = dependencies.requests[0]?.deterministicSignals as AgentSignals | undefined;
 
     expect(response.status).toBe(200);
+    expectNoRouteOwnedToolSignals(signals);
     expect(body.message).toContain("Doot");
     expect(body.toolCalls[0]).toMatchObject({ name: "search_local_guide" });
-    expect(signals?.intent.beach).toBe(true);
   });
 
   test("does not replace provider-failure tool outputs with preset route prose", async () => {
@@ -2054,10 +1975,7 @@ function routeAnswerQualityScenarios(): RouteAnswerQualityScenario[] {
       expectedCardIds: [dapaBreakfastCard.id],
       expectedDecisionSummaryIds: [],
       expectedItineraryIds: [],
-      assertSignals: (signals) => {
-        expect(signals?.intent.placeIntent?.category).toBe("food");
-        expect(signals?.intent.activityPlan).toBe(false);
-      },
+      assertSignals: expectNoRouteOwnedToolSignals,
     },
     {
       name: "Cloud 9 weather decision summary",
@@ -2086,10 +2004,7 @@ function routeAnswerQualityScenarios(): RouteAnswerQualityScenario[] {
       expectedCardIds: [],
       expectedDecisionSummaryIds: [weatherDecisionSummary.id],
       expectedItineraryIds: [],
-      assertSignals: (signals) => {
-        expect(signals?.intent.conditionActivity).toBe("sunset");
-        expect(signals?.intent.weatherSensitive).toBe(true);
-      },
+      assertSignals: expectNoRouteOwnedToolSignals,
     },
     {
       name: "Malinao swim decision summary",
@@ -2118,11 +2033,7 @@ function routeAnswerQualityScenarios(): RouteAnswerQualityScenario[] {
       expectedCardIds: [],
       expectedDecisionSummaryIds: [swimmingDecisionSummary.id],
       expectedItineraryIds: [],
-      assertSignals: (signals) => {
-        expect(signals?.intent.conditionActivity).toBe("swimming");
-        expect(signals?.intent.marineCondition).toBe(true);
-        expect(signals?.intent.activityPlan).toBe(false);
-      },
+      assertSignals: expectNoRouteOwnedToolSignals,
     },
     {
       name: "itinerary review decision summary",
@@ -2154,9 +2065,7 @@ function routeAnswerQualityScenarios(): RouteAnswerQualityScenario[] {
       expectedCardIds: [],
       expectedDecisionSummaryIds: [reviewDecisionSummary.id],
       expectedItineraryIds: [],
-      assertSignals: (signals) => {
-        expect(signals?.intent.activityPlan).toBe(false);
-      },
+      assertSignals: expectNoRouteOwnedToolSignals,
     },
   ];
 }
@@ -2211,6 +2120,22 @@ function assertRouteTravelerProseHasNoInternalMechanics(message: string) {
   }
 }
 
+function expectNoRouteOwnedToolSignals(signals: AgentSignals | undefined) {
+  expect(signals).not.toHaveProperty("intent");
+  expect(signals?.context).not.toHaveProperty("activityPlan");
+  expect(signals?.context).not.toHaveProperty("beach");
+  expect(signals?.context).not.toHaveProperty("conditionActivity");
+  expect(signals?.context).not.toHaveProperty("marineCondition");
+  expect(signals?.context).not.toHaveProperty("nightlifePlan");
+  expect(signals?.context).not.toHaveProperty("placeIntent");
+  expect(signals?.context).not.toHaveProperty("researchIntent");
+  expect(signals?.context).not.toHaveProperty("roadCondition");
+  expect(signals?.context).not.toHaveProperty("today");
+  expect(signals?.context).not.toHaveProperty("tripAdvice");
+  expect(signals?.context).not.toHaveProperty("weather");
+  expect(signals?.context).not.toHaveProperty("weatherSensitive");
+}
+
 type AgentSignals = {
   clientContext: {
     geolocation: {
@@ -2220,36 +2145,16 @@ type AgentSignals = {
       centerSource?: "browser_geolocation";
     };
   };
-  intent: {
-    activityPlan?: boolean;
-    beach?: boolean;
+  context: {
     browserGeolocation?: {
       exactCoordinatesHidden?: boolean;
       source?: "browser_geolocation";
       useAsProximityAnchor?: boolean;
     };
-    conditionActivity?: string;
     locationLabel?: string;
-    marineCondition?: boolean;
     nearMeUsesBrowserGeolocation?: boolean;
     nearby?: boolean;
-    nightlifePlan?: boolean;
-    placeIntent?: { category?: string };
-    researchIntent?: {
-      coveredRequestClass?: string;
-      dateContext?: string;
-      intent?: string;
-      location?: string;
-      reason?: string;
-      requiredFreshness?: string;
-      sourceTypes?: readonly string[];
-    };
-    roadCondition?: boolean;
-    today?: boolean;
-    tripAdvice?: boolean;
     tripContext?: { activeGoal?: string; currentLocation?: unknown };
-    weatherSensitive?: boolean;
-    weather?: boolean;
   };
   scope: {
     missingContext?: boolean;
