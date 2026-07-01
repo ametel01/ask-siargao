@@ -162,17 +162,40 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect(page.getByRole("heading", { name: /Ask a real question/i })).toBeVisible();
   await expect(page.getByText("Ask about food, weather, transfers")).toBeVisible();
   await expect(page.getByRole("link", { name: "Start a new chat" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Trip context" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Cloud 9 Weather" })).toHaveCount(0);
-  await expect(page.getByText("Fresh")).toHaveCount(0);
-  await expect(page.getByText("High confidence")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Trip context" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Cloud 9 Weather" })).toBeVisible();
 
   const composerInput = page.getByLabel("Ask anything about Siargao");
   const sendButton = page.getByRole("button", { name: "Send question" });
   await expect(composerInput).toBeVisible();
+  await expect.poll(() => chatWorkspaceScrollSurfaces(page)).toEqual([]);
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight + 1),
+    )
+    .toBe(true);
+  await expect(composerInput).toHaveCSS("color", "rgb(13, 16, 74)");
+  await expect
+    .poll(() =>
+      composerInput.evaluate((element) =>
+        getComputedStyle(element, "::placeholder").color.toLowerCase(),
+      ),
+    )
+    .toBe("rgb(132, 131, 168)");
+  await expect
+    .poll(() =>
+      composerInput.evaluate((element) => {
+        const composerSurface = element.closest("[data-slot='input-group']");
+        return composerSurface ? getComputedStyle(composerSurface).backgroundColor : "";
+      }),
+    )
+    .not.toBe("rgba(0, 0, 0, 0)");
   await composerInput.fill("Where should we eat near Cloud 9 tonight?");
   await sendButton.click();
 
+  const userMessageBubble = page.getByTestId("user-message-bubble").last();
+  await expect(userMessageBubble).toBeVisible();
+  await expect(userMessageBubble).toHaveCSS("color", "rgb(255, 255, 255)");
   await expect(page.getByText("Where should we eat near Cloud 9 tonight?")).toBeVisible();
   await expect(page.getByText("Thinking through that with Ask Siargao...")).toBeVisible();
   await expect(composerInput).toBeDisabled();
@@ -199,6 +222,73 @@ test("sends a desktop composer message to the chat API and renders the assistant
   expect(composerBox).not.toBeNull();
   expect(composerBox?.y ?? 0).toBeGreaterThanOrEqual(0);
   expect((composerBox?.y ?? 0) + (composerBox?.height ?? 0)).toBeLessThanOrEqual(1153);
+  await expect.poll(() => composerFitsViewport(page)).toBe(true);
+});
+
+test("keeps a crowded chat history from clipping the active assistant reply", async ({ page }) => {
+  await page.setViewportSize({ width: 2048, height: 1153 });
+  const threads = Array.from({ length: 12 }, (_, index) => ({
+    id: `thread_party_${index}`,
+    title:
+      index === 0
+        ? "where should i go party tonight in general luna?"
+        : `where can i go party tonight in general luna? ${index}`,
+    status: "active",
+    createdAt: "2026-07-01T01:00:00.000Z",
+    updatedAt: "2026-07-01T01:00:00.000Z",
+    lastMessageAt: "2026-07-01T01:00:00.000Z",
+  }));
+  await page.route("**/api/chat/threads**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === "GET" && url.pathname === "/api/chat/threads") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ threads }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "not_found" }),
+    });
+  });
+  await mockChatApi(page, {
+    message: [
+      "For Wednesday night in General Luna, use this as the baseline route:",
+      "",
+      "1. Goodies, around 8 PM-midnight, as the strongest Wednesday dance anchor.",
+      "2. Mama Coco, around 9 PM+, if you want reggaeton, Afro, or dancehall instead.",
+      "3. El Lobo as the late fallback if the first stop slows down.",
+      "",
+      "I could not verify current public web evidence right now, so treat this as stable baseline guidance.",
+    ].join("\n"),
+  });
+
+  await page.goto("/chat");
+  await expect(page.getByRole("heading", { name: "Recent questions" })).toBeVisible();
+  await expect.poll(() => chatWorkspaceScrollSurfaces(page)).toEqual([]);
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("where should i go party tonight in general luna?");
+  await composerInput.press("Enter");
+
+  const assistantBubble = page.getByTestId("assistant-message-bubble").last();
+  const composerForm = page.getByRole("form", { name: "Ask Siargao composer" });
+  await expect(assistantBubble).toBeVisible();
+  await expect(page.getByText("El Lobo as the late fallback")).toBeVisible();
+  await expect
+    .poll(async () => {
+      const assistantBox = await assistantBubble.boundingBox();
+      const composerBox = await composerForm.boundingBox();
+      if (!assistantBox || !composerBox) {
+        return false;
+      }
+      return assistantBox.y + assistantBox.height <= composerBox.y;
+    })
+    .toBe(true);
 });
 
 test("loads signed-in chat history and preserves the thread after reload", async ({ page }) => {
@@ -313,7 +403,7 @@ test("loads signed-in chat history and preserves the thread after reload", async
       contentType: "application/json",
       body: JSON.stringify({
         message: "Add Bravo after Shaka for an easy General Luna dinner.",
-        model: "gpt-5.5-test",
+        model: "gpt-5.4-mini-test",
         requestId: "req_playwright_chat_history",
         threadId: thread.id,
         userMessageId: "message_user_follow_up",
@@ -361,7 +451,7 @@ test("loads signed-in chat history and preserves the thread after reload", async
 
   await page.goto("/chat");
 
-  await expect(page.getByRole("heading", { name: "Chat history" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Recent questions" })).toBeVisible();
   await page.getByRole("button", { name: /Cloud 9 plan/ }).click();
   await expect(page.getByText("Where should I eat near Cloud 9?")).toBeVisible();
   await expect(page.getByText("Try Shaka for breakfast and Bravo for dinner.")).toBeVisible();
@@ -1535,7 +1625,7 @@ test("truncates long prior assistant messages before follow-up requests", async 
           requestCount === 1
             ? `Long first answer: ${"quiet sleep, surf access, restaurants, transfer. ".repeat(70)}`
             : "Mocked follow-up answer: choose General Luna for the widest dinner options.",
-        model: "gpt-5.5-test",
+        model: "gpt-5.4-mini-test",
         requestId: "req_playwright_chat_long_history",
       }),
     });
@@ -1591,7 +1681,7 @@ test("shows safe error copy and lets the user keep asking after a failed request
       contentType: "application/json",
       body: JSON.stringify({
         message: "Mocked follow-up answer: yes, keep the backup plan simple.",
-        model: "gpt-5.5-test",
+        model: "gpt-5.4-mini-test",
         requestId: "req_playwright_chat_retry",
       }),
     });
@@ -1659,7 +1749,7 @@ async function mockChatApi(
       contentType: "application/json",
       body: JSON.stringify({
         message,
-        model: "gpt-5.5-test",
+        model: "gpt-5.4-mini-test",
         requestId: "req_playwright_chat",
         ...(sources?.length ? { sources } : {}),
         ...(cards?.length ? { cards } : {}),
@@ -1678,6 +1768,52 @@ async function mockChatApi(
 
 function lastSubmittedContent(request?: ChatRequestBody) {
   return request?.messages?.at(-1)?.content;
+}
+
+async function chatWorkspaceScrollSurfaces(page: Page) {
+  return page.evaluate(() => {
+    const workspace = document.querySelector("[aria-label='Ask Siargao chat workspace']");
+    if (!workspace) {
+      return ["missing chat workspace"];
+    }
+
+    return Array.from(workspace.querySelectorAll<HTMLElement>("*")).flatMap((element) => {
+      const style = getComputedStyle(element);
+      const hasScrollOverflow =
+        style.overflowX === "auto" ||
+        style.overflowX === "scroll" ||
+        style.overflowY === "auto" ||
+        style.overflowY === "scroll";
+      return hasScrollOverflow
+        ? [
+            element.getAttribute("data-testid") ??
+              element.getAttribute("aria-label") ??
+              element.tagName,
+          ]
+        : [];
+    });
+  });
+}
+
+async function composerFitsViewport(page: Page) {
+  return page.evaluate(() => {
+    const composer = document.querySelector<HTMLElement>("form[aria-label='Ask Siargao composer']");
+    const sendButton = document.querySelector<HTMLElement>("button[aria-label='Send question']");
+    if (!composer || !sendButton) {
+      return false;
+    }
+
+    const viewportWidth = window.innerWidth;
+    const composerRect = composer.getBoundingClientRect();
+    const buttonRect = sendButton.getBoundingClientRect();
+    return (
+      composerRect.left >= 0 &&
+      composerRect.right <= viewportWidth &&
+      buttonRect.left >= composerRect.left &&
+      buttonRect.right <= composerRect.right &&
+      buttonRect.right <= viewportWidth
+    );
+  });
 }
 
 function publicSharedTripPlanForE2E(plan: E2ESharedTripPlan): E2ESharedTripPlan {

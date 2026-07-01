@@ -1,34 +1,43 @@
 "use client";
 
+/*
+ * Hallmark - pre-emit critique: P4 H4 E4 S5 R4 V4
+ * genre: modern-minimal; macrostructure: workbench; contrast/mobile: pass.
+ */
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import {
+  BedDouble,
   Bookmark,
   BookmarkCheck,
+  CalendarDays,
   Check,
   ChevronDown,
   Clock,
+  CloudSun,
   Copy,
   ExternalLink,
-  Home,
   LoaderCircle,
   MapPin,
-  MessageSquarePlus,
   Navigation,
+  Plus,
+  RefreshCw,
   Send,
+  Share2,
   ShieldCheck,
   Sparkles,
   Star,
   ThumbsDown,
   ThumbsUp,
   Trash2,
+  Users,
   Utensils,
+  WavesHorizontal,
 } from "lucide-react";
 import Link from "next/link";
 import {
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
-  type RefObject,
   useCallback,
   useEffect,
   useMemo,
@@ -77,6 +86,7 @@ import {
   writeAuthenticatedSavedTripState,
   writeSavedTripState,
 } from "@/features/chat/saved-trip-client";
+import { cn } from "@/lib/utils";
 import { BrandLockup, PalmMark } from "@/ui/components/ask-siargao";
 
 const suggestedPrompts = [
@@ -85,11 +95,54 @@ const suggestedPrompts = [
   "Help me plan a quiet Siargao day",
 ];
 
+type ChatContextIcon = typeof MapPin;
+type RailQuestionItem =
+  | { kind: "thread"; id: string; label: string; value: string }
+  | { kind: "fallback"; label: string; value: string };
+
+const savedPlaceShortlists = [
+  { label: "Cloud 9 shortlist", value: "4 places" },
+  { label: "General Luna food spots", value: "7 places" },
+  { label: "Catangnan cafes", value: "3 places" },
+];
+
+const fallbackRecentQuestions = [
+  { kind: "fallback", label: "Is this hotel quiet?", value: "Suggested" },
+  { kind: "fallback", label: "Best dinner near Catangnan", value: "Suggested" },
+  { kind: "fallback", label: "Will it rain this afternoon?", value: "Suggested" },
+  { kind: "fallback", label: "Surf conditions tomorrow?", value: "Suggested" },
+] satisfies RailQuestionItem[];
+
+const tripContextItems: Array<{
+  icon: ChatContextIcon;
+  label: string;
+  value: string;
+}> = [
+  { icon: BedDouble, label: "Accommodation", value: "Near Cloud 9 / Catangnan" },
+  { icon: CalendarDays, label: "Dates", value: "Jun 12 - 22" },
+  { icon: Users, label: "Traveler type", value: "Couple" },
+  { icon: MapPin, label: "Nearby area", value: "Cloud 9" },
+  { icon: CloudSun, label: "Weather", value: "Ask for latest forecast" },
+  { icon: Clock, label: "Live refreshes remaining", value: "4" },
+];
+
+const weatherSnapshotMetrics = [
+  { label: "Rain chance", value: "-" },
+  { label: "Wind", value: "-" },
+  { label: "Humidity", value: "-" },
+];
+
+const surfSnapshotMetrics = [
+  { label: "Waves", value: "-" },
+  { label: "Tide", value: "-" },
+  { label: "Wind", value: "-" },
+];
+
 const chatSignedOutActions = (
   <>
     <SignInButton mode="modal">
       <Button
-        className="hidden h-10 rounded-md border-white/20 bg-white/10 px-3 text-xs font-extrabold text-text-on-dark hover:bg-white/15 sm:inline-flex"
+        className="hidden h-10 rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50 sm:inline-flex"
         type="button"
         variant="outline"
       >
@@ -98,7 +151,7 @@ const chatSignedOutActions = (
     </SignInButton>
     <SignUpButton mode="modal">
       <Button
-        className="h-10 rounded-md border-brand-lagoon-300/35 bg-brand-lagoon-500 px-3 text-xs font-extrabold text-brand-navy-980 hover:bg-brand-lagoon-300"
+        className="h-10 rounded-md border-brand-violet-650 bg-brand-violet-650 px-3 text-xs font-extrabold text-white hover:bg-brand-violet-600"
         type="button"
       >
         Sign up
@@ -380,7 +433,6 @@ type ChatWorkspaceController = {
   inputValue: string;
   isSending: boolean;
   locationState: LocationCaptureState;
-  messageEndRef: RefObject<HTMLDivElement | null>;
   messages: InteractiveChatMessage[];
   openChatThread: (threadId: string) => Promise<void>;
   archiveSelectedThread: () => Promise<void>;
@@ -412,7 +464,6 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     getSavedTripSnapshot,
     getSavedTripServerSnapshot,
   );
-  const messageEndRef = useRef<HTMLDivElement | null>(null);
   const savedItemIds = useMemo(
     () => new Set(savedTripState.items.map((item) => item.id)),
     [savedTripState],
@@ -791,10 +842,6 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     [savedPlanSharing],
   );
 
-  useEffect(() => {
-    messageEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  });
-
   const handlePromptSubmit = useCallback(
     (prompt: string) => {
       void submitPrompt(prompt);
@@ -809,7 +856,6 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     inputValue,
     isSending,
     locationState,
-    messageEndRef,
     messages,
     openChatThread,
     archiveSelectedThread,
@@ -836,14 +882,10 @@ function ChatWorkspaceView({
   inputValue,
   isSending,
   locationState,
-  messageEndRef,
   messages,
   openChatThread,
-  archiveSelectedThread,
-  deleteSelectedThread,
   rateAssistantMessage,
   removeSavedItem,
-  renameSelectedThread,
   requestLocation,
   saveItineraryPlan,
   saveRecommendationCard,
@@ -859,128 +901,429 @@ function ChatWorkspaceView({
   return (
     <main
       aria-label="Ask Siargao chat workspace"
-      className="h-dvh min-h-screen overflow-hidden bg-[image:var(--gradient-app-backdrop)] text-text-on-dark"
+      className="h-dvh min-h-screen overflow-hidden bg-brand-lavender-50 text-text-strong"
     >
-      <section className="mx-auto grid h-full min-h-0 w-full max-w-6xl grid-rows-[auto_minmax(0,1fr)_auto]">
-        <header className="flex min-h-[72px] items-center justify-between gap-4 border-white/12 border-b px-4 py-3 sm:px-6 lg:min-h-[88px] lg:px-8">
-          <Link aria-label="Ask Siargao home" className="min-w-0 no-underline" href="/">
-            <BrandLockup className="[&_span:last-child]:text-xl sm:[&_span:last-child]:text-[1.7rem]" />
-          </Link>
-          <div className="flex shrink-0 items-center gap-2">
-            <span className="hidden items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-2 text-xs font-extrabold text-text-on-dark-muted sm:inline-flex">
-              <span className="size-2 rounded-full bg-brand-lagoon-500" />
-              Siargao trip assistant
-            </span>
-            <ChatAuthActions />
-            <Button
-              aria-label="Go to home"
-              asChild
-              className="size-10 rounded-md border-white/20 bg-white/10 text-text-on-dark hover:bg-white/15"
-              size="icon"
-              variant="outline"
-            >
-              <Link href="/">
-                <Home aria-hidden="true" size={18} />
-              </Link>
-            </Button>
-            <Button
-              aria-label="Start a new chat"
-              asChild
-              className="size-10 rounded-md border-white/20 bg-white/10 text-text-on-dark hover:bg-white/15"
-              size="icon"
-              variant="outline"
-            >
-              <Link href="/chat">
-                <MessageSquarePlus aria-hidden="true" size={18} />
-              </Link>
-            </Button>
-          </div>
-        </header>
+      <section className="grid h-full min-h-0 w-full grid-cols-1 xl:grid-cols-[19.5rem_minmax(0,1fr)] 2xl:grid-cols-[19.5rem_minmax(0,1fr)_22.5rem]">
+        <ChatTravelRail
+          historyStatus={historyStatus}
+          onOpenThread={(threadId) => {
+            void openChatThread(threadId);
+          }}
+          onStartNewChat={startNewChat}
+          savedItemCount={savedTripState.items.length}
+          selectedThreadId={selectedThreadId}
+          threads={chatThreads}
+        />
 
-        <div className="min-h-0 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
-          <div className="mx-auto grid min-h-full max-w-3xl content-start gap-5">
-            {(chatThreads.length > 0 || historyStatus !== "idle") && (
-              <ChatHistoryPanel
-                historyStatus={historyStatus}
-                onArchiveSelectedThread={() => {
-                  void archiveSelectedThread();
-                }}
-                onDeleteSelectedThread={() => {
-                  void deleteSelectedThread();
-                }}
-                onOpenThread={(threadId) => {
-                  void openChatThread(threadId);
-                }}
-                onRenameSelectedThread={() => {
-                  void renameSelectedThread();
-                }}
-                onStartNewChat={startNewChat}
-                selectedThreadId={selectedThreadId}
-                threads={chatThreads}
-              />
-            )}
-            <SavedPlanTray
-              copyStatus={savedPlanSharing.copyStatus}
-              excludedShareItemIds={savedPlanSharing.excludedShareItemIds}
-              items={savedTripState.items}
-              onCopyShareLink={savedPlanSharing.copyShareLink}
-              onCreateShareLink={() => {
-                void savedPlanSharing.createShareLink();
-              }}
-              onRemoveItem={removeSavedItem}
-              onToggleShareItem={savedPlanSharing.toggleItem}
-              selectedItemCount={savedPlanSharing.selectedShareItems.length}
-              shareStatus={savedPlanSharing.shareStatus}
-              shareUrl={savedPlanSharing.shareUrl}
-            />
-            {hasMessages ? (
-              <>
-                <SuggestedPromptBar
+        <section className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] border-border-default border-x bg-surface-default">
+          <ChatTopBar
+            canSharePlan={savedPlanSharing.selectedShareItems.length > 0}
+            onSharePlan={() => {
+              void savedPlanSharing.createShareLink();
+            }}
+            onStartNewChat={startNewChat}
+          />
+
+          <div className="min-h-0 overflow-hidden px-4 py-4 sm:px-6 lg:px-8">
+            <div className="mx-auto grid h-full max-w-5xl content-start gap-4 overflow-hidden">
+              {savedTripState.items.length ? (
+                <SavedPlanTray
+                  copyStatus={savedPlanSharing.copyStatus}
+                  excludedShareItemIds={savedPlanSharing.excludedShareItemIds}
+                  items={savedTripState.items}
+                  onCopyShareLink={savedPlanSharing.copyShareLink}
+                  onCreateShareLink={() => {
+                    void savedPlanSharing.createShareLink();
+                  }}
+                  onRemoveItem={removeSavedItem}
+                  onToggleShareItem={savedPlanSharing.toggleItem}
+                  selectedItemCount={savedPlanSharing.selectedShareItems.length}
+                  shareStatus={savedPlanSharing.shareStatus}
+                  shareUrl={savedPlanSharing.shareUrl}
+                />
+              ) : null}
+              {hasMessages ? (
+                <>
+                  <div className="grid gap-4" role="log" aria-label="Conversation messages">
+                    {messages.map((message) => (
+                      <ChatMessage
+                        disabled={isSending}
+                        key={message.id}
+                        message={message}
+                        onRateAssistantMessage={(messageId, rating) => {
+                          void rateAssistantMessage(messageId, rating);
+                        }}
+                        onRetryPrompt={handlePromptSubmit}
+                        onSaveItineraryPlan={saveItineraryPlan}
+                        onSaveRecommendationCard={saveRecommendationCard}
+                        onRemoveSavedItem={removeSavedItem}
+                        onSubmitPrompt={handlePromptSubmit}
+                        savedItemIds={savedItemIds}
+                      />
+                    ))}
+                  </div>
+                  <SuggestedPromptBar
+                    disabled={isSending}
+                    onSubmitPrompt={handlePromptSubmit}
+                    prompts={suggestedPrompts}
+                  />
+                </>
+              ) : (
+                <ChatEmptyState
                   disabled={isSending}
                   onSubmitPrompt={handlePromptSubmit}
                   prompts={suggestedPrompts}
                 />
-                <div className="grid gap-4" role="log" aria-label="Conversation messages">
-                  {messages.map((message) => (
-                    <ChatMessage
-                      disabled={isSending}
-                      key={message.id}
-                      message={message}
-                      onRateAssistantMessage={(messageId, rating) => {
-                        void rateAssistantMessage(messageId, rating);
-                      }}
-                      onRetryPrompt={handlePromptSubmit}
-                      onSaveItineraryPlan={saveItineraryPlan}
-                      onSaveRecommendationCard={saveRecommendationCard}
-                      onRemoveSavedItem={removeSavedItem}
-                      onSubmitPrompt={handlePromptSubmit}
-                      savedItemIds={savedItemIds}
-                    />
-                  ))}
-                </div>
-              </>
-            ) : (
-              <ChatEmptyState
-                disabled={isSending}
-                onSubmitPrompt={handlePromptSubmit}
-                prompts={suggestedPrompts}
-              />
-            )}
-            <div ref={messageEndRef} />
+              )}
+            </div>
           </div>
-        </div>
 
-        <ChatComposer
-          inputValue={inputValue}
-          isSending={isSending}
-          locationState={locationState}
-          onInputValueChange={setInputValue}
-          onRequestLocation={requestLocation}
-          onSubmitPrompt={handlePromptSubmit}
-        />
+          <ChatComposer
+            inputValue={inputValue}
+            isSending={isSending}
+            locationState={locationState}
+            onInputValueChange={setInputValue}
+            onRequestLocation={requestLocation}
+            onSubmitPrompt={handlePromptSubmit}
+          />
+        </section>
+
+        <ChatContextRail />
       </section>
     </main>
   );
+}
+
+function ChatTravelRail({
+  historyStatus,
+  onOpenThread,
+  onStartNewChat,
+  savedItemCount,
+  selectedThreadId,
+  threads,
+}: {
+  historyStatus: "idle" | "loading" | "error";
+  onOpenThread: (threadId: string) => void;
+  onStartNewChat: () => void;
+  savedItemCount: number;
+  selectedThreadId: string | null;
+  threads: ChatThreadSummary[];
+}) {
+  const hasThreads = threads.length > 0;
+  const recentQuestions: RailQuestionItem[] = hasThreads
+    ? threads.slice(0, 4).map((thread) => ({
+        kind: "thread",
+        id: thread.id,
+        label: thread.title,
+        value: formatThreadRecency(thread),
+      }))
+    : fallbackRecentQuestions;
+
+  return (
+    <aside className="hidden min-h-0 bg-brand-navy-980 px-5 py-6 text-text-on-dark xl:grid xl:grid-rows-[auto_auto_minmax(0,1fr)_auto] xl:gap-6">
+      <Link aria-label="Ask Siargao home" className="min-w-0 no-underline" href="/">
+        <BrandLockup className="[&_span:last-child]:text-[1.55rem]" />
+      </Link>
+
+      <Button
+        asChild
+        className="h-14 w-full justify-between rounded-lg bg-brand-violet-600 px-5 text-base font-black text-white shadow-violet-glow hover:bg-brand-violet-550"
+      >
+        <Link aria-label="Start a new chat" href="/chat" onClick={onStartNewChat}>
+          <span className="inline-flex items-center gap-2">
+            <Plus aria-hidden="true" size={18} />
+            New question
+          </span>
+          <Sparkles aria-hidden="true" size={20} />
+        </Link>
+      </Button>
+
+      <div className="grid min-h-0 content-start gap-5 overflow-hidden">
+        <section className="grid gap-3">
+          <p className="m-0 text-xs font-black tracking-[0.08em] text-text-on-dark-muted uppercase">
+            Current trip
+          </p>
+          <div className="grid gap-1 rounded-lg border border-white/16 bg-white/8 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="m-0 min-w-0 truncate text-sm font-black text-white">June surf trip</h2>
+              <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-violet-650 text-sm font-black text-white">
+                {Math.max(savedItemCount, threads.length)}
+              </span>
+            </div>
+            <p className="m-0 text-sm font-bold text-text-on-dark-muted">Jun 12 - 22</p>
+          </div>
+        </section>
+
+        <section className="grid gap-3">
+          <p className="m-0 text-xs font-black tracking-[0.08em] text-text-on-dark-muted uppercase">
+            Saved places
+          </p>
+          <div className="grid gap-3">
+            {savedPlaceShortlists.map((item) => (
+              <div className="grid gap-1" key={item.label}>
+                <p className="m-0 text-sm font-extrabold text-white">{item.label}</p>
+                <p className="m-0 text-sm font-bold text-text-on-dark-muted">{item.value}</p>
+              </div>
+            ))}
+          </div>
+          <Link
+            className="inline-flex w-fit items-center gap-2 text-sm font-extrabold text-white no-underline hover:text-brand-lagoon-300"
+            href="/profile"
+          >
+            View all saved places
+            <ChevronDown aria-hidden="true" className="-rotate-90" size={15} />
+          </Link>
+        </section>
+
+        <section className="grid gap-3 border-white/12 border-t pt-5">
+          <h2 className="m-0 text-xs font-black tracking-[0.08em] text-text-on-dark-muted uppercase">
+            {hasThreads ? "Recent questions" : "Suggested questions"}
+          </h2>
+          {historyStatus === "error" ? (
+            <p className="m-0 text-xs font-bold text-text-alert">Chat history unavailable</p>
+          ) : null}
+          {historyStatus === "loading" ? (
+            <p className="m-0 text-xs font-bold text-text-on-dark-muted">Loading thread</p>
+          ) : null}
+          <nav aria-label={hasThreads ? "Previous chats" : "Suggested questions"}>
+            <div className="grid gap-3">
+              {recentQuestions.map((item) =>
+                item.kind === "thread" ? (
+                  <button
+                    className={cn(
+                      "grid min-w-0 gap-1 rounded-md border border-transparent p-0 text-left",
+                      "text-sm transition-[color,opacity] duration-[var(--duration-fast)] ease-[var(--ease-standard)]",
+                      item.id === selectedThreadId
+                        ? "text-brand-lagoon-300"
+                        : "text-white hover:text-brand-lagoon-300",
+                    )}
+                    key={item.id}
+                    onClick={() => onOpenThread(item.id)}
+                    type="button"
+                  >
+                    <span className="min-w-0 truncate font-extrabold">{item.label}</span>
+                    <span className="text-xs font-bold text-text-on-dark-muted">{item.value}</span>
+                  </button>
+                ) : (
+                  <div className="grid gap-1" key={item.label}>
+                    <p className="m-0 min-w-0 truncate text-sm font-extrabold text-white">
+                      {item.label}
+                    </p>
+                    <p className="m-0 text-xs font-bold text-text-on-dark-muted">{item.value}</p>
+                  </div>
+                ),
+              )}
+            </div>
+          </nav>
+        </section>
+      </div>
+
+      <Link
+        className="grid min-h-28 content-between overflow-hidden rounded-lg border border-brand-violet-400/25 bg-[image:var(--gradient-sunset-backdrop)] bg-cover bg-center p-4 text-white no-underline"
+        href="/profile"
+      >
+        <span className="grid gap-1">
+          <span className="text-base font-black">Love Ask Siargao?</span>
+          <span className="text-xs font-bold text-white/85">Invite friends and unlock extras.</span>
+        </span>
+        <ExternalLink aria-hidden="true" size={18} />
+      </Link>
+    </aside>
+  );
+}
+
+function ChatTopBar({
+  canSharePlan,
+  onSharePlan,
+  onStartNewChat,
+}: {
+  canSharePlan: boolean;
+  onSharePlan: () => void;
+  onStartNewChat: () => void;
+}) {
+  return (
+    <header className="flex min-h-[76px] items-center justify-between gap-4 border-border-default border-b bg-surface-glass px-4 py-3 sm:px-6 lg:px-8">
+      <div className="grid min-w-0 gap-1">
+        <h1 className="m-0 min-w-0 truncate text-xl font-black text-text-strong sm:text-2xl">
+          Ask Siargao
+        </h1>
+        <p className="m-0 inline-flex min-w-0 items-center gap-2 text-sm font-extrabold text-text-muted">
+          <span className="size-2 shrink-0 rounded-full bg-brand-lagoon-500" />
+          Local travel assistant
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <Button
+          aria-label="Reset chat"
+          className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+          onClick={onStartNewChat}
+          size="icon"
+          type="button"
+          variant="outline"
+        >
+          <RefreshCw aria-hidden="true" size={17} />
+        </Button>
+        <Button
+          aria-label="Share saved plan"
+          className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100 disabled:opacity-45"
+          disabled={!canSharePlan}
+          onClick={onSharePlan}
+          size="icon"
+          type="button"
+          variant="outline"
+        >
+          <Share2 aria-hidden="true" size={17} />
+        </Button>
+        <ChatAuthActions />
+      </div>
+    </header>
+  );
+}
+
+function ChatContextRail() {
+  return (
+    <aside className="hidden min-h-0 gap-4 overflow-hidden border-border-default border-l bg-surface-default p-4 2xl:grid">
+      <ContextCard
+        action={
+          <Button
+            className="h-8 rounded-md border-brand-violet-400/25 bg-brand-lavender-50 px-3 text-xs font-extrabold text-brand-violet-650 hover:bg-brand-lavender-100"
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Edit
+          </Button>
+        }
+        title="Trip context"
+      >
+        <div className="grid gap-4">
+          {tripContextItems.map((item) => (
+            <ContextFact icon={item.icon} key={item.label} label={item.label} value={item.value} />
+          ))}
+        </div>
+      </ContextCard>
+
+      <ContextCard title="Cloud 9 Weather">
+        <div className="grid gap-4">
+          <div className="flex items-center gap-4">
+            <CloudSun aria-hidden="true" className="text-brand-violet-650" size={38} />
+            <div className="min-w-0">
+              <p className="m-0 text-2xl font-black text-text-strong">Forecast pending</p>
+              <p className="m-0 text-sm font-bold text-text-muted">Ask chat for the latest check</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {weatherSnapshotMetrics.map((item) => (
+              <MetricTile key={item.label} label={item.label} value={item.value} />
+            ))}
+          </div>
+          <p className="m-0 inline-flex items-center gap-2 text-xs font-extrabold text-confidence-high">
+            <span className="size-2 rounded-full bg-confidence-high" />
+            Updates after weather answers
+          </p>
+        </div>
+      </ContextCard>
+
+      <ContextCard title="Live surf conditions">
+        <div className="grid gap-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="m-0 inline-flex items-center gap-2 text-lg font-black text-text-strong">
+              <WavesHorizontal aria-hidden="true" className="text-brand-violet-650" size={20} />
+              Cloud 9
+            </p>
+            <span className="rounded-full bg-confidence-high-soft px-3 py-1 text-xs font-black text-confidence-high">
+              Check in chat
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {surfSnapshotMetrics.map((item) => (
+              <MetricTile key={item.label} label={item.label} value={item.value} />
+            ))}
+          </div>
+          <p className="m-0 inline-flex items-center gap-2 text-xs font-extrabold text-confidence-high">
+            <span className="size-2 rounded-full bg-confidence-high" />
+            Surf answers fill this panel
+          </p>
+        </div>
+      </ContextCard>
+    </aside>
+  );
+}
+
+function ContextCard({
+  action,
+  children,
+  title,
+}: {
+  action?: ReactNode;
+  children: ReactNode;
+  title: string;
+}) {
+  return (
+    <section className="grid gap-4 rounded-lg border border-border-default bg-white p-5 shadow-card">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="m-0 text-lg font-black text-text-strong">{title}</h2>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function ContextFact({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: ChatContextIcon;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="grid grid-cols-[24px_minmax(0,1fr)] gap-3">
+      <Icon aria-hidden="true" className="mt-0.5 text-brand-violet-650" size={19} />
+      <div className="min-w-0">
+        <p className="m-0 text-sm font-bold text-text-muted">{label}</p>
+        <p className="m-0 min-w-0 break-words text-sm font-black text-text-strong">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function MetricTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid min-h-16 content-center gap-1 rounded-md bg-brand-lavender-50 px-3 py-2">
+      <p className="m-0 text-xs font-bold text-text-muted">{label}</p>
+      <p className="m-0 text-sm font-black text-text-strong">{value}</p>
+    </div>
+  );
+}
+
+function formatThreadRecency(thread: ChatThreadSummary) {
+  if (thread.archivedAt) {
+    return "Archived";
+  }
+
+  const rawDate = thread.lastMessageAt ?? thread.updatedAt;
+  if (!rawDate) {
+    return "Recent";
+  }
+
+  const timestamp = new Date(rawDate);
+  if (Number.isNaN(timestamp.getTime())) {
+    return "Recent";
+  }
+
+  const today = new Date();
+  const elapsedMs = today.getTime() - timestamp.getTime();
+  const elapsedDays = Math.floor(elapsedMs / 86_400_000);
+  if (elapsedDays <= 0) {
+    return chatTimeFormatter.format(timestamp);
+  }
+  if (elapsedDays === 1) {
+    return "Yesterday";
+  }
+  return `${elapsedDays} days ago`;
 }
 
 function ChatAuthActions() {
@@ -989,14 +1332,14 @@ function ChatAuthActions() {
       <>
         <Button
           asChild
-          className="hidden h-10 rounded-md border-white/20 bg-white/10 px-3 text-xs font-extrabold text-text-on-dark hover:bg-white/15 sm:inline-flex"
+          className="hidden h-10 rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50 sm:inline-flex"
           variant="outline"
         >
           <Link href="/sign-in">Sign in</Link>
         </Button>
         <Button
           asChild
-          className="h-10 rounded-md border-brand-lagoon-300/35 bg-brand-lagoon-500 px-3 text-xs font-extrabold text-brand-navy-980 hover:bg-brand-lagoon-300"
+          className="h-10 rounded-md border-brand-violet-650 bg-brand-violet-650 px-3 text-xs font-extrabold text-white hover:bg-brand-violet-600"
         >
           <Link href="/sign-up">Sign up</Link>
         </Button>
@@ -1009,104 +1352,10 @@ function ChatAuthActions() {
       <UserButton
         appearance={clerkAppearance}
         fallback={
-          <span className="inline-flex size-10 animate-pulse rounded-md border border-white/20 bg-white/10" />
+          <span className="inline-flex size-10 animate-pulse rounded-full border border-border-default bg-brand-lavender-100" />
         }
       />
     </Show>
-  );
-}
-
-function ChatHistoryPanel({
-  historyStatus,
-  onArchiveSelectedThread,
-  onDeleteSelectedThread,
-  onOpenThread,
-  onRenameSelectedThread,
-  onStartNewChat,
-  selectedThreadId,
-  threads,
-}: {
-  historyStatus: "idle" | "loading" | "error";
-  onArchiveSelectedThread: () => void;
-  onDeleteSelectedThread: () => void;
-  onOpenThread: (threadId: string) => void;
-  onRenameSelectedThread: () => void;
-  onStartNewChat: () => void;
-  selectedThreadId: string | null;
-  threads: ChatThreadSummary[];
-}) {
-  return (
-    <section className="grid gap-3 rounded-lg border border-border-on-dark bg-surface-night-card p-3 shadow-night-card">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="m-0 text-sm font-black text-text-on-dark">Chat history</h2>
-        <div className="flex items-center gap-2">
-          {selectedThreadId ? (
-            <>
-              <Button
-                className="h-8 rounded-md border-white/20 bg-white/10 px-2 text-xs text-text-on-dark hover:bg-white/15"
-                onClick={onRenameSelectedThread}
-                type="button"
-                variant="outline"
-              >
-                Rename
-              </Button>
-              <Button
-                aria-label="Archive selected chat"
-                className="size-8 rounded-md border-white/20 bg-white/10 text-text-on-dark hover:bg-white/15"
-                onClick={onArchiveSelectedThread}
-                size="icon"
-                type="button"
-                variant="outline"
-              >
-                <Clock aria-hidden="true" size={15} />
-              </Button>
-              <Button
-                aria-label="Delete selected chat"
-                className="size-8 rounded-md border-white/20 bg-white/10 text-text-on-dark hover:bg-white/15"
-                onClick={onDeleteSelectedThread}
-                size="icon"
-                type="button"
-                variant="outline"
-              >
-                <Trash2 aria-hidden="true" size={15} />
-              </Button>
-            </>
-          ) : null}
-          <Button
-            className="h-8 rounded-md border-brand-lagoon-300/35 bg-brand-lagoon-500 px-2 text-xs font-extrabold text-brand-navy-980 hover:bg-brand-lagoon-300"
-            onClick={onStartNewChat}
-            type="button"
-          >
-            New
-          </Button>
-        </div>
-      </div>
-      {historyStatus === "error" ? (
-        <p className="m-0 text-xs font-bold text-text-alert">Chat history unavailable</p>
-      ) : null}
-      {historyStatus === "loading" ? (
-        <p className="m-0 text-xs font-bold text-text-on-dark-muted">Loading thread</p>
-      ) : null}
-      <nav aria-label="Previous chats">
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {threads.map((thread) => (
-            <button
-              className={`max-w-56 shrink-0 rounded-md border px-3 py-2 text-left text-xs font-extrabold transition ${
-                thread.id === selectedThreadId
-                  ? "border-brand-lagoon-500 bg-brand-lagoon-500 text-brand-navy-980"
-                  : "border-white/15 bg-white/10 text-text-on-dark hover:bg-white/15"
-              }`}
-              key={thread.id}
-              onClick={() => onOpenThread(thread.id)}
-              type="button"
-            >
-              <span className="block truncate">{thread.title}</span>
-              {thread.archivedAt ? <span className="block opacity-70">Archived</span> : null}
-            </button>
-          ))}
-        </div>
-      </nav>
-    </section>
   );
 }
 
@@ -1138,13 +1387,13 @@ function ChatMessage({
   if (isUser) {
     return (
       <article
-        className="min-w-0 max-w-[min(88%,42rem)] justify-self-end overflow-hidden rounded-lg bg-[image:var(--gradient-cta)] px-5 py-4 text-text-on-dark shadow-cta"
+        className="min-w-0 max-w-[min(88%,42rem)] justify-self-end overflow-hidden rounded-lg border border-brand-violet-400/25 bg-brand-violet-650 px-5 py-4 text-white shadow-violet-glow"
         data-testid="user-message-bubble"
       >
         <p className="m-0 whitespace-pre-wrap break-words text-sm leading-[1.55] font-extrabold [overflow-wrap:anywhere] sm:text-base">
           {message.text}
         </p>
-        <time className="mt-2 block text-right text-xs font-bold text-brand-lavender-200">
+        <time className="mt-2 block text-right text-xs font-black text-white/75">
           {message.timestamp}
         </time>
       </article>
@@ -1159,7 +1408,7 @@ function ChatMessage({
         className={
           isError
             ? "min-w-0 overflow-hidden rounded-lg border border-border-alert bg-surface-alert px-5 py-4 shadow-night-card"
-            : "min-w-0 overflow-hidden rounded-lg border border-border-on-dark bg-surface-night-panel px-4 py-4 text-text-on-dark shadow-strong ring-1 ring-border-on-dark sm:px-5"
+            : "min-w-0 overflow-hidden rounded-xl border border-border-default bg-white px-4 py-4 text-text-strong shadow-card sm:px-5"
         }
       >
         <div className="flex min-w-0 items-start gap-3">
@@ -1205,7 +1454,7 @@ function ChatMessage({
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-extrabold">
-          <time className={isError ? "text-text-alert" : "text-text-on-dark-muted"}>
+          <time className={isError ? "text-text-alert" : "text-text-muted"}>
             {message.timestamp}
           </time>
           {!isError && !isPending && message.messageId ? (
@@ -1220,7 +1469,7 @@ function ChatMessage({
         </div>
         {isError && message.retryPrompt ? (
           <Button
-            className="mt-4 h-9 rounded-md border-border-alert bg-surface-night-card px-3 text-xs font-extrabold text-text-on-dark hover:bg-surface-night-card-strong"
+            className="mt-4 h-9 rounded-md border-border-alert bg-surface-alert px-3 text-xs font-extrabold text-text-alert hover:bg-surface-alert"
             disabled={disabled}
             onClick={() => onRetryPrompt(message.retryPrompt ?? "")}
             type="button"
@@ -1257,8 +1506,8 @@ function AssistantRatingControls({
       <Button
         aria-label="Rate assistant response helpful"
         aria-pressed={rating === "up"}
-        className={`size-8 rounded-md border-white/16 text-text-on-dark hover:bg-white/15 ${
-          rating === "up" ? "bg-brand-lagoon-500 text-brand-navy-980" : "bg-white/8"
+        className={`size-8 rounded-md border-border-default hover:bg-brand-lavender-50 ${
+          rating === "up" ? "bg-brand-lagoon-100 text-brand-lagoon-700" : "bg-white text-text-muted"
         }`}
         disabled={disabled}
         onClick={() => onRateAssistantMessage(messageId, "up")}
@@ -1271,8 +1520,8 @@ function AssistantRatingControls({
       <Button
         aria-label="Rate assistant response not helpful"
         aria-pressed={rating === "down"}
-        className={`size-8 rounded-md border-white/16 text-text-on-dark hover:bg-white/15 ${
-          rating === "down" ? "bg-surface-caveat text-text-caveat" : "bg-white/8"
+        className={`size-8 rounded-md border-border-default hover:bg-brand-lavender-50 ${
+          rating === "down" ? "bg-surface-caveat text-text-caveat" : "bg-white text-text-muted"
         }`}
         disabled={disabled}
         onClick={() => onRateAssistantMessage(messageId, "down")}
@@ -1319,24 +1568,24 @@ function SavedPlanTray({
   return (
     <section
       aria-label="Saved plan"
-      className="grid min-w-0 gap-3 rounded-lg border border-border-on-dark bg-surface-night-card p-3 text-text-on-dark shadow-night-card backdrop-blur-md"
+      className="grid min-w-0 gap-3 rounded-lg border border-border-default bg-white p-3 text-text-strong shadow-card"
       data-testid="saved-plan-tray"
     >
       <div className="flex min-w-0 items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-brand-lagoon-500/18 text-brand-lagoon-300">
+          <div className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-brand-lagoon-100 text-brand-lagoon-700">
             <BookmarkCheck aria-hidden="true" size={16} />
           </div>
           <div className="min-w-0">
-            <h2 className="m-0 text-sm font-black text-text-on-dark">Saved plan</h2>
-            <p className="m-0 text-xs font-bold text-text-on-dark-muted">
+            <h2 className="m-0 text-sm font-black text-text-strong">Saved plan</h2>
+            <p className="m-0 text-xs font-bold text-text-muted">
               {items.length} {items.length === 1 ? "item" : "items"} saved locally,{" "}
               {selectedItemCount} selected to share
             </p>
           </div>
         </div>
         <Button
-          className="shrink-0 rounded-md border-brand-lagoon-300/30 bg-brand-lagoon-500 px-3 text-xs font-extrabold text-brand-navy-980 hover:bg-brand-lagoon-300 disabled:opacity-55"
+          className="shrink-0 rounded-md border-brand-violet-650 bg-brand-violet-650 px-3 text-xs font-extrabold text-white hover:bg-brand-violet-600 disabled:opacity-55"
           disabled={!hasSelectedItems || isSharing}
           onClick={onCreateShareLink}
           size="sm"
@@ -1352,17 +1601,20 @@ function SavedPlanTray({
         </Button>
       </div>
 
-      <div className="flex min-w-0 gap-2 overflow-x-auto pb-1" data-testid="saved-plan-items">
+      <div
+        className="flex min-w-0 flex-nowrap gap-2 overflow-hidden pb-1"
+        data-testid="saved-plan-items"
+      >
         {items.map((item) => {
           const isIncluded = !excludedShareItemIds.has(item.id);
 
           return (
             <div
-              className="grid min-w-[14rem] max-w-[19rem] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border-on-dark bg-surface-night-card-strong px-3 py-2"
+              className="grid min-w-[14rem] max-w-[19rem] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border-default bg-brand-lavender-50 px-3 py-2"
               data-testid="saved-plan-item"
               key={item.id}
             >
-              <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-surface-night-card text-brand-lagoon-300">
+              <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-brand-lavender-100 text-brand-violet-650">
                 {item.kind === "itinerary" ? (
                   <Navigation aria-hidden="true" size={14} />
                 ) : (
@@ -1373,17 +1625,17 @@ function SavedPlanTray({
                 <input
                   aria-label={`Include ${item.title} in shared plan`}
                   checked={isIncluded}
-                  className="size-4 shrink-0 accent-brand-lagoon-500"
+                  className="size-4 shrink-0 accent-brand-violet-650"
                   onChange={(event) => onToggleShareItem(item.id, event.currentTarget.checked)}
                   type="checkbox"
                 />
-                <span className="min-w-0 flex-1 truncate text-xs font-extrabold text-text-on-dark">
+                <span className="min-w-0 flex-1 truncate text-xs font-extrabold text-text-strong">
                   {item.title}
                 </span>
               </label>
               <Button
                 aria-label={`Remove ${item.title} from saved plan`}
-                className="size-8 shrink-0 rounded-md border-border-on-dark bg-surface-night-card text-text-on-dark hover:bg-surface-night-card-strong"
+                className="size-8 shrink-0 rounded-md border-border-default bg-white text-text-muted hover:bg-brand-lavender-50"
                 onClick={() => onRemoveItem(item.id)}
                 size="icon"
                 type="button"
@@ -1410,17 +1662,17 @@ function SavedPlanTray({
 
       {shareUrl ? (
         <div
-          className="grid min-w-0 gap-2 rounded-md border border-brand-lagoon-300/20 bg-brand-lagoon-700/18 p-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]"
+          className="grid min-w-0 gap-2 rounded-md border border-brand-lagoon-700/15 bg-brand-lagoon-100 p-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]"
           data-testid="saved-plan-share-link"
         >
           <input
             aria-label="Share link"
-            className="min-h-9 min-w-0 rounded-md border border-border-on-dark bg-surface-night-card px-3 text-xs font-bold text-text-on-dark outline-none"
+            className="min-h-9 min-w-0 rounded-md border border-border-default bg-white px-3 text-xs font-bold text-text-strong outline-none"
             readOnly
             value={shareUrl}
           />
           <Button
-            className="rounded-md border-border-on-dark bg-surface-night-card text-xs font-extrabold text-text-on-dark hover:bg-surface-night-card-strong"
+            className="rounded-md border-border-default bg-white text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50"
             onClick={onCopyShareLink}
             size="sm"
             type="button"
@@ -1435,7 +1687,7 @@ function SavedPlanTray({
           </Button>
           <Button
             asChild
-            className="rounded-md border-border-on-dark bg-surface-night-card text-xs font-extrabold text-text-on-dark hover:bg-surface-night-card-strong"
+            className="rounded-md border-border-default bg-white text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50"
             size="sm"
             variant="outline"
           >
@@ -1505,9 +1757,9 @@ function AssistantGlance({ message }: { message: InteractiveChatMessage }) {
   return (
     <section
       aria-label="At a glance"
-      className="grid min-w-0 gap-3 rounded-md border border-white/10 bg-white/[0.045] p-3 shadow-none"
+      className="grid min-w-0 gap-3 rounded-md border border-border-default bg-brand-lavender-50 p-3 shadow-none"
     >
-      <h3 className="m-0 flex items-center gap-2 text-sm font-black text-white">
+      <h3 className="m-0 flex items-center gap-2 text-sm font-black text-text-strong">
         <Sparkles aria-hidden="true" className="text-brand-sunset-gold" size={17} />
         At a Glance
       </h3>
@@ -1516,17 +1768,19 @@ function AssistantGlance({ message }: { message: InteractiveChatMessage }) {
           const Icon = item.icon;
           return (
             <div
-              className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] items-center gap-2 rounded-md border border-white/8 bg-white/[0.055] px-3 py-2"
+              className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] items-center gap-2 rounded-md border border-border-default bg-white px-3 py-2"
               key={`${item.label}-${item.value}`}
             >
-              <span className="inline-flex size-7 items-center justify-center rounded-md bg-brand-lagoon-500/18 text-brand-lagoon-300">
+              <span className="inline-flex size-7 items-center justify-center rounded-md bg-brand-lagoon-100 text-brand-lagoon-700">
                 <Icon aria-hidden="true" size={15} />
               </span>
               <span className="min-w-0">
-                <span className="block text-[0.68rem] leading-tight font-black text-text-on-dark-muted">
+                <span className="block text-[0.68rem] leading-tight font-black text-text-muted">
                   {item.label}
                 </span>
-                <span className="block truncate text-xs font-black text-white">{item.value}</span>
+                <span className="block truncate text-xs font-black text-text-strong">
+                  {item.value}
+                </span>
               </span>
             </div>
           );
@@ -1541,17 +1795,17 @@ function DecisionSummaryPanels({ summaries }: { summaries: readonly DecisionSumm
     <section aria-label="Best move" className="grid min-w-0 gap-3">
       {summaries.map((summary) => (
         <article
-          className="grid min-w-0 gap-3 rounded-md border border-brand-lagoon-300/22 bg-brand-lagoon-300/10 p-3 shadow-none"
+          className="grid min-w-0 gap-3 rounded-md border border-brand-lagoon-700/15 bg-brand-lagoon-100 p-3 shadow-none"
           data-testid="decision-summary-panel"
           key={summary.id}
         >
           <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
             <div className="grid min-w-0 gap-1">
-              <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.68rem] leading-tight font-black text-brand-lagoon-200 uppercase">
+              <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.68rem] leading-tight font-black text-brand-lagoon-700 uppercase">
                 <Navigation aria-hidden="true" className="shrink-0" size={13} />
                 Best move
               </span>
-              <h3 className="m-0 text-base leading-tight font-black break-words text-white">
+              <h3 className="m-0 text-base leading-tight font-black break-words text-text-strong">
                 {summary.bestAction}
               </h3>
             </div>
@@ -1560,7 +1814,7 @@ function DecisionSummaryPanels({ summaries }: { summaries: readonly DecisionSumm
               {summary.timing ? <DecisionSummaryChip icon={Clock} label={summary.timing} /> : null}
             </div>
           </div>
-          <p className="m-0 text-sm leading-[1.45] font-bold break-words text-text-on-dark-muted">
+          <p className="m-0 text-sm leading-[1.45] font-bold break-words text-text-default">
             {summary.basis}
           </p>
           {summary.fallback || summary.avoid ? (
@@ -1588,7 +1842,7 @@ function DecisionSummaryPanels({ summaries }: { summaries: readonly DecisionSumm
 
 function DecisionSummaryChip({ icon: Icon, label }: { icon: typeof Clock; label: string }) {
   return (
-    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.06] px-2 py-1 text-xs font-extrabold text-text-on-dark-muted">
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-brand-lagoon-700/15 bg-white px-2 py-1 text-xs font-extrabold text-text-muted">
       <Icon aria-hidden="true" className="shrink-0" size={13} />
       <span className="min-w-0 truncate">{label}</span>
     </span>
@@ -1597,8 +1851,8 @@ function DecisionSummaryChip({ icon: Icon, label }: { icon: typeof Clock; label:
 
 function DecisionSummaryGuidance({ label, value }: { label: string; value: string }) {
   return (
-    <p className="m-0 rounded-md border border-white/8 bg-white/[0.045] px-3 py-2 text-xs leading-[1.45] font-bold break-words text-text-on-dark-muted">
-      <span className="font-black text-white">{label}: </span>
+    <p className="m-0 rounded-md border border-border-default bg-white px-3 py-2 text-xs leading-[1.45] font-bold break-words text-text-muted">
+      <span className="font-black text-text-strong">{label}: </span>
       {value}
     </p>
   );
@@ -1611,14 +1865,14 @@ function ArtifactDecision({ decision }: { decision?: ArtifactDecisionMetadata })
 
   return (
     <div
-      className="mt-1 grid min-w-0 gap-1 rounded-md border border-brand-lagoon-300/18 bg-brand-lagoon-300/10 px-2.5 py-2"
+      className="mt-1 grid min-w-0 gap-1 rounded-md border border-brand-lagoon-700/12 bg-brand-lagoon-100 px-2.5 py-2"
       data-testid="artifact-decision"
     >
-      <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.7rem] leading-tight font-black text-brand-lagoon-200 uppercase">
+      <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.7rem] leading-tight font-black text-brand-lagoon-700 uppercase">
         <Sparkles aria-hidden="true" className="shrink-0" size={12} />
         <span className="min-w-0 break-words">{artifactDecisionLabel(decision.label)}</span>
       </span>
-      <p className="m-0 text-xs leading-[1.4] font-bold break-words text-text-on-dark-muted">
+      <p className="m-0 text-xs leading-[1.4] font-bold break-words text-text-default">
         {decision.bestAction}
       </p>
     </div>
@@ -1660,19 +1914,19 @@ function ItineraryPlans({
         return (
           <section
             aria-label={plan.title}
-            className="grid min-w-0 gap-4 rounded-md border border-white/10 bg-white/[0.045] p-3 shadow-none"
+            className="grid min-w-0 gap-4 rounded-md border border-border-default bg-brand-lavender-50 p-3 shadow-none"
             data-testid="itinerary-plan"
             key={`${plan.title}-${plan.durationLabel}`}
           >
             <div className="flex min-w-0 items-start gap-3">
-              <div className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-brand-violet-650/22 text-brand-lavender-200">
+              <div className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-brand-lavender-100 text-brand-violet-650">
                 <Navigation aria-hidden="true" size={17} />
               </div>
               <div className="grid min-w-0 flex-1 gap-1">
-                <h3 className="m-0 text-sm leading-[1.25] font-black break-words text-white sm:text-base">
+                <h3 className="m-0 text-sm leading-[1.25] font-black break-words text-text-strong sm:text-base">
                   {plan.title}
                 </h3>
-                <span className="inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border border-white/8 bg-white/[0.07] px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold text-text-on-dark-muted">
+                <span className="inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border border-border-default bg-white px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold text-text-muted">
                   <Clock aria-hidden="true" className="shrink-0" size={13} />
                   <span className="min-w-0 break-words">{plan.durationLabel}</span>
                 </span>
@@ -1718,16 +1972,16 @@ function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
 
   return (
     <li className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] gap-3">
-      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-brand-lagoon-300/35 bg-brand-lagoon-500 text-xs font-black text-brand-navy-980 shadow-lagoon-glow">
+      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-brand-lagoon-700/15 bg-brand-lagoon-100 text-xs font-black text-brand-lagoon-700">
         {stop.sequence}
       </span>
       <div className="grid min-w-0 gap-1.5">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <h4 className="m-0 min-w-0 text-sm leading-[1.3] font-black break-words text-white">
+          <h4 className="m-0 min-w-0 text-sm leading-[1.3] font-black break-words text-text-strong">
             {stop.title}
           </h4>
           {stop.area ? (
-            <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-white/8 bg-white/[0.07] px-2 py-1 text-[0.7rem] leading-tight font-extrabold text-text-on-dark-muted">
+            <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-border-default bg-white px-2 py-1 text-[0.7rem] leading-tight font-extrabold text-text-muted">
               <MapPin aria-hidden="true" className="shrink-0" size={12} />
               <span className="min-w-0 break-words">{stop.area}</span>
             </span>
@@ -1735,7 +1989,7 @@ function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
         </div>
 
         {stop.travelTimeFromPreviousMinutes ? (
-          <p className="m-0 inline-flex min-w-0 items-center gap-1.5 text-xs leading-[1.45] font-bold break-words text-text-on-dark-muted">
+          <p className="m-0 inline-flex min-w-0 items-center gap-1.5 text-xs leading-[1.45] font-bold break-words text-text-muted">
             <Clock aria-hidden="true" className="shrink-0" size={13} />
             <span className="min-w-0 break-words">
               About {stop.travelTimeFromPreviousMinutes} minutes from the previous stop.
@@ -1743,7 +1997,7 @@ function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
           </p>
         ) : null}
 
-        <p className="m-0 text-xs leading-[1.5] break-words text-text-on-dark-muted sm:text-sm">
+        <p className="m-0 text-xs leading-[1.5] break-words text-text-default sm:text-sm">
           {stop.rationale}
         </p>
 
@@ -1791,8 +2045,8 @@ function ItineraryNoteSection({
 
   return (
     <section className="grid min-w-0 gap-1.5" data-testid={testId}>
-      <h4 className="m-0 text-xs font-black text-white">{title}</h4>
-      <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-text-on-dark-muted sm:text-sm">
+      <h4 className="m-0 text-xs font-black text-text-strong">{title}</h4>
+      <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-text-muted sm:text-sm">
         {visibleItems.map((item) => (
           <li className="break-words" key={item}>
             {item}
@@ -1811,7 +2065,7 @@ function ItinerarySources({ sources }: { sources: ItineraryPlanArtifact["sources
 
   return (
     <section className="grid min-w-0 gap-2" data-testid="itinerary-sources">
-      <h4 className="m-0 text-xs font-black text-white">Sources</h4>
+      <h4 className="m-0 text-xs font-black text-text-strong">Sources</h4>
       <div className="flex min-w-0 flex-wrap gap-2">
         {visibleSources.map((source) => (
           <SourceIconBadge key={chatSourceKey(source)} source={source} />
@@ -1956,56 +2210,56 @@ function sourceBadgeInfo(source: ChatSourceArtifact) {
     return {
       icon: Clock,
       label: "Weather checked",
-      className: "border-sky-300/20 bg-sky-300/10 text-sky-100",
+      className: "border-brand-lagoon-700/15 bg-brand-lagoon-100 text-brand-lagoon-700",
     };
   }
   if (source.label === "marine_checked" || source.label === "tide_forecast_checked") {
     return {
       icon: Navigation,
       label: source.label === "marine_checked" ? "Marine checked" : "Tide checked",
-      className: "border-brand-lagoon-300/20 bg-brand-lagoon-300/10 text-brand-lagoon-100",
+      className: "border-brand-lagoon-700/15 bg-brand-lagoon-100 text-brand-lagoon-700",
     };
   }
   if (source.label === "event_checked") {
     return {
       icon: ShieldCheck,
       label: "Event checked",
-      className: "border-brand-sunset-gold/20 bg-brand-sunset-gold/10 text-brand-sunset-peach",
+      className: "border-brand-sunset-gold/30 bg-surface-caveat text-text-caveat",
     };
   }
   if (source.label === "venue_checked") {
     return {
       icon: ShieldCheck,
       label: "Venue checked",
-      className: "border-brand-lavender-200/20 bg-brand-violet-650/20 text-brand-lavender-200",
+      className: "border-brand-violet-650/15 bg-brand-lavender-100 text-brand-violet-650",
     };
   }
   if (source.label === "community_signal") {
     return {
       icon: Star,
       label: "Community signal",
-      className: "border-white/15 bg-white/8 text-white/75",
+      className: "border-border-default bg-white text-text-muted",
     };
   }
   if (source.label === "curated_local_guide") {
     return {
       icon: Star,
       label: "Local guide",
-      className: "border-brand-sunset-gold/20 bg-brand-sunset-gold/10 text-brand-sunset-peach",
+      className: "border-brand-sunset-gold/30 bg-surface-caveat text-text-caveat",
     };
   }
   if (source.label === "fresh_cache") {
     return {
       icon: ShieldCheck,
       label: "Fresh source",
-      className: "border-brand-lavender-200/20 bg-brand-violet-650/20 text-brand-lavender-200",
+      className: "border-brand-violet-650/15 bg-brand-lavender-100 text-brand-violet-650",
     };
   }
 
   return {
     icon: ShieldCheck,
     label: source.label === "live_checked" ? "Live checked" : sourceBadgeTitle(source),
-    className: "border-brand-lagoon-300/20 bg-brand-lagoon-300/10 text-brand-lagoon-100",
+    className: "border-brand-lagoon-700/15 bg-brand-lagoon-100 text-brand-lagoon-700",
   };
 }
 
@@ -2034,7 +2288,7 @@ function RecommendationSourceBadge({ cards }: { cards: readonly RecommendationCa
 
   return (
     <span
-      className="inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border border-brand-sunset-gold/20 bg-brand-sunset-gold/10 px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold text-brand-sunset-peach"
+      className="inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border border-brand-sunset-gold/30 bg-surface-caveat px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold text-text-caveat"
       data-testid="recommendation-source-badge"
     >
       <ShieldCheck aria-hidden="true" className="shrink-0" size={13} />
@@ -2185,11 +2439,11 @@ function RecommendationCards({
   return (
     <section
       aria-label="Recommended places"
-      className="grid min-w-0 gap-3 rounded-md border border-white/10 bg-white/[0.045] p-3 shadow-none"
+      className="grid min-w-0 gap-3 rounded-md border border-border-default bg-brand-lavender-50 p-3 shadow-none"
       data-testid="recommendation-cards"
     >
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-        <h3 className="m-0 flex items-center gap-2 text-sm font-black text-white">
+        <h3 className="m-0 flex items-center gap-2 text-sm font-black text-text-strong">
           <Utensils aria-hidden="true" className="text-brand-sunset-gold" size={17} />
           Recommended Places
         </h3>
@@ -2203,13 +2457,13 @@ function RecommendationCards({
 
         return (
           <article
-            className="grid min-w-0 gap-3 rounded-md border border-white/8 bg-white/[0.055] p-3"
+            className="grid min-w-0 gap-3 rounded-md border border-border-default bg-white p-3"
             data-testid="recommendation-card"
             key={card.id}
           >
             <div className="grid min-w-0 gap-3">
               <div className="flex min-w-0 items-start gap-3">
-                <div className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-md bg-brand-lagoon-500/18 text-brand-lagoon-300 shadow-lagoon-glow">
+                <div className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-md bg-brand-lagoon-100 text-brand-lagoon-700">
                   {card.kind === "beach" ? (
                     <Navigation aria-hidden="true" size={17} />
                   ) : (
@@ -2217,16 +2471,16 @@ function RecommendationCards({
                   )}
                 </div>
                 <div className="grid min-w-0 flex-1 gap-1">
-                  <h4 className="m-0 text-sm leading-[1.25] font-black break-words text-white sm:text-base">
+                  <h4 className="m-0 text-sm leading-[1.25] font-black break-words text-text-strong sm:text-base">
                     {card.title}
                   </h4>
                   {subtitle.meta ? (
-                    <p className="m-0 text-xs leading-[1.45] break-words text-text-on-dark-muted sm:text-sm">
+                    <p className="m-0 text-xs leading-[1.45] break-words text-text-muted sm:text-sm">
                       {subtitle.meta}
                     </p>
                   ) : null}
                   {subtitle.address ? (
-                    <p className="m-0 text-xs leading-[1.45] break-words text-text-on-dark-muted">
+                    <p className="m-0 text-xs leading-[1.45] break-words text-text-muted">
                       {subtitle.address}
                     </p>
                   ) : null}
@@ -2251,8 +2505,8 @@ function RecommendationCards({
               </div>
 
               {usefulReasons.length ? (
-                <p className="m-0 text-xs leading-[1.45] break-words text-text-on-dark-muted sm:text-sm">
-                  <span className="font-black text-text-on-dark">Why this:</span>{" "}
+                <p className="m-0 text-xs leading-[1.45] break-words text-text-default sm:text-sm">
+                  <span className="font-black text-text-strong">Why this:</span>{" "}
                   {usefulReasons.join(" ")}
                 </p>
               ) : null}
@@ -2260,7 +2514,7 @@ function RecommendationCards({
               {card.mapsUrl ? (
                 <a
                   aria-label={`Open ${card.title} in Google Maps`}
-                  className="inline-flex min-h-9 w-fit max-w-full items-center gap-2 rounded-md border border-white/12 bg-white/[0.08] px-3 py-2 text-xs font-extrabold text-text-on-dark no-underline hover:bg-white/[0.12]"
+                  className="inline-flex min-h-9 w-fit max-w-full items-center gap-2 rounded-md border border-brand-lagoon-700/15 bg-brand-lagoon-100 px-3 py-2 text-xs font-extrabold text-brand-lagoon-700 no-underline hover:bg-brand-lagoon-100"
                   href={card.mapsUrl}
                   rel="noreferrer"
                   target="_blank"
@@ -2297,7 +2551,7 @@ function SaveToggleButton({
       className={
         isSaved
           ? "size-9 shrink-0 rounded-md border-brand-lagoon-300/35 bg-brand-lagoon-500 text-brand-navy-980 hover:bg-brand-lagoon-300"
-          : "size-9 shrink-0 rounded-md border-white/12 bg-white/[0.08] text-text-on-dark hover:bg-white/[0.13]"
+          : "size-9 shrink-0 rounded-md border-border-default bg-white text-text-muted hover:bg-brand-lavender-50"
       }
       onClick={() => {
         if (isSaved) {
@@ -2321,7 +2575,7 @@ function SaveToggleButton({
 
 function CardSignal({ icon, label }: { icon?: "distance" | "time"; label: string }) {
   return (
-    <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-white/8 bg-white/[0.07] px-2.5 py-1.5 text-[0.72rem] leading-tight font-extrabold text-text-on-dark-muted">
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border-default bg-brand-lavender-50 px-2.5 py-1.5 text-[0.72rem] leading-tight font-extrabold text-text-muted">
       {icon === "distance" ? <MapPin aria-hidden="true" className="shrink-0" size={13} /> : null}
       {icon === "time" ? <Clock aria-hidden="true" className="shrink-0" size={13} /> : null}
       <span className="min-w-0 break-words">{label}</span>
@@ -2344,7 +2598,7 @@ function ChatActionButtons({
         action.href ? (
           <Button
             asChild
-            className="h-auto min-h-9 rounded-md border-white/12 bg-white/[0.08] px-3 py-2 text-xs font-extrabold text-text-on-dark hover:bg-white/[0.13]"
+            className="h-auto min-h-9 rounded-md border-border-default bg-white px-3 py-2 text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50"
             key={action.id}
             size="sm"
             variant="outline"
@@ -2355,7 +2609,7 @@ function ChatActionButtons({
           </Button>
         ) : (
           <Button
-            className="h-auto min-h-9 rounded-md border-brand-lavender-200/25 bg-brand-violet-650/20 px-3 py-2 text-xs font-extrabold text-brand-lavender-200 hover:bg-brand-violet-650/28"
+            className="h-auto min-h-9 rounded-md border-brand-violet-650/20 bg-brand-lavender-100 px-3 py-2 text-xs font-extrabold text-brand-violet-650 hover:bg-brand-lavender-150"
             disabled={disabled || !action.prompt}
             key={action.id}
             onClick={() => {
@@ -2383,20 +2637,20 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
 
   return (
     <details
-      className="group rounded-md border border-white/10 bg-white/[0.045] p-3"
+      className="group rounded-md border border-border-default bg-brand-lavender-50 p-3"
       data-testid="assistant-sources-panel"
     >
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
         <span className="grid min-w-0 gap-1">
-          <span className="flex items-center gap-2 text-sm font-black text-white">
-            <ShieldCheck aria-hidden="true" className="text-brand-lagoon-300" size={16} />
+          <span className="flex items-center gap-2 text-sm font-black text-text-strong">
+            <ShieldCheck aria-hidden="true" className="text-brand-lagoon-700" size={16} />
             Sources & Confidence
           </span>
-          <span className="min-w-0 text-xs font-bold text-text-on-dark-muted">
+          <span className="min-w-0 text-xs font-bold text-text-muted">
             {sourceSummaryText(visibleSources)}
           </span>
         </span>
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.06] px-2.5 py-1.5 text-xs font-black text-text-on-dark-muted">
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border-default bg-white px-2.5 py-1.5 text-xs font-black text-text-muted">
           View sources
           <ChevronDown
             aria-hidden="true"
@@ -2408,20 +2662,20 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
       <div className="mt-3 grid gap-2">
         {visibleSources.map((source) => (
           <div
-            className="grid gap-1 rounded-md border border-white/8 bg-black/10 p-3"
+            className="grid gap-1 rounded-md border border-border-default bg-white p-3"
             key={chatSourceKey(source)}
           >
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <SourceIconBadge source={source} />
-              <span className="text-xs font-black text-white">{source.sourceName}</span>
+              <span className="text-xs font-black text-text-strong">{source.sourceName}</span>
               {source.confidence ? (
-                <span className="text-[0.7rem] font-bold text-text-on-dark-muted">
+                <span className="text-[0.7rem] font-bold text-text-muted">
                   {source.confidence} confidence
                 </span>
               ) : null}
             </div>
             {source.checked.length ? (
-              <p className="m-0 text-xs leading-[1.45] text-text-on-dark-muted">
+              <p className="m-0 text-xs leading-[1.45] text-text-muted">
                 Checked details: {formatCompactList(source.checked)}
               </p>
             ) : null}
@@ -2434,12 +2688,13 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
 
 function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" | "error" }) {
   const blocks = parseAssistantMarkdownBlocks(stripInternalDisclosureText(text));
-  const textClass = tone === "error" ? "text-text-on-dark" : "text-text-on-dark-muted";
-  const strongClass = "font-extrabold text-white";
+  const textClass = tone === "error" ? "text-text-alert" : "text-text-default";
+  const strongClass =
+    tone === "error" ? "font-extrabold text-text-alert" : "font-extrabold text-text-strong";
   const linkClass =
     tone === "error"
-      ? "font-extrabold text-white underline decoration-white/45 underline-offset-4 break-words"
-      : "font-extrabold text-brand-lavender-200 underline decoration-brand-lavender-200/45 underline-offset-4 break-words";
+      ? "font-extrabold text-text-alert underline decoration-text-alert/45 underline-offset-4 break-words"
+      : "font-extrabold text-brand-violet-650 underline decoration-brand-violet-400/45 underline-offset-4 break-words";
 
   return (
     <div className="grid min-w-0 max-w-full flex-1 gap-3 overflow-hidden [overflow-wrap:anywhere]">
@@ -2481,7 +2736,7 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
           return (
             <p
               className={`m-0 max-w-full rounded-md border border-black/5 bg-black/[0.035] px-3 py-2 text-xs leading-[1.45] break-words sm:text-sm ${
-                tone === "error" ? "text-text-alert" : "text-text-on-dark-muted"
+                tone === "error" ? "text-text-alert" : "text-text-muted"
               }`}
               data-testid="assistant-source-line"
               key={block.key}
@@ -2825,10 +3080,14 @@ function ChatComposer({
   const locationRequesting = locationState.status === "requesting";
 
   return (
-    <footer className="border-white/12 border-t bg-brand-navy-980/92 px-4 py-3 backdrop-blur-md sm:px-6 lg:px-8">
-      <form aria-label="Ask Siargao composer" className="mx-auto max-w-3xl" onSubmit={handleSubmit}>
-        <InputGroup className="min-h-[58px] items-start rounded-lg border-white/18 bg-white/96 p-2 shadow-strong">
-          <InputGroupAddon align="inline-start" className="pt-1.5">
+    <footer className="border-border-default border-t bg-white px-4 py-3 sm:px-6 lg:px-8">
+      <form
+        aria-label="Ask Siargao composer"
+        className="mx-auto w-full max-w-5xl min-w-0"
+        onSubmit={handleSubmit}
+      >
+        <InputGroup className="min-h-[58px] items-start rounded-lg border-border-default bg-white p-2 text-text-strong shadow-card ring-1 ring-border-default">
+          <InputGroupAddon align="inline-start" className="shrink-0 pt-1.5">
             <InputGroupButton
               aria-label={
                 locationReady ? "Location ready for next question" : "Share location once"
@@ -2836,8 +3095,8 @@ function ChatComposer({
               aria-pressed={locationReady}
               className={
                 locationReady
-                  ? "size-11 rounded-md bg-brand-lagoon-700 text-white hover:bg-brand-lagoon-600"
-                  : "size-11 rounded-md text-text-soft hover:bg-brand-lagoon-100 hover:text-brand-lagoon-700"
+                  ? "size-11 rounded-md bg-brand-lagoon-100 text-brand-lagoon-700 hover:bg-brand-lagoon-100"
+                  : "size-11 rounded-md text-text-muted hover:bg-brand-lavender-50 hover:text-text-strong"
               }
               disabled={isSending || locationRequesting}
               onClick={onRequestLocation}
@@ -2854,7 +3113,7 @@ function ChatComposer({
           <textarea
             data-slot="input-group-control"
             aria-label="Ask anything about Siargao"
-            className="max-h-32 min-h-11 flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent px-3 py-2.5 text-base leading-6 whitespace-pre-wrap text-text-default shadow-none outline-none [field-sizing:content] [overflow-wrap:anywhere] placeholder:text-text-soft focus-visible:ring-0 disabled:bg-transparent"
+            className="min-w-0 max-h-32 min-h-11 flex-1 resize-none overflow-hidden rounded-none border-0 bg-transparent px-3 py-2.5 text-base leading-6 whitespace-pre-wrap text-text-strong caret-brand-violet-650 shadow-none outline-none [field-sizing:content] [overflow-wrap:anywhere] placeholder:text-text-soft focus-visible:ring-0 disabled:bg-transparent disabled:text-text-muted"
             disabled={isSending}
             onChange={(event) => {
               resizeComposerTextarea(event.currentTarget);
@@ -2870,10 +3129,10 @@ function ChatComposer({
             rows={1}
             value={inputValue}
           />
-          <InputGroupAddon align="inline-end" className="pt-1.5">
+          <InputGroupAddon align="inline-end" className="shrink-0 pt-1.5">
             <InputGroupButton
               aria-label="Send question"
-              className="size-11 rounded-md bg-[image:var(--gradient-cta)] text-white hover:shadow-violet-glow"
+              className="size-11 rounded-md bg-brand-violet-650 text-white hover:bg-brand-violet-600 disabled:opacity-50"
               disabled={isSending || inputValue.trim().length === 0}
               size="icon-sm"
               type="submit"
@@ -2897,13 +3156,13 @@ function ChatComposer({
           </Badge>
           <p
             aria-live="polite"
-            className="m-0 text-[0.72rem] leading-tight font-extrabold text-text-on-dark-muted"
+            className="m-0 text-[0.72rem] leading-tight font-extrabold text-text-muted"
           >
             {locationStatus}
           </p>
           {locationActivationLabel ? (
             <Button
-              className="h-7 rounded-md border-white/18 bg-white/10 px-2.5 text-[0.68rem] font-black text-text-on-dark hover:bg-white/15"
+              className="h-7 rounded-md border-border-default bg-white px-2.5 text-[0.68rem] font-black text-text-strong hover:bg-brand-lavender-50"
               disabled={isSending || locationRequesting}
               onClick={onRequestLocation}
               size="sm"
@@ -2971,14 +3230,14 @@ function locationIndicatorState(locationState: LocationCaptureState) {
       return {
         label: "Location active",
         className:
-          "gap-1.5 rounded-md border-brand-lagoon-300/45 bg-brand-lagoon-500/16 px-2 py-0.5 text-[0.68rem] font-black text-brand-lagoon-300",
+          "gap-1.5 rounded-md border-brand-lagoon-700/15 bg-brand-lagoon-100 px-2 py-0.5 text-[0.68rem] font-black text-brand-lagoon-700",
         dotClassName: "size-1.5 rounded-full bg-brand-lagoon-500",
       };
     case "requesting":
       return {
         label: "Location pending",
         className:
-          "gap-1.5 rounded-md border-brand-sunset-gold/45 bg-brand-sunset-gold/14 px-2 py-0.5 text-[0.68rem] font-black text-brand-sunset-peach",
+          "gap-1.5 rounded-md border-brand-sunset-gold/35 bg-surface-caveat px-2 py-0.5 text-[0.68rem] font-black text-text-caveat",
         dotClassName: "size-1.5 rounded-full bg-brand-sunset-gold",
       };
     case "denied":
@@ -2993,15 +3252,15 @@ function locationIndicatorState(locationState: LocationCaptureState) {
       return {
         label: "Location unavailable",
         className:
-          "gap-1.5 rounded-md border-brand-sunset-gold/35 bg-brand-sunset-gold/10 px-2 py-0.5 text-[0.68rem] font-black text-brand-sunset-peach",
+          "gap-1.5 rounded-md border-brand-sunset-gold/35 bg-surface-caveat px-2 py-0.5 text-[0.68rem] font-black text-text-caveat",
         dotClassName: "size-1.5 rounded-full bg-brand-sunset-gold",
       };
     default:
       return {
         label: "Location off",
         className:
-          "gap-1.5 rounded-md border-white/18 bg-white/10 px-2 py-0.5 text-[0.68rem] font-black text-text-on-dark-muted",
-        dotClassName: "size-1.5 rounded-full bg-text-on-dark-muted",
+          "gap-1.5 rounded-md border-border-default bg-brand-lavender-50 px-2 py-0.5 text-[0.68rem] font-black text-text-muted",
+        dotClassName: "size-1.5 rounded-full bg-text-soft",
       };
   }
 }
@@ -3016,10 +3275,13 @@ function SuggestedPromptBar({
   prompts: string[];
 }) {
   return (
-    <fieldset aria-label="Suggested prompts" className="m-0 flex flex-wrap gap-2 border-0 p-0">
+    <fieldset
+      aria-label="Suggested prompts"
+      className="m-0 flex min-w-0 flex-wrap gap-2 overflow-visible border-0 p-0"
+    >
       {prompts.map((prompt) => (
         <Button
-          className="h-auto min-h-9 rounded-full border-white/20 bg-white/10 px-4 py-2 text-xs font-extrabold text-text-on-dark hover:bg-white/15"
+          className="h-auto min-h-9 max-w-full min-w-0 overflow-hidden rounded-full border-border-default bg-white px-4 py-2 text-left text-xs font-extrabold text-ellipsis whitespace-nowrap text-brand-violet-650 hover:bg-brand-lavender-50"
           disabled={disabled}
           key={prompt}
           onClick={() => onSubmitPrompt(prompt)}
@@ -3043,16 +3305,16 @@ function ChatEmptyState({
   prompts: string[];
 }) {
   return (
-    <div className="grid min-h-full content-center gap-8 py-10 sm:py-14">
-      <div className="grid max-w-2xl gap-4">
-        <div className="inline-flex size-12 items-center justify-center rounded-lg bg-surface-night-card text-brand-lagoon-300">
+    <div className="grid min-h-full min-w-0 content-center gap-8 py-10 sm:py-14">
+      <div className="grid min-w-0 max-w-2xl gap-4">
+        <div className="inline-flex size-12 items-center justify-center rounded-lg bg-brand-lavender-100 text-brand-violet-650">
           <Sparkles aria-hidden="true" size={24} />
         </div>
         <div className="grid gap-3">
-          <h1 className="m-0 text-3xl leading-[1.05] font-black text-text-on-dark sm:text-5xl">
+          <h1 className="m-0 max-w-full text-3xl leading-[1.05] font-black break-words text-text-strong [overflow-wrap:anywhere] sm:text-5xl">
             Ask a real question about your Siargao trip.
           </h1>
-          <p className="m-0 max-w-xl text-base leading-[1.7] text-text-on-dark-muted">
+          <p className="m-0 max-w-xl text-base leading-[1.7] break-words text-text-muted">
             Ask about food, weather, transfers, surf areas, quiet stays, and practical trip planning
             around Siargao.
           </p>

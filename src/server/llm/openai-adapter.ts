@@ -44,7 +44,7 @@ export async function generateAuditReport(input: {
   client?: ResponsesClient;
   now?: Date;
 }): Promise<GeneratedAuditReport> {
-  const model = input.model ?? process.env.OPENAI_MODEL ?? "gpt-5.5";
+  const model = input.model ?? process.env.OPENAI_MODEL ?? "gpt-5.4-mini";
   const toolCalls = runControlledRetrievalPlan({
     context: {
       input: input.intake,

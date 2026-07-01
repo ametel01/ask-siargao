@@ -1026,9 +1026,245 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     ]);
     expect(result.toolCalls[0]?.toolCallId).toBe("auto_preflight_required_evidence_1");
     expect(result.toolCalls[1]?.toolCallId).toBe("call_places_first");
+    expect(responseInputItemsByType(client.requests[1]?.input, "function_call")).toContainEqual(
+      expect.objectContaining({
+        call_id: "auto_preflight_required_evidence_1",
+        name: "research_web",
+      }),
+    );
+    expect(
+      responseInputItemsByType(client.requests[1]?.input, "function_call_output"),
+    ).toContainEqual(
+      expect.objectContaining({
+        call_id: "auto_preflight_required_evidence_1",
+      }),
+    );
     expect(result.publicSources).toEqual([officialWebSourceSummary, openNowPlacesSourceSummary]);
     expect(result.cards).toEqual([placeCard]);
     expect(JSON.stringify(result.cards)).not.toContain(unrelatedPlaceCard.title);
+  });
+
+  test("continues after preflight web research is unavailable for nightlife tool calls", async () => {
+    const webResearchUnavailableSource: AnswerSourceSummary = {
+      label: "provider_unavailable",
+      sourceName: "Public web research",
+      sourceProfileId: "source_web_research",
+      confidence: "low",
+      checked: [],
+      notChecked: ["current General Luna nightlife web evidence"],
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_nightlife_research_unavailable_calls",
+        _request_id: "req_nightlife_research_unavailable_calls",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_nightlife_events",
+            name: "search_nightlife_events",
+            arguments: JSON.stringify({
+              location: "General Luna",
+              date: "2026-07-01",
+              interests: ["party"],
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_duplicate_research",
+            name: "research_web",
+            arguments: JSON.stringify({
+              query: "where can I go party tonight in General Luna?",
+              intent: "recommendation",
+              location: "General Luna",
+              dateContext: "tonight",
+              requiredFreshness: "same_day",
+            }),
+          },
+        ],
+      },
+      {
+        id: "resp_nightlife_research_unavailable_final",
+        output_text: finalPayloadText({
+          answer:
+            "I could not verify current public web evidence for General Luna parties tonight.",
+          usedToolCallIds: ["auto_preflight_required_evidence_1"],
+          displayCardIds: [],
+        }),
+        _request_id: "req_nightlife_research_unavailable_final",
+      },
+    ]);
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "load_agent_memory_file") {
+        return {
+          name: "load_agent_memory_file",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Loaded NIGHTLIFE.md.",
+          data: {
+            loadedMemoryFileNames: ["NIGHTLIFE.md"],
+            files: [
+              {
+                fileName: "NIGHTLIFE.md",
+                content:
+                  "| Day | Early / warm-up | Main party window | Anchor candidates | Best read |\n| --- | --- | --- | --- | --- |\n| Wednesday | 7:30-9 PM | 8 PM-midnight / 9 PM+ | Goodies, Mama Coco, El Lobo | Midweek dance night; Goodies is official Happiness-backed, Mama Coco is directory-backed, El Lobo needs official confirmation. |",
+              },
+            ],
+          },
+          sources: [],
+        };
+      }
+      if (request.name === "research_web") {
+        return {
+          name: "research_web",
+          toolCallId: request.toolCallId,
+          status: "error",
+          text: "Public web research provider unavailable.",
+          errorCode: "provider_unavailable",
+          data: { status: "provider_unavailable" },
+          sources: [webResearchUnavailableSource],
+        };
+      }
+      throw new Error(`Unexpected tool ${request.name}`);
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "where can i go party tonight in general luna?" }],
+        requestId: "agent_request_nightlife_research_unavailable",
+        deterministicSignals: nightlifeResearchSignals(),
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toContain("could not verify current public web evidence");
+    expect(result.cards).toBeUndefined();
+    expect(result.toolCalls.map((toolCall) => [toolCall.name, toolCall.status])).toEqual([
+      ["load_agent_memory_file", "success"],
+      ["research_web", "error"],
+      ["search_nightlife_events", "error"],
+      ["research_web", "error"],
+    ]);
+    expect(responseInputItemsByType(client.requests[1]?.input, "function_call")).toContainEqual(
+      expect.objectContaining({
+        call_id: "auto_preflight_required_evidence_1",
+        name: "research_web",
+      }),
+    );
+    expect(
+      responseInputItemsByType(client.requests[1]?.input, "function_call_output"),
+    ).toContainEqual(
+      expect.objectContaining({
+        call_id: "auto_preflight_required_evidence_1",
+      }),
+    );
+  });
+
+  test("stops repeated tool calls after terminal web research and returns nightlife baseline", async () => {
+    const webResearchUnavailableSource: AnswerSourceSummary = {
+      label: "provider_unavailable",
+      sourceName: "Public web research",
+      sourceProfileId: "source_web_research",
+      confidence: "low",
+      checked: [],
+      notChecked: ["current General Luna nightlife web evidence"],
+    };
+    const repeatedNightlifeToolCalls = [
+      {
+        type: "function_call",
+        call_id: "call_repeated_research",
+        name: "research_web",
+        arguments: JSON.stringify({
+          query: "where can I go party tonight in General Luna?",
+          intent: "recommendation",
+          location: "General Luna",
+          dateContext: "tonight",
+          requiredFreshness: "same_day",
+        }),
+      },
+      {
+        type: "function_call",
+        call_id: "call_repeated_nightlife_events",
+        name: "search_nightlife_events",
+        arguments: JSON.stringify({
+          location: "General Luna",
+          date: "2026-07-01",
+          interests: ["party"],
+        }),
+      },
+    ];
+    const client = fakeResponsesClient([
+      {
+        id: "resp_nightlife_research_unavailable_calls",
+        _request_id: "req_nightlife_research_unavailable_calls",
+        output: repeatedNightlifeToolCalls,
+      },
+      {
+        id: "resp_nightlife_research_unavailable_repeated_calls",
+        _request_id: "req_nightlife_research_unavailable_repeated_calls",
+        output: repeatedNightlifeToolCalls,
+      },
+    ]);
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "load_agent_memory_file") {
+        return {
+          name: "load_agent_memory_file",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Loaded NIGHTLIFE.md.",
+          data: {
+            loadedMemoryFileNames: ["NIGHTLIFE.md"],
+            files: [
+              {
+                fileName: "NIGHTLIFE.md",
+                content:
+                  "| Day | Early / warm-up | Main party window | Anchor candidates | Best read |\n| --- | --- | --- | --- | --- |\n| Wednesday | 7:30-9 PM | 8 PM-midnight / 9 PM+ | Goodies, Mama Coco, El Lobo | Midweek dance night; Goodies is official Happiness-backed, Mama Coco is directory-backed, El Lobo needs official confirmation. |",
+              },
+            ],
+          },
+          sources: [],
+        };
+      }
+      if (request.name === "research_web") {
+        return {
+          name: "research_web",
+          toolCallId: request.toolCallId,
+          status: "error",
+          text: "Public web research provider unavailable.",
+          errorCode: "provider_unavailable",
+          data: { status: "provider_unavailable" },
+          sources: [webResearchUnavailableSource],
+        };
+      }
+      throw new Error(`Unexpected tool ${request.name}`);
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "where can i go party tonight in general luna?" }],
+        requestId: "agent_request_nightlife_repeated_research_unavailable",
+        deterministicSignals: nightlifeResearchSignals(),
+      },
+      {
+        client,
+        executeTool,
+        model: "gpt-test",
+        now: () => new Date("2026-07-01T20:30:00+08:00"),
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.message).toContain("Goodies");
+    expect(result.message).toContain("Mama Coco");
+    expect(result.message).toContain("could not verify current public web evidence");
+    expect(result.cards).toBeUndefined();
+    expect(result.publicSources).toEqual([webResearchUnavailableSource]);
+    expect(result.toolCalls.map((toolCall) => [toolCall.name, toolCall.status])).toEqual([
+      ["load_agent_memory_file", "success"],
+      ["research_web", "error"],
+      ["research_web", "error"],
+      ["search_nightlife_events", "error"],
+    ]);
+    expect(client.requests).toHaveLength(2);
   });
 
   test("repairs researched recommendations that omit primary research findings", async () => {
@@ -6191,6 +6427,40 @@ function nightlifeRouteSignals() {
         location: "General Luna",
         areaScope: "in_area",
         radiusMeters: 12_000,
+      },
+    },
+  };
+}
+
+function nightlifeResearchSignals() {
+  return {
+    intent: {
+      latestUserTurn: "where can i go party tonight in general luna?",
+      nightlifePlan: true,
+      weather: false,
+      weatherSensitive: true,
+      activityPlan: false,
+      tripAdvice: false,
+      today: true,
+      locationLabel: "General Luna",
+      placeIntent: {
+        category: "bar",
+        liveNeeds: ["recommendation"],
+        meal: null,
+        location: "General Luna",
+        areaScope: "in_area",
+        radiusMeters: 12_000,
+      },
+      researchIntent: {
+        required: true,
+        query: "where can i go party tonight in general luna?",
+        intent: "recommendation",
+        location: "General Luna",
+        dateContext: "tonight",
+        sourceTypes: ["official", "local_directory", "social", "guide", "community"],
+        requiredFreshness: "same_day",
+        reason: "current nightlife recommendations need public event and venue web evidence",
+        coveredRequestClass: "current_recommendation",
       },
     },
   };

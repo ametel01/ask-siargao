@@ -95,6 +95,40 @@ describe("web research provider", () => {
     ]);
   });
 
+  test("defaults hosted web_search to gpt-5.4-mini without inheriting OPENAI_MODEL", async () => {
+    const originalProvider = process.env.WEB_RESEARCH_PROVIDER;
+    const originalModel = process.env.OPENAI_MODEL;
+    const originalWebSearchModel = process.env.OPENAI_WEB_SEARCH_MODEL;
+    process.env.WEB_RESEARCH_PROVIDER = "openai";
+    process.env.OPENAI_MODEL = "model-that-must-not-be-inherited";
+    delete process.env.OPENAI_WEB_SEARCH_MODEL;
+    const requests: Record<string, unknown>[] = [];
+
+    try {
+      const provider = createConfiguredWebResearchProvider({
+        client: {
+          responses: {
+            create: async (params) => {
+              requests.push(params);
+              return { output_text: JSON.stringify({ results: [] }) };
+            },
+          },
+        },
+      });
+
+      await provider?.(
+        { query: "party tonight General Luna", intent: "recommendation" },
+        { requestId: "request_default_web_search_model", searchedQueries: ["party tonight"] },
+      );
+    } finally {
+      restoreEnv("WEB_RESEARCH_PROVIDER", originalProvider);
+      restoreEnv("OPENAI_MODEL", originalModel);
+      restoreEnv("OPENAI_WEB_SEARCH_MODEL", originalWebSearchModel);
+    }
+
+    expect(requests[0]?.model).toBe("gpt-5.4-mini");
+  });
+
   test("returns no sources for malformed provider output", async () => {
     const provider = createOpenAIWebResearchProvider({
       client: {

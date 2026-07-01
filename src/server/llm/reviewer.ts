@@ -42,7 +42,7 @@ export async function reviewAuditReport(input: {
 
   const client = input.client ?? createOpenAIResponsesClient();
   const response = await client.responses.create({
-    model: input.model ?? process.env.OPENAI_REVIEWER_MODEL ?? "gpt-5.5",
+    model: input.model ?? process.env.OPENAI_REVIEWER_MODEL ?? "gpt-5.4-mini",
     store: false,
     max_output_tokens: 1_500,
     instructions: reviewerInstructions,

@@ -38,7 +38,7 @@ export async function generateAskSiargaoChatResponse(input: {
   model?: string;
   client?: ChatResponsesClient;
 }): Promise<AskSiargaoChatResponse> {
-  const model = input.model ?? process.env.OPENAI_MODEL ?? "gpt-5.5";
+  const model = input.model ?? process.env.OPENAI_MODEL ?? "gpt-5.4-mini";
   const client = input.client ?? createOpenAIChatClient();
   const response = await client.responses.create({
     model,

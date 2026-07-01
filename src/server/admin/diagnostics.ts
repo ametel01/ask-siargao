@@ -302,7 +302,7 @@ export function createSampleDiagnosticsSnapshot(now = new Date("2026-06-23T08:00
       {
         auditRequestId: "audit_review_002",
         runId: "llm_run_001",
-        model: "gpt-5.5",
+        model: "gpt-5.4-mini",
         inputTokens: 5_000,
         outputTokens: 1_000,
       },

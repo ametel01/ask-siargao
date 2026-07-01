@@ -1,0 +1,16 @@
+[
+  {
+    "date": "2026-07-01",
+    "surface": "chat",
+    "genre": "modern-minimal",
+    "macrostructure": "workbench",
+    "theme": "Ask Siargao existing brand tokens",
+    "variationKnobs": [
+      "app side rail",
+      "compact utility top bar",
+      "right trip-context rail",
+      "sticky light composer"
+    ],
+    "notes": "Redesigned chat from single dark column into target three-column travel assistant workbench."
+  }
+]

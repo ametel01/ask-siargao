@@ -222,7 +222,7 @@ export class RecommendationAgent {
     clock = () => new Date(),
     logger = recommendationLogger,
     maxSteps = 5,
-    model = process.env.OPENAI_MODEL ?? "gpt-5.5",
+    model = process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
     planner,
     placesAdapter = ({ fetchedAt, search, trace }) =>
       getGooglePlacesChatContext({ fetchedAt, search, trace }),

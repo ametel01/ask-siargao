@@ -36,6 +36,7 @@ export type OpenAIWebResearchProviderOptions = {
 
 const openAiWebSearchToolType = "web_search";
 const defaultMaxResults = 8;
+const defaultOpenAiWebSearchModel = "gpt-5.4-mini";
 
 export function createConfiguredWebResearchProvider(
   options: OpenAIWebResearchProviderOptions = {},
@@ -57,14 +58,14 @@ export function createConfiguredWebResearchProvider(
   return createOpenAIWebResearchProvider({
     client,
     maxResults: options.maxResults,
-    model: options.model ?? process.env.OPENAI_WEB_SEARCH_MODEL ?? process.env.OPENAI_MODEL,
+    model: options.model ?? process.env.OPENAI_WEB_SEARCH_MODEL ?? defaultOpenAiWebSearchModel,
   });
 }
 
 export function createOpenAIWebResearchProvider({
   client,
   maxResults = defaultMaxResults,
-  model = "gpt-5.5",
+  model = defaultOpenAiWebSearchModel,
 }: {
   client: ResponsesClientLike;
   maxResults?: number;

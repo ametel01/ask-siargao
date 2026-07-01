@@ -1,0 +1,18 @@
+{
+  "date": "2026-07-01",
+  "surface": "chat",
+  "fontStack": {
+    "body": "Nunito Sans",
+    "display": "Cormorant Garamond"
+  },
+  "theme": {
+    "source": "existing Ask Siargao tokens in src/theme/global.css",
+    "anchor": "brand violet with lagoon accents"
+  },
+  "macrostructure": "workbench",
+  "motion": "existing CSS transitions; no new motion library",
+  "verification": {
+    "desktopScreenshot": ".tmp/visual-checks/chat-desktop.png",
+    "mobileScreenshot": ".tmp/visual-checks/chat-mobile.png"
+  }
+}

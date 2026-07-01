@@ -335,7 +335,7 @@ export function resolveAgentRuntimeRequest(
   return {
     ...request,
     requestId: request.requestId ?? dependencies.createRequestId?.() ?? randomUUID(),
-    model: request.model ?? dependencies.model ?? process.env.OPENAI_MODEL ?? "gpt-5.5",
+    model: request.model ?? dependencies.model ?? process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
   };
 }
 
