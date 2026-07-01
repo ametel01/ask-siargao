@@ -5,14 +5,14 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 
 ## Current Status
 
-- Status: Step 0 complete
-- Current step: Step 1 - Fix Web Research Structured Output Schema
-- Next step: Step 1 - Fix Web Research Structured Output Schema
+- Status: Step 1 complete
+- Current step: Step 2 - Add Behavioral Regression Tests for Model-Owned Routing
+- Next step: Step 2 - Add Behavioral Regression Tests for Model-Owned Routing
 
 ## Step Checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
-- [ ] Step 1: Fix Web Research Structured Output Schema
+- [x] Step 1: Fix Web Research Structured Output Schema
 - [ ] Step 2: Add Behavioral Regression Tests for Model-Owned Routing
 - [ ] Step 3: Trim Route-Level Deterministic Signals
 - [ ] Step 4: Remove Route-Derived Required Evidence Planning
@@ -58,3 +58,19 @@ Update this file after every completed step with:
   - `bun test` - 702 tests passed
 - Commit reference: this commit (`Track model-owned chat routing plan progress`).
 - Next step: Step 1 - Fix Web Research Structured Output Schema.
+
+### 2026-07-01 - Step 1 Completed
+
+- Updated the OpenAI web research provider JSON schema so result objects and nested entity objects
+  list every property in `required`, with optional values represented as nullable strict-schema
+  properties.
+- Added provider regression coverage that inspects the outgoing schema shape and verifies nullable
+  optional values still parse without surfacing `null` fields in normalized provider results.
+- Validation passed:
+  - `bun test src/server/providers/web-search.test.ts` - 6 tests passed
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test` - 704 tests passed
+- Commit reference: this commit (`Fix web research strict schema`).
+- Next step: Step 2 - Add Behavioral Regression Tests for Model-Owned Routing.

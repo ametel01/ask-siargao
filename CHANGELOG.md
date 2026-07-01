@@ -58,6 +58,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Fixed the OpenAI web research structured-output schema so strict result and nested entity
+  properties are required with nullable optional values instead of schema-invalid omissions.
 - Kept provider-unavailable public web research in the same transparent, card-free failure path as
   insufficient evidence.
 - Rejected weather-only, memory-only, and broad Places fallback final answers for prompts that

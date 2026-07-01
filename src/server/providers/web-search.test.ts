@@ -129,6 +129,105 @@ describe("web research provider", () => {
     expect(requests[0]?.model).toBe("gpt-5.4-mini");
   });
 
+  test("builds a strict schema with every object property required", async () => {
+    const requests: Record<string, unknown>[] = [];
+    const provider = createOpenAIWebResearchProvider({
+      client: {
+        responses: {
+          create: async (params) => {
+            requests.push(params);
+            return { output_text: JSON.stringify({ results: [] }) };
+          },
+        },
+      },
+    });
+
+    await provider(
+      { query: "scooter rental General Luna Siargao", intent: "recommendation" },
+      {
+        requestId: "request_strict_schema_shape",
+        searchedQueries: ["scooter rental General Luna Siargao"],
+      },
+    );
+
+    const schema = readTextSchema(requests[0]);
+    const resultsSchema = readObjectProperty(schema, "results");
+    const resultItemSchema = readRecord(resultsSchema.items);
+    const resultProperties = readRecord(resultItemSchema.properties);
+
+    expect(sortedStrings(readRequired(resultItemSchema))).toEqual(
+      sortedStrings(Object.keys(resultProperties)),
+    );
+    expect(readRecord(resultProperties.snippet).type).toEqual(["string", "null"]);
+    expect(readRecord(resultProperties.pageSummary).type).toEqual(["string", "null"]);
+    expect(readRecord(resultProperties.publishedOrUpdatedAt).type).toEqual(["string", "null"]);
+    expect(readRecord(resultProperties.sourceType).enum).toContain(null);
+
+    const entitiesSchema = readRecord(resultProperties.entities);
+    const entityItemSchema = readRecord(entitiesSchema.items);
+    const entityProperties = readRecord(entityItemSchema.properties);
+
+    expect(sortedStrings(readRequired(entityItemSchema))).toEqual(
+      sortedStrings(Object.keys(entityProperties)),
+    );
+    expect(readRecord(entityProperties.role).type).toEqual(["string", "null"]);
+    expect(readRecord(entityProperties.area).type).toEqual(["string", "null"]);
+    expect(readRecord(entityProperties.needsPlacesEnrichment).type).toEqual(["boolean", "null"]);
+  });
+
+  test("parses nullable strict optional fields without surfacing null values", async () => {
+    const provider = createOpenAIWebResearchProvider({
+      client: {
+        responses: {
+          create: async () => ({
+            output_text: JSON.stringify({
+              results: [
+                {
+                  url: "https://example.com/scooters",
+                  title: "General Luna Scooter Rentals",
+                  snippet: null,
+                  pageSummary: null,
+                  sourceType: null,
+                  publishedOrUpdatedAt: null,
+                  entities: [
+                    {
+                      name: "General Luna scooter rental",
+                      kind: "service",
+                      role: null,
+                      area: null,
+                      needsPlacesEnrichment: null,
+                    },
+                  ],
+                },
+              ],
+            }),
+          }),
+        },
+      },
+    });
+
+    await expect(
+      provider(
+        { query: "scooter rental General Luna Siargao", intent: "recommendation" },
+        {
+          requestId: "request_nullable_strict_optional_fields",
+          searchedQueries: ["scooter rental General Luna Siargao"],
+        },
+      ),
+    ).resolves.toEqual([
+      {
+        url: "https://example.com/scooters",
+        title: "General Luna Scooter Rentals",
+        entities: [
+          {
+            name: "General Luna scooter rental",
+            kind: "service",
+          },
+        ],
+      },
+    ]);
+  });
+
   test("returns no sources for malformed provider output", async () => {
     const provider = createOpenAIWebResearchProvider({
       client: {
@@ -146,6 +245,35 @@ describe("web research provider", () => {
     ).resolves.toEqual([]);
   });
 });
+
+function readTextSchema(request: Record<string, unknown> | undefined) {
+  const text = readRecord(request?.text);
+  const format = readRecord(text.format);
+  return readRecord(format.schema);
+}
+
+function readObjectProperty(schema: Record<string, unknown>, property: string) {
+  return readRecord(readRecord(schema.properties)[property]);
+}
+
+function readRequired(schema: Record<string, unknown>) {
+  const required = schema.required;
+  if (!Array.isArray(required) || !required.every((value) => typeof value === "string")) {
+    throw new Error("Expected schema.required to be an array of strings");
+  }
+  return required;
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Expected a JSON object");
+  }
+  return value as Record<string, unknown>;
+}
+
+function sortedStrings(values: readonly string[]) {
+  return [...values].sort((left, right) => left.localeCompare(right));
+}
 
 function restoreEnv(name: string, value: string | undefined) {
   if (value === undefined) {
