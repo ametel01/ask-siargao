@@ -5,9 +5,9 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 
 ## Current Status
 
-- Status: Step 6 complete
-- Current step: Step 7 - Strengthen Model Tool-Choice Instructions
-- Next step: Step 7 - Strengthen Model Tool-Choice Instructions
+- Status: Step 7 complete
+- Current step: Step 8 - Preserve and Extend Source Validation
+- Next step: Step 8 - Preserve and Extend Source Validation
 
 ## Step Checklist
 
@@ -18,7 +18,7 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 - [x] Step 4: Remove Route-Derived Required Evidence Planning
 - [x] Step 5: Remove Auto-Injected Required Evidence Repairs From Route Classifiers
 - [x] Step 6: Make Provider Failures Non-Terminal
-- [ ] Step 7: Strengthen Model Tool-Choice Instructions
+- [x] Step 7: Strengthen Model Tool-Choice Instructions
 - [ ] Step 8: Preserve and Extend Source Validation
 - [ ] Step 9: Remove or Quarantine Brittle Classifier Tests and Dead Routing Helpers
 - [ ] Step 10: Documentation, Final Gates, and Handoff
@@ -185,3 +185,24 @@ Update this file after every completed step with:
 - Changelog: updated under `Changed` for non-terminal provider-failure handling.
 - Commit reference: this commit (`Let model handle provider failures`).
 - Next step: Step 7 - Strengthen Model Tool-Choice Instructions.
+
+### 2026-07-01 - Step 7 Completed
+
+- Updated agent instructions so deterministic signals are safe context and scope flags only, while
+  the model owns tool choice, query wording, and whether a prompt needs web, Places, weather,
+  condition, memory, or no tools.
+- Added model-facing guidance for local service lookups such as scooter rental in General Luna and
+  for using successful provider evidence when another provider fails.
+- Updated `research_web` and `search_places` tool descriptions to emphasize model-owned
+  natural-language query formulation and non-terminal provider-failure handling.
+- Validation passed:
+  - `bun test src/server/chat/ask-siargao-agent.test.ts --test-name-pattern "structured final payload|scooter rental"` -
+    3 tests passed
+  - `bun test src/server/chat/ask-siargao-agent.test.ts` - 76 passed, 14 skipped
+  - `bun test src/server/chat/agent-tools.test.ts` - 67 tests passed
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test` - 694 passed, 14 skipped
+- Changelog: updated under `Changed` for model-owned tool-choice instructions.
+- Commit reference: this commit (`Guide model-owned chat tool choice`).
+- Next step: Step 8 - Preserve and Extend Source Validation.

@@ -138,8 +138,15 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       structuredFinalPayload: true,
     });
     expect(String(client.requests[0]?.instructions)).toContain("Return final answers as JSON");
+    expect(String(client.requests[0]?.instructions)).toContain(
+      "You own tool choice and query formulation",
+    );
+    expect(String(client.requests[0]?.instructions)).toContain("scooter rental in General Luna");
     expect(parseFirstInput(client.requests[0]?.input).responseContract?.finalOutput).toContain(
       "Return the final response as a JSON object",
+    );
+    expect(parseFirstInput(client.requests[0]?.input).responseContract?.deterministicSignals).toBe(
+      "Treat deterministic signals as safe context and scope flags only. The model owns tool choice, query wording, and whether a prompt needs web, Places, weather, condition, memory, or no tools.",
     );
   });
 
@@ -7061,6 +7068,7 @@ function parseFirstInput(input: unknown): {
     files?: Array<Record<string, unknown>>;
   };
   responseContract?: {
+    deterministicSignals?: string;
     finalOutput?: string;
   };
 } {

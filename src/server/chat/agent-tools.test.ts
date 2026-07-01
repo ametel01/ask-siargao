@@ -112,7 +112,7 @@ describe("agent tools", () => {
         type: "function",
         name: "research_web",
         description:
-          "Research current public web evidence for Siargao recommendations, schedules, availability, prices, safety, disruptions, and other public facts before using Places, weather, memory, or local tools as enrichment.",
+          "Research current public web evidence for Siargao recommendations, schedules, availability, prices, safety, disruptions, service lookups such as scooter rental, and other public facts. The model chooses the natural-language query from the user's prompt. Provider-unavailable results are returned as tool evidence for a caveated answer rather than a terminal response.",
         parameters: {
           type: "object",
           properties: {
@@ -243,7 +243,7 @@ describe("agent tools", () => {
         type: "function",
         name: "search_places",
         description:
-          "Search governed Google Places results for Siargao places using allowed chat-search fields.",
+          "Search governed Google Places results for Siargao places, venues, and local services using allowed chat-search fields. The model chooses a natural-language query from the user's prompt; if another provider failed, successful Places evidence can still support a caveated answer.",
         parameters: {
           type: "object",
           properties: {
@@ -666,7 +666,7 @@ describe("agent tools", () => {
       {
         name: "research_web",
         description:
-          "Research current public web evidence for Siargao recommendations, schedules, availability, prices, safety, disruptions, and other public facts before using Places, weather, memory, or local tools as enrichment.",
+          "Research current public web evidence for Siargao recommendations, schedules, availability, prices, safety, disruptions, service lookups such as scooter rental, and other public facts. The model chooses the natural-language query from the user's prompt. Provider-unavailable results are returned as tool evidence for a caveated answer rather than a terminal response.",
       },
       {
         name: "search_nightlife_events",
@@ -676,7 +676,7 @@ describe("agent tools", () => {
       {
         name: "search_places",
         description:
-          "Search governed Google Places results for Siargao places using allowed chat-search fields.",
+          "Search governed Google Places results for Siargao places, venues, and local services using allowed chat-search fields. The model chooses a natural-language query from the user's prompt; if another provider failed, successful Places evidence can still support a caveated answer.",
       },
       {
         name: "get_place_details",

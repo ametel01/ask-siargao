@@ -66,6 +66,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Strengthened chat agent instructions and tool descriptions so the model owns tool choice and
+  natural-language query formulation, including local service lookups and provider-failure recovery.
 - Changed chat provider-failure handling so failed `research_web` or `search_places` calls stay in
   the model-visible tool transcript and successful evidence from another provider can still shape
   the final answer.

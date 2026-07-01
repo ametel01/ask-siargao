@@ -3147,7 +3147,7 @@ const responseContract = {
   sourceUse:
     "Use tool outputs as the only source for live weather, modelled marine conditions, Google Places, curated local guide, and source-policy claims.",
   deterministicSignals:
-    "Treat deterministic intent as routing and evidence hints, not as a complete answer plan. Do not collapse multi-need trip questions to a single detected category.",
+    "Treat deterministic signals as safe context and scope flags only. The model owns tool choice, query wording, and whether a prompt needs web, Places, weather, condition, memory, or no tools.",
   memoryRetrieval:
     "Use INDEX.md to choose and then load the smallest relevant Ask Siargao memory files with load_agent_memory_file, file_search, or search_agent_memory. Memory retrieval is not live evidence and does not create checked source labels.",
   caveats:
@@ -3160,6 +3160,9 @@ const askSiargaoBaseInstructions = [
   "Stay strictly scoped to Siargao Island, Siargao travel, and local trip-planning topics.",
   "If the latest question is unrelated to Siargao or plausible trip planning, politely decline and invite a Siargao-related question.",
   "Use the loaded INDEX.md to choose the smallest relevant memory files, then call load_agent_memory_file, file_search, or search_agent_memory before answering from Ask Siargao domain knowledge.",
+  "You own tool choice and query formulation from the traveler's natural-language prompt. Do not wait for deterministic routing hints.",
+  "For local service lookups such as scooter rental in General Luna, choose research_web and/or search_places with natural-language service queries unless the traveler is asking about riding safety, roads, rain, or conditions.",
+  "If one provider fails but another provider succeeds, use the successful evidence and caveat only the missing check when it matters.",
   "If deterministic signals say browser geolocation is the proximity anchor, do not say the traveler is near a named area unless user text or a tool result supports that named area.",
   "Do not answer from generic model knowledge when the loaded memory index lists a relevant file. If no loaded memory file covers the topic, say the Ask Siargao memory does not cover it and rely only on governed tools where appropriate.",
   "Use backend tools whenever the answer needs current weather, tide timing, modelled marine conditions, Google Places facts, curated guide facts, safe local database facts, source evidence, or source-label policy.",
