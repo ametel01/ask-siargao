@@ -95,6 +95,37 @@ describe("web research provider", () => {
     ]);
   });
 
+  test("adds direct-source extraction rules for motorbike rental research", async () => {
+    const requests: Record<string, unknown>[] = [];
+    const provider = createOpenAIWebResearchProvider({
+      client: {
+        responses: {
+          create: async (params) => {
+            requests.push(params);
+            return { output_text: JSON.stringify({ results: [] }) };
+          },
+        },
+      },
+    });
+
+    await provider(
+      {
+        query: "motorbike rental in General Luna",
+        intent: "recommendation",
+        location: "General Luna",
+      },
+      {
+        requestId: "request_motorbike_rental_web_search",
+        searchedQueries: ["motorbike rental in general luna rates contact whatsapp deposit helmet"],
+      },
+    );
+
+    const prompt = String(requests[0]?.input ?? "");
+    expect(prompt).toContain("directly identify rental operators");
+    expect(prompt).toContain("Exclude hotels, cafes, restaurants, attractions");
+    expect(prompt).toContain("motorbike parking");
+  });
+
   test("defaults hosted web_search to gpt-5.4-mini without inheriting OPENAI_MODEL", async () => {
     const originalProvider = process.env.WEB_RESEARCH_PROVIDER;
     const originalModel = process.env.OPENAI_MODEL;

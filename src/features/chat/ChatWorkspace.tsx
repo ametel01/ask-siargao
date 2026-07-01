@@ -327,6 +327,13 @@ type AssistantMarkdownBlock =
     }
   | {
       key: string;
+      type: "table";
+      headers: string[];
+      rows: string[][];
+      alignments: AssistantMarkdownTableAlignment[];
+    }
+  | {
+      key: string;
       type: "list";
       ordered: boolean;
       items: Array<{
@@ -334,6 +341,7 @@ type AssistantMarkdownBlock =
         text: string;
       }>;
     };
+type AssistantMarkdownTableAlignment = "left" | "center" | "right";
 type AssistantMarkdownListItems = Extract<AssistantMarkdownBlock, { type: "list" }>["items"];
 
 function useSavedPlanSharing(savedTripState: SavedTripState) {
@@ -3390,6 +3398,56 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
           );
         }
 
+        if (block.type === "table") {
+          return (
+            <div
+              className="max-w-full overflow-x-auto rounded-md border border-border-default"
+              key={block.key}
+            >
+              <table className="w-full min-w-[560px] border-collapse bg-white text-sm text-text-default">
+                <thead className="bg-brand-lavender-50 text-text-strong">
+                  <tr>
+                    {block.headers.map((header, index) => (
+                      <th
+                        className={`border-border-default border-b px-3 py-2 align-top font-black ${tableTextAlignmentClass(block.alignments[index])}`}
+                        key={`${block.key}-head-${header}`}
+                        scope="col"
+                      >
+                        <InlineMarkdown
+                          linkClass={linkClass}
+                          strongClass={strongClass}
+                          value={header}
+                        />
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row) => (
+                    <tr
+                      className="border-border-default border-t"
+                      key={`${block.key}-${row.join("|")}`}
+                    >
+                      {block.headers.map((header, cellIndex) => (
+                        <td
+                          className={`px-3 py-2 align-top leading-[1.45] ${tableTextAlignmentClass(block.alignments[cellIndex])}`}
+                          key={`${block.key}-${row.join("|")}-${header}`}
+                        >
+                          <InlineMarkdown
+                            linkClass={linkClass}
+                            strongClass={strongClass}
+                            value={row[cellIndex] ?? ""}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+
         return (
           <p
             className={`m-0 max-w-full text-sm leading-[1.6] break-words sm:text-base ${textClass}`}
@@ -3449,6 +3507,7 @@ function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
   let paragraphLines: string[] = [];
   let listItems: AssistantMarkdownListItems = [];
   let listOrdered = false;
+  let tableLines: string[] = [];
   let blockKeyCount = 0;
   let itemKeyCount = 0;
 
@@ -3487,14 +3546,39 @@ function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
     listOrdered = false;
   };
 
+  const flushTable = () => {
+    if (tableLines.length === 0) {
+      return;
+    }
+
+    const table = parseAssistantMarkdownTable(tableLines, blockKeyCount);
+    if (table) {
+      blocks.push(table);
+      blockKeyCount += 1;
+    } else {
+      paragraphLines.push(...tableLines);
+    }
+    tableLines = [];
+  };
+
   for (const rawLine of normalizedText.split("\n")) {
     const line = rawLine.trim();
 
     if (!line) {
       flushParagraph();
       flushList();
+      flushTable();
       continue;
     }
+
+    if (isMarkdownTableLine(line)) {
+      flushParagraph();
+      flushList();
+      tableLines.push(line);
+      continue;
+    }
+
+    flushTable();
 
     if (/^\s{2,}\S/.test(rawLine) && listItems.length > 0) {
       listItems[listItems.length - 1] = {
@@ -3576,6 +3660,7 @@ function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
 
   flushParagraph();
   flushList();
+  flushTable();
 
   return blocks.length > 0
     ? blocks
@@ -3586,6 +3671,84 @@ function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
           text,
         },
       ];
+}
+
+function tableTextAlignmentClass(alignment: AssistantMarkdownTableAlignment | undefined) {
+  if (alignment === "center") {
+    return "text-center";
+  }
+  if (alignment === "right") {
+    return "text-right";
+  }
+  return "text-left";
+}
+
+function parseAssistantMarkdownTable(
+  lines: readonly string[],
+  blockKeyCount: number,
+): AssistantMarkdownBlock | undefined {
+  if (lines.length < 2) {
+    return undefined;
+  }
+
+  const headers = parseMarkdownTableCells(lines[0] ?? "");
+  const separatorCells = parseMarkdownTableCells(lines[1] ?? "");
+  if (
+    headers.length === 0 ||
+    separatorCells.length !== headers.length ||
+    !separatorCells.every(isMarkdownTableSeparatorCell)
+  ) {
+    return undefined;
+  }
+
+  const rows: string[][] = [];
+  for (const line of lines.slice(2)) {
+    const row = normalizeMarkdownTableRow(parseMarkdownTableCells(line), headers.length);
+    if (row.some((cell) => cell.length > 0)) {
+      rows.push(row);
+    }
+  }
+  if (rows.length === 0) {
+    return undefined;
+  }
+
+  return {
+    key: createAssistantMarkdownKey("table", headers.join("|"), blockKeyCount),
+    type: "table",
+    headers,
+    rows,
+    alignments: separatorCells.map(markdownTableAlignment),
+  };
+}
+
+function isMarkdownTableLine(line: string) {
+  return /^\|.+\|$/.test(line) && line.split("|").length >= 3;
+}
+
+function parseMarkdownTableCells(line: string) {
+  return line
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function normalizeMarkdownTableRow(cells: readonly string[], columnCount: number) {
+  return Array.from({ length: columnCount }, (_, index) => cells[index] ?? "");
+}
+
+function isMarkdownTableSeparatorCell(cell: string) {
+  return /^:?-{3,}:?$/.test(cell);
+}
+
+function markdownTableAlignment(cell: string): AssistantMarkdownTableAlignment {
+  if (/^:-{3,}:$/.test(cell)) {
+    return "center";
+  }
+  if (/^-{3,}:$/.test(cell)) {
+    return "right";
+  }
+  return "left";
 }
 
 function createAssistantMarkdownKey(prefix: string, value: string, count: number) {

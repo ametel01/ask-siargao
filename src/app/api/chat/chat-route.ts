@@ -33,17 +33,10 @@ import {
   touchChatThread,
 } from "@/server/chat/chat-history-store";
 import { deriveTripContext, type TripContext } from "@/server/chat/intent";
-import { interpretPlaceIntent, type PlaceIntent } from "@/server/chat/place-intent";
 import {
   assertChatAnswerSourceConsistency,
   SourceConsistencyError,
 } from "@/server/chat/source-consistency";
-import type {
-  WebResearchDateContext,
-  WebResearchFreshnessLevel,
-  WebResearchIntent,
-  WebResearchSourceType,
-} from "@/server/chat/web-research";
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 import { createComponentLogger } from "@/server/observability/logger";
@@ -93,44 +86,11 @@ type AuthenticatedChatPersistence = {
 };
 
 type ChatRequestIntent = {
-  latestUserTurn: string;
-  recentUserContext: string;
   tripContext: TripContext;
-  conditionActivity?: "swimming" | "surfing" | "scooter" | "rain_plan" | "sunset" | "boat_trip";
   locationLabel?: "Cloud 9" | "Del Carmen" | "General Luna" | "Siargao Island";
-  activityPlan: boolean;
-  beach: boolean;
-  marineCondition: boolean;
-  missingContext: boolean;
   nearby: boolean;
   nearMeUsesBrowserGeolocation: boolean;
-  nightlifePlan: boolean;
-  placeIntent?: PlaceIntent;
-  researchIntent?: ChatResearchIntent;
-  roadCondition: boolean;
   shouldDeclineNonSiargaoTopic: boolean;
-  today: boolean;
-  tripAdvice: boolean;
-  weatherSensitive: boolean;
-  weather: boolean;
-};
-
-type ChatResearchIntent = {
-  required: true;
-  intent: WebResearchIntent;
-  query: string;
-  location?: string;
-  dateContext?: WebResearchDateContext;
-  sourceTypes: readonly WebResearchSourceType[];
-  requiredFreshness?: WebResearchFreshnessLevel;
-  reason: string;
-  coveredRequestClass:
-    | "current_recommendation"
-    | "schedule"
-    | "availability"
-    | "price"
-    | "safety_disruption"
-    | "current_comparison";
 };
 
 type PublicAgentMemoryMetadata = {
@@ -256,19 +216,16 @@ export async function chatResponse(
       latestUserMessage: latestUserMessage
         ? summarizeMessageForLogs(latestUserMessage.content)
         : null,
-      isRecommendationQuestion: isRecommendationQuestion(intent),
-      isWeatherQuestion: isWeatherQuestion(intent),
       shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
-      missingContext: intent.missingContext,
       geolocation: summarizeGeolocationForLogs(clientContext.geolocation),
     },
     "Chat request received.",
   );
   logger.debug(
     {
-      intent: summarizeIntentForLogs(intent),
+      scope: summarizeScopeForLogs(intent),
     },
-    "Chat request intent interpreted.",
+    "Chat request scope interpreted.",
   );
 
   try {
@@ -284,10 +241,8 @@ export async function chatResponse(
         },
         deterministicSignals: {
           clientContext: summarizeClientContextForAgent(clientContext),
-          context: summarizeContextForAgent(intent),
           scope: {
             shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
-            missingContext: intent.missingContext,
           },
         },
       },
@@ -820,10 +775,6 @@ function summarizeGeolocationForLogs(geolocation: ChatClientGeolocationContext) 
   };
 }
 
-function isWeatherQuestion(intent: ChatRequestIntent) {
-  return intent.weather || intent.weatherSensitive || intent.activityPlan;
-}
-
 function summarizeMemoryForResponse(memory: AgentMemoryMetadata): PublicAgentMemoryMetadata {
   return {
     versionId: memory.versionId,
@@ -903,108 +854,29 @@ function isProviderFailureToolCall(toolCall: PublicAgentToolCall) {
   );
 }
 
-function isRecommendationQuestion(intent: ChatRequestIntent) {
-  return Boolean(intent.placeIntent);
-}
-
 function interpretChatRequestIntent(
   messages: readonly AskSiargaoChatMessage[],
   clientContext?: ChatClientContext,
 ): ChatRequestIntent {
   const derivedTripContext = deriveTripContext(messages);
-  const { fullUserContext, latestUserTurn, recentUserContext } = derivedTripContext;
+  const { fullUserContext, latestUserTurn } = derivedTripContext;
   const nearMeUsesBrowserGeolocation =
     isBrowserLocationNearMeRequest(latestUserTurn) &&
     clientContext?.geolocation.status === "available";
   const tripContext = nearMeUsesBrowserGeolocation
     ? withoutDefaultNearbyLocation(derivedTripContext)
     : derivedTripContext;
-  const rawPlaceIntent = interpretPlaceIntent(messages);
-  const placeIntent = nearMeUsesBrowserGeolocation
-    ? withoutDefaultNearbyPlaceIntent(rawPlaceIntent)
-    : rawPlaceIntent;
-  const latestBeach =
-    isBeachContent(latestUserTurn) ||
-    tripContext.activeGoal === "beach_swimming" ||
-    tripContext.activeGoal === "beach_sunset";
-  const contextualBeach =
-    isBeachConstraintContent(latestUserTurn) && isBeachContent(recentUserContext);
   const locationLabel =
     inferChatLocationLabelFromTripContext(tripContext) ?? inferChatLocationLabel(fullUserContext);
-  const today =
-    /\btoday|tonight|right\s+now|now|this\s+(?:morning|afternoon|evening|night)\b/i.test(
-      fullUserContext,
-    );
   const nearby = /\bnear(?:by)?|around|close\s+to|that\s+area|in\s+that\s+area|by\s+/i.test(
     fullUserContext,
   );
-  const bareRideBoatFollowUp = isBareRideBoatFollowUp(latestUserTurn, recentUserContext);
-  const directConditionActivity = bareRideBoatFollowUp
-    ? undefined
-    : inferConditionActivity(latestUserTurn);
-  const conditionActivity = bareRideBoatFollowUp
-    ? "boat_trip"
-    : (directConditionActivity ??
-      inferFollowUpConditionActivity(latestUserTurn, recentUserContext));
-  const inheritedConditionContext = directConditionActivity ? latestUserTurn : recentUserContext;
-  const marineCondition =
-    isMarineConditionContent(latestUserTurn) ||
-    (Boolean(conditionActivity) && isMarineConditionContent(inheritedConditionContext));
-  const roadCondition =
-    (!bareRideBoatFollowUp && isRoadConditionContent(latestUserTurn)) ||
-    (Boolean(conditionActivity) && isRoadConditionContent(inheritedConditionContext));
-  const weather = isWeatherContent(latestUserTurn);
-  const nightlifePlan = isNightlifePlanContent(latestUserTurn);
-  const tripAdvice = tripContext.activeGoal === "trip_advice";
-  const weatherSensitive =
-    weather ||
-    Boolean(conditionActivity) ||
-    marineCondition ||
-    roadCondition ||
-    tripContext.activeGoal === "rain_plan" ||
-    /\brainy|rain(?:ing)?|showers?|storm|windy|surf|waves?|conditions?|cloudy\b/i.test(
-      latestUserTurn,
-    ) ||
-    ((today || nearby) && isActivityPlanContent(latestUserTurn)) ||
-    nightlifePlan;
-  const excludesActivityPlan = isLogisticsOrCritiquePlanContent(latestUserTurn);
-  const activityPlan =
-    !excludesActivityPlan &&
-    (isActivityPlanContent(latestUserTurn) || tripContext.activeGoal === "itinerary") &&
-    (Boolean(locationLabel) || /\bsiargao\b/i.test(fullUserContext));
-  const partialIntent = {
-    latestUserTurn,
-    recentUserContext,
-    tripContext,
-    ...(locationLabel || nightlifePlan
-      ? { locationLabel: locationLabel ?? ("General Luna" as const) }
-      : {}),
-    activityPlan,
-    beach: latestBeach || contextualBeach,
-    ...(conditionActivity ? { conditionActivity } : {}),
-    marineCondition,
-    nearby,
-    nearMeUsesBrowserGeolocation,
-    nightlifePlan,
-    ...(placeIntent ? { placeIntent } : {}),
-    researchIntent: inferResearchIntent({
-      latestUserTurn,
-      locationLabel,
-      nightlifePlan,
-      placeIntent,
-      today,
-      weatherSensitive,
-    }),
-    roadCondition,
-    today,
-    tripAdvice,
-    weatherSensitive,
-    weather,
-  };
 
   return {
-    ...partialIntent,
-    missingContext: shouldAskForMissingContext(partialIntent),
+    tripContext,
+    ...(locationLabel ? { locationLabel } : {}),
+    nearby,
+    nearMeUsesBrowserGeolocation,
     shouldDeclineNonSiargaoTopic: shouldDeclineNonSiargaoTopic(messages),
   };
 }
@@ -1018,174 +890,9 @@ function withoutDefaultNearbyLocation(tripContext: TripContext): TripContext {
   return rest;
 }
 
-function withoutDefaultNearbyPlaceIntent(placeIntent: PlaceIntent | null): PlaceIntent | null {
-  if (placeIntent?.areaScope !== "nearby" || placeIntent.location !== "General Luna") {
-    return placeIntent;
-  }
-
-  const tripContext = withoutDefaultNearbyLocation(placeIntent.tripContext);
-  return {
-    ...placeIntent,
-    location: null,
-    tripContext,
-  };
-}
-
 function isBrowserLocationNearMeRequest(content: string) {
   return /\b(?:near\s+me|around\s+me|close\s+to\s+me|by\s+me|my\s+(?:location|area)|current\s+location|where\s+i\s+am|around\s+here|near\s+here|near\s+us|around\s+us|close\s+to\s+us)\b/i.test(
     content,
-  );
-}
-
-function isActivityPlanContent(content: string) {
-  if (isLogisticsOrCritiquePlanContent(content)) {
-    return false;
-  }
-  const directActivityLanguage =
-    /\b(w?hat\s+should|w?hat\s+can|things?\s+to\s+do|activities?|itinerary|half[-\s]?day|food\s+crawl|sandy\s+beach(?:es)?)\b/i.test(
-      content,
-    );
-  const scopedPlanLanguage =
-    /\bplan\b/i.test(content) &&
-    /\b(?:rainy\s+cloud\s*9|sunset|dinner|food\s+crawl|sandy\s+beach|non[-\s]?surfer|half[-\s]?day|(?:two|three|four|2|3|4)[-\s]?(?:hour|hr)s?|stops?|sequence|route)\b/i.test(
-      content,
-    );
-  return directActivityLanguage || scopedPlanLanguage;
-}
-
-function isNightlifePlanContent(content: string) {
-  const nightlifeSignal =
-    /\b(?:party|nightlife|bar[-\s]?hopp?ing|bar\s+crawl|dj|live\s*music|foam\s*party|pub\s*quiz|trivia|drinks?\s+tonight|where\s+(?:should|can)\s+(?:we|i)\s+go\s+out)\b/i.test(
-      content,
-    );
-  const timeBoundSignal =
-    /\b(?:tonight|today|right\s+now|now|this\s+(?:evening|night)|late[-\s]?night)\b/i.test(content);
-  const generalLunaSignal = /\b(?:general\s+luna|\bgl\b|siargao)\b/i.test(content);
-  return nightlifeSignal && (timeBoundSignal || generalLunaSignal);
-}
-
-function isLogisticsOrCritiquePlanContent(content: string) {
-  if (
-    /\b(critique|review|audit|improve\s+my\s+itinerary|plan\s+my\s+(?:trip|vacation|holiday))\b/i.test(
-      content,
-    )
-  ) {
-    return true;
-  }
-  return (
-    /\b(airport|flight|ferry|pier|port|transfer|pickup|pick\s+up|drop[-\s]?off|taxi|shuttle|transport|transportation|logistics?)\b/i.test(
-      content,
-    ) && !hasScopedLocalItineraryContent(content)
-  );
-}
-
-function hasScopedLocalItineraryContent(content: string) {
-  return (
-    /\b(?:rainy\s+cloud\s*9|sunset|dinner|food\s+crawl|sandy\s+beach|non[-\s]?surfer|half[-\s]?day)\b/i.test(
-      content,
-    ) ||
-    (/\b(?:two|three|four|2|3|4)[-\s]?(?:hour|hr)s?\b/i.test(content) &&
-      /\b(food\s+crawl|crawl|things?\s+to\s+do|activities?|stops?|beaches?|sunset|dinner|lunch|breakfast|brunch|caf[eé]s?|restaurants?|eat)\b/i.test(
-        content,
-      )) ||
-    (/\b(?:route|sequence)\b/i.test(content) && /\bstops?\b/i.test(content))
-  );
-}
-
-function isBeachContent(content: string) {
-  return /\b(beaches?|beach\s+day|swim(?:ming)?|sand(?:y)?\s+beach(?:es)?|not\s+rocky|rocky|sunset\s+beach|within\s+\d+\s*(?:min|minutes?)\s+(?:ride|drive)|scooter\s+(?:ride|day|trip))\b/i.test(
-    content,
-  );
-}
-
-function isBeachConstraintContent(content: string) {
-  return /\b(sand(?:y)?|not\s+rocky|rocky|swim(?:ming)?|sunset|within\s+\d+\s*(?:min|minutes?)|ride|scooter|half[-\s]?day)\b/i.test(
-    content,
-  );
-}
-
-function isWeatherContent(content: string) {
-  return /\b(weather|forecast|rain|rainy|raining|showers?|wind|windy|storm|cloudy|sunny|humidity|temperature|temp|tide|waves?|surf|sea conditions?)\b/i.test(
-    content,
-  );
-}
-
-function inferConditionActivity(
-  content: string,
-): ChatRequestIntent["conditionActivity"] | undefined {
-  if (/\b(swim|swimming|swimmable)\b/i.test(content)) {
-    return "swimming";
-  }
-  if (/\b(boat|boat\s+tour|island\s+hopping|sugba|lagoon)\b/i.test(content)) {
-    return "boat_trip";
-  }
-  if (/\b(surf|surfing|waves?|swell)\b/i.test(content)) {
-    return "surfing";
-  }
-  if (/\b(scooter|motorbike|motor\s*bike|land\s+tour)\b/i.test(content)) {
-    return "scooter";
-  }
-  if (
-    /\bdrive\b/i.test(content) ||
-    (/\bride\b/i.test(content) && !isMarineConditionContent(content))
-  ) {
-    return "scooter";
-  }
-  if (/\brain\s+plan|rainy\s+day|covered|avoid\s+rain\b/i.test(content)) {
-    return "rain_plan";
-  }
-  if (/\bsunset\b/i.test(content)) {
-    return "sunset";
-  }
-  return undefined;
-}
-
-function inferFollowUpConditionActivity(
-  latestUserTurn: string,
-  recentUserContext: string,
-): ChatRequestIntent["conditionActivity"] | undefined {
-  if (!isConditionFollowUpContent(latestUserTurn)) {
-    return undefined;
-  }
-  if (
-    /\b(food|eat|restaurants?|caf[eé]s?|coffee|dinner|lunch|breakfast|brunch|bar|hotel|stay)\b/i.test(
-      latestUserTurn,
-    )
-  ) {
-    return undefined;
-  }
-  return inferConditionActivity(recentUserContext);
-}
-
-function isBareRideBoatFollowUp(latestUserTurn: string, recentUserContext: string) {
-  return (
-    /\bride\b/i.test(latestUserTurn) &&
-    !/\b(scooter|motorbike|motor\s*bike|drive|land\s+tour)\b/i.test(latestUserTurn) &&
-    !hasBoatTripConditionContent(latestUserTurn) &&
-    hasBoatTripConditionContent(recentUserContext)
-  );
-}
-
-function isConditionFollowUpContent(content: string) {
-  return /\b(what\s+about|how\s+about|same|tomorrow|tmrw|next\s+7\s+days?|next\s+seven\s+days?|this\s+week|next\s+week|weekend|later\s+this\s+week)\b/i.test(
-    content,
-  );
-}
-
-function hasBoatTripConditionContent(content: string) {
-  return /\b(boat|island\s+hopping|sugba|lagoon|boat\s+trip|boat\s+ride|marine)\b/i.test(content);
-}
-
-function isMarineConditionContent(content: string) {
-  return /\b(tides?|surf|swell|waves?|currents?|sea\s+conditions?|swim(?:ming)?|boat|island\s+hopping|lagoon)\b/i.test(
-    content,
-  );
-}
-
-function isRoadConditionContent(content: string) {
-  return (
-    /\b(scooter|motorbike|motor\s*bike|road|flood(?:ed|ing)?|drive|land\s+tour)\b/i.test(content) ||
-    (/\bride\b/i.test(content) && !isMarineConditionContent(content))
   );
 }
 
@@ -1218,275 +925,20 @@ function inferChatLocationLabelFromTripContext(
   return undefined;
 }
 
-function inferResearchIntent({
-  latestUserTurn,
-  locationLabel,
-  nightlifePlan,
-  placeIntent,
-  today,
-  weatherSensitive,
-}: {
-  latestUserTurn: string;
-  locationLabel?: ChatRequestIntent["locationLabel"];
-  nightlifePlan: boolean;
-  placeIntent: PlaceIntent | null;
-  today: boolean;
-  weatherSensitive: boolean;
-}): ChatResearchIntent | undefined {
-  const location = locationLabel ?? placeIntent?.location ?? undefined;
-  const dateContext = inferResearchDateContext(latestUserTurn, today);
-  const currentish =
-    Boolean(dateContext && dateContext !== "none") || hasCurrentStatusSignal(latestUserTurn);
-
-  if (hasSafetyDisruptionSignal(latestUserTurn)) {
-    return {
-      required: true,
-      intent: "safety",
-      query: latestUserTurn,
-      ...(location ? { location } : {}),
-      ...(dateContext ? { dateContext } : {}),
-      sourceTypes: ["government", "news", "weather", "community"],
-      requiredFreshness: currentish ? "same_day" : "week",
-      reason: "safety, disruption, closure, or advisory request needs current public evidence",
-      coveredRequestClass: "safety_disruption",
-    };
-  }
-
-  if (hasPriceSignal(latestUserTurn)) {
-    return {
-      required: true,
-      intent: "price",
-      query: latestUserTurn,
-      ...(location ? { location } : {}),
-      ...(dateContext ? { dateContext } : {}),
-      sourceTypes: ["official", "local_directory", "guide"],
-      requiredFreshness: currentish ? "week" : "month",
-      reason: "price, rate, fee, or promo request needs public web evidence",
-      coveredRequestClass: "price",
-    };
-  }
-
-  if (hasScheduleSignal(latestUserTurn)) {
-    return {
-      required: true,
-      intent: "schedule",
-      query: latestUserTurn,
-      ...(location ? { location } : {}),
-      ...(dateContext ? { dateContext } : {}),
-      sourceTypes: ["official", "government", "local_directory", "news"],
-      requiredFreshness: currentish ? "same_day" : "week",
-      reason: "schedule, timetable, or event-time request needs current public evidence",
-      coveredRequestClass: "schedule",
-    };
-  }
-
-  if (hasAvailabilitySignal(latestUserTurn)) {
-    return {
-      required: true,
-      intent: "availability",
-      query: latestUserTurn,
-      ...(location ? { location } : {}),
-      ...(dateContext ? { dateContext } : {}),
-      sourceTypes: ["official", "government", "local_directory", "maps", "news"],
-      requiredFreshness: currentish ? "same_day" : "week",
-      reason: "availability, closure, running, or cancellation request needs public web evidence",
-      coveredRequestClass: "availability",
-    };
-  }
-
-  if (nightlifePlan) {
-    return {
-      required: true,
-      intent: "recommendation",
-      query: latestUserTurn,
-      location: location ?? "General Luna",
-      ...(dateContext ? { dateContext } : {}),
-      sourceTypes: ["official", "local_directory", "social", "guide", "community"],
-      requiredFreshness: "same_day",
-      reason: "current nightlife recommendations need public event and venue web evidence",
-      coveredRequestClass: "current_recommendation",
-    };
-  }
-
-  if (placeIntent && currentish && hasRecommendationSignal(latestUserTurn)) {
-    return {
-      required: true,
-      intent: "recommendation",
-      query: latestUserTurn,
-      ...(location ? { location } : {}),
-      ...(dateContext ? { dateContext } : {}),
-      sourceTypes: sourceTypesForCurrentPlaceRecommendation(placeIntent),
-      requiredFreshness: "same_day",
-      reason: "current place recommendation needs public web evidence before enrichment",
-      coveredRequestClass: "current_recommendation",
-    };
-  }
-
-  if (currentish && hasComparisonSignal(latestUserTurn) && !weatherSensitive) {
-    return {
-      required: true,
-      intent: "recommendation",
-      query: latestUserTurn,
-      ...(location ? { location } : {}),
-      ...(dateContext ? { dateContext } : {}),
-      sourceTypes: ["official", "local_directory", "guide", "community"],
-      requiredFreshness: "week",
-      reason: "current comparison needs public reputation or status evidence",
-      coveredRequestClass: "current_comparison",
-    };
-  }
-
-  return undefined;
-}
-
-function inferResearchDateContext(
-  content: string,
-  today: boolean,
-): WebResearchDateContext | undefined {
-  if (/\btonight|this\s+(?:evening|night)|late[-\s]?night\b/i.test(content)) {
-    return "tonight";
-  }
-  if (/\btomorrow|tmrw\b/i.test(content)) {
-    return "tomorrow";
-  }
-  if (/\bnext\s+7\s+days?|next\s+seven\s+days?|this\s+week|next\s+week|weekend\b/i.test(content)) {
-    return "next_7_days";
-  }
-  if (today || /\btoday|right\s+now|now|currently|current\b/i.test(content)) {
-    return "today";
-  }
-  return undefined;
-}
-
-function sourceTypesForCurrentPlaceRecommendation(
-  placeIntent: PlaceIntent,
-): readonly WebResearchSourceType[] {
-  if (placeIntent.category === "food" || placeIntent.category === "coffee") {
-    return ["maps", "official", "local_directory", "guide", "social"];
-  }
-  if (placeIntent.category === "bar") {
-    return ["official", "local_directory", "social", "guide", "community"];
-  }
-  return ["official", "local_directory", "guide", "community"];
-}
-
-function hasCurrentStatusSignal(content: string) {
-  return /\b(today|tonight|tomorrow|right\s+now|now|currently|current|latest|still|open|closed|running|cancelled|canceled|happening)\b/i.test(
-    content,
-  );
-}
-
-function hasRecommendationSignal(content: string) {
-  return /\b(best|recommend(?:ed|ations?)?|where\s+(?:should|can)\s+(?:we|i)|any\s+good|top|worth\s+it)\b/i.test(
-    content,
-  );
-}
-
-function hasComparisonSignal(content: string) {
-  return /\b(compare|which\s+(?:is|one)|better|best|vs\.?|versus)\b/i.test(content);
-}
-
-function hasScheduleSignal(content: string) {
-  return /\b(schedule|timetable|times?|what\s+time|when\s+(?:is|are|does)|ferry|flight|event|events|dj\s+set|lineup)\b/i.test(
-    content,
-  );
-}
-
-function hasAvailabilitySignal(content: string) {
-  return /\b(open|closed|running|available|still\s+happening|happening|cancelled|canceled|postponed|sold\s+out|book(?:ing)?|reserve)\b/i.test(
-    content,
-  );
-}
-
-function hasPriceSignal(content: string) {
-  return /\b(how\s+much|price|prices|rate|rates|fee|fees|cost|promo|promotion|current\s+rate|tour\s+price)\b/i.test(
-    content,
-  );
-}
-
-function hasSafetyDisruptionSignal(content: string) {
-  return /\b(road\s+closures?|closed\s+roads?|brownouts?|power\s+outage|advisories?|warnings?|storm\s+impact|disruption|cancel(?:led|ed|ations?)|suspended|flood(?:ed|ing)?|unsafe|safety|accident)\b/i.test(
-    content,
-  );
-}
-
-function summarizeContextForAgent(intent: ChatRequestIntent) {
+function summarizeScopeForLogs(intent: ChatRequestIntent) {
   return {
     locationLabel: intent.locationLabel,
     nearby: intent.nearby,
     nearMeUsesBrowserGeolocation: intent.nearMeUsesBrowserGeolocation,
     tripContext: {
-      activeGoal: intent.tripContext.activeGoal,
-      currentArea: intent.tripContext.currentArea,
-      currentLocation: intent.tripContext.currentLocation,
-      durableConstraints: intent.tripContext.durableConstraints,
-      origin: intent.tripContext.origin,
-      rideTimeLimitMinutes: intent.tripContext.rideTimeLimitMinutes,
-      temporaryModifiers: intent.tripContext.temporaryModifiers,
-      transportMode: intent.tripContext.transportMode,
-      travelerProfile: intent.tripContext.travelerProfile,
-      unresolvedReference: intent.tripContext.unresolvedReference,
-    },
-    browserGeolocation: intent.nearMeUsesBrowserGeolocation
-      ? {
-          useAsProximityAnchor: true,
-          source: "browser_geolocation",
-          exactCoordinatesHidden: true,
-          instruction:
-            "The user asked near me/my location and browser geolocation is available. Do not assume any named area unless a tool or user text supports it.",
-        }
-      : undefined,
-  };
-}
-
-function summarizeIntentForLogs(intent: ChatRequestIntent) {
-  return {
-    activityPlan: intent.activityPlan,
-    beach: intent.beach,
-    conditionActivity: intent.conditionActivity,
-    locationLabel: intent.locationLabel,
-    marineCondition: intent.marineCondition,
-    missingContext: intent.missingContext,
-    nearby: intent.nearby,
-    nearMeUsesBrowserGeolocation: intent.nearMeUsesBrowserGeolocation,
-    nightlifePlan: intent.nightlifePlan,
-    tripContext: {
-      activeGoal: intent.tripContext.activeGoal,
       currentLocation: intent.tripContext.currentLocation?.label,
       currentLocationSource: intent.tripContext.currentLocation?.source,
       durableConstraints: intent.tripContext.durableConstraints,
       temporaryModifiers: intent.tripContext.temporaryModifiers,
       unresolvedReference: intent.tripContext.unresolvedReference,
     },
-    placeIntent: intent.placeIntent
-      ? {
-          category: intent.placeIntent.category,
-          liveNeeds: intent.placeIntent.liveNeeds,
-          location: intent.placeIntent.location,
-        }
-      : undefined,
-    researchIntent: intent.researchIntent
-      ? {
-          intent: intent.researchIntent.intent,
-          dateContext: intent.researchIntent.dateContext,
-          location: intent.researchIntent.location,
-          sourceTypes: intent.researchIntent.sourceTypes,
-          requiredFreshness: intent.researchIntent.requiredFreshness,
-          reason: intent.researchIntent.reason,
-          coveredRequestClass: intent.researchIntent.coveredRequestClass,
-        }
-      : undefined,
-    roadCondition: intent.roadCondition,
     shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
-    today: intent.today,
-    tripAdvice: intent.tripAdvice,
-    weather: intent.weather,
-    weatherSensitive: intent.weatherSensitive,
   };
-}
-
-function shouldAskForMissingContext(intent: Pick<ChatRequestIntent, "tripContext">) {
-  return intent.tripContext.unresolvedReference === "there";
 }
 
 function shouldDeclineNonSiargaoTopic(messages: readonly AskSiargaoChatMessage[]) {

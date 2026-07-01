@@ -101,6 +101,7 @@ function webResearchExtractionPrompt(
     "Return JSON only, matching the provided schema.",
     "Prefer official operator, government, venue, directory, event-calendar, map, news, and recent guide pages.",
     "Do not include private groups, raw page text, user personal data, or unsupported claims.",
+    ...vehicleRentalExtractionInstructions(request),
     `Request ID: ${context.requestId}`,
     `Intent: ${request.intent}`,
     `Location: ${request.location ?? "Siargao"}`,
@@ -111,6 +112,24 @@ function webResearchExtractionPrompt(
     "Search queries:",
     ...context.searchedQueries.map((query, index) => `${index + 1}. ${query}`),
   ].join("\n");
+}
+
+function vehicleRentalExtractionInstructions(request: ResearchWebRequest) {
+  if (!vehicleRentalLike(request.query)) {
+    return [];
+  }
+
+  return [
+    "For scooter, motorbike, motorcycle, or bike rental requests, return only pages that directly identify rental operators, rental directories, booking pages, rates, deposits, included helmets, delivery/pickup, or contact details.",
+    "Exclude hotels, cafes, restaurants, attractions, and guide pages that merely mention motorbike parking, transport around the island, or explicitly say they are not a rental operator.",
+  ];
+}
+
+function vehicleRentalLike(value: string) {
+  return (
+    /\b(?:scooters?|motorbikes?|motor\s*bikes?|motorcycles?|bike|bikes)\b/i.test(value) &&
+    /\b(?:rent|rental|rentals|hire|hiring)\b/i.test(value)
+  );
 }
 
 function webResearchSourcesJsonSchema(maxResults: number) {

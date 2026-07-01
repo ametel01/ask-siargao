@@ -126,7 +126,7 @@ describe("chat route", () => {
       "where can I rent a scooter in General Luna?",
     );
     expectNoRouteOwnedToolSignals(signals);
-    expect(signals?.context.locationLabel).toBe("General Luna");
+    expect(signals).not.toHaveProperty("context");
   });
 
   test("persists authenticated chat turns with public artifacts and redacted context", async () => {
@@ -384,15 +384,7 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expectNoRouteOwnedToolSignals(signals);
-    expect(signals?.context.nearby).toBe(true);
-    expect(signals?.context.nearMeUsesBrowserGeolocation).toBe(true);
-    expect(signals?.context.locationLabel).toBeUndefined();
-    expect(signals?.context.tripContext?.currentLocation).toBeUndefined();
-    expect(signals?.context.browserGeolocation).toMatchObject({
-      useAsProximityAnchor: true,
-      source: "browser_geolocation",
-      exactCoordinatesHidden: true,
-    });
+    expect(signals).not.toHaveProperty("context");
     expect(JSON.stringify(signals)).not.toContain("General Luna");
     expect(JSON.stringify(signals)).not.toContain(String(geolocation.latitude));
     expect(JSON.stringify(signals)).not.toContain(String(geolocation.longitude));
@@ -545,7 +537,7 @@ describe("chat route", () => {
     expect(signals?.scope.shouldDeclineNonSiargaoTopic).toBe(true);
   });
 
-  test("sends missing-context prompts to the agent as clarification signals", async () => {
+  test("sends missing-context prompts to the agent without route-owned clarification signals", async () => {
     const dependencies = chatDependencies({
       message: "Which Siargao place or area do you mean by there?",
       sources: [genericSourceSummary],
@@ -563,7 +555,7 @@ describe("chat route", () => {
     expectNoRouteOwnedToolSignals(signals);
     expect(body.message).toContain("Which Siargao place");
     expect(dependencies.requests).toHaveLength(1);
-    expect(signals?.scope.missingContext).toBe(true);
+    expect(signals?.scope).not.toHaveProperty("missingContext");
   });
 
   test("returns weather tool evidence from the agent runtime", async () => {
@@ -593,7 +585,7 @@ describe("chat route", () => {
     expect(body.sources).toEqual([weatherSourceSummary]);
   });
 
-  test("passes condition hints for swimming prompts without forcing an itinerary", async () => {
+  test("passes swimming prompts without route-owned condition signals", async () => {
     const dependencies = chatDependencies({
       message: "The model should use condition evidence before advising on swimming.",
       sources: [genericSourceSummary],
@@ -610,7 +602,7 @@ describe("chat route", () => {
     expectNoRouteOwnedToolSignals(signals);
   });
 
-  test("passes condition hints for mixed scooter and boat prompts", async () => {
+  test("passes mixed scooter and boat prompts without route-owned condition signals", async () => {
     const dependencies = chatDependencies({
       message: "The model should judge road and marine conditions with tools.",
       sources: [genericSourceSummary],
@@ -651,7 +643,7 @@ describe("chat route", () => {
     }
   });
 
-  test("classifies boat ride prompts as boat condition judgments", async () => {
+  test("passes boat ride prompts without route-owned condition signals", async () => {
     const dependencies = chatDependencies({
       message: "The model should judge boat and marine conditions with tools.",
       sources: [genericSourceSummary],
@@ -687,10 +679,10 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expectNoRouteOwnedToolSignals(signals);
-    expect(signals?.context.locationLabel).toBe("Del Carmen");
+    expect(signals).not.toHaveProperty("context");
   });
 
-  test("classifies wave questions for Sugba boats as boat condition judgments", async () => {
+  test("passes Sugba wave prompts without route-owned condition signals", async () => {
     const dependencies = chatDependencies({
       message: "The model should judge boat and marine conditions with tools.",
       sources: [genericSourceSummary],
@@ -707,7 +699,7 @@ describe("chat route", () => {
     expectNoRouteOwnedToolSignals(signals);
   });
 
-  test("inherits condition intent for temporal follow-ups", async () => {
+  test("passes temporal condition follow-ups without route-owned condition signals", async () => {
     const dependencies = chatDependencies({
       message: "The model should check tomorrow condition evidence.",
       sources: [genericSourceSummary],
@@ -1317,7 +1309,7 @@ describe("chat route", () => {
     });
   }
 
-  test("marks sandy beach half-day prompts as activity plans without explicit plan verbs", async () => {
+  test("passes sandy beach half-day prompts without route-owned activity signals", async () => {
     const dependencies = chatDependencies({
       message: "The model writes a sandy half-day answer.",
       sources: [genericSourceSummary],
@@ -1332,10 +1324,10 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expectNoRouteOwnedToolSignals(signals);
-    expect(signals?.context.locationLabel).toBe("General Luna");
+    expect(signals).not.toHaveProperty("context");
   });
 
-  test("marks scoped half-day prompts by van as activity plans", async () => {
+  test("passes scoped half-day prompts by van without route-owned activity signals", async () => {
     const dependencies = chatDependencies({
       message: "The model writes a van-based half-day answer.",
       sources: [genericSourceSummary],
@@ -1355,10 +1347,10 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expectNoRouteOwnedToolSignals(signals);
-    expect(signals?.context.locationLabel).toBe("General Luna");
+    expect(signals).not.toHaveProperty("context");
   });
 
-  test("marks scoped food-crawl prompts before ferry transfer as activity plans", async () => {
+  test("passes scoped food-crawl prompts before ferry transfer without route-owned activity signals", async () => {
     const dependencies = chatDependencies({
       message: "The model writes a ferry-timed food crawl answer.",
       sources: [genericSourceSummary],
@@ -1378,10 +1370,10 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expectNoRouteOwnedToolSignals(signals);
-    expect(signals?.context.locationLabel).toBe("General Luna");
+    expect(signals).not.toHaveProperty("context");
   });
 
-  test("marks scoped half-day route before airport pickup as an activity plan", async () => {
+  test("passes scoped half-day route before airport pickup without route-owned activity signals", async () => {
     const dependencies = chatDependencies({
       message: "The model writes an airport-timed half-day answer.",
       sources: [genericSourceSummary],
@@ -1401,7 +1393,7 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expectNoRouteOwnedToolSignals(signals);
-    expect(signals?.context.locationLabel).toBe("General Luna");
+    expect(signals).not.toHaveProperty("context");
   });
 
   test("passes General Luna party prompts without research routing hints", async () => {
@@ -1424,7 +1416,7 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expectNoRouteOwnedToolSignals(signals);
-    expect(signals?.context.locationLabel).toBe("General Luna");
+    expect(signals).not.toHaveProperty("context");
   });
 
   test("passes current restaurant recommendations without research routing hints", async () => {
@@ -1442,7 +1434,7 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expectNoRouteOwnedToolSignals(signals);
-    expect(signals?.context.locationLabel).toBe("General Luna");
+    expect(signals).not.toHaveProperty("context");
   });
 
   test("passes current public-fact prompts without research routing hints", async () => {
@@ -1483,7 +1475,7 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expectNoRouteOwnedToolSignals(signals);
-    expect(signals?.context.locationLabel).toBe("General Luna");
+    expect(signals).not.toHaveProperty("context");
   });
 
   test("does not mark not-surfing food prompts as activity plans", async () => {
@@ -1506,10 +1498,10 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expectNoRouteOwnedToolSignals(signals);
-    expect(signals?.context.locationLabel).toBe("General Luna");
+    expect(signals).not.toHaveProperty("context");
   });
 
-  test("marks multi-need Cloud 9 stay prompts as broad trip advice", async () => {
+  test("passes multi-need Cloud 9 stay prompts without route-owned trip-advice signals", async () => {
     const dependencies = chatDependencies({
       message:
         "For 10 days near Cloud 9, treat sleep, surf, food, and transfer as separate planning needs.",
@@ -1531,8 +1523,7 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expectNoRouteOwnedToolSignals(signals);
-    expect(signals?.context.tripContext?.activeGoal).toBe("trip_advice");
-    expect(signals?.context.locationLabel).toBe("Cloud 9");
+    expect(signals).not.toHaveProperty("context");
   });
 
   for (const prompt of [
@@ -2122,18 +2113,7 @@ function assertRouteTravelerProseHasNoInternalMechanics(message: string) {
 
 function expectNoRouteOwnedToolSignals(signals: AgentSignals | undefined) {
   expect(signals).not.toHaveProperty("intent");
-  expect(signals?.context).not.toHaveProperty("activityPlan");
-  expect(signals?.context).not.toHaveProperty("beach");
-  expect(signals?.context).not.toHaveProperty("conditionActivity");
-  expect(signals?.context).not.toHaveProperty("marineCondition");
-  expect(signals?.context).not.toHaveProperty("nightlifePlan");
-  expect(signals?.context).not.toHaveProperty("placeIntent");
-  expect(signals?.context).not.toHaveProperty("researchIntent");
-  expect(signals?.context).not.toHaveProperty("roadCondition");
-  expect(signals?.context).not.toHaveProperty("today");
-  expect(signals?.context).not.toHaveProperty("tripAdvice");
-  expect(signals?.context).not.toHaveProperty("weather");
-  expect(signals?.context).not.toHaveProperty("weatherSensitive");
+  expect(signals).not.toHaveProperty("context");
 }
 
 type AgentSignals = {
@@ -2145,19 +2125,7 @@ type AgentSignals = {
       centerSource?: "browser_geolocation";
     };
   };
-  context: {
-    browserGeolocation?: {
-      exactCoordinatesHidden?: boolean;
-      source?: "browser_geolocation";
-      useAsProximityAnchor?: boolean;
-    };
-    locationLabel?: string;
-    nearMeUsesBrowserGeolocation?: boolean;
-    nearby?: boolean;
-    tripContext?: { activeGoal?: string; currentLocation?: unknown };
-  };
   scope: {
-    missingContext?: boolean;
     shouldDeclineNonSiargaoTopic?: boolean;
   };
 };

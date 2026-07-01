@@ -141,7 +141,9 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(String(client.requests[0]?.instructions)).toContain(
       "You own tool choice and query formulation",
     );
-    expect(String(client.requests[0]?.instructions)).toContain("scooter rental in General Luna");
+    expect(String(client.requests[0]?.instructions)).toContain(
+      "scooter or motorbike rental in General Luna",
+    );
     expect(parseFirstInput(client.requests[0]?.input).responseContract?.finalOutput).toContain(
       "Return the final response as a JSON object",
     );
@@ -547,6 +549,704 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.publicSources).toEqual([scooterWebSource, placesSourceSummary]);
   });
 
+  test("repairs motorbike rental answers that skip Places lookup after web research", async () => {
+    const motorbikeWebSource: AnswerSourceSummary = {
+      label: "official_checked",
+      sourceName: "Public motorbike rental operator",
+      sourceProfileId: "source_web_official",
+      fetchedAt: "2026-07-01T09:00:00.000Z",
+      confidence: "medium",
+      checked: ["General Luna motorbike rental operator page"],
+      notChecked: ["Google Maps details", "walk-in availability"],
+    };
+    const motorbikePlaceCard: RecommendationCard = {
+      id: "place_general_luna_motorbike_rental",
+      kind: "place",
+      title: "General Luna Motorbike Rental",
+      subtitle: "General Luna",
+      mapsUrl: "https://maps.example/general-luna-motorbike-rental",
+      fitReasons: ["Returned by the runtime-repaired Places lookup."],
+      caveats: ["Availability, deposits, and current daily rates were not checked."],
+      sourceLabel: "Google Places - live checked",
+      sources: [placesSourceSummary],
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_motorbike_rental_web_only",
+        _request_id: "req_motorbike_rental_web_only",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_motorbike_web",
+            name: "research_web",
+            arguments: JSON.stringify({
+              query: "motorbike rental General Luna Siargao",
+              intent: "recommendation",
+              location: "General Luna",
+            }),
+          },
+        ],
+      },
+      {
+        id: "resp_motorbike_rental_bad_final",
+        output_text: finalPayloadText({
+          answer:
+            "Golden Bell and Siargao Scooter Rentals are known options; ask if you want map links.",
+          usedToolCallIds: ["call_motorbike_web"],
+          displayCardIds: [],
+        }),
+        _request_id: "req_motorbike_rental_bad_final",
+      },
+      {
+        id: "resp_motorbike_rental_repaired_final",
+        output_text: finalPayloadText({
+          answer:
+            "For motorbike rental in General Luna, start with General Luna Motorbike Rental and confirm availability, helmet, deposit, and current daily rate before paying. If you want, I can also pull map links and phone numbers.",
+          usedToolCallIds: ["call_motorbike_web", "auto_required_local_service_places_1"],
+          displayCardIds: [motorbikePlaceCard.id],
+        }),
+        _request_id: "req_motorbike_rental_repaired_final",
+      },
+      {
+        id: "resp_motorbike_rental_quality_repaired_final",
+        output_text: finalPayloadText({
+          answer: [
+            "Best motorbike rental options in **General Luna**:",
+            "",
+            "| Rental shop | Area | Price signal | Contact / notes |",
+            "| --- | --- | ---: | --- |",
+            "| **General Luna Motorbike Rental** | General Luna | Confirm current **₱/day rate** | Message first for availability, helmet, deposit, delivery/pickup, and opening hours. |",
+            "| **Golden Bell** | Tourism Road / General Luna | Public web source should support any listed rate before quoting it | Good backup if the Places card option is full; confirm WhatsApp/contact details from the checked source. |",
+            "| **Siargao Scooter Rentals** | General Luna | Confirm rate before paying | Ask about passport/ID deposit rules, helmet fit, and pickup timing. |",
+            "",
+            "My pick: start with **General Luna Motorbike Rental** from the checked Places result, then use Golden Bell or Siargao Scooter Rentals as backups. Take a walkaround video and check brakes, horn, lights, tire tread, helmet fit, and registration copy before riding off.",
+          ].join("\n"),
+          usedToolCallIds: ["call_motorbike_web", "auto_required_local_service_places_1"],
+          displayCardIds: [motorbikePlaceCard.id],
+        }),
+        _request_id: "req_motorbike_rental_quality_repaired_final",
+      },
+    ]);
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "research_web") {
+        return {
+          name: "research_web",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Public web research returned General Luna motorbike rental operators.",
+          data: {
+            status: "available",
+            findings: [
+              {
+                claim: "General Luna has public motorbike rental operators.",
+                answerRole: "primary",
+              },
+            ],
+          },
+          sources: [motorbikeWebSource],
+        };
+      }
+      if (request.name === "search_places") {
+        expect(request.toolCallId).toBe("auto_required_local_service_places_1");
+        expect(request.arguments).toMatchObject({
+          query: "motorbike rental in General Luna Siargao",
+          center: { latitude: 9.784, longitude: 126.158 },
+          radius_meters: 8_000,
+          constraints: { included_type: "car_rental", open_now: null, page_size: 10 },
+        });
+        return {
+          name: "search_places",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Google Places returned motorbike rental options.",
+          sources: [placesSourceSummary],
+          cards: [motorbikePlaceCard],
+        };
+      }
+      throw new Error(`Unexpected tool ${request.name}`);
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "where can i rent a motorbike in general luna?" }],
+        requestId: "agent_request_motorbike_rental_places_repair",
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toContain("motorbike rental");
+    expect(result.message).toContain("| Rental shop | Area | Price signal | Contact / notes |");
+    expect(result.message).toContain("My pick");
+    expect(result.toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall.name])).toEqual([
+      ["call_motorbike_web", "research_web"],
+      ["auto_required_local_service_places_1", "search_places"],
+    ]);
+    expect(result.cards).toEqual([motorbikePlaceCard]);
+    expect(result.publicSources).toEqual([motorbikeWebSource, placesSourceSummary]);
+    expect(client.requests).toHaveLength(4);
+    expect(JSON.stringify(parseFirstInput(client.requests[3]?.input))).toContain(
+      "validationRepairStructuredAnswerQuality",
+    );
+  });
+
+  test("repairs motorbike rental Places lookups with the wrong included type", async () => {
+    const motorbikePlaceCard: RecommendationCard = {
+      id: "place_golden_bell_siargao",
+      kind: "place",
+      title: "Golden Bell Siargao",
+      subtitle: "Tourism Road, General Luna",
+      mapsUrl: "https://maps.example/golden-bell-siargao",
+      fitReasons: ["Returned by the runtime-repaired vehicle-rental Places lookup."],
+      caveats: ["Call ahead for current bike availability and deposit rules."],
+      sourceLabel: "Google Places - live checked",
+      sources: [placesSourceSummary],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_motorbike_wrong_places_type",
+        requestId: "req_motorbike_wrong_places_type",
+        callId: "call_wrong_places_type",
+        name: "search_places",
+        arguments: {
+          query: "motorbike rental in General Luna Siargao",
+          center: { latitude: 9.789, longitude: 126.156 },
+          radius_meters: 5_000,
+          constraints: {
+            included_type: "local_government_office",
+            open_now: null,
+            page_size: 10,
+          },
+        },
+      }),
+      {
+        id: "resp_motorbike_wrong_type_bad_final",
+        output_text: finalPayloadText({
+          answer: "Golden Bell Siargao is a likely option; if you want, I can find more details.",
+          usedToolCallIds: ["call_wrong_places_type"],
+          displayCardIds: [],
+        }),
+        _request_id: "req_motorbike_wrong_type_bad_final",
+      },
+      {
+        id: "resp_motorbike_wrong_type_repaired_final",
+        output_text: finalPayloadText({
+          answer: [
+            "Best options in **General Luna / Catangnan**:",
+            "",
+            "| Rental shop | Area | Price signal | Contact / notes |",
+            "| --- | --- | ---: | --- |",
+            "| **Golden Bell Siargao** | Tourism Road, General Luna | Confirm current **₱/day rate** | Use the map card, then message for availability, helmet, deposit, and delivery. |",
+            "| **Siargao Motorbike Rentals** | General Luna | Confirm rate before paying | Good backup if Golden Bell is full; ask about pickup and surf rack. |",
+            "| **Lola's Rentals** | Catangnan | Varies | Useful if you are closer to Cloud 9. |",
+            "",
+            "My pick: start with **Golden Bell Siargao**, then use Siargao Motorbike Rentals as backup. Check brakes, horn, lights, tire tread, helmet fit, and registration copy before riding off.",
+          ].join("\n"),
+          usedToolCallIds: ["auto_required_local_service_places_1"],
+          displayCardIds: [motorbikePlaceCard.id],
+        }),
+        _request_id: "req_motorbike_wrong_type_repaired_final",
+      },
+    ]);
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.toolCallId === "call_wrong_places_type") {
+        expect(request.arguments).toMatchObject({
+          constraints: { included_type: "local_government_office" },
+        });
+        return {
+          name: "search_places",
+          toolCallId: request.toolCallId,
+          status: "error",
+          text: "Google Places search is temporarily unavailable.",
+          errorCode: "provider_unavailable",
+          sources: [providerUnavailableSourceSummary],
+        };
+      }
+      if (request.toolCallId === "auto_required_local_service_places_1") {
+        expect(request.arguments).toMatchObject({
+          query: "motorbike rental in General Luna Siargao",
+          constraints: { included_type: "car_rental", open_now: null, page_size: 10 },
+        });
+        return {
+          name: "search_places",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Google Places returned vehicle-rental candidates.",
+          sources: [placesSourceSummary],
+          cards: [motorbikePlaceCard],
+        };
+      }
+      throw new Error(`Unexpected tool ${request.name}`);
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "where can i rent a motorbike in general luna?" }],
+        requestId: "agent_request_motorbike_wrong_places_type",
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall.name])).toEqual([
+      ["call_wrong_places_type", "search_places"],
+      ["auto_required_local_service_places_1", "search_places"],
+    ]);
+    expect(result.message).toContain("| Rental shop | Area | Price signal | Contact / notes |");
+    expect(result.cards).toEqual([motorbikePlaceCard]);
+    expect(result.publicSources).toEqual([placesSourceSummary]);
+  });
+
+  test("falls back to web research when motorbike rental Places lookup is unavailable", async () => {
+    const motorbikeWebSource: AnswerSourceSummary = {
+      label: "official_checked",
+      sourceName: "Golden Bell Siargao Scooter & Motorbike Rental",
+      sourceProfileId: "source_web_official",
+      fetchedAt: "2026-07-01T09:00:00.000Z",
+      confidence: "high",
+      checked: [
+        "Golden Bell lists scooter and motorbike rental in General Luna with rates, WhatsApp contact, helmets, and delivery.",
+      ],
+      notChecked: ["Google Maps open-now status", "walk-in availability"],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_motorbike_places_lookup",
+        requestId: "req_motorbike_places_lookup",
+        callId: "call_motorbike_places_unavailable",
+        name: "search_places",
+        arguments: {
+          query: "motorbike rental in General Luna Siargao",
+          center: { latitude: 9.789, longitude: 126.156 },
+          radius_meters: 5_000,
+          constraints: { included_type: "car_rental", open_now: null, page_size: 10 },
+        },
+      }),
+      {
+        id: "resp_motorbike_generic_fallback",
+        output_text: finalPayloadText({
+          answer:
+            "I couldn’t verify current Google Maps-style listings right now, so ask your hotel or check rentals in town.",
+          usedToolCallIds: [],
+          displayCardIds: [],
+        }),
+        _request_id: "req_motorbike_generic_fallback",
+      },
+      {
+        id: "resp_motorbike_web_fallback_final",
+        output_text: finalPayloadText({
+          answer: [
+            "Best options in **General Luna / Catangnan**:",
+            "",
+            "| Rental shop | Area | Price signal | Contact / notes |",
+            "| --- | --- | ---: | --- |",
+            "| **Golden Bell Siargao** | Tourism Road, General Luna | From **₱350/day** | WhatsApp contact, helmets, and delivery are supported by the web source; call/message first because Places was unavailable. |",
+            "| **Siargao Motorbike Rentals** | General Luna | Confirm daily rate | Use as backup and verify deposit, helmet, and pickup timing before paying. |",
+            "| **Lola's Rentals** | Catangnan / Tourism Road | Confirm daily rate | Good backup near Cloud 9/Catangnan; verify current hours. |",
+            "",
+            "My pick: message **Golden Bell Siargao** first, then compare one backup if they are full. Avoid leaving your passport if another shop will take a cash deposit or local ID photo instead, and take a walkaround video before riding off.",
+          ].join("\n"),
+          usedToolCallIds: ["auto_required_local_service_web_research_1"],
+          displayCardIds: [],
+        }),
+        _request_id: "req_motorbike_web_fallback_final",
+      },
+    ]);
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "search_places") {
+        return {
+          name: "search_places",
+          toolCallId: request.toolCallId,
+          status: "error",
+          errorCode: "provider_unavailable",
+          text: "Google Places search lookup failed.",
+          sources: [
+            {
+              label: "provider_unavailable",
+              sourceName: "Google Places",
+              sourceProfileId: "source_google_places",
+              confidence: "low",
+              checked: [],
+              notChecked: ["Google Places search lookup"],
+            },
+          ],
+        };
+      }
+      if (request.name === "research_web") {
+        expect(request.toolCallId).toBe("auto_required_local_service_web_research_1");
+        expect(request.arguments).toMatchObject({
+          query:
+            "motorbike rental in General Luna Siargao Golden Bell Morenta Siargao Motorbike Rentals rates contact WhatsApp deposit helmet delivery",
+          intent: "recommendation",
+          location: "General Luna",
+          sourceTypes: ["official", "local_directory", "maps", "guide"],
+        });
+        return {
+          name: "research_web",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Public web research returned direct General Luna motorbike rental operators.",
+          data: {
+            status: "available",
+            findings: [
+              {
+                claim:
+                  "Golden Bell lists scooter and motorbike rental in General Luna with rates and WhatsApp contact.",
+                answerRole: "primary",
+              },
+            ],
+          },
+          sources: [motorbikeWebSource],
+        };
+      }
+      throw new Error(`Unexpected tool ${request.name}`);
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "where can i rent a motorbike in general luna?" }],
+        requestId: "agent_request_motorbike_places_unavailable_web_fallback",
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toContain("| Rental shop | Area | Price signal | Contact / notes |");
+    expect(result.message).toContain("Golden Bell Siargao");
+    expect(result.message).toContain("My pick");
+    expect(result.toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall.name])).toEqual([
+      ["call_motorbike_places_unavailable", "search_places"],
+      ["auto_required_local_service_web_research_1", "research_web"],
+    ]);
+    expect(result.cards ?? []).toEqual([]);
+    expect(result.publicSources).toEqual([motorbikeWebSource]);
+    expect(JSON.stringify(parseFirstInput(client.requests[2]?.input))).toContain(
+      "validationRepairLocalServiceWebResearch",
+    );
+  });
+
+  test("repairs legacy motorbike rental answers that punt after checked evidence", async () => {
+    const motorbikeWebSource: AnswerSourceSummary = {
+      label: "official_checked",
+      sourceName: "Golden Bell Siargao Scooter & Motorbike Rental",
+      sourceProfileId: "source_web_official",
+      confidence: "high",
+      checked: ["Golden Bell lists scooter and motorbike rental in General Luna."],
+      notChecked: ["walk-in availability"],
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_legacy_motorbike_tools",
+        _request_id: "req_legacy_motorbike_tools",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_legacy_motorbike_web",
+            name: "research_web",
+            arguments: JSON.stringify({
+              query: "motorbike rental in General Luna",
+              intent: "recommendation",
+              location: "General Luna",
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_legacy_motorbike_places",
+            name: "search_places",
+            arguments: JSON.stringify({
+              query: "motorbike rental in General Luna Siargao",
+              center: { latitude: 9.789, longitude: 126.156 },
+              radius_meters: 5_000,
+              constraints: { included_type: "car_rental", open_now: null, page_size: 10 },
+            }),
+          },
+        ],
+      },
+      {
+        id: "resp_legacy_motorbike_plain_text",
+        output_text: [
+          "I found three solid options:",
+          "| Option | Area | Why it fits |",
+          "|---|---|---|",
+          "| Golden Bell Siargao | General Luna | Active scooter and motorbike rental operator |",
+          "| Siargao Motorbike Rentals | General Luna | Direct rental operator page |",
+          "| Morenta Siargao | General Luna | Rental-focused operator |",
+          "If you want, I can next compare prices.",
+        ].join("\n"),
+        _request_id: "req_legacy_motorbike_plain_text",
+      },
+      {
+        id: "resp_legacy_motorbike_repaired_json",
+        output_text: finalPayloadText({
+          answer: [
+            "Best options in **General Luna / Catangnan**:",
+            "",
+            "| Rental shop | Area | Why it fits | Contact / notes |",
+            "| --- | --- | --- | --- |",
+            "| **Golden Bell Siargao** | General Luna | Active scooter and motorbike rental operator | Message first for rate, helmet, deposit, and pickup/delivery. |",
+            "| **Siargao Motorbike Rentals** | General Luna | Direct rental operator page | Compare agreement terms and pickup timing. |",
+            "| **Morenta Siargao** | General Luna | Rental-focused operator | Ask about delivery and longer-stay discounts. |",
+            "",
+            "My pick: message **Golden Bell Siargao** first, then compare one backup before paying.",
+          ].join("\n"),
+          usedToolCallIds: ["call_legacy_motorbike_web"],
+          displayCardIds: [],
+        }),
+        _request_id: "req_legacy_motorbike_repaired_json",
+      },
+    ]);
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "search_places") {
+        return {
+          name: "search_places",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Google Places returned rental operators.",
+          sources: [placesSourceSummary],
+        };
+      }
+      expect(request.name).toBe("research_web");
+      return {
+        name: "research_web",
+        toolCallId: request.toolCallId,
+        status: "success",
+        text: "Public web research returned direct General Luna motorbike rental operators.",
+        data: { status: "available" },
+        sources: [motorbikeWebSource],
+      };
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "where can i rent a motorbike in general luna?" }],
+        requestId: "agent_request_legacy_motorbike_quality_repair",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("| Rental shop | Area | Why it fits | Contact / notes |");
+    expect(result.message).toContain("My pick");
+    expect(result.message).not.toContain("If you want");
+    expect(result.publicSources).toEqual([motorbikeWebSource]);
+    expect(JSON.stringify(parseFirstInput(client.requests[2]?.input))).toContain(
+      "legacy_answer_punts_on_available_evidence",
+    );
+  });
+
+  test("reruns targeted web research when model motorbike rental research is insufficient", async () => {
+    const targetedWebSource: AnswerSourceSummary = {
+      label: "official_checked",
+      sourceName: "Golden Bell Siargao Scooter & Motorbike Rental",
+      sourceProfileId: "source_web_official",
+      confidence: "high",
+      checked: ["Golden Bell lists scooter and motorbike rental in General Luna."],
+      notChecked: ["Google Maps open-now status"],
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_motorbike_places_and_weak_web",
+        _request_id: "req_motorbike_places_and_weak_web",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_motorbike_places_down",
+            name: "search_places",
+            arguments: JSON.stringify({
+              query: "motorbike rental in General Luna Siargao",
+              center: { latitude: 9.789, longitude: 126.156 },
+              radius_meters: 5_000,
+              constraints: { included_type: "car_rental", open_now: null, page_size: 10 },
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_motorbike_weak_web",
+            name: "research_web",
+            arguments: JSON.stringify({
+              query: "motorbike rental General Luna",
+              intent: "recommendation",
+              location: "General Luna",
+            }),
+          },
+        ],
+      },
+      {
+        id: "resp_motorbike_weak_fallback",
+        output_text: finalPayloadText({
+          answer: "I can’t give a trustworthy ranked shortlist right now. Ask your hotel first.",
+          usedToolCallIds: [],
+          displayCardIds: [],
+        }),
+        _request_id: "req_motorbike_weak_fallback",
+      },
+      {
+        id: "resp_motorbike_targeted_web_final",
+        output_text: finalPayloadText({
+          answer: [
+            "Best options in **General Luna / Catangnan**:",
+            "",
+            "| Rental shop | Area | Why it fits | Contact / notes |",
+            "| --- | --- | --- | --- |",
+            "| **Golden Bell Siargao** | General Luna | Direct scooter and motorbike rental operator evidence | Message first for rate, helmet, deposit, and pickup/delivery. |",
+            "| **Morenta Siargao** | General Luna | Rental-focused operator evidence | Ask about delivery and agreement terms. |",
+            "| **Siargao Motorbike Rentals** | General Luna | Direct rental operator evidence | Compare pickup timing and deposit policy. |",
+            "",
+            "My pick: message **Golden Bell Siargao** first, then compare one backup before paying.",
+          ].join("\n"),
+          usedToolCallIds: ["auto_required_local_service_web_research_1"],
+          displayCardIds: [],
+        }),
+        _request_id: "req_motorbike_targeted_web_final",
+      },
+    ]);
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "search_places") {
+        return {
+          name: "search_places",
+          toolCallId: request.toolCallId,
+          status: "error",
+          errorCode: "provider_unavailable",
+          text: "Google Places search lookup failed.",
+          sources: [
+            {
+              label: "provider_unavailable",
+              sourceName: "Google Places",
+              sourceProfileId: "source_google_places",
+              confidence: "low",
+              checked: [],
+              notChecked: ["Google Places search lookup"],
+            },
+          ],
+        };
+      }
+      if (request.name === "research_web" && request.toolCallId === "call_motorbike_weak_web") {
+        return {
+          name: "research_web",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Public web research status: insufficient.",
+          data: { status: "insufficient" },
+          sources: [
+            {
+              label: "insufficient_web_evidence",
+              sourceName: "Public web research",
+              sourceProfileId: "source_web_research",
+              confidence: "low",
+              checked: [],
+              notChecked: ["sufficient current public evidence"],
+            },
+          ],
+        };
+      }
+      if (request.name === "research_web") {
+        expect(request.toolCallId).toBe("auto_required_local_service_web_research_1");
+        expect(String(request.arguments.query)).toContain("Golden Bell");
+        return {
+          name: "research_web",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Public web research returned targeted rental operators.",
+          data: { status: "available" },
+          sources: [targetedWebSource],
+        };
+      }
+      throw new Error(`Unexpected tool ${request.name}`);
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "where can i rent a motorbike in general luna?" }],
+        requestId: "agent_request_motorbike_insufficient_web_targeted_repair",
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toContain("Golden Bell Siargao");
+    expect(result.message).toContain("My pick");
+    expect(result.toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall.name])).toEqual([
+      ["call_motorbike_places_down", "search_places"],
+      ["call_motorbike_weak_web", "research_web"],
+      ["auto_required_local_service_web_research_1", "research_web"],
+    ]);
+    expect(result.publicSources).toEqual([targetedWebSource]);
+  });
+
+  test("repairs thin structured answers for any evidence-backed place result", async () => {
+    const cafeCard: RecommendationCard = {
+      id: "place_cafe_general_luna",
+      kind: "place",
+      title: "General Luna Cafe",
+      subtitle: "General Luna",
+      mapsUrl: "https://maps.example/general-luna-cafe",
+      openStatusLabel: "Open now",
+      fitReasons: ["Returned by checked Places evidence for cafes in General Luna."],
+      caveats: ["Confirm seating and current kitchen hours before walking over."],
+      sourceLabel: "Google Places - live checked",
+      sources: [placesSourceSummary],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_cafe_places_call",
+        requestId: "req_cafe_places_call",
+        callId: "call_cafe_places",
+        name: "search_places",
+        arguments: {
+          query: "cafes in General Luna Siargao",
+          constraints: { included_type: "cafe", open_now: null, page_size: 5 },
+        },
+      }),
+      {
+        id: "resp_cafe_bad_final",
+        output_text: finalPayloadText({
+          answer: "General Luna Cafe is a good cafe option. If you want, I can pull map links.",
+          usedToolCallIds: ["call_cafe_places"],
+          displayCardIds: [cafeCard.id],
+        }),
+        _request_id: "req_cafe_bad_final",
+      },
+      {
+        id: "resp_cafe_quality_repaired_final",
+        output_text: finalPayloadText({
+          answer: [
+            "Best cafe result in **General Luna**:",
+            "",
+            "| Place | Area | Why it fits | Practical note |",
+            "| --- | --- | --- | --- |",
+            "| **General Luna Cafe** | General Luna | Checked Places result for cafes nearby | Open now in the Places result; use the map card and confirm seating/current kitchen hours before walking over. |",
+            "",
+            "First move: open the map card for **General Luna Cafe** and message or call if you need a table immediately.",
+          ].join("\n"),
+          usedToolCallIds: ["call_cafe_places"],
+          displayCardIds: [cafeCard.id],
+        }),
+        _request_id: "req_cafe_quality_repaired_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      search_places: {
+        name: "search_places",
+        status: "success",
+        text: "Google Places returned cafes in General Luna.",
+        sources: [placesSourceSummary],
+        cards: [cafeCard],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "what cafes are good in General Luna?" }],
+        requestId: "agent_request_cafe_structured_quality",
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toContain("| Place | Area | Why it fits | Practical note |");
+    expect(result.message).toContain("First move");
+    expect(result.cards).toEqual([cafeCard]);
+    expect(result.publicSources).toEqual([placesSourceSummary]);
+    expect(client.requests).toHaveLength(3);
+    expect(JSON.stringify(parseFirstInput(client.requests[2]?.input))).toContain(
+      "validationRepairStructuredAnswerQuality",
+    );
+  });
+
   test("keeps successful Places evidence when model-selected web research fails", async () => {
     const webUnavailableSource: AnswerSourceSummary = {
       label: "provider_unavailable",
@@ -689,8 +1389,15 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       {
         id: "resp_scooter_web_ok_places_failed_final",
         output_text: finalPayloadText({
-          answer:
-            "Public web research found General Luna scooter rental listings, but Google Places was unavailable, so verify the map pin and current rate before going.",
+          answer: [
+            "| Rental shop | Area | Price signal | Contact / notes |",
+            "| --- | --- | ---: | --- |",
+            "| **General Luna scooter rental listings** | General Luna | Confirm current **₱/day rate** | Public web research found listings, but Google Places was unavailable, so verify the map pin before going. |",
+            "| **Backup rental listing** | General Luna | Confirm rate before paying | Ask about helmet, deposit/passport rules, delivery or pickup, and opening hours. |",
+            "| **Walk-in option** | General Luna | Varies | Use only as a fallback and check brakes, lights, horn, tire tread, and registration copy. |",
+            "",
+            "My pick: start with the public web listing that has the clearest contact details, then verify the map pin locally because Places was unavailable.",
+          ].join("\n"),
           usedToolCallIds: ["call_scooter_web_ok", "call_scooter_places_failed"],
           displayCardIds: [],
         }),

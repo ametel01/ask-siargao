@@ -298,6 +298,112 @@ export async function runAskSiargaoAgentTurn(
         continue;
       }
 
+      const localServicePlacesRepairCall = missingLocalServicePlacesRepairCall(resolved, toolCalls);
+      if (localServicePlacesRepairCall) {
+        if (toolCalls.length + 1 > maxToolCalls) {
+          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
+        }
+
+        const automaticPlacesOutput = await executeAndAuditTool({
+          executeTool,
+          functionCall: localServicePlacesRepairCall,
+          logger,
+          now: dependencies.now ?? (() => new Date()),
+          runtimeRequest: resolved,
+          requestId: resolved.requestId,
+        });
+        toolCalls.push(automaticPlacesOutput.audit);
+        toolResults.push(automaticPlacesOutput.result);
+
+        responseInput = [
+          ...responseInput,
+          ...responseOutputItems(response.output),
+          userInputMessage({
+            product: "Ask Siargao",
+            instruction:
+              "Validation repair: the traveler asked where to rent a scooter or motorbike. Use this Google Places local-service evidence before the final answer. If Places returned cards, select the best matching public place cards and include map/opening/rating details from the checked result. If Places was unavailable, keep the answer caveated and do not claim map, rating, distance, or open-now facts from memory or web research alone.",
+            validationRepairLocalServicePlaces: {
+              toolCallId: automaticPlacesOutput.functionCall.callId,
+              name: automaticPlacesOutput.functionCall.name,
+              arguments: publicToolArguments(automaticPlacesOutput.functionCall),
+              result: JSON.parse(serializeToolOutput(automaticPlacesOutput.result)),
+            },
+            responseContract,
+          }),
+        ];
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_000,
+          instructions,
+          tools,
+          ...(responseInclude ? { include: responseInclude } : {}),
+          input: responseInput,
+        });
+        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        collectHostedFileSearchMemoryFileNames(
+          response.output,
+          memorySnapshot,
+          hostedMemoryFileNames,
+        );
+        continue;
+      }
+
+      const localServiceWebResearchRepairCall = missingLocalServiceWebResearchRepairCall(
+        resolved,
+        toolCalls,
+        toolResults,
+      );
+      if (localServiceWebResearchRepairCall) {
+        if (toolCalls.length + 1 > maxToolCalls) {
+          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
+        }
+
+        const automaticWebResearchOutput = await executeAndAuditTool({
+          executeTool,
+          functionCall: localServiceWebResearchRepairCall,
+          logger,
+          now: dependencies.now ?? (() => new Date()),
+          runtimeRequest: resolved,
+          requestId: resolved.requestId,
+        });
+        toolCalls.push(automaticWebResearchOutput.audit);
+        toolResults.push(automaticWebResearchOutput.result);
+
+        responseInput = [
+          ...responseInput,
+          ...responseOutputItems(response.output),
+          userInputMessage({
+            product: "Ask Siargao",
+            instruction:
+              "Validation repair: Google Places was unavailable for this scooter or motorbike rental lookup, so public web research was run as a fallback. Use direct operator, directory, booking, rate, contact, deposit, helmet, delivery, and pickup evidence from research_web when available. If research_web was insufficient too, keep the answer caveated and avoid naming unverified shops as checked options.",
+            validationRepairLocalServiceWebResearch: {
+              toolCallId: automaticWebResearchOutput.functionCall.callId,
+              name: automaticWebResearchOutput.functionCall.name,
+              arguments: publicToolArguments(automaticWebResearchOutput.functionCall),
+              result: JSON.parse(serializeToolOutput(automaticWebResearchOutput.result)),
+            },
+            responseContract,
+          }),
+        ];
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_000,
+          instructions,
+          tools,
+          ...(responseInclude ? { include: responseInclude } : {}),
+          input: responseInput,
+        });
+        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        collectHostedFileSearchMemoryFileNames(
+          response.output,
+          memorySnapshot,
+          hostedMemoryFileNames,
+        );
+        continue;
+      }
+
       const surfSpotRankingRepairCall = missingSurfSpotRankingRepairCall(
         resolved,
         toolCalls,
@@ -518,6 +624,42 @@ export async function runAskSiargaoAgentTurn(
         requiredEvidencePlan,
         toolResults,
       );
+      const legacyStructuredAnswerQualityRepair = missingLegacyStructuredAnswerQualityRepair(
+        finalText,
+        finalPayload,
+        toolCalls,
+        responseInput,
+        resolved,
+      );
+      if (legacyStructuredAnswerQualityRepair) {
+        responseInput = [
+          ...responseInput,
+          ...responseOutputItems(response.output),
+          userInputMessage({
+            product: "Ask Siargao",
+            instruction:
+              "Validation repair: the answer used legacy plain text even though checked evidence is available. Return the final response as JSON matching the response contract. Rewrite the answer as a structured, traveler-facing result with concrete names, area, why it fits, checked details, and a clear first move. Do not ask whether the traveler wants details that are already available.",
+            validationRepairStructuredAnswerQuality: legacyStructuredAnswerQualityRepair,
+            responseContract,
+          }),
+        ];
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_600,
+          instructions,
+          tools,
+          ...(responseInclude ? { include: responseInclude } : {}),
+          input: responseInput,
+        });
+        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        collectHostedFileSearchMemoryFileNames(
+          response.output,
+          memorySnapshot,
+          hostedMemoryFileNames,
+        );
+        continue;
+      }
       const nightlifeMemoryBaselineRepair = missingNightlifeMemoryBaselineRepair(
         finalPayload,
         resolved,
@@ -588,6 +730,41 @@ export async function runAskSiargaoAgentTurn(
         );
         continue;
       }
+      const structuredAnswerQualityRepair = missingStructuredAnswerQualityRepair(
+        finalPayload,
+        toolCalls,
+        responseInput,
+        resolved,
+      );
+      if (structuredAnswerQualityRepair) {
+        responseInput = [
+          ...responseInput,
+          ...responseOutputItems(response.output),
+          userInputMessage({
+            product: "Ask Siargao",
+            instruction:
+              "Validation repair: the answer is too thin for the evidence already gathered. Rewrite the final JSON answer as a structured, traveler-facing result. For multiple options, use a compact markdown table or tight bullets with concrete names, area, why it fits, relevant checked details, and a clear first move. For a single result, use a concise heading plus the key details and next action. Include prices, phone numbers, map links, opening status, weather/condition details, booking notes, caveats, and artifact selections only when tool output supports them. Do not ask whether the traveler wants details that are already available.",
+            validationRepairStructuredAnswerQuality: structuredAnswerQualityRepair,
+            responseContract,
+          }),
+        ];
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_600,
+          instructions,
+          tools,
+          ...(responseInclude ? { include: responseInclude } : {}),
+          input: responseInput,
+        });
+        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        collectHostedFileSearchMemoryFileNames(
+          response.output,
+          memorySnapshot,
+          hostedMemoryFileNames,
+        );
+        continue;
+      }
       logger.info(
         {
           durationMs: sumDurations(toolCalls),
@@ -598,15 +775,30 @@ export async function runAskSiargaoAgentTurn(
         },
         "Ask Siargao agent turn completed.",
       );
+      const payloadWithEvidence = ensureFinalPayloadUsesVehicleRentalEvidence(
+        finalPayload,
+        resolved,
+        toolCalls,
+        toolResults,
+      );
+      const sanitizedAnswer = sanitizeFinalAnswer(
+        payloadWithEvidence?.answer ?? finalText,
+        resolved,
+        toolCalls,
+      );
+      const sanitizedFinalPayload =
+        payloadWithEvidence && sanitizedAnswer !== payloadWithEvidence.answer
+          ? { ...payloadWithEvidence, answer: sanitizedAnswer }
+          : payloadWithEvidence;
       return createAgentTurnResult({
-        message: finalPayload?.answer ?? finalText,
+        message: sanitizedAnswer,
         requestId: resolved.requestId,
         model: resolved.model,
         memory,
         upstreamRequestIds,
         toolCalls,
         toolResults,
-        ...(finalPayload ? { finalPayload } : {}),
+        ...(sanitizedFinalPayload ? { finalPayload: sanitizedFinalPayload } : {}),
         allowedCardKinds: requiredEvidencePlan.allowedCardKinds,
         artifactSelectionMode:
           dependencies.requireStructuredFinalOutput === true ? "strict" : "compatibility",
@@ -1066,6 +1258,425 @@ function missingConditionJudgmentRepairCall(
   };
 }
 
+function missingLocalServicePlacesRepairCall(
+  request: AgentRuntimeRequest,
+  toolCalls: readonly AgentToolCallAudit[],
+): ParsedFunctionCall | undefined {
+  const latestContent = latestUserContent(request.messages);
+  if (!isVehicleRentalLookup(latestContent)) {
+    return undefined;
+  }
+  if (
+    toolCalls.some((toolCall) => toolCall.toolCallId === "auto_required_local_service_places_1")
+  ) {
+    return undefined;
+  }
+  if (toolCalls.some(isUsableVehicleRentalPlacesCall)) {
+    return undefined;
+  }
+
+  const location = inferPlacesRepairLocation(latestContent);
+  const vehicle = /\bmotor\s*bikes?|motorbikes?\b/i.test(latestContent) ? "motorbike" : "scooter";
+
+  return {
+    callId: "auto_required_local_service_places_1",
+    name: "search_places",
+    arguments: {
+      query: `${vehicle} rental in ${location.queryLabel} Siargao`,
+      center: location.center,
+      radius_meters: location.radiusMeters,
+      constraints: { included_type: "car_rental", open_now: null, page_size: 10 },
+    },
+  };
+}
+
+function isUsableVehicleRentalPlacesCall(toolCall: AgentToolCallAudit) {
+  if (toolCall.name !== "search_places") {
+    return false;
+  }
+
+  const query = readString(toolCall.arguments.query) ?? "";
+  if (!/\b(?:scooters?|motorbikes?|motor\s*bikes?)\b/i.test(query)) {
+    return false;
+  }
+  if (!/\b(?:rent|rental|rentals|hire|hiring)\b/i.test(query)) {
+    return false;
+  }
+
+  const includedType = readStringPath(toolCall.arguments, ["constraints", "included_type"]);
+  return includedType === undefined || includedType === "car_rental";
+}
+
+function missingLocalServiceWebResearchRepairCall(
+  request: AgentRuntimeRequest,
+  toolCalls: readonly AgentToolCallAudit[],
+  toolResults: readonly AgentToolResult[],
+): ParsedFunctionCall | undefined {
+  const latestContent = latestUserContent(request.messages);
+  if (!isVehicleRentalLookup(latestContent)) {
+    return undefined;
+  }
+  if (
+    toolCalls.some(
+      (toolCall) => toolCall.toolCallId === "auto_required_local_service_web_research_1",
+    )
+  ) {
+    return undefined;
+  }
+  if (!toolCalls.some(isUnavailableVehicleRentalPlacesCall)) {
+    return undefined;
+  }
+  if (toolResults.some(researchWebResultIsAvailable)) {
+    return undefined;
+  }
+
+  const location = inferPlacesRepairLocation(latestContent);
+  const vehicle = /\bmotor\s*bikes?|motorbikes?\b/i.test(latestContent) ? "motorbike" : "scooter";
+
+  return {
+    callId: "auto_required_local_service_web_research_1",
+    name: "research_web",
+    arguments: {
+      query: `${vehicle} rental in ${location.queryLabel} Siargao Golden Bell Morenta Siargao Motorbike Rentals rates contact WhatsApp deposit helmet delivery`,
+      intent: "recommendation",
+      location: location.queryLabel,
+      dateContext: "none",
+      sourceTypes: ["official", "local_directory", "maps", "guide"],
+      requiredFreshness: "stable",
+      maxSources: 6,
+    },
+  };
+}
+
+function isUnavailableVehicleRentalPlacesCall(toolCall: AgentToolCallAudit) {
+  return (
+    isUsableVehicleRentalPlacesCall(toolCall) &&
+    toolCall.status === "error" &&
+    toolCall.errorCode === "provider_unavailable"
+  );
+}
+
+function isVehicleRentalLookup(content: string) {
+  return (
+    /\b(?:where\s+(?:can|should)\s+(?:i|we)\s+)?(?:rent|rental|rentals|hire|hiring)\b/i.test(
+      content,
+    ) &&
+    /\b(?:scooters?|motorbikes?|motor\s*bikes?)\b/i.test(content) &&
+    !/\b(?:safe|safety|rain|weather|roads?|flood|conditions?|ride\s+to|drive\s+to)\b/i.test(content)
+  );
+}
+
+function missingLegacyStructuredAnswerQualityRepair(
+  finalText: string,
+  finalPayload: AgentFinalPayload | undefined,
+  toolCalls: readonly AgentToolCallAudit[],
+  responseInput: readonly ResponseInputItem[],
+  request: AgentRuntimeRequest,
+) {
+  if (finalPayload) {
+    return undefined;
+  }
+  if (hasValidationRepairInput(responseInput, "validationRepairStructuredAnswerQuality")) {
+    return undefined;
+  }
+  if (!isVehicleRentalLookup(latestUserContent(request.messages))) {
+    return undefined;
+  }
+
+  const evidenceToolCallIds = successfulAnswerEvidenceToolCallIds(toolCalls);
+  if (evidenceToolCallIds.length === 0) {
+    return undefined;
+  }
+  const answerPunts = puntsOnAvailableEvidence(finalText);
+  const vehicleRentalAnswerTooThin = !hasDetailedVehicleRentalAnswer(finalText);
+  if (!answerPunts && !vehicleRentalAnswerTooThin) {
+    return undefined;
+  }
+
+  return {
+    issue: answerPunts
+      ? "legacy_answer_punts_on_available_evidence"
+      : "legacy_vehicle_rental_answer_too_thin",
+    evidenceToolCallIds,
+    selectedEvidenceToolCallIds: [],
+    answerLength: finalText.length,
+    hasComparisonTable: hasMarkdownComparisonTable(finalText),
+    tableDataRowCount: markdownTableDataRowCount(finalText),
+    usedToolCallIds: [],
+    displayCardIds: [],
+    displayActionIds: [],
+    displayItineraryIds: [],
+    displayDecisionSummaryIds: [],
+  };
+}
+
+function missingStructuredAnswerQualityRepair(
+  finalPayload: AgentFinalPayload | undefined,
+  toolCalls: readonly AgentToolCallAudit[],
+  responseInput: readonly ResponseInputItem[],
+  request: AgentRuntimeRequest,
+) {
+  if (!finalPayload) {
+    return undefined;
+  }
+  if (hasValidationRepairInput(responseInput, "validationRepairStructuredAnswerQuality")) {
+    return undefined;
+  }
+
+  const evidenceToolCallIds = successfulAnswerEvidenceToolCallIds(toolCalls);
+  if (evidenceToolCallIds.length === 0) {
+    return undefined;
+  }
+  const selectedEvidenceToolCallIds = finalPayload.usedToolCallIds.filter((toolCallId) =>
+    evidenceToolCallIds.includes(toolCallId),
+  );
+  const answerIsStructured = isStructuredPracticalAnswer(finalPayload.answer);
+  const answerPunts = puntsOnAvailableEvidence(finalPayload.answer);
+  const vehicleRentalAnswerTooThin =
+    isVehicleRentalLookup(latestUserContent(request.messages)) &&
+    !hasDetailedVehicleRentalAnswer(finalPayload.answer);
+
+  if (
+    selectedEvidenceToolCallIds.length > 0 &&
+    answerIsStructured &&
+    !answerPunts &&
+    !vehicleRentalAnswerTooThin
+  ) {
+    return undefined;
+  }
+
+  if (
+    selectedEvidenceToolCallIds.length > 0 &&
+    answerIsStructured &&
+    !answerPunts &&
+    vehicleRentalAnswerTooThin
+  ) {
+    return {
+      issue: "vehicle_rental_answer_too_thin",
+      evidenceToolCallIds,
+      selectedEvidenceToolCallIds,
+      answerLength: finalPayload.answer.length,
+      hasComparisonTable: hasMarkdownComparisonTable(finalPayload.answer),
+      tableDataRowCount: markdownTableDataRowCount(finalPayload.answer),
+      usedToolCallIds: finalPayload.usedToolCallIds,
+      displayCardIds: finalPayload.displayCardIds,
+      displayActionIds: finalPayload.displayActionIds,
+      displayItineraryIds: finalPayload.displayItineraryIds,
+      displayDecisionSummaryIds: finalPayload.displayDecisionSummaryIds,
+    };
+  }
+
+  if (selectedEvidenceToolCallIds.length > 0 && answerIsStructured && !answerPunts) {
+    return undefined;
+  }
+
+  if (selectedEvidenceToolCallIds.length > 0 && !answerPunts) {
+    return undefined;
+  }
+
+  return {
+    issue:
+      selectedEvidenceToolCallIds.length === 0
+        ? "missing_public_evidence_tool_ids"
+        : answerPunts
+          ? "answer_punts_on_available_evidence"
+          : "structured_answer_quality_too_thin",
+    evidenceToolCallIds,
+    selectedEvidenceToolCallIds,
+    answerLength: finalPayload.answer.length,
+    hasComparisonTable: hasMarkdownComparisonTable(finalPayload.answer),
+    tableDataRowCount: markdownTableDataRowCount(finalPayload.answer),
+    usedToolCallIds: finalPayload.usedToolCallIds,
+    displayCardIds: finalPayload.displayCardIds,
+    displayActionIds: finalPayload.displayActionIds,
+    displayItineraryIds: finalPayload.displayItineraryIds,
+    displayDecisionSummaryIds: finalPayload.displayDecisionSummaryIds,
+  };
+}
+
+function successfulAnswerEvidenceToolCallIds(toolCalls: readonly AgentToolCallAudit[]) {
+  return toolCalls.flatMap((toolCall) => {
+    if (toolCall.status === "success" && toolCall.toolCallId && isAnswerEvidenceTool(toolCall)) {
+      return [toolCall.toolCallId];
+    }
+    return [];
+  });
+}
+
+function isAnswerEvidenceTool(toolCall: AgentToolCallAudit) {
+  return ![
+    "describe_database_schema",
+    "describe_source_policy",
+    "load_agent_memory_file",
+    "rank_surf_spots_nearby",
+    "search_agent_memory",
+  ].includes(toolCall.name);
+}
+
+function ensureFinalPayloadUsesVehicleRentalEvidence(
+  finalPayload: AgentFinalPayload | undefined,
+  request: AgentRuntimeRequest,
+  toolCalls: readonly AgentToolCallAudit[],
+  toolResults: readonly AgentToolResult[],
+) {
+  if (!finalPayload || !isVehicleRentalLookup(latestUserContent(request.messages))) {
+    return finalPayload;
+  }
+
+  const evidenceToolCallIds = preferredVehicleRentalEvidenceToolCallIds(toolCalls, toolResults);
+  if (
+    evidenceToolCallIds.length === 0 ||
+    finalPayload.usedToolCallIds.some((toolCallId) => evidenceToolCallIds.includes(toolCallId))
+  ) {
+    return finalPayload;
+  }
+
+  return {
+    ...finalPayload,
+    usedToolCallIds: evidenceToolCallIds,
+  };
+}
+
+function preferredVehicleRentalEvidenceToolCallIds(
+  toolCalls: readonly AgentToolCallAudit[],
+  toolResults: readonly AgentToolResult[],
+) {
+  const ids: string[] = [];
+  const latestAvailableResearch = [...toolResults].reverse().find(researchWebResultIsAvailable);
+  if (latestAvailableResearch?.toolCallId) {
+    ids.push(latestAvailableResearch.toolCallId);
+  }
+
+  const latestSuccessfulPlaces = [...toolCalls]
+    .reverse()
+    .find((toolCall) => toolCall.name === "search_places" && toolCall.status === "success");
+  if (latestSuccessfulPlaces?.toolCallId) {
+    ids.push(latestSuccessfulPlaces.toolCallId);
+  }
+
+  return ids;
+}
+
+function sanitizeFinalAnswer(
+  answer: string,
+  request: AgentRuntimeRequest,
+  toolCalls: readonly AgentToolCallAudit[],
+) {
+  if (
+    !isVehicleRentalLookup(latestUserContent(request.messages)) ||
+    successfulAnswerEvidenceToolCallIds(toolCalls).length === 0
+  ) {
+    return answer;
+  }
+
+  return stripTrailingFollowUpOffer(answer);
+}
+
+function stripTrailingFollowUpOffer(answer: string) {
+  return answer
+    .replace(/\s+If you want,?\s+I can\s+(?:also\s+|next\s+)?[^\n.?!]*(?:[.?!])?\s*$/i, "")
+    .replace(/\n+If you want,?\s+I can\s+(?:also\s+|next\s+)?[^\n.?!]*(?:[.?!])?\s*$/i, "")
+    .trim();
+}
+
+function puntsOnAvailableEvidence(answer: string) {
+  return /\b(?:if you(?:'d| would)? like|if you want|ask if you want|want me to|can also (?:pull|narrow|find|compare|get)|can pull|can get|want (?:the )?(?:map links?|phone numbers?|contact details?|opening details?|prices?|rates?|options?|details?))\b/i.test(
+    answer,
+  );
+}
+
+function hasDetailedVehicleRentalAnswer(answer: string) {
+  const normalizedAnswer = normalizeSearchText(answer);
+  const hasEnoughOptions =
+    markdownTableDataRowCount(answer) >= 3 ||
+    answer.split("\n").filter((line) => /^\s*(?:[-*]\s+|\d+\.\s+)/.test(line)).length >= 3;
+
+  return (
+    hasEnoughOptions &&
+    /\b(?:price|rate|₱|php|deposit|passport|helmet|whatsapp|phone|contact|delivery|pickup|open|hours)\b/i.test(
+      answer,
+    ) &&
+    /\b(?:my pick|first move|best next move|start with)\b/i.test(normalizedAnswer)
+  );
+}
+
+function isStructuredPracticalAnswer(answer: string) {
+  return (
+    hasMarkdownComparisonTable(answer) ||
+    answer.split("\n").filter((line) => /^\s*(?:[-*]\s+|\d+\.\s+)/.test(line)).length >= 3
+  );
+}
+
+function hasMarkdownComparisonTable(answer: string) {
+  return /^\s*\|.+\|\s*$/m.test(answer) && /\|\s*-{3,}/.test(answer);
+}
+
+function markdownTableDataRowCount(answer: string) {
+  const lines = answer.split("\n").map((line) => line.trim());
+  const separatorIndex = lines.findIndex(isMarkdownTableSeparatorLine);
+  if (separatorIndex < 1) {
+    return 0;
+  }
+
+  let count = 0;
+  for (const line of lines.slice(separatorIndex + 1)) {
+    if (!/^\|.*\|$/.test(line)) {
+      break;
+    }
+    count += 1;
+  }
+  return count;
+}
+
+function isMarkdownTableSeparatorLine(line: string) {
+  const cells = line
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+  return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function inferPlacesRepairLocation(content: string): {
+  queryLabel: string;
+  center: { latitude: number; longitude: number };
+  radiusMeters: number;
+} {
+  if (/\bcloud\s*9|cloud9|catangnan\b/i.test(content)) {
+    return {
+      queryLabel: "Cloud 9 General Luna",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+      radiusMeters: 6_000,
+    };
+  }
+  if (/\bdel\s+carmen|sugba\b/i.test(content)) {
+    return {
+      queryLabel: "Del Carmen",
+      center: { latitude: 9.872, longitude: 125.97 },
+      radiusMeters: 12_000,
+    };
+  }
+  if (/\bdapa\b/i.test(content)) {
+    return {
+      queryLabel: "Dapa",
+      center: { latitude: 9.759, longitude: 125.974 },
+      radiusMeters: 12_000,
+    };
+  }
+  if (/\bsiargao\b/i.test(content) && !/\bgeneral\s+luna|\bgl\b/i.test(content)) {
+    return {
+      queryLabel: "Siargao",
+      center: { latitude: 9.848, longitude: 126.045 },
+      radiusMeters: 20_000,
+    };
+  }
+  return {
+    queryLabel: "General Luna",
+    center: { latitude: 9.784, longitude: 126.158 },
+    radiusMeters: 8_000,
+  };
+}
+
 function missingSurfSpotRankingRepairCall(
   request: AgentRuntimeRequest,
   toolCalls: readonly AgentToolCallAudit[],
@@ -1340,7 +1951,10 @@ function hasMemoryLoadAttemptForFile(toolCalls: readonly AgentToolCallAudit[], f
 
 function hasValidationRepairInput(
   responseInput: readonly ResponseInputItem[],
-  key: "validationRepairNightlifeMemoryBaseline" | "validationRepairSurfSpotFinalPayload",
+  key:
+    | "validationRepairNightlifeMemoryBaseline"
+    | "validationRepairStructuredAnswerQuality"
+    | "validationRepairSurfSpotFinalPayload",
 ) {
   return responseInput.some((item) => {
     const content = item.content;
@@ -3188,6 +3802,8 @@ const responseContract = {
     "Use INDEX.md to choose and then load the smallest relevant Ask Siargao memory files with load_agent_memory_file, file_search, or search_agent_memory. Memory retrieval is not live evidence and does not create checked source labels.",
   caveats:
     "Do not mention internal verification gaps or tool boundaries to the traveler. Never say live-check, not checked, unchecked, source caveats, tool, API, evidence, artifact, overclaim, or user constraints preserved. Convert uncertainty into practical advice only when useful, such as keep the stop flexible, avoid exposed rides in heavy rain, or check conditions before swimming.",
+  structuredAnswerQuality:
+    "For any evidence-backed result returned to the traveler, synthesize the evidence into a structured answer. Use a compact table or tight option list for comparisons and multiple results; use a concise heading plus key details for single-result answers. Include concrete names, area, checked details, tradeoffs, caveats, and a clear next move when available. Do not ask whether the traveler wants details that are already present in tool output.",
 };
 
 const askSiargaoBaseInstructions = [
@@ -3197,7 +3813,8 @@ const askSiargaoBaseInstructions = [
   "If the latest question is unrelated to Siargao or plausible trip planning, politely decline and invite a Siargao-related question.",
   "Use the loaded INDEX.md to choose the smallest relevant memory files, then call load_agent_memory_file, file_search, or search_agent_memory before answering from Ask Siargao domain knowledge.",
   "You own tool choice and query formulation from the traveler's natural-language prompt. Do not wait for deterministic routing hints.",
-  "For local service lookups such as scooter rental in General Luna, choose research_web and/or search_places with natural-language service queries unless the traveler is asking about riding safety, roads, rain, or conditions.",
+  "For local service lookups such as scooter or motorbike rental in General Luna, call search_places with a natural-language service query; add research_web when public operator or directory evidence is useful. Do not substitute web research alone for map/card recommendations unless Google Places is unavailable.",
+  "For any answer based on tool results, return a structured result rather than a thin paragraph. Use a compact markdown table or tight option list for multiple places, providers, events, routes, beaches, activities, weather windows, or other comparable results. Include practical checked details only when tool output supports them, then state the best first move.",
   "If one provider fails but another provider succeeds, use the successful evidence and caveat only the missing check when it matters.",
   "If deterministic signals say browser geolocation is the proximity anchor, do not say the traveler is near a named area unless user text or a tool result supports that named area.",
   "Do not answer from generic model knowledge when the loaded memory index lists a relevant file. If no loaded memory file covers the topic, say the Ask Siargao memory does not cover it and rely only on governed tools where appropriate.",

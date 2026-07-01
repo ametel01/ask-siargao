@@ -69,6 +69,20 @@ describe("web research engine", () => {
     expect(queries.join("\n")).toContain("recent guide 2026");
   });
 
+  test("expands motorbike rental queries toward rental operators and rates", () => {
+    const queries = buildWebResearchQueries({
+      query: "motorbike rental in General Luna",
+      intent: "recommendation",
+      location: "General Luna",
+      sourceTypes: ["official", "local_directory", "maps", "guide"],
+    });
+
+    expect(queries.join("\n")).toContain("rates contact whatsapp deposit helmet");
+    expect(queries.join("\n")).toContain("official scooter");
+    expect(queries.join("\n")).toContain("Siargao scooter directory");
+    expect(queries.join("\n")).not.toContain("events directory");
+  });
+
   test("expands safety and disruption queries toward advisories and news", () => {
     const queries = buildWebResearchQueries({
       query: "road closures after storm",
@@ -214,6 +228,84 @@ describe("web research engine", () => {
       name: "Roots Siargao",
       kind: "place",
     });
+  });
+
+  test("filters unrelated hotel map pages from motorbike rental research", () => {
+    const result = runWebResearch(
+      {
+        query: "motorbike rental in General Luna",
+        intent: "recommendation",
+        location: "General Luna",
+        sourceTypes: ["maps", "official", "local_directory"],
+        requiredFreshness: "stable",
+      },
+      [
+        {
+          url: "https://www.google.com/travel/hotels/entity/example",
+          title: "Kaimana Resort Siargao - Google hotels",
+          sourceType: "maps",
+          snippet:
+            "Google Hotels listing for Kaimana Resort Siargao in General Luna with restaurant details.",
+          publishedOrUpdatedAt: "2026-06-29T09:00:00+08:00",
+        },
+        {
+          url: "https://goldenbellsiargao.com/",
+          title: "Golden Bell Siargao Scooter & Motorbike Rental",
+          sourceType: "official",
+          snippet:
+            "Scooter and motorbike rental in General Luna with daily rates, helmets, delivery, and WhatsApp contact.",
+          publishedOrUpdatedAt: "2026-06-29T09:00:00+08:00",
+          entities: [{ name: "Golden Bell Siargao", kind: "operator", area: "General Luna" }],
+        },
+      ],
+      { now },
+    );
+
+    expect(result.status).toBe("available");
+    expect(result.findings.map((finding) => finding.sourceTitle)).toEqual([
+      "Golden Bell Siargao Scooter & Motorbike Rental",
+    ]);
+    expect(JSON.stringify(result.findings)).not.toContain("Kaimana Resort");
+    expect(JSON.stringify(result.entities)).not.toContain("Kaimana Resort");
+    expect(result.entities[0]).toMatchObject({
+      name: "Golden Bell Siargao",
+      kind: "operator",
+    });
+  });
+
+  test("rejects indirect motorbike mentions as rental research evidence", () => {
+    const result = runWebResearch(
+      {
+        query: "motorbike rental in General Luna",
+        intent: "recommendation",
+        location: "General Luna",
+        sourceTypes: ["local_directory", "guide"],
+        requiredFreshness: "stable",
+      },
+      [
+        {
+          url: "https://wanderlog.example/siargao-books-cafe",
+          title: "Siargao Books Cafe, Surigao City, Philippines",
+          sourceType: "local_directory",
+          snippet:
+            "Public directory listing for a 24-hour cafe in General Luna with motorbike parking; useful as a nearby availability reference, but not a motorbike rental operator.",
+          publishedOrUpdatedAt: "2026-07-01T09:00:00+08:00",
+        },
+        {
+          url: "https://review.example/outdoor-adventures-siargao",
+          title: "Outdoor Adventures Siargao - Review",
+          sourceType: "guide",
+          snippet:
+            "Recent attraction page referencing motorbike transport on the island; not a rental operator listing.",
+          publishedOrUpdatedAt: "2026-06-30T09:00:00+08:00",
+        },
+      ],
+      { now },
+    );
+
+    expect(result.status).toBe("insufficient");
+    expect(result.findings).toEqual([]);
+    expect(result.entities).toEqual([]);
   });
 
   test("returns insufficient when only weak stale sources exist", () => {

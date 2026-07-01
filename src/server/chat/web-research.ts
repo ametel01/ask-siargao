@@ -191,7 +191,12 @@ export function runWebResearch(
     );
   const minimumScore = options.minimumScore ?? defaultMinimumScore;
   const selectedSources = scoredSources
-    .filter((source) => source.score >= minimumScore || source.negativeEvidence)
+    .filter(
+      (source) =>
+        (!vehicleRentalLike(request.query) ||
+          vehicleRentalSourceText(normalizedSourceText(source.source))) &&
+        (source.score >= minimumScore || source.negativeEvidence),
+    )
     .slice(0, Math.max(1, request.maxSources ?? 6));
   const findings = selectedSources.map((source, index) => researchFindingFromSource(source, index));
   const entities = uniqueResearchEntities(
@@ -232,7 +237,9 @@ export function buildWebResearchQueries(request: ResearchWebRequest) {
   return uniqueStrings([
     uniqueTokens([baseQuery, intentModifier].filter(Boolean).join(" ")),
     ...sourceTypes.map((sourceType) =>
-      uniqueTokens([baseQuery, intentModifier, sourceQueryModifiers[sourceType]].join(" ")),
+      uniqueTokens(
+        [baseQuery, intentModifier, sourceQueryModifierForRequest(sourceType, request)].join(" "),
+      ),
     ),
   ]).slice(0, 8);
 }
@@ -305,6 +312,15 @@ export function scoreResearchSource(
   score += exactness.score;
   if (exactness.reason) {
     reasons.push(exactness.reason);
+  }
+
+  if (
+    vehicleRentalLike(request.query) &&
+    !vehicleRentalSourceText(text) &&
+    !hasNegativeEvidence(text)
+  ) {
+    score -= 60;
+    reasons.push("does not directly describe a vehicle rental operator or rates");
   }
 
   const negativeEvidence = hasNegativeEvidence(text);
@@ -386,6 +402,9 @@ function defaultSourceTypesForRequest(
   if (restaurantLike(request.query)) {
     return ["maps", "official", "local_directory", "guide"];
   }
+  if (vehicleRentalLike(request.query)) {
+    return ["official", "local_directory", "guide"];
+  }
   if (eventLike(request.query)) {
     return ["official", "local_directory", "social", "guide", "community"];
   }
@@ -419,6 +438,9 @@ function primarySourceTypesForRequest(
   if (restaurantLike(request.query)) {
     return ["maps", "official", "local_directory"];
   }
+  if (vehicleRentalLike(request.query)) {
+    return ["official", "local_directory"];
+  }
   if (eventLike(request.query)) {
     return ["official", "local_directory", "social"];
   }
@@ -436,6 +458,9 @@ function supportingSourceTypesForRequest(
   }
   if (restaurantLike(request.query)) {
     return ["guide", "social"];
+  }
+  if (vehicleRentalLike(request.query)) {
+    return ["guide", "social", "maps"];
   }
   if (eventLike(request.query)) {
     return ["guide", "community"];
@@ -516,7 +541,34 @@ function intentQueryModifier(request: ResearchWebRequest) {
   if (restaurantLike(request.query)) {
     return "best open now menu";
   }
+  if (vehicleRentalLike(request.query)) {
+    return "rental rates contact whatsapp deposit helmet";
+  }
   return "best recommended current";
+}
+
+function sourceQueryModifierForRequest(
+  sourceType: WebResearchSourceType,
+  request: ResearchWebRequest,
+) {
+  if (!vehicleRentalLike(request.query)) {
+    return sourceQueryModifiers[sourceType];
+  }
+
+  switch (sourceType) {
+    case "official":
+      return "official scooter motorbike rental";
+    case "local_directory":
+      return "Siargao scooter motorbike rental directory rates";
+    case "maps":
+      return "scooter motorbike rental map contact hours";
+    case "guide":
+      return "scooter motorbike rental guide rates";
+    case "social":
+      return "facebook instagram scooter motorbike rental";
+    default:
+      return sourceQueryModifiers[sourceType];
+  }
 }
 
 function boundedClaim(source: WebResearchProviderResult) {
@@ -534,6 +586,38 @@ function normalizedSourceText(source: WebResearchProviderResult) {
 function hasNegativeEvidence(text: string) {
   return /\b(closed|cancelled|canceled|not running|suspended|inactive|not available|no longer|postponed)\b/i.test(
     text,
+  );
+}
+
+function vehicleRentalLike(value: string) {
+  return (
+    /\b(?:scooters?|motorbikes?|motor\s*bikes?|motorcycles?|bike|bikes)\b/i.test(value) &&
+    /\b(?:rent|rental|rentals|hire|hiring)\b/i.test(value)
+  );
+}
+
+function vehicleRentalSourceText(text: string) {
+  if (vehicleRentalDisqualifier(text)) {
+    return false;
+  }
+  return (
+    /\b(?:scooters?|motorbikes?|motor\s*bikes?|motorcycles?|mopeds?|bike|bikes|car\s*&\s*bike)\b/i.test(
+      text,
+    ) &&
+    /\b(?:rent|rental|rentals|hire|hiring|rates?|daily\s+rate|per\s+day|deposit|helmet|whatsapp|delivery|pickup)\b/i.test(
+      text,
+    )
+  );
+}
+
+function vehicleRentalDisqualifier(text: string) {
+  return (
+    /\b(?:not|isn t|isn't|not\s+a|not\s+an)\s+(?:a\s+|an\s+)?(?:scooter|motorbike|motorcycle|vehicle|bike)?\s*(?:rental|operator|shop|listing|company)\b/i.test(
+      text,
+    ) ||
+    /\b(?:parking|transport(?:ation)?\s+on\s+the\s+island|nearby availability reference|indirect context only)\b/i.test(
+      text,
+    )
   );
 }
 

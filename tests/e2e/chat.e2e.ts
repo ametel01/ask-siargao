@@ -227,6 +227,37 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect.poll(() => composerFitsViewport(page)).toBe(true);
 });
 
+test("renders assistant markdown tables as real tables", async ({ page }) => {
+  await page.setViewportSize({ width: 2048, height: 1153 });
+  await mockChatApi(page, {
+    message: [
+      "Best options in **General Luna / Catangnan**:",
+      "",
+      "| Rental shop | Area | Price signal | Contact / notes |",
+      "| --- | --- | ---: | --- |",
+      "| **Golden Bell Siargao** | Tourism Road, General Luna | From **₱350/day** | Message first for availability, helmet, deposit, and delivery. |",
+      "| **Siargao Motorbike Rentals** | Purok 5, General Luna | Honda Beat **₱350/day** | Ask about pickup, surf rack, and current deposit rules. |",
+      "| **Lola's Rentals** | Tourism Road, Catangnan | About **₱465/day** | Good backup if you are near Cloud 9. |",
+      "",
+      "My pick: message **Golden Bell Siargao** first, then use Siargao Motorbike Rentals as backup.",
+    ].join("\n"),
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("where can i rent a motorbike in gl?");
+  const sendButton = page.getByRole("button", { name: "Send question" });
+  await expect(sendButton).toBeEnabled();
+  await sendButton.click();
+
+  const assistantBubble = page.getByTestId("assistant-message-bubble").last();
+  await expect(assistantBubble.getByRole("table")).toBeVisible();
+  await expect(assistantBubble.getByRole("columnheader", { name: "Rental shop" })).toBeVisible();
+  await expect(assistantBubble.getByRole("cell", { name: /Golden Bell Siargao/ })).toBeVisible();
+  await expect(assistantBubble.getByRole("cell", { name: "From ₱350/day" })).toBeVisible();
+  await expect(assistantBubble.getByText("| Rental shop |")).toHaveCount(0);
+  await expect(assistantBubble.getByText("My pick:")).toBeVisible();
+});
+
 test("keeps a crowded chat history from clipping the active assistant reply", async ({ page }) => {
   await page.setViewportSize({ width: 2048, height: 1153 });
   const threads = Array.from({ length: 12 }, (_, index) => ({
