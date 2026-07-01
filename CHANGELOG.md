@@ -115,6 +115,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Allowed public machine-readable document routes such as `robots.txt`, `sitemap.xml`, and
+  `llm.md` to bypass Clerk middleware while API routes remain covered.
 - Fixed the OpenAI web research structured-output schema so strict result and nested entity
   properties are required with nullable optional values instead of schema-invalid omissions.
 - Prevented dependent required-evidence checks from running before required web research evidence is

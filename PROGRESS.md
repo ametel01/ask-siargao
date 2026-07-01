@@ -5,9 +5,9 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 
 ## Current Status
 
-- Status: Step 9 complete
-- Current step: Step 10 - Documentation, Final Gates, and Handoff
-- Next step: Step 10 - Documentation, Final Gates, and Handoff
+- Status: Step 10 complete
+- Current step: Done
+- Next step: Handoff
 
 ## Step Checklist
 
@@ -21,7 +21,7 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 - [x] Step 7: Strengthen Model Tool-Choice Instructions
 - [x] Step 8: Preserve and Extend Source Validation
 - [x] Step 9: Remove or Quarantine Brittle Classifier Tests and Dead Routing Helpers
-- [ ] Step 10: Documentation, Final Gates, and Handoff
+- [x] Step 10: Documentation, Final Gates, and Handoff
 
 ## Update Rule
 
@@ -253,3 +253,29 @@ Update this file after every completed step with:
 - Changelog: updated under `Removed` for stale deterministic route-intent handling.
 - Commit reference: this commit (`Remove stale deterministic routing helpers`).
 - Next step: Step 10 - Documentation, Final Gates, and Handoff.
+
+### 2026-07-01 - Step 10 Completed
+
+- Added developer documentation for model-owned chat tool choice, safe deterministic signal
+  boundaries, provider-failure behavior, source-label validation, artifact selection, and ownership
+  modules.
+- Updated the developer documentation index to link the new routing/source-governance explanation
+  and align the web-research description with model-owned tool choice.
+- Fixed public document route middleware matching so `robots.txt`, `sitemap.xml`, and `llm.md`
+  surfaces bypass Clerk middleware while API routes remain covered.
+- Made the Playwright web server command clear Clerk keys so local e2e runs stay deterministic when
+  `.env` contains Clerk credentials.
+- Validation passed:
+  - `bun run format`
+  - `bun run test:e2e` - 37 tests passed
+  - `bun run verify:ci` - passed, including:
+    - `bun run verify`
+    - `bun run db:migrate:test`
+    - `bun run db:seed:test`
+    - `bun run build`
+    - `bun run test:e2e` - 37 tests passed
+  - `bun test` within `verify:ci` - 697 tests passed
+- Changelog: updated only for the functional public-route middleware fix. No changelog entry was
+  added for the docs, progress, test, or validation-only work under the current changelog policy.
+- Commit reference: this commit (`Document model-owned chat routing`).
+- Next step: Handoff.

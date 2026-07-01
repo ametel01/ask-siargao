@@ -11,5 +11,6 @@ Use these pages when working on the Ask Siargao codebase.
 - [Demo data reference](reference/demo-data.md): synthetic and permitted local QA fixtures.
 - [Clerk auth, session, chat history, profile, and rating requirements](reference/clerk-auth-session-chat-history-requirements.md): technical requirements for authenticated user state and persisted chat features.
 - [Audit lifecycle and boundaries](explanation/audit-lifecycle-and-boundaries.md): how intake, payment, generation, public data, and privacy boundaries fit together.
+- [Chat agent routing and source governance](explanation/chat-agent-routing-and-source-governance.md): how model-owned tool choice, provider failures, artifacts, and source-label validation fit together.
 - [Siargao chatbot data pipeline](explanation/siargao-chatbot-data-pipeline.md): product direction and lazy fact acquisition model for the chat-first tour-operator assistant.
-- [Web research layer](explanation/web-research-layer.md): why current and recommendation requests need public-web research before Places, weather, or memory enrichment, and where to implement it.
+- [Web research layer](explanation/web-research-layer.md): background on public-web evidence, source scoring, provider failure, and how `research_web` complements Places, weather, and memory.

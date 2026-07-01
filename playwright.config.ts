@@ -10,7 +10,8 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   webServer: {
-    command: "bun run dev -- --hostname 127.0.0.1 --port 3100",
+    command:
+      "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY= bun run dev -- --hostname 127.0.0.1 --port 3100",
     url: "http://127.0.0.1:3100/robots.txt",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
