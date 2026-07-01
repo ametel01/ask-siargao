@@ -99,6 +99,52 @@ type ChatContextIcon = typeof MapPin;
 type RailQuestionItem =
   | { kind: "thread"; id: string; label: string; value: string }
   | { kind: "fallback"; label: string; value: string };
+type TripContextDraft = {
+  accommodation: string;
+  dateRange: string;
+  travelerType: string;
+  nearbyArea: ForecastLocationLabel;
+};
+type ForecastLocationLabel = "Siargao Island" | "Cloud 9" | "General Luna" | "Del Carmen";
+type WeatherPanelSnapshot = {
+  status: "live" | "fallback";
+  locationName: string;
+  fetchedAt: string;
+  freshness: "fresh" | "stale" | "unknown";
+  today: {
+    condition: string;
+    precipitationProbability: number | null;
+    rainSum: number | null;
+    precipitationSum: number | null;
+    windGust: number | null;
+  };
+};
+type WeatherPanelResponse = {
+  requestedLocation: ForecastLocationLabel;
+  weather: WeatherPanelSnapshot;
+};
+type SurfPanelSnapshot = {
+  status: "live" | "partial" | "unavailable";
+  locationName: ForecastLocationLabel;
+  fetchedAt: string;
+  level: "low" | "medium" | "high";
+  recommendation: string;
+  summary: string;
+  metrics: {
+    waves: string;
+    tide: string;
+    wind: string;
+  };
+  tide: {
+    stationName: string;
+    bestWindow: string | null;
+  };
+  caveats: string[];
+};
+type SurfPanelResponse = {
+  requestedLocation: ForecastLocationLabel;
+  surf: SurfPanelSnapshot;
+};
 
 const savedPlaceShortlists = [
   { label: "Cloud 9 shortlist", value: "4 places" },
@@ -113,30 +159,21 @@ const fallbackRecentQuestions = [
   { kind: "fallback", label: "Surf conditions tomorrow?", value: "Suggested" },
 ] satisfies RailQuestionItem[];
 
-const tripContextItems: Array<{
-  icon: ChatContextIcon;
-  label: string;
-  value: string;
-}> = [
-  { icon: BedDouble, label: "Accommodation", value: "Near Cloud 9 / Catangnan" },
-  { icon: CalendarDays, label: "Dates", value: "Jun 12 - 22" },
-  { icon: Users, label: "Traveler type", value: "Couple" },
-  { icon: MapPin, label: "Nearby area", value: "Cloud 9" },
-  { icon: CloudSun, label: "Weather", value: "Ask for latest forecast" },
-  { icon: Clock, label: "Live refreshes remaining", value: "4" },
-];
-
-const weatherSnapshotMetrics = [
-  { label: "Rain chance", value: "-" },
-  { label: "Wind", value: "-" },
-  { label: "Humidity", value: "-" },
-];
-
-const surfSnapshotMetrics = [
-  { label: "Waves", value: "-" },
-  { label: "Tide", value: "-" },
-  { label: "Wind", value: "-" },
-];
+const tripContextStorageKey = "ask-siargao:trip-context:v1";
+const forecastLocationLabels = [
+  "Cloud 9",
+  "General Luna",
+  "Del Carmen",
+  "Siargao Island",
+] as const satisfies readonly ForecastLocationLabel[];
+const defaultTripContext: TripContextDraft = {
+  accommodation: "Near Cloud 9 / Catangnan",
+  dateRange: "Jun 12 - 22",
+  travelerType: "Couple",
+  nearbyArea: "Cloud 9",
+};
+const tripContextListeners = new Set<() => void>();
+let tripContextSnapshotCache: { rawValue: string | null; state: TripContextDraft } | null = null;
 
 const chatSignedOutActions = (
   <>
@@ -449,6 +486,8 @@ type ChatWorkspaceController = {
   selectedThreadId: string | null;
   setInputValue: (value: string) => void;
   startNewChat: () => void;
+  tripContext: TripContextDraft;
+  updateTripContext: (context: TripContextDraft) => void;
 };
 
 function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceController {
@@ -459,6 +498,11 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
   const [chatThreads, setChatThreads] = useState<ChatThreadSummary[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [historyStatus, setHistoryStatus] = useState<"idle" | "loading" | "error">("idle");
+  const tripContext = useSyncExternalStore(
+    subscribeTripContextState,
+    getTripContextSnapshot,
+    getTripContextServerSnapshot,
+  );
   const savedTripState = useSyncExternalStore(
     subscribeSavedTripState,
     getSavedTripSnapshot,
@@ -849,6 +893,10 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     [submitPrompt],
   );
 
+  const updateTripContext = useCallback((context: TripContextDraft) => {
+    writeStoredTripContext(context);
+  }, []);
+
   return {
     chatThreads,
     handlePromptSubmit,
@@ -872,6 +920,8 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     selectedThreadId,
     setInputValue,
     startNewChat,
+    tripContext,
+    updateTripContext,
   };
 }
 
@@ -895,13 +945,42 @@ function ChatWorkspaceView({
   selectedThreadId,
   setInputValue,
   startNewChat,
+  tripContext,
+  updateTripContext,
 }: ChatWorkspaceController) {
   const hasMessages = messages.length > 0;
+  const chatScrollAreaRef = useRef<HTMLDivElement | null>(null);
+  const lastMessage = messages.at(-1);
+  const scrollAnchorVersion = `${messages.length}:${
+    lastMessage?.id ?? "empty"
+  }:${lastMessage?.status ?? "idle"}:${lastMessage?.text.length ?? 0}:${
+    lastMessage?.cards?.length ?? 0
+  }:${lastMessage?.itineraries?.length ?? 0}:${
+    lastMessage?.decisionSummaries?.length ?? 0
+  }:${savedTripState.items.length}`;
+
+  useEffect(() => {
+    const chatScrollArea = chatScrollAreaRef.current;
+    if (!chatScrollArea) {
+      return;
+    }
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      if (!scrollAnchorVersion) {
+        return;
+      }
+      chatScrollArea.scrollTop = chatScrollArea.scrollHeight;
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [scrollAnchorVersion]);
 
   return (
     <main
       aria-label="Ask Siargao chat workspace"
-      className="h-dvh min-h-screen overflow-hidden bg-brand-lavender-50 text-text-strong"
+      className="fixed inset-0 h-dvh overflow-hidden bg-brand-lavender-50 text-text-strong"
     >
       <section className="grid h-full min-h-0 w-full grid-cols-1 xl:grid-cols-[19.5rem_minmax(0,1fr)] 2xl:grid-cols-[19.5rem_minmax(0,1fr)_22.5rem]">
         <ChatTravelRail
@@ -924,8 +1003,13 @@ function ChatWorkspaceView({
             onStartNewChat={startNewChat}
           />
 
-          <div className="min-h-0 overflow-hidden px-4 py-4 sm:px-6 lg:px-8">
-            <div className="mx-auto grid h-full max-w-5xl content-start gap-4 overflow-hidden">
+          <section
+            aria-label="Chat message scroll area"
+            className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 lg:px-8"
+            data-testid="chat-message-scroll-area"
+            ref={chatScrollAreaRef}
+          >
+            <div className="mx-auto grid min-h-full max-w-5xl content-start gap-4 pb-6">
               {savedTripState.items.length ? (
                 <SavedPlanTray
                   copyStatus={savedPlanSharing.copyStatus}
@@ -976,7 +1060,7 @@ function ChatWorkspaceView({
                 />
               )}
             </div>
-          </div>
+          </section>
 
           <ChatComposer
             inputValue={inputValue}
@@ -988,7 +1072,12 @@ function ChatWorkspaceView({
           />
         </section>
 
-        <ChatContextRail />
+        <ChatContextRail
+          locationState={locationState}
+          onRequestLocation={requestLocation}
+          tripContext={tripContext}
+          onUpdateTripContext={updateTripContext}
+        />
       </section>
     </main>
   );
@@ -1180,69 +1269,250 @@ function ChatTopBar({
   );
 }
 
-function ChatContextRail() {
+function ChatContextRail({
+  locationState,
+  onRequestLocation,
+  onUpdateTripContext,
+  tripContext,
+}: {
+  locationState: LocationCaptureState;
+  onRequestLocation: () => void;
+  onUpdateTripContext: (context: TripContextDraft) => void;
+  tripContext: TripContextDraft;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState<TripContextDraft>(defaultTripContext);
+  const activeForecastLocation =
+    locationState.status === "ready"
+      ? nearestForecastLocationLabel(locationState.geolocation)
+      : tripContext.nearbyArea;
+  const weatherUrl = `/api/public/weather/siargao?location=${encodeURIComponent(
+    activeForecastLocation,
+  )}`;
+  const surfUrl = `/api/public/surf/siargao?location=${encodeURIComponent(activeForecastLocation)}`;
+  const {
+    data: weatherData,
+    error: weatherError,
+    isLoading: weatherLoading,
+    mutate: refreshWeather,
+  } = useSWR<WeatherPanelResponse>(weatherUrl, fetchWeatherPanel, {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  });
+  const {
+    data: surfData,
+    error: surfError,
+    isLoading: surfLoading,
+    mutate: refreshSurf,
+  } = useSWR<SurfPanelResponse>(surfUrl, fetchSurfPanel, {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  });
+  const weatherSnapshot = weatherData?.weather;
+  const surfSnapshot = surfData?.surf;
+  const weatherMetrics = weatherMetricsForPanel(weatherSnapshot);
+  const surfMetrics = surfMetricsForPanel(surfSnapshot);
+  const tripContextItems = tripContextFacts({
+    activeForecastLocation,
+    locationState,
+    tripContext,
+  });
+
+  const saveDraft = useCallback(() => {
+    onUpdateTripContext(normalizeTripContextDraft(draft));
+    setIsEditing(false);
+  }, [draft, onUpdateTripContext]);
+
   return (
-    <aside className="hidden min-h-0 gap-4 overflow-hidden border-border-default border-l bg-surface-default p-4 2xl:grid">
+    <aside
+      aria-label="Trip context and live conditions"
+      className="hidden min-h-0 content-start gap-4 overflow-x-hidden overflow-y-auto overscroll-contain border-border-default border-l bg-surface-default p-4 pb-6 2xl:grid"
+      data-testid="context-rail-scroll"
+    >
       <ContextCard
         action={
-          <Button
-            className="h-8 rounded-md border-brand-violet-400/25 bg-brand-lavender-50 px-3 text-xs font-extrabold text-brand-violet-650 hover:bg-brand-lavender-100"
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            Edit
-          </Button>
+          isEditing ? (
+            <div className="flex items-center gap-2">
+              <Button
+                className="h-8 rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-muted hover:bg-brand-lavender-50"
+                onClick={() => {
+                  setDraft(tripContext);
+                  setIsEditing(false);
+                }}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button
+                className="h-8 rounded-md bg-brand-violet-650 px-3 text-xs font-extrabold text-white hover:bg-brand-violet-600"
+                onClick={saveDraft}
+                size="sm"
+                type="button"
+              >
+                Save
+              </Button>
+            </div>
+          ) : (
+            <Button
+              className="h-8 rounded-md border-brand-violet-400/25 bg-brand-lavender-50 px-3 text-xs font-extrabold text-brand-violet-650 hover:bg-brand-lavender-100"
+              onClick={() => {
+                setDraft(tripContext);
+                setIsEditing(true);
+              }}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Edit
+            </Button>
+          )
         }
         title="Trip context"
       >
-        <div className="grid gap-4">
-          {tripContextItems.map((item) => (
-            <ContextFact icon={item.icon} key={item.label} label={item.label} value={item.value} />
-          ))}
-        </div>
+        {isEditing ? (
+          <TripContextEditor draft={draft} onDraftChange={setDraft} />
+        ) : (
+          <div className="grid gap-4">
+            {tripContextItems.map((item) => (
+              <ContextFact
+                icon={item.icon}
+                key={item.label}
+                label={item.label}
+                value={item.value}
+              />
+            ))}
+            {locationState.status !== "ready" ? (
+              <Button
+                className="h-9 rounded-md border-brand-lagoon-500/25 bg-brand-lagoon-50 px-3 text-xs font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
+                onClick={onRequestLocation}
+                type="button"
+                variant="outline"
+              >
+                Use browser location
+              </Button>
+            ) : null}
+          </div>
+        )}
       </ContextCard>
 
-      <ContextCard title="Cloud 9 Weather">
+      <ContextCard
+        action={
+          <Button
+            aria-label="Refresh weather"
+            className="size-8 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+            onClick={() => {
+              void refreshWeather();
+            }}
+            size="icon"
+            type="button"
+            variant="outline"
+          >
+            <RefreshCw aria-hidden="true" size={15} />
+          </Button>
+        }
+        title={`${activeForecastLocation} Weather`}
+      >
         <div className="grid gap-4">
           <div className="flex items-center gap-4">
             <CloudSun aria-hidden="true" className="text-brand-violet-650" size={38} />
             <div className="min-w-0">
-              <p className="m-0 text-2xl font-black text-text-strong">Forecast pending</p>
-              <p className="m-0 text-sm font-bold text-text-muted">Ask chat for the latest check</p>
+              <p className="m-0 text-2xl font-black text-text-strong">
+                {weatherPanelTitle({
+                  error: weatherError,
+                  isLoading: weatherLoading,
+                  weatherSnapshot,
+                })}
+              </p>
+              <p className="m-0 text-sm font-bold text-text-muted">
+                {weatherPanelSubtitle({
+                  activeForecastLocation,
+                  error: weatherError,
+                  isLoading: weatherLoading,
+                  weatherSnapshot,
+                })}
+              </p>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-2">
-            {weatherSnapshotMetrics.map((item) => (
+            {weatherMetrics.map((item) => (
               <MetricTile key={item.label} label={item.label} value={item.value} />
             ))}
           </div>
-          <p className="m-0 inline-flex items-center gap-2 text-xs font-extrabold text-confidence-high">
-            <span className="size-2 rounded-full bg-confidence-high" />
-            Updates after weather answers
+          <p
+            className={cn(
+              "m-0 inline-flex items-center gap-2 text-xs font-extrabold",
+              weatherSnapshot?.status === "live" ? "text-confidence-high" : "text-text-muted",
+            )}
+          >
+            <span
+              className={cn(
+                "size-2 rounded-full",
+                weatherSnapshot?.status === "live" ? "bg-confidence-high" : "bg-text-muted",
+              )}
+            />
+            {weatherSnapshot?.status === "live"
+              ? "Checked with Open-Meteo"
+              : "Open-Meteo forecast unavailable"}
           </p>
         </div>
       </ContextCard>
 
-      <ContextCard title="Live surf conditions">
+      <ContextCard
+        action={
+          <Button
+            aria-label="Refresh surf conditions"
+            className="size-8 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+            onClick={() => {
+              void refreshSurf();
+            }}
+            size="icon"
+            type="button"
+            variant="outline"
+          >
+            <RefreshCw aria-hidden="true" size={15} />
+          </Button>
+        }
+        title="Live surf conditions"
+      >
         <div className="grid gap-4">
           <div className="flex items-center justify-between gap-3">
             <p className="m-0 inline-flex items-center gap-2 text-lg font-black text-text-strong">
               <WavesHorizontal aria-hidden="true" className="text-brand-violet-650" size={20} />
-              Cloud 9
+              {activeForecastLocation}
             </p>
-            <span className="rounded-full bg-confidence-high-soft px-3 py-1 text-xs font-black text-confidence-high">
-              Check in chat
+            <span
+              className={cn(
+                "rounded-full px-3 py-1 text-xs font-black",
+                surfSnapshot?.status === "live"
+                  ? "bg-confidence-high-soft text-confidence-high"
+                  : "bg-brand-lavender-50 text-text-muted",
+              )}
+            >
+              {surfBadgeLabel({ error: surfError, isLoading: surfLoading, surfSnapshot })}
             </span>
           </div>
           <div className="grid grid-cols-3 gap-2">
-            {surfSnapshotMetrics.map((item) => (
+            {surfMetrics.map((item) => (
               <MetricTile key={item.label} label={item.label} value={item.value} />
             ))}
           </div>
-          <p className="m-0 inline-flex items-center gap-2 text-xs font-extrabold text-confidence-high">
-            <span className="size-2 rounded-full bg-confidence-high" />
-            Surf answers fill this panel
+          <p
+            className={cn(
+              "m-0 inline-flex items-start gap-2 text-xs font-extrabold",
+              surfSnapshot?.level === "high" ? "text-text-alert" : "text-confidence-high",
+            )}
+          >
+            <span
+              className={cn(
+                "mt-1 size-2 shrink-0 rounded-full",
+                surfSnapshot?.level === "high" ? "bg-text-alert" : "bg-confidence-high",
+              )}
+            />
+            <span className="min-w-0">
+              {surfPanelSummary({ error: surfError, isLoading: surfLoading, surfSnapshot })}
+            </span>
           </p>
         </div>
       </ContextCard>
@@ -1290,6 +1560,82 @@ function ContextFact({
   );
 }
 
+function TripContextEditor({
+  draft,
+  onDraftChange,
+}: {
+  draft: TripContextDraft;
+  onDraftChange: (draft: TripContextDraft) => void;
+}) {
+  return (
+    <div className="grid gap-3">
+      <TripContextField
+        label="Accommodation"
+        onChange={(value) => {
+          onDraftChange({ ...draft, accommodation: value });
+        }}
+        value={draft.accommodation}
+      />
+      <TripContextField
+        label="Dates"
+        onChange={(value) => {
+          onDraftChange({ ...draft, dateRange: value });
+        }}
+        value={draft.dateRange}
+      />
+      <TripContextField
+        label="Traveler type"
+        onChange={(value) => {
+          onDraftChange({ ...draft, travelerType: value });
+        }}
+        value={draft.travelerType}
+      />
+      <label className="grid gap-1 text-xs font-extrabold text-text-muted">
+        Nearby area
+        <select
+          className="h-10 rounded-md border border-border-default bg-white px-3 text-sm font-black text-text-strong outline-none focus:border-brand-violet-650"
+          onChange={(event) => {
+            onDraftChange({
+              ...draft,
+              nearbyArea: event.currentTarget.value as ForecastLocationLabel,
+            });
+          }}
+          value={draft.nearbyArea}
+        >
+          {forecastLocationLabels.map((location) => (
+            <option key={location} value={location}>
+              {location}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+}
+
+function TripContextField({
+  label,
+  onChange,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="grid gap-1 text-xs font-extrabold text-text-muted">
+      {label}
+      <input
+        className="h-10 rounded-md border border-border-default bg-white px-3 text-sm font-black text-text-strong outline-none focus:border-brand-violet-650"
+        onChange={(event) => {
+          onChange(event.currentTarget.value);
+        }}
+        value={value}
+      />
+    </label>
+  );
+}
+
 function MetricTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid min-h-16 content-center gap-1 rounded-md bg-brand-lavender-50 px-3 py-2">
@@ -1297,6 +1643,303 @@ function MetricTile({ label, value }: { label: string; value: string }) {
       <p className="m-0 text-sm font-black text-text-strong">{value}</p>
     </div>
   );
+}
+
+function tripContextFacts({
+  activeForecastLocation,
+  locationState,
+  tripContext,
+}: {
+  activeForecastLocation: ForecastLocationLabel;
+  locationState: LocationCaptureState;
+  tripContext: TripContextDraft;
+}): Array<{ icon: ChatContextIcon; label: string; value: string }> {
+  return [
+    { icon: BedDouble, label: "Accommodation", value: tripContext.accommodation },
+    { icon: CalendarDays, label: "Dates", value: tripContext.dateRange },
+    { icon: Users, label: "Traveler type", value: tripContext.travelerType },
+    { icon: MapPin, label: "Nearby area", value: tripContext.nearbyArea },
+    { icon: CloudSun, label: "Forecast area", value: activeForecastLocation },
+    { icon: Clock, label: "Location source", value: locationSourceLabel(locationState) },
+  ];
+}
+
+function weatherMetricsForPanel(weather: WeatherPanelSnapshot | undefined) {
+  return [
+    {
+      label: "Rain chance",
+      value:
+        weather?.today.precipitationProbability === null ||
+        weather?.today.precipitationProbability === undefined
+          ? "-"
+          : `${weather.today.precipitationProbability}%`,
+    },
+    {
+      label: "Rain",
+      value:
+        weather?.today.rainSum === null || weather?.today.rainSum === undefined
+          ? "-"
+          : `${formatPanelNumber(weather.today.rainSum)} mm`,
+    },
+    {
+      label: "Wind gust",
+      value:
+        weather?.today.windGust === null || weather?.today.windGust === undefined
+          ? "-"
+          : `${formatPanelNumber(weather.today.windGust)} km/h`,
+    },
+  ];
+}
+
+function surfMetricsForPanel(surf: SurfPanelSnapshot | undefined) {
+  return [
+    { label: "Waves", value: surf?.metrics.waves ?? "-" },
+    { label: "Tide", value: surf?.metrics.tide ?? "-" },
+    { label: "Wind", value: surf?.metrics.wind ?? "-" },
+  ];
+}
+
+function weatherPanelTitle({
+  error,
+  isLoading,
+  weatherSnapshot,
+}: {
+  error: unknown;
+  isLoading: boolean;
+  weatherSnapshot: WeatherPanelSnapshot | undefined;
+}) {
+  if (isLoading) {
+    return "Loading forecast";
+  }
+  if (error) {
+    return "Forecast unavailable";
+  }
+  return weatherSnapshot?.status === "live" ? weatherSnapshot.today.condition : "Forecast fallback";
+}
+
+function weatherPanelSubtitle({
+  activeForecastLocation,
+  error,
+  isLoading,
+  weatherSnapshot,
+}: {
+  activeForecastLocation: ForecastLocationLabel;
+  error: unknown;
+  isLoading: boolean;
+  weatherSnapshot: WeatherPanelSnapshot | undefined;
+}) {
+  if (isLoading) {
+    return "Checking Open-Meteo";
+  }
+  if (error || !weatherSnapshot) {
+    return `Could not check ${activeForecastLocation}`;
+  }
+  if (weatherSnapshot.status !== "live") {
+    return "Open-Meteo returned fallback data";
+  }
+  return `Updated ${formatPanelDateTime(weatherSnapshot.fetchedAt)}`;
+}
+
+function surfBadgeLabel({
+  error,
+  isLoading,
+  surfSnapshot,
+}: {
+  error: unknown;
+  isLoading: boolean;
+  surfSnapshot: SurfPanelSnapshot | undefined;
+}) {
+  if (isLoading) {
+    return "Checking";
+  }
+  if (error || !surfSnapshot || surfSnapshot.status === "unavailable") {
+    return "Unavailable";
+  }
+  return surfSnapshot.status === "live" ? "Inferred live" : "Partial";
+}
+
+function surfPanelSummary({
+  error,
+  isLoading,
+  surfSnapshot,
+}: {
+  error: unknown;
+  isLoading: boolean;
+  surfSnapshot: SurfPanelSnapshot | undefined;
+}) {
+  if (isLoading) {
+    return "Checking weather and Dapa tide data.";
+  }
+  if (error || !surfSnapshot) {
+    return "Surf conditions could not be inferred.";
+  }
+  return surfSnapshot.recommendation;
+}
+
+async function fetchWeatherPanel(url: string): Promise<WeatherPanelResponse> {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("weather_unavailable");
+  }
+  return (await response.json()) as WeatherPanelResponse;
+}
+
+async function fetchSurfPanel(url: string): Promise<SurfPanelResponse> {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("surf_unavailable");
+  }
+  return (await response.json()) as SurfPanelResponse;
+}
+
+function getTripContextServerSnapshot() {
+  return defaultTripContext;
+}
+
+function getTripContextSnapshot() {
+  if (typeof window === "undefined") {
+    return defaultTripContext;
+  }
+
+  const rawValue = window.localStorage.getItem(tripContextStorageKey);
+  if (tripContextSnapshotCache?.rawValue === rawValue) {
+    return tripContextSnapshotCache.state;
+  }
+
+  const state = readStoredTripContext();
+  tripContextSnapshotCache = { rawValue, state };
+  return state;
+}
+
+function subscribeTripContextState(callback: () => void) {
+  tripContextListeners.add(callback);
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === tripContextStorageKey) {
+      tripContextSnapshotCache = null;
+      callback();
+    }
+  };
+
+  window.addEventListener("storage", handleStorage);
+  return () => {
+    tripContextListeners.delete(callback);
+    window.removeEventListener("storage", handleStorage);
+  };
+}
+
+function readStoredTripContext(): TripContextDraft {
+  if (typeof window === "undefined") {
+    return defaultTripContext;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(tripContextStorageKey);
+    if (!rawValue) {
+      return defaultTripContext;
+    }
+    return normalizeTripContextDraft(JSON.parse(rawValue) as Partial<TripContextDraft>);
+  } catch {
+    return defaultTripContext;
+  }
+}
+
+function writeStoredTripContext(context: TripContextDraft) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const rawValue = JSON.stringify(context);
+  window.localStorage.setItem(tripContextStorageKey, rawValue);
+  tripContextSnapshotCache = { rawValue, state: context };
+  for (const listener of tripContextListeners) {
+    listener();
+  }
+}
+
+function normalizeTripContextDraft(context: Partial<TripContextDraft>): TripContextDraft {
+  return {
+    accommodation: normalizedContextText(context.accommodation, defaultTripContext.accommodation),
+    dateRange: normalizedContextText(context.dateRange, defaultTripContext.dateRange),
+    travelerType: normalizedContextText(context.travelerType, defaultTripContext.travelerType),
+    nearbyArea: isForecastLocationLabel(context.nearbyArea)
+      ? context.nearbyArea
+      : defaultTripContext.nearbyArea,
+  };
+}
+
+function normalizedContextText(value: string | undefined, fallback: string) {
+  const trimmedValue = value?.trim();
+  return trimmedValue ? trimmedValue.slice(0, 80) : fallback;
+}
+
+function isForecastLocationLabel(value: unknown): value is ForecastLocationLabel {
+  return (
+    typeof value === "string" &&
+    forecastLocationLabels.includes(value as (typeof forecastLocationLabels)[number])
+  );
+}
+
+function nearestForecastLocationLabel(geolocation: ChatClientGeolocation): ForecastLocationLabel {
+  const distances = [
+    {
+      label: "Cloud 9" as const,
+      distance: distanceKm(geolocation, { latitude: 9.814, longitude: 126.165 }),
+    },
+    {
+      label: "General Luna" as const,
+      distance: distanceKm(geolocation, { latitude: 9.784, longitude: 126.158 }),
+    },
+    {
+      label: "Del Carmen" as const,
+      distance: distanceKm(geolocation, { latitude: 9.869, longitude: 125.969 }),
+    },
+  ].sort((left, right) => left.distance - right.distance);
+
+  return distances[0]?.label ?? "Siargao Island";
+}
+
+function distanceKm(
+  left: Pick<ChatClientGeolocation, "latitude" | "longitude">,
+  right: Pick<ChatClientGeolocation, "latitude" | "longitude">,
+) {
+  const earthRadiusKm = 6_371;
+  const deltaLatitude = degreesToRadians(right.latitude - left.latitude);
+  const deltaLongitude = degreesToRadians(right.longitude - left.longitude);
+  const leftLatitude = degreesToRadians(left.latitude);
+  const rightLatitude = degreesToRadians(right.latitude);
+  const haversine =
+    Math.sin(deltaLatitude / 2) ** 2 +
+    Math.cos(leftLatitude) * Math.cos(rightLatitude) * Math.sin(deltaLongitude / 2) ** 2;
+  return 2 * earthRadiusKm * Math.asin(Math.sqrt(haversine));
+}
+
+function degreesToRadians(value: number) {
+  return (value * Math.PI) / 180;
+}
+
+function locationSourceLabel(locationState: LocationCaptureState) {
+  if (locationState.status === "ready") {
+    return "Browser location active";
+  }
+  if (locationState.status === "requesting") {
+    return "Requesting browser location";
+  }
+  if (locationState.status === "denied") {
+    return "Browser location denied";
+  }
+  return "Trip area";
+}
+
+function formatPanelNumber(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function formatPanelDateTime(value: string) {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) {
+    return "recently";
+  }
+  return chatTimeFormatter.format(timestamp);
 }
 
 function formatThreadRecency(thread: ChatThreadSummary) {

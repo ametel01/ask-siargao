@@ -1,3 +1,7 @@
+import {
+  openMeteoLocationForPublicLabel,
+  parseSiargaoPublicForecastLocation,
+} from "@/server/public-pages/siargao-forecast-location";
 import { getLatestSiargaoWeatherSnapshot } from "@/server/public-pages/weather-snapshot";
 import { rateLimitedJson, rateLimitRequest } from "@/server/security/rate-limit";
 
@@ -12,10 +16,16 @@ export function createPublicSiargaoWeatherHandler(
       return rateLimitedJson(rateLimit);
     }
 
-    const weather = await getWeatherSnapshot();
+    const requestedLocation = parseSiargaoPublicForecastLocation(
+      new URL(request.url).searchParams.get("location"),
+    );
+    const providerLocation = openMeteoLocationForPublicLabel(requestedLocation);
+    const weather = await getWeatherSnapshot(
+      providerLocation ? { location: providerLocation } : {},
+    );
 
     return Response.json(
-      { weather },
+      { requestedLocation, weather },
       {
         headers: {
           ...rateLimit.headers,

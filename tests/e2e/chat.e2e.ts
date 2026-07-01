@@ -168,7 +168,9 @@ test("sends a desktop composer message to the chat API and renders the assistant
   const composerInput = page.getByLabel("Ask anything about Siargao");
   const sendButton = page.getByRole("button", { name: "Send question" });
   await expect(composerInput).toBeVisible();
-  await expect.poll(() => chatWorkspaceScrollSurfaces(page)).toEqual([]);
+  await expect
+    .poll(() => chatWorkspaceScrollSurfaces(page))
+    .toEqual(["chat-message-scroll-area", "context-rail-scroll"]);
   await expect
     .poll(() =>
       page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight + 1),
@@ -262,14 +264,32 @@ test("keeps a crowded chat history from clipping the active assistant reply", as
       "1. Goodies, around 8 PM-midnight, as the strongest Wednesday dance anchor.",
       "2. Mama Coco, around 9 PM+, if you want reggaeton, Afro, or dancehall instead.",
       "3. El Lobo as the late fallback if the first stop slows down.",
+      "4. Keep the route walkable if the road is wet.",
+      "5. Put the late stop last so you can leave early without losing the main plan.",
+      "6. Check whether the first venue is busy before committing to a table.",
+      "7. Keep cash ready for short tricycle hops.",
+      "8. Choose the driest route back toward your accommodation.",
+      "9. Avoid adding a far northern stop unless you already have transport.",
+      "10. Keep one quiet fallback if the group wants to stop dancing.",
+      "11. Save the last move for the closest reliable ride pickup.",
+      "12. Use the same route order if the rain returns.",
+      ...Array.from(
+        { length: 24 },
+        (_, index) =>
+          `${index + 13}. Keep this extra planning checkpoint visible in the scrollable answer region.`,
+      ),
       "",
       "I could not verify current public web evidence right now, so treat this as stable baseline guidance.",
+      "",
+      "Final visible dinner checkpoint: if you want, I can narrow this to cheap, romantic, or closest-to-your-room options.",
     ].join("\n"),
   });
 
   await page.goto("/chat");
   await expect(page.getByRole("heading", { name: "Recent questions" })).toBeVisible();
-  await expect.poll(() => chatWorkspaceScrollSurfaces(page)).toEqual([]);
+  await expect
+    .poll(() => chatWorkspaceScrollSurfaces(page))
+    .toEqual(["chat-message-scroll-area", "context-rail-scroll"]);
 
   const composerInput = page.getByLabel("Ask anything about Siargao");
   await composerInput.fill("where should i go party tonight in general luna?");
@@ -277,16 +297,28 @@ test("keeps a crowded chat history from clipping the active assistant reply", as
 
   const assistantBubble = page.getByTestId("assistant-message-bubble").last();
   const composerForm = page.getByRole("form", { name: "Ask Siargao composer" });
+  const finalCheckpoint = page.getByText("Final visible dinner checkpoint");
   await expect(assistantBubble).toBeVisible();
   await expect(page.getByText("El Lobo as the late fallback")).toBeVisible();
+  await expect(finalCheckpoint).toBeVisible();
+  await expect
+    .poll(() =>
+      page.getByTestId("chat-message-scroll-area").evaluate((element) => element.scrollTop > 0),
+    )
+    .toBe(true);
+  await page.evaluate(() => {
+    window.scrollTo(0, document.documentElement.scrollHeight);
+  });
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  await expect.poll(() => composerFitsViewport(page)).toBe(true);
   await expect
     .poll(async () => {
-      const assistantBox = await assistantBubble.boundingBox();
+      const finalLineBox = await finalCheckpoint.boundingBox();
       const composerBox = await composerForm.boundingBox();
-      if (!assistantBox || !composerBox) {
+      if (!finalLineBox || !composerBox) {
         return false;
       }
-      return assistantBox.y + assistantBox.height <= composerBox.y;
+      return finalLineBox.y + finalLineBox.height <= composerBox.y;
     })
     .toBe(true);
 });

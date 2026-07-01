@@ -20,4 +20,23 @@ describe("public Siargao weather route", () => {
     expect(body.weather.sourceProfileId).toBe("source_open_meteo");
     expect(JSON.stringify(body)).not.toContain("rawPayload");
   });
+
+  test("passes requested known locations to the forecast provider", async () => {
+    const requestedLocations: string[] = [];
+    const GET = createPublicSiargaoWeatherHandler(async (options) => {
+      if (options?.location) {
+        requestedLocations.push(options.location.id);
+      }
+      return fallbackWeatherSnapshot;
+    });
+
+    const response = await GET(
+      new Request("https://siargao.test/api/public/weather/siargao?location=Del%20Carmen"),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.requestedLocation).toBe("Del Carmen");
+    expect(requestedLocations).toEqual(["siargao_del_carmen"]);
+  });
 });
