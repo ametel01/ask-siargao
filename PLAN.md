@@ -2,136 +2,146 @@
 
 ## Source Documents
 
-- Path: `/Users/alexmetelli/source/ask-siargao/documentation/developer/explanation/web-research-layer.md`
-  - Role: Primary architecture/design specification.
-  - Summary: Defines a general `research_web` layer for current and recommendation-heavy Ask
-    Siargao answers. Requires public-web research before legacy Places/weather/memory fallback
-    paths for current requests, source scoring by request type, entity-specific enrichment after
-    research, source-label validation, tests, memory-policy updates, and explicit removal or
-    gating of legacy bad behavior.
+- Path: Inline prompt supplied in this chat on 2026-07-01
+  - Role: Primary implementation brief.
+  - Summary: Move Ask Siargao chat behavior toward ChatGPT-like model-owned routing and query
+    formulation. Deterministic code should no longer pre-classify prompts into rigid tool routes or
+    terminal fallback paths. Keep deterministic safety, privacy, schema, and source-honesty
+    validation after tool/model output. Fix the OpenAI web research structured-output schema so web
+    research can run.
 
 ## Goals
 
-- Add a general web-research capability that can support current, recommendation, schedule,
-  availability, price, safety, disruption, and event-like Ask Siargao requests.
-- Make current/recommendation answers research-first: web research selects and scores relevant
-  public evidence before Places, weather, local memory, or other tools enrich the answer.
-- Remove or make unreachable legacy bad behavior for covered request classes: broad Places-first
-  answers, weather-first recommendation answers, memory-only baseline answers, and generic fallback
-  cards after research failure.
-- Preserve the existing chat-runtime principle that deterministic code classifies, fetches, ranks,
-  validates, and normalizes evidence while the model writes final traveler-facing prose.
-- Keep source labels auditable: every public web-research label must be backed by current-turn
-  `research_web` tool output, not memory retrieval or generic model reasoning.
+- Let the model decide whether a user request is a local service lookup, weather/condition
+  question, place search, web research task, or mixed request from the natural-language prompt.
+- Remove deterministic route-level intent fields as execution hints for the agent, especially
+  `conditionActivity`, `placeIntent`, `researchIntent`, `weatherSensitive`, and related
+  classifier-derived tool-routing signals.
+- Stop generating required pre-answer evidence calls from deterministic place/research intent.
+- Stop auto-executing route-derived required evidence checks after the model attempts a final
+  answer.
+- Remove or narrow terminal web-research provider failure behavior so provider failures become tool
+  outputs the model can use when writing a caveated answer.
+- Preserve deterministic validation that verifies source labels, tool-call references, schemas,
+  privacy rules, and public artifact selection.
+- Fix the strict JSON schema used by the OpenAI web research provider.
+- Update tests so they assert tool/model behavior and source-honesty guarantees instead of brittle
+  regex classifier outcomes.
 
 ## Non-Goals
 
-- Do not build booking, table, room, ticket, guest-list, or inventory availability checks.
-- Do not store arbitrary raw web pages as durable product truth.
-- Do not implement unrestricted model browsing or direct model scraping of arbitrary pages.
-- Do not replace existing Google Places, weather, marine, tide, local guide, itinerary, or memory
-  tools; reframe them as enrichment/support where appropriate.
-- Do not migrate the legacy `src/server/llm/chat-adapter.ts`; valid `/api/chat` responses continue
-  to use `runAskSiargaoAgentTurn`.
-- Do not broaden user-facing claims beyond what source policy, provider terms, and source
-  consistency validation can support.
+- Do not remove all deterministic code from chat. Scope guards, geolocation privacy, request
+  validation, source consistency, final payload parsing, and artifact filtering remain in scope as
+  validation or safety layers.
+- Do not remove the existing tool implementations for Places, web research, weather, marine/tide,
+  local guide, itinerary, memory, or source policy.
+- Do not weaken source labels. The model may choose tools, but it may not claim `live_checked`,
+  `official_checked`, `directory_checked`, `weather_checked`, or similar labels without matching
+  current-turn tool evidence.
+- Do not implement a new web-search provider or broaden provider terms. Only fix the existing
+  schema and runtime behavior around existing `research_web`.
+- Do not redesign the chat UI except where response shape or tool-call display needs test updates.
+- Do not change database schema or migrations.
 
 ## Definition of Done
 
-- `research_web` is a registered backend chat tool with strict Responses schema, Zod argument
-  validation, deterministic execution, safe `AgentToolResult` output, source summaries, and
-  network/provider dependencies injectable for tests.
-- A provider abstraction exists for public web search and bounded page/source extraction, with the
-  first production provider behind explicit server-only configuration. The implementation must
-  support OpenAI Responses hosted `web_search` if selected, or another configured web-search
-  provider through the same repo-owned interface.
-- Deterministic request intent includes a general research-need signal for current/recommendation
-  prompts beyond nightlife, including schedules, availability, prices, closures, disruptions,
-  safety, and event-like requests.
-- `buildRequiredEvidencePlan` can require `research_web` and express ordering so research gates
-  downstream tools when current public information is required.
-- Broad Places category searches are removed, repaired, or skipped for request classes covered by
-  required research. Places runs as entity-specific enrichment after research-selected entities, or
-  remains primary only for stable place-discovery requests where Places is the right source, such as
-  pharmacies, coffee open now, or nearby restaurants.
-- Weather-only and memory-only final answers are rejected for non-weather current recommendation
-  prompts unless research explicitly failed/was insufficient and the final answer transparently says
-  current public evidence could not be verified.
-- Source labels and source-consistency validation distinguish official web evidence, directory web
-  evidence, general web research, insufficient web evidence, community signals, Places, weather,
-  memory interpretation, and provider failure without overclaiming.
-- Public source panels do not display weak terminal states as checked positive evidence.
-- Agent memory files describe `research_web` policy, source priority, query planning, and answer
-  shapes. They guide research and interpretation; they do not replace required web research.
-- Tests cover tool behavior, runtime ordering, intent classification, source consistency, legacy
-  behavior removal, and at least one cross-domain current request outside nightlife.
-- Documentation is updated for the chat runtime and web research layer.
+- `/api/chat` no longer passes route-derived deterministic intent as an agent execution plan.
+  Model-facing deterministic signals are reduced to safe context: client/geolocation privacy,
+  minimal trip context if still needed, and scope flags that do not prescribe tools.
+- Regex classifiers such as `interpretChatRequestIntent`, `interpretPlaceIntent`, and
+  `inferConditionActivity` are removed from model-routing data flow or retained only for logging,
+  analytics, or non-routing compatibility where they cannot force tool calls.
+- `buildRequiredEvidencePlan()` no longer creates required `research_web`, `search_places`,
+  `get_weather_forecast`, or `search_nightlife_events` calls from route-level `placeIntent` or
+  `researchIntent`.
+- The agent runtime no longer auto-injects required evidence calls based on route-derived
+  classifiers after the model tries to answer.
+- `terminalWebResearchFallbackPayload()` no longer short-circuits all required-web-research
+  provider failures into the generic refusal-like answer. Provider failures are returned to the
+  model as ordinary tool outputs, with validation preventing checked-source overclaims.
+- The system prompt/tool descriptions clearly instruct the model to choose tools directly from the
+  prompt. Example: for "where can I rent a scooter in General Luna?", call `research_web` and/or
+  `search_places` with a query like "scooter rental General Luna Siargao"; if one provider fails,
+  use evidence from the other if available and caveat the missing check.
+- Source consistency remains enforced through `src/server/chat/source-consistency.ts` and related
+  route validation. Failed provider outputs cannot produce checked source labels or place cards that
+  imply successful provider evidence.
+- `src/server/providers/web-search.ts` uses a strict JSON schema acceptable to the OpenAI Responses
+  API. Nested object properties such as `role`, `area`, and `needsPlacesEnrichment` are handled in a
+  schema-valid way.
+- Tests cover:
+  - scooter-rental prompts can be handled by model-chosen `research_web` and/or `search_places`;
+  - failed `research_web` does not trigger the terminal generic refusal path;
+  - failed `search_places` can still produce a useful answer from successful web research;
+  - source labels cannot claim `live_checked` unless Places succeeded;
+  - source labels cannot claim web-checked labels unless `research_web` succeeded;
+  - weather/condition prompts still work when the model chooses condition/weather tools;
+  - geolocation privacy behavior remains intact.
 - `PROGRESS.md` is current, `CHANGELOG.md` follows Keep a Changelog 1.0.0 and records each
   completed step under `## [Unreleased]`, and each incremental step is committed separately.
-- Required quality gates pass or any pre-existing failures are clearly documented before proceeding:
-  lint, clean typecheck, focused tests, full Bun tests, test DB migrate/seed, build, and e2e.
+- Required quality gates pass or any pre-existing failures are documented before proceeding:
+  `bun run lint`, `bun run typecheck --incremental false`, `bun test`, and focused route/runtime
+  tests. Before final completion, run the broader build/e2e gates listed below unless blocked by
+  environment constraints.
 
 ## Assumptions and Open Questions
 
-- Assumption: The first implementation should prefer a repo-owned provider interface and dependency
-  injection over binding chat runtime code directly to one vendor API.
-  - Impact: Production provider choice can change without rewriting source validation, scoring, or
-    runtime ordering.
-- Assumption: OpenAI Responses hosted `web_search` is the preferred first provider if available in
-  the deployed model/account, because the project already uses the OpenAI Responses API and the
-  `openai` SDK.
-  - Impact: Implementation must verify current official API details and feature availability before
-    wiring production calls. If unavailable, use a separate configured web-search provider behind
-    the same interface.
-- Assumption: Social pages should initially be searched by snippets or excluded unless source policy
-  explicitly permits fetching/extracting them.
-  - Impact: The first slice can still solve many failures with official pages, directories, guides,
-    news, and community pages without direct social scraping.
-- Assumption: Persistence for web research can start as optional/no-store with injected test data,
-  then add caching in a later step if latency/cost requires it.
-  - Impact: The first vertical slice can ship safer behavior without a migration, but the plan
-    includes a dedicated persistence step if production cost/latency requires caching.
-- Open question: Which provider-specific environment variables should production use?
-  - Impact: The implementation step must add exact variable names to
-    `documentation/developer/reference/environment.md` once the provider is chosen.
-- Open question: Should `research_web` be one tool or split into `plan_web_research`,
-  `search_web`, and `fetch_web_sources`?
-  - Impact: This plan chooses one `research_web` tool for the first bounded implementation, with
-    internal structured phases for auditability.
-- Open question: How much web research budget should anonymous users get versus authenticated trip
-  pass users?
-  - Impact: The first implementation should include conservative max-source/time limits and log
-    usage, but can defer billing integration.
+- Assumption: "Remove deterministic routing" means remove deterministic pre-classification as a
+  tool-selection authority, not remove validation, source policy, privacy, or output-contract code.
+  - Impact: The implementation should preserve source-governance behavior and only weaken the
+    brittle pre-answer routing layer.
+- Assumption: Existing deterministic trip context may still be useful if it is presented as
+  contextual memory rather than a tool plan.
+  - Impact: If a retained field can force a tool or repair call, remove or rename it so the model
+    treats it as context only.
+- Assumption: It is acceptable to delete or deprecate tests whose only assertion is a classifier
+  result, replacing them with behavioral tests at the route/runtime level.
+  - Impact: The test diff will be large because current tests inspect `deterministicSignals`.
+- Assumption: Current source consistency is the correct deterministic validation boundary.
+  - Impact: Do not remove `src/server/chat/source-consistency.ts`; add tests there if needed.
+- Open question: Should old classifier functions be removed immediately or kept temporarily for log
+  metadata?
+  - Conservative choice: keep only what is needed for scope/logging during the first pass, but
+    ensure none of it drives required tool calls or validation repairs.
+- Open question: Should itinerary and condition repair paths remain if they are triggered by model
+  tool outputs rather than route classifiers?
+  - Conservative choice: keep repair paths that depend on explicit tool artifacts, but remove repair
+    paths that infer mandatory tools from `deterministicSignals.intent`.
 
 ## Implementation Approach
 
-Implement this as a sequence of vertical slices, not a broad rewrite.
+Implement this as a controlled runtime refactor with tests first around the failure mode that
+started the work: "where can I rent a scooter in General Luna?" The new architecture should have
+three layers:
 
-1. Establish tracking and confirm baseline gates.
-2. Add core research types, source labels, source validation, and a deterministic in-memory research
-   engine with mocked provider inputs.
-3. Register `research_web` as a backend chat tool and make it return bounded structured findings,
-   entities, and source summaries.
-4. Add deterministic research-need intent and required-evidence planning that gates downstream tools
-   for current/recommendation requests.
-5. Convert Places behavior for research-covered request classes from primary ranking to
-   entity-specific enrichment.
-6. Add final-answer repair/validation so the model cannot silently fall back to broad Places,
-   weather-only, or memory-only answers when research is required.
-7. Wire the first production web-search provider behind server-only environment variables and keep
-   tests injectable/no-network.
-8. Optionally add short-lived persistence/caching after the tool behavior and safety gates work.
-9. Update agent memory and developer documentation so future agents use the research-first policy.
+1. Request validation and safe context assembly in `src/app/api/chat/chat-route.ts`.
+   - Validate schema, persist chat history, summarize browser geolocation, and pass minimal context.
+   - Do not pass classifier-derived intent as an execution plan.
 
-The critical compatibility rule is: legacy behavior may remain only for request classes not yet
-covered by `research_web`, or for stable place-discovery prompts where Places is intentionally the
-primary source. Once a request class is covered by required research, the old broad Places,
-weather-first, or memory-only answer paths must be removed, gated off, or rejected by validation.
+2. Model-owned tool choice in `src/server/chat/ask-siargao-agent.ts`.
+   - The model sees the conversation, safe context, memory index, tools, and response contract.
+   - The model chooses `research_web`, `search_places`, weather/condition tools, memory, or no tool.
+   - Tool failures are returned to the model for caveated final prose rather than terminal runtime
+     prose.
+
+3. Deterministic postconditions.
+   - Strict schemas validate tool arguments and final payload shape.
+   - Source consistency validates labels against current-turn tool outputs.
+   - Artifact selection filters cards/actions/itineraries to what matching evidence supports.
+   - Provider failures and unchecked claims cannot masquerade as checked evidence.
+
+Avoid a broad rewrite of all tools. The work should be a series of vertical slices:
+
+- First fix the web research schema and lock the scooter-rental regression in tests.
+- Then trim model-facing deterministic signals and remove required-evidence auto-routing.
+- Then update prompts and tests so the model directly decides tool calls.
+- Then delete or narrow terminal fallback behavior.
+- Finally update docs/memory references and run full quality gates.
 
 ## Quality Gates
 
-- Setup status: Existing gates found in `package.json` and `.github/workflows/ci.yml`; no new gate
-  setup is required before implementation.
+- Setup status: Existing Bun, Biome, TypeScript, Bun test, build, and Playwright gates are already
+  configured in `package.json`; no new quality-gate setup step is required.
 - Baseline command: `bun run verify`
 - Format command: `bun run format`
 - Lint command: `bun run lint`
@@ -150,15 +160,12 @@ weather-first, or memory-only answer paths must be removed, gated off, or reject
 - Requirement: Create `PROGRESS.md` before any quality-gate setup or implementation work begins.
 - Update rule: After each step is completed, update `PROGRESS.md` with the completed step,
   validation results, commit reference if available, current status, and next step.
-- Note: `PROGRESS.md` is currently deleted in the working tree. Step 0 must recreate it unless the
-  user explicitly restores a different version first.
 
 ## Changelog Tracking
 
 - File: `CHANGELOG.md`
 - Standard: Keep a Changelog 1.0.0, <https://keepachangelog.com/en/1.0.0/>
-- Requirement: Ensure `CHANGELOG.md` exists before any quality-gate setup or implementation work
-  begins. The file already exists; preserve existing entries and update `## [Unreleased]`.
+- Requirement: Create `CHANGELOG.md` before any quality-gate setup or implementation work begins.
 - Initial content: Include `# Changelog`, the standard preamble, and an `## [Unreleased]` section.
 - Update rule: After each step is completed and validated, update `CHANGELOG.md` with
   human-readable notable changes under the appropriate `Unreleased` change-type headings before
@@ -178,7 +185,7 @@ weather-first, or memory-only answer paths must be removed, gated off, or reject
 
 ### Step 0: Progress and Changelog Tracking Setup
 
-Goal: Create durable progress and changelog tracking the user can inspect while the plan is being
+Goal: Create durable progress and changelog files the user can consult while the plan is being
 executed.
 
 Depends on:
@@ -188,44 +195,46 @@ Depends on:
 Changes:
 
 - Create `PROGRESS.md` in the project root.
-- Add the plan title, source document path, a checklist for every step in this plan, current status,
-  and a short update log.
-- Document in `PROGRESS.md` that it must be updated after every completed step.
-- Preserve the existing `CHANGELOG.md`; if it is missing at execution time, create it.
-- Ensure `CHANGELOG.md` has Keep a Changelog 1.0.0 structure: `# Changelog`, the standard
-  preamble, and `## [Unreleased]`.
-- Add an `Added` entry under `## [Unreleased]` for establishing progress tracking for the web
-  research layer work.
+- Add the plan title, inline source brief, a step checklist, current status, and a short update log.
+- Document that `PROGRESS.md` must be updated after every completed step.
+- Create `CHANGELOG.md` in the project root before any implementation work begins, or preserve and
+  normalize the existing file if it already exists.
+- Add Keep a Changelog 1.0.0 structure: `# Changelog`, the standard preamble, and
+  `## [Unreleased]`.
+- Document that `CHANGELOG.md` must be updated after each step is completed and validated, before
+  that step is committed.
 
 Acceptance criteria:
 
-- `PROGRESS.md` exists and lists all steps from this plan.
-- `CHANGELOG.md` exists, keeps existing entries, and has a valid `## [Unreleased]` section.
+- `PROGRESS.md` exists and lists every step in this plan.
+- `CHANGELOG.md` exists and has a valid Keep a Changelog 1.0.0 `## [Unreleased]` section.
 
 Validation:
 
 - Run `test -f PROGRESS.md`.
 - Run `test -f CHANGELOG.md`.
-- Run `rg -n "Web Research Layer|Step 0|Step 1" PROGRESS.md`.
+- Run `rg -n "Model-Owned Chat Routing|Step 0|Step 1" PROGRESS.md`.
 - Run `rg -n "^# Changelog|^## \\[Unreleased\\]" CHANGELOG.md`.
+- Run `bun run lint`.
+- Run `bun run typecheck --incremental false`.
+- Run `bun test`.
 
 Progress:
 
-- Mark Step 0 complete in `PROGRESS.md`, record validation results, set current status to Step 1,
-  and identify the next step.
+- Mark Step 0 complete in `PROGRESS.md`, record validation results, set the current status, and
+  identify the next step.
 
 Changelog:
 
-- Add or keep an `Added` entry under `## [Unreleased]` for progress/changelog tracking setup.
+- Add an `Added` entry under `## [Unreleased]` for establishing progress and changelog tracking.
 
 Commit:
 
-- `Track web research implementation progress`
+- `Track model-owned chat routing plan progress`
 
-### Step 1: Baseline Quality Gates
+### Step 1: Fix Web Research Structured Output Schema
 
-Goal: Establish the baseline state before implementation so later failures can be distinguished
-from pre-existing failures.
+Goal: Remove the concrete provider failure that prevented `research_web` from running.
 
 Depends on:
 
@@ -233,28 +242,31 @@ Depends on:
 
 Changes:
 
-- No feature code changes.
-- Inspect `package.json`, `.github/workflows/ci.yml`, `biome.json`, and `tsconfig.json` only if
-  gates fail unexpectedly.
-- Record baseline results in `PROGRESS.md`.
+- Update `src/server/providers/web-search.ts`.
+- Make `webResearchSourcesJsonSchema()` valid for strict OpenAI Responses JSON schema validation.
+  The observed failure was caused by nested `entities` item properties defining fields such as
+  `role` without including every property in `required`.
+- Use a schema-valid representation for optional values. Acceptable approaches include requiring
+  all properties with nullable types, or removing optional fields from the strict schema and
+  post-processing only the fields returned.
+- Add or update tests in `src/server/providers/web-search.test.ts` to inspect the outgoing schema
+  shape and verify nested entity schemas satisfy strict requirements.
+- Preserve existing parsing behavior so missing optional data does not crash result parsing.
 
 Acceptance criteria:
 
-- The executor knows which gates are passing before implementation starts.
-- Any pre-existing failure is documented with command, failure summary, and whether implementation
-  can safely proceed.
+- The provider no longer constructs a strict schema that OpenAI rejects because a nested object has
+  optional properties omitted from `required`.
+- Existing web research parsing tests still pass.
+- A regression test would fail if `entities.items.properties.role` exists but `role` is not listed
+  in `entities.items.required`.
 
 Validation:
 
+- Run `bun test src/server/providers/web-search.test.ts`.
 - Run `bun run lint`.
 - Run `bun run typecheck --incremental false`.
 - Run `bun test`.
-- Run `bun run db:migrate:test`.
-- Run `bun run db:seed:test`.
-- Run `bun run build`.
-- Run `bun run test:e2e`.
-- If time or environment prevents full e2e, run `bun run verify` and document the skipped CI gates
-  with the reason.
 
 Progress:
 
@@ -263,668 +275,463 @@ Progress:
 
 Changelog:
 
-- Update `CHANGELOG.md` only if this step changes gate configuration or documentation. Otherwise
-  record "No changelog entry required for baseline-only validation" in `PROGRESS.md`.
+- Add a `Fixed` entry under `## [Unreleased]` for the web research strict schema fix.
 
 Commit:
 
-- `Record baseline quality gates` if files changed; otherwise no commit.
+- `Fix web research strict schema`
 
-### Step 2: Add Web Research Types And Source Labels
+### Step 2: Add Behavioral Regression Tests for Model-Owned Routing
 
-Goal: Introduce the core typed contract for public web research evidence without changing runtime
-behavior yet.
+Goal: Lock in the desired behavior before removing deterministic routing.
 
 Depends on:
 
 - Step 0.
-- Step 1 unless baseline gates are explicitly documented as skipped.
+- Step 1.
 
 Changes:
 
-- Add `research_web` to `AskSiargaoAgentToolName` in `src/server/chat/agent-runtime.ts`.
-- Add web research domain types in a new `src/server/chat/web-research.ts`, including:
-  - `ResearchWebRequest`;
-  - `ResearchWebResultData`;
-  - `ResearchFinding`;
-  - `ResearchEntity`;
-  - `ResearchSourceScore`;
-  - source classes and request intents listed in the source document.
-- Add source labels in `src/server/chat/answer-source-summary.ts`:
-  - `web_researched`;
-  - `official_checked`;
-  - `directory_checked`;
-  - `insufficient_web_evidence`.
-- Keep `live_checked` scoped to live provider APIs such as Google Places.
-- Update Zod mirrors in `src/server/trips/shared-trip-types.ts` and
-  `src/server/chat/condition-tools.ts` if these labels can appear in persisted or condition
-  artifacts.
-- Update `describe_source_policy` entries in `src/server/chat/agent-tools.ts`.
-- Update source-label rendering tests in `src/server/chat/answer-source-summary.test.ts` and
-  source-policy tests in `src/server/chat/agent-tools.test.ts`.
+- Update route/runtime tests in:
+  - `src/app/api/chat/route.test.ts`
+  - `src/server/chat/ask-siargao-agent.test.ts`
+  - `src/server/chat/required-evidence.test.ts`
+  - `src/server/chat/source-consistency.ts` tests if existing coverage is insufficient.
+- Add a scooter-rental regression scenario for "where can I rent a scooter in General Luna?".
+- Assert behavior instead of classifier internals:
+  - the request can reach the agent without route-derived `conditionActivity: "scooter"`;
+  - the model can call `research_web` with a natural-language scooter-rental query;
+  - the model can call `search_places` with a natural-language scooter-rental query;
+  - a failed `research_web` result does not trigger the generic terminal refusal if another useful
+    tool result is available;
+  - a failed `search_places` result does not erase successful web research;
+  - source labels cannot claim `live_checked` without successful Places evidence.
+- Identify tests that assert deterministic classifier outputs, such as scooter prompts expecting
+  `conditionActivity: "scooter"`, and mark them for replacement in later steps.
 
 Acceptance criteria:
 
-- New labels compile and render.
-- No source-consistency path accepts the new labels yet unless backed by future `research_web`
-  output.
-- Existing labels continue to behave as before.
+- New tests describe the target runtime behavior and initially fail or require implementation
+  changes in later steps.
+- Tests do not depend on live network providers.
+- Tests use existing dependency injection/mocked client patterns.
 
 Validation:
 
-- Run `bun run format`.
+- Run focused tests expected to fail before implementation and record the failure in
+  `PROGRESS.md`.
 - Run `bun run lint`.
 - Run `bun run typecheck --incremental false`.
-- Run `bun test src/server/chat/answer-source-summary.test.ts src/server/chat/agent-tools.test.ts src/server/trips/shared-trip-types.test.ts src/server/chat/condition-tools.test.ts`.
-- Run `bun test`.
 
 Progress:
 
-- Update `PROGRESS.md` with completed step, validation results, commit reference if available,
-  current status, and next step.
+- Update `PROGRESS.md` with completion notes, expected failing tests if any, validation results,
+  commit reference if available, current status, and next step.
 
 Changelog:
 
-- Add an `Added` entry under `## [Unreleased]` describing web-research source labels and typed
-  research contracts.
+- Add an `Added` entry under `## [Unreleased]` for model-owned routing regression coverage.
 
 Commit:
 
-- `Add web research source contracts`
+- `Add model-owned routing regressions`
 
-### Step 3: Implement Deterministic Research Scoring Without Network Calls
+### Step 3: Trim Route-Level Deterministic Signals
 
-Goal: Build the domain-neutral research planning and scoring engine with injected search results,
-so behavior is testable before adding a live provider.
+Goal: Stop giving the agent a route-owned execution plan before the model reasons about the prompt.
 
 Depends on:
 
+- Step 0.
 - Step 2.
 
 Changes:
 
-- Implement `src/server/chat/web-research.ts` functions for:
-  - query expansion by request intent, location, date context, and source type;
-  - source classification;
-  - source scoring by authority, freshness, exactness, corroboration, negative evidence, and source
-    fit;
-  - finding extraction from normalized provider snippets/page summaries;
-  - entity extraction and `needsPlacesEnrichment` hints;
-  - status selection: `available`, `insufficient`, or `provider_unavailable`.
-- Add `src/server/chat/web-research.test.ts` covering:
-  - nightlife/event query expansion;
-  - restaurant/current recommendation query expansion;
-  - ferry/transport query expansion;
-  - tour price query expansion;
-  - safety/disruption query expansion;
-  - official sources outranking guides/community for factual status;
-  - negative evidence such as closed/cancelled/not-running being preserved;
-  - insufficient evidence when only weak stale sources exist;
-  - no raw fetched page text or restricted payloads returned.
+- Update `src/app/api/chat/chat-route.ts`.
+- Change the object passed as `deterministicSignals` to include only:
+  - `clientContext` geolocation/privacy summary;
+  - scope flags needed for non-Siargao decline or unresolved context;
+  - minimal trip context if needed for continuity, without tool-prescriptive fields.
+- Remove model-facing fields such as:
+  - `conditionActivity`;
+  - `placeIntent`;
+  - `researchIntent`;
+  - `weatherSensitive`;
+  - route-owned `roadCondition` or `marineCondition` as tool requirements.
+- If `interpretChatRequestIntent()` is still needed for logging or persistence context, ensure its
+  result is not passed to the agent as a routing/evidence contract.
+- Update tests in `src/app/api/chat/route.test.ts` that inspect `deterministicSignals.intent`.
+  Replace them with assertions on final behavior, tool calls, source labels, or safe context.
 
 Acceptance criteria:
 
-- The research engine can produce ranked findings and selected entities from deterministic fixtures.
-- At least one test covers a non-nightlife current request.
-- No provider/network code is required for tests.
+- Agent input no longer contains a route-derived `intent` object that can force tool selection.
+- Existing chat persistence and logging still work.
+- Browser geolocation privacy behavior remains tested and intact.
 
 Validation:
 
-- Run `bun run format`.
+- Run `bun test src/app/api/chat/route.test.ts`.
 - Run `bun run lint`.
 - Run `bun run typecheck --incremental false`.
-- Run `bun test src/server/chat/web-research.test.ts`.
 - Run `bun test`.
 
 Progress:
 
-- Update `PROGRESS.md` with completed step, validation results, commit reference if available,
+- Update `PROGRESS.md` with completion notes, validation results, commit reference if available,
   current status, and next step.
 
 Changelog:
 
-- Add an `Added` entry under `## [Unreleased]` for deterministic web research query planning and
-  source scoring.
+- Add a `Changed` entry under `## [Unreleased]` for reducing model-facing deterministic routing
+  signals.
 
 Commit:
 
-- `Add deterministic web research scoring`
+- `Stop passing deterministic chat routing intent`
 
-### Step 4: Register `research_web` As A Chat Tool
+### Step 4: Remove Route-Derived Required Evidence Planning
 
-Goal: Expose web research to the agent runtime as a bounded backend tool with strict schema and
-audited output.
+Goal: Prevent deterministic classifiers from creating mandatory tool calls before or after model
+tool choice.
 
 Depends on:
 
+- Step 0.
 - Step 3.
 
 Changes:
 
-- Add `researchWebSchema` and `research_web` to `registeredTools` in
-  `src/server/chat/agent-tools.ts`.
-- Add provider dependency slots to `AgentToolDependencies` for web search/fetch abstractions.
-- Implement the handler so it calls the deterministic research engine with injected provider
-  results and returns:
-  - `status`;
-  - safe model-facing `text`;
-  - `data.findings`;
-  - `data.entities`;
-  - `data.sourceScores`;
-  - `sources` with the new source labels;
-  - `errorCode: "provider_unavailable"` only when the research provider fails.
-- Do not return raw page bodies, unrestricted HTML, secrets, request headers, or provider payloads.
-- Update `src/server/chat/agent-tools.test.ts` for:
-  - strict Responses schema shape;
-  - nullable/optional provider-valid arguments;
-  - successful research output;
-  - insufficient web evidence output;
-  - provider-unavailable output;
-  - source policy descriptions.
+- Update `src/server/chat/required-evidence.ts`.
+- Refactor `buildRequiredEvidencePlan()` so it no longer reads route-level `placeIntent` or
+  `researchIntent` from `request.deterministicSignals`.
+- Keep any required-evidence logic that is derived from explicit tool artifacts, such as itinerary
+  tool outputs that declare follow-up checks, only if it does not depend on route classifiers.
+- Update or delete helper functions that only exist to convert deterministic `placeIntent` into
+  required `search_places` arguments, including query synthesis through `buildPlaceSearchPlan()`,
+  unless another non-routing caller still needs them.
+- Update `src/server/chat/required-evidence.test.ts` so it verifies validation behavior and
+  artifact filtering instead of route-derived required-call planning.
 
 Acceptance criteria:
 
-- The model can call `research_web` like any other chat tool.
-- Tool output is bounded, structured, and source-backed.
-- Provider failures return tool outputs, not thrown route-level failures.
+- A plain chat request with no model tool calls does not cause `buildRequiredEvidencePlan()` to
+  manufacture `research_web`, `search_places`, or weather calls from route classifiers.
+- Required checks can still be enforced when they originate from explicit tool output contracts
+  rather than route pre-classification.
+- Tests that expected "web research before current restaurant recommendation Places enrichment"
+  from deterministic `researchIntent` are removed or rewritten.
 
 Validation:
 
-- Run `bun run format`.
+- Run `bun test src/server/chat/required-evidence.test.ts`.
+- Run `bun test src/server/chat/ask-siargao-agent.test.ts`.
 - Run `bun run lint`.
 - Run `bun run typecheck --incremental false`.
-- Run `bun test src/server/chat/agent-tools.test.ts src/server/chat/web-research.test.ts`.
 - Run `bun test`.
 
 Progress:
 
-- Update `PROGRESS.md` with completed step, validation results, commit reference if available,
+- Update `PROGRESS.md` with completion notes, validation results, commit reference if available,
   current status, and next step.
 
 Changelog:
 
-- Add an `Added` entry under `## [Unreleased]` for the `research_web` chat tool.
+- Add a `Removed` or `Changed` entry under `## [Unreleased]` for removing route-derived required
+  evidence planning.
 
 Commit:
 
-- `Register web research chat tool`
+- `Remove route-derived required evidence planning`
 
-### Step 5: Enforce Web Research Source Consistency
+### Step 5: Remove Auto-Injected Required Evidence Repairs From Route Classifiers
 
-Goal: Ensure public web-research claims cannot be fabricated from memory, generic model reasoning,
-or the wrong tool.
+Goal: Ensure the runtime does not override the model with classifier-derived automatic tool calls.
 
 Depends on:
 
+- Step 0.
 - Step 4.
 
 Changes:
 
-- Update `src/server/chat/source-consistency.ts` so:
-  - `web_researched`, `official_checked`, and `directory_checked` require successful
-    `research_web` tool evidence;
-  - `insufficient_web_evidence` is allowed only as a terminal `research_web` result and is not
-    rendered as checked positive evidence;
-  - `community_signal` remains low-confidence support and cannot be upgraded into official or
-    directory truth;
-  - memory retrieval cannot back any web-research labels.
-- Update `src/server/chat/source-consistency.test.ts` for structured and rendered source-line
-  validation.
-- Update route-boundary tests in `src/app/api/chat/route.test.ts` if new public labels need API
-  validation coverage.
+- Update `src/server/chat/ask-siargao-agent.ts`.
+- Remove or narrow the block that calls `missingRequiredEvidenceToolCalls()` and auto-executes
+  required evidence checks after a final answer attempt.
+- Remove or narrow `requiredEvidencePreflightFunctionCalls()` behavior that prepends
+  `research_web` or `search_nightlife_events` because of a deterministic plan.
+- Review repair helpers that read `request.deterministicSignals.intent`, including condition,
+  surf, itinerary, weather, and open-now repairs. Remove classifier-derived mandatory behavior.
+- Keep validation repairs that are based on explicit tool output artifacts and final payload
+  consistency, not route classifiers.
+- Update `src/server/chat/ask-siargao-agent.test.ts` so tests assert model-selected tool calls and
+  final payload validation instead of automatic route-derived calls.
 
 Acceptance criteria:
 
-- Public web labels are accepted only with matching audited `research_web` output.
-- Memory and generic model reasoning cannot back public web labels.
-- Weak/insufficient evidence is displayed as not-checked/terminal caveat, not checked positive
-  evidence.
+- The agent runtime does not synthesize `auto_required_evidence_*` calls from route-level
+  deterministic intent.
+- The model can choose `research_web` or `search_places` directly and receive tool outputs as normal
+  conversation state.
+- Final payload validation still rejects source/artifact overclaims.
 
 Validation:
 
-- Run `bun run format`.
+- Run `bun test src/server/chat/ask-siargao-agent.test.ts`.
+- Run `bun test src/server/chat/required-evidence.test.ts`.
 - Run `bun run lint`.
 - Run `bun run typecheck --incremental false`.
-- Run `bun test src/server/chat/source-consistency.test.ts src/app/api/chat/route.test.ts`.
 - Run `bun test`.
 
 Progress:
 
-- Update `PROGRESS.md` with completed step, validation results, commit reference if available,
+- Update `PROGRESS.md` with completion notes, validation results, commit reference if available,
   current status, and next step.
 
 Changelog:
 
-- Add a `Fixed` entry under `## [Unreleased]` for preventing fabricated or memory-backed web
-  research labels.
+- Add a `Removed` entry under `## [Unreleased]` for automatic classifier-derived required evidence
+  repairs.
 
 Commit:
 
-- `Validate web research source labels`
+- `Remove automatic classifier evidence repairs`
 
-### Step 6: Add General Research Intent And Required Evidence Planning
+### Step 6: Make Provider Failures Non-Terminal
 
-Goal: Make current/recommendation requests require research across domains, not only nightlife.
+Goal: Let the model recover from one failed provider by using other successful evidence or writing a
+useful caveated answer.
 
 Depends on:
 
+- Step 0.
 - Step 5.
 
 Changes:
 
-- Add a `researchIntent` or equivalent deterministic signal to `ChatRequestIntent` in
-  `src/app/api/chat/chat-route.ts`.
-- Derive research need from latest user turn and trip context for:
-  - current recommendations;
-  - schedules and event-like requests;
-  - availability/closure/running/cancelled prompts;
-  - prices/current rates/tour prices;
-  - safety/disruption/advisory prompts;
-  - comparison prompts where current public reputation matters.
-- Ensure stable local-guide prompts do not require web research unless the user asks for current
-  status.
-- Extend `RequiredEvidenceToolCall` in `src/server/chat/required-evidence.ts` with
-  `research_web` and ordering/dependency metadata.
-- Add required `research_web` calls before Places/weather/local memory enrichment for covered
-  request classes.
-- Add `src/server/chat/required-evidence.test.ts` if there is no focused test file for this module,
-  or extend existing route/runtime tests.
-- Update `src/app/api/chat/route.test.ts` for:
-  - nightlife current recommendation;
-  - restaurant current recommendation;
-  - ferry/transport schedule;
-  - tour price;
-  - safety/disruption;
-  - stable beach recommendation that does not require research.
+- Update `src/server/chat/ask-siargao-agent.ts`.
+- Delete or narrow `terminalWebResearchFallbackPayload()`.
+- Ensure `research_web` provider failures remain `AgentToolResult` values with
+  `provider_unavailable` source labels and are returned to the model for final-answer generation.
+- Ensure failed web research cannot unlock checked claims. Keep final payload/source consistency
+  validation that prevents `official_checked`, `directory_checked`, or `web_researched` labels
+  without successful `research_web`.
+- Add/adjust tests where:
+  - `research_web` fails and `search_places` succeeds;
+  - `search_places` fails and `research_web` succeeds;
+  - both fail and the model writes a practical but explicitly caveated answer with no checked
+    source overclaims and no unsupported cards.
 
 Acceptance criteria:
 
-- Current/recommendation prompts produce required `research_web` evidence plans.
-- Stable non-current local guide prompts still use existing local guide paths.
-- Research planning is visible in deterministic signals/log-safe metadata without exposing raw user
-  private data.
+- The generic answer "I could not verify current public web evidence..." is not returned by the
+  runtime before the model gets a chance to write final prose, except for any intentionally retained
+  narrow case documented in tests.
+- Successful evidence from one provider can still shape the answer when another provider fails.
 
 Validation:
 
-- Run `bun run format`.
+- Run `bun test src/server/chat/ask-siargao-agent.test.ts`.
+- Run `bun test src/app/api/chat/route.test.ts`.
 - Run `bun run lint`.
 - Run `bun run typecheck --incremental false`.
-- Run `bun test src/app/api/chat/route.test.ts src/server/chat/ask-siargao-agent.test.ts`.
 - Run `bun test`.
 
 Progress:
 
-- Update `PROGRESS.md` with completed step, validation results, commit reference if available,
+- Update `PROGRESS.md` with completion notes, validation results, commit reference if available,
   current status, and next step.
 
 Changelog:
 
-- Add an `Added` entry under `## [Unreleased]` for general research intent and required evidence
-  planning.
+- Add a `Changed` entry under `## [Unreleased]` for non-terminal provider failure handling.
 
 Commit:
 
-- `Plan required web research for current prompts`
+- `Let model handle provider failures`
 
-### Step 7: Enforce Research-Before-Enrichment Runtime Ordering
+### Step 7: Strengthen Model Tool-Choice Instructions
 
-Goal: Make `ask-siargao-agent` execute required research before dependent tools and prevent legacy
-fallbacks from bypassing the research gate.
+Goal: Teach the model the intended ChatGPT-like routing pattern without hard-coding it in the route.
 
 Depends on:
 
+- Step 0.
 - Step 6.
 
 Changes:
 
-- Update `src/server/chat/ask-siargao-agent.ts` required-evidence preflight so `research_web` runs
-  before dependent `search_places`, `get_weather_forecast`, or domain tools.
-- Extend the tool-loop execution planner to respect `dependsOn`/ordering metadata.
-- If a model tries broad `search_places` before required research, repair or skip that call.
-- If required research returns `insufficient` or `provider_unavailable`, prevent downstream broad
-  Places calls from becoming the answer.
-- Add runtime tests in `src/server/chat/ask-siargao-agent.test.ts`:
-  - research runs before Places for current recommendation prompts;
-  - Places calls are entity-specific after research-selected entities;
-  - broad Places category searches are rejected/skipped after research failure;
-  - weather does not run as the dominant answer path for recommendation prompts unless
-    independently required by the user.
+- Update `src/server/chat/ask-siargao-agent.ts` instructions and `responseContract`.
+- Update tool descriptions in `src/server/chat/agent-tools.ts` if needed.
+- Add prompt guidance that:
+  - the model owns tool choice and query formulation;
+  - local service requests should use natural-language web/place queries;
+  - scooter rental in General Luna is a service lookup, not a road-condition question unless the
+    user asks about riding safety, roads, rain, or conditions;
+  - failed providers should be mentioned practically and only when relevant;
+  - successful evidence from one provider should be used when another provider fails;
+  - source labels must match actual tool outputs.
+- Avoid brittle one-off prompt hacks. Include examples as patterns, not mandatory exact workflows.
 
 Acceptance criteria:
 
-- A current recommendation cannot complete by calling broad Places before required research.
-- Downstream tools run only after research succeeds or when independently required.
-- Failed/insufficient research produces transparent caveats and no generic fallback cards.
+- A mocked model turn for scooter rental can call `research_web` and/or `search_places` without any
+  deterministic route hints.
+- Weather/condition prompts remain tool-eligible because the tool descriptions and model
+  instructions make the need clear.
+- Tests verify instructions include the model-owned routing principle.
 
 Validation:
 
-- Run `bun run format`.
+- Run `bun test src/server/chat/ask-siargao-agent.test.ts`.
+- Run `bun test src/server/chat/agent-tools.test.ts`.
 - Run `bun run lint`.
 - Run `bun run typecheck --incremental false`.
-- Run `bun test src/server/chat/ask-siargao-agent.test.ts src/server/chat/required-evidence.test.ts`.
 - Run `bun test`.
 
 Progress:
 
-- Update `PROGRESS.md` with completed step, validation results, commit reference if available,
+- Update `PROGRESS.md` with completion notes, validation results, commit reference if available,
   current status, and next step.
 
 Changelog:
 
-- Add a `Changed` entry under `## [Unreleased]` for research-before-enrichment runtime ordering.
-- Add a `Removed` or `Fixed` entry for removing legacy broad Places fallback where research is
-  required.
+- Add a `Changed` entry under `## [Unreleased]` for model-owned tool-choice instructions.
 
 Commit:
 
-- `Enforce research before enrichment`
+- `Guide model-owned chat tool choice`
 
-### Step 8: Convert Places To Entity-Specific Enrichment
+### Step 8: Preserve and Extend Source Validation
 
-Goal: Keep Google Places useful for maps/hours/identity while preventing it from ranking current
-editorial recommendations.
+Goal: Ensure removing deterministic routing does not weaken source governance.
 
 Depends on:
 
+- Step 0.
 - Step 7.
 
 Changes:
 
-- Add helpers in `src/server/chat/required-evidence.ts` or a new module to build Places enrichment
-  calls from `research_web` selected entities with `needsPlacesEnrichment`.
-- Update `src/server/chat/ask-siargao-agent.ts` so model-selected broad category Places calls are
-  rewritten to entity-specific calls when research results exist.
-- Update `requiredEvidencePlaceCardIds` and artifact filtering so public Places cards must match
-  research-selected entities for covered request classes.
-- Preserve broad Places primary behavior for stable place-discovery prompts where Places is the
-  correct source, such as "pharmacy near me", "coffee open now", or "restaurants near Cloud 9."
-- Add mixed-selection tests where `displayCardIds` includes both research-selected and unrelated
-  Places cards; only allowed cards should survive.
+- Review `src/server/chat/source-consistency.ts`.
+- Add or update tests to ensure:
+  - `live_checked` requires successful Places or place details evidence;
+  - `official_checked`, `directory_checked`, and `web_researched` require successful
+    `research_web` evidence;
+  - `provider_unavailable` is allowed only as a transparent terminal/failure label, not positive
+    evidence;
+  - selected recommendation cards are filtered out when their backing provider failed.
+- Review `src/features/chat/ChatWorkspace.tsx` and shared source-display helpers only if public UI
+  source rendering needs updates for provider failure labels.
 
 Acceptance criteria:
 
-- For covered current/recommendation prompts, Places cards correspond to research-selected entities.
-- Generic Places candidates cannot appear as fallback cards.
-- Existing service/nearby/open-now Places behavior remains intact where research is not required.
+- Source consistency tests pass and would fail if the model overclaimed checked evidence after a
+  provider failure.
+- Removing route-derived evidence plans does not allow unsupported checked source labels through
+  `/api/chat`.
 
 Validation:
 
-- Run `bun run format`.
+- Run focused source consistency tests.
+- Run `bun test src/app/api/chat/route.test.ts`.
 - Run `bun run lint`.
 - Run `bun run typecheck --incremental false`.
-- Run `bun test src/server/chat/ask-siargao-agent.test.ts src/server/chat/agent-runtime.test.ts src/server/chat/required-evidence.test.ts`.
 - Run `bun test`.
 
 Progress:
 
-- Update `PROGRESS.md` with completed step, validation results, commit reference if available,
+- Update `PROGRESS.md` with completion notes, validation results, commit reference if available,
   current status, and next step.
 
 Changelog:
 
-- Add a `Changed` entry under `## [Unreleased]` for converting Places to research-selected entity
-  enrichment.
+- Add a `Fixed` or `Changed` entry under `## [Unreleased]` for preserving source validation after
+  routing changes.
 
 Commit:
 
-- `Use Places as research entity enrichment`
+- `Preserve source validation for model routing`
 
-### Step 9: Reject Legacy Final Answers For Research-Required Prompts
+### Step 9: Remove or Quarantine Brittle Classifier Tests and Dead Routing Helpers
 
-Goal: Ensure the model cannot answer current/recommendation prompts with weather-only,
-memory-only, or generic fallback prose after research is required.
+Goal: Finish the refactor by removing stale tests/helpers that encode the old routing model.
 
 Depends on:
 
+- Step 0.
 - Step 8.
 
 Changes:
 
-- Add final-payload validation/repair in `src/server/chat/ask-siargao-agent.ts` or
-  `src/server/chat/required-evidence.ts` so final answers must:
-  - mention primary research findings when research succeeded;
-  - include research tool call IDs in `usedToolCallIds`;
-  - avoid source claims not backed by `research_web`;
-  - say current public evidence could not be verified when research was insufficient/unavailable;
-  - avoid broad Places cards and weather-only answer shape after research failure.
-- Add tests in `src/server/chat/ask-siargao-agent.test.ts` for:
-  - successful research answer omitting primary findings gets repaired;
-  - weather-only answer for non-weather recommendation is rejected;
-  - memory-only baseline answer for current prompt is rejected unless transparently caveated after
-    research failure;
-  - insufficient research answer does not show generic Places cards.
-- Add route tests if public source panels need extra filtering for weak terminal states.
+- Remove or quarantine route classifier tests in `src/app/api/chat/route.test.ts` that assert
+  internal `deterministicSignals.intent` categories instead of behavior.
+- Remove unused helpers from:
+  - `src/app/api/chat/chat-route.ts`;
+  - `src/server/chat/place-intent.ts`;
+  - `src/server/chat/place-search-plan.ts`;
+  - `src/server/chat/required-evidence.ts`;
+  - `src/server/chat/ask-siargao-agent.ts`.
+- Keep helpers that are still used for non-routing purposes, such as safe trip-context summaries or
+  UI/persistence context.
+- Use `rg` and TypeScript to verify no stale imports or dead exported functions remain.
 
 Acceptance criteria:
 
-- The old bad answer shapes are not kept as fallback for research-covered classes.
-- Research failure degrades to transparent uncertainty, not a plausible Places/weather/memory
-  answer.
-- The answer leads with ranked findings when research succeeds.
+- Tests no longer assert that scooter/service prompts become specific deterministic routing
+  categories.
+- No unused imports/types remain after removing deterministic routing helpers.
+- The scooter-rental regression passes through behavior-level assertions.
 
 Validation:
 
-- Run `bun run format`.
+- Run `rg -n "conditionActivity|placeIntent|researchIntent|weatherSensitive" src/app/api/chat src/server/chat`.
+- Inspect remaining matches and confirm they are not route-owned tool-routing signals.
 - Run `bun run lint`.
 - Run `bun run typecheck --incremental false`.
-- Run `bun test src/server/chat/ask-siargao-agent.test.ts src/server/chat/required-evidence.test.ts src/app/api/chat/route.test.ts`.
 - Run `bun test`.
 
 Progress:
 
-- Update `PROGRESS.md` with completed step, validation results, commit reference if available,
+- Update `PROGRESS.md` with completion notes, validation results, commit reference if available,
   current status, and next step.
 
 Changelog:
 
-- Add a `Fixed` entry under `## [Unreleased]` for removing weather-only, memory-only, and broad
-  Places fallback answers from research-required prompts.
+- Add a `Removed` entry under `## [Unreleased]` for brittle deterministic routing tests/helpers.
 
 Commit:
 
-- `Reject legacy fallbacks for researched prompts`
+- `Remove stale deterministic routing helpers`
 
-### Step 10: Wire The Production Web Search Provider
+### Step 10: Documentation, Final Gates, and Handoff
 
-Goal: Enable real public-web research behind server-only configuration while keeping tests
-deterministic and network-free.
+Goal: Document the new chat routing architecture and complete full validation.
 
 Depends on:
 
+- Step 0.
 - Step 9.
 
 Changes:
 
-- Add `src/server/providers/web-search.ts` with a repo-owned provider interface.
-- Add the first concrete provider adapter:
-  - Prefer OpenAI Responses hosted `web_search` if current official docs and account/model support
-    it.
-  - Otherwise use a configured search API behind the same interface.
-- Add optional `src/server/providers/web-page-fetch.ts` only if the chosen provider requires
-  separate page fetching. Enforce timeout, size limits, content-type checks, and safe extraction.
-- Add server-only environment variables to `documentation/developer/reference/environment.md`.
-- Update `AgentToolDependencies` and default dependency wiring so production uses the provider only
-  when configured. If not configured, `research_web` returns `provider_unavailable`.
-- Add tests with injected fake providers. Do not require live network in unit tests.
-- Add observability fields for provider operation, source labels, durations, and failure status
-  without logging raw provider payloads.
+- Update relevant developer docs, likely under `documentation/developer/`, to describe:
+  - model-owned tool choice;
+  - deterministic validation boundaries;
+  - provider failure behavior;
+  - source-label requirements.
+- Update agent memory/policy files only if the chat agent uses them to reason about tool choice or
+  source policy. Keep memory changes concise and consistent with existing file organization.
+- Ensure `PROGRESS.md` has every step marked complete with validation results.
+- Ensure `CHANGELOG.md` has human-readable entries under `## [Unreleased]`.
+- Summarize any intentionally deferred cleanup or pre-existing failures.
 
 Acceptance criteria:
 
-- In configured environments, `research_web` can perform real web discovery.
-- In unconfigured environments, behavior is explicit `provider_unavailable`, not silent legacy
-  fallback.
-- Unit tests remain deterministic and do not call the network.
-- Environment docs describe required keys and failure behavior.
-
-Validation:
-
-- Run `bun run format`.
-- Run `bun run lint`.
-- Run `bun run typecheck --incremental false`.
-- Run `bun test src/server/chat/agent-tools.test.ts src/server/chat/web-research.test.ts`.
-- Run `bun test`.
-- Run `bun run build`.
-
-Progress:
-
-- Update `PROGRESS.md` with completed step, validation results, commit reference if available,
-  current status, and next step.
-
-Changelog:
-
-- Add an `Added` entry under `## [Unreleased]` for the configurable public web-search provider.
-
-Commit:
-
-- `Wire configurable web search provider`
-
-### Step 11: Add Optional Short-Lived Research Persistence
-
-Goal: Cache normalized web research evidence when needed for cost, latency, debugging, and
-governed attribution without storing arbitrary pages as durable product truth.
-
-Depends on:
-
-- Step 10.
-
-Changes:
-
-- Decide whether persistence is necessary after Step 10. If not necessary, document the decision in
-  `PROGRESS.md` and skip code changes for this step.
-- If needed, add Drizzle schema and migrations for:
-  - `web_research_runs`;
-  - `web_research_sources`;
-  - `web_research_findings`.
-- Add store module `src/server/providers/web-research-store.ts`.
-- Add retention/TTL behavior and pruning if fetched summaries or extracted content are stored.
-- Add migration and store tests following existing PGlite patterns.
-- Keep raw full page text out of durable storage unless explicitly allowed by source policy.
-
-Acceptance criteria:
-
-- Normalized findings and attribution can be cached and expired safely, or persistence is explicitly
-  deferred with rationale.
-- Database tests validate migration and typed schema if persistence is implemented.
-- Provider/source retention rules are documented.
-
-Validation:
-
-- Run `bun run format`.
-- Run `bun run lint`.
-- Run `bun run typecheck --incremental false`.
-- If persistence is implemented, run `bun run db:migrate:test` and `bun run db:seed:test`.
-- Run `bun test src/server/db/migration.test.ts src/server/providers`.
-- Run `bun test`.
-
-Progress:
-
-- Update `PROGRESS.md` with completed step, validation results, commit reference if available,
-  current status, and next step.
-
-Changelog:
-
-- Add an `Added` entry under `## [Unreleased]` if persistence is implemented, or record the
-  deferred decision in `PROGRESS.md` if no code changes are made.
-
-Commit:
-
-- `Cache normalized web research evidence` if implemented; otherwise no commit unless docs change.
-
-### Step 12: Update Agent Memory And Developer Documentation
-
-Goal: Teach the agent and maintainers the research-first policy so future changes do not re-create
-the old fallback behavior.
-
-Depends on:
-
-- Step 10.
-- Step 11 if persistence is implemented.
-
-Changes:
-
-- Update `docs/agent-memory/ASK_SIARGAO_TOOL_USE_POLICY.md`:
-  - define when `research_web` is required;
-  - explain composition with Places, weather, local guide, itinerary, and memory tools;
-  - state that legacy fallback is not allowed for covered request classes.
-- Update `docs/agent-memory/ASK_SIARGAO_SOURCE_POLICY.md`:
-  - add source classes;
-  - add new source labels;
-  - define overclaiming rules and weak-evidence display rules.
-- Update `docs/agent-memory/ASK_SIARGAO_ANSWER_PATTERNS.md`:
-  - add ranked research-backed answer shapes;
-  - add failure shape for insufficient/unavailable current public evidence.
-- Update domain memory files such as `docs/agent-memory/NIGHTLIFE.md` and
-  `docs/agent-memory/SURF.md` with query templates and source-priority hints instead of hardcoded
-  answer patches.
-- Update `docs/agent-memory/INDEX.md` trigger terms for general web research.
-- Run memory tests and dry-run sync.
-- Update `docs/developer/reference/chat-agent-runtime.md` with the new tool, source labels,
-  ordering behavior, and provider failure behavior.
-- Update `documentation/developer/explanation/web-research-layer.md` if implementation details
-  changed during execution.
-
-Acceptance criteria:
-
-- Agent memory clearly says research comes before Places/weather/memory for covered current
-  requests.
-- Developer reference documents how to add/validate web research tools and labels.
-- Memory sync dry-run shows expected changes.
-
-Validation:
-
-- Run `bun run format`.
-- Run `bun run lint`.
-- Run `bun run typecheck --incremental false`.
-- Run `bun test src/server/chat/agent-memory.test.ts src/server/chat/agent-tools.test.ts src/server/chat/source-consistency.test.ts`.
-- Run `bun run agent-memory:sync -- --dry-run`.
-- Run `bun test`.
-
-Progress:
-
-- Update `PROGRESS.md` with completed step, validation results, commit reference if available,
-  current status, and next step.
-
-Changelog:
-
-- Add a `Changed` entry under `## [Unreleased]` for research-first agent memory and developer
-  documentation.
-
-Commit:
-
-- `Document research-first agent policy`
-
-### Step 13: Cross-Domain Regression And Release Gates
-
-Goal: Prove the feature works beyond nightlife and that legacy bad behavior is removed for covered
-request classes.
-
-Depends on:
-
-- Steps 0 through 12.
-
-Changes:
-
-- Add or update regression tests covering at least:
-  - General Luna nightlife tonight;
-  - restaurant/current recommendation;
-  - ferry/transport schedule;
-  - tour price/current rate;
-  - safety/disruption advisory;
-  - stable beach recommendation that does not require research;
-  - research provider unavailable;
-  - research insufficient evidence;
-  - mixed artifact selection with allowed and disallowed Places cards.
-- Add e2e coverage only if the browser UI/source-panel behavior changes in a way unit/route tests
-  do not cover.
-- Ensure public source panel labels distinguish checked positive evidence from weak terminal states.
-
-Acceptance criteria:
-
-- For covered current/recommendation prompts, the first accepted answer is research-backed or
-  transparently says current evidence could not be verified.
-- Broad Places/weather/memory fallback answers are rejected in tests.
-- Existing stable local guide, Places service, weather, and itinerary behaviors still pass tests.
+- Documentation matches the implemented architecture.
+- Full final validation has run or any environmental blocker is documented with exact command and
+  failure reason.
+- The user can inspect `PROGRESS.md` and `CHANGELOG.md` to understand the completed work.
 
 Validation:
 
@@ -935,18 +742,17 @@ Validation:
 - Run `bun run db:seed:test`.
 - Run `bun run build`.
 - Run `bun run test:e2e`.
-- Run `bun run verify:ci` if practical after individual failures are resolved.
+- When practical, run `bun run verify:ci`.
 
 Progress:
 
-- Update `PROGRESS.md` with completed step, validation results, commit reference if available,
-  final status, and any residual risk.
+- Update `PROGRESS.md` with completion notes, final validation results, commit reference if
+  available, current status, and any follow-up work.
 
 Changelog:
 
-- Add final `Added`, `Changed`, `Removed`, and `Fixed` entries under `## [Unreleased]` as
-  appropriate, including removal/gating of legacy fallback behavior.
+- Update `CHANGELOG.md` under `## [Unreleased]` with documentation/finalization notes.
 
 Commit:
 
-- `Validate web research regressions`
+- `Document model-owned chat routing`
