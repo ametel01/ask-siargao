@@ -687,6 +687,48 @@ describe("agent runtime contracts", () => {
     });
   });
 
+  test("drops explicitly selected card artifacts from failed provider outputs", () => {
+    const failedPlacesCard = {
+      ...cloud9CafeCard,
+      id: "card_failed_places",
+      title: "Failed Places Result",
+    };
+    const turn = createAgentTurnResult({
+      message: "Use the successful cafe and caveat the failed provider.",
+      requestId: "agent_request_failed_provider_card",
+      model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        usedToolCallIds: ["call_places_ok", "call_places_failed"],
+        displayCardIds: [cloud9CafeCard.id, failedPlacesCard.id],
+      }),
+      toolResults: [
+        {
+          toolCallId: "call_places_ok",
+          name: "search_places",
+          status: "success",
+          sources: [placesSourceSummary],
+          cards: [cloud9CafeCard],
+        },
+        {
+          toolCallId: "call_places_failed",
+          name: "search_places",
+          status: "error",
+          errorCode: "provider_unavailable",
+          sources: [providerUnavailableSourceSummary],
+          cards: [failedPlacesCard],
+        },
+      ],
+    });
+
+    expect(turn.cards?.map((card) => card.id)).toEqual([cloud9CafeCard.id]);
+    expect(turn.publicSources).toEqual([placesSourceSummary, providerUnavailableSourceSummary]);
+    expect(turn.artifactSelection).toMatchObject({
+      selectedCardCount: 1,
+      totalCardCount: 1,
+      unknownCardIds: [failedPlacesCard.id],
+    });
+  });
+
   test("rejects unknown selected artifact IDs in strict mode", () => {
     expect(() =>
       createAgentTurnResult({

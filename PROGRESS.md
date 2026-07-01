@@ -5,9 +5,9 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 
 ## Current Status
 
-- Status: Step 7 complete
-- Current step: Step 8 - Preserve and Extend Source Validation
-- Next step: Step 8 - Preserve and Extend Source Validation
+- Status: Step 8 complete
+- Current step: Step 9 - Remove or Quarantine Brittle Classifier Tests and Dead Routing Helpers
+- Next step: Step 9 - Remove or Quarantine Brittle Classifier Tests and Dead Routing Helpers
 
 ## Step Checklist
 
@@ -19,7 +19,7 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 - [x] Step 5: Remove Auto-Injected Required Evidence Repairs From Route Classifiers
 - [x] Step 6: Make Provider Failures Non-Terminal
 - [x] Step 7: Strengthen Model Tool-Choice Instructions
-- [ ] Step 8: Preserve and Extend Source Validation
+- [x] Step 8: Preserve and Extend Source Validation
 - [ ] Step 9: Remove or Quarantine Brittle Classifier Tests and Dead Routing Helpers
 - [ ] Step 10: Documentation, Final Gates, and Handoff
 
@@ -206,3 +206,24 @@ Update this file after every completed step with:
 - Changelog: updated under `Changed` for model-owned tool-choice instructions.
 - Commit reference: this commit (`Guide model-owned chat tool choice`).
 - Next step: Step 8 - Preserve and Extend Source Validation.
+
+### 2026-07-01 - Step 8 Completed
+
+- Tightened source consistency so `provider_unavailable` source labels cannot carry checked facts.
+- Kept failed `research_web` output from backing `official_checked`, `directory_checked`, or
+  `web_researched` claims.
+- Changed artifact selection so recommendation cards from failed provider outputs are not selectable
+  while failure sources and unavailable decision summaries remain available for caveated answers.
+- Validation passed:
+  - `bun test src/server/chat/source-consistency.test.ts` - 45 tests passed
+  - `bun test src/server/chat/agent-runtime.test.ts --test-name-pattern "failed provider|unknown selected artifact"` -
+    3 tests passed
+  - `bun test src/server/chat/ask-siargao-agent.test.ts --test-name-pattern "cross-request answer-quality"` -
+    1 test passed
+  - `bun test src/app/api/chat/route.test.ts` - 76 tests passed
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test` - 697 passed, 14 skipped
+- Changelog: updated under `Changed` for the functional source-governance behavior change.
+- Commit reference: this commit (`Preserve source validation for model routing`).
+- Next step: Step 9 - Remove or Quarantine Brittle Classifier Tests and Dead Routing Helpers.

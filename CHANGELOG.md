@@ -66,6 +66,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Strengthened chat source governance so `provider_unavailable` labels cannot carry checked facts
+  and recommendation cards from failed provider outputs are excluded from selection.
 - Strengthened chat agent instructions and tool descriptions so the model owns tool choice and
   natural-language query formulation, including local service lookups and provider-failure recovery.
 - Changed chat provider-failure handling so failed `research_web` or `search_places` calls stay in

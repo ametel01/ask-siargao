@@ -9,6 +9,7 @@ export type SourceConsistencyIssueCode =
   | "browser_geolocation_claim_not_tool_backed"
   | "browser_geolocation_coordinates_rendered"
   | "generic_reasoning_mislabeled"
+  | "provider_unavailable_as_positive_evidence"
   | "provider_unavailable_without_tool_failure"
   | "rendered_checked_line_not_verifiable"
   | "rendered_source_label_unknown"
@@ -279,6 +280,21 @@ function validateSourceClaim(
   }
 
   if (claim.label === "provider_unavailable") {
+    const hasPositiveProviderUnavailableEvidence =
+      claim.origin === "structured_source"
+        ? Boolean(claim.checkedText && claim.checkedText.length > 0)
+        : claim.lineKind === "checked";
+    if (hasPositiveProviderUnavailableEvidence) {
+      return [
+        {
+          code: "provider_unavailable_as_positive_evidence",
+          label: claim.label,
+          line: claim.line,
+          sourceName: claim.sourceName,
+          message: "Provider-unavailable source claims cannot contain checked evidence.",
+        },
+      ];
+    }
     if (evidence.providerUnavailable) {
       return [];
     }

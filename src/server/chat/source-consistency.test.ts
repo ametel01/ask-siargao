@@ -435,6 +435,32 @@ describe("chat source consistency", () => {
     expect(result.issues.map((issue) => issue.code)).toContain("structured_source_not_tool_backed");
   });
 
+  test("rejects web labels from failed research_web output", () => {
+    for (const source of [
+      officialWebSourceSummary,
+      directoryWebSourceSummary,
+      guideWebSourceSummary,
+    ]) {
+      const result = validateChatAnswerSourceConsistency({
+        message: withSourceLines("Failed public web checks cannot verify current facts.", [source]),
+        sources: [source],
+        toolCalls: [
+          toolCall({
+            name: "research_web",
+            status: "error",
+            errorCode: "provider_unavailable",
+            sources: [providerUnavailableSourceSummary],
+          }),
+        ],
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues.map((issue) => issue.code)).toContain(
+        "structured_source_not_tool_backed",
+      );
+    }
+  });
+
   test("accepts insufficient web evidence only as a not-checked research_web state", () => {
     const result = validateChatAnswerSourceConsistency({
       message: withSourceLines("Current ferry disruption evidence could not be verified.", [
@@ -987,6 +1013,33 @@ describe("chat source consistency", () => {
     expect(invalid.issues.map((issue) => issue.code)).toEqual([
       "provider_unavailable_without_tool_failure",
       "provider_unavailable_without_tool_failure",
+    ]);
+  });
+
+  test("rejects provider-unavailable claims that carry checked facts", () => {
+    const overclaimedProviderUnavailableSource: AnswerSourceSummary = {
+      ...providerUnavailableSourceSummary,
+      checked: ["place listings", "map links"],
+      notChecked: ["Google Places lookup"],
+    };
+    const result = validateChatAnswerSourceConsistency({
+      message: withSourceLines("Provider failure cannot become positive evidence.", [
+        overclaimedProviderUnavailableSource,
+      ]),
+      sources: [overclaimedProviderUnavailableSource],
+      toolCalls: [
+        toolCall({
+          name: "search_places",
+          status: "error",
+          errorCode: "provider_unavailable",
+          sources: [providerUnavailableSourceSummary],
+        }),
+      ],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toEqual([
+      "provider_unavailable_as_positive_evidence",
     ]);
   });
 

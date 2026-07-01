@@ -315,6 +315,7 @@ type AgentToolResultArtifactCarrier = AgentArtifactCarrier & {
   toolCallId?: AgentToolResult["toolCallId"];
   name?: AgentToolResult["name"];
   status?: AgentToolResult["status"];
+  errorCode?: AgentToolResult["errorCode"];
   data?: AgentToolResult["data"];
 };
 
@@ -497,14 +498,16 @@ function buildAgentArtifactRegistry(
   const decisionSummariesById = new Map<string, DecisionSummary>();
 
   for (const result of toolResults) {
-    for (const card of cardsWithCarrierSources(result)) {
-      const existingCard = cardsById.get(card.id);
-      if (!existingCard) {
-        cardsById.set(card.id, card);
-        continue;
-      }
-      if (!existingCard.sources?.length && card.sources?.length) {
-        cardsById.set(card.id, { ...existingCard, sources: card.sources });
+    if (result.status !== "error") {
+      for (const card of cardsWithCarrierSources(result)) {
+        const existingCard = cardsById.get(card.id);
+        if (!existingCard) {
+          cardsById.set(card.id, card);
+          continue;
+        }
+        if (!existingCard.sources?.length && card.sources?.length) {
+          cardsById.set(card.id, { ...existingCard, sources: card.sources });
+        }
       }
     }
 
