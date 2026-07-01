@@ -35,10 +35,8 @@ import type {
 import {
   buildRequiredEvidencePlan,
   finalPayloadSatisfiesRequiredEvidence,
-  missingRequiredEvidenceToolCalls,
   nightlifePlacesEnrichmentIsUnavailable,
   type RequiredEvidencePlan,
-  type RequiredEvidenceToolCall,
   requiredEvidencePlaceCardIds,
   researchPlacesEnrichmentIsUnavailable,
   selectedNightlifeEventVenueNames,
@@ -449,64 +447,6 @@ export async function runAskSiargaoAgentTurn(
         continue;
       }
 
-      const missingEvidenceChecks = missingRequiredEvidenceToolCalls(
-        requiredEvidencePlan,
-        toolCalls,
-        toolResults,
-      );
-      if (missingEvidenceChecks.length > 0) {
-        if (toolCalls.length + missingEvidenceChecks.length > maxToolCalls) {
-          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
-        }
-
-        const automaticToolOutputs = await executeAndAuditToolBatch({
-          executeTool,
-          functionCalls: missingEvidenceChecks.map((requiredCall, index) =>
-            requiredEvidenceFunctionCall(requiredCall, index),
-          ),
-          logger,
-          now: dependencies.now ?? (() => new Date()),
-          requiredEvidencePlan,
-          runtimeRequest: resolved,
-          requestId: resolved.requestId,
-          toolResults,
-        });
-        toolCalls.push(...automaticToolOutputs.map((output) => output.audit));
-        toolResults.push(...automaticToolOutputs.map((output) => output.result));
-
-        responseInput = [
-          ...responseInput,
-          ...responseOutputItems(response.output),
-          userInputMessage({
-            product: "Ask Siargao",
-            instruction: requiredEvidenceRepairInstruction(missingEvidenceChecks),
-            automaticRequiredEvidenceChecks: automaticToolOutputs.map((output) => ({
-              toolCallId: output.functionCall.callId,
-              name: output.functionCall.name,
-              arguments: publicToolArguments(output.functionCall),
-              result: JSON.parse(serializeToolOutput(output.result)),
-            })),
-            responseContract,
-          }),
-        ];
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_000,
-          instructions,
-          tools,
-          ...(responseInclude ? { include: responseInclude } : {}),
-          input: responseInput,
-        });
-        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
-        collectHostedFileSearchMemoryFileNames(
-          response.output,
-          memorySnapshot,
-          hostedMemoryFileNames,
-        );
-        continue;
-      }
-
       const memoryRepairCall = missingClearMemoryLoadRepairCall(
         finalText,
         resolved,
@@ -708,12 +648,7 @@ export async function runAskSiargaoAgentTurn(
       });
     }
 
-    const extractedFunctionCalls = extractFunctionCalls(response.output);
-    const functionCalls = requiredEvidencePreflightFunctionCalls(
-      extractedFunctionCalls,
-      requiredEvidencePlan,
-      toolCalls,
-    );
+    const functionCalls = extractFunctionCalls(response.output);
     if (functionCalls.length === 0) {
       throw new Error("OpenAI response did not include output_text.");
     }
@@ -1181,62 +1116,6 @@ function missingSurfSpotRankingRepairCall(
       include_boat_access: false,
     },
   };
-}
-
-function requiredEvidencePreflightFunctionCalls(
-  functionCalls: readonly ParsedFunctionCall[],
-  requiredEvidencePlan: RequiredEvidencePlan,
-  toolCalls: readonly AgentToolCallAudit[],
-): ParsedFunctionCall[] {
-  const researchRequiredCall = requiredEvidencePlan.requiredToolCalls.find(
-    (requiredCall) => requiredCall.name === "research_web",
-  );
-  const hasCompletedResearch = toolCalls.some(
-    (toolCall) =>
-      toolCall.name === "research_web" &&
-      (toolCall.status === "success" ||
-        toolCall.sources.some((source) =>
-          ["insufficient_web_evidence", "provider_unavailable"].includes(source.label),
-        )),
-  );
-  const hasResearchDependentFunctionCall =
-    Boolean(researchRequiredCall) &&
-    !hasCompletedResearch &&
-    functionCalls.some((functionCall) =>
-      requiredEvidencePlan.requiredToolCalls.some(
-        (requiredCall) =>
-          requiredCall.name === functionCall.name &&
-          requiredCall.dependsOn?.includes("research_web"),
-      ),
-    );
-  if (researchRequiredCall && hasResearchDependentFunctionCall) {
-    return [
-      requiredEvidenceFunctionCall(researchRequiredCall, 0, "auto_preflight_required_evidence"),
-      ...functionCalls,
-    ];
-  }
-
-  if (
-    !functionCalls.some((functionCall) => functionCall.name === "search_places") ||
-    functionCalls.some((functionCall) => functionCall.name === "search_nightlife_events") ||
-    toolCalls.some(
-      (toolCall) => toolCall.name === "search_nightlife_events" && toolCall.status === "success",
-    )
-  ) {
-    return [...functionCalls];
-  }
-
-  const nightlifeRequiredCall = requiredEvidencePlan.requiredToolCalls.find(
-    (requiredCall) => requiredCall.name === "search_nightlife_events",
-  );
-  if (!nightlifeRequiredCall) {
-    return [...functionCalls];
-  }
-
-  return [
-    requiredEvidenceFunctionCall(nightlifeRequiredCall, 0, "auto_preflight_required_evidence"),
-    ...functionCalls,
-  ];
 }
 
 function missingClearMemoryLoadRepairCall(
@@ -2281,18 +2160,6 @@ function missingRequiredItineraryChecks(
   return missing;
 }
 
-function requiredEvidenceFunctionCall(
-  requiredCall: RequiredEvidenceToolCall,
-  index: number,
-  prefix = "auto_required_evidence",
-): ParsedFunctionCall {
-  return {
-    callId: `${prefix}_${index + 1}`,
-    name: requiredCall.name,
-    arguments: requiredCall.arguments,
-  };
-}
-
 function exposeRequiredEvidenceArtifacts(
   finalPayload: AgentFinalPayload | undefined,
   requiredEvidencePlan: RequiredEvidencePlan,
@@ -2335,36 +2202,6 @@ function exposeRequiredEvidenceArtifacts(
     ...finalPayload,
     displayCardIds: uniqueText([...finalPayload.displayCardIds, ...placeCardIds]),
   };
-}
-
-function requiredEvidenceRepairInstruction(
-  missingEvidenceChecks: readonly RequiredEvidenceToolCall[],
-) {
-  const names = new Set(missingEvidenceChecks.map((check) => check.name));
-  const contracts = missingEvidenceChecks.map((check) => {
-    if (check.name === "research_web") {
-      return "current recommendations require public web research; insufficient or unavailable web research must be stated plainly instead of replaced by weather, memory, or broad Places guesses";
-    }
-    if (check.name === "search_places") {
-      return "place recommendations require governed Google Places search/detail evidence; provider-unavailable results must remain caveated and must not be described as live checked";
-    }
-    return "current weather answers require governed Open-Meteo forecast evidence; provider-unavailable results must remain caveated and must not be described as checked weather";
-  });
-  return [
-    `Validation repair: the user's request requires ${uniqueText(contracts).join("; ")} before checked final claims.`,
-    names.has("search_places")
-      ? "Use the automatically executed Places outputs as place evidence, and do not substitute beach, memory, or local-guide artifacts for food/place requests."
-      : "",
-    names.has("research_web")
-      ? "If public web research succeeded, lead with the primary research findings and include the research_web toolCallId. If it was insufficient or unavailable, say current public evidence could not be verified and select no place cards."
-      : "",
-    names.has("get_weather_forecast")
-      ? "Use the automatically executed weather output as condition evidence, and keep unchecked tide, surf, road, or official-warning limits explicit when relevant."
-      : "",
-    "Write the final traveler-facing answer now without exposing runtime repair mechanics.",
-  ]
-    .filter(Boolean)
-    .join(" ");
 }
 
 function readRequiredToolChecks(data: AgentToolResult["data"]) {

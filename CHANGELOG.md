@@ -98,6 +98,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Removed
 
+- Removed automatic route-classifier evidence repair and preflight injection from the chat agent
+  runtime so it no longer synthesizes `auto_required_evidence_*` tool calls.
 - Removed route-derived required evidence planning so deterministic classifier signals no longer
   manufacture mandatory `research_web`, `search_places`, weather, or nightlife event calls.
 - Removed legacy fallback acceptance for research-required prompts: broad Places, weather-only, and

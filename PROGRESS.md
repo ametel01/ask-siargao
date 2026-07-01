@@ -5,9 +5,9 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 
 ## Current Status
 
-- Status: Step 4 complete
-- Current step: Step 5 - Remove Auto-Injected Required Evidence Repairs From Route Classifiers
-- Next step: Step 5 - Remove Auto-Injected Required Evidence Repairs From Route Classifiers
+- Status: Step 5 complete
+- Current step: Step 6 - Make Provider Failures Non-Terminal
+- Next step: Step 6 - Make Provider Failures Non-Terminal
 
 ## Step Checklist
 
@@ -16,7 +16,7 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 - [x] Step 2: Add Behavioral Regression Tests for Model-Owned Routing
 - [x] Step 3: Trim Route-Level Deterministic Signals
 - [x] Step 4: Remove Route-Derived Required Evidence Planning
-- [ ] Step 5: Remove Auto-Injected Required Evidence Repairs From Route Classifiers
+- [x] Step 5: Remove Auto-Injected Required Evidence Repairs From Route Classifiers
 - [ ] Step 6: Make Provider Failures Non-Terminal
 - [ ] Step 7: Strengthen Model Tool-Choice Instructions
 - [ ] Step 8: Preserve and Extend Source Validation
@@ -141,3 +141,27 @@ Update this file after every completed step with:
 - Changelog: updated under `Removed` for the functional required-evidence planning removal.
 - Commit reference: this commit (`Remove route-derived required evidence planning`).
 - Next step: Step 5 - Remove Auto-Injected Required Evidence Repairs From Route Classifiers.
+
+### 2026-07-01 - Step 5 Completed
+
+- Removed the agent runtime path that auto-executed `missingRequiredEvidenceToolCalls()` after a
+  final answer attempt.
+- Removed required-evidence preflight injection that prepended classifier-derived `research_web` or
+  `search_nightlife_events` calls before model-selected tool calls.
+- Added an active runtime regression proving deterministic dinner/research signals no longer
+  synthesize automatic required-evidence tool calls.
+- Marked legacy route-derived automatic evidence tests inactive pending the later brittle
+  classifier-test cleanup step.
+- Validation passed:
+  - `bun test src/server/chat/required-evidence.test.ts` - 8 tests passed
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+- Validation with expected remaining failure:
+  - `bun test src/server/chat/ask-siargao-agent.test.ts` - 75 passed, 14 skipped, 1 failed:
+    `Ask Siargao Responses tool-loop runtime > keeps successful Places evidence when model-selected web research fails`.
+  - `bun test` - 693 passed, 14 skipped, 1 failed with the same known provider-failure
+    regression.
+  - Status: remaining failure is queued for Step 6.
+- Changelog: updated under `Removed` for the functional automatic required-evidence repair removal.
+- Commit reference: this commit (`Remove automatic classifier evidence repairs`).
+- Next step: Step 6 - Make Provider Failures Non-Terminal.
