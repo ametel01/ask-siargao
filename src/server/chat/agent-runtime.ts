@@ -32,6 +32,7 @@ export type AgentToolResult = {
   name: string;
   status: AgentToolCallStatus;
   text: string;
+  logData?: Record<string, unknown>;
   data?: Record<string, unknown> | readonly unknown[];
   errorCode?: string;
   sources: readonly AnswerSourceSummary[];

@@ -5646,6 +5646,14 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
           name: request.name,
           status: "error",
           text: "Google Places search failed: raw provider payload SECRET_TOKEN.",
+          logData: {
+            providerFailure: {
+              reason: "provider_exception",
+              provider: "google_places",
+              status: 503,
+              message: "Sanitized upstream timeout.",
+            },
+          },
           data: { restrictedProviderPayload: "SECRET_TOKEN" },
           errorCode: "provider_unavailable",
           sources: [providerUnavailableSourceSummary],
@@ -5666,6 +5674,14 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       providerOperation: "google_places.search",
       sourceLabels: ["provider_unavailable"],
       sourceProfileIds: ["source_google_places"],
+      toolDiagnostics: {
+        providerFailure: {
+          reason: "provider_exception",
+          provider: "google_places",
+          status: 503,
+          message: "Sanitized upstream timeout.",
+        },
+      },
     });
     expect(JSON.stringify(toolLog?.payload)).not.toContain("SECRET_TOKEN");
     expect(JSON.stringify(logs.events)).not.toContain("RAW_MEMORY_BODY_SECRET");

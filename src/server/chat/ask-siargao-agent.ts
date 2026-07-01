@@ -2910,6 +2910,7 @@ async function executeAndAuditTool({
       providerOperation: audit.providerOperation,
       sourceLabels: audit.sources.map((source) => source.label),
       sourceProfileIds: audit.sourceProfileIds,
+      ...(resultWithToolCallId.logData ? { toolDiagnostics: resultWithToolCallId.logData } : {}),
       toolContext: summarizeToolContextForLogs(executableFunctionCall.toolContext),
     },
     "Ask Siargao agent tool call completed.",

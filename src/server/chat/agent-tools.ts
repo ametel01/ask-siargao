@@ -2975,7 +2975,12 @@ async function researchWebToolResult(
       now: dependencies.now?.(),
       providerUnavailable: true,
     });
-    return researchWebProviderUnavailableToolResult(result);
+    return researchWebProviderUnavailableToolResult(result, {
+      reason: "not_configured",
+      provider: "web_research",
+      message:
+        "WEB_RESEARCH_PROVIDER is not configured as openai or OPENAI_API_KEY is unavailable.",
+    });
   }
 
   try {
@@ -2995,6 +3000,7 @@ async function researchWebToolResult(
       sources: researchWebSourceSummaries(result),
     };
   } catch (error) {
+    const providerFailure = summarizeWebResearchProviderFailure(error);
     const result = runWebResearch(researchRequest, [], {
       now: dependencies.now?.(),
       providerUnavailable: true,
@@ -3003,9 +3009,10 @@ async function researchWebToolResult(
       name: "research_web",
       status: "error",
       text:
-        error instanceof Error
-          ? `Public web research provider unavailable: ${error.message}`
+        typeof providerFailure.message === "string"
+          ? `Public web research provider unavailable: ${providerFailure.message}`
           : "Public web research provider unavailable.",
+      logData: { providerFailure },
       data: result,
       errorCode: "provider_unavailable",
       sources: researchWebProviderUnavailableSources(result),
@@ -3013,15 +3020,52 @@ async function researchWebToolResult(
   }
 }
 
-function researchWebProviderUnavailableToolResult(result: ResearchWebResultData): AgentToolResult {
+function researchWebProviderUnavailableToolResult(
+  result: ResearchWebResultData,
+  providerFailure?: Record<string, unknown>,
+): AgentToolResult {
   return {
     name: "research_web",
     status: "error",
     text: renderResearchWebText(result),
+    ...(providerFailure ? { logData: { providerFailure } } : {}),
     data: result,
     errorCode: "provider_unavailable",
     sources: researchWebProviderUnavailableSources(result),
   };
+}
+
+function summarizeWebResearchProviderFailure(error: unknown): Record<string, unknown> {
+  const record = isRecord(error) ? error : {};
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : undefined;
+
+  return {
+    reason: "provider_exception",
+    provider: "openai_web_search",
+    ...(error instanceof Error ? { name: error.name } : {}),
+    ...(typeof record.status === "number" ? { status: record.status } : {}),
+    ...stringLogField("code", record.code),
+    ...stringLogField("type", record.type),
+    ...stringLogField("param", record.param),
+    ...stringLogField("requestId", record.request_id ?? record.requestId),
+    ...(message ? { message: sanitizeProviderFailureText(message) } : {}),
+  };
+}
+
+function stringLogField(name: string, value: unknown) {
+  if (typeof value !== "string" || !value.trim()) {
+    return {};
+  }
+  return { [name]: sanitizeProviderFailureText(value) };
+}
+
+function sanitizeProviderFailureText(value: string) {
+  return value
+    .replaceAll(/\bsk-[A-Za-z0-9_-]{12,}\b/g, "sk-[redacted]")
+    .replaceAll(/\bBearer\s+[A-Za-z0-9._-]{12,}\b/gi, "Bearer [redacted]")
+    .replaceAll(/\b(api[_-]?key|token|secret)(\s*[=:]\s*)[^\s,;]+/gi, "$1$2[redacted]")
+    .slice(0, 500);
 }
 
 function researchWebRequestFromArguments(args: ResearchWebArguments): ResearchWebRequest {

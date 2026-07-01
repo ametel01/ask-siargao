@@ -977,7 +977,14 @@ describe("agent tools", () => {
       },
       {
         webResearchProvider: async () => {
-          throw new Error("search provider timeout");
+          const error = new Error("search provider timeout with api_key=sk-should-not-log-123456");
+          Object.assign(error, {
+            status: 429,
+            code: "rate_limit_exceeded",
+            type: "rate_limit_error",
+            request_id: "req_web_search_failed",
+          });
+          throw error;
         },
         now: () => new Date("2026-07-01T12:00:00+08:00"),
       },
@@ -990,6 +997,19 @@ describe("agent tools", () => {
       label: "provider_unavailable",
       checked: [],
     });
+    expect(result.logData).toMatchObject({
+      providerFailure: {
+        reason: "provider_exception",
+        provider: "openai_web_search",
+        name: "Error",
+        status: 429,
+        code: "rate_limit_exceeded",
+        type: "rate_limit_error",
+        requestId: "req_web_search_failed",
+      },
+    });
+    expect(JSON.stringify(result.logData)).toContain("api_key=[redacted]");
+    expect(JSON.stringify(result.logData)).not.toContain("sk-should-not-log");
     const data = result.data as { status?: string };
     expect(data.status).toBe("provider_unavailable");
   });
