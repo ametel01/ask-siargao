@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Established model-owned chat routing progress tracking so each refactor step records validation
+  results, status, and commit references.
 - Added final cross-domain web research regressions for provider-unavailable answers, nightlife,
   restaurants, ferry schedules, tour prices, safety advisories, stable beach prompts, insufficient
   evidence, and mixed Places card selection.
