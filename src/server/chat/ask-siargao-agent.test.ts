@@ -740,7 +740,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.publicSources).toEqual([scooterWebSource, placesUnavailableSource]);
   });
 
-  test("does not auto-inject required evidence from route classifier signals", async () => {
+  test("does not auto-inject required evidence before model tool choice", async () => {
     const client = fakeResponsesClient([
       {
         id: "resp_direct_classifier_signals_final",
@@ -760,7 +760,6 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       {
         messages: [{ role: "user", content: "Best dinner in General Luna tonight?" }],
         requestId: "agent_request_no_auto_required_evidence",
-        deterministicSignals: dinnerResearchSignals(),
       },
       { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
     );
@@ -768,1385 +767,6 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.message).toContain("re-check hours");
     expect(result.toolCalls).toEqual([]);
     expect(client.requests).toHaveLength(1);
-  });
-
-  test.skip("repairs direct food recommendations that try to finalize from local beach guide evidence", async () => {
-    const placeCard = {
-      id: "place_chij_lost_in_siargao",
-      kind: "place" as const,
-      title: "Lost In Siargao",
-      subtitle: "Restaurant - General Luna",
-      mapsUrl: "https://maps.example/lost-in-siargao",
-      openStatusLabel: "Open now according to Google Places.",
-      fitReasons: ["Good dinner fit returned by Google Places."],
-      caveats: ["Bookings and table availability were not checked."],
-      sourceLabel: "Google Places - live checked",
-      sources: [openNowPlacesSourceSummary],
-    };
-    const beachCard = {
-      id: "beach_doot",
-      kind: "beach" as const,
-      title: "Doot Beach",
-      subtitle: "General Luna-side sandy beach",
-      fitReasons: ["Sandy local-guide fallback."],
-      caveats: ["Not relevant to a restaurant request."],
-      sourceLabel: "Ask Siargao curated local beach guide",
-      sources: [localGuideSourceSummary],
-    };
-    const client = fakeResponsesClient([
-      responseWithToolCall({
-        id: "resp_food_wrong_local_call",
-        requestId: "req_food_wrong_local_call",
-        callId: "call_local_beaches",
-        name: "search_local_guide",
-        arguments: {
-          query: "General Luna dinner fallback beaches",
-          filters: null,
-        },
-      }),
-      {
-        id: "resp_food_premature_beach_final",
-        output_text: finalPayloadText({
-          answer: "For tonight in General Luna, start with Doot Beach.",
-          usedToolCallIds: ["call_local_beaches"],
-          displayCardIds: [beachCard.id],
-        }),
-        _request_id: "req_food_premature_beach_final",
-      },
-      {
-        id: "resp_food_places_final",
-        output_text: finalPayloadText({
-          answer: "For dinner in General Luna, start with Lost In Siargao.",
-          usedToolCallIds: ["auto_required_evidence_1"],
-          displayCardIds: [placeCard.id, beachCard.id],
-        }),
-        _request_id: "req_food_places_final",
-      },
-    ]);
-    const executeTool = fakeToolExecutor({
-      search_local_guide: {
-        name: "search_local_guide",
-        status: "success",
-        text: "Curated local guide returned unrelated beach cards.",
-        sources: [localGuideSourceSummary],
-        cards: [beachCard],
-      },
-      search_places: {
-        name: "search_places",
-        status: "success",
-        text: "Google Places returned open dinner spots in General Luna.",
-        sources: [openNowPlacesSourceSummary],
-        cards: [placeCard],
-      },
-    });
-
-    const result = await runAskSiargaoAgentTurn(
-      {
-        messages: [{ role: "user", content: "Where should I eat in General Luna tonight?" }],
-        requestId: "agent_request_food_requires_places",
-        deterministicSignals: {
-          intent: {
-            activityPlan: false,
-            tripAdvice: false,
-            placeIntent: {
-              category: "food",
-              liveNeeds: ["recommendation"],
-              meal: "dinner",
-              location: "General Luna",
-              areaScope: "in_area",
-              radiusMeters: 12_000,
-            },
-          },
-        },
-      },
-      { client, executeTool, model: "gpt-test" },
-    );
-
-    expect(result.message).toContain("Lost In Siargao");
-    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
-      "search_local_guide",
-      "search_places",
-    ]);
-    expect(result.toolCalls[1]?.arguments).toMatchObject({
-      query: "restaurants and dinner spots in General Luna, Siargao",
-      constraints: { included_type: "restaurant", open_now: true, page_size: 8 },
-    });
-    expect(result.cards).toEqual([placeCard]);
-    expect(result.publicSources).toEqual([openNowPlacesSourceSummary]);
-    expect(result.artifactSelection).toMatchObject({
-      selectedCardCount: 1,
-      totalCardCount: 1,
-      unknownCardIds: [beachCard.id],
-    });
-    expect(client.requests).toHaveLength(3);
-    const automaticInput = parseLastUserInputMessage(client.requests[2]?.input) as {
-      automaticRequiredEvidenceChecks?: Array<{ name?: string }>;
-    };
-    expect(automaticInput.automaticRequiredEvidenceChecks?.map((check) => check.name)).toEqual([
-      "search_places",
-    ]);
-  });
-
-  test.skip("preflights nightlife event evidence before Places and repairs weather for General Luna party routes", async () => {
-    const placeCard = {
-      id: "place_barbosa",
-      kind: "place" as const,
-      title: "Barbosa",
-      subtitle: "General Luna",
-      mapsUrl: "https://maps.example/barbosa",
-      openStatusLabel: "Open now according to Google Places.",
-      fitReasons: ["Venue identity and map details returned by Google Places."],
-      caveats: ["Places is venue detail evidence, not the nightlife ranking source."],
-      sourceLabel: "Google Places - live checked",
-      sources: [openNowPlacesSourceSummary],
-    };
-    const offRoutePlaceCard = {
-      id: "place_bed_brew",
-      kind: "place" as const,
-      title: "Bed & Brew",
-      subtitle: "General Luna",
-      mapsUrl: "https://maps.example/bed-brew",
-      openStatusLabel: "Open now according to Google Places.",
-      fitReasons: ["Venue identity and map details returned by Google Places."],
-      caveats: ["This venue was not selected by the Tuesday event route."],
-      sourceLabel: "Google Places - live checked",
-      sources: [openNowPlacesSourceSummary],
-    };
-    const client = fakeResponsesClient([
-      responseWithToolCall({
-        id: "resp_nightlife_wrong_places_first",
-        requestId: "req_nightlife_wrong_places_first",
-        callId: "call_places_first",
-        name: "search_places",
-        arguments: {
-          query: "bars in General Luna Siargao",
-          center: { latitude: 9.8006, longitude: 126.1586 },
-          radius_meters: 6_000,
-          constraints: { included_type: "bar", open_now: true, page_size: 8 },
-        },
-      }),
-      {
-        id: "resp_nightlife_missing_weather",
-        output_text: finalPayloadText({
-          answer: "Start with BARREL, make Barbosa the main party, then keep a late option.",
-          usedToolCallIds: ["auto_preflight_required_evidence_1", "call_places_first"],
-          displayCardIds: [placeCard.id],
-        }),
-        _request_id: "req_nightlife_missing_weather",
-      },
-      {
-        id: "resp_nightlife_missing_memory",
-        output_text: finalPayloadText({
-          answer:
-            "Tonight in General Luna, use BARREL as the warm-up, Barbosa as the main party, Siargao Beach Club as the late option, and Mama Coco as the softer option. Since this moves between venues, keep a tricycle buffer if rain picks up. Event schedules, venue details, and weather were checked; live crowd size, door policy, guest list, table availability, last-minute cancellation, and exact closing time were not.",
-          usedToolCallIds: [
-            "auto_preflight_required_evidence_1",
-            "call_places_first",
-            "auto_required_evidence_1",
-          ],
-          displayCardIds: [placeCard.id],
-        }),
-        _request_id: "req_nightlife_missing_memory",
-      },
-      {
-        id: "resp_nightlife_route_final",
-        output_text: finalPayloadText({
-          answer:
-            "Tonight in General Luna, use BARREL as the warm-up, Barbosa as the main party, Siargao Beach Club as the late option, and Mama Coco as the softer option. Since this moves between venues, keep a tricycle buffer if rain picks up. Event schedules, venue details, weather, and nightlife reference context were checked; live crowd size, door policy, guest list, table availability, last-minute cancellation, and exact closing time were not.",
-          usedMemoryFiles: ["NIGHTLIFE.md"],
-          usedToolCallIds: [
-            "auto_preflight_required_evidence_1",
-            "call_places_first",
-            "auto_required_evidence_1",
-            "auto_required_memory_load_nightlife",
-          ],
-          displayCardIds: [placeCard.id, offRoutePlaceCard.id],
-        }),
-        _request_id: "req_nightlife_route_final",
-      },
-    ]);
-    let nightlifeLookupFinished = false;
-    const executeTool: AgentToolExecutor = async (request) => {
-      if (request.name === "search_nightlife_events") {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        nightlifeLookupFinished = true;
-        return {
-          name: "search_nightlife_events",
-          toolCallId: request.toolCallId,
-          status: "success",
-          text: "Approved events: BARREL warm-up, Barbosa main party, Siargao Beach Club late option, Mama Coco softer option.",
-          data: nightlifeEventRouteData(),
-          sources: [nightlifeEventSourceSummary],
-        };
-      }
-
-      if (request.name === "search_places") {
-        expect(nightlifeLookupFinished).toBe(true);
-        expect(request.arguments.query).toBe(
-          "BARREL Barbosa Siargao Beach Club Mama Coco General Luna Siargao nightlife venues",
-        );
-        return {
-          name: "search_places",
-          toolCallId: request.toolCallId,
-          status: "success",
-          text: "Google Places returned selected and off-route General Luna venue details.",
-          sources: [openNowPlacesSourceSummary],
-          cards: [placeCard, offRoutePlaceCard],
-        };
-      }
-
-      if (request.name === "get_weather_forecast") {
-        return {
-          name: "get_weather_forecast",
-          toolCallId: request.toolCallId,
-          status: "success",
-          text: "Open-Meteo weather forecast for General Luna.",
-          sources: [weatherSourceSummary],
-        };
-      }
-
-      return {
-        name: "load_agent_memory_file",
-        toolCallId: request.toolCallId,
-        status: "success",
-        text: "Loaded NIGHTLIFE.md",
-        data: {
-          loadedMemoryFileNames: ["NIGHTLIFE.md"],
-          files: [
-            {
-              fileName: "NIGHTLIFE.md",
-              content: [
-                "# Siargao Nightlife",
-                "| Day | Early / warm-up | Main party window | Anchor candidates | Best read |",
-                "| --- | --- | --- | --- | --- |",
-                "| Wednesday | 7:30-9 PM | 8 PM-midnight / 9 PM+ | Goodies, Mama Coco, El Lobo | Midweek dance night. |",
-              ].join("\n"),
-            },
-          ],
-        },
-        sources: [],
-      };
-    };
-
-    const result = await runAskSiargaoAgentTurn(
-      {
-        messages: [
-          {
-            role: "user",
-            content: "What are the best party places in General Luna tonight?",
-          },
-        ],
-        requestId: "agent_request_nightlife_route",
-        deterministicSignals: {
-          intent: {
-            latestUserTurn: "What are the best party places in General Luna tonight?",
-            nightlifePlan: true,
-            weather: false,
-            activityPlan: false,
-            tripAdvice: false,
-            placeIntent: {
-              category: "bar",
-              liveNeeds: ["recommendation"],
-              meal: null,
-              location: "General Luna",
-              areaScope: "in_area",
-              radiusMeters: 12_000,
-            },
-          },
-        },
-      },
-      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
-    );
-
-    expect(result.message).toContain("BARREL");
-    expect(result.message).toContain("Barbosa");
-    expect(result.message).toContain("rain");
-    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
-      "load_agent_memory_file",
-      "search_nightlife_events",
-      "search_places",
-      "get_weather_forecast",
-    ]);
-    expect(result.toolCalls[0]?.toolCallId).toBe("auto_required_memory_load_nightlife");
-    expect(result.toolCalls[1]?.toolCallId).toBe("auto_preflight_required_evidence_1");
-    expect(result.toolCalls[1]?.arguments).toMatchObject({
-      location: "General Luna",
-      date: "tonight",
-      interests: ["party"],
-    });
-    expect(result.toolCalls[2]?.toolCallId).toBe("call_places_first");
-    expect(result.toolCalls[2]?.arguments).toMatchObject({
-      query: "BARREL Barbosa Siargao Beach Club Mama Coco General Luna Siargao nightlife venues",
-      constraints: { included_type: "bar", open_now: true, page_size: 4 },
-    });
-    expect(result.toolCalls[3]?.arguments).toMatchObject({
-      location: "General Luna",
-      date_range: "today",
-    });
-    expect(result.publicSources).toEqual([
-      nightlifeEventSourceSummary,
-      openNowPlacesSourceSummary,
-      weatherSourceSummary,
-    ]);
-    expect(result.cards).toEqual([placeCard]);
-    expect(JSON.stringify(result.cards)).not.toContain(offRoutePlaceCard.title);
-    expect(result.memory?.files.some((file) => file.fileName === "NIGHTLIFE.md")).toBe(true);
-    expect(client.requests).toHaveLength(3);
-    const firstInput = parseLastUserInputMessage(client.requests[0]?.input) as {
-      automaticRequiredMemoryLoads?: Array<{ name?: string }>;
-      deterministicSignals?: { intent?: { nightlifePlan?: boolean } };
-    };
-    expect(firstInput.automaticRequiredMemoryLoads?.map((load) => load.name)).toEqual([
-      "load_agent_memory_file",
-    ]);
-    expect(firstInput.deterministicSignals?.intent?.nightlifePlan).toBe(true);
-    const repairInput = parseLastUserInputMessage(client.requests[2]?.input) as {
-      automaticRequiredEvidenceChecks?: Array<{ name?: string }>;
-    };
-    expect(repairInput.automaticRequiredEvidenceChecks?.map((check) => check.name)).toEqual([
-      "get_weather_forecast",
-    ]);
-  });
-
-  test.skip("direct-final repair completes nightlife event lookup before Places enrichment", async () => {
-    const selectedPlaceCard = {
-      id: "place_barrel",
-      kind: "place" as const,
-      title: "BARREL",
-      subtitle: "General Luna",
-      mapsUrl: "https://maps.example/barrel",
-      openStatusLabel: "Open now according to Google Places.",
-      fitReasons: ["Venue identity and map details returned by Google Places."],
-      caveats: ["Places is venue detail evidence, not the nightlife ranking source."],
-      sourceLabel: "Google Places - live checked",
-      sources: [openNowPlacesSourceSummary],
-    };
-    const offRoutePlaceCard = {
-      id: "place_bed_brew",
-      kind: "place" as const,
-      title: "Bed & Brew",
-      subtitle: "General Luna",
-      mapsUrl: "https://maps.example/bed-brew",
-      openStatusLabel: "Open now according to Google Places.",
-      fitReasons: ["Venue identity and map details returned by Google Places."],
-      caveats: ["This venue was not selected by the Tuesday event route."],
-      sourceLabel: "Google Places - live checked",
-      sources: [openNowPlacesSourceSummary],
-    };
-    const client = fakeResponsesClient([
-      {
-        id: "resp_nightlife_direct_final_without_tools",
-        output_text: finalPayloadText({
-          answer:
-            "Tonight in General Luna, start with BARREL, then continue toward Barbosa if you want the main party.",
-        }),
-        _request_id: "req_nightlife_direct_final_without_tools",
-      },
-      {
-        id: "resp_nightlife_direct_final_after_evidence",
-        output_text: finalPayloadText({
-          answer:
-            "Tonight in General Luna, start with BARREL, make Barbosa the main party, keep Siargao Beach Club late, and use Mama Coco as the softer option. Weather and venue details were checked.",
-          usedToolCallIds: [
-            "auto_required_evidence_1",
-            "auto_required_evidence_2",
-            "auto_required_evidence_3",
-          ],
-          displayCardIds: [],
-        }),
-        _request_id: "req_nightlife_direct_final_after_evidence",
-      },
-      {
-        id: "resp_nightlife_direct_final_after_memory",
-        output_text: finalPayloadText({
-          answer:
-            "Tonight in General Luna, start with BARREL, make Barbosa the main party, keep Siargao Beach Club late, and use Mama Coco as the softer option. Weather, venue details, and nightlife reference context were checked.",
-          usedMemoryFiles: ["NIGHTLIFE.md"],
-          usedToolCallIds: [
-            "auto_required_evidence_1",
-            "auto_required_evidence_2",
-            "auto_required_evidence_3",
-            "auto_required_memory_load_nightlife",
-          ],
-          displayCardIds: [],
-        }),
-        _request_id: "req_nightlife_direct_final_after_memory",
-      },
-    ]);
-
-    let nightlifeLookupFinished = false;
-    const executeTool: AgentToolExecutor = async (request) => {
-      if (request.name === "search_nightlife_events") {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        nightlifeLookupFinished = true;
-        return {
-          name: "search_nightlife_events",
-          toolCallId: request.toolCallId,
-          status: "success",
-          text: "Approved events: BARREL warm-up, Barbosa main party, Siargao Beach Club late option, Mama Coco softer option.",
-          data: nightlifeEventRouteData(),
-          sources: [nightlifeEventSourceSummary],
-        };
-      }
-
-      if (request.name === "search_places") {
-        expect(nightlifeLookupFinished).toBe(true);
-        expect(request.arguments.query).toBe(
-          "BARREL Barbosa Siargao Beach Club Mama Coco General Luna Siargao nightlife venues",
-        );
-        return {
-          name: "search_places",
-          toolCallId: request.toolCallId,
-          status: "success",
-          text: "Google Places returned selected and off-route General Luna venue details.",
-          sources: [openNowPlacesSourceSummary],
-          cards: [selectedPlaceCard, offRoutePlaceCard],
-        };
-      }
-
-      if (request.name === "get_weather_forecast") {
-        return {
-          name: "get_weather_forecast",
-          toolCallId: request.toolCallId,
-          status: "success",
-          text: "Open-Meteo weather forecast for General Luna.",
-          sources: [weatherSourceSummary],
-        };
-      }
-
-      return {
-        name: "load_agent_memory_file",
-        toolCallId: request.toolCallId,
-        status: "success",
-        text: "Loaded NIGHTLIFE.md",
-        data: {
-          loadedMemoryFileNames: ["NIGHTLIFE.md"],
-          files: [
-            {
-              fileName: "NIGHTLIFE.md",
-              content: [
-                "# Siargao Nightlife",
-                "| Day | Early / warm-up | Main party window | Anchor candidates | Best read |",
-                "| --- | --- | --- | --- | --- |",
-                "| Wednesday | 7:30-9 PM | 8 PM-midnight / 9 PM+ | Goodies, Mama Coco, El Lobo | Midweek dance night. |",
-              ].join("\n"),
-            },
-          ],
-        },
-        sources: [],
-      };
-    };
-
-    const result = await runAskSiargaoAgentTurn(
-      {
-        messages: [
-          {
-            role: "user",
-            content: "What are the best party places in General Luna tonight?",
-          },
-        ],
-        requestId: "agent_request_nightlife_direct_final_repair",
-        deterministicSignals: nightlifeRouteSignals(),
-      },
-      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
-    );
-
-    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
-      "load_agent_memory_file",
-      "search_nightlife_events",
-      "search_places",
-      "get_weather_forecast",
-    ]);
-    expect(result.toolCalls.map((toolCall) => toolCall.toolCallId)).toEqual([
-      "auto_required_memory_load_nightlife",
-      "auto_required_evidence_1",
-      "auto_required_evidence_2",
-      "auto_required_evidence_3",
-    ]);
-    expect(result.cards).toEqual([selectedPlaceCard]);
-    expect(JSON.stringify(result.cards)).not.toContain(offRoutePlaceCard.title);
-    const repairInput = parseLastUserInputMessage(client.requests[1]?.input) as {
-      automaticRequiredEvidenceChecks?: Array<{
-        name?: string;
-        arguments?: Record<string, unknown>;
-      }>;
-    };
-    expect(repairInput.automaticRequiredEvidenceChecks?.map((check) => check.name)).toEqual([
-      "search_nightlife_events",
-      "search_places",
-      "get_weather_forecast",
-    ]);
-    expect(repairInput.automaticRequiredEvidenceChecks?.[1]?.arguments?.query).toBe(
-      "BARREL Barbosa Siargao Beach Club Mama Coco General Luna Siargao nightlife venues",
-    );
-  });
-
-  test.skip("runs required web research before model-requested Places enrichment", async () => {
-    const placeCard = {
-      id: "place_roots",
-      kind: "place" as const,
-      title: "Roots Siargao",
-      subtitle: "General Luna",
-      mapsUrl: "https://maps.example/roots",
-      openStatusLabel: "Open now according to Google Places.",
-      fitReasons: ["Returned by required Google Places evidence."],
-      caveats: ["Review text and bookings were not checked."],
-      sourceLabel: "Google Places - live checked",
-      sources: [openNowPlacesSourceSummary],
-    };
-    const unrelatedPlaceCard = {
-      id: "place_unrelated",
-      kind: "place" as const,
-      title: "Random Bar",
-      subtitle: "General Luna",
-      mapsUrl: "https://maps.example/random-bar",
-      openStatusLabel: "Open now according to Google Places.",
-      fitReasons: ["Returned by a broad Google Places result."],
-      caveats: ["Not selected by public web research."],
-      sourceLabel: "Google Places - live checked",
-      sources: [openNowPlacesSourceSummary],
-    };
-    const client = fakeResponsesClient([
-      responseWithToolCall({
-        id: "resp_research_places_wrong_order",
-        requestId: "req_research_places_wrong_order",
-        callId: "call_places_first",
-        name: "search_places",
-        arguments: {
-          query: "best dinner General Luna Siargao",
-          center: { latitude: 9.8006, longitude: 126.1586 },
-          radius_meters: 12_000,
-          constraints: { included_type: "restaurant", open_now: true, page_size: 8 },
-        },
-      }),
-      {
-        id: "resp_research_places_final",
-        output_text: finalPayloadText({
-          answer:
-            "Roots Siargao is the best dinner move tonight after checking public web evidence.",
-          usedToolCallIds: ["auto_preflight_required_evidence_1", "call_places_first"],
-          displayCardIds: [placeCard.id, unrelatedPlaceCard.id],
-        }),
-        _request_id: "req_research_places_final",
-      },
-    ]);
-    let researchFinished = false;
-    const executeTool: AgentToolExecutor = async (request) => {
-      if (request.name === "research_web") {
-        researchFinished = true;
-        return {
-          name: "research_web",
-          toolCallId: request.toolCallId,
-          status: "success",
-          text: "Public web research found Roots dinner evidence.",
-          data: {
-            status: "available",
-            entities: [{ name: "Roots Siargao", kind: "place", needsPlacesEnrichment: true }],
-          },
-          sources: [officialWebSourceSummary],
-        };
-      }
-      if (request.name === "search_places") {
-        expect(researchFinished).toBe(true);
-        expect(request.arguments.query).toBe("Roots Siargao Siargao place details");
-        expect(request.arguments.constraints).toMatchObject({ page_size: 1 });
-        return {
-          name: "search_places",
-          toolCallId: request.toolCallId,
-          status: "success",
-          text: "Google Places returned Roots.",
-          sources: [openNowPlacesSourceSummary],
-          cards: [placeCard, unrelatedPlaceCard],
-        };
-      }
-      throw new Error(`Unexpected tool ${request.name}`);
-    };
-
-    const result = await runAskSiargaoAgentTurn(
-      {
-        messages: [{ role: "user", content: "Best dinner in General Luna tonight?" }],
-        requestId: "agent_request_research_before_places",
-        deterministicSignals: dinnerResearchSignals(),
-      },
-      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
-    );
-
-    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
-      "research_web",
-      "search_places",
-    ]);
-    expect(result.toolCalls[0]?.toolCallId).toBe("auto_preflight_required_evidence_1");
-    expect(result.toolCalls[1]?.toolCallId).toBe("call_places_first");
-    expect(responseInputItemsByType(client.requests[1]?.input, "function_call")).toContainEqual(
-      expect.objectContaining({
-        call_id: "auto_preflight_required_evidence_1",
-        name: "research_web",
-      }),
-    );
-    expect(
-      responseInputItemsByType(client.requests[1]?.input, "function_call_output"),
-    ).toContainEqual(
-      expect.objectContaining({
-        call_id: "auto_preflight_required_evidence_1",
-      }),
-    );
-    expect(result.publicSources).toEqual([officialWebSourceSummary, openNowPlacesSourceSummary]);
-    expect(result.cards).toEqual([placeCard]);
-    expect(JSON.stringify(result.cards)).not.toContain(unrelatedPlaceCard.title);
-  });
-
-  test.skip("continues after preflight web research is unavailable for nightlife tool calls", async () => {
-    const webResearchUnavailableSource: AnswerSourceSummary = {
-      label: "provider_unavailable",
-      sourceName: "Public web research",
-      sourceProfileId: "source_web_research",
-      confidence: "low",
-      checked: [],
-      notChecked: ["current General Luna nightlife web evidence"],
-    };
-    const client = fakeResponsesClient([
-      {
-        id: "resp_nightlife_research_unavailable_calls",
-        _request_id: "req_nightlife_research_unavailable_calls",
-        output: [
-          {
-            type: "function_call",
-            call_id: "call_nightlife_events",
-            name: "search_nightlife_events",
-            arguments: JSON.stringify({
-              location: "General Luna",
-              date: "2026-07-01",
-              interests: ["party"],
-            }),
-          },
-          {
-            type: "function_call",
-            call_id: "call_duplicate_research",
-            name: "research_web",
-            arguments: JSON.stringify({
-              query: "where can I go party tonight in General Luna?",
-              intent: "recommendation",
-              location: "General Luna",
-              dateContext: "tonight",
-              requiredFreshness: "same_day",
-            }),
-          },
-        ],
-      },
-      {
-        id: "resp_nightlife_research_unavailable_final",
-        output_text: finalPayloadText({
-          answer:
-            "I could not verify current public web evidence for General Luna parties tonight.",
-          usedToolCallIds: ["auto_preflight_required_evidence_1"],
-          displayCardIds: [],
-        }),
-        _request_id: "req_nightlife_research_unavailable_final",
-      },
-    ]);
-    const executeTool: AgentToolExecutor = async (request) => {
-      if (request.name === "load_agent_memory_file") {
-        return {
-          name: "load_agent_memory_file",
-          toolCallId: request.toolCallId,
-          status: "success",
-          text: "Loaded NIGHTLIFE.md.",
-          data: {
-            loadedMemoryFileNames: ["NIGHTLIFE.md"],
-            files: [
-              {
-                fileName: "NIGHTLIFE.md",
-                content:
-                  "| Day | Early / warm-up | Main party window | Anchor candidates | Best read |\n| --- | --- | --- | --- | --- |\n| Wednesday | 7:30-9 PM | 8 PM-midnight / 9 PM+ | Goodies, Mama Coco, El Lobo | Midweek dance night; Goodies is official Happiness-backed, Mama Coco is directory-backed, El Lobo needs official confirmation. |",
-              },
-            ],
-          },
-          sources: [],
-        };
-      }
-      if (request.name === "research_web") {
-        return {
-          name: "research_web",
-          toolCallId: request.toolCallId,
-          status: "error",
-          text: "Public web research provider unavailable.",
-          errorCode: "provider_unavailable",
-          data: { status: "provider_unavailable" },
-          sources: [webResearchUnavailableSource],
-        };
-      }
-      throw new Error(`Unexpected tool ${request.name}`);
-    };
-
-    const result = await runAskSiargaoAgentTurn(
-      {
-        messages: [{ role: "user", content: "where can i go party tonight in general luna?" }],
-        requestId: "agent_request_nightlife_research_unavailable",
-        deterministicSignals: nightlifeResearchSignals(),
-      },
-      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
-    );
-
-    expect(result.message).toContain("could not verify current public web evidence");
-    expect(result.cards).toBeUndefined();
-    expect(result.toolCalls.map((toolCall) => [toolCall.name, toolCall.status])).toEqual([
-      ["load_agent_memory_file", "success"],
-      ["research_web", "error"],
-      ["search_nightlife_events", "error"],
-      ["research_web", "error"],
-    ]);
-    expect(responseInputItemsByType(client.requests[1]?.input, "function_call")).toContainEqual(
-      expect.objectContaining({
-        call_id: "auto_preflight_required_evidence_1",
-        name: "research_web",
-      }),
-    );
-    expect(
-      responseInputItemsByType(client.requests[1]?.input, "function_call_output"),
-    ).toContainEqual(
-      expect.objectContaining({
-        call_id: "auto_preflight_required_evidence_1",
-      }),
-    );
-  });
-
-  test.skip("stops repeated tool calls after terminal web research and returns nightlife baseline", async () => {
-    const webResearchUnavailableSource: AnswerSourceSummary = {
-      label: "provider_unavailable",
-      sourceName: "Public web research",
-      sourceProfileId: "source_web_research",
-      confidence: "low",
-      checked: [],
-      notChecked: ["current General Luna nightlife web evidence"],
-    };
-    const repeatedNightlifeToolCalls = [
-      {
-        type: "function_call",
-        call_id: "call_repeated_research",
-        name: "research_web",
-        arguments: JSON.stringify({
-          query: "where can I go party tonight in General Luna?",
-          intent: "recommendation",
-          location: "General Luna",
-          dateContext: "tonight",
-          requiredFreshness: "same_day",
-        }),
-      },
-      {
-        type: "function_call",
-        call_id: "call_repeated_nightlife_events",
-        name: "search_nightlife_events",
-        arguments: JSON.stringify({
-          location: "General Luna",
-          date: "2026-07-01",
-          interests: ["party"],
-        }),
-      },
-    ];
-    const client = fakeResponsesClient([
-      {
-        id: "resp_nightlife_research_unavailable_calls",
-        _request_id: "req_nightlife_research_unavailable_calls",
-        output: repeatedNightlifeToolCalls,
-      },
-      {
-        id: "resp_nightlife_research_unavailable_repeated_calls",
-        _request_id: "req_nightlife_research_unavailable_repeated_calls",
-        output: repeatedNightlifeToolCalls,
-      },
-    ]);
-    const executeTool: AgentToolExecutor = async (request) => {
-      if (request.name === "load_agent_memory_file") {
-        return {
-          name: "load_agent_memory_file",
-          toolCallId: request.toolCallId,
-          status: "success",
-          text: "Loaded NIGHTLIFE.md.",
-          data: {
-            loadedMemoryFileNames: ["NIGHTLIFE.md"],
-            files: [
-              {
-                fileName: "NIGHTLIFE.md",
-                content:
-                  "| Day | Early / warm-up | Main party window | Anchor candidates | Best read |\n| --- | --- | --- | --- | --- |\n| Wednesday | 7:30-9 PM | 8 PM-midnight / 9 PM+ | Goodies, Mama Coco, El Lobo | Midweek dance night; Goodies is official Happiness-backed, Mama Coco is directory-backed, El Lobo needs official confirmation. |",
-              },
-            ],
-          },
-          sources: [],
-        };
-      }
-      if (request.name === "research_web") {
-        return {
-          name: "research_web",
-          toolCallId: request.toolCallId,
-          status: "error",
-          text: "Public web research provider unavailable.",
-          errorCode: "provider_unavailable",
-          data: { status: "provider_unavailable" },
-          sources: [webResearchUnavailableSource],
-        };
-      }
-      throw new Error(`Unexpected tool ${request.name}`);
-    };
-
-    const result = await runAskSiargaoAgentTurn(
-      {
-        messages: [{ role: "user", content: "where can i go party tonight in general luna?" }],
-        requestId: "agent_request_nightlife_repeated_research_unavailable",
-        deterministicSignals: nightlifeResearchSignals(),
-      },
-      {
-        client,
-        executeTool,
-        model: "gpt-test",
-        now: () => new Date("2026-07-01T20:30:00+08:00"),
-        requireStructuredFinalOutput: true,
-      },
-    );
-
-    expect(result.message).toContain("Goodies");
-    expect(result.message).toContain("Mama Coco");
-    expect(result.message).toContain("could not verify current public web evidence");
-    expect(result.cards).toBeUndefined();
-    expect(result.publicSources).toEqual([webResearchUnavailableSource]);
-    expect(result.toolCalls.map((toolCall) => [toolCall.name, toolCall.status])).toEqual([
-      ["load_agent_memory_file", "success"],
-      ["research_web", "error"],
-      ["research_web", "error"],
-      ["search_nightlife_events", "error"],
-    ]);
-    expect(client.requests).toHaveLength(2);
-  });
-
-  test.skip("repairs researched recommendations that omit primary research findings", async () => {
-    const placeCard = {
-      id: "place_roots",
-      kind: "place" as const,
-      title: "Roots Siargao",
-      subtitle: "General Luna",
-      mapsUrl: "https://maps.example/roots",
-      openStatusLabel: "Open now according to Google Places.",
-      fitReasons: ["Returned by required Google Places evidence."],
-      caveats: ["Review text and bookings were not checked."],
-      sourceLabel: "Google Places - live checked",
-      sources: [openNowPlacesSourceSummary],
-    };
-    const client = fakeResponsesClient([
-      responseWithToolCall({
-        id: "resp_research_omitted_places",
-        requestId: "req_research_omitted_places",
-        callId: "call_places_first",
-        name: "search_places",
-        arguments: {
-          query: "best dinner General Luna Siargao",
-          center: { latitude: 9.8006, longitude: 126.1586 },
-          radius_meters: 12_000,
-          constraints: { included_type: "restaurant", open_now: true, page_size: 8 },
-        },
-      }),
-      {
-        id: "resp_research_omitted_final",
-        output_text: finalPayloadText({
-          answer: "Use a covered dinner spot tonight.",
-          usedToolCallIds: ["auto_preflight_required_evidence_1", "call_places_first"],
-          displayCardIds: [placeCard.id],
-        }),
-        _request_id: "req_research_omitted_final",
-      },
-      {
-        id: "resp_research_omitted_repaired",
-        output_text: finalPayloadText({
-          answer: "Roots Siargao is the strongest dinner candidate tonight.",
-          usedToolCallIds: ["auto_preflight_required_evidence_1", "call_places_first"],
-          displayCardIds: [placeCard.id],
-        }),
-        _request_id: "req_research_omitted_repaired",
-      },
-    ]);
-    const executeTool: AgentToolExecutor = async (request) => {
-      if (request.name === "research_web") {
-        return {
-          name: "research_web",
-          toolCallId: request.toolCallId,
-          status: "success",
-          text: "Public web research found Roots dinner evidence.",
-          data: {
-            status: "available",
-            findings: [
-              {
-                claim: "Roots Siargao is the strongest dinner candidate tonight.",
-                answerRole: "primary",
-              },
-            ],
-            entities: [{ name: "Roots Siargao", kind: "place", needsPlacesEnrichment: true }],
-          },
-          sources: [officialWebSourceSummary],
-        };
-      }
-      if (request.name === "search_places") {
-        return {
-          name: "search_places",
-          toolCallId: request.toolCallId,
-          status: "success",
-          text: "Google Places returned Roots.",
-          sources: [openNowPlacesSourceSummary],
-          cards: [placeCard],
-        };
-      }
-      throw new Error(`Unexpected tool ${request.name}`);
-    };
-
-    const result = await runAskSiargaoAgentTurn(
-      {
-        messages: [{ role: "user", content: "Best dinner in General Luna tonight?" }],
-        requestId: "agent_request_repair_researched_answer_without_primary_finding",
-        deterministicSignals: dinnerResearchSignals(),
-      },
-      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
-    );
-
-    expect(result.message).toContain("Roots Siargao");
-    expect(result.cards).toEqual([placeCard]);
-    expect(client.requests).toHaveLength(3);
-    const repairInput = parseLastUserInputMessage(client.requests[2]?.input) as {
-      instruction?: string;
-    };
-    expect(repairInput.instruction).toContain("required evidence contract");
-  });
-
-  test.skip("skips dependent Places enrichment after insufficient required web research", async () => {
-    const client = fakeResponsesClient([
-      responseWithToolCall({
-        id: "resp_research_insufficient_places_first",
-        requestId: "req_research_insufficient_places_first",
-        callId: "call_places_first",
-        name: "search_places",
-        arguments: {
-          query: "best dinner General Luna Siargao",
-          center: { latitude: 9.8006, longitude: 126.1586 },
-          radius_meters: 12_000,
-          constraints: { included_type: "restaurant", open_now: true, page_size: 8 },
-        },
-      }),
-      {
-        id: "resp_research_insufficient_final",
-        output_text: finalPayloadText({
-          answer:
-            "I could not verify current public web evidence for tonight, so I would not treat a broad Places result as the dinner answer.",
-          usedToolCallIds: ["auto_preflight_required_evidence_1", "call_places_first"],
-          displayCardIds: [],
-        }),
-        _request_id: "req_research_insufficient_final",
-      },
-    ]);
-    const executeTool: AgentToolExecutor = async (request) => {
-      if (request.name === "research_web") {
-        return {
-          name: "research_web",
-          toolCallId: request.toolCallId,
-          status: "success",
-          text: "Public web research was insufficient.",
-          data: { status: "insufficient" },
-          sources: [insufficientWebEvidenceSourceSummary],
-        };
-      }
-      if (request.name === "search_places") {
-        throw new Error("Places should be skipped after insufficient research.");
-      }
-      throw new Error(`Unexpected tool ${request.name}`);
-    };
-
-    const result = await runAskSiargaoAgentTurn(
-      {
-        messages: [{ role: "user", content: "Best dinner in General Luna tonight?" }],
-        requestId: "agent_request_skip_places_after_insufficient_research",
-        deterministicSignals: dinnerResearchSignals(),
-      },
-      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
-    );
-
-    expect(result.toolCalls.map((toolCall) => [toolCall.name, toolCall.status])).toEqual([
-      ["research_web", "success"],
-      ["search_places", "error"],
-    ]);
-    expect(result.toolCalls[1]?.errorCode).toBe("provider_unavailable");
-    expect(result.cards).toBeUndefined();
-    expect(result.publicSources.map((source) => source.label)).toEqual([
-      "insufficient_web_evidence",
-      "provider_unavailable",
-    ]);
-  });
-
-  test.skip("repairs weather-only prose after insufficient required web research", async () => {
-    const client = fakeResponsesClient([
-      responseWithToolCall({
-        id: "resp_research_weather_only_places_first",
-        requestId: "req_research_weather_only_places_first",
-        callId: "call_places_first",
-        name: "search_places",
-        arguments: {
-          query: "best dinner General Luna Siargao",
-          center: { latitude: 9.8006, longitude: 126.1586 },
-          radius_meters: 12_000,
-          constraints: { included_type: "restaurant", open_now: true, page_size: 8 },
-        },
-      }),
-      {
-        id: "resp_research_weather_only_final",
-        output_text: finalPayloadText({
-          answer: "Tonight looks rainy, so stay somewhere covered near Tourism Road.",
-          usedToolCallIds: ["auto_preflight_required_evidence_1", "call_places_first"],
-          displayCardIds: [],
-        }),
-        _request_id: "req_research_weather_only_final",
-      },
-      {
-        id: "resp_research_weather_only_repaired",
-        output_text: finalPayloadText({
-          answer:
-            "I could not verify current public web evidence for dinner tonight, so I would not rank specific venues from a generic fallback.",
-          usedToolCallIds: ["auto_preflight_required_evidence_1", "call_places_first"],
-          displayCardIds: [],
-        }),
-        _request_id: "req_research_weather_only_repaired",
-      },
-    ]);
-    const executeTool: AgentToolExecutor = async (request) => {
-      if (request.name === "research_web") {
-        return {
-          name: "research_web",
-          toolCallId: request.toolCallId,
-          status: "success",
-          text: "Public web research was insufficient.",
-          data: { status: "insufficient" },
-          sources: [insufficientWebEvidenceSourceSummary],
-        };
-      }
-      if (request.name === "search_places") {
-        throw new Error("Places should be skipped after insufficient research.");
-      }
-      throw new Error(`Unexpected tool ${request.name}`);
-    };
-
-    const result = await runAskSiargaoAgentTurn(
-      {
-        messages: [{ role: "user", content: "Best dinner in General Luna tonight?" }],
-        requestId: "agent_request_repair_weather_only_after_insufficient_research",
-        deterministicSignals: dinnerResearchSignals(),
-      },
-      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
-    );
-
-    expect(result.message).toContain("could not verify current public web evidence");
-    expect(result.cards).toBeUndefined();
-    expect(client.requests).toHaveLength(3);
-  });
-
-  test.skip("does not run generic Places enrichment when nightlife lookup has no route venues", async () => {
-    const nightlifeUnavailableSource: AnswerSourceSummary = {
-      label: "no_current_event_facts",
-      sourceName: "Approved General Luna nightlife event source profiles",
-      sourceProfileId: "source_nightlife_official_venue_websites",
-      fetchedAt: "2026-06-30T20:45:23.585Z",
-      confidence: "low",
-      checked: [],
-      notChecked: ["current General Luna nightlife event facts for Wednesday"],
-    };
-    const client = fakeResponsesClient([
-      responseWithToolCall({
-        id: "resp_nightlife_generic_places_first",
-        requestId: "req_nightlife_generic_places_first",
-        callId: "call_generic_places",
-        name: "search_places",
-        arguments: {
-          query: "bars nightlife party General Luna Siargao",
-          center: { latitude: 9.8006, longitude: 126.1586 },
-          radius_meters: 6_000,
-          constraints: { included_type: "bar", open_now: true, page_size: 8 },
-        },
-      }),
-      {
-        id: "resp_nightlife_no_events_missing_weather",
-        output_text: finalPayloadText({
-          answer:
-            "Use the stable Wednesday route baseline, but keep it flexible because current event venues did not return.",
-          usedToolCallIds: ["auto_preflight_required_evidence_1", "call_generic_places"],
-          displayCardIds: [],
-        }),
-        _request_id: "req_nightlife_no_events_missing_weather",
-      },
-      {
-        id: "resp_nightlife_no_events_weather_only",
-        output_text: finalPayloadText({
-          answer:
-            "Today in General Luna the weather looks rough for bar-hopping between spots. If you want, I can give you a short indoor-to-outdoor party route for tonight based on this weather.",
-          usedMemoryFiles: ["NIGHTLIFE.md"],
-          usedToolCallIds: [
-            "auto_required_memory_load_nightlife",
-            "auto_preflight_required_evidence_1",
-            "call_generic_places",
-            "auto_required_evidence_1",
-          ],
-          displayCardIds: [],
-        }),
-        _request_id: "req_nightlife_no_events_weather_only",
-      },
-      {
-        id: "resp_nightlife_no_events_final_after_memory_baseline",
-        output_text: finalPayloadText({
-          answer:
-            "Tonight's baseline General Luna route is Mama Coco or Sibol for warm-up, Goodies as the main party, then El Lobo or Siargao Beach Club as the fallback if the room is quiet. I do not have current event confirmation from the event lookup, so keep it flexible and take a tricycle if rain picks up.",
-          usedMemoryFiles: ["NIGHTLIFE.md"],
-          usedToolCallIds: [
-            "auto_required_memory_load_nightlife",
-            "auto_preflight_required_evidence_1",
-            "call_generic_places",
-            "auto_required_evidence_1",
-          ],
-          displayCardIds: [],
-        }),
-        _request_id: "req_nightlife_no_events_final_after_memory_baseline",
-      },
-    ]);
-    let placesActuallyCalled = false;
-    const executeTool: AgentToolExecutor = async (request) => {
-      if (request.name === "search_nightlife_events") {
-        return {
-          name: "search_nightlife_events",
-          toolCallId: request.toolCallId,
-          status: "success",
-          text: "No approved General Luna nightlife event facts matched Wednesday 2026-07-01. Do not substitute Google Places bar rankings as event evidence.",
-          data: {
-            status: "no_events",
-            location: "General Luna",
-            requestedDate: "tonight",
-            localDate: "2026-07-01",
-            dayOfWeek: "Wednesday",
-            candidates: [],
-            route: {},
-            boundaries: {
-              checked: [],
-              notChecked: ["current General Luna nightlife event facts for Wednesday"],
-            },
-          },
-          sources: [nightlifeUnavailableSource],
-        };
-      }
-
-      if (request.name === "search_places") {
-        placesActuallyCalled = true;
-        throw new Error("Generic Places enrichment should not run without event-route venues.");
-      }
-
-      if (request.name === "get_weather_forecast") {
-        return {
-          name: "get_weather_forecast",
-          toolCallId: request.toolCallId,
-          status: "success",
-          text: "Open-Meteo weather forecast for General Luna.",
-          sources: [weatherSourceSummary],
-        };
-      }
-
-      return {
-        name: "load_agent_memory_file",
-        toolCallId: request.toolCallId,
-        status: "success",
-        text: "Loaded NIGHTLIFE.md",
-        data: {
-          loadedMemoryFileNames: ["NIGHTLIFE.md"],
-          files: [
-            {
-              fileName: "NIGHTLIFE.md",
-              content: [
-                "# Siargao Nightlife",
-                "| Day | Early / warm-up | Main party window | Anchor candidates | Best read |",
-                "| --- | --- | --- | --- | --- |",
-                "| Wednesday | 7:30-9 PM | 8 PM-midnight / 9 PM+ | Goodies, Mama Coco, El Lobo | Midweek dance night. |",
-              ].join("\n"),
-            },
-          ],
-        },
-        sources: [],
-      };
-    };
-
-    const result = await runAskSiargaoAgentTurn(
-      {
-        messages: [
-          {
-            role: "user",
-            content: "What are the best party places in General Luna tonight?",
-          },
-        ],
-        requestId: "agent_request_nightlife_no_event_places_skip",
-        deterministicSignals: nightlifeRouteSignals(),
-      },
-      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
-    );
-
-    expect(placesActuallyCalled).toBe(false);
-    expect(result.toolCalls.map((toolCall) => [toolCall.name, toolCall.status])).toEqual([
-      ["load_agent_memory_file", "success"],
-      ["search_nightlife_events", "success"],
-      ["search_places", "error"],
-      ["get_weather_forecast", "success"],
-    ]);
-    expect(result.toolCalls[2]).toMatchObject({
-      toolCallId: "call_generic_places",
-      errorCode: "provider_unavailable",
-    });
-    expect(result.cards).toBeUndefined();
-    expect(result.message).toContain("Goodies");
-    expect(result.message).toContain("Mama Coco");
-    expect(result.message).not.toContain("If you want");
-    const baselineRepairInput = parseLastUserInputMessage(client.requests[3]?.input) as {
-      validationRepairNightlifeMemoryBaseline?: {
-        baselineVenueNames?: string[];
-        dayOfWeek?: string;
-      };
-    };
-    expect(baselineRepairInput.validationRepairNightlifeMemoryBaseline).toMatchObject({
-      dayOfWeek: "Wednesday",
-      baselineVenueNames: ["Goodies", "Mama Coco", "El Lobo"],
-    });
-  });
-
-  test.skip("auto-executes required Places evidence for activity-place and service prompts", async () => {
-    for (const scenario of [
-      {
-        name: "activity_place_beachfront",
-        prompt: "beachfront places near General Luna",
-        placeName: "General Luna Beachfront Spot",
-        placeIntent: {
-          category: "activity_place",
-          liveNeeds: ["recommendation"],
-          meal: null,
-          location: "General Luna",
-          areaScope: "nearby",
-          radiusMeters: 6_000,
-          constraints: ["beachfront"],
-          latestUserTurn: "beachfront places near General Luna",
-          recentUserContext: "",
-        },
-        expectedArguments: {
-          query: "beachfront places near General Luna Siargao",
-          radius_meters: 6_000,
-          constraints: { open_now: false, page_size: 8 },
-        },
-      },
-      {
-        name: "service_pharmacy",
-        prompt: "Any pharmacy nearby?",
-        placeName: "General Luna Pharmacy",
-        placeIntent: {
-          category: "service",
-          liveNeeds: ["recommendation"],
-          meal: null,
-          location: "General Luna",
-          areaScope: "nearby",
-          radiusMeters: 6_000,
-          constraints: [],
-          latestUserTurn: "Any pharmacy nearby?",
-          recentUserContext: "",
-        },
-        expectedArguments: {
-          query: "pharmacy near General Luna Siargao",
-          radius_meters: 6_000,
-          constraints: { included_type: "pharmacy", open_now: false, page_size: 8 },
-        },
-      },
-      {
-        name: "service_atm",
-        prompt: "Nearest ATM to Dapa ferry terminal?",
-        placeName: "Dapa ATM",
-        placeIntent: {
-          category: "service",
-          liveNeeds: ["nearby", "recommendation"],
-          meal: null,
-          location: "Dapa",
-          areaScope: "nearby",
-          radiusMeters: 6_000,
-          constraints: [],
-          latestUserTurn: "Nearest ATM to Dapa ferry terminal?",
-          recentUserContext: "",
-        },
-        expectedArguments: {
-          query: "atm near Dapa Siargao",
-          radius_meters: 6_000,
-          constraints: { included_type: "atm", open_now: false, page_size: 8 },
-        },
-      },
-    ]) {
-      const placeCard = {
-        id: `place_${scenario.name}`,
-        kind: "place" as const,
-        title: scenario.placeName,
-        subtitle: "Google Places result",
-        mapsUrl: `https://maps.example/${scenario.name}`,
-        fitReasons: ["Returned by required Google Places evidence."],
-        caveats: ["Verify details before going."],
-        sourceLabel: "Google Places - live checked",
-        sources: [placesSourceSummary],
-      };
-      const client = fakeResponsesClient([
-        {
-          id: `resp_${scenario.name}_premature_final`,
-          output_text: finalPayloadText({
-            answer: `Try ${scenario.placeName}.`,
-            usedToolCallIds: [],
-            displayCardIds: [],
-          }),
-          _request_id: `req_${scenario.name}_premature_final`,
-        },
-        {
-          id: `resp_${scenario.name}_places_final`,
-          output_text: finalPayloadText({
-            answer: `After checking Google Places, try ${scenario.placeName}.`,
-            usedToolCallIds: ["auto_required_evidence_1"],
-            displayCardIds: [placeCard.id],
-          }),
-          _request_id: `req_${scenario.name}_places_final`,
-        },
-      ]);
-      const executeTool = fakeToolExecutor({
-        search_places: {
-          name: "search_places",
-          status: "success",
-          text: "Google Places returned matching place results.",
-          sources: [placesSourceSummary],
-          cards: [placeCard],
-        },
-      });
-
-      const result = await runAskSiargaoAgentTurn(
-        {
-          messages: [{ role: "user", content: scenario.prompt }],
-          requestId: `agent_request_${scenario.name}`,
-          deterministicSignals: {
-            intent: {
-              activityPlan: false,
-              tripAdvice: false,
-              placeIntent: scenario.placeIntent,
-            },
-          },
-        },
-        { client, executeTool, model: "gpt-test" },
-      );
-
-      expect(result.message).toContain(scenario.placeName);
-      expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual(["search_places"]);
-      expect(result.toolCalls[0]?.arguments).toMatchObject(scenario.expectedArguments);
-      expect(String(result.toolCalls[0]?.arguments.query)).not.toContain("services near");
-      expect(result.cards).toEqual([placeCard]);
-      expect(result.publicSources).toEqual([placesSourceSummary]);
-      const automaticInput = parseLastUserInputMessage(client.requests[1]?.input) as {
-        automaticRequiredEvidenceChecks?: Array<{ name?: string }>;
-      };
-      expect(automaticInput.automaticRequiredEvidenceChecks?.map((check) => check.name)).toEqual([
-        "search_places",
-      ]);
-    }
   });
 
   test("keeps legacy plain-text compatibility without tool-result artifacts", async () => {
@@ -3135,11 +1755,9 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         },
         deterministicSignals: {
           intent: {
-            conditionActivity: "surfing",
             nearMeUsesBrowserGeolocation: true,
             nearby: true,
             today: true,
-            weatherSensitive: true,
           },
         },
       },
@@ -3294,11 +1912,9 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         },
         deterministicSignals: {
           intent: {
-            conditionActivity: "surfing",
             nearMeUsesBrowserGeolocation: true,
             nearby: true,
             today: true,
-            weatherSensitive: true,
           },
         },
       },
@@ -3426,10 +2042,8 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         requestId: "agent_request_auto_condition",
         deterministicSignals: {
           intent: {
-            conditionActivity: "swimming",
             locationLabel: "General Luna",
             marineCondition: true,
-            weatherSensitive: true,
           },
         },
       },
@@ -3484,10 +2098,8 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         requestId: "agent_request_followup_condition_repair",
         deterministicSignals: {
           intent: {
-            conditionActivity: "sunset",
             locationLabel: "General Luna",
             marineCondition: true,
-            weatherSensitive: true,
           },
         },
       },
@@ -3548,10 +2160,8 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         requestId: "agent_request_required_beach_condition_repair",
         deterministicSignals: {
           intent: {
-            conditionActivity: "swimming",
             locationLabel: "General Luna",
             marineCondition: true,
-            weatherSensitive: true,
           },
         },
       },
@@ -3608,11 +2218,9 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         requestId: "agent_request_auto_boat_condition",
         deterministicSignals: {
           intent: {
-            conditionActivity: "boat_trip",
             locationLabel: "Del Carmen",
             marineCondition: true,
             roadCondition: false,
-            weatherSensitive: true,
           },
         },
       },
@@ -3662,11 +2270,9 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         requestId: "agent_request_bare_ride_followup_condition",
         deterministicSignals: {
           intent: {
-            conditionActivity: "scooter",
             locationLabel: "Del Carmen",
             marineCondition: true,
             roadCondition: false,
-            weatherSensitive: true,
           },
         },
       },
@@ -3717,11 +2323,9 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         requestId: "agent_request_auto_mixed_transport_condition",
         deterministicSignals: {
           intent: {
-            conditionActivity: "scooter",
             locationLabel: "Del Carmen",
             marineCondition: true,
             roadCondition: true,
-            weatherSensitive: true,
           },
         },
       },
@@ -3786,11 +2390,9 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         requestId: "agent_request_mismatched_mixed_transport_condition",
         deterministicSignals: {
           intent: {
-            conditionActivity: "boat_trip",
             locationLabel: "Del Carmen",
             marineCondition: true,
             roadCondition: true,
-            weatherSensitive: true,
           },
         },
       },
@@ -3833,10 +2435,8 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         requestId: "agent_request_wave_boat_condition",
         deterministicSignals: {
           intent: {
-            conditionActivity: "surfing",
             locationLabel: "Del Carmen",
             marineCondition: true,
-            weatherSensitive: true,
           },
         },
       },
@@ -3882,9 +2482,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         requestId: "agent_request_auto_tomorrow_condition",
         deterministicSignals: {
           intent: {
-            conditionActivity: "sunset",
             locationLabel: "Cloud 9",
-            weatherSensitive: true,
           },
         },
       },
@@ -3903,62 +2501,6 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(parseAutomaticConditionInput(client.requests[1]?.input).instruction).toContain(
       "7-day proxy",
     );
-  });
-
-  test.skip("auto-executes weather evidence before accepting weather-only prose", async () => {
-    const client = fakeResponsesClient([
-      {
-        id: "resp_direct_weather",
-        output_text: "Direct weather answer without forecast evidence.",
-        _request_id: "req_direct_weather",
-      },
-      {
-        id: "resp_after_weather_repair",
-        output_text: "Final weather answer after checking Open-Meteo forecast evidence.",
-        _request_id: "req_after_weather_repair",
-      },
-    ]);
-    const executeTool = fakeToolExecutor({
-      get_weather_forecast: {
-        name: "get_weather_forecast",
-        status: "success",
-        text: "Open-Meteo forecast loaded for General Luna.",
-        sources: [weatherSourceSummary],
-      },
-    });
-
-    const result = await runAskSiargaoAgentTurn(
-      {
-        messages: [{ role: "user", content: "Will it rain in General Luna today?" }],
-        requestId: "agent_request_weather_no_condition_repair",
-        deterministicSignals: {
-          intent: {
-            locationLabel: "General Luna",
-            weather: true,
-            weatherSensitive: true,
-          },
-        },
-      },
-      { client, executeTool, model: "gpt-test" },
-    );
-
-    expect(result.message).toContain("after checking Open-Meteo");
-    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual(["get_weather_forecast"]);
-    expect(result.toolCalls[0]?.arguments).toEqual({
-      location: "General Luna",
-      date_range: "today",
-    });
-    expect(result.sources).toEqual([weatherSourceSummary]);
-    expect(client.requests).toHaveLength(2);
-    const automaticInput = parseLastUserInputMessage(client.requests[1]?.input) as {
-      automaticRequiredEvidenceChecks?: Array<{ name?: string }>;
-      instruction?: string;
-    };
-    expect(automaticInput.automaticRequiredEvidenceChecks?.map((check) => check.name)).toEqual([
-      "get_weather_forecast",
-    ]);
-    expect(automaticInput.instruction).toContain("current weather answers require governed");
-    expect(automaticInput.instruction).not.toContain("place recommendations require");
   });
 
   test("executes Google Places search and details tool calls", async () => {
@@ -4133,20 +2675,6 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       {
         messages: [{ role: "user", content: "Where should I eat in General Luna tonight?" }],
         requestId: "agent_request_food_places_missing_card_ids",
-        deterministicSignals: {
-          intent: {
-            activityPlan: false,
-            tripAdvice: false,
-            placeIntent: {
-              category: "food",
-              liveNeeds: ["recommendation"],
-              meal: "dinner",
-              location: "General Luna",
-              areaScope: "in_area",
-              radiusMeters: 12_000,
-            },
-          },
-        },
       },
       { client, executeTool, model: "gpt-test" },
     );
@@ -4379,10 +2907,8 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         deterministicSignals: {
           intent: {
             activityPlan: true,
-            conditionActivity: "swimming",
             locationLabel: "General Luna",
             marineCondition: true,
-            weatherSensitive: true,
           },
         },
       },
@@ -4490,11 +3016,9 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         deterministicSignals: {
           intent: {
             activityPlan: true,
-            conditionActivity: "sightseeing",
             locationLabel: "Cloud 9",
             nearby: true,
             today: true,
-            weatherSensitive: true,
           },
         },
       },
@@ -5481,7 +4005,6 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
             locationLabel: "Cloud 9",
             nearby: true,
             today: true,
-            weatherSensitive: true,
           },
         },
       },
@@ -5725,20 +4248,6 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       {
         messages: [{ role: "user", content: "Where should I eat in General Luna tonight?" }],
         requestId: "agent_request_required_places_provider_failure",
-        deterministicSignals: {
-          intent: {
-            activityPlan: false,
-            tripAdvice: false,
-            placeIntent: {
-              category: "food",
-              liveNeeds: ["recommendation"],
-              meal: "dinner",
-              location: "General Luna",
-              areaScope: "in_area",
-              radiusMeters: 12_000,
-            },
-          },
-        },
       },
       { client, executeTool, model: "gpt-test" },
     );
@@ -5752,139 +4261,6 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.cards).toBeUndefined();
     expect(result.publicSources).toEqual([providerUnavailableSourceSummary]);
     expect(client.requests).toHaveLength(2);
-  });
-
-  test.skip("repairs required Places provider failures when the final payload overclaims checked evidence", async () => {
-    const client = fakeResponsesClient([
-      responseWithToolCall({
-        id: "resp_overclaimed_failed_places_call",
-        requestId: "req_overclaimed_failed_places_call",
-        callId: "call_overclaimed_places",
-        name: "search_places",
-        arguments: {
-          query: "restaurants and dinner spots in General Luna, Siargao",
-          center: { latitude: 9.8006, longitude: 126.1586 },
-          radius_meters: 12_000,
-          constraints: { included_type: "restaurant", open_now: true, page_size: 8 },
-        },
-      }),
-      {
-        id: "resp_overclaimed_failed_places_final",
-        output_text: finalPayloadText({
-          answer: "I checked Google Places live, and the dinner options are live checked tonight.",
-          usedToolCallIds: ["call_overclaimed_places"],
-        }),
-        _request_id: "req_overclaimed_failed_places_final",
-      },
-      {
-        id: "resp_caveated_failed_places_final",
-        output_text: finalPayloadText({
-          answer:
-            "Google Places was unavailable, so I could not check live dinner options tonight; verify before going.",
-          usedToolCallIds: ["call_overclaimed_places"],
-        }),
-        _request_id: "req_caveated_failed_places_final",
-      },
-    ]);
-    const executeTool = fakeToolExecutor({
-      search_places: {
-        name: "search_places",
-        status: "error",
-        text: "Google Places search failed: provider timeout.",
-        errorCode: "provider_unavailable",
-        sources: [providerUnavailableSourceSummary],
-      },
-    });
-
-    const result = await runAskSiargaoAgentTurn(
-      {
-        messages: [{ role: "user", content: "Where should I eat in General Luna tonight?" }],
-        requestId: "agent_request_required_places_provider_failure_overclaim",
-        deterministicSignals: {
-          intent: {
-            activityPlan: false,
-            tripAdvice: false,
-            placeIntent: {
-              category: "food",
-              liveNeeds: ["recommendation"],
-              meal: "dinner",
-              location: "General Luna",
-              areaScope: "in_area",
-              radiusMeters: 12_000,
-            },
-          },
-        },
-      },
-      { client, executeTool, model: "gpt-test" },
-    );
-
-    expect(result.message).toContain("could not check live dinner options");
-    expect(result.message).not.toContain("live checked tonight");
-    expect(result.cards).toBeUndefined();
-    expect(result.publicSources).toEqual([providerUnavailableSourceSummary]);
-    expect(client.requests).toHaveLength(3);
-    const repairInput = parseLastUserInputMessage(client.requests[2]?.input);
-    expect(repairInput?.instruction).toContain("no checked/live claims");
-    expect(repairInput?.instruction).toContain("failed provider output");
-  });
-
-  test.skip("repairs required weather provider failures when the final payload overclaims checked evidence", async () => {
-    const client = fakeResponsesClient([
-      {
-        id: "resp_direct_weather_without_evidence",
-        output_text: "Direct weather answer without forecast evidence.",
-        _request_id: "req_direct_weather_without_evidence",
-      },
-      {
-        id: "resp_overclaimed_failed_weather_final",
-        output_text: finalPayloadText({
-          answer: "I checked Open-Meteo, and the forecast was checked live for General Luna.",
-          usedToolCallIds: ["auto_required_evidence_1"],
-        }),
-        _request_id: "req_overclaimed_failed_weather_final",
-      },
-      {
-        id: "resp_caveated_failed_weather_final",
-        output_text: finalPayloadText({
-          answer:
-            "Open-Meteo was unavailable, so I could not check the forecast for General Luna; treat this as not verified.",
-          usedToolCallIds: ["auto_required_evidence_1"],
-        }),
-        _request_id: "req_caveated_failed_weather_final",
-      },
-    ]);
-    const executeTool = fakeToolExecutor({
-      get_weather_forecast: {
-        name: "get_weather_forecast",
-        status: "error",
-        text: "Open-Meteo forecast failed: provider timeout.",
-        errorCode: "provider_unavailable",
-        sources: [weatherProviderUnavailableSourceSummary],
-      },
-    });
-
-    const result = await runAskSiargaoAgentTurn(
-      {
-        messages: [{ role: "user", content: "Will it rain in General Luna today?" }],
-        requestId: "agent_request_required_weather_provider_failure_overclaim",
-        deterministicSignals: {
-          intent: {
-            locationLabel: "General Luna",
-            weather: true,
-            weatherSensitive: true,
-          },
-        },
-      },
-      { client, executeTool, model: "gpt-test" },
-    );
-
-    expect(result.message).toContain("could not check the forecast");
-    expect(result.message).not.toContain("checked live");
-    expect(result.publicSources).toEqual([weatherProviderUnavailableSourceSummary]);
-    expect(client.requests).toHaveLength(3);
-    const repairInput = parseLastUserInputMessage(client.requests[2]?.input);
-    expect(repairInput?.instruction).toContain("no checked/live claims");
-    expect(repairInput?.instruction).toContain("failed provider output");
   });
 
   test("covers cross-request answer-quality regressions with selected public artifacts", async () => {
@@ -6779,139 +5155,6 @@ function recommendationCard({
   };
 }
 
-function nightlifeRouteSignals() {
-  return {
-    intent: {
-      latestUserTurn: "What are the best party places in General Luna tonight?",
-      nightlifePlan: true,
-      weather: false,
-      activityPlan: false,
-      tripAdvice: false,
-      placeIntent: {
-        category: "bar",
-        liveNeeds: ["recommendation"],
-        meal: null,
-        location: "General Luna",
-        areaScope: "in_area",
-        radiusMeters: 12_000,
-      },
-    },
-  };
-}
-
-function nightlifeResearchSignals() {
-  return {
-    intent: {
-      latestUserTurn: "where can i go party tonight in general luna?",
-      nightlifePlan: true,
-      weather: false,
-      weatherSensitive: true,
-      activityPlan: false,
-      tripAdvice: false,
-      today: true,
-      locationLabel: "General Luna",
-      placeIntent: {
-        category: "bar",
-        liveNeeds: ["recommendation"],
-        meal: null,
-        location: "General Luna",
-        areaScope: "in_area",
-        radiusMeters: 12_000,
-      },
-      researchIntent: {
-        required: true,
-        query: "where can i go party tonight in general luna?",
-        intent: "recommendation",
-        location: "General Luna",
-        dateContext: "tonight",
-        sourceTypes: ["official", "local_directory", "social", "guide", "community"],
-        requiredFreshness: "same_day",
-        reason: "current nightlife recommendations need public event and venue web evidence",
-        coveredRequestClass: "current_recommendation",
-      },
-    },
-  };
-}
-
-function dinnerResearchSignals() {
-  return {
-    intent: {
-      latestUserTurn: "Best dinner in General Luna tonight?",
-      activityPlan: false,
-      tripAdvice: false,
-      today: true,
-      placeIntent: {
-        category: "food",
-        liveNeeds: ["recommendation", "open_now"],
-        meal: "dinner",
-        location: "General Luna",
-        areaScope: "in_area",
-        radiusMeters: 12_000,
-      },
-      researchIntent: {
-        required: true,
-        query: "Best dinner in General Luna tonight?",
-        intent: "recommendation",
-        location: "General Luna",
-        dateContext: "tonight",
-        sourceTypes: ["maps", "official", "local_directory", "guide", "social"],
-        requiredFreshness: "same_day",
-      },
-    },
-  };
-}
-
-function nightlifeEventRouteData() {
-  const barrel = nightlifeEventCandidate("BARREL", "warm_up");
-  const barbosa = nightlifeEventCandidate("Barbosa", "main_party");
-  const siargaoBeachClub = nightlifeEventCandidate("Siargao Beach Club", "late_option");
-  const mamaCoco = nightlifeEventCandidate("Mama Coco", "softer_option");
-
-  return {
-    status: "available",
-    location: "General Luna",
-    requestedDate: "tonight",
-    localDate: "2026-06-30",
-    dayOfWeek: "Tuesday",
-    candidates: [barrel, barbosa, siargaoBeachClub, mamaCoco],
-    route: {
-      warmUp: barrel,
-      mainParty: barbosa,
-      lateOption: siargaoBeachClub,
-      softerOption: mamaCoco,
-    },
-    boundaries: {
-      checked: nightlifeEventSourceSummary.checked,
-      notChecked: nightlifeEventSourceSummary.notChecked,
-    },
-    nextStep:
-      "Use Google Places only after this event lookup to enrich selected venue identity, map links, address, business status, opening-hour signal, ratings, and review counts.",
-  };
-}
-
-function nightlifeEventCandidate(
-  venueName: string,
-  routeRole: "warm_up" | "main_party" | "late_option" | "softer_option",
-) {
-  return {
-    id: `nightlife_${venueName.toLowerCase().replaceAll(/[^a-z0-9]+/g, "_")}`,
-    venueName,
-    eventName: `${venueName} Tuesday event`,
-    location: "General Luna",
-    dayOfWeek: "Tuesday",
-    startTime: "21:00",
-    localTimeWindow: "9 PM-late",
-    routeRole,
-    intensity: routeRole === "softer_option" ? "medium" : "high",
-    interests: ["party"],
-    sourceName: "Ask Siargao approved nightlife event facts",
-    sourceUrl: "https://example.test/nightlife",
-    sourceBasis: "Test approved nightlife event route.",
-    confidence: "medium",
-    notes: [],
-  };
-}
-
 function assertTravelerProseHasNoInternalMechanics(message: string) {
   const normalizedMessage = message.toLowerCase();
   for (const bannedTerm of [
@@ -7271,53 +5514,12 @@ const openNowPlacesSourceSummary: AnswerSourceSummary = {
   checked: ["place identity", "map link", "open-now signal"],
 };
 
-const officialWebSourceSummary: AnswerSourceSummary = {
-  label: "official_checked",
-  sourceName: "Roots Siargao Official Menu",
-  sourceProfileId: "source_web_official",
-  fetchedAt: "2026-07-01T09:00:00.000Z",
-  confidence: "high",
-  checked: ["Roots publishes current dinner hours"],
-  notChecked: ["bookings", "table availability"],
-};
-
-const insufficientWebEvidenceSourceSummary: AnswerSourceSummary = {
-  label: "insufficient_web_evidence",
-  sourceName: "Public web research",
-  sourceProfileId: "source_web_research",
-  confidence: "low",
-  checked: [],
-  notChecked: ["current public party evidence"],
-};
-
 const localGuideSourceSummary: AnswerSourceSummary = {
   label: "curated_local_guide",
   sourceName: "Ask Siargao curated local beach guide",
   confidence: "medium",
   checked: ["beach surface notes", "ride-time notes"],
   notChecked: ["live tide", "lifeguard status"],
-};
-
-const nightlifeEventSourceSummary: AnswerSourceSummary = {
-  label: "event_checked",
-  sourceName: "Local nightlife event directories",
-  sourceProfileId: "source_nightlife_local_event_directories",
-  fetchedAt: "2026-06-30T04:00:00.000Z",
-  confidence: "medium",
-  checked: [
-    "approved General Luna nightlife event facts for Tuesday",
-    "verified event occurrences: BARREL, Mama Coco",
-    "route roles: warm-up, main party, late option, and softer option when available",
-  ],
-  notChecked: [
-    "same-day venue social posts",
-    "live crowd size",
-    "door policy",
-    "guest list",
-    "table availability",
-    "last-minute cancellation",
-    "exact closing time",
-  ],
 };
 
 const genericSourceSummary: AnswerSourceSummary = {

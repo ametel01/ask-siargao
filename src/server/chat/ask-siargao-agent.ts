@@ -27,7 +27,7 @@ import {
   buildAgentResponseTools,
   executeAgentTool,
 } from "@/server/chat/agent-tools";
-import { type ConditionJudgmentRequest, conditionActivities } from "@/server/chat/condition-tools";
+import type { ConditionJudgmentRequest } from "@/server/chat/condition-tools";
 import type {
   ItineraryRequiredToolChecks,
   LocalItineraryRequest,
@@ -1049,6 +1049,12 @@ function missingConditionJudgmentRepairCall(
   if (!argumentsForCondition) {
     return undefined;
   }
+  if (hasCompletedConditionJudgment(toolCalls, argumentsForCondition)) {
+    return undefined;
+  }
+  if (hasAdjacentSurfConditionEvidence(toolCalls, argumentsForCondition)) {
+    return undefined;
+  }
   if (hasSuccessfulConditionJudgment(toolCalls, toolResults, argumentsForCondition)) {
     return undefined;
   }
@@ -1418,12 +1424,13 @@ function needsBrowserLocationSurfSpotRanking(request: AgentRuntimeRequest) {
     return false;
   }
   const latestUserTurn = latestUserContent(request.messages);
-  const hasSurfSignal =
-    readStringPath(request.deterministicSignals, ["intent", "conditionActivity"]) === "surfing" ||
-    /\bsurf(?:ing|er|s|ed)?\b/i.test(latestUserTurn);
+  const hasSurfSignal = /\bsurf(?:ing|er|s|ed)?\b/i.test(latestUserTurn);
   const hasNearMeSignal =
-    readBooleanPath(request.deterministicSignals, ["intent", "nearMeUsesBrowserGeolocation"]) ===
-      true || hasDirectBrowserLocationText(latestUserTurn);
+    readBooleanPath(request.deterministicSignals, [
+      "context",
+      "browserGeolocation",
+      "useAsProximityAnchor",
+    ]) === true || hasDirectBrowserLocationText(latestUserTurn);
   const asksForClosest =
     /\b(?:closest|nearest|nearby|near\s+me|around\s+me|close\s+to\s+me|around\s+here|near\s+here)\b/i.test(
       latestUserTurn,
@@ -1454,23 +1461,20 @@ function inferRequiredConditionJudgmentArguments(
   if (latestUserTurn.trim().length === 0) {
     return undefined;
   }
-
-  const signalActivity = readStringPath(request.deterministicSignals, [
-    "intent",
-    "conditionActivity",
-  ]);
-  if (!isConditionActivity(signalActivity)) {
+  if (isItineraryReviewRequest(latestUserTurn)) {
+    return undefined;
+  }
+  if (isItineraryPlanningRequest(latestUserTurn) && !hasExplicitConditionQuestion(latestUserTurn)) {
     return undefined;
   }
 
   const priorUserContext = userTurns.slice(0, -1).join(" ");
   const inheritedPlaceContext = latestTurnHasConditionPlace(latestUserTurn) ? "" : priorUserContext;
   const conditionContext = [latestUserTurn, inheritedPlaceContext].filter(Boolean).join(" ");
-  const activity = inferConditionRepairActivity(
-    signalActivity,
-    latestUserTurn,
-    inheritedPlaceContext,
-  );
+  const activity = inferConditionRepairActivity(latestUserTurn, inheritedPlaceContext);
+  if (!activity) {
+    return undefined;
+  }
   const conditionRequest = {
     activity,
     location: inferConditionLocation(
@@ -1495,7 +1499,7 @@ function inferRequiredInitialItineraryPlanArguments(
   const userContext = request.messages
     .flatMap((message) => (message.role === "user" ? [message.content] : []))
     .join(" ");
-  if (!isItineraryPlanningRequest(latestUserTurn, request.deterministicSignals)) {
+  if (!isItineraryPlanningRequest(latestUserTurn)) {
     return undefined;
   }
 
@@ -1513,21 +1517,14 @@ function inferRequiredInitialItineraryPlanArguments(
     ...(durationHours ? { duration_hours: durationHours } : {}),
     ...(transportMode ? { transport_mode: transportMode } : {}),
     ...(maxRideMinutes ? { max_ride_minutes: maxRideMinutes } : {}),
-    ...(needsWeatherCheck(userContext, request.deterministicSignals)
-      ? { needs_weather_check: true }
-      : {}),
-    ...(needsOpenNowCheck(theme, userContext, request.deterministicSignals)
-      ? { needs_open_now: true }
-      : {}),
+    ...(needsWeatherCheck(userContext) ? { needs_weather_check: true } : {}),
+    ...(needsOpenNowCheck(theme, userContext) ? { needs_open_now: true } : {}),
     ...(mealPreference ? { meal_preference: mealPreference } : {}),
     ...(constraints.length ? { constraints } : {}),
   } satisfies Partial<LocalItineraryRequest>;
 }
 
-function isItineraryPlanningRequest(
-  latestUserTurn: string,
-  deterministicSignals: Record<string, unknown> | undefined,
-) {
+function isItineraryPlanningRequest(latestUserTurn: string) {
   if (latestUserTurn.trim().length === 0) {
     return false;
   }
@@ -1535,7 +1532,9 @@ function isItineraryPlanningRequest(
     return false;
   }
   const hasActivityPlanSignal =
-    readBooleanPath(deterministicSignals, ["intent", "activityPlan"]) === true;
+    /\b(today|tomorrow|this\s+(?:morning|afternoon|evening)|cloud\s*9|general\s+luna|dapa|pacifico|del\s+carmen|sugba|malinao|doot)\b/i.test(
+      latestUserTurn,
+    );
   const hasInitialThemeLanguage =
     /\b(rainy\s+cloud\s*9|sunset\s+(?:plus|and)\s+dinner|dinner\s+(?:after|plus|and)\s+sunset|food\s+crawl|(?:non[-\s]?surfer|not\s+surfing|sandy\s+beach|beach)\s+half[-\s]?day|half[-\s]?day\s+(?:non[-\s]?surfer|not\s+surfing|sandy\s+)?beach)\b/i.test(
       latestUserTurn,
@@ -1559,22 +1558,25 @@ function isItineraryPlanningRequest(
 
   return (
     hasInitialThemeLanguage ||
-    (hasActivityPlanSignal && (hasScopedItineraryLanguage || hasOpenEndedActivityPlanLanguage))
+    hasScopedItineraryLanguage ||
+    (hasOpenEndedActivityPlanLanguage && hasActivityPlanSignal)
   );
 }
 
 function isExcludedItineraryRepairRequest(content: string) {
-  if (
-    /\b(critique|review|audit|improve\s+my\s+itinerary|plan\s+my\s+(?:trip|vacation|holiday))\b/i.test(
-      content,
-    )
-  ) {
+  if (isItineraryReviewRequest(content)) {
     return true;
   }
   return (
     /\b(airport|flight|ferry|pier|port|transfer|pickup|pick\s+up|drop[-\s]?off|taxi|shuttle|transport|transportation|logistics?)\b/i.test(
       content,
     ) && !hasScopedLocalItineraryContent(content)
+  );
+}
+
+function isItineraryReviewRequest(content: string) {
+  return /\b(critique|review|audit|improve\s+my\s+itinerary|plan\s+my\s+(?:trip|vacation|holiday))\b/i.test(
+    content,
   );
 }
 
@@ -1612,7 +1614,7 @@ function inferItineraryConstraints(
   deterministicSignals: Record<string, unknown> | undefined,
 ) {
   return uniqueText([
-    ...readStringArrayPath(deterministicSignals, ["intent", "tripContext", "durableConstraints"]),
+    ...readStringArrayPath(deterministicSignals, ["context", "tripContext", "durableConstraints"]),
     ...(/\bkids?|children|child|toddler|family|families\b/i.test(content) ? ["with kids"] : []),
     ...(/\bno\s+scooter|without\s+(?:a\s+)?scooter|avoid\s+scooters?|walk(?:ing)?\s+only\b/i.test(
       content,
@@ -1634,7 +1636,7 @@ function inferItineraryTransportMode(
   deterministicSignals: Record<string, unknown> | undefined,
 ): LocalItineraryRequest["transport_mode"] | undefined {
   const signalTransportMode = readStringPath(deterministicSignals, [
-    "intent",
+    "context",
     "tripContext",
     "transportMode",
   ]);
@@ -1678,7 +1680,7 @@ function inferMaxRideMinutes(
   deterministicSignals: Record<string, unknown> | undefined,
 ) {
   const signalRideLimit = readNumberPath(deterministicSignals, [
-    "intent",
+    "context",
     "tripContext",
     "rideTimeLimitMinutes",
   ]);
@@ -1694,8 +1696,8 @@ function inferItineraryOrigin(
   deterministicSignals: Record<string, unknown> | undefined,
 ) {
   const signalLocation =
-    readStringPath(deterministicSignals, ["intent", "locationLabel"]) ??
-    readStringPath(deterministicSignals, ["intent", "tripContext", "currentArea"]);
+    readStringPath(deterministicSignals, ["context", "locationLabel"]) ??
+    readStringPath(deterministicSignals, ["context", "tripContext", "currentArea"]);
   if (signalLocation) {
     return signalLocation;
   }
@@ -1721,8 +1723,8 @@ function inferConditionLocation(
     return latestLocation;
   }
   const signalLocation =
-    readStringPath(deterministicSignals, ["intent", "locationLabel"]) ??
-    readStringPath(deterministicSignals, ["intent", "tripContext", "currentArea"]);
+    readStringPath(deterministicSignals, ["context", "locationLabel"]) ??
+    readStringPath(deterministicSignals, ["context", "tripContext", "currentArea"]);
   if (isConditionLocation(signalLocation)) {
     return signalLocation;
   }
@@ -1735,6 +1737,9 @@ function inferConditionLocationFromContent(
   if (/\bcloud\s*9|cloud9|catangnan\b/i.test(content)) {
     return "Cloud 9";
   }
+  if (/\bmalinao|doot|sandy\s+beach|half[-\s]?day\b/i.test(content)) {
+    return "General Luna";
+  }
   if (/\bdel\s+carmen|sugba\s+lagoon|sugba\b/i.test(content)) {
     return "Del Carmen";
   }
@@ -1745,20 +1750,51 @@ function inferConditionLocationFromContent(
 }
 
 function inferConditionRepairActivity(
-  signalActivity: ConditionJudgmentRequest["activity"],
   latestContent: string,
   inheritedPlaceContext: string,
-): ConditionJudgmentRequest["activity"] {
-  if (signalActivity !== "boat_trip" && hasBoatTripConditionContent(latestContent)) {
+): ConditionJudgmentRequest["activity"] | undefined {
+  if (hasBoatTripConditionContent(latestContent)) {
+    return "boat_trip";
+  }
+  if (isBareRideBoatFollowUp(latestContent, inheritedPlaceContext)) {
     return "boat_trip";
   }
   if (
-    signalActivity === "scooter" &&
-    isBareRideBoatFollowUp(latestContent, inheritedPlaceContext)
+    /\bsurf(?:ing|er|s|ed)?|waves?|swell\b/i.test(latestContent) &&
+    !/\b(?:not|no|avoid)\s+surf(?:ing)?\b/i.test(latestContent) &&
+    /\btoday|tomorrow|conditions?|weather|waves?|swell|safe|can|okay|ok|worth|near\s+me|closest|nearest\b/i.test(
+      latestContent,
+    )
   ) {
-    return "boat_trip";
+    return "surfing";
   }
-  return signalActivity;
+  if (
+    /\bswim(?:ming)?|kids?\s+swim|beach\s+safety|lifeguard|rip\s+current\b/i.test(latestContent)
+  ) {
+    return "swimming";
+  }
+  if (
+    /\bscooter|motorbike|motor\s*bike|roads?|ride\b/i.test(latestContent) &&
+    !/\brent(?:al|ing)?|hire\b/i.test(latestContent) &&
+    /\bsafe|safety|rain|weather|roads?|flood|today|tomorrow|go|ride|drive\b/i.test(latestContent)
+  ) {
+    return "scooter";
+  }
+  if (/\bsunset\b/i.test(latestContent)) {
+    return "sunset";
+  }
+  return undefined;
+}
+
+function hasExplicitConditionQuestion(content: string) {
+  return (
+    /\b(?:tell\s+me\s+if|whether|is|are|can|could|should|safe|safety|okay|ok|worth|conditions?)\b/i.test(
+      content,
+    ) &&
+    /\b(?:swim(?:ming)?|surf(?:ing)?|scooter|motorbike|ride|boat|island\s+hopping|sunset|rain|weather|roads?|waves?|swell|marine|beach)\b/i.test(
+      content,
+    )
+  );
 }
 
 function inferConditionDateRange(content: string): ConditionJudgmentRequest["date_range"] {
@@ -1814,28 +1850,17 @@ function inferMealPreference(content: string, constraints: readonly string[]) {
   return undefined;
 }
 
-function needsWeatherCheck(
-  content: string,
-  deterministicSignals: Record<string, unknown> | undefined,
-) {
-  return (
-    readBooleanPath(deterministicSignals, ["intent", "weatherSensitive"]) === true ||
-    /\brainy|rain(?:ing)?|showers?|storm|weather|today|this\s+(?:morning|afternoon|evening)|sunset\b/i.test(
-      content,
-    )
+function needsWeatherCheck(content: string) {
+  return /\brainy|rain(?:ing)?|showers?|storm|weather|today|this\s+(?:morning|afternoon|evening)|sunset\b/i.test(
+    content,
   );
 }
 
-function needsOpenNowCheck(
-  theme: LocalItineraryRequest["theme"],
-  content: string,
-  deterministicSignals?: Record<string, unknown>,
-) {
+function needsOpenNowCheck(theme: LocalItineraryRequest["theme"], content: string) {
   return (
     theme === "food_crawl" ||
     theme === "sunset_plus_dinner" ||
-    (readBooleanPath(deterministicSignals, ["intent", "today"]) === true &&
-      readBooleanPath(deterministicSignals, ["intent", "activityPlan"]) === true &&
+    (/\btoday|tonight|this\s+(?:morning|afternoon|evening)\b/i.test(content) &&
       itineraryThemeCanUseLivePlaces(theme)) ||
     /\b(food|dinner|lunch|breakfast|brunch|caf[eé]s?|coffee|drinks?|bars?|open(?:[-\s]?now)?|hours?)\b/i.test(
       content,
@@ -1895,6 +1920,30 @@ function hasSuccessfulConditionJudgment(
     ) &&
     toolResults.some(
       (result) => result.name === "get_condition_judgment" && result.status === "success",
+    )
+  );
+}
+
+function hasCompletedConditionJudgment(
+  toolCalls: readonly AgentToolCallAudit[],
+  requiredArguments: Record<string, unknown>,
+) {
+  return toolCalls.some(
+    (toolCall) =>
+      toolCall.name === "get_condition_judgment" &&
+      conditionJudgmentMatchesRequiredArguments(toolCall.arguments, requiredArguments),
+  );
+}
+
+function hasAdjacentSurfConditionEvidence(
+  toolCalls: readonly AgentToolCallAudit[],
+  requiredArguments: Record<string, unknown>,
+) {
+  return (
+    requiredArguments.activity === "surfing" &&
+    toolCalls.some(
+      (toolCall) =>
+        toolCall.name === "get_tide_forecast" || toolCall.name === "get_marine_conditions",
     )
   );
 }
@@ -2698,18 +2747,11 @@ function repairItineraryPlanningArguments(
   const theme = readLocalItineraryTheme(functionCall.arguments.theme);
   const repairedArguments: Record<string, unknown> = {
     ...functionCall.arguments,
-    ...(needsWeatherCheck(userContext, request.deterministicSignals)
-      ? { needs_weather_check: true }
-      : {}),
-    ...(theme && needsOpenNowCheck(theme, userContext, request.deterministicSignals)
-      ? { needs_open_now: true }
-      : {}),
+    ...(needsWeatherCheck(userContext) ? { needs_weather_check: true } : {}),
+    ...(theme && needsOpenNowCheck(theme, userContext) ? { needs_open_now: true } : {}),
   };
 
-  if (
-    !repairedArguments.origin &&
-    isItineraryPlanningRequest(latestUserTurn, request.deterministicSignals)
-  ) {
+  if (!repairedArguments.origin && isItineraryPlanningRequest(latestUserTurn)) {
     const origin = inferItineraryOrigin(userContext, request.deterministicSignals);
     if (origin) {
       repairedArguments.origin = origin;
@@ -3108,12 +3150,6 @@ function isItineraryTransportMode(
   value: string | undefined,
 ): value is NonNullable<LocalItineraryRequest["transport_mode"]> {
   return value === "walk" || value === "scooter" || value === "tricycle" || value === "van";
-}
-
-function isConditionActivity(
-  value: string | undefined,
-): value is ConditionJudgmentRequest["activity"] {
-  return conditionActivities.some((activity) => activity === value);
 }
 
 function isConditionLocation(

@@ -5,9 +5,9 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 
 ## Current Status
 
-- Status: Step 8 complete
-- Current step: Step 9 - Remove or Quarantine Brittle Classifier Tests and Dead Routing Helpers
-- Next step: Step 9 - Remove or Quarantine Brittle Classifier Tests and Dead Routing Helpers
+- Status: Step 9 complete
+- Current step: Step 10 - Documentation, Final Gates, and Handoff
+- Next step: Step 10 - Documentation, Final Gates, and Handoff
 
 ## Step Checklist
 
@@ -20,7 +20,7 @@ Source brief: inline prompt supplied in this chat on 2026-07-01.
 - [x] Step 6: Make Provider Failures Non-Terminal
 - [x] Step 7: Strengthen Model Tool-Choice Instructions
 - [x] Step 8: Preserve and Extend Source Validation
-- [ ] Step 9: Remove or Quarantine Brittle Classifier Tests and Dead Routing Helpers
+- [x] Step 9: Remove or Quarantine Brittle Classifier Tests and Dead Routing Helpers
 - [ ] Step 10: Documentation, Final Gates, and Handoff
 
 ## Update Rule
@@ -227,3 +227,29 @@ Update this file after every completed step with:
 - Changelog: updated under `Changed` for the functional source-governance behavior change.
 - Commit reference: this commit (`Preserve source validation for model routing`).
 - Next step: Step 9 - Remove or Quarantine Brittle Classifier Tests and Dead Routing Helpers.
+
+### 2026-07-01 - Step 9 Completed
+
+- Removed stale skipped agent scenarios that encoded automatic route-derived evidence preflight and
+  repair behavior.
+- Removed the agent runtime's reads of old `deterministicSignals.intent` tool-routing fields for
+  condition and itinerary repair paths.
+- Replaced those repair inputs with prompt-text and safe-context inference, including guards for
+  scooter rental, itinerary review, surf memory, and provider-unavailable condition checks.
+- Simplified required-evidence plan construction coverage to use safe deterministic request
+  context instead of classifier-shaped intent fixtures.
+- Validation passed:
+  - `rg -n "test\\.skip|auto_preflight_required_evidence|automaticRequiredEvidenceChecks" src/server/chat src/app/api/chat` -
+    no matches
+  - `rg -n "conditionActivity|placeIntent|researchIntent|weatherSensitive" src/app/api/chat src/server/chat` -
+    remaining matches are route-internal interpretation/logging and route-boundary assertions that
+    those fields are not model-facing
+  - `bun test src/server/chat/ask-siargao-agent.test.ts` - 76 tests passed
+  - `bun test src/server/chat/required-evidence.test.ts` - 8 tests passed
+  - `bun test src/app/api/chat/route.test.ts` - 76 tests passed
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test` - 697 tests passed
+- Changelog: updated under `Removed` for stale deterministic route-intent handling.
+- Commit reference: this commit (`Remove stale deterministic routing helpers`).
+- Next step: Step 10 - Documentation, Final Gates, and Handoff.

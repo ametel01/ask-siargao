@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type {
-  AgentRuntimeRequest,
-  AgentToolCallAudit,
-  AgentToolResult,
-} from "@/server/chat/agent-runtime";
+import type { AgentToolCallAudit, AgentToolResult } from "@/server/chat/agent-runtime";
 import {
   buildRequiredEvidencePlan,
   finalPayloadSatisfiesRequiredEvidence,
@@ -14,31 +10,17 @@ import {
 } from "@/server/chat/required-evidence";
 
 describe("required evidence planning", () => {
-  test("does not manufacture required calls from route-derived deterministic signals", () => {
-    const plan = buildRequiredEvidencePlan(
-      requestWithIntent({
-        latestUserTurn: "best dinner in General Luna tonight",
-        today: true,
-        nightlifePlan: true,
-        weather: true,
-        weatherSensitive: true,
-        locationLabel: "General Luna",
-        placeIntent: {
-          category: "food",
-          liveNeeds: ["recommendation", "open_now"],
-          meal: "dinner",
-          location: "General Luna",
+  test("does not manufacture required calls from deterministic request context", () => {
+    const plan = buildRequiredEvidencePlan({
+      requestId: "request_required_evidence",
+      messages: [{ role: "user", content: "best dinner in General Luna tonight" }],
+      deterministicSignals: {
+        context: {
+          locationLabel: "General Luna",
+          tripContext: { activeGoal: "food" },
         },
-        researchIntent: {
-          required: true,
-          query: "best dinner in General Luna tonight",
-          intent: "recommendation",
-          location: "General Luna",
-          dateContext: "tonight",
-          requiredFreshness: "same_day",
-        },
-      }),
-    );
+      },
+    });
 
     expect(plan.requiredToolCalls).toEqual([]);
     expect(missingRequiredEvidenceToolCalls(plan, [])).toEqual([]);
@@ -292,14 +274,6 @@ describe("required evidence planning", () => {
     ).toBe(true);
   });
 });
-
-function requestWithIntent(intent: Record<string, unknown>): AgentRuntimeRequest {
-  return {
-    requestId: "request_required_evidence",
-    messages: [{ role: "user", content: String(intent.latestUserTurn ?? "Siargao question") }],
-    deterministicSignals: { intent },
-  };
-}
 
 function toolCall({
   name,
