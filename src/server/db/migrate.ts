@@ -25,7 +25,7 @@ try {
     "Database migration started.",
   );
 
-  for (const migrationPath of migrationPaths) {
+  for await (const migrationPath of migrationPaths) {
     await sql.file(migrationPath);
   }
 

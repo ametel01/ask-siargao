@@ -63,7 +63,7 @@ export function rankLocalRecommendationCandidates<
   candidates: readonly Candidate[],
   context: LocalRecommendationRankingContext = { constraints: [] },
 ): Candidate[] {
-  return [...candidates].sort(
+  return candidates.toSorted(
     (left, right) =>
       localRecommendationScore(right, context) - localRecommendationScore(left, context) ||
       normalizedDistance(left) - normalizedDistance(right) ||

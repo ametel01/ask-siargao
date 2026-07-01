@@ -77,6 +77,10 @@ const defaultMaxToolCalls = 8;
 const defaultMaxTurns = 6;
 const maxConversationMessages = 10;
 const agentLogger = createComponentLogger("chat_agent");
+const manilaWeekdayFormatter = new Intl.DateTimeFormat("en-US", {
+  weekday: "long",
+  timeZone: "Asia/Manila",
+});
 
 function createOpenAIAgentClient(apiKey = process.env.OPENAI_API_KEY): AgentResponsesClient {
   if (!apiKey) {
@@ -1454,10 +1458,7 @@ function nightlifeBaselineDayOfWeek(request: AgentRuntimeRequest, now: () => Dat
   if (explicitDay) {
     return explicitDay;
   }
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "long",
-    timeZone: "Asia/Manila",
-  }).format(now());
+  return manilaWeekdayFormatter.format(now());
 }
 
 function explicitWeekday(value: string) {
@@ -2519,15 +2520,19 @@ async function executeAndAuditToolBatch({
       requestId,
     });
     const eventBackedToolResults = [...toolResults, nightlifeEventOutput.result];
-    const remainingFunctionCalls = functionCalls
-      .filter((_, index) => index !== nightlifeEventIndex)
-      .map((functionCall) =>
+    const remainingFunctionCalls: AgentFunctionCallExecutionPlan[] = [];
+    for (const [index, functionCall] of functionCalls.entries()) {
+      if (index === nightlifeEventIndex) {
+        continue;
+      }
+      remainingFunctionCalls.push(
         evidenceBackedPlacesFunctionCall(
           functionCall,
           requiredEvidencePlan,
           eventBackedToolResults,
         ),
       );
+    }
     const remainingOutputs = await Promise.all(
       remainingFunctionCalls.map((functionCall) =>
         executeOrSkipPlacesTool({
@@ -2544,20 +2549,20 @@ async function executeAndAuditToolBatch({
   }
 
   return Promise.all(
-    functionCalls
-      .map((functionCall) =>
-        evidenceBackedPlacesFunctionCall(functionCall, requiredEvidencePlan, toolResults),
-      )
-      .map((functionCall) =>
-        executeOrSkipPlacesTool({
-          executeTool,
+    functionCalls.map((functionCall) =>
+      executeOrSkipPlacesTool({
+        executeTool,
+        functionCall: evidenceBackedPlacesFunctionCall(
           functionCall,
-          logger,
-          now,
-          runtimeRequest,
-          requestId,
-        }),
-      ),
+          requiredEvidencePlan,
+          toolResults,
+        ),
+        logger,
+        now,
+        runtimeRequest,
+        requestId,
+      }),
+    ),
   );
 }
 

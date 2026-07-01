@@ -243,7 +243,7 @@ export async function initializeDefaultTripPassMeters(
   return getTripPassUsage(input.tripPassId, db);
 }
 
-export async function getTripPassUsage(
+async function getTripPassUsage(
   tripPassId: string,
   db: DatabaseQueryClient = getDefaultDatabaseQueryClient(),
 ) {

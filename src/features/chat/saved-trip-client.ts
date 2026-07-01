@@ -106,7 +106,7 @@ const serverSavedTripSnapshot: SavedTripState = {
 let savedTripSnapshotCache: { rawValue: string | null; state: SavedTripState } | null = null;
 const savedTripListeners = new Set<() => void>();
 
-export function createEmptySavedTripState(options: SavedTripClientOptions = {}): SavedTripState {
+function createEmptySavedTripState(options: SavedTripClientOptions = {}): SavedTripState {
   const now = getNowIso(options);
   return {
     tripId: createAnonymousTripId(options),
@@ -252,7 +252,7 @@ export function upsertSavedTripItem(
   };
 }
 
-export function dedupeSavedItems(items: readonly SavedTripItem[]) {
+function dedupeSavedItems(items: readonly SavedTripItem[]) {
   const seenItemIds = new Set<string>();
   const results: SavedTripItem[] = [];
 

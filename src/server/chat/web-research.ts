@@ -39,15 +39,15 @@ export const webResearchFreshnessLevels = ["live", "same_day", "week", "month", 
 
 export type WebResearchFreshnessLevel = (typeof webResearchFreshnessLevels)[number];
 
-export const webResearchStatuses = ["available", "insufficient", "provider_unavailable"] as const;
+const webResearchStatuses = ["available", "insufficient", "provider_unavailable"] as const;
 
 export type WebResearchStatus = (typeof webResearchStatuses)[number];
 
-export const webResearchAnswerRoles = ["primary", "supporting", "negative", "caveat"] as const;
+const webResearchAnswerRoles = ["primary", "supporting", "negative", "caveat"] as const;
 
 export type WebResearchAnswerRole = (typeof webResearchAnswerRoles)[number];
 
-export const webResearchEntityKinds = [
+const webResearchEntityKinds = [
   "place",
   "operator",
   "event",

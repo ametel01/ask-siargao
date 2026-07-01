@@ -38,7 +38,7 @@ export function buildPlaceSearchPlan(input: PlaceSearchPlanInput): PlaceSearchPl
   };
 }
 
-export function inferPlaceSearchTerm(input: PlaceSearchPlanInput) {
+function inferPlaceSearchTerm(input: PlaceSearchPlanInput) {
   const primaryIntentText = `${input.latestUserTurn ?? ""} ${input.recentUserContext ?? ""}`;
   const budgetFocused =
     hasConstraint(input.constraints, "cheaper") ||

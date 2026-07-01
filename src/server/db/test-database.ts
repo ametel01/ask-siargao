@@ -1,9 +1,9 @@
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { PGlite } from "@electric-sql/pglite";
 
-import { listMigrationPaths } from "@/server/db/migration-files";
+import { listMigrationPaths, loadMigrationFiles } from "@/server/db/migration-files";
 
 const testDatabaseDir = path.join(process.cwd(), ".tmp", "pglite-step3");
 
@@ -18,9 +18,9 @@ export async function openTestDatabase() {
 }
 
 export async function runInitialMigration(db: PGlite) {
-  for (const migrationPath of await getMigrationPaths()) {
-    const sql = await readFile(migrationPath, "utf8");
-    await db.exec(sql);
+  const migrationFiles = await loadMigrationFiles();
+  for await (const migrationFile of migrationFiles) {
+    await db.exec(migrationFile.sql);
   }
 }
 

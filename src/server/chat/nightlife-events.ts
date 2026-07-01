@@ -4,6 +4,14 @@ import {
   nightlifeEventSourceProfileIds,
 } from "@/server/providers/adapters";
 
+const manilaDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Manila",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  weekday: "long",
+});
+
 export const nightlifeEventInterestValues = [
   "party",
   "bar_hopping",
@@ -268,14 +276,27 @@ export function searchNightlifeEvents(
   const now = input.now ?? new Date();
   const localDate = manilaDateParts(now);
   const requestedInterests = new Set(input.interests ?? []);
-  const candidates = weeklyEventFacts
-    .filter((event) => event.dayOfWeek === localDate.weekday)
-    .filter(isApprovedEventSourceFact)
-    .filter((event) => isFreshForSameDay(event, now))
-    .map((event) => eventOccurrenceFromWeeklyFact(event, localDate.date))
-    .filter((event) => !isExpiredOccurrence(event, now))
-    .filter((event) => eventMatchesRequestedInterests(event, requestedInterests))
-    .sort(compareNightlifeCandidates);
+  const candidates: NightlifeEventCandidate[] = [];
+  for (const event of weeklyEventFacts) {
+    if (
+      event.dayOfWeek !== localDate.weekday ||
+      !isApprovedEventSourceFact(event) ||
+      !isFreshForSameDay(event, now)
+    ) {
+      continue;
+    }
+
+    const candidate = eventOccurrenceFromWeeklyFact(event, localDate.date);
+    if (
+      isExpiredOccurrence(candidate, now) ||
+      !eventMatchesRequestedInterests(candidate, requestedInterests)
+    ) {
+      continue;
+    }
+
+    candidates.push(candidate);
+  }
+  candidates.sort(compareNightlifeCandidates);
   const refreshDecision = buildPriorityRefreshDecision(candidates, localDate);
   const sources = nightlifeSourceSummaries({
     candidates,
@@ -548,13 +569,7 @@ function minutesSinceMidnight(value: string) {
 }
 
 function manilaDateParts(date: Date) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Manila",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "long",
-  }).formatToParts(date);
+  const parts = manilaDateFormatter.formatToParts(date);
   return {
     date: `${partValue(parts, "year")}-${partValue(parts, "month")}-${partValue(parts, "day")}`,
     weekday: partValue(parts, "weekday"),
