@@ -72,7 +72,7 @@ export async function getSiargaoSurfConditionsSnapshot({
   });
 }
 
-export function buildSurfConditionsSnapshot({
+function buildSurfConditionsSnapshot({
   location,
   now,
   tideSnapshot,
@@ -270,10 +270,15 @@ function surfRecommendation({
 
 function closestUpcomingTideEvent(snapshot: TideForecastSnapshot, now: Date) {
   const nowSeconds = Math.floor(now.getTime() / 1000);
-  const events = snapshot.days
-    .flatMap((day) => day.tides)
-    .filter((event) => event.type === "high" || event.type === "low")
-    .sort((left, right) => left.timestamp - right.timestamp);
+  const events: TideForecastSnapshot["days"][number]["tides"] = [];
+  for (const day of snapshot.days) {
+    for (const event of day.tides) {
+      if (event.type === "high" || event.type === "low") {
+        events.push(event);
+      }
+    }
+  }
+  events.sort((left, right) => left.timestamp - right.timestamp);
   return events.find((event) => event.timestamp >= nowSeconds) ?? events[0] ?? null;
 }
 

@@ -133,7 +133,7 @@ export function inferServiceSearchTerm(content: string) {
   return "local service";
 }
 
-export function inferIncludedType(searchTerm: string): GooglePlacesIncludedType | undefined {
+function inferIncludedType(searchTerm: string): GooglePlacesIncludedType | undefined {
   if (/\bclinic|scooter|motorbike\b/i.test(searchTerm)) {
     return undefined;
   }

@@ -3,7 +3,7 @@ import {
   siargaoForecastLocations,
 } from "@/server/providers/open-meteo";
 
-export const siargaoPublicForecastLocations = [
+const siargaoPublicForecastLocations = [
   "Siargao Island",
   "Cloud 9",
   "General Luna",
