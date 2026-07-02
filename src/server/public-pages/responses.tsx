@@ -2,29 +2,29 @@ import { notFound } from "next/navigation";
 
 import { PublicKnowledgePage } from "@/features/public-pages/PublicKnowledgePage";
 import { trackServerEvent } from "@/server/observability/events";
+import { getPublicKnowledgeCatalog } from "@/server/public-pages/public-catalog";
 import {
   buildPublicPageJson,
   buildPublicPageMarkdown,
-  getPublicPage,
   normalizeJsonSlug,
   type PublicPageFamily,
 } from "@/server/public-pages/public-content";
 import { rateLimitedJson, rateLimitRequest } from "@/server/security/rate-limit";
 
-export function renderPublicHumanPage(family: PublicPageFamily, slug: string) {
-  const page = getPublicPage(family, slug);
+export async function renderPublicHumanPage(family: PublicPageFamily, slug: string) {
+  const page = await getPublicKnowledgeCatalog().getPage(family, slug);
 
-  if (page?.visibility !== "eligible") {
+  if (!page) {
     notFound();
   }
 
   return <PublicKnowledgePage page={page} />;
 }
 
-export function publicMarkdownResponse(family: PublicPageFamily, slug: string) {
-  const page = getPublicPage(family, slug);
+export async function publicMarkdownResponse(family: PublicPageFamily, slug: string) {
+  const page = await getPublicKnowledgeCatalog().getPage(family, slug);
 
-  if (page?.visibility !== "eligible") {
+  if (!page) {
     return new Response("Not found", { status: 404 });
   }
 
@@ -33,7 +33,11 @@ export function publicMarkdownResponse(family: PublicPageFamily, slug: string) {
   });
 }
 
-export function publicJsonResponse(family: PublicPageFamily, slug: string, request?: Request) {
+export async function publicJsonResponse(
+  family: PublicPageFamily,
+  slug: string,
+  request?: Request,
+) {
   if (request) {
     const rateLimit = rateLimitRequest(request, "public_api");
     if (!rateLimit.allowed) {
@@ -41,9 +45,9 @@ export function publicJsonResponse(family: PublicPageFamily, slug: string, reque
     }
   }
 
-  const page = getPublicPage(family, normalizeJsonSlug(slug));
+  const page = await getPublicKnowledgeCatalog().getPage(family, normalizeJsonSlug(slug));
 
-  if (page?.visibility !== "eligible") {
+  if (!page) {
     return Response.json({ error: "not_found" }, { status: 404 });
   }
 

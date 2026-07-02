@@ -1,13 +1,14 @@
-import { buildPublicPageJson, publicPagesForIndex } from "@/server/public-pages/public-content";
+import { getPublicKnowledgeCatalog } from "@/server/public-pages/public-catalog";
+import { buildPublicEntityIndex } from "@/server/public-pages/public-content";
 import { rateLimitedJson, rateLimitRequest } from "@/server/security/rate-limit";
 
-export function GET(request: Request) {
+export async function GET(request: Request) {
   const rateLimit = rateLimitRequest(request, "public_api");
   if (!rateLimit.allowed) {
     return rateLimitedJson(rateLimit);
   }
 
-  return Response.json({
-    entities: publicPagesForIndex().map((page) => buildPublicPageJson(page)),
-  });
+  const pages = await getPublicKnowledgeCatalog().listEligiblePages();
+
+  return Response.json(buildPublicEntityIndex(pages));
 }

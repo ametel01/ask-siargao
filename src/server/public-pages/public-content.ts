@@ -1,4 +1,9 @@
-import type { ConfidenceLabel, PublicVisibilityState, SourceType } from "@/server/audit/enums";
+import type {
+  AllowedUseState,
+  ConfidenceLabel,
+  PublicVisibilityState,
+  SourceType,
+} from "@/server/audit/enums";
 import { createDefaultSourceRegistry } from "@/server/providers/adapters";
 import type { SourceRegistry } from "@/server/providers/source-registry";
 
@@ -16,6 +21,9 @@ export type PublicFactRecord = {
   confidence: ConfidenceLabel;
   freshness: "fresh" | "stale" | "unknown";
   publicRepublishAllowed: boolean;
+  sourceProfilePublicRepublishAllowed?: boolean;
+  sourceRecordPublicRepublishAllowed?: boolean;
+  evidencePublicRepublishAllowed?: boolean;
   criticalPublicEvidence: boolean;
   containsPrivateUserData?: boolean;
   includesRawProviderPayload?: boolean;
@@ -40,7 +48,7 @@ export type PublicKnowledgePage = {
     id: string;
     slug: string;
     evidenceIds: string[];
-    allowedUse: "public_republish";
+    allowedUse: AllowedUseState;
   };
   generationSourceFactIds: string[];
   facts: PublicFactRecord[];
@@ -58,6 +66,7 @@ export type PublicEligibilityResult =
 
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://siargao.example").replace(/\/$/, "");
 const publicEntityMatchStates = new Set(["confident", "probable"]);
+const publicVisibilityStates = new Set<PublicVisibilityState>(["eligible", "published"]);
 
 export const publicKnowledgePages: PublicKnowledgePage[] = [
   createPersistedPublicPage({
@@ -211,7 +220,7 @@ export function createFixturePublicPageRepository(
       return [...pages];
     },
     listEligiblePages() {
-      return pages.filter((page) => evaluatePublicEligibility(page).eligible);
+      return pages.filter((page) => evaluatePublicPageEligibility(page).eligible);
     },
   };
 }
@@ -232,9 +241,46 @@ export function publicPagesForIndex(
   return repository.listEligiblePages();
 }
 
+export function evaluatePublicPageEligibility(
+  page: Pick<
+    PublicKnowledgePage,
+    "visibility" | "indexingStatus" | "evidenceBundle" | "generationSourceFactIds" | "facts"
+  >,
+  registry: SourceRegistry | null = createDefaultSourceRegistry(),
+) {
+  const reasons: string[] = [];
+
+  if (!publicVisibilityStates.has(page.visibility)) {
+    reasons.push("page_visibility_not_public");
+  }
+  if (page.indexingStatus !== "index") {
+    reasons.push("page_noindex");
+  }
+  if (page.evidenceBundle.allowedUse !== "public_republish") {
+    reasons.push("evidence_bundle_not_public_republish");
+  }
+
+  const evidenceIds = new Set(page.evidenceBundle.evidenceIds);
+  for (const fact of page.facts) {
+    if (!page.generationSourceFactIds.includes(fact.id)) {
+      reasons.push(`fact:${fact.id}:not_generation_source`);
+    }
+    if (!evidenceIds.has(fact.evidenceId)) {
+      reasons.push(`fact:${fact.id}:evidence_not_in_bundle`);
+    }
+  }
+
+  const factEligibility = evaluatePublicEligibility(page, registry);
+  reasons.push(...factEligibility.reasons);
+
+  return reasons.length === 0
+    ? { eligible: true as const, reasons: [] }
+    : { eligible: false as const, reasons };
+}
+
 export function evaluatePublicEligibility(
   page: Pick<PublicKnowledgePage, "facts">,
-  registry: SourceRegistry = createDefaultSourceRegistry(),
+  registry: SourceRegistry | null = createDefaultSourceRegistry(),
 ) {
   const reasons: string[] = [];
 
@@ -243,16 +289,23 @@ export function evaluatePublicEligibility(
   }
 
   for (const fact of page.facts) {
-    const decision = registry.get(fact.sourceProfileId)
+    const decision = registry?.get(fact.sourceProfileId)
       ? registry.decide(fact.sourceProfileId)
-      : undefined;
+      : null;
+    const sourceProfilePublicRepublishAllowed =
+      fact.sourceProfilePublicRepublishAllowed ?? decision?.publicRepublishAllowed;
 
-    if (!decision) {
+    if (sourceProfilePublicRepublishAllowed === undefined) {
       reasons.push(`fact:${fact.id}:source_profile_missing`);
-      continue;
     }
-    if (!decision.publicRepublishAllowed || !fact.publicRepublishAllowed) {
+    if (!sourceProfilePublicRepublishAllowed || !fact.publicRepublishAllowed) {
       reasons.push(`fact:${fact.id}:public_republish_not_allowed`);
+    }
+    if (fact.sourceRecordPublicRepublishAllowed === false) {
+      reasons.push(`fact:${fact.id}:source_record_public_republish_not_allowed`);
+    }
+    if (fact.evidencePublicRepublishAllowed === false) {
+      reasons.push(`fact:${fact.id}:evidence_public_republish_not_allowed`);
     }
     if (fact.confidence === "low") {
       reasons.push(`fact:${fact.id}:low_confidence`);
@@ -309,6 +362,39 @@ export function buildPublicPageJson(page: PublicKnowledgePage) {
   };
 }
 
+export function buildPublicEntityIndex(pages: readonly PublicKnowledgePage[]) {
+  return {
+    entities: pages.map((page) => buildPublicPageJson(page)),
+  };
+}
+
+export function buildPublicEvidenceIndex(pages: readonly PublicKnowledgePage[]) {
+  return {
+    evidenceBundles: pages.map((page) => ({
+      slug: page.evidenceBundle.slug,
+      canonicalUrl: page.canonicalUrl,
+      evidenceIds: page.evidenceBundle.evidenceIds,
+      allowedUse: page.evidenceBundle.allowedUse,
+    })),
+  };
+}
+
+export function buildPublicRiskPreview(pages: readonly PublicKnowledgePage[]) {
+  return {
+    risks: pages.filter((page) => page.family === "risks").map((page) => buildPublicPageJson(page)),
+  };
+}
+
+export function buildPublicCatalogProjection(pages: readonly PublicKnowledgePage[]) {
+  return {
+    entities: buildPublicEntityIndex(pages),
+    evidence: buildPublicEvidenceIndex(pages),
+    riskPreview: buildPublicRiskPreview(pages),
+    sitemapXml: buildSitemapXml(pages),
+    llmsTxt: buildLlmsTxt(pages),
+  };
+}
+
 export function buildPublicPageMarkdown(page: PublicKnowledgePage) {
   const claims = page.facts
     .map(
@@ -355,7 +441,7 @@ export function buildPublicJsonLd(page: PublicKnowledgePage) {
   };
 }
 
-export function buildSitemapXml(pages = publicPagesForIndex()) {
+export function buildSitemapXml(pages: readonly PublicKnowledgePage[] = publicPagesForIndex()) {
   const urls = pages
     .map(
       (page) =>
@@ -366,7 +452,7 @@ export function buildSitemapXml(pages = publicPagesForIndex()) {
   return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`;
 }
 
-export function buildLlmsTxt(pages = publicPagesForIndex()) {
+export function buildLlmsTxt(pages: readonly PublicKnowledgePage[] = publicPagesForIndex()) {
   return [
     "# Ask Siargao public knowledge",
     "",
@@ -421,7 +507,7 @@ function createPersistedPublicPage(
     generationSourceFactIds: input.facts.map((fact) => fact.id),
   };
 
-  return evaluatePublicEligibility(page).eligible
+  return evaluatePublicPageEligibility(page).eligible
     ? page
     : { ...page, visibility: "blocked" as const, indexingStatus: "noindex" as const };
 }
