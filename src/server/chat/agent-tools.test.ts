@@ -1098,6 +1098,75 @@ describe("agent tools", () => {
     expect(result.errorCode).toBe("browser_geolocation_unavailable");
   });
 
+  test("fails closed with the public surf anchor error when SURF.md anchors are missing", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_surf_ranking_missing_anchors",
+        name: "rank_surf_spots_nearby",
+        arguments: {
+          skill_level: "any",
+          max_results: 3,
+          include_boat_access: false,
+        },
+        toolContext: {
+          surfSpotRanking: {
+            centerSource: "browser_geolocation",
+            center: { latitude: 9.8147, longitude: 126.1654 },
+          },
+        },
+      },
+      {
+        memorySnapshot: memorySnapshotFixture(),
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("surf_spot_anchors_unavailable");
+    expect(result.text).toBe(
+      "SURF.md did not contain machine-readable surf spot distance anchors.",
+    );
+    expect(result.sources[0]).toMatchObject({
+      label: "provider_unavailable",
+      sourceName: "Browser geolocation",
+    });
+    expect(JSON.stringify(result)).not.toContain("9.8147");
+    expect(JSON.stringify(result)).not.toContain("126.1654");
+  });
+
+  test("fails closed with the public surf anchor error when SURF.md anchors are malformed", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_surf_ranking_malformed_anchors",
+        name: "rank_surf_spots_nearby",
+        arguments: {
+          skill_level: "any",
+          max_results: 3,
+          include_boat_access: false,
+        },
+        toolContext: {
+          surfSpotRanking: {
+            centerSource: "browser_geolocation",
+            center: { latitude: 9.8147, longitude: 126.1654 },
+          },
+        },
+      },
+      {
+        memorySnapshot: memorySnapshotFixtureWithSurfContent(`
+\`\`\`json surf_spot_distance_anchors
+not-json
+\`\`\`
+`),
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("surf_spot_anchors_unavailable");
+    expect(result.text).toBe(
+      "SURF.md did not contain machine-readable surf spot distance anchors.",
+    );
+    expect(JSON.stringify(result)).not.toContain("not-json");
+  });
+
   test("searches live Google Places with the chat field mask", async () => {
     const requests: RequestInit[] = [];
     const result = await executeAgentTool(
@@ -3019,6 +3088,20 @@ function memorySnapshotFixture(): AgentMemorySnapshot {
     files: [index, surf, dataDictionary, sourcePolicy],
     instructionMarkdown: index.content,
     referenceFiles: [surf, dataDictionary, sourcePolicy],
+  };
+}
+
+function memorySnapshotFixtureWithSurfContent(content: string): AgentMemorySnapshot {
+  const snapshot = memorySnapshotFixture();
+  const referenceFiles = snapshot.referenceFiles.map((file) =>
+    file.fileName === "SURF.md" ? { ...file, content } : file,
+  );
+  return {
+    ...snapshot,
+    files: snapshot.files.map((file) =>
+      file.fileName === "SURF.md" ? { ...file, content } : file,
+    ),
+    referenceFiles,
   };
 }
 
