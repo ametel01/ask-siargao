@@ -70,6 +70,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
   the Ask Siargao chat tool loop and evidence policy.
 - Moved chat evidence final-payload enforcement and required-card exposure behind a chat evidence
   policy module instead of keeping those decisions in the turn loop.
+- Moved governed Google Places evidence lookup, cache/live selection, stored detail reuse, and live
+  detail enrichment behind a provider-owned evidence module.
 - Moved vehicle-rental chat evidence repair into the required-evidence policy so the turn runtime
   gets Places-first lookup and public-web fallback requirements from one policy surface.
 - Deepened required-evidence repairs so policy code now owns repair tool-call construction,

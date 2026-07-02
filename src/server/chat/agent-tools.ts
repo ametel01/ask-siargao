@@ -50,11 +50,6 @@ import {
   searchNightlifeEvents,
 } from "@/server/chat/nightlife-events";
 import {
-  createPlacesEvidenceAdapter,
-  type PlacesEvidenceAdapter,
-  type PlacesEvidenceAdapterDependencies,
-} from "@/server/chat/places-evidence-adapter";
-import {
   buildWebResearchQueries,
   type ResearchFinding,
   type ResearchWebRequest,
@@ -86,6 +81,11 @@ import {
   type GooglePlacesDetails,
   googlePlacesDetailsFieldMask,
 } from "@/server/providers/google-places-enrichment";
+import {
+  createPlacesEvidenceAdapter,
+  type PlacesEvidenceAdapter,
+  type PlacesEvidenceAdapterDependencies,
+} from "@/server/providers/google-places-evidence";
 import {
   type OpenMeteoForecastLocation,
   siargaoForecastLocations,

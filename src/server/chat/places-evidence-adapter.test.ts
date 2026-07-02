@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { createPlacesEvidenceAdapter } from "@/server/chat/places-evidence-adapter";
+import { createPlacesEvidenceAdapter } from "@/server/providers/google-places-evidence";
 import type { FreshGooglePlaceDetails } from "@/server/providers/google-places-store";
 
 describe("Places evidence adapter", () => {
