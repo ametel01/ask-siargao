@@ -107,7 +107,7 @@ export const mandatoryRiskContracts = {
     evaluatorScope: "mandatory",
     defaultLevel: "green",
     skeletonWhatMightBreak:
-      "The cash, SIM, and basic services check needs current evidence before final publication.",
+      "The cash, sim, and basic services check needs current evidence before final publication.",
     skeletonRecommendedFix: "Keep the supporting fact fresh and cite it in the final report.",
     skeletonImpact: 3,
     skeletonLikelihood: 3,

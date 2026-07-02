@@ -173,6 +173,22 @@ describe("audit risk policy", () => {
     );
 
     expect(skeletons.map((risk) => risk.category)).toEqual([...getMandatoryRiskCategories()]);
+    expect(skeletons.find((risk) => risk.category === "cash_sim_basic_services")).toEqual({
+      id: "risk_cash_sim_basic_services",
+      category: "cash_sim_basic_services",
+      level: "green",
+      title: "Cash, SIM, and basic services",
+      whatMightBreak:
+        "The cash, sim, and basic services check needs current evidence before final publication.",
+      whyItMatters: "This matters for the stated constraint: quiet sleep.",
+      recommendedFix: "Keep the supporting fact fresh and cite it in the final report.",
+      impact: 3,
+      likelihood: 3,
+      fixability: 4,
+      travelerRelevance: 5,
+      confidence: "medium",
+      evidence,
+    });
     for (const skeleton of skeletons) {
       const policy = getMandatoryRiskContract(skeleton.category);
 
