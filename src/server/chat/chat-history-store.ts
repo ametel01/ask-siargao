@@ -1,4 +1,5 @@
 import type { ChatResponseRatingValue } from "@/server/chat/chat-response-ratings-store";
+import { displayReadyStoredChatTurn } from "@/server/chat/public-turn-assembly";
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 
 export type ChatHistoryThread = {
@@ -200,20 +201,28 @@ export async function loadOwnedChatThreadWithMessages(
     [input.threadId, input.userId],
   );
 
-  return {
-    thread,
-    messages: messages.rows.map((message) => ({
-      id: message.id,
-      role: message.role,
+  const hydratedMessages = messages.rows.map((message) => {
+    const displayTurn = displayReadyStoredChatTurn({
       content: message.content,
-      status: message.status,
-      requestId: message.request_id,
-      model: message.model,
       sources: arrayFromJson(message.sources_json),
       cards: arrayFromJson(message.cards_json),
       actions: arrayFromJson(message.actions_json),
       itineraries: arrayFromJson(message.itineraries_json),
       decisionSummaries: arrayFromJson(message.decision_summaries_json),
+    });
+
+    return {
+      id: message.id,
+      role: message.role,
+      content: displayTurn.message,
+      status: message.status,
+      requestId: message.request_id,
+      model: message.model,
+      sources: displayTurn.sources,
+      cards: displayTurn.cards,
+      actions: displayTurn.actions,
+      itineraries: displayTurn.itineraries,
+      decisionSummaries: displayTurn.decisionSummaries,
       rating: message.response_rating
         ? {
             rating: message.response_rating,
@@ -222,7 +231,12 @@ export async function loadOwnedChatThreadWithMessages(
           }
         : null,
       createdAt: timestampToIso(message.created_at),
-    })),
+    };
+  });
+
+  return {
+    thread,
+    messages: hydratedMessages,
   };
 }
 

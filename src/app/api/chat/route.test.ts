@@ -98,7 +98,7 @@ describe("chat route", () => {
     expect(JSON.stringify(body.memory)).not.toContain("byteLength");
     expect(JSON.stringify(body.memory)).not.toContain("relativePath");
     expect(body.toolCalls).toEqual([]);
-    expect(body.sources).toEqual([genericSourceSummary]);
+    expect(body.sources).toEqual([]);
     expect(body.cards).toBeUndefined();
     expect(body.actions).toBeUndefined();
     expect(body.itineraries).toBeUndefined();
@@ -192,9 +192,9 @@ describe("chat route", () => {
     expect(messages.rows.map((message) => message.role)).toEqual(["user", "assistant"]);
     expect(messages.rows[0]?.content).toBe("What cafes are open near me?");
     expect(messages.rows[1]?.content).toBe("Two nearby options look good.");
-    expect(body.cards).toEqual([genericRecommendationCard]);
+    expect(body.cards).toEqual([genericRecommendationCardDisplay]);
     expect(body.toolCalls).toEqual([publicToolCall(rawToolCall)]);
-    expect(messages.rows[1]?.cards_json).toEqual([genericRecommendationCard]);
+    expect(messages.rows[1]?.cards_json).toEqual([genericRecommendationCardDisplay]);
     expect(messages.rows[1]?.decision_summaries_json).toEqual([]);
     expect(messages.rows[1]?.tool_calls_json).toEqual([publicToolCall(rawToolCall)]);
     expect(JSON.stringify(body.toolCalls)).not.toContain("arguments");
@@ -771,7 +771,7 @@ describe("chat route", () => {
       expectNoRouteOwnedToolSignals(signals);
       expect(body.message).toBe(scenario.message);
       expect(body.toolCalls[0]).toMatchObject({ name: "get_condition_judgment" });
-      expect(body.sources).toEqual([weatherSourceSummary, conditionMarineSourceSummary]);
+      expect(body.sources).toEqual([weatherSourceSummary]);
     });
   }
 
@@ -902,7 +902,7 @@ describe("chat route", () => {
     expect(body.message).toBe("The model-written answer still recommends Shaka in markdown.");
     expect(body.requestId).toBe(dependencies.requests[0]?.requestId);
     expect(body.sources).toEqual([placesSourceSummary]);
-    expect(body.cards).toEqual([placeRecommendationCard]);
+    expect(body.cards).toEqual([placeRecommendationCardDisplay]);
     expect(body.actions).toEqual([promptAction]);
   });
 
@@ -952,7 +952,7 @@ describe("chat route", () => {
     const answeredLog = logs.events.find((event) => event.message === "Chat request answered.");
 
     expect(response.status).toBe(200);
-    expect(body.cards).toEqual([placeRecommendationCard]);
+    expect(body.cards).toEqual([placeRecommendationCardDisplay]);
     expect(body.actions).toEqual([promptAction]);
     expect(body.artifactSelection).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain("unselected");
@@ -1097,7 +1097,7 @@ describe("chat route", () => {
     expect(body.toolCalls).toEqual([publicToolCall(itineraryToolCall)]);
     expect(body.sources).toEqual([localGuideSourceSummary]);
     expect(body.memory).toEqual(publicMemoryMetadata);
-    expect(body.itineraries).toEqual([rainyCloud9Itinerary]);
+    expect(body.itineraries).toEqual([displayItineraryFixture(rainyCloud9Itinerary)]);
   });
 
   test("validates itinerary artifact sources before returning them", async () => {
@@ -1168,7 +1168,9 @@ describe("chat route", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.decisionSummaries).toEqual([swimmingDecisionSummary]);
+    expect(body.decisionSummaries).toEqual([
+      displayDecisionSummaryFixture(swimmingDecisionSummary),
+    ]);
     expect(body.sources).toEqual([weatherSourceSummary]);
     const answeredLog = logs.events.find((event) => event.message === "Chat request answered.");
     expect(answeredLog?.payload).toMatchObject({
@@ -1304,7 +1306,7 @@ describe("chat route", () => {
       expect(response.status).toBe(200);
       expectNoRouteOwnedToolSignals(signals);
       expect(body.message).toContain("Model-written");
-      expect(body.itineraries).toEqual([itinerary]);
+      expect(body.itineraries).toEqual([displayItineraryFixture(itinerary)]);
       scenario.assertSignals(signals);
     });
   }
@@ -1567,7 +1569,7 @@ describe("chat route", () => {
 
     expect(response.status).toBe(200);
     expect(body.message).toContain("generic reasoning");
-    expect(body.cards).toEqual([genericRecommendationCard]);
+    expect(body.cards).toEqual([genericRecommendationCardDisplay]);
     expect(body.actions).toBeUndefined();
   });
 
@@ -1991,7 +1993,7 @@ function routeAnswerQualityScenarios(): RouteAnswerQualityScenario[] {
         }),
       },
       expectedOpening: "Keep Cloud 9 sunset optional today",
-      expectedSources: [weatherUnavailableSourceSummary],
+      expectedSources: [],
       expectedCardIds: [],
       expectedDecisionSummaryIds: [weatherDecisionSummary.id],
       expectedItineraryIds: [],
@@ -2020,7 +2022,7 @@ function routeAnswerQualityScenarios(): RouteAnswerQualityScenario[] {
         }),
       },
       expectedOpening: "Use Malinao as a cautious kids swim stop today",
-      expectedSources: [weatherSourceSummary, conditionMarineSourceSummary],
+      expectedSources: [weatherSourceSummary],
       expectedCardIds: [],
       expectedDecisionSummaryIds: [swimmingDecisionSummary.id],
       expectedItineraryIds: [],
@@ -2310,6 +2312,11 @@ const placeRecommendationCard = {
   },
 };
 
+const placeRecommendationCardDisplay = {
+  ...placeRecommendationCard,
+  caveats: [],
+};
+
 const genericRecommendationCard = {
   id: "generic_arrival_tip",
   kind: "place" as const,
@@ -2321,6 +2328,11 @@ const genericRecommendationCard = {
     label: "needs_confirmation" as const,
     bestAction: "Confirm the exact stop before adding it to tonight's plan.",
   },
+};
+
+const genericRecommendationCardDisplay = {
+  ...genericRecommendationCard,
+  caveats: [],
 };
 
 const promptAction = {
@@ -2377,6 +2389,13 @@ const swimmingDecisionSummary: DecisionSummary = {
   sources: [weatherSourceSummary],
 };
 
+function displayDecisionSummaryFixture(summary: DecisionSummary): DecisionSummary {
+  return {
+    ...summary,
+    sources: displaySourcesFixture(summary.sources),
+  };
+}
+
 const conditionMarineSourceSummary: AnswerSourceSummary = {
   label: "not_verified",
   sourceName: "Condition judgment unchecked marine signals",
@@ -2407,6 +2426,43 @@ const localGuideSourceSummary: AnswerSourceSummary = {
   checked: ["beach surface notes", "ride-time notes"],
   notChecked: ["live tide", "lifeguard status"],
 };
+
+function displaySourcesFixture(sources: readonly AnswerSourceSummary[]) {
+  return sources.filter(
+    (source) => source.label !== "not_verified" && source.label !== "provider_unavailable",
+  );
+}
+
+function displayItineraryFixture(itinerary: ItineraryPlan): ItineraryPlan {
+  return {
+    ...itinerary,
+    stops: itinerary.stops.map((stop) => ({
+      ...stop,
+      caveats: displayCaveatsFixture(stop.caveats),
+    })),
+    fallbackStops: itinerary.fallbackStops.map((stop) => ({
+      ...stop,
+      caveats: displayCaveatsFixture(stop.caveats),
+    })),
+    skip: displayCaveatsFixture(itinerary.skip),
+    sources: displaySourcesFixture(itinerary.sources),
+  };
+}
+
+function displayCaveatsFixture(values: readonly string[]) {
+  return values.filter(
+    (value) =>
+      ![
+        /\bnot\s+checked\b/i,
+        /\bnot\s+verified\b/i,
+        /\bno\s+live\b.{0,90}\bcheck\b/i,
+        /\buse\s+(?:search_places|places)\b/i,
+        /\bplaces\s+evidence\b/i,
+        /\bwithout\b.{0,80}\bevidence\b/i,
+        /\bwithout\b.{0,80}\b(?:condition|safety|tide|surf|road).{0,40}\bcheck/i,
+      ].some((pattern) => pattern.test(value)),
+  );
+}
 
 const rainyCloud9Itinerary: ItineraryPlan = {
   title: "Rainy Cloud 9 Afternoon",

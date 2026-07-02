@@ -264,15 +264,15 @@ export async function chatResponse(
         threadId: authenticatedPersistence.thread.id,
         userId: authenticatedPersistence.userId,
         role: "assistant",
-        content: publicTurn.message,
+        content: publicTurn.storage.message,
         requestId: result.requestId,
         model: result.model,
-        sources: publicTurn.storedHistory.sources,
-        cards: publicTurn.storedHistory.cards,
-        actions: publicTurn.storedHistory.actions,
-        itineraries: publicTurn.storedHistory.itineraries,
-        decisionSummaries: publicTurn.storedHistory.decisionSummaries,
-        toolCalls: publicTurn.storedHistory.toolCalls,
+        sources: publicTurn.storage.sources,
+        cards: publicTurn.storage.cards,
+        actions: publicTurn.storage.actions,
+        itineraries: publicTurn.storage.itineraries,
+        decisionSummaries: publicTurn.storage.decisionSummaries,
+        toolCalls: publicTurn.storage.toolCalls,
         contextSummary: summarizeClientContextForStoredHistory(clientContext, intent),
         createdAt: completedAt,
       });
@@ -286,17 +286,17 @@ export async function chatResponse(
       {
         branch: "agent_runtime",
         model: result.model,
-        providerFailure: publicTurn.toolCalls.some(isProviderFailureToolCall),
+        providerFailure: publicTurn.display.toolCalls.some(isProviderFailureToolCall),
         sourceLabels: [...new Set(result.sources.map((source) => source.label))],
-        publicSourceLabels: [...new Set(publicTurn.sources.map((source) => source.label))],
-        toolCallCount: publicTurn.toolCalls.length,
-        toolCalls: publicTurn.toolCalls.map(summarizeToolCallForLogs),
+        publicSourceLabels: [...new Set(publicTurn.display.sources.map((source) => source.label))],
+        toolCallCount: publicTurn.display.toolCalls.length,
+        toolCalls: publicTurn.display.toolCalls.map(summarizeToolCallForLogs),
         sourceCount: result.sources.length,
-        publicSourceCount: publicTurn.sources.length,
-        cardCount: publicTurn.cards.length,
-        actionCount: publicTurn.actions.length,
-        itineraryCount: publicTurn.itineraries.length,
-        decisionSummaryCount: publicTurn.decisionSummaries.length,
+        publicSourceCount: publicTurn.display.sources.length,
+        cardCount: publicTurn.display.cards.length,
+        actionCount: publicTurn.display.actions.length,
+        itineraryCount: publicTurn.display.itineraries.length,
+        decisionSummaryCount: publicTurn.display.decisionSummaries.length,
         ...(result.artifactSelection
           ? { artifactSelection: summarizeArtifactSelectionForLogs(result.artifactSelection) }
           : {}),
@@ -310,20 +310,22 @@ export async function chatResponse(
 
     return Response.json(
       {
-        message: publicTurn.message,
+        message: publicTurn.display.message,
         requestId: result.requestId,
         model: result.model,
         ...(result.upstreamRequestIds?.length
           ? { upstreamRequestIds: result.upstreamRequestIds }
           : {}),
-        toolCalls: publicTurn.toolCalls,
-        sources: publicTurn.sources,
+        toolCalls: publicTurn.display.toolCalls,
+        sources: publicTurn.display.sources,
         ...(result.memory ? { memory: summarizeMemoryForResponse(result.memory) } : {}),
-        ...(publicTurn.cards.length ? { cards: publicTurn.cards } : {}),
-        ...(publicTurn.actions.length ? { actions: publicTurn.actions } : {}),
-        ...(publicTurn.itineraries.length ? { itineraries: publicTurn.itineraries } : {}),
-        ...(publicTurn.decisionSummaries.length
-          ? { decisionSummaries: publicTurn.decisionSummaries }
+        ...(publicTurn.display.cards.length ? { cards: publicTurn.display.cards } : {}),
+        ...(publicTurn.display.actions.length ? { actions: publicTurn.display.actions } : {}),
+        ...(publicTurn.display.itineraries.length
+          ? { itineraries: publicTurn.display.itineraries }
+          : {}),
+        ...(publicTurn.display.decisionSummaries.length
+          ? { decisionSummaries: publicTurn.display.decisionSummaries }
           : {}),
         ...(authenticatedPersistence?.status === "ready"
           ? {

@@ -31,7 +31,7 @@ export type StoredChatTurnToolCall = {
   durationMs: number;
 };
 
-export type PublicChatTurnAssembly = {
+export type DisplayReadyChatTurn = {
   message: string;
   toolCalls: readonly PublicAgentToolCall[];
   sources: readonly AnswerSourceSummary[];
@@ -39,14 +39,21 @@ export type PublicChatTurnAssembly = {
   actions: readonly ChatAction[];
   itineraries: readonly ItineraryPlan[];
   decisionSummaries: readonly DecisionSummary[];
-  storedHistory: {
-    sources: readonly AnswerSourceSummary[];
-    cards: readonly RecommendationCard[];
-    actions: readonly ChatAction[];
-    itineraries: readonly ItineraryPlan[];
-    decisionSummaries: readonly DecisionSummary[];
-    toolCalls: readonly StoredChatTurnToolCall[];
-  };
+};
+
+export type StorageReadyChatTurn = {
+  message: string;
+  sources: readonly AnswerSourceSummary[];
+  cards: readonly RecommendationCard[];
+  actions: readonly ChatAction[];
+  itineraries: readonly ItineraryPlan[];
+  decisionSummaries: readonly DecisionSummary[];
+  toolCalls: readonly StoredChatTurnToolCall[];
+};
+
+export type PublicChatTurnAssembly = {
+  display: DisplayReadyChatTurn;
+  storage: StorageReadyChatTurn;
   repair?: {
     issueCount: number;
     repairedLineCount: number;
@@ -61,11 +68,16 @@ export function assemblePublicChatTurn({
   browserGeolocation: ChatClientGeolocationContext;
 }): PublicChatTurnAssembly {
   const publicToolCalls = publicAgentToolCallsFromAudits(result.toolCalls);
+  const displaySources = sanitizeDisplaySources(result.publicSources);
+  const displayCards = sanitizeDisplayRecommendationCards(result.cards ?? []);
+  const displayActions = sanitizeDisplayActions(result.actions ?? []);
+  const displayItineraries = sanitizeDisplayItineraries(result.itineraries ?? []);
+  const displayDecisionSummaries = sanitizeDisplayDecisionSummaries(result.decisionSummaries ?? []);
   const publicAnswerSources = chatAnswerSourcesForValidation(
-    result.publicSources,
-    result.cards,
-    result.itineraries,
-    result.decisionSummaries,
+    displaySources,
+    displayCards,
+    displayItineraries,
+    displayDecisionSummaries,
   );
   let responseMessage = stripInternalDisclosureText(result.message);
   let repair: PublicChatTurnAssembly["repair"];
@@ -99,23 +111,55 @@ export function assemblePublicChatTurn({
 
   assertRenderedSourceLinesArePublic(responseMessage, publicAnswerSources);
 
-  return {
+  const display = {
     message: responseMessage,
     toolCalls: publicToolCalls,
-    sources: result.publicSources,
-    cards: result.cards ?? [],
-    actions: result.actions ?? [],
-    itineraries: result.itineraries ?? [],
-    decisionSummaries: result.decisionSummaries ?? [],
-    storedHistory: {
-      sources: result.publicSources,
-      cards: result.cards ?? [],
-      actions: result.actions ?? [],
-      itineraries: result.itineraries ?? [],
-      decisionSummaries: result.decisionSummaries ?? [],
+    sources: displaySources,
+    cards: displayCards,
+    actions: displayActions,
+    itineraries: displayItineraries,
+    decisionSummaries: displayDecisionSummaries,
+  } satisfies DisplayReadyChatTurn;
+
+  return {
+    display,
+    storage: {
+      message: display.message,
+      sources: display.sources,
+      cards: display.cards,
+      actions: display.actions,
+      itineraries: display.itineraries,
+      decisionSummaries: display.decisionSummaries,
       toolCalls: summarizeToolCallsForStoredHistory(publicToolCalls),
     },
     ...(repair ? { repair } : {}),
+  };
+}
+
+export function displayReadyStoredChatTurn({
+  actions,
+  cards,
+  content,
+  decisionSummaries,
+  itineraries,
+  sources,
+}: {
+  content: string;
+  sources: readonly unknown[];
+  cards: readonly unknown[];
+  actions: readonly unknown[];
+  itineraries: readonly unknown[];
+  decisionSummaries: readonly unknown[];
+}): Omit<DisplayReadyChatTurn, "toolCalls"> {
+  return {
+    message: stripInternalDisclosureText(content),
+    sources: sanitizeDisplaySources(sources as readonly AnswerSourceSummary[]),
+    cards: sanitizeDisplayRecommendationCards(cards as readonly RecommendationCard[]),
+    actions: sanitizeDisplayActions(actions as readonly ChatAction[]),
+    itineraries: sanitizeDisplayItineraries(itineraries as readonly ItineraryPlan[]),
+    decisionSummaries: sanitizeDisplayDecisionSummaries(
+      decisionSummaries as readonly DecisionSummary[],
+    ),
   };
 }
 
@@ -240,6 +284,68 @@ function isInternalDisclosure(value: string) {
     /\bclaim(?:ing)?\b.{0,80}\b(?:open|status|hours|safety|reliability)\b/i,
     /\bwithout\b.{0,80}\b(?:condition|safety|tide|surf|road).{0,40}\bcheck/i,
   ].some((pattern) => pattern.test(value));
+}
+
+function sanitizeDisplaySources(sources: readonly AnswerSourceSummary[]) {
+  return sources.flatMap((source) => {
+    if (!isDisplayableSource(source)) {
+      return [];
+    }
+    return [
+      {
+        ...source,
+        checked: [...source.checked],
+        notChecked: [...source.notChecked],
+      },
+    ];
+  });
+}
+
+function isDisplayableSource(source: AnswerSourceSummary) {
+  return source.label !== "not_verified" && source.label !== "provider_unavailable";
+}
+
+function sanitizeDisplayRecommendationCards(cards: readonly RecommendationCard[]) {
+  return cards.map((card) => ({
+    ...card,
+    fitReasons: sanitizeDisplayTextList(card.fitReasons ?? []),
+    caveats: sanitizeDisplayTextList(card.caveats ?? []),
+    ...(card.sources ? { sources: sanitizeDisplaySources(card.sources) } : {}),
+  }));
+}
+
+function sanitizeDisplayActions(actions: readonly ChatAction[]) {
+  return actions.map(({ metadata: _metadata, ...action }) => action);
+}
+
+function sanitizeDisplayItineraries(itineraries: readonly ItineraryPlan[]) {
+  return itineraries.map((itinerary) => ({
+    ...itinerary,
+    stops: itinerary.stops.map(sanitizeDisplayItineraryStop),
+    fallbackStops: itinerary.fallbackStops.map(sanitizeDisplayItineraryStop),
+    skip: sanitizeDisplayTextList(itinerary.skip),
+    sources: sanitizeDisplaySources(itinerary.sources),
+  }));
+}
+
+function sanitizeDisplayItineraryStop(stop: ItineraryPlan["stops"][number]) {
+  return {
+    ...stop,
+    caveats: sanitizeDisplayTextList(stop.caveats ?? []),
+  };
+}
+
+function sanitizeDisplayDecisionSummaries(summaries: readonly DecisionSummary[]) {
+  return summaries.map((summary) => ({
+    ...summary,
+    sources: sanitizeDisplaySources(summary.sources),
+  }));
+}
+
+function sanitizeDisplayTextList(values: readonly string[]) {
+  return values
+    .map((value) => value.trim())
+    .filter((value) => value && !isInternalDisclosure(value));
 }
 
 function summarizeToolCallsForStoredHistory(toolCalls: readonly PublicAgentToolCall[]) {

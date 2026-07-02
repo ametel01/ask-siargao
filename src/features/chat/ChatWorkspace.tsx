@@ -2619,8 +2619,6 @@ function ItineraryPlans({
 }
 
 function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
-  const visibleCaveats = publicDisplayCaveats(stop.caveats);
-
   return (
     <li className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] gap-3">
       <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-brand-lagoon-700/15 bg-brand-lagoon-100 text-xs font-black text-brand-lagoon-700">
@@ -2652,9 +2650,9 @@ function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
           {stop.rationale}
         </p>
 
-        {visibleCaveats.length ? (
+        {stop.caveats.length ? (
           <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-brand-sunset-gold">
-            {visibleCaveats.map((caveat) => (
+            {stop.caveats.map((caveat) => (
               <li className="break-words" key={caveat}>
                 {caveat}
               </li>
@@ -2689,8 +2687,7 @@ function ItineraryNoteSection({
   testId: string;
   title: string;
 }) {
-  const visibleItems = publicDisplayCaveats(items);
-  if (visibleItems.length === 0) {
+  if (items.length === 0) {
     return null;
   }
 
@@ -2698,7 +2695,7 @@ function ItineraryNoteSection({
     <section className="grid min-w-0 gap-1.5" data-testid={testId}>
       <h4 className="m-0 text-xs font-black text-text-strong">{title}</h4>
       <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-text-muted sm:text-sm">
-        {visibleItems.map((item) => (
+        {items.map((item) => (
           <li className="break-words" key={item}>
             {item}
           </li>
@@ -2709,8 +2706,7 @@ function ItineraryNoteSection({
 }
 
 function ItinerarySources({ sources }: { sources: ItineraryPlanArtifact["sources"] }) {
-  const visibleSources = publicDisplaySources(sources);
-  if (visibleSources.length === 0) {
+  if (sources.length === 0) {
     return null;
   }
 
@@ -2718,7 +2714,7 @@ function ItinerarySources({ sources }: { sources: ItineraryPlanArtifact["sources
     <section className="grid min-w-0 gap-2" data-testid="itinerary-sources">
       <h4 className="m-0 text-xs font-black text-text-strong">Sources</h4>
       <div className="flex min-w-0 flex-wrap gap-2">
-        {visibleSources.map((source) => (
+        {sources.map((source) => (
           <SourceIconBadge key={chatSourceKey(source)} source={source} />
         ))}
       </div>
@@ -2755,16 +2751,15 @@ function cardAreaLabel(card: RecommendationCardArtifact | undefined) {
 }
 
 function sourceConfidenceLabel(sources: readonly ChatSourceArtifact[]) {
-  const visibleSources = publicDisplaySources(sources);
-  if (visibleSources.length === 0) {
+  if (sources.length === 0) {
     return "Caveated";
   }
-  const highConfidence = visibleSources.some((source) => source.confidence === "high");
-  const liveChecked = visibleSources.some((source) => source.label === "live_checked");
+  const highConfidence = sources.some((source) => source.confidence === "high");
+  const liveChecked = sources.some((source) => source.label === "live_checked");
   if (liveChecked && highConfidence) {
     return "Live checked";
   }
-  return sourceBadgeTitle(visibleSources[0] ?? sources[0]);
+  return sourceBadgeTitle(sources[0]);
 }
 
 function dedupeChatSources(sources: readonly ChatSourceArtifact[]) {
@@ -2794,51 +2789,13 @@ function chatSourceKey(source: ChatSourceArtifact) {
 }
 
 function sourceSummaryText(sources: readonly ChatSourceArtifact[]) {
-  const visibleSources = publicDisplaySources(sources);
-  return visibleSources.length
-    ? `Checked: ${formatCompactList(visibleSources.map(sourceDisplayName))}`
+  return sources.length
+    ? `Checked: ${formatCompactList(sources.map(sourceDisplayName))}`
     : "Checked source details unavailable";
-}
-
-function isActuallyCheckedSource(source: ChatSourceArtifact) {
-  return source.label !== "not_verified" && source.label !== "provider_unavailable";
 }
 
 function sourceDisplayName(source: ChatSourceArtifact) {
   return source.sourceName || formatTrustLabel(source.label);
-}
-
-function publicDisplaySources(sources: readonly ChatSourceArtifact[]) {
-  return sources.filter(isActuallyCheckedSource);
-}
-
-function publicDisplayCaveats(caveats: readonly string[]) {
-  return caveats.filter((caveat) => !isInternalVerificationGap(caveat));
-}
-
-function isInternalVerificationGap(value: string) {
-  return [
-    /\bnot\s+checked\b/i,
-    /\bwasn['’]?t\s+(?:separately\s+)?checked\b/i,
-    /\bwere\s+not\s+checked\b/i,
-    /\bno\s+live\b.{0,90}\bcheck\b/i,
-    /\bunchecked\b/i,
-    /\bnot\s+verified\b/i,
-    /\bI\s+(?:didn['’]?t|did\s+not)\s+(?:live[-\s]?)?check\b/i,
-    /\b(?:live[-\s]?)?check(?:ed|ing)?\s+(?:was|were|is|are)?\s*(?:not|needed|needs)\b/i,
-    /\bcurated\s+local\s+guide\s+estimate\b/i,
-    /\bexact\s+ride\s+time\s+depends\b/i,
-    /\buser\s+constraints\s+preserved\b/i,
-    /\borigin-specific\s+route\s+timing\b/i,
-    /\bthis\s+artifact\b/i,
-    /\bsource\s+caveats?\b/i,
-    /\bavoid\s+overclaiming\b/i,
-    /\buse\s+(?:search_places|places)\b/i,
-    /\bplaces\s+evidence\b/i,
-    /\b(?:open|opening|cafe|menu|booking|availability|crowd|quietness).{0,80}\bshould\s+be\s+checked\b/i,
-    /\bclaim(?:ing)?\b.{0,80}\b(?:open|status|hours|safety|reliability)\b/i,
-    /\bwithout\b.{0,80}\b(?:condition|safety|tide|surf|road).{0,40}\bcheck/i,
-  ].some((pattern) => pattern.test(value));
 }
 
 function SourceIconBadge({ source }: { source: ChatSourceArtifact }) {
@@ -3281,7 +3238,7 @@ function ChatActionButtons({
 }
 
 function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifact[] }) {
-  const visibleSources = publicDisplaySources(dedupeChatSources(sources));
+  const visibleSources = dedupeChatSources(sources);
   if (visibleSources.length === 0) {
     return null;
   }
@@ -3338,7 +3295,7 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
 }
 
 function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" | "error" }) {
-  const blocks = parseAssistantMarkdownBlocks(stripInternalDisclosureText(text));
+  const blocks = parseAssistantMarkdownBlocks(text);
   const textClass = tone === "error" ? "text-text-alert" : "text-text-default";
   const strongClass =
     tone === "error" ? "font-extrabold text-text-alert" : "font-extrabold text-text-strong";
@@ -3459,30 +3416,6 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
       })}
     </div>
   );
-}
-
-function stripInternalDisclosureText(value: string) {
-  return value
-    .replace(/\r\n?/g, "\n")
-    .split("\n")
-    .map((line) => stripInternalDisclosureSentences(line))
-    .filter((line) => line.trim().length > 0)
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function stripInternalDisclosureSentences(line: string) {
-  const trimmedLine = line.trim();
-  if (/^not checked:/i.test(trimmedLine)) {
-    return "";
-  }
-
-  return line
-    .split(/(?<=[.!?])\s+/)
-    .filter((sentence) => !isInternalVerificationGap(sentence))
-    .join(" ")
-    .trim();
 }
 
 function InlineMarkdown({
@@ -3607,9 +3540,6 @@ function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
     }
 
     if (sourceMatch) {
-      if (sourceMatch[1]?.toLocaleLowerCase() === "not checked") {
-        continue;
-      }
       flushParagraph();
       flushList();
       const label = sourceMatch[1] ?? "";
