@@ -7,6 +7,7 @@ import {
   getGooglePlacesReuseState,
   googlePlacesFieldFreshnessDays,
   googlePlacesRequestPolicies,
+  requireGooglePlacesRequestPolicy,
 } from "@/server/providers/google-places-policy";
 
 describe("Google Places freshness and retention policy", () => {
@@ -100,5 +101,33 @@ describe("Google Places freshness and retention policy", () => {
       googleMapsUri: "https://maps.google.com/?cid=123",
       attributions: [{ provider: "Google" }],
     });
+  });
+
+  test("fails closed for unknown request kinds and incomplete policy metadata", () => {
+    expect(() =>
+      requireGooglePlacesRequestPolicy({
+        requestKind: "unknown_kind",
+      }),
+    ).toThrow("Unknown Google Places request kind");
+
+    expect(() =>
+      requireGooglePlacesRequestPolicy({
+        requestKind: "chat_search",
+        policies: {
+          ...googlePlacesRequestPolicies,
+          chat_search: {
+            ...googlePlacesRequestPolicies.chat_search,
+            retentionDays: Number.NaN,
+          },
+        },
+      }),
+    ).toThrow("missing a valid retention window");
+
+    expect(() =>
+      requireGooglePlacesRequestPolicy({
+        fieldMask: "places.id",
+        requestKind: "chat_search",
+      }),
+    ).toThrow("field mask does not match");
   });
 });
