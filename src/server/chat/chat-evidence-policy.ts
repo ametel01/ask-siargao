@@ -54,7 +54,6 @@ export function finalPayloadSatisfiesChatEvidencePolicy(
 
 export function applyChatEvidenceFinalPayloadPolicy({
   finalPayload,
-  policy,
   request,
   toolCalls,
   toolResults,
@@ -65,56 +64,22 @@ export function applyChatEvidenceFinalPayloadPolicy({
   toolCalls: readonly AgentToolCallAudit[];
   toolResults: readonly AgentToolResult[];
 }) {
-  return ensureFinalPayloadUsesVehicleRentalEvidence(
-    exposeRequiredEvidenceArtifacts(finalPayload, policy.requiredEvidencePlan, toolResults),
-    request,
-    toolCalls,
-    toolResults,
-  );
+  return ensureFinalPayloadUsesVehicleRentalEvidence(finalPayload, request, toolCalls, toolResults);
 }
 
-function exposeRequiredEvidenceArtifacts(
-  finalPayload: AgentFinalPayload | undefined,
-  requiredEvidencePlan: RequiredEvidencePlan,
+export function requiredEvidenceAllowedCardIds(
+  policy: ChatEvidencePolicy,
   toolResults: readonly AgentToolResult[],
 ) {
-  const requiresPlaceEvidence = requiredEvidencePlan.requiredToolCalls.some(
-    (requiredCall) => requiredCall.name === "search_places",
-  );
-  if (!finalPayload || !requiresPlaceEvidence) {
-    return finalPayload;
-  }
-
-  const placeCardIds = requiredEvidencePlaceCardIds(requiredEvidencePlan, toolResults);
-  const requiresNightlifeRouteEvidence = requiredEvidencePlan.requiredToolCalls.some(
-    (requiredCall) => requiredCall.name === "search_nightlife_events",
-  );
-  const requiresResearchSelectedPlaces = requiredEvidencePlan.requiredToolCalls.some(
-    (requiredCall) =>
-      requiredCall.name === "search_places" &&
-      requiredCall.dependsOn?.includes("research_web") === true,
-  );
   if (
-    (requiresNightlifeRouteEvidence || requiresResearchSelectedPlaces) &&
-    placeCardIds.length > 0
+    !policy.requiredEvidencePlan.requiredToolCalls.some(
+      (requiredCall) => requiredCall.name === "search_places",
+    )
   ) {
-    return {
-      ...finalPayload,
-      displayCardIds: placeCardIds,
-    };
+    return undefined;
   }
 
-  if (
-    placeCardIds.length === 0 ||
-    finalPayload.displayCardIds.some((cardId) => placeCardIds.includes(cardId))
-  ) {
-    return finalPayload;
-  }
-
-  return {
-    ...finalPayload,
-    displayCardIds: uniqueText([...finalPayload.displayCardIds, ...placeCardIds]),
-  };
+  return requiredEvidencePlaceCardIds(policy.requiredEvidencePlan, toolResults);
 }
 
 function ensureFinalPayloadUsesVehicleRentalEvidence(
@@ -188,15 +153,4 @@ function isVehicleRentalLookup(content: string) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function uniqueText(values: readonly string[]) {
-  return [
-    ...new Set(
-      values.flatMap((value) => {
-        const normalizedValue = value.replaceAll(/\s+/g, " ").trim();
-        return normalizedValue ? [normalizedValue] : [];
-      }),
-    ),
-  ];
 }

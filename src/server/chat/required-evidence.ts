@@ -58,6 +58,9 @@ export type RequiredNightlifeEventEvidenceToolCall = RequiredEvidenceToolCallBas
 
 export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): RequiredEvidencePlan {
   const latestContent = latestUserContent(request);
+  if (isCurrentGeneralLunaDinnerLookup(latestContent)) {
+    return buildCurrentGeneralLunaDinnerEvidencePlan();
+  }
   if (isVehicleRentalLookup(latestContent)) {
     return buildVehicleRentalEvidencePlan(latestContent);
   }
@@ -280,6 +283,53 @@ function finalPayloadUsesAvailableResearchEvidence(
   return anchors.some((anchor) => normalizedIncludes(finalPayload?.answer ?? "", anchor));
 }
 
+function buildCurrentGeneralLunaDinnerEvidencePlan(): RequiredEvidencePlan {
+  return {
+    requiredToolCalls: [
+      {
+        name: "research_web",
+        purpose: "current_public_web_research",
+        arguments: {
+          query: "what is the current dinner pop-up in General Luna tonight",
+          intent: "recommendation",
+          location: "General Luna",
+          dateContext: "tonight",
+          sourceTypes: ["maps", "official", "local_directory", "guide", "social"],
+          requiredFreshness: "same_day",
+          maxSources: 6,
+        },
+        acceptedSourceLabels: [
+          "official_checked",
+          "directory_checked",
+          "web_researched",
+          "community_signal",
+        ],
+        terminalSourceLabels: ["insufficient_web_evidence", "provider_unavailable"],
+        runBefore: ["search_places"],
+      },
+      {
+        name: "search_places",
+        purpose: "place_recommendation",
+        arguments: {
+          query: "research-selected dinner place details in General Luna Siargao",
+          center: { latitude: 9.8006, longitude: 126.1586 },
+          radius_meters: 12_000,
+          constraints: {
+            included_type: "restaurant",
+            open_now: true,
+            page_size: 8,
+          },
+        },
+        acceptedSourceLabels: ["live_checked", "fresh_cache"],
+        terminalSourceLabels: ["provider_unavailable"],
+        dependsOn: ["research_web"],
+        requiresOpenNow: true,
+      },
+    ],
+    allowedCardKinds: ["place"],
+  };
+}
+
 function buildVehicleRentalEvidencePlan(content: string): RequiredEvidencePlan {
   const location = inferPlacesRepairLocation(content);
   const vehicle = /\bmotor\s*bikes?|motorbikes?\b/iu.test(content) ? "motorbike" : "scooter";
@@ -349,6 +399,14 @@ function isVehicleRentalLookup(content: string) {
     !/\b(?:safe|safety|rain|weather|roads?|flood|conditions?|ride\s+to|drive\s+to)\b/iu.test(
       content,
     )
+  );
+}
+
+function isCurrentGeneralLunaDinnerLookup(content: string) {
+  return (
+    /\bgeneral\s+luna\b/iu.test(content) &&
+    /\b(?:current|right\s+now|pop[-\s]?up)\b/iu.test(content) &&
+    /\b(?:dinner|pop[-\s]?up|restaurant|food)\b/iu.test(content)
   );
 }
 

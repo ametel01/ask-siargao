@@ -118,6 +118,30 @@ describe("required evidence planning", () => {
     ]);
   });
 
+  test("plans current General Luna dinner evidence as research before Places enrichment", () => {
+    const plan = buildRequiredEvidencePlan({
+      requestId: "request_required_evidence_current_dinner",
+      messages: [
+        {
+          role: "user",
+          content: "What is the current dinner pop-up in General Luna tonight?",
+        },
+      ],
+    });
+
+    expect(plan.requiredToolCalls.map((call) => [call.name, call.purpose])).toEqual([
+      ["research_web", "current_public_web_research"],
+      ["search_places", "place_recommendation"],
+    ]);
+    expect(plan.requiredToolCalls[1]).toMatchObject({
+      dependsOn: ["research_web"],
+      requiresOpenNow: true,
+    });
+    expect(missingRequiredEvidenceToolCalls(plan, []).map((call) => call.name)).toEqual([
+      "research_web",
+    ]);
+  });
+
   test("treats insufficient web evidence as completed but not satisfying checked evidence", () => {
     const plan = currentResearchOnlyPlan();
     const toolCalls = [

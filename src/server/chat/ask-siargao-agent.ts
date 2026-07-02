@@ -32,6 +32,7 @@ import {
   buildChatEvidencePolicy,
   buildChatEvidenceRepair,
   finalPayloadSatisfiesChatEvidencePolicy,
+  requiredEvidenceAllowedCardIds,
 } from "@/server/chat/chat-evidence-policy";
 import type { ConditionJudgmentRequest } from "@/server/chat/condition-tools";
 import type {
@@ -750,6 +751,7 @@ export async function runAskSiargaoAgentTurn(
         toolResults,
         ...(sanitizedFinalPayload ? { finalPayload: sanitizedFinalPayload } : {}),
         allowedCardKinds: requiredEvidencePlan.allowedCardKinds,
+        allowedCardIds: requiredEvidenceAllowedCardIds(chatEvidencePolicy, toolResults),
         artifactSelectionMode:
           dependencies.requireStructuredFinalOutput === true ? "strict" : "compatibility",
       });
@@ -2549,6 +2551,29 @@ async function executeAndAuditToolBatch({
   requestId: string;
   toolResults: readonly AgentToolResult[];
 }): Promise<ExecutedAgentToolOutput[]> {
+  const requiredDependencyIndex = firstRequiredDependencyIndex(functionCalls, requiredEvidencePlan);
+  if (requiredDependencyIndex >= 0) {
+    const dependencyOutput = await executeAndAuditTool({
+      executeTool,
+      functionCall: functionCalls[requiredDependencyIndex] as ParsedFunctionCall,
+      logger,
+      now,
+      runtimeRequest,
+      requestId,
+    });
+    const remainingOutputs = await executeAndAuditToolBatch({
+      executeTool,
+      functionCalls: functionCalls.filter((_, index) => index !== requiredDependencyIndex),
+      logger,
+      now,
+      requiredEvidencePlan,
+      runtimeRequest,
+      requestId,
+      toolResults: [...toolResults, dependencyOutput.result],
+    });
+    return [dependencyOutput, ...remainingOutputs];
+  }
+
   const researchIndex = functionCalls.findIndex(
     (functionCall) => functionCall.name === "research_web",
   );
@@ -2655,6 +2680,21 @@ async function executeAndAuditToolBatch({
         runtimeRequest,
         requestId,
       }),
+    ),
+  );
+}
+
+function firstRequiredDependencyIndex(
+  functionCalls: readonly ParsedFunctionCall[],
+  requiredEvidencePlan: RequiredEvidencePlan,
+) {
+  return functionCalls.findIndex((functionCall) =>
+    functionCalls.some((candidateDependentCall) =>
+      requiredEvidencePlan.requiredToolCalls.some(
+        (requiredCall) =>
+          requiredCall.name === candidateDependentCall.name &&
+          requiredCall.dependsOn?.includes(functionCall.name) === true,
+      ),
     ),
   );
 }
