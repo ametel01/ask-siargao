@@ -68,6 +68,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 - Retired the legacy recommendation-agent module so local recommendation behavior now lives only in
   the Ask Siargao chat tool loop and evidence policy.
+- Moved chat evidence final-payload enforcement and required-card exposure behind a chat evidence
+  policy module instead of keeping those decisions in the turn loop.
 - Moved vehicle-rental chat evidence repair into the required-evidence policy so the turn runtime
   gets Places-first lookup and public-web fallback requirements from one policy surface.
 - Deepened required-evidence repairs so policy code now owns repair tool-call construction,

@@ -27,18 +27,20 @@ import {
   buildAgentResponseTools,
   executeAgentTool,
 } from "@/server/chat/agent-tools";
+import {
+  applyChatEvidenceFinalPayloadPolicy,
+  buildChatEvidencePolicy,
+  buildChatEvidenceRepair,
+  finalPayloadSatisfiesChatEvidencePolicy,
+} from "@/server/chat/chat-evidence-policy";
 import type { ConditionJudgmentRequest } from "@/server/chat/condition-tools";
 import type {
   ItineraryRequiredToolChecks,
   LocalItineraryRequest,
 } from "@/server/chat/itinerary-tools";
 import {
-  buildRequiredEvidencePlan,
-  buildRequiredEvidenceRepair,
-  finalPayloadSatisfiesRequiredEvidence,
   nightlifePlacesEnrichmentIsUnavailable,
   type RequiredEvidencePlan,
-  requiredEvidencePlaceCardIds,
   researchPlacesEnrichmentIsUnavailable,
   selectedNightlifeEventVenueNames,
   selectedResearchEntityNames,
@@ -112,7 +114,8 @@ export async function runAskSiargaoAgentTurn(
     dependencies.agentMemoryVectorStoreId ?? process.env.OPENAI_AGENT_MEMORY_VECTOR_STORE_ID;
   const memory = createAgentMemoryMetadata(memorySnapshot, agentMemoryVectorStoreId);
   const instructions = buildAskSiargaoAgentInstructions(memorySnapshot);
-  const requiredEvidencePlan = buildRequiredEvidencePlan(resolved);
+  const chatEvidencePolicy = buildChatEvidencePolicy(resolved);
+  const { requiredEvidencePlan } = chatEvidencePolicy;
   const tools = buildAgentResponseTools(memorySnapshot, {
     vectorStoreId: agentMemoryVectorStoreId,
     forceMemoryFallback: dependencies.forceAgentMemorySearchFallback,
@@ -299,8 +302,8 @@ export async function runAskSiargaoAgentTurn(
         continue;
       }
 
-      const requiredEvidenceRepair = buildRequiredEvidenceRepair({
-        plan: requiredEvidencePlan,
+      const requiredEvidenceRepair = buildChatEvidenceRepair({
+        policy: chatEvidencePolicy,
         toolCalls,
         toolResults,
       });
@@ -570,11 +573,13 @@ export async function runAskSiargaoAgentTurn(
         toolCalls,
         toolResults,
       });
-      const finalPayload = exposeRequiredEvidenceArtifacts(
-        parsedFinalPayload,
-        requiredEvidencePlan,
+      const finalPayload = applyChatEvidenceFinalPayloadPolicy({
+        finalPayload: parsedFinalPayload,
+        policy: chatEvidencePolicy,
+        request: resolved,
+        toolCalls,
         toolResults,
-      );
+      });
       const legacyStructuredAnswerQualityRepair = missingLegacyStructuredAnswerQualityRepair(
         finalText,
         finalPayload,
@@ -647,8 +652,8 @@ export async function runAskSiargaoAgentTurn(
         continue;
       }
       if (
-        !finalPayloadSatisfiesRequiredEvidence(
-          requiredEvidencePlan,
+        !finalPayloadSatisfiesChatEvidencePolicy(
+          chatEvidencePolicy,
           finalPayload,
           toolCalls,
           toolResults,
@@ -726,21 +731,15 @@ export async function runAskSiargaoAgentTurn(
         },
         "Ask Siargao agent turn completed.",
       );
-      const payloadWithEvidence = ensureFinalPayloadUsesVehicleRentalEvidence(
-        finalPayload,
-        resolved,
-        toolCalls,
-        toolResults,
-      );
       const sanitizedAnswer = sanitizeFinalAnswer(
-        payloadWithEvidence?.answer ?? finalText,
+        finalPayload?.answer ?? finalText,
         resolved,
         toolCalls,
       );
       const sanitizedFinalPayload =
-        payloadWithEvidence && sanitizedAnswer !== payloadWithEvidence.answer
-          ? { ...payloadWithEvidence, answer: sanitizedAnswer }
-          : payloadWithEvidence;
+        finalPayload && sanitizedAnswer !== finalPayload.answer
+          ? { ...finalPayload, answer: sanitizedAnswer }
+          : finalPayload;
       return createAgentTurnResult({
         message: sanitizedAnswer,
         requestId: resolved.requestId,
@@ -1364,50 +1363,6 @@ function isAnswerEvidenceTool(toolCall: AgentToolCallAudit) {
     "rank_surf_spots_nearby",
     "search_agent_memory",
   ].includes(toolCall.name);
-}
-
-function ensureFinalPayloadUsesVehicleRentalEvidence(
-  finalPayload: AgentFinalPayload | undefined,
-  request: AgentRuntimeRequest,
-  toolCalls: readonly AgentToolCallAudit[],
-  toolResults: readonly AgentToolResult[],
-) {
-  if (!finalPayload || !isVehicleRentalLookup(latestUserContent(request.messages))) {
-    return finalPayload;
-  }
-
-  const evidenceToolCallIds = preferredVehicleRentalEvidenceToolCallIds(toolCalls, toolResults);
-  if (
-    evidenceToolCallIds.length === 0 ||
-    finalPayload.usedToolCallIds.some((toolCallId) => evidenceToolCallIds.includes(toolCallId))
-  ) {
-    return finalPayload;
-  }
-
-  return {
-    ...finalPayload,
-    usedToolCallIds: evidenceToolCallIds,
-  };
-}
-
-function preferredVehicleRentalEvidenceToolCallIds(
-  toolCalls: readonly AgentToolCallAudit[],
-  toolResults: readonly AgentToolResult[],
-) {
-  const ids: string[] = [];
-  const latestAvailableResearch = [...toolResults].reverse().find(researchWebResultIsAvailable);
-  if (latestAvailableResearch?.toolCallId) {
-    ids.push(latestAvailableResearch.toolCallId);
-  }
-
-  const latestSuccessfulPlaces = [...toolCalls]
-    .reverse()
-    .find((toolCall) => toolCall.name === "search_places" && toolCall.status === "success");
-  if (latestSuccessfulPlaces?.toolCallId) {
-    ids.push(latestSuccessfulPlaces.toolCallId);
-  }
-
-  return ids;
 }
 
 function sanitizeFinalAnswer(
@@ -2503,50 +2458,6 @@ function missingRequiredItineraryChecks(
   }
 
   return missing;
-}
-
-function exposeRequiredEvidenceArtifacts(
-  finalPayload: AgentFinalPayload | undefined,
-  requiredEvidencePlan: RequiredEvidencePlan,
-  toolResults: readonly AgentToolResult[],
-) {
-  const requiresPlaceEvidence = requiredEvidencePlan.requiredToolCalls.some(
-    (requiredCall) => requiredCall.name === "search_places",
-  );
-  if (!finalPayload || !requiresPlaceEvidence) {
-    return finalPayload;
-  }
-
-  const placeCardIds = requiredEvidencePlaceCardIds(requiredEvidencePlan, toolResults);
-  const requiresNightlifeRouteEvidence = requiredEvidencePlan.requiredToolCalls.some(
-    (requiredCall) => requiredCall.name === "search_nightlife_events",
-  );
-  const requiresResearchSelectedPlaces = requiredEvidencePlan.requiredToolCalls.some(
-    (requiredCall) =>
-      requiredCall.name === "search_places" &&
-      requiredCall.dependsOn?.includes("research_web") === true,
-  );
-  if (
-    (requiresNightlifeRouteEvidence || requiresResearchSelectedPlaces) &&
-    placeCardIds.length > 0
-  ) {
-    return {
-      ...finalPayload,
-      displayCardIds: placeCardIds,
-    };
-  }
-
-  if (
-    placeCardIds.length === 0 ||
-    finalPayload.displayCardIds.some((cardId) => placeCardIds.includes(cardId))
-  ) {
-    return finalPayload;
-  }
-
-  return {
-    ...finalPayload,
-    displayCardIds: uniqueText([...finalPayload.displayCardIds, ...placeCardIds]),
-  };
 }
 
 function readRequiredToolChecks(data: AgentToolResult["data"]) {
