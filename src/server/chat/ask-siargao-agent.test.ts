@@ -1478,6 +1478,171 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(client.requests).toHaveLength(1);
   });
 
+  test("waits for required upstream research before starting dependent Places enrichment", async () => {
+    const currentDinnerPlacesSource: AnswerSourceSummary = {
+      ...placesSourceSummary,
+      checked: ["place identity", "map link", "open-now signal"],
+    };
+    const rootsCard: RecommendationCard = {
+      id: "place_roots_siargao",
+      kind: "place",
+      title: "Roots Siargao",
+      subtitle: "General Luna",
+      mapsUrl: "https://maps.example/roots-siargao",
+      fitReasons: ["Selected by current public web research before Places enrichment."],
+      caveats: ["Confirm table availability before walking over."],
+      sourceLabel: "Google Places - live checked",
+      sources: [currentDinnerPlacesSource],
+    };
+    const disallowedCard: RecommendationCard = {
+      ...rootsCard,
+      id: "place_random_bar",
+      title: "Random Bar",
+      fitReasons: ["Unrelated Places candidate that should not pass the contract allowlist."],
+    };
+    const events: string[] = [];
+    let researchCompleted = false;
+    const client = fakeResponsesClient([
+      {
+        id: "resp_current_dinner_batched_tools",
+        _request_id: "req_current_dinner_batched_tools",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_current_dinner_research",
+            name: "research_web",
+            arguments: JSON.stringify({
+              query: "what is the current dinner pop-up in General Luna tonight",
+              intent: "recommendation",
+              location: "General Luna",
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_current_dinner_places",
+            name: "search_places",
+            arguments: JSON.stringify({
+              query: "dinner pop-up General Luna Siargao",
+              center: { latitude: 9.8006, longitude: 126.1586 },
+              radius_meters: 12_000,
+              constraints: { included_type: "restaurant", open_now: true, page_size: 8 },
+            }),
+          },
+        ],
+      },
+      {
+        id: "resp_current_dinner_final",
+        output_text: finalPayloadText({
+          answer:
+            "Roots Siargao is the strongest current dinner candidate tonight based on public web research and checked Places details.",
+          usedToolCallIds: ["call_current_dinner_research", "call_current_dinner_places"],
+          displayCardIds: [rootsCard.id, disallowedCard.id],
+        }),
+        _request_id: "req_current_dinner_final",
+      },
+      {
+        id: "resp_current_dinner_quality_final",
+        output_text: finalPayloadText({
+          answer: [
+            "Current dinner lead in **General Luna**:",
+            "",
+            "| Place | Area | Why it fits | First move |",
+            "| --- | --- | --- | --- |",
+            "| **Roots Siargao** | General Luna | Current public web research selected it, then Places checked the matching venue details. | Use the map card and confirm table availability before walking over. |",
+            "",
+            "Skip unrelated candidates unless fresh evidence names them for tonight.",
+          ].join("\n"),
+          usedToolCallIds: ["call_current_dinner_research", "call_current_dinner_places"],
+          displayCardIds: [rootsCard.id, disallowedCard.id],
+        }),
+        _request_id: "req_current_dinner_quality_final",
+      },
+    ]);
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "research_web") {
+        events.push("research:start");
+        await new Promise<void>((resolve) => setTimeout(resolve, 5));
+        researchCompleted = true;
+        events.push("research:end");
+        return {
+          name: "research_web",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Public web research selected Roots Siargao.",
+          data: {
+            status: "available",
+            entities: [
+              {
+                name: "Roots Siargao",
+                kind: "place",
+                area: "General Luna",
+                needsPlacesEnrichment: true,
+              },
+            ],
+            findings: [
+              {
+                claim: "Roots Siargao is the strongest current dinner candidate tonight.",
+                answerRole: "primary",
+              },
+            ],
+          },
+          sources: [
+            {
+              label: "official_checked",
+              sourceName: "Roots Siargao official channel",
+              sourceProfileId: "source_web_official",
+              confidence: "high",
+              checked: ["current dinner pop-up signal"],
+              notChecked: ["walk-in table availability"],
+            },
+          ],
+        };
+      }
+      if (request.name === "search_places") {
+        events.push(`places:start:${researchCompleted ? "after" : "before"}_research`);
+        expect(researchCompleted).toBe(true);
+        expect(String(request.arguments.query)).toContain("Roots Siargao");
+        events.push("places:end");
+        return {
+          name: "search_places",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Google Places returned the research-selected dinner place.",
+          sources: [currentDinnerPlacesSource],
+          cards: [rootsCard, disallowedCard],
+        };
+      }
+      throw new Error(`Unexpected tool ${request.name}`);
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          { role: "user", content: "What is the current dinner pop-up in General Luna tonight?" },
+        ],
+        requestId: "agent_request_current_dinner_ordered_evidence",
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(events).toEqual([
+      "research:start",
+      "research:end",
+      "places:start:after_research",
+      "places:end",
+    ]);
+    expect(result.toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall.name])).toEqual([
+      ["call_current_dinner_research", "research_web"],
+      ["call_current_dinner_places", "search_places"],
+    ]);
+    expect(result.cards?.map((card) => card.id)).toEqual([rootsCard.id]);
+    expect(JSON.stringify(result.cards)).not.toContain(disallowedCard.title);
+    expect(result.artifactSelection).toMatchObject({
+      selectedCardCount: 1,
+      unknownCardIds: [],
+    });
+  });
+
   test("keeps legacy plain-text compatibility without tool-result artifacts", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({

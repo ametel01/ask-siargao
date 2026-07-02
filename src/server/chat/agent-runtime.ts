@@ -402,6 +402,7 @@ export function publicAgentToolCallsFromAudits(
 export function createAgentTurnResult({
   actions,
   allowedCardKinds,
+  allowedCardIds,
   cards,
   decisionSummaries,
   artifactSelectionMode = "compatibility",
@@ -427,6 +428,7 @@ export function createAgentTurnResult({
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
   allowedCardKinds?: readonly RecommendationCardKind[];
+  allowedCardIds?: readonly string[];
   itineraries?: readonly ItineraryPlan[];
   decisionSummaries?: readonly DecisionSummary[];
   finalPayload?: AgentFinalPayload;
@@ -442,6 +444,7 @@ export function createAgentTurnResult({
   const selectedArtifacts = selectAgentArtifacts({
     actions,
     allowedCardKinds,
+    allowedCardIds,
     cards,
     decisionSummaries,
     finalPayload,
@@ -551,6 +554,7 @@ export function agentItineraryArtifactId(itinerary: ItineraryPlan): string {
 function selectAgentArtifacts({
   actions,
   allowedCardKinds,
+  allowedCardIds,
   cards,
   decisionSummaries,
   finalPayload,
@@ -561,6 +565,7 @@ function selectAgentArtifacts({
   cards?: readonly RecommendationCard[];
   actions?: readonly ChatAction[];
   allowedCardKinds?: readonly RecommendationCardKind[];
+  allowedCardIds?: readonly string[];
   itineraries?: readonly ItineraryPlan[];
   decisionSummaries?: readonly DecisionSummary[];
   finalPayload?: AgentFinalPayload;
@@ -573,7 +578,8 @@ function selectAgentArtifacts({
   decisionSummaries: DecisionSummary[];
   summary: AgentArtifactSelectionSummary;
 } {
-  const cardRegistry = allowedCardKinds?.length
+  const allowedCardIdSet = allowedCardIds ? new Set(allowedCardIds) : undefined;
+  const kindFilteredCardRegistry = allowedCardKinds?.length
     ? {
         ...registry,
         cardsById: new Map(
@@ -583,10 +589,22 @@ function selectAgentArtifacts({
         ),
       }
     : registry;
+  const cardRegistry = allowedCardIdSet
+    ? {
+        ...kindFilteredCardRegistry,
+        cardsById: new Map(
+          [...kindFilteredCardRegistry.cardsById.entries()].filter(([id]) =>
+            allowedCardIdSet.has(id),
+          ),
+        ),
+      }
+    : kindFilteredCardRegistry;
 
   if (!finalPayload) {
     const compatibilityCards = dedupeCardsById(cards ?? []).filter(
-      (card) => !allowedCardKinds?.length || allowedCardKinds.includes(card.kind),
+      (card) =>
+        (!allowedCardKinds?.length || allowedCardKinds.includes(card.kind)) &&
+        (!allowedCardIdSet || allowedCardIdSet.has(card.id)),
     );
     const compatibilityActions = dedupeById(actions ?? []);
     const compatibilityItineraries = dedupeItineraries(itineraries ?? []);
@@ -614,8 +632,8 @@ function selectAgentArtifacts({
 
   const selectedCardIds = resolveSelectedArtifactIds({
     ids: finalPayload.displayCardIds,
-    registryIds: [...cardRegistry.cardsById.keys()],
-    aliases: artifactIdAliases([...cardRegistry.cardsById.keys()], "card"),
+    registryIds: [...kindFilteredCardRegistry.cardsById.keys()],
+    aliases: artifactIdAliases([...kindFilteredCardRegistry.cardsById.keys()], "card"),
   });
   const selectedActionIds = resolveSelectedArtifactIds({
     ids: finalPayload.displayActionIds,
@@ -661,7 +679,7 @@ function selectAgentArtifacts({
 
   const resolvedCardIds = unique([
     ...selectedCardIds.resolvedIds,
-    ...referencedCardIds(finalPayload.answer, cardRegistry.cardsById),
+    ...(allowedCardIdSet ? [] : referencedCardIds(finalPayload.answer, cardRegistry.cardsById)),
   ]);
   const selectedCards = resolvedCardIds.flatMap((id) => {
     const card = cardRegistry.cardsById.get(id);

@@ -420,6 +420,81 @@ describe("agent runtime contracts", () => {
     });
   });
 
+  test("does not auto-select answer-text cards when a contract card allowlist is active", () => {
+    const allowedCard = {
+      ...cloud9CafeCard,
+      id: "place_roots",
+      title: "Roots Siargao",
+    };
+    const disallowedCard = {
+      ...cloud9CafeCard,
+      id: "place_random",
+      title: "Random Bar",
+    };
+
+    const turn = createAgentTurnResult({
+      message: "This should be replaced by final payload answer.",
+      requestId: "agent_request_contract_text_named_cards",
+      model: "gpt-test",
+      allowedCardIds: [allowedCard.id],
+      finalPayload: finalPayloadFixture({
+        answer: "Roots Siargao is the checked dinner option.",
+      }),
+      toolResults: [
+        {
+          sources: [placesSourceSummary],
+          cards: [allowedCard, disallowedCard],
+        },
+      ],
+    });
+
+    expect(turn.cards).toBeUndefined();
+    expect(turn.publicSources).toEqual([]);
+    expect(turn.artifactSelection).toMatchObject({
+      totalCardCount: 1,
+      selectedCardCount: 0,
+      unselectedCardCount: 1,
+    });
+  });
+
+  test("keeps only contract-allowed cards from adversarial mixed displayCardIds", () => {
+    const allowedCard = {
+      ...cloud9CafeCard,
+      id: "place_roots",
+      title: "Roots Siargao",
+    };
+    const disallowedCard = {
+      ...cloud9CafeCard,
+      id: "place_random",
+      title: "Random Bar",
+    };
+
+    const turn = createAgentTurnResult({
+      message: "Use only the allowed recommendation card.",
+      requestId: "agent_request_contract_mixed_cards",
+      model: "gpt-test",
+      allowedCardIds: [allowedCard.id],
+      finalPayload: finalPayloadFixture({
+        displayCardIds: [allowedCard.id, disallowedCard.id],
+      }),
+      toolResults: [
+        {
+          sources: [placesSourceSummary],
+          cards: [allowedCard, disallowedCard],
+        },
+      ],
+    });
+
+    expect(turn.cards?.map((card) => card.id)).toEqual([allowedCard.id]);
+    expect(turn.publicSources).toEqual([placesSourceSummary]);
+    expect(turn.artifactSelection).toMatchObject({
+      totalCardCount: 1,
+      selectedCardCount: 1,
+      unselectedCardCount: 0,
+      unknownCardIds: [],
+    });
+  });
+
   test("keeps aggregate sources internal while exposing only message-selected sources", () => {
     const localGuideResult: AgentToolResult = {
       name: "search_local_guide",
