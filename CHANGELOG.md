@@ -76,6 +76,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
   response boundary.
 - Moved Google Places search/detail provider routing behind a Places evidence adapter so chat tools
   format tool results without owning live, cache, no-store, DB, and enrichment selection rules.
+- Hid private audit, payment, publication, and reviewer state behind report-access decision records
+  so routes and tests exercise the access policy without reconstructing persisted state matrices.
 - Strengthened chat source governance so `provider_unavailable` labels cannot carry checked facts
   and recommendation cards from failed provider outputs are excluded from selection.
 - Strengthened chat agent instructions and tool descriptions so the model owns tool choice and

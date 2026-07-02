@@ -25,18 +25,18 @@ export type ReportAccessResult =
       status: Exclude<ReportAccessStatus, "authorized">;
     };
 
-export type PersistedReportAccessState = {
-  auditRequestId: string;
-  auditState: string;
-  reportJson: unknown;
-  publishedAt?: Date | null;
-  paymentStatus?: string | null;
-  paymentVerifiedAt?: Date | null;
-  reviewerApproved: boolean;
-};
+export type ReportAccessDecisionRecord =
+  | {
+      status: "authorized";
+      auditRequestId: string;
+      reportJson: unknown;
+    }
+  | {
+      status: "not_found" | "unpaid" | "unpublished" | "unreviewed";
+    };
 
 export type ReportAccessStore = {
-  loadReportAccessState: (auditRequestId: string) => Promise<PersistedReportAccessState | null>;
+  loadReportAccessDecision: (auditRequestId: string) => Promise<ReportAccessDecisionRecord>;
 };
 
 export type ReportAccessTokenPayload = {
@@ -72,26 +72,17 @@ export async function getReportAccess(input: {
   }
 
   const store = input.store ?? createDatabaseReportAccessStore();
-  const state = await store.loadReportAccessState(input.auditRequestId);
+  const decision = await store.loadReportAccessDecision(input.auditRequestId);
 
-  if (!state) {
-    return { status: "not_found" };
-  }
-  if (state.paymentStatus !== "paid" || !state.paymentVerifiedAt) {
-    return { status: "unpaid" };
-  }
-  if (state.auditState !== "published" || !state.publishedAt) {
-    return { status: "unpublished" };
-  }
-  if (!state.reviewerApproved) {
-    return { status: "unreviewed" };
+  if (decision.status !== "authorized") {
+    return { status: decision.status };
   }
 
-  const report = reportOutputSchema.parse(state.reportJson);
+  const report = reportOutputSchema.parse(decision.reportJson);
 
   return {
     status: "authorized",
-    auditRequestId: input.auditRequestId,
+    auditRequestId: decision.auditRequestId,
     report,
   };
 }
@@ -149,7 +140,7 @@ function verifyReportAccessToken(input: {
 
 function createDatabaseReportAccessStore(db: Database = createDatabaseClient()): ReportAccessStore {
   return {
-    async loadReportAccessState(auditRequestId) {
+    async loadReportAccessDecision(auditRequestId) {
       const reportRows = await db
         .select({
           auditRequestId: auditReports.auditRequestId,
@@ -164,7 +155,7 @@ function createDatabaseReportAccessStore(db: Database = createDatabaseClient()):
       const report = reportRows[0];
 
       if (!report) {
-        return null;
+        return { status: "not_found" };
       }
 
       const [auditRows, paymentRows, reviewerRows] = await Promise.all([
@@ -195,15 +186,20 @@ function createDatabaseReportAccessStore(db: Database = createDatabaseClient()):
           : Promise.resolve([]),
       ]);
 
+      if (paymentRows[0]?.status !== "paid" || !paymentRows[0].webhookVerifiedAt) {
+        return { status: "unpaid" };
+      }
+      if (auditRows[0]?.status !== "published" || !report.publishedAt) {
+        return { status: "unpublished" };
+      }
+      if (reviewerRows[0]?.verdict !== "approved" || reviewerRows[0].blockedReasons.length > 0) {
+        return { status: "unreviewed" };
+      }
+
       return {
+        status: "authorized",
         auditRequestId: report.auditRequestId,
-        auditState: auditRows[0]?.status ?? "missing",
         reportJson: report.reportJson,
-        publishedAt: report.publishedAt,
-        paymentStatus: paymentRows[0]?.status,
-        paymentVerifiedAt: paymentRows[0]?.webhookVerifiedAt,
-        reviewerApproved:
-          reviewerRows[0]?.verdict === "approved" && reviewerRows[0].blockedReasons.length === 0,
       };
     },
   };

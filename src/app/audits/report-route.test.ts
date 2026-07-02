@@ -4,7 +4,7 @@ import { resolveAuditReportRoute } from "@/app/audits/report-route";
 import {
   createReportAccessToken,
   getReportAccess,
-  type PersistedReportAccessState,
+  type ReportAccessDecisionRecord,
   type ReportAccessStore,
 } from "@/server/audit/report-access";
 import { sampleReport } from "@/server/audit/sample-report";
@@ -17,13 +17,9 @@ describe("audit report route access", () => {
     const result = await resolveAuditReportRoute(
       { auditRequestId: "audit_bare" },
       routeDependencies({
+        status: "authorized",
         auditRequestId: "audit_bare",
-        auditState: "published",
-        paymentStatus: "paid",
-        paymentVerifiedAt: now,
-        publishedAt: now,
         reportJson: sampleReport,
-        reviewerApproved: true,
       }),
     );
 
@@ -40,13 +36,7 @@ describe("audit report route access", () => {
         token: tokenFor("audit_unpublished"),
       },
       routeDependencies({
-        auditRequestId: "audit_unpublished",
-        auditState: "generating",
-        paymentStatus: "paid",
-        paymentVerifiedAt: now,
-        publishedAt: null,
-        reportJson: sampleReport,
-        reviewerApproved: true,
+        status: "unpublished",
       }),
     );
 
@@ -63,13 +53,7 @@ describe("audit report route access", () => {
         token: tokenFor("audit_unpaid"),
       },
       routeDependencies({
-        auditRequestId: "audit_unpaid",
-        auditState: "published",
-        paymentStatus: "checkout_started",
-        paymentVerifiedAt: null,
-        publishedAt: now,
-        reportJson: sampleReport,
-        reviewerApproved: true,
+        status: "unpaid",
       }),
     );
 
@@ -86,13 +70,7 @@ describe("audit report route access", () => {
         token: tokenFor("audit_unreviewed"),
       },
       routeDependencies({
-        auditRequestId: "audit_unreviewed",
-        auditState: "published",
-        paymentStatus: "paid",
-        paymentVerifiedAt: now,
-        publishedAt: now,
-        reportJson: sampleReport,
-        reviewerApproved: false,
+        status: "unreviewed",
       }),
     );
 
@@ -109,13 +87,9 @@ describe("audit report route access", () => {
         token: tokenFor("audit_authorized"),
       },
       routeDependencies({
+        status: "authorized",
         auditRequestId: "audit_authorized",
-        auditState: "published",
-        paymentStatus: "paid",
-        paymentVerifiedAt: now,
-        publishedAt: now,
         reportJson: sampleReport,
-        reviewerApproved: true,
       }),
     );
 
@@ -126,10 +100,12 @@ describe("audit report route access", () => {
   });
 });
 
-function routeDependencies(state: PersistedReportAccessState) {
+function routeDependencies(decision: ReportAccessDecisionRecord) {
   const store: ReportAccessStore = {
-    loadReportAccessState: async (auditRequestId) =>
-      auditRequestId === state.auditRequestId ? state : null,
+    loadReportAccessDecision: async (auditRequestId) =>
+      decision.status === "authorized" && auditRequestId !== decision.auditRequestId
+        ? { status: "not_found" }
+        : decision,
   };
 
   return {
