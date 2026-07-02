@@ -68,6 +68,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 - Moved vehicle-rental chat evidence repair into the required-evidence policy so the turn runtime
   gets Places-first lookup and public-web fallback requirements from one policy surface.
+- Deepened required-evidence repairs so policy code now owns repair tool-call construction,
+  targeted fallback argument matching, and Places-card acceptance instead of the chat runtime.
 - Moved Google Places chat capture construction into a governed capture module so cache callers
   pass provider observations instead of assembling source records, snapshots, retention windows,
   and attribution payloads themselves.

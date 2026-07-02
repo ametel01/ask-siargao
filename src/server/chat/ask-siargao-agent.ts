@@ -34,8 +34,8 @@ import type {
 } from "@/server/chat/itinerary-tools";
 import {
   buildRequiredEvidencePlan,
+  buildRequiredEvidenceRepair,
   finalPayloadSatisfiesRequiredEvidence,
-  missingRequiredEvidenceToolCalls,
   nightlifePlacesEnrichmentIsUnavailable,
   type RequiredEvidencePlan,
   requiredEvidencePlaceCardIds,
@@ -299,23 +299,19 @@ export async function runAskSiargaoAgentTurn(
         continue;
       }
 
-      const requiredEvidenceRepairCalls = missingRequiredEvidenceToolCalls(
-        requiredEvidencePlan,
+      const requiredEvidenceRepair = buildRequiredEvidenceRepair({
+        plan: requiredEvidencePlan,
         toolCalls,
         toolResults,
-      );
-      if (requiredEvidenceRepairCalls.length > 0) {
-        if (toolCalls.length + requiredEvidenceRepairCalls.length > maxToolCalls) {
+      });
+      if (requiredEvidenceRepair) {
+        if (toolCalls.length + requiredEvidenceRepair.functionCalls.length > maxToolCalls) {
           throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
         }
 
         const automaticEvidenceOutputs = await executeAndAuditToolBatch({
           executeTool,
-          functionCalls: requiredEvidenceRepairCalls.map((requiredCall, index) => ({
-            callId: `auto_required_evidence_${requiredCall.name}_${index + 1}`,
-            name: requiredCall.name,
-            arguments: requiredCall.arguments,
-          })),
+          functionCalls: requiredEvidenceRepair.functionCalls,
           logger,
           now: dependencies.now ?? (() => new Date()),
           requiredEvidencePlan,
@@ -331,120 +327,13 @@ export async function runAskSiargaoAgentTurn(
           ...responseOutputItems(response.output),
           userInputMessage({
             product: "Ask Siargao",
-            instruction:
-              "Validation repair: required evidence was missing for this answer. Use these automatically executed required-evidence outputs before the final answer. If a required provider check succeeded, use its checked evidence and select only matching public artifacts. If a required provider check was unavailable or insufficient, keep the answer caveated and avoid checked/live claims from that provider.",
+            instruction: requiredEvidenceRepair.instruction,
             automaticRequiredEvidence: automaticEvidenceOutputs.map((output) => ({
               toolCallId: output.functionCall.callId,
               name: output.functionCall.name,
               arguments: publicToolArguments(output.functionCall),
               result: JSON.parse(serializeToolOutput(output.result)),
             })),
-            responseContract,
-          }),
-        ];
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_000,
-          instructions,
-          tools,
-          ...(responseInclude ? { include: responseInclude } : {}),
-          input: responseInput,
-        });
-        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
-        collectHostedFileSearchMemoryFileNames(
-          response.output,
-          memorySnapshot,
-          hostedMemoryFileNames,
-        );
-        continue;
-      }
-
-      const localServicePlacesRepairCall = missingLocalServicePlacesRepairCall(resolved, toolCalls);
-      if (localServicePlacesRepairCall) {
-        if (toolCalls.length + 1 > maxToolCalls) {
-          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
-        }
-
-        const automaticPlacesOutput = await executeAndAuditTool({
-          executeTool,
-          functionCall: localServicePlacesRepairCall,
-          logger,
-          now: dependencies.now ?? (() => new Date()),
-          runtimeRequest: resolved,
-          requestId: resolved.requestId,
-        });
-        toolCalls.push(automaticPlacesOutput.audit);
-        toolResults.push(automaticPlacesOutput.result);
-
-        responseInput = [
-          ...responseInput,
-          ...responseOutputItems(response.output),
-          userInputMessage({
-            product: "Ask Siargao",
-            instruction:
-              "Validation repair: the traveler asked where to rent a scooter or motorbike. Use this Google Places local-service evidence before the final answer. If Places returned cards, select the best matching public place cards and include map/opening/rating details from the checked result. If Places was unavailable, keep the answer caveated and do not claim map, rating, distance, or open-now facts from memory or web research alone.",
-            validationRepairLocalServicePlaces: {
-              toolCallId: automaticPlacesOutput.functionCall.callId,
-              name: automaticPlacesOutput.functionCall.name,
-              arguments: publicToolArguments(automaticPlacesOutput.functionCall),
-              result: JSON.parse(serializeToolOutput(automaticPlacesOutput.result)),
-            },
-            responseContract,
-          }),
-        ];
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_000,
-          instructions,
-          tools,
-          ...(responseInclude ? { include: responseInclude } : {}),
-          input: responseInput,
-        });
-        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
-        collectHostedFileSearchMemoryFileNames(
-          response.output,
-          memorySnapshot,
-          hostedMemoryFileNames,
-        );
-        continue;
-      }
-
-      const localServiceWebResearchRepairCall = missingLocalServiceWebResearchRepairCall(
-        resolved,
-        toolCalls,
-        toolResults,
-      );
-      if (localServiceWebResearchRepairCall) {
-        if (toolCalls.length + 1 > maxToolCalls) {
-          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
-        }
-
-        const automaticWebResearchOutput = await executeAndAuditTool({
-          executeTool,
-          functionCall: localServiceWebResearchRepairCall,
-          logger,
-          now: dependencies.now ?? (() => new Date()),
-          runtimeRequest: resolved,
-          requestId: resolved.requestId,
-        });
-        toolCalls.push(automaticWebResearchOutput.audit);
-        toolResults.push(automaticWebResearchOutput.result);
-
-        responseInput = [
-          ...responseInput,
-          ...responseOutputItems(response.output),
-          userInputMessage({
-            product: "Ask Siargao",
-            instruction:
-              "Validation repair: Google Places was unavailable for this scooter or motorbike rental lookup, so public web research was run as a fallback. Use direct operator, directory, booking, rate, contact, deposit, helmet, delivery, and pickup evidence from research_web when available. If research_web was insufficient too, keep the answer caveated and avoid naming unverified shops as checked options.",
-            validationRepairLocalServiceWebResearch: {
-              toolCallId: automaticWebResearchOutput.functionCall.callId,
-              name: automaticWebResearchOutput.functionCall.name,
-              arguments: publicToolArguments(automaticWebResearchOutput.functionCall),
-              result: JSON.parse(serializeToolOutput(automaticWebResearchOutput.result)),
-            },
             responseContract,
           }),
         ];
@@ -1320,104 +1209,6 @@ function missingConditionJudgmentRepairCall(
   };
 }
 
-function missingLocalServicePlacesRepairCall(
-  request: AgentRuntimeRequest,
-  toolCalls: readonly AgentToolCallAudit[],
-): ParsedFunctionCall | undefined {
-  const latestContent = latestUserContent(request.messages);
-  if (!isVehicleRentalLookup(latestContent)) {
-    return undefined;
-  }
-  if (
-    toolCalls.some((toolCall) => toolCall.toolCallId === "auto_required_local_service_places_1")
-  ) {
-    return undefined;
-  }
-  if (toolCalls.some(isUsableVehicleRentalPlacesCall)) {
-    return undefined;
-  }
-
-  const location = inferPlacesRepairLocation(latestContent);
-  const vehicle = /\bmotor\s*bikes?|motorbikes?\b/i.test(latestContent) ? "motorbike" : "scooter";
-
-  return {
-    callId: "auto_required_local_service_places_1",
-    name: "search_places",
-    arguments: {
-      query: `${vehicle} rental in ${location.queryLabel} Siargao`,
-      center: location.center,
-      radius_meters: location.radiusMeters,
-      constraints: { included_type: "car_rental", open_now: null, page_size: 10 },
-    },
-  };
-}
-
-function isUsableVehicleRentalPlacesCall(toolCall: AgentToolCallAudit) {
-  if (toolCall.name !== "search_places") {
-    return false;
-  }
-
-  const query = readString(toolCall.arguments.query) ?? "";
-  if (!/\b(?:scooters?|motorbikes?|motor\s*bikes?)\b/i.test(query)) {
-    return false;
-  }
-  if (!/\b(?:rent|rental|rentals|hire|hiring)\b/i.test(query)) {
-    return false;
-  }
-
-  const includedType = readStringPath(toolCall.arguments, ["constraints", "included_type"]);
-  return includedType === undefined || includedType === "car_rental";
-}
-
-function missingLocalServiceWebResearchRepairCall(
-  request: AgentRuntimeRequest,
-  toolCalls: readonly AgentToolCallAudit[],
-  toolResults: readonly AgentToolResult[],
-): ParsedFunctionCall | undefined {
-  const latestContent = latestUserContent(request.messages);
-  if (!isVehicleRentalLookup(latestContent)) {
-    return undefined;
-  }
-  if (
-    toolCalls.some(
-      (toolCall) => toolCall.toolCallId === "auto_required_local_service_web_research_1",
-    )
-  ) {
-    return undefined;
-  }
-  if (!toolCalls.some(isUnavailableVehicleRentalPlacesCall)) {
-    return undefined;
-  }
-  if (toolResults.some(researchWebResultIsAvailable)) {
-    return undefined;
-  }
-
-  const location = inferPlacesRepairLocation(latestContent);
-  const vehicle = /\bmotor\s*bikes?|motorbikes?\b/i.test(latestContent) ? "motorbike" : "scooter";
-
-  return {
-    callId: "auto_required_local_service_web_research_1",
-    name: "research_web",
-    arguments: {
-      query: `${vehicle} rental in ${location.queryLabel} Siargao Golden Bell Morenta Siargao Motorbike Rentals rates contact WhatsApp deposit helmet delivery`,
-      intent: "recommendation",
-      location: location.queryLabel,
-      dateContext: "none",
-      sourceTypes: ["official", "local_directory", "maps", "guide"],
-      requiredFreshness: "stable",
-      maxSources: 6,
-    },
-  };
-}
-
-function isUnavailableVehicleRentalPlacesCall(toolCall: AgentToolCallAudit) {
-  return (
-    isUsableVehicleRentalPlacesCall(toolCall) &&
-    toolCall.status === "error" &&
-    toolCall.errorCode === "provider_unavailable"
-  );
-}
-
 function isVehicleRentalLookup(content: string) {
   return (
     /\b(?:where\s+(?:can|should)\s+(?:i|we)\s+)?(?:rent|rental|rentals|hire|hiring)\b/i.test(
@@ -1697,46 +1488,6 @@ function isMarkdownTableSeparatorLine(line: string) {
     .split("|")
     .map((cell) => cell.trim());
   return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
-}
-
-function inferPlacesRepairLocation(content: string): {
-  queryLabel: string;
-  center: { latitude: number; longitude: number };
-  radiusMeters: number;
-} {
-  if (/\bcloud\s*9|cloud9|catangnan\b/i.test(content)) {
-    return {
-      queryLabel: "Cloud 9 General Luna",
-      center: { latitude: 9.8116, longitude: 126.1651 },
-      radiusMeters: 6_000,
-    };
-  }
-  if (/\bdel\s+carmen|sugba\b/i.test(content)) {
-    return {
-      queryLabel: "Del Carmen",
-      center: { latitude: 9.872, longitude: 125.97 },
-      radiusMeters: 12_000,
-    };
-  }
-  if (/\bdapa\b/i.test(content)) {
-    return {
-      queryLabel: "Dapa",
-      center: { latitude: 9.759, longitude: 125.974 },
-      radiusMeters: 12_000,
-    };
-  }
-  if (/\bsiargao\b/i.test(content) && !/\bgeneral\s+luna|\bgl\b/i.test(content)) {
-    return {
-      queryLabel: "Siargao",
-      center: { latitude: 9.848, longitude: 126.045 },
-      radiusMeters: 20_000,
-    };
-  }
-  return {
-    queryLabel: "General Luna",
-    center: { latitude: 9.784, longitude: 126.158 },
-    radiusMeters: 8_000,
-  };
 }
 
 function missingSurfSpotRankingRepairCall(

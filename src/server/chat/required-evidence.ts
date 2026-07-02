@@ -12,6 +12,17 @@ export type RequiredEvidencePlan = {
   allowedCardKinds?: readonly RecommendationCardKind[];
 };
 
+export type RequiredEvidenceRepair = {
+  functionCalls: readonly RequiredEvidenceRepairFunctionCall[];
+  instruction: string;
+};
+
+export type RequiredEvidenceRepairFunctionCall = {
+  callId: string;
+  name: string;
+  arguments: Record<string, unknown>;
+};
+
 type RequiredEvidenceToolCallBase = {
   arguments: Record<string, unknown>;
   acceptedSourceLabels: readonly string[];
@@ -70,6 +81,30 @@ export function missingRequiredEvidenceToolCalls(
   );
 }
 
+export function buildRequiredEvidenceRepair({
+  plan,
+  toolCalls,
+  toolResults = [],
+}: {
+  plan: RequiredEvidencePlan;
+  toolCalls: readonly AgentToolCallAudit[];
+  toolResults?: readonly AgentToolResult[];
+}): RequiredEvidenceRepair | undefined {
+  const missingToolCalls = missingRequiredEvidenceToolCalls(plan, toolCalls, toolResults);
+  if (missingToolCalls.length === 0) {
+    return undefined;
+  }
+
+  return {
+    functionCalls: missingToolCalls.map((requiredCall, index) => ({
+      callId: `auto_required_evidence_${requiredCall.name}_${index + 1}`,
+      name: requiredCall.name,
+      arguments: requiredCall.arguments,
+    })),
+    instruction: requiredEvidenceRepairInstruction(missingToolCalls),
+  };
+}
+
 export function finalPayloadSatisfiesRequiredEvidence(
   plan: RequiredEvidencePlan,
   finalPayload: AgentFinalPayload | undefined,
@@ -119,7 +154,16 @@ export function finalPayloadSatisfiesRequiredEvidence(
     return requiredEvidencePlaceCardIds(plan, toolResults).length > 0;
   }
   const placeCardIds = new Set(requiredEvidencePlaceCardIds(plan, toolResults));
+  if (placeCardIds.size === 0) {
+    return true;
+  }
   return finalPayload.displayCardIds.some((id) => placeCardIds.has(id));
+}
+
+function requiredEvidenceRepairInstruction(missingToolCalls: readonly RequiredEvidenceToolCall[]) {
+  const purposes = uniqueText(missingToolCalls.map((call) => call.purpose)).join(", ");
+  const purposeClause = purposes ? ` Missing policy purpose(s): ${purposes}.` : "";
+  return `Validation repair: required evidence was missing for this answer.${purposeClause} Use these automatically executed required-evidence outputs before the final answer. If a required provider check succeeded, use its checked evidence and select only matching public artifacts. If a required provider check was unavailable or insufficient, keep the answer caveated and avoid checked/live claims from that provider.`;
 }
 
 export function requiredEvidencePlaceCardIds(
@@ -448,6 +492,7 @@ function hasSatisfyingToolCall(
   return toolCalls.some(
     (toolCall) =>
       toolCall.name === requiredCall.name &&
+      requiredEvidenceArgumentsMatch(requiredCall, toolCall.arguments) &&
       toolCall.status === "success" &&
       toolCall.sources.some(
         (source) =>
@@ -466,6 +511,7 @@ function hasCompletedToolCall(
   return toolCalls.some(
     (toolCall) =>
       toolCall.name === requiredCall.name &&
+      requiredEvidenceArgumentsMatch(requiredCall, toolCall.arguments) &&
       toolCall.sources.some(
         (source) =>
           requiredCall.acceptedSourceLabels.includes(source.label) ||
@@ -481,7 +527,51 @@ function hasTerminalToolCall(
   return toolCalls.some(
     (toolCall) =>
       toolCall.name === requiredCall.name &&
+      requiredEvidenceArgumentsMatch(requiredCall, toolCall.arguments) &&
       toolCall.sources.some((source) => requiredCall.terminalSourceLabels.includes(source.label)),
+  );
+}
+
+function requiredEvidenceArgumentsMatch(
+  requiredCall: RequiredEvidenceToolCall,
+  actualArguments: Record<string, unknown>,
+) {
+  if (requiredCall.name === "research_web") {
+    return requiredWebEvidenceArgumentsMatch(requiredCall, actualArguments);
+  }
+  if (
+    requiredCall.name !== "search_places" ||
+    requiredCall.purpose !== "local_service_places_lookup"
+  ) {
+    return true;
+  }
+
+  const query = typeof actualArguments.query === "string" ? actualArguments.query : "";
+  if (
+    !/\b(?:scooters?|motorbikes?|motor\s*bikes?)\b/iu.test(query) ||
+    !/\b(?:rent|rental|rentals|hire|hiring)\b/iu.test(query)
+  ) {
+    return false;
+  }
+  const constraints = isRecord(actualArguments.constraints) ? actualArguments.constraints : {};
+  const includedType =
+    typeof constraints.included_type === "string" ? constraints.included_type : undefined;
+  return includedType === undefined || includedType === "car_rental";
+}
+
+function requiredWebEvidenceArgumentsMatch(
+  requiredCall: RequiredWebResearchEvidenceToolCall,
+  actualArguments: Record<string, unknown>,
+) {
+  if (requiredCall.purpose !== "local_service_web_fallback") {
+    return true;
+  }
+
+  const query = typeof actualArguments.query === "string" ? actualArguments.query : "";
+  return (
+    /\b(?:scooters?|motorbikes?|motor\s*bikes?)\b/iu.test(query) &&
+    /\b(?:rent|rental|rentals|hire|hiring)\b/iu.test(query) &&
+    /\b(?:golden\s+bell|morenta|siargao\s+motorbike\s+rentals?)\b/iu.test(query)
   );
 }
 

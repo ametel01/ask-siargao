@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { AgentToolCallAudit, AgentToolResult } from "@/server/chat/agent-runtime";
 import {
   buildRequiredEvidencePlan,
+  buildRequiredEvidenceRepair,
   finalPayloadSatisfiesRequiredEvidence,
   missingRequiredEvidenceToolCalls,
   type RequiredEvidencePlan,
@@ -43,6 +44,7 @@ describe("required evidence planning", () => {
       missingRequiredEvidenceToolCalls(plan, [
         toolCall({
           name: "search_places",
+          arguments: plan.requiredToolCalls[0]?.arguments ?? {},
           status: "error",
           sources: [
             {
@@ -59,6 +61,24 @@ describe("required evidence planning", () => {
     ).toEqual(["research_web"]);
   });
 
+  test("builds policy-owned required evidence repair calls and instruction", () => {
+    const plan = buildRequiredEvidencePlan({
+      requestId: "request_required_evidence_vehicle_rental",
+      messages: [{ role: "user", content: "Where can I rent a scooter in General Luna?" }],
+    });
+
+    expect(buildRequiredEvidenceRepair({ plan, toolCalls: [] })).toEqual({
+      functionCalls: [
+        {
+          callId: "auto_required_evidence_search_places_1",
+          name: "search_places",
+          arguments: plan.requiredToolCalls[0]?.arguments,
+        },
+      ],
+      instruction: expect.stringContaining("local_service_places_lookup"),
+    });
+  });
+
   test("skips vehicle rental web fallback when Places evidence satisfies the policy", () => {
     const plan = buildRequiredEvidencePlan({
       requestId: "request_required_evidence_vehicle_rental",
@@ -69,6 +89,7 @@ describe("required evidence planning", () => {
       missingRequiredEvidenceToolCalls(plan, [
         toolCall({
           name: "search_places",
+          arguments: plan.requiredToolCalls[0]?.arguments ?? {},
           sources: [
             {
               label: "live_checked",
@@ -335,17 +356,19 @@ describe("required evidence planning", () => {
 
 function toolCall({
   name,
+  arguments: toolArguments = {},
   status = "success",
   sources,
 }: {
   name: string;
+  arguments?: AgentToolCallAudit["arguments"];
   status?: AgentToolCallAudit["status"];
   sources: AgentToolCallAudit["sources"];
 }): AgentToolCallAudit {
   return {
     id: `audit_${name}`,
     name,
-    arguments: {},
+    arguments: toolArguments,
     status,
     durationMs: 1,
     startedAt: "2026-07-01T00:00:00.000Z",

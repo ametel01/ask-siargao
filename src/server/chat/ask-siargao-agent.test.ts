@@ -602,7 +602,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         output_text: finalPayloadText({
           answer:
             "For motorbike rental in General Luna, start with General Luna Motorbike Rental and confirm availability, helmet, deposit, and current daily rate before paying. If you want, I can also pull map links and phone numbers.",
-          usedToolCallIds: ["call_motorbike_web", "auto_required_local_service_places_1"],
+          usedToolCallIds: ["call_motorbike_web", "auto_required_evidence_search_places_1"],
           displayCardIds: [motorbikePlaceCard.id],
         }),
         _request_id: "req_motorbike_rental_repaired_final",
@@ -621,7 +621,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
             "",
             "My pick: start with **General Luna Motorbike Rental** from the checked Places result, then use Golden Bell or Siargao Scooter Rentals as backups. Take a walkaround video and check brakes, horn, lights, tire tread, helmet fit, and registration copy before riding off.",
           ].join("\n"),
-          usedToolCallIds: ["call_motorbike_web", "auto_required_local_service_places_1"],
+          usedToolCallIds: ["call_motorbike_web", "auto_required_evidence_search_places_1"],
           displayCardIds: [motorbikePlaceCard.id],
         }),
         _request_id: "req_motorbike_rental_quality_repaired_final",
@@ -647,7 +647,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         };
       }
       if (request.name === "search_places") {
-        expect(request.toolCallId).toBe("auto_required_local_service_places_1");
+        expect(request.toolCallId).toBe("auto_required_evidence_search_places_1");
         expect(request.arguments).toMatchObject({
           query: "motorbike rental in General Luna Siargao",
           center: { latitude: 9.784, longitude: 126.158 },
@@ -679,7 +679,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.message).toContain("My pick");
     expect(result.toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall.name])).toEqual([
       ["call_motorbike_web", "research_web"],
-      ["auto_required_local_service_places_1", "search_places"],
+      ["auto_required_evidence_search_places_1", "search_places"],
     ]);
     expect(result.cards).toEqual([motorbikePlaceCard]);
     expect(result.publicSources).toEqual([motorbikeWebSource, placesSourceSummary]);
@@ -741,7 +741,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
             "",
             "My pick: start with **Golden Bell Siargao**, then use Siargao Motorbike Rentals as backup. Check brakes, horn, lights, tire tread, helmet fit, and registration copy before riding off.",
           ].join("\n"),
-          usedToolCallIds: ["auto_required_local_service_places_1"],
+          usedToolCallIds: ["auto_required_evidence_search_places_1"],
           displayCardIds: [motorbikePlaceCard.id],
         }),
         _request_id: "req_motorbike_wrong_type_repaired_final",
@@ -761,7 +761,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
           sources: [providerUnavailableSourceSummary],
         };
       }
-      if (request.toolCallId === "auto_required_local_service_places_1") {
+      if (request.toolCallId === "auto_required_evidence_search_places_1") {
         expect(request.arguments).toMatchObject({
           query: "motorbike rental in General Luna Siargao",
           constraints: { included_type: "car_rental", open_now: null, page_size: 10 },
@@ -788,7 +788,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
 
     expect(result.toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall.name])).toEqual([
       ["call_wrong_places_type", "search_places"],
-      ["auto_required_local_service_places_1", "search_places"],
+      ["auto_required_evidence_search_places_1", "search_places"],
     ]);
     expect(result.message).toContain("| Rental shop | Area | Price signal | Contact / notes |");
     expect(result.cards).toEqual([motorbikePlaceCard]);
@@ -844,7 +844,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
             "",
             "My pick: message **Golden Bell Siargao** first, then compare one backup if they are full. Avoid leaving your passport if another shop will take a cash deposit or local ID photo instead, and take a walkaround video before riding off.",
           ].join("\n"),
-          usedToolCallIds: ["auto_required_local_service_web_research_1"],
+          usedToolCallIds: ["auto_required_evidence_research_web_1"],
           displayCardIds: [],
         }),
         _request_id: "req_motorbike_web_fallback_final",
@@ -871,7 +871,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         };
       }
       if (request.name === "research_web") {
-        expect(request.toolCallId).toBe("auto_required_local_service_web_research_1");
+        expect(request.toolCallId).toBe("auto_required_evidence_research_web_1");
         expect(request.arguments).toMatchObject({
           query:
             "motorbike rental in General Luna Siargao Golden Bell Morenta Siargao Motorbike Rentals rates contact WhatsApp deposit helmet delivery",
@@ -913,12 +913,12 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.message).toContain("My pick");
     expect(result.toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall.name])).toEqual([
       ["call_motorbike_places_unavailable", "search_places"],
-      ["auto_required_local_service_web_research_1", "research_web"],
+      ["auto_required_evidence_research_web_1", "research_web"],
     ]);
     expect(result.cards ?? []).toEqual([]);
     expect(result.publicSources).toEqual([motorbikeWebSource]);
     expect(JSON.stringify(parseFirstInput(client.requests[2]?.input))).toContain(
-      "validationRepairLocalServiceWebResearch",
+      "automaticRequiredEvidence",
     );
   });
 
@@ -1090,7 +1090,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
             "",
             "My pick: message **Golden Bell Siargao** first, then compare one backup before paying.",
           ].join("\n"),
-          usedToolCallIds: ["auto_required_local_service_web_research_1"],
+          usedToolCallIds: ["auto_required_evidence_research_web_1"],
           displayCardIds: [],
         }),
         _request_id: "req_motorbike_targeted_web_final",
@@ -1136,7 +1136,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         };
       }
       if (request.name === "research_web") {
-        expect(request.toolCallId).toBe("auto_required_local_service_web_research_1");
+        expect(request.toolCallId).toBe("auto_required_evidence_research_web_1");
         expect(String(request.arguments.query)).toContain("Golden Bell");
         return {
           name: "research_web",
@@ -1163,7 +1163,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall.name])).toEqual([
       ["call_motorbike_places_down", "search_places"],
       ["call_motorbike_weak_web", "research_web"],
-      ["auto_required_local_service_web_research_1", "research_web"],
+      ["auto_required_evidence_research_web_1", "research_web"],
     ]);
     expect(result.publicSources).toEqual([targetedWebSource]);
   });
@@ -1277,7 +1277,8 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
             call_id: "call_scooter_web_failed",
             name: "research_web",
             arguments: JSON.stringify({
-              query: "scooter rental General Luna Siargao",
+              query:
+                "scooter rental in General Luna Siargao Golden Bell Morenta Siargao Motorbike Rentals rates contact WhatsApp deposit helmet delivery",
               intent: "recommendation",
               location: "General Luna",
             }),
@@ -1288,7 +1289,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
             name: "search_places",
             arguments: JSON.stringify({
               query: "scooter rental General Luna Siargao",
-              constraints: { included_type: null, open_now: null, page_size: 5 },
+              constraints: { included_type: "car_rental", open_now: null, page_size: 5 },
             }),
           },
         ],
@@ -1370,7 +1371,8 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
             call_id: "call_scooter_web_ok",
             name: "research_web",
             arguments: JSON.stringify({
-              query: "scooter rental General Luna Siargao",
+              query:
+                "scooter rental in General Luna Siargao Golden Bell Morenta Siargao Motorbike Rentals rates contact WhatsApp deposit helmet delivery",
               intent: "recommendation",
               location: "General Luna",
             }),
@@ -1381,7 +1383,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
             name: "search_places",
             arguments: JSON.stringify({
               query: "scooter rental General Luna Siargao",
-              constraints: { included_type: null, open_now: null, page_size: 5 },
+              constraints: { included_type: "car_rental", open_now: null, page_size: 5 },
             }),
           },
         ],
