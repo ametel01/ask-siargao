@@ -1,5 +1,10 @@
-import { riskCategories } from "@/server/audit/enums";
 import type { EvidenceBundle } from "@/server/audit/evidence-bundles";
+import {
+  classifyFactFreshnessForReport,
+  isLowConfidenceConsequentialRisk,
+  missingMandatoryRiskCategories,
+  reportHasStaleNonCriticalCaveat,
+} from "@/server/audit/risk-policy";
 import { type ReportOutput, type RiskItem, reportOutputSchema } from "@/server/audit/schemas";
 import type { GovernedFact } from "@/server/facts/types";
 
@@ -19,8 +24,6 @@ export type ReportValidationResult = {
   errors: string[];
   report?: ReportOutput;
 };
-
-const consequentialCategories = new Set(["arrival_departure_logistics", "health_safety_admin"]);
 
 export function validateReportForPublication(input: ReportValidationInput): ReportValidationResult {
   const errors: string[] = [];
@@ -42,12 +45,8 @@ export function validateReportForPublication(input: ReportValidationInput): Repo
     input.evidenceBundle.evidence.map((evidence) => evidence.evidenceId),
   );
   const factIds = new Set(input.facts.map((fact) => fact.id));
-  const reportCategories = new Set(report.fullRiskTable.map((risk) => risk.category));
-
-  for (const category of riskCategories) {
-    if (!reportCategories.has(category)) {
-      errors.push(`category:${category}:missing mandatory report category.`);
-    }
+  for (const category of missingMandatoryRiskCategories(report.fullRiskTable)) {
+    errors.push(`category:${category}:missing mandatory report category.`);
   }
 
   for (const risk of report.fullRiskTable) {
@@ -63,10 +62,11 @@ export function validateReportForPublication(input: ReportValidationInput): Repo
   }
 
   for (const fact of input.facts) {
-    if (isCriticalFact(fact) && isStale(fact, input.now)) {
+    const freshness = classifyFactFreshnessForReport(fact, input.now);
+    if (freshness === "stale_critical") {
       errors.push(`freshness:${fact.id}:critical fact is stale.`);
-    } else if (!isCriticalFact(fact) && isStale(fact, input.now)) {
-      if (!report.limitations.some((limitation) => limitation.toLowerCase().includes("stale"))) {
+    } else if (freshness === "stale_non_critical") {
+      if (!reportHasStaleNonCriticalCaveat(report)) {
         errors.push(`freshness:${fact.id}:stale non-critical fact needs a caveat.`);
       }
     }
@@ -84,7 +84,7 @@ export function validateReportForPublication(input: ReportValidationInput): Repo
   }
 
   for (const risk of [...report.topRisks, ...report.fullRiskTable]) {
-    if (consequentialCategories.has(risk.category) && risk.confidence === "low") {
+    if (isLowConfidenceConsequentialRisk(risk)) {
       errors.push(`confidence:${risk.id}:low-confidence source supports consequential claim.`);
     }
   }
@@ -108,12 +108,4 @@ function validateRisk(risk: RiskItem, evidenceIds: ReadonlySet<string>, errors: 
       errors.push(`risk:${risk.id}:invalid evidence ${evidence.evidenceId}.`);
     }
   }
-}
-
-function isCriticalFact(fact: GovernedFact) {
-  return ["route_schedule", "weather", "policy", "health_access"].includes(fact.factType);
-}
-
-function isStale(fact: GovernedFact, now: Date) {
-  return Boolean(fact.expiresAt && new Date(fact.expiresAt).getTime() < now.getTime());
 }
