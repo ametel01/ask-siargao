@@ -7,6 +7,11 @@ import {
   renderAvailableAgentMemory,
 } from "@/server/chat/agent-memory";
 import {
+  type AgentRepairAdapter,
+  type AgentRepairToolOutput,
+  runAgentRepairPipeline,
+} from "@/server/chat/agent-repair-pipeline";
+import {
   type AgentFinalPayload,
   type AgentMemoryMetadata,
   type AgentResponsesClient,
@@ -188,385 +193,53 @@ export async function runAskSiargaoAgentTurn(
   for (let turn = 0; turn < maxTurns; turn += 1) {
     const finalText = response.output_text?.trim();
     if (finalText) {
-      const itineraryPlanRepairCall = missingInitialItineraryPlanRepairCall(
-        resolved,
-        toolCalls,
-        toolResults,
-      );
-      if (itineraryPlanRepairCall) {
-        if (toolCalls.length + 1 > maxToolCalls) {
-          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
-        }
-
-        // Validation repair only: the model should choose plan_local_itinerary first. If it
-        // tries final itinerary prose anyway, the runtime repairs the missing contract evidence.
-        const automaticPlanOutput = await executeAndAuditTool({
-          executeTool,
-          functionCall: itineraryPlanRepairCall,
+      const repairResult = await runAgentRepairPipeline({
+        adapters: buildAgentRepairAdapters({
+          chatEvidencePolicy,
+          hostedMemoryFileNames,
           logger,
-          now: dependencies.now ?? (() => new Date()),
-          runtimeRequest: resolved,
-          requestId: resolved.requestId,
-        });
-        toolCalls.push(automaticPlanOutput.audit);
-        toolResults.push(automaticPlanOutput.result);
-
-        responseInput = [
-          ...responseInput,
-          ...responseOutputItems(response.output),
-          userInputMessage({
-            product: "Ask Siargao",
-            instruction:
-              "Validation repair: you attempted a final itinerary answer before choosing plan_local_itinerary as required. Use this runtime-repaired itinerary artifact as planning evidence, preserve its caveats, and continue with any required follow-up checks before the final traveler-facing answer.",
-            validationRepairItineraryPlan: {
-              toolCallId: automaticPlanOutput.functionCall.callId,
-              name: automaticPlanOutput.functionCall.name,
-              arguments: publicToolArguments(automaticPlanOutput.functionCall),
-              result: JSON.parse(serializeToolOutput(automaticPlanOutput.result)),
-            },
-            responseContract,
+          request: resolved,
+          requireStructuredFinalOutput: dependencies.requireStructuredFinalOutput === true,
+        }),
+        client,
+        executeToolCalls: (functionCalls) =>
+          executeAndAuditToolBatch({
+            executeTool,
+            functionCalls,
+            logger,
+            now: dependencies.now ?? (() => new Date()),
+            requiredEvidencePlan,
+            runtimeRequest: resolved,
+            requestId: resolved.requestId,
+            toolResults,
           }),
-        ];
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_000,
-          instructions,
-          tools,
-          ...(responseInclude ? { include: responseInclude } : {}),
-          input: responseInput,
-        });
-        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
-        collectHostedFileSearchMemoryFileNames(
-          response.output,
-          memorySnapshot,
-          hostedMemoryFileNames,
-        );
-        continue;
-      }
-
-      const conditionJudgmentRepairCall = missingConditionJudgmentRepairCall(
-        resolved,
-        toolCalls,
-        toolResults,
-      );
-      if (conditionJudgmentRepairCall) {
-        if (toolCalls.length + 1 > maxToolCalls) {
-          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
-        }
-
-        // Validation repair only: the model should choose get_condition_judgment for condition
-        // prompts. If it tries final prose anyway, the runtime repairs the missing evidence.
-        const automaticConditionOutput = await executeAndAuditTool({
-          executeTool,
-          functionCall: conditionJudgmentRepairCall,
-          logger,
-          now: dependencies.now ?? (() => new Date()),
-          runtimeRequest: resolved,
-          requestId: resolved.requestId,
-        });
-        toolCalls.push(automaticConditionOutput.audit);
-        toolResults.push(automaticConditionOutput.result);
-
-        responseInput = [
-          ...responseInput,
-          ...responseOutputItems(response.output),
-          userInputMessage({
-            product: "Ask Siargao",
-            instruction: conditionJudgmentRepairInstruction(
-              automaticConditionOutput.functionCall.arguments,
-            ),
-            validationRepairConditionJudgment: {
-              toolCallId: automaticConditionOutput.functionCall.callId,
-              name: automaticConditionOutput.functionCall.name,
-              arguments: publicToolArguments(automaticConditionOutput.functionCall),
-              result: JSON.parse(serializeToolOutput(automaticConditionOutput.result)),
-            },
-            responseContract,
-          }),
-        ];
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_000,
-          instructions,
-          tools,
-          ...(responseInclude ? { include: responseInclude } : {}),
-          input: responseInput,
-        });
-        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
-        collectHostedFileSearchMemoryFileNames(
-          response.output,
-          memorySnapshot,
-          hostedMemoryFileNames,
-        );
-        continue;
-      }
-
-      const requiredEvidenceRepair = buildChatEvidenceRepair({
-        policy: chatEvidencePolicy,
-        toolCalls,
-        toolResults,
-      });
-      if (requiredEvidenceRepair) {
-        if (toolCalls.length + requiredEvidenceRepair.functionCalls.length > maxToolCalls) {
-          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
-        }
-
-        const automaticEvidenceOutputs = await executeAndAuditToolBatch({
-          executeTool,
-          functionCalls: requiredEvidenceRepair.functionCalls,
-          logger,
-          now: dependencies.now ?? (() => new Date()),
-          requiredEvidencePlan,
-          runtimeRequest: resolved,
-          requestId: resolved.requestId,
-          toolResults,
-        });
-        toolCalls.push(...automaticEvidenceOutputs.map((output) => output.audit));
-        toolResults.push(...automaticEvidenceOutputs.map((output) => output.result));
-
-        responseInput = [
-          ...responseInput,
-          ...responseOutputItems(response.output),
-          userInputMessage({
-            product: "Ask Siargao",
-            instruction: requiredEvidenceRepair.instruction,
-            automaticRequiredEvidence: automaticEvidenceOutputs.map((output) => ({
-              toolCallId: output.functionCall.callId,
-              name: output.functionCall.name,
-              arguments: publicToolArguments(output.functionCall),
-              result: JSON.parse(serializeToolOutput(output.result)),
-            })),
-            responseContract,
-          }),
-        ];
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_000,
-          instructions,
-          tools,
-          ...(responseInclude ? { include: responseInclude } : {}),
-          input: responseInput,
-        });
-        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
-        collectHostedFileSearchMemoryFileNames(
-          response.output,
-          memorySnapshot,
-          hostedMemoryFileNames,
-        );
-        continue;
-      }
-
-      const surfSpotRankingRepairCall = missingSurfSpotRankingRepairCall(
-        resolved,
-        toolCalls,
-        toolResults,
-      );
-      if (surfSpotRankingRepairCall) {
-        if (toolCalls.length + 1 > maxToolCalls) {
-          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
-        }
-
-        const automaticSurfSpotRankingOutput = await executeAndAuditTool({
-          executeTool,
-          functionCall: surfSpotRankingRepairCall,
-          logger,
-          now: dependencies.now ?? (() => new Date()),
-          runtimeRequest: resolved,
-          requestId: resolved.requestId,
-        });
-        toolCalls.push(automaticSurfSpotRankingOutput.audit);
-        toolResults.push(automaticSurfSpotRankingOutput.result);
-
-        responseInput = [
-          ...responseInput,
-          ...responseOutputItems(response.output),
-          userInputMessage({
-            product: "Ask Siargao",
-            instruction:
-              "Validation repair: the user asked for closest surf spots near their shared location. Use this ranked surf-spot output for the nearest list, include approximate km distances, do not infer a named base area from memory alone, and preserve the distance and live-condition caveats.",
-            validationRepairSurfSpotRanking: {
-              toolCallId: automaticSurfSpotRankingOutput.functionCall.callId,
-              name: automaticSurfSpotRankingOutput.functionCall.name,
-              arguments: publicToolArguments(automaticSurfSpotRankingOutput.functionCall),
-              result: JSON.parse(serializeToolOutput(automaticSurfSpotRankingOutput.result)),
-            },
-            responseContract,
-          }),
-        ];
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_000,
-          instructions,
-          tools,
-          ...(responseInclude ? { include: responseInclude } : {}),
-          input: responseInput,
-        });
-        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
-        collectHostedFileSearchMemoryFileNames(
-          response.output,
-          memorySnapshot,
-          hostedMemoryFileNames,
-        );
-        continue;
-      }
-
-      const missingRequiredChecks = missingRequiredItineraryChecks(toolResults, toolCalls);
-      if (missingRequiredChecks.length > 0) {
-        if (toolCalls.length + missingRequiredChecks.length > maxToolCalls) {
-          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
-        }
-
-        const automaticToolOutputs = await Promise.all(
-          missingRequiredChecks.map((functionCall) =>
-            executeAndAuditTool({
-              executeTool,
-              functionCall,
-              logger,
-              now: dependencies.now ?? (() => new Date()),
-              runtimeRequest: resolved,
-              requestId: resolved.requestId,
-            }),
-          ),
-        );
-        toolCalls.push(...automaticToolOutputs.map((output) => output.audit));
-        toolResults.push(...automaticToolOutputs.map((output) => output.result));
-
-        responseInput = [
-          ...responseInput,
-          ...responseOutputItems(response.output),
-          userInputMessage({
-            product: "Ask Siargao",
-            instruction:
-              "You attempted a final itinerary answer before required follow-up checks completed. Use these automatically executed safe tool outputs, preserve provider failures as caveats, and write the final traveler-facing answer now.",
-            automaticRequiredToolChecks: automaticToolOutputs.map((output) => {
-              const { functionCall } = output;
-
-              return {
-                toolCallId: functionCall.callId,
-                name: functionCall.name,
-                arguments: publicToolArguments(functionCall),
-                result: JSON.parse(serializeToolOutput(output.result)),
-              };
-            }),
-            responseContract,
-          }),
-        ];
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_000,
-          instructions,
-          tools,
-          ...(responseInclude ? { include: responseInclude } : {}),
-          input: responseInput,
-        });
-        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
-        collectHostedFileSearchMemoryFileNames(
-          response.output,
-          memorySnapshot,
-          hostedMemoryFileNames,
-        );
-        continue;
-      }
-
-      const memoryRepairCall = missingClearMemoryLoadRepairCall(
         finalText,
-        resolved,
-        toolCalls,
-        toolResults,
-        hostedMemoryFileNames,
-      );
-      if (memoryRepairCall) {
-        if (toolCalls.length + 1 > maxToolCalls) {
-          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
-        }
-
-        const automaticMemoryOutput = await executeAndAuditTool({
-          executeTool,
-          functionCall: memoryRepairCall,
-          logger,
-          now: dependencies.now ?? (() => new Date()),
-          runtimeRequest: resolved,
-          requestId: resolved.requestId,
-        });
-        toolCalls.push(automaticMemoryOutput.audit);
-        toolResults.push(automaticMemoryOutput.result);
-
-        responseInput = [
-          ...responseInput,
-          ...responseOutputItems(response.output),
-          userInputMessage({
-            product: "Ask Siargao",
-            instruction:
-              "Validation repair: you attempted a final answer for a topic covered by the loaded INDEX.md before loading the exact memory file. Use this loaded memory file as reference context, keep memory separate from live evidence, and return the final traveler-facing JSON payload now.",
-            validationRepairMemoryLoad: {
-              toolCallId: automaticMemoryOutput.functionCall.callId,
-              name: automaticMemoryOutput.functionCall.name,
-              arguments: publicToolArguments(automaticMemoryOutput.functionCall),
-              result: JSON.parse(serializeToolOutput(automaticMemoryOutput.result)),
-            },
-            responseContract,
-          }),
-        ];
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_000,
-          instructions,
-          tools,
-          ...(responseInclude ? { include: responseInclude } : {}),
-          input: responseInput,
-        });
-        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
-        collectHostedFileSearchMemoryFileNames(
-          response.output,
-          memorySnapshot,
-          hostedMemoryFileNames,
-        );
-        continue;
-      }
-
-      const surfSpotRankingPayloadRepair = missingSurfSpotRankingPayloadRepair(
-        finalText,
-        resolved,
-        toolCalls,
-        toolResults,
+        instructions,
+        maxToolCalls,
+        model: resolved.model,
+        publicToolArguments,
+        response,
+        responseContract,
+        responseInclude,
         responseInput,
-      );
-      if (surfSpotRankingPayloadRepair) {
-        responseInput = [
-          ...responseInput,
-          ...responseOutputItems(response.output),
-          userInputMessage({
-            product: "Ask Siargao",
-            instruction:
-              "Validation repair: the user asked for closest surf spots near their shared location, and the ranked surf-spot tool output must shape the public answer. Return final JSON whose answer names the nearest ranked surf spots with approximate km distances, then layer any checked condition warning on top. Include the rank_surf_spots_nearby toolCallId in usedToolCallIds even when the recommendation is to skip surfing today.",
-            validationRepairSurfSpotFinalPayload: surfSpotRankingPayloadRepair,
-            responseContract,
-          }),
-        ];
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_000,
-          instructions,
-          tools,
-          ...(responseInclude ? { include: responseInclude } : {}),
-          input: responseInput,
-        });
-        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
-        collectHostedFileSearchMemoryFileNames(
-          response.output,
-          memorySnapshot,
-          hostedMemoryFileNames,
-        );
+        responseTools: tools,
+        serializeToolOutput,
+        toolCalls,
+        toolResults,
+        collectUpstreamRequestId: (requestId) =>
+          collectUpstreamRequestId(requestId, upstreamRequestIds),
+        collectHostedMemory: (retryResponse) =>
+          collectHostedFileSearchMemoryFileNames(
+            retryResponse.output,
+            memorySnapshot,
+            hostedMemoryFileNames,
+          ),
+      });
+      if (repairResult.repaired) {
+        response = repairResult.response;
+        responseInput = repairResult.responseInput;
         continue;
       }
-
       const parsedFinalPayload = parseFinalPayloadOrLegacyText(finalText, {
         logger,
         requireStructuredFinalOutput: dependencies.requireStructuredFinalOutput === true,
@@ -581,147 +254,6 @@ export async function runAskSiargaoAgentTurn(
         toolCalls,
         toolResults,
       });
-      const legacyStructuredAnswerQualityRepair = missingLegacyStructuredAnswerQualityRepair(
-        finalText,
-        finalPayload,
-        toolCalls,
-        responseInput,
-        resolved,
-      );
-      if (legacyStructuredAnswerQualityRepair) {
-        responseInput = [
-          ...responseInput,
-          ...responseOutputItems(response.output),
-          userInputMessage({
-            product: "Ask Siargao",
-            instruction:
-              "Validation repair: the answer used legacy plain text even though checked evidence is available. Return the final response as JSON matching the response contract. Rewrite the answer as a structured, traveler-facing result with concrete names, area, why it fits, checked details, and a clear first move. Do not ask whether the traveler wants details that are already available.",
-            validationRepairStructuredAnswerQuality: legacyStructuredAnswerQualityRepair,
-            responseContract,
-          }),
-        ];
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_600,
-          instructions,
-          tools,
-          ...(responseInclude ? { include: responseInclude } : {}),
-          input: responseInput,
-        });
-        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
-        collectHostedFileSearchMemoryFileNames(
-          response.output,
-          memorySnapshot,
-          hostedMemoryFileNames,
-        );
-        continue;
-      }
-      const nightlifeMemoryBaselineRepair = missingNightlifeMemoryBaselineRepair(
-        finalPayload,
-        resolved,
-        toolResults,
-        responseInput,
-      );
-      if (nightlifeMemoryBaselineRepair) {
-        responseInput = [
-          ...responseInput,
-          ...responseOutputItems(response.output),
-          userInputMessage({
-            product: "Ask Siargao",
-            instruction:
-              "Validation repair: current nightlife event facts did not return usable event-route venues, but NIGHTLIFE.md is loaded and contains a stable baseline route for the matched local weekday. Do not collapse the answer to weather-only advice and do not ask whether the traveler wants the party route. Answer the move first from the memory baseline, then add weather or transport as a modifier. Make clear that the named route is baseline local guidance, not event_checked current evidence. Select no place cards from the skipped or failed Places enrichment.",
-            validationRepairNightlifeMemoryBaseline: nightlifeMemoryBaselineRepair,
-            responseContract,
-          }),
-        ];
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_000,
-          instructions,
-          tools,
-          ...(responseInclude ? { include: responseInclude } : {}),
-          input: responseInput,
-        });
-        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
-        collectHostedFileSearchMemoryFileNames(
-          response.output,
-          memorySnapshot,
-          hostedMemoryFileNames,
-        );
-        continue;
-      }
-      if (
-        !finalPayloadSatisfiesChatEvidencePolicy(
-          chatEvidencePolicy,
-          finalPayload,
-          toolCalls,
-          toolResults,
-        )
-      ) {
-        responseInput = [
-          ...responseInput,
-          ...responseOutputItems(response.output),
-          userInputMessage({
-            product: "Ask Siargao",
-            instruction:
-              "Validation repair: your final payload did not satisfy the required evidence contract. If the required provider check succeeded, use the successful checked tool evidence and select only matching public artifacts. If the required provider check was unavailable, revise to a caveated final JSON answer with no checked/live claims and no place cards or checked source claims from the failed provider output.",
-            responseContract,
-          }),
-        ];
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_000,
-          instructions,
-          tools,
-          ...(responseInclude ? { include: responseInclude } : {}),
-          input: responseInput,
-        });
-        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
-        collectHostedFileSearchMemoryFileNames(
-          response.output,
-          memorySnapshot,
-          hostedMemoryFileNames,
-        );
-        continue;
-      }
-      const structuredAnswerQualityRepair = missingStructuredAnswerQualityRepair(
-        finalPayload,
-        toolCalls,
-        responseInput,
-        resolved,
-      );
-      if (structuredAnswerQualityRepair) {
-        responseInput = [
-          ...responseInput,
-          ...responseOutputItems(response.output),
-          userInputMessage({
-            product: "Ask Siargao",
-            instruction:
-              "Validation repair: the answer is too thin for the evidence already gathered. Rewrite the final JSON answer as a structured, traveler-facing result. For multiple options, use a compact markdown table or tight bullets with concrete names, area, why it fits, relevant checked details, and a clear first move. For a single result, use a concise heading plus the key details and next action. Include prices, phone numbers, map links, opening status, weather/condition details, booking notes, caveats, and artifact selections only when tool output supports them. Do not ask whether the traveler wants details that are already available.",
-            validationRepairStructuredAnswerQuality: structuredAnswerQualityRepair,
-            responseContract,
-          }),
-        ];
-        response = await client.responses.create({
-          model: resolved.model,
-          store: false,
-          max_output_tokens: 1_600,
-          instructions,
-          tools,
-          ...(responseInclude ? { include: responseInclude } : {}),
-          input: responseInput,
-        });
-        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
-        collectHostedFileSearchMemoryFileNames(
-          response.output,
-          memorySnapshot,
-          hostedMemoryFileNames,
-        );
-        continue;
-      }
       logger.info(
         {
           durationMs: sumDurations(toolCalls),
@@ -1161,6 +693,282 @@ function currentTurnMemoryFileNames(toolResults: readonly AgentToolResult[]) {
     }
   }
   return fileNames;
+}
+
+function buildAgentRepairAdapters({
+  chatEvidencePolicy,
+  hostedMemoryFileNames,
+  logger,
+  request,
+  requireStructuredFinalOutput,
+}: {
+  chatEvidencePolicy: ReturnType<typeof buildChatEvidencePolicy>;
+  hostedMemoryFileNames: ReadonlySet<string>;
+  logger: ReturnType<typeof createComponentLogger>;
+  request: AgentRuntimeRequest;
+  requireStructuredFinalOutput: boolean;
+}): AgentRepairAdapter[] {
+  const parsePolicyFinalPayload = (
+    finalText: string,
+    toolCalls: readonly AgentToolCallAudit[],
+    toolResults: readonly AgentToolResult[],
+  ) =>
+    applyChatEvidenceFinalPayloadPolicy({
+      finalPayload: parseFinalPayloadOrLegacyText(finalText, {
+        logger,
+        requireStructuredFinalOutput,
+        hostedMemoryFileNames,
+        toolCalls,
+        toolResults,
+      }),
+      policy: chatEvidencePolicy,
+      request,
+      toolCalls,
+      toolResults,
+    });
+
+  return [
+    {
+      name: "initial-itinerary-plan",
+      createRepair: ({ toolCalls, toolResults }) => {
+        const repairCall = missingInitialItineraryPlanRepairCall(request, toolCalls, toolResults);
+        if (!repairCall) {
+          return undefined;
+        }
+
+        return {
+          type: "tool",
+          functionCalls: [repairCall],
+          payloadKey: "validationRepairItineraryPlan",
+          payload: ([output]) => (output ? repairToolOutputPayload(output) : undefined),
+          instruction:
+            "Validation repair: you attempted a final itinerary answer before choosing plan_local_itinerary as required. Use this runtime-repaired itinerary artifact as planning evidence, preserve its caveats, and continue with any required follow-up checks before the final traveler-facing answer.",
+        };
+      },
+    },
+    {
+      name: "condition-judgment",
+      createRepair: ({ toolCalls, toolResults }) => {
+        const repairCall = missingConditionJudgmentRepairCall(request, toolCalls, toolResults);
+        if (!repairCall) {
+          return undefined;
+        }
+
+        return {
+          type: "tool",
+          functionCalls: [repairCall],
+          payloadKey: "validationRepairConditionJudgment",
+          payload: ([output]) => (output ? repairToolOutputPayload(output) : undefined),
+          instruction: conditionJudgmentRepairInstruction(repairCall.arguments),
+        };
+      },
+    },
+    {
+      name: "required-evidence-tools",
+      createRepair: ({ toolCalls, toolResults }) => {
+        const repair = buildChatEvidenceRepair({
+          policy: chatEvidencePolicy,
+          toolCalls,
+          toolResults,
+        });
+        if (!repair) {
+          return undefined;
+        }
+
+        return {
+          type: "tool",
+          functionCalls: repair.functionCalls,
+          payloadKey: "automaticRequiredEvidence",
+          instruction: repair.instruction,
+        };
+      },
+    },
+    {
+      name: "browser-location-surf-ranking",
+      createRepair: ({ toolCalls, toolResults }) => {
+        const repairCall = missingSurfSpotRankingRepairCall(request, toolCalls, toolResults);
+        if (!repairCall) {
+          return undefined;
+        }
+
+        return {
+          type: "tool",
+          functionCalls: [repairCall],
+          payloadKey: "validationRepairSurfSpotRanking",
+          payload: ([output]) => (output ? repairToolOutputPayload(output) : undefined),
+          instruction:
+            "Validation repair: the user asked for closest surf spots near their shared location. Use this ranked surf-spot output for the nearest list, include approximate km distances, do not infer a named base area from memory alone, and preserve the distance and live-condition caveats.",
+        };
+      },
+    },
+    {
+      name: "required-itinerary-follow-up-checks",
+      createRepair: ({ toolCalls, toolResults }) => {
+        const missingRequiredChecks = missingRequiredItineraryChecks(toolResults, toolCalls);
+        if (missingRequiredChecks.length === 0) {
+          return undefined;
+        }
+
+        return {
+          type: "tool",
+          functionCalls: missingRequiredChecks,
+          payloadKey: "automaticRequiredToolChecks",
+          instruction:
+            "You attempted a final itinerary answer before required follow-up checks completed. Use these automatically executed safe tool outputs, preserve provider failures as caveats, and write the final traveler-facing answer now.",
+        };
+      },
+    },
+    {
+      name: "memory-load",
+      createRepair: ({ finalText, toolCalls, toolResults }) => {
+        const repairCall = missingClearMemoryLoadRepairCall(
+          finalText,
+          request,
+          toolCalls,
+          toolResults,
+          hostedMemoryFileNames,
+        );
+        if (!repairCall) {
+          return undefined;
+        }
+
+        return {
+          type: "tool",
+          functionCalls: [repairCall],
+          payloadKey: "validationRepairMemoryLoad",
+          payload: ([output]) => (output ? repairToolOutputPayload(output) : undefined),
+          instruction:
+            "Validation repair: you attempted a final answer for a topic covered by the loaded INDEX.md before loading the exact memory file. Use this loaded memory file as reference context, keep memory separate from live evidence, and return the final traveler-facing JSON payload now.",
+        };
+      },
+    },
+    {
+      name: "surf-final-payload",
+      createRepair: ({ finalText, responseInput, toolCalls, toolResults }) => {
+        const repair = missingSurfSpotRankingPayloadRepair(
+          finalText,
+          request,
+          toolCalls,
+          toolResults,
+          responseInput,
+        );
+        if (!repair) {
+          return undefined;
+        }
+
+        return {
+          type: "retry",
+          payloadKey: "validationRepairSurfSpotFinalPayload",
+          payload: repair,
+          instruction:
+            "Validation repair: the user asked for closest surf spots near their shared location, and the ranked surf-spot tool output must shape the public answer. Return final JSON whose answer names the nearest ranked surf spots with approximate km distances, then layer any checked condition warning on top. Include the rank_surf_spots_nearby toolCallId in usedToolCallIds even when the recommendation is to skip surfing today.",
+        };
+      },
+    },
+    {
+      name: "legacy-structured-answer-quality",
+      createRepair: ({ finalText, responseInput, toolCalls, toolResults }) => {
+        const finalPayload = parsePolicyFinalPayload(finalText, toolCalls, toolResults);
+        const repair = missingLegacyStructuredAnswerQualityRepair(
+          finalText,
+          finalPayload,
+          toolCalls,
+          responseInput,
+          request,
+        );
+        if (!repair) {
+          return undefined;
+        }
+
+        return {
+          type: "retry",
+          payloadKey: "validationRepairStructuredAnswerQuality",
+          payload: repair,
+          maxOutputTokens: 1_600,
+          instruction:
+            "Validation repair: the answer used legacy plain text even though checked evidence is available. Return the final response as JSON matching the response contract. Rewrite the answer as a structured, traveler-facing result with concrete names, area, why it fits, checked details, and a clear first move. Do not ask whether the traveler wants details that are already available.",
+        };
+      },
+    },
+    {
+      name: "nightlife-memory-baseline",
+      createRepair: ({ finalText, responseInput, toolCalls, toolResults }) => {
+        const finalPayload = parsePolicyFinalPayload(finalText, toolCalls, toolResults);
+        const repair = missingNightlifeMemoryBaselineRepair(
+          finalPayload,
+          request,
+          toolResults,
+          responseInput,
+        );
+        if (!repair) {
+          return undefined;
+        }
+
+        return {
+          type: "retry",
+          payloadKey: "validationRepairNightlifeMemoryBaseline",
+          payload: repair,
+          instruction:
+            "Validation repair: current nightlife event facts did not return usable event-route venues, but NIGHTLIFE.md is loaded and contains a stable baseline route for the matched local weekday. Do not collapse the answer to weather-only advice and do not ask whether the traveler wants the party route. Answer the move first from the memory baseline, then add weather or transport as a modifier. Make clear that the named route is baseline local guidance, not event_checked current evidence. Select no place cards from the skipped or failed Places enrichment.",
+        };
+      },
+    },
+    {
+      name: "required-evidence-final-payload",
+      createRepair: ({ finalText, toolCalls, toolResults }) => {
+        const finalPayload = parsePolicyFinalPayload(finalText, toolCalls, toolResults);
+        if (
+          finalPayloadSatisfiesChatEvidencePolicy(
+            chatEvidencePolicy,
+            finalPayload,
+            toolCalls,
+            toolResults,
+          )
+        ) {
+          return undefined;
+        }
+
+        return {
+          type: "retry",
+          instruction:
+            "Validation repair: your final payload did not satisfy the required evidence contract. If the required provider check succeeded, use the successful checked tool evidence and select only matching public artifacts. If the required provider check was unavailable, revise to a caveated final JSON answer with no checked/live claims and no place cards or checked source claims from the failed provider output.",
+        };
+      },
+    },
+    {
+      name: "structured-answer-quality",
+      createRepair: ({ finalText, responseInput, toolCalls, toolResults }) => {
+        const finalPayload = parsePolicyFinalPayload(finalText, toolCalls, toolResults);
+        const repair = missingStructuredAnswerQualityRepair(
+          finalPayload,
+          toolCalls,
+          responseInput,
+          request,
+        );
+        if (!repair) {
+          return undefined;
+        }
+
+        return {
+          type: "retry",
+          payloadKey: "validationRepairStructuredAnswerQuality",
+          payload: repair,
+          maxOutputTokens: 1_600,
+          instruction:
+            "Validation repair: the answer is too thin for the evidence already gathered. Rewrite the final JSON answer as a structured, traveler-facing result. For multiple options, use a compact markdown table or tight bullets with concrete names, area, why it fits, relevant checked details, and a clear first move. For a single result, use a concise heading plus the key details and next action. Include prices, phone numbers, map links, opening status, weather/condition details, booking notes, caveats, and artifact selections only when tool output supports them. Do not ask whether the traveler wants details that are already available.",
+        };
+      },
+    },
+  ];
+}
+
+function repairToolOutputPayload(output: AgentRepairToolOutput) {
+  return {
+    toolCallId: output.functionCall.callId,
+    name: output.functionCall.name,
+    arguments: publicToolArguments(output.functionCall),
+    result: JSON.parse(serializeToolOutput(output.result)),
+  };
 }
 
 function missingInitialItineraryPlanRepairCall(
