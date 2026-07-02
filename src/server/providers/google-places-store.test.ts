@@ -3,17 +3,18 @@ import { PGlite } from "@electric-sql/pglite";
 
 import { runInitialMigration } from "@/server/db/test-database";
 import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
+import { createGooglePlacesDetailsCaptureInput } from "@/server/providers/google-places-governed-capture";
 import {
   type GooglePlacesRequestKind,
+  googlePlacesAtmosphereDetailsFieldMask,
+  googlePlacesEnterpriseDetailsFieldMask,
   googlePlacesRequestPolicies,
 } from "@/server/providers/google-places-policy";
 import {
-  createGooglePlaceSnapshotInput,
   deleteExpiredGooglePlacesContent,
   findFreshPlaceDetails,
   type GooglePlaceDetailsInput,
   type GooglePlaceIdentityInput,
-  type GooglePlacesSourceRecordInput,
   upsertGooglePlaceDetails,
   upsertGooglePlaceReviews,
 } from "@/server/providers/google-places-store";
@@ -59,7 +60,7 @@ describe("Google Places capture store", () => {
       placeIdentityUpserted: true,
       requestKind: "details_enterprise",
       snapshotUpserted: true,
-      sourceRecordId: "record_google_place_kermit",
+      sourceRecordId: "record_google_places_details_place_kermit",
       sourceRecordUpserted: true,
     });
     expect(secondSummary).toMatchObject({
@@ -81,16 +82,6 @@ describe("Google Places capture store", () => {
         place: {
           placeId: "place_expired",
           resourceName: "places/place_expired",
-        },
-        sourceRecord: {
-          id: "record_google_place_expired",
-          sourceProfileId: googlePlacesDiscoverySourceProfileId,
-          providerEntityId: "place_expired",
-          entityType: "restaurant",
-          name: "Expired Cafe",
-          normalizedPayload: { placeId: "place_expired" },
-          fetchedAt: "2026-05-01T00:00:00.000Z",
-          allowedUse: "citation_only",
         },
         details: {
           ...createDetailsInput("2026-05-01T00:00:00.000Z"),
@@ -125,7 +116,7 @@ describe("Google Places capture store", () => {
     await upsertGooglePlaceReviews(db, {
       place: capture.place,
       sourceRecord: capture.sourceRecord,
-      snapshot: capture.snapshot,
+      snapshot: expectSnapshot(capture),
       reviews: [
         {
           id: "review_place_kermit_1",
@@ -174,6 +165,37 @@ describe("Google Places capture store", () => {
     await db.close();
   });
 
+  test("does not emit reusable facts or evidence without governed capture metadata", async () => {
+    const db = await openGooglePlacesStoreTestDatabase();
+    const governedCapture = createDetailsCapture();
+    const rawStoreInput = {
+      place: governedCapture.place,
+      sourceRecord: governedCapture.sourceRecord,
+      snapshot: governedCapture.snapshot,
+      details: governedCapture.details,
+    };
+
+    const summary = await upsertGooglePlaceDetails(db, rawStoreInput);
+    const counts = await db.query<{ facts: number; evidence: number }>(`
+      select
+        (select count(*)::int from facts) as facts,
+        (select count(*)::int from evidence) as evidence
+    `);
+
+    expect(summary).toMatchObject({
+      factsUpserted: 0,
+      evidenceUpserted: 0,
+      detailsUpserted: true,
+      snapshotUpserted: true,
+    });
+    expect(counts.rows[0]).toEqual({
+      facts: 0,
+      evidence: 0,
+    });
+
+    await db.close();
+  });
+
   test("deletes expired Google content while preserving durable place IDs", async () => {
     const db = await openGooglePlacesStoreTestDatabase();
     const capture = createDetailsCapture({
@@ -191,7 +213,7 @@ describe("Google Places capture store", () => {
     await upsertGooglePlaceReviews(db, {
       place: capture.place,
       sourceRecord: capture.sourceRecord,
-      snapshot: capture.snapshot,
+      snapshot: expectSnapshot(capture),
       reviews: [
         {
           id: "review_expired",
@@ -265,51 +287,70 @@ async function openGooglePlacesStoreTestDatabase() {
 
 function createDetailsCapture({
   details = createDetailsInput("2026-06-25T00:00:00.000Z"),
-  fetchedAt = "2026-06-25T00:00:00.000Z",
+  fetchedAt,
   place = {
     placeId: "place_kermit",
     resourceName: "places/place_kermit",
   },
   requestKind = "details_enterprise",
-  sourceRecord = {
-    id: "record_google_place_kermit",
-    sourceProfileId: googlePlacesDiscoverySourceProfileId,
-    providerEntityId: "place_kermit",
-    entityType: "restaurant",
-    name: "Kermit Surf Resort and Restaurant",
-    normalizedPayload: { placeId: "place_kermit" },
-    sourceUrl: "https://maps.google.com/?cid=123",
-    fetchedAt,
-    allowedUse: "citation_only",
-  },
 }: {
   place?: GooglePlaceIdentityInput;
-  sourceRecord?: GooglePlacesSourceRecordInput;
   details?: GooglePlaceDetailsInput;
   fetchedAt?: string;
   requestKind?: GooglePlacesRequestKind;
 } = {}) {
-  const snapshot = createGooglePlaceSnapshotInput({
-    placeId: place.placeId,
-    requestKind,
-    fieldMask: googlePlacesRequestPolicies[requestKind].fieldMask,
-    fetchedAt,
-    payloadJson: {
-      googleMapsUri: "https://maps.google.com/?cid=123",
-      attributions: [{ provider: "Google" }],
-    },
-  });
+  const captureFetchedAt = fetchedAt ?? details.fetchedAt;
 
-  return {
-    place,
-    sourceRecord,
-    snapshot,
+  return createGooglePlacesDetailsCaptureInput({
     details: {
-      ...details,
-      staleAt: details.staleAt ?? snapshot.staleAt,
-      retentionExpiresAt: details.retentionExpiresAt ?? snapshot.retentionExpiresAt,
+      placeId: place.placeId,
+      resourceName: place.resourceName ?? `places/${place.placeId}`,
+      displayName: readDisplayName(details),
+      displayNameJson: details.displayNameJson as { text?: string; languageCode?: string },
+      formattedAddress: details.formattedAddress,
+      locationJson: details.locationJson as { latitude?: number; longitude?: number } | undefined,
+      latitude: details.latitude,
+      longitude: details.longitude,
+      types: details.typesJson ?? [],
+      primaryType: details.primaryType,
+      businessStatus: details.businessStatus,
+      googleMapsUri: details.googleMapsUri,
+      websiteUri: details.websiteUri,
+      internationalPhoneNumber: details.internationalPhoneNumber,
+      currentOpeningHoursJson: details.openingHoursJson as
+        | { openNow?: boolean; weekdayDescriptions?: string[] }
+        | undefined,
+      priceLevel: details.priceLevel,
+      priceRangeJson: details.priceRangeJson as
+        | {
+            startPrice?: { currencyCode?: string; units?: string; nanos?: number };
+            endPrice?: { currencyCode?: string; units?: string; nanos?: number };
+          }
+        | undefined,
+      rating: details.rating,
+      userRatingCount: details.userRatingCount,
+      attributionsJson: [{ provider: "Google" }],
+      reviews: [],
+      fieldMask:
+        requestKind === "details_atmosphere_reviews"
+          ? googlePlacesAtmosphereDetailsFieldMask
+          : googlePlacesEnterpriseDetailsFieldMask,
+      fetchedAt: captureFetchedAt,
     },
-  };
+    requestKind,
+  });
+}
+
+function readDisplayName(details: GooglePlaceDetailsInput) {
+  const value = details.displayNameJson?.text;
+  return typeof value === "string" ? value : "Kermit Surf Resort and Restaurant";
+}
+
+function expectSnapshot(capture: ReturnType<typeof createDetailsCapture>) {
+  if (!capture.snapshot) {
+    throw new Error("Governed Google Places detail capture must include a snapshot.");
+  }
+  return capture.snapshot;
 }
 
 function createDetailsInput(fetchedAt: string): GooglePlaceDetailsInput {

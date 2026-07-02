@@ -99,6 +99,14 @@ export type GooglePlacesStoragePolicy =
 
 export type GooglePlacesReuseState = "fresh" | "stale" | "expired" | "not_legally_reusable";
 
+export type GooglePlacesRequestPolicy = {
+  fieldMask: string;
+  freshnessDays: number;
+  retentionDays: number;
+  storagePolicy: GooglePlacesStoragePolicy;
+  requiresGoogleAttribution: boolean;
+};
+
 export const googlePlacesFieldFreshnessDays = {
   place_id: "indefinite",
   business_status: 7,
@@ -143,13 +151,7 @@ export const googlePlacesAtmosphereDetailsFieldMask = buildGooglePlacesFieldMask
 
 export const googlePlacesRequestPolicies: Record<
   GooglePlacesRequestKind,
-  {
-    fieldMask: string;
-    freshnessDays: number;
-    retentionDays: number;
-    storagePolicy: GooglePlacesStoragePolicy;
-    requiresGoogleAttribution: boolean;
-  }
+  GooglePlacesRequestPolicy
 > = {
   chat_search: {
     fieldMask: googlePlacesChatSearchFieldMask,
@@ -181,6 +183,81 @@ export const googlePlacesRequestPolicies: Record<
   },
 };
 
+export class GooglePlacesPolicyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GooglePlacesPolicyError";
+  }
+}
+
+export function requireGooglePlacesRequestPolicy({
+  fieldMask,
+  policies = googlePlacesRequestPolicies,
+  requestKind,
+}: {
+  requestKind: string;
+  fieldMask?: string;
+  policies?: Partial<Record<GooglePlacesRequestKind, Partial<GooglePlacesRequestPolicy>>>;
+}): GooglePlacesRequestPolicy & { requestKind: GooglePlacesRequestKind } {
+  if (!isGooglePlacesRequestKind(requestKind)) {
+    throw new GooglePlacesPolicyError(`Unknown Google Places request kind: ${requestKind}.`);
+  }
+
+  const policy = policies[requestKind];
+  if (!policy) {
+    throw new GooglePlacesPolicyError(`Missing Google Places request policy for ${requestKind}.`);
+  }
+  if (!policy.fieldMask) {
+    throw new GooglePlacesPolicyError(
+      `Google Places request policy ${requestKind} is missing an explicit field mask.`,
+    );
+  }
+  const policyFieldMask = policy.fieldMask;
+  if (policyFieldMask.includes("*")) {
+    throw new GooglePlacesPolicyError(
+      `Google Places request policy ${requestKind} must not use wildcard field masks.`,
+    );
+  }
+  if (fieldMask !== undefined && fieldMask !== policyFieldMask) {
+    throw new GooglePlacesPolicyError(
+      `Google Places ${requestKind} field mask does not match the registered request policy.`,
+    );
+  }
+  const freshnessDays = policy.freshnessDays;
+  if (typeof freshnessDays !== "number" || !Number.isFinite(freshnessDays) || freshnessDays < 0) {
+    throw new GooglePlacesPolicyError(
+      `Google Places request policy ${requestKind} is missing a valid stale window.`,
+    );
+  }
+  const retentionDays = policy.retentionDays;
+  if (typeof retentionDays !== "number" || !Number.isFinite(retentionDays) || retentionDays < 0) {
+    throw new GooglePlacesPolicyError(
+      `Google Places request policy ${requestKind} is missing a valid retention window.`,
+    );
+  }
+  if (!policy.storagePolicy) {
+    throw new GooglePlacesPolicyError(
+      `Google Places request policy ${requestKind} is missing a storage policy.`,
+    );
+  }
+  const storagePolicy = policy.storagePolicy;
+  if (typeof policy.requiresGoogleAttribution !== "boolean") {
+    throw new GooglePlacesPolicyError(
+      `Google Places request policy ${requestKind} is missing an attribution decision.`,
+    );
+  }
+  const requiresGoogleAttribution = policy.requiresGoogleAttribution;
+
+  return {
+    requestKind,
+    fieldMask: policyFieldMask,
+    freshnessDays,
+    retentionDays,
+    storagePolicy,
+    requiresGoogleAttribution,
+  };
+}
+
 export function computeGooglePlacesFieldStaleAt({
   fetchedAt,
   field,
@@ -203,7 +280,7 @@ export function computeGooglePlacesRequestWindows({
   fetchedAt: Date | string;
   requestKind: GooglePlacesRequestKind;
 }) {
-  const policy = googlePlacesRequestPolicies[requestKind];
+  const policy = requireGooglePlacesRequestPolicy({ requestKind });
 
   return {
     fetchedAt: toDate(fetchedAt),
@@ -212,6 +289,10 @@ export function computeGooglePlacesRequestWindows({
     storagePolicy: policy.storagePolicy,
     requiresGoogleAttribution: policy.requiresGoogleAttribution,
   };
+}
+
+function isGooglePlacesRequestKind(value: string): value is GooglePlacesRequestKind {
+  return Object.hasOwn(googlePlacesRequestPolicies, value);
 }
 
 export function getGooglePlacesReuseState({

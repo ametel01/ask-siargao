@@ -117,6 +117,25 @@ describe("Google Places chat cache", () => {
         (select count(*)::int from facts) as facts,
         (select count(*)::int from evidence) as evidence
     `);
+    const governedRows = await db.query<{
+      source_allowed_use: string;
+      fact_public_republish_allowed: boolean;
+      fact_audit_use_allowed: boolean;
+      fact_raw_evidence_allowed: boolean;
+      evidence_public_republish_allowed: boolean;
+    }>(`
+      select
+        sr.allowed_use as source_allowed_use,
+        bool_or(f.public_republish_allowed) as fact_public_republish_allowed,
+        bool_and(f.audit_use_allowed) as fact_audit_use_allowed,
+        bool_or(f.raw_evidence_allowed) as fact_raw_evidence_allowed,
+        bool_or(ev.public_republish_allowed) as evidence_public_republish_allowed
+      from source_records sr
+      join facts f on f.source_record_id = sr.id
+      join evidence ev on ev.fact_id = f.id
+      where sr.source_profile_id = 'source_google_places'
+      group by sr.allowed_use
+    `);
 
     expect(liveCalls).toBe(1);
     expect(first.places).toHaveLength(8);
@@ -134,6 +153,13 @@ describe("Google Places chat cache", () => {
     });
     expect(counts.rows[0]?.facts).toBeGreaterThan(0);
     expect(counts.rows[0]?.evidence).toBeGreaterThan(0);
+    expect(governedRows.rows[0]).toEqual({
+      source_allowed_use: "citation_only",
+      fact_public_republish_allowed: false,
+      fact_audit_use_allowed: true,
+      fact_raw_evidence_allowed: false,
+      evidence_public_republish_allowed: false,
+    });
     expect(logs.filter((log) => log.message === "Google Places chat cache checked.")).toEqual([
       expect.objectContaining({
         level: "info",

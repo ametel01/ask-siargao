@@ -1,3 +1,4 @@
+import type { GovernedEvidence, GovernedFact } from "@/server/facts/types";
 import {
   buildGooglePlacesAttributionMetadata,
   computeGooglePlacesRequestWindows,
@@ -147,11 +148,17 @@ export type GooglePlaceReviewInput = {
   displayRequiresGoogleAttribution?: boolean;
 };
 
+export type GooglePlaceGovernedFactEvidenceInput = {
+  fact: GovernedFact;
+  evidence: GovernedEvidence;
+};
+
 export type UpsertGooglePlaceDetailsInput = {
   place: GooglePlaceIdentityInput;
   sourceRecord: GooglePlacesSourceRecordInput;
   snapshot?: GooglePlaceSnapshotInput;
   details: GooglePlaceDetailsInput;
+  governedFactEvidence?: GooglePlaceGovernedFactEvidenceInput[];
 };
 
 export type UpsertGooglePlaceReviewsInput = {
@@ -380,12 +387,7 @@ export async function upsertGooglePlaceDetails(
   );
 
   const factsSummary = await runGooglePlacesStoreWritePhase("facts_evidence", input, () =>
-    upsertNormalizedGooglePlaceFacts(db, {
-      details,
-      fieldMask: snapshot?.fieldMask ?? "",
-      place,
-      sourceRecord,
-    }),
+    upsertGovernedGooglePlaceFactEvidence(db, input.governedFactEvidence ?? []),
   );
 
   return {
@@ -487,9 +489,10 @@ export async function upsertGooglePlaceReviews(
   }
 }
 
-export function normalizeGooglePlaceFacts({
+export function createGooglePlaceFactEvidenceInputs({
   details,
   fieldMask,
+  governance,
   place,
   sourceRecord,
 }: {
@@ -497,18 +500,28 @@ export function normalizeGooglePlaceFacts({
   sourceRecord: GooglePlacesSourceRecordInput;
   details: GooglePlaceDetailsInput;
   fieldMask: string;
+  governance: {
+    auditUseAllowed: boolean;
+    confidenceLabel: GovernedFact["confidenceLabel"];
+    publicRepublishAllowed: boolean;
+    rawEvidenceAllowed: boolean;
+    sourceAuthority: number;
+    sourceType: GovernedFact["sourceType"];
+  };
 }) {
   const base = {
     entityId: place.canonicalEntityId,
+    allowedUse: sourceRecord.allowedUse as GovernedFact["allowedUse"],
+    auditUseAllowed: governance.auditUseAllowed,
+    confidenceLabel: governance.confidenceLabel,
+    publicRepublishAllowed: governance.publicRepublishAllowed,
+    rawEvidenceAllowed: governance.rawEvidenceAllowed,
     sourceProfileId: sourceRecord.sourceProfileId,
     sourceRecordId: sourceRecord.id,
+    sourceAuthority: governance.sourceAuthority,
+    sourceType: governance.sourceType,
     fetchedAt: details.fetchedAt,
     expiresAt: details.staleAt,
-    confidenceLabel: "medium",
-    sourceAuthority: 60,
-    publicRepublishAllowed: false,
-    auditUseAllowed: true,
-    rawEvidenceAllowed: false,
   };
   const notes = JSON.stringify({
     provider: "google_places",
@@ -519,6 +532,10 @@ export function normalizeGooglePlaceFacts({
     retentionExpiresAt: details.retentionExpiresAt,
     reuseScope: "answer_context",
     requiresGoogleAttribution: true,
+    allowedUse: sourceRecord.allowedUse,
+    auditUseAllowed: governance.auditUseAllowed,
+    publicRepublishAllowed: governance.publicRepublishAllowed,
+    rawEvidenceAllowed: governance.rawEvidenceAllowed,
   });
   const evidenceLabel = `Google Places ${sourceRecord.name}`;
   const evidenceCitationUrl = details.googleMapsUri;
@@ -588,7 +605,6 @@ export function normalizeGooglePlaceFacts({
     fact: {
       ...base,
       ...fact,
-      sourceType: "google_places",
     },
     evidence: {
       id: `evidence_${fact.id}_${slugPart(sourceRecord.id)}`,
@@ -597,8 +613,8 @@ export function normalizeGooglePlaceFacts({
       label: evidenceLabel,
       citationUrl: evidenceCitationUrl,
       citationText: fact.claim,
-      allowedUse: sourceRecord.allowedUse,
-      publicRepublishAllowed: false,
+      allowedUse: sourceRecord.allowedUse as GovernedEvidence["allowedUse"],
+      publicRepublishAllowed: governance.publicRepublishAllowed,
     },
   }));
 }
@@ -857,12 +873,10 @@ async function upsertGooglePlaceSnapshot(
   );
 }
 
-async function upsertNormalizedGooglePlaceFacts(
+async function upsertGovernedGooglePlaceFactEvidence(
   db: GooglePlacesStoreDatabase,
-  input: Parameters<typeof normalizeGooglePlaceFacts>[0],
+  records: readonly GooglePlaceGovernedFactEvidenceInput[],
 ) {
-  const records = normalizeGooglePlaceFacts(input);
-
   for (const record of records) {
     await db.query(
       `
