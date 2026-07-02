@@ -66,6 +66,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Moved vehicle-rental chat evidence repair into the required-evidence policy so the turn runtime
+  gets Places-first lookup and public-web fallback requirements from one policy surface.
 - Strengthened chat source governance so `provider_unavailable` labels cannot carry checked facts
   and recommendation cards from failed provider outputs are excluded from selection.
 - Strengthened chat agent instructions and tool descriptions so the model owns tool choice and

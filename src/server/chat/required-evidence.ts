@@ -16,6 +16,7 @@ type RequiredEvidenceToolCallBase = {
   arguments: Record<string, unknown>;
   acceptedSourceLabels: readonly string[];
   dependsOn?: readonly string[];
+  runAfterTerminal?: readonly string[];
   runBefore?: readonly string[];
   terminalSourceLabels: readonly string[];
   purpose: string;
@@ -45,7 +46,11 @@ export type RequiredNightlifeEventEvidenceToolCall = RequiredEvidenceToolCallBas
 };
 
 export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): RequiredEvidencePlan {
-  void request;
+  const latestContent = latestUserContent(request);
+  if (isVehicleRentalLookup(latestContent)) {
+    return buildVehicleRentalEvidencePlan(latestContent);
+  }
+
   return { requiredToolCalls: [] };
 }
 
@@ -56,6 +61,7 @@ export function missingRequiredEvidenceToolCalls(
 ): RequiredEvidenceToolCall[] {
   return plan.requiredToolCalls.filter(
     (requiredCall) =>
+      requiredEvidenceToolCallApplies(requiredCall, plan, toolCalls) &&
       !researchPlacesEnrichmentIsUnavailable(requiredCall, plan, toolResults) &&
       !nightlifePlacesEnrichmentIsUnavailable(requiredCall, plan, toolResults) &&
       !dependencyHasTerminalEvidence(requiredCall, plan, toolCalls) &&
@@ -70,11 +76,14 @@ export function finalPayloadSatisfiesRequiredEvidence(
   toolCalls: readonly AgentToolCallAudit[],
   toolResults: readonly AgentToolResult[],
 ) {
-  if (plan.requiredToolCalls.length === 0) {
+  const requiredToolCalls = plan.requiredToolCalls.filter((requiredCall) =>
+    requiredEvidenceToolCallApplies(requiredCall, plan, toolCalls),
+  );
+  if (requiredToolCalls.length === 0) {
     return true;
   }
   if (
-    !plan.requiredToolCalls.every(
+    !requiredToolCalls.every(
       (requiredCall) =>
         hasCompletedToolCall(requiredCall, toolCalls) ||
         dependencyHasTerminalEvidence(requiredCall, plan, toolCalls),
@@ -82,7 +91,7 @@ export function finalPayloadSatisfiesRequiredEvidence(
   ) {
     return false;
   }
-  const unsatisfiedRequiredCalls = plan.requiredToolCalls.filter(
+  const unsatisfiedRequiredCalls = requiredToolCalls.filter(
     (requiredCall) =>
       !dependencyHasTerminalEvidence(requiredCall, plan, toolCalls) &&
       !hasSatisfyingToolCall(requiredCall, toolCalls),
@@ -96,7 +105,7 @@ export function finalPayloadSatisfiesRequiredEvidence(
     }
     return terminalOnlyFinalPayloadIsCaveated(finalPayload, unsatisfiedRequiredCalls);
   }
-  if (!finalPayloadUsesAvailableResearchEvidence(plan, finalPayload, toolResults)) {
+  if (!finalPayloadUsesAvailableResearchEvidence(plan, finalPayload, toolCalls, toolResults)) {
     return false;
   }
   const placeRequiredCalls = plan.requiredToolCalls.filter(
@@ -201,9 +210,16 @@ function terminalOnlyFinalPayloadIsCaveated(
 function finalPayloadUsesAvailableResearchEvidence(
   plan: RequiredEvidencePlan,
   finalPayload: AgentFinalPayload | undefined,
+  toolCalls: readonly AgentToolCallAudit[],
   toolResults: readonly AgentToolResult[],
 ) {
-  if (!plan.requiredToolCalls.some((requiredCall) => requiredCall.name === "research_web")) {
+  if (
+    !plan.requiredToolCalls.some(
+      (requiredCall) =>
+        requiredCall.name === "research_web" &&
+        requiredEvidenceToolCallApplies(requiredCall, plan, toolCalls),
+    )
+  ) {
     return true;
   }
   const availableResearchResults = toolResults.filter(isAvailableResearchResult);
@@ -218,6 +234,118 @@ function finalPayloadUsesAvailableResearchEvidence(
     return true;
   }
   return anchors.some((anchor) => normalizedIncludes(finalPayload?.answer ?? "", anchor));
+}
+
+function buildVehicleRentalEvidencePlan(content: string): RequiredEvidencePlan {
+  const location = inferPlacesRepairLocation(content);
+  const vehicle = /\bmotor\s*bikes?|motorbikes?\b/iu.test(content) ? "motorbike" : "scooter";
+
+  return {
+    requiredToolCalls: [
+      {
+        name: "search_places",
+        purpose: "local_service_places_lookup",
+        arguments: {
+          query: `${vehicle} rental in ${location.queryLabel} Siargao`,
+          center: location.center,
+          radius_meters: location.radiusMeters,
+          constraints: { included_type: "car_rental", open_now: null, page_size: 10 },
+        },
+        acceptedSourceLabels: ["live_checked", "fresh_cache"],
+        terminalSourceLabels: ["provider_unavailable"],
+        requiresOpenNow: false,
+      },
+      {
+        name: "research_web",
+        purpose: "local_service_web_fallback",
+        arguments: {
+          query: `${vehicle} rental in ${location.queryLabel} Siargao Golden Bell Morenta Siargao Motorbike Rentals rates contact WhatsApp deposit helmet delivery`,
+          intent: "recommendation",
+          location: location.queryLabel,
+          dateContext: "none",
+          sourceTypes: ["official", "local_directory", "maps", "guide"],
+          requiredFreshness: "stable",
+          maxSources: 6,
+        },
+        acceptedSourceLabels: [
+          "official_checked",
+          "directory_checked",
+          "web_researched",
+          "community_signal",
+        ],
+        terminalSourceLabels: ["insufficient_web_evidence", "provider_unavailable"],
+        runAfterTerminal: ["search_places"],
+      },
+    ],
+    allowedCardKinds: ["place"],
+  };
+}
+
+function requiredEvidenceToolCallApplies(
+  requiredCall: RequiredEvidenceToolCall,
+  plan: RequiredEvidencePlan,
+  toolCalls: readonly AgentToolCallAudit[],
+) {
+  return (requiredCall.runAfterTerminal ?? []).every((dependencyName) => {
+    const dependencyCall = plan.requiredToolCalls.find((call) => call.name === dependencyName);
+    return dependencyCall ? hasTerminalToolCall(dependencyCall, toolCalls) : false;
+  });
+}
+
+function latestUserContent(request: AgentRuntimeRequest) {
+  return request.messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
+}
+
+function isVehicleRentalLookup(content: string) {
+  return (
+    /\b(?:where\s+(?:can|should)\s+(?:i|we)\s+)?(?:rent|rental|rentals|hire|hiring)\b/iu.test(
+      content,
+    ) &&
+    /\b(?:scooters?|motorbikes?|motor\s*bikes?)\b/iu.test(content) &&
+    !/\b(?:safe|safety|rain|weather|roads?|flood|conditions?|ride\s+to|drive\s+to)\b/iu.test(
+      content,
+    )
+  );
+}
+
+function inferPlacesRepairLocation(content: string): {
+  queryLabel: string;
+  center: { latitude: number; longitude: number };
+  radiusMeters: number;
+} {
+  if (/\bcloud\s*9|cloud9|catangnan\b/iu.test(content)) {
+    return {
+      queryLabel: "Cloud 9 General Luna",
+      center: { latitude: 9.8116, longitude: 126.1651 },
+      radiusMeters: 6_000,
+    };
+  }
+  if (/\bdel\s+carmen|sugba\b/iu.test(content)) {
+    return {
+      queryLabel: "Del Carmen",
+      center: { latitude: 9.872, longitude: 125.97 },
+      radiusMeters: 12_000,
+    };
+  }
+  if (/\bdapa\b/iu.test(content)) {
+    return {
+      queryLabel: "Dapa",
+      center: { latitude: 9.759, longitude: 125.974 },
+      radiusMeters: 12_000,
+    };
+  }
+  if (/\bsiargao\b/iu.test(content) && !/\bgeneral\s+luna|\bgl\b/iu.test(content)) {
+    return {
+      queryLabel: "Siargao",
+      center: { latitude: 9.848, longitude: 126.045 },
+      radiusMeters: 20_000,
+    };
+  }
+  return {
+    queryLabel: "General Luna",
+    center: { latitude: 9.784, longitude: 126.158 },
+    radiusMeters: 8_000,
+  };
 }
 
 function finalPayloadUsesResearchToolCall(

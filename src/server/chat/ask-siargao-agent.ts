@@ -35,6 +35,7 @@ import type {
 import {
   buildRequiredEvidencePlan,
   finalPayloadSatisfiesRequiredEvidence,
+  missingRequiredEvidenceToolCalls,
   nightlifePlacesEnrichmentIsUnavailable,
   type RequiredEvidencePlan,
   requiredEvidencePlaceCardIds,
@@ -277,6 +278,67 @@ export async function runAskSiargaoAgentTurn(
               arguments: publicToolArguments(automaticConditionOutput.functionCall),
               result: JSON.parse(serializeToolOutput(automaticConditionOutput.result)),
             },
+            responseContract,
+          }),
+        ];
+        response = await client.responses.create({
+          model: resolved.model,
+          store: false,
+          max_output_tokens: 1_000,
+          instructions,
+          tools,
+          ...(responseInclude ? { include: responseInclude } : {}),
+          input: responseInput,
+        });
+        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        collectHostedFileSearchMemoryFileNames(
+          response.output,
+          memorySnapshot,
+          hostedMemoryFileNames,
+        );
+        continue;
+      }
+
+      const requiredEvidenceRepairCalls = missingRequiredEvidenceToolCalls(
+        requiredEvidencePlan,
+        toolCalls,
+        toolResults,
+      );
+      if (requiredEvidenceRepairCalls.length > 0) {
+        if (toolCalls.length + requiredEvidenceRepairCalls.length > maxToolCalls) {
+          throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
+        }
+
+        const automaticEvidenceOutputs = await executeAndAuditToolBatch({
+          executeTool,
+          functionCalls: requiredEvidenceRepairCalls.map((requiredCall, index) => ({
+            callId: `auto_required_evidence_${requiredCall.name}_${index + 1}`,
+            name: requiredCall.name,
+            arguments: requiredCall.arguments,
+          })),
+          logger,
+          now: dependencies.now ?? (() => new Date()),
+          requiredEvidencePlan,
+          runtimeRequest: resolved,
+          requestId: resolved.requestId,
+          toolResults,
+        });
+        toolCalls.push(...automaticEvidenceOutputs.map((output) => output.audit));
+        toolResults.push(...automaticEvidenceOutputs.map((output) => output.result));
+
+        responseInput = [
+          ...responseInput,
+          ...responseOutputItems(response.output),
+          userInputMessage({
+            product: "Ask Siargao",
+            instruction:
+              "Validation repair: required evidence was missing for this answer. Use these automatically executed required-evidence outputs before the final answer. If a required provider check succeeded, use its checked evidence and select only matching public artifacts. If a required provider check was unavailable or insufficient, keep the answer caveated and avoid checked/live claims from that provider.",
+            automaticRequiredEvidence: automaticEvidenceOutputs.map((output) => ({
+              toolCallId: output.functionCall.callId,
+              name: output.functionCall.name,
+              arguments: publicToolArguments(output.functionCall),
+              result: JSON.parse(serializeToolOutput(output.result)),
+            })),
             responseContract,
           }),
         ];

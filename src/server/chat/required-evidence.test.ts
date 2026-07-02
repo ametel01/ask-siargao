@@ -26,6 +26,64 @@ describe("required evidence planning", () => {
     expect(missingRequiredEvidenceToolCalls(plan, [])).toEqual([]);
   });
 
+  test("plans vehicle rental evidence as Places first with web fallback after terminal failure", () => {
+    const plan = buildRequiredEvidencePlan({
+      requestId: "request_required_evidence_vehicle_rental",
+      messages: [{ role: "user", content: "Where can I rent a scooter in General Luna?" }],
+    });
+
+    expect(plan.requiredToolCalls.map((call) => [call.name, call.purpose])).toEqual([
+      ["search_places", "local_service_places_lookup"],
+      ["research_web", "local_service_web_fallback"],
+    ]);
+    expect(missingRequiredEvidenceToolCalls(plan, []).map((call) => call.name)).toEqual([
+      "search_places",
+    ]);
+    expect(
+      missingRequiredEvidenceToolCalls(plan, [
+        toolCall({
+          name: "search_places",
+          status: "error",
+          sources: [
+            {
+              label: "provider_unavailable",
+              sourceName: "Google Places",
+              sourceProfileId: "source_google_places",
+              confidence: "low",
+              checked: [],
+              notChecked: ["live Places lookup"],
+            },
+          ],
+        }),
+      ]).map((call) => call.name),
+    ).toEqual(["research_web"]);
+  });
+
+  test("skips vehicle rental web fallback when Places evidence satisfies the policy", () => {
+    const plan = buildRequiredEvidencePlan({
+      requestId: "request_required_evidence_vehicle_rental",
+      messages: [{ role: "user", content: "Where can I rent a motorbike near Cloud 9?" }],
+    });
+
+    expect(
+      missingRequiredEvidenceToolCalls(plan, [
+        toolCall({
+          name: "search_places",
+          sources: [
+            {
+              label: "live_checked",
+              sourceName: "Google Places",
+              sourceProfileId: "source_google_places",
+              confidence: "medium",
+              checked: ["place identity", "map link"],
+              notChecked: ["deposit terms"],
+            },
+          ],
+        }),
+      ]),
+    ).toEqual([]);
+  });
+
   test("enforces explicit research-before-Places contracts when supplied directly", () => {
     const plan = researchBackedPlacePlan();
 
