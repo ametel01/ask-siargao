@@ -31,7 +31,8 @@ The repo already has useful foundations for this roadmap, but Priorities 1-3 als
 Milestone 4 onward should correct that direction. The foundations remain useful as tools and retrieval systems, not as preset answer renderers:
 
 - `src/app/api/chat/chat-route.ts` classifies food, beach, weather, nearby, and activity-plan intents.
-- `src/server/chat/recommendation-agent.ts` routes food and place-like questions through a planner, Google Places lookup, ranking, and rendered answer.
+- The Ask Siargao chat agent routes food and place-like questions through required evidence policy,
+  Google Places tools, ranking, and a model-written final answer.
 - `src/server/providers/google-places-chat.ts` performs Places Text Search with a controlled field mask.
 - `src/server/providers/google-places-chat-cache.ts` checks fresh cached Google Places rows before calling the live provider and persists live results.
 - `src/server/local/siargao-beaches.ts` contains deterministic curated beach guidance with ride-time, surface, use-case, tide-note, and caveat fields.
@@ -57,7 +58,7 @@ When a traveler asks for restaurants, cafes, drinks, covered places, beachfront 
 
 ### Technical Specification
 
-Extend `ChatRequestIntent` in `src/app/api/chat/chat-route.ts` and `FoodRequestIntent` in `src/server/chat/recommendation-agent.ts` into a shared place-intent model:
+Use the shared place-intent model for chat routing and evidence planning:
 
 ```ts
 type PlaceIntent = {
@@ -77,7 +78,8 @@ type PlaceIntent = {
 };
 ```
 
-Route all `PlaceIntent` requests through `RecommendationAgent` or a renamed `PlaceRecommendationAgent`. The deterministic planner should choose a Places search before the LLM planner when:
+Route all `PlaceIntent` requests through the Ask Siargao chat evidence policy. The planner should
+require Places evidence before a final answer when:
 
 - the latest user turn includes `open now`, `open today`, `currently open`, `hours`, or `nearby`;
 - the latest user turn is a follow-up and recent context contains a place category;
@@ -130,7 +132,8 @@ The text renderer can initially produce markdown from this object. Priority 4 sh
 ### Test Plan
 
 - Add route tests in `src/app/api/chat/route.test.ts` for open-now, nearby, covered cafe, and specific-place follow-ups.
-- Add recommendation-agent tests for deterministic `PlaceIntent` routing and cache-backed answers.
+- Add Ask Siargao agent tests for deterministic `PlaceIntent` evidence requirements and
+  cache-backed answers.
 - Add Google Places cache tests for stale rows, partial cache rows, and live refresh fallback.
 
 ## Priority 1a: Nightlife Event Routes
@@ -234,7 +237,8 @@ Update the intent classifier so stable context and temporary modifiers are separ
 - Temporary modifiers override the latest goal: swimming, sunset, rainy day, cheaper, covered, open now.
 - A new explicit goal clears incompatible previous modifiers.
 
-Move duplicated regex logic from `chat-route.ts` and `recommendation-agent.ts` into a shared `src/server/chat/intent.ts` module with unit tests.
+Keep duplicated regex logic out of route handlers by using shared chat intent modules with unit
+tests.
 
 ### Data Requirements
 
@@ -300,7 +304,7 @@ Thread `AnswerSourceSummary[]` through:
 
 - local beach rendering in `src/server/local/siargao-beaches.ts`;
 - weather plan rendering in `src/app/api/chat/chat-route.ts`;
-- recommendation rendering in `src/server/chat/recommendation-agent.ts`;
+- place recommendation rendering in the Ask Siargao chat response assembly;
 - future itinerary rendering.
 
 Initially, render this as compact markdown lines because `ChatWorkspace` already recognizes `Checked:`, `Weather signal:`, and `Not checked:`. Later, render badges from structured JSON.

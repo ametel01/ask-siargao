@@ -79,11 +79,11 @@ stable location, area, ride-time, transport mode, traveler profile, and durable 
 separately from latest-turn modifiers such as open-now, covered, cheaper, rainy-day, swimming,
 sunset, and itinerary changes.
 
-`src/app/api/chat/chat-route.ts`, `src/server/chat/place-intent.ts`, and
-`src/server/chat/recommendation-agent.ts` use that shared context for weather planning, grounded
-beach guidance, local recommendation searches, and clarification when a follow-up like "there" has
-no referent. This keeps provider use deterministic and request-scoped while leaving persistent trip
-and chat tables for the later storage milestone.
+`src/app/api/chat/chat-route.ts`, `src/server/chat/place-intent.ts`, and the Ask Siargao chat tool
+loop use that shared context for weather planning, grounded beach guidance, local recommendation
+searches, and clarification when a follow-up like "there" has no referent. This keeps provider use
+deterministic and request-scoped while leaving persistent trip and chat tables for the later storage
+milestone.
 
 ## Core Modules
 

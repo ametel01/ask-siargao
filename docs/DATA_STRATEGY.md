@@ -251,9 +251,10 @@ allowed, persist the capture, and return bounded facts, evidence summaries, fres
 gaps to the LLM. The LLM should not receive unrestricted Google payloads or invent live-provider
 claims when the answer context reports missing, stale, blocked, or failed refreshes.
 
-Priority 1 live local recommendations use the chat route's `PlaceIntent` classifier and the
-recommendation agent before generic LLM fallback. Food, cafe, bar, activity-place, service, and
-specific-place identity requests are searched through the cache-first Google Places chat adapter.
+Priority 1 live local recommendations use the chat route's `PlaceIntent` classifier and the Ask
+Siargao chat evidence policy before final model response. Food, cafe, bar, activity-place, service,
+and specific-place identity requests are searched through the cache-first Google Places chat
+adapter.
 Fresh cache rows are reused when they meet the configured minimum and can satisfy live-status
 needs; partial, stale, expired, or open-now/hour-insufficient cache rows refresh through the live
 adapter and are persisted through the same Google Places retention policy. Ranked candidates are

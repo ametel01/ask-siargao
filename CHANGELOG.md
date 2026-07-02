@@ -66,6 +66,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Retired the legacy recommendation-agent module so local recommendation behavior now lives only in
+  the Ask Siargao chat tool loop and evidence policy.
 - Moved vehicle-rental chat evidence repair into the required-evidence policy so the turn runtime
   gets Places-first lookup and public-web fallback requirements from one policy surface.
 - Deepened required-evidence repairs so policy code now owns repair tool-call construction,
@@ -162,7 +164,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Prevented `describe_source_policy` from returning policy label descriptions as answer evidence.
 - Hardened Google Places chat-cache refresh behavior for partial fresh cache rows and live-status
   requests whose cached rows lack opening-hour status.
-- Generalized the recommendation agent from food-only searches to open-now food, cafes, bars,
+- Generalized local place evidence planning from food-only searches to open-now food, cafes, bars,
   activity places, service places, and specific-place identity/map-link lookups.
 - Restored `/api/chat` Google Places answer-context wiring for live/stored place facts and expanded
   recommendation detection to accommodation rating follow-ups near Cloud 9.
