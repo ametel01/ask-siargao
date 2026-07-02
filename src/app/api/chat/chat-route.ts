@@ -11,16 +11,8 @@ import type {
   ChatClientContext,
   ChatClientGeolocationConsentScope,
   ChatClientGeolocationContext,
-  DecisionSummary,
-  ItineraryPlan,
   PublicAgentToolCall,
-  RecommendationCard,
 } from "@/server/chat/agent-runtime";
-import { publicAgentToolCallsFromAudits } from "@/server/chat/agent-runtime";
-import {
-  type AnswerSourceSummary,
-  renderAnswerSourceLines,
-} from "@/server/chat/answer-source-summary";
 import {
   type AskSiargaoAgentDependencies,
   runAskSiargaoAgentTurn as defaultRunAskSiargaoAgentTurn,
@@ -33,10 +25,8 @@ import {
   touchChatThread,
 } from "@/server/chat/chat-history-store";
 import { deriveTripContext, type TripContext } from "@/server/chat/intent";
-import {
-  assertChatAnswerSourceConsistency,
-  SourceConsistencyError,
-} from "@/server/chat/source-consistency";
+import { assemblePublicChatTurn } from "@/server/chat/public-turn-assembly";
+import { SourceConsistencyError } from "@/server/chat/source-consistency";
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 import { createComponentLogger } from "@/server/observability/logger";
@@ -251,45 +241,19 @@ export async function chatResponse(
         logger,
       },
     );
-    const publicToolCalls = publicAgentToolCallsFromAudits(result.toolCalls);
-
-    const publicAnswerSources = chatAnswerSourcesForValidation(
-      result.publicSources,
-      result.cards,
-      result.itineraries,
-      result.decisionSummaries,
-    );
-    let responseMessage = stripInternalDisclosureText(result.message);
-    const sourceValidationInput = {
-      message: responseMessage,
-      sources: publicAnswerSources,
-      toolCalls: result.toolCalls,
+    const publicTurn = assemblePublicChatTurn({
+      result,
       browserGeolocation: clientContext.geolocation,
-    };
-    try {
-      assertChatAnswerSourceConsistency(sourceValidationInput);
-    } catch (error) {
-      if (!(error instanceof SourceConsistencyError)) {
-        throw error;
-      }
-      const repairedMessage = repairMalformedRenderedSourceLines(responseMessage, error);
-      if (!repairedMessage) {
-        throw error;
-      }
-      responseMessage = stripInternalDisclosureText(repairedMessage);
-      assertChatAnswerSourceConsistency({
-        ...sourceValidationInput,
-        message: responseMessage,
-      });
+    });
+    if (publicTurn.repair) {
       logger.warn(
         {
-          issueCount: error.issues.length,
-          repairedLineCount: result.message.split("\n").length - responseMessage.split("\n").length,
+          issueCount: publicTurn.repair.issueCount,
+          repairedLineCount: publicTurn.repair.repairedLineCount,
         },
         "Chat answer repaired by removing malformed rendered source lines.",
       );
     }
-    assertRenderedSourceLinesArePublic(responseMessage, publicAnswerSources);
 
     let assistantMessageId: string | undefined;
     if (authenticatedPersistence?.status === "ready") {
@@ -300,15 +264,15 @@ export async function chatResponse(
         threadId: authenticatedPersistence.thread.id,
         userId: authenticatedPersistence.userId,
         role: "assistant",
-        content: responseMessage,
+        content: publicTurn.message,
         requestId: result.requestId,
         model: result.model,
-        sources: result.publicSources,
-        cards: result.cards ?? [],
-        actions: result.actions ?? [],
-        itineraries: result.itineraries ?? [],
-        decisionSummaries: result.decisionSummaries ?? [],
-        toolCalls: summarizeToolCallsForStoredHistory(publicToolCalls),
+        sources: publicTurn.storedHistory.sources,
+        cards: publicTurn.storedHistory.cards,
+        actions: publicTurn.storedHistory.actions,
+        itineraries: publicTurn.storedHistory.itineraries,
+        decisionSummaries: publicTurn.storedHistory.decisionSummaries,
+        toolCalls: publicTurn.storedHistory.toolCalls,
         contextSummary: summarizeClientContextForStoredHistory(clientContext, intent),
         createdAt: completedAt,
       });
@@ -322,17 +286,17 @@ export async function chatResponse(
       {
         branch: "agent_runtime",
         model: result.model,
-        providerFailure: publicToolCalls.some(isProviderFailureToolCall),
+        providerFailure: publicTurn.toolCalls.some(isProviderFailureToolCall),
         sourceLabels: [...new Set(result.sources.map((source) => source.label))],
-        publicSourceLabels: [...new Set(result.publicSources.map((source) => source.label))],
-        toolCallCount: publicToolCalls.length,
-        toolCalls: publicToolCalls.map(summarizeToolCallForLogs),
+        publicSourceLabels: [...new Set(publicTurn.sources.map((source) => source.label))],
+        toolCallCount: publicTurn.toolCalls.length,
+        toolCalls: publicTurn.toolCalls.map(summarizeToolCallForLogs),
         sourceCount: result.sources.length,
-        publicSourceCount: result.publicSources.length,
-        cardCount: result.cards?.length ?? 0,
-        actionCount: result.actions?.length ?? 0,
-        itineraryCount: result.itineraries?.length ?? 0,
-        decisionSummaryCount: result.decisionSummaries?.length ?? 0,
+        publicSourceCount: publicTurn.sources.length,
+        cardCount: publicTurn.cards.length,
+        actionCount: publicTurn.actions.length,
+        itineraryCount: publicTurn.itineraries.length,
+        decisionSummaryCount: publicTurn.decisionSummaries.length,
         ...(result.artifactSelection
           ? { artifactSelection: summarizeArtifactSelectionForLogs(result.artifactSelection) }
           : {}),
@@ -346,20 +310,20 @@ export async function chatResponse(
 
     return Response.json(
       {
-        message: responseMessage,
+        message: publicTurn.message,
         requestId: result.requestId,
         model: result.model,
         ...(result.upstreamRequestIds?.length
           ? { upstreamRequestIds: result.upstreamRequestIds }
           : {}),
-        toolCalls: publicToolCalls,
-        sources: result.publicSources,
+        toolCalls: publicTurn.toolCalls,
+        sources: publicTurn.sources,
         ...(result.memory ? { memory: summarizeMemoryForResponse(result.memory) } : {}),
-        ...(result.cards?.length ? { cards: result.cards } : {}),
-        ...(result.actions?.length ? { actions: result.actions } : {}),
-        ...(result.itineraries?.length ? { itineraries: result.itineraries } : {}),
-        ...(result.decisionSummaries?.length
-          ? { decisionSummaries: result.decisionSummaries }
+        ...(publicTurn.cards.length ? { cards: publicTurn.cards } : {}),
+        ...(publicTurn.actions.length ? { actions: publicTurn.actions } : {}),
+        ...(publicTurn.itineraries.length ? { itineraries: publicTurn.itineraries } : {}),
+        ...(publicTurn.decisionSummaries.length
+          ? { decisionSummaries: publicTurn.decisionSummaries }
           : {}),
         ...(authenticatedPersistence?.status === "ready"
           ? {
@@ -445,129 +409,6 @@ function concatChunks(chunks: readonly Uint8Array[], totalBytes: number) {
   }
 
   return body;
-}
-
-function chatAnswerSourcesForValidation(
-  sources: readonly AnswerSourceSummary[],
-  cards: readonly RecommendationCard[] | undefined,
-  itineraries: readonly ItineraryPlan[] | undefined,
-  decisionSummaries: readonly DecisionSummary[] | undefined,
-) {
-  return [
-    ...sources,
-    ...(cards?.flatMap((card) => card.sources ?? []) ?? []),
-    ...(itineraries?.flatMap((itinerary) => itinerary.sources) ?? []),
-    ...(decisionSummaries?.flatMap((summary) => summary.sources) ?? []),
-  ];
-}
-
-function assertRenderedSourceLinesArePublic(
-  message: string,
-  publicSources: readonly AnswerSourceSummary[],
-) {
-  const renderedSourceLines = message
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("Checked: ") || line.startsWith("Not checked: "));
-  if (renderedSourceLines.length === 0) {
-    return;
-  }
-
-  const publicSourceLines = new Set(renderAnswerSourceLines(publicSources));
-  const nonPublicLines = renderedSourceLines.filter((line) => !publicSourceLines.has(line));
-  if (nonPublicLines.length === 0) {
-    return;
-  }
-
-  throw new SourceConsistencyError(
-    nonPublicLines.map((line) => ({
-      code: "structured_source_not_tool_backed",
-      line,
-      message:
-        "Rendered source lines must be represented by public response sources or selected artifacts.",
-    })),
-  );
-}
-
-function repairMalformedRenderedSourceLines(
-  message: string,
-  error: SourceConsistencyError,
-): string | undefined {
-  if (
-    error.issues.length === 0 ||
-    error.issues.some((issue) => issue.code !== "rendered_source_label_unknown")
-  ) {
-    return undefined;
-  }
-
-  const invalidLines = new Set(error.issues.flatMap((issue) => (issue.line ? [issue.line] : [])));
-  if (invalidLines.size === 0) {
-    return undefined;
-  }
-
-  const repaired = message
-    .split("\n")
-    .filter((line) => {
-      const trimmed = line.trim();
-      return (
-        !invalidLines.has(trimmed) ||
-        (!trimmed.startsWith("Checked: ") && !trimmed.startsWith("Not checked: "))
-      );
-    })
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-
-  return repaired.length > 0 && repaired !== message ? repaired : undefined;
-}
-
-function stripInternalDisclosureText(value: string) {
-  return value
-    .replace(/\r\n?/g, "\n")
-    .split("\n")
-    .map((line) => stripInternalDisclosureSentences(line))
-    .filter((line) => line.trim().length > 0)
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function stripInternalDisclosureSentences(line: string) {
-  const trimmedLine = line.trim();
-  if (/^not checked:/i.test(trimmedLine)) {
-    return "";
-  }
-
-  return line
-    .split(/(?<=[.!?])\s+/)
-    .filter((sentence) => !isInternalDisclosure(sentence))
-    .join(" ")
-    .trim();
-}
-
-function isInternalDisclosure(value: string) {
-  return [
-    /\bnot\s+checked\b/i,
-    /\bwasn['’]?t\s+(?:separately\s+)?checked\b/i,
-    /\bwere\s+not\s+checked\b/i,
-    /\bno\s+live\b.{0,90}\bcheck\b/i,
-    /\bunchecked\b/i,
-    /\bnot\s+verified\b/i,
-    /\bI\s+(?:didn['’]?t|did\s+not)\s+(?:live[-\s]?)?check\b/i,
-    /\b(?:live[-\s]?)?check(?:ed|ing)?\s+(?:was|were|is|are)?\s*(?:not|needed|needs)\b/i,
-    /\bcurated\s+local\s+guide\s+estimate\b/i,
-    /\bexact\s+ride\s+time\s+depends\b/i,
-    /\buser\s+constraints\s+preserved\b/i,
-    /\borigin-specific\s+route\s+timing\b/i,
-    /\bthis\s+artifact\b/i,
-    /\bsource\s+caveats?\b/i,
-    /\bavoid\s+overclaiming\b/i,
-    /\buse\s+(?:search_places|places)\b/i,
-    /\bplaces\s+evidence\b/i,
-    /\b(?:open|opening|cafe|menu|booking|availability|crowd|quietness).{0,80}\bshould\s+be\s+checked\b/i,
-    /\bclaim(?:ing)?\b.{0,80}\b(?:open|status|hours|safety|reliability)\b/i,
-    /\bwithout\b.{0,80}\b(?:condition|safety|tide|surf|road).{0,40}\bcheck/i,
-  ].some((pattern) => pattern.test(value));
 }
 
 function normalizeChatClientContext(
@@ -796,21 +637,6 @@ function summarizeToolCallForLogs(toolCall: PublicAgentToolCall) {
     sourceProfileIds: toolCall.sourceProfileIds,
     durationMs: toolCall.durationMs,
   };
-}
-
-function summarizeToolCallsForStoredHistory(toolCalls: readonly PublicAgentToolCall[]) {
-  return toolCalls.map((toolCall) => ({
-    id: toolCall.id,
-    name: toolCall.name,
-    status: toolCall.status,
-    errorCode: toolCall.errorCode,
-    providerOperation: toolCall.providerOperation,
-    sourceProfileIds: toolCall.sourceProfileIds,
-    sources: toolCall.sources,
-    startedAt: toolCall.startedAt,
-    completedAt: toolCall.completedAt,
-    durationMs: toolCall.durationMs,
-  }));
 }
 
 function summarizeArtifactSelectionForLogs(

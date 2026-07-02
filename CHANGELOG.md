@@ -71,6 +71,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Moved Google Places chat capture construction into a governed capture module so cache callers
   pass provider observations instead of assembling source records, snapshots, retention windows,
   and attribution payloads themselves.
+- Moved public chat turn assembly into a shared module so `/api/chat` delegates public message
+  repair, source validation, artifact exposure, and stored-history tool-call projection to one
+  response boundary.
 - Strengthened chat source governance so `provider_unavailable` labels cannot carry checked facts
   and recommendation cards from failed provider outputs are excluded from selection.
 - Strengthened chat agent instructions and tool descriptions so the model owns tool choice and
