@@ -42,6 +42,10 @@ describe("audit intake route", () => {
 
     expect(response.status).toBe(200);
     expect(body.auditRequest.status).toBe("complete_for_payment");
+    expect(body.checkoutReadiness.status).toBe("ready_for_payment");
+    expect(body.checkoutReadiness.checkoutEligible).toBe(true);
+    expect(body.accommodationResolution).toBeUndefined();
+    expect(body.completeness).toBeUndefined();
     expect(body.auditInput.arrivalRouteSlug).toBe("surigao-city-to-dapa-ferry");
   });
 });

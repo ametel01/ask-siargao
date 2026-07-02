@@ -72,6 +72,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
   policy module instead of keeping those decisions in the turn loop.
 - Moved governed Google Places evidence lookup, cache/live selection, stored detail reuse, and live
   detail enrichment behind a provider-owned evidence module.
+- Moved audit intake checkout eligibility into one checkout-readiness decision so routes receive a
+  payment-ready decision instead of coordinating accommodation resolution and completeness results.
 - Moved vehicle-rental chat evidence repair into the required-evidence policy so the turn runtime
   gets Places-first lookup and public-web fallback requirements from one policy surface.
 - Deepened required-evidence repairs so policy code now owns repair tool-call construction,

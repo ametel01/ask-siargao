@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     name: "intake_completed",
     payload: {
       auditRequestStatus: result.auditRequest.status,
-      completenessReasons: result.completeness.blockingReasons,
+      completenessReasons: result.checkoutReadiness.blockingReasons,
       intake: sanitizeIntakeForMetrics(parsed.data),
     },
   });

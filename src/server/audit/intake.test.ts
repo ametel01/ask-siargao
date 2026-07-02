@@ -30,11 +30,11 @@ describe("audit intake and completeness gate", () => {
     });
 
     expect(result.auditRequest.status).toBe("needs_user_input");
-    expect(result.completeness.checkoutEligible).toBe(false);
-    expect(result.completeness.blockingReasons).toContain(
+    expect(result.checkoutReadiness.checkoutEligible).toBe(false);
+    expect(result.checkoutReadiness.blockingReasons).toContain(
       "Accommodation match confidence is below the payment threshold.",
     );
-    expect(result.completeness.requiredUserFollowups).toContain(
+    expect(result.checkoutReadiness.requiredUserFollowups).toContain(
       "Add a listing link or platform URL.",
     );
   });
@@ -46,9 +46,9 @@ describe("audit intake and completeness gate", () => {
     });
 
     expect(result.auditRequest.status).toBe("complete_for_payment");
-    expect(result.completeness.checkoutEligible).toBe(true);
-    expect(result.completeness.previewRisk?.id).toBe("preview_arrival_timing");
-    expect(result.completeness.evidenceSummary.length).toBeGreaterThan(0);
+    expect(result.checkoutReadiness.checkoutEligible).toBe(true);
+    expect(result.checkoutReadiness.previewRisk?.id).toBe("preview_arrival_timing");
+    expect(result.checkoutReadiness.evidenceSummary.length).toBeGreaterThan(0);
   });
 
   test("uses governed local directory accommodation facts for checkout eligibility", () => {
@@ -59,13 +59,13 @@ describe("audit intake and completeness gate", () => {
     });
 
     expect(result.auditRequest.status).toBe("complete_for_payment");
-    expect(result.accommodationResolution.sourceProfileId).toBe("source_public_tourism_directory");
-    expect(result.accommodationResolution.sourceConfidence).toBe("medium");
-    expect(result.accommodationResolution.factIds).toEqual(["fact_entity_harana_surf_resort_area"]);
-    expect(result.completeness.diagnostics).toMatchObject({
-      accommodationResolutionStatus: "confident",
-      accommodationSourceProfileId: "source_public_tourism_directory",
-      accommodationSourceConfidence: "medium",
+    expect(result.checkoutReadiness.diagnostics.accommodation).toMatchObject({
+      status: "confident",
+      sourceProfileId: "source_public_tourism_directory",
+      sourceConfidence: "medium",
+      factIds: ["fact_entity_harana_surf_resort_area"],
+    });
+    expect(result.checkoutReadiness.diagnostics).toMatchObject({
       blockingReasonCount: 0,
       completenessPassed: true,
     });
@@ -114,7 +114,7 @@ describe("audit intake and completeness gate", () => {
     });
 
     expect(result.auditRequest.status).toBe("complete_for_payment");
-    expect(result.completeness.checkoutEligible).toBe(true);
+    expect(result.checkoutReadiness.checkoutEligible).toBe(true);
     expect(result.auditInput.arrivalOrigin).toBeUndefined();
     expect(result.auditInput.arrivalRouteSlug).toBe("surigao-city-to-dapa-ferry");
   });
@@ -133,8 +133,8 @@ describe("audit intake and completeness gate", () => {
       optionalModules: ["remote_work", "transport_comfort"],
     });
 
-    expect(result.completeness.activatedModules).toEqual(["remote_work", "transport_comfort"]);
-    expect(result.completeness.previewRisk?.whatMightBreak).toContain("transport comfort");
+    expect(result.checkoutReadiness.activatedModules).toEqual(["remote_work", "transport_comfort"]);
+    expect(result.checkoutReadiness.previewRisk?.whatMightBreak).toContain("transport comfort");
   });
 
   test("risk tolerance changes preview severity and rationale", () => {
@@ -147,8 +147,8 @@ describe("audit intake and completeness gate", () => {
       travelerContext: { riskTolerance: "low_risk" },
     });
 
-    expect(relaxed.completeness.previewRisk?.level).toBe("green");
-    expect(lowRisk.completeness.previewRisk?.level).toBe("yellow");
-    expect(lowRisk.completeness.previewRisk?.whyItMatters).toContain("low-risk tolerance");
+    expect(relaxed.checkoutReadiness.previewRisk?.level).toBe("green");
+    expect(lowRisk.checkoutReadiness.previewRisk?.level).toBe("yellow");
+    expect(lowRisk.checkoutReadiness.previewRisk?.whyItMatters).toContain("low-risk tolerance");
   });
 });

@@ -1,13 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  type AccommodationResolution,
-  resolveAccommodation,
-} from "@/server/audit/accommodation-resolution";
-import {
-  type CompletenessGateResult,
-  evaluateCompleteness,
-} from "@/server/audit/completeness-gate";
+  type AuditCheckoutReadinessDecision,
+  decideAuditCheckoutReadiness,
+} from "@/server/audit/checkout-readiness";
 import { type IntakeInput, intakeInputSchema } from "@/server/audit/schemas";
 
 export type AuditIntakeResult = {
@@ -20,20 +16,18 @@ export type AuditIntakeResult = {
     id: string;
     auditRequestId: string;
   };
-  accommodationResolution: AccommodationResolution;
-  completeness: CompletenessGateResult;
+  checkoutReadiness: AuditCheckoutReadinessDecision;
 };
 
 export function createAuditIntake(rawInput: unknown): AuditIntakeResult {
   const input = intakeInputSchema.parse(rawInput);
-  const accommodationResolution = resolveAccommodation(input);
-  const completeness = evaluateCompleteness(input, accommodationResolution);
+  const checkoutReadiness = decideAuditCheckoutReadiness(input);
   const auditRequestId = `audit_${randomUUID()}`;
 
   return {
     auditRequest: {
       id: auditRequestId,
-      status: completeness.checkoutEligible ? "complete_for_payment" : "needs_user_input",
+      status: checkoutReadiness.checkoutEligible ? "complete_for_payment" : "needs_user_input",
       priceUsd: 9.99,
     },
     auditInput: {
@@ -41,7 +35,6 @@ export function createAuditIntake(rawInput: unknown): AuditIntakeResult {
       id: `input_${randomUUID()}`,
       auditRequestId,
     },
-    accommodationResolution,
-    completeness,
+    checkoutReadiness,
   };
 }
