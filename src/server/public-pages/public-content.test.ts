@@ -3,9 +3,13 @@ import { describe, expect, test } from "bun:test";
 import { serializeJsonForHtmlScript } from "@/server/public-pages/html-json";
 import {
   buildLlmsTxt,
+  buildPublicCatalogProjection,
+  buildPublicEntityIndex,
+  buildPublicEvidenceIndex,
   buildPublicJsonLd,
   buildPublicPageJson,
   buildPublicPageMarkdown,
+  buildPublicRiskPreview,
   buildSitemapXml,
   createFixturePublicPageRepository,
   evaluatePublicEligibility,
@@ -36,6 +40,31 @@ describe("public knowledge surfaces", () => {
     expect(markdown).toContain(page.canonicalUrl);
     expect(page.generationSourceFactIds).toEqual(page.facts.map((fact) => fact.id));
     expect(json.evidenceBundle.evidenceIds).toEqual(page.facts.map((fact) => fact.evidenceId));
+  });
+
+  test("projects fixture catalog pages through shared output builders", () => {
+    const pages = publicPagesForIndex();
+    const accommodation = pages.find((page) => page.slug === "example-surf-stay");
+    const risk = pages.find((page) => page.family === "risks");
+
+    expect(accommodation).toBeDefined();
+    expect(risk).toBeDefined();
+    if (!accommodation || !risk) {
+      throw new Error("Expected fixture catalog pages.");
+    }
+
+    const projection = buildPublicCatalogProjection(pages);
+
+    expect(buildPublicEntityIndex(pages)).toEqual(projection.entities);
+    expect(buildPublicEvidenceIndex(pages)).toEqual(projection.evidence);
+    expect(buildPublicRiskPreview(pages)).toEqual(projection.riskPreview);
+    expect(JSON.stringify(projection.entities)).toContain(accommodation.facts[0]?.claim as string);
+    expect(JSON.stringify(projection.evidence)).toContain(
+      accommodation.evidenceBundle.evidenceIds[0],
+    );
+    expect(JSON.stringify(projection.riskPreview)).toContain(risk.slug);
+    expect(projection.sitemapXml).toContain(accommodation.humanPath);
+    expect(projection.llmsTxt).toContain(accommodation.llmMarkdownPath);
   });
 
   test("serializes JSON-LD safely for inline script markup", () => {
