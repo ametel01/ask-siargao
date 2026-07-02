@@ -7,6 +7,8 @@ import {
 } from "@/app/api/audit/checkout/checkout-route";
 import type { AuditJobState } from "@/server/audit/enums";
 import { type AuditLifecycleRecord, createAuditLifecycleRecord } from "@/server/audit/lifecycle";
+import { startAuditCheckoutPaymentLifecycle } from "@/server/payments/audit-payment-lifecycle";
+import type { createCheckoutSessionForAudit } from "@/server/payments/stripe";
 
 const now = new Date("2026-06-23T08:00:00.000Z");
 
@@ -20,10 +22,10 @@ describe("audit checkout route", () => {
   });
 
   test("rejects checkout when the audit request is not found", async () => {
-    const response = await checkoutResponse(jsonRequest({ auditRequestId: "audit_missing" }), {
-      ...checkoutDependencies(),
-      getCheckoutAuditState: async () => null,
-    });
+    const response = await checkoutResponse(
+      jsonRequest({ auditRequestId: "audit_missing" }),
+      checkoutDependencies({ audit: null }),
+    );
     const body = await response.json();
 
     expect(response.status).toBe(404);
@@ -91,8 +93,7 @@ describe("audit checkout route", () => {
 });
 
 function checkoutDependencies(input: { audit?: AuditLifecycleRecord | null } = {}) {
-  const checkoutCalls: Parameters<CheckoutRouteDependencies["createCheckoutSessionForAudit"]>[0][] =
-    [];
+  const checkoutCalls: Parameters<typeof createCheckoutSessionForAudit>[0][] = [];
   const persistedAudits: AuditLifecycleRecord[] = [];
   const events: string[] = [];
   const dependencies: CheckoutRouteDependencies & {
@@ -100,30 +101,36 @@ function checkoutDependencies(input: { audit?: AuditLifecycleRecord | null } = {
     persistedAudits: typeof persistedAudits;
     events: typeof events;
   } = {
-    getCheckoutAuditState: async () => input.audit ?? null,
-    recordCheckoutStarted: async (audit) => {
-      persistedAudits.push(audit);
-    },
-    createCheckoutSessionForAudit: async (checkoutInput) => {
-      checkoutCalls.push(checkoutInput);
-      return {
-        id: "cs_test_123",
-        url: "https://checkout.stripe.test/session",
-        params: {} as Stripe.Checkout.SessionCreateParams,
-      };
-    },
-    trackServerEvent: (event) => {
-      events.push(event.name);
-      return {
-        name: event.name,
-        at: now.toISOString(),
-        payload: event.payload,
-        sinks: {
-          posthogConfigured: false,
-          sentryConfigured: false,
+    startAuditCheckoutPaymentLifecycle: (checkoutInput) =>
+      startAuditCheckoutPaymentLifecycle(checkoutInput, {
+        store: {
+          loadCheckoutAudit: async () => input.audit ?? null,
+          saveCheckoutStarted: async (audit) => {
+            persistedAudits.push(audit);
+          },
         },
-      };
-    },
+        createCheckoutSessionForAudit: async (sessionInput) => {
+          checkoutCalls.push(sessionInput);
+          return {
+            id: "cs_test_123",
+            url: "https://checkout.stripe.test/session",
+            params: {} as Stripe.Checkout.SessionCreateParams,
+          };
+        },
+        trackServerEvent: (event) => {
+          events.push(event.name);
+          return {
+            name: event.name,
+            at: now.toISOString(),
+            payload: event.payload,
+            sinks: {
+              posthogConfigured: false,
+              sentryConfigured: false,
+            },
+          };
+        },
+        now,
+      }),
     checkoutCalls,
     persistedAudits,
     events,

@@ -11,6 +11,7 @@ import {
   transitionAuditLifecycle,
 } from "@/server/audit/lifecycle";
 import { recordAuditJobFailure, runAuditJob } from "@/server/jobs/audit-jobs";
+import { startAuditCheckoutPaymentLifecycle } from "@/server/payments/audit-payment-lifecycle";
 import {
   AUDIT_PRICE_CENTS,
   buildAuditCheckoutSessionParams,
@@ -64,6 +65,57 @@ function checkoutSessionCompletedPayload() {
 }
 
 describe("Stripe checkout gating", () => {
+  test("loads persisted eligibility before creating and persisting Checkout", async () => {
+    const events: string[] = [];
+    const result = await startAuditCheckoutPaymentLifecycle(
+      {
+        auditRequestId: "audit_123",
+        appUrl: "https://siargao.test",
+        customerEmail: "traveler@example.com",
+      },
+      {
+        store: {
+          loadCheckoutAudit: async () => {
+            events.push("load:persisted_audit");
+            return completeAudit();
+          },
+          saveCheckoutStarted: async (audit) => {
+            events.push(`save:${audit.state}`);
+          },
+        },
+        createCheckoutSessionForAudit: async (input) => {
+          events.push(`stripe:${input.audit.state}:${input.audit.checkoutEligible}`);
+          return {
+            id: "cs_test_123",
+            url: "https://checkout.stripe.test/session",
+            params: {} as Stripe.Checkout.SessionCreateParams,
+          };
+        },
+        trackServerEvent: (event) => {
+          events.push(event.name);
+          return {
+            name: event.name,
+            at: now.toISOString(),
+            payload: event.payload,
+            sinks: {
+              posthogConfigured: false,
+              sentryConfigured: false,
+            },
+          };
+        },
+        now,
+      },
+    );
+
+    expect(result.status).toBe("started");
+    expect(events).toEqual([
+      "load:persisted_audit",
+      "stripe:complete_for_payment:true",
+      "save:awaiting_payment",
+      "preview_to_payment_started",
+    ]);
+  });
+
   test("builds a USD 9.99 Checkout Session only for complete audits", () => {
     const params = buildAuditCheckoutSessionParams({
       audit: completeAudit(),
@@ -97,14 +149,70 @@ describe("Stripe checkout gating", () => {
       checkoutEligible: false,
       now,
     });
+    const wrongPrice = createAuditLifecycleRecord({
+      id: "audit_wrong_price",
+      state: "complete_for_payment",
+      checkoutEligible: true,
+      priceUsd: 8.99,
+      now,
+    });
 
-    for (const audit of [incomplete, blocked, belowThreshold]) {
+    for (const audit of [incomplete, blocked, belowThreshold, wrongPrice]) {
       expect(() =>
         buildAuditCheckoutSessionParams({
           audit,
           appUrl: "https://siargao.test",
         }),
       ).toThrow("Checkout can only start");
+    }
+  });
+
+  test("rejects existing payment states before Stripe Checkout is created", async () => {
+    for (const status of ["checkout_started", "paid", "failed"] as const) {
+      const events: string[] = [];
+      const existingPaymentAudit = {
+        ...completeAudit(),
+        payment: {
+          id: `payment_${status}`,
+          auditRequestId: "audit_123",
+          stripeCheckoutSessionId: `cs_${status}`,
+          amountUsd: 9.99 as const,
+          status,
+          diagnosticContext: {},
+          createdAt: now.toISOString(),
+        },
+      };
+
+      await expect(
+        startAuditCheckoutPaymentLifecycle(
+          {
+            auditRequestId: "audit_123",
+            appUrl: "https://siargao.test",
+          },
+          {
+            store: {
+              loadCheckoutAudit: async () => {
+                events.push(`load:${status}`);
+                return existingPaymentAudit;
+              },
+              saveCheckoutStarted: async () => {
+                events.push(`save:${status}`);
+              },
+            },
+            createCheckoutSessionForAudit: async () => {
+              events.push(`stripe:${status}`);
+              return {
+                id: "cs_should_not_exist",
+                url: "https://checkout.stripe.test/session",
+                params: {} as Stripe.Checkout.SessionCreateParams,
+              };
+            },
+            now,
+          },
+        ),
+      ).rejects.toThrow("Checkout can only start");
+
+      expect(events).toEqual([`load:${status}`]);
     }
   });
 
