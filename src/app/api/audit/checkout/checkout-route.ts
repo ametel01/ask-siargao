@@ -1,9 +1,6 @@
 import { z } from "zod";
 
-import { getCheckoutAuditState, recordCheckoutStarted } from "@/server/audit/checkout-state";
-import { assertCanStartCheckout, startCheckoutLifecycle } from "@/server/audit/lifecycle";
-import { trackServerEvent } from "@/server/observability/events";
-import { createCheckoutSessionForAudit } from "@/server/payments/stripe";
+import { startAuditCheckoutPaymentLifecycle } from "@/server/payments/audit-payment-lifecycle";
 
 const checkoutRequestSchema = z.object({
   auditRequestId: z.string().min(1),
@@ -11,17 +8,11 @@ const checkoutRequestSchema = z.object({
 });
 
 export type CheckoutRouteDependencies = {
-  getCheckoutAuditState: typeof getCheckoutAuditState;
-  recordCheckoutStarted: typeof recordCheckoutStarted;
-  createCheckoutSessionForAudit: typeof createCheckoutSessionForAudit;
-  trackServerEvent: typeof trackServerEvent;
+  startAuditCheckoutPaymentLifecycle: typeof startAuditCheckoutPaymentLifecycle;
 };
 
 const defaultDependencies: CheckoutRouteDependencies = {
-  getCheckoutAuditState,
-  recordCheckoutStarted,
-  createCheckoutSessionForAudit,
-  trackServerEvent,
+  startAuditCheckoutPaymentLifecycle,
 };
 
 export async function checkoutResponse(
@@ -47,35 +38,23 @@ export async function checkoutResponse(
     );
   }
 
-  const audit = await dependencies.getCheckoutAuditState(parsed.data.auditRequestId);
-
-  if (!audit) {
-    return Response.json({ error: "audit_not_found" }, { status: 404 });
-  }
-
   try {
-    assertCanStartCheckout(audit);
-    const checkout = await dependencies.createCheckoutSessionForAudit({
-      audit,
+    const result = await dependencies.startAuditCheckoutPaymentLifecycle({
+      auditRequestId: parsed.data.auditRequestId,
       appUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin,
       customerEmail: parsed.data.customerEmail,
     });
-    const nextAudit = startCheckoutLifecycle(audit, checkout);
-    await dependencies.recordCheckoutStarted(nextAudit);
-    dependencies.trackServerEvent({
-      name: "preview_to_payment_started",
-      payload: {
-        auditRequestId: nextAudit.id,
-        state: nextAudit.state,
-      },
-    });
+
+    if (result.status === "not_found") {
+      return Response.json({ error: "audit_not_found" }, { status: 404 });
+    }
 
     return Response.json(
       {
-        auditRequestId: nextAudit.id,
-        state: nextAudit.state,
-        checkoutUrl: checkout.url,
-        stripeCheckoutSessionId: checkout.id,
+        auditRequestId: result.audit.id,
+        state: result.audit.state,
+        checkoutUrl: result.checkout.url,
+        stripeCheckoutSessionId: result.checkout.id,
       },
       { headers },
     );

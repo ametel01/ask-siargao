@@ -24,23 +24,26 @@ export async function recordCheckoutStarted(
   if (!audit.payment) {
     throw new Error("A checkout payment record is required before persisting checkout state.");
   }
+  const payment = audit.payment;
 
-  await db.insert(payments).values({
-    id: audit.payment.id,
-    auditRequestId: audit.payment.auditRequestId,
-    stripeCheckoutSessionId: audit.payment.stripeCheckoutSessionId,
-    amountUsd: "9.99",
-    status: audit.payment.status,
-    diagnosticContext: audit.payment.diagnosticContext,
-    createdAt: new Date(audit.payment.createdAt),
+  await db.transaction(async (tx) => {
+    await tx.insert(payments).values({
+      id: payment.id,
+      auditRequestId: payment.auditRequestId,
+      stripeCheckoutSessionId: payment.stripeCheckoutSessionId,
+      amountUsd: "9.99",
+      status: payment.status,
+      diagnosticContext: payment.diagnosticContext,
+      createdAt: new Date(payment.createdAt),
+    });
+    await tx
+      .update(auditRequests)
+      .set({
+        status: audit.state,
+        updatedAt: new Date(),
+      })
+      .where(eq(auditRequests.id, audit.id));
   });
-  await db
-    .update(auditRequests)
-    .set({
-      status: audit.state,
-      updatedAt: new Date(),
-    })
-    .where(eq(auditRequests.id, audit.id));
 }
 
 export async function getCheckoutAuditState(
@@ -95,6 +98,7 @@ export async function getCheckoutAuditState(
     id: auditRow.id,
     state: deriveCheckoutState(auditJobStateSchema.parse(auditRow.status), paymentStatus),
     checkoutEligible: completenessRows[0]?.canComplete ?? false,
+    priceUsd: Number(auditRow.priceUsd),
   });
 
   return {

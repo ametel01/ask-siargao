@@ -30,7 +30,7 @@ export type AuditLifecycleRecord = {
   id: string;
   state: AuditJobState;
   checkoutEligible: boolean;
-  priceUsd: 9.99;
+  priceUsd: number;
   payment?: PaymentRecord;
   reviewedAt?: string;
   publishedAt?: string;
@@ -55,6 +55,7 @@ export function createAuditLifecycleRecord(input: {
   id: string;
   state: AuditJobState;
   checkoutEligible?: boolean;
+  priceUsd?: number;
   now?: Date;
 }): AuditLifecycleRecord {
   const at = iso(input.now);
@@ -63,7 +64,7 @@ export function createAuditLifecycleRecord(input: {
     id: input.id,
     state: input.state,
     checkoutEligible: input.checkoutEligible ?? input.state === "complete_for_payment",
-    priceUsd: 9.99,
+    priceUsd: input.priceUsd ?? 9.99,
     diagnostics: [],
     stateHistory: [{ state: input.state, at, reason: "created" }],
   };
@@ -71,7 +72,10 @@ export function createAuditLifecycleRecord(input: {
 
 function canStartCheckoutForAudit(audit: AuditLifecycleRecord) {
   return (
-    audit.state === "complete_for_payment" && audit.checkoutEligible && audit.priceUsd === 9.99
+    audit.state === "complete_for_payment" &&
+    audit.checkoutEligible &&
+    audit.priceUsd === 9.99 &&
+    !audit.payment
   );
 }
 
@@ -131,7 +135,10 @@ export function handleVerifiedPayment(
   if (audit.state !== "awaiting_payment") {
     throw new Error("Verified payment can only unlock an awaiting_payment audit.");
   }
-  if (audit.payment?.stripeCheckoutSessionId !== payment.stripeCheckoutSessionId) {
+  if (audit.payment?.status !== "checkout_started") {
+    throw new Error("Verified payment requires a pending checkout payment.");
+  }
+  if (audit.payment.stripeCheckoutSessionId !== payment.stripeCheckoutSessionId) {
     throw new Error("Verified payment checkout session does not match the pending payment.");
   }
 

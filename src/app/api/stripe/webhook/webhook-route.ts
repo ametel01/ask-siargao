@@ -1,9 +1,9 @@
 import { trackServerEvent } from "@/server/observability/events";
+import { applyVerifiedCheckoutPayment } from "@/server/payments/audit-payment-lifecycle";
 import {
   extractVerifiedCheckoutPayment,
   verifyStripeWebhookPayload,
 } from "@/server/payments/stripe";
-import { applyVerifiedCheckoutPayment } from "@/server/payments/webhook-application";
 
 export type StripeWebhookRouteDependencies = {
   applyVerifiedCheckoutPayment: typeof applyVerifiedCheckoutPayment;

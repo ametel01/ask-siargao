@@ -95,6 +95,22 @@ describe("Stripe webhook route", () => {
     expect(store.paymentEvents).toHaveLength(1);
   });
 
+  test("treats duplicate event persistence races as idempotent", async () => {
+    const response = await stripeWebhookResponse(
+      await signedRequest(checkoutSessionPayload()),
+      routeDependencies({
+        hasProcessedStripeEvent: async () => false,
+        loadCheckoutAudit: async () => pendingPaymentAudit(),
+        saveAppliedPayment: async () => "duplicate",
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.applicationStatus).toBe("duplicate");
+    expect(body.generationJobId).toBeUndefined();
+  });
+
   test("rejects checkout session mismatches", async () => {
     const store = createMemoryPaymentStore(pendingPaymentAudit());
     const response = await stripeWebhookResponse(
@@ -107,6 +123,40 @@ describe("Stripe webhook route", () => {
     expect(body.error).toBe("invalid_stripe_webhook");
     expect(store.jobs).toHaveLength(0);
     expect(store.paymentEvents).toHaveLength(0);
+  });
+
+  test("rejects checkout audit id mismatches", async () => {
+    const store = createMemoryPaymentStore({
+      ...pendingPaymentAudit(),
+      id: "audit_other",
+    });
+    const response = await stripeWebhookResponse(
+      await signedRequest(checkoutSessionPayload()),
+      routeDependencies(store.store),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe("invalid_stripe_webhook");
+    expect(store.jobs).toHaveLength(0);
+    expect(store.paymentEvents).toHaveLength(0);
+  });
+
+  test("rejects paid events without pending checkout state", async () => {
+    const response = await stripeWebhookResponse(
+      await signedRequest(checkoutSessionPayload()),
+      routeDependencies({
+        hasProcessedStripeEvent: async () => false,
+        loadCheckoutAudit: async () => null,
+        saveAppliedPayment: async () => {
+          throw new Error("save should not run without pending checkout state.");
+        },
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe("invalid_stripe_webhook");
   });
 
   test("ignores non-paid checkout sessions", async () => {
@@ -196,6 +246,7 @@ function createMemoryPaymentStore(initialAudit: AuditLifecycleRecord) {
       audit = input.audit;
       jobs.push(input.job);
       paymentEvents.push(input.paymentEvent);
+      return "saved";
     },
   };
 
