@@ -17,6 +17,8 @@ import {
   postSharedTripPlan,
   readSavedTripState,
   resetSavedTripClientForTests,
+  savedItemIdForCard,
+  savedItemIdForItinerary,
   savedTripStorageKey,
   saveSavedTripItems,
   subscribeSavedTripState,
@@ -25,6 +27,10 @@ import {
   writeAuthenticatedSavedTripState,
   writeSavedTripState,
 } from "@/features/chat/saved-trip-client";
+import {
+  savedTripItemFromItineraryPlan,
+  savedTripItemFromRecommendationCard,
+} from "@/server/trips/shared-trip-types";
 
 const fixedNow = "2026-06-30T08:00:00.000Z";
 const fallbackTripId = "local_trip_test123";
@@ -260,6 +266,73 @@ describe("saved trip item builders", () => {
         ],
       },
     });
+  });
+
+  test("matches server recommendation-card construction for the same item-id policy", () => {
+    const card = sampleRecommendationCard();
+    const browserItem = buildSavedItemFromCard(card, "local_trip_equivalence", {
+      now: () => fixedNow,
+    });
+    const serverItem = savedTripItemFromRecommendationCard({
+      card,
+      id: savedItemIdForCard(card),
+      savedAt: fixedNow,
+      sources: card.sources ?? [],
+      tripId: "local_trip_equivalence",
+    });
+
+    expect(serverItem).toEqual(browserItem);
+  });
+
+  test("matches server itinerary construction for the same item-id policy", () => {
+    const plan = sampleItineraryPlan();
+    const browserItem = buildSavedItemFromItinerary(plan, "local_trip_equivalence", {
+      now: () => fixedNow,
+    });
+    const serverItem = savedTripItemFromItineraryPlan({
+      id: savedItemIdForItinerary(plan),
+      plan,
+      savedAt: fixedNow,
+      tripId: "local_trip_equivalence",
+    });
+
+    expect(serverItem).toEqual(browserItem);
+  });
+
+  test("omits invalid map URLs from constructed saved artifacts", () => {
+    const cardItem = buildSavedItemFromCard(
+      {
+        ...sampleRecommendationCard(),
+        mapsUrl: "https://maps.google.evil/maps?q=Shaka",
+      },
+      "local_trip_maps",
+      { now: () => fixedNow },
+    );
+    const itineraryItem = buildSavedItemFromItinerary(
+      {
+        ...sampleItineraryPlan(),
+        stops: [
+          {
+            ...sampleItineraryPlan().stops[0],
+            mapsUrl: "https://maps.example/cloud9-cafe",
+          },
+        ],
+      },
+      "local_trip_maps",
+      { now: () => fixedNow },
+    );
+
+    expect(cardItem.mapsUrl).toBeUndefined();
+    expect(
+      cardItem.payload.type === "recommendation_card"
+        ? cardItem.payload.card.mapsUrl
+        : "wrong payload",
+    ).toBeUndefined();
+    expect(
+      itineraryItem.payload.type === "itinerary_plan"
+        ? itineraryItem.payload.plan.stops[0]?.mapsUrl
+        : "wrong payload",
+    ).toBeUndefined();
   });
 
   test("upserts saved items without changing the original created timestamp", () => {
