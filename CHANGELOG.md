@@ -74,6 +74,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Moved public chat turn assembly into a shared module so `/api/chat` delegates public message
   repair, source validation, artifact exposure, and stored-history tool-call projection to one
   response boundary.
+- Moved Google Places search/detail provider routing behind a Places evidence adapter so chat tools
+  format tool results without owning live, cache, no-store, DB, and enrichment selection rules.
 - Strengthened chat source governance so `provider_unavailable` labels cannot carry checked facts
   and recommendation cards from failed provider outputs are excluded from selection.
 - Strengthened chat agent instructions and tool descriptions so the model owns tool choice and

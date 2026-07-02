@@ -50,6 +50,11 @@ import {
   searchNightlifeEvents,
 } from "@/server/chat/nightlife-events";
 import {
+  createPlacesEvidenceAdapter,
+  type PlacesEvidenceAdapter,
+  type PlacesEvidenceAdapterDependencies,
+} from "@/server/chat/places-evidence-adapter";
+import {
   buildWebResearchQueries,
   type ResearchFinding,
   type ResearchWebRequest,
@@ -71,23 +76,16 @@ import {
   rankSurfSpotsNearby,
   type SurfSpotSkillLevel,
 } from "@/server/local/siargao-surf-spots";
-import {
-  type GooglePlacesChatContext,
-  type GooglePlacesChatPlace,
-  type GooglePlacesChatSearch,
-  getGooglePlacesChatContext,
+import type {
+  GooglePlacesChatContext,
+  GooglePlacesChatPlace,
+  GooglePlacesChatSearch,
 } from "@/server/providers/google-places-chat";
-import { createDefaultCachedGooglePlacesChatContextAdapter } from "@/server/providers/google-places-chat-cache";
 import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
 import {
-  enrichGooglePlacesDetails,
   type GooglePlacesDetails,
   googlePlacesDetailsFieldMask,
 } from "@/server/providers/google-places-enrichment";
-import {
-  findFreshPlaceDetails,
-  type GooglePlacesStoreDatabase,
-} from "@/server/providers/google-places-store";
 import {
   type OpenMeteoForecastLocation,
   siargaoForecastLocations,
@@ -161,22 +159,11 @@ export type WebPageFetchProvider = (input: {
   requestId: string;
 }) => Promise<{ url: string; title: string; pageSummary: string; publishedOrUpdatedAt?: string }>;
 
-export type AgentToolDependencies = {
-  enrichGooglePlacesDetails?: typeof enrichGooglePlacesDetails;
-  findFreshPlaceDetails?: typeof findFreshPlaceDetails;
-  getGooglePlacesChatContext?: (input: {
-    cacheMode?: "standard" | "no_store";
-    fetchedAt: string;
-    requiresLiveStatus?: boolean;
-    search: GooglePlacesChatSearch;
-    trace?: { requestId?: string };
-  }) => Promise<GooglePlacesChatContext>;
+export type AgentToolDependencies = PlacesEvidenceAdapterDependencies & {
+  placesEvidenceAdapter?: PlacesEvidenceAdapter;
   buildOpenMeteoMarineIngestionBatch?: typeof buildOpenMeteoMarineIngestionBatch;
   buildTideForecastSnapshot?: typeof buildTideForecastSnapshot;
   getLatestSiargaoWeatherSnapshot?: typeof getLatestSiargaoWeatherSnapshot;
-  googlePlacesApiKey?: string;
-  googlePlacesDetailsDb?: GooglePlacesStoreDatabase;
-  googlePlacesFetcher?: (url: string, init: RequestInit) => Promise<Response>;
   localFactsQueryRunner?: LocalFactsQueryRunner;
   localFactsQueryTimeoutMs?: number;
   memorySnapshot?: AgentMemorySnapshot;
@@ -1431,17 +1418,16 @@ async function searchPlacesToolResult(
   const centerSource = placesToolContext?.centerSource ?? "model_supplied";
 
   try {
+    const placesAdapter =
+      dependencies.placesEvidenceAdapter ?? createPlacesEvidenceAdapter(dependencies);
     const context = enforceRequiredOpenNowContext(
-      await getGooglePlacesSearchContext(
-        {
-          cacheMode: placesToolContext?.cacheMode ?? "standard",
-          fetchedAt,
-          requiresLiveStatus: args.constraints?.open_now,
-          search,
-          trace: { requestId: request.requestId },
-        },
-        dependencies,
-      ),
+      await placesAdapter.search({
+        cacheMode: placesToolContext?.cacheMode ?? "standard",
+        fetchedAt,
+        requiresLiveStatus: args.constraints?.open_now,
+        search,
+        trace: { requestId: request.requestId },
+      }),
       {
         requiresOpenNow: args.constraints?.open_now === true,
       },
@@ -1566,9 +1552,10 @@ async function getPlaceDetailsToolResult(
   dependencies: AgentToolDependencies,
 ): Promise<AgentToolResult> {
   const now = currentIso(dependencies);
-  const cached = await findCachedPlaceDetails(args.place_id, now, dependencies);
-  if (cached) {
-    const details = normalizeCachedPlaceDetails(cached);
+  const placesAdapter =
+    dependencies.placesEvidenceAdapter ?? createPlacesEvidenceAdapter(dependencies);
+  const details = await placesAdapter.findFreshDetails({ now, placeId: args.place_id });
+  if (details) {
     const sourceSummary = googlePlacesDetailsSourceSummary("fresh_cache", details);
     const cards = googlePlacesDetailsCards(details, sourceSummary);
     const actions = googlePlacesPromptActions(cards, details.displayName);
@@ -1590,8 +1577,11 @@ async function getPlaceDetailsToolResult(
   }
 
   try {
-    const details = await getLivePlaceDetails(args.place_id, now, dependencies);
-    const detail = details[0];
+    const liveDetails = await placesAdapter.getLiveDetails({
+      fetchedAt: now,
+      placeId: args.place_id,
+    });
+    const detail = liveDetails[0];
     if (!detail) {
       return {
         name: "get_place_details",
@@ -2189,107 +2179,6 @@ function normalizeLocalGuideSearchResult(result: LocalGuideSearchResult) {
   };
 }
 
-async function getGooglePlacesSearchContext(
-  input: {
-    cacheMode?: "standard" | "no_store";
-    fetchedAt: string;
-    requiresLiveStatus?: boolean;
-    search: GooglePlacesChatSearch;
-    trace?: { requestId?: string };
-  },
-  dependencies: AgentToolDependencies,
-) {
-  if (dependencies.getGooglePlacesChatContext) {
-    return dependencies.getGooglePlacesChatContext(input);
-  }
-
-  if (input.cacheMode === "no_store") {
-    return getGooglePlacesChatContext({
-      apiKey: dependencies.googlePlacesApiKey,
-      fetchedAt: input.fetchedAt,
-      fetcher: dependencies.googlePlacesFetcher,
-      search: input.search,
-      trace: input.trace,
-    });
-  }
-
-  if (dependencies.googlePlacesApiKey || dependencies.googlePlacesFetcher) {
-    return getGooglePlacesChatContext({
-      apiKey: dependencies.googlePlacesApiKey,
-      fetchedAt: input.fetchedAt,
-      fetcher: dependencies.googlePlacesFetcher,
-      search: input.search,
-      trace: input.trace,
-    });
-  }
-
-  const cachedAdapter = createDefaultCachedGooglePlacesChatContextAdapter();
-  if (cachedAdapter) {
-    return cachedAdapter(input);
-  }
-
-  return getGooglePlacesChatContext({
-    fetchedAt: input.fetchedAt,
-    search: input.search,
-    trace: input.trace,
-  });
-}
-
-async function findCachedPlaceDetails(
-  placeId: string,
-  now: string,
-  dependencies: AgentToolDependencies,
-) {
-  if (dependencies.findFreshPlaceDetails) {
-    return dependencies.findFreshPlaceDetails(
-      dependencies.googlePlacesDetailsDb ?? inertGooglePlacesStoreDatabase,
-      { now, placeId },
-    );
-  }
-
-  if (dependencies.googlePlacesDetailsDb) {
-    return findFreshPlaceDetails(dependencies.googlePlacesDetailsDb, { now, placeId });
-  }
-
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    return null;
-  }
-
-  const sql = postgres(databaseUrl, { max: 1, prepare: false });
-  try {
-    return await findFreshPlaceDetails(
-      {
-        async query<T>(query: string, params: unknown[] = []) {
-          const rows = await sql.unsafe<T[]>(query, params as never[]);
-          return { rows };
-        },
-      },
-      { now, placeId },
-    );
-  } finally {
-    await sql.end({ timeout: 1 });
-  }
-}
-
-async function getLivePlaceDetails(
-  placeId: string,
-  fetchedAt: string,
-  dependencies: AgentToolDependencies,
-) {
-  const enrich = dependencies.enrichGooglePlacesDetails ?? enrichGooglePlacesDetails;
-  return enrich({
-    apiKey:
-      dependencies.googlePlacesApiKey ??
-      process.env.GOOGLE_API_KEY ??
-      process.env.GOOGLE_PLACES_API_KEY ??
-      "",
-    fetchedAt,
-    fetcher: dependencies.googlePlacesFetcher,
-    placeIds: [placeId],
-  });
-}
-
 function normalizeGooglePlacesSearchContext(
   context: GooglePlacesChatContext,
   centerContext: {
@@ -2341,35 +2230,6 @@ function normalizeGooglePlacesChatPlace(place: GooglePlacesChatPlace) {
     websiteUri: place.websiteUri,
     internationalPhoneNumber: place.internationalPhoneNumber,
   };
-}
-
-function normalizeCachedPlaceDetails(cached: Awaited<ReturnType<typeof findFreshPlaceDetails>>) {
-  if (!cached) {
-    throw new Error("Cached Google Places detail row is required.");
-  }
-
-  const displayName = readLocalizedText(cached.display_name_json) ?? cached.place_id;
-  const currentOpeningHours = googlePlacesOpeningHoursFromJson(cached.opening_hours_json);
-  const priceRange = googlePlacesPriceRangeFromJson(cached.price_range_json);
-  const rating = numberOrUndefined(cached.rating);
-  return {
-    placeId: cached.place_id,
-    resourceName: cached.resource_name ?? `places/${cached.place_id}`,
-    displayName,
-    formattedAddress: cached.formatted_address ?? undefined,
-    latitude: numberOrUndefined(cached.latitude),
-    longitude: numberOrUndefined(cached.longitude),
-    types: cached.types_json ?? [],
-    primaryType: cached.primary_type ?? undefined,
-    businessStatus: cached.business_status ?? undefined,
-    googleMapsUri: cached.google_maps_uri ?? undefined,
-    ...(currentOpeningHours ? { currentOpeningHours } : {}),
-    ...(cached.price_level ? { priceLevel: cached.price_level } : {}),
-    ...(priceRange ? { priceRange } : {}),
-    ...(rating === undefined ? {} : { rating }),
-    ...(cached.user_rating_count == null ? {} : { userRatingCount: cached.user_rating_count }),
-    fetchedAt: cached.fetched_at.toISOString(),
-  } satisfies GooglePlacesDetails;
 }
 
 function googlePlacesSearchCards(
@@ -2830,66 +2690,6 @@ function currentIso(dependencies: AgentToolDependencies) {
   return (dependencies.now?.() ?? new Date()).toISOString();
 }
 
-function readLocalizedText(value: Record<string, unknown> | null) {
-  return typeof value?.text === "string" ? value.text : undefined;
-}
-
-function numberOrUndefined(value: string | number | null | undefined) {
-  if (value === null || value === undefined) {
-    return undefined;
-  }
-  const number = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(number) ? number : undefined;
-}
-
-function googlePlacesOpeningHoursFromJson(
-  value: unknown,
-): GooglePlacesDetails["currentOpeningHours"] {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-
-  const weekdayDescriptions = stringArrayOrUndefined(value.weekdayDescriptions);
-  return {
-    ...(typeof value.openNow === "boolean" ? { openNow: value.openNow } : {}),
-    ...(weekdayDescriptions ? { weekdayDescriptions } : {}),
-    ...(typeof value.nextOpenTime === "string" ? { nextOpenTime: value.nextOpenTime } : {}),
-    ...(typeof value.nextCloseTime === "string" ? { nextCloseTime: value.nextCloseTime } : {}),
-  };
-}
-
-function googlePlacesPriceRangeFromJson(value: unknown): GooglePlacesDetails["priceRange"] {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-
-  const startPrice = googlePlacesMoneyFromJson(value.startPrice);
-  const endPrice = googlePlacesMoneyFromJson(value.endPrice);
-  return {
-    ...(startPrice ? { startPrice } : {}),
-    ...(endPrice ? { endPrice } : {}),
-  };
-}
-
-function googlePlacesMoneyFromJson(value: unknown) {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-
-  return {
-    ...(typeof value.currencyCode === "string" ? { currencyCode: value.currencyCode } : {}),
-    ...(typeof value.units === "string" ? { units: value.units } : {}),
-    ...(typeof value.nanos === "number" ? { nanos: value.nanos } : {}),
-  };
-}
-
-function stringArrayOrUndefined(value: unknown) {
-  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
-    return undefined;
-  }
-  return value;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -2919,12 +2719,6 @@ const googlePlacesNotCheckedFields = [
   "room availability",
   "independent local quality checks",
 ];
-
-const inertGooglePlacesStoreDatabase: GooglePlacesStoreDatabase = {
-  async query() {
-    return { rows: [] };
-  },
-};
 
 function searchNightlifeEventsToolResult(
   args: SearchNightlifeEventsArguments,
