@@ -1,13 +1,14 @@
 import { z } from "zod";
 
-import {
-  type ArtifactDecisionMetadata,
-  artifactDecisionLabels,
-  type ItineraryPlan,
-  type ItineraryStop,
-  type RecommendationCard,
-} from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
+import {
+  buildSavedTripItemFromItineraryPlanArtifact,
+  buildSavedTripItemFromRecommendationCardArtifact,
+  type ItineraryPlanSavedArtifact,
+  type RecommendationCardSavedArtifact,
+  type SavedTripSourceArtifact,
+  savedTripArtifactDecisionLabels,
+} from "@/server/trips/saved-trip-artifacts";
 
 const savedTripItemKinds = ["place", "beach", "itinerary", "note"] as const;
 export type SavedTripItemKind = (typeof savedTripItemKinds)[number];
@@ -75,7 +76,7 @@ const answerSourceSummarySchema = z.strictObject({
 });
 
 const artifactDecisionMetadataSchema = z.strictObject({
-  label: z.enum(artifactDecisionLabels),
+  label: z.enum(savedTripArtifactDecisionLabels),
   bestAction: trimmedString(maxShortTextLength),
 });
 
@@ -237,38 +238,21 @@ export function savedTripItemFromRecommendationCard({
   savedAt,
   tripId,
 }: {
-  card: RecommendationCard;
+  card: RecommendationCardSavedArtifact;
   id?: string;
-  sources?: readonly AnswerSourceSummary[];
+  sources?: readonly SavedTripSourceArtifact[];
   savedAt: string;
   tripId?: string;
 }): SavedTripItem {
-  const { sources: _cardSources, ...cardPayload } = card;
-
-  return normalizeSavedTripItem({
-    id: normalizeIdentifier(id),
-    ...(tripId ? { tripId: normalizeIdentifier(tripId) } : {}),
-    kind: card.kind,
-    title: normalizeText(card.title, maxShortTextLength),
-    createdAt: savedAt,
-    updatedAt: savedAt,
-    payload: {
-      type: "recommendation_card",
-      card: {
-        ...cardPayload,
-        id: normalizeIdentifier(card.id),
-        title: normalizeText(card.title, maxShortTextLength),
-        ...(card.subtitle ? { subtitle: normalizeText(card.subtitle, maxShortTextLength) } : {}),
-        fitReasons: normalizeTextArray(card.fitReasons, 8),
-        caveats: normalizeTextArray(card.caveats, 12),
-        sourceLabel: normalizeText(card.sourceLabel, maxShortTextLength),
-        ...(card.decision ? { decision: normalizeArtifactDecision(card.decision) } : {}),
-      },
-    },
-    sources: sources.map(normalizeSourceSummary),
-    ...(card.mapsUrl ? { mapsUrl: normalizeMapsUrl(card.mapsUrl) } : {}),
-    caveats: normalizeTextArray(card.caveats, 16),
-  });
+  return normalizeSavedTripItem(
+    buildSavedTripItemFromRecommendationCardArtifact({
+      card,
+      id,
+      savedAt,
+      sources,
+      tripId,
+    }),
+  );
 }
 
 export function savedTripItemFromItineraryPlan({
@@ -278,67 +262,26 @@ export function savedTripItemFromItineraryPlan({
   tripId,
 }: {
   id: string;
-  plan: ItineraryPlan;
+  plan: ItineraryPlanSavedArtifact;
   savedAt: string;
   tripId?: string;
 }): SavedTripItem {
-  return normalizeSavedTripItem({
-    id: normalizeIdentifier(id),
-    ...(tripId ? { tripId: normalizeIdentifier(tripId) } : {}),
-    kind: "itinerary",
-    title: normalizeText(plan.title, maxShortTextLength),
-    createdAt: savedAt,
-    updatedAt: savedAt,
-    payload: {
-      type: "itinerary_plan",
-      plan: {
-        ...plan,
-        title: normalizeText(plan.title, maxShortTextLength),
-        ...(plan.decision ? { decision: normalizeArtifactDecision(plan.decision) } : {}),
-        stops: plan.stops.map(normalizeItineraryStop),
-        fallbackStops: plan.fallbackStops.map(normalizeItineraryStop),
-        skip: normalizeTextArray(plan.skip, 12),
-        sources: plan.sources.map(normalizeSourceSummary),
-      },
-    },
-    sources: plan.sources.map(normalizeSourceSummary),
-    caveats: normalizeTextArray(
-      [
-        ...plan.skip,
-        ...plan.stops.flatMap((stop) => stop.caveats),
-        ...plan.fallbackStops.flatMap((stop) => stop.caveats),
-      ],
-      16,
-    ),
-  });
+  return normalizeSavedTripItem(
+    buildSavedTripItemFromItineraryPlanArtifact({
+      id,
+      plan,
+      savedAt,
+      tripId,
+    }),
+  );
 }
 
 export function normalizePublicTripTitle(value: string | undefined) {
   return normalizeText(value || "Siargao saved plan", maxShortTextLength);
 }
 
-function normalizeIdentifier(value: string) {
-  return value
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-zA-Z0-9:_-]/g, "-")
-    .replace(/-+/g, "-")
-    .slice(0, 128);
-}
-
 export function normalizeMapsUrl(value: string) {
   return mapsUrlSchema.parse(value.trim());
-}
-
-function normalizeItineraryStop(stop: ItineraryStop) {
-  return {
-    ...stop,
-    title: normalizeText(stop.title, maxShortTextLength),
-    ...(stop.area ? { area: normalizeText(stop.area, 120) } : {}),
-    ...(stop.mapsUrl ? { mapsUrl: normalizeMapsUrl(stop.mapsUrl) } : {}),
-    rationale: normalizeText(stop.rationale, maxMediumTextLength),
-    caveats: normalizeTextArray(stop.caveats, 12),
-  };
 }
 
 function normalizeSourceSummary(source: AnswerSourceSummary) {
@@ -350,13 +293,6 @@ function normalizeSourceSummary(source: AnswerSourceSummary) {
       : {}),
     checked: normalizeTextArray(source.checked, 12, maxShortTextLength),
     notChecked: normalizeTextArray(source.notChecked, 16, maxShortTextLength),
-  };
-}
-
-function normalizeArtifactDecision(decision: ArtifactDecisionMetadata): ArtifactDecisionMetadata {
-  return {
-    label: decision.label,
-    bestAction: normalizeText(decision.bestAction, maxShortTextLength),
   };
 }
 

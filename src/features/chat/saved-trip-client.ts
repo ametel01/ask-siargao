@@ -1,3 +1,15 @@
+import {
+  buildSavedTripItemFromItineraryPlanArtifact,
+  buildSavedTripItemFromRecommendationCardArtifact,
+  type ItineraryPlanSavedArtifact,
+  type ItineraryStopSavedArtifact,
+  normalizeSavedTripIdentifier,
+  type RecommendationCardSavedArtifact,
+  type SavedTripArtifactDecisionMetadata,
+  type SavedTripSourceArtifact,
+  savedTripItemIdForItineraryPlan,
+  savedTripItemIdForRecommendationCard,
+} from "@/server/trips/saved-trip-artifacts";
 import type { SavedTripItem } from "@/server/trips/shared-trip-types";
 
 export type { SavedTripItem };
@@ -16,56 +28,15 @@ export type ChatClientContext = {
   geolocation: ChatClientGeolocation;
 };
 
-export type ArtifactDecisionMetadata = {
-  label: "best_fit" | "good_now" | "fallback" | "avoid_today" | "needs_confirmation";
-  bestAction: string;
-};
+export type ArtifactDecisionMetadata = SavedTripArtifactDecisionMetadata;
 
-export type ChatSourceArtifact = {
-  label: string;
-  sourceName: string;
-  sourceProfileId?: string;
-  fetchedAt?: string;
-  confidence?: "high" | "medium" | "low";
-  checked: readonly string[];
-  notChecked: readonly string[];
-};
+export type ChatSourceArtifact = SavedTripSourceArtifact;
 
-export type RecommendationCardArtifact = {
-  id: string;
-  kind: "place" | "beach";
-  title: string;
-  subtitle?: string;
-  mapsUrl?: string;
-  distanceLabel?: string;
-  openStatusLabel?: string;
-  fitReasons: readonly string[];
-  caveats: readonly string[];
-  sourceLabel: string;
-  decision?: ArtifactDecisionMetadata;
-  sources?: readonly ChatSourceArtifact[];
-};
+export type RecommendationCardArtifact = RecommendationCardSavedArtifact;
 
-export type ItineraryStopArtifact = {
-  title: string;
-  kind: "place" | "beach" | "activity" | "meal" | "transfer";
-  sequence: number;
-  area?: string;
-  travelTimeFromPreviousMinutes?: number;
-  mapsUrl?: string;
-  rationale: string;
-  caveats: readonly string[];
-};
+export type ItineraryStopArtifact = ItineraryStopSavedArtifact;
 
-export type ItineraryPlanArtifact = {
-  title: string;
-  durationLabel: string;
-  decision?: ArtifactDecisionMetadata;
-  stops: readonly ItineraryStopArtifact[];
-  fallbackStops: readonly ItineraryStopArtifact[];
-  skip: readonly string[];
-  sources: readonly ChatSourceArtifact[];
-};
+export type ItineraryPlanArtifact = ItineraryPlanSavedArtifact;
 
 export type SavedTripState = {
   tripId: string;
@@ -385,43 +356,12 @@ export function buildSavedItemFromCard(
   tripId: string,
   options: Pick<SavedTripClientOptions, "now"> = {},
 ): SavedTripItem {
-  const now = getNowIso(options);
-  const itemId = savedItemIdForCard(card);
-  const title = normalizeSavedText(card.title, 180);
-  const caveats = normalizeSavedTextArray(card.caveats, 16);
-  const sources = normalizeSavedSources(card.sources ?? []);
-
-  return {
-    id: itemId,
+  return buildSavedTripItemFromRecommendationCardArtifact({
+    card,
+    id: savedItemIdForCard(card),
+    savedAt: getNowIso(options),
     tripId,
-    kind: card.kind,
-    title,
-    createdAt: now,
-    updatedAt: now,
-    payload: {
-      type: "recommendation_card",
-      card: {
-        id: normalizeSavedIdentifier(card.id),
-        kind: card.kind,
-        title,
-        ...(card.subtitle ? { subtitle: normalizeSavedText(card.subtitle, 180) } : {}),
-        ...(card.mapsUrl ? { mapsUrl: card.mapsUrl } : {}),
-        ...(card.distanceLabel
-          ? { distanceLabel: normalizeSavedText(card.distanceLabel, 80) }
-          : {}),
-        ...(card.openStatusLabel
-          ? { openStatusLabel: normalizeSavedText(card.openStatusLabel, 80) }
-          : {}),
-        fitReasons: normalizeSavedTextArray(card.fitReasons, 8),
-        caveats,
-        sourceLabel: normalizeSavedText(card.sourceLabel, 180),
-        ...(card.decision ? { decision: normalizeSavedDecision(card.decision) } : {}),
-      },
-    },
-    sources,
-    ...(card.mapsUrl ? { mapsUrl: card.mapsUrl } : {}),
-    caveats,
-  };
+  });
 }
 
 export function buildSavedItemFromItinerary(
@@ -429,40 +369,12 @@ export function buildSavedItemFromItinerary(
   tripId: string,
   options: Pick<SavedTripClientOptions, "now"> = {},
 ): SavedTripItem {
-  const now = getNowIso(options);
-  const itemId = savedItemIdForItinerary(plan);
-  const title = normalizeSavedText(plan.title, 180);
-  const sources = normalizeSavedSources(plan.sources);
-
-  return {
-    id: itemId,
+  return buildSavedTripItemFromItineraryPlanArtifact({
+    id: savedItemIdForItinerary(plan),
+    plan,
+    savedAt: getNowIso(options),
     tripId,
-    kind: "itinerary",
-    title,
-    createdAt: now,
-    updatedAt: now,
-    payload: {
-      type: "itinerary_plan",
-      plan: {
-        title,
-        durationLabel: normalizeSavedText(plan.durationLabel, 80),
-        ...(plan.decision ? { decision: normalizeSavedDecision(plan.decision) } : {}),
-        stops: plan.stops.map(normalizeSavedItineraryStop),
-        fallbackStops: plan.fallbackStops.map(normalizeSavedItineraryStop),
-        skip: normalizeSavedTextArray(plan.skip, 12),
-        sources,
-      },
-    },
-    sources,
-    caveats: normalizeSavedTextArray(
-      [
-        ...plan.skip,
-        ...plan.stops.flatMap((stop) => stop.caveats),
-        ...plan.fallbackStops.flatMap((stop) => stop.caveats),
-      ],
-      16,
-    ),
-  };
+  });
 }
 
 export function resetSavedTripClientForTests() {
@@ -471,117 +383,29 @@ export function resetSavedTripClientForTests() {
 }
 
 export function savedItemIdForCard(card: RecommendationCardArtifact) {
-  return normalizeSavedIdentifier(`${card.kind}:${card.id}`);
+  return savedTripItemIdForRecommendationCard(card);
 }
 
 export function savedItemIdForItinerary(plan: ItineraryPlanArtifact) {
-  return normalizeSavedIdentifier(`itinerary:${plan.title}:${plan.durationLabel}`);
+  return savedTripItemIdForItineraryPlan(plan);
 }
 
 function createAnonymousTripId(
   options: Pick<SavedTripClientOptions, "createAnonymousTripId"> = {},
 ) {
   if (options.createAnonymousTripId) {
-    return normalizeSavedIdentifier(options.createAnonymousTripId());
+    return normalizeSavedTripIdentifier(options.createAnonymousTripId());
   }
 
   const randomValue =
     typeof globalThis.crypto?.randomUUID === "function"
       ? globalThis.crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return normalizeSavedIdentifier(`local_trip_${randomValue}`);
-}
-
-function normalizeSavedItineraryStop(stop: ItineraryStopArtifact) {
-  return {
-    title: normalizeSavedText(stop.title, 180),
-    kind: stop.kind,
-    sequence: stop.sequence,
-    ...(stop.area ? { area: normalizeSavedText(stop.area, 120) } : {}),
-    ...(typeof stop.travelTimeFromPreviousMinutes === "number"
-      ? { travelTimeFromPreviousMinutes: stop.travelTimeFromPreviousMinutes }
-      : {}),
-    ...(stop.mapsUrl ? { mapsUrl: stop.mapsUrl } : {}),
-    rationale: normalizeSavedText(stop.rationale, 500),
-    caveats: normalizeSavedTextArray(stop.caveats, 12),
-  };
-}
-
-function normalizeSavedSources(sources: readonly ChatSourceArtifact[]): SavedTripItem["sources"] {
-  return sources.map((source) => ({
-    label: normalizeSavedSourceLabel(source.label),
-    sourceName: normalizeSavedText(source.sourceName, 180),
-    ...(source.sourceProfileId
-      ? { sourceProfileId: normalizeSavedText(source.sourceProfileId, 180) }
-      : {}),
-    ...(source.fetchedAt ? { fetchedAt: source.fetchedAt } : {}),
-    ...(source.confidence ? { confidence: source.confidence } : {}),
-    checked: normalizeSavedTextArray(source.checked, 12, 180),
-    notChecked: normalizeSavedTextArray(source.notChecked, 16, 180),
-  }));
-}
-
-function normalizeSavedDecision(decision: ArtifactDecisionMetadata) {
-  return {
-    label: decision.label,
-    bestAction: normalizeSavedText(decision.bestAction, 180),
-  };
-}
-
-function normalizeSavedTextArray(values: readonly string[], maxItems: number, maxLength = 500) {
-  const results: string[] = [];
-
-  for (const value of values) {
-    const normalizedValue = normalizeSavedText(value, maxLength);
-    if (normalizedValue.length === 0) {
-      continue;
-    }
-
-    results.push(normalizedValue);
-    if (results.length >= maxItems) {
-      break;
-    }
-  }
-
-  return results;
-}
-
-function normalizeSavedText(value: string, maxLength: number) {
-  return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
-}
-
-function normalizeSavedIdentifier(value: string) {
-  const normalizedValue = value
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-zA-Z0-9:_-]/g, "-")
-    .replace(/-+/g, "-")
-    .slice(0, 128);
-  return normalizedValue.length > 0 ? normalizedValue : "saved_item";
+  return normalizeSavedTripIdentifier(`local_trip_${randomValue}`);
 }
 
 function isUsableIdentifier(value: unknown): value is string {
   return typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9:_-]{7,127}$/.test(value);
-}
-
-function normalizeSavedSourceLabel(value: string): SavedTripItem["sources"][number]["label"] {
-  return isSavedSourceLabel(value) ? value : "not_verified";
-}
-
-function isSavedSourceLabel(value: string): value is SavedTripItem["sources"][number]["label"] {
-  return (
-    value === "live_checked" ||
-    value === "fresh_cache" ||
-    value === "event_checked" ||
-    value === "venue_checked" ||
-    value === "curated_local_guide" ||
-    value === "weather_checked" ||
-    value === "marine_checked" ||
-    value === "tide_forecast_checked" ||
-    value === "community_signal" ||
-    value === "not_verified" ||
-    value === "provider_unavailable"
-  );
 }
 
 function isSavedTripItemLike(value: unknown): value is SavedTripItem {
