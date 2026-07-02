@@ -226,6 +226,54 @@ describe("chat thread API routes", () => {
     await db.close();
   });
 
+  test("preserves user source-like text while sanitizing hydrated assistant messages", async () => {
+    const db = await openThreadRouteTestDatabase();
+    const dependencies = threadDependencies(db, { userId: "user_verbatim" });
+    const userPrompt = [
+      "Not checked: can you compare Shaka and Kurvada?",
+      "Checked: Traveler notes (pasted text) - this is part of my question.",
+    ].join("\n");
+    await insertUser(db, "user_verbatim");
+    await createChatThread(db, {
+      id: "thread_verbatim",
+      userId: "user_verbatim",
+      title: "Verbatim user text",
+      now: new Date("2026-06-29T01:00:00.000Z"),
+    });
+    await appendChatHistoryMessage(db, {
+      id: "thread_verbatim_user",
+      threadId: "thread_verbatim",
+      userId: "user_verbatim",
+      role: "user",
+      content: userPrompt,
+      createdAt: new Date("2026-06-29T01:00:01.000Z"),
+    });
+    await appendChatHistoryMessage(db, {
+      id: "thread_verbatim_assistant",
+      threadId: "thread_verbatim",
+      userId: "user_verbatim",
+      role: "assistant",
+      content: "Try Shaka first. Not checked: table availability or latest menu.",
+      createdAt: new Date("2026-06-29T01:00:02.000Z"),
+    });
+
+    const response = await getChatThreadResponse("thread_verbatim", dependencies);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.messages).toHaveLength(2);
+    expect(body.messages[0]).toMatchObject({
+      role: "user",
+      content: userPrompt,
+    });
+    expect(body.messages[1]).toMatchObject({
+      role: "assistant",
+      content: "Try Shaka first.",
+    });
+
+    await db.close();
+  });
+
   test("returns 404 for another user's thread", async () => {
     const db = await openThreadRouteTestDatabase();
     const dependencies = threadDependencies(db, { userId: "user_intruder" });

@@ -194,7 +194,7 @@ describe("chat route", () => {
     expect(messages.rows[1]?.content).toBe("Two nearby options look good.");
     expect(body.cards).toEqual([genericRecommendationCardDisplay]);
     expect(body.toolCalls).toEqual([publicToolCall(rawToolCall)]);
-    expect(messages.rows[1]?.cards_json).toEqual([genericRecommendationCardDisplay]);
+    expect(messages.rows[1]?.cards_json).toEqual([genericRecommendationCard]);
     expect(messages.rows[1]?.decision_summaries_json).toEqual([]);
     expect(messages.rows[1]?.tool_calls_json).toEqual([publicToolCall(rawToolCall)]);
     expect(JSON.stringify(body.toolCalls)).not.toContain("arguments");

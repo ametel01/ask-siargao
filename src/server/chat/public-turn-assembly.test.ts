@@ -152,17 +152,40 @@ describe("public chat turn assembly", () => {
     expect(turn.display.itineraries[0]?.fallbackStops[0]?.caveats).toEqual(["Stay nearby."]);
     expect(turn.display.itineraries[0]?.skip).toEqual(["Far north detour."]);
     expect(turn.display.decisionSummaries[0]?.sources).toEqual([placesSource]);
-    expect(turn.storage).toMatchObject({
-      message: turn.display.message,
-      sources: turn.display.sources,
-      cards: turn.display.cards,
-      actions: turn.display.actions,
-      itineraries: turn.display.itineraries,
-      decisionSummaries: turn.display.decisionSummaries,
+    expect(turn.storage.message).toBe(turn.display.message);
+    expect(turn.storage.sources).toEqual([placesSource, providerUnavailableSource]);
+    expect(turn.storage.cards[0]?.caveats).toEqual([
+      "Review text and bookings were not checked.",
+      "Bring cash.",
+    ]);
+    expect(turn.storage.cards[0]?.fitReasons).toEqual([
+      "Closest checked cafe.",
+      "Use search_places evidence before claiming.",
+    ]);
+    expect(turn.storage.cards[0]?.sources).toEqual([placesSource, providerUnavailableSource]);
+    expect(turn.storage.actions[0]).toEqual({
+      id: "action_plan",
+      label: "Plan this",
+      prompt: "Make a plan.",
     });
+    expect(turn.storage.itineraries[0]?.stops[0]?.caveats).toEqual([
+      "Opening status should be checked again.",
+      "Bring cash.",
+    ]);
+    expect(turn.storage.itineraries[0]?.fallbackStops[0]?.caveats).toEqual([
+      "Origin-specific route timing may change.",
+      "Stay nearby.",
+    ]);
+    expect(turn.storage.itineraries[0]?.skip).toEqual([
+      "Places evidence missing for other cafes.",
+      "Far north detour.",
+    ]);
+    expect(turn.storage.itineraries[0]?.sources).toEqual([placesSource, providerUnavailableSource]);
+    expect(turn.storage.decisionSummaries[0]?.sources).toEqual([
+      placesSource,
+      providerUnavailableSource,
+    ]);
     expect(JSON.stringify(turn)).not.toContain("PRIVATE_TRACE_47");
-    expect(JSON.stringify(turn)).not.toContain("Review text");
-    expect(JSON.stringify(turn)).not.toContain("provider_unavailable");
   });
 
   test("omits unselected, unknown, and disallowed mixed displayCardIds before projection", () => {

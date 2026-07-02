@@ -125,11 +125,11 @@ export function assemblePublicChatTurn({
     display,
     storage: {
       message: display.message,
-      sources: display.sources,
-      cards: display.cards,
-      actions: display.actions,
-      itineraries: display.itineraries,
-      decisionSummaries: display.decisionSummaries,
+      sources: sanitizeStorageSources(result.publicSources),
+      cards: sanitizeStorageRecommendationCards(result.cards ?? []),
+      actions: sanitizeStorageActions(result.actions ?? []),
+      itineraries: sanitizeStorageItineraries(result.itineraries ?? []),
+      decisionSummaries: sanitizeStorageDecisionSummaries(result.decisionSummaries ?? []),
       toolCalls: summarizeToolCallsForStoredHistory(publicToolCalls),
     },
     ...(repair ? { repair } : {}),
@@ -342,10 +342,60 @@ function sanitizeDisplayDecisionSummaries(summaries: readonly DecisionSummary[])
   }));
 }
 
+function sanitizeStorageSources(sources: readonly AnswerSourceSummary[]) {
+  return sources.map((source) => ({
+    ...source,
+    checked: [...source.checked],
+    notChecked: [...source.notChecked],
+  }));
+}
+
+function sanitizeStorageRecommendationCards(cards: readonly RecommendationCard[]) {
+  return cards.map((card) => ({
+    ...card,
+    fitReasons: sanitizeStorageTextList(card.fitReasons ?? []),
+    caveats: sanitizeStorageTextList(card.caveats ?? []),
+    ...(card.sources ? { sources: sanitizeStorageSources(card.sources) } : {}),
+  }));
+}
+
+function sanitizeStorageActions(actions: readonly ChatAction[]) {
+  // Action metadata is arbitrary route/model context, so storage intentionally keeps display fields only.
+  return sanitizeDisplayActions(actions);
+}
+
+function sanitizeStorageItineraries(itineraries: readonly ItineraryPlan[]) {
+  return itineraries.map((itinerary) => ({
+    ...itinerary,
+    stops: itinerary.stops.map(sanitizeStorageItineraryStop),
+    fallbackStops: itinerary.fallbackStops.map(sanitizeStorageItineraryStop),
+    skip: sanitizeStorageTextList(itinerary.skip),
+    sources: sanitizeStorageSources(itinerary.sources),
+  }));
+}
+
+function sanitizeStorageItineraryStop(stop: ItineraryPlan["stops"][number]) {
+  return {
+    ...stop,
+    caveats: sanitizeStorageTextList(stop.caveats ?? []),
+  };
+}
+
+function sanitizeStorageDecisionSummaries(summaries: readonly DecisionSummary[]) {
+  return summaries.map((summary) => ({
+    ...summary,
+    sources: sanitizeStorageSources(summary.sources),
+  }));
+}
+
 function sanitizeDisplayTextList(values: readonly string[]) {
   return values
     .map((value) => value.trim())
     .filter((value) => value && !isInternalDisclosure(value));
+}
+
+function sanitizeStorageTextList(values: readonly string[]) {
+  return values.map((value) => value.trim()).filter((value) => value.length > 0);
 }
 
 function summarizeToolCallsForStoredHistory(toolCalls: readonly PublicAgentToolCall[]) {

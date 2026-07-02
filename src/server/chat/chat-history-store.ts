@@ -202,14 +202,29 @@ export async function loadOwnedChatThreadWithMessages(
   );
 
   const hydratedMessages = messages.rows.map((message) => {
-    const displayTurn = displayReadyStoredChatTurn({
-      content: message.content,
-      sources: arrayFromJson(message.sources_json),
-      cards: arrayFromJson(message.cards_json),
-      actions: arrayFromJson(message.actions_json),
-      itineraries: arrayFromJson(message.itineraries_json),
-      decisionSummaries: arrayFromJson(message.decision_summaries_json),
-    });
+    const storedSources = arrayFromJson(message.sources_json);
+    const storedCards = arrayFromJson(message.cards_json);
+    const storedActions = arrayFromJson(message.actions_json);
+    const storedItineraries = arrayFromJson(message.itineraries_json);
+    const storedDecisionSummaries = arrayFromJson(message.decision_summaries_json);
+    const displayTurn =
+      message.role === "assistant"
+        ? displayReadyStoredChatTurn({
+            content: message.content,
+            sources: storedSources,
+            cards: storedCards,
+            actions: storedActions,
+            itineraries: storedItineraries,
+            decisionSummaries: storedDecisionSummaries,
+          })
+        : {
+            message: message.content,
+            sources: storedSources,
+            cards: storedCards,
+            actions: storedActions,
+            itineraries: storedItineraries,
+            decisionSummaries: storedDecisionSummaries,
+          };
 
     return {
       id: message.id,
