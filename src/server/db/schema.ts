@@ -1215,6 +1215,63 @@ export const publicPages = pgTable(
   ],
 );
 
+export const publicPageFacts = pgTable(
+  "public_page_facts",
+  {
+    publicPageId: text("public_page_id")
+      .notNull()
+      .references(() => publicPages.id, { onDelete: "cascade" }),
+    factId: text("fact_id")
+      .notNull()
+      .references(() => facts.id, { onDelete: "restrict" }),
+    position: integer("position").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.publicPageId, table.factId] }),
+    uniqueIndex("public_page_facts_public_page_position_key").on(
+      table.publicPageId,
+      table.position,
+    ),
+    index("public_page_facts_ordered_page_idx").on(
+      table.publicPageId,
+      table.position,
+      table.factId,
+    ),
+    index("public_page_facts_fact_id_idx").on(table.factId, table.publicPageId),
+    check("public_page_facts_position_check", sql`${table.position} >= 0`),
+  ],
+);
+
+export const publicEvidenceBundleEvidence = pgTable(
+  "public_evidence_bundle_evidence",
+  {
+    evidenceBundleId: text("evidence_bundle_id")
+      .notNull()
+      .references(() => publicEvidenceBundles.id, { onDelete: "cascade" }),
+    evidenceId: text("evidence_id")
+      .notNull()
+      .references(() => evidence.id, { onDelete: "restrict" }),
+    position: integer("position").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.evidenceBundleId, table.evidenceId] }),
+    uniqueIndex("public_evidence_bundle_evidence_bundle_position_key").on(
+      table.evidenceBundleId,
+      table.position,
+    ),
+    index("public_evidence_bundle_evidence_ordered_bundle_idx").on(
+      table.evidenceBundleId,
+      table.position,
+      table.evidenceId,
+    ),
+    index("public_evidence_bundle_evidence_evidence_id_idx").on(
+      table.evidenceId,
+      table.evidenceBundleId,
+    ),
+    check("public_evidence_bundle_evidence_position_check", sql`${table.position} >= 0`),
+  ],
+);
+
 export const agentReadableSnapshots = pgTable(
   "agent_readable_snapshots",
   {

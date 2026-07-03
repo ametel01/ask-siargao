@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import type { PGlite } from "@electric-sql/pglite";
 import { getTableName } from "drizzle-orm";
 
 import { siargaoTaxonomy } from "@/server/audit/destinations/siargao/taxonomy";
@@ -37,7 +38,9 @@ import {
   payments,
   providerHealthChecks,
   providers,
+  publicEvidenceBundleEvidence,
   publicEvidenceBundles,
+  publicPageFacts,
   publicPageGenerationJobs,
   publicPages,
   rawSnapshots,
@@ -75,6 +78,7 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toContain("0000_initial_schema.sql");
     expect(migrationNames).toContain("0001_chat_decision_summaries.sql");
     expect(migrationNames).toContain("0004_hot_path_indexes.sql");
+    expect(migrationNames).toContain("0005_public_page_relationships.sql");
   });
 
   test("creates required core tables and accepts taxonomy seed rows", async () => {
@@ -124,6 +128,8 @@ describe("Step 3 database migration", () => {
       "refresh_jobs",
       "public_pages",
       "public_evidence_bundles",
+      "public_page_facts",
+      "public_evidence_bundle_evidence",
       "agent_readable_snapshots",
       "llm_runs",
       "llm_tool_calls",
@@ -377,6 +383,8 @@ describe("Step 3 database migration", () => {
       refreshJobs,
       publicEvidenceBundles,
       publicPages,
+      publicPageFacts,
+      publicEvidenceBundleEvidence,
       agentReadableSnapshots,
       llmRuns,
       llmToolCalls,
@@ -943,6 +951,259 @@ describe("Step 3 database migration", () => {
     expect(migrationSql).not.toMatch(destructiveHotPathMigrationPattern);
   });
 
+  test("creates normalized public-page relationship tables with constraints and indexes", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    await runInitialMigration(db);
+
+    const relationshipTableNames = ["public_page_facts", "public_evidence_bundle_evidence"];
+    const columns = await db.query<{
+      table_name: string;
+      column_name: string;
+      data_type: string;
+      is_nullable: "YES" | "NO";
+    }>(
+      `
+        select table_name, column_name, data_type, is_nullable
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = any($1::text[])
+        order by table_name, ordinal_position
+      `,
+      [relationshipTableNames],
+    );
+    const columnsByTable = groupRows(columns.rows, (row) => row.table_name);
+
+    expect(
+      columnsByTable.public_page_facts?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+      ]),
+    ).toEqual([
+      ["public_page_id", "text", "NO"],
+      ["fact_id", "text", "NO"],
+      ["position", "integer", "NO"],
+    ]);
+    expect(
+      columnsByTable.public_evidence_bundle_evidence?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+      ]),
+    ).toEqual([
+      ["evidence_bundle_id", "text", "NO"],
+      ["evidence_id", "text", "NO"],
+      ["position", "integer", "NO"],
+    ]);
+
+    const relationshipKeys = await db.query<{
+      table_name: string;
+      constraint_name: string;
+      constraint_type: string;
+      column_name: string;
+    }>(
+      `
+        select
+          tc.table_name,
+          tc.constraint_name,
+          tc.constraint_type,
+          kcu.column_name
+        from information_schema.table_constraints tc
+        join information_schema.key_column_usage kcu
+          on tc.constraint_name = kcu.constraint_name
+          and tc.table_schema = kcu.table_schema
+        where tc.table_schema = 'public'
+          and tc.table_name = any($1::text[])
+          and tc.constraint_type in ('PRIMARY KEY', 'UNIQUE')
+        order by tc.table_name, tc.constraint_name, kcu.ordinal_position
+      `,
+      [relationshipTableNames],
+    );
+
+    expect(
+      relationshipKeys.rows.map((row) => [
+        row.table_name,
+        row.constraint_name,
+        row.constraint_type,
+        row.column_name,
+      ]),
+    ).toEqual([
+      [
+        "public_evidence_bundle_evidence",
+        "public_evidence_bundle_evidence_bundle_position_key",
+        "UNIQUE",
+        "evidence_bundle_id",
+      ],
+      [
+        "public_evidence_bundle_evidence",
+        "public_evidence_bundle_evidence_bundle_position_key",
+        "UNIQUE",
+        "position",
+      ],
+      [
+        "public_evidence_bundle_evidence",
+        "public_evidence_bundle_evidence_pkey",
+        "PRIMARY KEY",
+        "evidence_bundle_id",
+      ],
+      [
+        "public_evidence_bundle_evidence",
+        "public_evidence_bundle_evidence_pkey",
+        "PRIMARY KEY",
+        "evidence_id",
+      ],
+      ["public_page_facts", "public_page_facts_pkey", "PRIMARY KEY", "public_page_id"],
+      ["public_page_facts", "public_page_facts_pkey", "PRIMARY KEY", "fact_id"],
+      [
+        "public_page_facts",
+        "public_page_facts_public_page_position_key",
+        "UNIQUE",
+        "public_page_id",
+      ],
+      ["public_page_facts", "public_page_facts_public_page_position_key", "UNIQUE", "position"],
+    ]);
+
+    const relationshipForeignKeys = await db.query<{
+      table_name: string;
+      constraint_name: string;
+      column_name: string;
+      foreign_table_name: string;
+      delete_rule: string;
+    }>(
+      `
+        select
+          tc.table_name,
+          tc.constraint_name,
+          kcu.column_name,
+          ccu.table_name as foreign_table_name,
+          rc.delete_rule
+        from information_schema.table_constraints tc
+        join information_schema.key_column_usage kcu
+          on tc.constraint_name = kcu.constraint_name
+          and tc.table_schema = kcu.table_schema
+        join information_schema.constraint_column_usage ccu
+          on tc.constraint_name = ccu.constraint_name
+          and tc.table_schema = ccu.table_schema
+        join information_schema.referential_constraints rc
+          on tc.constraint_name = rc.constraint_name
+          and tc.table_schema = rc.constraint_schema
+        where tc.table_schema = 'public'
+          and tc.table_name = any($1::text[])
+          and tc.constraint_type = 'FOREIGN KEY'
+        order by tc.table_name, tc.constraint_name
+      `,
+      [relationshipTableNames],
+    );
+
+    expect(
+      relationshipForeignKeys.rows.map((row) => [
+        row.table_name,
+        row.constraint_name,
+        row.column_name,
+        row.foreign_table_name,
+        row.delete_rule,
+      ]),
+    ).toEqual([
+      [
+        "public_evidence_bundle_evidence",
+        "public_evidence_bundle_evidence_bundle_id_fkey",
+        "evidence_bundle_id",
+        "public_evidence_bundles",
+        "CASCADE",
+      ],
+      [
+        "public_evidence_bundle_evidence",
+        "public_evidence_bundle_evidence_evidence_id_fkey",
+        "evidence_id",
+        "evidence",
+        "RESTRICT",
+      ],
+      ["public_page_facts", "public_page_facts_fact_id_fkey", "fact_id", "facts", "RESTRICT"],
+      [
+        "public_page_facts",
+        "public_page_facts_public_page_id_fkey",
+        "public_page_id",
+        "public_pages",
+        "CASCADE",
+      ],
+    ]);
+
+    const indexes = await db.query<{ indexname: string }>(
+      `
+        select indexname
+        from pg_indexes
+        where schemaname = 'public'
+          and indexname = any($1::text[])
+        order by indexname
+      `,
+      [publicPageRelationshipIndexNames],
+    );
+
+    expect(indexes.rows.map((row) => row.indexname)).toEqual(
+      publicPageRelationshipIndexNames.toSorted(),
+    );
+
+    const checks = await db.query<{ conname: string }>(
+      `
+        select conname
+        from pg_constraint
+        where contype = 'c'
+          and conname = any($1::text[])
+        order by conname
+      `,
+      [publicPageRelationshipCheckConstraintNames],
+    );
+
+    expect(checks.rows.map((row) => row.conname)).toEqual(
+      publicPageRelationshipCheckConstraintNames.toSorted(),
+    );
+
+    await db.close();
+  });
+
+  test("backfills normalized public-page relationships from legacy JSON arrays in order", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const migrationFiles = await loadMigrationFiles();
+    const relationshipMigrationName = "0005_public_page_relationships.sql";
+    const setupMigrations = migrationFiles.filter(
+      (migrationFile) => migrationFile.name !== relationshipMigrationName,
+    );
+
+    await runLedgerBackedMigrations(createPgliteMigrationDatabase(db), setupMigrations);
+    await insertLegacyPublicRelationshipBackfillFixture(db);
+    await runLedgerBackedMigrations(createPgliteMigrationDatabase(db), migrationFiles);
+
+    const pageFacts = await db.query<{ fact_id: string; position: number }>(
+      `
+        select fact_id, position
+        from public_page_facts
+        where public_page_id = 'page_backfill_relationships'
+        order by position
+      `,
+    );
+    const bundleEvidence = await db.query<{ evidence_id: string; position: number }>(
+      `
+        select evidence_id, position
+        from public_evidence_bundle_evidence
+        where evidence_bundle_id = 'bundle_backfill_relationships'
+        order by position
+      `,
+    );
+
+    expect(pageFacts.rows).toEqual([
+      { fact_id: "fact_backfill_second", position: 0 },
+      { fact_id: "fact_backfill_first", position: 1 },
+    ]);
+    expect(bundleEvidence.rows).toEqual([
+      { evidence_id: "ev_backfill_second", position: 0 },
+      { evidence_id: "ev_backfill_first", position: 1 },
+    ]);
+
+    await db.close();
+  });
+
   test("creates high-risk check constraints for hardening domains", async () => {
     await resetTestDatabase();
     const db = await openTestDatabase();
@@ -1252,6 +1513,20 @@ const hotPathIndexNames = [
   "saved_trip_items_active_trip_created_id_idx",
   "saved_trips_user_recent_idx",
 ];
+const publicPageRelationshipIndexNames = [
+  "public_evidence_bundle_evidence_bundle_position_key",
+  "public_evidence_bundle_evidence_evidence_id_idx",
+  "public_evidence_bundle_evidence_ordered_bundle_idx",
+  "public_evidence_bundle_evidence_pkey",
+  "public_page_facts_fact_id_idx",
+  "public_page_facts_ordered_page_idx",
+  "public_page_facts_pkey",
+  "public_page_facts_public_page_position_key",
+];
+const publicPageRelationshipCheckConstraintNames = [
+  "public_evidence_bundle_evidence_position_check",
+  "public_page_facts_position_check",
+];
 const hardeningCheckConstraintNames = [
   "agent_readable_snapshots_format_check",
   "areas_latitude_check",
@@ -1369,6 +1644,163 @@ function requiredString(value: string | undefined): string {
 
 async function expectCheckViolation(promise: Promise<unknown>, constraintName: string) {
   await expect(promise).rejects.toThrow(new RegExp(constraintName));
+}
+
+async function insertLegacyPublicRelationshipBackfillFixture(db: PGlite) {
+  await db.query(
+    `
+      insert into entities (id, slug, entity_type, name, public_visibility, confidence_label)
+      values (
+        'entity_backfill_relationships',
+        'backfill-relationships',
+        'risk',
+        'Backfill Relationships',
+        'eligible',
+        'high'
+      )
+    `,
+  );
+  await db.query(
+    `
+      insert into source_profiles (
+        id,
+        source_name,
+        source_type,
+        access_method,
+        allowed_use,
+        freshness_window_days,
+        authority_level
+      )
+      values (
+        'source_backfill_relationships',
+        'Backfill source',
+        'official',
+        'official_page',
+        'public_republish',
+        30,
+        4
+      )
+    `,
+  );
+  await db.query(
+    `
+      insert into facts (
+        id,
+        entity_id,
+        claim,
+        fact_type,
+        source_type,
+        source_profile_id,
+        fetched_at,
+        confidence_label,
+        source_authority,
+        public_republish_allowed,
+        audit_use_allowed,
+        raw_evidence_allowed
+      )
+      values
+        (
+          'fact_backfill_first',
+          'entity_backfill_relationships',
+          'First legacy fact.',
+          'risk_preview',
+          'official',
+          'source_backfill_relationships',
+          '2026-06-22T00:00:00.000Z',
+          'high',
+          4,
+          true,
+          true,
+          false
+        ),
+        (
+          'fact_backfill_second',
+          'entity_backfill_relationships',
+          'Second legacy fact.',
+          'risk_preview',
+          'official',
+          'source_backfill_relationships',
+          '2026-06-22T00:00:00.000Z',
+          'high',
+          4,
+          true,
+          true,
+          false
+        )
+    `,
+  );
+  await db.query(
+    `
+      insert into evidence (
+        id,
+        fact_id,
+        label,
+        allowed_use,
+        public_republish_allowed
+      )
+      values
+        (
+          'ev_backfill_first',
+          'fact_backfill_first',
+          'First evidence',
+          'public_republish',
+          true
+        ),
+        (
+          'ev_backfill_second',
+          'fact_backfill_second',
+          'Second evidence',
+          'public_republish',
+          true
+        )
+    `,
+  );
+  await db.query(
+    `
+      insert into public_evidence_bundles (id, slug, evidence_ids, summary, allowed_use)
+      values (
+        'bundle_backfill_relationships',
+        'risks-backfill-relationships',
+        '["ev_backfill_second", "ev_backfill_first", "ev_backfill_second"]'::jsonb,
+        'Backfill relationship bundle.',
+        'public_republish'
+      )
+    `,
+  );
+  await db.query(
+    `
+      insert into public_pages (
+        id,
+        slug,
+        page_type,
+        entity_id,
+        canonical_url,
+        human_path,
+        llm_markdown_path,
+        json_api_path,
+        evidence_bundle_id,
+        confidence_label,
+        public_visibility,
+        indexing_status,
+        generation_source_fact_ids
+      )
+      values (
+        'page_backfill_relationships',
+        'backfill-relationships',
+        'risks',
+        'entity_backfill_relationships',
+        'https://siargao.example/risks/backfill-relationships',
+        '/risks/backfill-relationships',
+        '/risks/backfill-relationships/llm.md',
+        '/api/public/risks/backfill-relationships.json',
+        'bundle_backfill_relationships',
+        'high',
+        'eligible',
+        'index',
+        '["fact_backfill_second", "fact_backfill_first", "fact_backfill_second"]'::jsonb
+      )
+    `,
+  );
 }
 
 const destructiveHotPathMigrationPattern =

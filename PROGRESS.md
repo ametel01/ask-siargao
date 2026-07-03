@@ -13,9 +13,9 @@ status, and the next implementation step.
 
 ## Current Status
 
-- Current step: #65 Add hot path indexes and index audit guidance.
+- Current step: #67 Normalize public page evidence relationships.
 - Status: implementation complete; checker review pending.
-- Next step: #66 Bound database-backed list queries after #65 checker handoff.
+- Next step: checker handoff for #67 stacked on #65.
 - Last updated: 2026-07-03.
 
 ## Step Checklist
@@ -28,7 +28,7 @@ status, and the next implementation step.
 | #64 | Add database constraints and foreign key indexes | Complete pending checker | Ready on #63 stack; #61 complete | Added the hardening migration, schema metadata, and migration tests for supporting indexes and CHECK constraints. |
 | #65 | Add hot path indexes and index audit guidance | Complete pending checker | Ready on #64 stack; #61 complete | Added hot-path indexes, destructive-DDL scope tests, read-only index audit SQL, and documented deliberate exceptions. |
 | #66 | Bound database-backed list queries | Blocked | Blocked by #65 checker/merge; #61 complete | Depends on hot-path index work. |
-| #67 | Normalize public page evidence relationships | Blocked | Blocked by #62 and #64; #61 complete | Requires migration and constraint groundwork. |
+| #67 | Normalize public page evidence relationships | Complete pending checker | Ready on #65 stack; #61 complete | Added normalized public-page fact and evidence relationship tables, ordered backfill, catalog fallback/preference reads, and regression tests. |
 | #68 | Batch saved-trip and provider write paths | Blocked | Blocked by #64; #61 complete | Depends on database constraint/index groundwork. |
 | #69 | Batch Google Places retention cleanup | Blocked | Blocked by #65; #61 complete | Depends on hot-path index work. |
 | #70 | Define production database connection options | Pending | Ready; #61 complete | Can proceed after tracking setup. |
@@ -88,6 +88,24 @@ status, and the next implementation step.
   - `bun run verify:ci`: Passed; repeated lint/typecheck/Bun tests, PGlite migrate/seed, build,
     and 38 Playwright tests. Playwright web-server logs still emitted the pre-existing missing
     `DATABASE_URL` saved-trip route noise, but the suite passed.
+- #67 implementation:
+  - `bun test src/server/db/migration.test.ts`: Passed with 18 tests, including relationship
+    table column/key/FK/delete-rule/index/check coverage and ordered backfill from legacy JSON
+    arrays with duplicate legacy IDs keeping the first position.
+  - `bun test src/server/public-pages/database-public-catalog.test.ts`: Passed with 6 tests,
+    including normalized reads, legacy fallback, normalized-over-legacy precedence,
+    non-alphabetic ordering, and missing-evidence behavior.
+  - `bun run db:migrate:test`: Passed; migrated 50 PGlite tables and recorded 6 migrations.
+  - `bun run db:seed:test`: Passed; seeded 5 areas, 3 routes, and 6 source profiles.
+  - `bun run format`: Passed; Biome formatted 285 files and fixed 2 files.
+  - Final `bun run format`: Passed with no fixes applied.
+  - `bun run lint`: Passed; Biome checked 286 files with no fixes applied after fixing import
+    order.
+  - `bun run typecheck --incremental false`: Passed.
+  - `bun test`: Passed with 754 tests and 3,958 assertions.
+  - `bun run verify:ci`: Passed; repeated lint/typecheck/Bun tests, PGlite migrate/seed, build,
+    and 38 Playwright tests. Playwright web-server logs still emitted the pre-existing missing
+    `DATABASE_URL` saved-trip route noise, but the suite passed.
 - `CHANGELOG.md` inspection: Existing file contains `# Changelog`, a Keep a Changelog 1.0.0
   preamble, an `## [Unreleased]` section, and no empty category headings.
 - `PROGRESS.md` inspection: This file lists every database hardening issue from #61 through #72,
@@ -108,5 +126,7 @@ status, and the next implementation step.
   Updated `CHANGELOG.md` with the migration behavior change.
 - 2026-07-03: Completed #65 hot-path index implementation and read-only index audit guidance.
   Updated `CHANGELOG.md` with the additive migration behavior change.
+- 2026-07-03: Completed #67 normalized public-page relationship implementation. Updated
+  `CHANGELOG.md` with the additive migration and catalog compatibility behavior change.
 - 2026-07-03: Completed #61 tracking setup and lint validation. No `CHANGELOG.md` entry was added
   because this step is non-functional tracking scaffolding.
