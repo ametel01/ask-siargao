@@ -49,6 +49,90 @@ describe("database public knowledge catalog", () => {
     await db.close();
   });
 
+  test("falls back to legacy JSON relationships when normalized rows are absent", async () => {
+    const db = await openPublicCatalogTestDatabase();
+    await insertEligibleRiskPage(db, { relationshipMode: "legacy" });
+
+    const catalog = createDatabasePublicKnowledgeCatalog({
+      client: db,
+      now: new Date("2026-06-23T00:00:00.000Z"),
+    });
+    const page = await catalog.getPage("risks", "monsoon-transfer-risk");
+
+    expect(page?.generationSourceFactIds).toEqual(["fact_monsoon_transfer_risk"]);
+    expect(page?.evidenceBundle.evidenceIds).toEqual(["ev_monsoon_transfer_risk"]);
+    expect(page?.facts.map((fact) => fact.id)).toEqual(["fact_monsoon_transfer_risk"]);
+
+    await db.close();
+  });
+
+  test("prefers normalized relationships over stale legacy JSON per parent", async () => {
+    const db = await openPublicCatalogTestDatabase();
+    await insertEligibleRiskPage(db, {
+      legacyEvidenceIds: ["ev_legacy_should_not_be_used"],
+      legacyFactIds: ["fact_legacy_should_not_be_used"],
+      relationshipMode: "normalized",
+    });
+
+    const catalog = createDatabasePublicKnowledgeCatalog({
+      client: db,
+      now: new Date("2026-06-23T00:00:00.000Z"),
+    });
+    const page = await catalog.getPage("risks", "monsoon-transfer-risk");
+
+    expect(page?.generationSourceFactIds).toEqual(["fact_monsoon_transfer_risk"]);
+    expect(page?.evidenceBundle.evidenceIds).toEqual(["ev_monsoon_transfer_risk"]);
+    expect(JSON.stringify(page)).not.toContain("legacy_should_not_be_used");
+
+    await db.close();
+  });
+
+  test("preserves non-alphabetic normalized fact and evidence ordering", async () => {
+    const db = await openPublicCatalogTestDatabase();
+    await insertOrderedRiskPage(db);
+
+    const catalog = createDatabasePublicKnowledgeCatalog({
+      client: db,
+      now: new Date("2026-06-23T00:00:00.000Z"),
+    });
+    const page = await catalog.getPage("risks", "ordered-risk");
+
+    expect(page?.generationSourceFactIds).toEqual(["fact_zulu_ordered", "fact_alpha_ordered"]);
+    expect(page?.evidenceBundle.evidenceIds).toEqual(["ev_zulu_ordered", "ev_alpha_ordered"]);
+    expect(page?.facts.map((fact) => fact.id)).toEqual(["fact_zulu_ordered", "fact_alpha_ordered"]);
+    expect(page?.facts.map((fact) => fact.evidenceId)).toEqual([
+      "ev_zulu_ordered",
+      "ev_alpha_ordered",
+    ]);
+
+    await db.close();
+  });
+
+  test("does not crash or publish a page when normalized evidence is missing for a fact", async () => {
+    const db = await openPublicCatalogTestDatabase();
+    await insertMissingEvidenceRiskPage(db);
+
+    const catalog = createDatabasePublicKnowledgeCatalog({
+      client: db,
+      now: new Date("2026-06-23T00:00:00.000Z"),
+    });
+    const page = (await catalog.listPages()).find(
+      (candidate) => candidate.slug === "missing-evidence-risk",
+    );
+    const eligiblePages = await catalog.listEligiblePages();
+
+    expect(page?.generationSourceFactIds).toEqual(["fact_missing_public_evidence"]);
+    expect(page?.evidenceBundle.evidenceIds).toEqual(["ev_other_public_evidence"]);
+    expect(page?.facts).toHaveLength(1);
+    expect(page?.facts[0]?.evidenceId).toBe("ev_other_public_evidence");
+    expect(page?.facts[0]?.evidencePublicRepublishAllowed).toBe(false);
+    expect(eligiblePages.map((eligiblePage) => eligiblePage.slug)).not.toContain(
+      "missing-evidence-risk",
+    );
+
+    await db.close();
+  });
+
   test("excludes ineligible persisted pages from lookup and every public index projection", async () => {
     const db = await openPublicCatalogTestDatabase();
     await insertEligibleRiskPage(db);
@@ -122,7 +206,20 @@ async function openPublicCatalogTestDatabase() {
   return db;
 }
 
-async function insertEligibleRiskPage(db: PGlite) {
+type RelationshipMode = "normalized" | "legacy";
+
+async function insertEligibleRiskPage(
+  db: PGlite,
+  options: {
+    legacyEvidenceIds?: string[];
+    legacyFactIds?: string[];
+    relationshipMode?: RelationshipMode;
+  } = {},
+) {
+  const relationshipMode = options.relationshipMode ?? "normalized";
+  const legacyFactIds = options.legacyFactIds ?? ["fact_monsoon_transfer_risk"];
+  const legacyEvidenceIds = options.legacyEvidenceIds ?? ["ev_monsoon_transfer_risk"];
+
   await db.query(
     `
       insert into entities (
@@ -235,12 +332,13 @@ async function insertEligibleRiskPage(db: PGlite) {
       values (
         'bundle_monsoon_transfer_risk',
         'risks-monsoon-transfer-risk',
-        '["ev_monsoon_transfer_risk"]'::jsonb,
+        $1::jsonb,
         'A persisted risk page backed by public transfer evidence.',
         'public_republish',
         '2026-06-22T00:00:00.000Z'
       )
     `,
+    [JSON.stringify(legacyEvidenceIds)],
   );
   await db.query(
     `
@@ -278,10 +376,26 @@ async function insertEligibleRiskPage(db: PGlite) {
         'eligible',
         'index',
         '[]'::jsonb,
-        '["fact_monsoon_transfer_risk"]'::jsonb
+        $1::jsonb
       )
     `,
+    [JSON.stringify(legacyFactIds)],
   );
+
+  if (relationshipMode === "normalized") {
+    await db.query(
+      `
+        insert into public_page_facts (public_page_id, fact_id, position)
+        values ('page_monsoon_transfer_risk', 'fact_monsoon_transfer_risk', 0)
+      `,
+    );
+    await db.query(
+      `
+        insert into public_evidence_bundle_evidence (evidence_bundle_id, evidence_id, position)
+        values ('bundle_monsoon_transfer_risk', 'ev_monsoon_transfer_risk', 0)
+      `,
+    );
+  }
 }
 
 async function insertBlockedRiskPage(db: PGlite) {
@@ -401,6 +515,290 @@ async function insertBlockedRiskPage(db: PGlite) {
         '["private_notes"]'::jsonb,
         '["fact_blocked_private_risk"]'::jsonb
       )
+    `,
+  );
+}
+
+async function insertOrderedRiskPage(db: PGlite) {
+  await db.query(
+    `
+      insert into entities (id, slug, entity_type, name, public_visibility, confidence_label)
+      values (
+        'entity_ordered_risk',
+        'ordered-risk',
+        'risk',
+        'Ordered Risk',
+        'eligible',
+        'high'
+      )
+    `,
+  );
+  await db.query(
+    `
+      insert into facts (
+        id,
+        entity_id,
+        claim,
+        fact_type,
+        source_type,
+        source_profile_id,
+        fetched_at,
+        expires_at,
+        confidence_label,
+        source_authority,
+        public_republish_allowed,
+        audit_use_allowed,
+        raw_evidence_allowed
+      )
+      values
+        (
+          'fact_alpha_ordered',
+          'entity_ordered_risk',
+          'Alphabetic fact should render second.',
+          'risk_preview',
+          'official',
+          'source_public_tourism_directory',
+          '2026-06-22T00:00:00.000Z',
+          '2026-07-22T00:00:00.000Z',
+          'high',
+          4,
+          true,
+          true,
+          false
+        ),
+        (
+          'fact_zulu_ordered',
+          'entity_ordered_risk',
+          'Zulu fact should render first.',
+          'risk_preview',
+          'official',
+          'source_public_tourism_directory',
+          '2026-06-22T00:00:00.000Z',
+          '2026-07-22T00:00:00.000Z',
+          'high',
+          4,
+          true,
+          true,
+          false
+        )
+    `,
+  );
+  await db.query(
+    `
+      insert into evidence (id, fact_id, label, allowed_use, public_republish_allowed)
+      values
+        (
+          'ev_alpha_ordered',
+          'fact_alpha_ordered',
+          'Alpha evidence',
+          'public_republish',
+          true
+        ),
+        (
+          'ev_zulu_ordered',
+          'fact_zulu_ordered',
+          'Zulu evidence',
+          'public_republish',
+          true
+        )
+    `,
+  );
+  await db.query(
+    `
+      insert into public_evidence_bundles (id, slug, evidence_ids, summary, allowed_use)
+      values (
+        'bundle_ordered_risk',
+        'risks-ordered-risk',
+        '["ev_alpha_ordered", "ev_zulu_ordered"]'::jsonb,
+        'Ordered public evidence.',
+        'public_republish'
+      )
+    `,
+  );
+  await db.query(
+    `
+      insert into public_pages (
+        id,
+        slug,
+        page_type,
+        entity_id,
+        canonical_url,
+        human_path,
+        llm_markdown_path,
+        json_api_path,
+        evidence_bundle_id,
+        confidence_label,
+        public_visibility,
+        indexing_status,
+        generation_source_fact_ids
+      )
+      values (
+        'page_ordered_risk',
+        'ordered-risk',
+        'risks',
+        'entity_ordered_risk',
+        'https://siargao.example/risks/ordered-risk',
+        '/risks/ordered-risk',
+        '/risks/ordered-risk/llm.md',
+        '/api/public/risks/ordered-risk.json',
+        'bundle_ordered_risk',
+        'high',
+        'eligible',
+        'index',
+        '["fact_alpha_ordered", "fact_zulu_ordered"]'::jsonb
+      )
+    `,
+  );
+  await db.query(
+    `
+      insert into public_page_facts (public_page_id, fact_id, position)
+      values
+        ('page_ordered_risk', 'fact_zulu_ordered', 0),
+        ('page_ordered_risk', 'fact_alpha_ordered', 1)
+    `,
+  );
+  await db.query(
+    `
+      insert into public_evidence_bundle_evidence (evidence_bundle_id, evidence_id, position)
+      values
+        ('bundle_ordered_risk', 'ev_zulu_ordered', 0),
+        ('bundle_ordered_risk', 'ev_alpha_ordered', 1)
+    `,
+  );
+}
+
+async function insertMissingEvidenceRiskPage(db: PGlite) {
+  await db.query(
+    `
+      insert into entities (id, slug, entity_type, name, public_visibility, confidence_label)
+      values (
+        'entity_missing_evidence_risk',
+        'missing-evidence-risk',
+        'risk',
+        'Missing Evidence Risk',
+        'eligible',
+        'high'
+      )
+    `,
+  );
+  await db.query(
+    `
+      insert into facts (
+        id,
+        entity_id,
+        claim,
+        fact_type,
+        source_type,
+        source_profile_id,
+        fetched_at,
+        expires_at,
+        confidence_label,
+        source_authority,
+        public_republish_allowed,
+        audit_use_allowed,
+        raw_evidence_allowed
+      )
+      values
+        (
+          'fact_missing_public_evidence',
+          'entity_missing_evidence_risk',
+          'This fact has no matching public evidence in the bundle.',
+          'risk_preview',
+          'official',
+          'source_public_tourism_directory',
+          '2026-06-22T00:00:00.000Z',
+          '2026-07-22T00:00:00.000Z',
+          'high',
+          4,
+          true,
+          true,
+          false
+        ),
+        (
+          'fact_other_public_evidence',
+          'entity_missing_evidence_risk',
+          'This different fact owns the bundled evidence.',
+          'risk_preview',
+          'official',
+          'source_public_tourism_directory',
+          '2026-06-22T00:00:00.000Z',
+          '2026-07-22T00:00:00.000Z',
+          'high',
+          4,
+          true,
+          true,
+          false
+        )
+    `,
+  );
+  await db.query(
+    `
+      insert into evidence (id, fact_id, label, allowed_use, public_republish_allowed)
+      values (
+        'ev_other_public_evidence',
+        'fact_other_public_evidence',
+        'Other public evidence',
+        'public_republish',
+        true
+      )
+    `,
+  );
+  await db.query(
+    `
+      insert into public_evidence_bundles (id, slug, evidence_ids, summary, allowed_use)
+      values (
+        'bundle_missing_evidence_risk',
+        'risks-missing-evidence-risk',
+        '["ev_other_public_evidence"]'::jsonb,
+        'Missing evidence bundle.',
+        'public_republish'
+      )
+    `,
+  );
+  await db.query(
+    `
+      insert into public_pages (
+        id,
+        slug,
+        page_type,
+        entity_id,
+        canonical_url,
+        human_path,
+        llm_markdown_path,
+        json_api_path,
+        evidence_bundle_id,
+        confidence_label,
+        public_visibility,
+        indexing_status,
+        generation_source_fact_ids
+      )
+      values (
+        'page_missing_evidence_risk',
+        'missing-evidence-risk',
+        'risks',
+        'entity_missing_evidence_risk',
+        'https://siargao.example/risks/missing-evidence-risk',
+        '/risks/missing-evidence-risk',
+        '/risks/missing-evidence-risk/llm.md',
+        '/api/public/risks/missing-evidence-risk.json',
+        'bundle_missing_evidence_risk',
+        'high',
+        'eligible',
+        'index',
+        '["fact_missing_public_evidence"]'::jsonb
+      )
+    `,
+  );
+  await db.query(
+    `
+      insert into public_page_facts (public_page_id, fact_id, position)
+      values ('page_missing_evidence_risk', 'fact_missing_public_evidence', 0)
+    `,
+  );
+  await db.query(
+    `
+      insert into public_evidence_bundle_evidence (evidence_bundle_id, evidence_id, position)
+      values ('bundle_missing_evidence_risk', 'ev_other_public_evidence', 0)
     `,
   );
 }

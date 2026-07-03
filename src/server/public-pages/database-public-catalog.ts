@@ -136,10 +136,10 @@ async function loadPublicKnowledgePages(
         p.public_visibility,
         p.indexing_status,
         p.stale_fields,
-        p.generation_source_fact_ids,
+        resolved_page_facts.generation_source_fact_ids,
         b.id as evidence_bundle_id,
         b.slug as evidence_bundle_slug,
-        b.evidence_ids,
+        resolved_bundle_evidence.evidence_ids,
         b.summary as evidence_bundle_summary,
         b.allowed_use as evidence_bundle_allowed_use,
         b.created_at as evidence_bundle_created_at,
@@ -167,18 +167,72 @@ async function loadPublicKnowledgePages(
       from public_pages p
       left join public_evidence_bundles b on b.id = p.evidence_bundle_id
       left join entities ent on ent.id = p.entity_id
-      left join facts f on f.id in (
-        select jsonb_array_elements_text(p.generation_source_fact_ids)
-      )
+      left join lateral (
+        select coalesce(
+          (
+            select jsonb_agg(ppf.fact_id order by ppf.position, ppf.fact_id)
+            from public_page_facts ppf
+            where ppf.public_page_id = p.id
+          ),
+          p.generation_source_fact_ids
+        ) as generation_source_fact_ids
+      ) resolved_page_facts on true
+      left join lateral (
+        select ppf.fact_id, ppf.position
+        from public_page_facts ppf
+        where ppf.public_page_id = p.id
+        union all
+        select legacy_fact.fact_id, (legacy_fact.ordinality - 1)::integer as position
+        from jsonb_array_elements_text(p.generation_source_fact_ids)
+          with ordinality as legacy_fact(fact_id, ordinality)
+        where not exists (
+          select 1
+          from public_page_facts ppf
+          where ppf.public_page_id = p.id
+        )
+      ) page_fact on true
+      left join facts f on f.id = page_fact.fact_id
       left join source_profiles sp on sp.id = f.source_profile_id
       left join source_records sr on sr.id = f.source_record_id
-      left join evidence ev
-        on ev.fact_id = f.id
-       and ev.id in (
-         select jsonb_array_elements_text(coalesce(b.evidence_ids, '[]'::jsonb))
-       )
+      left join lateral (
+        select coalesce(
+          (
+            select jsonb_agg(pbee.evidence_id order by pbee.position, pbee.evidence_id)
+            from public_evidence_bundle_evidence pbee
+            where pbee.evidence_bundle_id = b.id
+          ),
+          coalesce(b.evidence_ids, '[]'::jsonb)
+        ) as evidence_ids
+      ) resolved_bundle_evidence on true
+      left join lateral (
+        select
+          matched_evidence.id,
+          matched_evidence.allowed_use,
+          matched_evidence.public_republish_allowed,
+          bundle_evidence.position
+        from (
+          select pbee.evidence_id, pbee.position
+          from public_evidence_bundle_evidence pbee
+          where pbee.evidence_bundle_id = b.id
+          union all
+          select
+            legacy_evidence.evidence_id,
+            (legacy_evidence.ordinality - 1)::integer as position
+          from jsonb_array_elements_text(coalesce(b.evidence_ids, '[]'::jsonb))
+            with ordinality as legacy_evidence(evidence_id, ordinality)
+          where not exists (
+            select 1
+            from public_evidence_bundle_evidence pbee
+            where pbee.evidence_bundle_id = b.id
+          )
+        ) bundle_evidence
+        join evidence matched_evidence
+          on matched_evidence.id = bundle_evidence.evidence_id
+         and matched_evidence.fact_id = f.id
+        order by bundle_evidence.position, bundle_evidence.evidence_id
+      ) ev on true
       ${whereClause}
-      order by p.id, f.id, ev.id
+      order by p.id, page_fact.position, page_fact.fact_id, ev.position, ev.id
     `,
     params,
   );
