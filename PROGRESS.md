@@ -13,9 +13,9 @@ status, and the next implementation step.
 
 ## Current Status
 
-- Current step: #69 Batch Google Places retention cleanup.
+- Current step: #68 Batch saved-trip and provider write paths.
 - Status: implementation complete; checker review pending.
-- Next step: #70 Define production database connection options after #69 checker handoff.
+- Next step: #70 Define production database connection options after #68 checker handoff.
 - Last updated: 2026-07-03.
 
 ## Step Checklist
@@ -29,7 +29,7 @@ status, and the next implementation step.
 | #65 | Add hot path indexes and index audit guidance | Complete pending checker | Ready on #64 stack; #61 complete | Added hot-path indexes, destructive-DDL scope tests, read-only index audit SQL, and documented deliberate exceptions. |
 | #66 | Bound database-backed list queries | Blocked | Blocked by #65 checker/merge; #61 complete | Depends on hot-path index work. |
 | #67 | Normalize public page evidence relationships | Blocked | Blocked by #62 and #64; #61 complete | Requires migration and constraint groundwork. |
-| #68 | Batch saved-trip and provider write paths | Blocked | Blocked by #64; #61 complete | Depends on database constraint/index groundwork. |
+| #68 | Batch saved-trip and provider write paths | Complete pending checker | Ready on #69 stack; #61 complete | Added bounded multi-row saved-trip and provider write batches with focused rollback/order coverage. |
 | #69 | Batch Google Places retention cleanup | Complete pending checker | Ready on #65 stack; #61 complete | Added bounded retention delete batches, CLI controls, progress output, docs, and pruning tests. |
 | #70 | Define production database connection options | Pending | Ready; #61 complete | Can proceed after tracking setup. |
 | #71 | Document database authorization boundaries | Blocked | Blocked by #62; #61 complete | Requires migration posture before role/grant documentation. |
@@ -101,6 +101,24 @@ status, and the next implementation step.
   - `bun run verify:ci`: Passed; repeated lint/typecheck/Bun tests, PGlite migrate/seed, build,
     and 38 Playwright tests. Playwright web-server logs still emitted the pre-existing missing
     `DATABASE_URL` saved-trip route noise, but the suite passed.
+- #68 implementation:
+  - `bun test src/server/trips/shared-trip-store.test.ts`: Passed with 12 tests covering batched
+    saved-trip item writes, request ordering, empty input, conflict update/undelete, duplicate IDs
+    with later entries winning, and no partial insert on validation or FK errors.
+  - `bun test src/app/api/trips/route.test.ts`: Passed with 10 saved-trip API route tests.
+  - `bun test src/server/providers/google-places-store.test.ts src/server/providers/enrich-google-places.test.ts src/server/providers/open-meteo.test.ts src/server/providers/open-meteo-marine.test.ts`:
+    Passed with 23 tests covering batched Google Places reviews/facts/evidence, bad review row
+    no-partial behavior, Open-Meteo weather/marine fact graph batching, FK ordering, and transaction
+    rollback.
+  - `bun run format`: Passed with no fixes applied on the final focused run.
+  - `bun run lint`: Passed; Biome checked 287 files with no fixes applied.
+  - `bun run typecheck --incremental false`: Passed.
+  - `bun run db:migrate:test`: Passed; migrated 48 PGlite tables and recorded 5 migrations.
+  - `bun run db:seed:test`: Passed; seeded 5 areas, 3 routes, and 6 source profiles.
+  - `bun test`: Passed with 761 tests and 3,984 assertions.
+  - `bun run verify:ci`: Passed; repeated lint/typecheck/Bun tests, PGlite migrate/seed, production
+    build, and 38 Playwright tests. Playwright web-server logs still emitted the pre-existing
+    missing `DATABASE_URL` saved-trip route noise, but the suite passed.
 - `CHANGELOG.md` inspection: Existing file contains `# Changelog`, a Keep a Changelog 1.0.0
   preamble, an `## [Unreleased]` section, and no empty category headings.
 - `PROGRESS.md` inspection: This file lists every database hardening issue from #61 through #72,
@@ -123,5 +141,8 @@ status, and the next implementation step.
   Updated `CHANGELOG.md` with the additive migration behavior change.
 - 2026-07-03: Completed #69 Google Places retention pruning batches, CLI controls, docs, and
   focused pruning tests. Updated `CHANGELOG.md` with the operator-visible pruning behavior change.
+- 2026-07-03: Completed #68 saved-trip and provider write batching with focused ordering,
+  duplicate-key, FK-ordering, and rollback coverage. Updated `CHANGELOG.md` with the write-path
+  behavior change.
 - 2026-07-03: Completed #61 tracking setup and lint validation. No `CHANGELOG.md` entry was added
   because this step is non-functional tracking scaffolding.

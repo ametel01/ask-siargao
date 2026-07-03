@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
 
+import { runInitialMigration } from "@/server/db/test-database";
 import { createDefaultSourceRegistry } from "@/server/providers/adapters";
 import {
   buildOpenMeteoMarineUrl,
@@ -7,6 +9,7 @@ import {
   parseOpenMeteoMarineResponse,
   summarizeOpenMeteoMarine,
 } from "@/server/providers/open-meteo-marine";
+import { upsertProviderFactGraphBatch } from "@/server/providers/provider-write-batches";
 import { SourceRegistry } from "@/server/providers/source-registry";
 
 const fixture = {
@@ -185,4 +188,113 @@ describe("Open-Meteo Marine adapter", () => {
       }),
     ).toThrow("No explicit source profile is registered for source_open_meteo_marine");
   });
+
+  test("persists marine fact graph batches after facts and before dependent rows", async () => {
+    const db = await openOpenMeteoMarineStoreTestDatabase();
+    const countedDb = countQueries(db);
+    const batch = createOpenMeteoMarineIngestionBatch({
+      fetchedAt: "2026-06-28T04:00:00.000Z",
+      payload: fixture,
+      requestUrl: "https://marine-api.open-meteo.com/v1/marine?example=true",
+    });
+
+    await db.exec("begin");
+    await upsertProviderFactGraphBatch(countedDb, batch);
+    await db.exec("commit");
+
+    const counts = await db.query<{
+      facts: number;
+      evidence: number;
+      fact_confidence_scores: number;
+      refresh_jobs: number;
+    }>(`
+      select
+        (select count(*)::int from facts) as facts,
+        (select count(*)::int from evidence) as evidence,
+        (select count(*)::int from fact_confidence_scores) as fact_confidence_scores,
+        (select count(*)::int from refresh_jobs) as refresh_jobs
+    `);
+
+    expect(counts.rows[0]).toEqual({
+      facts: 5,
+      evidence: 5,
+      fact_confidence_scores: 5,
+      refresh_jobs: 1,
+    });
+    expect(countedDb.countInsertInto("facts")).toBe(1);
+    expect(countedDb.countInsertInto("evidence")).toBe(1);
+    expect(countedDb.countInsertInto("fact_confidence_scores")).toBe(1);
+    expect(countedDb.firstInsertIndex("facts")).toBeLessThan(
+      countedDb.firstInsertIndex("evidence"),
+    );
+    expect(countedDb.firstInsertIndex("facts")).toBeLessThan(
+      countedDb.firstInsertIndex("fact_confidence_scores"),
+    );
+
+    await db.close();
+  });
 });
+
+async function openOpenMeteoMarineStoreTestDatabase() {
+  const db = new PGlite();
+  await runInitialMigration(db);
+  await seedOpenMeteoMarineProfiles(db);
+  return db;
+}
+
+async function seedOpenMeteoMarineProfiles(db: PGlite) {
+  await db.query(`
+    insert into providers (id, slug, name, provider_type)
+    values ('provider_open_meteo', 'open-meteo', 'Open-Meteo', 'weather_api')
+    on conflict (id) do nothing
+  `);
+  await db.query(`
+    insert into source_profiles (
+      id,
+      provider_id,
+      source_name,
+      source_type,
+      access_method,
+      allowed_use,
+      freshness_window_days,
+      authority_level,
+      stores_raw_allowed,
+      publishes_raw_allowed
+    )
+    values (
+      'source_open_meteo_marine',
+      'provider_open_meteo',
+      'Open-Meteo Marine API profile',
+      'licensed_api',
+      'api',
+      'public_republish',
+      1,
+      4,
+      true,
+      true
+    )
+    on conflict (id) do nothing
+  `);
+}
+
+function countQueries(db: PGlite) {
+  const queries: string[] = [];
+
+  return {
+    queries,
+    async query<T>(query: string, params?: unknown[]) {
+      queries.push(query);
+      return db.query<T>(query, params);
+    },
+    countInsertInto(tableName: string) {
+      return queries.filter((query) =>
+        new RegExp(`insert\\s+into\\s+${tableName}`, "i").test(query),
+      ).length;
+    },
+    firstInsertIndex(tableName: string) {
+      return queries.findIndex((query) =>
+        new RegExp(`insert\\s+into\\s+${tableName}`, "i").test(query),
+      );
+    },
+  };
+}
