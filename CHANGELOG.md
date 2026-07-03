@@ -9,6 +9,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added production database authorization guidance with tested runtime, migration, and reporting
+  role/grant SQL templates, credential-boundary documentation, and an explicit row-level security
+  deferral decision record.
 - Added configurable public web research through `research_web`, including source-backed output,
   insufficient-evidence responses, provider-unavailable responses, query planning, source scoring,
   finding extraction, entity hints, and required-evidence planning for current recommendations,

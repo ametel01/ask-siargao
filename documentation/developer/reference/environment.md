@@ -11,7 +11,7 @@ The app reads these environment variables.
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | Public/client-safe | Clerk sign-in routing | Set to `/sign-in` for the local prebuilt auth page. |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL` | Public/client-safe | Clerk post-sign-in redirects | Recommended default: `/chat`. |
 | `NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL` | Public/client-safe | Clerk post-sign-up redirects | Recommended default: `/chat`. |
-| `DATABASE_URL` | Server only | Production database client | Required by `createDatabaseClient`. Test migration and seed commands use PGlite. |
+| `DATABASE_URL` | Server only | Production runtime database client | Required by `createDatabaseClient`. In deployed app runtimes, use a credential mapped to the `ask_siargao_runtime` role from the database authorization reference. Test migration and seed commands use PGlite. |
 | `STRIPE_RESTRICTED_KEY` | Server only | Stripe Checkout API calls | Preferred server key for Checkout permissions. |
 | `STRIPE_SECRET_KEY` | Server only | Stripe Checkout API calls | Fallback when `STRIPE_RESTRICTED_KEY` is not set. |
 | `STRIPE_WEBHOOK_SECRET` | Server only | Stripe webhook verification | Required by `/api/stripe/webhook`. |
@@ -33,6 +33,18 @@ The app reads these environment variables.
 | `NEXT_PUBLIC_POSTHOG_HOST` | Public/client-safe | PostHog host | Defaults in `.env.example` to the US PostHog ingest host. |
 
 Server-only secrets must not use the `NEXT_PUBLIC_` prefix. `getServerSecret` rejects public-prefixed names so sensitive provider keys do not move into client-facing bundles.
+
+## Database Credentials
+
+Production should use separate database credentials for runtime and migration work:
+
+- deployed app runtimes use `DATABASE_URL` with an `ask_siargao_runtime` login;
+- migration jobs run `bun run db:migrate` with a migration-only credential mapped to
+  `ask_siargao_migration`;
+- optional read/reporting tools use separate read-only credentials mapped to
+  `ask_siargao_reporting`.
+
+See [Database authorization reference](database-authorization.md) for the role and grant template.
 
 ## Production Rate-Limit Storage
 
