@@ -79,6 +79,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Changed database migrations to use a `schema_migrations` ledger with checksums, skipped repeat
   runs, drift detection, transactional application where safe, and a deterministic Postgres
   advisory lock.
+- Changed Google Places retention pruning to use bounded batch deletes, dry-run and batch controls,
+  count-only progress output, and review cleanup completion before snapshot cleanup.
 - Retired the legacy recommendation-agent module so local recommendation behavior now lives only in
   the Ask Siargao chat tool loop and evidence policy.
 - Moved chat evidence final-payload enforcement and required-card exposure behind a chat evidence
