@@ -19,6 +19,9 @@ describe("database authorization boundaries", () => {
     expect(sql).toContain('TO "ask_siargao_runtime";');
     expect(sql).toContain('GRANT SELECT ON TABLE "areas", "routes"');
     expect(sql).toContain('TO "ask_siargao_reporting";');
+    expect(sql).not.toContain(
+      'ALTER DEFAULT PRIVILEGES FOR ROLE "ask_siargao_migration" IN SCHEMA "public" GRANT SELECT ON TABLES TO "ask_siargao_reporting";',
+    );
     expect(sql).not.toMatch(/\bSUPERUSER\b/i);
     expect(sql).not.toMatch(/\bCREATEDB\b/i);
     expect(sql).not.toMatch(/\bCREATEROLE\b/i);

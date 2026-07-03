@@ -43,7 +43,9 @@ The template:
   `schema_migrations`;
 - grants reporting `SELECT` only on the approved reporting table set;
 - grants sequence usage needed by runtime and read-only sequence access needed by reporting;
-- sets migration-role default privileges so future objects do not regain broad `PUBLIC` access.
+- sets migration-role default privileges so future objects do not regain broad `PUBLIC` access;
+- does not grant reporting access to future tables by default. Add reviewed reporting grants
+  explicitly when a future table is safe for read-only reporting.
 
 Run the generated SQL as the provider bootstrap owner after migrations have created the current
 schema. For later migrations, connect with the migration credential so new tables inherit the
@@ -79,6 +81,10 @@ acceptable.
 
 If a reporting tool needs private or paid-flow tables, create a separate reviewed grant set for that
 tool instead of broadening the default `ask_siargao_reporting` template.
+
+When migrations add new public/reportable tables, grant `SELECT` on those tables to
+`ask_siargao_reporting` only after reviewing the table for user, chat, saved-trip, payment, audit,
+raw provider, or otherwise private data.
 
 ## RLS Boundary
 

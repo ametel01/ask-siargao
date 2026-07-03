@@ -135,7 +135,6 @@ export function buildDatabaseAuthorizationSql(options: DatabaseAuthorizationTemp
     `ALTER DEFAULT PRIVILEGES FOR ROLE ${migrationRole} IN SCHEMA ${schemaName} REVOKE ALL ON SEQUENCES FROM PUBLIC;`,
     `ALTER DEFAULT PRIVILEGES FOR ROLE ${migrationRole} IN SCHEMA ${schemaName} GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${runtimeRole};`,
     `ALTER DEFAULT PRIVILEGES FOR ROLE ${migrationRole} IN SCHEMA ${schemaName} GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${runtimeRole};`,
-    `ALTER DEFAULT PRIVILEGES FOR ROLE ${migrationRole} IN SCHEMA ${schemaName} GRANT SELECT ON TABLES TO ${reportingRole};`,
   ].join("\n");
 }
 
