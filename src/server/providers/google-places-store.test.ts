@@ -22,10 +22,11 @@ import {
 describe("Google Places capture store", () => {
   test("upserts typed captures and normalized facts idempotently", async () => {
     const db = await openGooglePlacesStoreTestDatabase();
+    const countedDb = countQueries(db);
     const capture = createDetailsCapture();
 
-    const firstSummary = await upsertGooglePlaceDetails(db, capture);
-    const secondSummary = await upsertGooglePlaceDetails(db, capture);
+    const firstSummary = await upsertGooglePlaceDetails(countedDb, capture);
+    const secondSummary = await upsertGooglePlaceDetails(countedDb, capture);
 
     const counts = await db.query<{
       google_places: number;
@@ -69,6 +70,8 @@ describe("Google Places capture store", () => {
       factsUpserted: 6,
       placeId: "place_kermit",
     });
+    expect(countedDb.countInsertInto("facts")).toBe(2);
+    expect(countedDb.countInsertInto("evidence")).toBe(2);
 
     await db.close();
   });
@@ -111,9 +114,10 @@ describe("Google Places capture store", () => {
 
   test("stores review freshness, retention, and attribution requirements", async () => {
     const db = await openGooglePlacesStoreTestDatabase();
+    const countedDb = countQueries(db);
     const capture = createDetailsCapture({ requestKind: "details_atmosphere_reviews" });
 
-    await upsertGooglePlaceReviews(db, {
+    await upsertGooglePlaceReviews(countedDb, {
       place: capture.place,
       sourceRecord: capture.sourceRecord,
       snapshot: expectSnapshot(capture),
@@ -131,27 +135,63 @@ describe("Google Places capture store", () => {
           staleAt: "2026-07-02T00:00:00.000Z",
           retentionExpiresAt: "2026-07-02T00:00:00.000Z",
         },
+        {
+          id: "review_place_kermit_2",
+          rating: 4,
+          textJson: { text: "Updated batch-friendly review." },
+          fetchedAt: "2026-06-25T00:00:00.000Z",
+          staleAt: "2026-07-02T00:00:00.000Z",
+          retentionExpiresAt: "2026-07-03T00:00:00.000Z",
+          displayRequiresGoogleAttribution: false,
+        },
       ],
+    });
+    await upsertGooglePlaceReviews(countedDb, {
+      place: capture.place,
+      sourceRecord: capture.sourceRecord,
+      snapshot: expectSnapshot(capture),
+      reviews: [
+        {
+          id: "review_place_kermit_2",
+          rating: 3,
+          textJson: { text: "Conflict update wins." },
+          fetchedAt: "2026-06-26T00:00:00.000Z",
+          staleAt: "2026-07-03T00:00:00.000Z",
+          retentionExpiresAt: "2026-07-04T00:00:00.000Z",
+        },
+      ],
+    });
+    await upsertGooglePlaceReviews(countedDb, {
+      place: capture.place,
+      sourceRecord: capture.sourceRecord,
+      snapshot: expectSnapshot(capture),
+      reviews: [],
     });
 
     const rows = await db.query<{
+      id: string;
       rating: string;
       stale_at: Date;
       retention_expires_at: Date;
       display_requires_google_attribution: boolean;
+      text_json: { text: string };
       attribution_json: { requiresGoogleAttribution: boolean; fieldMask: string };
     }>(`
       select
+        r.id,
         r.rating::text as rating,
         r.stale_at,
         r.retention_expires_at,
         r.display_requires_google_attribution,
+        r.text_json,
         s.attribution_json
       from google_place_reviews r
       join google_place_snapshots s on s.id = r.snapshot_id
+      order by r.id
     `);
 
     expect(rows.rows[0]).toMatchObject({
+      id: "review_place_kermit_1",
       rating: "5",
       display_requires_google_attribution: true,
       attribution_json: {
@@ -161,6 +201,50 @@ describe("Google Places capture store", () => {
     });
     expect(rows.rows[0]?.stale_at.toISOString()).toBe("2026-07-02T00:00:00.000Z");
     expect(rows.rows[0]?.retention_expires_at.toISOString()).toBe("2026-07-02T00:00:00.000Z");
+    expect(rows.rows[1]).toMatchObject({
+      id: "review_place_kermit_2",
+      rating: "3",
+      text_json: { text: "Conflict update wins." },
+      display_requires_google_attribution: true,
+    });
+    expect(rows.rows[1]?.retention_expires_at.toISOString()).toBe("2026-07-04T00:00:00.000Z");
+    expect(countedDb.countInsertInto("google_place_reviews")).toBe(2);
+
+    await db.close();
+  });
+
+  test("does not partially insert Google review rows when one batch row fails", async () => {
+    const db = await openGooglePlacesStoreTestDatabase();
+    const capture = createDetailsCapture({ requestKind: "details_atmosphere_reviews" });
+
+    await expect(
+      upsertGooglePlaceReviews(db, {
+        place: capture.place,
+        sourceRecord: capture.sourceRecord,
+        snapshot: expectSnapshot(capture),
+        reviews: [
+          {
+            id: "review_good_batch",
+            rating: 5,
+            fetchedAt: "2026-06-25T00:00:00.000Z",
+            staleAt: "2026-07-02T00:00:00.000Z",
+            retentionExpiresAt: "2026-07-02T00:00:00.000Z",
+          },
+          {
+            id: "review_bad_batch",
+            rating: 9,
+            fetchedAt: "2026-06-25T00:00:00.000Z",
+            staleAt: "2026-07-02T00:00:00.000Z",
+            retentionExpiresAt: "2026-07-02T00:00:00.000Z",
+          },
+        ],
+      }),
+    ).rejects.toThrow();
+
+    const rows = await db.query<{ count: number }>(
+      "select count(*)::int as count from google_place_reviews",
+    );
+    expect(rows.rows[0]?.count).toBe(0);
 
     await db.close();
   });
@@ -378,5 +462,22 @@ function createDetailsInput(fetchedAt: string): GooglePlaceDetailsInput {
     fetchedAt,
     staleAt: "2026-07-02T00:00:00.000Z",
     retentionExpiresAt: "2026-07-25T00:00:00.000Z",
+  };
+}
+
+function countQueries(db: PGlite) {
+  const queries: string[] = [];
+
+  return {
+    queries,
+    async query<T>(query: string, params?: unknown[]) {
+      queries.push(query);
+      return db.query<T>(query, params);
+    },
+    countInsertInto(tableName: string) {
+      return queries.filter((query) =>
+        new RegExp(`insert\\s+into\\s+${tableName}`, "i").test(query),
+      ).length;
+    },
   };
 }

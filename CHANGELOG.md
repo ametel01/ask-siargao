@@ -82,6 +82,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Bounded database-backed chat thread and public catalog list reads with default caps, bounded
   custom limits, deterministic chat thread cursor pagination, and capped public page fact/evidence
   hydration.
+- Changed saved-trip item, Google Places review/fact/evidence, and Open-Meteo fact graph writes to
+  use bounded multi-row conflict-aware batches while preserving existing ordering and transaction
+  behavior.
 - Changed Google Places retention pruning to use bounded batch deletes, dry-run and batch controls,
   count-only progress output, and review cleanup completion before snapshot cleanup.
 - Retired the legacy recommendation-agent module so local recommendation behavior now lives only in

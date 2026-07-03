@@ -49,6 +49,8 @@ type SavedTripItemRow = {
   deleted_at: Date | null;
 };
 
+const savedTripItemUpsertBatchSize = 100;
+
 type SharedTripPlanRow = {
   id: string;
   trip_id: string;
@@ -175,17 +177,42 @@ export async function upsertSavedTripItems(
     now?: string;
   },
 ) {
-  const results: SavedTripItem[] = [];
-
-  for (const item of items) {
+  const itemById = new Map<string, { item: SavedTripItem; inputOrdinal: number }>();
+  for (const [inputOrdinal, item] of items.entries()) {
     const normalizedItem = normalizeSavedTripItem({
       ...item,
       tripId,
       updatedAt: now,
     });
+    itemById.set(normalizedItem.id, { item: normalizedItem, inputOrdinal });
+  }
+
+  const uniqueItems = [...itemById.values()].sort(
+    (left, right) => left.inputOrdinal - right.inputOrdinal,
+  );
+  const results: SavedTripItem[] = [];
+
+  for (const chunk of chunks(uniqueItems, savedTripItemUpsertBatchSize)) {
+    const params: unknown[] = [];
+    const valuesSql = chunk.map(({ inputOrdinal, item }) => {
+      params.push(
+        inputOrdinal,
+        item.id,
+        tripId,
+        item.kind,
+        item.title,
+        JSON.stringify(item.payload),
+        JSON.stringify(item.sources),
+        item.createdAt,
+        item.updatedAt,
+      );
+      const offset = params.length - 8;
+      return `($${offset}::int, $${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}::jsonb, $${offset + 6}::jsonb, $${offset + 7}::timestamptz, $${offset + 8}::timestamptz)`;
+    });
     const result = await db.query<SavedTripItemRow>(
       `
-        insert into saved_trip_items (
+        with input_items (
+          input_ordinal,
           id,
           trip_id,
           kind,
@@ -193,33 +220,55 @@ export async function upsertSavedTripItems(
           payload_json,
           sources_json,
           created_at,
-          updated_at,
-          deleted_at
+          updated_at
+        ) as (
+          values ${valuesSql.join(",\n          ")}
+        ),
+        upserted as (
+          insert into saved_trip_items (
+            id,
+            trip_id,
+            kind,
+            title,
+            payload_json,
+            sources_json,
+            created_at,
+            updated_at,
+            deleted_at
+          )
+          select
+            id,
+            trip_id,
+            kind,
+            title,
+            payload_json,
+            sources_json,
+            created_at,
+            updated_at,
+            null
+          from input_items
+          on conflict (trip_id, id) do update
+          set
+            kind = excluded.kind,
+            title = excluded.title,
+            payload_json = excluded.payload_json,
+            sources_json = excluded.sources_json,
+            updated_at = excluded.updated_at,
+            deleted_at = null
+          returning id, trip_id, kind, title, payload_json, sources_json, created_at, updated_at,
+            deleted_at
         )
-        values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, null)
-        on conflict (trip_id, id) do update
-        set
-          kind = excluded.kind,
-          title = excluded.title,
-          payload_json = excluded.payload_json,
-          sources_json = excluded.sources_json,
-          updated_at = excluded.updated_at,
-          deleted_at = null
-        returning id, trip_id, kind, title, payload_json, sources_json, created_at, updated_at,
-          deleted_at
+        select upserted.id, upserted.trip_id, upserted.kind, upserted.title,
+          upserted.payload_json, upserted.sources_json, upserted.created_at,
+          upserted.updated_at, upserted.deleted_at
+        from upserted
+        join input_items on input_items.trip_id = upserted.trip_id
+          and input_items.id = upserted.id
+        order by input_items.input_ordinal asc
       `,
-      [
-        normalizedItem.id,
-        tripId,
-        normalizedItem.kind,
-        normalizedItem.title,
-        JSON.stringify(normalizedItem.payload),
-        JSON.stringify(normalizedItem.sources),
-        normalizedItem.createdAt,
-        normalizedItem.updatedAt,
-      ],
+      params,
     );
-    results.push(savedTripItemFromRow(requiredRow(result.rows, "saved trip item")));
+    results.push(...result.rows.map(savedTripItemFromRow));
   }
 
   return results;
@@ -533,12 +582,12 @@ function orderItemsByIds(items: readonly SavedTripItem[], itemIds: readonly stri
   });
 }
 
-function requiredRow<T>(rows: readonly T[], label: string) {
-  const row = rows[0];
-  if (!row) {
-    throw new Error(`Expected ${label} row.`);
+function chunks<T>(items: readonly T[], size: number) {
+  const result: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    result.push(items.slice(index, index + size));
   }
-  return row;
+  return result;
 }
 
 function hashSecret(value: string) {
