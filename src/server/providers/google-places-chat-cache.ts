@@ -1,6 +1,7 @@
 import type { Logger } from "pino";
 import postgres from "postgres";
 
+import { createPostgresConnectionOptions } from "@/server/db/connection-options";
 import { createComponentLogger } from "@/server/observability/logger";
 import {
   type GooglePlacesChatContext,
@@ -407,7 +408,7 @@ function googlePlacesChatPlaceFromCachedRow(row: {
 }
 
 function createPostgresGooglePlacesStoreDatabase(databaseUrl: string): GooglePlacesStoreDatabase {
-  const sql = postgres(databaseUrl, { prepare: false });
+  const sql = postgres(databaseUrl, createPostgresConnectionOptions("app"));
 
   return {
     async query<T>(query: string, params: unknown[] = []) {

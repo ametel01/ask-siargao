@@ -1,5 +1,6 @@
 import postgres from "postgres";
 
+import { createPostgresConnectionOptions } from "@/server/db/connection-options";
 import {
   countExpiredGooglePlacesContent,
   defaultGooglePlacesCleanupBatchSize,
@@ -64,7 +65,7 @@ export async function runPruneGooglePlacesCli({
     throw new Error("DATABASE_URL is required to prune expired Google Places content.");
   }
 
-  const sql = postgres(databaseUrl, { max: 1, prepare: false });
+  const sql = postgres(databaseUrl, createPostgresConnectionOptions("cli"));
 
   try {
     const result = await pruneGooglePlacesContent({

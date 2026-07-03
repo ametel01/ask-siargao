@@ -14,8 +14,9 @@ status, and the next implementation step.
 ## Current Status
 
 - Current step: #69 Batch Google Places retention cleanup.
-- Status: implementation complete; checker review pending.
-- Next step: #70 Define production database connection options after #69 checker handoff.
+- Status: implementation complete; checker and reviewer-agent review complete.
+- Next step: Continue #67 public evidence normalization, #68 batched write paths, and #71
+  authorization boundaries before the #72 operations runbook.
 - Last updated: 2026-07-03.
 
 ## Step Checklist
@@ -31,7 +32,7 @@ status, and the next implementation step.
 | #67 | Normalize public page evidence relationships | Blocked | Blocked by #62 and #64; #61 complete | Requires migration and constraint groundwork. |
 | #68 | Batch saved-trip and provider write paths | Blocked | Blocked by #64; #61 complete | Depends on database constraint/index groundwork. |
 | #69 | Batch Google Places retention cleanup | Complete pending checker | Ready on #65 stack; #61 complete | Added bounded retention delete batches, CLI controls, progress output, docs, and pruning tests. |
-| #70 | Define production database connection options | Pending | Ready; #61 complete | Can proceed after tracking setup. |
+| #70 | Define production database connection options | Complete pending checker | Ready on #64 stack; #61 complete | Added shared Postgres option parsing, app/CLI profiles, CLI close-path coverage by inspection, docs, and tests. |
 | #71 | Document database authorization boundaries | Blocked | Blocked by #62; #61 complete | Requires migration posture before role/grant documentation. |
 | #72 | Add database operations runbook | Blocked | Blocked by #65, #69, #70, and #71; #61 complete | Final runbook depends on earlier operational controls. |
 
@@ -98,6 +99,25 @@ status, and the next implementation step.
   - `bun run lint`: Passed; Biome checked 286 files with no fixes applied.
   - `bun run typecheck --incremental false`: Passed.
   - `bun test`: Passed with 753 tests and 3,951 assertions.
+- #70 implementation:
+  - `bun test src/server/db/connection-options.test.ts`: Passed with 17 tests covering local
+    defaults, production defaults, SSL modes, invalid values, shared timeout/lifetime overrides,
+    and app versus CLI profile differences.
+  - Direct `postgres(...)` call-site inspection: Passed; every direct call uses
+    `createPostgresConnectionOptions("app")` or `createPostgresConnectionOptions("cli")`, CLI/job
+    call sites use the CLI profile, and CLI-profile clients close with `sql.end()` in existing
+    `finally` paths.
+  - Existing local facts query statement timeout was preserved through the scoped
+    `set_config('statement_timeout', ...)` call.
+  - `bun run format`: Passed with no fixes applied.
+  - `bun run lint`: Passed; Biome checked 288 files with no fixes applied.
+  - `bun run typecheck --incremental false`: Passed.
+  - `bun test`: Passed with 763 tests.
+  - `bun run db:migrate:test`: Passed after rerunning sequentially; migrated 48 PGlite tables and
+    recorded 4 migrations. An earlier concurrent run with `db:seed:test` failed due PGlite
+    filesystem/schema ordering and was not a code failure.
+  - `bun run db:seed:test`: Passed after sequential `db:migrate:test`; seeded 5 areas, 3 routes,
+    and 6 source profiles. An earlier concurrent run failed because the schema was not yet created.
   - `bun run verify:ci`: Passed; repeated lint/typecheck/Bun tests, PGlite migrate/seed, build,
     and 38 Playwright tests. Playwright web-server logs still emitted the pre-existing missing
     `DATABASE_URL` saved-trip route noise, but the suite passed.
@@ -119,6 +139,8 @@ status, and the next implementation step.
   `CHANGELOG.md` entry was added because runtime behavior did not change.
 - 2026-07-03: Completed #64 database hardening constraints and supporting index implementation.
   Updated `CHANGELOG.md` with the migration behavior change.
+- 2026-07-03: Completed #70 production database connection option implementation and validation.
+  Updated `CHANGELOG.md` with the client configuration behavior change.
 - 2026-07-03: Completed #65 hot-path index implementation and read-only index audit guidance.
   Updated `CHANGELOG.md` with the additive migration behavior change.
 - 2026-07-03: Completed #69 Google Places retention pruning batches, CLI controls, docs, and
