@@ -13,7 +13,7 @@ status, and the next implementation step.
 
 ## Current Status
 
-- Current step: #68 Batch saved-trip and provider write paths.
+- Current step: #66 Bound database-backed list queries.
 - Status: implementation complete; checker and reviewer-agent review complete.
 - Next step: Continue #71 authorization boundaries before the #72 operations runbook.
 - Last updated: 2026-07-03.
@@ -27,7 +27,7 @@ status, and the next implementation step.
 | #63 | Guard historical bootstrap migration behavior | Complete pending checker | Ready on #62 stack; #61 complete | Added targeted repeat-run coverage for the historical saved-trip primary-key rewrite plus checksum/ledger docs. |
 | #64 | Add database constraints and foreign key indexes | Complete pending checker | Ready on #63 stack; #61 complete | Added the hardening migration, schema metadata, and migration tests for supporting indexes and CHECK constraints. |
 | #65 | Add hot path indexes and index audit guidance | Complete pending checker | Ready on #64 stack; #61 complete | Added hot-path indexes, destructive-DDL scope tests, read-only index audit SQL, and documented deliberate exceptions. |
-| #66 | Bound database-backed list queries | Blocked | Blocked by #65 checker/merge; #61 complete | Depends on hot-path index work. |
+| #66 | Bound database-backed list queries | Complete pending checker | Ready on #67 stack; #61 complete | Added capped chat thread pagination plus bounded public catalog parent/fact/evidence reads. |
 | #67 | Normalize public page evidence relationships | Complete pending checker | Ready on #65 stack; #61 complete | Added normalized public-page fact and evidence relationship tables, ordered backfill, catalog fallback/preference reads, and regression tests. |
 | #68 | Batch saved-trip and provider write paths | Complete pending checker | Ready on #69 stack; #61 complete | Added bounded multi-row saved-trip and provider write batches with focused rollback/order coverage. |
 | #69 | Batch Google Places retention cleanup | Complete pending checker | Ready on #65 stack; #61 complete | Added bounded retention delete batches, CLI controls, progress output, docs, and pruning tests. |
@@ -135,6 +135,23 @@ status, and the next implementation step.
   - `bun run verify:ci`: Passed; repeated lint/typecheck/Bun tests, PGlite migrate/seed, build,
     and 38 Playwright tests. Playwright web-server logs still emitted the pre-existing missing
     `DATABASE_URL` saved-trip route noise, but the suite passed.
+- #66 implementation:
+  - `bun test src/app/api/chat/threads/route.test.ts`: Passed with 12 tests, including default
+    list caps, bounded custom limits, cursor traversal, deterministic thread-id tie ordering, and
+    no-parameter compatibility.
+  - `bun test src/server/public-pages/database-public-catalog.test.ts`: Passed with 8 tests,
+    including finite default/custom public catalog caps, max-limit clamping, normalized
+    relationship compatibility, legacy fallback compatibility, and deterministic limited-page
+    ordering.
+  - `bun test src/app/api/public/public-index-routes.test.ts`: Passed with 1 test covering
+    compatible public entity/evidence/risk-preview route payloads through the catalog.
+  - `bun run format`: Passed with no fixes applied on the final run.
+  - `bun run lint`: Passed; Biome checked 286 files with no fixes applied.
+  - `bun run typecheck --incremental false`: Passed.
+  - `bun test`: Passed with 760 tests and 3,989 assertions.
+  - `bun run verify:ci`: Passed; repeated lint/typecheck/Bun tests, PGlite migrate/seed, build,
+    and 38 Playwright tests. Playwright web-server logs still emitted the pre-existing missing
+    `DATABASE_URL` saved-trip route noise, but the suite passed.
 - #68 implementation:
   - `bun test src/server/trips/shared-trip-store.test.ts`: Passed with 12 tests covering batched
     saved-trip item writes, request ordering, empty input, conflict update/undelete, duplicate IDs
@@ -175,6 +192,8 @@ status, and the next implementation step.
   Updated `CHANGELOG.md` with the client configuration behavior change.
 - 2026-07-03: Completed #65 hot-path index implementation and read-only index audit guidance.
   Updated `CHANGELOG.md` with the additive migration behavior change.
+- 2026-07-03: Completed #66 bounded database-backed list query implementation. Updated
+  `CHANGELOG.md` with the chat thread pagination and public catalog bounded-read behavior change.
 - 2026-07-03: Completed #67 normalized public-page relationship implementation. Updated
   `CHANGELOG.md` with the additive migration and catalog compatibility behavior change.
 - 2026-07-03: Completed #69 Google Places retention pruning batches, CLI controls, docs, and

@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 
+import type { DatabaseQueryClient, QueryResult } from "@/server/db/query-client";
 import { runInitialMigration } from "@/server/db/test-database";
-import { createDatabasePublicKnowledgeCatalog } from "@/server/public-pages/database-public-catalog";
+import {
+  createDatabasePublicKnowledgeCatalog,
+  PUBLIC_CATALOG_DEFAULT_PAGE_LIMIT,
+  PUBLIC_CATALOG_EVIDENCE_PER_BUNDLE_LIMIT,
+  PUBLIC_CATALOG_FACTS_PER_PAGE_LIMIT,
+  PUBLIC_CATALOG_MAX_PAGE_LIMIT,
+} from "@/server/public-pages/database-public-catalog";
 import {
   buildPublicCatalogProjection,
   buildPublicJsonLd,
@@ -45,6 +52,60 @@ describe("database public knowledge catalog", () => {
     expect(projection.sitemapXml).toContain("/risks/monsoon-transfer-risk");
     expect(projection.llmsTxt).toContain("/risks/monsoon-transfer-risk/llm.md");
     expect(JSON.stringify(projection)).not.toContain("raw_payload");
+
+    await db.close();
+  });
+
+  test("uses finite default and custom page caps for database-backed list reads", async () => {
+    const db = await openPublicCatalogTestDatabase();
+    await insertEligibleRiskPage(db);
+    const captured = createCapturingClient(db);
+    const catalog = createDatabasePublicKnowledgeCatalog({
+      client: captured.client,
+      now: new Date("2026-06-23T00:00:00.000Z"),
+    });
+
+    const defaultPages = await catalog.listPages();
+    const customPages = await catalog.listPages({ limit: 1 });
+    const clampedPages = await catalog.listPages({ limit: PUBLIC_CATALOG_MAX_PAGE_LIMIT + 1 });
+
+    expect(defaultPages.map((page) => page.slug)).toEqual(["monsoon-transfer-risk"]);
+    expect(customPages.map((page) => page.slug)).toEqual(["monsoon-transfer-risk"]);
+    expect(clampedPages.map((page) => page.slug)).toEqual(["monsoon-transfer-risk"]);
+    expect(captured.params[0]?.slice(2, 5)).toEqual([
+      PUBLIC_CATALOG_DEFAULT_PAGE_LIMIT,
+      PUBLIC_CATALOG_FACTS_PER_PAGE_LIMIT,
+      PUBLIC_CATALOG_EVIDENCE_PER_BUNDLE_LIMIT,
+    ]);
+    expect(captured.params[1]?.[2]).toBe(1);
+    expect(captured.params[2]?.[2]).toBe(PUBLIC_CATALOG_MAX_PAGE_LIMIT);
+
+    await db.close();
+  });
+
+  test("limits catalog pages without truncating normalized or legacy relationship hydration", async () => {
+    const db = await openPublicCatalogTestDatabase();
+    await insertEligibleRiskPage(db, { relationshipMode: "legacy" });
+    await insertOrderedRiskPage(db);
+
+    const catalog = createDatabasePublicKnowledgeCatalog({
+      client: db,
+      now: new Date("2026-06-23T00:00:00.000Z"),
+    });
+    const pages = await catalog.listPages({ limit: 2 });
+
+    expect(pages.map((page) => page.publicPageId)).toEqual([
+      "page_monsoon_transfer_risk",
+      "page_ordered_risk",
+    ]);
+    expect(pages[0]?.generationSourceFactIds).toEqual(["fact_monsoon_transfer_risk"]);
+    expect(pages[0]?.evidenceBundle.evidenceIds).toEqual(["ev_monsoon_transfer_risk"]);
+    expect(pages[1]?.generationSourceFactIds).toEqual(["fact_zulu_ordered", "fact_alpha_ordered"]);
+    expect(pages[1]?.evidenceBundle.evidenceIds).toEqual(["ev_zulu_ordered", "ev_alpha_ordered"]);
+    expect(pages[1]?.facts.map((fact) => fact.id)).toEqual([
+      "fact_zulu_ordered",
+      "fact_alpha_ordered",
+    ]);
 
     await db.close();
   });
@@ -204,6 +265,22 @@ async function openPublicCatalogTestDatabase() {
     `,
   );
   return db;
+}
+
+function createCapturingClient(db: PGlite): {
+  client: DatabaseQueryClient;
+  params: unknown[][];
+} {
+  const params: unknown[][] = [];
+  return {
+    client: {
+      async query<T>(query: string, queryParams: unknown[] = []): Promise<QueryResult<T>> {
+        params.push(queryParams);
+        return db.query<T>(query, queryParams);
+      },
+    },
+    params,
+  };
 }
 
 type RelationshipMode = "normalized" | "legacy";

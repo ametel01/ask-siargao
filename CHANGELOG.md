@@ -79,6 +79,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Changed database migrations to use a `schema_migrations` ledger with checksums, skipped repeat
   runs, drift detection, transactional application where safe, and a deterministic Postgres
   advisory lock.
+- Bounded database-backed chat thread and public catalog list reads with default caps, bounded
+  custom limits, deterministic chat thread cursor pagination, and capped public page fact/evidence
+  hydration.
 - Changed saved-trip item, Google Places review/fact/evidence, and Open-Meteo fact graph writes to
   use bounded multi-row conflict-aware batches while preserving existing ordering and transaction
   behavior.
