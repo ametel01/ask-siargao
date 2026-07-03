@@ -10,9 +10,16 @@ import {
 
 export type PublicKnowledgeCatalog = {
   getPage(family: PublicPageFamily, slug: string): Promise<PublicKnowledgePage | undefined>;
-  listPages(): Promise<PublicKnowledgePage[]>;
-  listEligiblePages(): Promise<PublicKnowledgePage[]>;
+  listPages(options?: PublicCatalogListOptions): Promise<PublicKnowledgePage[]>;
+  listEligiblePages(options?: PublicCatalogListOptions): Promise<PublicKnowledgePage[]>;
 };
+
+export type PublicCatalogListOptions = {
+  limit?: number;
+};
+
+const PUBLIC_CATALOG_FIXTURE_DEFAULT_LIMIT = 500;
+const PUBLIC_CATALOG_FIXTURE_MAX_LIMIT = 1_000;
 
 let defaultCatalog: PublicKnowledgeCatalog | null = null;
 
@@ -24,11 +31,11 @@ export function createFixturePublicKnowledgeCatalog(
       const page = repository.getPage(family, slug);
       return page && evaluatePublicPageEligibility(page).eligible ? page : undefined;
     },
-    async listPages() {
-      return repository.listPages();
+    async listPages(options) {
+      return repository.listPages().slice(0, normalizeFixtureCatalogLimit(options?.limit));
     },
-    async listEligiblePages() {
-      return repository.listEligiblePages();
+    async listEligiblePages(options) {
+      return repository.listEligiblePages().slice(0, normalizeFixtureCatalogLimit(options?.limit));
     },
   };
 }
@@ -47,4 +54,14 @@ export function getPublicKnowledgeCatalog() {
 
 export function resetPublicKnowledgeCatalogForTests(catalog: PublicKnowledgeCatalog | null = null) {
   defaultCatalog = catalog;
+}
+
+function normalizeFixtureCatalogLimit(limit: number | undefined) {
+  if (limit === undefined) {
+    return PUBLIC_CATALOG_FIXTURE_DEFAULT_LIMIT;
+  }
+  if (!Number.isFinite(limit) || !Number.isInteger(limit) || limit < 1) {
+    return 1;
+  }
+  return Math.min(limit, PUBLIC_CATALOG_FIXTURE_MAX_LIMIT);
 }

@@ -3,6 +3,9 @@ import { z } from "zod";
 import { isClerkServerConfigured } from "@/features/auth/clerk-config";
 import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/auth/clerk-users";
 import {
+  CHAT_THREAD_LIST_MAX_LIMIT,
+  type ChatThreadListOptions,
+  type ChatThreadListPage,
   createChatThread,
   listOwnedChatThreads,
   loadOwnedChatThreadWithMessages,
@@ -34,17 +37,40 @@ function createDefaultChatThreadRouteDependencies(): ChatThreadRouteDependencies
 }
 
 export async function listChatThreadsResponse(
+  requestOrDependencies:
+    | Request
+    | ChatThreadRouteDependencies = createDefaultChatThreadRouteDependencies(),
   dependencies: ChatThreadRouteDependencies = createDefaultChatThreadRouteDependencies(),
 ) {
-  const currentUser = await ensureThreadUser(dependencies);
+  const request = requestOrDependencies instanceof Request ? requestOrDependencies : null;
+  const resolvedDependencies =
+    requestOrDependencies instanceof Request ? dependencies : requestOrDependencies;
+  const currentUser = await ensureThreadUser(resolvedDependencies);
   if (!currentUser) {
     return Response.json({ error: "unauthenticated" }, { status: 401 });
   }
 
-  const threads = await listOwnedChatThreads(threadDatabase(dependencies), {
-    userId: currentUser.userId,
-  });
-  return Response.json({ threads });
+  const parsedPagination = parseThreadListPagination(request);
+  if (!parsedPagination.ok) {
+    return invalidThreadRequest([
+      { path: [parsedPagination.path], message: parsedPagination.message },
+    ]);
+  }
+
+  let page: ChatThreadListPage;
+  try {
+    page = await listOwnedChatThreads(threadDatabase(resolvedDependencies), {
+      userId: currentUser.userId,
+      pagination: parsedPagination.pagination,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("chat thread cursor")) {
+      return invalidThreadRequest([{ path: ["cursor"], message: "Expected a valid cursor." }]);
+    }
+    throw error;
+  }
+
+  return Response.json({ threads: page.threads, pagination: page.pagination });
 }
 
 export async function createChatThreadResponse(
@@ -190,4 +216,30 @@ function invalidThreadRequest(issues: Array<{ path: readonly PropertyKey[]; mess
     },
     { status: 400 },
   );
+}
+
+function parseThreadListPagination(
+  request: Request | null,
+): { ok: true; pagination: ChatThreadListOptions } | { ok: false; path: string; message: string } {
+  if (!request) {
+    return { ok: true, pagination: {} };
+  }
+
+  const searchParams = new URL(request.url).searchParams;
+  const rawLimit = searchParams.get("limit");
+  if (rawLimit !== null) {
+    const limit = Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1) {
+      return { ok: false, path: "limit", message: "Expected limit to be a positive integer." };
+    }
+    return {
+      ok: true,
+      pagination: {
+        limit: Math.min(limit, CHAT_THREAD_LIST_MAX_LIMIT),
+        cursor: searchParams.get("cursor"),
+      },
+    };
+  }
+
+  return { ok: true, pagination: { cursor: searchParams.get("cursor") } };
 }

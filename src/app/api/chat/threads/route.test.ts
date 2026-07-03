@@ -8,7 +8,12 @@ import {
   listChatThreadsResponse,
   patchChatThreadResponse,
 } from "@/app/api/chat/threads/thread-routes";
-import { appendChatHistoryMessage, createChatThread } from "@/server/chat/chat-history-store";
+import {
+  appendChatHistoryMessage,
+  CHAT_THREAD_LIST_DEFAULT_LIMIT,
+  CHAT_THREAD_LIST_MAX_LIMIT,
+  createChatThread,
+} from "@/server/chat/chat-history-store";
 import { upsertChatResponseRating } from "@/server/chat/chat-response-ratings-store";
 import { runInitialMigration } from "@/server/db/test-database";
 
@@ -58,6 +63,155 @@ describe("chat thread API routes", () => {
       "thread_new",
       "thread_old",
     ]);
+
+    await db.close();
+  });
+
+  test("keeps no-parameter list calls compatible while applying the default page cap", async () => {
+    const db = await openThreadRouteTestDatabase();
+    const dependencies = threadDependencies(db, { userId: "user_default_limit" });
+    await insertUser(db, "user_default_limit");
+    for (let index = 1; index <= CHAT_THREAD_LIST_DEFAULT_LIMIT + 1; index += 1) {
+      await createChatThread(db, {
+        id: `thread_default_${String(index).padStart(2, "0")}`,
+        userId: "user_default_limit",
+        title: `Thread ${index}`,
+        now: new Date(Date.UTC(2026, 5, 29, 0, index)),
+      });
+    }
+
+    const response = await listChatThreadsResponse(dependencies);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.threads).toHaveLength(CHAT_THREAD_LIST_DEFAULT_LIMIT);
+    expect(body.threads[0].id).toBe("thread_default_26");
+    expect(body.threads.map((thread: { id: string }) => thread.id)).not.toContain(
+      "thread_default_01",
+    );
+    expect(body.pagination).toMatchObject({
+      limit: CHAT_THREAD_LIST_DEFAULT_LIMIT,
+      hasMore: true,
+    });
+    expect(typeof body.pagination.nextCursor).toBe("string");
+
+    await db.close();
+  });
+
+  test("applies custom bounded limits and traverses cursor pages deterministically", async () => {
+    const db = await openThreadRouteTestDatabase();
+    const dependencies = threadDependencies(db, { userId: "user_cursor" });
+    await insertUser(db, "user_cursor");
+    for (let index = 1; index <= 5; index += 1) {
+      await createChatThread(db, {
+        id: `thread_cursor_${index}`,
+        userId: "user_cursor",
+        title: `Cursor ${index}`,
+        now: new Date(Date.UTC(2026, 5, 29, 1, index)),
+      });
+    }
+
+    const firstResponse = await listChatThreadsResponse(
+      new Request("https://siargao.test/api/chat/threads?limit=2"),
+      dependencies,
+    );
+    const firstBody = await firstResponse.json();
+    const secondResponse = await listChatThreadsResponse(
+      new Request(
+        `https://siargao.test/api/chat/threads?limit=2&cursor=${encodeURIComponent(
+          firstBody.pagination.nextCursor,
+        )}`,
+      ),
+      dependencies,
+    );
+    const secondBody = await secondResponse.json();
+
+    expect(firstResponse.status).toBe(200);
+    expect(firstBody.threads.map((thread: { id: string }) => thread.id)).toEqual([
+      "thread_cursor_5",
+      "thread_cursor_4",
+    ]);
+    expect(firstBody.pagination).toMatchObject({ limit: 2, hasMore: true });
+    expect(secondResponse.status).toBe(200);
+    expect(secondBody.threads.map((thread: { id: string }) => thread.id)).toEqual([
+      "thread_cursor_3",
+      "thread_cursor_2",
+    ]);
+    expect(secondBody.pagination).toMatchObject({ limit: 2, hasMore: true });
+
+    await db.close();
+  });
+
+  test("uses thread id as a stable tiebreaker for equal recency timestamps", async () => {
+    const db = await openThreadRouteTestDatabase();
+    const dependencies = threadDependencies(db, { userId: "user_ties" });
+    await insertUser(db, "user_ties");
+    const tiedAt = new Date("2026-06-29T02:00:00.000Z");
+    await createChatThread(db, {
+      id: "thread_tie_a",
+      userId: "user_ties",
+      title: "Tie A",
+      now: tiedAt,
+    });
+    await createChatThread(db, {
+      id: "thread_tie_b",
+      userId: "user_ties",
+      title: "Tie B",
+      now: tiedAt,
+    });
+    await createChatThread(db, {
+      id: "thread_tie_c",
+      userId: "user_ties",
+      title: "Tie C",
+      now: tiedAt,
+    });
+
+    const response = await listChatThreadsResponse(
+      new Request("https://siargao.test/api/chat/threads?limit=2"),
+      dependencies,
+    );
+    const body = await response.json();
+    const nextResponse = await listChatThreadsResponse(
+      new Request(
+        `https://siargao.test/api/chat/threads?limit=2&cursor=${encodeURIComponent(
+          body.pagination.nextCursor,
+        )}`,
+      ),
+      dependencies,
+    );
+    const nextBody = await nextResponse.json();
+
+    expect(body.threads.map((thread: { id: string }) => thread.id)).toEqual([
+      "thread_tie_c",
+      "thread_tie_b",
+    ]);
+    expect(nextBody.threads.map((thread: { id: string }) => thread.id)).toEqual(["thread_tie_a"]);
+    expect(nextBody.pagination).toMatchObject({ hasMore: false, nextCursor: null });
+
+    await db.close();
+  });
+
+  test("rejects invalid limits and clamps unsafe oversized limits", async () => {
+    const db = await openThreadRouteTestDatabase();
+    const dependencies = threadDependencies(db, { userId: "user_limit_validation" });
+
+    const invalidResponse = await listChatThreadsResponse(
+      new Request("https://siargao.test/api/chat/threads?limit=0"),
+      dependencies,
+    );
+    const oversizedResponse = await listChatThreadsResponse(
+      new Request("https://siargao.test/api/chat/threads?limit=9999"),
+      dependencies,
+    );
+    const oversizedBody = await oversizedResponse.json();
+
+    expect(invalidResponse.status).toBe(400);
+    expect(await invalidResponse.json()).toMatchObject({
+      error: "invalid_chat_thread_request",
+      issues: [{ path: "limit" }],
+    });
+    expect(oversizedResponse.status).toBe(200);
+    expect(oversizedBody.pagination.limit).toBe(CHAT_THREAD_LIST_MAX_LIMIT);
 
     await db.close();
   });
