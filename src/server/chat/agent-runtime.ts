@@ -74,7 +74,7 @@ export type PublicAgentToolCall = {
 
 export type RecommendationCardKind = "place" | "beach";
 
-export const artifactDecisionLabels = [
+const artifactDecisionLabels = [
   "best_fit",
   "good_now",
   "fallback",

@@ -280,10 +280,6 @@ export function normalizePublicTripTitle(value: string | undefined) {
   return normalizeText(value || "Siargao saved plan", maxShortTextLength);
 }
 
-export function normalizeMapsUrl(value: string) {
-  return mapsUrlSchema.parse(value.trim());
-}
-
 function normalizeSourceSummary(source: AnswerSourceSummary) {
   return {
     ...source,

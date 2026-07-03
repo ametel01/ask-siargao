@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import { createPostgresQueryClient } from "@/server/db/query-client";
 import {
   createGooglePlacesCandidateEntityId,
   enrichGooglePlacesCaptureDetails,
@@ -18,10 +19,6 @@ type GooglePlacesDetailsCaptureOptions = Omit<
   Parameters<typeof createGooglePlacesDetailsCaptureInput>[0],
   "details" | "requestKind"
 >;
-
-type PostgresQueryExecutor = {
-  unsafe(query: string, params?: never[]): Promise<unknown>;
-};
 
 export type PersistGooglePlacesDetailsEnrichmentOptions = GooglePlacesDetailsCaptureOptions & {
   requestKind?: GooglePlacesRequestKind;
@@ -55,28 +52,28 @@ export async function persistGooglePlacesDetailsEnrichment(
     );
   }
 
-  const summaries: GooglePlaceDetailsWriteSummary[] = [];
-  for (const capture of captures) {
-    const governedCapture = {
-      ...capture,
-      sourceRecord: {
-        id: capture.governedSourceRecord.id,
-        sourceProfileId: capture.governedSourceRecord.sourceProfileId,
-        providerEntityId: capture.governedSourceRecord.providerEntityId ?? capture.place.placeId,
-        entityType: capture.governedSourceRecord.entityType,
-        name: capture.governedSourceRecord.name,
-        normalizedPayload: capture.governedSourceRecord.normalizedPayload,
-        sourceUrl: capture.governedSourceRecord.sourceUrl,
-        fetchedAt: capture.governedSourceRecord.fetchedAt,
-        allowedUse: capture.governedSourceRecord.allowedUse,
-      },
-    };
+  return Promise.all(
+    captures.map(async (capture) => {
+      const governedCapture = {
+        ...capture,
+        sourceRecord: {
+          id: capture.governedSourceRecord.id,
+          sourceProfileId: capture.governedSourceRecord.sourceProfileId,
+          providerEntityId: capture.governedSourceRecord.providerEntityId ?? capture.place.placeId,
+          entityType: capture.governedSourceRecord.entityType,
+          name: capture.governedSourceRecord.name,
+          normalizedPayload: capture.governedSourceRecord.normalizedPayload,
+          sourceUrl: capture.governedSourceRecord.sourceUrl,
+          fetchedAt: capture.governedSourceRecord.fetchedAt,
+          allowedUse: capture.governedSourceRecord.allowedUse,
+        },
+      };
 
-    summaries.push(await upsertGooglePlaceDetails(db, governedCapture));
-    await updateCandidateEntityFromGovernedCapture(db, governedCapture);
-  }
-
-  return summaries;
+      const summary = await upsertGooglePlaceDetails(db, governedCapture);
+      await updateCandidateEntityFromGovernedCapture(db, governedCapture);
+      return summary;
+    }),
+  );
 }
 
 async function main() {
@@ -94,7 +91,7 @@ async function main() {
   }
 
   const sql = postgres(databaseUrl, { max: 1, prepare: false });
-  const db = createPostgresStoreDatabase(sql);
+  const db = createPostgresQueryClient(sql);
 
   try {
     const placeIds = await readGooglePlaceCandidateIds(db);
@@ -110,7 +107,7 @@ async function main() {
     }
 
     await sql.begin(async (tx) => {
-      await persistGooglePlacesDetailsEnrichment(createPostgresStoreDatabase(tx), details);
+      await persistGooglePlacesDetailsEnrichment(createPostgresQueryClient(tx), details);
     });
 
     printSummary({ databaseUrl, persisted: true, placeIds, details });
@@ -200,13 +197,4 @@ function printSummary({
 
 function databaseUrlForLog(url: string) {
   return url.replace(/:\/\/([^:]+):([^@]+)@/, "://$1:***@");
-}
-
-function createPostgresStoreDatabase(sql: PostgresQueryExecutor): GooglePlacesStoreDatabase {
-  return {
-    async query<T>(query: string, params: unknown[] = []) {
-      const rows = await sql.unsafe(query, params as never[]);
-      return { rows: rows as T[] };
-    },
-  };
 }

@@ -389,13 +389,17 @@ function sanitizeStorageDecisionSummaries(summaries: readonly DecisionSummary[])
 }
 
 function sanitizeDisplayTextList(values: readonly string[]) {
-  return values
-    .map((value) => value.trim())
-    .filter((value) => value && !isInternalDisclosure(value));
+  return values.flatMap((value) => {
+    const trimmed = value.trim();
+    return trimmed && !isInternalDisclosure(trimmed) ? [trimmed] : [];
+  });
 }
 
 function sanitizeStorageTextList(values: readonly string[]) {
-  return values.map((value) => value.trim()).filter((value) => value.length > 0);
+  return values.flatMap((value) => {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? [trimmed] : [];
+  });
 }
 
 function summarizeToolCallsForStoredHistory(toolCalls: readonly PublicAgentToolCall[]) {

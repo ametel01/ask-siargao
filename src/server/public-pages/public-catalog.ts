@@ -45,6 +45,6 @@ export function getPublicKnowledgeCatalog() {
   return defaultCatalog;
 }
 
-export function resetPublicKnowledgeCatalogForTests() {
-  defaultCatalog = null;
+export function resetPublicKnowledgeCatalogForTests(catalog: PublicKnowledgeCatalog | null = null) {
+  defaultCatalog = catalog;
 }

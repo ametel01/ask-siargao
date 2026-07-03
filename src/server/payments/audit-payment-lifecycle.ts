@@ -210,33 +210,35 @@ function createDatabasePaymentApplicationStore(
     async saveAppliedPayment(input) {
       try {
         await db.transaction(async (tx) => {
-          await tx.insert(paymentEvents).values({
-            id: input.paymentEvent.id,
-            auditRequestId: input.paymentEvent.auditRequestId,
-            stripeEventId: input.paymentEvent.stripeEventId,
-            stripeCheckoutSessionId: input.paymentEvent.stripeCheckoutSessionId,
-            stripePaymentIntentId: input.paymentEvent.stripePaymentIntentId,
-            eventType: input.paymentEvent.eventType,
-            verifiedAt: input.verifiedAt,
-            rawEvent: input.paymentEvent.rawEvent,
-          });
-          await tx
-            .update(payments)
-            .set({
-              stripePaymentIntentId: input.payment.stripePaymentIntentId,
-              stripeEventId: input.payment.stripeEventId,
-              status: "paid",
-              webhookVerifiedAt: input.verifiedAt,
-              diagnosticContext: input.audit.payment?.diagnosticContext ?? {},
-            })
-            .where(eq(payments.stripeCheckoutSessionId, input.payment.stripeCheckoutSessionId));
-          await tx
-            .update(auditRequests)
-            .set({
-              status: input.audit.state,
-              updatedAt: input.verifiedAt,
-            })
-            .where(eq(auditRequests.id, input.audit.id));
+          await Promise.all([
+            tx.insert(paymentEvents).values({
+              id: input.paymentEvent.id,
+              auditRequestId: input.paymentEvent.auditRequestId,
+              stripeEventId: input.paymentEvent.stripeEventId,
+              stripeCheckoutSessionId: input.paymentEvent.stripeCheckoutSessionId,
+              stripePaymentIntentId: input.paymentEvent.stripePaymentIntentId,
+              eventType: input.paymentEvent.eventType,
+              verifiedAt: input.verifiedAt,
+              rawEvent: input.paymentEvent.rawEvent,
+            }),
+            tx
+              .update(payments)
+              .set({
+                stripePaymentIntentId: input.payment.stripePaymentIntentId,
+                stripeEventId: input.payment.stripeEventId,
+                status: "paid",
+                webhookVerifiedAt: input.verifiedAt,
+                diagnosticContext: input.audit.payment?.diagnosticContext ?? {},
+              })
+              .where(eq(payments.stripeCheckoutSessionId, input.payment.stripeCheckoutSessionId)),
+            tx
+              .update(auditRequests)
+              .set({
+                status: input.audit.state,
+                updatedAt: input.verifiedAt,
+              })
+              .where(eq(auditRequests.id, input.audit.id)),
+          ]);
         });
       } catch (error) {
         if (isDuplicateStripeEventPersistenceError(error)) {

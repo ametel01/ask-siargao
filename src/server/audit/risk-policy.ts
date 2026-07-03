@@ -29,7 +29,7 @@ type MandatoryRiskContract = RiskEvaluationContract & {
 
 export type FactFreshnessClassification = "current" | "stale_critical" | "stale_non_critical";
 
-export const mandatoryRiskContracts = {
+const mandatoryRiskContracts = {
   arrival_departure_logistics: {
     id: "arrival_departure_logistics",
     label: "Arrival and departure logistics",

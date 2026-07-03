@@ -261,8 +261,9 @@ export function evaluatePublicPageEligibility(
   }
 
   const evidenceIds = new Set(page.evidenceBundle.evidenceIds);
+  const generationSourceFactIds = new Set(page.generationSourceFactIds);
   for (const fact of page.facts) {
-    if (!page.generationSourceFactIds.includes(fact.id)) {
+    if (!generationSourceFactIds.has(fact.id)) {
       reasons.push(`fact:${fact.id}:not_generation_source`);
     }
     if (!evidenceIds.has(fact.evidenceId)) {
@@ -381,7 +382,7 @@ export function buildPublicEvidenceIndex(pages: readonly PublicKnowledgePage[]) 
 
 export function buildPublicRiskPreview(pages: readonly PublicKnowledgePage[]) {
   return {
-    risks: pages.filter((page) => page.family === "risks").map((page) => buildPublicPageJson(page)),
+    risks: pages.flatMap((page) => (page.family === "risks" ? [buildPublicPageJson(page)] : [])),
   };
 }
 

@@ -157,7 +157,7 @@ export function loadStaticLocalGeoReferences<RecordType>({
   };
 }
 
-export function loadMemoryLocalGeoReferences<RecordType>({
+function loadMemoryLocalGeoReferences<RecordType>({
   adapterId,
   blockName,
   markdown,
@@ -218,9 +218,7 @@ export function loadSurfSpotGeoReferencesFromMarkdown(
   });
 }
 
-export function normalizeLocalGeoSurfSpotRecord(
-  value: unknown,
-): LocalGeoSurfSpotRecord | undefined {
+function normalizeLocalGeoSurfSpotRecord(value: unknown): LocalGeoSurfSpotRecord | undefined {
   if (!isRecord(value)) {
     return undefined;
   }

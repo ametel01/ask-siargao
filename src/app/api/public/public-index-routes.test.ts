@@ -3,24 +3,19 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { GET as entitiesGet } from "@/app/api/public/entities/route";
 import { GET as evidenceGet } from "@/app/api/public/evidence/route";
 import { GET as riskPreviewGet } from "@/app/api/public/risk-preview/route";
-import { resetPublicKnowledgeCatalogForTests } from "@/server/public-pages/public-catalog";
+import {
+  createFixturePublicKnowledgeCatalog,
+  resetPublicKnowledgeCatalogForTests,
+} from "@/server/public-pages/public-catalog";
 import { resetRateLimitStoreForTests } from "@/server/security/rate-limit";
-
-const originalDatabaseUrl = process.env.DATABASE_URL;
 
 describe("public knowledge index routes", () => {
   beforeEach(() => {
-    delete process.env.DATABASE_URL;
-    resetPublicKnowledgeCatalogForTests();
+    resetPublicKnowledgeCatalogForTests(createFixturePublicKnowledgeCatalog());
     resetRateLimitStoreForTests();
   });
 
   afterEach(() => {
-    if (originalDatabaseUrl === undefined) {
-      delete process.env.DATABASE_URL;
-    } else {
-      process.env.DATABASE_URL = originalDatabaseUrl;
-    }
     resetPublicKnowledgeCatalogForTests();
     resetRateLimitStoreForTests();
   });

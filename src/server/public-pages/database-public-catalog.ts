@@ -210,6 +210,7 @@ function mapRowsToPage(rows: readonly PublicCatalogRow[], now: Date): PublicKnow
 
   const generationSourceFactIds = stringArray(first.generation_source_fact_ids);
   const evidenceIds = stringArray(first.evidence_ids);
+  const evidenceIdSet = new Set(evidenceIds);
   const factsById = new Map<string, PublicFactRecord>();
 
   for (const row of rows) {
@@ -245,7 +246,7 @@ function mapRowsToPage(rows: readonly PublicCatalogRow[], now: Date): PublicKnow
       evidencePublicRepublishAllowed:
         row.evidence_allowed_use === "public_republish" &&
         row.evidence_public_republish_allowed === true,
-      criticalPublicEvidence: evidenceIds.includes(evidenceId),
+      criticalPublicEvidence: evidenceIdSet.has(evidenceId),
       canonicalEntityMatch: entityConfidenceToMatch(row.entity_confidence_label),
     });
   }

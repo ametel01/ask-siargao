@@ -183,7 +183,7 @@ export const googlePlacesRequestPolicies: Record<
   },
 };
 
-export class GooglePlacesPolicyError extends Error {
+class GooglePlacesPolicyError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "GooglePlacesPolicyError";

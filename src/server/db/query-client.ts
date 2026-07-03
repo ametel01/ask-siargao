@@ -6,6 +6,11 @@ export type DatabaseQueryClient = {
   query<T>(query: string, params?: unknown[]): Promise<QueryResult<T>>;
 };
 
+type PostgresTemplateExecutor = (
+  strings: TemplateStringsArray,
+  ...params: never[]
+) => Promise<unknown>;
+
 let defaultQueryClient: DatabaseQueryClient | null = null;
 
 function createDatabaseQueryClient(databaseUrl = process.env.DATABASE_URL) {
@@ -14,6 +19,10 @@ function createDatabaseQueryClient(databaseUrl = process.env.DATABASE_URL) {
   }
 
   const sql = postgres(databaseUrl, { prepare: false });
+  return createPostgresQueryClient(sql);
+}
+
+export function createPostgresQueryClient(sql: PostgresTemplateExecutor) {
   return {
     async query<T>(query: string, params: unknown[] = []) {
       const preparedQuery = toTemplateQuery(query, params);
