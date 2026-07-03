@@ -13,10 +13,10 @@ status, and the next implementation step.
 
 ## Current Status
 
-- Current step: #70 Define production database connection options.
+- Current step: #69 Batch Google Places retention cleanup.
 - Status: implementation complete; checker and reviewer-agent review complete.
-- Next step: Continue #69 retention cleanup and #71 authorization boundaries before the #72
-  operations runbook.
+- Next step: Continue #67 public evidence normalization, #68 batched write paths, and #71
+  authorization boundaries before the #72 operations runbook.
 - Last updated: 2026-07-03.
 
 ## Step Checklist
@@ -31,7 +31,7 @@ status, and the next implementation step.
 | #66 | Bound database-backed list queries | Blocked | Blocked by #65 checker/merge; #61 complete | Depends on hot-path index work. |
 | #67 | Normalize public page evidence relationships | Blocked | Blocked by #62 and #64; #61 complete | Requires migration and constraint groundwork. |
 | #68 | Batch saved-trip and provider write paths | Blocked | Blocked by #64; #61 complete | Depends on database constraint/index groundwork. |
-| #69 | Batch Google Places retention cleanup | Blocked | Blocked by #65; #61 complete | Depends on hot-path index work. |
+| #69 | Batch Google Places retention cleanup | Complete pending checker | Ready on #65 stack; #61 complete | Added bounded retention delete batches, CLI controls, progress output, docs, and pruning tests. |
 | #70 | Define production database connection options | Complete pending checker | Ready on #64 stack; #61 complete | Added shared Postgres option parsing, app/CLI profiles, CLI close-path coverage by inspection, docs, and tests. |
 | #71 | Document database authorization boundaries | Blocked | Blocked by #62; #61 complete | Requires migration posture before role/grant documentation. |
 | #72 | Add database operations runbook | Blocked | Blocked by #65, #69, #70, and #71; #61 complete | Final runbook depends on earlier operational controls. |
@@ -89,6 +89,16 @@ status, and the next implementation step.
   - `bun run verify:ci`: Passed; repeated lint/typecheck/Bun tests, PGlite migrate/seed, build,
     and 38 Playwright tests. Playwright web-server logs still emitted the pre-existing missing
     `DATABASE_URL` saved-trip route noise, but the suite passed.
+- #69 implementation:
+  - `bun test src/server/jobs/prune-google-places.test.ts`: Passed with 6 tests covering dry-run
+    counts, bounded repeated delete runs, snapshot skipping while expired reviews remain, count-only
+    delete query shape, CLI validation, and operator progress formatting.
+  - `bun test src/server/providers/google-places-store.test.ts`: Passed with 5 tests, including
+    backwards-compatible direct cleanup helper behavior.
+  - `bun run format`: Passed with no fixes applied on the final run.
+  - `bun run lint`: Passed; Biome checked 286 files with no fixes applied.
+  - `bun run typecheck --incremental false`: Passed.
+  - `bun test`: Passed with 753 tests and 3,951 assertions.
 - #70 implementation:
   - `bun test src/server/db/connection-options.test.ts`: Passed with 17 tests covering local
     defaults, production defaults, SSL modes, invalid values, shared timeout/lifetime overrides,
@@ -133,5 +143,7 @@ status, and the next implementation step.
   Updated `CHANGELOG.md` with the client configuration behavior change.
 - 2026-07-03: Completed #65 hot-path index implementation and read-only index audit guidance.
   Updated `CHANGELOG.md` with the additive migration behavior change.
+- 2026-07-03: Completed #69 Google Places retention pruning batches, CLI controls, docs, and
+  focused pruning tests. Updated `CHANGELOG.md` with the operator-visible pruning behavior change.
 - 2026-07-03: Completed #61 tracking setup and lint validation. No `CHANGELOG.md` entry was added
   because this step is non-functional tracking scaffolding.

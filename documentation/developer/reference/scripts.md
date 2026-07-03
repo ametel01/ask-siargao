@@ -18,7 +18,7 @@ Scripts are defined in `package.json`.
 | `bun run db:seed` | `bun run src/server/db/seed.ts` | Seed Siargao taxonomy and source profiles into the Postgres database at `DATABASE_URL`. |
 | `bun run db:discover:google-places` | `bun run src/server/providers/discover-google-places.ts` | Run the free Google Places Text Search ID-only discovery pass for Siargao accommodations and persist dedupable place candidates into `source_records` and `candidate_entities`. Requires `GOOGLE_API_KEY`, `DATABASE_URL`, and a seeded `source_google_places` profile. Add `-- --dry-run` to fetch and print a summary without writing rows. |
 | `bun run db:enrich:google-places` | `bun run src/server/providers/enrich-google-places.ts` | Enrich discovered Google Places candidates with Place Details Pro fields: display name, address, location, types, business status, and Google Maps URI. Requires `GOOGLE_API_KEY`, `DATABASE_URL`, and prior `db:discover:google-places` rows. Add `-- --dry-run` to fetch and print a sample without writing rows. |
-| `bun run db:prune:google-places` | `bun run src/server/jobs/prune-google-places.ts` | Delete expired Google Places review, detail, and snapshot rows from Postgres at `DATABASE_URL` while preserving durable `google_places` identity rows. Add `-- --dry-run` to count rows without deleting. |
+| `bun run db:prune:google-places` | `bun run src/server/jobs/prune-google-places.ts` | Delete expired Google Places review, detail, and snapshot rows from Postgres at `DATABASE_URL` while preserving durable `google_places` identity rows. Add `-- --dry-run` to count rows without deleting, `-- --batch-size <rows>` to tune each delete batch, and `-- --max-batches <count>` to cap work per table for one run. |
 | `bun run db:ingest:open-meteo` | `bun run src/server/providers/ingest-open-meteo.ts` | Fetch the Siargao Open-Meteo forecast and persist source records, weather facts, evidence, scores, and a refresh job into Postgres at `DATABASE_URL`. |
 | `bun run db:ingest:open-meteo-marine` | `bun run src/server/providers/ingest-open-meteo-marine.ts` | Fetch the Siargao Open-Meteo Marine forecast and persist modelled sea-level, wave, swell, and current facts into Postgres at `DATABASE_URL`. This is tide-proxy model data, not official tide-gauge or safety authority data. |
 | `bun run agent-memory:sync` | `bun run src/server/chat/sync-agent-memory-vector-store.ts` | Sync reference-role `docs/agent-memory/` files to an OpenAI vector store for chat-agent file search. Use `bun run agent-memory:sync -- --dry-run` for local/CI verification without network access. Non-dry-run sync requires `OPENAI_API_KEY`; pass `-- --vector-store-id <id>` or set `OPENAI_AGENT_MEMORY_VECTOR_STORE_ID` to reuse an existing store. The command prints the vector store ID to configure and never prints raw memory file bodies. |
@@ -68,3 +68,32 @@ document any intentional checksum recovery as an operator action with backups an
 For read-only duplicate-index and unused-index review SQL, see
 `documentation/developer/reference/database-index-audits.md`. The #65 hot-path index migration is
 additive only and does not drop indexes.
+
+## Google Places Retention Pruning
+
+Schedule `bun run db:prune:google-places` as a recurring maintenance job against the production
+`DATABASE_URL`. The job removes expired rows from `google_place_reviews`, `google_place_details`,
+and `google_place_snapshots`; it does not remove durable `google_places` identity rows.
+
+Start with a dry run:
+
+```sh
+bun run db:prune:google-places -- --dry-run
+```
+
+Dry runs count expired rows and print the same per-table progress shape as delete runs, but never
+delete rows. The output includes review, detail, snapshot, and total row counts, batch counts, and
+whether expired rows remain after the run.
+
+Delete runs use bounded batches to keep locks, WAL bursts, and rollback scope smaller on large
+tables:
+
+```sh
+bun run db:prune:google-places -- --batch-size 500 --max-batches 20
+```
+
+Both options must be positive integers. `--batch-size` defaults to `500`, and `--max-batches`
+defaults to `20` per table. If output says more expired rows remain, rerun the command or schedule
+another maintenance window with the same controls. Expired reviews are always cleaned up before
+snapshot deletion starts; if the review pass reaches `--max-batches` and still has expired rows,
+snapshot deletion is skipped for that run and the output reports remaining snapshot work.
