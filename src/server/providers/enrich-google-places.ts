@@ -105,7 +105,7 @@ async function main() {
 
     if (dryRun) {
       printSummary({ databaseUrl, persisted: false, placeIds, details });
-      process.exit(0);
+      return;
     }
 
     await sql.begin(async (tx) => {
