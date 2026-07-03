@@ -64,6 +64,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Added database hardening constraints and supporting foreign-key indexes across provider/source
   graphs, Google Places, audit/payment/report, refresh, public page, LLM, reviewer, provider
   health, and public generation job tables.
+- Added additive hot-path database indexes for chat history, saved trips, public fact/evidence
+  reads, and Google Places chat-cache freshness lookups, plus read-only operator SQL for duplicate
+  and unused index review.
 - Added an environment-gated admin diagnostics console with redacted summaries for blocked audits,
   completeness, provider/job status, reviewer status, LLM cost, stale facts, and drill-down views.
 

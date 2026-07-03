@@ -72,6 +72,15 @@ export const savedTrips = pgTable(
   (table) => [
     index("saved_trips_client_trip_key_hash_idx").on(table.clientTripKeyHash),
     index("saved_trips_user_id_idx").on(table.userId),
+    index("saved_trips_user_recent_idx")
+      .using(
+        "btree",
+        table.userId,
+        sql`${table.updatedAt} desc`,
+        sql`${table.createdAt} desc`,
+        table.id,
+      )
+      .where(sql`${table.userId} is not null`),
     uniqueIndex("saved_trips_user_client_trip_key_hash_idx")
       .on(table.userId, table.clientTripKeyHash)
       .where(sql`${table.userId} is not null`),
@@ -98,6 +107,14 @@ export const chatThreads = pgTable(
   (table) => [
     index("chat_threads_user_id_updated_at_idx").on(table.userId, table.updatedAt),
     index("chat_threads_user_id_deleted_at_idx").on(table.userId, table.deletedAt),
+    index("chat_threads_user_active_recent_idx")
+      .using(
+        "btree",
+        table.userId,
+        sql`(coalesce(${table.lastMessageAt}, ${table.updatedAt}, ${table.createdAt})) desc`,
+        sql`${table.createdAt} desc`,
+      )
+      .where(sql`${table.deletedAt} is null`),
     check("chat_threads_status_check", sql`${table.status} in ('active', 'archived')`),
   ],
 );
@@ -144,6 +161,12 @@ export const chatMessages = pgTable(
     index("chat_messages_thread_id_created_at_idx").on(table.threadId, table.createdAt),
     index("chat_messages_user_id_created_at_idx").on(table.userId, table.createdAt),
     index("chat_messages_request_id_idx").on(table.requestId),
+    index("chat_messages_thread_user_created_id_idx").on(
+      table.threadId,
+      table.userId,
+      table.createdAt,
+      table.id,
+    ),
     check("chat_messages_role_check", sql`${table.role} in ('user', 'assistant')`),
     check("chat_messages_status_check", sql`${table.status} in ('complete', 'error')`),
   ],
@@ -196,6 +219,12 @@ export const savedTripItems = pgTable(
     primaryKey({ columns: [table.tripId, table.id] }),
     index("saved_trip_items_trip_id_idx").on(table.tripId),
     index("saved_trip_items_deleted_at_idx").on(table.deletedAt),
+    index("saved_trip_items_active_trip_created_id_idx")
+      .on(table.tripId, table.createdAt, table.id)
+      .where(sql`${table.deletedAt} is null`),
+    index("saved_trip_items_active_id_trip_idx")
+      .on(table.id, table.tripId)
+      .where(sql`${table.deletedAt} is null`),
   ],
 );
 
@@ -542,6 +571,16 @@ export const googlePlaceSnapshots = pgTable(
     index("google_place_snapshots_source_record_id_idx").on(table.sourceRecordId),
     index("google_place_snapshots_stale_at_idx").on(table.staleAt),
     index("google_place_snapshots_retention_expires_at_idx").on(table.retentionExpiresAt),
+    index("google_place_snapshots_chat_cache_freshness_idx")
+      .using(
+        "btree",
+        sql`(${table.payloadJson}->'search'->>'cacheKey')`,
+        table.staleAt,
+        table.retentionExpiresAt,
+        table.placeId,
+        sql`${table.fetchedAt} desc`,
+      )
+      .where(sql`${table.requestKind} = 'chat_search'`),
     check(
       "google_place_snapshots_request_kind_check",
       sql`${table.requestKind} in ('chat_search', 'details_identity_contact', 'details_enterprise', 'details_atmosphere_reviews')`,
@@ -750,6 +789,15 @@ export const facts = pgTable(
     index("facts_entity_id_idx").on(table.entityId),
     index("facts_source_profile_id_idx").on(table.sourceProfileId),
     index("facts_source_record_id_idx").on(table.sourceRecordId),
+    index("facts_public_republish_freshness_idx")
+      .using(
+        "btree",
+        table.publicRepublishAllowed,
+        table.expiresAt,
+        sql`${table.fetchedAt} desc`,
+        table.id,
+      )
+      .where(sql`${table.publicRepublishAllowed} = true`),
     check(
       "facts_source_type_check",
       sql`${table.sourceType} in ('official', 'partner_api', 'provider_api', 'licensed_api', 'permitted_public_web', 'user_submitted', 'host_submitted', 'local_verified')`,
@@ -787,6 +835,11 @@ export const evidence = pgTable(
   (table) => [
     index("evidence_fact_id_idx").on(table.factId),
     index("evidence_source_record_id_idx").on(table.sourceRecordId),
+    index("evidence_public_fact_created_idx")
+      .on(table.factId, table.createdAt, table.id)
+      .where(
+        sql`${table.publicRepublishAllowed} = true or ${table.allowedUse} in ('public_republish', 'citation_only')`,
+      ),
     check(
       "evidence_allowed_use_check",
       sql`${table.allowedUse} in ('internal_only', 'audit_only', 'citation_only', 'public_republish', 'disallowed')`,
