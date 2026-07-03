@@ -60,6 +60,7 @@ import {
   webResearchIntents,
   webResearchSourceTypes,
 } from "@/server/chat/web-research";
+import { createPostgresConnectionOptions } from "@/server/db/connection-options";
 import {
   type LocalGuideCandidate,
   type LocalGuideSearchResult,
@@ -2132,7 +2133,7 @@ async function withLocalFactsQueryRunner<T>(
     return callback(undefined);
   }
 
-  const sql = postgres(databaseUrl, { max: 1, prepare: false });
+  const sql = postgres(databaseUrl, createPostgresConnectionOptions("cli"));
   try {
     return await withLocalFactsTimeout(
       (async () => {
