@@ -20,6 +20,30 @@ export type GooglePlacesCleanupCounts = {
   snapshotsDeleted: number;
 };
 
+export type GooglePlacesCleanupTableProgress = {
+  rows: number;
+  batches: number;
+  hasMore: boolean;
+};
+
+export type GooglePlacesCleanupProgress = GooglePlacesCleanupCounts & {
+  reviews: GooglePlacesCleanupTableProgress;
+  details: GooglePlacesCleanupTableProgress;
+  snapshots: GooglePlacesCleanupTableProgress;
+  totalRows: number;
+  totalBatches: number;
+  hasMore: boolean;
+};
+
+export type GooglePlacesCleanupOptions = {
+  now: string;
+  batchSize: number;
+  maxBatches: number;
+};
+
+export const defaultGooglePlacesCleanupBatchSize = 500;
+export const defaultGooglePlacesCleanupMaxBatches = 20;
+
 export type GooglePlacesStoreWritePhase =
   | "source_record"
   | "place_identity"
@@ -621,56 +645,67 @@ export function createGooglePlaceFactEvidenceInputs({
 
 export async function deleteExpiredGooglePlacesContent(
   db: GooglePlacesStoreDatabase,
-  { now }: { now: string },
-): Promise<GooglePlacesCleanupCounts> {
-  const [reviews, details] = await Promise.all([
-    db.query<{ id: string }>(
-      "delete from google_place_reviews where retention_expires_at < $1 returning id",
-      [now],
-    ),
-    db.query<{ place_id: string }>(
-      "delete from google_place_details where retention_expires_at < $1 returning place_id",
-      [now],
-    ),
-  ]);
-  const snapshots = await deleteExpiredGooglePlaceSnapshotsAfterReviews(db, {
-    now,
-    reviews,
-  });
-
-  return {
-    reviewsDeleted: reviews.rows.length,
-    detailsDeleted: details.rows.length,
-    snapshotsDeleted: snapshots.rows.length,
-  };
-}
-
-async function deleteExpiredGooglePlaceSnapshotsAfterReviews(
+  options: GooglePlacesCleanupOptions,
+): Promise<GooglePlacesCleanupProgress>;
+export async function deleteExpiredGooglePlacesContent(
   db: GooglePlacesStoreDatabase,
-  {
-    now,
-    reviews,
-  }: {
-    now: string;
-    reviews: { rows: Array<{ id: string }> };
-  },
-) {
-  if (!Array.isArray(reviews.rows)) {
-    throw new Error(
-      "Review cleanup must complete before expired Google Place snapshots are deleted.",
-    );
+  options: { now: string },
+): Promise<GooglePlacesCleanupCounts>;
+export async function deleteExpiredGooglePlacesContent(
+  db: GooglePlacesStoreDatabase,
+  options: { now: string; batchSize?: number; maxBatches?: number },
+): Promise<GooglePlacesCleanupProgress | GooglePlacesCleanupCounts> {
+  const includeProgress = options.batchSize !== undefined || options.maxBatches !== undefined;
+  const batchSize = options.batchSize ?? defaultGooglePlacesCleanupBatchSize;
+  const maxBatches = options.maxBatches ?? defaultGooglePlacesCleanupMaxBatches;
+  const reviews = await deleteExpiredGooglePlacesTableInBatches(db, {
+    batchSize,
+    idColumn: "id",
+    maxBatches,
+    now: options.now,
+    tableName: "google_place_reviews",
+    whereSql: "retention_expires_at < $1",
+  });
+  const details = await deleteExpiredGooglePlacesTableInBatches(db, {
+    batchSize,
+    idColumn: "place_id",
+    maxBatches,
+    now: options.now,
+    tableName: "google_place_details",
+    whereSql: "retention_expires_at < $1",
+  });
+  const snapshots = reviews.hasMore
+    ? await readGooglePlacesCleanupTableProgress(db, {
+        now: options.now,
+        query:
+          "select exists(select 1 from google_place_snapshots where retention_expires_at is not null and retention_expires_at < $1 limit 1) as has_more",
+      })
+    : await deleteExpiredGooglePlacesTableInBatches(db, {
+        batchSize,
+        idColumn: "id",
+        maxBatches,
+        now: options.now,
+        tableName: "google_place_snapshots",
+        whereSql: "retention_expires_at is not null and retention_expires_at < $1",
+      });
+
+  const progress = createGooglePlacesCleanupProgress({ details, reviews, snapshots });
+
+  if (includeProgress) {
+    return progress;
   }
 
-  return db.query<{ id: string }>(
-    "delete from google_place_snapshots where retention_expires_at is not null and retention_expires_at < $1 returning id",
-    [now],
-  );
+  return {
+    reviewsDeleted: progress.reviewsDeleted,
+    detailsDeleted: progress.detailsDeleted,
+    snapshotsDeleted: progress.snapshotsDeleted,
+  };
 }
 
 export async function countExpiredGooglePlacesContent(
   db: GooglePlacesStoreDatabase,
   { now }: { now: string },
-): Promise<GooglePlacesCleanupCounts> {
+): Promise<GooglePlacesCleanupProgress> {
   const result = await db.query<{
     reviews_deleted: number;
     details_deleted: number;
@@ -692,9 +727,132 @@ export async function countExpiredGooglePlacesContent(
   const row = result.rows[0];
 
   return {
-    reviewsDeleted: row?.reviews_deleted ?? 0,
-    detailsDeleted: row?.details_deleted ?? 0,
-    snapshotsDeleted: row?.snapshots_deleted ?? 0,
+    ...createGooglePlacesCleanupProgress({
+      reviews: {
+        rows: row?.reviews_deleted ?? 0,
+        batches: 0,
+        hasMore: (row?.reviews_deleted ?? 0) > 0,
+      },
+      details: {
+        rows: row?.details_deleted ?? 0,
+        batches: 0,
+        hasMore: (row?.details_deleted ?? 0) > 0,
+      },
+      snapshots: {
+        rows: row?.snapshots_deleted ?? 0,
+        batches: 0,
+        hasMore: (row?.snapshots_deleted ?? 0) > 0,
+      },
+    }),
+  };
+}
+
+async function deleteExpiredGooglePlacesTableInBatches(
+  db: GooglePlacesStoreDatabase,
+  {
+    batchSize,
+    idColumn,
+    maxBatches,
+    now,
+    tableName,
+    whereSql,
+  }: {
+    tableName: "google_place_reviews" | "google_place_details" | "google_place_snapshots";
+    idColumn: "id" | "place_id";
+    whereSql: string;
+    now: string;
+    batchSize: number;
+    maxBatches: number;
+  },
+): Promise<GooglePlacesCleanupTableProgress> {
+  let rows = 0;
+  let batches = 0;
+
+  for (let index = 0; index < maxBatches; index += 1) {
+    const result = await db.query<{ deleted_count: number }>(
+      `
+        with expired as (
+          select ${idColumn}
+          from ${tableName}
+          where ${whereSql}
+          order by retention_expires_at, ${idColumn}
+          limit $2
+        ),
+        deleted as (
+          delete from ${tableName}
+          using expired
+          where ${tableName}.${idColumn} = expired.${idColumn}
+          returning 1
+        )
+        select count(*)::int as deleted_count from deleted
+      `,
+      [now, batchSize],
+    );
+    const deletedCount = result.rows[0]?.deleted_count ?? 0;
+    if (deletedCount === 0) {
+      break;
+    }
+
+    rows += deletedCount;
+    batches += 1;
+
+    if (deletedCount < batchSize) {
+      break;
+    }
+  }
+
+  return {
+    rows,
+    batches,
+    hasMore: await hasExpiredGooglePlacesRows(db, {
+      now,
+      query: `select exists(select 1 from ${tableName} where ${whereSql} limit 1) as has_more`,
+    }),
+  };
+}
+
+async function readGooglePlacesCleanupTableProgress(
+  db: GooglePlacesStoreDatabase,
+  { now, query }: { now: string; query: string },
+): Promise<GooglePlacesCleanupTableProgress> {
+  return {
+    rows: 0,
+    batches: 0,
+    hasMore: await hasExpiredGooglePlacesRows(db, { now, query }),
+  };
+}
+
+async function hasExpiredGooglePlacesRows(
+  db: GooglePlacesStoreDatabase,
+  { now, query }: { now: string; query: string },
+) {
+  const result = await db.query<{ has_more: boolean }>(query, [now]);
+  return result.rows[0]?.has_more ?? false;
+}
+
+function createGooglePlacesCleanupProgress({
+  details,
+  reviews,
+  snapshots,
+}: {
+  reviews: GooglePlacesCleanupTableProgress;
+  details: GooglePlacesCleanupTableProgress;
+  snapshots: GooglePlacesCleanupTableProgress;
+}): GooglePlacesCleanupProgress {
+  const totalRows = reviews.rows + details.rows + snapshots.rows;
+  const totalBatches = reviews.batches + details.batches + snapshots.batches;
+  const hasMore = reviews.hasMore || details.hasMore || snapshots.hasMore;
+
+  return {
+    reviewsDeleted: reviews.rows,
+    detailsDeleted: details.rows,
+    snapshotsDeleted: snapshots.rows,
+    reviews,
+    details,
+    snapshots,
+    totalRows,
+    totalBatches,
+    hasMore,
   };
 }
 
