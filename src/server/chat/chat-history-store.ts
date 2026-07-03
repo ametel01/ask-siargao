@@ -13,6 +13,20 @@ export type ChatHistoryThread = {
   updatedAt?: string | null;
 };
 
+export type ChatThreadListOptions = {
+  limit?: number;
+  cursor?: string | null;
+};
+
+export type ChatThreadListPage = {
+  threads: ChatHistoryThread[];
+  pagination: {
+    limit: number;
+    nextCursor: string | null;
+    hasMore: boolean;
+  };
+};
+
 export type ChatHistoryMessage = {
   id: string;
   role: "user" | "assistant";
@@ -53,6 +67,9 @@ export type ChatHistoryMessageInput = {
   errorCode?: string | null;
   createdAt: Date;
 };
+
+export const CHAT_THREAD_LIST_DEFAULT_LIMIT = 25;
+export const CHAT_THREAD_LIST_MAX_LIMIT = 100;
 
 export async function createChatThread(
   db: DatabaseQueryClient,
@@ -119,8 +136,11 @@ export async function listOwnedChatThreads(
   db: DatabaseQueryClient,
   input: {
     userId: string;
+    pagination?: ChatThreadListOptions;
   },
-) {
+): Promise<ChatThreadListPage> {
+  const pagination = normalizeChatThreadListOptions(input.pagination);
+  const cursor = decodeChatThreadCursor(pagination.cursor);
   const result = await db.query<{
     id: string;
     user_id: string;
@@ -130,18 +150,65 @@ export async function listOwnedChatThreads(
     archived_at: Date | string | null;
     created_at: Date | string;
     updated_at: Date | string;
+    sort_at: Date | string;
   }>(
     `
-      select id, user_id, title, status, last_message_at, archived_at, created_at, updated_at
+      select
+        id,
+        user_id,
+        title,
+        status,
+        last_message_at,
+        archived_at,
+        created_at,
+        updated_at,
+        coalesce(last_message_at, updated_at, created_at) as sort_at
       from chat_threads
       where user_id = $1
         and deleted_at is null
-      order by coalesce(last_message_at, updated_at, created_at) desc, created_at desc
+        and (
+          $2::timestamp is null
+          or coalesce(last_message_at, updated_at, created_at) < $2::timestamp
+          or (
+            coalesce(last_message_at, updated_at, created_at) = $2::timestamp
+            and created_at < $3::timestamp
+          )
+          or (
+            coalesce(last_message_at, updated_at, created_at) = $2::timestamp
+            and created_at = $3::timestamp
+            and id < $4
+          )
+        )
+      order by coalesce(last_message_at, updated_at, created_at) desc, created_at desc, id desc
+      limit $5
     `,
-    [input.userId],
+    [
+      input.userId,
+      cursor?.sortAt ?? null,
+      cursor?.createdAt ?? null,
+      cursor?.id ?? null,
+      pagination.limit + 1,
+    ],
   );
 
-  return result.rows.map(chatThreadFromRow);
+  const rows = result.rows.slice(0, pagination.limit);
+  const lastRow = rows.at(-1);
+
+  return {
+    threads: rows.map(chatThreadFromRow),
+    pagination: {
+      limit: pagination.limit,
+      nextCursor:
+        result.rows.length > pagination.limit && lastRow
+          ? encodeChatThreadCursor({
+              sortAt: timestampToIso(lastRow.sort_at),
+              createdAt: timestampToIso(lastRow.created_at),
+              id: lastRow.id,
+            })
+          : null,
+      hasMore: result.rows.length > pagination.limit,
+    },
+  };
 }
 
 export async function loadOwnedChatThreadWithMessages(
@@ -419,6 +486,74 @@ function chatThreadFromRow(row: {
     createdAt: timestampToIso(row.created_at),
     updatedAt: timestampToIso(row.updated_at),
   } satisfies ChatHistoryThread;
+}
+
+function normalizeChatThreadListOptions(options: ChatThreadListOptions = {}) {
+  return {
+    limit: normalizePositiveLimit(
+      options.limit,
+      CHAT_THREAD_LIST_DEFAULT_LIMIT,
+      CHAT_THREAD_LIST_MAX_LIMIT,
+    ),
+    cursor: options.cursor ?? null,
+  };
+}
+
+function normalizePositiveLimit(value: number | undefined, defaultLimit: number, maxLimit: number) {
+  if (value === undefined) {
+    return defaultLimit;
+  }
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 1) {
+    throw new Error("Chat thread list limit must be a positive integer.");
+  }
+  return Math.min(value, maxLimit);
+}
+
+function encodeChatThreadCursor(input: {
+  sortAt: string | null;
+  createdAt: string | null;
+  id: string;
+}) {
+  if (!input.sortAt || !input.createdAt) {
+    throw new Error("Chat thread cursor requires sort and creation timestamps.");
+  }
+
+  return Buffer.from(JSON.stringify(input), "utf8").toString("base64url");
+}
+
+export function decodeChatThreadCursor(cursor: string | null | undefined) {
+  if (!cursor) {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as unknown;
+  } catch {
+    throw new Error("Invalid chat thread cursor.");
+  }
+
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    typeof (parsed as { sortAt?: unknown }).sortAt !== "string" ||
+    typeof (parsed as { createdAt?: unknown }).createdAt !== "string" ||
+    typeof (parsed as { id?: unknown }).id !== "string"
+  ) {
+    throw new Error("Invalid chat thread cursor.");
+  }
+
+  const sortAt = new Date((parsed as { sortAt: string }).sortAt);
+  const createdAt = new Date((parsed as { createdAt: string }).createdAt);
+  if (Number.isNaN(sortAt.getTime()) || Number.isNaN(createdAt.getTime())) {
+    throw new Error("Invalid chat thread cursor.");
+  }
+
+  return {
+    sortAt: sortAt.toISOString(),
+    createdAt: createdAt.toISOString(),
+    id: (parsed as { id: string }).id,
+  };
 }
 
 function arrayFromJson(value: unknown) {

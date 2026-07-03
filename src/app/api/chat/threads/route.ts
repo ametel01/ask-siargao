@@ -5,8 +5,8 @@ import {
 
 export const runtime = "nodejs";
 
-export async function GET() {
-  return listChatThreadsResponse();
+export async function GET(request: Request) {
+  return listChatThreadsResponse(request);
 }
 
 export async function POST(request: Request) {

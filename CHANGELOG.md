@@ -64,14 +64,32 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Added governed provider ingestion, source registry, fact graph normalization, source/fact scoring,
   conflict detection, risk ranking, evidence bundles, stricter report schemas, and report
   publication checks.
+- Added database hardening constraints and supporting foreign-key indexes across provider/source
+  graphs, Google Places, audit/payment/report, refresh, public page, LLM, reviewer, provider
+  health, and public generation job tables.
+- Added additive hot-path database indexes for chat history, saved trips, public fact/evidence
+  reads, and Google Places chat-cache freshness lookups, plus read-only operator SQL for duplicate
+  and unused index review.
+- Added normalized public-page fact and evidence relationship tables with ordered backfill from
+  legacy JSON arrays while preserving legacy catalog fallback compatibility.
 - Added an environment-gated admin diagnostics console with redacted summaries for blocked audits,
   completeness, provider/job status, reviewer status, LLM cost, stale facts, and drill-down views.
 
 ### Changed
 
+- Changed Postgres app, CLI, and job clients to use shared environment-driven connection options
+  with explicit pool, timeout, lifetime, SSL, statement-timeout, and `prepare: false` settings.
 - Changed database migrations to use a `schema_migrations` ledger with checksums, skipped repeat
   runs, drift detection, transactional application where safe, and a deterministic Postgres
   advisory lock.
+- Bounded database-backed chat thread and public catalog list reads with default caps, bounded
+  custom limits, deterministic chat thread cursor pagination, and capped public page fact/evidence
+  hydration.
+- Changed saved-trip item, Google Places review/fact/evidence, and Open-Meteo fact graph writes to
+  use bounded multi-row conflict-aware batches while preserving existing ordering and transaction
+  behavior.
+- Changed Google Places retention pruning to use bounded batch deletes, dry-run and batch controls,
+  count-only progress output, and review cleanup completion before snapshot cleanup.
 - Retired the legacy recommendation-agent module so local recommendation behavior now lives only in
   the Ask Siargao chat tool loop and evidence policy.
 - Moved chat evidence final-payload enforcement and required-card exposure behind a chat evidence
