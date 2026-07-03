@@ -74,6 +74,7 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toEqual(migrationNames.toSorted());
     expect(migrationNames).toContain("0000_initial_schema.sql");
     expect(migrationNames).toContain("0001_chat_decision_summaries.sql");
+    expect(migrationNames).toContain("0004_hot_path_indexes.sql");
   });
 
   test("creates required core tables and accepts taxonomy seed rows", async () => {
@@ -909,6 +910,39 @@ describe("Step 3 database migration", () => {
     await db.close();
   });
 
+  test("creates hot-path indexes for read-heavy application queries", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    await runInitialMigration(db);
+
+    const indexes = await db.query<{ indexname: string }>(
+      `
+        select indexname
+        from pg_indexes
+        where schemaname = 'public'
+          and indexname = any($1::text[])
+        order by indexname
+      `,
+      [hotPathIndexNames],
+    );
+
+    expect(indexes.rows.map((row) => row.indexname)).toEqual(hotPathIndexNames.toSorted());
+
+    await db.close();
+  });
+
+  test("keeps the hot-path index migration non-destructive", async () => {
+    const hotPathMigrationPath = (await getMigrationPaths()).find(
+      (migrationPath) => path.basename(migrationPath) === "0004_hot_path_indexes.sql",
+    );
+
+    expect(hotPathMigrationPath).toBeDefined();
+
+    const migrationSql = await readFile(requiredString(hotPathMigrationPath), "utf8");
+
+    expect(migrationSql).not.toMatch(destructiveHotPathMigrationPattern);
+  });
+
   test("creates high-risk check constraints for hardening domains", async () => {
     await resetTestDatabase();
     const db = await openTestDatabase();
@@ -1208,6 +1242,16 @@ const hardeningSupportingIndexNames = [
   "source_records_raw_snapshot_id_idx",
   "source_records_source_profile_id_idx",
 ];
+const hotPathIndexNames = [
+  "chat_messages_thread_user_created_id_idx",
+  "chat_threads_user_active_recent_idx",
+  "evidence_public_fact_created_idx",
+  "facts_public_republish_freshness_idx",
+  "google_place_snapshots_chat_cache_freshness_idx",
+  "saved_trip_items_active_id_trip_idx",
+  "saved_trip_items_active_trip_created_id_idx",
+  "saved_trips_user_recent_idx",
+];
 const hardeningCheckConstraintNames = [
   "agent_readable_snapshots_format_check",
   "areas_latitude_check",
@@ -1315,9 +1359,20 @@ function createMigrationFile(name: string, sql: string): MigrationFile {
   };
 }
 
+function requiredString(value: string | undefined): string {
+  if (value === undefined) {
+    throw new Error("Expected string to be defined.");
+  }
+
+  return value;
+}
+
 async function expectCheckViolation(promise: Promise<unknown>, constraintName: string) {
   await expect(promise).rejects.toThrow(new RegExp(constraintName));
 }
+
+const destructiveHotPathMigrationPattern =
+  /\bdrop\s+index\b|\bdrop\s+constraint\b|\bdrop\s+table\b|\bdrop\s+column\b|\balter\s+table\b[^;]*\bdrop\b/iu;
 
 const savedTripItemsPrimaryKeyRewritePattern =
   /ALTER TABLE saved_trip_items DROP CONSTRAINT IF EXISTS saved_trip_items_pkey;\s*ALTER TABLE saved_trip_items ADD PRIMARY KEY \(trip_id, id\);/;
