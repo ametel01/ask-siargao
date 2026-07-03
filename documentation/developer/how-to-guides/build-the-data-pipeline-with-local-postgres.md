@@ -10,7 +10,7 @@ The codebase already has these pieces:
 
 - Drizzle schema definitions in `src/server/db/schema.ts`.
 - An initial SQL migration at `drizzle/0000_initial_schema.sql`.
-- Test migration and seed scripts that use PGlite, not external Postgres.
+- Ledger-backed migration and seed scripts for both local Postgres and PGlite tests.
 - Siargao taxonomy in `src/server/audit/destinations/siargao/taxonomy.ts`.
 - Source governance primitives in `src/server/providers/source-registry.ts`.
 - Seed source profiles for official transport, Open-Meteo, and user-submitted evidence.
@@ -91,20 +91,20 @@ The schema already defines the core fact-graph tables:
 - `public_evidence_bundles`
 - `agent_readable_snapshots`
 
-The current test command applies `drizzle/0000_initial_schema.sql` to PGlite:
+The test migration command applies unapplied SQL files to PGlite through the same
+`schema_migrations` ledger used by local Postgres:
 
 ```sh
 bun run db:migrate:test
 ```
 
-For Compose Postgres, add a production/local migration command that applies migrations to `DATABASE_URL`. The command should be separate from the PGlite test command so local integration and fast tests stay independent.
+For Compose Postgres, use the production/local migration command against `DATABASE_URL`:
 
-Implementation task:
-
-- Add a migration script such as `src/server/db/migrate.ts` that reads `DATABASE_URL`.
-- Add a package script such as `db:migrate`.
-- Apply the same migration files that tests apply, rather than maintaining a second schema path.
-- Fail fast when `DATABASE_URL` is missing.
+The migration runner creates `schema_migrations` if needed, stores migration filename, checksum, and
+applied timestamp, and skips matching rows on repeat runs. It fails clearly if an applied migration
+checksum changes, if the ledger contains an unknown file, or if ledger order no longer matches the
+ordered migration files. The Postgres command also serializes execution with a deterministic
+advisory lock and releases that lock after success or failure.
 
 Verification:
 
@@ -116,9 +116,12 @@ Then inspect tables using a Postgres client.
 
 ```sh
 psql "$DATABASE_URL" -c "\dt"
+psql "$DATABASE_URL" -c "select name, applied_at from schema_migrations order by applied_at, name;"
 ```
 
-Expected result: the core fact-graph and audit tables exist in Compose Postgres.
+Expected result: the core fact-graph and audit tables exist in Compose Postgres, and
+`schema_migrations` lists each applied migration once. Re-running `bun run db:migrate` should report
+the same migration names as skipped instead of re-executing historical SQL.
 
 ## Step 3: Seed Siargao Geography And Taxonomy
 

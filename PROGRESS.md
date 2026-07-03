@@ -13,9 +13,9 @@ status, and the next implementation step.
 
 ## Current Status
 
-- Current step: #61 Initialize database hardening progress tracking.
-- Status: complete.
-- Next step: #62 Make database migrations ledger-backed.
+- Current step: #62 Make database migrations ledger-backed.
+- Status: implementation complete; checker review pending.
+- Next step: #63 Guard historical bootstrap migration behavior after #62 checker handoff.
 - Last updated: 2026-07-03.
 
 ## Step Checklist
@@ -23,9 +23,9 @@ status, and the next implementation step.
 | Issue | Step | Status | Dependency state | Notes |
 | --- | --- | --- | --- | --- |
 | #61 | Initialize database hardening progress tracking | Complete | Unblocked root step | Created this progress tracker and verified the existing changelog structure. |
-| #62 | Make database migrations ledger-backed | Pending | Ready; #61 complete | Next implementation step. |
-| #63 | Guard historical bootstrap migration behavior | Blocked | Blocked by #62; #61 complete | Must build on the ledger-backed migration runner. |
-| #64 | Add database constraints and foreign key indexes | Blocked | Blocked by #62; #61 complete | Requires production-safe migrations first. |
+| #62 | Make database migrations ledger-backed | Complete pending checker | Ready; #61 complete | Added the ledger-backed runner, drift checks, advisory-lock production path, docs, and tests. |
+| #63 | Guard historical bootstrap migration behavior | Blocked | Blocked by #62 checker/merge; #61 complete | Must build on the ledger-backed migration runner. |
+| #64 | Add database constraints and foreign key indexes | Blocked | Blocked by #62 checker/merge; #61 complete | Requires production-safe migrations first. |
 | #65 | Add hot path indexes and index audit guidance | Blocked | Blocked by #62 and #64; #61 complete | Depends on constraint/index groundwork. |
 | #66 | Bound database-backed list queries | Blocked | Blocked by #65; #61 complete | Depends on hot-path index work. |
 | #67 | Normalize public page evidence relationships | Blocked | Blocked by #62 and #64; #61 complete | Requires migration and constraint groundwork. |
@@ -37,11 +37,23 @@ status, and the next implementation step.
 
 ## Validation Evidence
 
+- #62 implementation:
+  - `bun test src/server/db/migration.test.ts`: Passed with 10 tests covering first run, idempotent
+    second run, skipped SQL, checksum mismatch, out-of-order drift, unknown ledger rows, ledger
+    contents, and existing parity checks.
+  - `bun run db:migrate:test`: Passed; migrated 48 PGlite tables and recorded 3 migrations.
+  - `bun run db:seed:test`: Passed; seeded 5 areas, 3 routes, and 6 source profiles.
+  - `bun run format`: Passed with no fixes needed on the final run.
+  - `bun run lint`: Passed; Biome checked 286 files with no fixes applied.
+  - `bun run typecheck --incremental false`: Passed.
+  - `bun test`: Passed with 742 tests.
+  - `bun run verify:ci`: Passed; repeated lint/typecheck/unit tests, PGlite migrate/seed, build,
+    and 38 Playwright tests.
 - `CHANGELOG.md` inspection: Existing file contains `# Changelog`, a Keep a Changelog 1.0.0
   preamble, an `## [Unreleased]` section, and no empty category headings.
 - `PROGRESS.md` inspection: This file lists every database hardening issue from #61 through #72,
-  marks #61 complete, identifies #62 as the next step, and records later blockers from the GitHub
-  dependency graph.
+  marks #61 complete, records #62 implementation evidence, identifies #63 as the next step, and
+  records later blockers from the GitHub dependency graph.
 - `bun run lint`: Passed after installing missing local dependencies with `bun install`.
   - First attempt: failed before linting because `node_modules` was absent and `biome` was not
     found.
@@ -49,5 +61,7 @@ status, and the next implementation step.
 
 ## Update Log
 
+- 2026-07-03: Completed #62 ledger-backed migration implementation and validation. Updated
+  `CHANGELOG.md` with the migration behavior change.
 - 2026-07-03: Completed #61 tracking setup and lint validation. No `CHANGELOG.md` entry was added
   because this step is non-functional tracking scaffolding.
