@@ -13,9 +13,9 @@ status, and the next implementation step.
 
 ## Current Status
 
-- Current step: #71 Document database authorization boundaries.
-- Status: implementation complete; checker and reviewer-agent review complete.
-- Next step: Add the #72 operations runbook.
+- Current step: #72 Add database operations runbook.
+- Status: implementation complete; local validation and reviewer-agent review complete.
+- Next step: merge #72 and close the database-hardening plan.
 - Last updated: 2026-07-03.
 
 ## Step Checklist
@@ -33,7 +33,7 @@ status, and the next implementation step.
 | #69 | Batch Google Places retention cleanup | Complete pending checker | Ready on #65 stack; #61 complete | Added bounded retention delete batches, CLI controls, progress output, docs, and pruning tests. |
 | #70 | Define production database connection options | Complete pending checker | Ready on #64 stack; #61 complete | Added shared Postgres option parsing, app/CLI profiles, CLI close-path coverage by inspection, docs, and tests. |
 | #71 | Document database authorization boundaries | Complete pending checker | Ready; #61 and #62 complete on this stacked branch | Added tested role/grant SQL template, credential docs, and an RLS deferral decision record. |
-| #72 | Add database operations runbook | Blocked | Blocked by #65, #69, #70, and #71; #61 complete | Final runbook depends on earlier operational controls. |
+| #72 | Add database operations runbook | Complete pending merge | Ready; #65, #69, #70, and #71 merged | Added production database provisioning, observability, maintenance, backup/PITR, restore drill, and incident guidance. |
 
 ## Validation Evidence
 
@@ -183,6 +183,18 @@ status, and the next implementation step.
   - `bun run verify:ci`: Passed; repeated lint/typecheck/Bun tests, PGlite migrate/seed, production
     build, and 38 Playwright tests. Playwright web-server logs still emitted the pre-existing
     missing `DATABASE_URL` saved-trip route noise, but the suite passed.
+- #72 implementation:
+  - Added `documentation/developer/how-to-guides/operate-the-production-database.md` covering
+    provisioning, monitoring, maintenance cadence, retention cleanup, duplicate/unused-index
+    review, migration failure handling, backup/PITR targets, restore drills, validation queries,
+    and incident response.
+  - Linked the runbook from `documentation/developer/README.md` and the local Postgres guide.
+  - No `CHANGELOG.md` entry was added because #72 is documentation-only.
+  - `bun install --frozen-lockfile`: Passed after the new worktree initially lacked local
+    `node_modules`.
+  - `git diff --check`: Passed.
+  - `bun run lint`: Passed; Biome checked 291 files with no fixes applied.
+  - `bun run typecheck --incremental false`: Passed.
 - `CHANGELOG.md` inspection: Existing file contains `# Changelog`, a Keep a Changelog 1.0.0
   preamble, an `## [Unreleased]` section, and no empty category headings.
 - `PROGRESS.md` inspection: This file lists every database hardening issue from #61 through #72,
@@ -216,5 +228,7 @@ status, and the next implementation step.
 - 2026-07-03: Completed #68 saved-trip and provider write batching with focused ordering,
   duplicate-key, FK-ordering, and rollback coverage. Updated `CHANGELOG.md` with the write-path
   behavior change.
+- 2026-07-03: Completed #72 production database operations runbook and documentation links. No
+  `CHANGELOG.md` entry was added because this step is documentation-only.
 - 2026-07-03: Completed #61 tracking setup and lint validation. No `CHANGELOG.md` entry was added
   because this step is non-functional tracking scaffolding.
