@@ -322,6 +322,9 @@ Cloud setup requirements:
 - Separate credentials for app runtime and migrations if the provider supports it.
 - No test or demo secrets in production env vars.
 
+For the production provisioning, monitoring, maintenance, backup, and restore checklist, use
+[Operate the production database](operate-the-production-database.md).
+
 Do not migrate cloud first. Cloud should receive a schema that already survived local ingestion and audit-gate validation.
 
 ## Step 8: Run Migrations Against Cloud And Promote The Pipeline
@@ -381,6 +384,8 @@ bun run stack:down:volumes
 ```
 
 For cloud Postgres, do not reset or drop data as a normal development tactic. Use migrations, backups, and environment-specific databases.
+For backup targets, point-in-time recovery expectations, and restore drill validation queries, use
+[Operate the production database](operate-the-production-database.md).
 
 ## Done Criteria
 
