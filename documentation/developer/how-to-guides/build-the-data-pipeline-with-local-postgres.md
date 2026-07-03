@@ -123,6 +123,12 @@ Expected result: the core fact-graph and audit tables exist in Compose Postgres,
 `schema_migrations` lists each applied migration once. Re-running `bun run db:migrate` should report
 the same migration names as skipped instead of re-executing historical SQL.
 
+Do not casually edit SQL files that may already be recorded in `schema_migrations`. The ledger stores
+the checksum of each applied file; changing a historical migration creates a checksum mismatch for
+existing databases and can change bootstrap behavior for fresh databases. Add a new numbered
+migration for schema changes, and treat any intentional ledger/checksum repair as an operator action
+that needs backups and an explicit review of `schema_migrations`.
+
 ## Step 3: Seed Siargao Geography And Taxonomy
 
 The first seed should be stable destination data, not volatile provider data. The current taxonomy source is `siargaoTaxonomy`, which includes:

@@ -55,3 +55,9 @@ The runner fails before applying new work when the ledger contains an unknown mi
 ledger is not an ordered prefix of the migration files, or when an applied migration file checksum no
 longer matches the recorded checksum. Logs include applied and skipped migration names and keep
 `DATABASE_URL` credentials redacted.
+
+Treat applied files in `drizzle/` as append-only historical records. Do not casually edit an applied
+migration to "clean up" DDL or fold in a later schema tweak: a database that already recorded that
+file will fail with a checksum mismatch, while a database without the ledger history may execute the
+edited SQL as different bootstrap behavior. Put new schema changes in a new numbered migration, and
+document any intentional checksum recovery as an operator action with backups and ledger review.
