@@ -1,5 +1,6 @@
 import postgres from "postgres";
 
+import { createPostgresConnectionOptions } from "@/server/db/connection-options";
 import { loadMigrationFiles } from "@/server/db/migration-files";
 import type { MigrationDatabase, MigrationQueryValue } from "@/server/db/migration-runner";
 import { runLedgerBackedMigrations } from "@/server/db/migration-runner";
@@ -15,7 +16,7 @@ if (!databaseUrl) {
   throw new Error("DATABASE_URL is required to run database migrations.");
 }
 
-const sql = postgres(databaseUrl, { max: 1, prepare: false });
+const sql = postgres(databaseUrl, createPostgresConnectionOptions("cli"));
 const startedAt = performance.now();
 
 try {

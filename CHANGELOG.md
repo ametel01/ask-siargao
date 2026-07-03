@@ -67,11 +67,15 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Added additive hot-path database indexes for chat history, saved trips, public fact/evidence
   reads, and Google Places chat-cache freshness lookups, plus read-only operator SQL for duplicate
   and unused index review.
+- Added normalized public-page fact and evidence relationship tables with ordered backfill from
+  legacy JSON arrays while preserving legacy catalog fallback compatibility.
 - Added an environment-gated admin diagnostics console with redacted summaries for blocked audits,
   completeness, provider/job status, reviewer status, LLM cost, stale facts, and drill-down views.
 
 ### Changed
 
+- Changed Postgres app, CLI, and job clients to use shared environment-driven connection options
+  with explicit pool, timeout, lifetime, SSL, statement-timeout, and `prepare: false` settings.
 - Changed database migrations to use a `schema_migrations` ledger with checksums, skipped repeat
   runs, drift detection, transactional application where safe, and a deterministic Postgres
   advisory lock.
