@@ -112,7 +112,9 @@ describe("chat thread API routes", () => {
       "user",
       "assistant",
     ]);
-    expect(body.messages[1].cards).toEqual([{ id: "card_1", title: "Cloud 9" }]);
+    expect(body.messages[1].cards).toEqual([
+      { id: "card_1", title: "Cloud 9", fitReasons: [], caveats: [] },
+    ]);
     expect(body.messages[1].decisionSummaries).toEqual([
       {
         id: "condition_decision:swimming:cloud_9:today",
@@ -136,6 +138,137 @@ describe("chat thread API routes", () => {
       rating: "up",
       reasonCodes: ["helpful"],
       comment: null,
+    });
+
+    await db.close();
+  });
+
+  test("returns hydrated assistant messages as display-ready public turns", async () => {
+    const db = await openThreadRouteTestDatabase();
+    const dependencies = threadDependencies(db, { userId: "user_display" });
+    await insertUser(db, "user_display");
+    await createChatThread(db, {
+      id: "thread_display",
+      userId: "user_display",
+      title: "Display-safe thread",
+      now: new Date("2026-06-29T01:00:00.000Z"),
+    });
+    await appendChatHistoryMessage(db, {
+      id: "thread_display_assistant",
+      threadId: "thread_display",
+      userId: "user_display",
+      role: "assistant",
+      content: "Try Shaka near Cloud 9. Not checked: table availability or menu changes.",
+      sources: [
+        {
+          label: "live_checked",
+          sourceName: "Google Places",
+          sourceProfileId: "source_google_places",
+          confidence: "high",
+          checked: ["open-now result"],
+          notChecked: ["review text"],
+        },
+        {
+          label: "provider_unavailable",
+          sourceName: "Google Places",
+          sourceProfileId: "source_google_places",
+          confidence: "low",
+          checked: [],
+          notChecked: ["Google Places lookup"],
+        },
+      ],
+      cards: [
+        {
+          id: "place_shaka",
+          kind: "place",
+          title: "Shaka Siargao",
+          fitReasons: ["Checked cafe.", "Use search_places before claiming reliability."],
+          caveats: ["Review text was not checked.", "Bring cash."],
+          sourceLabel: "Google Places - live checked",
+          sources: [
+            {
+              label: "live_checked",
+              sourceName: "Google Places",
+              sourceProfileId: "source_google_places",
+              confidence: "high",
+              checked: ["open-now result"],
+              notChecked: ["review text"],
+            },
+          ],
+        },
+      ],
+      createdAt: new Date("2026-06-29T01:00:01.000Z"),
+    });
+
+    const response = await getChatThreadResponse("thread_display", dependencies);
+    const body = await response.json();
+    const serializedBody = JSON.stringify(body);
+
+    expect(response.status).toBe(200);
+    expect(body.messages[0].content).toBe("Try Shaka near Cloud 9.");
+    expect(body.messages[0].sources).toEqual([
+      {
+        label: "live_checked",
+        sourceName: "Google Places",
+        sourceProfileId: "source_google_places",
+        confidence: "high",
+        checked: ["open-now result"],
+        notChecked: ["review text"],
+      },
+    ]);
+    expect(body.messages[0].cards[0].fitReasons).toEqual(["Checked cafe."]);
+    expect(body.messages[0].cards[0].caveats).toEqual(["Bring cash."]);
+    expect(body.messages[0].cards[0].sources[0].notChecked).toEqual(["review text"]);
+    expect(serializedBody).not.toContain("provider_unavailable");
+    expect(serializedBody).not.toContain("Review text");
+    expect(serializedBody).not.toContain("table availability");
+
+    await db.close();
+  });
+
+  test("preserves user source-like text while sanitizing hydrated assistant messages", async () => {
+    const db = await openThreadRouteTestDatabase();
+    const dependencies = threadDependencies(db, { userId: "user_verbatim" });
+    const userPrompt = [
+      "Not checked: can you compare Shaka and Kurvada?",
+      "Checked: Traveler notes (pasted text) - this is part of my question.",
+    ].join("\n");
+    await insertUser(db, "user_verbatim");
+    await createChatThread(db, {
+      id: "thread_verbatim",
+      userId: "user_verbatim",
+      title: "Verbatim user text",
+      now: new Date("2026-06-29T01:00:00.000Z"),
+    });
+    await appendChatHistoryMessage(db, {
+      id: "thread_verbatim_user",
+      threadId: "thread_verbatim",
+      userId: "user_verbatim",
+      role: "user",
+      content: userPrompt,
+      createdAt: new Date("2026-06-29T01:00:01.000Z"),
+    });
+    await appendChatHistoryMessage(db, {
+      id: "thread_verbatim_assistant",
+      threadId: "thread_verbatim",
+      userId: "user_verbatim",
+      role: "assistant",
+      content: "Try Shaka first. Not checked: table availability or latest menu.",
+      createdAt: new Date("2026-06-29T01:00:02.000Z"),
+    });
+
+    const response = await getChatThreadResponse("thread_verbatim", dependencies);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.messages).toHaveLength(2);
+    expect(body.messages[0]).toMatchObject({
+      role: "user",
+      content: userPrompt,
+    });
+    expect(body.messages[1]).toMatchObject({
+      role: "assistant",
+      content: "Try Shaka first.",
     });
 
     await db.close();

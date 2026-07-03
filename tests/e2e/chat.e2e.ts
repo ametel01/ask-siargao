@@ -1549,7 +1549,7 @@ test("keeps itinerary plans inside the mobile chat column", async ({ page }) => 
     .toBe(true);
 });
 
-test("renders numbered assistant plans while hiding unchecked source footers", async ({ page }) => {
+test("renders numbered assistant plans from display-ready source footers", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockChatApi(page, {
     message: [
@@ -1559,7 +1559,7 @@ test("renders numbered assistant plans while hiding unchecked source footers", a
       "2. Use the heaviest rain window for massage or errands.",
       "3. Walk the Cloud 9 boardwalk only during a clear break.",
       "",
-      "Checked: Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - forecast for Cloud 9. Weather signal: Thunderstorm; rain 0.7mm. Not checked: Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - Google Places open-now results and road flooding.",
+      "Checked: Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - forecast for Cloud 9. Weather signal: Thunderstorm; rain 0.7mm.",
     ].join("\n"),
   });
 
