@@ -4,6 +4,9 @@ import path from "node:path";
 import { getTableName } from "drizzle-orm";
 
 import { siargaoTaxonomy } from "@/server/audit/destinations/siargao/taxonomy";
+import type { MigrationFile } from "@/server/db/migration-files";
+import { checksumMigrationSql } from "@/server/db/migration-files";
+import { runLedgerBackedMigrations } from "@/server/db/migration-runner";
 import {
   accommodations,
   agentReadableSnapshots,
@@ -54,6 +57,7 @@ import {
   users,
 } from "@/server/db/schema";
 import {
+  createPgliteMigrationDatabase,
   getMigrationPaths,
   openTestDatabase,
   resetTestDatabase,
@@ -74,7 +78,7 @@ describe("Step 3 database migration", () => {
   test("creates required core tables and accepts taxonomy seed rows", async () => {
     await resetTestDatabase();
     const db = await openTestDatabase();
-    await runInitialMigration(db);
+    const migrationResult = await runInitialMigration(db);
 
     const requiredTables = [
       "users",
@@ -133,6 +137,19 @@ describe("Step 3 database migration", () => {
       expect(tableNames.has(table)).toBe(true);
     }
 
+    const expectedMigrationNames = (await getMigrationPaths()).map((migrationPath) =>
+      path.basename(migrationPath),
+    );
+    const ledgerRows = await db.query<{ name: string; checksum: string; applied_at: string }>(
+      "select name, checksum, applied_at from schema_migrations order by applied_at, name",
+    );
+
+    expect(migrationResult.applied).toEqual(expectedMigrationNames);
+    expect(migrationResult.skipped).toEqual([]);
+    expect(ledgerRows.rows.map((row) => row.name)).toEqual(expectedMigrationNames);
+    expect(ledgerRows.rows.every((row) => /^[a-f0-9]{64}$/.test(row.checksum))).toBe(true);
+    expect(ledgerRows.rows.every((row) => String(row.applied_at).length > 0)).toBe(true);
+
     const firstArea = siargaoTaxonomy.areas[0];
     await db.query(
       "insert into areas (id, slug, name, municipality, description) values ($1, $2, $3, $4, $5)",
@@ -141,6 +158,141 @@ describe("Step 3 database migration", () => {
 
     const seeded = await db.query<{ count: string }>("select count(*)::text as count from areas");
     expect(seeded.rows[0]?.count).toBe("1");
+
+    await db.close();
+  });
+
+  test("skips matching ledger migrations on an idempotent second run", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const firstRun = await runInitialMigration(db);
+    const secondRun = await runInitialMigration(db);
+
+    expect(firstRun.applied).toEqual(
+      (await getMigrationPaths()).map((filePath) => path.basename(filePath)),
+    );
+    expect(firstRun.skipped).toEqual([]);
+    expect(secondRun.applied).toEqual([]);
+    expect(secondRun.skipped).toEqual(firstRun.applied);
+
+    const ledgerRows = await db.query<{ count: string }>(
+      "select count(*)::text as count from schema_migrations",
+    );
+    expect(ledgerRows.rows[0]?.count).toBe(String(firstRun.applied.length));
+
+    await db.close();
+  });
+
+  test("does not rerun skipped SQL after a matching ledger entry exists", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const database = createPgliteMigrationDatabase(db);
+    const migrations = [
+      createMigrationFile(
+        "0000_create_probe.sql",
+        "create table migration_probe (id text primary key, note text not null);",
+      ),
+      createMigrationFile(
+        "0001_insert_probe.sql",
+        "insert into migration_probe (id, note) values ('once', 'applied');",
+      ),
+    ];
+
+    const firstRun = await runLedgerBackedMigrations(database, migrations);
+    const secondRun = await runLedgerBackedMigrations(database, migrations);
+    const probeRows = await db.query<{ count: string }>(
+      "select count(*)::text as count from migration_probe",
+    );
+
+    expect(firstRun).toEqual({
+      applied: ["0000_create_probe.sql", "0001_insert_probe.sql"],
+      skipped: [],
+    });
+    expect(secondRun).toEqual({
+      applied: [],
+      skipped: ["0000_create_probe.sql", "0001_insert_probe.sql"],
+    });
+    expect(probeRows.rows[0]?.count).toBe("1");
+
+    await db.close();
+  });
+
+  test("fails clearly when an applied migration checksum changes", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const database = createPgliteMigrationDatabase(db);
+    const originalMigration = createMigrationFile(
+      "0000_create_probe.sql",
+      "create table migration_probe (id text primary key);",
+    );
+    const editedMigration = createMigrationFile(
+      "0000_create_probe.sql",
+      "create table migration_probe (id text primary key, edited text);",
+    );
+
+    await runLedgerBackedMigrations(database, [originalMigration]);
+
+    await expect(runLedgerBackedMigrations(database, [editedMigration])).rejects.toThrow(
+      /Migration checksum mismatch for 0000_create_probe\.sql/,
+    );
+
+    await db.close();
+  });
+
+  test("fails clearly when the ledger has out-of-order migration drift", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const database = createPgliteMigrationDatabase(db);
+    const migrations = [
+      createMigrationFile("0000_create_probe.sql", "create table migration_probe (id text);"),
+      createMigrationFile(
+        "0001_insert_probe.sql",
+        "insert into migration_probe (id) values ('1');",
+      ),
+    ];
+
+    await db.exec(`
+      create table schema_migrations (
+        name text primary key,
+        checksum text not null,
+        applied_at timestamptz not null default now()
+      )
+    `);
+    await db.query("insert into schema_migrations (name, checksum) values ($1, $2)", [
+      migrations[1].name,
+      migrations[1].checksum,
+    ]);
+
+    await expect(runLedgerBackedMigrations(database, migrations)).rejects.toThrow(
+      /Migration ledger drift: expected applied migration 0000_create_probe\.sql at position 1, found 0001_insert_probe\.sql/,
+    );
+
+    await db.close();
+  });
+
+  test("fails clearly when the ledger contains an unknown migration", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const database = createPgliteMigrationDatabase(db);
+    const migrations = [
+      createMigrationFile("0000_create_probe.sql", "create table migration_probe (id text);"),
+    ];
+
+    await db.exec(`
+      create table schema_migrations (
+        name text primary key,
+        checksum text not null,
+        applied_at timestamptz not null default now()
+      )
+    `);
+    await db.query("insert into schema_migrations (name, checksum) values ($1, $2)", [
+      "9999_unknown.sql",
+      checksumMigrationSql("select 1;"),
+    ]);
+
+    await expect(runLedgerBackedMigrations(database, migrations)).rejects.toThrow(
+      /Migration ledger drift: schema_migrations contains unknown migration 9999_unknown\.sql/,
+    );
 
     await db.close();
   });
@@ -739,4 +891,13 @@ function groupColumnNames(rows: readonly { table_name: string; column_name: stri
     groups[row.table_name] = [...(groups[row.table_name] ?? []), row.column_name];
     return groups;
   }, {});
+}
+
+function createMigrationFile(name: string, sql: string): MigrationFile {
+  return {
+    name,
+    path: `/virtual/drizzle/${name}`,
+    sql,
+    checksum: checksumMigrationSql(sql),
+  };
 }

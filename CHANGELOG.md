@@ -66,6 +66,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed database migrations to use a `schema_migrations` ledger with checksums, skipped repeat
+  runs, drift detection, transactional application where safe, and a deterministic Postgres
+  advisory lock.
 - Retired the legacy recommendation-agent module so local recommendation behavior now lives only in
   the Ask Siargao chat tool loop and evidence policy.
 - Moved chat evidence final-payload enforcement and required-card exposure behind a chat evidence
