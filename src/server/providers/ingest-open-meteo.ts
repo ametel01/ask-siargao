@@ -1,5 +1,6 @@
 import postgres from "postgres";
 
+import { createPostgresConnectionOptions } from "@/server/db/connection-options";
 import { buildOpenMeteoIngestionBatch } from "@/server/providers/open-meteo";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -8,7 +9,7 @@ if (!databaseUrl) {
   throw new Error("DATABASE_URL is required to ingest Open-Meteo forecasts.");
 }
 
-const sql = postgres(databaseUrl, { max: 1, prepare: false });
+const sql = postgres(databaseUrl, createPostgresConnectionOptions("cli"));
 
 try {
   const batch = await buildOpenMeteoIngestionBatch({});

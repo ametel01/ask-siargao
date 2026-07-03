@@ -1,5 +1,6 @@
 import postgres from "postgres";
 
+import { createPostgresConnectionOptions } from "@/server/db/connection-options";
 import {
   countExpiredGooglePlacesContent,
   deleteExpiredGooglePlacesContent,
@@ -45,7 +46,7 @@ export async function runPruneGooglePlacesCli({
   }
 
   const dryRun = argv.includes("--dry-run");
-  const sql = postgres(databaseUrl, { max: 1, prepare: false });
+  const sql = postgres(databaseUrl, createPostgresConnectionOptions("cli"));
 
   try {
     const result = await pruneGooglePlacesContent({

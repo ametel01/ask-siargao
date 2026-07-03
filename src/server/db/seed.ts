@@ -1,6 +1,7 @@
 import postgres from "postgres";
 
 import { siargaoTaxonomy } from "@/server/audit/destinations/siargao/taxonomy";
+import { createPostgresConnectionOptions } from "@/server/db/connection-options";
 import { createComponentLogger } from "@/server/observability/logger";
 
 type QueryRunner = (
@@ -187,7 +188,7 @@ if (import.meta.main) {
     throw new Error("DATABASE_URL is required to seed the database.");
   }
 
-  const sql = postgres(databaseUrl, { max: 1, prepare: false });
+  const sql = postgres(databaseUrl, createPostgresConnectionOptions("cli"));
   const startedAt = performance.now();
 
   try {

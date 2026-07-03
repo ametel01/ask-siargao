@@ -1,4 +1,6 @@
 import postgres from "postgres";
+
+import { createPostgresConnectionOptions } from "@/server/db/connection-options";
 import { createPostgresQueryClient } from "@/server/db/query-client";
 import {
   createGooglePlacesCandidateEntityId,
@@ -90,7 +92,7 @@ async function main() {
     throw new Error("DATABASE_URL is required to enrich Google Places candidates.");
   }
 
-  const sql = postgres(databaseUrl, { max: 1, prepare: false });
+  const sql = postgres(databaseUrl, createPostgresConnectionOptions("cli"));
   const db = createPostgresQueryClient(sql);
 
   try {

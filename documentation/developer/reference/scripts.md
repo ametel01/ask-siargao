@@ -50,6 +50,9 @@ checksum already match the ledger, so historical SQL files are not re-executed.
 The production Postgres command takes a deterministic advisory lock before ledger checks and
 releases it after success or failure. Each unapplied migration runs in a transaction unless the SQL
 contains a statement PostgreSQL cannot run transactionally, such as `CREATE INDEX CONCURRENTLY`.
+Production Postgres CLI and job scripts use the shared CLI database profile, which defaults to a
+single connection, closes the client in a `finally` path, and honors the `DATABASE_*` connection
+options documented in `documentation/developer/reference/environment.md`.
 
 The runner fails before applying new work when the ledger contains an unknown migration, when the
 ledger is not an ordered prefix of the migration files, or when an applied migration file checksum no
