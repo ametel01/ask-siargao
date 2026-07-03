@@ -61,3 +61,7 @@ migration to "clean up" DDL or fold in a later schema tweak: a database that alr
 file will fail with a checksum mismatch, while a database without the ledger history may execute the
 edited SQL as different bootstrap behavior. Put new schema changes in a new numbered migration, and
 document any intentional checksum recovery as an operator action with backups and ledger review.
+
+For read-only duplicate-index and unused-index review SQL, see
+`documentation/developer/reference/database-index-audits.md`. The #65 hot-path index migration is
+additive only and does not drop indexes.
