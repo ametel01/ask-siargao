@@ -74,6 +74,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed Postgres app, CLI, and job clients to use shared environment-driven connection options
+  with explicit pool, timeout, lifetime, SSL, statement-timeout, and `prepare: false` settings.
 - Changed database migrations to use a `schema_migrations` ledger with checksums, skipped repeat
   runs, drift detection, transactional application where safe, and a deterministic Postgres
   advisory lock.

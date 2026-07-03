@@ -1,5 +1,6 @@
 import postgres from "postgres";
 
+import { createPostgresConnectionOptions } from "@/server/db/connection-options";
 import {
   type GooglePlacesChatContext,
   type GooglePlacesChatSearch,
@@ -123,7 +124,7 @@ async function findCachedPlaceDetails(
     return null;
   }
 
-  const sql = postgres(databaseUrl, { max: 1, prepare: false });
+  const sql = postgres(databaseUrl, createPostgresConnectionOptions("cli"));
   try {
     return await findFreshPlaceDetails(
       {

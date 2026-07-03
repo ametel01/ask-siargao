@@ -1,6 +1,7 @@
 import postgres from "postgres";
 
 import type { ConfidenceLabel } from "@/server/audit/enums";
+import { createPostgresConnectionOptions } from "@/server/db/connection-options";
 import {
   buildOpenMeteoIngestionBatch,
   type FetchLike,
@@ -194,7 +195,7 @@ export async function getLatestSiargaoWeatherSnapshot({
     return getLiveSiargaoWeatherSnapshot({ fetcher, location, now });
   }
 
-  const sql = postgres(databaseUrl, { max: 1, prepare: false });
+  const sql = postgres(databaseUrl, createPostgresConnectionOptions("cli"));
 
   try {
     const rows = await sql<WeatherFactRow[]>`
