@@ -11,7 +11,7 @@ The app reads these environment variables.
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | Public/client-safe | Clerk sign-in routing | Set to `/sign-in` for the local prebuilt auth page. |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL` | Public/client-safe | Clerk post-sign-in redirects | Recommended default: `/chat`. |
 | `NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL` | Public/client-safe | Clerk post-sign-up redirects | Recommended default: `/chat`. |
-| `DATABASE_URL` | Server only | Production database client | Required by app database clients and Postgres-backed CLI/job scripts. Test migration and seed commands use PGlite. |
+| `DATABASE_URL` | Server only | Production database client | Required by app database clients and Postgres-backed CLI/job scripts. In deployed app runtimes, use a credential mapped to the `ask_siargao_runtime` role from the database authorization reference. Test migration and seed commands use PGlite. |
 | `DATABASE_POOL_SIZE` | Server only | App/shared Postgres clients | Optional. Positive integer. Defaults to `10` for long-lived app clients. |
 | `DATABASE_CLI_POOL_SIZE` | Server only | CLI/job Postgres clients | Optional. Positive integer. Defaults to `1` so one-off scripts do not fan out database connections. |
 | `DATABASE_CONNECT_TIMEOUT_SECONDS` | Server only | Postgres clients | Optional. Positive integer seconds. Defaults to `10`. |
@@ -40,6 +40,18 @@ The app reads these environment variables.
 | `NEXT_PUBLIC_POSTHOG_HOST` | Public/client-safe | PostHog host | Defaults in `.env.example` to the US PostHog ingest host. |
 
 Server-only secrets must not use the `NEXT_PUBLIC_` prefix. `getServerSecret` rejects public-prefixed names so sensitive provider keys do not move into client-facing bundles.
+
+## Database Credentials
+
+Production should use separate database credentials for runtime and migration work:
+
+- deployed app runtimes use `DATABASE_URL` with an `ask_siargao_runtime` login;
+- migration jobs run `bun run db:migrate` with a migration-only credential mapped to
+  `ask_siargao_migration`;
+- optional read/reporting tools use separate read-only credentials mapped to
+  `ask_siargao_reporting`.
+
+See [Database authorization reference](database-authorization.md) for the role and grant template.
 
 ## Production Rate-Limit Storage
 

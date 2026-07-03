@@ -14,7 +14,7 @@ Scripts are defined in `package.json`.
 | `bun run stack:logs` | `docker compose logs -f` | Follow logs from the local Compose app and database services. |
 | `bun run stack:ps` | `docker compose ps` | Show local Compose service status. |
 | `bun run build` | `rm -rf .next && NEXT_PRIVATE_BUILD_WORKER=0 ./node_modules/.bin/next build` | Build the production Next.js app from a clean Next output directory. |
-| `bun run db:migrate` | `bun run src/server/db/migrate.ts` | Apply unapplied SQL migrations to the Postgres database at `DATABASE_URL` through the `schema_migrations` ledger. |
+| `bun run db:migrate` | `bun run src/server/db/migrate.ts` | Apply unapplied SQL migrations to the Postgres database at `DATABASE_URL` through the `schema_migrations` ledger. Production operators should run this with a migration-only credential mapped to `ask_siargao_migration`, not the deployed runtime credential. |
 | `bun run db:seed` | `bun run src/server/db/seed.ts` | Seed Siargao taxonomy and source profiles into the Postgres database at `DATABASE_URL`. |
 | `bun run db:discover:google-places` | `bun run src/server/providers/discover-google-places.ts` | Run the free Google Places Text Search ID-only discovery pass for Siargao accommodations and persist dedupable place candidates into `source_records` and `candidate_entities`. Requires `GOOGLE_API_KEY`, `DATABASE_URL`, and a seeded `source_google_places` profile. Add `-- --dry-run` to fetch and print a summary without writing rows. |
 | `bun run db:enrich:google-places` | `bun run src/server/providers/enrich-google-places.ts` | Enrich discovered Google Places candidates with Place Details Pro fields: display name, address, location, types, business status, and Google Maps URI. Requires `GOOGLE_API_KEY`, `DATABASE_URL`, and prior `db:discover:google-places` rows. Add `-- --dry-run` to fetch and print a sample without writing rows. |
@@ -50,6 +50,9 @@ checksum already match the ledger, so historical SQL files are not re-executed.
 The production Postgres command takes a deterministic advisory lock before ledger checks and
 releases it after success or failure. Each unapplied migration runs in a transaction unless the SQL
 contains a statement PostgreSQL cannot run transactionally, such as `CREATE INDEX CONCURRENTLY`.
+Run production migrations with the migration credential from the
+[database authorization reference](database-authorization.md); the runtime credential should not own
+schema objects or write `schema_migrations`.
 Production Postgres CLI and job scripts use the shared CLI database profile, which defaults to a
 single connection, closes the client in a `finally` path, and honors the `DATABASE_*` connection
 options documented in `documentation/developer/reference/environment.md`.

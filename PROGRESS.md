@@ -13,9 +13,9 @@ status, and the next implementation step.
 
 ## Current Status
 
-- Current step: #66 Bound database-backed list queries.
+- Current step: #71 Document database authorization boundaries.
 - Status: implementation complete; checker and reviewer-agent review complete.
-- Next step: Continue #71 authorization boundaries before the #72 operations runbook.
+- Next step: Add the #72 operations runbook.
 - Last updated: 2026-07-03.
 
 ## Step Checklist
@@ -32,11 +32,24 @@ status, and the next implementation step.
 | #68 | Batch saved-trip and provider write paths | Complete pending checker | Ready on #69 stack; #61 complete | Added bounded multi-row saved-trip and provider write batches with focused rollback/order coverage. |
 | #69 | Batch Google Places retention cleanup | Complete pending checker | Ready on #65 stack; #61 complete | Added bounded retention delete batches, CLI controls, progress output, docs, and pruning tests. |
 | #70 | Define production database connection options | Complete pending checker | Ready on #64 stack; #61 complete | Added shared Postgres option parsing, app/CLI profiles, CLI close-path coverage by inspection, docs, and tests. |
-| #71 | Document database authorization boundaries | Blocked | Blocked by #62; #61 complete | Requires migration posture before role/grant documentation. |
+| #71 | Document database authorization boundaries | Complete pending checker | Ready; #61 and #62 complete on this stacked branch | Added tested role/grant SQL template, credential docs, and an RLS deferral decision record. |
 | #72 | Add database operations runbook | Blocked | Blocked by #65, #69, #70, and #71; #61 complete | Final runbook depends on earlier operational controls. |
 
 ## Validation Evidence
 
+- #71 implementation:
+  - `bun install --frozen-lockfile`: Passed after the new worktree initially lacked local
+    `node_modules`.
+  - `bun test src/server/db/authorization-boundaries.test.ts`: Passed with 4 tests and 28
+    assertions covering separated migration/runtime/reporting roles, broad `PUBLIC` privilege
+    revokes, default privilege grants, current table sets, runtime exclusion from
+    `schema_migrations`, reporting future-table default exclusion, and unsafe identifier rejection.
+  - `bun run format`: Passed; final run reported no fixes.
+  - `bun run lint`: Passed; Biome checked 288 files with no fixes applied.
+  - `bun run typecheck --incremental false`: Passed.
+  - `bun test`: Passed with 746 tests and 3,938 assertions.
+  - SQL template smoke test with `bun -e`: Passed; generated SQL includes runtime role and
+    `schema_migrations` ownership boundaries without printing secrets.
 - #62 implementation:
   - `bun test src/server/db/migration.test.ts`: Passed with 10 tests covering first run, idempotent
     second run, skipped SQL, checksum mismatch, out-of-order drift, unknown ledger rows, ledger
@@ -182,6 +195,8 @@ status, and the next implementation step.
 
 ## Update Log
 
+- 2026-07-03: Completed #71 database authorization documentation and validation. Updated
+  `CHANGELOG.md` with the role/grant and RLS decision record.
 - 2026-07-03: Completed #62 ledger-backed migration implementation and validation. Updated
   `CHANGELOG.md` with the migration behavior change.
 - 2026-07-03: Completed #63 historical bootstrap migration guard coverage and docs. No
