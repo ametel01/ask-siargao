@@ -5,7 +5,8 @@ import { getTableName } from "drizzle-orm";
 
 import { siargaoTaxonomy } from "@/server/audit/destinations/siargao/taxonomy";
 import type { MigrationFile } from "@/server/db/migration-files";
-import { checksumMigrationSql } from "@/server/db/migration-files";
+import { checksumMigrationSql, loadMigrationFiles } from "@/server/db/migration-files";
+import type { MigrationDatabase } from "@/server/db/migration-runner";
 import { runLedgerBackedMigrations } from "@/server/db/migration-runner";
 import {
   accommodations,
@@ -179,6 +180,32 @@ describe("Step 3 database migration", () => {
       "select count(*)::text as count from schema_migrations",
     );
     expect(ledgerRows.rows[0]?.count).toBe(String(firstRun.applied.length));
+
+    await db.close();
+  });
+
+  test("does not rerun the saved trip item primary key rewrite after bootstrap is applied", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const migrationFiles = await loadMigrationFiles();
+    const bootstrapMigration = migrationFiles.find(
+      (migrationFile) => migrationFile.name === "0000_initial_schema.sql",
+    );
+
+    expect(bootstrapMigration?.sql).toMatch(savedTripItemsPrimaryKeyRewritePattern);
+
+    const firstRun = await runLedgerBackedMigrations(
+      createPgliteMigrationDatabase(db),
+      migrationFiles,
+    );
+    const secondRun = await runLedgerBackedMigrations(
+      guardSavedTripItemsPrimaryKeyRewrite(createPgliteMigrationDatabase(db)),
+      migrationFiles,
+    );
+
+    expect(firstRun.applied).toContain("0000_initial_schema.sql");
+    expect(secondRun.applied).toEqual([]);
+    expect(secondRun.skipped).toEqual(firstRun.applied);
 
     await db.close();
   });
@@ -899,5 +926,28 @@ function createMigrationFile(name: string, sql: string): MigrationFile {
     path: `/virtual/drizzle/${name}`,
     sql,
     checksum: checksumMigrationSql(sql),
+  };
+}
+
+const savedTripItemsPrimaryKeyRewritePattern =
+  /ALTER TABLE saved_trip_items DROP CONSTRAINT IF EXISTS saved_trip_items_pkey;\s*ALTER TABLE saved_trip_items ADD PRIMARY KEY \(trip_id, id\);/;
+
+function guardSavedTripItemsPrimaryKeyRewrite(database: MigrationDatabase): MigrationDatabase {
+  return {
+    query: database.query,
+    async execute(statement: string) {
+      if (savedTripItemsPrimaryKeyRewritePattern.test(statement)) {
+        throw new Error(
+          "The saved_trip_items primary-key rewrite ran after bootstrap was already applied.",
+        );
+      }
+
+      await database.execute(statement);
+    },
+    async transaction<T>(callback: (transactionDatabase: MigrationDatabase) => Promise<T>) {
+      return database.transaction((transactionDatabase) =>
+        callback(guardSavedTripItemsPrimaryKeyRewrite(transactionDatabase)),
+      );
+    },
   };
 }

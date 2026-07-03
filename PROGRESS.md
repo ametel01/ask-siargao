@@ -14,8 +14,9 @@ status, and the next implementation step.
 ## Current Status
 
 - Current step: #71 Document database authorization boundaries.
-- Status: implementation complete; checker review pending.
-- Next step: #72 Add database operations runbook after #65, #69, #70, and #71 are ready.
+- Status: implementation complete; checker and reviewer-agent review complete.
+- Next step: Continue the remaining database-hardening dependency stack through #64, #65, #69, and
+  #70 before the #72 operations runbook.
 - Last updated: 2026-07-03.
 
 ## Step Checklist
@@ -24,8 +25,8 @@ status, and the next implementation step.
 | --- | --- | --- | --- | --- |
 | #61 | Initialize database hardening progress tracking | Complete | Unblocked root step | Created this progress tracker and verified the existing changelog structure. |
 | #62 | Make database migrations ledger-backed | Complete pending checker | Ready; #61 complete | Added the ledger-backed runner, drift checks, advisory-lock production path, docs, and tests. |
-| #63 | Guard historical bootstrap migration behavior | Blocked | Blocked by #62 checker/merge; #61 complete | Must build on the ledger-backed migration runner. |
-| #64 | Add database constraints and foreign key indexes | Blocked | Blocked by #62 checker/merge; #61 complete | Requires production-safe migrations first. |
+| #63 | Guard historical bootstrap migration behavior | Complete pending checker | Ready on #62 stack; #61 complete | Added targeted repeat-run coverage for the historical saved-trip primary-key rewrite plus checksum/ledger docs. |
+| #64 | Add database constraints and foreign key indexes | Blocked | Blocked by #63 checker/merge and #62 checker/merge; #61 complete | Requires production-safe migrations and bootstrap guard evidence first. |
 | #65 | Add hot path indexes and index audit guidance | Blocked | Blocked by #62 and #64; #61 complete | Depends on constraint/index groundwork. |
 | #66 | Bound database-backed list queries | Blocked | Blocked by #65; #61 complete | Depends on hot-path index work. |
 | #67 | Normalize public page evidence relationships | Blocked | Blocked by #62 and #64; #61 complete | Requires migration and constraint groundwork. |
@@ -40,14 +41,14 @@ status, and the next implementation step.
 - #71 implementation:
   - `bun install --frozen-lockfile`: Passed after the new worktree initially lacked local
     `node_modules`.
-  - `bun test src/server/db/authorization-boundaries.test.ts`: Passed with 4 tests and 27
+  - `bun test src/server/db/authorization-boundaries.test.ts`: Passed with 4 tests and 28
     assertions covering separated migration/runtime/reporting roles, broad `PUBLIC` privilege
     revokes, default privilege grants, current table sets, runtime exclusion from
-    `schema_migrations`, and unsafe identifier rejection.
+    `schema_migrations`, reporting future-table default exclusion, and unsafe identifier rejection.
   - `bun run format`: Passed; final run reported no fixes.
   - `bun run lint`: Passed; Biome checked 288 files with no fixes applied.
   - `bun run typecheck --incremental false`: Passed.
-  - `bun test`: Passed with 746 tests and 3,937 assertions.
+  - `bun test`: Passed with 746 tests and 3,938 assertions.
   - SQL template smoke test with `bun -e`: Passed; generated SQL includes runtime role and
     `schema_migrations` ownership boundaries without printing secrets.
 - #62 implementation:
@@ -62,6 +63,19 @@ status, and the next implementation step.
   - `bun test`: Passed with 742 tests.
   - `bun run verify:ci`: Passed; repeated lint/typecheck/unit tests, PGlite migrate/seed, build,
     and 38 Playwright tests.
+- #63 implementation:
+  - `bun test src/server/db/migration.test.ts`: Passed with 11 tests, including targeted coverage
+    that fails if the `saved_trip_items` primary-key rewrite in `0000_initial_schema.sql` executes
+    on the second ledger-backed run.
+  - `bun run format`: Passed with no fixes applied.
+  - `bun run lint`: Passed; Biome checked 286 files with no fixes applied.
+  - `bun run typecheck --incremental false`: Passed.
+  - `bun run db:migrate:test`: Passed; migrated 48 PGlite tables and recorded 3 migrations.
+  - `bun run verify:ci`: Passed; repeated lint/typecheck/Bun tests, PGlite migrate/seed, build,
+    and 38 Playwright tests. Playwright web-server logs still emitted the pre-existing missing
+    `DATABASE_URL` saved-trip route noise, but the suite passed.
+  - No `CHANGELOG.md` entry was added because #63 changed tests and documentation only, not runtime
+    migration behavior.
 - `CHANGELOG.md` inspection: Existing file contains `# Changelog`, a Keep a Changelog 1.0.0
   preamble, an `## [Unreleased]` section, and no empty category headings.
 - `PROGRESS.md` inspection: This file lists every database hardening issue from #61 through #72,
@@ -78,5 +92,7 @@ status, and the next implementation step.
   `CHANGELOG.md` with the role/grant and RLS decision record.
 - 2026-07-03: Completed #62 ledger-backed migration implementation and validation. Updated
   `CHANGELOG.md` with the migration behavior change.
+- 2026-07-03: Completed #63 historical bootstrap migration guard coverage and docs. No
+  `CHANGELOG.md` entry was added because runtime behavior did not change.
 - 2026-07-03: Completed #61 tracking setup and lint validation. No `CHANGELOG.md` entry was added
   because this step is non-functional tracking scaffolding.
