@@ -109,8 +109,9 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
     });
   });
 
-  await page.goto("/profile");
-  await expect(page.getByRole("heading", { exact: true, name: "Profile" })).toBeVisible();
+  await page.goto("/settings");
+  await expect(page.getByRole("heading", { exact: true, name: "Settings" })).toBeVisible();
+  await expect(page.getByRole("heading", { exact: true, name: "Travel profile" })).toBeVisible();
 
   await page.getByLabel("Display name").fill("Alex in Siargao");
   await page.getByLabel("Preferred areas").fill("Cloud 9, Pacifico");

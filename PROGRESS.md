@@ -8,15 +8,15 @@ Starting commit: `05a9d59`
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Protect And Expose The Canonical Settings Route
-- [ ] Step 2: Build The Settings Dashboard Shell Around Existing Profile Editing
+- [x] Step 2: Build The Settings Dashboard Shell Around Existing Profile Editing
 - [ ] Step 3: Add Private Chat And Saved-Plan Summary Panels
 - [ ] Step 4: Update In-App Navigation And Route Documentation
 - [ ] Step 5: Final Verification And Cleanup
 
 ## Current Status
 
-Status: Step 1 complete.
-Next step: Step 2 - Build The Settings Dashboard Shell Around Existing Profile Editing.
+Status: Step 2 complete.
+Next step: Step 3 - Add Private Chat And Saved-Plan Summary Panels.
 
 ## Update Log
 
@@ -63,4 +63,29 @@ Next step: Step 2 - Build The Settings Dashboard Shell Around Existing Profile E
 - Validation note: default `bun run test:e2e` with local `DATABASE_URL` hit the database-backed
   catalog and failed the fixture-backed public accommodation assertion. The E2E suite passed with
   `DATABASE_URL=` so the fixture-backed route tests used their expected catalog path.
+- Commit: `b709e66` (`Add protected settings route`)
+
+### 2026-07-04 - Step 2 Complete
+
+- Reworked `src/features/settings/SettingsDashboardPage.tsx` into the canonical settings
+  dashboard shell with account identity, chat shortcut, privacy context, and the existing travel
+  profile editing form.
+- Preserved `/profile` as a compatibility route by delegating `ProfileSettingsPage` to the settings
+  dashboard component.
+- Updated the browser profile-editing E2E coverage to exercise `/settings` and assert the new
+  settings and travel-profile headings.
+- Added a functional changelog entry for the broader settings dashboard surface.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/app/api/me/profile/route.test.ts` - 4 pass, 0 fail
+  - `bun test` - 737 pass, 0 fail
+  - `bun run db:migrate:test`
+  - `bun run db:seed:test`
+  - `bun run build`
+  - `DATABASE_URL= bun run test:e2e` - 38 pass, 0 fail
+- Validation note: `DATABASE_URL= bun run test:e2e` still emits expected server logs from
+  `/api/trips/saved` requests without a database URL, but the suite passes and this preserves the
+  fixture-backed public catalog path used by the existing E2E expectations.
 - Commit: pending.
