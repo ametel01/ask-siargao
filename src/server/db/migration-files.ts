@@ -1,11 +1,14 @@
+import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 const migrationDirectory = path.join(process.cwd(), "drizzle");
 
 export type MigrationFile = {
+  name: string;
   path: string;
   sql: string;
+  checksum: string;
 };
 
 export async function listMigrationPaths() {
@@ -24,9 +27,19 @@ export async function listMigrationPaths() {
 export async function loadMigrationFiles(): Promise<MigrationFile[]> {
   const migrationPaths = await listMigrationPaths();
   return Promise.all(
-    migrationPaths.map(async (migrationPath) => ({
-      path: migrationPath,
-      sql: await readFile(migrationPath, "utf8"),
-    })),
+    migrationPaths.map(async (migrationPath) => {
+      const sql = await readFile(migrationPath, "utf8");
+
+      return {
+        name: path.basename(migrationPath),
+        path: migrationPath,
+        sql,
+        checksum: checksumMigrationSql(sql),
+      };
+    }),
   );
+}
+
+export function checksumMigrationSql(sql: string) {
+  return createHash("sha256").update(sql, "utf8").digest("hex");
 }

@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import type { PGlite } from "@electric-sql/pglite";
 import { getTableName } from "drizzle-orm";
 
 import { siargaoTaxonomy } from "@/server/audit/destinations/siargao/taxonomy";
+import type { MigrationFile } from "@/server/db/migration-files";
+import { checksumMigrationSql, loadMigrationFiles } from "@/server/db/migration-files";
+import type { MigrationDatabase } from "@/server/db/migration-runner";
+import { runLedgerBackedMigrations } from "@/server/db/migration-runner";
 import {
   accommodations,
   agentReadableSnapshots,
@@ -33,7 +38,9 @@ import {
   payments,
   providerHealthChecks,
   providers,
+  publicEvidenceBundleEvidence,
   publicEvidenceBundles,
+  publicPageFacts,
   publicPageGenerationJobs,
   publicPages,
   rawSnapshots,
@@ -54,6 +61,7 @@ import {
   users,
 } from "@/server/db/schema";
 import {
+  createPgliteMigrationDatabase,
   getMigrationPaths,
   openTestDatabase,
   resetTestDatabase,
@@ -69,12 +77,14 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toEqual(migrationNames.toSorted());
     expect(migrationNames).toContain("0000_initial_schema.sql");
     expect(migrationNames).toContain("0001_chat_decision_summaries.sql");
+    expect(migrationNames).toContain("0004_hot_path_indexes.sql");
+    expect(migrationNames).toContain("0005_public_page_relationships.sql");
   });
 
   test("creates required core tables and accepts taxonomy seed rows", async () => {
     await resetTestDatabase();
     const db = await openTestDatabase();
-    await runInitialMigration(db);
+    const migrationResult = await runInitialMigration(db);
 
     const requiredTables = [
       "users",
@@ -118,6 +128,8 @@ describe("Step 3 database migration", () => {
       "refresh_jobs",
       "public_pages",
       "public_evidence_bundles",
+      "public_page_facts",
+      "public_evidence_bundle_evidence",
       "agent_readable_snapshots",
       "llm_runs",
       "llm_tool_calls",
@@ -133,6 +145,19 @@ describe("Step 3 database migration", () => {
       expect(tableNames.has(table)).toBe(true);
     }
 
+    const expectedMigrationNames = (await getMigrationPaths()).map((migrationPath) =>
+      path.basename(migrationPath),
+    );
+    const ledgerRows = await db.query<{ name: string; checksum: string; applied_at: string }>(
+      "select name, checksum, applied_at from schema_migrations order by applied_at, name",
+    );
+
+    expect(migrationResult.applied).toEqual(expectedMigrationNames);
+    expect(migrationResult.skipped).toEqual([]);
+    expect(ledgerRows.rows.map((row) => row.name)).toEqual(expectedMigrationNames);
+    expect(ledgerRows.rows.every((row) => /^[a-f0-9]{64}$/.test(row.checksum))).toBe(true);
+    expect(ledgerRows.rows.every((row) => String(row.applied_at).length > 0)).toBe(true);
+
     const firstArea = siargaoTaxonomy.areas[0];
     await db.query(
       "insert into areas (id, slug, name, municipality, description) values ($1, $2, $3, $4, $5)",
@@ -141,6 +166,167 @@ describe("Step 3 database migration", () => {
 
     const seeded = await db.query<{ count: string }>("select count(*)::text as count from areas");
     expect(seeded.rows[0]?.count).toBe("1");
+
+    await db.close();
+  });
+
+  test("skips matching ledger migrations on an idempotent second run", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const firstRun = await runInitialMigration(db);
+    const secondRun = await runInitialMigration(db);
+
+    expect(firstRun.applied).toEqual(
+      (await getMigrationPaths()).map((filePath) => path.basename(filePath)),
+    );
+    expect(firstRun.skipped).toEqual([]);
+    expect(secondRun.applied).toEqual([]);
+    expect(secondRun.skipped).toEqual(firstRun.applied);
+
+    const ledgerRows = await db.query<{ count: string }>(
+      "select count(*)::text as count from schema_migrations",
+    );
+    expect(ledgerRows.rows[0]?.count).toBe(String(firstRun.applied.length));
+
+    await db.close();
+  });
+
+  test("does not rerun the saved trip item primary key rewrite after bootstrap is applied", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const migrationFiles = await loadMigrationFiles();
+    const bootstrapMigration = migrationFiles.find(
+      (migrationFile) => migrationFile.name === "0000_initial_schema.sql",
+    );
+
+    expect(bootstrapMigration?.sql).toMatch(savedTripItemsPrimaryKeyRewritePattern);
+
+    const firstRun = await runLedgerBackedMigrations(
+      createPgliteMigrationDatabase(db),
+      migrationFiles,
+    );
+    const secondRun = await runLedgerBackedMigrations(
+      guardSavedTripItemsPrimaryKeyRewrite(createPgliteMigrationDatabase(db)),
+      migrationFiles,
+    );
+
+    expect(firstRun.applied).toContain("0000_initial_schema.sql");
+    expect(secondRun.applied).toEqual([]);
+    expect(secondRun.skipped).toEqual(firstRun.applied);
+
+    await db.close();
+  });
+
+  test("does not rerun skipped SQL after a matching ledger entry exists", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const database = createPgliteMigrationDatabase(db);
+    const migrations = [
+      createMigrationFile(
+        "0000_create_probe.sql",
+        "create table migration_probe (id text primary key, note text not null);",
+      ),
+      createMigrationFile(
+        "0001_insert_probe.sql",
+        "insert into migration_probe (id, note) values ('once', 'applied');",
+      ),
+    ];
+
+    const firstRun = await runLedgerBackedMigrations(database, migrations);
+    const secondRun = await runLedgerBackedMigrations(database, migrations);
+    const probeRows = await db.query<{ count: string }>(
+      "select count(*)::text as count from migration_probe",
+    );
+
+    expect(firstRun).toEqual({
+      applied: ["0000_create_probe.sql", "0001_insert_probe.sql"],
+      skipped: [],
+    });
+    expect(secondRun).toEqual({
+      applied: [],
+      skipped: ["0000_create_probe.sql", "0001_insert_probe.sql"],
+    });
+    expect(probeRows.rows[0]?.count).toBe("1");
+
+    await db.close();
+  });
+
+  test("fails clearly when an applied migration checksum changes", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const database = createPgliteMigrationDatabase(db);
+    const originalMigration = createMigrationFile(
+      "0000_create_probe.sql",
+      "create table migration_probe (id text primary key);",
+    );
+    const editedMigration = createMigrationFile(
+      "0000_create_probe.sql",
+      "create table migration_probe (id text primary key, edited text);",
+    );
+
+    await runLedgerBackedMigrations(database, [originalMigration]);
+
+    await expect(runLedgerBackedMigrations(database, [editedMigration])).rejects.toThrow(
+      /Migration checksum mismatch for 0000_create_probe\.sql/,
+    );
+
+    await db.close();
+  });
+
+  test("fails clearly when the ledger has out-of-order migration drift", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const database = createPgliteMigrationDatabase(db);
+    const migrations = [
+      createMigrationFile("0000_create_probe.sql", "create table migration_probe (id text);"),
+      createMigrationFile(
+        "0001_insert_probe.sql",
+        "insert into migration_probe (id) values ('1');",
+      ),
+    ];
+
+    await db.exec(`
+      create table schema_migrations (
+        name text primary key,
+        checksum text not null,
+        applied_at timestamptz not null default now()
+      )
+    `);
+    await db.query("insert into schema_migrations (name, checksum) values ($1, $2)", [
+      migrations[1].name,
+      migrations[1].checksum,
+    ]);
+
+    await expect(runLedgerBackedMigrations(database, migrations)).rejects.toThrow(
+      /Migration ledger drift: expected applied migration 0000_create_probe\.sql at position 1, found 0001_insert_probe\.sql/,
+    );
+
+    await db.close();
+  });
+
+  test("fails clearly when the ledger contains an unknown migration", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const database = createPgliteMigrationDatabase(db);
+    const migrations = [
+      createMigrationFile("0000_create_probe.sql", "create table migration_probe (id text);"),
+    ];
+
+    await db.exec(`
+      create table schema_migrations (
+        name text primary key,
+        checksum text not null,
+        applied_at timestamptz not null default now()
+      )
+    `);
+    await db.query("insert into schema_migrations (name, checksum) values ($1, $2)", [
+      "9999_unknown.sql",
+      checksumMigrationSql("select 1;"),
+    ]);
+
+    await expect(runLedgerBackedMigrations(database, migrations)).rejects.toThrow(
+      /Migration ledger drift: schema_migrations contains unknown migration 9999_unknown\.sql/,
+    );
 
     await db.close();
   });
@@ -197,6 +383,8 @@ describe("Step 3 database migration", () => {
       refreshJobs,
       publicEvidenceBundles,
       publicPages,
+      publicPageFacts,
+      publicEvidenceBundleEvidence,
       agentReadableSnapshots,
       llmRuns,
       llmToolCalls,
@@ -706,6 +894,549 @@ describe("Step 3 database migration", () => {
 
     await db.close();
   });
+
+  test("creates supporting indexes for foreign keys in hardening domains", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    await runInitialMigration(db);
+
+    const indexes = await db.query<{ indexname: string }>(
+      `
+        select indexname
+        from pg_indexes
+        where schemaname = 'public'
+          and indexname = any($1::text[])
+        order by indexname
+      `,
+      [hardeningSupportingIndexNames],
+    );
+
+    expect(indexes.rows.map((row) => row.indexname)).toEqual(
+      hardeningSupportingIndexNames.toSorted(),
+    );
+
+    await db.close();
+  });
+
+  test("creates hot-path indexes for read-heavy application queries", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    await runInitialMigration(db);
+
+    const indexes = await db.query<{ indexname: string }>(
+      `
+        select indexname
+        from pg_indexes
+        where schemaname = 'public'
+          and indexname = any($1::text[])
+        order by indexname
+      `,
+      [hotPathIndexNames],
+    );
+
+    expect(indexes.rows.map((row) => row.indexname)).toEqual(hotPathIndexNames.toSorted());
+
+    await db.close();
+  });
+
+  test("keeps the hot-path index migration non-destructive", async () => {
+    const hotPathMigrationPath = (await getMigrationPaths()).find(
+      (migrationPath) => path.basename(migrationPath) === "0004_hot_path_indexes.sql",
+    );
+
+    expect(hotPathMigrationPath).toBeDefined();
+
+    const migrationSql = await readFile(requiredString(hotPathMigrationPath), "utf8");
+
+    expect(migrationSql).not.toMatch(destructiveHotPathMigrationPattern);
+  });
+
+  test("creates normalized public-page relationship tables with constraints and indexes", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    await runInitialMigration(db);
+
+    const relationshipTableNames = ["public_page_facts", "public_evidence_bundle_evidence"];
+    const columns = await db.query<{
+      table_name: string;
+      column_name: string;
+      data_type: string;
+      is_nullable: "YES" | "NO";
+    }>(
+      `
+        select table_name, column_name, data_type, is_nullable
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = any($1::text[])
+        order by table_name, ordinal_position
+      `,
+      [relationshipTableNames],
+    );
+    const columnsByTable = groupRows(columns.rows, (row) => row.table_name);
+
+    expect(
+      columnsByTable.public_page_facts?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+      ]),
+    ).toEqual([
+      ["public_page_id", "text", "NO"],
+      ["fact_id", "text", "NO"],
+      ["position", "integer", "NO"],
+    ]);
+    expect(
+      columnsByTable.public_evidence_bundle_evidence?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+      ]),
+    ).toEqual([
+      ["evidence_bundle_id", "text", "NO"],
+      ["evidence_id", "text", "NO"],
+      ["position", "integer", "NO"],
+    ]);
+
+    const relationshipKeys = await db.query<{
+      table_name: string;
+      constraint_name: string;
+      constraint_type: string;
+      column_name: string;
+    }>(
+      `
+        select
+          tc.table_name,
+          tc.constraint_name,
+          tc.constraint_type,
+          kcu.column_name
+        from information_schema.table_constraints tc
+        join information_schema.key_column_usage kcu
+          on tc.constraint_name = kcu.constraint_name
+          and tc.table_schema = kcu.table_schema
+        where tc.table_schema = 'public'
+          and tc.table_name = any($1::text[])
+          and tc.constraint_type in ('PRIMARY KEY', 'UNIQUE')
+        order by tc.table_name, tc.constraint_name, kcu.ordinal_position
+      `,
+      [relationshipTableNames],
+    );
+
+    expect(
+      relationshipKeys.rows.map((row) => [
+        row.table_name,
+        row.constraint_name,
+        row.constraint_type,
+        row.column_name,
+      ]),
+    ).toEqual([
+      [
+        "public_evidence_bundle_evidence",
+        "public_evidence_bundle_evidence_bundle_position_key",
+        "UNIQUE",
+        "evidence_bundle_id",
+      ],
+      [
+        "public_evidence_bundle_evidence",
+        "public_evidence_bundle_evidence_bundle_position_key",
+        "UNIQUE",
+        "position",
+      ],
+      [
+        "public_evidence_bundle_evidence",
+        "public_evidence_bundle_evidence_pkey",
+        "PRIMARY KEY",
+        "evidence_bundle_id",
+      ],
+      [
+        "public_evidence_bundle_evidence",
+        "public_evidence_bundle_evidence_pkey",
+        "PRIMARY KEY",
+        "evidence_id",
+      ],
+      ["public_page_facts", "public_page_facts_pkey", "PRIMARY KEY", "public_page_id"],
+      ["public_page_facts", "public_page_facts_pkey", "PRIMARY KEY", "fact_id"],
+      [
+        "public_page_facts",
+        "public_page_facts_public_page_position_key",
+        "UNIQUE",
+        "public_page_id",
+      ],
+      ["public_page_facts", "public_page_facts_public_page_position_key", "UNIQUE", "position"],
+    ]);
+
+    const relationshipForeignKeys = await db.query<{
+      table_name: string;
+      constraint_name: string;
+      column_name: string;
+      foreign_table_name: string;
+      delete_rule: string;
+    }>(
+      `
+        select
+          tc.table_name,
+          tc.constraint_name,
+          kcu.column_name,
+          ccu.table_name as foreign_table_name,
+          rc.delete_rule
+        from information_schema.table_constraints tc
+        join information_schema.key_column_usage kcu
+          on tc.constraint_name = kcu.constraint_name
+          and tc.table_schema = kcu.table_schema
+        join information_schema.constraint_column_usage ccu
+          on tc.constraint_name = ccu.constraint_name
+          and tc.table_schema = ccu.table_schema
+        join information_schema.referential_constraints rc
+          on tc.constraint_name = rc.constraint_name
+          and tc.table_schema = rc.constraint_schema
+        where tc.table_schema = 'public'
+          and tc.table_name = any($1::text[])
+          and tc.constraint_type = 'FOREIGN KEY'
+        order by tc.table_name, tc.constraint_name
+      `,
+      [relationshipTableNames],
+    );
+
+    expect(
+      relationshipForeignKeys.rows.map((row) => [
+        row.table_name,
+        row.constraint_name,
+        row.column_name,
+        row.foreign_table_name,
+        row.delete_rule,
+      ]),
+    ).toEqual([
+      [
+        "public_evidence_bundle_evidence",
+        "public_evidence_bundle_evidence_bundle_id_fkey",
+        "evidence_bundle_id",
+        "public_evidence_bundles",
+        "CASCADE",
+      ],
+      [
+        "public_evidence_bundle_evidence",
+        "public_evidence_bundle_evidence_evidence_id_fkey",
+        "evidence_id",
+        "evidence",
+        "RESTRICT",
+      ],
+      ["public_page_facts", "public_page_facts_fact_id_fkey", "fact_id", "facts", "RESTRICT"],
+      [
+        "public_page_facts",
+        "public_page_facts_public_page_id_fkey",
+        "public_page_id",
+        "public_pages",
+        "CASCADE",
+      ],
+    ]);
+
+    const indexes = await db.query<{ indexname: string }>(
+      `
+        select indexname
+        from pg_indexes
+        where schemaname = 'public'
+          and indexname = any($1::text[])
+        order by indexname
+      `,
+      [publicPageRelationshipIndexNames],
+    );
+
+    expect(indexes.rows.map((row) => row.indexname)).toEqual(
+      publicPageRelationshipIndexNames.toSorted(),
+    );
+
+    const checks = await db.query<{ conname: string }>(
+      `
+        select conname
+        from pg_constraint
+        where contype = 'c'
+          and conname = any($1::text[])
+        order by conname
+      `,
+      [publicPageRelationshipCheckConstraintNames],
+    );
+
+    expect(checks.rows.map((row) => row.conname)).toEqual(
+      publicPageRelationshipCheckConstraintNames.toSorted(),
+    );
+
+    await db.close();
+  });
+
+  test("backfills normalized public-page relationships from legacy JSON arrays in order", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const migrationFiles = await loadMigrationFiles();
+    const relationshipMigrationName = "0005_public_page_relationships.sql";
+    const setupMigrations = migrationFiles.filter(
+      (migrationFile) => migrationFile.name !== relationshipMigrationName,
+    );
+
+    await runLedgerBackedMigrations(createPgliteMigrationDatabase(db), setupMigrations);
+    await insertLegacyPublicRelationshipBackfillFixture(db);
+    await runLedgerBackedMigrations(createPgliteMigrationDatabase(db), migrationFiles);
+
+    const pageFacts = await db.query<{ fact_id: string; position: number }>(
+      `
+        select fact_id, position
+        from public_page_facts
+        where public_page_id = 'page_backfill_relationships'
+        order by position
+      `,
+    );
+    const bundleEvidence = await db.query<{ evidence_id: string; position: number }>(
+      `
+        select evidence_id, position
+        from public_evidence_bundle_evidence
+        where evidence_bundle_id = 'bundle_backfill_relationships'
+        order by position
+      `,
+    );
+
+    expect(pageFacts.rows).toEqual([
+      { fact_id: "fact_backfill_second", position: 0 },
+      { fact_id: "fact_backfill_first", position: 1 },
+    ]);
+    expect(bundleEvidence.rows).toEqual([
+      { evidence_id: "ev_backfill_second", position: 0 },
+      { evidence_id: "ev_backfill_first", position: 1 },
+    ]);
+
+    await db.close();
+  });
+
+  test("creates high-risk check constraints for hardening domains", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    await runInitialMigration(db);
+
+    const constraints = await db.query<{ conname: string }>(
+      `
+        select conname
+        from pg_constraint
+        where contype = 'c'
+          and conname = any($1::text[])
+        order by conname
+      `,
+      [hardeningCheckConstraintNames],
+    );
+
+    expect(constraints.rows.map((row) => row.conname)).toEqual(
+      hardeningCheckConstraintNames.toSorted(),
+    );
+
+    await db.close();
+  });
+
+  test("rejects representative invalid enum range counter and timestamp values", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    await runInitialMigration(db);
+
+    await db.query("insert into users (id, email) values ($1, $2)", [
+      "user_constraints",
+      "constraints@example.com",
+    ]);
+    await db.query("insert into chat_threads (id, user_id, status) values ($1, $2, $3)", [
+      "thread_constraints",
+      "user_constraints",
+      "active",
+    ]);
+    await db.query(
+      `
+        insert into trip_passes (id, status, starts_at, expires_at)
+        values ($1, $2, $3, $4)
+      `,
+      ["pass_constraints", "active", "2026-07-03T00:00:00.000Z", "2026-07-04T00:00:00.000Z"],
+    );
+    await db.query(
+      `
+        insert into audit_requests (id, status, price_usd)
+        values ($1, $2, $3)
+      `,
+      ["audit_constraints", "created", "9.99"],
+    );
+    await db.query(
+      `
+        insert into providers (id, slug, name, provider_type)
+        values ($1, $2, $3, $4)
+      `,
+      ["provider_constraints", "provider-constraints", "Provider Constraints", "weather_api"],
+    );
+    await db.query("insert into google_places (place_id) values ($1)", ["place_constraints"]);
+
+    await expectCheckViolation(
+      db.query(
+        `
+          insert into chat_messages (id, thread_id, user_id, role, content, status)
+          values ($1, $2, $3, $4, $5, $6)
+        `,
+        [
+          "message_invalid_role",
+          "thread_constraints",
+          "user_constraints",
+          "system",
+          "invalid role",
+          "complete",
+        ],
+      ),
+      "chat_messages_role_check",
+    );
+    await expectCheckViolation(
+      db.query(
+        `
+          insert into source_profiles (
+            id,
+            source_name,
+            source_type,
+            access_method,
+            allowed_use,
+            freshness_window_days,
+            authority_level
+          )
+          values ($1, $2, $3, $4, $5, $6, $7)
+        `,
+        ["source_invalid_allowed_use", "Invalid source", "official", "api", "public_copy", 1, 3],
+      ),
+      "source_profiles_allowed_use_check",
+    );
+    await expectCheckViolation(
+      db.query(
+        `
+          insert into google_place_details (
+            place_id,
+            rating,
+            user_rating_count,
+            fetched_at,
+            stale_at,
+            retention_expires_at
+          )
+          values ($1, $2, $3, $4, $5, $6)
+        `,
+        [
+          "place_constraints",
+          "6",
+          1,
+          "2026-07-03T00:00:00.000Z",
+          "2026-07-04T00:00:00.000Z",
+          "2026-08-03T00:00:00.000Z",
+        ],
+      ),
+      "google_place_details_rating_check",
+    );
+    await expectCheckViolation(
+      db.query(
+        `
+          insert into trip_passes (id, status, starts_at, expires_at)
+          values ($1, $2, $3, $4)
+        `,
+        ["pass_invalid_order", "active", "2026-07-04T00:00:00.000Z", "2026-07-03T00:00:00.000Z"],
+      ),
+      "trip_passes_timestamp_order_check",
+    );
+    await expectCheckViolation(
+      db.query(
+        `
+          insert into trip_usage_meters (id, trip_pass_id, meter_type, used, "limit")
+          values ($1, $2, $3, $4, $5)
+        `,
+        ["meter_invalid_counter", "pass_constraints", "chat_message", -1, 10],
+      ),
+      "trip_usage_meters_counter_check",
+    );
+    await expectCheckViolation(
+      db.query(
+        `
+          insert into payments (id, audit_request_id, amount_usd, status)
+          values ($1, $2, $3, $4)
+        `,
+        ["payment_invalid_status", "audit_constraints", "9.99", "settled"],
+      ),
+      "payments_status_check",
+    );
+    await expectCheckViolation(
+      db.query(
+        `
+          insert into audit_inputs (id, audit_request_id, start_date, end_date, top_constraint)
+          values ($1, $2, $3, $4, $5)
+        `,
+        ["audit_input_invalid_dates", "audit_constraints", "2026-08-02", "2026-08-01", "budget"],
+      ),
+      "audit_inputs_date_order_check",
+    );
+    await expectCheckViolation(
+      db.query(
+        `
+          insert into refresh_jobs (id, refresh_reason, priority, scheduled_at)
+          values ($1, $2, $3, $4)
+        `,
+        ["refresh_invalid_priority", "scheduled_weather_forecast_refresh", -1, "2026-07-03"],
+      ),
+      "refresh_jobs_priority_check",
+    );
+    await expectCheckViolation(
+      db.query(
+        `
+          insert into public_pages (
+            id,
+            slug,
+            page_type,
+            canonical_url,
+            human_path,
+            llm_markdown_path,
+            json_api_path,
+            confidence_label,
+            public_visibility,
+            indexing_status
+          )
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        `,
+        [
+          "public_page_invalid_visibility",
+          "invalid-visibility",
+          "areas",
+          "https://siargao.test/areas/invalid-visibility",
+          "/areas/invalid-visibility",
+          "/areas/invalid-visibility.md",
+          "/api/public/areas/invalid-visibility",
+          "medium",
+          "private",
+          "index",
+        ],
+      ),
+      "public_pages_public_visibility_check",
+    );
+    await expectCheckViolation(
+      db.query(
+        `
+          insert into llm_runs (id, run_type, model_family, input_redaction_version, output_schema_version, status, started_at, completed_at)
+          values ($1, $2, $3, $4, $5, $6, $7, $8)
+        `,
+        [
+          "llm_invalid_order",
+          "report_generation",
+          "gpt",
+          "v1",
+          "v1",
+          "completed",
+          "2026-07-04T00:00:00.000Z",
+          "2026-07-03T00:00:00.000Z",
+        ],
+      ),
+      "llm_runs_timestamp_order_check",
+    );
+    await expectCheckViolation(
+      db.query(
+        `
+          insert into provider_health_checks (id, provider_id, status, latency_ms)
+          values ($1, $2, $3, $4)
+        `,
+        ["provider_health_invalid_latency", "provider_constraints", "ok", -1],
+      ),
+      "provider_health_checks_latency_ms_check",
+    );
+
+    await db.close();
+  });
 });
 
 const authTableNames = [
@@ -721,6 +1452,159 @@ const tripTableNames = [
   "shared_trip_plans",
   "trip_passes",
   "trip_usage_meters",
+];
+const hardeningSupportingIndexNames = [
+  "agent_readable_snapshots_public_page_id_idx",
+  "audit_completeness_checks_audit_request_id_idx",
+  "audit_inputs_accommodation_entity_id_idx",
+  "audit_inputs_arrival_route_id_idx",
+  "audit_inputs_audit_request_id_idx",
+  "audit_inputs_stay_area_id_idx",
+  "audit_reports_audit_request_id_idx",
+  "audit_reports_audit_run_id_idx",
+  "audit_requests_user_id_idx",
+  "audit_runs_audit_request_id_idx",
+  "candidate_entities_source_profile_id_idx",
+  "candidate_entities_source_record_id_idx",
+  "chat_response_ratings_message_id_idx",
+  "entities_area_id_idx",
+  "entity_matches_candidate_entity_id_idx",
+  "entity_matches_entity_id_idx",
+  "evidence_fact_id_idx",
+  "evidence_source_record_id_idx",
+  "fact_confidence_scores_fact_id_idx",
+  "fact_conflicts_conflicting_fact_id_idx",
+  "fact_conflicts_primary_fact_id_idx",
+  "facts_entity_id_idx",
+  "facts_source_profile_id_idx",
+  "facts_source_record_id_idx",
+  "google_place_snapshots_source_record_id_idx",
+  "google_places_canonical_entity_id_idx",
+  "google_places_latest_source_record_id_idx",
+  "llm_runs_audit_run_id_idx",
+  "llm_tool_calls_llm_run_id_idx",
+  "payment_events_audit_request_id_idx",
+  "payments_audit_request_id_idx",
+  "provider_health_checks_provider_id_idx",
+  "public_page_generation_jobs_public_page_id_idx",
+  "public_pages_entity_id_idx",
+  "public_pages_evidence_bundle_id_idx",
+  "raw_snapshots_source_profile_id_idx",
+  "refresh_jobs_entity_id_idx",
+  "refresh_jobs_fact_id_idx",
+  "refresh_jobs_source_profile_id_idx",
+  "reviewer_results_audit_run_id_idx",
+  "reviewer_results_llm_run_id_idx",
+  "reviews_entity_id_idx",
+  "reviews_source_record_id_idx",
+  "source_credibility_scores_source_profile_id_idx",
+  "source_permissions_source_profile_id_idx",
+  "source_profiles_provider_id_idx",
+  "source_records_raw_snapshot_id_idx",
+  "source_records_source_profile_id_idx",
+];
+const hotPathIndexNames = [
+  "chat_messages_thread_user_created_id_idx",
+  "chat_threads_user_active_recent_idx",
+  "evidence_public_fact_created_idx",
+  "facts_public_republish_freshness_idx",
+  "google_place_snapshots_chat_cache_freshness_idx",
+  "saved_trip_items_active_id_trip_idx",
+  "saved_trip_items_active_trip_created_id_idx",
+  "saved_trips_user_recent_idx",
+];
+const publicPageRelationshipIndexNames = [
+  "public_evidence_bundle_evidence_bundle_position_key",
+  "public_evidence_bundle_evidence_evidence_id_idx",
+  "public_evidence_bundle_evidence_ordered_bundle_idx",
+  "public_evidence_bundle_evidence_pkey",
+  "public_page_facts_fact_id_idx",
+  "public_page_facts_ordered_page_idx",
+  "public_page_facts_pkey",
+  "public_page_facts_public_page_position_key",
+];
+const publicPageRelationshipCheckConstraintNames = [
+  "public_evidence_bundle_evidence_position_check",
+  "public_page_facts_position_check",
+];
+const hardeningCheckConstraintNames = [
+  "agent_readable_snapshots_format_check",
+  "areas_latitude_check",
+  "areas_longitude_check",
+  "audit_inputs_date_order_check",
+  "audit_reports_confidence_label_check",
+  "audit_reports_overall_risk_check",
+  "audit_requests_price_usd_check",
+  "audit_requests_status_check",
+  "audit_runs_state_check",
+  "audit_runs_timestamp_order_check",
+  "candidate_entities_discovery_confidence_check",
+  "chat_messages_role_check",
+  "chat_messages_status_check",
+  "chat_response_ratings_rating_check",
+  "chat_threads_status_check",
+  "entities_confidence_label_check",
+  "entities_public_visibility_check",
+  "entity_matches_match_score_check",
+  "entity_matches_match_status_check",
+  "evidence_allowed_use_check",
+  "fact_confidence_scores_label_check",
+  "fact_confidence_scores_score_check",
+  "fact_conflicts_resolution_status_check",
+  "facts_confidence_label_check",
+  "facts_source_authority_check",
+  "facts_source_type_check",
+  "facts_timestamp_order_check",
+  "google_place_details_business_status_check",
+  "google_place_details_latitude_check",
+  "google_place_details_longitude_check",
+  "google_place_details_price_level_check",
+  "google_place_details_rating_check",
+  "google_place_details_timestamp_order_check",
+  "google_place_details_user_rating_count_check",
+  "google_place_reviews_rating_check",
+  "google_place_reviews_timestamp_order_check",
+  "google_place_snapshots_request_kind_check",
+  "google_place_snapshots_storage_policy_check",
+  "google_place_snapshots_timestamp_order_check",
+  "google_places_seen_order_check",
+  "llm_runs_status_check",
+  "llm_runs_timestamp_order_check",
+  "payments_amount_usd_check",
+  "payments_status_check",
+  "provider_health_checks_latency_ms_check",
+  "provider_health_checks_status_check",
+  "providers_provider_type_check",
+  "public_evidence_bundles_allowed_use_check",
+  "public_page_generation_jobs_status_check",
+  "public_page_generation_jobs_timestamp_order_check",
+  "public_pages_confidence_label_check",
+  "public_pages_indexing_status_check",
+  "public_pages_page_type_check",
+  "public_pages_public_visibility_check",
+  "raw_snapshots_allowed_use_check",
+  "raw_snapshots_retention_order_check",
+  "refresh_jobs_attempt_count_check",
+  "refresh_jobs_priority_check",
+  "refresh_jobs_result_status_check",
+  "reviewer_results_verdict_check",
+  "reviews_allowed_use_check",
+  "reviews_rating_check",
+  "reviews_review_count_check",
+  "source_credibility_scores_label_check",
+  "source_credibility_scores_score_check",
+  "source_permissions_allowed_use_check",
+  "source_profiles_allowed_use_check",
+  "source_profiles_authority_level_check",
+  "source_profiles_freshness_window_days_check",
+  "source_profiles_known_ai_or_seo_content_risk_check",
+  "source_profiles_known_stale_risk_check",
+  "source_profiles_source_type_check",
+  "source_records_allowed_use_check",
+  "trip_passes_status_check",
+  "trip_passes_timestamp_order_check",
+  "trip_usage_meters_counter_check",
+  "trip_usage_meters_meter_type_check",
 ];
 
 function groupRows<T extends Record<string, unknown>, Key extends keyof T>(
@@ -739,4 +1623,208 @@ function groupColumnNames(rows: readonly { table_name: string; column_name: stri
     groups[row.table_name] = [...(groups[row.table_name] ?? []), row.column_name];
     return groups;
   }, {});
+}
+
+function createMigrationFile(name: string, sql: string): MigrationFile {
+  return {
+    name,
+    path: `/virtual/drizzle/${name}`,
+    sql,
+    checksum: checksumMigrationSql(sql),
+  };
+}
+
+function requiredString(value: string | undefined): string {
+  if (value === undefined) {
+    throw new Error("Expected string to be defined.");
+  }
+
+  return value;
+}
+
+async function expectCheckViolation(promise: Promise<unknown>, constraintName: string) {
+  await expect(promise).rejects.toThrow(new RegExp(constraintName));
+}
+
+async function insertLegacyPublicRelationshipBackfillFixture(db: PGlite) {
+  await db.query(
+    `
+      insert into entities (id, slug, entity_type, name, public_visibility, confidence_label)
+      values (
+        'entity_backfill_relationships',
+        'backfill-relationships',
+        'risk',
+        'Backfill Relationships',
+        'eligible',
+        'high'
+      )
+    `,
+  );
+  await db.query(
+    `
+      insert into source_profiles (
+        id,
+        source_name,
+        source_type,
+        access_method,
+        allowed_use,
+        freshness_window_days,
+        authority_level
+      )
+      values (
+        'source_backfill_relationships',
+        'Backfill source',
+        'official',
+        'official_page',
+        'public_republish',
+        30,
+        4
+      )
+    `,
+  );
+  await db.query(
+    `
+      insert into facts (
+        id,
+        entity_id,
+        claim,
+        fact_type,
+        source_type,
+        source_profile_id,
+        fetched_at,
+        confidence_label,
+        source_authority,
+        public_republish_allowed,
+        audit_use_allowed,
+        raw_evidence_allowed
+      )
+      values
+        (
+          'fact_backfill_first',
+          'entity_backfill_relationships',
+          'First legacy fact.',
+          'risk_preview',
+          'official',
+          'source_backfill_relationships',
+          '2026-06-22T00:00:00.000Z',
+          'high',
+          4,
+          true,
+          true,
+          false
+        ),
+        (
+          'fact_backfill_second',
+          'entity_backfill_relationships',
+          'Second legacy fact.',
+          'risk_preview',
+          'official',
+          'source_backfill_relationships',
+          '2026-06-22T00:00:00.000Z',
+          'high',
+          4,
+          true,
+          true,
+          false
+        )
+    `,
+  );
+  await db.query(
+    `
+      insert into evidence (
+        id,
+        fact_id,
+        label,
+        allowed_use,
+        public_republish_allowed
+      )
+      values
+        (
+          'ev_backfill_first',
+          'fact_backfill_first',
+          'First evidence',
+          'public_republish',
+          true
+        ),
+        (
+          'ev_backfill_second',
+          'fact_backfill_second',
+          'Second evidence',
+          'public_republish',
+          true
+        )
+    `,
+  );
+  await db.query(
+    `
+      insert into public_evidence_bundles (id, slug, evidence_ids, summary, allowed_use)
+      values (
+        'bundle_backfill_relationships',
+        'risks-backfill-relationships',
+        '["ev_backfill_second", "ev_backfill_first", "ev_backfill_second"]'::jsonb,
+        'Backfill relationship bundle.',
+        'public_republish'
+      )
+    `,
+  );
+  await db.query(
+    `
+      insert into public_pages (
+        id,
+        slug,
+        page_type,
+        entity_id,
+        canonical_url,
+        human_path,
+        llm_markdown_path,
+        json_api_path,
+        evidence_bundle_id,
+        confidence_label,
+        public_visibility,
+        indexing_status,
+        generation_source_fact_ids
+      )
+      values (
+        'page_backfill_relationships',
+        'backfill-relationships',
+        'risks',
+        'entity_backfill_relationships',
+        'https://siargao.example/risks/backfill-relationships',
+        '/risks/backfill-relationships',
+        '/risks/backfill-relationships/llm.md',
+        '/api/public/risks/backfill-relationships.json',
+        'bundle_backfill_relationships',
+        'high',
+        'eligible',
+        'index',
+        '["fact_backfill_second", "fact_backfill_first", "fact_backfill_second"]'::jsonb
+      )
+    `,
+  );
+}
+
+const destructiveHotPathMigrationPattern =
+  /\bdrop\s+index\b|\bdrop\s+constraint\b|\bdrop\s+table\b|\bdrop\s+column\b|\balter\s+table\b[^;]*\bdrop\b/iu;
+
+const savedTripItemsPrimaryKeyRewritePattern =
+  /ALTER TABLE saved_trip_items DROP CONSTRAINT IF EXISTS saved_trip_items_pkey;\s*ALTER TABLE saved_trip_items ADD PRIMARY KEY \(trip_id, id\);/;
+
+function guardSavedTripItemsPrimaryKeyRewrite(database: MigrationDatabase): MigrationDatabase {
+  return {
+    query: database.query,
+    async execute(statement: string) {
+      if (savedTripItemsPrimaryKeyRewritePattern.test(statement)) {
+        throw new Error(
+          "The saved_trip_items primary-key rewrite ran after bootstrap was already applied.",
+        );
+      }
+
+      await database.execute(statement);
+    },
+    async transaction<T>(callback: (transactionDatabase: MigrationDatabase) => Promise<T>) {
+      return database.transaction((transactionDatabase) =>
+        callback(guardSavedTripItemsPrimaryKeyRewrite(transactionDatabase)),
+      );
+    },
+  };
 }

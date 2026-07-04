@@ -10,7 +10,7 @@ The codebase already has these pieces:
 
 - Drizzle schema definitions in `src/server/db/schema.ts`.
 - An initial SQL migration at `drizzle/0000_initial_schema.sql`.
-- Test migration and seed scripts that use PGlite, not external Postgres.
+- Ledger-backed migration and seed scripts for both local Postgres and PGlite tests.
 - Siargao taxonomy in `src/server/audit/destinations/siargao/taxonomy.ts`.
 - Source governance primitives in `src/server/providers/source-registry.ts`.
 - Seed source profiles for official transport, Open-Meteo, and user-submitted evidence.
@@ -91,20 +91,20 @@ The schema already defines the core fact-graph tables:
 - `public_evidence_bundles`
 - `agent_readable_snapshots`
 
-The current test command applies `drizzle/0000_initial_schema.sql` to PGlite:
+The test migration command applies unapplied SQL files to PGlite through the same
+`schema_migrations` ledger used by local Postgres:
 
 ```sh
 bun run db:migrate:test
 ```
 
-For Compose Postgres, add a production/local migration command that applies migrations to `DATABASE_URL`. The command should be separate from the PGlite test command so local integration and fast tests stay independent.
+For Compose Postgres, use the production/local migration command against `DATABASE_URL`:
 
-Implementation task:
-
-- Add a migration script such as `src/server/db/migrate.ts` that reads `DATABASE_URL`.
-- Add a package script such as `db:migrate`.
-- Apply the same migration files that tests apply, rather than maintaining a second schema path.
-- Fail fast when `DATABASE_URL` is missing.
+The migration runner creates `schema_migrations` if needed, stores migration filename, checksum, and
+applied timestamp, and skips matching rows on repeat runs. It fails clearly if an applied migration
+checksum changes, if the ledger contains an unknown file, or if ledger order no longer matches the
+ordered migration files. The Postgres command also serializes execution with a deterministic
+advisory lock and releases that lock after success or failure.
 
 Verification:
 
@@ -116,9 +116,18 @@ Then inspect tables using a Postgres client.
 
 ```sh
 psql "$DATABASE_URL" -c "\dt"
+psql "$DATABASE_URL" -c "select name, applied_at from schema_migrations order by applied_at, name;"
 ```
 
-Expected result: the core fact-graph and audit tables exist in Compose Postgres.
+Expected result: the core fact-graph and audit tables exist in Compose Postgres, and
+`schema_migrations` lists each applied migration once. Re-running `bun run db:migrate` should report
+the same migration names as skipped instead of re-executing historical SQL.
+
+Do not casually edit SQL files that may already be recorded in `schema_migrations`. The ledger stores
+the checksum of each applied file; changing a historical migration creates a checksum mismatch for
+existing databases and can change bootstrap behavior for fresh databases. Add a new numbered
+migration for schema changes, and treat any intentional ledger/checksum repair as an operator action
+that needs backups and an explicit review of `schema_migrations`.
 
 ## Step 3: Seed Siargao Geography And Taxonomy
 
@@ -313,6 +322,9 @@ Cloud setup requirements:
 - Separate credentials for app runtime and migrations if the provider supports it.
 - No test or demo secrets in production env vars.
 
+For the production provisioning, monitoring, maintenance, backup, and restore checklist, use
+[Operate the production database](operate-the-production-database.md).
+
 Do not migrate cloud first. Cloud should receive a schema that already survived local ingestion and audit-gate validation.
 
 ## Step 8: Run Migrations Against Cloud And Promote The Pipeline
@@ -372,6 +384,8 @@ bun run stack:down:volumes
 ```
 
 For cloud Postgres, do not reset or drop data as a normal development tactic. Use migrations, backups, and environment-specific databases.
+For backup targets, point-in-time recovery expectations, and restore drill validation queries, use
+[Operate the production database](operate-the-production-database.md).
 
 ## Done Criteria
 

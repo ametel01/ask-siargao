@@ -1,5 +1,7 @@
 import postgres from "postgres";
 
+import { createPostgresConnectionOptions } from "@/server/db/connection-options";
+
 export type QueryResult<T> = { rows: T[] };
 
 export type DatabaseQueryClient = {
@@ -18,7 +20,7 @@ function createDatabaseQueryClient(databaseUrl = process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL is required to create a database query client.");
   }
 
-  const sql = postgres(databaseUrl, { prepare: false });
+  const sql = postgres(databaseUrl, createPostgresConnectionOptions("app"));
   return createPostgresQueryClient(sql);
 }
 

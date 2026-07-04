@@ -1,5 +1,6 @@
 import postgres from "postgres";
 
+import { createPostgresConnectionOptions } from "@/server/db/connection-options";
 import {
   createGooglePlacesDiscoveryObservations,
   discoverGooglePlacesAccommodationIds,
@@ -29,7 +30,7 @@ if (!databaseUrl) {
   throw new Error("DATABASE_URL is required to persist Google Places discovery candidates.");
 }
 
-const sql = postgres(databaseUrl, { max: 1, prepare: false });
+const sql = postgres(databaseUrl, createPostgresConnectionOptions("cli"));
 
 try {
   await sql.begin(async (tx) => {

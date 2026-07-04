@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
 
+import { runInitialMigration } from "@/server/db/test-database";
 import { createDefaultSourceRegistry } from "@/server/providers/adapters";
 import {
   buildOpenMeteoForecastUrl,
@@ -7,6 +9,7 @@ import {
   parseOpenMeteoForecastResponse,
   summarizeOpenMeteoForecast,
 } from "@/server/providers/open-meteo";
+import { upsertProviderFactGraphBatch } from "@/server/providers/provider-write-batches";
 import { SourceRegistry } from "@/server/providers/source-registry";
 
 const fixture = {
@@ -149,4 +152,167 @@ describe("Open-Meteo adapter", () => {
       }),
     ).toThrow("No explicit source profile is registered for source_open_meteo");
   });
+
+  test("persists weather fact graph batches inside the caller transaction", async () => {
+    const db = await openOpenMeteoStoreTestDatabase();
+    const countedDb = countQueries(db);
+    const batch = createOpenMeteoIngestionBatch({
+      fetchedAt: "2026-06-24T04:00:00.000Z",
+      payload: fixture,
+      requestUrl: "https://api.open-meteo.com/v1/forecast?example=true",
+    });
+
+    await db.exec("begin");
+    await upsertProviderFactGraphBatch(countedDb, batch);
+    await db.exec("commit");
+
+    const counts = await db.query<{
+      raw_snapshots: number;
+      source_records: number;
+      facts: number;
+      evidence: number;
+      fact_confidence_scores: number;
+      refresh_jobs: number;
+    }>(`
+      select
+        (select count(*)::int from raw_snapshots) as raw_snapshots,
+        (select count(*)::int from source_records) as source_records,
+        (select count(*)::int from facts) as facts,
+        (select count(*)::int from evidence) as evidence,
+        (select count(*)::int from fact_confidence_scores) as fact_confidence_scores,
+        (select count(*)::int from refresh_jobs) as refresh_jobs
+    `);
+
+    expect(counts.rows[0]).toEqual({
+      raw_snapshots: 1,
+      source_records: 1,
+      facts: 4,
+      evidence: 4,
+      fact_confidence_scores: 4,
+      refresh_jobs: 1,
+    });
+    expect(countedDb.countInsertInto("facts")).toBe(1);
+    expect(countedDb.countInsertInto("evidence")).toBe(1);
+    expect(countedDb.countInsertInto("fact_confidence_scores")).toBe(1);
+    expect(countedDb.firstInsertIndex("facts")).toBeLessThan(
+      countedDb.firstInsertIndex("evidence"),
+    );
+    expect(countedDb.firstInsertIndex("facts")).toBeLessThan(
+      countedDb.firstInsertIndex("fact_confidence_scores"),
+    );
+
+    await db.close();
+  });
+
+  test("rolls back weather fact graph batches when a dependent score row fails", async () => {
+    const db = await openOpenMeteoStoreTestDatabase();
+    const batch = createOpenMeteoIngestionBatch({
+      fetchedAt: "2026-06-24T04:00:00.000Z",
+      payload: fixture,
+      requestUrl: "https://api.open-meteo.com/v1/forecast?example=true",
+    });
+
+    await db.exec("begin");
+    try {
+      await upsertProviderFactGraphBatch(db, {
+        ...batch,
+        factConfidenceScores: batch.factConfidenceScores.map((score, index) =>
+          index === 0 ? { ...score, factId: "missing_fact_for_score" } : score,
+        ),
+      });
+      await db.exec("commit");
+    } catch (error) {
+      await db.exec("rollback");
+      expect(error).toBeInstanceOf(Error);
+    }
+
+    const counts = await db.query<{
+      raw_snapshots: number;
+      source_records: number;
+      facts: number;
+      evidence: number;
+      fact_confidence_scores: number;
+    }>(`
+      select
+        (select count(*)::int from raw_snapshots) as raw_snapshots,
+        (select count(*)::int from source_records) as source_records,
+        (select count(*)::int from facts) as facts,
+        (select count(*)::int from evidence) as evidence,
+        (select count(*)::int from fact_confidence_scores) as fact_confidence_scores
+    `);
+
+    expect(counts.rows[0]).toEqual({
+      raw_snapshots: 0,
+      source_records: 0,
+      facts: 0,
+      evidence: 0,
+      fact_confidence_scores: 0,
+    });
+
+    await db.close();
+  });
 });
+
+async function openOpenMeteoStoreTestDatabase() {
+  const db = new PGlite();
+  await runInitialMigration(db);
+  await seedOpenMeteoProfiles(db);
+  return db;
+}
+
+async function seedOpenMeteoProfiles(db: PGlite) {
+  await db.query(`
+    insert into providers (id, slug, name, provider_type)
+    values ('provider_open_meteo', 'open-meteo', 'Open-Meteo', 'weather_api')
+    on conflict (id) do nothing
+  `);
+  await db.query(`
+    insert into source_profiles (
+      id,
+      provider_id,
+      source_name,
+      source_type,
+      access_method,
+      allowed_use,
+      freshness_window_days,
+      authority_level,
+      stores_raw_allowed,
+      publishes_raw_allowed
+    )
+    values (
+      'source_open_meteo',
+      'provider_open_meteo',
+      'Open-Meteo weather API profile',
+      'licensed_api',
+      'api',
+      'public_republish',
+      1,
+      4,
+      true,
+      true
+    )
+    on conflict (id) do nothing
+  `);
+}
+
+function countQueries(db: PGlite) {
+  const queries: string[] = [];
+
+  return {
+    queries,
+    async query<T>(query: string, params?: unknown[]) {
+      queries.push(query);
+      return db.query<T>(query, params);
+    },
+    countInsertInto(tableName: string) {
+      return queries.filter((query) =>
+        new RegExp(`insert\\s+into\\s+${tableName}`, "i").test(query),
+      ).length;
+    },
+    firstInsertIndex(tableName: string) {
+      return queries.findIndex((query) =>
+        new RegExp(`insert\\s+into\\s+${tableName}`, "i").test(query),
+      );
+    },
+  };
+}

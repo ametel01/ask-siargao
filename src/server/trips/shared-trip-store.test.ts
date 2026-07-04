@@ -87,6 +87,173 @@ describe("shared trip persistence store", () => {
     await db.close();
   });
 
+  test("batch upserts saved trip items in deterministic request order", async () => {
+    const db = await openSharedTripStoreTestDatabase();
+    const countedDb = countQueries(db);
+    const trip = await upsertSavedTrip(countedDb, {
+      id: "trip_batch_items",
+      clientTripKey: "browser-trip-key-batch-items",
+      title: "Batched plan",
+      now: "2026-06-28T01:00:00.000Z",
+    });
+
+    const items = await upsertSavedTripItems(countedDb, {
+      tripId: trip.id,
+      now: "2026-06-28T01:01:00.000Z",
+      items: [
+        savedTripItemFromItineraryPlan({
+          id: "itinerary_batch_rain",
+          plan: rainyPlan,
+          savedAt: "2026-06-28T01:01:00.000Z",
+          tripId: trip.id,
+        }),
+        savedTripItemFromRecommendationCard({
+          card: shakaCard,
+          sources: [placesSource],
+          savedAt: "2026-06-28T01:01:00.000Z",
+          tripId: trip.id,
+        }),
+      ],
+    });
+
+    expect(items.map((item) => item.id)).toEqual(["itinerary_batch_rain", "place_shaka"]);
+    expect(countedDb.countInsertInto("saved_trip_items")).toBe(1);
+
+    await db.close();
+  });
+
+  test("does not insert saved trip items for empty inputs", async () => {
+    const db = await openSharedTripStoreTestDatabase();
+    const countedDb = countQueries(db);
+    const trip = await upsertSavedTrip(countedDb, {
+      id: "trip_empty_items",
+      clientTripKey: "browser-trip-key-empty-items",
+      title: "Empty plan",
+      now: "2026-06-28T01:00:00.000Z",
+    });
+
+    await expect(
+      upsertSavedTripItems(countedDb, {
+        tripId: trip.id,
+        now: "2026-06-28T01:01:00.000Z",
+        items: [],
+      }),
+    ).resolves.toEqual([]);
+
+    expect(countedDb.countInsertInto("saved_trip_items")).toBe(0);
+
+    await db.close();
+  });
+
+  test("updates, undeletes, and deduplicates saved trip items with later entries winning", async () => {
+    const db = await openSharedTripStoreTestDatabase();
+    const countedDb = countQueries(db);
+    const trip = await upsertSavedTrip(countedDb, {
+      id: "trip_duplicate_items",
+      clientTripKey: "browser-trip-key-duplicate-items",
+      title: "Duplicate plan",
+      now: "2026-06-28T01:00:00.000Z",
+    });
+
+    await upsertSavedTripItems(countedDb, {
+      tripId: trip.id,
+      now: "2026-06-28T01:01:00.000Z",
+      items: [
+        savedTripItemFromRecommendationCard({
+          card: shakaCard,
+          sources: [placesSource],
+          savedAt: "2026-06-28T01:01:00.000Z",
+          tripId: trip.id,
+        }),
+      ],
+    });
+    await removeSavedTripItem(countedDb, {
+      tripId: trip.id,
+      itemId: "place_shaka",
+      now: "2026-06-28T01:02:00.000Z",
+    });
+
+    const upserted = await upsertSavedTripItems(countedDb, {
+      tripId: trip.id,
+      now: "2026-06-28T01:03:00.000Z",
+      items: [
+        savedTripItemFromRecommendationCard({
+          card: { ...shakaCard, subtitle: "Earlier duplicate subtitle" },
+          sources: [placesSource],
+          savedAt: "2026-06-28T01:01:00.000Z",
+          tripId: trip.id,
+        }),
+        savedTripItemFromRecommendationCard({
+          card: { ...shakaCard, subtitle: "Later duplicate subtitle" },
+          sources: [placesSource],
+          savedAt: "2026-06-28T01:01:00.000Z",
+          tripId: trip.id,
+        }),
+      ],
+    });
+    const activeItems = await listSavedTripItems(countedDb, { tripId: trip.id });
+
+    expect(upserted).toHaveLength(1);
+    expect(
+      upserted[0]?.payload.type === "recommendation_card" ? upserted[0].payload.card.subtitle : "",
+    ).toBe("Later duplicate subtitle");
+    expect(activeItems).toHaveLength(1);
+    expect(
+      activeItems[0]?.payload.type === "recommendation_card"
+        ? activeItems[0].payload.card.subtitle
+        : "",
+    ).toBe("Later duplicate subtitle");
+
+    await db.close();
+  });
+
+  test("does not partially insert saved trip items after validation or database errors", async () => {
+    const db = await openSharedTripStoreTestDatabase();
+    const countedDb = countQueries(db);
+    const trip = await upsertSavedTrip(countedDb, {
+      id: "trip_no_partial_items",
+      clientTripKey: "browser-trip-key-no-partial-items",
+      title: "No partial plan",
+      now: "2026-06-28T01:00:00.000Z",
+    });
+    const validItem = savedTripItemFromRecommendationCard({
+      card: shakaCard,
+      sources: [placesSource],
+      savedAt: "2026-06-28T01:01:00.000Z",
+      tripId: trip.id,
+    });
+
+    await expect(
+      upsertSavedTripItems(countedDb, {
+        tripId: trip.id,
+        now: "2026-06-28T01:01:00.000Z",
+        items: [validItem, { ...validItem, id: "invalid id with spaces" }],
+      }),
+    ).rejects.toThrow();
+    expect(await listSavedTripItems(countedDb, { tripId: trip.id })).toHaveLength(0);
+
+    await expect(
+      upsertSavedTripItems(countedDb, {
+        tripId: "missing_trip_id",
+        now: "2026-06-28T01:01:00.000Z",
+        items: [
+          { ...validItem, id: "valid_missing_trip_one" },
+          { ...validItem, id: "valid_missing_trip_two" },
+        ],
+      }),
+    ).rejects.toThrow();
+    const rows = await countedDb.query<{ count: number }>(
+      `
+        select count(*)::int as count
+        from saved_trip_items
+        where id in ('valid_missing_trip_one', 'valid_missing_trip_two')
+      `,
+    );
+    expect(rows.rows[0]?.count).toBe(0);
+
+    await db.close();
+  });
+
   test("migrates unowned browser trips but rejects owner conflicts", async () => {
     const db = await openSharedTripStoreTestDatabase();
     await insertUser(db, "user_trip_owner");
@@ -438,6 +605,23 @@ async function insertUser(db: PGlite, userId: string) {
     `,
     [userId, `${userId}@example.com`],
   );
+}
+
+function countQueries(db: PGlite) {
+  const queries: string[] = [];
+
+  return {
+    queries,
+    async query<T>(query: string, params?: unknown[]) {
+      queries.push(query);
+      return db.query<T>(query, params);
+    },
+    countInsertInto(tableName: string) {
+      return queries.filter((query) =>
+        new RegExp(`insert\\s+into\\s+${tableName}`, "i").test(query),
+      ).length;
+    },
+  };
 }
 
 const placesSource: AnswerSourceSummary = {

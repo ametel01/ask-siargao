@@ -12,6 +12,15 @@ import {
   type PublicPageFamily,
 } from "@/server/public-pages/public-content";
 
+type PublicCatalogListOptions = {
+  limit?: number;
+};
+
+export const PUBLIC_CATALOG_DEFAULT_PAGE_LIMIT = 500;
+export const PUBLIC_CATALOG_MAX_PAGE_LIMIT = 1_000;
+export const PUBLIC_CATALOG_FACTS_PER_PAGE_LIMIT = 100;
+export const PUBLIC_CATALOG_EVIDENCE_PER_BUNDLE_LIMIT = 100;
+
 const publicPageFamilies = new Set<PublicPageFamily>([
   "accommodations",
   "areas",
@@ -59,11 +68,11 @@ export function createDatabasePublicKnowledgeCatalog(input: {
       const page = pages[0];
       return page && evaluatePublicPageEligibility(page, null).eligible ? page : undefined;
     },
-    async listPages() {
-      return loadPublicKnowledgePages(input.client, now);
+    async listPages(options?: PublicCatalogListOptions) {
+      return loadPublicKnowledgePages(input.client, now, { limit: options?.limit });
     },
-    async listEligiblePages() {
-      const pages = await loadPublicKnowledgePages(input.client, now);
+    async listEligiblePages(options?: PublicCatalogListOptions) {
+      const pages = await loadPublicKnowledgePages(input.client, now, { limit: options?.limit });
       return pages.filter((page) => evaluatePublicPageEligibility(page, null).eligible);
     },
   };
@@ -116,12 +125,25 @@ type PublicCatalogRow = {
 async function loadPublicKnowledgePages(
   client: DatabaseQueryClient,
   now: Date,
-  lookup?: { family: PublicPageFamily; slug: string },
+  options: { family?: PublicPageFamily; slug?: string; limit?: number } = {},
 ) {
-  const whereClause = lookup ? "where p.page_type = $1 and p.slug = $2" : "";
-  const params = lookup ? [lookup.family, lookup.slug] : [];
+  const pageLimit = options.family
+    ? 1
+    : normalizeCatalogLimit(
+        options.limit,
+        PUBLIC_CATALOG_DEFAULT_PAGE_LIMIT,
+        PUBLIC_CATALOG_MAX_PAGE_LIMIT,
+      );
   const result = await client.query<PublicCatalogRow>(
     `
+      with selected_pages as (
+        select p.*
+        from public_pages p
+        where ($1::text is null or p.page_type = $1)
+          and ($2::text is null or p.slug = $2)
+        order by p.id
+        limit $3
+      )
       select
         p.id as public_page_id,
         p.slug,
@@ -136,10 +158,10 @@ async function loadPublicKnowledgePages(
         p.public_visibility,
         p.indexing_status,
         p.stale_fields,
-        p.generation_source_fact_ids,
+        resolved_page_facts.generation_source_fact_ids,
         b.id as evidence_bundle_id,
         b.slug as evidence_bundle_slug,
-        b.evidence_ids,
+        resolved_bundle_evidence.evidence_ids,
         b.summary as evidence_bundle_summary,
         b.allowed_use as evidence_bundle_allowed_use,
         b.created_at as evidence_bundle_created_at,
@@ -164,26 +186,133 @@ async function loadPublicKnowledgePages(
         ev.id as evidence_id,
         ev.allowed_use as evidence_allowed_use,
         ev.public_republish_allowed as evidence_public_republish_allowed
-      from public_pages p
+      from selected_pages p
       left join public_evidence_bundles b on b.id = p.evidence_bundle_id
       left join entities ent on ent.id = p.entity_id
-      left join facts f on f.id in (
-        select jsonb_array_elements_text(p.generation_source_fact_ids)
-      )
+      left join lateral (
+        select coalesce(
+          (
+            select jsonb_agg(limited_page_facts.fact_id order by limited_page_facts.position, limited_page_facts.fact_id)
+            from (
+              select ppf.fact_id, ppf.position
+              from public_page_facts ppf
+              where ppf.public_page_id = p.id
+              order by ppf.position, ppf.fact_id
+              limit $4
+            ) limited_page_facts
+          ),
+          (
+            select jsonb_agg(limited_legacy_facts.fact_id order by limited_legacy_facts.position, limited_legacy_facts.fact_id)
+            from (
+              select legacy_fact.fact_id, (legacy_fact.ordinality - 1)::integer as position
+              from jsonb_array_elements_text(coalesce(p.generation_source_fact_ids, '[]'::jsonb))
+                with ordinality as legacy_fact(fact_id, ordinality)
+              order by position, fact_id
+              limit $4
+            ) limited_legacy_facts
+          ),
+          '[]'::jsonb
+        ) as generation_source_fact_ids
+      ) resolved_page_facts on true
+      left join lateral (
+        select fact_id, position
+        from (
+          select ppf.fact_id, ppf.position
+          from public_page_facts ppf
+          where ppf.public_page_id = p.id
+          union all
+          select legacy_fact.fact_id, (legacy_fact.ordinality - 1)::integer as position
+          from jsonb_array_elements_text(coalesce(p.generation_source_fact_ids, '[]'::jsonb))
+            with ordinality as legacy_fact(fact_id, ordinality)
+          where not exists (
+            select 1
+            from public_page_facts ppf
+            where ppf.public_page_id = p.id
+          )
+        ) page_fact_rows
+        order by position, fact_id
+        limit $4
+      ) page_fact on true
+      left join facts f on f.id = page_fact.fact_id
       left join source_profiles sp on sp.id = f.source_profile_id
       left join source_records sr on sr.id = f.source_record_id
-      left join evidence ev
-        on ev.fact_id = f.id
-       and ev.id in (
-         select jsonb_array_elements_text(coalesce(b.evidence_ids, '[]'::jsonb))
-       )
-      ${whereClause}
-      order by p.id, f.id, ev.id
+      left join lateral (
+        select coalesce(
+          (
+            select jsonb_agg(limited_bundle_evidence.evidence_id order by limited_bundle_evidence.position, limited_bundle_evidence.evidence_id)
+            from (
+              select pbee.evidence_id, pbee.position
+              from public_evidence_bundle_evidence pbee
+              where pbee.evidence_bundle_id = b.id
+              order by pbee.position, pbee.evidence_id
+              limit $5
+            ) limited_bundle_evidence
+          ),
+          (
+            select jsonb_agg(limited_legacy_evidence.evidence_id order by limited_legacy_evidence.position, limited_legacy_evidence.evidence_id)
+            from (
+              select
+                legacy_evidence.evidence_id,
+                (legacy_evidence.ordinality - 1)::integer as position
+              from jsonb_array_elements_text(coalesce(b.evidence_ids, '[]'::jsonb))
+                with ordinality as legacy_evidence(evidence_id, ordinality)
+              order by position, evidence_id
+              limit $5
+            ) limited_legacy_evidence
+          ),
+          '[]'::jsonb
+        ) as evidence_ids
+      ) resolved_bundle_evidence on true
+      left join lateral (
+        select
+          matched_evidence.id,
+          matched_evidence.allowed_use,
+          matched_evidence.public_republish_allowed,
+          bundle_evidence.position
+        from (
+          select pbee.evidence_id, pbee.position
+          from public_evidence_bundle_evidence pbee
+          where pbee.evidence_bundle_id = b.id
+          union all
+          select
+            legacy_evidence.evidence_id,
+            (legacy_evidence.ordinality - 1)::integer as position
+          from jsonb_array_elements_text(coalesce(b.evidence_ids, '[]'::jsonb))
+            with ordinality as legacy_evidence(evidence_id, ordinality)
+          where not exists (
+            select 1
+            from public_evidence_bundle_evidence pbee
+            where pbee.evidence_bundle_id = b.id
+          )
+        ) bundle_evidence
+        join evidence matched_evidence
+          on matched_evidence.id = bundle_evidence.evidence_id
+         and matched_evidence.fact_id = f.id
+        order by bundle_evidence.position, bundle_evidence.evidence_id
+        limit $5
+      ) ev on true
+      order by p.id, page_fact.position, page_fact.fact_id, ev.position, ev.id
     `,
-    params,
+    [
+      options.family ?? null,
+      options.slug ?? null,
+      pageLimit,
+      PUBLIC_CATALOG_FACTS_PER_PAGE_LIMIT,
+      PUBLIC_CATALOG_EVIDENCE_PER_BUNDLE_LIMIT,
+    ],
   );
 
   return mapRowsToPages(result.rows, now);
+}
+
+function normalizeCatalogLimit(value: number | undefined, defaultLimit: number, maxLimit: number) {
+  if (value === undefined) {
+    return defaultLimit;
+  }
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 1) {
+    return 1;
+  }
+  return Math.min(value, maxLimit);
 }
 
 function mapRowsToPages(rows: readonly PublicCatalogRow[], now: Date) {

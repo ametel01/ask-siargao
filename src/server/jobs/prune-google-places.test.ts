@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 
 import { runInitialMigration } from "@/server/db/test-database";
-import { pruneGooglePlacesContent } from "@/server/jobs/prune-google-places";
+import {
+  formatPruneSummary,
+  parsePruneGooglePlacesArgs,
+  pruneGooglePlacesContent,
+} from "@/server/jobs/prune-google-places";
 import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
 import {
   type GooglePlacesRequestKind,
@@ -13,6 +17,7 @@ import {
   type GooglePlaceDetailsInput,
   type GooglePlaceIdentityInput,
   type GooglePlacesSourceRecordInput,
+  type GooglePlacesStoreDatabase,
   upsertGooglePlaceDetails,
   upsertGooglePlaceReviews,
 } from "@/server/providers/google-places-store";
@@ -82,10 +87,18 @@ describe("Google Places retention pruning", () => {
     const afterDryRun = await readGooglePlacesCounts(db);
 
     expect(dryRun).toEqual({
+      batchSize: 500,
       dryRun: true,
+      hasMore: true,
+      maxBatches: 20,
       now: "2026-06-25T00:00:00.000Z",
+      totalBatches: 0,
+      totalRows: 3,
+      reviews: { rows: 1, batches: 0, hasMore: true },
       reviewsDeleted: 1,
+      details: { rows: 1, batches: 0, hasMore: true },
       detailsDeleted: 1,
+      snapshots: { rows: 1, batches: 0, hasMore: true },
       snapshotsDeleted: 1,
     });
     expect(afterDryRun).toEqual({
@@ -102,10 +115,18 @@ describe("Google Places retention pruning", () => {
     const afterPrune = await readGooglePlacesCounts(db);
 
     expect(pruned).toEqual({
+      batchSize: 500,
       dryRun: false,
+      hasMore: false,
+      maxBatches: 20,
       now: "2026-06-25T00:00:00.000Z",
+      totalBatches: 3,
+      totalRows: 3,
+      reviews: { rows: 1, batches: 1, hasMore: false },
       reviewsDeleted: 1,
+      details: { rows: 1, batches: 1, hasMore: false },
       detailsDeleted: 1,
+      snapshots: { rows: 1, batches: 1, hasMore: false },
       snapshotsDeleted: 1,
     });
     expect(afterPrune).toEqual({
@@ -116,6 +137,233 @@ describe("Google Places retention pruning", () => {
     });
 
     await db.close();
+  });
+
+  test("deletes expired rows across repeated bounded runs and delays snapshots while reviews remain", async () => {
+    const db = await openGooglePlacesPruneTestDatabase();
+
+    for (const index of [1, 2, 3]) {
+      const capture = createDetailsCapture({
+        details: createDetailsInput({
+          displayName: `Expired Cafe ${index}`,
+          fetchedAt: "2026-05-01T00:00:00.000Z",
+          retentionExpiresAt: "2026-05-31T00:00:00.000Z",
+          staleAt: "2026-05-08T00:00:00.000Z",
+        }),
+        fetchedAt: "2026-05-01T00:00:00.000Z",
+        place: {
+          placeId: `place_expired_${index}`,
+          resourceName: `places/place_expired_${index}`,
+        },
+        requestKind: "details_atmosphere_reviews",
+        sourceRecord: createSourceRecord({
+          fetchedAt: "2026-05-01T00:00:00.000Z",
+          name: `Expired Cafe ${index}`,
+          placeId: `place_expired_${index}`,
+        }),
+      });
+
+      await upsertGooglePlaceDetails(db, capture);
+      await upsertGooglePlaceReviews(db, {
+        place: capture.place,
+        sourceRecord: capture.sourceRecord,
+        snapshot: capture.snapshot,
+        reviews: [
+          {
+            id: `review_expired_${index}`,
+            fetchedAt: "2026-05-01T00:00:00.000Z",
+            rating: 4,
+            retentionExpiresAt: "2026-05-31T00:00:00.000Z",
+            staleAt: "2026-05-08T00:00:00.000Z",
+          },
+        ],
+      });
+    }
+
+    const firstRun = await pruneGooglePlacesContent({
+      batchSize: 1,
+      db,
+      maxBatches: 2,
+      now: "2026-06-25T00:00:00.000Z",
+    });
+
+    expect(firstRun).toMatchObject({
+      reviews: { rows: 2, batches: 2, hasMore: true },
+      details: { rows: 2, batches: 2, hasMore: true },
+      snapshots: { rows: 0, batches: 0, hasMore: true },
+      reviewsDeleted: 2,
+      detailsDeleted: 2,
+      snapshotsDeleted: 0,
+      totalRows: 4,
+      totalBatches: 4,
+      hasMore: true,
+    });
+    expect(await readGooglePlacesCounts(db)).toEqual({
+      googlePlaces: 3,
+      snapshots: 3,
+      details: 1,
+      reviews: 1,
+    });
+
+    const secondRun = await pruneGooglePlacesContent({
+      batchSize: 2,
+      db,
+      maxBatches: 5,
+      now: "2026-06-25T00:00:00.000Z",
+    });
+
+    expect(secondRun).toMatchObject({
+      reviews: { rows: 1, batches: 1, hasMore: false },
+      details: { rows: 1, batches: 1, hasMore: false },
+      snapshots: { rows: 3, batches: 2, hasMore: false },
+      reviewsDeleted: 1,
+      detailsDeleted: 1,
+      snapshotsDeleted: 3,
+      totalRows: 5,
+      totalBatches: 4,
+      hasMore: false,
+    });
+    expect(await readGooglePlacesCounts(db)).toEqual({
+      googlePlaces: 3,
+      snapshots: 0,
+      details: 0,
+      reviews: 0,
+    });
+
+    await db.close();
+  });
+
+  test("does not start snapshot deletes until the review cleanup reports no remaining expired rows", async () => {
+    const calls: string[] = [];
+    const db: GooglePlacesStoreDatabase = {
+      async query<T>(query: string) {
+        if (query.includes("delete from google_place_reviews")) {
+          calls.push("delete-reviews");
+          return { rows: [{ deleted_count: 1 }] as T[] };
+        }
+        if (query.includes("from google_place_reviews where")) {
+          calls.push("check-reviews");
+          return { rows: [{ has_more: true }] as T[] };
+        }
+        if (query.includes("delete from google_place_details")) {
+          calls.push("delete-details");
+          return { rows: [{ deleted_count: 0 }] as T[] };
+        }
+        if (query.includes("from google_place_details where")) {
+          calls.push("check-details");
+          return { rows: [{ has_more: false }] as T[] };
+        }
+        if (query.includes("delete from google_place_snapshots")) {
+          throw new Error("Snapshot delete should not run while expired reviews remain.");
+        }
+        if (query.includes("from google_place_snapshots where")) {
+          calls.push("check-snapshots");
+          return { rows: [{ has_more: true }] as T[] };
+        }
+
+        throw new Error(`Unexpected query: ${query}`);
+      },
+    };
+
+    const result = await pruneGooglePlacesContent({
+      batchSize: 1,
+      db,
+      maxBatches: 1,
+      now: "2026-06-25T00:00:00.000Z",
+    });
+
+    expect(result.snapshots).toEqual({ rows: 0, batches: 0, hasMore: true });
+    expect(calls).toEqual([
+      "delete-reviews",
+      "check-reviews",
+      "delete-details",
+      "check-details",
+      "check-snapshots",
+    ]);
+  });
+
+  test("uses count-only bounded delete queries instead of unbounded returned ids", async () => {
+    const queries: string[] = [];
+    const db: GooglePlacesStoreDatabase = {
+      async query<T>(query: string) {
+        queries.push(query);
+
+        if (query.includes("deleted_count")) {
+          return { rows: [{ deleted_count: 0 }] as T[] };
+        }
+        if (query.includes("has_more")) {
+          return { rows: [{ has_more: false }] as T[] };
+        }
+
+        throw new Error(`Unexpected query: ${query}`);
+      },
+    };
+
+    await pruneGooglePlacesContent({
+      batchSize: 50,
+      db,
+      maxBatches: 5,
+      now: "2026-06-25T00:00:00.000Z",
+    });
+
+    expect(queries.join("\n")).not.toMatch(/\breturning\s+(id|place_id)\b/i);
+    expect(queries.filter((query) => query.includes("limit $2")).length).toBe(3);
+  });
+
+  test("parses batch CLI controls and rejects invalid inputs", () => {
+    expect(
+      parsePruneGooglePlacesArgs(["--dry-run", "--batch-size", "25", "--max-batches=4"]),
+    ).toEqual({
+      batchSize: 25,
+      dryRun: true,
+      maxBatches: 4,
+    });
+    expect(parsePruneGooglePlacesArgs(["--batch-size=10", "--max-batches", "2"])).toEqual({
+      batchSize: 10,
+      dryRun: false,
+      maxBatches: 2,
+    });
+
+    expect(() => parsePruneGooglePlacesArgs(["--batch-size", "0"])).toThrow(
+      "--batch-size must be a positive integer.",
+    );
+    expect(() => parsePruneGooglePlacesArgs(["--max-batches", "1.5"])).toThrow(
+      "--max-batches must be a positive integer.",
+    );
+    expect(() => parsePruneGooglePlacesArgs(["--batch-size"])).toThrow(
+      "--batch-size requires a positive integer value.",
+    );
+    expect(() => parsePruneGooglePlacesArgs(["--unexpected"])).toThrow(
+      "Unsupported Google Places prune argument: --unexpected.",
+    );
+  });
+
+  test("formats operator progress with per-table totals, batches, and remaining-row status", () => {
+    const output = formatPruneSummary(
+      {
+        batchSize: 10,
+        details: { rows: 2, batches: 1, hasMore: false },
+        detailsDeleted: 2,
+        dryRun: false,
+        hasMore: true,
+        maxBatches: 3,
+        now: "2026-06-25T00:00:00.000Z",
+        reviews: { rows: 3, batches: 2, hasMore: true },
+        reviewsDeleted: 3,
+        snapshots: { rows: 1, batches: 1, hasMore: false },
+        snapshotsDeleted: 1,
+        totalBatches: 4,
+        totalRows: 6,
+      },
+      "postgres://user:password@localhost:5432/siargao_portal",
+    );
+
+    expect(output).toContain("Database: postgres://user:***@localhost:5432/siargao_portal.");
+    expect(output).toContain("Batch size: 10. Max batches per table: 3.");
+    expect(output).toContain("Reviews: 3 deleted rows, 2 batches, more expired rows remain: yes.");
+    expect(output).toContain("Details: 2 deleted rows, 1 batches, more expired rows remain: no.");
+    expect(output).toContain("Snapshots: 1 deleted rows, 1 batches, more expired rows remain: no.");
+    expect(output).toContain("Total: 6 deleted rows, 4 batches, more expired rows remain: yes.");
   });
 });
 

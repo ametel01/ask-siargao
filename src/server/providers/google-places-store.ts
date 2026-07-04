@@ -5,6 +5,10 @@ import {
   type GooglePlacesRequestKind,
   type GooglePlacesStoragePolicy,
 } from "@/server/providers/google-places-policy";
+import {
+  upsertGovernedEvidence,
+  upsertGovernedFacts,
+} from "@/server/providers/provider-write-batches";
 
 type QueryResult<T> = { rows: T[] };
 
@@ -19,6 +23,30 @@ export type GooglePlacesCleanupCounts = {
   detailsDeleted: number;
   snapshotsDeleted: number;
 };
+
+export type GooglePlacesCleanupTableProgress = {
+  rows: number;
+  batches: number;
+  hasMore: boolean;
+};
+
+export type GooglePlacesCleanupProgress = GooglePlacesCleanupCounts & {
+  reviews: GooglePlacesCleanupTableProgress;
+  details: GooglePlacesCleanupTableProgress;
+  snapshots: GooglePlacesCleanupTableProgress;
+  totalRows: number;
+  totalBatches: number;
+  hasMore: boolean;
+};
+
+export type GooglePlacesCleanupOptions = {
+  now: string;
+  batchSize: number;
+  maxBatches: number;
+};
+
+export const defaultGooglePlacesCleanupBatchSize = 500;
+export const defaultGooglePlacesCleanupMaxBatches = 20;
 
 export type GooglePlacesStoreWritePhase =
   | "source_record"
@@ -414,8 +442,47 @@ export async function upsertGooglePlaceReviews(
   const { place, reviews, snapshot, sourceRecord } = input;
 
   await upsertGoogleSearchSnapshot(db, { place, sourceRecord, snapshot });
+  await upsertGooglePlaceReviewRows(db, { place, reviews, snapshot });
+}
 
-  for (const review of reviews) {
+async function upsertGooglePlaceReviewRows(
+  db: GooglePlacesStoreDatabase,
+  {
+    place,
+    reviews,
+    snapshot,
+  }: {
+    place: GooglePlaceIdentityInput;
+    snapshot: GooglePlaceSnapshotInput;
+    reviews: readonly GooglePlaceReviewInput[];
+  },
+) {
+  const reviewRows = dedupeById(reviews);
+
+  for (const chunk of chunks(reviewRows, 100)) {
+    const params: unknown[] = [];
+    const valuesSql = chunk.map((review) => {
+      params.push(
+        review.id,
+        place.placeId,
+        snapshot.id,
+        review.reviewName ?? null,
+        review.relativePublishTimeDescription ?? null,
+        review.rating?.toString() ?? null,
+        jsonParam(review.textJson),
+        jsonParam(review.originalTextJson),
+        jsonParam(review.authorAttributionJson),
+        review.publishTime ?? null,
+        review.flaggedContent ?? false,
+        review.fetchedAt,
+        review.staleAt,
+        review.retentionExpiresAt,
+        review.displayRequiresGoogleAttribution ?? true,
+      );
+      const offset = params.length - 14;
+      return `($${offset}, $${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}::jsonb, $${offset + 7}::jsonb, $${offset + 8}::jsonb, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13}, $${offset + 14})`;
+    });
+
     await db.query(
       `
         insert into google_place_reviews (
@@ -435,23 +502,7 @@ export async function upsertGooglePlaceReviews(
           retention_expires_at,
           display_requires_google_attribution
         )
-        values (
-          $1,
-          $2,
-          $3,
-          $4,
-          $5,
-          $6,
-          $7::jsonb,
-          $8::jsonb,
-          $9::jsonb,
-          $10,
-          $11,
-          $12,
-          $13,
-          $14,
-          $15
-        )
+        values ${valuesSql.join(",\n        ")}
         on conflict (id) do update set
           place_id = excluded.place_id,
           snapshot_id = excluded.snapshot_id,
@@ -468,23 +519,7 @@ export async function upsertGooglePlaceReviews(
           retention_expires_at = excluded.retention_expires_at,
           display_requires_google_attribution = excluded.display_requires_google_attribution
       `,
-      [
-        review.id,
-        place.placeId,
-        snapshot.id,
-        review.reviewName ?? null,
-        review.relativePublishTimeDescription ?? null,
-        review.rating?.toString() ?? null,
-        jsonParam(review.textJson),
-        jsonParam(review.originalTextJson),
-        jsonParam(review.authorAttributionJson),
-        review.publishTime ?? null,
-        review.flaggedContent ?? false,
-        review.fetchedAt,
-        review.staleAt,
-        review.retentionExpiresAt,
-        review.displayRequiresGoogleAttribution ?? true,
-      ],
+      params,
     );
   }
 }
@@ -621,56 +656,67 @@ export function createGooglePlaceFactEvidenceInputs({
 
 export async function deleteExpiredGooglePlacesContent(
   db: GooglePlacesStoreDatabase,
-  { now }: { now: string },
-): Promise<GooglePlacesCleanupCounts> {
-  const [reviews, details] = await Promise.all([
-    db.query<{ id: string }>(
-      "delete from google_place_reviews where retention_expires_at < $1 returning id",
-      [now],
-    ),
-    db.query<{ place_id: string }>(
-      "delete from google_place_details where retention_expires_at < $1 returning place_id",
-      [now],
-    ),
-  ]);
-  const snapshots = await deleteExpiredGooglePlaceSnapshotsAfterReviews(db, {
-    now,
-    reviews,
-  });
-
-  return {
-    reviewsDeleted: reviews.rows.length,
-    detailsDeleted: details.rows.length,
-    snapshotsDeleted: snapshots.rows.length,
-  };
-}
-
-async function deleteExpiredGooglePlaceSnapshotsAfterReviews(
+  options: GooglePlacesCleanupOptions,
+): Promise<GooglePlacesCleanupProgress>;
+export async function deleteExpiredGooglePlacesContent(
   db: GooglePlacesStoreDatabase,
-  {
-    now,
-    reviews,
-  }: {
-    now: string;
-    reviews: { rows: Array<{ id: string }> };
-  },
-) {
-  if (!Array.isArray(reviews.rows)) {
-    throw new Error(
-      "Review cleanup must complete before expired Google Place snapshots are deleted.",
-    );
+  options: { now: string },
+): Promise<GooglePlacesCleanupCounts>;
+export async function deleteExpiredGooglePlacesContent(
+  db: GooglePlacesStoreDatabase,
+  options: { now: string; batchSize?: number; maxBatches?: number },
+): Promise<GooglePlacesCleanupProgress | GooglePlacesCleanupCounts> {
+  const includeProgress = options.batchSize !== undefined || options.maxBatches !== undefined;
+  const batchSize = options.batchSize ?? defaultGooglePlacesCleanupBatchSize;
+  const maxBatches = options.maxBatches ?? defaultGooglePlacesCleanupMaxBatches;
+  const reviews = await deleteExpiredGooglePlacesTableInBatches(db, {
+    batchSize,
+    idColumn: "id",
+    maxBatches,
+    now: options.now,
+    tableName: "google_place_reviews",
+    whereSql: "retention_expires_at < $1",
+  });
+  const details = await deleteExpiredGooglePlacesTableInBatches(db, {
+    batchSize,
+    idColumn: "place_id",
+    maxBatches,
+    now: options.now,
+    tableName: "google_place_details",
+    whereSql: "retention_expires_at < $1",
+  });
+  const snapshots = reviews.hasMore
+    ? await readGooglePlacesCleanupTableProgress(db, {
+        now: options.now,
+        query:
+          "select exists(select 1 from google_place_snapshots where retention_expires_at is not null and retention_expires_at < $1 limit 1) as has_more",
+      })
+    : await deleteExpiredGooglePlacesTableInBatches(db, {
+        batchSize,
+        idColumn: "id",
+        maxBatches,
+        now: options.now,
+        tableName: "google_place_snapshots",
+        whereSql: "retention_expires_at is not null and retention_expires_at < $1",
+      });
+
+  const progress = createGooglePlacesCleanupProgress({ details, reviews, snapshots });
+
+  if (includeProgress) {
+    return progress;
   }
 
-  return db.query<{ id: string }>(
-    "delete from google_place_snapshots where retention_expires_at is not null and retention_expires_at < $1 returning id",
-    [now],
-  );
+  return {
+    reviewsDeleted: progress.reviewsDeleted,
+    detailsDeleted: progress.detailsDeleted,
+    snapshotsDeleted: progress.snapshotsDeleted,
+  };
 }
 
 export async function countExpiredGooglePlacesContent(
   db: GooglePlacesStoreDatabase,
   { now }: { now: string },
-): Promise<GooglePlacesCleanupCounts> {
+): Promise<GooglePlacesCleanupProgress> {
   const result = await db.query<{
     reviews_deleted: number;
     details_deleted: number;
@@ -692,9 +738,132 @@ export async function countExpiredGooglePlacesContent(
   const row = result.rows[0];
 
   return {
-    reviewsDeleted: row?.reviews_deleted ?? 0,
-    detailsDeleted: row?.details_deleted ?? 0,
-    snapshotsDeleted: row?.snapshots_deleted ?? 0,
+    ...createGooglePlacesCleanupProgress({
+      reviews: {
+        rows: row?.reviews_deleted ?? 0,
+        batches: 0,
+        hasMore: (row?.reviews_deleted ?? 0) > 0,
+      },
+      details: {
+        rows: row?.details_deleted ?? 0,
+        batches: 0,
+        hasMore: (row?.details_deleted ?? 0) > 0,
+      },
+      snapshots: {
+        rows: row?.snapshots_deleted ?? 0,
+        batches: 0,
+        hasMore: (row?.snapshots_deleted ?? 0) > 0,
+      },
+    }),
+  };
+}
+
+async function deleteExpiredGooglePlacesTableInBatches(
+  db: GooglePlacesStoreDatabase,
+  {
+    batchSize,
+    idColumn,
+    maxBatches,
+    now,
+    tableName,
+    whereSql,
+  }: {
+    tableName: "google_place_reviews" | "google_place_details" | "google_place_snapshots";
+    idColumn: "id" | "place_id";
+    whereSql: string;
+    now: string;
+    batchSize: number;
+    maxBatches: number;
+  },
+): Promise<GooglePlacesCleanupTableProgress> {
+  let rows = 0;
+  let batches = 0;
+
+  for (let index = 0; index < maxBatches; index += 1) {
+    const result = await db.query<{ deleted_count: number }>(
+      `
+        with expired as (
+          select ${idColumn}
+          from ${tableName}
+          where ${whereSql}
+          order by retention_expires_at, ${idColumn}
+          limit $2
+        ),
+        deleted as (
+          delete from ${tableName}
+          using expired
+          where ${tableName}.${idColumn} = expired.${idColumn}
+          returning 1
+        )
+        select count(*)::int as deleted_count from deleted
+      `,
+      [now, batchSize],
+    );
+    const deletedCount = result.rows[0]?.deleted_count ?? 0;
+    if (deletedCount === 0) {
+      break;
+    }
+
+    rows += deletedCount;
+    batches += 1;
+
+    if (deletedCount < batchSize) {
+      break;
+    }
+  }
+
+  return {
+    rows,
+    batches,
+    hasMore: await hasExpiredGooglePlacesRows(db, {
+      now,
+      query: `select exists(select 1 from ${tableName} where ${whereSql} limit 1) as has_more`,
+    }),
+  };
+}
+
+async function readGooglePlacesCleanupTableProgress(
+  db: GooglePlacesStoreDatabase,
+  { now, query }: { now: string; query: string },
+): Promise<GooglePlacesCleanupTableProgress> {
+  return {
+    rows: 0,
+    batches: 0,
+    hasMore: await hasExpiredGooglePlacesRows(db, { now, query }),
+  };
+}
+
+async function hasExpiredGooglePlacesRows(
+  db: GooglePlacesStoreDatabase,
+  { now, query }: { now: string; query: string },
+) {
+  const result = await db.query<{ has_more: boolean }>(query, [now]);
+  return result.rows[0]?.has_more ?? false;
+}
+
+function createGooglePlacesCleanupProgress({
+  details,
+  reviews,
+  snapshots,
+}: {
+  reviews: GooglePlacesCleanupTableProgress;
+  details: GooglePlacesCleanupTableProgress;
+  snapshots: GooglePlacesCleanupTableProgress;
+}): GooglePlacesCleanupProgress {
+  const totalRows = reviews.rows + details.rows + snapshots.rows;
+  const totalBatches = reviews.batches + details.batches + snapshots.batches;
+  const hasMore = reviews.hasMore || details.hasMore || snapshots.hasMore;
+
+  return {
+    reviewsDeleted: reviews.rows,
+    detailsDeleted: details.rows,
+    snapshotsDeleted: snapshots.rows,
+    reviews,
+    details,
+    snapshots,
+    totalRows,
+    totalBatches,
+    hasMore,
   };
 }
 
@@ -877,98 +1046,14 @@ async function upsertGovernedGooglePlaceFactEvidence(
   db: GooglePlacesStoreDatabase,
   records: readonly GooglePlaceGovernedFactEvidenceInput[],
 ) {
-  for (const record of records) {
-    await db.query(
-      `
-        insert into facts (
-          id,
-          entity_id,
-          claim,
-          fact_type,
-          source_type,
-          source_profile_id,
-          source_record_id,
-          fetched_at,
-          verified_at,
-          expires_at,
-          confidence_label,
-          source_authority,
-          public_republish_allowed,
-          audit_use_allowed,
-          raw_evidence_allowed,
-          conflicts_with_fact_ids,
-          notes
-        )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, '[]'::jsonb, $15)
-        on conflict (id) do update set
-          entity_id = excluded.entity_id,
-          claim = excluded.claim,
-          fact_type = excluded.fact_type,
-          source_type = excluded.source_type,
-          source_profile_id = excluded.source_profile_id,
-          source_record_id = excluded.source_record_id,
-          fetched_at = excluded.fetched_at,
-          verified_at = excluded.verified_at,
-          expires_at = excluded.expires_at,
-          confidence_label = excluded.confidence_label,
-          source_authority = excluded.source_authority,
-          public_republish_allowed = excluded.public_republish_allowed,
-          audit_use_allowed = excluded.audit_use_allowed,
-          raw_evidence_allowed = excluded.raw_evidence_allowed,
-          notes = excluded.notes
-      `,
-      [
-        record.fact.id,
-        record.fact.entityId ?? null,
-        record.fact.claim,
-        record.fact.factType,
-        record.fact.sourceType,
-        record.fact.sourceProfileId,
-        record.fact.sourceRecordId,
-        record.fact.fetchedAt,
-        record.fact.expiresAt,
-        record.fact.confidenceLabel,
-        record.fact.sourceAuthority,
-        record.fact.publicRepublishAllowed,
-        record.fact.auditUseAllowed,
-        record.fact.rawEvidenceAllowed,
-        record.fact.notes,
-      ],
-    );
-
-    await db.query(
-      `
-        insert into evidence (
-          id,
-          fact_id,
-          source_record_id,
-          label,
-          citation_url,
-          citation_text,
-          allowed_use,
-          public_republish_allowed
-        )
-        values ($1, $2, $3, $4, $5, $6, $7, $8)
-        on conflict (id) do update set
-          source_record_id = excluded.source_record_id,
-          label = excluded.label,
-          citation_url = excluded.citation_url,
-          citation_text = excluded.citation_text,
-          allowed_use = excluded.allowed_use,
-          public_republish_allowed = excluded.public_republish_allowed
-      `,
-      [
-        record.evidence.id,
-        record.evidence.factId,
-        record.evidence.sourceRecordId,
-        record.evidence.label,
-        record.evidence.citationUrl ?? null,
-        record.evidence.citationText,
-        record.evidence.allowedUse,
-        record.evidence.publicRepublishAllowed,
-      ],
-    );
-  }
+  await upsertGovernedFacts(
+    db,
+    records.map((record) => record.fact),
+  );
+  await upsertGovernedEvidence(
+    db,
+    records.map((record) => record.evidence),
+  );
 
   return {
     factsUpserted: records.length,
@@ -1024,6 +1109,18 @@ function hashStableJson(value: unknown) {
     hash = (hash * 31 + json.charCodeAt(index)) >>> 0;
   }
   return hash.toString(16).padStart(8, "0");
+}
+
+function dedupeById<T extends { id: string }>(items: readonly T[]) {
+  return [...new Map(items.map((item) => [item.id, item])).values()];
+}
+
+function chunks<T>(items: readonly T[], size: number) {
+  const result: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    result.push(items.slice(index, index + size));
+  }
+  return result;
 }
 
 function jsonParam(value: unknown) {
