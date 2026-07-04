@@ -1165,7 +1165,7 @@ function ChatTravelRail({
           </div>
           <Link
             className="inline-flex w-fit items-center gap-2 text-sm font-extrabold text-white no-underline hover:text-brand-lagoon-300"
-            href="/profile"
+            href="/settings"
           >
             View all saved places
             <ChevronDown aria-hidden="true" className="-rotate-90" size={15} />
@@ -1217,7 +1217,7 @@ function ChatTravelRail({
 
       <Link
         className="grid min-h-28 content-between overflow-hidden rounded-lg border border-brand-violet-400/25 bg-[image:var(--gradient-sunset-backdrop)] bg-cover bg-center p-4 text-white no-underline"
-        href="/profile"
+        href="/settings"
       >
         <span className="grid gap-1">
           <span className="text-base font-black">Love Ask Siargao?</span>

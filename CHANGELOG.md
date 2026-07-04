@@ -69,6 +69,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed in-app settings/profile navigation and route docs to treat `/settings` as canonical while
+  preserving `/profile` compatibility.
 - Changed the profile settings surface into a broader settings dashboard while preserving travel
   profile editing and the `/profile` compatibility route.
 - Retired the legacy recommendation-agent module so local recommendation behavior now lives only in

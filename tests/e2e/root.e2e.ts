@@ -177,6 +177,10 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await expect(page.getByLabel("Preferred areas")).toHaveValue("Cloud 9, Pacifico");
   await expect(page.getByLabel("Trip notes")).toHaveValue("Arriving in September");
   await expect(page.getByLabel("Send occasional Ask Siargao product updates")).toBeChecked();
+
+  await page.goto("/profile");
+  await expect(page.getByRole("heading", { exact: true, name: "Settings" })).toBeVisible();
+  await expect(page.getByRole("heading", { exact: true, name: "Travel profile" })).toBeVisible();
 });
 
 test("renders public human, markdown, JSON, sitemap, and llms surfaces", async ({ page }) => {

@@ -10,13 +10,13 @@ Starting commit: `05a9d59`
 - [x] Step 1: Protect And Expose The Canonical Settings Route
 - [x] Step 2: Build The Settings Dashboard Shell Around Existing Profile Editing
 - [x] Step 3: Add Private Chat And Saved-Plan Summary Panels
-- [ ] Step 4: Update In-App Navigation And Route Documentation
+- [x] Step 4: Update In-App Navigation And Route Documentation
 - [ ] Step 5: Final Verification And Cleanup
 
 ## Current Status
 
-Status: Step 3 complete.
-Next step: Step 4 - Update In-App Navigation And Route Documentation.
+Status: Step 4 complete.
+Next step: Step 5 - Final Verification And Cleanup.
 
 ## Update Log
 
@@ -105,6 +105,31 @@ Next step: Step 4 - Update In-App Navigation And Route Documentation.
   - `bun run typecheck --incremental false`
   - `bun test src/app/api/chat/threads/route.test.ts src/app/api/trips/route.test.ts` - 18 pass,
     0 fail
+  - `DATABASE_URL= bunx playwright test tests/e2e/root.e2e.ts` - 12 pass, 0 fail
+  - `bun test` - 737 pass, 0 fail
+  - `bun run db:migrate:test`
+  - `bun run db:seed:test`
+  - `bun run build`
+  - `DATABASE_URL= bun run test:e2e` - 38 pass, 0 fail
+- Validation note: the full E2E run kept the existing `DATABASE_URL=` fixture mode and emitted the
+  known `/api/trips/saved` missing-database logs while passing.
+- Commit: `eff742e` (`Add settings data summaries`)
+
+### 2026-07-04 - Step 4 Complete
+
+- Updated chat sidebar links that previously pointed to `/profile` so they now point to the
+  canonical `/settings` route.
+- Updated `documentation/developer/reference/routes-and-surfaces.md` to document `/settings` as
+  the signed-in settings dashboard and `/profile` as the compatibility alias.
+- Updated `documentation/developer/reference/clerk-auth-session-chat-history-requirements.md` to
+  include `/settings(.*)` in the protected route list and name the settings/profile UI contract.
+- Extended E2E coverage to assert `/profile` still renders the settings dashboard.
+- Added a functional changelog entry for the canonical settings navigation/docs update.
+- Validation passed:
+  - `rg -n 'href="/profile"' src/features/chat src/app src/features` - no matches
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
   - `DATABASE_URL= bunx playwright test tests/e2e/root.e2e.ts` - 12 pass, 0 fail
   - `bun test` - 737 pass, 0 fail
   - `bun run db:migrate:test`

@@ -98,6 +98,7 @@ Required public routes:
 
 Required protected routes:
 
+- `/settings(.*)`
 - `/profile(.*)`
 - `/chat/history(.*)` if implemented as a page
 - `/api/me(.*)`
@@ -597,9 +598,10 @@ Add response rating controls to completed assistant messages:
 - selected state after saved rating;
 - optional feedback reason/comment flow after thumbs down.
 
-Add profile UI:
+Add profile/settings UI:
 
-- `/profile` page or account panel for Ask Siargao profile details;
+- `/settings` page or account panel for Ask Siargao profile details, with `/profile` preserved as a
+  compatibility alias when present;
 - use Clerk `UserButton` or account portal for identity/account management;
 - keep Ask Siargao profile edits separate from Clerk account edits.
 
