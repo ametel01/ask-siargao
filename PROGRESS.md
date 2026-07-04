@@ -9,14 +9,14 @@ Starting commit: `05a9d59`
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Protect And Expose The Canonical Settings Route
 - [x] Step 2: Build The Settings Dashboard Shell Around Existing Profile Editing
-- [ ] Step 3: Add Private Chat And Saved-Plan Summary Panels
+- [x] Step 3: Add Private Chat And Saved-Plan Summary Panels
 - [ ] Step 4: Update In-App Navigation And Route Documentation
 - [ ] Step 5: Final Verification And Cleanup
 
 ## Current Status
 
-Status: Step 2 complete.
-Next step: Step 3 - Add Private Chat And Saved-Plan Summary Panels.
+Status: Step 3 complete.
+Next step: Step 4 - Update In-App Navigation And Route Documentation.
 
 ## Update Log
 
@@ -88,4 +88,29 @@ Next step: Step 3 - Add Private Chat And Saved-Plan Summary Panels.
 - Validation note: `DATABASE_URL= bun run test:e2e` still emits expected server logs from
   `/api/trips/saved` requests without a database URL, but the suite passes and this preserves the
   fixture-backed public catalog path used by the existing E2E expectations.
+- Commit: `13e01fd` (`Build settings dashboard shell`)
+
+### 2026-07-04 - Step 3 Complete
+
+- Added settings dashboard panels for recent private chat threads and saved planning items.
+- Used the existing private `/api/chat/threads` and `/api/trips/saved` summary APIs without
+  requesting full chat transcripts or raw provider payloads.
+- Added loading, empty, and unavailable states so the travel profile form remains usable if a
+  summary endpoint fails.
+- Extended the profile/settings E2E coverage with mocked private thread and saved-plan summaries.
+- Added a functional changelog entry for the private settings summaries.
+- Validation passed:
+  - `bun run format`
+  - `bun run lint`
+  - `bun run typecheck --incremental false`
+  - `bun test src/app/api/chat/threads/route.test.ts src/app/api/trips/route.test.ts` - 18 pass,
+    0 fail
+  - `DATABASE_URL= bunx playwright test tests/e2e/root.e2e.ts` - 12 pass, 0 fail
+  - `bun test` - 737 pass, 0 fail
+  - `bun run db:migrate:test`
+  - `bun run db:seed:test`
+  - `bun run build`
+  - `DATABASE_URL= bun run test:e2e` - 38 pass, 0 fail
+- Validation note: the full E2E run kept the existing `DATABASE_URL=` fixture mode and emitted the
+  known `/api/trips/saved` missing-database logs while passing.
 - Commit: pending.

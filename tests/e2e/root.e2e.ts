@@ -108,10 +108,61 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
       body: JSON.stringify(profile),
     });
   });
+  await page.route("**/api/chat/threads", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        threads: [
+          {
+            id: "chat_thread_cloud9",
+            userId: "user_e2e_profile",
+            title: "Cloud 9 quiet sleep",
+            lastMessageAt: "2026-06-29T05:00:00.000Z",
+            updatedAt: "2026-06-29T05:00:00.000Z",
+          },
+          {
+            id: "chat_thread_ferry",
+            userId: "user_e2e_profile",
+            title: "Airport ferry timing",
+            lastMessageAt: "2026-06-28T05:00:00.000Z",
+            updatedAt: "2026-06-28T05:00:00.000Z",
+          },
+        ],
+      }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        tripId: "saved_trip_e2e_profile",
+        items: [
+          {
+            id: "saved_item_cloud9",
+            kind: "place",
+            title: "Cloud 9 dinner shortlist",
+            updatedAt: "2026-06-29T05:00:00.000Z",
+          },
+          {
+            id: "saved_item_rain",
+            kind: "itinerary",
+            title: "Rainy afternoon plan",
+            updatedAt: "2026-06-28T05:00:00.000Z",
+          },
+        ],
+      }),
+    });
+  });
 
   await page.goto("/settings");
   await expect(page.getByRole("heading", { exact: true, name: "Settings" })).toBeVisible();
   await expect(page.getByRole("heading", { exact: true, name: "Travel profile" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Recent chat history" })).toBeVisible();
+  await expect(page.getByText("2 private threads")).toBeVisible();
+  await expect(page.getByText("Cloud 9 quiet sleep")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Saved planning items" })).toBeVisible();
+  await expect(page.getByText("2 saved items")).toBeVisible();
+  await expect(page.getByText("Cloud 9 dinner shortlist")).toBeVisible();
 
   await page.getByLabel("Display name").fill("Alex in Siargao");
   await page.getByLabel("Preferred areas").fill("Cloud 9, Pacifico");

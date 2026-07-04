@@ -1,16 +1,18 @@
 "use client";
 
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
-import { ArrowRight, MessageCircle, Save, ShieldCheck, UserRound } from "lucide-react";
+import { ArrowRight, MapPinned, MessageCircle, Save, ShieldCheck, UserRound } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import useSWR from "swr";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { clerkAppearance } from "@/features/auth/clerk-appearance";
 import { isClerkConfigured } from "@/features/auth/clerk-config";
+import type { ChatHistoryThread } from "@/server/chat/chat-history-store";
 import type { UserProfileResponse } from "@/server/profile/user-profile-store";
+import type { SavedTripItem } from "@/server/trips/shared-trip-types";
 import {
   AppBackdrop,
   appBodyClass,
@@ -31,6 +33,17 @@ type ProfileFormState = {
   preferredAreas: string;
   tripNotes: string;
   marketingConsent: boolean;
+};
+
+type PrivateSummaryStatus = "idle" | "loading" | "ready" | "error";
+
+type ChatThreadsResponse = {
+  threads: ChatHistoryThread[];
+};
+
+type SavedTripsResponse = {
+  tripId?: string;
+  items: SavedTripItem[];
 };
 
 const emptyForm: ProfileFormState = {
@@ -61,12 +74,47 @@ async function fetchProfile(url: string) {
   return (await response.json()) as UserProfileResponse;
 }
 
+async function fetchChatThreads(url: string) {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("Chat history could not be loaded.");
+  }
+
+  return (await response.json()) as ChatThreadsResponse;
+}
+
+async function fetchSavedTrips(url: string) {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("Saved plan could not be loaded.");
+  }
+
+  return (await response.json()) as SavedTripsResponse;
+}
+
 export function SettingsDashboardPage() {
   const {
     data: loadedProfile,
     error: profileError,
     isLoading: isProfileLoading,
   } = useSWR("/api/me/profile", fetchProfile, {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  });
+  const shouldLoadPrivateSummaries = Boolean(loadedProfile);
+  const {
+    data: chatThreads,
+    error: chatThreadsError,
+    isLoading: isChatThreadsLoading,
+  } = useSWR(shouldLoadPrivateSummaries ? "/api/chat/threads" : null, fetchChatThreads, {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  });
+  const {
+    data: savedTrips,
+    error: savedTripsError,
+    isLoading: isSavedTripsLoading,
+  } = useSWR(shouldLoadPrivateSummaries ? "/api/trips/saved" : null, fetchSavedTrips, {
     revalidateOnFocus: false,
     shouldRetryOnError: false,
   });
@@ -129,6 +177,20 @@ export function SettingsDashboardPage() {
           <div className="grid gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
             <SettingsSidebar profile={profile} />
             <form className="grid gap-5" onSubmit={saveProfile}>
+              <PrivatePlanningDataSection
+                chatStatus={privateSummaryStatus({
+                  data: chatThreads,
+                  error: chatThreadsError,
+                  isLoading: isChatThreadsLoading,
+                })}
+                savedStatus={privateSummaryStatus({
+                  data: savedTrips,
+                  error: savedTripsError,
+                  isLoading: isSavedTripsLoading,
+                })}
+                savedItems={savedTrips?.items ?? []}
+                threads={chatThreads?.threads ?? []}
+              />
               <TravelProfileSection form={form} saveState={saveState} setForm={setForm} />
             </form>
           </div>
@@ -136,6 +198,168 @@ export function SettingsDashboardPage() {
       </div>
     </AppBackdrop>
   );
+}
+
+function PrivatePlanningDataSection({
+  chatStatus,
+  savedItems,
+  savedStatus,
+  threads,
+}: {
+  chatStatus: PrivateSummaryStatus;
+  savedItems: SavedTripItem[];
+  savedStatus: PrivateSummaryStatus;
+  threads: ChatHistoryThread[];
+}) {
+  return (
+    <section className="grid gap-4 md:grid-cols-2">
+      <ChatHistorySummaryPanel status={chatStatus} threads={threads} />
+      <SavedPlanSummaryPanel items={savedItems} status={savedStatus} />
+    </section>
+  );
+}
+
+function ChatHistorySummaryPanel({
+  status,
+  threads,
+}: {
+  status: PrivateSummaryStatus;
+  threads: ChatHistoryThread[];
+}) {
+  const activeThreads = threads.filter((thread) => !thread.archivedAt);
+  const recentThreads = activeThreads.slice(0, 3);
+
+  return (
+    <section className={`${appPanelClass} grid content-start gap-4`}>
+      <SummaryPanelHeader
+        description={summaryCountLabel(activeThreads.length, "private thread")}
+        icon={<MessageCircle className="size-5" />}
+        title="Recent chat history"
+      />
+      <SummaryPanelBody
+        emptyText="No saved chat threads yet."
+        errorText="Chat history unavailable"
+        hasContent={recentThreads.length > 0}
+        loadingText="Loading chat history"
+        status={status}
+      >
+        <div className="grid gap-3">
+          {recentThreads.map((thread) => (
+            <div className="grid gap-1" key={thread.id}>
+              <h3 className="m-0 min-w-0 truncate text-sm font-black">{thread.title}</h3>
+              <p className="m-0 text-xs font-bold text-text-muted">
+                {formatSummaryTimestamp(thread.lastMessageAt ?? thread.updatedAt)}
+              </p>
+            </div>
+          ))}
+        </div>
+      </SummaryPanelBody>
+      <Button
+        asChild
+        className="h-auto w-fit rounded-md border-border-default bg-white px-3 py-2 text-text-default hover:bg-brand-lagoon-100"
+        variant="outline"
+      >
+        <Link href="/chat">Open chat</Link>
+      </Button>
+    </section>
+  );
+}
+
+function SavedPlanSummaryPanel({
+  items,
+  status,
+}: {
+  items: SavedTripItem[];
+  status: PrivateSummaryStatus;
+}) {
+  const recentItems = [...items]
+    .sort((left, right) => timestampSortValue(right.updatedAt) - timestampSortValue(left.updatedAt))
+    .slice(0, 3);
+
+  return (
+    <section className={`${appPanelClass} grid content-start gap-4`}>
+      <SummaryPanelHeader
+        description={summaryCountLabel(items.length, "saved item")}
+        icon={<MapPinned className="size-5" />}
+        title="Saved planning items"
+      />
+      <SummaryPanelBody
+        emptyText="No saved places or plans yet."
+        errorText="Saved plan unavailable"
+        hasContent={recentItems.length > 0}
+        loadingText="Loading saved plan"
+        status={status}
+      >
+        <div className="grid gap-3">
+          {recentItems.map((item) => (
+            <div className="grid gap-1" key={item.id}>
+              <h3 className="m-0 min-w-0 truncate text-sm font-black">{item.title}</h3>
+              <p className="m-0 text-xs font-bold text-text-muted">
+                {savedItemKindLabel(item.kind)} saved {formatSummaryTimestamp(item.updatedAt)}
+              </p>
+            </div>
+          ))}
+        </div>
+      </SummaryPanelBody>
+      <Button
+        asChild
+        className="h-auto w-fit rounded-md border-border-default bg-white px-3 py-2 text-text-default hover:bg-brand-lagoon-100"
+        variant="outline"
+      >
+        <Link href="/chat">Open saved plan</Link>
+      </Button>
+    </section>
+  );
+}
+
+function SummaryPanelHeader({
+  description,
+  icon,
+  title,
+}: {
+  description: string;
+  icon: ReactNode;
+  title: string;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="grid size-10 shrink-0 place-items-center rounded-md bg-brand-lagoon-100 text-brand-lagoon-700">
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <h2 className="m-0 text-base font-black">{title}</h2>
+        <p className="m-0 text-sm font-bold text-text-muted">{description}</p>
+      </div>
+    </div>
+  );
+}
+
+function SummaryPanelBody({
+  children,
+  emptyText,
+  errorText,
+  hasContent,
+  loadingText,
+  status,
+}: {
+  children: ReactNode;
+  emptyText: string;
+  errorText: string;
+  hasContent: boolean;
+  loadingText: string;
+  status: PrivateSummaryStatus;
+}) {
+  if (status === "loading" || status === "idle") {
+    return <p className="m-0 text-sm font-bold text-text-muted">{loadingText}</p>;
+  }
+  if (status === "error") {
+    return <p className="m-0 text-sm font-bold text-text-alert">{errorText}</p>;
+  }
+  if (!hasContent) {
+    return <p className="m-0 text-sm font-bold text-text-muted">{emptyText}</p>;
+  }
+
+  return children;
 }
 
 function SettingsHeader() {
@@ -249,6 +473,65 @@ function PrivacyPanel() {
       </p>
     </section>
   );
+}
+
+function privateSummaryStatus({
+  data,
+  error,
+  isLoading,
+}: {
+  data: unknown;
+  error: unknown;
+  isLoading: boolean;
+}): PrivateSummaryStatus {
+  if (error) {
+    return "error";
+  }
+  if (data) {
+    return "ready";
+  }
+
+  return isLoading ? "loading" : "idle";
+}
+
+function summaryCountLabel(count: number, singular: string) {
+  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+}
+
+function formatSummaryTimestamp(value?: string | null) {
+  if (!value) {
+    return "No recent activity";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "No recent activity";
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    month: "short",
+  }).format(date);
+}
+
+function timestampSortValue(value?: string | null) {
+  if (!value) {
+    return 0;
+  }
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function savedItemKindLabel(kind: SavedTripItem["kind"]) {
+  switch (kind) {
+    case "beach":
+      return "Beach";
+    case "itinerary":
+      return "Itinerary";
+    case "note":
+      return "Note";
+    case "place":
+      return "Place";
+  }
 }
 
 function TravelProfileSection({

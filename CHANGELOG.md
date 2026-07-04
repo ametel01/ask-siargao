@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added private settings dashboard summaries for recent signed-in chat threads and saved planning
+  items without exposing full chat transcripts.
 - Added a protected `/settings` route for signed-in Ask Siargao user settings.
 - Added configurable public web research through `research_web`, including source-backed output,
   insufficient-evidence responses, provider-unavailable responses, query planning, source scoring,
