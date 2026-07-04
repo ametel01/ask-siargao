@@ -57,10 +57,15 @@ const emptyForm: ProfileFormState = {
 };
 
 const settingsWorkspaceClass =
-  "mx-auto grid w-full max-w-[1440px] gap-6 px-4 py-5 sm:px-6 lg:px-8 lg:py-7";
+  "grid w-full max-w-none gap-6 px-4 py-5 sm:px-6 lg:px-8 lg:py-7 2xl:px-10";
 
 const settingsPanelClass =
   "rounded-md border border-border-default bg-surface-default p-5 text-text-default shadow-panel md:p-6";
+
+const summaryDateFormatter = new Intl.DateTimeFormat("en", {
+  day: "numeric",
+  month: "short",
+});
 
 class ProfileFetchError extends Error {
   constructor(readonly status: number) {
@@ -181,7 +186,7 @@ export function SettingsDashboardPage() {
         ) : status === "error" || !profile ? (
           <StatusPanel title="Settings unavailable" />
         ) : (
-          <div className="grid min-w-0 gap-6 xl:grid-cols-[22rem_minmax(0,1fr)] xl:items-start">
+          <div className="grid min-w-0 gap-6 xl:grid-cols-[20rem_minmax(0,1fr)] 2xl:grid-cols-[22rem_minmax(0,1fr)] xl:items-start">
             <SettingsSidebar profile={profile} />
             <div className="grid min-w-0 gap-6">
               <PrivatePlanningDataSection
@@ -221,7 +226,7 @@ function PrivatePlanningDataSection({
   threads: ChatHistoryThread[];
 }) {
   return (
-    <section className="grid min-w-0 gap-4 lg:grid-cols-2">
+    <section className="grid min-w-0 gap-4 min-[1500px]:grid-cols-2">
       <ChatHistorySummaryPanel status={chatStatus} threads={threads} />
       <SavedPlanSummaryPanel items={savedItems} status={savedStatus} />
     </section>
@@ -281,8 +286,10 @@ function SavedPlanSummaryPanel({
   items: SavedTripItem[];
   status: PrivateSummaryStatus;
 }) {
-  const recentItems = [...items]
-    .sort((left, right) => timestampSortValue(right.updatedAt) - timestampSortValue(left.updatedAt))
+  const recentItems = items
+    .toSorted(
+      (left, right) => timestampSortValue(right.updatedAt) - timestampSortValue(left.updatedAt),
+    )
     .slice(0, 3);
 
   return (
@@ -420,7 +427,7 @@ function AccountPanel({ profile }: { profile: UserProfileResponse }) {
         <div className="min-w-0">
           <h2 className="m-0 truncate text-base font-black">Account</h2>
           <p className="m-0 truncate text-sm font-bold text-text-muted">
-            {fullName || profile.identity.email}
+            {fullName || "Signed-in account"}
           </p>
         </div>
       </div>
@@ -518,10 +525,7 @@ function formatSummaryTimestamp(value?: string | null) {
     return "No recent activity";
   }
 
-  return new Intl.DateTimeFormat("en", {
-    day: "numeric",
-    month: "short",
-  }).format(date);
+  return summaryDateFormatter.format(date);
 }
 
 function timestampSortValue(value?: string | null) {
