@@ -11,12 +11,12 @@ Starting commit: `05a9d59`
 - [x] Step 2: Build The Settings Dashboard Shell Around Existing Profile Editing
 - [x] Step 3: Add Private Chat And Saved-Plan Summary Panels
 - [x] Step 4: Update In-App Navigation And Route Documentation
-- [ ] Step 5: Final Verification And Cleanup
+- [x] Step 5: Final Verification And Cleanup
 
 ## Current Status
 
-Status: Step 4 complete.
-Next step: Step 5 - Final Verification And Cleanup.
+Status: Complete.
+Next step: None.
 
 ## Update Log
 
@@ -138,4 +138,33 @@ Next step: Step 5 - Final Verification And Cleanup.
   - `DATABASE_URL= bun run test:e2e` - 38 pass, 0 fail
 - Validation note: the full E2E run kept the existing `DATABASE_URL=` fixture mode and emitted the
   known `/api/trips/saved` missing-database logs while passing.
-- Commit: pending.
+- Commit: `39287f6` (`Document settings route and update navigation`)
+
+### 2026-07-04 - Step 5 Complete
+
+- Audited the implementation against `PLAN.md` definition of done:
+  - `/settings` exists and renders the signed-in settings dashboard.
+  - `/profile` remains usable as a compatibility route and renders the same dashboard.
+  - Clerk route policy protects `/settings`, `/profile`, `/api/me`, `/api/chat/threads`, and
+    `/api/chat/ratings`.
+  - The dashboard includes account identity, Clerk `UserButton` entry point, travel profile
+    editing, recent chat-thread summaries, saved planning summaries, and loading/empty/signed-out/
+    unavailable states.
+  - Settings summaries use `/api/chat/threads` and `/api/trips/saved` without loading full chat
+    messages or exposing raw provider payloads.
+  - Chat sidebar links now point to `/settings`, route docs are current, and route/E2E coverage is
+    updated.
+- Final validation passed:
+  - `DATABASE_URL= bun run verify:ci`
+    - `bun run lint`
+    - `bun run typecheck --incremental false`
+    - `bun test` - 737 pass, 0 fail
+    - `bun run db:migrate:test`
+    - `bun run db:seed:test`
+    - `bun run build`
+    - `bun run test:e2e` - 38 pass, 0 fail
+- Validation note: the final CI-style run used `DATABASE_URL=` so the Playwright suite preserved
+  its fixture-backed public catalog path. The run emitted the known `/api/trips/saved`
+  missing-database logs during chat E2E tests while still passing.
+- Changelog decision: no Step 5 entry added because this step only records verification and cleanup.
+- Commit: this final verification commit (`Verify settings dashboard implementation`)
