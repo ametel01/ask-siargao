@@ -1363,8 +1363,8 @@ function ChatContextRail({
   return (
     <aside
       aria-label="Trip context and live conditions"
-      className="hidden min-h-0 content-start gap-4 overflow-x-hidden overflow-y-auto overscroll-contain border-border-default border-l bg-surface-default p-4 pb-6 min-[1180px]:grid"
-      data-testid="context-rail-scroll"
+      className="hidden min-h-0 content-start gap-3 overflow-hidden border-border-default border-l bg-surface-default p-3 min-[1180px]:grid"
+      data-testid="context-rail"
     >
       <ContextCard
         action={
@@ -1411,18 +1411,20 @@ function ChatContextRail({
         {isEditing ? (
           <TripContextEditor draft={draft} onDraftChange={setDraft} />
         ) : (
-          <div className="grid gap-4">
-            {tripContextItems.map((item) => (
-              <ContextFact
-                icon={item.icon}
-                key={item.label}
-                label={item.label}
-                value={item.value}
-              />
-            ))}
+          <div className="grid gap-3">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+              {tripContextItems.map((item) => (
+                <ContextFact
+                  icon={item.icon}
+                  key={item.label}
+                  label={item.label}
+                  value={item.value}
+                />
+              ))}
+            </div>
             {locationState.status !== "ready" ? (
               <Button
-                className="h-9 rounded-md border-brand-lagoon-500/25 bg-brand-lagoon-50 px-3 text-xs font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
+                className="h-8 rounded-md border-brand-lagoon-500/25 bg-brand-lagoon-50 px-3 text-xs font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
                 onClick={onRequestLocation}
                 type="button"
                 variant="outline"
@@ -1451,18 +1453,18 @@ function ChatContextRail({
         }
         title={`${activeForecastLocation} Weather`}
       >
-        <div className="grid gap-4">
-          <div className="flex items-center gap-4">
-            <CloudSun aria-hidden="true" className="text-brand-violet-650" size={38} />
+        <div className="grid gap-3">
+          <div className="flex items-center gap-3">
+            <CloudSun aria-hidden="true" className="text-brand-violet-650" size={30} />
             <div className="min-w-0">
-              <p className="m-0 text-2xl font-black text-text-strong">
+              <p className="m-0 text-xl font-black leading-tight text-text-strong">
                 {weatherPanelTitle({
                   error: weatherError,
                   isLoading: weatherLoading,
                   weatherSnapshot,
                 })}
               </p>
-              <p className="m-0 text-sm font-bold text-text-muted">
+              <p className="m-0 text-xs font-bold text-text-muted">
                 {weatherPanelSubtitle({
                   activeForecastLocation,
                   error: weatherError,
@@ -1472,7 +1474,7 @@ function ChatContextRail({
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-1.5">
             {weatherMetrics.map((item) => (
               <MetricTile key={item.label} label={item.label} value={item.value} />
             ))}
@@ -1513,15 +1515,15 @@ function ChatContextRail({
         }
         title="Live surf conditions"
       >
-        <div className="grid gap-4">
+        <div className="grid gap-3">
           <div className="flex items-center justify-between gap-3">
-            <p className="m-0 inline-flex items-center gap-2 text-lg font-black text-text-strong">
-              <WavesHorizontal aria-hidden="true" className="text-brand-violet-650" size={20} />
+            <p className="m-0 inline-flex min-w-0 items-center gap-2 text-base font-black text-text-strong">
+              <WavesHorizontal aria-hidden="true" className="text-brand-violet-650" size={18} />
               {activeForecastLocation}
             </p>
             <span
               className={cn(
-                "rounded-full px-3 py-1 text-xs font-black",
+                "shrink-0 rounded-full px-2 py-1 text-[0.68rem] font-black leading-none",
                 surfSnapshot?.status === "live"
                   ? "bg-confidence-high-soft text-confidence-high"
                   : "bg-brand-lavender-50 text-text-muted",
@@ -1530,7 +1532,7 @@ function ChatContextRail({
               {surfBadgeLabel({ error: surfError, isLoading: surfLoading, surfSnapshot })}
             </span>
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-1.5">
             {surfMetrics.map((item) => (
               <MetricTile key={item.label} label={item.label} value={item.value} />
             ))}
@@ -1567,9 +1569,9 @@ function ContextCard({
   title: string;
 }) {
   return (
-    <section className="grid gap-4 rounded-lg border border-border-default bg-white p-5 shadow-card">
+    <section className="grid gap-3 rounded-lg border border-border-default bg-white p-3 shadow-card">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="m-0 text-lg font-black text-text-strong">{title}</h2>
+        <h2 className="m-0 min-w-0 text-base font-black leading-tight text-text-strong">{title}</h2>
         {action}
       </div>
       {children}
@@ -1587,11 +1589,13 @@ function ContextFact({
   value: string;
 }) {
   return (
-    <div className="grid grid-cols-[24px_minmax(0,1fr)] gap-3">
-      <Icon aria-hidden="true" className="mt-0.5 text-brand-violet-650" size={19} />
+    <div className="grid min-w-0 grid-cols-[18px_minmax(0,1fr)] gap-2">
+      <Icon aria-hidden="true" className="mt-0.5 text-brand-violet-650" size={16} />
       <div className="min-w-0">
-        <p className="m-0 text-sm font-bold text-text-muted">{label}</p>
-        <p className="m-0 min-w-0 break-words text-sm font-black text-text-strong">{value}</p>
+        <p className="m-0 text-[0.68rem] font-bold leading-tight text-text-muted">{label}</p>
+        <p className="m-0 min-w-0 break-words text-xs font-black leading-tight text-text-strong">
+          {value}
+        </p>
       </div>
     </div>
   );
@@ -1675,9 +1679,9 @@ function TripContextField({
 
 function MetricTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid min-h-16 content-center gap-1 rounded-md bg-brand-lavender-50 px-3 py-2">
-      <p className="m-0 text-xs font-bold text-text-muted">{label}</p>
-      <p className="m-0 text-sm font-black text-text-strong">{value}</p>
+    <div className="grid min-h-12 content-center gap-0.5 rounded-md bg-brand-lavender-50 px-2 py-1.5">
+      <p className="m-0 text-[0.68rem] font-bold leading-tight text-text-muted">{label}</p>
+      <p className="m-0 text-xs font-black leading-tight text-text-strong">{value}</p>
     </div>
   );
 }

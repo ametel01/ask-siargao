@@ -148,6 +148,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Made the chat right-hand trip context rail fixed and vertically compact so only the chat message
+  area scrolls on desktop.
 - Kept the chat trip-context rail visible at normal desktop browser widths instead of only showing
   it after zooming out.
 - Allowed public machine-readable document routes such as `robots.txt`, `sitemap.xml`, and

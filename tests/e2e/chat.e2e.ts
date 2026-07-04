@@ -168,9 +168,7 @@ test("sends a desktop composer message to the chat API and renders the assistant
   const composerInput = page.getByLabel("Ask anything about Siargao");
   const sendButton = page.getByRole("button", { name: "Send question" });
   await expect(composerInput).toBeVisible();
-  await expect
-    .poll(() => chatWorkspaceScrollSurfaces(page))
-    .toEqual(["chat-message-scroll-area", "context-rail-scroll"]);
+  await expect.poll(() => chatWorkspaceScrollSurfaces(page)).toEqual(["chat-message-scroll-area"]);
   await expect
     .poll(() =>
       page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight + 1),
@@ -237,10 +235,9 @@ test("shows the trip context rail at normal desktop browser width", async ({ pag
 
   await expect(page.getByLabel("Ask Siargao chat workspace")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Trip context" })).toBeVisible();
-  await expect(page.getByTestId("context-rail-scroll")).toBeVisible();
-  await expect
-    .poll(() => chatWorkspaceScrollSurfaces(page))
-    .toEqual(["chat-message-scroll-area", "context-rail-scroll"]);
+  await expect(page.getByTestId("context-rail")).toBeVisible();
+  await expect.poll(() => chatWorkspaceScrollSurfaces(page)).toEqual(["chat-message-scroll-area"]);
+  await expect.poll(() => rightRailFitsViewport(page)).toBe(true);
 });
 
 test("renders assistant markdown tables as real tables", async ({ page }) => {
@@ -334,9 +331,7 @@ test("keeps a crowded chat history from clipping the active assistant reply", as
 
   await page.goto("/chat");
   await expect(page.getByRole("heading", { name: "Recent questions" })).toBeVisible();
-  await expect
-    .poll(() => chatWorkspaceScrollSurfaces(page))
-    .toEqual(["chat-message-scroll-area", "context-rail-scroll"]);
+  await expect.poll(() => chatWorkspaceScrollSurfaces(page)).toEqual(["chat-message-scroll-area"]);
 
   const composerInput = page.getByLabel("Ask anything about Siargao");
   await composerInput.fill("where should i go party tonight in general luna?");
@@ -1895,6 +1890,15 @@ async function composerFitsViewport(page: Page) {
       buttonRect.left >= composerRect.left &&
       buttonRect.right <= composerRect.right &&
       buttonRect.right <= viewportWidth
+    );
+  });
+}
+
+async function rightRailFitsViewport(page: Page) {
+  return page.getByTestId("context-rail").evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return (
+      rect.top >= 0 && rect.bottom <= window.innerHeight && element.scrollHeight <= rect.height
     );
   });
 }
