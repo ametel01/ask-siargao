@@ -14,6 +14,8 @@ describe("Clerk route policy", () => {
   });
 
   test("protects authenticated data surfaces", () => {
+    expect(classifyClerkRoute("/settings")).toBe("protected");
+    expect(classifyClerkRoute("/settings/profile")).toBe("protected");
     expect(classifyClerkRoute("/profile")).toBe("protected");
     expect(classifyClerkRoute("/profile/settings")).toBe("protected");
     expect(classifyClerkRoute("/chat/history")).toBe("protected");
@@ -27,6 +29,7 @@ describe("Clerk route policy", () => {
     expect(classifyClerkRoute("/api/chat")).toBe("public");
     expect(classifyClerkRoute("/api/chatbot")).toBe("public-by-default");
     expect(classifyClerkRoute("/chatty")).toBe("public-by-default");
+    expect(classifyClerkRoute("/settings-public")).toBe("public-by-default");
     expect(classifyClerkRoute("https://ask-siargao.test/sign-in")).toBe("public");
   });
 

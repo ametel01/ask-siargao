@@ -9,6 +9,7 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added a protected `/settings` route for signed-in Ask Siargao user settings.
 - Added configurable public web research through `research_web`, including source-backed output,
   insufficient-evidence responses, provider-unavailable responses, query planning, source scoring,
   finding extraction, entity hints, and required-evidence planning for current recommendations,

@@ -1,4 +1,5 @@
 export const clerkProtectedRoutePatterns = [
+  "/settings(.*)",
   "/profile(.*)",
   "/chat/history(.*)",
   "/api/me(.*)",
@@ -23,6 +24,7 @@ const publicRouteExpressions = [
 ] as const;
 
 const protectedRouteExpressions = [
+  /^\/settings(?:\/.*)?$/,
   /^\/profile(?:\/.*)?$/,
   /^\/chat\/history(?:\/.*)?$/,
   /^\/api\/me(?:\/.*)?$/,
