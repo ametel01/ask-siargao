@@ -514,6 +514,10 @@ test("loads signed-in chat history and preserves the thread after reload", async
 
   await page.goto("/chat");
 
+  await expect(page.getByRole("link", { exact: true, name: "Settings" })).toHaveAttribute(
+    "href",
+    "/settings",
+  );
   await expect(page.getByRole("heading", { name: "Recent questions" })).toBeVisible();
   await page.getByRole("button", { name: /Cloud 9 plan/ }).click();
   await expect(page.getByText("Where should I eat near Cloud 9?")).toBeVisible();

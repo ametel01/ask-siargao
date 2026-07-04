@@ -22,6 +22,7 @@ import {
   Plus,
   RefreshCw,
   Send,
+  Settings as SettingsIcon,
   Share2,
   ShieldCheck,
   Sparkles,
@@ -1271,9 +1272,37 @@ function ChatTopBar({
         >
           <Share2 aria-hidden="true" size={17} />
         </Button>
+        <ChatSettingsLink />
         <ChatAuthActions />
       </div>
     </header>
+  );
+}
+
+function ChatSettingsLink() {
+  return (
+    <>
+      <Button
+        asChild
+        className="hidden h-10 rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50 sm:inline-flex"
+        variant="outline"
+      >
+        <Link href="/settings">
+          <SettingsIcon aria-hidden="true" size={15} />
+          Settings
+        </Link>
+      </Button>
+      <Button
+        asChild
+        className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100 sm:hidden"
+        size="icon"
+        variant="outline"
+      >
+        <Link aria-label="Open settings" href="/settings">
+          <SettingsIcon aria-hidden="true" size={17} />
+        </Link>
+      </Button>
+    </>
   );
 }
 

@@ -69,6 +69,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Added a visible top-bar Settings control in the chat workspace so account settings are not hidden
+  behind the Clerk avatar.
 - Changed in-app settings/profile navigation and route docs to treat `/settings` as canonical while
   preserving `/profile` compatibility.
 - Changed the profile settings surface into a broader settings dashboard while preserving travel
