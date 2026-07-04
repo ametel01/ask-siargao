@@ -991,7 +991,7 @@ function ChatWorkspaceView({
       aria-label="Ask Siargao chat workspace"
       className="fixed inset-0 h-dvh overflow-hidden bg-brand-lavender-50 text-text-strong"
     >
-      <section className="grid h-full min-h-0 w-full grid-cols-1 xl:grid-cols-[19.5rem_minmax(0,1fr)] 2xl:grid-cols-[19.5rem_minmax(0,1fr)_22.5rem]">
+      <section className="grid h-full min-h-0 w-full grid-cols-1 min-[1180px]:grid-cols-[15rem_minmax(0,1fr)_18rem] xl:grid-cols-[17rem_minmax(0,1fr)_20rem] 2xl:grid-cols-[19.5rem_minmax(0,1fr)_22.5rem]">
         <ChatTravelRail
           historyStatus={historyStatus}
           onOpenThread={(threadId) => {
@@ -1118,7 +1118,7 @@ function ChatTravelRail({
     : fallbackRecentQuestions;
 
   return (
-    <aside className="hidden min-h-0 bg-brand-navy-980 px-5 py-6 text-text-on-dark xl:grid xl:grid-rows-[auto_auto_minmax(0,1fr)_auto] xl:gap-6">
+    <aside className="hidden min-h-0 bg-brand-navy-980 px-5 py-6 text-text-on-dark min-[1180px]:grid min-[1180px]:grid-rows-[auto_auto_minmax(0,1fr)_auto] min-[1180px]:gap-6">
       <Link aria-label="Ask Siargao home" className="min-w-0 no-underline" href="/">
         <BrandLockup className="[&_span:last-child]:text-[1.55rem]" />
       </Link>
@@ -1363,7 +1363,7 @@ function ChatContextRail({
   return (
     <aside
       aria-label="Trip context and live conditions"
-      className="hidden min-h-0 content-start gap-4 overflow-x-hidden overflow-y-auto overscroll-contain border-border-default border-l bg-surface-default p-4 pb-6 2xl:grid"
+      className="hidden min-h-0 content-start gap-4 overflow-x-hidden overflow-y-auto overscroll-contain border-border-default border-l bg-surface-default p-4 pb-6 min-[1180px]:grid"
       data-testid="context-rail-scroll"
     >
       <ContextCard

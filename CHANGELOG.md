@@ -148,6 +148,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Kept the chat trip-context rail visible at normal desktop browser widths instead of only showing
+  it after zooming out.
 - Allowed public machine-readable document routes such as `robots.txt`, `sitemap.xml`, and
   `llm.md` to bypass Clerk middleware while API routes remain covered.
 - Fixed the OpenAI web research structured-output schema so strict result and nested entity

@@ -227,6 +227,22 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect.poll(() => composerFitsViewport(page)).toBe(true);
 });
 
+test("shows the trip context rail at normal desktop browser width", async ({ page }) => {
+  await page.setViewportSize({ width: 1224, height: 768 });
+  await mockChatApi(page, {
+    message: "Mocked desktop answer.",
+  });
+
+  await page.goto("/chat");
+
+  await expect(page.getByLabel("Ask Siargao chat workspace")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Trip context" })).toBeVisible();
+  await expect(page.getByTestId("context-rail-scroll")).toBeVisible();
+  await expect
+    .poll(() => chatWorkspaceScrollSurfaces(page))
+    .toEqual(["chat-message-scroll-area", "context-rail-scroll"]);
+});
+
 test("renders assistant markdown tables as real tables", async ({ page }) => {
   await page.setViewportSize({ width: 2048, height: 1153 });
   await mockChatApi(page, {
