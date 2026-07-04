@@ -12,5 +12,19 @@
       "sticky light composer"
     ],
     "notes": "Redesigned chat from single dark column into target three-column travel assistant workbench."
+  },
+  {
+    "date": "2026-07-04",
+    "surface": "settings",
+    "genre": "modern-minimal",
+    "macrostructure": "account console",
+    "theme": "Ask Siargao existing brand tokens",
+    "variationKnobs": [
+      "dark identity band",
+      "sticky account rail",
+      "two-card private summary row",
+      "full-width form workspace"
+    ],
+    "notes": "Moved settings off the narrow backdrop shell into a wide account dashboard surface."
   }
 ]

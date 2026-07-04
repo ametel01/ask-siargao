@@ -1,5 +1,9 @@
 "use client";
 
+/*
+ * Hallmark - pre-emit critique: P4 H4 E4 S5 R4 V4
+ * genre: modern-minimal; macrostructure: account console; contrast/mobile: pass.
+ */
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { ArrowRight, MapPinned, MessageCircle, Save, ShieldCheck, UserRound } from "lucide-react";
 import Link from "next/link";
@@ -13,14 +17,7 @@ import { isClerkConfigured } from "@/features/auth/clerk-config";
 import type { ChatHistoryThread } from "@/server/chat/chat-history-store";
 import type { UserProfileResponse } from "@/server/profile/user-profile-store";
 import type { SavedTripItem } from "@/server/trips/shared-trip-types";
-import {
-  AppBackdrop,
-  appBodyClass,
-  appPanelClass,
-  appShellClass,
-  BrandHeader,
-  PageHeader,
-} from "@/ui/components/ask-siargao";
+import { appBodyClass, BrandHeader, PageHeader } from "@/ui/components/ask-siargao";
 
 type ProfileFormState = {
   displayName: string;
@@ -58,6 +55,12 @@ const emptyForm: ProfileFormState = {
   tripNotes: "",
   marketingConsent: false,
 };
+
+const settingsWorkspaceClass =
+  "mx-auto grid w-full max-w-[1440px] gap-6 px-4 py-5 sm:px-6 lg:px-8 lg:py-7";
+
+const settingsPanelClass =
+  "rounded-md border border-border-default bg-surface-default p-5 text-text-default shadow-panel md:p-6";
 
 class ProfileFetchError extends Error {
   constructor(readonly status: number) {
@@ -163,10 +166,14 @@ export function SettingsDashboardPage() {
   }
 
   return (
-    <AppBackdrop>
-      <div className={`${appShellClass} max-w-6xl gap-8`}>
-        <SettingsHeader />
+    <main className="min-h-screen overflow-x-clip bg-brand-lavender-50 text-text-default">
+      <section className="bg-brand-navy-980 text-text-on-dark">
+        <div className={settingsWorkspaceClass}>
+          <SettingsHeader />
+        </div>
+      </section>
 
+      <section className={settingsWorkspaceClass}>
         {status === "loading" ? (
           <StatusPanel title="Loading settings" />
         ) : status === "unauthenticated" ? (
@@ -174,9 +181,9 @@ export function SettingsDashboardPage() {
         ) : status === "error" || !profile ? (
           <StatusPanel title="Settings unavailable" />
         ) : (
-          <div className="grid gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
+          <div className="grid min-w-0 gap-6 xl:grid-cols-[22rem_minmax(0,1fr)] xl:items-start">
             <SettingsSidebar profile={profile} />
-            <form className="grid gap-5" onSubmit={saveProfile}>
+            <div className="grid min-w-0 gap-6">
               <PrivatePlanningDataSection
                 chatStatus={privateSummaryStatus({
                   data: chatThreads,
@@ -191,12 +198,14 @@ export function SettingsDashboardPage() {
                 savedItems={savedTrips?.items ?? []}
                 threads={chatThreads?.threads ?? []}
               />
-              <TravelProfileSection form={form} saveState={saveState} setForm={setForm} />
-            </form>
+              <form className="grid min-w-0 gap-6" onSubmit={saveProfile}>
+                <TravelProfileSection form={form} saveState={saveState} setForm={setForm} />
+              </form>
+            </div>
           </div>
         )}
-      </div>
-    </AppBackdrop>
+      </section>
+    </main>
   );
 }
 
@@ -212,7 +221,7 @@ function PrivatePlanningDataSection({
   threads: ChatHistoryThread[];
 }) {
   return (
-    <section className="grid gap-4 md:grid-cols-2">
+    <section className="grid min-w-0 gap-4 lg:grid-cols-2">
       <ChatHistorySummaryPanel status={chatStatus} threads={threads} />
       <SavedPlanSummaryPanel items={savedItems} status={savedStatus} />
     </section>
@@ -230,7 +239,7 @@ function ChatHistorySummaryPanel({
   const recentThreads = activeThreads.slice(0, 3);
 
   return (
-    <section className={`${appPanelClass} grid content-start gap-4`}>
+    <section className={`${settingsPanelClass} grid min-h-64 content-start gap-4`}>
       <SummaryPanelHeader
         description={summaryCountLabel(activeThreads.length, "private thread")}
         icon={<MessageCircle className="size-5" />}
@@ -256,7 +265,7 @@ function ChatHistorySummaryPanel({
       </SummaryPanelBody>
       <Button
         asChild
-        className="h-auto w-fit rounded-md border-border-default bg-white px-3 py-2 text-text-default hover:bg-brand-lagoon-100"
+        className="h-auto w-fit rounded-md border-border-default bg-surface-default px-3 py-2 text-text-default whitespace-nowrap hover:bg-brand-lagoon-100"
         variant="outline"
       >
         <Link href="/chat">Open chat</Link>
@@ -277,7 +286,7 @@ function SavedPlanSummaryPanel({
     .slice(0, 3);
 
   return (
-    <section className={`${appPanelClass} grid content-start gap-4`}>
+    <section className={`${settingsPanelClass} grid min-h-64 content-start gap-4`}>
       <SummaryPanelHeader
         description={summaryCountLabel(items.length, "saved item")}
         icon={<MapPinned className="size-5" />}
@@ -303,7 +312,7 @@ function SavedPlanSummaryPanel({
       </SummaryPanelBody>
       <Button
         asChild
-        className="h-auto w-fit rounded-md border-border-default bg-white px-3 py-2 text-text-default hover:bg-brand-lagoon-100"
+        className="h-auto w-fit rounded-md border-border-default bg-surface-default px-3 py-2 text-text-default whitespace-nowrap hover:bg-brand-lagoon-100"
         variant="outline"
       >
         <Link href="/chat">Open saved plan</Link>
@@ -369,7 +378,7 @@ function SettingsHeader() {
         action={
           <Button
             asChild
-            className="rounded-md border-white/20 bg-white/10 text-text-on-dark hover:bg-white/15"
+            className="rounded-md border-white/20 bg-white/10 text-text-on-dark whitespace-nowrap hover:bg-white/15"
             variant="outline"
           >
             <Link href="/chat">Back to chat</Link>
@@ -387,10 +396,12 @@ function SettingsHeader() {
 
 function SettingsSidebar({ profile }: { profile: UserProfileResponse }) {
   return (
-    <aside className="grid h-fit gap-5">
+    <aside className="grid min-w-0 gap-4 xl:sticky xl:top-6 xl:h-fit">
       <AccountPanel profile={profile} />
-      <ShortcutPanel />
-      <PrivacyPanel />
+      <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-1">
+        <ShortcutPanel />
+        <PrivacyPanel />
+      </div>
     </aside>
   );
 }
@@ -401,7 +412,7 @@ function AccountPanel({ profile }: { profile: UserProfileResponse }) {
     .join(" ");
 
   return (
-    <section className={`${appPanelClass} grid gap-4`}>
+    <section className={`${settingsPanelClass} grid min-w-0 gap-4`}>
       <div className="flex items-center gap-3">
         <span className="grid size-12 place-items-center rounded-full bg-brand-lagoon-100 text-brand-lagoon-700">
           <UserRound className="size-5" />
@@ -414,10 +425,10 @@ function AccountPanel({ profile }: { profile: UserProfileResponse }) {
         </div>
       </div>
 
-      <dl className="grid gap-3 text-sm">
+      <dl className="grid min-w-0 gap-3 text-sm">
         <div>
           <dt className="font-black text-text-muted">Email</dt>
-          <dd className="m-0 break-words font-bold">{profile.identity.email}</dd>
+          <dd className="m-0 break-all font-bold">{profile.identity.email}</dd>
         </div>
         <div>
           <dt className="font-black text-text-muted">Clerk user ID</dt>
@@ -439,11 +450,11 @@ function AccountPanel({ profile }: { profile: UserProfileResponse }) {
 
 function ShortcutPanel() {
   return (
-    <section className={`${appPanelClass} grid gap-3`}>
+    <section className={`${settingsPanelClass} grid min-w-0 gap-3`}>
       <h2 className="m-0 text-base font-black">Shortcuts</h2>
       <Button
         asChild
-        className="h-auto justify-between rounded-md border-border-default bg-white px-3 py-3 text-left text-text-default hover:bg-brand-lagoon-100"
+        className="h-auto justify-between rounded-md border-border-default bg-surface-default px-3 py-3 text-left text-text-default whitespace-nowrap hover:bg-brand-lagoon-100"
         variant="outline"
       >
         <Link href="/chat">
@@ -460,7 +471,7 @@ function ShortcutPanel() {
 
 function PrivacyPanel() {
   return (
-    <section className={`${appPanelClass} grid gap-3`}>
+    <section className={`${settingsPanelClass} grid min-w-0 gap-3`}>
       <div className="flex items-center gap-3">
         <span className="grid size-10 place-items-center rounded-md bg-brand-lagoon-100 text-brand-lagoon-700">
           <ShieldCheck className="size-5" />
@@ -544,13 +555,13 @@ function TravelProfileSection({
   setForm: (update: (current: ProfileFormState) => ProfileFormState) => void;
 }) {
   return (
-    <section className={`${appPanelClass} grid gap-5`}>
+    <section className={`${settingsPanelClass} grid min-w-0 gap-6`}>
       <div>
         <h2 className="m-0 text-lg font-black">Travel profile</h2>
         <p className={appBodyClass}>App profile details for Ask Siargao planning.</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
         <TextField
           label="Display name"
           value={form.displayName}
@@ -566,10 +577,10 @@ function TravelProfileSection({
           value={form.travelStyle}
           onChange={(travelStyle) => setForm((current) => ({ ...current, travelStyle }))}
         />
-        <label className="grid gap-2 text-sm font-extrabold text-text-default">
+        <label className="grid min-w-0 gap-2 text-sm font-extrabold text-text-default">
           Budget level
           <select
-            className="h-10 rounded-md border border-border-default bg-white px-3 text-sm font-bold outline-none focus-visible:border-brand-lagoon-600 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+            className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-bold outline-none focus-visible:border-brand-lagoon-600 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
             value={form.budgetLevel}
             onChange={(event) =>
               setForm((current) => ({ ...current, budgetLevel: event.target.value }))
@@ -594,7 +605,7 @@ function TravelProfileSection({
         />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
         <TextAreaField
           label="Dietary notes"
           value={form.dietaryNotes}
@@ -615,7 +626,7 @@ function TravelProfileSection({
         onChange={(tripNotes) => setForm((current) => ({ ...current, tripNotes }))}
       />
 
-      <label className="flex items-center gap-3 rounded-md border border-brand-lagoon-700/10 bg-brand-lagoon-100 p-3 text-sm font-bold text-text-default">
+      <label className="flex min-w-0 items-start gap-3 rounded-md border border-brand-lagoon-700/10 bg-brand-lagoon-100 p-3 text-sm font-bold text-text-default sm:items-center">
         <input
           checked={form.marketingConsent}
           className="size-4 accent-brand-lagoon-600"
@@ -631,11 +642,15 @@ function TravelProfileSection({
       </label>
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button className="rounded-md" disabled={saveState === "saving"} type="submit">
+        <Button
+          className="rounded-md whitespace-nowrap"
+          disabled={saveState === "saving"}
+          type="submit"
+        >
           <Save className="size-4" />
           {saveState === "saving" ? "Saving" : "Save profile"}
         </Button>
-        <output className="text-sm font-bold text-text-muted">
+        <output className="min-h-5 text-sm font-bold text-text-muted">
           {saveState === "saved"
             ? "Profile saved"
             : saveState === "error"
@@ -649,20 +664,20 @@ function TravelProfileSection({
 
 function SignedOutPanel() {
   return (
-    <section className={`${appPanelClass} grid max-w-xl gap-4`}>
+    <section className={`${settingsPanelClass} grid max-w-xl gap-4`}>
       <h2 className="m-0 text-xl font-black">Sign in to manage your settings</h2>
       <p className={appBodyClass}>Ask Siargao keeps settings with your signed-in account.</p>
       <div className="flex flex-wrap gap-3">
         {isClerkConfigured ? (
           <>
             <SignInButton mode="modal">
-              <Button className="rounded-md" type="button">
+              <Button className="rounded-md whitespace-nowrap" type="button">
                 Sign in
               </Button>
             </SignInButton>
             <SignUpButton mode="modal">
               <Button
-                className="rounded-md border-border-default bg-white text-text-default hover:bg-brand-lagoon-100"
+                className="rounded-md border-border-default bg-surface-default text-text-default whitespace-nowrap hover:bg-brand-lagoon-100"
                 type="button"
                 variant="outline"
               >
@@ -672,12 +687,12 @@ function SignedOutPanel() {
           </>
         ) : (
           <>
-            <Button asChild className="rounded-md">
+            <Button asChild className="rounded-md whitespace-nowrap">
               <Link href="/sign-in">Sign in</Link>
             </Button>
             <Button
               asChild
-              className="rounded-md border-border-default bg-white text-text-default hover:bg-brand-lagoon-100"
+              className="rounded-md border-border-default bg-surface-default text-text-default whitespace-nowrap hover:bg-brand-lagoon-100"
               variant="outline"
             >
               <Link href="/sign-up">Sign up</Link>
@@ -691,7 +706,7 @@ function SignedOutPanel() {
 
 function StatusPanel({ title }: { title: string }) {
   return (
-    <section className={appPanelClass}>
+    <section className={settingsPanelClass}>
       <h2 className="m-0 text-xl font-black">{title}</h2>
     </section>
   );
@@ -709,11 +724,14 @@ function TextField({
   const inputId = fieldId(label);
 
   return (
-    <label className="grid gap-2 text-sm font-extrabold text-text-default" htmlFor={inputId}>
+    <label
+      className="grid min-w-0 gap-2 text-sm font-extrabold text-text-default"
+      htmlFor={inputId}
+    >
       {label}
       <Input
         id={inputId}
-        className="h-10 rounded-md border-border-default bg-white focus-visible:border-brand-lagoon-600 focus-visible:ring-brand-lagoon-500/20"
+        className="h-11 rounded-md border-border-default bg-white focus-visible:border-brand-lagoon-600 focus-visible:ring-brand-lagoon-500/20"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
@@ -733,11 +751,14 @@ function TextAreaField({
   const inputId = fieldId(label);
 
   return (
-    <label className="grid gap-2 text-sm font-extrabold text-text-default" htmlFor={inputId}>
+    <label
+      className="grid min-w-0 gap-2 text-sm font-extrabold text-text-default"
+      htmlFor={inputId}
+    >
       {label}
       <textarea
         id={inputId}
-        className="min-h-28 rounded-md border border-border-default bg-white px-3 py-2 text-sm font-semibold outline-none focus-visible:border-brand-lagoon-600 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+        className="min-h-32 rounded-md border border-border-default bg-white px-3 py-2 text-sm font-semibold outline-none focus-visible:border-brand-lagoon-600 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />

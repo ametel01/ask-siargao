@@ -170,11 +170,13 @@
 
 html {
   min-height: 100%;
+  overflow-x: clip;
 }
 
 body {
   min-height: 100vh;
   margin: 0;
+  overflow-x: clip;
   color: var(--text-on-dark);
   background:
     radial-gradient(circle at 18% 8%, rgba(20, 184, 166, 0.18), transparent 32rem),
