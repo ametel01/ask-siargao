@@ -2,23 +2,28 @@
 
 /*
  * Hallmark - pre-emit critique: P4 H4 E4 S5 R4 V4
- * genre: modern-minimal; macrostructure: workbench; contrast/mobile: pass.
+ * genre: modern-minimal; macrostructure: mobile concierge thread; contrast/mobile: pass.
  */
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import {
   BedDouble,
   Bookmark,
   BookmarkCheck,
+  Bus,
   CalendarDays,
+  CarFront,
   Check,
   ChevronDown,
+  ChevronRight,
   Clock,
   CloudSun,
   Copy,
+  EllipsisVertical,
   ExternalLink,
   LoaderCircle,
   MapPin,
   Navigation,
+  Plane,
   Plus,
   RefreshCw,
   Send,
@@ -989,7 +994,7 @@ function ChatWorkspaceView({
   return (
     <main
       aria-label="Ask Siargao chat workspace"
-      className="fixed inset-0 h-dvh overflow-hidden bg-brand-lavender-50 text-text-strong"
+      className="fixed inset-0 h-dvh overflow-hidden bg-white text-text-strong min-[1180px]:bg-brand-lavender-50"
     >
       <section className="grid h-full min-h-0 w-full grid-cols-1 min-[1180px]:grid-cols-[15rem_minmax(0,1fr)_18rem] xl:grid-cols-[17rem_minmax(0,1fr)_20rem] 2xl:grid-cols-[19.5rem_minmax(0,1fr)_22.5rem]">
         <ChatTravelRail
@@ -1003,7 +1008,7 @@ function ChatWorkspaceView({
           threads={chatThreads}
         />
 
-        <section className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] border-border-default border-x bg-surface-default">
+        <section className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] bg-white min-[1180px]:border-border-default min-[1180px]:border-x min-[1180px]:bg-surface-default">
           <ChatTopBar
             canSharePlan={savedPlanSharing.selectedShareItems.length > 0}
             onSharePlan={() => {
@@ -1014,11 +1019,11 @@ function ChatWorkspaceView({
 
           <section
             aria-label="Chat message scroll area"
-            className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 lg:px-8"
+            className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-3 sm:px-6 sm:py-4 lg:px-8"
             data-testid="chat-message-scroll-area"
             ref={chatScrollAreaRef}
           >
-            <div className="mx-auto grid min-h-full max-w-5xl content-start gap-4 pb-6">
+            <div className="mx-auto grid min-h-full max-w-5xl content-start gap-5 pb-5 sm:gap-4 sm:pb-6">
               {savedTripState.items.length ? (
                 <SavedPlanTray
                   copyStatus={savedPlanSharing.copyStatus}
@@ -1240,20 +1245,25 @@ function ChatTopBar({
   onStartNewChat: () => void;
 }) {
   return (
-    <header className="flex min-h-[76px] items-center justify-between gap-4 border-border-default border-b bg-surface-glass px-4 py-3 sm:px-6 lg:px-8">
-      <div className="grid min-w-0 gap-1">
-        <h1 className="m-0 min-w-0 truncate text-xl font-black text-text-strong sm:text-2xl">
-          Ask Siargao
-        </h1>
-        <p className="m-0 inline-flex min-w-0 items-center gap-2 text-sm font-extrabold text-text-muted">
-          <span className="size-2 shrink-0 rounded-full bg-brand-lagoon-500" />
-          Local travel assistant
-        </p>
+    <header className="flex min-h-[98px] items-start justify-between gap-3 bg-white px-4 pt-5 pb-4 min-[390px]:min-h-[104px] min-[390px]:gap-4 min-[390px]:px-5 min-[390px]:pt-6 sm:min-h-[76px] sm:items-center sm:border-border-default sm:border-b sm:bg-surface-glass sm:px-6 sm:py-3 lg:px-8">
+      <div className="flex min-w-0 items-center gap-2.5 min-[390px]:gap-3 sm:gap-3.5">
+        <Link aria-label="Ask Siargao home" className="shrink-0 no-underline" href="/">
+          <PalmMark className="size-11 min-[390px]:size-14 sm:size-11" />
+        </Link>
+        <div className="grid min-w-0 gap-1">
+          <h1 className="m-0 min-w-0 truncate text-[1.45rem] leading-none font-black text-text-strong min-[390px]:text-[1.85rem] sm:text-2xl">
+            Ask Siargao
+          </h1>
+          <p className="m-0 min-w-0 truncate text-sm leading-tight font-extrabold text-text-muted min-[390px]:text-base sm:inline-flex sm:items-center sm:gap-2 sm:text-sm">
+            <span className="hidden size-2 shrink-0 rounded-full bg-brand-lagoon-500 sm:inline-block" />
+            Local travel assistant
+          </p>
+        </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <Button
           aria-label="Reset chat"
-          className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+          className="size-10 rounded-lg border-border-default bg-white text-brand-violet-650 shadow-sm hover:bg-brand-lavender-100 min-[390px]:size-12 sm:size-10 sm:rounded-md"
           onClick={onStartNewChat}
           size="icon"
           type="button"
@@ -1263,7 +1273,7 @@ function ChatTopBar({
         </Button>
         <Button
           aria-label="Share saved plan"
-          className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100 disabled:opacity-45"
+          className="hidden size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100 disabled:opacity-45 sm:inline-flex"
           disabled={!canSharePlan}
           onClick={onSharePlan}
           size="icon"
@@ -1271,6 +1281,16 @@ function ChatTopBar({
           variant="outline"
         >
           <Share2 aria-hidden="true" size={17} />
+        </Button>
+        <Button
+          asChild
+          className="size-10 rounded-lg border-border-default bg-white text-brand-violet-650 shadow-sm hover:bg-brand-lavender-100 min-[390px]:size-12 sm:hidden"
+          size="icon"
+          variant="outline"
+        >
+          <Link aria-label="Open settings" href="/settings">
+            <EllipsisVertical aria-hidden="true" size={19} />
+          </Link>
         </Button>
         <ChatSettingsLink />
         <ChatAuthActions />
@@ -1294,7 +1314,7 @@ function ChatSettingsLink() {
       </Button>
       <Button
         asChild
-        className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100 sm:hidden"
+        className="hidden size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
         size="icon"
         variant="outline"
       >
@@ -2013,10 +2033,10 @@ function formatThreadRecency(thread: ChatThreadSummary) {
 function ChatAuthActions() {
   if (!isClerkConfigured) {
     return (
-      <>
+      <div className="hidden items-center gap-2 sm:flex">
         <Button
           asChild
-          className="hidden h-10 rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50 sm:inline-flex"
+          className="h-10 rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50"
           variant="outline"
         >
           <Link href="/sign-in">Sign in</Link>
@@ -2027,19 +2047,21 @@ function ChatAuthActions() {
         >
           <Link href="/sign-up">Sign up</Link>
         </Button>
-      </>
+      </div>
     );
   }
 
   return (
-    <Show fallback={chatSignedOutActions} when="signed-in">
-      <UserButton
-        appearance={clerkAppearance}
-        fallback={
-          <span className="inline-flex size-10 animate-pulse rounded-full border border-border-default bg-brand-lavender-100" />
-        }
-      />
-    </Show>
+    <span className="hidden sm:inline-flex">
+      <Show fallback={chatSignedOutActions} when="signed-in">
+        <UserButton
+          appearance={clerkAppearance}
+          fallback={
+            <span className="inline-flex size-10 animate-pulse rounded-full border border-border-default bg-brand-lavender-100" />
+          }
+        />
+      </Show>
+    </span>
   );
 }
 
@@ -2071,13 +2093,13 @@ function ChatMessage({
   if (isUser) {
     return (
       <article
-        className="min-w-0 max-w-[min(88%,42rem)] justify-self-end overflow-hidden rounded-lg border border-brand-violet-400/25 bg-brand-violet-650 px-5 py-4 text-white shadow-violet-glow"
+        className="min-w-0 max-w-[min(78%,42rem)] justify-self-end overflow-hidden rounded-lg border border-brand-violet-400/25 bg-brand-violet-650 px-5 py-4 text-white shadow-violet-glow sm:max-w-[min(88%,42rem)]"
         data-testid="user-message-bubble"
       >
-        <p className="m-0 whitespace-pre-wrap break-words text-sm leading-[1.55] font-extrabold [overflow-wrap:anywhere] sm:text-base">
+        <p className="m-0 whitespace-pre-wrap break-words text-base leading-[1.55] font-black [overflow-wrap:anywhere] sm:text-base sm:font-extrabold">
           {message.text}
         </p>
-        <time className="mt-2 block text-right text-xs font-black text-white/75">
+        <time className="mt-2 block text-right text-sm font-black text-white/75 sm:text-xs">
           {message.timestamp}
         </time>
       </article>
@@ -2085,14 +2107,19 @@ function ChatMessage({
   }
 
   return (
-    <article className="grid max-w-[min(96%,56rem)] grid-cols-[36px_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[44px_minmax(0,1fr)] sm:gap-4">
-      <PalmMark className="mt-1 size-8 sm:size-10" />
+    <article className="grid max-w-full grid-cols-[48px_minmax(0,1fr)] items-start gap-2 sm:max-w-[min(96%,56rem)] sm:grid-cols-[44px_minmax(0,1fr)] sm:gap-4">
+      <span className="relative mt-1 inline-flex size-12 items-center justify-center rounded-full border border-border-default bg-white shadow-card sm:size-10">
+        <PalmMark className="size-10 sm:size-10" />
+        <span className="-right-1 -top-1 absolute inline-flex size-6 items-center justify-center rounded-full bg-brand-violet-400 text-white shadow-sm sm:hidden">
+          <Sparkles aria-hidden="true" size={13} />
+        </span>
+      </span>
       <div
         data-testid="assistant-message-bubble"
         className={
           isError
             ? "min-w-0 overflow-hidden rounded-lg border border-border-alert bg-surface-alert px-5 py-4 shadow-night-card"
-            : "min-w-0 overflow-hidden rounded-xl border border-border-default bg-white px-4 py-4 text-text-strong shadow-card sm:px-5"
+            : "min-w-0 overflow-hidden rounded-lg border border-border-default bg-white px-4 py-5 text-text-strong shadow-card sm:px-5 sm:py-4"
         }
       >
         <div className="flex min-w-0 items-start gap-3">
@@ -2441,7 +2468,7 @@ function AssistantGlance({ message }: { message: InteractiveChatMessage }) {
   return (
     <section
       aria-label="At a glance"
-      className="grid min-w-0 gap-3 rounded-md border border-border-default bg-brand-lavender-50 p-3 shadow-none"
+      className="hidden min-w-0 gap-3 rounded-md border border-border-default bg-brand-lavender-50 p-3 shadow-none sm:grid"
     >
       <h3 className="m-0 flex items-center gap-2 text-sm font-black text-text-strong">
         <Sparkles aria-hidden="true" className="text-brand-sunset-gold" size={17} />
@@ -3278,7 +3305,7 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
 
   return (
     <details
-      className="group rounded-md border border-border-default bg-brand-lavender-50 p-3"
+      className="group rounded-md border border-border-default bg-white p-3 shadow-none sm:bg-brand-lavender-50"
       data-testid="assistant-sources-panel"
     >
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
@@ -3287,12 +3314,13 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
             <ShieldCheck aria-hidden="true" className="text-brand-lagoon-700" size={16} />
             Sources & Confidence
           </span>
-          <span className="min-w-0 text-xs font-bold text-text-muted">
+          <span className="min-w-0 truncate text-xs font-bold text-text-muted">
             {sourceSummaryText(visibleSources)}
           </span>
         </span>
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border-default bg-white px-2.5 py-1.5 text-xs font-black text-text-muted">
-          View sources
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border-default bg-white px-2.5 py-1.5 text-xs font-black text-brand-violet-650 sm:text-text-muted">
+          <span className="hidden sm:inline">View sources</span>
+          <span className="sm:hidden">Sources</span>
           <ChevronDown
             aria-hidden="true"
             className="transition-transform group-open:rotate-180"
@@ -3300,7 +3328,7 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
           />
         </span>
       </summary>
-      <div className="mt-3 grid gap-2">
+      <div className="mt-3 grid max-h-72 gap-2 overflow-y-auto sm:max-h-none">
         {visibleSources.map((source) => (
           <div
             className="grid gap-1 rounded-md border border-border-default bg-white p-3"
@@ -3341,18 +3369,24 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
     <div className="grid min-w-0 max-w-full flex-1 gap-3 overflow-hidden [overflow-wrap:anywhere]">
       {blocks.map((block) => {
         if (block.type === "heading") {
+          const HeadingIcon = assistantHeadingIcon(block.text);
           return (
             <h3
-              className={`m-0 max-w-full text-sm leading-[1.35] font-black break-words sm:text-base ${strongClass}`}
+              className={`m-0 flex max-w-full items-center gap-3 border-border-default border-t pt-5 text-lg leading-[1.25] font-black break-words sm:block sm:border-0 sm:pt-0 sm:text-base ${strongClass}`}
               key={block.key}
             >
-              {block.text}
+              <span className="inline-flex size-12 shrink-0 items-center justify-center rounded-full bg-brand-lavender-100 text-brand-violet-650 sm:hidden">
+                <HeadingIcon aria-hidden="true" size={23} />
+              </span>
+              <span className="min-w-0 [overflow-wrap:anywhere]">
+                {assistantHeadingDisplayText(block.text)}
+              </span>
             </h3>
           );
         }
 
         if (block.type === "list") {
-          const listClass = `m-0 max-w-full space-y-1.5 pl-6 text-sm leading-[1.6] break-words sm:text-base ${textClass}`;
+          const listClass = `m-0 max-w-full space-y-1.5 pl-6 text-base leading-[1.6] break-words ${textClass}`;
           const items = block.items.map((item) => (
             <li className="min-w-0 whitespace-pre-line break-words" key={item.key}>
               <InlineMarkdown linkClass={linkClass} strongClass={strongClass} value={item.text} />
@@ -3376,7 +3410,7 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
         if (block.type === "source") {
           return (
             <p
-              className={`m-0 max-w-full rounded-md border border-black/5 bg-black/[0.035] px-3 py-2 text-xs leading-[1.45] break-words sm:text-sm ${
+              className={`m-0 max-w-full rounded-md border border-black/5 bg-black/[0.035] px-3 py-2 text-sm leading-[1.45] break-words ${
                 tone === "error" ? "text-text-alert" : "text-text-muted"
               }`}
               data-testid="assistant-source-line"
@@ -3390,57 +3424,61 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
 
         if (block.type === "table") {
           return (
-            <div
-              className="max-w-full overflow-x-auto rounded-md border border-border-default"
-              key={block.key}
-            >
-              <table className="w-full min-w-[560px] border-collapse bg-white text-sm text-text-default">
-                <thead className="bg-brand-lavender-50 text-text-strong">
-                  <tr>
-                    {block.headers.map((header, index) => (
-                      <th
-                        className={`border-border-default border-b px-3 py-2 align-top font-black ${tableTextAlignmentClass(block.alignments[index])}`}
-                        key={`${block.key}-head-${header}`}
-                        scope="col"
-                      >
-                        <InlineMarkdown
-                          linkClass={linkClass}
-                          strongClass={strongClass}
-                          value={header}
-                        />
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {block.rows.map((row) => (
-                    <tr
-                      className="border-border-default border-t"
-                      key={`${block.key}-${row.join("|")}`}
-                    >
-                      {block.headers.map((header, cellIndex) => (
-                        <td
-                          className={`px-3 py-2 align-top leading-[1.45] ${tableTextAlignmentClass(block.alignments[cellIndex])}`}
-                          key={`${block.key}-${row.join("|")}-${header}`}
+            <div className="grid max-w-full gap-2" key={block.key}>
+              <MobileMarkdownTableCards
+                block={block}
+                linkClass={linkClass}
+                strongClass={strongClass}
+              />
+              <div className="hidden max-w-full overflow-x-auto rounded-md border border-border-default sm:block">
+                <table className="w-full min-w-[560px] border-collapse bg-white text-sm text-text-default">
+                  <thead className="bg-brand-lavender-50 text-text-strong">
+                    <tr>
+                      {block.headers.map((header, index) => (
+                        <th
+                          className={`border-border-default border-b px-3 py-2 align-top font-black ${tableTextAlignmentClass(block.alignments[index])}`}
+                          key={`${block.key}-head-${header}`}
+                          scope="col"
                         >
                           <InlineMarkdown
                             linkClass={linkClass}
                             strongClass={strongClass}
-                            value={row[cellIndex] ?? ""}
+                            value={header}
                           />
-                        </td>
+                        </th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {block.rows.map((row) => (
+                      <tr
+                        className="border-border-default border-t"
+                        key={`${block.key}-${row.join("|")}`}
+                      >
+                        {block.headers.map((header, cellIndex) => (
+                          <td
+                            className={`px-3 py-2 align-top leading-[1.45] ${tableTextAlignmentClass(block.alignments[cellIndex])}`}
+                            key={`${block.key}-${row.join("|")}-${header}`}
+                          >
+                            <InlineMarkdown
+                              linkClass={linkClass}
+                              strongClass={strongClass}
+                              value={row[cellIndex] ?? ""}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           );
         }
 
         return (
           <p
-            className={`m-0 max-w-full text-sm leading-[1.6] break-words sm:text-base ${textClass}`}
+            className={`m-0 max-w-full text-base leading-[1.65] break-words ${textClass}`}
             key={block.key}
           >
             <InlineMarkdown linkClass={linkClass} strongClass={strongClass} value={block.text} />
@@ -3449,6 +3487,120 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
       })}
     </div>
   );
+}
+
+function MobileMarkdownTableCards({
+  block,
+  linkClass,
+  strongClass,
+}: {
+  block: Extract<AssistantMarkdownBlock, { type: "table" }>;
+  linkClass: string;
+  strongClass: string;
+}) {
+  return (
+    <div className="grid gap-2 sm:hidden">
+      {block.rows.map((row, rowIndex) => {
+        const title = row[0] ?? "";
+        const primary = row[1] ?? "";
+        const Icon = mobileTableRowIcon(block.headers[0] ?? title, title, rowIndex);
+        const supportingCells = row.slice(2).map((cell, index) => ({
+          label: block.headers[index + 2] ?? "",
+          value: cell,
+        }));
+
+        return (
+          <article
+            className="grid min-w-0 grid-cols-[56px_minmax(0,1fr)_24px] items-center gap-3 rounded-lg border border-border-default bg-white px-3 py-3 shadow-none"
+            key={`${block.key}-mobile-${row.join("|")}`}
+          >
+            <span className="inline-flex size-12 items-center justify-center rounded-full bg-brand-lavender-100 text-brand-violet-650">
+              <Icon aria-hidden="true" size={23} />
+            </span>
+            <div className="grid min-w-0 gap-0.5">
+              <p className="m-0 min-w-0 text-base leading-tight font-black text-text-strong">
+                <InlineMarkdown linkClass={linkClass} strongClass={strongClass} value={title} />
+              </p>
+              {primary ? (
+                <p className="m-0 min-w-0 text-base leading-tight font-black text-brand-violet-650">
+                  <InlineMarkdown linkClass={linkClass} strongClass={strongClass} value={primary} />
+                </p>
+              ) : null}
+              {supportingCells.map((cell) =>
+                cell.value ? (
+                  <p
+                    className="m-0 min-w-0 text-sm leading-snug text-text-muted"
+                    key={`${cell.label}-${cell.value}`}
+                  >
+                    {cell.label && !isGenericTableSupportLabel(cell.label) ? (
+                      <span className="font-extrabold text-text-strong">{cell.label}: </span>
+                    ) : null}
+                    <InlineMarkdown
+                      linkClass={linkClass}
+                      strongClass={strongClass}
+                      value={cell.value}
+                    />
+                  </p>
+                ) : null,
+              )}
+            </div>
+            <ChevronRight aria-hidden="true" className="text-text-strong" size={21} />
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function assistantHeadingDisplayText(value: string) {
+  return value.replace(/^[^A-Za-z0-9]+/u, "").trim() || value;
+}
+
+function assistantHeadingIcon(value: string): typeof MapPin {
+  const text = value.toLowerCase();
+  if (/\b(airport|transfer|flight|sayak|iao)\b/u.test(text)) {
+    return Plane;
+  }
+  if (/\b(sleep|stay|hotel|accommodation|room|quiet)\b/u.test(text)) {
+    return BedDouble;
+  }
+  if (/\b(surf|wave|break|tide)\b/u.test(text)) {
+    return WavesHorizontal;
+  }
+  if (/\b(food|restaurant|eat|dinner|lunch|breakfast|cafe)\b/u.test(text)) {
+    return Utensils;
+  }
+  if (/\b(weather|rain|wind)\b/u.test(text)) {
+    return CloudSun;
+  }
+  return Sparkles;
+}
+
+function mobileTableRowIcon(header: string, title: string, rowIndex: number): typeof MapPin {
+  const text = `${header} ${title}`.toLowerCase();
+  if (/\b(private|car)\b/u.test(text)) {
+    return CarFront;
+  }
+  if (/\b(van|bus|shared|transport|option)\b/u.test(text)) {
+    return Bus;
+  }
+  if (/\b(spot|surf|wave|break)\b/u.test(text)) {
+    return WavesHorizontal;
+  }
+  if (/\b(food|restaurant|eat|dish|cafe)\b/u.test(text)) {
+    return Utensils;
+  }
+  if (rowIndex === 0) {
+    return Bus;
+  }
+  if (rowIndex === 1) {
+    return CarFront;
+  }
+  return MapPin;
+}
+
+function isGenericTableSupportLabel(label: string) {
+  return /^(notes?|details?|the gist|vibe)$/iu.test(label.trim());
 }
 
 function InlineMarkdown({
@@ -3849,13 +4001,13 @@ function ChatComposer({
   const locationRequesting = locationState.status === "requesting";
 
   return (
-    <footer className="border-border-default border-t bg-white px-4 py-3 sm:px-6 lg:px-8">
+    <footer className="bg-white px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] sm:border-border-default sm:border-t sm:px-6 sm:py-3 lg:px-8">
       <form
         aria-label="Ask Siargao composer"
         className="mx-auto w-full max-w-5xl min-w-0"
         onSubmit={handleSubmit}
       >
-        <InputGroup className="min-h-[58px] items-start rounded-lg border-border-default bg-white p-2 text-text-strong shadow-card ring-1 ring-border-default">
+        <InputGroup className="min-h-[68px] items-start rounded-lg border-border-default bg-white p-2 text-text-strong shadow-card ring-1 ring-border-default sm:min-h-[58px]">
           <InputGroupAddon align="inline-start" className="shrink-0 pt-1.5">
             <InputGroupButton
               aria-label={
@@ -3864,8 +4016,8 @@ function ChatComposer({
               aria-pressed={locationReady}
               className={
                 locationReady
-                  ? "size-11 rounded-md bg-brand-lagoon-100 text-brand-lagoon-700 hover:bg-brand-lagoon-100"
-                  : "size-11 rounded-md text-text-muted hover:bg-brand-lavender-50 hover:text-text-strong"
+                  ? "size-12 rounded-full bg-brand-lagoon-100 text-brand-lagoon-700 hover:bg-brand-lagoon-100 sm:size-11 sm:rounded-md"
+                  : "size-12 rounded-full bg-brand-lavender-50 text-brand-violet-650 hover:bg-brand-lavender-100 hover:text-brand-violet-650 sm:size-11 sm:rounded-md sm:bg-transparent sm:text-text-muted sm:hover:text-text-strong"
               }
               disabled={isSending || locationRequesting}
               onClick={onRequestLocation}
@@ -3882,7 +4034,7 @@ function ChatComposer({
           <textarea
             data-slot="input-group-control"
             aria-label="Ask anything about Siargao"
-            className="min-w-0 max-h-32 min-h-11 flex-1 resize-none overflow-hidden rounded-none border-0 bg-transparent px-3 py-2.5 text-base leading-6 whitespace-pre-wrap text-text-strong caret-brand-violet-650 shadow-none outline-none [field-sizing:content] [overflow-wrap:anywhere] placeholder:text-text-soft focus-visible:ring-0 disabled:bg-transparent disabled:text-text-muted"
+            className="min-w-0 max-h-32 min-h-12 flex-1 resize-none overflow-hidden rounded-none border-0 bg-transparent px-3 py-3 text-base leading-6 whitespace-pre-wrap text-text-strong caret-brand-violet-650 shadow-none outline-none [field-sizing:content] [overflow-wrap:anywhere] placeholder:text-text-soft focus-visible:ring-0 disabled:bg-transparent disabled:text-text-muted sm:min-h-11 sm:py-2.5"
             disabled={isSending}
             onChange={(event) => {
               resizeComposerTextarea(event.currentTarget);
@@ -3901,7 +4053,7 @@ function ChatComposer({
           <InputGroupAddon align="inline-end" className="shrink-0 pt-1.5">
             <InputGroupButton
               aria-label="Send question"
-              className="size-11 rounded-md bg-brand-violet-650 text-white hover:bg-brand-violet-600 disabled:opacity-50"
+              className="size-12 rounded-full bg-brand-violet-650 text-white shadow-violet-glow hover:bg-brand-violet-600 disabled:opacity-50 sm:size-11 sm:rounded-md"
               disabled={isSending || inputValue.trim().length === 0}
               size="icon-sm"
               type="submit"
@@ -3914,7 +4066,7 @@ function ChatComposer({
             </InputGroupButton>
           </InputGroupAddon>
         </InputGroup>
-        <div className="mt-2 flex min-h-5 flex-wrap items-center gap-2 px-1">
+        <div className="mt-3 flex min-h-5 flex-wrap items-center gap-2 px-1 sm:mt-2">
           <Badge
             aria-label={`Location ${locationIndicator.label.toLowerCase()}`}
             className={locationIndicator.className}
@@ -3925,13 +4077,13 @@ function ChatComposer({
           </Badge>
           <p
             aria-live="polite"
-            className="m-0 text-[0.72rem] leading-tight font-extrabold text-text-muted"
+            className="m-0 min-w-0 flex-1 truncate text-sm leading-tight font-bold text-text-muted sm:text-[0.72rem] sm:font-extrabold"
           >
             {locationStatus}
           </p>
           {locationActivationLabel ? (
             <Button
-              className="h-7 rounded-md border-border-default bg-white px-2.5 text-[0.68rem] font-black text-text-strong hover:bg-brand-lavender-50"
+              className="h-7 rounded-md border-transparent bg-transparent px-2 text-sm font-black text-brand-violet-650 hover:bg-brand-lavender-50 sm:border-border-default sm:bg-white sm:px-2.5 sm:text-[0.68rem] sm:text-text-strong"
               disabled={isSending || locationRequesting}
               onClick={onRequestLocation}
               size="sm"
@@ -3939,7 +4091,10 @@ function ChatComposer({
               variant="outline"
             >
               <MapPin aria-hidden="true" size={12} />
-              {locationActivationLabel}
+              <span className="sm:hidden">
+                {locationActivationLabel === "Enable location" ? "Enable" : locationActivationLabel}
+              </span>
+              <span className="hidden sm:inline">{locationActivationLabel}</span>
             </Button>
           ) : null}
         </div>
@@ -4043,25 +4198,70 @@ function SuggestedPromptBar({
   onSubmitPrompt: (prompt: string) => void;
   prompts: string[];
 }) {
+  const mobileShortcuts = mobileSuggestedPromptShortcuts(prompts);
+
   return (
-    <fieldset
-      aria-label="Suggested prompts"
-      className="m-0 flex min-w-0 flex-wrap gap-2 overflow-visible border-0 p-0"
-    >
-      {prompts.map((prompt) => (
-        <Button
-          className="h-auto min-h-9 max-w-full min-w-0 overflow-hidden rounded-full border-border-default bg-white px-4 py-2 text-left text-xs font-extrabold text-ellipsis whitespace-nowrap text-brand-violet-650 hover:bg-brand-lavender-50"
-          disabled={disabled}
-          key={prompt}
-          onClick={() => onSubmitPrompt(prompt)}
-          type="button"
-          variant="outline"
-        >
-          {prompt}
-        </Button>
-      ))}
+    <fieldset aria-label="Suggested prompts" className="m-0 min-w-0 border-0 p-0">
+      <div className="flex min-w-0 gap-2 overflow-x-auto pb-1 sm:hidden">
+        {mobileShortcuts.map((shortcut) => {
+          const Icon = shortcut.icon;
+          return (
+            <Button
+              className="h-11 shrink-0 rounded-full border-border-default bg-white px-3 text-sm font-bold whitespace-nowrap text-text-strong shadow-none hover:bg-brand-lavender-50 min-[390px]:h-12 min-[390px]:px-4 min-[390px]:text-base"
+              disabled={disabled}
+              key={shortcut.label}
+              onClick={() => onSubmitPrompt(shortcut.prompt)}
+              type="button"
+              variant="outline"
+            >
+              <Icon aria-hidden="true" className="text-brand-violet-650" size={20} />
+              {shortcut.label}
+            </Button>
+          );
+        })}
+      </div>
+      <div className="hidden min-w-0 flex-wrap gap-2 overflow-visible sm:flex">
+        {prompts.map((prompt) => (
+          <Button
+            className="h-auto min-h-9 max-w-full min-w-0 overflow-hidden rounded-full border-border-default bg-white px-4 py-2 text-left text-xs font-extrabold text-ellipsis whitespace-nowrap text-brand-violet-650 hover:bg-brand-lavender-50"
+            disabled={disabled}
+            key={prompt}
+            onClick={() => onSubmitPrompt(prompt)}
+            type="button"
+            variant="outline"
+          >
+            {prompt}
+          </Button>
+        ))}
+      </div>
     </fieldset>
   );
+}
+
+function mobileSuggestedPromptShortcuts(prompts: readonly string[]) {
+  const [surfPrompt, foodPrompt, quietPrompt] = prompts;
+  return [
+    {
+      label: "Where to stay",
+      icon: BedDouble,
+      prompt: quietPrompt ?? "Where should I stay near Cloud 9 for quiet sleep?",
+    },
+    {
+      label: "Surf spots",
+      icon: WavesHorizontal,
+      prompt: surfPrompt ?? "Which surf spots should I use near Cloud 9?",
+    },
+    {
+      label: "Restaurants",
+      icon: Utensils,
+      prompt: foodPrompt ?? "Where should I eat in General Luna tonight?",
+    },
+    {
+      label: "More",
+      icon: ChevronDown,
+      prompt: "What else should I know for a smooth Cloud 9 stay?",
+    },
+  ];
 }
 
 function ChatEmptyState({

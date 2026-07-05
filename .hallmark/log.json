@@ -26,5 +26,20 @@
       "full-width form workspace"
     ],
     "notes": "Moved settings off the narrow backdrop shell into a wide account dashboard surface."
+  },
+  {
+    "date": "2026-07-06",
+    "surface": "chat-mobile",
+    "genre": "modern-minimal",
+    "macrostructure": "mobile concierge thread",
+    "theme": "Ask Siargao existing brand tokens",
+    "variationKnobs": [
+      "large brand header",
+      "right-aligned violet user bubble",
+      "assistant card with icon section headers",
+      "mobile table rows",
+      "topic chips above composer"
+    ],
+    "notes": "Redesigned the phone chat page toward the supplied mobile reference while preserving the existing chat route and runtime behavior."
   }
 ]

@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Redesigned the mobile chat surface with a larger brand header, calmer message cards, compact
+  topic chips, mobile-native table cards, and a cleaner composer.
 - Changed `dev:up` to wait for the Compose Postgres healthcheck before running migrations so fresh
   local database volumes do not race startup.
 - Changed default chat final-answer guidance to favor traveler-facing Markdown over JSON wrappers,
