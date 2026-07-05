@@ -5425,6 +5425,67 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     ).rejects.toThrow("maximum tool-call count");
   });
 
+  test("accepts minimal model-style web research calls without entering an invalid-argument loop", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_minimal_research",
+        requestId: "req_minimal_research",
+        callId: "call_minimal_research",
+        name: "research_web",
+        arguments: {
+          query: "Cloud 9 Siargao quiet sleep surfing restaurants airport transfer",
+          source_types: ["guide"],
+          max_sources: 4,
+        },
+      }),
+      {
+        id: "resp_minimal_research_final",
+        output_text: "Cloud 9 works if you stay slightly back from the boardwalk.",
+        _request_id: "req_minimal_research_final",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content:
+              "Staying near Cloud 9 for 10 days with quiet sleep, surfing, restaurants, and airport transfer. What should we know?",
+          },
+        ],
+        requestId: "agent_request_minimal_research_args",
+      },
+      {
+        client,
+        executeTool: (request) =>
+          executeAgentTool(request, {
+            webResearchProvider: async () => [
+              {
+                url: "https://example.com/cloud-9-guide",
+                title: "Cloud 9 travel guide",
+                sourceType: "guide",
+                pageSummary:
+                  "Cloud 9 has surf access, nearby food, and airport transfers arranged through stays.",
+                publishedOrUpdatedAt: "2026-07-01T10:00:00+08:00",
+              },
+            ],
+            now: () => new Date("2026-07-01T12:00:00+08:00"),
+          }),
+        model: "gpt-test",
+      },
+    );
+
+    expect(result.message).toContain("Cloud 9 works");
+    expect(result.toolCalls).toContainEqual(
+      expect.objectContaining({
+        name: "research_web",
+        status: "success",
+        toolCallId: "call_minimal_research",
+      }),
+    );
+  });
+
   test("throws when a model response has neither final text nor tool calls", async () => {
     const client = fakeResponsesClient([
       {

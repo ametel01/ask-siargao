@@ -1380,6 +1380,10 @@ export async function executeAgentTool(
 }
 
 function toolArgumentsForValidation(request: AgentToolExecutionRequest) {
+  if (request.name === "research_web" && isRecord(request.arguments)) {
+    return researchWebArgumentsForValidation(request.arguments);
+  }
+
   if (request.name !== "search_places" || !isRecord(request.arguments)) {
     return request.arguments;
   }
@@ -1397,6 +1401,41 @@ function toolArgumentsForValidation(request: AgentToolExecutionRequest) {
     ...request.arguments,
     center: placesToolContext.center,
   };
+}
+
+function researchWebArgumentsForValidation(args: Record<string, unknown>) {
+  const sourceTypes = normalizeWebResearchSourceTypes(
+    args.sourceTypes ?? args.source_types ?? args.sourceType ?? args.source_type,
+  );
+  const intent = normalizeWebResearchIntent(args.intent);
+
+  return {
+    query: args.query,
+    intent: intent ?? "fact",
+    location: args.location ?? null,
+    localDate: args.localDate ?? args.local_date ?? null,
+    dateContext: args.dateContext ?? args.date_context ?? null,
+    sourceTypes: sourceTypes ?? null,
+    requiredFreshness: args.requiredFreshness ?? args.required_freshness ?? args.freshness ?? null,
+    maxSources: args.maxSources ?? args.max_sources ?? args.limit ?? null,
+  };
+}
+
+function normalizeWebResearchIntent(value: unknown) {
+  return typeof value === "string" &&
+    webResearchIntents.includes(value as (typeof webResearchIntents)[number])
+    ? value
+    : undefined;
+}
+
+function normalizeWebResearchSourceTypes(value: unknown) {
+  const candidates = Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
+  const sourceTypes = candidates.filter(
+    (candidate): candidate is (typeof webResearchSourceTypes)[number] =>
+      typeof candidate === "string" &&
+      webResearchSourceTypes.includes(candidate as (typeof webResearchSourceTypes)[number]),
+  );
+  return sourceTypes.length > 0 ? sourceTypes : undefined;
 }
 
 async function searchPlacesToolResult(

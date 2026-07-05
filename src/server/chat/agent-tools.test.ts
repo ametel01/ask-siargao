@@ -916,6 +916,42 @@ describe("agent tools", () => {
     expect(JSON.stringify(result)).not.toContain("providerPayload");
   });
 
+  test("normalizes model-style web research arguments before validation", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_research_model_style_args",
+        name: "research_web",
+        arguments: {
+          query: "Cloud 9 Siargao airport transfer quiet accommodation restaurants",
+          source_types: "guide",
+          max_sources: 4,
+        },
+      },
+      {
+        webResearchProvider: async (request) => {
+          expect(request.intent).toBe("fact");
+          expect(request.sourceTypes).toEqual(["guide"]);
+          expect(request.maxSources).toBe(4);
+          return [
+            {
+              url: "https://example.com/siargao-cloud9-guide",
+              title: "Cloud 9 travel guide",
+              sourceType: "guide",
+              pageSummary:
+                "Cloud 9 stays can balance surf access with quieter sleep away from the boardwalk.",
+              publishedOrUpdatedAt: "2026-07-01T10:00:00+08:00",
+            },
+          ];
+        },
+        now: () => new Date("2026-07-01T12:00:00+08:00"),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.errorCode).toBeUndefined();
+    expect(result.text).toContain("Public web research status:");
+  });
+
   test("returns insufficient web evidence as a terminal source state", async () => {
     const result = await executeAgentTool(
       {
