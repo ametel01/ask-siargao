@@ -341,6 +341,7 @@ export async function chatResponse(
     const message = error instanceof Error ? error.message : "Chat response failed.";
     const missingConfiguration =
       message.includes("OPENAI_API_KEY") ||
+      message.includes("DEEPSEEK_API_KEY") ||
       message.includes("GOOGLE_API_KEY") ||
       message.includes("GOOGLE_PLACES_API_KEY");
     const sourceConsistencyFailure = error instanceof SourceConsistencyError;

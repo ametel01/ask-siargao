@@ -1,5 +1,8 @@
-import OpenAI from "openai";
-
+import {
+  createConfiguredChatResponsesClient,
+  type ResponsesClientLike,
+  resolvePrimaryChatModel,
+} from "@/server/llm/chat-model-provider";
 import type { GooglePlacesChatContext } from "@/server/providers/google-places-chat";
 import type { WeatherSnapshot } from "@/server/public-pages/weather-snapshot";
 
@@ -8,28 +11,13 @@ export type AskSiargaoChatMessage = {
   content: string;
 };
 
-export type ChatResponsesClient = {
-  responses: {
-    create: (params: Record<string, unknown>) => Promise<{
-      output_text?: string;
-      _request_id?: string;
-    }>;
-  };
-};
+export type ChatResponsesClient = ResponsesClientLike;
 
 export type AskSiargaoChatResponse = {
   message: string;
   model: string;
   requestId?: string;
 };
-
-function createOpenAIChatClient(apiKey = process.env.OPENAI_API_KEY): ChatResponsesClient {
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is required for Ask Siargao chat.");
-  }
-
-  return new OpenAI({ apiKey, timeout: 30_000 }) as ChatResponsesClient;
-}
 
 export async function generateAskSiargaoChatResponse(input: {
   messages: readonly AskSiargaoChatMessage[];
@@ -38,8 +26,8 @@ export async function generateAskSiargaoChatResponse(input: {
   model?: string;
   client?: ChatResponsesClient;
 }): Promise<AskSiargaoChatResponse> {
-  const model = input.model ?? process.env.OPENAI_MODEL ?? "gpt-5.4-mini";
-  const client = input.client ?? createOpenAIChatClient();
+  const model = resolvePrimaryChatModel(input.model);
+  const client = input.client ?? createConfiguredChatResponsesClient();
   const response = await client.responses.create({
     model,
     store: false,
@@ -72,7 +60,7 @@ export async function generateAskSiargaoChatResponse(input: {
 
   return {
     message,
-    model,
+    model: response.model ?? model,
     requestId: response._request_id,
   };
 }

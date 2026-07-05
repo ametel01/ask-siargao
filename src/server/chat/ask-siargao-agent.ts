@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import type { Logger } from "pino";
 
 import {
@@ -14,7 +13,6 @@ import {
 import {
   type AgentFinalPayload,
   type AgentMemoryMetadata,
-  type AgentResponsesClient,
   type AgentRuntimeDependencies,
   type AgentRuntimeRequest,
   type AgentToolCallAudit,
@@ -51,6 +49,7 @@ import {
   selectedNightlifeEventVenueNames,
   selectedResearchEntityNames,
 } from "@/server/chat/required-evidence";
+import { createConfiguredChatResponsesClient } from "@/server/llm/chat-model-provider";
 import { createComponentLogger } from "@/server/observability/logger";
 import { createConfiguredWebResearchProvider } from "@/server/providers/web-search";
 
@@ -85,20 +84,12 @@ const defaultMaxTurns = 6;
 const maxConversationMessages = 10;
 const agentLogger = createComponentLogger("chat_agent");
 
-function createOpenAIAgentClient(apiKey = process.env.OPENAI_API_KEY): AgentResponsesClient {
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is required for Ask Siargao agent chat.");
-  }
-
-  return new OpenAI({ apiKey, timeout: 30_000 }) as AgentResponsesClient;
-}
-
 export async function runAskSiargaoAgentTurn(
   request: AgentRuntimeRequest,
   dependencies: AskSiargaoAgentDependencies = {},
 ): Promise<AgentTurnResult> {
   const resolved = resolveAgentRuntimeRequest(request, dependencies);
-  const client = dependencies.client ?? createOpenAIAgentClient();
+  const client = dependencies.client ?? createConfiguredChatResponsesClient();
   const memorySnapshot =
     dependencies.memorySnapshot ?? dependencies.loadMemorySnapshot?.() ?? loadAgentMemorySnapshot();
   const toolDependencies: AgentToolDependencies = {
@@ -187,6 +178,7 @@ export async function runAskSiargaoAgentTurn(
     ...(responseInclude ? { include: responseInclude } : {}),
     input: responseInput,
   });
+  let activeModel = response.model ?? resolved.model;
   collectUpstreamRequestId(response._request_id, upstreamRequestIds);
   collectHostedFileSearchMemoryFileNames(response.output, memorySnapshot, hostedMemoryFileNames);
 
@@ -216,7 +208,7 @@ export async function runAskSiargaoAgentTurn(
         finalText,
         instructions,
         maxToolCalls,
-        model: resolved.model,
+        model: activeModel,
         publicToolArguments,
         response,
         responseContract,
@@ -237,6 +229,7 @@ export async function runAskSiargaoAgentTurn(
       });
       if (repairResult.repaired) {
         response = repairResult.response;
+        activeModel = response.model ?? activeModel;
         responseInput = repairResult.responseInput;
         continue;
       }
@@ -257,7 +250,7 @@ export async function runAskSiargaoAgentTurn(
       logger.info(
         {
           durationMs: sumDurations(toolCalls),
-          model: resolved.model,
+          model: activeModel,
           toolCallCount: toolCalls.length,
           upstreamRequestCount: upstreamRequestIds.length,
           agentMemoryVersionId: memory.versionId,
@@ -276,7 +269,7 @@ export async function runAskSiargaoAgentTurn(
       return createAgentTurnResult({
         message: sanitizedAnswer,
         requestId: resolved.requestId,
-        model: resolved.model,
+        model: activeModel,
         memory,
         upstreamRequestIds,
         toolCalls,
@@ -321,7 +314,7 @@ export async function runAskSiargaoAgentTurn(
       })),
     ];
     response = await client.responses.create({
-      model: resolved.model,
+      model: activeModel,
       store: false,
       max_output_tokens: 1_000,
       instructions,
@@ -329,6 +322,7 @@ export async function runAskSiargaoAgentTurn(
       ...(responseInclude ? { include: responseInclude } : {}),
       input: responseInput,
     });
+    activeModel = response.model ?? activeModel;
     collectUpstreamRequestId(response._request_id, upstreamRequestIds);
     collectHostedFileSearchMemoryFileNames(response.output, memorySnapshot, hostedMemoryFileNames);
   }

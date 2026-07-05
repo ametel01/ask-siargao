@@ -5,6 +5,7 @@ import type { Logger } from "pino";
 import type { AgentMemorySnapshot } from "@/server/chat/agent-memory";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
+import { resolvePrimaryChatModel } from "@/server/llm/chat-model-provider";
 
 export type AskSiargaoAgentToolName =
   | "get_weather_forecast"
@@ -284,6 +285,7 @@ export type AgentResponsesCreateResult = {
   output_text?: string;
   _request_id?: string;
   output?: unknown;
+  model?: string;
 };
 
 export type AgentResponsesClient = {
@@ -337,7 +339,7 @@ export function resolveAgentRuntimeRequest(
   return {
     ...request,
     requestId: request.requestId ?? dependencies.createRequestId?.() ?? randomUUID(),
-    model: request.model ?? dependencies.model ?? process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
+    model: resolvePrimaryChatModel(request.model ?? dependencies.model),
   };
 }
 
