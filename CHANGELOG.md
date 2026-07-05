@@ -88,6 +88,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
   when the answer names the card, without requiring model-authored JSON metadata.
 - Fixed persisted chat metadata so sources, cards, tool calls, and context summaries are stored as
   JSONB arrays or objects instead of JSONB string scalars.
+- Fixed the malformed chat-output guard to stay compatible with the app's ES2017 TypeScript
+  target.
 - Redesigned the settings dashboard layout so account details, private planning summaries, and
   travel profile editing use the full app workspace instead of a narrow centered page.
 - Added a visible top-bar Settings control in the chat workspace so account settings are not hidden

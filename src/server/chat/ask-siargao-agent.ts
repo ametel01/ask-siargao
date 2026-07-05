@@ -572,7 +572,7 @@ function shouldRepairMalformedFinalAnswer(finalText: string) {
   const startsLikeFinalPayload = trimmed.startsWith("{") && /"answer"\s*:/u.test(trimmed);
   const containsEscapedMarkdown =
     /\\n(?:\\n)?(?:#{1,6}\s|\|.+\||[-*]\s+)/u.test(trimmed) ||
-    /"answer"\s*:\s*".*\\n/su.test(trimmed);
+    /"answer"\s*:\s*"[\s\S]*\\n/u.test(trimmed);
   const codeFenceCount = trimmed.match(/```/gu)?.length ?? 0;
   const hasUnmatchedFence = codeFenceCount % 2 === 1;
 
