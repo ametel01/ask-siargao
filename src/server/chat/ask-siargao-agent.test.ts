@@ -1737,6 +1737,59 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     });
   });
 
+  test("selects named tool-result cards from default plain-text answers", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_plain_artifact_call",
+        requestId: "req_plain_artifact_call",
+        callId: "call_local",
+        name: "search_local_guide",
+        arguments: { query: "sandy swimming beaches within 30 minutes", filters: null },
+      }),
+      {
+        id: "resp_plain_artifact_final",
+        output_text: "Doot Beach is the best fit for a sandy, easier family beach stop.",
+        _request_id: "req_plain_artifact_final",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      search_local_guide: {
+        name: "search_local_guide",
+        status: "success",
+        text: "Curated local guide returned Doot Beach.",
+        sources: [localGuideSourceSummary],
+        cards: [
+          {
+            id: "card_doot",
+            kind: "beach",
+            title: "Doot Beach",
+            fitReasons: ["Sandy shore"],
+            caveats: [],
+            sourceLabel: "Ask Siargao curated local beach guide",
+          },
+        ],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Sandy beaches with kids near General Luna?" }],
+        requestId: "agent_request_plain_text_artifacts",
+      },
+      { client, executeTool, model: "gpt-test" },
+    );
+
+    expect(result.message).toContain("Doot Beach");
+    expect(result.cards?.map((card) => card.title)).toEqual(["Doot Beach"]);
+    expect(result.publicSources).toEqual([localGuideSourceSummary]);
+    expect(result.artifactSelection).toMatchObject({
+      structuredFinalPayload: false,
+      selectedCardCount: 1,
+      totalCardCount: 1,
+      unselectedCardCount: 0,
+    });
+  });
+
   test("rejects legacy final text when structured final output is required", async () => {
     const client = fakeResponsesClient([
       {

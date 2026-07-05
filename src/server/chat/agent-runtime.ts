@@ -451,6 +451,7 @@ export function createAgentTurnResult({
     decisionSummaries,
     finalPayload,
     itineraries,
+    message,
     mode: artifactSelectionMode,
     registry: artifactRegistry,
   });
@@ -561,6 +562,7 @@ function selectAgentArtifacts({
   decisionSummaries,
   finalPayload,
   itineraries,
+  message,
   mode,
   registry,
 }: {
@@ -571,6 +573,7 @@ function selectAgentArtifacts({
   itineraries?: readonly ItineraryPlan[];
   decisionSummaries?: readonly DecisionSummary[];
   finalPayload?: AgentFinalPayload;
+  message: string;
   mode: AgentArtifactSelectionMode;
   registry: AgentArtifactRegistry;
 }): {
@@ -603,11 +606,19 @@ function selectAgentArtifacts({
     : kindFilteredCardRegistry;
 
   if (!finalPayload) {
-    const compatibilityCards = dedupeCardsById(cards ?? []).filter(
+    const explicitlyProvidedCards = dedupeCardsById(cards ?? []).filter(
       (card) =>
         (!allowedCardKinds?.length || allowedCardKinds.includes(card.kind)) &&
         (!allowedCardIdSet || allowedCardIdSet.has(card.id)),
     );
+    const explicitlyProvidedCardIds = new Set(explicitlyProvidedCards.map((card) => card.id));
+    const referencedCards = referencedCardIds(message, cardRegistry.cardsById)
+      .filter((id) => !explicitlyProvidedCardIds.has(id))
+      .flatMap((id) => {
+        const card = cardRegistry.cardsById.get(id);
+        return card ? [card] : [];
+      });
+    const compatibilityCards = [...explicitlyProvidedCards, ...referencedCards];
     const compatibilityActions = dedupeById(actions ?? []);
     const compatibilityItineraries = dedupeItineraries(itineraries ?? []);
     const compatibilityDecisionSummaries = dedupeById(decisionSummaries ?? []);

@@ -252,9 +252,9 @@ describe("agent runtime contracts", () => {
     });
   });
 
-  test("does not expose tool-result cards and actions without final-payload selection", () => {
+  test("exposes answer-referenced tool-result cards without final-payload selection", () => {
     const turn = createAgentTurnResult({
-      message: "Use Doot first, then check a cafe near Cloud 9.",
+      message: "Use Doot Beach first, then check a cafe near Cloud 9.",
       requestId: "agent_request_artifacts",
       model: "gpt-test",
       toolResults: [
@@ -279,13 +279,15 @@ describe("agent runtime contracts", () => {
     });
 
     expect(turn.sources).toEqual([localGuideSourceSummary, placesSourceSummary]);
-    expect(turn.cards).toBeUndefined();
+    expect(turn.cards?.map((card) => card.title)).toEqual(["Doot Beach"]);
+    expect(turn.cards?.[0]?.sources).toEqual([localGuideSourceSummary]);
     expect(turn.actions).toBeUndefined();
     expect(turn.artifactSelection).toMatchObject({
       structuredFinalPayload: false,
       totalCardCount: 2,
       totalActionCount: 2,
-      unselectedCardCount: 2,
+      selectedCardCount: 1,
+      unselectedCardCount: 1,
       unselectedActionCount: 2,
     });
   });

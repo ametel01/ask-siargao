@@ -84,6 +84,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
   local database volumes do not race startup.
 - Changed default chat final-answer guidance to favor traveler-facing Markdown over JSON wrappers,
   with larger response budgets and a repair retry for malformed internal-looking output.
+- Changed chat artifact selection so free-form answers can display safe backend tool-result cards
+  when the answer names the card, without requiring model-authored JSON metadata.
 - Redesigned the settings dashboard layout so account details, private planning summaries, and
   travel profile editing use the full app workspace instead of a narrow centered page.
 - Added a visible top-bar Settings control in the chat workspace so account settings are not hidden
