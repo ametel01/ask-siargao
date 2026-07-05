@@ -177,8 +177,27 @@ describe("chat route", () => {
       decision_summaries_json: unknown;
       tool_calls_json: unknown;
       context_summary_json: unknown;
+      sources_json_type: string;
+      cards_json_type: string;
+      tool_calls_json_type: string;
+      context_summary_json_type: string;
     }>(
-      "select role, content, sources_json, cards_json, decision_summaries_json, tool_calls_json, context_summary_json from chat_messages order by created_at, id",
+      `
+        select
+          role,
+          content,
+          sources_json,
+          cards_json,
+          decision_summaries_json,
+          tool_calls_json,
+          context_summary_json,
+          jsonb_typeof(sources_json) as sources_json_type,
+          jsonb_typeof(cards_json) as cards_json_type,
+          jsonb_typeof(tool_calls_json) as tool_calls_json_type,
+          jsonb_typeof(context_summary_json) as context_summary_json_type
+        from chat_messages
+        order by created_at, id
+      `,
     );
     const serializedMessages = JSON.stringify(messages.rows);
 
@@ -197,6 +216,10 @@ describe("chat route", () => {
     expect(messages.rows[1]?.cards_json).toEqual([genericRecommendationCard]);
     expect(messages.rows[1]?.decision_summaries_json).toEqual([]);
     expect(messages.rows[1]?.tool_calls_json).toEqual([publicToolCall(rawToolCall)]);
+    expect(messages.rows[1]?.sources_json_type).toBe("array");
+    expect(messages.rows[1]?.cards_json_type).toBe("array");
+    expect(messages.rows[1]?.tool_calls_json_type).toBe("array");
+    expect(messages.rows[1]?.context_summary_json_type).toBe("object");
     expect(JSON.stringify(body.toolCalls)).not.toContain("arguments");
     expect(JSON.stringify(body.toolCalls)).not.toContain("resultText");
     expect(serializedMessages).not.toContain(String(geolocation.latitude));
