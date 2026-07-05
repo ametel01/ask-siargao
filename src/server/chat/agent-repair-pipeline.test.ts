@@ -92,7 +92,7 @@ describe("agent repair pipeline", () => {
     expect(client.requests[0]).toMatchObject({
       model: "gpt-test",
       store: false,
-      max_output_tokens: 1_000,
+      max_output_tokens: 3_000,
       instructions: "agent instructions",
       tools: [{ type: "function", name: scenario.functionCall.name }],
     });

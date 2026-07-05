@@ -58,6 +58,11 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(String(client.requests[0]?.instructions)).toContain(
       "Every final answer must be written by the AI from loaded memory and tool output",
     );
+    expect(String(client.requests[0]?.instructions)).toContain(
+      "Return final answers as normal traveler-facing Markdown/plain text",
+    );
+    expect(String(client.requests[0]?.instructions)).not.toContain("Return final answers as JSON");
+    expect(client.requests[0]?.max_output_tokens).toBe(3_000);
     const firstInput = parseFirstInput(client.requests[0]?.input);
     expect(firstInput.agentMemory?.versionId).toBe(result.memory?.versionId);
     expect(firstInput.agentMemory?.files?.[0]).toEqual({
@@ -68,6 +73,44 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(JSON.stringify(firstInput.agentMemory)).not.toContain("byteLength");
     expect(JSON.stringify(firstInput.agentMemory)).not.toContain("relativePath");
     expect(firstInput.conversation?.[0]?.content).toContain("first afternoon");
+    expect(firstInput.responseContract?.finalOutput).toContain("normal traveler-facing Markdown");
+  });
+
+  test("repairs malformed fenced JSON before returning a default chat answer", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_malformed_json",
+        output_text:
+          '```json\n{"answer":"Cloud 9 quick lowdown.\\n\\n### Surfing\\nUse Jacking Horse',
+        output: [{ type: "message", id: "msg_malformed_json" }],
+        _request_id: "req_malformed_json",
+      },
+      {
+        id: "resp_repaired_markdown",
+        output_text: "Cloud 9 quick lowdown.\n\n### Surfing\nUse Jacking Horse for lessons.",
+        _request_id: "req_repaired_markdown",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Cloud 9 for 10 days, what should we know?" }],
+        requestId: "agent_request_malformed_json_repair",
+      },
+      { client, agentMemoryVectorStoreId: "", model: "gpt-test" },
+    );
+
+    expect(result.message).toBe(
+      "Cloud 9 quick lowdown.\n\n### Surfing\nUse Jacking Horse for lessons.",
+    );
+    expect(result.message).not.toContain("```json");
+    expect(result.message).not.toContain('"answer"');
+    expect(result.upstreamRequestIds).toEqual(["req_malformed_json", "req_repaired_markdown"]);
+    expect(client.requests).toHaveLength(2);
+    expect(client.requests[1]?.max_output_tokens).toBe(3_000);
+    expect(parseLastUserInputMessage(client.requests[1]?.input)?.instruction).toContain(
+      "Return only normal traveler-facing Markdown/plain text",
+    );
   });
 
   test("builds prompts with compact available memory metadata and only the index body", async () => {

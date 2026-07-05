@@ -81,6 +81,7 @@ type ResponseInputItem = Record<string, unknown>;
 
 const defaultMaxToolCalls = 8;
 const defaultMaxTurns = 6;
+const defaultResponseMaxOutputTokens = 3_000;
 const maxConversationMessages = 10;
 const agentLogger = createComponentLogger("chat_agent");
 
@@ -110,7 +111,11 @@ export async function runAskSiargaoAgentTurn(
   const agentMemoryVectorStoreId =
     dependencies.agentMemoryVectorStoreId ?? process.env.OPENAI_AGENT_MEMORY_VECTOR_STORE_ID;
   const memory = createAgentMemoryMetadata(memorySnapshot, agentMemoryVectorStoreId);
-  const instructions = buildAskSiargaoAgentInstructions(memorySnapshot);
+  const requireStructuredFinalOutput = dependencies.requireStructuredFinalOutput === true;
+  const responseContract = buildResponseContract({ requireStructuredFinalOutput });
+  const instructions = buildAskSiargaoAgentInstructions(memorySnapshot, {
+    requireStructuredFinalOutput,
+  });
   const chatEvidencePolicy = buildChatEvidencePolicy(resolved);
   const { requiredEvidencePlan } = chatEvidencePolicy;
   const tools = buildAgentResponseTools(memorySnapshot, {
@@ -172,7 +177,7 @@ export async function runAskSiargaoAgentTurn(
   let response = await client.responses.create({
     model: resolved.model,
     store: false,
-    max_output_tokens: 1_000,
+    max_output_tokens: defaultResponseMaxOutputTokens,
     instructions,
     tools,
     ...(responseInclude ? { include: responseInclude } : {}),
@@ -191,7 +196,7 @@ export async function runAskSiargaoAgentTurn(
           hostedMemoryFileNames,
           logger,
           request: resolved,
-          requireStructuredFinalOutput: dependencies.requireStructuredFinalOutput === true,
+          requireStructuredFinalOutput,
         }),
         client,
         executeToolCalls: (functionCalls) =>
@@ -235,11 +240,39 @@ export async function runAskSiargaoAgentTurn(
       }
       const parsedFinalPayload = parseFinalPayloadOrLegacyText(finalText, {
         logger,
-        requireStructuredFinalOutput: dependencies.requireStructuredFinalOutput === true,
+        requireStructuredFinalOutput,
         hostedMemoryFileNames,
         toolCalls,
         toolResults,
       });
+      if (!parsedFinalPayload && shouldRepairMalformedFinalAnswer(finalText)) {
+        responseInput = [
+          ...responseInput,
+          ...responseOutputItems(response.output),
+          userInputMessage({
+            instruction:
+              "The previous final answer was malformed internal JSON or an unfinished code fence. Return only normal traveler-facing Markdown/plain text. Do not wrap the answer in JSON or a code fence.",
+            responseContract,
+          }),
+        ];
+        response = await client.responses.create({
+          model: activeModel,
+          store: false,
+          max_output_tokens: defaultResponseMaxOutputTokens,
+          instructions,
+          tools,
+          ...(responseInclude ? { include: responseInclude } : {}),
+          input: responseInput,
+        });
+        activeModel = response.model ?? activeModel;
+        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        collectHostedFileSearchMemoryFileNames(
+          response.output,
+          memorySnapshot,
+          hostedMemoryFileNames,
+        );
+        continue;
+      }
       const finalPayload = applyChatEvidenceFinalPayloadPolicy({
         finalPayload: parsedFinalPayload,
         policy: chatEvidencePolicy,
@@ -277,8 +310,7 @@ export async function runAskSiargaoAgentTurn(
         ...(sanitizedFinalPayload ? { finalPayload: sanitizedFinalPayload } : {}),
         allowedCardKinds: requiredEvidencePlan.allowedCardKinds,
         allowedCardIds: requiredEvidenceAllowedCardIds(chatEvidencePolicy, toolResults),
-        artifactSelectionMode:
-          dependencies.requireStructuredFinalOutput === true ? "strict" : "compatibility",
+        artifactSelectionMode: requireStructuredFinalOutput ? "strict" : "compatibility",
       });
     }
 
@@ -316,7 +348,7 @@ export async function runAskSiargaoAgentTurn(
     response = await client.responses.create({
       model: activeModel,
       store: false,
-      max_output_tokens: 1_000,
+      max_output_tokens: defaultResponseMaxOutputTokens,
       instructions,
       tools,
       ...(responseInclude ? { include: responseInclude } : {}),
@@ -528,6 +560,25 @@ function parseAgentFinalPayload(finalText: string): AgentFinalPayload | undefine
     displayItineraryIds,
     displayDecisionSummaryIds,
   };
+}
+
+function shouldRepairMalformedFinalAnswer(finalText: string) {
+  const trimmed = finalText.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  const startsLikeJsonFence = /^```(?:json)?\s*[\r\n{]/iu.test(trimmed);
+  const startsLikeFinalPayload = trimmed.startsWith("{") && /"answer"\s*:/u.test(trimmed);
+  const containsEscapedMarkdown =
+    /\\n(?:\\n)?(?:#{1,6}\s|\|.+\||[-*]\s+)/u.test(trimmed) ||
+    /"answer"\s*:\s*".*\\n/su.test(trimmed);
+  const codeFenceCount = trimmed.match(/```/gu)?.length ?? 0;
+  const hasUnmatchedFence = codeFenceCount % 2 === 1;
+
+  return (
+    startsLikeJsonFence || startsLikeFinalPayload || containsEscapedMarkdown || hasUnmatchedFence
+  );
 }
 
 function extractFinalPayloadJson(finalText: string) {
@@ -3354,12 +3405,23 @@ function uniqueText(values: readonly string[]) {
   ];
 }
 
-const responseContract = {
+function buildResponseContract({
+  requireStructuredFinalOutput,
+}: {
+  requireStructuredFinalOutput: boolean;
+}) {
+  return {
+    ...baseResponseContract,
+    finalOutput: requireStructuredFinalOutput
+      ? "Return the final response as a JSON object with answer, usedMemoryFiles, usedToolCallIds, displayCardIds, displayActionIds, displayItineraryIds, and displayDecisionSummaryIds. The answer field is the only traveler-facing prose. Display artifact ID arrays must include only cards, actions, itineraries, or decision summaries that should be shown publicly."
+      : "Return the final response as normal traveler-facing Markdown/plain text. Do not wrap the answer in JSON or a code fence. Do not include artifact IDs or internal metadata in the traveler-facing answer.",
+  };
+}
+
+const baseResponseContract = {
   tone: "practical local travel assistant",
   scope:
     "Answer only Siargao-related travel and local trip-planning questions. Politely decline unrelated questions.",
-  finalOutput:
-    "Return the final response as a JSON object with answer, usedMemoryFiles, usedToolCallIds, displayCardIds, displayActionIds, displayItineraryIds, and displayDecisionSummaryIds. The answer field is the only traveler-facing prose. Display artifact ID arrays must include only cards, actions, itineraries, or decision summaries that should be shown publicly.",
   sourceUse:
     "Use tool outputs as the only source for live weather, modelled marine conditions, Google Places, curated local guide, and source-policy claims.",
   deterministicSignals:
@@ -3372,30 +3434,45 @@ const responseContract = {
     "For any evidence-backed result returned to the traveler, synthesize the evidence into a structured answer. Use a compact table or tight option list for comparisons and multiple results; use a concise heading plus key details for single-result answers. Include concrete names, area, checked details, tradeoffs, caveats, and a clear next move when available. Do not ask whether the traveler wants details that are already present in tool output.",
 };
 
-const askSiargaoBaseInstructions = [
-  "You are Ask Siargao, a practical Siargao travel assistant.",
-  "Answer the traveler's latest question directly and conversationally.",
-  "Stay strictly scoped to Siargao Island, Siargao travel, and local trip-planning topics.",
-  "If the latest question is unrelated to Siargao or plausible trip planning, politely decline and invite a Siargao-related question.",
-  "Use the loaded INDEX.md to choose the smallest relevant memory files, then call load_agent_memory_file, file_search, or search_agent_memory before answering from Ask Siargao domain knowledge.",
-  "You own tool choice and query formulation from the traveler's natural-language prompt. Do not wait for deterministic routing hints.",
-  "For local service lookups such as scooter or motorbike rental in General Luna, call search_places with a natural-language service query; add research_web when public operator or directory evidence is useful. Do not substitute web research alone for map/card recommendations unless Google Places is unavailable.",
-  "For any answer based on tool results, return a structured result rather than a thin paragraph. Use a compact markdown table or tight option list for multiple places, providers, events, routes, beaches, activities, weather windows, or other comparable results. Include practical checked details only when tool output supports them, then state the best first move.",
-  "If one provider fails but another provider succeeds, use the successful evidence and caveat only the missing check when it matters.",
-  "If deterministic signals say browser geolocation is the proximity anchor, do not say the traveler is near a named area unless user text or a tool result supports that named area.",
-  "Do not answer from generic model knowledge when the loaded memory index lists a relevant file. If no loaded memory file covers the topic, say the Ask Siargao memory does not cover it and rely only on governed tools where appropriate.",
-  "Use backend tools whenever the answer needs current weather, tide timing, modelled marine conditions, Google Places facts, curated guide facts, safe local database facts, source evidence, or source-label policy.",
-  "Every final answer must be written by the AI from loaded memory and tool output; do not copy raw tool output as final prose.",
-  "Return final answers as JSON with keys answer, usedMemoryFiles, usedToolCallIds, displayCardIds, displayActionIds, displayItineraryIds, and displayDecisionSummaryIds. Include only artifact IDs that should be displayed to the traveler.",
-  "Do not invent live, provider-backed, or curated local facts. Memory retrieval is policy/reference context only, not live evidence.",
-  "Do not write standalone source footer lines beginning with 'Checked:' or 'Not checked:'. Do not tell the traveler what was not checked or which internal tool should be used. Let the backend/cards display compact source labels.",
-  "Keep answers concise and actionable.",
-  "Do not frame Ask Siargao as a trip risk audit or paid report in chat answers.",
-].join("\n");
-
-function buildAskSiargaoAgentInstructions(memorySnapshot: AgentMemorySnapshot) {
+function buildAskSiargaoBaseInstructions({
+  requireStructuredFinalOutput,
+}: {
+  requireStructuredFinalOutput: boolean;
+}) {
   return [
-    askSiargaoBaseInstructions,
+    "You are Ask Siargao, a practical Siargao travel assistant.",
+    "Answer the traveler's latest question directly and conversationally.",
+    "Stay strictly scoped to Siargao Island, Siargao travel, and local trip-planning topics.",
+    "If the latest question is unrelated to Siargao or plausible trip planning, politely decline and invite a Siargao-related question.",
+    "Use the loaded INDEX.md to choose the smallest relevant memory files, then call load_agent_memory_file, file_search, or search_agent_memory before answering from Ask Siargao domain knowledge.",
+    "You own tool choice and query formulation from the traveler's natural-language prompt. Do not wait for deterministic routing hints.",
+    "For local service lookups such as scooter or motorbike rental in General Luna, call search_places with a natural-language service query; add research_web when public operator or directory evidence is useful. Do not substitute web research alone for map/card recommendations unless Google Places is unavailable.",
+    "For any answer based on tool results, return a structured result rather than a thin paragraph. Use a compact markdown table or tight option list for multiple places, providers, events, routes, beaches, activities, weather windows, or other comparable results. Include practical checked details only when tool output supports them, then state the best first move.",
+    "If one provider fails but another provider succeeds, use the successful evidence and caveat only the missing check when it matters.",
+    "If deterministic signals say browser geolocation is the proximity anchor, do not say the traveler is near a named area unless user text or a tool result supports that named area.",
+    "Do not answer from generic model knowledge when the loaded memory index lists a relevant file. If no loaded memory file covers the topic, say the Ask Siargao memory does not cover it and rely only on governed tools where appropriate.",
+    "Use backend tools whenever the answer needs current weather, tide timing, modelled marine conditions, Google Places facts, curated guide facts, safe local database facts, source evidence, or source-label policy.",
+    "Every final answer must be written by the AI from loaded memory and tool output; do not copy raw tool output as final prose.",
+    requireStructuredFinalOutput
+      ? "Return final answers as JSON with keys answer, usedMemoryFiles, usedToolCallIds, displayCardIds, displayActionIds, displayItineraryIds, and displayDecisionSummaryIds. Include only artifact IDs that should be displayed to the traveler."
+      : "Return final answers as normal traveler-facing Markdown/plain text. Do not wrap the final answer in JSON or a code fence, and do not include artifact IDs or internal metadata.",
+    "Do not invent live, provider-backed, or curated local facts. Memory retrieval is policy/reference context only, not live evidence.",
+    "Do not write standalone source footer lines beginning with 'Checked:' or 'Not checked:'. Do not tell the traveler what was not checked or which internal tool should be used. Let the backend/cards display compact source labels.",
+    "Keep answers concise and actionable.",
+    "Do not frame Ask Siargao as a trip risk audit or paid report in chat answers.",
+  ].join("\n");
+}
+
+function buildAskSiargaoAgentInstructions(
+  memorySnapshot: AgentMemorySnapshot,
+  {
+    requireStructuredFinalOutput,
+  }: {
+    requireStructuredFinalOutput: boolean;
+  },
+) {
+  return [
+    buildAskSiargaoBaseInstructions({ requireStructuredFinalOutput }),
     renderAvailableAgentMemory(memorySnapshot),
     "The following Ask Siargao memory index is loaded. Use it to decide which detailed files to load dynamically.",
     memorySnapshot.instructionMarkdown,

@@ -148,7 +148,7 @@ export async function runAgentRepairPipeline({
     const retryResponse = await client.responses.create({
       model,
       store: false,
-      max_output_tokens: repair.maxOutputTokens ?? 1_000,
+      max_output_tokens: repair.maxOutputTokens ?? 3_000,
       instructions,
       tools: responseTools,
       ...(responseInclude ? { include: responseInclude } : {}),
