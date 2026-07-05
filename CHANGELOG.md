@@ -90,6 +90,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
   JSONB arrays or objects instead of JSONB string scalars.
 - Fixed the malformed chat-output guard to stay compatible with the app's ES2017 TypeScript
   target.
+- Changed Google Places retention pruning to check expired review cleanup before deleting dependent
+  details and snapshots.
 - Redesigned the settings dashboard layout so account details, private planning summaries, and
   travel profile editing use the full app workspace instead of a narrow centered page.
 - Added a visible top-bar Settings control in the chat workspace so account settings are not hidden
