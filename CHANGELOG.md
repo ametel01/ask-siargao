@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed `dev:up` to wait for the Compose Postgres healthcheck before running migrations so fresh
+  local database volumes do not race startup.
 - Redesigned the settings dashboard layout so account details, private planning summaries, and
   travel profile editing use the full app workspace instead of a narrow centered page.
 - Added a visible top-bar Settings control in the chat workspace so account settings are not hidden
