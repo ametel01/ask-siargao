@@ -669,22 +669,24 @@ export async function deleteExpiredGooglePlacesContent(
   const includeProgress = options.batchSize !== undefined || options.maxBatches !== undefined;
   const batchSize = options.batchSize ?? defaultGooglePlacesCleanupBatchSize;
   const maxBatches = options.maxBatches ?? defaultGooglePlacesCleanupMaxBatches;
-  const reviews = await deleteExpiredGooglePlacesTableInBatches(db, {
-    batchSize,
-    idColumn: "id",
-    maxBatches,
-    now: options.now,
-    tableName: "google_place_reviews",
-    whereSql: "retention_expires_at < $1",
-  });
-  const details = await deleteExpiredGooglePlacesTableInBatches(db, {
-    batchSize,
-    idColumn: "place_id",
-    maxBatches,
-    now: options.now,
-    tableName: "google_place_details",
-    whereSql: "retention_expires_at < $1",
-  });
+  const [reviews, details] = await Promise.all([
+    deleteExpiredGooglePlacesTableInBatches(db, {
+      batchSize,
+      idColumn: "id",
+      maxBatches,
+      now: options.now,
+      tableName: "google_place_reviews",
+      whereSql: "retention_expires_at < $1",
+    }),
+    deleteExpiredGooglePlacesTableInBatches(db, {
+      batchSize,
+      idColumn: "place_id",
+      maxBatches,
+      now: options.now,
+      tableName: "google_place_details",
+      whereSql: "retention_expires_at < $1",
+    }),
+  ]);
   const snapshots = reviews.hasMore
     ? await readGooglePlacesCleanupTableProgress(db, {
         now: options.now,

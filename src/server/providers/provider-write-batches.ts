@@ -56,13 +56,21 @@ export async function upsertProviderFactGraphBatch(
   db: ProviderBatchWriteDatabase,
   batch: ProviderFactGraphBatch,
 ) {
-  await upsertRawSnapshot(db, batch);
-  await upsertSourceRecord(db, batch.sourceRecord, batch.rawSnapshot.id);
-  await upsertSourceCredibilityScore(db, batch.sourceCredibilityScore);
-  await upsertGovernedFacts(db, batch.facts);
-  await upsertGovernedEvidence(db, batch.evidence);
-  await upsertFactConfidenceScores(db, batch.factConfidenceScores);
-  await upsertRefreshJob(db, batch);
+  await upsertRawSnapshot(db, batch)
+    .then(() =>
+      Promise.all([
+        upsertSourceRecord(db, batch.sourceRecord, batch.rawSnapshot.id),
+        upsertSourceCredibilityScore(db, batch.sourceCredibilityScore),
+      ]),
+    )
+    .then(() => upsertGovernedFacts(db, batch.facts))
+    .then(() =>
+      Promise.all([
+        upsertGovernedEvidence(db, batch.evidence),
+        upsertFactConfidenceScores(db, batch.factConfidenceScores),
+        upsertRefreshJob(db, batch),
+      ]),
+    );
 }
 
 export async function upsertGovernedFacts(
@@ -187,7 +195,7 @@ export async function upsertGovernedEvidence(
   }
 }
 
-export async function upsertFactConfidenceScores(
+async function upsertFactConfidenceScores(
   db: ProviderBatchWriteDatabase,
   scores: readonly FactConfidenceScoreInput[],
 ) {

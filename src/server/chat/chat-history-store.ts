@@ -521,7 +521,7 @@ function encodeChatThreadCursor(input: {
   return Buffer.from(JSON.stringify(input), "utf8").toString("base64url");
 }
 
-export function decodeChatThreadCursor(cursor: string | null | undefined) {
+function decodeChatThreadCursor(cursor: string | null | undefined) {
   if (!cursor) {
     return null;
   }

@@ -35,7 +35,7 @@ type ChatCompletionsClientLike = {
 
 const defaultDeepSeekBaseUrl = "https://api.deepseek.com";
 export const defaultDeepSeekChatModel = "deepseek-v4-flash";
-export const defaultOpenAiFallbackChatModel = "gpt-5.4-mini";
+const defaultOpenAiFallbackChatModel = "gpt-5.4-mini";
 
 export function resolvePrimaryChatModel(model?: string) {
   return model ?? process.env.DEEPSEEK_MODEL ?? defaultDeepSeekChatModel;
@@ -400,7 +400,12 @@ function instructionText(instructions: unknown) {
   if (!Array.isArray(instructions)) {
     return undefined;
   }
-  return instructions.map(contentText).filter(Boolean).join("\n");
+  return instructions
+    .flatMap((instruction) => {
+      const text = contentText(instruction);
+      return text ? [text] : [];
+    })
+    .join("\n");
 }
 
 function contentText(content: unknown): string {

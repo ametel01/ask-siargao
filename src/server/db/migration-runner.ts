@@ -57,16 +57,27 @@ export async function runLedgerBackedMigrations(
   const skipped = ledgerRows.map((row) => row.name);
   const appliedNames = new Set(skipped);
 
-  for (const migrationFile of migrationFiles) {
-    if (appliedNames.has(migrationFile.name)) {
-      continue;
-    }
-
-    await runMigration(database, migrationFile);
-    applied.push(migrationFile.name);
-  }
+  const pendingMigrationFiles = migrationFiles.filter(
+    (migrationFile) => !appliedNames.has(migrationFile.name),
+  );
+  await runMigrationsInLedgerOrder(database, pendingMigrationFiles, applied);
 
   return { applied, skipped };
+}
+
+function runMigrationsInLedgerOrder(
+  database: MigrationDatabase,
+  migrationFiles: readonly MigrationFile[],
+  applied: string[],
+) {
+  return migrationFiles.reduce<Promise<void>>(
+    (sequence, migrationFile) =>
+      sequence.then(async () => {
+        await runMigration(database, migrationFile);
+        applied.push(migrationFile.name);
+      }),
+    Promise.resolve(),
+  );
 }
 
 function validateMigrationLedger(
