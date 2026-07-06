@@ -251,7 +251,7 @@ export async function runAskSiargaoAgentTurn(
           ...responseOutputItems(response.output),
           userInputMessage({
             instruction:
-              "The previous final answer was malformed internal JSON or an unfinished code fence. Return only normal traveler-facing Markdown/plain text. Do not wrap the answer in JSON or a code fence.",
+              "The previous final answer was malformed internal JSON, internal tool-call markup, or an unfinished code fence. Return only normal traveler-facing Markdown/plain text. Do not wrap the answer in JSON, tool-call markup, or a code fence.",
             responseContract,
           }),
         ];
@@ -623,6 +623,9 @@ function shouldRepairMalformedFinalAnswer(finalText: string) {
 
   const startsLikeJsonFence = /^```(?:json)?\s*[\r\n{]/iu.test(trimmed);
   const startsLikeFinalPayload = trimmed.startsWith("{") && /"answer"\s*:/u.test(trimmed);
+  const containsDsmlToolCall =
+    /<\s*[|｜]{2}DSML[|｜]{2}tool_calls\s*>/u.test(trimmed) ||
+    /<\s*[|｜]{2}DSML[|｜]{2}invoke\s+name=/u.test(trimmed);
   const containsEscapedMarkdown =
     /\\n(?:\\n)?(?:#{1,6}\s|\|.+\||[-*]\s+)/u.test(trimmed) ||
     /"answer"\s*:\s*"[\s\S]*\\n/u.test(trimmed);
@@ -630,7 +633,11 @@ function shouldRepairMalformedFinalAnswer(finalText: string) {
   const hasUnmatchedFence = codeFenceCount % 2 === 1;
 
   return (
-    startsLikeJsonFence || startsLikeFinalPayload || containsEscapedMarkdown || hasUnmatchedFence
+    startsLikeJsonFence ||
+    startsLikeFinalPayload ||
+    containsDsmlToolCall ||
+    containsEscapedMarkdown ||
+    hasUnmatchedFence
   );
 }
 

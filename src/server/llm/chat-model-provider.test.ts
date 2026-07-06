@@ -105,6 +105,46 @@ describe("chat model provider", () => {
     ]);
   });
 
+  test("parses DeepSeek DSML tool-call content into Responses function calls", async () => {
+    const client = createConfiguredChatResponsesClient({
+      deepSeekClient: {
+        chat: {
+          completions: {
+            create: async () => ({
+              id: "deepseek_dsml_response",
+              model: "deepseek-v4-flash",
+              choices: [
+                {
+                  message: {
+                    content:
+                      '<｜｜DSML｜｜tool_calls> <｜｜DSML｜｜invoke name="load_agent_memory_file"> <｜｜DSML｜｜parameter name="file_id" string="true">ASK_SIARGAO_ANSWER_PATTERNS.md</｜｜DSML｜｜parameter> </｜｜DSML｜｜invoke> </｜｜DSML｜｜tool_calls>',
+                  },
+                },
+              ],
+            }),
+          },
+        },
+      },
+      deepSeekModel: "deepseek-v4-flash",
+    });
+
+    const response = await client.responses.create({
+      model: "deepseek-v4-flash",
+      input: "Compare Bravo, CEV, Shaka, and Kurvada.",
+    });
+
+    expect(response.output_text).toBeUndefined();
+    expect(response.output).toEqual([
+      {
+        type: "function_call",
+        id: "dsml_call_1",
+        call_id: "dsml_call_1",
+        name: "load_agent_memory_file",
+        arguments: '{"documents":["ASK_SIARGAO_ANSWER_PATTERNS.md"]}',
+      },
+    ]);
+  });
+
   test("falls back to OpenAI after a DeepSeek request failure", async () => {
     const fallbackRequests: Record<string, unknown>[] = [];
     const fallbackClient: ResponsesClientLike = {

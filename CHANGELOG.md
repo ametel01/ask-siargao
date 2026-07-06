@@ -189,6 +189,10 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Hardened chat web-research tool handling so DeepSeek-style argument aliases normalize before
   validation, invalid argument diagnostics are logged, and repeated invalid tool-call loops force a
   caveated final answer instead of a 502.
+- Hardened chat repair retries so exhausted tool-call budgets force a no-tools, caveated final
+  answer instead of failing the request with `chat_generation_failed`.
+- Parsed DeepSeek DSML tool-call envelopes as real tool calls and repaired any leaked DSML final
+  text so internal tool markup is not shown to travelers.
 - Replaced the pending chat assistant spinner with a shadcn badge and animated progress indicator.
 - Tolerated model-style `research_web` arguments with omitted nullable fields or snake_case aliases
   so valid web-research requests no longer fail chat with repeated `invalid_tool_arguments`.

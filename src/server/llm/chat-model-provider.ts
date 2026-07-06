@@ -329,12 +329,15 @@ function chatCompletionToResponseResult(
   const firstChoice = choices.find(isRecord);
   const message = isRecord(firstChoice?.message) ? firstChoice.message : {};
   const content = contentText(message.content).trim();
-  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  const nativeToolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  const dsmlToolCalls = nativeToolCalls.length === 0 ? parseDeepSeekDsmlToolCalls(content) : [];
+  const toolCalls = nativeToolCalls.length > 0 ? nativeToolCalls : dsmlToolCalls;
+  const toolCallContent = dsmlToolCalls.length > 0 ? "" : content;
   const reasoningContent = readString(message.reasoning_content);
   const output = toolCalls.length
     ? toolCalls.flatMap((toolCall, index) =>
         chatToolCallToResponseOutput(toolCall, index, {
-          content,
+          content: toolCallContent,
           reasoningContent,
         }),
       )
@@ -384,6 +387,96 @@ function chatToolCallToResponseOutput(
       ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
     },
   ];
+}
+
+function parseDeepSeekDsmlToolCalls(content: string): Array<Record<string, unknown>> {
+  if (!content.includes("DSML") || !content.includes("tool_calls")) {
+    return [];
+  }
+
+  const toolCallsBlock =
+    /<\s*[|｜]{2}DSML[|｜]{2}tool_calls\s*>([\s\S]*?)<\s*\/\s*[|｜]{2}DSML[|｜]{2}tool_calls\s*>/u.exec(
+      content,
+    )?.[1];
+  if (!toolCallsBlock) {
+    return [];
+  }
+
+  return Array.from(
+    toolCallsBlock.matchAll(
+      /<\s*[|｜]{2}DSML[|｜]{2}invoke\s+name="([^"]+)"\s*>([\s\S]*?)<\s*\/\s*[|｜]{2}DSML[|｜]{2}invoke\s*>/gu,
+    ),
+  ).flatMap((match, index) => {
+    const name = match[1]?.trim();
+    const body = match[2] ?? "";
+    if (!name) {
+      return [];
+    }
+
+    const argumentsObject = normalizeDeepSeekDsmlToolArguments(
+      name,
+      parseDeepSeekDsmlParameters(body),
+    );
+
+    return [
+      {
+        id: `dsml_call_${index + 1}`,
+        type: "function",
+        function: {
+          name,
+          arguments: JSON.stringify(argumentsObject),
+        },
+      },
+    ];
+  });
+}
+
+function parseDeepSeekDsmlParameters(body: string) {
+  const parameters: Record<string, unknown> = {};
+  for (const match of body.matchAll(
+    /<\s*[|｜]{2}DSML[|｜]{2}parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)<\s*\/\s*[|｜]{2}DSML[|｜]{2}parameter\s*>/gu,
+  )) {
+    const name = match[1]?.trim();
+    if (!name) {
+      continue;
+    }
+    parameters[name] = parseDeepSeekDsmlParameterValue(match[2]?.trim() ?? "");
+  }
+  return parameters;
+}
+
+function parseDeepSeekDsmlParameterValue(value: string): unknown {
+  if (!value) {
+    return "";
+  }
+  if (
+    (value.startsWith("{") && value.endsWith("}")) ||
+    (value.startsWith("[") && value.endsWith("]"))
+  ) {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+  return value;
+}
+
+function normalizeDeepSeekDsmlToolArguments(name: string, args: Record<string, unknown>) {
+  if (name !== "load_agent_memory_file" || Array.isArray(args.documents)) {
+    return args;
+  }
+
+  const document = readString(args.file_id) ?? readString(args.file) ?? readString(args.document);
+  if (!document) {
+    return args;
+  }
+
+  const { file_id: _fileId, file: _file, document: _document, ...rest } = args;
+  return {
+    ...rest,
+    documents: [document],
+  };
 }
 
 function responseFormatForDeepSeek(text: unknown) {

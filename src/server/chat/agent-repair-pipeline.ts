@@ -118,7 +118,43 @@ export async function runAgentRepairPipeline({
     const retryInput = [...responseInput, ...responseOutputItems(response.output)];
     if (repair.type === "tool") {
       if (toolCalls.length + repair.functionCalls.length > maxToolCalls) {
-        throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
+        if (hasToolBudgetExhaustedRepairInput(responseInput, adapter.name)) {
+          continue;
+        }
+
+        retryInput.push(
+          repairUserInputMessage({
+            instruction:
+              "Validation repair: the model requested more tool calls, but the Ask Siargao tool-call budget is exhausted. Do not call tools. Return the best final traveler-facing answer now using only checked evidence already present in the conversation. Do not invent live/current facts. If a required check is missing or unavailable, say that plainly as a caveat and omit checked/live/source claims and public artifacts that depend on it.",
+            validationRepairToolBudgetExhausted: {
+              adapterName: adapter.name,
+              requestedToolCalls: repair.functionCalls.map((functionCall) => ({
+                name: functionCall.name,
+                arguments: publicToolArguments(functionCall),
+              })),
+              existingToolCallCount: toolCalls.length,
+              maxToolCalls,
+            },
+            responseContract,
+          }),
+        );
+
+        const retryResponse = await client.responses.create({
+          model,
+          store: false,
+          max_output_tokens: repair.maxOutputTokens ?? 3_000,
+          instructions,
+          input: retryInput,
+        });
+        collectUpstreamRequestId(retryResponse._request_id);
+        collectHostedMemory(retryResponse);
+
+        return {
+          repaired: true,
+          response: retryResponse,
+          responseInput: retryInput,
+          adapterName: adapter.name,
+        };
       }
 
       const outputs = await executeToolCalls(repair.functionCalls);
@@ -192,6 +228,30 @@ function responseOutputItems(output: unknown): ResponseInputItem[] {
   return output.flatMap((item) => (isRecord(item) ? [item] : []));
 }
 
+function hasToolBudgetExhaustedRepairInput(
+  responseInput: readonly ResponseInputItem[],
+  adapterName: string,
+) {
+  return responseInput.some((item) => {
+    const content = item.content;
+    if (!Array.isArray(content)) {
+      return false;
+    }
+    return content.some((entry) => {
+      if (!isRecord(entry) || typeof entry.text !== "string") {
+        return false;
+      }
+      const parsed = parseJsonRecord(entry.text);
+      const exhaustedRepair = parsed?.validationRepairToolBudgetExhausted;
+      return (
+        isRecord(exhaustedRepair) &&
+        typeof exhaustedRepair.adapterName === "string" &&
+        exhaustedRepair.adapterName === adapterName
+      );
+    });
+  });
+}
+
 function repairToolOutputPayload(
   output: AgentRepairToolOutput,
   publicToolArguments: (functionCall: AgentRepairFunctionCall) => Record<string, unknown>,
@@ -207,4 +267,13 @@ function repairToolOutputPayload(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
 }

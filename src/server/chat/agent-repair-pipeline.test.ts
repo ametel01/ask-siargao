@@ -170,6 +170,166 @@ describe("agent repair pipeline", () => {
     expect(toolCalls).toEqual([]);
     expect(toolResults).toEqual([]);
   });
+
+  test("forces a no-tools final retry when a tool repair would exceed the tool budget", async () => {
+    const functionCall = {
+      callId: "auto_condition_over_budget",
+      name: "get_condition_judgment",
+      arguments: { activity: "surfing", location: "Cloud 9" },
+    } satisfies AgentRepairFunctionCall;
+    const client = fakeResponsesClient([
+      {
+        id: "resp_budget_fallback",
+        output_text: "Budget-aware final answer with caveats.",
+        _request_id: "req_budget_fallback",
+      },
+    ]);
+    const existingToolCall = repairOutput({
+      callId: "existing_weather",
+      name: "get_weather_forecast",
+      arguments: { location: "General Luna" },
+    });
+    const toolCalls = [existingToolCall.audit];
+    const toolResults = [existingToolCall.result];
+    const collectedRequestIds: Array<string | undefined> = [];
+
+    const result = await runAgentRepairPipeline({
+      adapters: [
+        repairAdapter({
+          name: "condition-judgment",
+          payloadKey: "validationRepairConditionJudgment",
+          functionCall,
+        }),
+      ],
+      client,
+      executeToolCalls: async () => {
+        throw new Error("Tool execution should be skipped when the budget is exhausted.");
+      },
+      finalText: "Premature final answer.",
+      instructions: "agent instructions",
+      maxToolCalls: 1,
+      model: "gpt-test",
+      response: {
+        id: "resp_initial",
+        output_text: "Premature final answer.",
+        output: [{ type: "message", id: "msg_initial" }],
+        _request_id: "req_initial",
+      },
+      responseInput: [{ type: "message", role: "user", content: "initial input" }],
+      responseTools: [{ type: "function", name: functionCall.name }],
+      responseContract: { finalOutput: "json" },
+      collectHostedMemory: () => undefined,
+      collectUpstreamRequestId: (requestId) => collectedRequestIds.push(requestId),
+      serializeToolOutput: (toolResult) => JSON.stringify(toolResult),
+      publicToolArguments: (repairFunctionCall) => repairFunctionCall.arguments,
+      toolCalls,
+      toolResults,
+    });
+
+    expect(result).toMatchObject({
+      repaired: true,
+      adapterName: "condition-judgment",
+    });
+    expect(toolCalls.map((toolCall) => toolCall.toolCallId)).toEqual(["existing_weather"]);
+    expect(toolResults.map((toolResult) => toolResult.toolCallId)).toEqual(["existing_weather"]);
+    expect(client.requests).toHaveLength(1);
+    expect(client.requests[0]).toMatchObject({
+      model: "gpt-test",
+      store: false,
+      max_output_tokens: 3_000,
+      instructions: "agent instructions",
+    });
+    expect(client.requests[0]).not.toHaveProperty("tools");
+    expect(client.requests[0]).not.toHaveProperty("include");
+    const repairInput = parseLastUserInputMessage(client.requests[0]?.input);
+    expect(repairInput).toMatchObject({
+      product: "Ask Siargao",
+      responseContract: { finalOutput: "json" },
+      validationRepairToolBudgetExhausted: {
+        adapterName: "condition-judgment",
+        requestedToolCalls: [
+          {
+            name: "get_condition_judgment",
+            arguments: functionCall.arguments,
+          },
+        ],
+        existingToolCallCount: 1,
+        maxToolCalls: 1,
+      },
+    });
+    expect(repairInput.instruction).toEqual(expect.stringContaining("Do not call tools"));
+    expect(collectedRequestIds).toEqual(["req_budget_fallback"]);
+  });
+
+  test("does not repeat the same exhausted tool-budget repair", async () => {
+    const functionCall = {
+      callId: "auto_condition_over_budget",
+      name: "get_condition_judgment",
+      arguments: { activity: "surfing", location: "Cloud 9" },
+    } satisfies AgentRepairFunctionCall;
+    const client = fakeResponsesClient([]);
+    const existingToolCall = repairOutput({
+      callId: "existing_weather",
+      name: "get_weather_forecast",
+      arguments: { location: "General Luna" },
+    });
+    let executeCount = 0;
+
+    const result = await runAgentRepairPipeline({
+      adapters: [
+        repairAdapter({
+          name: "condition-judgment",
+          payloadKey: "validationRepairConditionJudgment",
+          functionCall,
+        }),
+      ],
+      client,
+      executeToolCalls: async () => {
+        executeCount += 1;
+        return [];
+      },
+      finalText: "Still imperfect final answer.",
+      instructions: "agent instructions",
+      maxToolCalls: 1,
+      model: "gpt-test",
+      response: {
+        id: "resp_initial",
+        output_text: "Still imperfect final answer.",
+        output: [{ type: "message", id: "msg_initial" }],
+        _request_id: "req_initial",
+      },
+      responseInput: [
+        { type: "message", role: "user", content: "initial input" },
+        {
+          type: "message",
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: JSON.stringify({
+                product: "Ask Siargao",
+                validationRepairToolBudgetExhausted: {
+                  adapterName: "condition-judgment",
+                },
+              }),
+            },
+          ],
+        },
+      ],
+      responseTools: [{ type: "function", name: functionCall.name }],
+      responseContract: { finalOutput: "json" },
+      collectHostedMemory: () => undefined,
+      collectUpstreamRequestId: () => undefined,
+      serializeToolOutput: (toolResult) => JSON.stringify(toolResult),
+      publicToolArguments: (repairFunctionCall) => repairFunctionCall.arguments,
+      toolCalls: [existingToolCall.audit],
+      toolResults: [existingToolCall.result],
+    });
+
+    expect(result).toEqual({ repaired: false });
+    expect(executeCount).toBe(0);
+    expect(client.requests).toEqual([]);
+  });
 });
 
 function repairAdapter({

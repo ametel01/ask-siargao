@@ -113,6 +113,51 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
   });
 
+  test("repairs leaked DSML tool-call markup before returning a default chat answer", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_dsml_final_text",
+        output_text:
+          '<｜｜DSML｜｜tool_calls> <｜｜DSML｜｜invoke name="load_agent_memory_file"> <｜｜DSML｜｜parameter name="file_id" string="true">ASK_SIARGAO_ANSWER_PATTERNS.md</｜｜DSML｜｜parameter> </｜｜DSML｜｜invoke> </｜｜DSML｜｜tool_calls>',
+        output: [{ type: "message", id: "msg_dsml_final_text" }],
+        _request_id: "req_dsml_final_text",
+      },
+      {
+        id: "resp_repaired_dsml_markdown",
+        output_text:
+          "For a rainy dinner, start with Bravo if you want a covered, full-dinner setup.",
+        _request_id: "req_repaired_dsml_markdown",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Compare Bravo, CEV, Shaka, and Kurvada for dinner tonight. Which are open?",
+          },
+        ],
+        requestId: "agent_request_dsml_final_text_repair",
+      },
+      { client, agentMemoryVectorStoreId: "", model: "gpt-test" },
+    );
+
+    expect(result.message).toBe(
+      "For a rainy dinner, start with Bravo if you want a covered, full-dinner setup.",
+    );
+    expect(result.message).not.toContain("DSML");
+    expect(result.message).not.toContain("tool_calls");
+    expect(result.upstreamRequestIds).toEqual([
+      "req_dsml_final_text",
+      "req_repaired_dsml_markdown",
+    ]);
+    expect(client.requests).toHaveLength(2);
+    expect(parseLastUserInputMessage(client.requests[1]?.input)?.instruction).toContain(
+      "Return only normal traveler-facing Markdown/plain text",
+    );
+  });
+
   test("builds prompts with compact available memory metadata and only the index body", async () => {
     const client = fakeResponsesClient([
       {
