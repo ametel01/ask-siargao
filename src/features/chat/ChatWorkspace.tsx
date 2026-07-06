@@ -2123,13 +2123,7 @@ function ChatMessage({
         }
       >
         <div className="flex min-w-0 items-start gap-3">
-          {isPending ? (
-            <LoaderCircle
-              aria-hidden="true"
-              className="mt-0.5 shrink-0 animate-spin text-brand-violet-650"
-              size={18}
-            />
-          ) : null}
+          {isPending ? <PendingAssistantIndicator /> : null}
           <div className="grid min-w-0 flex-1 gap-4">
             <AssistantMarkdownText text={message.text} tone={isError ? "error" : "default"} />
             {!isError && !isPending ? <AssistantGlance message={message} /> : null}
@@ -2191,6 +2185,26 @@ function ChatMessage({
         ) : null}
       </div>
     </article>
+  );
+}
+
+function PendingAssistantIndicator() {
+  return (
+    <span
+      aria-hidden="true"
+      className="mt-0.5 inline-flex shrink-0 items-center gap-1.5 text-brand-violet-650"
+      data-testid="assistant-pending-spinner"
+    >
+      <LoaderCircle
+        className="size-4 animate-spin [animation-duration:700ms] [animation-timing-function:linear] motion-reduce:animate-none"
+        strokeWidth={2.5}
+      />
+      <span className="flex items-center gap-0.5 sm:hidden">
+        <span className="size-1 animate-pulse rounded-full bg-current opacity-70" />
+        <span className="size-1 animate-pulse rounded-full bg-current opacity-70 [animation-delay:120ms]" />
+        <span className="size-1 animate-pulse rounded-full bg-current opacity-70 [animation-delay:240ms]" />
+      </span>
+    </span>
   );
 }
 
