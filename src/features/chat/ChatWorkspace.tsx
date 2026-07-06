@@ -60,6 +60,7 @@ import { Button } from "@/components/ui/button";
 import { InputGroup } from "@/components/ui/input-group";
 import { InputGroupAddon } from "@/components/ui/input-group-addon";
 import { InputGroupButton } from "@/components/ui/input-group-button";
+import { Progress } from "@/components/ui/progress";
 import { clerkAppearance } from "@/features/auth/clerk-appearance";
 import { isClerkConfigured } from "@/features/auth/clerk-config";
 import type {
@@ -2123,8 +2124,8 @@ function ChatMessage({
         }
       >
         <div className="flex min-w-0 items-start gap-3">
-          {isPending ? <PendingAssistantIndicator /> : null}
-          <div className="grid min-w-0 flex-1 gap-4">
+          <div className="grid min-w-0 flex-1 gap-3 sm:gap-4">
+            {isPending ? <PendingAssistantIndicator /> : null}
             <AssistantMarkdownText text={message.text} tone={isError ? "error" : "default"} />
             {!isError && !isPending ? <AssistantGlance message={message} /> : null}
             {!isError && !isPending && message.decisionSummaries?.length ? (
@@ -2189,22 +2190,44 @@ function ChatMessage({
 }
 
 function PendingAssistantIndicator() {
+  const [progressValue, setProgressValue] = useState(22);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setProgressValue((currentValue) => (currentValue >= 88 ? 22 : currentValue + 16));
+    }, 420);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, []);
+
   return (
-    <span
-      aria-hidden="true"
-      className="mt-0.5 inline-flex shrink-0 items-center gap-1.5 text-brand-violet-650"
+    <div
+      aria-label="Generating response"
+      aria-live="polite"
+      className="grid min-w-0 gap-2 rounded-md border border-brand-violet-650/15 bg-brand-lavender-50 p-2.5"
       data-testid="assistant-pending-spinner"
+      role="status"
     >
-      <LoaderCircle
-        className="size-4 animate-spin [animation-duration:700ms] [animation-timing-function:linear] motion-reduce:animate-none"
-        strokeWidth={2.5}
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <Badge
+          className="h-6 rounded-full border-brand-violet-650/15 bg-white px-2.5 text-[0.7rem] font-black text-brand-violet-650"
+          variant="outline"
+        >
+          Generating
+        </Badge>
+        <span className="min-w-0 truncate text-xs font-extrabold text-text-muted">
+          Ask Siargao is writing
+        </span>
+      </div>
+      <Progress
+        aria-label="Generating response progress"
+        aria-valuetext="Generating response"
+        className="h-1.5 bg-white [&_[data-slot=progress-indicator]]:bg-brand-violet-650"
+        value={progressValue}
       />
-      <span className="flex items-center gap-0.5 sm:hidden">
-        <span className="size-1 animate-pulse rounded-full bg-current opacity-70" />
-        <span className="size-1 animate-pulse rounded-full bg-current opacity-70 [animation-delay:120ms]" />
-        <span className="size-1 animate-pulse rounded-full bg-current opacity-70 [animation-delay:240ms]" />
-      </span>
-    </span>
+    </div>
   );
 }
 
