@@ -1354,12 +1354,23 @@ export async function executeAgentTool(
 
   const parsed = tool.schema.safeParse(toolArgumentsForValidation(request));
   if (!parsed.success) {
+    const logData =
+      request.name === "research_web"
+        ? {
+            invalidArguments: request.arguments,
+            validationIssues: parsed.error.issues.map((issue) => ({
+              path: issue.path.join("."),
+              message: issue.message,
+            })),
+          }
+        : undefined;
     return {
       name: request.name,
       status: "error",
       text: `Invalid arguments for ${request.name}: ${parsed.error.issues
         .map((issue: { message: string }) => issue.message)
         .join("; ")}`,
+      ...(logData ? { logData } : {}),
       errorCode: "invalid_tool_arguments",
       sources: [],
     };
@@ -1405,20 +1416,58 @@ function toolArgumentsForValidation(request: AgentToolExecutionRequest) {
 
 function researchWebArgumentsForValidation(args: Record<string, unknown>) {
   const sourceTypes = normalizeWebResearchSourceTypes(
-    args.sourceTypes ?? args.source_types ?? args.sourceType ?? args.source_type,
+    args.sourceTypes ??
+      args.source_types ??
+      args.sourceType ??
+      args.source_type ??
+      args.sources ??
+      args.source_classes ??
+      args.sourceClasses,
   );
   const intent = normalizeWebResearchIntent(args.intent);
 
   return {
-    query: args.query,
+    query: normalizeWebResearchQuery(args),
     intent: intent ?? "fact",
-    location: args.location ?? null,
-    localDate: args.localDate ?? args.local_date ?? null,
-    dateContext: args.dateContext ?? args.date_context ?? null,
+    location: normalizeNullableString(args.location ?? args.area ?? args.place ?? args.near),
+    localDate: normalizeNullableString(args.localDate ?? args.local_date ?? args.date),
+    dateContext: normalizeWebResearchDateContext(args.dateContext ?? args.date_context),
     sourceTypes: sourceTypes ?? null,
-    requiredFreshness: args.requiredFreshness ?? args.required_freshness ?? args.freshness ?? null,
-    maxSources: args.maxSources ?? args.max_sources ?? args.limit ?? null,
+    requiredFreshness: normalizeWebResearchFreshness(
+      args.requiredFreshness ?? args.required_freshness ?? args.freshness,
+    ),
+    maxSources: normalizeWebResearchMaxSources(args.maxSources ?? args.max_sources ?? args.limit),
   };
+}
+
+function normalizeWebResearchQuery(args: Record<string, unknown>) {
+  const directQuery =
+    args.query ??
+    args.q ??
+    args.searchQuery ??
+    args.search_query ??
+    args.query_text ??
+    args.question;
+  if (typeof directQuery === "string") {
+    return directQuery;
+  }
+
+  const queries = args.queries ?? args.search_queries;
+  if (Array.isArray(queries)) {
+    const firstQuery = queries.find((query): query is string => typeof query === "string");
+    if (firstQuery) {
+      return firstQuery;
+    }
+  }
+
+  return directQuery;
+}
+
+function normalizeNullableString(value: unknown) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
 function normalizeWebResearchIntent(value: unknown) {
@@ -1428,14 +1477,86 @@ function normalizeWebResearchIntent(value: unknown) {
     : undefined;
 }
 
+function normalizeWebResearchDateContext(value: unknown) {
+  if (typeof value !== "string" || value === "none") {
+    return null;
+  }
+  return webResearchDateContexts.includes(value as (typeof webResearchDateContexts)[number])
+    ? value
+    : null;
+}
+
+function normalizeWebResearchFreshness(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  return webResearchFreshnessLevels.includes(value as (typeof webResearchFreshnessLevels)[number])
+    ? value
+    : null;
+}
+
+function normalizeWebResearchMaxSources(value: unknown) {
+  const numericValue =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number.parseInt(value, 10)
+        : Number.NaN;
+  return Number.isInteger(numericValue) ? Math.min(8, Math.max(1, numericValue)) : null;
+}
+
 function normalizeWebResearchSourceTypes(value: unknown) {
   const candidates = Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
-  const sourceTypes = candidates.filter(
-    (candidate): candidate is (typeof webResearchSourceTypes)[number] =>
-      typeof candidate === "string" &&
-      webResearchSourceTypes.includes(candidate as (typeof webResearchSourceTypes)[number]),
-  );
-  return sourceTypes.length > 0 ? sourceTypes : undefined;
+  const normalizedSourceTypes = candidates.flatMap((candidate) => {
+    if (typeof candidate !== "string") {
+      return [];
+    }
+    const normalized = normalizeWebResearchSourceType(candidate);
+    return webResearchSourceTypes.includes(normalized as (typeof webResearchSourceTypes)[number])
+      ? [normalized as (typeof webResearchSourceTypes)[number]]
+      : [];
+  });
+  return normalizedSourceTypes.length > 0 ? [...new Set(normalizedSourceTypes)] : undefined;
+}
+
+function normalizeWebResearchSourceType(value: string) {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  switch (normalized) {
+    case "blog":
+    case "blogs":
+    case "article":
+    case "articles":
+    case "travel_blog":
+    case "travel_blogs":
+      return "guide";
+    case "official_site":
+    case "official_sites":
+    case "official_website":
+    case "official_websites":
+    case "operator":
+    case "operators":
+      return "official";
+    case "directory":
+    case "directories":
+    case "listing":
+    case "listings":
+    case "local_listing":
+    case "local_listings":
+      return "local_directory";
+    case "map":
+    case "google_maps":
+    case "places":
+      return "maps";
+    case "forum":
+    case "forums":
+    case "reddit":
+      return "community";
+    default:
+      return normalized;
+  }
 }
 
 async function searchPlacesToolResult(

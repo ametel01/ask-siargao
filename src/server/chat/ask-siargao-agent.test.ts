@@ -5486,6 +5486,78 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
   });
 
+  test("forces a final answer after repeated invalid web research arguments", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_invalid_research_1",
+        requestId: "req_invalid_research_1",
+        callId: "call_invalid_research_1",
+        name: "research_web",
+        arguments: {
+          max_sources: "many",
+        },
+      }),
+      responseWithToolCall({
+        id: "resp_invalid_research_2",
+        requestId: "req_invalid_research_2",
+        callId: "call_invalid_research_2",
+        name: "research_web",
+        arguments: {
+          queries: [],
+          max_sources: "many",
+        },
+      }),
+      {
+        id: "resp_after_invalid_research_final",
+        output_text:
+          "Cloud 9 can still work from local memory and Places evidence, but public web research was not checked.",
+        _request_id: "req_after_invalid_research_final",
+      },
+    ]);
+    const executeTool: AgentToolExecutor = async (request) => ({
+      name: request.name,
+      toolCallId: request.toolCallId,
+      status: "error",
+      text: "Invalid arguments for research_web: Required",
+      errorCode: "invalid_tool_arguments",
+      sources: [],
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content:
+              "Staying near Cloud 9 for 10 days with quiet sleep, surfing, restaurants, and airport transfer. What should we know?",
+          },
+        ],
+        requestId: "agent_request_repeated_invalid_research",
+      },
+      {
+        client,
+        executeTool,
+        model: "gpt-test",
+      },
+    );
+
+    expect(result.message).toContain("public web research was not checked");
+    expect(result.toolCalls).toHaveLength(2);
+    expect(result.toolCalls).toEqual([
+      expect.objectContaining({
+        name: "research_web",
+        status: "error",
+        errorCode: "invalid_tool_arguments",
+      }),
+      expect.objectContaining({
+        name: "research_web",
+        status: "error",
+        errorCode: "invalid_tool_arguments",
+      }),
+    ]);
+    expect(client.requests.at(-1)).not.toHaveProperty("tools");
+  });
+
   test("throws when a model response has neither final text nor tool calls", async () => {
     const client = fakeResponsesClient([
       {

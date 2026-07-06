@@ -186,6 +186,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Hardened chat web-research tool handling so DeepSeek-style argument aliases normalize before
+  validation, invalid argument diagnostics are logged, and repeated invalid tool-call loops force a
+  caveated final answer instead of a 502.
 - Replaced the pending chat assistant spinner with a shadcn badge and animated progress indicator.
 - Tolerated model-style `research_web` arguments with omitted nullable fields or snake_case aliases
   so valid web-research requests no longer fail chat with repeated `invalid_tool_arguments`.

@@ -320,6 +320,40 @@ export async function runAskSiargaoAgentTurn(
     }
 
     if (toolCalls.length + functionCalls.length > maxToolCalls) {
+      const repeatedInvalidToolNames = repeatedInvalidToolArgumentNames(toolCalls);
+      if (repeatedInvalidToolNames.length > 0) {
+        logger.warn(
+          {
+            model: activeModel,
+            toolCallCount: toolCalls.length,
+            proposedToolCallCount: functionCalls.length,
+            repeatedInvalidToolNames,
+          },
+          "Ask Siargao agent forcing final answer after repeated invalid tool arguments would exceed the tool budget.",
+        );
+        responseInput = [
+          ...responseInput,
+          userInputMessage({
+            instruction: invalidToolArgumentsFinalAnswerInstruction(repeatedInvalidToolNames),
+            responseContract,
+          }),
+        ];
+        response = await client.responses.create({
+          model: activeModel,
+          store: false,
+          max_output_tokens: defaultResponseMaxOutputTokens,
+          instructions,
+          input: responseInput,
+        });
+        activeModel = response.model ?? activeModel;
+        collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+        collectHostedFileSearchMemoryFileNames(
+          response.output,
+          memorySnapshot,
+          hostedMemoryFileNames,
+        );
+        continue;
+      }
       throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
     }
 
@@ -345,13 +379,32 @@ export async function runAskSiargaoAgentTurn(
         output: serializeToolOutput(output.result),
       })),
     ];
+    const repeatedInvalidToolNames = repeatedInvalidToolArgumentNames(toolCalls);
+    const forceFinalAnswer = repeatedInvalidToolNames.length > 0;
+    if (forceFinalAnswer) {
+      logger.warn(
+        {
+          model: activeModel,
+          toolCallCount: toolCalls.length,
+          repeatedInvalidToolNames,
+        },
+        "Ask Siargao agent forcing final answer after repeated invalid tool arguments.",
+      );
+      responseInput = [
+        ...responseInput,
+        userInputMessage({
+          instruction: invalidToolArgumentsFinalAnswerInstruction(repeatedInvalidToolNames),
+          responseContract,
+        }),
+      ];
+    }
     response = await client.responses.create({
       model: activeModel,
       store: false,
       max_output_tokens: defaultResponseMaxOutputTokens,
       instructions,
-      tools,
-      ...(responseInclude ? { include: responseInclude } : {}),
+      ...(forceFinalAnswer ? {} : { tools }),
+      ...(!forceFinalAnswer && responseInclude ? { include: responseInclude } : {}),
       input: responseInput,
     });
     activeModel = response.model ?? activeModel;
@@ -3266,6 +3319,31 @@ function providerOperationForTool(name: string) {
 
 function sumDurations(toolCalls: readonly AgentToolCallAudit[]) {
   return toolCalls.reduce((total, toolCall) => total + toolCall.durationMs, 0);
+}
+
+function repeatedInvalidToolArgumentNames(toolCalls: readonly AgentToolCallAudit[]) {
+  const invalidCountsByToolName = new Map<string, number>();
+  for (const toolCall of toolCalls) {
+    if (toolCall.errorCode !== "invalid_tool_arguments") {
+      continue;
+    }
+    invalidCountsByToolName.set(
+      toolCall.name,
+      (invalidCountsByToolName.get(toolCall.name) ?? 0) + 1,
+    );
+  }
+  return [...invalidCountsByToolName]
+    .filter(([, count]) => count >= 2)
+    .map(([toolName]) => toolName);
+}
+
+function invalidToolArgumentsFinalAnswerInstruction(toolNames: readonly string[]) {
+  const toolList = toolNames.join(", ");
+  return [
+    `Repeated invalid tool arguments were detected for: ${toolList}.`,
+    "Do not call any more tools. Write the final traveler-facing answer now from successful checked tool evidence already in the conversation, loaded Ask Siargao memory, and explicit caveats for anything not checked.",
+    "Do not claim public web research succeeded for tools that returned invalid_tool_arguments. If current web evidence is missing, say what was not checked instead of retrying.",
+  ].join(" ");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

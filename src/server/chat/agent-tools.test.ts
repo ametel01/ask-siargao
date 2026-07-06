@@ -952,6 +952,73 @@ describe("agent tools", () => {
     expect(result.text).toContain("Public web research status:");
   });
 
+  test("normalizes DeepSeek-style web research aliases and scalar values before validation", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_research_deepseek_style_args",
+        name: "research_web",
+        arguments: {
+          queries: ["Cloud 9 Siargao quiet sleep surf restaurants airport transfer"],
+          intent: "travel_advice",
+          area: "Cloud 9",
+          date_context: "none",
+          sources: ["blogs", "official websites", "google maps", "local listings"],
+          freshness: "stable",
+          max_sources: "4",
+        },
+      },
+      {
+        webResearchProvider: async (request) => {
+          expect(request.query).toBe(
+            "Cloud 9 Siargao quiet sleep surf restaurants airport transfer",
+          );
+          expect(request.intent).toBe("fact");
+          expect(request.location).toBe("Cloud 9");
+          expect(request.dateContext).toBeUndefined();
+          expect(request.sourceTypes).toEqual(["guide", "official", "maps", "local_directory"]);
+          expect(request.requiredFreshness).toBe("stable");
+          expect(request.maxSources).toBe(4);
+          return [
+            {
+              url: "https://example.com/siargao-cloud9-guide",
+              title: "Cloud 9 travel guide",
+              sourceType: "guide",
+              pageSummary:
+                "Cloud 9 stays can balance surf access, restaurants, and airport transfer planning.",
+              publishedOrUpdatedAt: "2026-07-01T10:00:00+08:00",
+            },
+          ];
+        },
+        now: () => new Date("2026-07-01T12:00:00+08:00"),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.errorCode).toBeUndefined();
+    expect(result.text).toContain("Public web research status:");
+  });
+
+  test("returns diagnostics for invalid web research arguments", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_research_invalid_diagnostics",
+      name: "research_web",
+      arguments: {
+        queries: [],
+        max_sources: "many",
+      },
+    });
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("invalid_tool_arguments");
+    expect(result.logData).toMatchObject({
+      invalidArguments: {
+        queries: [],
+        max_sources: "many",
+      },
+      validationIssues: expect.any(Array),
+    });
+  });
+
   test("returns insufficient web evidence as a terminal source state", async () => {
     const result = await executeAgentTool(
       {
