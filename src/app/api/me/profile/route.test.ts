@@ -77,6 +77,101 @@ describe("profile API route", () => {
     await db.close();
   });
 
+  test("clears trip notes with an empty trip context", async () => {
+    const db = await openProfileTestDatabase();
+    const dependencies = profileDependencies(db, { userId: "user_trip_context" });
+
+    const notesResponse = await patchProfileResponse(
+      profileRequest({ tripContext: { notes: "Arrives in August" } }),
+      dependencies,
+    );
+    const notesBody = await notesResponse.json();
+
+    expect(notesResponse.status).toBe(200);
+    expect(notesBody.profile.tripContext).toEqual({ notes: "Arrives in August" });
+
+    const clearResponse = await patchProfileResponse(
+      profileRequest({ tripContext: {} }),
+      dependencies,
+    );
+    const clearBody = await clearResponse.json();
+
+    expect(clearResponse.status).toBe(200);
+    expect(clearBody.profile.tripContext).toEqual({});
+
+    const getResponse = await getProfileResponse(dependencies);
+    const getBody = await getResponse.json();
+    expect(getBody.profile.tripContext).toEqual({});
+
+    await db.close();
+  });
+
+  test("rejects arbitrary trip context payloads", async () => {
+    const db = await openProfileTestDatabase();
+    const dependencies = profileDependencies(db, { userId: "user_invalid_trip_context" });
+    const invalidCases: Array<{
+      name: string;
+      tripContext: unknown;
+      expectedPaths: string[];
+    }> = [
+      {
+        name: "unknown keys",
+        tripContext: { notes: "Allowed", arrivalDate: "2026-08-01" },
+        expectedPaths: ["tripContext.arrivalDate"],
+      },
+      {
+        name: "nested arbitrary JSON",
+        tripContext: { notes: { nested: true } },
+        expectedPaths: ["tripContext.notes"],
+      },
+      {
+        name: "arrays",
+        tripContext: [{ notes: "No arrays" }],
+        expectedPaths: ["tripContext"],
+      },
+      {
+        name: "oversized notes",
+        tripContext: { notes: "x".repeat(1001) },
+        expectedPaths: ["tripContext.notes"],
+      },
+    ];
+
+    for (const invalidCase of invalidCases) {
+      const response = await patchProfileResponse(
+        profileRequest({ tripContext: invalidCase.tripContext }),
+        dependencies,
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body.error).toBe("invalid_profile_request");
+      const issuePaths = body.issues.map((issue: { path: string }) => issue.path);
+      for (const expectedPath of invalidCase.expectedPaths) {
+        expect(issuePaths).toContain(expectedPath);
+      }
+    }
+
+    await db.close();
+  });
+
+  test("normalizes legacy persisted trip context rows to the bounded shape", async () => {
+    const db = await openProfileTestDatabase();
+    await seedLegacyProfile(db, "user_legacy_trip_context", {
+      notes: "  Keep beach days flexible  ",
+      arrivalDate: "2026-08-01",
+      nested: { arbitrary: true },
+    });
+    const dependencies = profileDependencies(db, { userId: "user_legacy_trip_context" });
+
+    const response = await getProfileResponse(dependencies);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.profile.tripContext).toEqual({ notes: "Keep beach days flexible" });
+
+    await db.close();
+  });
+
   test("rejects malformed profile updates", async () => {
     const db = await openProfileTestDatabase();
     const dependencies = profileDependencies(db, { userId: "user_invalid" });
@@ -177,4 +272,21 @@ async function loadUser(db: PGlite, userId: string) {
   );
 
   return result.rows[0] ?? null;
+}
+
+async function seedLegacyProfile(db: PGlite, userId: string, tripContext: Record<string, unknown>) {
+  await db.query(
+    `
+      insert into users (id, email, created_at, updated_at)
+      values ($1, $2, $3, $3)
+    `,
+    [userId, `${userId}@example.com`, "2026-06-29T04:00:00.000Z"],
+  );
+  await db.query(
+    `
+      insert into user_profiles (user_id, trip_context_json, created_at, updated_at)
+      values ($1, $2::jsonb, $3, $3)
+    `,
+    [userId, JSON.stringify(tripContext), "2026-06-29T04:00:00.000Z"],
+  );
 }
