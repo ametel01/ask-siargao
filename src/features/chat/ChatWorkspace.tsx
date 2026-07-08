@@ -57,6 +57,14 @@ import { InputGroupAddon } from "@/components/ui/input-group-addon";
 import { InputGroupButton } from "@/components/ui/input-group-button";
 import { clerkAppearance } from "@/features/auth/clerk-appearance";
 import { isClerkConfigured } from "@/features/auth/clerk-config";
+import {
+  type AssistantInlineToken,
+  type AssistantMarkdownBlock,
+  type AssistantMarkdownTableAlignment,
+  parseAssistantInlineTokens,
+  parseAssistantMarkdownBlocks,
+  projectAssistantTableToMobileCards,
+} from "@/features/chat/assistant-message-presentation";
 import type {
   ArtifactDecisionMetadata,
   ChatClientContext,
@@ -308,42 +316,6 @@ type ChatComposerProps = {
   onRequestLocation: () => void;
   onSubmitPrompt: (prompt: string) => void;
 };
-
-type AssistantMarkdownBlock =
-  | {
-      key: string;
-      type: "heading";
-      text: string;
-    }
-  | {
-      key: string;
-      type: "paragraph";
-      text: string;
-    }
-  | {
-      key: string;
-      type: "source";
-      label: string;
-      text: string;
-    }
-  | {
-      key: string;
-      type: "table";
-      headers: string[];
-      rows: string[][];
-      alignments: AssistantMarkdownTableAlignment[];
-    }
-  | {
-      key: string;
-      type: "list";
-      ordered: boolean;
-      items: Array<{
-        key: string;
-        text: string;
-      }>;
-    };
-type AssistantMarkdownTableAlignment = "left" | "center" | "right";
-type AssistantMarkdownListItems = Extract<AssistantMarkdownBlock, { type: "list" }>["items"];
 
 function useSavedPlanSharing(savedTripState: SavedTripState) {
   const [shareState, dispatchShareState] = useReducer(
@@ -3390,51 +3362,12 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
 
         if (block.type === "table") {
           return (
-            <div
-              className="max-w-full overflow-x-auto rounded-md border border-border-default"
+            <AssistantMarkdownTable
+              block={block}
               key={block.key}
-            >
-              <table className="w-full min-w-[560px] border-collapse bg-white text-sm text-text-default">
-                <thead className="bg-brand-lavender-50 text-text-strong">
-                  <tr>
-                    {block.headers.map((header, index) => (
-                      <th
-                        className={`border-border-default border-b px-3 py-2 align-top font-black ${tableTextAlignmentClass(block.alignments[index])}`}
-                        key={`${block.key}-head-${header}`}
-                        scope="col"
-                      >
-                        <InlineMarkdown
-                          linkClass={linkClass}
-                          strongClass={strongClass}
-                          value={header}
-                        />
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {block.rows.map((row) => (
-                    <tr
-                      className="border-border-default border-t"
-                      key={`${block.key}-${row.join("|")}`}
-                    >
-                      {block.headers.map((header, cellIndex) => (
-                        <td
-                          className={`px-3 py-2 align-top leading-[1.45] ${tableTextAlignmentClass(block.alignments[cellIndex])}`}
-                          key={`${block.key}-${row.join("|")}-${header}`}
-                        >
-                          <InlineMarkdown
-                            linkClass={linkClass}
-                            strongClass={strongClass}
-                            value={row[cellIndex] ?? ""}
-                          />
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+              linkClass={linkClass}
+              strongClass={strongClass}
+            />
           );
         }
 
@@ -3460,180 +3393,131 @@ function InlineMarkdown({
   strongClass: string;
   value: string;
 }) {
-  return <>{buildInlineMarkdownNodes(value, strongClass, linkClass)}</>;
+  return (
+    <>
+      {parseAssistantInlineTokens(value).map((token) =>
+        renderAssistantInlineToken(token, strongClass, linkClass),
+      )}
+    </>
+  );
 }
 
-function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
-  const normalizedText = text
-    .replace(/\r\n?/g, "\n")
-    .replace(/\s+-\s+(\*\*[^*]+?\*\*:)/g, "\n- $1")
-    .replace(/(?<![A-Za-z])\s+(\d+\.\s+[A-Z][^:\n]{0,120})/g, "\n$1")
-    .replace(/\s+(Weather signal:|Checked:|Not checked:)/g, "\n$1");
-  const blocks: AssistantMarkdownBlock[] = [];
-  let paragraphLines: string[] = [];
-  let listItems: AssistantMarkdownListItems = [];
-  let listOrdered = false;
-  let tableLines: string[] = [];
-  let blockKeyCount = 0;
-  let itemKeyCount = 0;
+function AssistantMarkdownTable({
+  block,
+  linkClass,
+  strongClass,
+}: {
+  block: Extract<AssistantMarkdownBlock, { type: "table" }>;
+  linkClass: string;
+  strongClass: string;
+}) {
+  return (
+    <>
+      <div
+        className="hidden max-w-full overflow-x-auto rounded-md border border-border-default sm:block"
+        data-testid="assistant-markdown-table"
+      >
+        <table className="w-full min-w-[560px] border-collapse bg-white text-sm text-text-default">
+          <thead className="bg-brand-lavender-50 text-text-strong">
+            <tr>
+              {block.headers.map((header, index) => (
+                <th
+                  className={`border-border-default border-b px-3 py-2 align-top font-black ${tableTextAlignmentClass(block.alignments[index])}`}
+                  key={`${block.key}-head-${header}`}
+                  scope="col"
+                >
+                  <InlineMarkdown linkClass={linkClass} strongClass={strongClass} value={header} />
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {block.rows.map((row) => (
+              <tr className="border-border-default border-t" key={`${block.key}-${row.join("|")}`}>
+                {block.headers.map((header, cellIndex) => (
+                  <td
+                    className={`px-3 py-2 align-top leading-[1.45] ${tableTextAlignmentClass(block.alignments[cellIndex])}`}
+                    key={`${block.key}-${row.join("|")}-${header}`}
+                  >
+                    <InlineMarkdown
+                      linkClass={linkClass}
+                      strongClass={strongClass}
+                      value={row[cellIndex] ?? ""}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="grid gap-2 sm:hidden" data-testid="assistant-mobile-table-cards">
+        {projectAssistantTableToMobileCards(block).map((card) => (
+          <dl
+            className="grid min-w-0 gap-2 rounded-md border border-border-default bg-white px-3 py-2"
+            data-testid="assistant-mobile-table-card"
+            key={card.key}
+          >
+            {card.cells.map((cell) => (
+              <div className="grid min-w-0 gap-0.5" key={cell.key}>
+                <dt
+                  className={`text-[0.68rem] leading-tight font-black text-text-muted uppercase ${tableTextAlignmentClass(cell.alignment)}`}
+                >
+                  <InlineMarkdown
+                    linkClass={linkClass}
+                    strongClass={strongClass}
+                    value={cell.header}
+                  />
+                </dt>
+                <dd
+                  className={`m-0 min-w-0 text-sm leading-[1.45] break-words text-text-default ${tableTextAlignmentClass(cell.alignment)}`}
+                >
+                  <InlineMarkdown
+                    linkClass={linkClass}
+                    strongClass={strongClass}
+                    value={cell.value}
+                  />
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ))}
+      </div>
+    </>
+  );
+}
 
-  const flushParagraph = () => {
-    if (paragraphLines.length === 0) {
-      return;
-    }
-
-    const paragraphText = paragraphLines.join(" ");
-    blocks.push({
-      key: createAssistantMarkdownKey("paragraph", paragraphText, blockKeyCount),
-      type: "paragraph",
-      text: paragraphText,
-    });
-    blockKeyCount += 1;
-    paragraphLines = [];
-  };
-
-  const flushList = () => {
-    if (listItems.length === 0) {
-      return;
-    }
-
-    blocks.push({
-      key: createAssistantMarkdownKey(
-        "list",
-        listItems.map((item) => item.text).join("|"),
-        blockKeyCount,
-      ),
-      type: "list",
-      ordered: listOrdered,
-      items: listItems,
-    });
-    blockKeyCount += 1;
-    listItems = [];
-    listOrdered = false;
-  };
-
-  const flushTable = () => {
-    if (tableLines.length === 0) {
-      return;
-    }
-
-    const table = parseAssistantMarkdownTable(tableLines, blockKeyCount);
-    if (table) {
-      blocks.push(table);
-      blockKeyCount += 1;
-    } else {
-      paragraphLines.push(...tableLines);
-    }
-    tableLines = [];
-  };
-
-  for (const rawLine of normalizedText.split("\n")) {
-    const line = rawLine.trim();
-
-    if (!line) {
-      flushParagraph();
-      flushList();
-      flushTable();
-      continue;
-    }
-
-    if (isMarkdownTableLine(line)) {
-      flushParagraph();
-      flushList();
-      tableLines.push(line);
-      continue;
-    }
-
-    flushTable();
-
-    if (/^\s{2,}\S/.test(rawLine) && listItems.length > 0) {
-      listItems[listItems.length - 1] = {
-        ...listItems[listItems.length - 1],
-        text: `${listItems[listItems.length - 1]?.text ?? ""}\n${line}`,
-      };
-      continue;
-    }
-
-    const bulletMatch = /^[-*]\s+(.+)$/.exec(line);
-    const orderedMatch = /^\d+\.\s+(.+)$/.exec(line);
-    const headingMatch = /^#{1,3}\s+(.+)$/.exec(line);
-    const sourceMatch = /^(Checked|Weather signal|Not checked):\s*(.+)$/i.exec(line);
-
-    if (headingMatch) {
-      flushParagraph();
-      flushList();
-      const headingText = headingMatch[1] ?? "";
-      blocks.push({
-        key: createAssistantMarkdownKey("heading", headingText, blockKeyCount),
-        type: "heading",
-        text: headingText,
-      });
-      blockKeyCount += 1;
-      continue;
-    }
-
-    if (sourceMatch) {
-      flushParagraph();
-      flushList();
-      const label = sourceMatch[1] ?? "";
-      const sourceText = sourceMatch[2] ?? "";
-      blocks.push({
-        key: createAssistantMarkdownKey("source", `${label}:${sourceText}`, blockKeyCount),
-        type: "source",
-        label,
-        text: sourceText,
-      });
-      blockKeyCount += 1;
-      continue;
-    }
-
-    if (bulletMatch) {
-      flushParagraph();
-      if (listItems.length > 0 && listOrdered) {
-        flushList();
-      }
-      listOrdered = false;
-      const itemText = bulletMatch[1] ?? "";
-      listItems.push({
-        key: createAssistantMarkdownKey("item", itemText, itemKeyCount),
-        text: itemText,
-      });
-      itemKeyCount += 1;
-      continue;
-    }
-
-    if (orderedMatch) {
-      flushParagraph();
-      if (listItems.length > 0 && !listOrdered) {
-        flushList();
-      }
-      listOrdered = true;
-      const itemText = orderedMatch[1] ?? "";
-      listItems.push({
-        key: createAssistantMarkdownKey("item", itemText, itemKeyCount),
-        text: itemText,
-      });
-      itemKeyCount += 1;
-      continue;
-    }
-
-    flushList();
-    paragraphLines.push(line);
+function renderAssistantInlineToken(
+  token: AssistantInlineToken,
+  strongClass: string,
+  linkClass: string,
+): ReactNode {
+  if (token.type === "text") {
+    return token.text;
   }
 
-  flushParagraph();
-  flushList();
-  flushTable();
+  if (token.type === "strong") {
+    return (
+      <strong className={strongClass} key={token.key}>
+        {token.children.map((childToken) =>
+          renderAssistantInlineToken(childToken, strongClass, linkClass),
+        )}
+      </strong>
+    );
+  }
 
-  return blocks.length > 0
-    ? blocks
-    : [
-        {
-          key: "paragraph-fallback",
-          type: "paragraph",
-          text,
-        },
-      ];
+  return (
+    <a
+      aria-label={`Open ${token.label} link`}
+      className={linkClass}
+      href={token.href}
+      key={token.key}
+      rel="noreferrer"
+      target="_blank"
+    >
+      {token.label}
+    </a>
+  );
 }
 
 function tableTextAlignmentClass(alignment: AssistantMarkdownTableAlignment | undefined) {
@@ -3644,174 +3528,6 @@ function tableTextAlignmentClass(alignment: AssistantMarkdownTableAlignment | un
     return "text-right";
   }
   return "text-left";
-}
-
-function parseAssistantMarkdownTable(
-  lines: readonly string[],
-  blockKeyCount: number,
-): AssistantMarkdownBlock | undefined {
-  if (lines.length < 2) {
-    return undefined;
-  }
-
-  const headers = parseMarkdownTableCells(lines[0] ?? "");
-  const separatorCells = parseMarkdownTableCells(lines[1] ?? "");
-  if (
-    headers.length === 0 ||
-    separatorCells.length !== headers.length ||
-    !separatorCells.every(isMarkdownTableSeparatorCell)
-  ) {
-    return undefined;
-  }
-
-  const rows: string[][] = [];
-  for (const line of lines.slice(2)) {
-    const row = normalizeMarkdownTableRow(parseMarkdownTableCells(line), headers.length);
-    if (row.some((cell) => cell.length > 0)) {
-      rows.push(row);
-    }
-  }
-  if (rows.length === 0) {
-    return undefined;
-  }
-
-  return {
-    key: createAssistantMarkdownKey("table", headers.join("|"), blockKeyCount),
-    type: "table",
-    headers,
-    rows,
-    alignments: separatorCells.map(markdownTableAlignment),
-  };
-}
-
-function isMarkdownTableLine(line: string) {
-  return /^\|.+\|$/.test(line) && line.split("|").length >= 3;
-}
-
-function parseMarkdownTableCells(line: string) {
-  return line
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((cell) => cell.trim());
-}
-
-function normalizeMarkdownTableRow(cells: readonly string[], columnCount: number) {
-  return Array.from({ length: columnCount }, (_, index) => cells[index] ?? "");
-}
-
-function isMarkdownTableSeparatorCell(cell: string) {
-  return /^:?-{3,}:?$/.test(cell);
-}
-
-function markdownTableAlignment(cell: string): AssistantMarkdownTableAlignment {
-  if (/^:-{3,}:$/.test(cell)) {
-    return "center";
-  }
-  if (/^-{3,}:$/.test(cell)) {
-    return "right";
-  }
-  return "left";
-}
-
-function createAssistantMarkdownKey(prefix: string, value: string, count: number) {
-  return `${prefix}-${count}-${value.slice(0, 48)}`;
-}
-
-function buildInlineMarkdownNodes(
-  value: string,
-  strongClass: string,
-  linkClass: string,
-): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const boldPattern = /\*\*([^*]+)\*\*/g;
-  let currentIndex = 0;
-  let match = boldPattern.exec(value);
-
-  while (match) {
-    if (match.index > currentIndex) {
-      nodes.push(...buildLinkedTextNodes(value.slice(currentIndex, match.index), linkClass));
-    }
-
-    nodes.push(
-      <strong className={strongClass} key={`strong-${match.index}`}>
-        {buildLinkedTextNodes(match[1] ?? "", linkClass)}
-      </strong>,
-    );
-    currentIndex = match.index + match[0].length;
-    match = boldPattern.exec(value);
-  }
-
-  if (currentIndex < value.length) {
-    nodes.push(...buildLinkedTextNodes(value.slice(currentIndex), linkClass));
-  }
-
-  return nodes;
-}
-
-function buildLinkedTextNodes(value: string, linkClass: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const urlPattern = /https?:\/\/[^\s<>"']+/gi;
-  let currentIndex = 0;
-  let match = urlPattern.exec(value);
-
-  while (match) {
-    const rawUrl = match[0] ?? "";
-    const normalizedUrl = normalizeAssistantUrl(rawUrl);
-
-    if (match.index > currentIndex) {
-      nodes.push(value.slice(currentIndex, match.index));
-    }
-
-    nodes.push(
-      <a
-        aria-label={`Open ${formatAssistantLinkText(normalizedUrl)} link`}
-        className={linkClass}
-        href={normalizedUrl}
-        key={`link-${match.index}-${normalizedUrl}`}
-        rel="noreferrer"
-        target="_blank"
-      >
-        {formatAssistantLinkText(normalizedUrl)}
-      </a>,
-    );
-
-    const trailingText = rawUrl.slice(normalizedUrl.length);
-    if (trailingText) {
-      nodes.push(trailingText);
-    }
-
-    currentIndex = match.index + rawUrl.length;
-    match = urlPattern.exec(value);
-  }
-
-  if (currentIndex < value.length) {
-    nodes.push(value.slice(currentIndex));
-  }
-
-  return nodes;
-}
-
-function normalizeAssistantUrl(value: string) {
-  return value.replace(/[),.;:!?]+$/g, "");
-}
-
-function formatAssistantLinkText(value: string) {
-  try {
-    const url = new URL(value);
-    const host = url.hostname.replace(/^www\./, "");
-
-    if (
-      host === "maps.google.com" ||
-      (host.endsWith(".google.com") && url.pathname.startsWith("/maps"))
-    ) {
-      return "Google Maps";
-    }
-
-    return host;
-  } catch {
-    return value;
-  }
 }
 
 function ChatComposer({
