@@ -231,11 +231,11 @@ export async function createSharedTripResponse(
       },
       { headers },
     );
-  } catch (error) {
+  } catch {
     return Response.json(
       {
         error: "shared_trip_not_available",
-        message: error instanceof Error ? error.message : "Shared trip could not be created.",
+        message: "Shared trip could not be created.",
       },
       { status: 409, headers },
     );

@@ -58,11 +58,11 @@ export async function checkoutResponse(
       },
       { headers },
     );
-  } catch (error) {
+  } catch {
     return Response.json(
       {
         error: "checkout_not_available",
-        message: error instanceof Error ? error.message : "Checkout could not be started.",
+        message: "Checkout could not be started.",
       },
       { status: 409 },
     );

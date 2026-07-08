@@ -22,11 +22,11 @@ export async function clerkWebhookResponse(
 
   try {
     event = await dependencies.verifyWebhook(request);
-  } catch (error) {
+  } catch {
     return Response.json(
       {
         error: "invalid_clerk_webhook",
-        message: error instanceof Error ? error.message : "Webhook verification failed.",
+        message: "Webhook verification failed.",
       },
       { status: 400 },
     );
@@ -39,11 +39,11 @@ export async function clerkWebhookResponse(
   try {
     const result = await dependencies.applyClerkUserWebhookEvent(event);
     return Response.json({ received: true, ...result });
-  } catch (error) {
+  } catch {
     return Response.json(
       {
         error: "clerk_user_sync_failed",
-        message: error instanceof Error ? error.message : "Failed to sync Clerk user.",
+        message: "Failed to sync Clerk user.",
       },
       { status: 500 },
     );
