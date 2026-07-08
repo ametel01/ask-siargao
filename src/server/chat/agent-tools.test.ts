@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { AgentMemorySnapshot } from "@/server/chat/agent-memory";
 import {
   agentToolDefinitions,
+  agentToolFamilies,
   buildAgentResponseTools,
   describeAvailableTools,
   executeAgentTool,
@@ -725,6 +726,83 @@ describe("agent tools", () => {
       },
     ]);
     expect(agentToolDefinitions.map((tool) => tool.name)).not.toContain("describe_available_tools");
+  });
+
+  test("composes one family-owned catalogue without exposing fallback memory search by default", () => {
+    const familySummaries = agentToolFamilies.map((family) => ({
+      id: family.id,
+      toolNames: family.toolNames,
+      registeredNames: Object.keys(family.tools).sort(),
+    }));
+
+    expect(familySummaries).toEqual([
+      {
+        id: "conditions",
+        toolNames: [
+          "get_weather_forecast",
+          "get_marine_conditions",
+          "get_tide_forecast",
+          "get_condition_judgment",
+        ],
+        registeredNames: [
+          "get_condition_judgment",
+          "get_marine_conditions",
+          "get_tide_forecast",
+          "get_weather_forecast",
+        ],
+      },
+      {
+        id: "public_web_research",
+        toolNames: ["research_web"],
+        registeredNames: ["research_web"],
+      },
+      {
+        id: "nightlife_events",
+        toolNames: ["search_nightlife_events"],
+        registeredNames: ["search_nightlife_events"],
+      },
+      {
+        id: "google_places",
+        toolNames: ["search_places", "get_place_details"],
+        registeredNames: ["get_place_details", "search_places"],
+      },
+      {
+        id: "local_knowledge",
+        toolNames: [
+          "search_local_guide",
+          "rank_surf_spots_nearby",
+          "plan_local_itinerary",
+          "describe_database_schema",
+          "query_local_facts",
+          "get_source_evidence",
+        ],
+        registeredNames: [
+          "describe_database_schema",
+          "get_source_evidence",
+          "plan_local_itinerary",
+          "query_local_facts",
+          "rank_surf_spots_nearby",
+          "search_local_guide",
+        ],
+      },
+      {
+        id: "source_policy",
+        toolNames: ["describe_source_policy"],
+        registeredNames: ["describe_source_policy"],
+      },
+      {
+        id: "memory",
+        toolNames: ["load_agent_memory_file"],
+        registeredNames: ["load_agent_memory_file", "search_agent_memory"],
+      },
+    ]);
+
+    const defaultToolNames = agentToolDefinitions.map((tool) => tool.name);
+    expect(defaultToolNames).toEqual(agentToolFamilies.flatMap((family) => family.toolNames));
+    expect(defaultToolNames).not.toContain("search_agent_memory");
+
+    const registeredNames = agentToolFamilies.flatMap((family) => Object.keys(family.tools));
+    expect(new Set(registeredNames).size).toBe(registeredNames.length);
   });
 
   test("accepts nullable optional fields required by strict Responses schemas", async () => {

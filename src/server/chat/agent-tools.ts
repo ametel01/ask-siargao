@@ -1,14 +1,10 @@
 import postgres from "postgres";
-import { z } from "zod";
-
 import {
   type AgentMemoryReferenceFile,
   type AgentMemorySnapshot,
   loadAgentMemorySnapshot,
-  requiredAgentMemoryManifest,
 } from "@/server/chat/agent-memory";
 import type {
-  AgentToolExecutionContext,
   AgentToolExecutionRequest,
   AgentToolResult,
   AskSiargaoAgentToolName,
@@ -17,48 +13,84 @@ import type {
   ItineraryPlan,
   RecommendationCard,
 } from "@/server/chat/agent-runtime";
+import {
+  type AgentResponseToolDefinition,
+  type AgentToolDefinition,
+  type AgentToolDependencies,
+  composeAgentToolFamilies,
+} from "@/server/chat/agent-tool-catalogue";
+import {
+  type ConditionJudgmentArguments,
+  createConditionToolFamily,
+  type MarineConditionsArguments,
+  type TideForecastArguments,
+  type WeatherForecastArguments,
+} from "@/server/chat/agent-tool-condition-family";
+import {
+  createGooglePlacesToolFamily,
+  type GooglePlacesCenterContext,
+  normalizeGooglePlacesToolContext,
+  type PlaceDetailsArguments,
+  type SearchPlacesArguments,
+} from "@/server/chat/agent-tool-google-places-family";
+import {
+  createLocalToolFamily,
+  type DescribeDatabaseSchemaArguments,
+  type QueryLocalFactsArguments,
+  type RankSurfSpotsNearbyArguments,
+  type SearchLocalGuideArguments,
+  type SourceEvidenceArguments,
+} from "@/server/chat/agent-tool-local-family";
+import {
+  createMemoryToolFamily,
+  type LoadAgentMemoryFileArguments,
+  memoryToolDefinitionForSnapshot as memoryToolDefinitionForSnapshotBase,
+  type SearchAgentMemoryArguments,
+} from "@/server/chat/agent-tool-memory-family";
+import {
+  createNightlifeToolFamily,
+  type SearchNightlifeEventsArguments,
+} from "@/server/chat/agent-tool-nightlife-family";
+import { createSourcePolicyToolFamily } from "@/server/chat/agent-tool-source-policy-family";
+import {
+  cardSourceLabel,
+  currentIso,
+  formatNullableNumber,
+  isRecord,
+  safeProviderUnavailableText,
+  slugPart,
+  uniqueText,
+} from "@/server/chat/agent-tool-utils";
+import {
+  createWebResearchToolFamily,
+  type ResearchWebArguments,
+} from "@/server/chat/agent-tool-web-research-family";
 import type { AnswerSourceSummary, AnswerTrustLabel } from "@/server/chat/answer-source-summary";
 import {
   buildConditionJudgment,
   type ConditionJudgment,
-  conditionJudgmentRequestSchema,
-  conditionJudgmentToolParameters,
   type MarineConditionsSnapshot,
   shouldIncludeConditionLocalCaveats,
 } from "@/server/chat/condition-tools";
 import {
   type LocalItineraryRequest,
-  localItineraryRequestSchema,
-  localItineraryThemes,
   planLocalItinerary,
   renderLocalItineraryToolText,
 } from "@/server/chat/itinerary-tools";
 import {
   describeDatabaseSchema,
-  describeDatabaseSchemaArgumentsSchema,
   getSourceEvidence,
   type LocalFactsQueryRunner,
-  localFactsMaxLimit,
-  localFactsQuerySchema,
   queryLocalFacts,
-  sourceEvidenceArgumentsSchema,
 } from "@/server/chat/local-data-tools";
 import { rankLocalRecommendationCandidates } from "@/server/chat/local-recommendation";
-import {
-  nightlifeEventInterestValues,
-  renderNightlifeEventsText,
-  searchNightlifeEvents,
-} from "@/server/chat/nightlife-events";
+import { renderNightlifeEventsText, searchNightlifeEvents } from "@/server/chat/nightlife-events";
 import {
   buildWebResearchQueries,
   type ResearchFinding,
   type ResearchWebRequest,
   type ResearchWebResultData,
   runWebResearch,
-  webResearchDateContexts,
-  webResearchFreshnessLevels,
-  webResearchIntents,
-  webResearchSourceTypes,
 } from "@/server/chat/web-research";
 import { createPostgresConnectionOptions } from "@/server/db/connection-options";
 import {
@@ -82,11 +114,7 @@ import {
   type GooglePlacesDetails,
   googlePlacesDetailsFieldMask,
 } from "@/server/providers/google-places-enrichment";
-import {
-  createPlacesEvidenceAdapter,
-  type PlacesEvidenceAdapter,
-  type PlacesEvidenceAdapterDependencies,
-} from "@/server/providers/google-places-evidence";
+import { createPlacesEvidenceAdapter } from "@/server/providers/google-places-evidence";
 import {
   type OpenMeteoForecastLocation,
   siargaoForecastLocations,
@@ -103,1048 +131,62 @@ import {
   type TideForecastSnapshot,
   tideForecastLocationForSiargaoLabel,
 } from "@/server/providers/tide-forecast";
-import type { WebResearchSearchProvider } from "@/server/providers/web-search";
 import {
   getLatestSiargaoWeatherSnapshot,
   type WeatherSnapshot,
 } from "@/server/public-pages/weather-snapshot";
 
-export type AgentToolDefinition = {
-  type: "function";
-  name: AskSiargaoAgentToolName;
-  description: string;
-  parameters: {
-    type: "object";
-    properties: Record<string, unknown>;
-    required?: readonly string[];
-    additionalProperties: false;
-  };
-  strict: true;
-};
-
-export type AgentHostedToolDefinition = {
-  type: "file_search";
-  vector_store_ids: readonly string[];
-  max_num_results?: number;
-};
-
-export type AgentResponseToolDefinition = AgentToolDefinition | AgentHostedToolDefinition;
-
-type ToolHandler<Arguments> = (
-  args: Arguments,
-  request: AgentToolExecutionRequest,
-  dependencies: AgentToolDependencies,
-) => Promise<AgentToolResult> | AgentToolResult;
-
-type RegisteredTool<Arguments> = {
-  definition: AgentToolDefinition;
-  schema: z.ZodType<Arguments>;
-  execute: ToolHandler<Arguments>;
-};
-
-type GooglePlacesToolExecutionContext = NonNullable<AgentToolExecutionContext["googlePlaces"]>;
-
-type SourcePolicyDescription = {
-  label: AnswerTrustLabel;
-  meaning: string;
-  useWhen: string;
-  caveats: string[];
-};
-
-type SourcePolicyToolData = {
-  policies: SourcePolicyDescription[];
-};
-
-export type WebPageFetchProvider = (input: {
-  url: string;
-  requestId: string;
-}) => Promise<{ url: string; title: string; pageSummary: string; publishedOrUpdatedAt?: string }>;
-
-export type AgentToolDependencies = PlacesEvidenceAdapterDependencies & {
-  placesEvidenceAdapter?: PlacesEvidenceAdapter;
-  buildOpenMeteoMarineIngestionBatch?: typeof buildOpenMeteoMarineIngestionBatch;
-  buildTideForecastSnapshot?: typeof buildTideForecastSnapshot;
-  getLatestSiargaoWeatherSnapshot?: typeof getLatestSiargaoWeatherSnapshot;
-  localFactsQueryRunner?: LocalFactsQueryRunner;
-  localFactsQueryTimeoutMs?: number;
-  memorySnapshot?: AgentMemorySnapshot;
-  now?: () => Date;
-  webPageFetcher?: WebPageFetchProvider;
-  webResearchProvider?: WebResearchSearchProvider;
-};
-
-type SearchPlacesArguments = z.infer<typeof searchPlacesSchema>;
-type PlaceDetailsArguments = z.infer<typeof placeDetailsSchema>;
-type SearchLocalGuideArguments = z.infer<typeof searchLocalGuideSchema>;
-type RankSurfSpotsNearbyArguments = z.infer<typeof rankSurfSpotsNearbySchema>;
-type LocalItineraryArguments = z.infer<typeof localItineraryRequestSchema>;
-type SearchAgentMemoryArguments = z.infer<typeof searchAgentMemorySchema>;
-type LoadAgentMemoryFileArguments = z.infer<typeof loadAgentMemoryFileSchema>;
-type WeatherForecastArguments = z.infer<typeof weatherForecastSchema>;
-type MarineConditionsArguments = z.infer<typeof marineConditionsSchema>;
-type TideForecastArguments = z.infer<typeof tideForecastSchema>;
-type ConditionJudgmentArguments = z.infer<typeof conditionJudgmentRequestSchema>;
-type SearchNightlifeEventsArguments = z.infer<typeof searchNightlifeEventsSchema>;
-type ResearchWebArguments = z.infer<typeof researchWebSchema>;
-type DescribeDatabaseSchemaArguments = z.infer<typeof describeDatabaseSchemaArgumentsSchema>;
-type QueryLocalFactsArguments = z.infer<typeof localFactsQuerySchema>;
-type SourceEvidenceArguments = z.infer<typeof sourceEvidenceArgumentsSchema>;
-
-const weatherForecastLocations = [
-  "Siargao Island",
-  "Cloud 9",
-  "General Luna",
-  "Del Carmen",
+export type {
+  AgentHostedToolDefinition,
+  AgentResponseToolDefinition,
+  AgentToolDefinition,
+  AgentToolDependencies,
+  WebPageFetchProvider,
+} from "@/server/chat/agent-tool-catalogue";
+export const agentToolFamilies = [
+  createConditionToolFamily({
+    getWeatherForecast: (args, _request, dependencies) =>
+      getWeatherForecastToolResult(args, dependencies),
+    getMarineConditions: (args, _request, dependencies) =>
+      getMarineConditionsToolResult(args, dependencies),
+    getTideForecast: (args, _request, dependencies) =>
+      getTideForecastToolResult(args, dependencies),
+    getConditionJudgment: (args, _request, dependencies) =>
+      getConditionJudgmentToolResult(args, dependencies),
+  }),
+  createWebResearchToolFamily({
+    researchWeb: researchWebToolResult,
+  }),
+  createNightlifeToolFamily({
+    searchNightlifeEvents: (args, _request, dependencies) =>
+      searchNightlifeEventsToolResult(args, dependencies),
+  }),
+  createGooglePlacesToolFamily({
+    searchPlaces: searchPlacesToolResult,
+    getPlaceDetails: (args, _request, dependencies) =>
+      getPlaceDetailsToolResult(args, dependencies),
+  }),
+  createLocalToolFamily({
+    searchLocalGuide: (args) => searchLocalGuideToolResult(args),
+    rankSurfSpotsNearby: rankSurfSpotsNearbyToolResult,
+    planLocalItinerary: (args) => planLocalItineraryToolResult(args),
+    describeDatabaseSchema: (args) => describeDatabaseSchemaToolResult(args),
+    queryLocalFacts: (args, _request, dependencies) =>
+      queryLocalFactsToolResult(args, dependencies),
+    getSourceEvidence: (args, _request, dependencies) =>
+      getSourceEvidenceToolResult(args, dependencies),
+  }),
+  createSourcePolicyToolFamily(),
+  createMemoryToolFamily({
+    loadAgentMemoryFile: (args, _request, dependencies) =>
+      loadAgentMemoryFileToolResult(args, dependencies),
+    searchAgentMemory: (args, _request, dependencies) =>
+      searchAgentMemoryToolResult(args, dependencies),
+  }),
 ] as const;
-const marineConditionsLocations = weatherForecastLocations;
-const tideForecastLocations = ["Siargao Island", "Cloud 9", "General Luna", "Dapa"] as const;
 
-const defaultLocalFactsQueryTimeoutMs = 2_000;
-const describeSourcePolicySchema = z.strictObject({});
-const agentMemoryReferenceDocumentNames = requiredAgentMemoryManifest.reduce<string[]>(
-  (names, entry) => {
-    if (entry.role === "reference") {
-      names.push(entry.fileName);
-    }
-    return names;
-  },
-  [],
-) as [string, ...string[]];
-const agentMemoryLoadableDocumentNames = agentMemoryReferenceDocumentNames;
-const siargaoCenterSchema = z.strictObject({
-  latitude: z.number().min(9.0).max(10.5),
-  longitude: z.number().min(125.0).max(127.0),
-});
-const optionalNullable = <Schema extends z.ZodTypeAny>(schema: Schema) =>
-  z.preprocess((value) => (value === null ? undefined : value), schema.optional());
-const searchPlacesSchema = z.strictObject({
-  query: z.string().trim().min(2).max(180),
-  center: siargaoCenterSchema,
-  radius_meters: z.number().int().min(500).max(20_000),
-  constraints: optionalNullable(
-    z.strictObject({
-      included_type: optionalNullable(z.string().trim().min(2).max(60)),
-      open_now: optionalNullable(z.boolean()),
-      page_size: optionalNullable(z.number().int().min(1).max(10)),
-    }),
-  ),
-});
-const placeDetailsSchema = z.strictObject({
-  place_id: z
-    .string()
-    .trim()
-    .min(2)
-    .max(200)
-    .regex(/^[A-Za-z0-9_.:-]+$/),
-});
-const searchLocalGuideSchema = z.strictObject({
-  query: z.string().trim().min(2).max(240),
-  filters: optionalNullable(
-    z.strictObject({
-      beach_surface: optionalNullable(z.enum(["sand", "mixed", "rocky", "any"])),
-      origin_area: optionalNullable(z.string().trim().min(2).max(80)),
-      swimming: optionalNullable(z.boolean()),
-      sunset: optionalNullable(z.boolean()),
-      rain_fit: optionalNullable(z.boolean()),
-      max_ride_minutes: optionalNullable(z.number().int().min(1).max(180)),
-      transport_mode: optionalNullable(z.enum(["walk", "scooter", "tricycle", "van"])),
-      with_kids: optionalNullable(z.boolean()),
-    }),
-  ),
-});
-const rankSurfSpotsNearbySchema = z.strictObject({
-  skill_level: z.enum(["beginner", "intermediate", "advanced", "any"]).nullable(),
-  max_results: z.number().int().min(1).max(10).nullable(),
-  include_boat_access: z.boolean().nullable(),
-});
-const weatherForecastSchema = z.strictObject({
-  location: z.enum(weatherForecastLocations),
-  date_range: z.enum(["today", "next_7_days"]),
-});
-const researchWebSchema = z.strictObject({
-  query: z.string().trim().min(2).max(320),
-  intent: z.enum(webResearchIntents),
-  location: optionalNullable(z.string().trim().min(2).max(120)),
-  localDate: optionalNullable(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
-  dateContext: optionalNullable(z.enum(webResearchDateContexts)),
-  sourceTypes: optionalNullable(z.array(z.enum(webResearchSourceTypes)).min(1).max(8)),
-  requiredFreshness: optionalNullable(z.enum(webResearchFreshnessLevels)),
-  maxSources: optionalNullable(z.number().int().min(1).max(8)),
-});
-const searchNightlifeEventsSchema = z.strictObject({
-  location: z.enum(["General Luna"]),
-  date: z.enum(["tonight", "today"]),
-  interests: optionalNullable(z.array(z.enum(nightlifeEventInterestValues)).max(6)),
-});
-const marineConditionsSchema = z.strictObject({
-  location: z.enum(marineConditionsLocations),
-  date_range: z.enum(["today", "next_48_hours"]),
-});
-const tideForecastSchema = z.strictObject({
-  location: z.enum(tideForecastLocations),
-  date_range: z.enum(["today", "tomorrow", "next_7_days"]),
-});
-const searchAgentMemorySchema = z.strictObject({
-  query: z.string().trim().min(2).max(240),
-  documents: optionalNullable(z.array(z.enum(agentMemoryReferenceDocumentNames)).min(1).max(5)),
-  max_results: optionalNullable(z.number().int().min(1).max(5)),
-});
-const loadAgentMemoryFileSchema = z.strictObject({
-  documents: z.array(z.enum(agentMemoryLoadableDocumentNames)).min(1).max(3),
-});
-
-const sourcePolicyDescriptions: SourcePolicyDescription[] = [
-  {
-    label: "live_checked",
-    meaning: "A live Google Places lookup returned current allowed place fields.",
-    useWhen:
-      "Use for live Places search/detail outputs with allowed identity, rating, hours, price, contact, and map-link fields.",
-    caveats: [
-      "Use the result order as a shortlist, not a local quality ranking.",
-      "Review text, bookings, table availability, room availability, and local quality checks were not checked.",
-    ],
-  },
-  {
-    label: "fresh_cache",
-    meaning: "Fresh reusable Google Places cache rows backed the answer.",
-    useWhen:
-      "Use for cached Places facts that are still inside the configured freshness and retention windows.",
-    caveats: [
-      "Cached rows can be stale even when they are recent.",
-      "Do not imply live open-now status unless that field was present and fresh.",
-    ],
-  },
-  {
-    label: "event_checked",
-    meaning: "Approved nightlife event-source profiles backed event occurrence or schedule facts.",
-    useWhen:
-      "Use when search_nightlife_events returned fresh, unexpired General Luna nightlife event occurrences from approved event source profiles.",
-    caveats: [
-      "Google Places, review platforms, travel blogs, and community chatter are not event truth.",
-      "Same-day facts expire after the event window and stale recurring baselines require refresh before being treated as current.",
-    ],
-  },
-  {
-    label: "no_current_event_facts",
-    meaning:
-      "The nightlife event tool ran, but approved current event facts did not match the requested local date.",
-    useWhen:
-      "Use as terminal event-source state only; combine with loaded NIGHTLIFE.md stable route memory when answering the traveler.",
-    caveats: [
-      "This is not a provider outage.",
-      "Do not treat stable memory baselines as event_checked facts.",
-      "Do not collapse party-route answers to weather-only advice when NIGHTLIFE.md contains a stable baseline route.",
-    ],
-  },
-  {
-    label: "venue_checked",
-    meaning: "A governed venue-detail source backed venue identity or map-detail fields.",
-    useWhen:
-      "Use for venue identity, map links, address, business status, opening-hour signals, ratings, or review counts when a venue-detail tool returns those fields.",
-    caveats: [
-      "Venue checks do not verify tonight's event schedule, live crowd size, door policy, bookings, or table availability.",
-    ],
-  },
-  {
-    label: "web_researched",
-    meaning:
-      "A bounded public web research tool found useful source evidence for the requested public facts.",
-    useWhen:
-      "Use for research_web findings from accepted public source classes when the evidence is useful but not strictly official or directory-backed.",
-    caveats: [
-      "Do not use for raw model browsing or generic reasoning.",
-      "Do not imply a live provider API check.",
-      "The source class, freshness, and confidence still determine how strongly the answer can lean on the finding.",
-    ],
-  },
-  {
-    label: "official_checked",
-    meaning: "An official public source was checked for the requested entity, status, or schedule.",
-    useWhen:
-      "Use for research_web findings from official venue, operator, government, event organizer, ferry company, resort, tour operator, or equivalent public sources.",
-    caveats: [
-      "Official pages can still be stale; preserve published, updated, or matched date context when available.",
-      "Do not use for unofficial reposts, guides, reviews, or community chatter.",
-    ],
-  },
-  {
-    label: "directory_checked",
-    meaning:
-      "A local directory or event-calendar source was checked for the requested public fact.",
-    useWhen:
-      "Use for research_web findings from accepted Siargao directories, event calendars, or local business listings.",
-    caveats: [
-      "Directory evidence is usually weaker than official-source evidence for cancellations, closures, and one-off changes.",
-      "Keep source confidence explicit when the directory row is recurring or undated.",
-    ],
-  },
-  {
-    label: "insufficient_web_evidence",
-    meaning:
-      "The web research tool ran, but did not find enough reliable current public evidence for the request.",
-    useWhen:
-      "Use as a terminal research_web state when search/fetch succeeds but the sources are too weak, stale, broad, or contradictory to answer as verified.",
-    caveats: [
-      "This is not positive evidence.",
-      "Do not unlock broad Places, weather, or memory-only fallback answers when current public research was required.",
-      "Render as not checked or a transparent caveat, not as a checked source claim.",
-    ],
-  },
-  {
-    label: "curated_local_guide",
-    meaning: "Ask Siargao curated local guide data backed the answer.",
-    useWhen: "Use for local beach and trip-planning facts maintained by Ask Siargao.",
-    caveats: [
-      "Tides, currents, road conditions, access changes, and lifeguard or safety status are not live checked.",
-    ],
-  },
-  {
-    label: "weather_checked",
-    meaning: "Open-Meteo forecast data backed the weather or activity-planning answer.",
-    useWhen: "Use when a usable live or stored Open-Meteo snapshot was available for the request.",
-    caveats: [
-      "Surf, swell, tides, road flooding, local closures, and provider-independent safety checks are not included.",
-    ],
-  },
-  {
-    label: "marine_checked",
-    meaning:
-      "Open-Meteo Marine model data backed tide-proxy sea level, wave, swell, or current context.",
-    useWhen:
-      "Use when get_marine_conditions or get_condition_judgment returned usable Open-Meteo Marine model data for the requested Siargao location.",
-    caveats: [
-      "This is modelled marine forecast data, not an official tide table, tide-gauge reading, navigation aid, or safety authority.",
-      "Surf break quality, rip currents, lifeguards, local operator calls, and official marine warnings are not checked.",
-    ],
-  },
-  {
-    label: "tide_forecast_checked",
-    meaning:
-      "Tide-Forecast Dapa page data backed predicted tide times/heights and embedded 3-hour sea-condition timing.",
-    useWhen:
-      "Use when get_tide_forecast or get_condition_judgment returned usable Tide-Forecast Dapa page data for Siargao tide or surf timing.",
-    caveats: [
-      "This development/testing integration uses Tide-Forecast page data and production commercial use needs appropriate Tide-Forecast/Meteo365 permission or license.",
-      "Dapa is a nearby station proxy for Cloud 9 and General Luna, not an exact break reading or safety clearance.",
-      "Official tide-gauge measurements, navigation safety, rip currents, lifeguards, local operator calls, and official marine warnings are not checked.",
-    ],
-  },
-  {
-    label: "community_signal",
-    meaning: "A low-confidence public community or broad travel signal was available.",
-    useWhen:
-      "Use only when a profiled, allowed public community/travel source is returned by a governed tool as context or discovery.",
-    caveats: [
-      "Community signals cannot rank venues or verify tonight's event schedule.",
-      "Private or semi-private groups are disallowed unless explicitly submitted with permission through an approved profile.",
-    ],
-  },
-  {
-    label: "not_verified",
-    meaning:
-      "The answer uses generic model reasoning or stable context without a matching live/local tool output.",
-    useWhen:
-      "Use whenever no backend tool actually checked the specific live, cached, weather, or curated fact.",
-    caveats: [
-      "Never label generic model reasoning as live checked, fresh cache, weather checked, or curated local guide.",
-    ],
-  },
-  {
-    label: "provider_unavailable",
-    meaning: "A provider or cache lookup needed for the answer failed or was unavailable.",
-    useWhen:
-      "Use when Google Places, Open-Meteo, or another backend provider could not return usable data.",
-    caveats: [
-      "Explain the missing check plainly and avoid fabricating provider-backed facts from model knowledge.",
-    ],
-  },
-];
-
-const registeredTools: Partial<Record<AskSiargaoAgentToolName, RegisteredTool<unknown>>> = {
-  get_weather_forecast: {
-    definition: {
-      type: "function",
-      name: "get_weather_forecast",
-      description:
-        "Get the governed Open-Meteo weather forecast snapshot for a known Siargao location.",
-      parameters: {
-        type: "object",
-        properties: {
-          location: {
-            type: "string",
-            enum: weatherForecastLocations,
-            description: "Known Siargao forecast location label.",
-          },
-          date_range: {
-            type: "string",
-            enum: ["today", "next_7_days"],
-            description: "Forecast range to summarize.",
-          },
-        },
-        required: ["location", "date_range"],
-        additionalProperties: false,
-      },
-      strict: true,
-    },
-    schema: weatherForecastSchema,
-    execute: (args, _request, dependencies) =>
-      getWeatherForecastToolResult(args as WeatherForecastArguments, dependencies),
-  },
-  get_marine_conditions: {
-    definition: {
-      type: "function",
-      name: "get_marine_conditions",
-      description:
-        "Get governed Open-Meteo Marine model data for Siargao tide-proxy sea level, waves, swell, and ocean current. This is not official tide-table, navigation, or safety authority data.",
-      parameters: {
-        type: "object",
-        properties: {
-          location: {
-            type: "string",
-            enum: marineConditionsLocations,
-            description: "Known Siargao marine forecast location label.",
-          },
-          date_range: {
-            type: "string",
-            enum: ["today", "next_48_hours"],
-            description: "Marine model range to summarize.",
-          },
-        },
-        required: ["location", "date_range"],
-        additionalProperties: false,
-      },
-      strict: true,
-    },
-    schema: marineConditionsSchema,
-    execute: (args, _request, dependencies) =>
-      getMarineConditionsToolResult(args as MarineConditionsArguments, dependencies),
-  },
-  get_tide_forecast: {
-    definition: {
-      type: "function",
-      name: "get_tide_forecast",
-      description:
-        "Get Tide-Forecast Dapa predicted tide table data and embedded sea-condition periods for Siargao surf/tide timing during development/testing. This is not an official tide gauge, navigation aid, or safety clearance.",
-      parameters: {
-        type: "object",
-        properties: {
-          location: {
-            type: "string",
-            enum: tideForecastLocations,
-            description: "Known Siargao tide forecast location label.",
-          },
-          date_range: {
-            type: "string",
-            enum: ["today", "tomorrow", "next_7_days"],
-            description: "Tide forecast range to summarize.",
-          },
-        },
-        required: ["location", "date_range"],
-        additionalProperties: false,
-      },
-      strict: true,
-    },
-    schema: tideForecastSchema,
-    execute: (args, _request, dependencies) =>
-      getTideForecastToolResult(args as TideForecastArguments, dependencies),
-  },
-  get_condition_judgment: {
-    definition: {
-      type: "function",
-      name: "get_condition_judgment",
-      description:
-        "Build a governed condition judgment for Siargao activities from checked Open-Meteo weather, checked Tide-Forecast tide/sea-period data when available, checked Open-Meteo Marine model data when available, curated local caveats, and explicit unchecked road, official-warning, lifeguard, and safety signals. The AI must use the returned judgment as evidence and write the final answer itself.",
-      parameters: conditionJudgmentToolParameters,
-      strict: true,
-    },
-    schema: conditionJudgmentRequestSchema,
-    execute: (args, _request, dependencies) =>
-      getConditionJudgmentToolResult(args as ConditionJudgmentArguments, dependencies),
-  },
-  research_web: {
-    definition: {
-      type: "function",
-      name: "research_web",
-      description:
-        "Research current public web evidence for Siargao recommendations, schedules, availability, prices, safety, disruptions, service lookups such as scooter rental, and other public facts. The model chooses the natural-language query from the user's prompt. Provider-unavailable results are returned as tool evidence for a caveated answer rather than a terminal response.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "Natural-language public web research query scoped to the user request.",
-          },
-          intent: {
-            type: "string",
-            enum: webResearchIntents,
-            description:
-              "Reason public web research is needed: recommendation, schedule, availability, price, safety, how_to, or fact.",
-          },
-          location: {
-            type: ["string", "null"],
-            description:
-              "Optional Siargao location or area to target, such as General Luna, Dapa, Del Carmen, or Cloud 9.",
-          },
-          localDate: {
-            type: ["string", "null"],
-            pattern: "^\\d{4}-\\d{2}-\\d{2}$",
-            description:
-              "Optional local Philippines date in YYYY-MM-DD format when the request is date-sensitive.",
-          },
-          dateContext: {
-            type: ["string", "null"],
-            enum: [...webResearchDateContexts, null],
-            description:
-              "Optional date context such as today, tonight, tomorrow, next_7_days, date_range, or none.",
-          },
-          sourceTypes: {
-            type: ["array", "null"],
-            items: {
-              type: "string",
-              enum: webResearchSourceTypes,
-            },
-            description:
-              "Optional source classes to target, such as official, government, local_directory, maps, guide, social, community, news, or weather.",
-          },
-          requiredFreshness: {
-            type: ["string", "null"],
-            enum: [...webResearchFreshnessLevels, null],
-            description:
-              "Optional minimum freshness expectation: live, same_day, week, month, or stable.",
-          },
-          maxSources: {
-            type: ["integer", "null"],
-            minimum: 1,
-            maximum: 8,
-            description: "Maximum number of scored sources and findings to return.",
-          },
-        },
-        required: [
-          "query",
-          "intent",
-          "location",
-          "localDate",
-          "dateContext",
-          "sourceTypes",
-          "requiredFreshness",
-          "maxSources",
-        ],
-        additionalProperties: false,
-      },
-      strict: true,
-    },
-    schema: researchWebSchema,
-    execute: (args, request, dependencies) =>
-      researchWebToolResult(args as ResearchWebArguments, request, dependencies),
-  },
-  search_nightlife_events: {
-    definition: {
-      type: "function",
-      name: "search_nightlife_events",
-      description:
-        "Search approved General Luna nightlife event facts before using Google Places for venue details. Use for tonight, party, nightlife, bar-hopping, DJ, live-music, foam-party, pub-quiz, trivia, and drinks-tonight route answers. This returns event schedule evidence, source profile IDs, freshness/expiry metadata, refresh decisions, and route roles, not live crowd size, door policy, guest list, table availability, last-minute cancellation, or exact closing time.",
-      parameters: {
-        type: "object",
-        properties: {
-          location: {
-            type: "string",
-            enum: ["General Luna"],
-            description: "Nightlife area currently supported by approved event facts.",
-          },
-          date: {
-            type: "string",
-            enum: ["tonight", "today"],
-            description: "Time-bound nightlife date to check.",
-          },
-          interests: {
-            type: ["array", "null"],
-            items: {
-              type: "string",
-              enum: nightlifeEventInterestValues,
-            },
-            description:
-              "Optional nightlife interests from the user, such as party, dj, pub_quiz, trivia, foam_party, or drinks.",
-          },
-        },
-        required: ["location", "date", "interests"],
-        additionalProperties: false,
-      },
-      strict: true,
-    },
-    schema: searchNightlifeEventsSchema,
-    execute: (args, _request, dependencies) =>
-      searchNightlifeEventsToolResult(args as SearchNightlifeEventsArguments, dependencies),
-  },
-  search_places: {
-    definition: {
-      type: "function",
-      name: "search_places",
-      description:
-        "Search governed Google Places results for Siargao places, venues, and local services using allowed chat-search fields. The model chooses a natural-language query from the user's prompt; if another provider failed, successful Places evidence can still support a caveated answer.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "Natural-language place search query scoped to Siargao.",
-          },
-          center: {
-            type: "object",
-            properties: {
-              latitude: { type: "number" },
-              longitude: { type: "number" },
-            },
-            required: ["latitude", "longitude"],
-            additionalProperties: false,
-          },
-          radius_meters: {
-            type: "integer",
-            minimum: 500,
-            maximum: 20000,
-            description: "Search radius around the center point.",
-          },
-          constraints: {
-            type: ["object", "null"],
-            properties: {
-              included_type: {
-                type: ["string", "null"],
-                description: "Optional Google Places primary type such as restaurant or cafe.",
-              },
-              open_now: {
-                type: ["boolean", "null"],
-                description: "Whether live opening status is needed.",
-              },
-              page_size: {
-                type: ["integer", "null"],
-                minimum: 1,
-                maximum: 10,
-                description: "Maximum number of places to return.",
-              },
-            },
-            required: ["included_type", "open_now", "page_size"],
-            additionalProperties: false,
-          },
-        },
-        required: ["query", "center", "radius_meters", "constraints"],
-        additionalProperties: false,
-      },
-      strict: true,
-    },
-    schema: searchPlacesSchema,
-    execute: (args, request, dependencies) =>
-      searchPlacesToolResult(args as SearchPlacesArguments, request, dependencies),
-  },
-  get_place_details: {
-    definition: {
-      type: "function",
-      name: "get_place_details",
-      description:
-        "Get governed Google Places identity details for one place ID using cache-first lookup and the allowed details field mask.",
-      parameters: {
-        type: "object",
-        properties: {
-          place_id: {
-            type: "string",
-            description: "Google Places place ID.",
-          },
-        },
-        required: ["place_id"],
-        additionalProperties: false,
-      },
-      strict: true,
-    },
-    schema: placeDetailsSchema,
-    execute: (args, _request, dependencies) =>
-      getPlaceDetailsToolResult(args as PlaceDetailsArguments, dependencies),
-  },
-  search_local_guide: {
-    definition: {
-      type: "function",
-      name: "search_local_guide",
-      description:
-        "Search Ask Siargao curated local guide facts for beaches and local trip-planning fit.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "Natural-language local guide query.",
-          },
-          filters: {
-            type: ["object", "null"],
-            properties: {
-              beach_surface: {
-                type: ["string", "null"],
-                enum: ["sand", "mixed", "rocky", "any", null],
-                description: "Preferred beach surface.",
-              },
-              origin_area: {
-                type: ["string", "null"],
-                description:
-                  "Named Siargao area to prioritize before broader island options, such as Cloud 9, General Luna, Malinao, Pacifico, or Alegria.",
-              },
-              swimming: {
-                type: ["boolean", "null"],
-                description: "Whether swimming fit should be prioritized.",
-              },
-              sunset: {
-                type: ["boolean", "null"],
-                description: "Whether sunset or late-afternoon fit should be prioritized.",
-              },
-              rain_fit: {
-                type: ["boolean", "null"],
-                description: "Whether bad-weather or short-ride fit should be prioritized.",
-              },
-              max_ride_minutes: {
-                type: ["integer", "null"],
-                minimum: 1,
-                maximum: 180,
-                description: "Maximum ride time from the General Luna side.",
-              },
-              transport_mode: {
-                type: ["string", "null"],
-                enum: ["walk", "scooter", "tricycle", "van", null],
-                description: "Traveler transport constraint.",
-              },
-              with_kids: {
-                type: ["boolean", "null"],
-                description: "Whether the traveler is with kids.",
-              },
-            },
-            required: [
-              "beach_surface",
-              "origin_area",
-              "swimming",
-              "sunset",
-              "rain_fit",
-              "max_ride_minutes",
-              "transport_mode",
-              "with_kids",
-            ],
-            additionalProperties: false,
-          },
-        },
-        required: ["query", "filters"],
-        additionalProperties: false,
-      },
-      strict: true,
-    },
-    schema: searchLocalGuideSchema,
-    execute: (args) => searchLocalGuideToolResult(args as SearchLocalGuideArguments),
-  },
-  rank_surf_spots_nearby: {
-    definition: {
-      type: "function",
-      name: "rank_surf_spots_nearby",
-      description:
-        "Rank known Siargao surf spots by straight-line distance from the user's consented browser geolocation. Use for closest/nearest/near-me surf spot requests. The tool returns distances and spot metadata only; it does not expose the user's coordinates or live surf conditions.",
-      parameters: {
-        type: "object",
-        properties: {
-          skill_level: {
-            type: ["string", "null"],
-            enum: ["beginner", "intermediate", "advanced", "any", null],
-            description: "Optional skill filter for the surf spots to rank.",
-          },
-          max_results: {
-            type: ["integer", "null"],
-            minimum: 1,
-            maximum: 10,
-            description: "Maximum number of ranked surf spots to return.",
-          },
-          include_boat_access: {
-            type: ["boolean", "null"],
-            description: "Whether boat-access surf spots may be included.",
-          },
-        },
-        required: ["skill_level", "max_results", "include_boat_access"],
-        additionalProperties: false,
-      },
-      strict: true,
-    },
-    schema: rankSurfSpotsNearbySchema,
-    execute: (args, request, dependencies) =>
-      rankSurfSpotsNearbyToolResult(args as RankSurfSpotsNearbyArguments, request, dependencies),
-  },
-  plan_local_itinerary: {
-    definition: {
-      type: "function",
-      name: "plan_local_itinerary",
-      description:
-        "Build a governed structured 2-4 hour Siargao itinerary artifact from curated local guide evidence and explicit unchecked caveats. The AI must use the returned plan as evidence and write the final answer itself.",
-      parameters: {
-        type: "object",
-        properties: {
-          theme: {
-            type: "string",
-            enum: localItineraryThemes,
-            description: "Initial supported local itinerary theme.",
-          },
-          origin: {
-            type: ["string", "null"],
-            description: "Traveler origin or assumed start area, such as General Luna or Cloud 9.",
-          },
-          duration_hours: {
-            type: ["number", "null"],
-            minimum: 2,
-            maximum: 4,
-            description: "Target plan length in hours.",
-          },
-          transport_mode: {
-            type: ["string", "null"],
-            enum: ["walk", "scooter", "tricycle", "van", null],
-            description: "Traveler transport mode or constraint.",
-          },
-          max_ride_minutes: {
-            type: ["integer", "null"],
-            minimum: 5,
-            maximum: 180,
-            description: "Maximum estimated ride time for any itinerary leg.",
-          },
-          needs_weather_check: {
-            type: ["boolean", "null"],
-            description: "Whether weather materially affects the itinerary.",
-          },
-          needs_open_now: {
-            type: ["boolean", "null"],
-            description: "Whether meal, cafe, or venue stops need live open-now checks.",
-          },
-          meal_preference: {
-            type: ["string", "null"],
-            description: "Optional meal style, cuisine, or price preference.",
-          },
-          constraints: {
-            type: ["array", "null"],
-            items: { type: "string" },
-            description: "Other user constraints to preserve as caveats.",
-          },
-        },
-        required: [
-          "theme",
-          "origin",
-          "duration_hours",
-          "transport_mode",
-          "max_ride_minutes",
-          "needs_weather_check",
-          "needs_open_now",
-          "meal_preference",
-          "constraints",
-        ],
-        additionalProperties: false,
-      },
-      strict: true,
-    },
-    schema: localItineraryRequestSchema,
-    execute: (args) => planLocalItineraryToolResult(args as LocalItineraryArguments),
-  },
-  describe_database_schema: {
-    definition: {
-      type: "function",
-      name: "describe_database_schema",
-      description:
-        "Describe the approved safe local data surfaces, fields, query rules, limits, and prohibited database access.",
-      parameters: {
-        type: "object",
-        properties: {},
-        required: [],
-        additionalProperties: false,
-      },
-      strict: true,
-    },
-    schema: describeDatabaseSchemaArgumentsSchema,
-    execute: (args) => describeDatabaseSchemaToolResult(args as DescribeDatabaseSchemaArguments),
-  },
-  query_local_facts: {
-    definition: {
-      type: "function",
-      name: "query_local_facts",
-      description:
-        "Query approved local Siargao facts with structured filters only; no SQL, private data, or restricted provider bodies.",
-      parameters: {
-        type: "object",
-        properties: {
-          entityTypes: {
-            type: "array",
-            items: {
-              type: "string",
-              enum: [
-                "area",
-                "route",
-                "beach",
-                "service",
-                "place",
-                "accommodation",
-                "operator",
-                "risk",
-                "local_caveat",
-              ],
-            },
-            description: "Approved entity types to retrieve.",
-          },
-          area: {
-            type: ["string", "null"],
-            description: "Optional Siargao area filter such as General Luna or Cloud 9.",
-          },
-          tags: {
-            type: ["array", "null"],
-            items: { type: "string" },
-            description: "Optional tags such as sandy, swimming, rain-fit, sunset, or transport.",
-          },
-          text: {
-            type: ["string", "null"],
-            description: "Optional text filter matched against names and claims.",
-          },
-          limit: {
-            type: ["integer", "null"],
-            minimum: 1,
-            maximum: localFactsMaxLimit,
-            description: "Maximum number of local facts to return.",
-          },
-        },
-        required: ["entityTypes", "area", "tags", "text", "limit"],
-        additionalProperties: false,
-      },
-      strict: true,
-    },
-    schema: localFactsQuerySchema,
-    execute: (args, _request, dependencies) =>
-      queryLocalFactsToolResult(args as QueryLocalFactsArguments, dependencies),
-  },
-  get_source_evidence: {
-    definition: {
-      type: "function",
-      name: "get_source_evidence",
-      description:
-        "Return display-safe source evidence, caveats, freshness, and checked boundaries for safe local fact IDs.",
-      parameters: {
-        type: "object",
-        properties: {
-          factIds: {
-            type: "array",
-            items: { type: "string" },
-            description: "Fact IDs returned by query_local_facts or compatible safe fact IDs.",
-          },
-        },
-        required: ["factIds"],
-        additionalProperties: false,
-      },
-      strict: true,
-    },
-    schema: sourceEvidenceArgumentsSchema,
-    execute: (args, _request, dependencies) =>
-      getSourceEvidenceToolResult(args as SourceEvidenceArguments, dependencies),
-  },
-  describe_source_policy: {
-    definition: {
-      type: "function",
-      name: "describe_source_policy",
-      description:
-        "Explain Ask Siargao source labels, checked/not-checked boundaries, and provider caveats.",
-      parameters: {
-        type: "object",
-        properties: {},
-        required: [],
-        additionalProperties: false,
-      },
-      strict: true,
-    },
-    schema: describeSourcePolicySchema,
-    execute: () => ({
-      name: "describe_source_policy",
-      status: "success",
-      text: renderSourcePolicyText(sourcePolicyDescriptions),
-      data: {
-        policies: sourcePolicyDescriptions,
-      } satisfies SourcePolicyToolData,
-      sources: [],
-    }),
-  },
-  search_agent_memory: {
-    definition: {
-      type: "function",
-      name: "search_agent_memory",
-      description:
-        "Search durable Ask Siargao agent memory references such as the data dictionary, source policy, and local assumptions. This is policy/reference context, not live evidence.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "Natural-language memory search query.",
-          },
-          documents: {
-            type: ["array", "null"],
-            items: {
-              type: "string",
-              enum: agentMemoryReferenceDocumentNames,
-            },
-            description: "Optional subset of agent-memory reference documents to search.",
-          },
-          max_results: {
-            type: ["integer", "null"],
-            minimum: 1,
-            maximum: 5,
-            description: "Maximum number of reference excerpts to return.",
-          },
-        },
-        required: ["query", "documents", "max_results"],
-        additionalProperties: false,
-      },
-      strict: true,
-    },
-    schema: searchAgentMemorySchema,
-    execute: (args, _request, dependencies) =>
-      searchAgentMemoryToolResult(args as SearchAgentMemoryArguments, dependencies),
-  },
-  load_agent_memory_file: {
-    definition: {
-      type: "function",
-      name: "load_agent_memory_file",
-      description:
-        "Load exact Ask Siargao agent-memory reference files by filename after using INDEX.md to choose the smallest relevant set. This is policy/reference context, not live evidence.",
-      parameters: {
-        type: "object",
-        properties: {
-          documents: {
-            type: "array",
-            items: {
-              type: "string",
-              enum: agentMemoryLoadableDocumentNames,
-            },
-            minItems: 1,
-            maxItems: 3,
-            description: "Agent-memory reference document filenames to load exactly.",
-          },
-        },
-        required: ["documents"],
-        additionalProperties: false,
-      },
-      strict: true,
-    },
-    schema: loadAgentMemoryFileSchema,
-    execute: (args, _request, dependencies) =>
-      loadAgentMemoryFileToolResult(args as LoadAgentMemoryFileArguments, dependencies),
-  },
-};
-
-const defaultFunctionToolNames = [
-  "get_weather_forecast",
-  "get_marine_conditions",
-  "get_tide_forecast",
-  "get_condition_judgment",
-  "research_web",
-  "search_nightlife_events",
-  "search_places",
-  "get_place_details",
-  "search_local_guide",
-  "rank_surf_spots_nearby",
-  "plan_local_itinerary",
-  "describe_database_schema",
-  "query_local_facts",
-  "get_source_evidence",
-  "describe_source_policy",
-  "load_agent_memory_file",
-] as const satisfies readonly AskSiargaoAgentToolName[];
+const registeredTools = composeAgentToolFamilies(agentToolFamilies);
+const defaultFunctionToolNames = agentToolFamilies.flatMap((family) => family.toolNames);
 
 export const agentToolDefinitions = defaultFunctionToolNames.map(
   (name) => registeredTools[name]?.definition as AgentToolDefinition,
@@ -1280,53 +322,7 @@ function memoryToolDefinitionForSnapshot(
   memorySnapshot: AgentMemorySnapshot,
 ): AgentToolDefinition {
   const definition = registeredTools[name]?.definition as AgentToolDefinition;
-  const documentNames = memoryReferenceDocumentNames(memorySnapshot);
-  if (name === "search_agent_memory") {
-    const documentsProperty = definition.parameters.properties.documents;
-    const documentsPropertyRecord = isRecord(documentsProperty) ? documentsProperty : {};
-    const items = isRecord(documentsPropertyRecord.items) ? documentsPropertyRecord.items : {};
-    return {
-      ...definition,
-      parameters: {
-        ...definition.parameters,
-        properties: {
-          ...definition.parameters.properties,
-          documents: {
-            ...documentsPropertyRecord,
-            items: {
-              ...items,
-              enum: documentNames,
-            },
-          },
-        },
-      },
-    };
-  }
-
-  const documentsProperty = definition.parameters.properties.documents;
-  const documentsPropertyRecord = isRecord(documentsProperty) ? documentsProperty : {};
-  const items = isRecord(documentsPropertyRecord.items) ? documentsPropertyRecord.items : {};
-  return {
-    ...definition,
-    parameters: {
-      ...definition.parameters,
-      properties: {
-        ...definition.parameters.properties,
-        documents: {
-          ...documentsPropertyRecord,
-          items: {
-            ...items,
-            enum: documentNames,
-          },
-        },
-      },
-    },
-  };
-}
-
-function memoryReferenceDocumentNames(memorySnapshot: AgentMemorySnapshot) {
-  const names = memorySnapshot.referenceFiles.map((file) => file.fileName);
-  return names.length > 0 ? names : agentMemoryReferenceDocumentNames;
+  return memoryToolDefinitionForSnapshotBase(definition, memorySnapshot);
 }
 
 function renderLoadedAgentMemoryFilesText(files: readonly AgentMemoryReferenceFile[]) {
@@ -1352,7 +348,7 @@ export async function executeAgentTool(
     };
   }
 
-  const parsed = tool.schema.safeParse(toolArgumentsForValidation(request));
+  const parsed = tool.schema.safeParse(tool.argumentsForValidation?.(request) ?? request.arguments);
   if (!parsed.success) {
     return {
       name: request.name,
@@ -1380,69 +376,6 @@ export async function executeAgentTool(
 
 function safeToolExecutionFailureText(toolName: string) {
   return `${toolName} failed before it could return safe data.`;
-}
-
-function safeProviderUnavailableText(subject: string, verb: "is" | "are" = "is") {
-  return `${subject} ${verb} temporarily unavailable.`;
-}
-
-function toolArgumentsForValidation(request: AgentToolExecutionRequest) {
-  if (request.name === "research_web" && isRecord(request.arguments)) {
-    return researchWebArgumentsForValidation(request.arguments);
-  }
-
-  if (request.name !== "search_places" || !isRecord(request.arguments)) {
-    return request.arguments;
-  }
-
-  const placesToolContext = normalizeGooglePlacesToolContext(request.toolContext);
-  if (!placesToolContext?.center) {
-    return request.arguments;
-  }
-
-  if ("center" in request.arguments && placesToolContext.centerSource !== "browser_geolocation") {
-    return request.arguments;
-  }
-
-  return {
-    ...request.arguments,
-    center: placesToolContext.center,
-  };
-}
-
-function researchWebArgumentsForValidation(args: Record<string, unknown>) {
-  const sourceTypes = normalizeWebResearchSourceTypes(
-    args.sourceTypes ?? args.source_types ?? args.sourceType ?? args.source_type,
-  );
-  const intent = normalizeWebResearchIntent(args.intent);
-
-  return {
-    query: args.query,
-    intent: intent ?? "fact",
-    location: args.location ?? null,
-    localDate: args.localDate ?? args.local_date ?? null,
-    dateContext: args.dateContext ?? args.date_context ?? null,
-    sourceTypes: sourceTypes ?? null,
-    requiredFreshness: args.requiredFreshness ?? args.required_freshness ?? args.freshness ?? null,
-    maxSources: args.maxSources ?? args.max_sources ?? args.limit ?? null,
-  };
-}
-
-function normalizeWebResearchIntent(value: unknown) {
-  return typeof value === "string" &&
-    webResearchIntents.includes(value as (typeof webResearchIntents)[number])
-    ? value
-    : undefined;
-}
-
-function normalizeWebResearchSourceTypes(value: unknown) {
-  const candidates = Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
-  const sourceTypes = candidates.filter(
-    (candidate): candidate is (typeof webResearchSourceTypes)[number] =>
-      typeof candidate === "string" &&
-      webResearchSourceTypes.includes(candidate as (typeof webResearchSourceTypes)[number]),
-  );
-  return sourceTypes.length > 0 ? sourceTypes : undefined;
 }
 
 async function searchPlacesToolResult(
@@ -1507,20 +440,6 @@ async function searchPlacesToolResult(
       sources: [googlePlacesProviderUnavailableSourceSummary("Google Places search lookup")],
     };
   }
-}
-
-function normalizeGooglePlacesToolContext(toolContext: AgentToolExecutionContext | undefined) {
-  const googlePlaces = toolContext?.googlePlaces;
-  if (!googlePlaces) {
-    return undefined;
-  }
-
-  return {
-    center: googlePlaces.center,
-    centerSource: googlePlaces.centerSource,
-    cacheMode: googlePlaces.cacheMode,
-    consentScope: googlePlaces.consentScope,
-  };
 }
 
 function withGooglePlacesCenterCaveats(
@@ -2228,10 +1147,7 @@ function normalizeLocalGuideSearchResult(result: LocalGuideSearchResult) {
 
 function normalizeGooglePlacesSearchContext(
   context: GooglePlacesChatContext,
-  centerContext: {
-    centerSource: GooglePlacesToolExecutionContext["centerSource"];
-    consentScope?: GooglePlacesToolExecutionContext["consentScope"];
-  },
+  centerContext: GooglePlacesCenterContext,
 ) {
   const search =
     centerContext.centerSource === "browser_geolocation"
@@ -2574,10 +1490,6 @@ function googlePlacesPriceLabel(priceLevel: string | undefined) {
     .toLowerCase();
 }
 
-function cardSourceLabel(summary: AnswerSourceSummary) {
-  return `${summary.sourceName} - ${summary.label.replaceAll("_", " ")}`;
-}
-
 function humanizeGooglePlaceType(value: string) {
   return value.replaceAll("_", " ").toLowerCase();
 }
@@ -2733,22 +1645,6 @@ function ensureSiargaoQuery(query: string) {
   return /\bsiargao\b/i.test(query) ? query : `${query} Siargao`;
 }
 
-function currentIso(dependencies: AgentToolDependencies) {
-  return (dependencies.now?.() ?? new Date()).toISOString();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function slugPart(value: string) {
-  return value
-    .replaceAll(/[^A-Za-z0-9_]+/g, "_")
-    .replaceAll(/_+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 80);
-}
-
 const googlePlacesCaveats = [
   "Review text was not checked.",
   "Bookings, table availability, room availability, and independent local quality checks were not checked.",
@@ -2766,6 +1662,7 @@ const googlePlacesNotCheckedFields = [
   "room availability",
   "independent local quality checks",
 ];
+const defaultLocalFactsQueryTimeoutMs = 2_000;
 
 function searchNightlifeEventsToolResult(
   args: SearchNightlifeEventsArguments,
@@ -3703,21 +2600,6 @@ function tideForecastProviderUnavailableSourceSummary(locationName: string): Ans
   };
 }
 
-function formatNullableNumber(value: number | null, unit: string) {
-  return value === null ? "unavailable" : `${value}${unit}`;
-}
-
-function uniqueText(values: readonly (string | null | undefined)[]) {
-  const uniqueValues = new Set<string>();
-  for (const value of values) {
-    const normalizedValue = value?.trim() ?? "";
-    if (normalizedValue.length > 0) {
-      uniqueValues.add(normalizedValue);
-    }
-  }
-  return [...uniqueValues];
-}
-
 function tokenizeMemoryQuery(query: string) {
   return query
     .toLowerCase()
@@ -3777,14 +2659,4 @@ function truncateMemoryExcerpt(excerpt: string) {
     return excerpt;
   }
   return `${excerpt.slice(0, 357).trimEnd()}...`;
-}
-
-function renderSourcePolicyText(policies: readonly SourcePolicyDescription[]) {
-  return [
-    "Ask Siargao source policy labels:",
-    ...policies.map(
-      (policy) =>
-        `- ${policy.label}: ${policy.meaning} Use when: ${policy.useWhen} Caveats: ${policy.caveats.join(" ")}`,
-    ),
-  ].join("\n");
 }
