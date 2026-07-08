@@ -271,6 +271,82 @@ test("renders assistant markdown tables as real tables", async ({ page }) => {
   await expect(assistantBubble.getByText("My pick:")).toBeVisible();
 });
 
+test("renders assistant presentation smoke on desktop and mobile", async ({ page }) => {
+  const smokeMessage = [
+    "Here is the short list with an inline guide link: https://example.com/siargao-guide.",
+    "",
+    "## Quick picks",
+    "",
+    "| Place | Area | Why |",
+    "| --- | :---: | --- |",
+    "| **Shaka Siargao** | Cloud 9 | Easy breakfast before surf. |",
+    "| **Bravo** | General Luna | Better dinner backup. |",
+    "",
+    "Checked: Google Places API - selected recommendations. Not checked: table availability.",
+  ].join("\n");
+  const mockChat = await mockChatApi(page, {
+    message: smokeMessage,
+    cards: [
+      {
+        id: "place_shaka_smoke",
+        kind: "place",
+        title: "Shaka Siargao",
+        subtitle: "Cafe - Cloud 9, General Luna",
+        mapsUrl: "https://maps.google.com/?cid=shaka-smoke",
+        distanceLabel: "About 50 m from search center.",
+        openStatusLabel: "Open now according to Google Places.",
+        fitReasons: ["Selected by the smoke fixture."],
+        caveats: ["Table availability was not checked."],
+        sourceLabel: "Google Places - live checked",
+        sources: [mockPlacesSource],
+      },
+    ],
+  });
+
+  for (const viewport of [
+    { label: "desktop", width: 1280, height: 900 },
+    { label: "mobile", width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.goto("/chat");
+    await page
+      .getByLabel("Ask anything about Siargao")
+      .fill(`Render assistant smoke on ${viewport.label}`);
+    await page.getByRole("button", { name: "Send question" }).click();
+
+    const assistantBubble = page.getByTestId("assistant-message-bubble").last();
+    await expect(assistantBubble).toContainText("Here is the short list");
+    await expect(
+      assistantBubble.getByRole("link", { name: "Open example.com link" }),
+    ).toHaveAttribute("href", "https://example.com/siargao-guide");
+    await expect(assistantBubble.getByTestId("assistant-source-line")).toHaveCount(2);
+    await expect(assistantBubble.getByTestId("recommendation-card")).toContainText("Shaka Siargao");
+
+    if (viewport.label === "mobile") {
+      await expect(assistantBubble.getByTestId("assistant-mobile-table-card")).toHaveCount(2);
+      await expect(
+        assistantBubble.getByTestId("assistant-mobile-table-card").first(),
+      ).toContainText("Easy breakfast before surf.");
+    } else {
+      await expect(assistantBubble.getByRole("table")).toBeVisible();
+      await expect(assistantBubble.getByRole("columnheader", { name: "Place" })).toBeVisible();
+    }
+
+    await expect
+      .poll(async () =>
+        assistantBubble.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+      )
+      .toBe(true);
+    await expect
+      .poll(async () =>
+        page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+      )
+      .toBe(true);
+  }
+
+  expect(mockChat.requests).toHaveLength(2);
+});
+
 test("keeps a crowded chat history from clipping the active assistant reply", async ({ page }) => {
   await page.setViewportSize({ width: 2048, height: 1153 });
   const threads = Array.from({ length: 12 }, (_, index) => ({
