@@ -1,3 +1,4 @@
+import type { TripContextDraft } from "@/server/chat/trip-context";
 import {
   buildSavedTripItemFromItineraryPlanArtifact,
   buildSavedTripItemFromRecommendationCardArtifact,
@@ -25,7 +26,8 @@ export type ChatClientGeolocation = {
 };
 
 export type ChatClientContext = {
-  geolocation: ChatClientGeolocation;
+  geolocation?: ChatClientGeolocation;
+  tripContext?: TripContextDraft;
 };
 
 export type ArtifactDecisionMetadata = SavedTripArtifactDecisionMetadata;

@@ -43,7 +43,16 @@ describe("profile API route", () => {
         accessibilityNotes: "Avoid steep stairs",
         interests: ["surf", "food"],
         preferredAreas: ["General Luna", "Cloud 9"],
-        tripContext: { notes: "Arrives in August" },
+        tripContext: {
+          notes: "Arrives in August",
+          currentArea: "Cloud 9",
+          accommodation: "Near Cloud 9",
+          dateRange: "Aug 1 - 6",
+          travelerType: "Family with kids",
+          transportMode: "tricycle",
+          rideTimeLimitMinutes: 25,
+          durableConstraints: ["with_kids", "budget_cheap"],
+        },
         marketingConsent: true,
       }),
       dependencies,
@@ -67,7 +76,16 @@ describe("profile API route", () => {
       accessibilityNotes: "Avoid steep stairs",
       interests: ["surf", "food"],
       preferredAreas: ["General Luna", "Cloud 9"],
-      tripContext: { notes: "Arrives in August" },
+      tripContext: {
+        notes: "Arrives in August",
+        currentArea: "Cloud 9",
+        accommodation: "Near Cloud 9",
+        dateRange: "Aug 1 - 6",
+        travelerType: "Family with kids",
+        transportMode: "tricycle",
+        rideTimeLimitMinutes: 25,
+        durableConstraints: ["with_kids", "budget_cheap"],
+      },
       marketingConsent: true,
     });
 
@@ -125,6 +143,11 @@ describe("profile API route", () => {
         expectedPaths: ["tripContext.notes"],
       },
       {
+        name: "raw browser coordinates",
+        tripContext: { currentArea: "Cloud 9", geolocation: { latitude: 9.81, longitude: 126.16 } },
+        expectedPaths: ["tripContext.geolocation"],
+      },
+      {
         name: "arrays",
         tripContext: [{ notes: "No arrays" }],
         expectedPaths: ["tripContext"],
@@ -158,6 +181,8 @@ describe("profile API route", () => {
     const db = await openProfileTestDatabase();
     await seedLegacyProfile(db, "user_legacy_trip_context", {
       notes: "  Keep beach days flexible  ",
+      currentArea: "Cloud 9",
+      accommodation: "  Near Cloud 9  ",
       arrivalDate: "2026-08-01",
       nested: { arbitrary: true },
     });
@@ -167,7 +192,11 @@ describe("profile API route", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.profile.tripContext).toEqual({ notes: "Keep beach days flexible" });
+    expect(body.profile.tripContext).toEqual({
+      notes: "Keep beach days flexible",
+      currentArea: "Cloud 9",
+      accommodation: "Near Cloud 9",
+    });
 
     await db.close();
   });

@@ -1,10 +1,12 @@
+import {
+  normalizeStoredProfileTripContext,
+  tripContextProfileNotesMaxLength,
+  type UserProfileTripContext,
+} from "@/server/chat/trip-context";
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 
-export const TRIP_CONTEXT_NOTES_MAX_LENGTH = 1000;
-
-export type UserProfileTripContext = {
-  notes?: string | null;
-};
+export const TRIP_CONTEXT_NOTES_MAX_LENGTH = tripContextProfileNotesMaxLength;
+export type { UserProfileTripContext };
 
 export type UserProfileDetails = {
   displayName: string | null;
@@ -223,28 +225,7 @@ function stringArrayFromJson(value: unknown) {
 }
 
 function tripContextFromJson(value: unknown): UserProfileTripContext {
-  const parsed = parseJsonValue(value);
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return {};
-  }
-
-  const notes = (parsed as Record<string, unknown>).notes;
-  if (notes === undefined) {
-    return {};
-  }
-  if (notes === null) {
-    return { notes: null };
-  }
-  if (typeof notes !== "string") {
-    return {};
-  }
-
-  const trimmedNotes = notes.trim();
-  if (trimmedNotes.length > TRIP_CONTEXT_NOTES_MAX_LENGTH) {
-    return {};
-  }
-
-  return { notes: trimmedNotes || null };
+  return normalizeStoredProfileTripContext(value);
 }
 
 function parseJsonValue(value: unknown) {
