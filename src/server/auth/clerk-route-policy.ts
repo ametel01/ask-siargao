@@ -7,7 +7,13 @@ export const clerkProtectedRoutePatterns = [
   "/api/chat/ratings(.*)",
 ] as const;
 
-type ClerkRouteClassification = "protected" | "public" | "public-by-default";
+export type ClerkRouteClassification =
+  | "protected"
+  | "public"
+  | "externally_verified"
+  | "rate_limit_public"
+  | "unclassified"
+  | "public-by-default";
 
 const publicRouteExpressions = [
   /^\/$/,
@@ -15,12 +21,23 @@ const publicRouteExpressions = [
   /^\/sign-in(?:\/.*)?$/,
   /^\/sign-up(?:\/.*)?$/,
   /^\/trips\/shared(?:\/.*)?$/,
+] as const;
+
+const publicApiRouteExpressions = [
   /^\/api\/chat\/?$/,
   /^\/api\/trips\/saved(?:\/.*)?$/,
   /^\/api\/trips\/share(?:\/.*)?$/,
   /^\/api\/public(?:\/.*)?$/,
+] as const;
+
+const externallyVerifiedApiRouteExpressions = [
   /^\/api\/stripe\/webhook\/?$/,
   /^\/api\/clerk\/webhooks\/?$/,
+] as const;
+
+const rateLimitPublicApiRouteExpressions = [
+  /^\/api\/audit\/checkout\/?$/,
+  /^\/api\/audit\/intake\/?$/,
 ] as const;
 
 const protectedRouteExpressions = [
@@ -39,8 +56,24 @@ export function classifyClerkRoute(pathnameOrUrl: string): ClerkRouteClassificat
     return "protected";
   }
 
+  if (externallyVerifiedApiRouteExpressions.some((expression) => expression.test(pathname))) {
+    return "externally_verified";
+  }
+
+  if (rateLimitPublicApiRouteExpressions.some((expression) => expression.test(pathname))) {
+    return "rate_limit_public";
+  }
+
+  if (publicApiRouteExpressions.some((expression) => expression.test(pathname))) {
+    return "public";
+  }
+
   if (publicRouteExpressions.some((expression) => expression.test(pathname))) {
     return "public";
+  }
+
+  if (pathname === "/api" || pathname.startsWith("/api/")) {
+    return "unclassified";
   }
 
   return "public-by-default";
