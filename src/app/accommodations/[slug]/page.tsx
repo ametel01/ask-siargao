@@ -1,4 +1,7 @@
+import { publicSurfaceRegistry } from "@/server/public-pages/public-surface-registry";
 import { renderPublicHumanPage } from "@/server/public-pages/responses";
+
+const surface = publicSurfaceRegistry.accommodations;
 
 export default async function AccommodationPublicPage({
   params,
@@ -7,5 +10,5 @@ export default async function AccommodationPublicPage({
 }) {
   const { slug } = await params;
 
-  return renderPublicHumanPage("accommodations", slug);
+  return renderPublicHumanPage(surface, slug);
 }

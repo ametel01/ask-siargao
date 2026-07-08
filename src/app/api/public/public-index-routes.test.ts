@@ -43,4 +43,25 @@ describe("public knowledge index routes", () => {
     expect(JSON.stringify(entities)).not.toContain("paid report");
     expect(JSON.stringify(evidence)).not.toContain("audit_");
   });
+
+  test("keeps the public_api rate-limit 429 headers and shape on index routes", async () => {
+    let response: Response | undefined;
+
+    for (let index = 0; index < 121; index += 1) {
+      response = await entitiesGet(new Request("https://siargao.test/api/public/entities"));
+    }
+
+    if (!response) {
+      throw new Error("Expected rate limit response.");
+    }
+
+    const body = (await response.json()) as { error: string; resetAt: string };
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("x-ratelimit-limit")).toBe("120");
+    expect(response.headers.get("x-ratelimit-remaining")).toBe("0");
+    expect(response.headers.get("x-ratelimit-reset")).toBe(body.resetAt);
+    expect(body.error).toBe("rate_limited");
+    expect(body.resetAt).toBeTruthy();
+  });
 });

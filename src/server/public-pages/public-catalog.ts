@@ -4,9 +4,9 @@ import {
   createFixturePublicPageRepository,
   evaluatePublicPageEligibility,
   type PublicKnowledgePage,
-  type PublicPageFamily,
   type PublicPageRepository,
 } from "@/server/public-pages/public-content";
+import type { PublicPageFamily } from "@/server/public-pages/public-surface-registry";
 
 export type PublicKnowledgeCatalog = {
   getPage(family: PublicPageFamily, slug: string): Promise<PublicKnowledgePage | undefined>;
