@@ -2,16 +2,9 @@ import { z } from "zod";
 
 import { isClerkServerConfigured } from "@/features/auth/clerk-config";
 import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/auth/clerk-users";
+import { parseUserProfileTripContextPatch } from "@/server/chat/trip-context";
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
-import {
-  loadUserProfile,
-  TRIP_CONTEXT_NOTES_MAX_LENGTH,
-  upsertUserProfile,
-} from "@/server/profile/user-profile-store";
-
-const tripContextPatchSchema = z.strictObject({
-  notes: optionalNullableText(TRIP_CONTEXT_NOTES_MAX_LENGTH),
-});
+import { loadUserProfile, upsertUserProfile } from "@/server/profile/user-profile-store";
 
 const profilePatchSchema = z.strictObject({
   displayName: optionalNullableText(80),
@@ -22,7 +15,7 @@ const profilePatchSchema = z.strictObject({
   accessibilityNotes: optionalNullableText(600),
   interests: z.array(trimmedText(60)).max(20).optional(),
   preferredAreas: z.array(trimmedText(80)).max(20).optional(),
-  tripContext: tripContextPatchSchema.optional(),
+  tripContext: z.unknown().optional(),
   marketingConsent: z.boolean().optional(),
 });
 
@@ -78,9 +71,18 @@ export async function patchProfileResponse(
     return invalidProfileRequest(profileValidationIssues(parsed.error.issues));
   }
 
+  const tripContext = parseUserProfileTripContextPatch(parsed.data.tripContext);
+  if (!tripContext.success) {
+    return invalidProfileRequest(tripContext.issues);
+  }
+
+  const { tripContext: _tripContext, ...profilePatch } = parsed.data;
   const profile = await upsertUserProfile(dependencies.db, {
     userId: currentUser.userId,
-    patch: parsed.data,
+    patch: {
+      ...profilePatch,
+      ...(_tripContext === undefined ? {} : { tripContext: tripContext.data }),
+    },
     now: dependencies.now(),
   });
 

@@ -95,6 +95,18 @@ import {
   writeAuthenticatedSavedTripState,
   writeSavedTripState,
 } from "@/features/chat/saved-trip-client";
+import {
+  defaultTripContextDraft as defaultTripContext,
+  type ForecastLocationLabel,
+  forecastLocationLabels,
+  getTripContextServerSnapshot,
+  getTripContextSnapshot,
+  normalizeTripContextDraft,
+  readStoredTripContextForRequest,
+  subscribeTripContextState,
+  type TripContextDraft,
+  writeStoredTripContext,
+} from "@/features/chat/trip-context-draft";
 import { cn } from "@/lib/utils";
 import { BrandLockup, PalmMark } from "@/ui/components/ask-siargao";
 
@@ -108,13 +120,6 @@ type ChatContextIcon = typeof MapPin;
 type RailQuestionItem =
   | { kind: "thread"; id: string; label: string; value: string }
   | { kind: "fallback"; label: string; value: string };
-type TripContextDraft = {
-  accommodation: string;
-  dateRange: string;
-  travelerType: string;
-  nearbyArea: ForecastLocationLabel;
-};
-type ForecastLocationLabel = "Siargao Island" | "Cloud 9" | "General Luna" | "Del Carmen";
 type WeatherPanelSnapshot = {
   status: "live" | "fallback";
   locationName: string;
@@ -167,22 +172,6 @@ const fallbackRecentQuestions = [
   { kind: "fallback", label: "Will it rain this afternoon?", value: "Suggested" },
   { kind: "fallback", label: "Surf conditions tomorrow?", value: "Suggested" },
 ] satisfies RailQuestionItem[];
-
-const tripContextStorageKey = "ask-siargao:trip-context:v1";
-const forecastLocationLabels = [
-  "Cloud 9",
-  "General Luna",
-  "Del Carmen",
-  "Siargao Island",
-] as const satisfies readonly ForecastLocationLabel[];
-const defaultTripContext: TripContextDraft = {
-  accommodation: "Near Cloud 9 / Catangnan",
-  dateRange: "Jun 12 - 22",
-  travelerType: "Couple",
-  nearbyArea: "Cloud 9",
-};
-const tripContextListeners = new Set<() => void>();
-let tripContextSnapshotCache: { rawValue: string | null; state: TripContextDraft } | null = null;
 
 const chatSignedOutActions = (
   <>
@@ -762,7 +751,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
 
       setInputValue("");
       setMessages((currentMessages) => [...currentMessages, userMessage, pendingAssistant]);
-      if (requestBody.clientContext?.geolocation.consentScope === "single_request") {
+      if (requestBody.clientContext?.geolocation?.consentScope === "single_request") {
         setLocationState({ status: "consumed" });
       }
 
@@ -1803,93 +1792,6 @@ async function fetchSurfPanel(url: string): Promise<SurfPanelResponse> {
     throw new Error("surf_unavailable");
   }
   return (await response.json()) as SurfPanelResponse;
-}
-
-function getTripContextServerSnapshot() {
-  return defaultTripContext;
-}
-
-function getTripContextSnapshot() {
-  if (typeof window === "undefined") {
-    return defaultTripContext;
-  }
-
-  const rawValue = window.localStorage.getItem(tripContextStorageKey);
-  if (tripContextSnapshotCache?.rawValue === rawValue) {
-    return tripContextSnapshotCache.state;
-  }
-
-  const state = readStoredTripContext();
-  tripContextSnapshotCache = { rawValue, state };
-  return state;
-}
-
-function subscribeTripContextState(callback: () => void) {
-  tripContextListeners.add(callback);
-  const handleStorage = (event: StorageEvent) => {
-    if (event.key === tripContextStorageKey) {
-      tripContextSnapshotCache = null;
-      callback();
-    }
-  };
-
-  window.addEventListener("storage", handleStorage);
-  return () => {
-    tripContextListeners.delete(callback);
-    window.removeEventListener("storage", handleStorage);
-  };
-}
-
-function readStoredTripContext(): TripContextDraft {
-  if (typeof window === "undefined") {
-    return defaultTripContext;
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(tripContextStorageKey);
-    if (!rawValue) {
-      return defaultTripContext;
-    }
-    return normalizeTripContextDraft(JSON.parse(rawValue) as Partial<TripContextDraft>);
-  } catch {
-    return defaultTripContext;
-  }
-}
-
-function writeStoredTripContext(context: TripContextDraft) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const rawValue = JSON.stringify(context);
-  window.localStorage.setItem(tripContextStorageKey, rawValue);
-  tripContextSnapshotCache = { rawValue, state: context };
-  for (const listener of tripContextListeners) {
-    listener();
-  }
-}
-
-function normalizeTripContextDraft(context: Partial<TripContextDraft>): TripContextDraft {
-  return {
-    accommodation: normalizedContextText(context.accommodation, defaultTripContext.accommodation),
-    dateRange: normalizedContextText(context.dateRange, defaultTripContext.dateRange),
-    travelerType: normalizedContextText(context.travelerType, defaultTripContext.travelerType),
-    nearbyArea: isForecastLocationLabel(context.nearbyArea)
-      ? context.nearbyArea
-      : defaultTripContext.nearbyArea,
-  };
-}
-
-function normalizedContextText(value: string | undefined, fallback: string) {
-  const trimmedValue = value?.trim();
-  return trimmedValue ? trimmedValue.slice(0, 80) : fallback;
-}
-
-function isForecastLocationLabel(value: unknown): value is ForecastLocationLabel {
-  return (
-    typeof value === "string" &&
-    forecastLocationLabels.includes(value as (typeof forecastLocationLabels)[number])
-  );
 }
 
 function nearestForecastLocationLabel(geolocation: ChatClientGeolocation): ForecastLocationLabel {
@@ -3925,12 +3827,16 @@ function buildChatRequestBody(
   clientContext?: ChatClientContext;
   threadId?: string;
 } {
+  const tripContext = readStoredTripContextForRequest();
+  const clientContext: ChatClientContext = {
+    ...(locationState.status === "ready" ? { geolocation: locationState.geolocation } : {}),
+    ...(tripContext ? { tripContext } : {}),
+  };
+
   return {
     messages,
     ...(threadId ? { threadId } : {}),
-    ...(locationState.status === "ready"
-      ? { clientContext: { geolocation: locationState.geolocation } }
-      : {}),
+    ...(Object.keys(clientContext).length > 0 ? { clientContext } : {}),
   };
 }
 
