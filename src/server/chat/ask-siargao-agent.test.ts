@@ -2118,6 +2118,29 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
   });
 
+  test("keeps loaded source and tool memory free of final-prose footer instructions", () => {
+    const memorySnapshot = loadAgentMemorySnapshot({ rootDir: process.cwd() });
+    const sourcePolicy = requiredMemoryContent(memorySnapshot, "ASK_SIARGAO_SOURCE_POLICY.md");
+    const toolUsePolicy = requiredMemoryContent(memorySnapshot, "ASK_SIARGAO_TOOL_USE_POLICY.md");
+    const nightlifeMemory = requiredMemoryContent(memorySnapshot, "NIGHTLIFE.md");
+    const modelFacingSourceToolMemory = [sourcePolicy, toolUsePolicy].join("\n\n");
+
+    expect(modelFacingSourceToolMemory).not.toMatch(/\bUse\s+["'`]Checked:/i);
+    expect(modelFacingSourceToolMemory).not.toMatch(/\bUse\s+["'`]Not checked:/i);
+    expect(modelFacingSourceToolMemory).not.toMatch(
+      /(^|\n)\s*Checked:\s+[^\n]+(?:\n[^\n]*){0,4}\n\s*Not checked:/i,
+    );
+    expect(sourcePolicy).toContain("AnswerSourceSummary.checked");
+    expect(sourcePolicy).toContain("AnswerSourceSummary.notChecked");
+    expect(nightlifeMemory).toContain(
+      "Structured source boundary for metadata, not normal traveler prose:",
+    );
+    expect(nightlifeMemory).toContain(
+      "checked: event schedule sources and Google Places venue details.",
+    );
+    expect(nightlifeMemory).toContain("notChecked: live crowd size");
+  });
+
   test("does not force beach or surf memory for breakfast place prompts", async () => {
     const client = fakeResponsesClient([
       {
@@ -6600,6 +6623,14 @@ function memorySnapshotFixture({
       },
     ],
   };
+}
+
+function requiredMemoryContent(memorySnapshot: AgentMemorySnapshot, fileName: string) {
+  const memoryFile = memorySnapshot.files.find((file) => file.fileName === fileName);
+  if (!memoryFile) {
+    throw new Error(`Missing memory fixture file ${fileName}`);
+  }
+  return memoryFile.content;
 }
 
 const weatherSourceSummary: AnswerSourceSummary = {
