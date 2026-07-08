@@ -3,7 +3,15 @@ import { z } from "zod";
 import { isClerkServerConfigured } from "@/features/auth/clerk-config";
 import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/auth/clerk-users";
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
-import { loadUserProfile, upsertUserProfile } from "@/server/profile/user-profile-store";
+import {
+  loadUserProfile,
+  TRIP_CONTEXT_NOTES_MAX_LENGTH,
+  upsertUserProfile,
+} from "@/server/profile/user-profile-store";
+
+const tripContextPatchSchema = z.strictObject({
+  notes: optionalNullableText(TRIP_CONTEXT_NOTES_MAX_LENGTH),
+});
 
 const profilePatchSchema = z.strictObject({
   displayName: optionalNullableText(80),
@@ -14,7 +22,7 @@ const profilePatchSchema = z.strictObject({
   accessibilityNotes: optionalNullableText(600),
   interests: z.array(trimmedText(60)).max(20).optional(),
   preferredAreas: z.array(trimmedText(80)).max(20).optional(),
-  tripContext: z.record(z.string(), z.unknown()).optional(),
+  tripContext: tripContextPatchSchema.optional(),
   marketingConsent: z.boolean().optional(),
 });
 
@@ -107,9 +115,10 @@ function profileValidationIssues(
   return issues.flatMap((issue) => {
     const keys = issue.keys;
     if (Array.isArray(keys)) {
+      const pathPrefix = issue.path.length > 0 ? `${issue.path.join(".")}.` : "";
       return keys
         .filter((key): key is string => typeof key === "string")
-        .map((key) => ({ path: key, message: issue.message }));
+        .map((key) => ({ path: `${pathPrefix}${key}`, message: issue.message }));
     }
 
     return [{ path: issue.path.join("."), message: issue.message }];

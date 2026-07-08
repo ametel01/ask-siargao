@@ -1,5 +1,11 @@
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 
+export const TRIP_CONTEXT_NOTES_MAX_LENGTH = 1000;
+
+export type UserProfileTripContext = {
+  notes?: string | null;
+};
+
 export type UserProfileDetails = {
   displayName: string | null;
   homeCountry: string | null;
@@ -9,7 +15,7 @@ export type UserProfileDetails = {
   accessibilityNotes: string | null;
   interests: string[];
   preferredAreas: string[];
-  tripContext: Record<string, unknown>;
+  tripContext: UserProfileTripContext;
   marketingConsent: boolean;
   createdAt: string | null;
   updatedAt: string | null;
@@ -37,7 +43,7 @@ export type UserProfilePatch = Partial<{
   accessibilityNotes: string | null;
   interests: string[];
   preferredAreas: string[];
-  tripContext: Record<string, unknown>;
+  tripContext: UserProfileTripContext;
   marketingConsent: boolean;
 }>;
 
@@ -184,7 +190,7 @@ function profileResponseFromRow(row: UserProfileRow): UserProfileResponse {
       accessibilityNotes: row.accessibility_notes,
       interests: stringArrayFromJson(row.interests_json),
       preferredAreas: stringArrayFromJson(row.preferred_areas_json),
-      tripContext: objectFromJson(row.trip_context_json),
+      tripContext: tripContextFromJson(row.trip_context_json),
       marketingConsent: row.marketing_consent ?? false,
       createdAt: timestampToIso(row.profile_created_at),
       updatedAt: timestampToIso(row.profile_updated_at),
@@ -216,11 +222,29 @@ function stringArrayFromJson(value: unknown) {
     : [];
 }
 
-function objectFromJson(value: unknown) {
+function tripContextFromJson(value: unknown): UserProfileTripContext {
   const parsed = parseJsonValue(value);
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? (parsed as Record<string, unknown>)
-    : {};
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {};
+  }
+
+  const notes = (parsed as Record<string, unknown>).notes;
+  if (notes === undefined) {
+    return {};
+  }
+  if (notes === null) {
+    return { notes: null };
+  }
+  if (typeof notes !== "string") {
+    return {};
+  }
+
+  const trimmedNotes = notes.trim();
+  if (trimmedNotes.length > TRIP_CONTEXT_NOTES_MAX_LENGTH) {
+    return {};
+  }
+
+  return { notes: trimmedNotes || null };
 }
 
 function parseJsonValue(value: unknown) {
