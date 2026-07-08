@@ -76,6 +76,25 @@ describe("Trip Context module", () => {
     expect(context.temporaryModifiers).toContain("open_now");
   });
 
+  test("lets latest explicit stable-context corrections override older user turns", () => {
+    const transportContext = deriveTripContext([
+      { role: "user", content: "We are on a budget near Cloud 9 and have no scooter." },
+      { role: "assistant", content: "I will keep that close and practical." },
+      { role: "user", content: "Actually we rented a scooter, so widen the options." },
+    ] satisfies AskSiargaoChatMessage[]);
+    const budgetContext = deriveTripContext([
+      { role: "user", content: "Keep this cheap and budget-friendly near General Luna." },
+      { role: "assistant", content: "I will keep the budget low." },
+      { role: "user", content: "Actually make it premium for tonight." },
+    ] satisfies AskSiargaoChatMessage[]);
+
+    expect(transportContext.transportMode).toBe("scooter");
+    expect(transportContext.durableConstraints).not.toContain("no_scooter");
+    expect(budgetContext.travelerProfile.budget).toBe("premium");
+    expect(budgetContext.durableConstraints).toContain("budget_premium");
+    expect(budgetContext.durableConstraints).not.toContain("budget_cheap");
+  });
+
   test("uses valid browser geolocation only as a near-me proximity anchor", () => {
     const now = new Date("2026-07-08T05:00:00.000Z");
     const clientContext = normalizeTripContextClientContext(

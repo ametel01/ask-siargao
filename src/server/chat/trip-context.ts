@@ -256,20 +256,33 @@ export function deriveTripContext(
   });
   const routeLocations = inferRouteLocations(fullUserContext);
   const inferredTravelerProfile = inferTravelerProfile(fullUserContext);
+  const latestTravelerProfile = inferTravelerProfile(latestUserTurn);
+  const chatTravelerProfile = {
+    ...inferredTravelerProfile,
+    budget: latestTravelerProfile.budget ?? inferredTravelerProfile.budget,
+  };
   const travelerProfile = mergeTravelerProfiles(
-    inferredTravelerProfile,
+    chatTravelerProfile,
     uiSeed.travelerProfile,
     profileSeed.travelerProfile,
   );
-  const durableConstraints = inferDurableConstraints(fullUserContext, travelerProfile, [
-    ...profileSeed.durableConstraints,
-    ...uiSeed.durableConstraints,
-  ]);
+  const latestTransportMode = inferTransportMode(latestUserTurn);
+  const durableConstraints = reconcileLatestDurableConstraints(
+    inferDurableConstraints(fullUserContext, travelerProfile, [
+      ...profileSeed.durableConstraints,
+      ...uiSeed.durableConstraints,
+    ]),
+    {
+      latestBudget: latestTravelerProfile.budget,
+      latestTransportMode,
+    },
+  );
   const rideTimeLimitMinutes =
     inferRideTimeLimitMinutes(fullUserContext) ??
     uiSeed.rideTimeLimitMinutes ??
     profileSeed.rideTimeLimitMinutes;
   const transportMode = firstTransportMode([
+    latestTransportMode,
     inferTransportMode(fullUserContext),
     uiSeed.transportMode,
     profileSeed.transportMode,
@@ -878,6 +891,31 @@ function inferDurableConstraints(
     constraints.add("no_scooter");
   }
   return [...constraints];
+}
+
+function reconcileLatestDurableConstraints(
+  constraints: readonly string[],
+  {
+    latestBudget,
+    latestTransportMode,
+  }: {
+    latestBudget?: BudgetPreference;
+    latestTransportMode: TransportMode;
+  },
+) {
+  let reconciled = constraints.filter(isDurableConstraint);
+  if (latestBudget) {
+    reconciled = reconciled.filter((constraint) => !constraint.startsWith("budget_"));
+    reconciled.push(`budget_${latestBudget}`);
+  }
+  if (
+    latestTransportMode === "scooter" ||
+    latestTransportMode === "tricycle" ||
+    latestTransportMode === "van"
+  ) {
+    reconciled = reconciled.filter((constraint) => constraint !== "no_scooter");
+  }
+  return [...new Set(reconciled)];
 }
 
 function inferActiveGoal(
