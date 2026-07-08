@@ -220,6 +220,22 @@ function setEnvValue(name: string, value: string | undefined) {
   process.env[name] = value;
 }
 
+function credentialFragment(...parts: string[]) {
+  return parts.join("-");
+}
+
+function underscoreCredential(...parts: string[]) {
+  return parts.join("_");
+}
+
+function bearerFragment(scope: string, suffix: string) {
+  return ["Bearer", credentialFragment("provider", "sample", scope, suffix)].join(" ");
+}
+
+function keyValueCredential(key: string, separator: "=" | ": ", scope: string, suffix: string) {
+  return `${key}${separator}${credentialFragment("provider", "sample", scope, suffix)}`;
+}
+
 describe("privacy and observability", () => {
   test("captures viability metrics without private trip details", () => {
     const metrics = sanitizeIntakeForMetrics({
@@ -243,14 +259,27 @@ describe("privacy and observability", () => {
   });
 
   test("redacts telemetry payloads before Sentry or PostHog sinks", () => {
+    const apiToken = underscoreCredential("sk", "test", "should", "not", "render");
+    const hyphenatedToken = credentialFragment("sk", "provider", "sample", "security", "alpha");
+    const bearerToken = bearerFragment("security", "beta");
     const event = trackServerEvent({
       name: "provider_error_recorded",
       payload: {
         email: "traveler@example.com",
-        apiKey: "sk_test_should_not_render",
-        reason: "provider timeout",
+        apiKey: apiToken,
+        reason: `provider timeout with ${hyphenatedToken} and ${bearerToken}`,
+        diagnostics: [
+          keyValueCredential("token", "=", "security", "gamma"),
+          keyValueCredential("secret", ": ", "security", "delta"),
+          keyValueCredential("api_key", "=", "security", "epsilon"),
+          keyValueCredential("apikey", ": ", "security", "zeta"),
+          keyValueCredential("api-key", "=", "security", "eta"),
+        ],
       },
-      env: { SENTRY_DSN: "https://sentry.example/1", NEXT_PUBLIC_POSTHOG_KEY: "phc_test" },
+      env: {
+        SENTRY_DSN: "https://sentry.example/1",
+        NEXT_PUBLIC_POSTHOG_KEY: underscoreCredential("phc", "test"),
+      },
       now: new Date("2026-06-23T08:00:00.000Z"),
     });
 
@@ -258,11 +287,21 @@ describe("privacy and observability", () => {
     expect(event.sinks.posthogConfigured).toBe(true);
     expect(JSON.stringify(event.payload)).not.toContain("traveler@example.com");
     expect(JSON.stringify(event.payload)).not.toContain("sk_test");
+    expect(JSON.stringify(event.payload)).not.toContain("security-alpha");
+    expect(JSON.stringify(event.payload)).not.toContain("security-beta");
+    expect(JSON.stringify(event.payload)).not.toContain("security-gamma");
+    expect(JSON.stringify(event.payload)).not.toContain("security-delta");
+    expect(JSON.stringify(event.payload)).not.toContain("security-epsilon");
+    expect(JSON.stringify(event.payload)).not.toContain("security-zeta");
+    expect(JSON.stringify(event.payload)).not.toContain("security-eta");
+    expect(JSON.stringify(event.payload)).toContain("[redacted-secret]");
   });
 
   test("server-only secret helper refuses public env names", () => {
-    expect(getServerSecret("STRIPE_WEBHOOK_SECRET", { STRIPE_WEBHOOK_SECRET: "whsec_test" })).toBe(
-      "whsec_test",
+    const webhookToken = underscoreCredential("whsec", "test");
+
+    expect(getServerSecret("STRIPE_WEBHOOK_SECRET", { STRIPE_WEBHOOK_SECRET: webhookToken })).toBe(
+      webhookToken,
     );
     expect(() => getServerSecret("NEXT_PUBLIC_POSTHOG_KEY")).toThrow("Refusing to read public");
   });

@@ -1,5 +1,8 @@
 const sensitiveKeyPattern = /secret|token|password|api[_-]?key|rawpayload|rawevent|authorization/i;
 const secretStringPattern = /(sk|rk|pk|whsec|sess|pi|cs)_(test|live)?_[A-Za-z0-9_]+/g;
+const hyphenatedSecretStringPattern = /\b(sk|rk|pk|whsec|sess|pi|cs)-[A-Za-z0-9_-]{12,}\b/g;
+const bearerSecretPattern = /\bBearer\s+[A-Za-z0-9._~+/-]{12,}=*/gi;
+const keyValueSecretPattern = /\b(api[_-]?key|apikey|token|secret)\s*[=:]\s*[^,\s;]+/gi;
 const emailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 
 export function redactDiagnosticValue(value: unknown): unknown {
@@ -24,5 +27,8 @@ export function redactDiagnosticValue(value: unknown): unknown {
 function redactString(value: string) {
   return value
     .replace(emailPattern, "[redacted-email]")
-    .replace(secretStringPattern, "[redacted-secret]");
+    .replace(bearerSecretPattern, "[redacted-secret]")
+    .replace(secretStringPattern, "[redacted-secret]")
+    .replace(hyphenatedSecretStringPattern, "[redacted-secret]")
+    .replace(keyValueSecretPattern, "[redacted-secret]");
 }
