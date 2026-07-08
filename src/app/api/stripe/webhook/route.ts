@@ -23,11 +23,11 @@ export async function POST(request: Request) {
       signature,
       webhookSecret: stripeWebhookSecretFromEnv(),
     });
-  } catch (error) {
+  } catch {
     return Response.json(
       {
         error: "invalid_stripe_webhook",
-        message: error instanceof Error ? error.message : "Webhook verification failed.",
+        message: "Webhook verification failed.",
       },
       { status: 400 },
     );

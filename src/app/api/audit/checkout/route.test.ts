@@ -90,6 +90,23 @@ describe("audit checkout route", () => {
     expect(dependencies.persistedAudits[0]?.payment?.stripeCheckoutSessionId).toBe("cs_test_123");
     expect(dependencies.events).toEqual(["preview_to_payment_started"]);
   });
+
+  test("does not expose checkout lifecycle exception text", async () => {
+    const internalPhrase = "fixture_should_not_render_checkout_lifecycle";
+    const response = await checkoutResponse(jsonRequest({ auditRequestId: "audit_throws" }), {
+      startAuditCheckoutPaymentLifecycle: async () => {
+        throw new Error(`checkout lifecycle failed ${internalPhrase}`);
+      },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body).toEqual({
+      error: "checkout_not_available",
+      message: "Checkout could not be started.",
+    });
+    expect(JSON.stringify(body)).not.toContain(internalPhrase);
+  });
 });
 
 function checkoutDependencies(input: { audit?: AuditLifecycleRecord | null } = {}) {

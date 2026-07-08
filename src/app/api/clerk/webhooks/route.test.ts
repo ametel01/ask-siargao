@@ -5,19 +5,21 @@ import { clerkWebhookResponse } from "@/app/api/clerk/webhooks/clerk-webhook-rou
 
 describe("Clerk webhook route", () => {
   test("rejects requests that fail Clerk webhook verification", async () => {
+    const internalPhrase = "fixture_should_not_render_clerk_verification";
     const response = await clerkWebhookResponse(clerkWebhookRequest(), {
       applyClerkUserWebhookEvent: async () => ({ status: "upserted", userId: "unreached" }),
       verifyWebhook: async () => {
-        throw new Error("No matching svix signature.");
+        throw new Error(`No matching svix signature. ${internalPhrase}`);
       },
     });
     const body = await response.json();
 
     expect(response.status).toBe(400);
-    expect(body).toMatchObject({
+    expect(body).toEqual({
       error: "invalid_clerk_webhook",
-      message: "No matching svix signature.",
+      message: "Webhook verification failed.",
     });
+    expect(JSON.stringify(body)).not.toContain(internalPhrase);
   });
 
   test("syncs verified Clerk user lifecycle events before returning success", async () => {
@@ -48,19 +50,21 @@ describe("Clerk webhook route", () => {
   });
 
   test("does not return 2xx when local Clerk user sync fails", async () => {
+    const internalPhrase = "fixture_should_not_render_clerk_sync";
     const response = await clerkWebhookResponse(clerkWebhookRequest(), {
       applyClerkUserWebhookEvent: async () => {
-        throw new Error("database unavailable");
+        throw new Error(`database unavailable ${internalPhrase}`);
       },
       verifyWebhook: async () => userEvent("user.created", "user_fail"),
     });
     const body = await response.json();
 
     expect(response.status).toBe(500);
-    expect(body).toMatchObject({
+    expect(body).toEqual({
       error: "clerk_user_sync_failed",
-      message: "database unavailable",
+      message: "Failed to sync Clerk user.",
     });
+    expect(JSON.stringify(body)).not.toContain(internalPhrase);
   });
 
   test("ignores verified non-user Clerk events", async () => {

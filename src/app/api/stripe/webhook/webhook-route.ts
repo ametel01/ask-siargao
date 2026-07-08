@@ -71,11 +71,11 @@ export async function stripeWebhookResponse(
       webhookSecret: dependencies.stripeWebhookSecretFromEnv(),
     });
     return await stripeWebhookResponseFromEvent(event, dependencies);
-  } catch (error) {
+  } catch {
     return Response.json(
       {
         error: "invalid_stripe_webhook",
-        message: error instanceof Error ? error.message : "Webhook verification failed.",
+        message: "Webhook verification failed.",
       },
       { status: 400 },
     );

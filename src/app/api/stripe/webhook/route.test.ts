@@ -187,6 +187,53 @@ describe("Stripe webhook route", () => {
     expect(body.error).toBe("invalid_stripe_webhook");
   });
 
+  test("does not expose Stripe verification exception text", async () => {
+    const internalPhrase = "fixture_should_not_render_stripe_verification";
+    const response = await stripeWebhookResponse(
+      new Request("https://siargao.test/api/stripe/webhook", {
+        method: "POST",
+        headers: { "stripe-signature": "t=1,v1=not-real" },
+        body: ignoredEventPayload(),
+      }),
+      {
+        ...routeDependencies(createMemoryPaymentStore(pendingPaymentAudit()).store),
+        verifyStripeWebhookPayload: async () => {
+          throw new Error(`signature parser failed ${internalPhrase}`);
+        },
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual({
+      error: "invalid_stripe_webhook",
+      message: "Webhook verification failed.",
+    });
+    expect(JSON.stringify(body)).not.toContain(internalPhrase);
+  });
+
+  test("does not expose Stripe application exception text", async () => {
+    const internalPhrase = "fixture_should_not_render_stripe_application";
+    const response = await stripeWebhookResponse(
+      await signedRequest(checkoutSessionPayload({ eventId: "evt_application_error" })),
+      routeDependencies({
+        hasProcessedStripeEvent: async () => false,
+        loadCheckoutAudit: async () => pendingPaymentAudit(),
+        saveAppliedPayment: async () => {
+          throw new Error(`payment persistence failed ${internalPhrase}`);
+        },
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual({
+      error: "invalid_stripe_webhook",
+      message: "Webhook verification failed.",
+    });
+    expect(JSON.stringify(body)).not.toContain(internalPhrase);
+  });
+
   test("rejects missing signatures", async () => {
     const response = await stripeWebhookResponse(
       new Request("https://siargao.test/api/stripe/webhook", {
