@@ -2275,7 +2275,36 @@ not-json
 
     expect(result.status).toBe("error");
     expect(result.errorCode).toBe("tool_execution_failed");
-    expect(result.text).toBe("Local data query timed out after 1ms.");
+    expect(result.text).toBe("query_local_facts failed before it could return safe data.");
+    expect(result.sources).toEqual([]);
+  });
+
+  test("keeps generic tool wrapper exception text out of model-visible output", async () => {
+    const fixtureSuffix = "fixture_should_not_render_generic";
+    const fixtureToken = `token=${fixtureSuffix}`;
+
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_db_facts_failure",
+        name: "query_local_facts",
+        arguments: {
+          entityTypes: ["route"],
+          limit: 5,
+        },
+      },
+      {
+        localFactsQueryRunner: async () => {
+          throw new Error(`Local facts backend returned HTTP 502 with ${fixtureToken}`);
+        },
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("tool_execution_failed");
+    expect(result.text).toBe("query_local_facts failed before it could return safe data.");
+    expect(result.text).not.toContain(fixtureSuffix);
+    expect(result.text).not.toContain("HTTP 502");
+    expect(result.text).not.toContain("Local facts backend");
     expect(result.sources).toEqual([]);
   });
 
@@ -2776,6 +2805,8 @@ not-json
   });
 
   test("returns provider-unavailable output for weather provider failures", async () => {
+    const fixtureSuffix = "fixture_should_not_render_weather";
+    const fixtureToken = `token=${fixtureSuffix}`;
     const result = await executeAgentTool(
       {
         requestId: "agent_request_weather",
@@ -2784,15 +2815,68 @@ not-json
       },
       {
         getLatestSiargaoWeatherSnapshot: async () => {
-          throw new Error("Open-Meteo forecast request failed with HTTP 503.");
+          throw new Error(`Open-Meteo forecast request failed with HTTP 503 and ${fixtureToken}.`);
         },
       },
     );
 
     expect(result.status).toBe("error");
     expect(result.errorCode).toBe("provider_unavailable");
-    expect(result.text).toContain("HTTP 503");
+    expect(result.text).toBe("Open-Meteo weather forecast is temporarily unavailable.");
+    expect(result.text).not.toContain(fixtureSuffix);
+    expect(result.text).not.toContain("HTTP 503");
+    expect(result.text).not.toContain("forecast request failed");
     expect(result.sources[0]?.notChecked.join(" ")).toContain("General Luna");
+  });
+
+  test("returns provider-unavailable output for marine provider failures", async () => {
+    const fixtureSuffix = "fixture_should_not_render_marine";
+    const bearerFragment = `Bearer ${fixtureSuffix}_12345`;
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_marine_failure",
+        name: "get_marine_conditions",
+        arguments: { location: "Cloud 9", date_range: "next_48_hours" },
+      },
+      {
+        buildOpenMeteoMarineIngestionBatch: async () => {
+          throw new Error(`Open-Meteo Marine returned HTTP 504 for ${bearerFragment}`);
+        },
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("provider_unavailable");
+    expect(result.text).toBe("Open-Meteo Marine conditions are temporarily unavailable.");
+    expect(result.text).not.toContain(fixtureSuffix);
+    expect(result.text).not.toContain("HTTP 504");
+    expect(result.text).not.toContain("Open-Meteo Marine returned");
+    expect(result.sources[0]?.notChecked.join(" ")).toContain("Cloud 9");
+  });
+
+  test("returns provider-unavailable output for tide provider failures", async () => {
+    const fixtureSuffix = "fixture_should_not_render_tide";
+    const keyFragment = `api_key=${fixtureSuffix}`;
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_tide_failure",
+        name: "get_tide_forecast",
+        arguments: { location: "Dapa", date_range: "tomorrow" },
+      },
+      {
+        buildTideForecastSnapshot: async () => {
+          throw new Error(`Tide-Forecast request failed with HTTP 429 and ${keyFragment}`);
+        },
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("provider_unavailable");
+    expect(result.text).toBe("Tide-Forecast tide data is temporarily unavailable.");
+    expect(result.text).not.toContain(fixtureSuffix);
+    expect(result.text).not.toContain("HTTP 429");
+    expect(result.text).not.toContain("Tide-Forecast request failed");
+    expect(result.sources[0]?.notChecked.join(" ")).toContain("Dapa");
   });
 
   test("returns governed nightlife event route evidence before venue enrichment", async () => {
