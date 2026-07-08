@@ -1367,16 +1367,23 @@ export async function executeAgentTool(
 
   try {
     return await tool.execute(parsed.data, request, dependencies);
-  } catch (error) {
+  } catch {
     return {
       name: request.name,
       status: "error",
-      text:
-        error instanceof Error ? error.message : `${request.name} failed with an unknown error.`,
+      text: safeToolExecutionFailureText(request.name),
       errorCode: "tool_execution_failed",
       sources: [],
     };
   }
+}
+
+function safeToolExecutionFailureText(toolName: string) {
+  return `${toolName} failed before it could return safe data.`;
+}
+
+function safeProviderUnavailableText(subject: string, verb: "is" | "are" = "is") {
+  return `${subject} ${verb} temporarily unavailable.`;
 }
 
 function toolArgumentsForValidation(request: AgentToolExecutionRequest) {
@@ -3033,14 +3040,11 @@ async function getWeatherForecastToolResult(
       data: normalizeWeatherSnapshot(snapshot, args),
       sources: [sourceSummary],
     };
-  } catch (error) {
+  } catch {
     return {
       name: "get_weather_forecast",
       status: "error",
-      text:
-        error instanceof Error
-          ? `Open-Meteo weather forecast lookup failed: ${error.message}`
-          : "Open-Meteo weather forecast lookup failed.",
+      text: safeProviderUnavailableText("Open-Meteo weather forecast"),
       errorCode: "provider_unavailable",
       sources: [weatherProviderUnavailableSourceSummary(args.location)],
     };
@@ -3061,14 +3065,11 @@ async function getMarineConditionsToolResult(
       data: normalizeMarineConditionsSnapshot(snapshot, args),
       sources: [sourceSummary],
     };
-  } catch (error) {
+  } catch {
     return {
       name: "get_marine_conditions",
       status: "error",
-      text:
-        error instanceof Error
-          ? `Open-Meteo Marine conditions lookup failed: ${error.message}`
-          : "Open-Meteo Marine conditions lookup failed.",
+      text: safeProviderUnavailableText("Open-Meteo Marine conditions", "are"),
       errorCode: "provider_unavailable",
       sources: [marineProviderUnavailableSourceSummary(args.location)],
     };
@@ -3089,14 +3090,11 @@ async function getTideForecastToolResult(
       data: normalizeTideForecastSnapshot(snapshot),
       sources: [sourceSummary],
     };
-  } catch (error) {
+  } catch {
     return {
       name: "get_tide_forecast",
       status: "error",
-      text:
-        error instanceof Error
-          ? `Tide-Forecast tide lookup failed: ${error.message}`
-          : "Tide-Forecast tide lookup failed.",
+      text: safeProviderUnavailableText("Tide-Forecast tide data"),
       errorCode: "provider_unavailable",
       sources: [tideForecastProviderUnavailableSourceSummary(args.location)],
     };
