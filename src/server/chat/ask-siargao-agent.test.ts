@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { Logger } from "pino";
 
-import type { AgentMemorySnapshot } from "@/server/chat/agent-memory";
+import { type AgentMemorySnapshot, loadAgentMemorySnapshot } from "@/server/chat/agent-memory";
 import type {
   AgentFinalPayload,
   AgentResponsesClient,
@@ -2025,6 +2025,96 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         name: "load_agent_memory_file",
         arguments: { documents: ["ASK_SIARGAO_SOURCE_POLICY.md"] },
       }),
+    );
+  });
+
+  test("keeps loaded source and tool memory out of traveler prose while preserving source metadata", async () => {
+    const breakfastCard = recommendationCard({
+      id: "place_dapa_breakfast_house",
+      title: "Dapa Breakfast House",
+      subtitle: "Dapa",
+      fitReasons: ["Breakfast option returned by Google Places."],
+      caveats: ["Call ahead for today's menu and seats."],
+      sources: [placesSourceSummary],
+    });
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_source_tool_memory_call",
+        requestId: "req_source_tool_memory_call",
+        callId: "call_source_tool_memory",
+        name: "load_agent_memory_file",
+        arguments: {
+          documents: ["ASK_SIARGAO_SOURCE_POLICY.md", "ASK_SIARGAO_TOOL_USE_POLICY.md"],
+        },
+      }),
+      responseWithToolCall({
+        id: "resp_dapa_breakfast_places_call",
+        requestId: "req_dapa_breakfast_places_call",
+        callId: "call_dapa_breakfast_places",
+        name: "search_places",
+        arguments: {
+          query: "breakfast in Dapa Siargao",
+          constraints: { included_type: "restaurant", open_now: null, page_size: 5 },
+        },
+      }),
+      {
+        id: "resp_dapa_breakfast_memory_aligned_final",
+        output_text: finalPayloadText({
+          answer:
+            "For breakfast in Dapa, start with Dapa Breakfast House and call ahead for today's menu and seats.",
+          usedMemoryFiles: ["ASK_SIARGAO_SOURCE_POLICY.md", "ASK_SIARGAO_TOOL_USE_POLICY.md"],
+          usedToolCallIds: ["call_dapa_breakfast_places"],
+          displayCardIds: [breakfastCard.id],
+        }),
+        _request_id: "req_dapa_breakfast_memory_aligned_final",
+      },
+    ]);
+    const memorySnapshot = loadAgentMemorySnapshot({ rootDir: process.cwd() });
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "load_agent_memory_file") {
+        return executeAgentTool(request, { memorySnapshot });
+      }
+      if (request.name === "search_places") {
+        return {
+          name: "search_places",
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Google Places returned a Dapa breakfast option.",
+          sources: [placesSourceSummary],
+          cards: [breakfastCard],
+        };
+      }
+      throw new Error(`Unexpected tool ${request.name}`);
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Breakfast in Dapa now, should I call ahead?" }],
+        requestId: "agent_request_source_tool_memory_contract",
+      },
+      {
+        client,
+        executeTool,
+        memorySnapshot,
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "load_agent_memory_file",
+      "search_places",
+    ]);
+    expect(result.message).toContain("call ahead");
+    expect(result.message).not.toContain("Checked:");
+    expect(result.message).not.toContain("Not checked:");
+    assertTravelerProseHasNoInternalMechanics(result.message);
+    expect(result.publicSources).toEqual([placesSourceSummary]);
+    expect(result.cards).toEqual([breakfastCard]);
+    expect(result.cards?.[0]?.sources?.[0]?.checked).toEqual(["place identity", "map link"]);
+    expect(result.cards?.[0]?.sources?.[0]?.notChecked).toEqual(["review text", "bookings"]);
+    expect(result.memory?.files.map((file) => file.fileName)).toContain(
+      "ASK_SIARGAO_SOURCE_POLICY.md",
     );
   });
 
