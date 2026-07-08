@@ -89,16 +89,22 @@ without a matching live, cached, weather, or curated tool output.
 `provider_unavailable` means a provider or cache lookup needed for the answer
 failed or was unavailable.
 
-## Checked And Not Checked Wording
+## Checked And Not Checked Boundaries
 
-Use "Checked:" lines only for tool-backed facts represented by verifying source
-labels: `live_checked`, `fresh_cache`, `curated_local_guide`, and
-`event_checked`, `venue_checked`, `weather_checked`, `marine_checked`,
-`tide_forecast_checked`, `community_signal`, `web_researched`,
-`official_checked`, and `directory_checked`.
+Keep checked and not-checked details as structured source metadata. Use
+`AnswerSourceSummary.checked`, `AnswerSourceSummary.notChecked`, card sources,
+artifacts, and source-consistency validation to carry exact evidence
+boundaries.
 
-Use "Not checked:" lines for missing fields, unavailable providers, generic
-reasoning boundaries, or facts that the tool did not verify.
+Do not print standalone lines beginning with `Checked:` or `Not checked:` in
+normal chat answers. Those footer-style labels are internal/source-metadata
+format, not default traveler-facing prose.
+
+When a missing check changes the traveler's decision, translate it into natural
+advice such as confirm locally, call ahead, keep the stop flexible, avoid exposed
+rides in heavy rain, or check conditions before swimming. Do not name internal
+source labels, provider statuses, or tool names unless the traveler explicitly
+asks how sourcing works.
 
 Never create source labels from memory retrieval alone. Agent memory can explain
 policy and data structure, but it is not live evidence.
@@ -110,19 +116,19 @@ evidence.
 
 Source labels are internal trust markers, not default traveler-facing wording.
 In normal chat answers, do not print labels such as `tide_forecast_checked`,
-`marine_checked`, `official_checked`, source profile IDs, provider operation names, or
-licensing notes. Translate them into plain language only when useful, such as "I
-checked the Dapa tide forecast" or "wave data was modelled."
+`marine_checked`, `official_checked`, source profile IDs, provider operation
+names, or licensing notes. Translate them into plain language only when useful,
+such as "I checked the Dapa tide forecast" or "wave data was modelled."
 
 When `research_web` returns insufficient or unavailable evidence, the public
 answer must say the current public evidence could not be verified. Do not
 replace that with a broad Places card, a weather-only answer, a stable memory
 route, or "locals say" phrasing.
 
-For surf-window questions, user-facing checked/not-checked wording should stay
-brief. Answer the best time first, then add at most one practical caveat when
-the unchecked boundary matters, for example that local safety or official warning
-status was not checked.
+For surf-window questions, user-facing source-boundary wording should stay
+brief. Answer the best time first, then add at most one practical caveat when a
+missing boundary matters, for example that local safety or official warning
+status still needs local confirmation.
 
 ## Provider Caveats
 
