@@ -1,7 +1,10 @@
+import { publicSurfaceRegistry } from "@/server/public-pages/public-surface-registry";
 import { publicJsonResponse } from "@/server/public-pages/responses";
+
+const surface = publicSurfaceRegistry.routes;
 
 export async function GET(request: Request, { params }: { params: Promise<{ slug: string[] }> }) {
   const { slug } = await params;
 
-  return publicJsonResponse("routes", slug.join("/"), request);
+  return publicJsonResponse(surface, slug.join("/"), request);
 }

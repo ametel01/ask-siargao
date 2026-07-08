@@ -9,8 +9,11 @@ import {
   evaluatePublicPageEligibility,
   type PublicFactRecord,
   type PublicKnowledgePage,
-  type PublicPageFamily,
 } from "@/server/public-pages/public-content";
+import {
+  isPublicPageFamily,
+  type PublicPageFamily,
+} from "@/server/public-pages/public-surface-registry";
 
 type PublicCatalogListOptions = {
   limit?: number;
@@ -21,13 +24,6 @@ export const PUBLIC_CATALOG_MAX_PAGE_LIMIT = 1_000;
 export const PUBLIC_CATALOG_FACTS_PER_PAGE_LIMIT = 100;
 export const PUBLIC_CATALOG_EVIDENCE_PER_BUNDLE_LIMIT = 100;
 
-const publicPageFamilies = new Set<PublicPageFamily>([
-  "accommodations",
-  "areas",
-  "routes",
-  "operators",
-  "risks",
-]);
 const sourceTypes = new Set<SourceType>([
   "official",
   "partner_api",
@@ -333,9 +329,10 @@ function mapRowsToPages(rows: readonly PublicCatalogRow[], now: Date) {
 
 function mapRowsToPage(rows: readonly PublicCatalogRow[], now: Date): PublicKnowledgePage | null {
   const first = rows[0];
-  if (!first || !publicPageFamilies.has(first.page_type as PublicPageFamily)) {
+  if (!first || !isPublicPageFamily(first.page_type)) {
     return null;
   }
+  const family = first.page_type;
 
   const generationSourceFactIds = stringArray(first.generation_source_fact_ids);
   const evidenceIds = stringArray(first.evidence_ids);
@@ -382,7 +379,7 @@ function mapRowsToPage(rows: readonly PublicCatalogRow[], now: Date): PublicKnow
 
   return {
     publicPageId: first.public_page_id,
-    family: first.page_type as PublicPageFamily,
+    family,
     slug: first.slug,
     title: first.entity_name ?? titleFromSlug(first.slug),
     summary: first.evidence_bundle_summary ?? "",
@@ -398,7 +395,7 @@ function mapRowsToPage(rows: readonly PublicCatalogRow[], now: Date): PublicKnow
     ),
     evidenceBundle: {
       id: first.evidence_bundle_id ?? "missing_evidence_bundle",
-      slug: first.evidence_bundle_slug ?? `${first.page_type}-${first.slug}`,
+      slug: first.evidence_bundle_slug ?? `${family}-${first.slug}`,
       evidenceIds,
       allowedUse: allowedUse(first.evidence_bundle_allowed_use),
     },

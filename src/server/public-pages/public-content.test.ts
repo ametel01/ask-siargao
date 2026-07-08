@@ -240,6 +240,13 @@ describe("public knowledge surfaces", () => {
 
     expect(repository.getPage("risks", "blocked-private")?.visibility).toBe("blocked");
     expect(publicPagesForIndex(repository)).toEqual([]);
+    const projection = buildPublicCatalogProjection(publicPagesForIndex(repository));
+
+    expect(JSON.stringify(projection.entities)).not.toContain("blocked-private");
+    expect(JSON.stringify(projection.evidence)).not.toContain("blocked-private");
+    expect(JSON.stringify(projection.riskPreview)).not.toContain("blocked-private");
+    expect(projection.sitemapXml).not.toContain("blocked-private");
+    expect(projection.llmsTxt).not.toContain("blocked-private");
     expect(buildSitemapXml(publicPagesForIndex(repository))).not.toContain("blocked-private");
     expect(buildLlmsTxt(publicPagesForIndex(repository))).not.toContain("blocked-private");
   });

@@ -89,6 +89,7 @@ tokens return a generic unavailable/not-found response without exposing token st
 ## Public Knowledge Surfaces
 
 Each public page family is generated from the same repository-backed `PublicKnowledgePage` governed facts. The local demo repository is built from persisted-page-shaped fixtures, while production should read the same shape from governed public page and evidence rows.
+The code source of truth for current families and path derivation is `src/server/public-pages/public-surface-registry.ts`; update that registry before changing this table.
 
 | Family | Human Route | LLM Markdown Route | JSON Route |
 | --- | --- | --- | --- |

@@ -1,4 +1,7 @@
+import { publicSurfaceRegistry } from "@/server/public-pages/public-surface-registry";
 import { renderPublicHumanPage } from "@/server/public-pages/responses";
+
+const surface = publicSurfaceRegistry.operators;
 
 export default async function OperatorPublicPage({
   params,
@@ -7,5 +10,5 @@ export default async function OperatorPublicPage({
 }) {
   const { slug } = await params;
 
-  return renderPublicHumanPage("operators", slug);
+  return renderPublicHumanPage(surface, slug);
 }
