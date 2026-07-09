@@ -111,19 +111,23 @@ import {
   type TripContextDraft,
   writeStoredTripContext,
 } from "@/features/chat/trip-context-draft";
+import {
+  hasTripContext,
+  projectTripState,
+  type TripDataSource,
+  type TripProfileResponse,
+  tripContextFacts as tripContextDisplayFacts,
+} from "@/features/chat/trip-state";
 import { cn } from "@/lib/utils";
 import { BrandLockup, PalmMark } from "@/ui/components/ask-siargao";
 
 const suggestedPrompts = [
-  "What should I do near Cloud 9 today?",
-  "Where should I eat in General Luna tonight?",
+  "Help me plan a Siargao day",
+  "What should I check before a beach day?",
   "Help me plan a quiet Siargao day",
 ];
 
 type ChatContextIcon = typeof MapPin;
-type RailQuestionItem =
-  | { kind: "thread"; id: string; label: string; value: string }
-  | { kind: "fallback"; label: string; value: string };
 type WeatherPanelSnapshot = {
   status: "live" | "fallback";
   locationName: string;
@@ -163,19 +167,9 @@ type SurfPanelResponse = {
   requestedLocation: ForecastLocationLabel;
   surf: SurfPanelSnapshot;
 };
-
-const savedPlaceShortlists = [
-  { label: "Cloud 9 shortlist", value: "4 places" },
-  { label: "General Luna food spots", value: "7 places" },
-  { label: "Catangnan cafes", value: "3 places" },
-];
-
-const fallbackRecentQuestions = [
-  { kind: "fallback", label: "Is this hotel quiet?", value: "Suggested" },
-  { kind: "fallback", label: "Best dinner near Catangnan", value: "Suggested" },
-  { kind: "fallback", label: "Will it rain this afternoon?", value: "Suggested" },
-  { kind: "fallback", label: "Surf conditions tomorrow?", value: "Suggested" },
-] satisfies RailQuestionItem[];
+type TripProfileFetchResult =
+  | { source: "anonymous" }
+  | { source: "authenticated"; profile: TripProfileResponse };
 
 const chatSignedOutActions = (
   <>
@@ -452,6 +446,7 @@ type ChatWorkspaceController = {
   setInputValue: (value: string) => void;
   startNewChat: () => void;
   tripContext: TripContextDraft;
+  tripDataSource: TripDataSource;
   updateTripContext: (context: TripContextDraft) => void;
 };
 
@@ -463,11 +458,29 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
   const [chatThreads, setChatThreads] = useState<ChatThreadSummary[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [historyStatus, setHistoryStatus] = useState<"idle" | "loading" | "error">("idle");
-  const tripContext = useSyncExternalStore(
+  const localTripContext = useSyncExternalStore(
     subscribeTripContextState,
     getTripContextSnapshot,
     getTripContextServerSnapshot,
   );
+  const {
+    data: profileResult,
+    error: profileError,
+    isLoading: profileLoading,
+  } = useSWR<TripProfileFetchResult>("/api/me/profile", fetchTripProfile, {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  });
+  const tripDataSource: TripDataSource = profileLoading
+    ? "loading"
+    : profileError
+      ? "error"
+      : (profileResult?.source ?? "loading");
+  const tripContext = projectTripState({
+    localContext: localTripContext,
+    profile: profileResult?.source === "authenticated" ? profileResult.profile : undefined,
+    profileStatus: tripDataSource,
+  }).context;
   const savedTripState = useSyncExternalStore(
     subscribeSavedTripState,
     getSavedTripSnapshot,
@@ -479,7 +492,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
   );
   const savedPlanSharing = useSavedPlanSharing(savedTripState);
   const { data: authenticatedSavedTrip, mutate: refreshAuthenticatedSavedTrip } = useSWR(
-    "/api/trips/saved",
+    tripDataSource === "authenticated" ? "/api/trips/saved" : null,
     fetchAuthenticatedSavedTrip,
     {
       revalidateOnFocus: false,
@@ -493,7 +506,11 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
   const hasSyncedAuthenticatedSavedTrip = useRef(false);
 
   useEffect(() => {
-    if (!authenticatedSavedTrip || hasSyncedAuthenticatedSavedTrip.current) {
+    if (
+      tripDataSource !== "authenticated" ||
+      !authenticatedSavedTrip ||
+      hasSyncedAuthenticatedSavedTrip.current
+    ) {
       return;
     }
 
@@ -523,9 +540,21 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     return () => {
       isActive = false;
     };
-  }, [authenticatedSavedTrip, refreshAuthenticatedSavedTrip, syncAuthenticatedSavedTripItems]);
+  }, [
+    authenticatedSavedTrip,
+    refreshAuthenticatedSavedTrip,
+    syncAuthenticatedSavedTripItems,
+    tripDataSource,
+  ]);
 
   const refreshChatThreads = useCallback(async () => {
+    if (tripDataSource !== "authenticated") {
+      setChatThreads([]);
+      setHistoryStatus(tripDataSource === "error" ? "error" : "idle");
+      return;
+    }
+
+    setHistoryStatus("loading");
     try {
       const response = await fetch("/api/chat/threads", { cache: "no-store" });
       if (response.status === 401 || response.status === 404) {
@@ -543,7 +572,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     } catch {
       setHistoryStatus("error");
     }
-  }, []);
+  }, [tripDataSource]);
 
   useEffect(() => {
     void refreshChatThreads();
@@ -886,6 +915,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     setInputValue,
     startNewChat,
     tripContext,
+    tripDataSource,
     updateTripContext,
   };
 }
@@ -911,6 +941,7 @@ function ChatWorkspaceView({
   setInputValue,
   startNewChat,
   tripContext,
+  tripDataSource,
   updateTripContext,
 }: ChatWorkspaceController) {
   const hasMessages = messages.length > 0;
@@ -957,6 +988,8 @@ function ChatWorkspaceView({
           savedItemCount={savedTripState.items.length}
           selectedThreadId={selectedThreadId}
           threads={chatThreads}
+          tripContext={tripContext}
+          tripDataSource={tripDataSource}
         />
 
         <section className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] border-border-default border-x bg-surface-default">
@@ -1041,6 +1074,7 @@ function ChatWorkspaceView({
           locationState={locationState}
           onRequestLocation={requestLocation}
           tripContext={tripContext}
+          tripDataSource={tripDataSource}
           onUpdateTripContext={updateTripContext}
         />
       </section>
@@ -1055,6 +1089,8 @@ function ChatTravelRail({
   savedItemCount,
   selectedThreadId,
   threads,
+  tripContext,
+  tripDataSource,
 }: {
   historyStatus: "idle" | "loading" | "error";
   onOpenThread: (threadId: string) => void;
@@ -1062,16 +1098,11 @@ function ChatTravelRail({
   savedItemCount: number;
   selectedThreadId: string | null;
   threads: ChatThreadSummary[];
+  tripContext: TripContextDraft;
+  tripDataSource: TripDataSource;
 }) {
   const hasThreads = threads.length > 0;
-  const recentQuestions: RailQuestionItem[] = hasThreads
-    ? threads.slice(0, 4).map((thread) => ({
-        kind: "thread",
-        id: thread.id,
-        label: thread.title,
-        value: formatThreadRecency(thread),
-      }))
-    : fallbackRecentQuestions;
+  const hasContext = hasTripContext(tripContext);
 
   return (
     <aside className="hidden min-h-0 bg-brand-navy-980 px-5 py-6 text-text-on-dark min-[1180px]:grid min-[1180px]:grid-rows-[auto_auto_minmax(0,1fr)_auto] min-[1180px]:gap-6">
@@ -1098,74 +1129,87 @@ function ChatTravelRail({
             Current trip
           </p>
           <div className="grid gap-1 rounded-lg border border-white/16 bg-white/8 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="m-0 min-w-0 truncate text-sm font-black text-white">June surf trip</h2>
-              <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-violet-650 text-sm font-black text-white">
-                {Math.max(savedItemCount, threads.length)}
-              </span>
-            </div>
-            <p className="m-0 text-sm font-bold text-text-on-dark-muted">Jun 12 - 22</p>
+            <h2 className="m-0 min-w-0 text-sm font-black text-white">
+              {tripDataSource === "loading"
+                ? "Loading your trip"
+                : tripDataSource === "error"
+                  ? "Trip details unavailable"
+                  : hasContext
+                    ? "Your trip details"
+                    : "No trip details yet"}
+            </h2>
+            <p className="m-0 text-sm font-bold text-text-on-dark-muted">
+              {tripDataSource === "loading"
+                ? "Checking your saved details."
+                : tripDataSource === "error"
+                  ? "Try refreshing before adding details."
+                  : hasContext
+                    ? tripContext.dateRange || tripContext.accommodation || tripContext.travelerType
+                    : "Add details when they will help your question."}
+            </p>
           </div>
         </section>
 
         <section className="grid gap-3">
           <p className="m-0 text-xs font-black tracking-[0.08em] text-text-on-dark-muted uppercase">
-            Saved places
+            Saved planning
           </p>
           <div className="grid gap-3">
-            {savedPlaceShortlists.map((item) => (
-              <div className="grid gap-1" key={item.label}>
-                <p className="m-0 text-sm font-extrabold text-white">{item.label}</p>
-                <p className="m-0 text-sm font-bold text-text-on-dark-muted">{item.value}</p>
-              </div>
-            ))}
+            {savedItemCount > 0 ? (
+              <p className="m-0 text-sm font-bold text-text-on-dark-muted">
+                {savedItemCount} {savedItemCount === 1 ? "item" : "items"} saved for this trip.
+              </p>
+            ) : (
+              <p className="m-0 text-sm font-bold text-text-on-dark-muted">
+                No places or plans saved yet.
+              </p>
+            )}
           </div>
           <Link
             className="inline-flex w-fit items-center gap-2 text-sm font-extrabold text-white no-underline hover:text-brand-lagoon-300"
             href="/settings"
           >
-            View all saved places
+            View saved planning
             <ChevronDown aria-hidden="true" className="-rotate-90" size={15} />
           </Link>
         </section>
 
         <section className="grid gap-3 border-white/12 border-t pt-5">
           <h2 className="m-0 text-xs font-black tracking-[0.08em] text-text-on-dark-muted uppercase">
-            {hasThreads ? "Recent questions" : "Suggested questions"}
+            Recent questions
           </h2>
           {historyStatus === "error" ? (
             <p className="m-0 text-xs font-bold text-text-alert">Chat history unavailable</p>
           ) : null}
           {historyStatus === "loading" ? (
-            <p className="m-0 text-xs font-bold text-text-on-dark-muted">Loading thread</p>
+            <p className="m-0 text-xs font-bold text-text-on-dark-muted">Loading your chats</p>
           ) : null}
-          <nav aria-label={hasThreads ? "Previous chats" : "Suggested questions"}>
+          <nav aria-label="Previous chats">
             <div className="grid gap-3">
-              {recentQuestions.map((item) =>
-                item.kind === "thread" ? (
+              {hasThreads ? (
+                threads.slice(0, 4).map((thread) => (
                   <button
                     className={cn(
                       "grid min-w-0 gap-1 rounded-md border border-transparent p-0 text-left",
                       "text-sm transition-[color,opacity] duration-[var(--duration-fast)] ease-[var(--ease-standard)]",
-                      item.id === selectedThreadId
+                      thread.id === selectedThreadId
                         ? "text-brand-lagoon-300"
                         : "text-white hover:text-brand-lagoon-300",
                     )}
-                    key={item.id}
-                    onClick={() => onOpenThread(item.id)}
+                    key={thread.id}
+                    onClick={() => onOpenThread(thread.id)}
                     type="button"
                   >
-                    <span className="min-w-0 truncate font-extrabold">{item.label}</span>
-                    <span className="text-xs font-bold text-text-on-dark-muted">{item.value}</span>
+                    <span className="min-w-0 truncate font-extrabold">{thread.title}</span>
+                    <span className="text-xs font-bold text-text-on-dark-muted">
+                      {formatThreadRecency(thread)}
+                    </span>
                   </button>
-                ) : (
-                  <div className="grid gap-1" key={item.label}>
-                    <p className="m-0 min-w-0 truncate text-sm font-extrabold text-white">
-                      {item.label}
-                    </p>
-                    <p className="m-0 text-xs font-bold text-text-on-dark-muted">{item.value}</p>
-                  </div>
-                ),
+                ))
+              ) : (
+                <p className="m-0 text-sm font-bold text-text-on-dark-muted">
+                  Start a question to build your chat history.
+                </p>
               )}
             </div>
           </nav>
@@ -1267,11 +1311,13 @@ function ChatContextRail({
   onRequestLocation,
   onUpdateTripContext,
   tripContext,
+  tripDataSource,
 }: {
   locationState: LocationCaptureState;
   onRequestLocation: () => void;
   onUpdateTripContext: (context: TripContextDraft) => void;
   tripContext: TripContextDraft;
+  tripDataSource: TripDataSource;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState<TripContextDraft>(defaultTripContext);
@@ -1368,16 +1414,31 @@ function ChatContextRail({
           <TripContextEditor draft={draft} onDraftChange={setDraft} />
         ) : (
           <div className="grid gap-3">
-            <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-              {tripContextItems.map((item) => (
-                <ContextFact
-                  icon={item.icon}
-                  key={item.label}
-                  label={item.label}
-                  value={item.value}
-                />
-              ))}
-            </div>
+            {tripDataSource === "loading" ? (
+              <p className="m-0 text-xs font-bold text-text-muted">Loading your trip details.</p>
+            ) : tripDataSource === "error" ? (
+              <p className="m-0 text-xs font-bold text-text-alert">
+                Trip details could not be loaded. Refresh to try again.
+              </p>
+            ) : (
+              <>
+                {!hasTripContext(tripContext) ? (
+                  <p className="m-0 text-xs font-bold text-text-muted">
+                    Add the details you want Ask Siargao to use. Nothing is assumed about your trip.
+                  </p>
+                ) : null}
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                  {tripContextItems.map((item) => (
+                    <ContextFact
+                      icon={item.icon}
+                      key={item.label}
+                      label={item.label}
+                      value={item.value}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
             {locationState.status !== "ready" ? (
               <Button
                 className="h-8 rounded-md border-brand-lagoon-500/25 bg-brand-lagoon-50 px-3 text-xs font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
@@ -1652,13 +1713,27 @@ function tripContextFacts({
   tripContext: TripContextDraft;
 }): Array<{ icon: ChatContextIcon; label: string; value: string }> {
   return [
-    { icon: BedDouble, label: "Accommodation", value: tripContext.accommodation },
-    { icon: CalendarDays, label: "Dates", value: tripContext.dateRange },
-    { icon: Users, label: "Traveler type", value: tripContext.travelerType },
-    { icon: MapPin, label: "Nearby area", value: tripContext.nearbyArea },
-    { icon: CloudSun, label: "Forecast area", value: activeForecastLocation },
+    ...tripContextDisplayFacts(tripContext).map((fact) => ({
+      icon: iconForTripContextLabel(fact.label),
+      label: fact.label,
+      value: fact.value,
+    })),
+    { icon: CloudSun, label: "Forecast coverage", value: activeForecastLocation },
     { icon: Clock, label: "Location source", value: locationSourceLabel(locationState) },
   ];
+}
+
+function iconForTripContextLabel(label: string): ChatContextIcon {
+  switch (label) {
+    case "Accommodation":
+      return BedDouble;
+    case "Dates":
+      return CalendarDays;
+    case "Traveler type":
+      return Users;
+    default:
+      return MapPin;
+  }
 }
 
 function weatherMetricsForPanel(weather: WeatherPanelSnapshot | undefined) {
@@ -1773,6 +1848,24 @@ function surfPanelSummary({
   return surfSnapshot.recommendation;
 }
 
+async function fetchTripProfile(url: string): Promise<TripProfileFetchResult> {
+  const response = await fetch(url, { cache: "no-store" });
+  if (response.status === 401) {
+    return { source: "anonymous" };
+  }
+  if (response.status === 404) {
+    return { source: "authenticated", profile: {} };
+  }
+  if (!response.ok) {
+    throw new Error("trip_profile_unavailable");
+  }
+
+  return {
+    source: "authenticated",
+    profile: (await response.json()) as TripProfileResponse,
+  };
+}
+
 async function fetchWeatherPanel(url: string): Promise<WeatherPanelResponse> {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) {
@@ -1837,7 +1930,7 @@ function locationSourceLabel(locationState: LocationCaptureState) {
   if (locationState.status === "denied") {
     return "Browser location denied";
   }
-  return "Trip area";
+  return "No browser location";
 }
 
 function formatPanelNumber(value: number) {

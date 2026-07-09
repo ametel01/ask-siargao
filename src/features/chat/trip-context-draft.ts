@@ -1,20 +1,23 @@
 import {
-  defaultTripContextDraft,
   type ForecastLocationLabel,
   forecastLocationLabels,
-  normalizeOptionalTripContextDraft,
-  normalizeTripContextDraft,
-  type TripContextDraft,
   tripContextStorageKey,
 } from "@/server/chat/trip-context";
 
-export {
-  defaultTripContextDraft,
-  type ForecastLocationLabel,
-  forecastLocationLabels,
-  normalizeTripContextDraft,
-  type TripContextDraft,
-  tripContextStorageKey,
+export { type ForecastLocationLabel, forecastLocationLabels, tripContextStorageKey };
+
+export type TripContextDraft = {
+  accommodation: string;
+  dateRange: string;
+  travelerType: string;
+  nearbyArea: ForecastLocationLabel;
+};
+
+export const defaultTripContextDraft: TripContextDraft = {
+  accommodation: "",
+  dateRange: "",
+  travelerType: "",
+  nearbyArea: "Siargao Island",
 };
 
 export type TripContextDraftStorage = Pick<Storage, "getItem" | "setItem">;
@@ -124,8 +127,32 @@ function readTripContextDraftFromRawValue(rawValue: string | null) {
   }
   const parsed = JSON.parse(rawValue) as unknown;
   return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? normalizeOptionalTripContextDraft(parsed)
+    ? normalizeTripContextDraft(parsed)
     : undefined;
+}
+
+export function normalizeTripContextDraft(
+  context: Partial<TripContextDraft> | null | undefined = undefined,
+) {
+  return {
+    accommodation: normalizedTripContextText(context?.accommodation),
+    dateRange: normalizedTripContextText(context?.dateRange),
+    travelerType: normalizedTripContextText(context?.travelerType),
+    nearbyArea: isForecastLocationLabel(context?.nearbyArea)
+      ? context.nearbyArea
+      : defaultTripContextDraft.nearbyArea,
+  } satisfies TripContextDraft;
+}
+
+function normalizedTripContextText(value: unknown) {
+  return typeof value === "string" ? value.trim().slice(0, 80) : "";
+}
+
+function isForecastLocationLabel(value: unknown): value is ForecastLocationLabel {
+  return (
+    typeof value === "string" &&
+    forecastLocationLabels.includes(value as (typeof forecastLocationLabels)[number])
+  );
 }
 
 function browserTripContextStorage() {

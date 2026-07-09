@@ -179,7 +179,7 @@ export function writeAuthenticatedSavedTripState(
   fallbackTripId: string,
   options: SavedTripClientOptions = {},
 ) {
-  if (!savedTrip?.items?.length) {
+  if (!savedTrip) {
     return;
   }
   const tripId = savedTrip.tripId ?? fallbackTripId;
@@ -187,7 +187,7 @@ export function writeAuthenticatedSavedTripState(
   writeSavedTripState(
     {
       tripId,
-      items: savedTrip.items.map((item) => ({ ...item, tripId })),
+      items: (savedTrip.items ?? []).map((item) => ({ ...item, tripId })),
       updatedAt: getNowIso(options),
     },
     options,

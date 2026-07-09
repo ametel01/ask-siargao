@@ -150,6 +150,13 @@ test("sends a desktop composer message to the chat API and renders the assistant
   page,
 }) => {
   await page.setViewportSize({ width: 2048, height: 1153 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
   const mockChat = await mockChatApi(page, {
     message:
       "Mocked dinner answer:\n\n- **Kermit:** casual dinner near Cloud 9\n- **Bravo:** pizza nearby",
@@ -163,7 +170,24 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect(page.getByText("Ask about food, weather, transfers")).toBeVisible();
   await expect(page.getByRole("link", { name: "Start a new chat" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Trip context" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Cloud 9 Weather" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Siargao Island Weather" })).toBeVisible();
+  await expect(page.getByText("No trip details yet")).toBeVisible();
+  await expect(page.getByText("Nothing is assumed about your trip.")).toBeVisible();
+  for (const formerDemoValue of [
+    "Near Cloud 9 / Catangnan",
+    "Jun 12 - 22",
+    "June surf trip",
+    "Cloud 9 shortlist",
+    "4 places",
+    "7 places",
+    "3 places",
+    "Is this hotel quiet?",
+    "Best dinner near Catangnan",
+    "Will it rain this afternoon?",
+    "Surf conditions tomorrow?",
+  ]) {
+    await expect(page.getByText(formerDemoValue, { exact: true })).toHaveCount(0);
+  }
 
   const composerInput = page.getByLabel("Ask anything about Siargao");
   const sendButton = page.getByRole("button", { name: "Send question" });
@@ -202,9 +226,7 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect(page.getByText("At a Glance")).toHaveCount(0);
   await expect(composerInput).toBeDisabled();
   await expect(sendButton).toBeDisabled();
-  await expect(
-    page.getByRole("button", { name: "What should I do near Cloud 9 today?" }),
-  ).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Help me plan a Siargao day" })).toBeDisabled();
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(lastSubmittedContent(mockChat.requests[0])).toBe(
     "Where should we eat near Cloud 9 tonight?",
@@ -501,6 +523,14 @@ test("loads signed-in chat history and preserves the thread after reload", async
       createdAt: "2026-06-29T01:01:00.000Z",
     },
   ];
+
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: {} }),
+    });
+  });
 
   await page.route("**/api/chat/threads**", async (route) => {
     const request = route.request();
@@ -1271,6 +1301,14 @@ test("hydrates signed-in saved trips from the owned server list", async ({ page 
     mapsUrl: "https://maps.google.com/?cid=shaka",
     caveats: ["Opening hours can change."],
   };
+
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: {} }),
+    });
+  });
 
   await page.route("**/api/trips/saved", async (route) => {
     await route.fulfill({

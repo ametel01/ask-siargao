@@ -155,6 +155,29 @@ describe("saved trip client storage", () => {
       items: [{ ...savedItem, tripId: "saved_trip_authenticated" }],
     });
   });
+
+  test("replaces stale local items when an authenticated trip is empty", () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      savedTripStorageKey,
+      JSON.stringify({
+        tripId: "local_trip_before_auth",
+        items: [sampleSavedCard({ tripId: "local_trip_before_auth" })],
+        updatedAt: fixedNow,
+      }),
+    );
+
+    writeAuthenticatedSavedTripState(
+      { tripId: "saved_trip_authenticated", items: [] },
+      "local_trip_before_auth",
+      { storage, now: () => fixedNow },
+    );
+
+    expect(readSavedTripState({ storage })).toMatchObject({
+      tripId: "saved_trip_authenticated",
+      items: [],
+    });
+  });
 });
 
 describe("saved trip item builders", () => {
