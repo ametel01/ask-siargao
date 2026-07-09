@@ -67,6 +67,7 @@ test("renders local admin diagnostics without leaking sample secrets", async ({ 
 
 test("edits profile details and reloads the persisted values", async ({ page }) => {
   let patchPayload: Record<string, unknown> | null = null;
+  let profileSaveMode: "success" | "invalid" | "server" = "success";
   let profile = {
     identity: {
       userId: "user_e2e_profile",
@@ -107,6 +108,27 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
     if (route.request().method() === "PATCH") {
       const patch = route.request().postDataJSON() as Partial<typeof profile.profile>;
       patchPayload = patch as Record<string, unknown>;
+      if (profileSaveMode === "invalid") {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 400,
+          body: JSON.stringify({
+            error: "invalid_profile_request",
+            issues: [
+              { path: "surfAbility", message: "Choose a surf ability in 80 characters or fewer." },
+            ],
+          }),
+        });
+        return;
+      }
+      if (profileSaveMode === "server") {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 500,
+          body: JSON.stringify({ error: "profile_save_failed" }),
+        });
+        return;
+      }
       profile = {
         ...profile,
         profile: {
@@ -192,6 +214,25 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await page.getByLabel("Trip notes").fill("Arriving in September");
   await page.getByLabel("Send occasional Ask Siargao product updates").check();
   await expect(page.getByText("You have unsaved changes")).toBeVisible();
+
+  profileSaveMode = "invalid";
+  await page.getByLabel("Surf ability").fill("x".repeat(81));
+  await page.getByRole("button", { name: "Save trip brief" }).click();
+  await expect(page.locator("#profile-surf-ability-error")).toContainText("Choose a surf ability");
+  await expect(page.getByLabel("Surf ability")).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByLabel("Surf ability")).toHaveAttribute(
+    "aria-describedby",
+    "profile-surf-ability-error",
+  );
+
+  profileSaveMode = "server";
+  await page.getByLabel("Surf ability").fill("Intermediate");
+  await page.getByRole("button", { name: "Save trip brief" }).click();
+  await expect(page.getByText("Check your entries and try again.")).toBeVisible();
+  await expect(page.getByLabel("Accommodation")).toHaveValue("Pacifico beach stay");
+  await expect(page.getByLabel("Trip notes")).toHaveValue("Arriving in September");
+
+  profileSaveMode = "success";
   await page.getByRole("button", { name: "Save trip brief" }).click();
 
   await expect(page.getByText("Trip brief saved")).toBeVisible();
@@ -223,15 +264,23 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await expect(
     page.getByRole("heading", { exact: true, name: "Traveler preferences" }),
   ).toBeVisible();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("link", { name: "Traveler preferences" }).click();
-  await expect(
-    page.getByRole("heading", { exact: true, name: "Traveler preferences" }),
-  ).toBeInViewport();
+  const travelerPreferencesLink = page.getByRole("link", { name: "Traveler preferences" });
+  await travelerPreferencesLink.focus();
+  await expect(travelerPreferencesLink).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(travelerPreferencesLink).toHaveAttribute("aria-current", "location");
+  await expect(page.locator("#traveler-preferences")).toBeFocused();
+  await page.screenshot({ path: "test-results/issue-114-trip-brief-desktop.png", fullPage: true });
+
+  await page.setViewportSize({ width: 195, height: 844 });
   const hasHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth,
   );
   expect(hasHorizontalOverflow).toBe(false);
+  await page.screenshot({
+    path: "test-results/issue-114-trip-brief-mobile-200.png",
+    fullPage: true,
+  });
 });
 
 test("renders public human, markdown, JSON, sitemap, and llms surfaces", async ({ page }) => {
