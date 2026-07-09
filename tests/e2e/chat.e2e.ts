@@ -22,10 +22,10 @@ type E2EThreadMessage = {
   role: "user" | "assistant";
   content: string;
   status: "complete";
-  sources: [];
-  cards: [];
-  actions: [];
-  itineraries: [];
+  sources: MockSourceSummary[];
+  cards: MockRecommendationCard[];
+  actions: MockChatAction[];
+  itineraries: MockItineraryPlan[];
   decisionSummaries: unknown[];
   rating?: {
     rating: "up" | "down";
@@ -198,6 +198,8 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect(userMessageBubble).toHaveCSS("color", "rgb(255, 255, 255)");
   await expect(page.getByText("Where should we eat near Cloud 9 tonight?")).toBeVisible();
   await expect(page.getByText("Thinking through that with Ask Siargao...")).toBeVisible();
+  await expect(page.getByTestId("decision-strip")).toHaveCount(0);
+  await expect(page.getByText("At a Glance")).toHaveCount(0);
   await expect(composerInput).toBeDisabled();
   await expect(sendButton).toBeDisabled();
   await expect(
@@ -469,8 +471,22 @@ test("loads signed-in chat history and preserves the thread after reload", async
       role: "assistant",
       content: "Try Shaka for breakfast and Bravo for dinner.",
       status: "complete",
-      sources: [],
-      cards: [],
+      sources: [mockWeatherSource],
+      cards: [
+        {
+          id: "place_shaka_hydrated",
+          kind: "place",
+          title: "Shaka Siargao",
+          subtitle: "Cafe - Cloud 9, General Luna",
+          mapsUrl: "https://maps.google.com/?cid=shaka",
+          distanceLabel: "About 50 m from search center.",
+          openStatusLabel: "Open now according to Google Places.",
+          fitReasons: ["Selected card remains visible beside the decision strip."],
+          caveats: ["Table availability was not checked."],
+          sourceLabel: "Google Places - live checked",
+          sources: [mockPlacesSource],
+        },
+      ],
       actions: [],
       itineraries: [],
       decisionSummaries: [
@@ -478,10 +494,7 @@ test("loads signed-in chat history and preserves the thread after reload", async
           id: "condition_decision:breakfast:cloud_9:today",
           bestAction: "Start with breakfast near Cloud 9.",
           basis: "The existing thread selected a compact next move.",
-          fallback: "Keep Bravo for dinner if breakfast runs long.",
-          timing: "today",
-          area: "Cloud 9",
-          sources: [mockWeatherSource],
+          sources: [],
         },
       ],
       rating: null,
@@ -609,12 +622,32 @@ test("loads signed-in chat history and preserves the thread after reload", async
   await page.getByRole("button", { name: /Cloud 9 plan/ }).click();
   await expect(page.getByText("Where should I eat near Cloud 9?")).toBeVisible();
   await expect(page.getByText("Try Shaka for breakfast and Bravo for dinner.")).toBeVisible();
-  await expect(page.getByTestId("decision-summary-panel")).toContainText(
-    "Start with breakfast near Cloud 9.",
-  );
-  const helpfulButton = page.getByRole("button", {
+  const hydratedAnswer = page.getByTestId("assistant-message-bubble").filter({
+    hasText: "Try Shaka for breakfast and Bravo for dinner.",
+  });
+  const hydratedStrip = hydratedAnswer.getByTestId("decision-strip");
+  await expect(hydratedStrip).toContainText("Start with breakfast near Cloud 9.");
+  await expect(hydratedStrip.getByTestId("decision-strip-source-status")).toHaveCount(0);
+  await expect(hydratedStrip.getByText("Where", { exact: true })).toHaveCount(0);
+  await expect(hydratedStrip.getByText("When", { exact: true })).toHaveCount(0);
+  await expect(hydratedStrip.getByText("Backup:", { exact: true })).toHaveCount(0);
+  await expect(hydratedStrip.getByText("Avoid:", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("At a Glance")).toHaveCount(0);
+  await expect(
+    hydratedAnswer.getByTestId("recommendation-card").filter({ hasText: "Shaka Siargao" }),
+  ).toBeVisible();
+  const sourceControl = hydratedAnswer.getByTestId("assistant-sources-panel").locator("summary");
+  const helpfulButton = hydratedAnswer.getByRole("button", {
     name: "Rate assistant response helpful",
   });
+  await sourceControl.focus();
+  await expect(sourceControl).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(helpfulButton).toBeFocused();
+  expect(await helpfulButton.evaluate((element) => element.matches(":focus-visible"))).toBe(true);
+  expect(await helpfulButton.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe(
+    "none",
+  );
   await expect(helpfulButton).toHaveAttribute("aria-pressed", "false");
   await helpfulButton.click();
   await expect(helpfulButton).toHaveAttribute("aria-pressed", "true");
@@ -634,7 +667,7 @@ test("loads signed-in chat history and preserves the thread after reload", async
   await expect(
     page.getByText("Add Bravo after Shaka for an easy General Luna dinner."),
   ).toBeVisible();
-  await expect(page.getByTestId("decision-summary-panel")).toContainText(
+  await expect(page.getByTestId("decision-strip")).toContainText(
     "Start with breakfast near Cloud 9.",
   );
   await expect(
@@ -979,20 +1012,29 @@ test("renders structured recommendation cards and submits action prompts", async
   expect(lastSubmittedContent(mockChat.requests[1])).toBe(actionPrompt);
 });
 
-test("renders selected decision summaries and hides unselected summaries", async ({ page }) => {
-  await page.setViewportSize({ width: 1024, height: 900 });
+test("leads live grounded answers with one responsive decision strip", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
   const mockChat = await mockChatApi(page, {
     message: "Mocked condition answer: keep the swim flexible today.",
     sources: [mockWeatherSource],
     decisionSummaries: [
       {
         id: "condition_decision:swimming:cloud_9:today",
-        bestAction: "Keep swimming flexible.",
+        bestAction:
+          "Keep swimming flexible until the long Cloud 9 weather-and-surf decision can be confirmed locally.",
         basis: "Weather is usable, but surf reports are not checked.",
-        fallback: "Use a nearby covered stop if conditions worsen.",
+        fallback:
+          "Use a nearby covered stop if conditions worsen during the afternoon rain window.",
         avoid: "Avoid treating this as beach safety clearance.",
         timing: "today",
         area: "Cloud 9",
+        sources: [mockWeatherSource],
+      },
+      {
+        id: "condition_decision:secondary",
+        bestAction: "This secondary selected summary must stay out of a second top-level strip.",
+        basis: "It is not the primary answer-level decision.",
         sources: [mockWeatherSource],
       },
     ],
@@ -1002,17 +1044,48 @@ test("renders selected decision summaries and hides unselected summaries", async
   await page.getByLabel("Ask anything about Siargao").fill("Should I swim at Cloud 9 today?");
   await page.getByRole("button", { name: "Send question" }).click();
 
-  await expect(page.getByText("Mocked condition answer:")).toBeVisible();
-  const panel = page.getByTestId("decision-summary-panel");
-  await expect(panel).toBeVisible();
-  await expect(panel).toContainText("Best move");
-  await expect(panel).toContainText("Keep swimming flexible.");
-  await expect(panel).toContainText("Weather is usable, but surf reports are not checked.");
-  await expect(panel).toContainText("Fallback: Use a nearby covered stop if conditions worsen.");
-  await expect(panel).toContainText("Avoid: Avoid treating this as beach safety clearance.");
-  await expect(panel.getByTestId("decision-summary-sources")).toContainText("Weather checked");
+  const answer = page.getByTestId("assistant-message-bubble").filter({
+    hasText: "Mocked condition answer: keep the swim flexible today.",
+  });
+  await expect(answer).toBeVisible();
+  const strip = answer.getByTestId("decision-strip");
+  const markdown = answer.getByTestId("assistant-markdown");
+  await expect(strip).toHaveCount(1);
+  await expect(strip).toContainText("Best move");
+  await expect(strip).toContainText("Keep swimming flexible until the long Cloud 9");
+  await expect(strip).toContainText("Where");
+  await expect(strip).toContainText("When");
+  await expect(strip).toContainText("Backup:");
+  await expect(strip).toContainText("Avoid:");
+  await expect(strip.getByTestId("decision-strip-source-status")).toContainText(
+    "Checked: Open-Meteo weather API: forecast for Cloud 9",
+  );
+  await expect(strip).not.toContainText("This secondary selected summary must stay out");
+  await expect(page.getByText("At a Glance")).toHaveCount(0);
+  expect(
+    await strip.evaluate((element) => element.nextElementSibling?.getAttribute("data-testid")),
+  ).toBe("assistant-markdown");
+  expect(await answer.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expect(strip.locator("a, button, input, select, textarea")).toHaveCount(0);
+  await expect(markdown).toContainText("Mocked condition answer: keep the swim flexible today.");
+  await page.setViewportSize({ width: 1180, height: 900 });
+  expect(await answer.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await expect(page.getByText("Avoid a long scooter ride for now.")).toHaveCount(0);
   await expect.poll(() => mockChat.requests.length).toBe(1);
+});
+
+test("keeps plain conversational answers free of overview containers", async ({ page }) => {
+  await mockChatApi(page, { message: "A plain answer without structured decision metadata." });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Say hello");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(
+    page.getByText("A plain answer without structured decision metadata."),
+  ).toBeVisible();
+  await expect(page.getByTestId("decision-strip")).toHaveCount(0);
+  await expect(page.getByText("At a Glance")).toHaveCount(0);
 });
 
 test("renders itinerary plans with stops, fallbacks, skip guidance, sources, and map links", async ({
@@ -1851,6 +1924,8 @@ test("shows safe error copy and lets the user keep asking after a failed request
   await expect(
     page.getByText("Ask Siargao could not answer right now. Please try again."),
   ).toBeVisible();
+  await expect(page.getByTestId("decision-strip")).toHaveCount(0);
+  await expect(page.getByText("At a Glance")).toHaveCount(0);
   await expect(page.getByText("OPENAI_API_KEY")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Retry last question" })).toBeVisible();
   await expect(composerInput).toBeEnabled();

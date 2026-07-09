@@ -65,6 +65,10 @@ import {
   parseAssistantMarkdownBlocks,
   projectAssistantTableToMobileCards,
 } from "@/features/chat/assistant-message-presentation";
+import {
+  type DecisionStripSummary,
+  projectDecisionStrip,
+} from "@/features/chat/decision-strip-presentation";
 import type {
   ArtifactDecisionMetadata,
   ChatClientContext,
@@ -238,16 +242,7 @@ type ChatActionArtifact = {
   prompt?: string;
 };
 
-type DecisionSummaryArtifact = {
-  id: string;
-  bestAction: string;
-  basis: string;
-  fallback?: string;
-  avoid?: string;
-  timing?: string;
-  area?: string;
-  sources: readonly ChatSourceArtifact[];
-};
+type DecisionSummaryArtifact = DecisionStripSummary;
 type SavedPlanShareStatus = "idle" | "syncing" | "creating" | "ready" | "error";
 type SavedPlanCopyStatus = "idle" | "copied" | "error";
 type SavedPlanShareState = {
@@ -1978,11 +1973,12 @@ function ChatMessage({
             />
           ) : null}
           <div className="grid min-w-0 flex-1 gap-4">
-            <AssistantMarkdownText text={message.text} tone={isError ? "error" : "default"} />
-            {!isError && !isPending ? <AssistantGlance message={message} /> : null}
             {!isError && !isPending && message.decisionSummaries?.length ? (
-              <DecisionSummaryPanels summaries={message.decisionSummaries} />
+              <DecisionStrip summaries={message.decisionSummaries} />
+            ) : !isError && !isPending ? (
+              <AssistantGlance message={message} />
             ) : null}
+            <AssistantMarkdownText text={message.text} tone={isError ? "error" : "default"} />
             {!isError && !isPending && message.itineraries?.length ? (
               <ItineraryPlans
                 onRemoveSavedItem={onRemoveSavedItem}
@@ -2268,36 +2264,26 @@ function SavedPlanTray({
 function AssistantGlance({ message }: { message: InteractiveChatMessage }) {
   const primaryPlan = message.itineraries?.[0];
   const primaryCard = message.cards?.[0];
-  const primarySummary = message.decisionSummaries?.[0];
-  const sources =
-    message.sources ??
-    primaryPlan?.sources ??
-    primaryCard?.sources ??
-    primarySummary?.sources ??
-    [];
+  if (!primaryPlan && !primaryCard) {
+    return null;
+  }
+
+  const sources = message.sources ?? primaryPlan?.sources ?? primaryCard?.sources ?? [];
   const items = [
     {
-      icon: primaryPlan ? Navigation : primarySummary ? ShieldCheck : Utensils,
-      label: primaryPlan ? "Plan" : primarySummary ? "Move" : "Type",
-      value: primaryPlan
-        ? primaryPlan.title
-        : primarySummary
-          ? primarySummary.bestAction
-          : primaryCard
-            ? primaryCard.kind
-            : undefined,
+      icon: primaryPlan ? Navigation : Utensils,
+      label: primaryPlan ? "Plan" : "Type",
+      value: primaryPlan ? primaryPlan.title : primaryCard?.kind,
     },
     {
       icon: MapPin,
       label: "Area",
-      value: primaryPlan
-        ? itineraryPrimaryArea(primaryPlan)
-        : (primarySummary?.area ?? cardAreaLabel(primaryCard)),
+      value: primaryPlan ? itineraryPrimaryArea(primaryPlan) : cardAreaLabel(primaryCard),
     },
     {
       icon: Clock,
       label: "Timing",
-      value: primaryPlan?.durationLabel ?? primarySummary?.timing ?? primaryCard?.openStatusLabel,
+      value: primaryPlan?.durationLabel ?? primaryCard?.openStatusLabel,
     },
     {
       icon: ShieldCheck,
@@ -2348,71 +2334,72 @@ function AssistantGlance({ message }: { message: InteractiveChatMessage }) {
   );
 }
 
-function DecisionSummaryPanels({ summaries }: { summaries: readonly DecisionSummaryArtifact[] }) {
+function DecisionStrip({ summaries }: { summaries: readonly DecisionSummaryArtifact[] }) {
+  const presentation = projectDecisionStrip(summaries);
+  if (!presentation) {
+    return null;
+  }
+
   return (
-    <section aria-label="Best move" className="grid min-w-0 gap-3">
-      {summaries.map((summary) => (
-        <article
-          className="grid min-w-0 gap-3 rounded-md border border-brand-lagoon-700/15 bg-brand-lagoon-100 p-3 shadow-none"
-          data-testid="decision-summary-panel"
-          key={summary.id}
+    <section
+      aria-label="Decision"
+      className="grid min-w-0 gap-3 rounded-md border border-brand-lagoon-700/15 bg-brand-lagoon-100 p-3 shadow-none"
+      data-testid="decision-strip"
+    >
+      <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+        <div className="grid min-w-0 gap-1">
+          <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.68rem] leading-tight font-black text-brand-lagoon-700 uppercase">
+            <Navigation aria-hidden="true" className="shrink-0" size={13} />
+            Best move
+          </span>
+          <h3 className="m-0 text-base leading-tight font-black break-words text-text-strong">
+            {presentation.summary.bestAction}
+          </h3>
+        </div>
+        {presentation.context.length ? (
+          <dl className="m-0 grid min-w-0 gap-1.5 sm:grid-cols-2">
+            {presentation.context.map((item) => (
+              <div
+                className="grid min-w-0 gap-0.5 rounded-md border border-brand-lagoon-700/15 bg-white px-2.5 py-2"
+                key={item.label}
+              >
+                <dt className="text-[0.68rem] leading-tight font-black text-text-muted uppercase">
+                  {item.label}
+                </dt>
+                <dd className="m-0 text-xs leading-[1.35] font-extrabold break-words text-text-strong">
+                  {item.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+      </div>
+      <p className="m-0 text-sm leading-[1.45] font-bold break-words text-text-default">
+        {presentation.summary.basis}
+      </p>
+      {presentation.guidance.length ? (
+        <div className="grid min-w-0 gap-2 sm:grid-cols-2">
+          {presentation.guidance.map((item) => (
+            <p
+              className="m-0 rounded-md border border-border-default bg-white px-3 py-2 text-xs leading-[1.45] font-bold break-words text-text-muted"
+              key={item.label}
+            >
+              <span className="font-black text-text-strong">{item.label}: </span>
+              {item.value}
+            </p>
+          ))}
+        </div>
+      ) : null}
+      {presentation.sourceStatus ? (
+        <p
+          className="m-0 min-w-0 rounded-md border border-brand-lagoon-700/15 bg-white px-3 py-2 text-xs leading-[1.45] font-bold break-words text-text-muted"
+          data-testid="decision-strip-source-status"
         >
-          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-            <div className="grid min-w-0 gap-1">
-              <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.68rem] leading-tight font-black text-brand-lagoon-700 uppercase">
-                <Navigation aria-hidden="true" className="shrink-0" size={13} />
-                Best move
-              </span>
-              <h3 className="m-0 text-base leading-tight font-black break-words text-text-strong">
-                {summary.bestAction}
-              </h3>
-            </div>
-            <div className="flex min-w-0 flex-wrap gap-1.5 sm:justify-end">
-              {summary.area ? <DecisionSummaryChip icon={MapPin} label={summary.area} /> : null}
-              {summary.timing ? <DecisionSummaryChip icon={Clock} label={summary.timing} /> : null}
-            </div>
-          </div>
-          <p className="m-0 text-sm leading-[1.45] font-bold break-words text-text-default">
-            {summary.basis}
-          </p>
-          {summary.fallback || summary.avoid ? (
-            <div className="grid min-w-0 gap-2 sm:grid-cols-2">
-              {summary.fallback ? (
-                <DecisionSummaryGuidance label="Fallback" value={summary.fallback} />
-              ) : null}
-              {summary.avoid ? (
-                <DecisionSummaryGuidance label="Avoid" value={summary.avoid} />
-              ) : null}
-            </div>
-          ) : null}
-          {summary.sources.length ? (
-            <div className="flex min-w-0 flex-wrap gap-2" data-testid="decision-summary-sources">
-              {summary.sources.map((source) => (
-                <SourceIconBadge key={chatSourceKey(source)} source={source} />
-              ))}
-            </div>
-          ) : null}
-        </article>
-      ))}
+          <span className="font-black text-text-strong">{presentation.sourceStatus.label}: </span>
+          {presentation.sourceStatus.value}
+        </p>
+      ) : null}
     </section>
-  );
-}
-
-function DecisionSummaryChip({ icon: Icon, label }: { icon: typeof Clock; label: string }) {
-  return (
-    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-brand-lagoon-700/15 bg-white px-2 py-1 text-xs font-extrabold text-text-muted">
-      <Icon aria-hidden="true" className="shrink-0" size={13} />
-      <span className="min-w-0 truncate">{label}</span>
-    </span>
-  );
-}
-
-function DecisionSummaryGuidance({ label, value }: { label: string; value: string }) {
-  return (
-    <p className="m-0 rounded-md border border-border-default bg-white px-3 py-2 text-xs leading-[1.45] font-bold break-words text-text-muted">
-      <span className="font-black text-text-strong">{label}: </span>
-      {value}
-    </p>
   );
 }
 
@@ -3212,7 +3199,10 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
       : "font-extrabold text-brand-violet-650 underline decoration-brand-violet-400/45 underline-offset-4 break-words";
 
   return (
-    <div className="grid min-w-0 max-w-full flex-1 gap-3 overflow-hidden [overflow-wrap:anywhere]">
+    <div
+      className="grid min-w-0 max-w-full flex-1 gap-3 overflow-hidden [overflow-wrap:anywhere]"
+      data-testid="assistant-markdown"
+    >
       {blocks.map((block) => {
         if (block.type === "heading") {
           return (
