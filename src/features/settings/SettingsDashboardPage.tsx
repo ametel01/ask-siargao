@@ -7,7 +7,7 @@
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { ArrowRight, MapPinned, MessageCircle, Save, ShieldCheck, UserRound } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ type ProfileFormState = {
   interests: string;
   preferredAreas: string;
   surfAbility: string;
-  quietSleepPreference: boolean;
+  quietSleepPreference: boolean | null;
   weatherPreference: "" | "avoid_rain" | "flexible";
   accommodation: string;
   dateRange: string;
@@ -69,7 +69,7 @@ const emptyForm: ProfileFormState = {
   interests: "",
   preferredAreas: "",
   surfAbility: "",
-  quietSleepPreference: false,
+  quietSleepPreference: null,
   weatherPreference: "",
   accommodation: "",
   dateRange: "",
@@ -159,6 +159,7 @@ export function SettingsDashboardPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<ProfileFieldErrors>({});
   const [activeSection, setActiveSection] = useState<TripBriefSection>("current-trip");
+  const editVersionRef = useRef(0);
 
   useEffect(() => {
     const syncActiveSection = () => {
@@ -188,6 +189,7 @@ export function SettingsDashboardPage() {
   }, [isDirty, loadedProfile]);
 
   function updateForm(update: (current: ProfileFormState) => ProfileFormState) {
+    editVersionRef.current += 1;
     setForm(update);
     setIsDirty(true);
     setSaveState("idle");
@@ -214,6 +216,7 @@ export function SettingsDashboardPage() {
     setSaveState("saving");
     setSaveError(null);
     setFieldErrors({});
+    const savedEditVersion = editVersionRef.current;
 
     try {
       const response = await fetch("/api/me/profile", {
@@ -224,6 +227,9 @@ export function SettingsDashboardPage() {
 
       if (!response.ok) {
         const errorBody = (await response.json().catch(() => null)) as ProfileErrorResponse | null;
+        if (editVersionRef.current !== savedEditVersion) {
+          return;
+        }
         const issues = profileFieldErrors(errorBody?.issues);
         setFieldErrors(issues);
         setSaveError(
@@ -236,11 +242,17 @@ export function SettingsDashboardPage() {
       }
 
       const nextProfile = (await response.json()) as UserProfileResponse;
+      if (editVersionRef.current !== savedEditVersion) {
+        return;
+      }
       setProfile(nextProfile);
       setForm(formFromProfile(nextProfile));
       setIsDirty(false);
       setSaveState("saved");
     } catch {
+      if (editVersionRef.current !== savedEditVersion) {
+        return;
+      }
       setSaveError("Your changes are still here. Check your connection and try again.");
       setSaveState("error");
     }
@@ -928,7 +940,7 @@ function TravelProfileSection({
 
         <div className="grid min-w-0 gap-3 rounded-md border border-border-default p-4 sm:grid-cols-2">
           <PreferenceCheckbox
-            checked={form.quietSleepPreference}
+            checked={Boolean(form.quietSleepPreference)}
             label="Quiet sleep matters"
             onChange={(quietSleepPreference) =>
               setForm((current) => ({ ...current, quietSleepPreference }))
@@ -1198,7 +1210,7 @@ function formFromProfile(profile: UserProfileResponse): ProfileFormState {
     interests: profile.profile.interests.join(", "),
     preferredAreas: profile.profile.preferredAreas.join(", "),
     surfAbility: profile.profile.surfAbility ?? "",
-    quietSleepPreference: profile.profile.quietSleepPreference ?? false,
+    quietSleepPreference: profile.profile.quietSleepPreference,
     weatherPreference: profile.profile.weatherPreference ?? "",
     accommodation: tripContext.accommodation ?? "",
     dateRange: tripContext.dateRange ?? "",
@@ -1243,7 +1255,9 @@ function profilePatchFromForm(form: ProfileFormState) {
     dietaryNotes: nullableText(form.dietaryNotes),
     accessibilityNotes: nullableText(form.accessibilityNotes),
     surfAbility: nullableText(form.surfAbility),
-    quietSleepPreference: form.quietSleepPreference,
+    ...(form.quietSleepPreference === null
+      ? {}
+      : { quietSleepPreference: form.quietSleepPreference }),
     weatherPreference: form.weatherPreference || null,
     interests: commaList(form.interests),
     preferredAreas: commaList(form.preferredAreas),

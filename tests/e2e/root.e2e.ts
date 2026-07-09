@@ -67,7 +67,8 @@ test("renders local admin diagnostics without leaking sample secrets", async ({ 
 
 test("edits profile details and reloads the persisted values", async ({ page }) => {
   let patchPayload: Record<string, unknown> | null = null;
-  let profileSaveMode: "success" | "invalid" | "invalidConstraints" | "server" = "success";
+  let profileSaveMode: "success" | "delayed" | "invalid" | "invalidConstraints" | "server" =
+    "success";
   let profile = {
     identity: {
       userId: "user_e2e_profile",
@@ -84,7 +85,7 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
       dietaryNotes: "",
       accessibilityNotes: "",
       surfAbility: "Intermediate",
-      quietSleepPreference: true,
+      quietSleepPreference: null,
       weatherPreference: "avoid_rain" as const,
       interests: ["surf"],
       preferredAreas: ["Cloud 9"],
@@ -144,6 +145,9 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
           body: JSON.stringify({ error: "profile_save_failed" }),
         });
         return;
+      }
+      if (profileSaveMode === "delayed") {
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
       profile = {
         ...profile,
@@ -231,6 +235,13 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await page.getByLabel("Send occasional Ask Siargao product updates").check();
   await expect(page.getByText("You have unsaved changes")).toBeVisible();
 
+  profileSaveMode = "delayed";
+  await page.getByRole("button", { name: "Save trip brief" }).click();
+  await page.getByLabel("Trip notes").fill("Arriving in October");
+  await page.waitForTimeout(600);
+  await expect(page.getByLabel("Trip notes")).toHaveValue("Arriving in October");
+  await expect(page.getByText("You have unsaved changes")).toBeVisible();
+
   profileSaveMode = "invalid";
   await page.getByLabel("Surf ability").fill("x".repeat(81));
   await page.getByRole("button", { name: "Save trip brief" }).click();
@@ -257,7 +268,7 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await page.getByRole("button", { name: "Save trip brief" }).click();
   await expect(page.getByText("Check your entries and try again.")).toBeVisible();
   await expect(page.getByLabel("Accommodation")).toHaveValue("Pacifico beach stay");
-  await expect(page.getByLabel("Trip notes")).toHaveValue("Arriving in September");
+  await expect(page.getByLabel("Trip notes")).toHaveValue("Arriving in October");
 
   profileSaveMode = "success";
   await page.getByRole("button", { name: "Save trip brief" }).click();
@@ -265,7 +276,6 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await expect(page.getByText("Trip brief saved")).toBeVisible();
   expect(patchPayload).toMatchObject({
     surfAbility: "Intermediate",
-    quietSleepPreference: true,
     weatherPreference: "avoid_rain",
     tripContext: {
       accommodation: "Pacifico beach stay",
@@ -275,14 +285,15 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
       transportMode: "scooter",
       rideTimeLimitMinutes: 25,
       durableConstraints: ["rain_avoidance", "with_kids"],
-      notes: "Arriving in September",
+      notes: "Arriving in October",
     },
   });
+  expect(patchPayload).not.toHaveProperty("quietSleepPreference");
 
   await page.reload();
   await expect(page.getByLabel("Display name")).toHaveValue("Alex in Siargao");
   await expect(page.getByLabel("Preferred areas")).toHaveValue("Cloud 9, Pacifico");
-  await expect(page.getByLabel("Trip notes")).toHaveValue("Arriving in September");
+  await expect(page.getByLabel("Trip notes")).toHaveValue("Arriving in October");
   await expect(page.getByLabel("Accommodation")).toHaveValue("Pacifico beach stay");
   await expect(page.getByLabel("Send occasional Ask Siargao product updates")).toBeChecked();
 
