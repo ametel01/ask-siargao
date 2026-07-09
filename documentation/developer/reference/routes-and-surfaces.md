@@ -7,8 +7,8 @@
 | `/` | Ask Siargao chat-first landing page | Public |
 | `/chat` | Ask Siargao assistant workspace with anonymous chat and signed-in chat history | Public |
 | `/trips/shared/[token]` | Public shared saved-trip plan with selected cards/itineraries only | `noindex, nofollow` metadata |
-| `/settings` | Signed-in Ask Siargao settings dashboard with account identity, travel profile editing, recent chat summary, and saved planning summary | Private authenticated surface |
-| `/profile` | Compatibility alias that renders the signed-in settings dashboard | Private authenticated surface |
+| `/settings` | Signed-in traveler trip brief for current-trip details, durable preferences, account, privacy, and pass sections; it also includes private chat and saved-planning summaries | Private authenticated surface |
+| `/profile` | Compatibility alias that renders the signed-in traveler trip brief | Private authenticated surface |
 | `/audits/[auditRequestId]/status` | Post-checkout processing/status page | Private audit surface |
 | `/audits/[auditRequestId]/report?token=...` | Signed-token paid report delivery for published, paid, reviewer-approved audits | `x-robots-tag: noindex, nofollow` |
 | `/audits/demo/report` | Synthetic report fixture for local QA only | `x-robots-tag: noindex, nofollow` |

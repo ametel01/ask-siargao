@@ -37,6 +37,8 @@ export type TravelerProfile = {
   budget?: BudgetPreference;
   avoidsRain: boolean;
   avoidsRockyBeach: boolean;
+  surfAbility?: string;
+  prefersQuietSleep: boolean;
 };
 
 export type TripContextActiveGoal =
@@ -84,6 +86,8 @@ export type TripContext = {
   accommodation?: string;
   dateRange?: string;
   travelerType?: string;
+  surfAbility?: string;
+  prefersQuietSleep: boolean;
   browserGeolocation: TripContextBrowserGeolocation;
   contextSources: TripContextSourceSummary;
   unresolvedReference?: "there";
@@ -116,6 +120,9 @@ export type TripContextProfileInput = Partial<{
   budgetLevel: string | null;
   dietaryNotes: string | null;
   accessibilityNotes: string | null;
+  surfAbility: string | null;
+  quietSleepPreference: boolean | null;
+  weatherPreference: "avoid_rain" | "flexible" | null;
   interests: readonly string[];
   preferredAreas: readonly string[];
   tripContext: UserProfileTripContext;
@@ -205,6 +212,7 @@ const allowedDurableConstraints = [
   "rain_avoidance",
   "avoid_rocky_beach",
   "no_scooter",
+  "quiet_sleep",
 ] as const;
 
 const profileTripContextKeys = [
@@ -335,6 +343,8 @@ export function deriveTripContext(
     ...((uiSeed.travelerType ?? profileSeed.travelerType)
       ? { travelerType: uiSeed.travelerType ?? profileSeed.travelerType }
       : {}),
+    ...(profileSeed.surfAbility ? { surfAbility: profileSeed.surfAbility } : {}),
+    prefersQuietSleep: travelerProfile.prefersQuietSleep,
     browserGeolocation,
     contextSources,
     ...(reference === "there" && !currentLocation ? { unresolvedReference: "there" as const } : {}),
@@ -853,6 +863,7 @@ function inferTravelerProfile(content: string): TravelerProfile {
     avoidsRockyBeach: /\bnot\s+rocky|no\s+rocks?|avoid\s+rocks?|smooth\s+sand|sandy\b/i.test(
       content,
     ),
+    prefersQuietSleep: /\bquiet\s+sleep|quiet\s+room|sleep\s+quietly\b/i.test(content),
   };
 }
 
@@ -1066,6 +1077,7 @@ function tripContextSeedFromProfile(input: TripContextProfileInput | null | unde
     input?.budgetLevel,
     input?.dietaryNotes,
     input?.accessibilityNotes,
+    input?.surfAbility,
     ...(input?.interests ?? []),
     profileTripContext.travelerType,
   ]
@@ -1076,10 +1088,14 @@ function tripContextSeedFromProfile(input: TripContextProfileInput | null | unde
   const travelerProfile = {
     ...inferredProfile,
     ...(budget ? { budget } : {}),
+    ...(input?.surfAbility ? { surfAbility: input.surfAbility } : {}),
+    prefersQuietSleep: input?.quietSleepPreference === true,
+    avoidsRain: input?.weatherPreference === "avoid_rain" || inferredProfile.avoidsRain,
   };
   const durableConstraints = [
     ...(profileTripContext.durableConstraints ?? []),
     ...inferDurableConstraints(profileText, travelerProfile),
+    ...(input?.quietSleepPreference ? ["quiet_sleep"] : []),
   ].filter(isDurableConstraint);
 
   return {
@@ -1094,6 +1110,9 @@ function tripContextSeedFromProfile(input: TripContextProfileInput | null | unde
           durableConstraints.length > 0 ||
           input.budgetLevel ||
           input.travelStyle ||
+          input.surfAbility ||
+          input.quietSleepPreference ||
+          input.weatherPreference ||
           input.interests?.length ||
           input.preferredAreas?.length),
     ),
@@ -1107,6 +1126,7 @@ function tripContextSeedFromProfile(input: TripContextProfileInput | null | unde
     dateRange: profileTripContext.dateRange ?? undefined,
     travelerType: profileTripContext.travelerType ?? undefined,
     rideTimeLimitMinutes: profileTripContext.rideTimeLimitMinutes ?? undefined,
+    surfAbility: input?.surfAbility ?? undefined,
   };
 }
 
@@ -1121,6 +1141,11 @@ function mergeTravelerProfiles(
     avoidsRain: chatProfile.avoidsRain || uiProfile.avoidsRain || profileProfile.avoidsRain,
     avoidsRockyBeach:
       chatProfile.avoidsRockyBeach || uiProfile.avoidsRockyBeach || profileProfile.avoidsRockyBeach,
+    surfAbility: chatProfile.surfAbility ?? uiProfile.surfAbility ?? profileProfile.surfAbility,
+    prefersQuietSleep:
+      chatProfile.prefersQuietSleep ||
+      uiProfile.prefersQuietSleep ||
+      profileProfile.prefersQuietSleep,
   };
 }
 
@@ -1129,6 +1154,7 @@ function emptyTravelerProfile(): TravelerProfile {
     withKids: false,
     avoidsRain: false,
     avoidsRockyBeach: false,
+    prefersQuietSleep: false,
   };
 }
 

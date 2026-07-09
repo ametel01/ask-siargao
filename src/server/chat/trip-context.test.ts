@@ -38,6 +38,21 @@ describe("Trip Context module", () => {
     expect(context.contextSources.profile).toBe(true);
   });
 
+  test("carries typed durable traveler preferences into safe planning context", () => {
+    const context = deriveTripContext([{ role: "user", content: "Plan my surf day." }], {
+      profileContext: {
+        surfAbility: "Intermediate",
+        quietSleepPreference: true,
+        weatherPreference: "avoid_rain",
+      },
+    });
+
+    expect(context.surfAbility).toBe("Intermediate");
+    expect(context.prefersQuietSleep).toBe(true);
+    expect(context.durableConstraints).toContain("quiet_sleep");
+    expect(context.durableConstraints).toContain("rain_avoidance");
+  });
+
   test("lets visible local draft context win over profile context when chat has no explicit area", () => {
     const context = deriveTripContext([{ role: "user", content: "Plan a quiet day." }], {
       profileContext: {
