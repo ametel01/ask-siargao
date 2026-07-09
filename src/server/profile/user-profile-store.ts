@@ -15,6 +15,9 @@ export type UserProfileDetails = {
   budgetLevel: string | null;
   dietaryNotes: string | null;
   accessibilityNotes: string | null;
+  surfAbility: string | null;
+  quietSleepPreference: boolean | null;
+  weatherPreference: "avoid_rain" | "flexible" | null;
   interests: string[];
   preferredAreas: string[];
   tripContext: UserProfileTripContext;
@@ -43,6 +46,9 @@ export type UserProfilePatch = Partial<{
   budgetLevel: string | null;
   dietaryNotes: string | null;
   accessibilityNotes: string | null;
+  surfAbility: string | null;
+  quietSleepPreference: boolean | null;
+  weatherPreference: "avoid_rain" | "flexible" | null;
   interests: string[];
   preferredAreas: string[];
   tripContext: UserProfileTripContext;
@@ -61,6 +67,9 @@ type UserProfileRow = {
   budget_level: string | null;
   dietary_notes: string | null;
   accessibility_notes: string | null;
+  surf_ability: string | null;
+  quiet_sleep_preference: boolean | null;
+  weather_preference: "avoid_rain" | "flexible" | null;
   interests_json: unknown;
   preferred_areas_json: unknown;
   trip_context_json: unknown;
@@ -87,6 +96,9 @@ export async function loadUserProfile(
         user_profiles.budget_level,
         user_profiles.dietary_notes,
         user_profiles.accessibility_notes,
+        user_profiles.surf_ability,
+        user_profiles.quiet_sleep_preference,
+        user_profiles.weather_preference,
         user_profiles.interests_json,
         user_profiles.preferred_areas_json,
         user_profiles.trip_context_json,
@@ -129,6 +141,9 @@ export async function upsertUserProfile(
         budget_level,
         dietary_notes,
         accessibility_notes,
+        surf_ability,
+        quiet_sleep_preference,
+        weather_preference,
         interests_json,
         preferred_areas_json,
         trip_context_json,
@@ -136,7 +151,7 @@ export async function upsertUserProfile(
         created_at,
         updated_at
       )
-      values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12, $12)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15, $15)
       on conflict (user_id) do update set
         display_name = excluded.display_name,
         home_country = excluded.home_country,
@@ -144,6 +159,9 @@ export async function upsertUserProfile(
         budget_level = excluded.budget_level,
         dietary_notes = excluded.dietary_notes,
         accessibility_notes = excluded.accessibility_notes,
+        surf_ability = excluded.surf_ability,
+        quiet_sleep_preference = excluded.quiet_sleep_preference,
+        weather_preference = excluded.weather_preference,
         interests_json = excluded.interests_json,
         preferred_areas_json = excluded.preferred_areas_json,
         trip_context_json = excluded.trip_context_json,
@@ -158,6 +176,9 @@ export async function upsertUserProfile(
       next.budgetLevel,
       next.dietaryNotes,
       next.accessibilityNotes,
+      next.surfAbility,
+      next.quietSleepPreference,
+      next.weatherPreference,
       JSON.stringify(next.interests),
       JSON.stringify(next.preferredAreas),
       JSON.stringify(next.tripContext),
@@ -190,6 +211,9 @@ function profileResponseFromRow(row: UserProfileRow): UserProfileResponse {
       budgetLevel: row.budget_level,
       dietaryNotes: row.dietary_notes,
       accessibilityNotes: row.accessibility_notes,
+      surfAbility: row.surf_ability,
+      quietSleepPreference: row.quiet_sleep_preference,
+      weatherPreference: row.weather_preference,
       interests: stringArrayFromJson(row.interests_json),
       preferredAreas: stringArrayFromJson(row.preferred_areas_json),
       tripContext: tripContextFromJson(row.trip_context_json),
@@ -208,6 +232,9 @@ function emptyProfile(): UserProfileDetails {
     budgetLevel: null,
     dietaryNotes: null,
     accessibilityNotes: null,
+    surfAbility: null,
+    quietSleepPreference: null,
+    weatherPreference: null,
     interests: [],
     preferredAreas: [],
     tripContext: {},

@@ -7,7 +7,7 @@
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { ArrowRight, MapPinned, MessageCircle, Save, ShieldCheck, UserRound } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 
 import { Button } from "@/components/ui/button";
@@ -28,11 +28,23 @@ type ProfileFormState = {
   accessibilityNotes: string;
   interests: string;
   preferredAreas: string;
+  surfAbility: string;
+  quietSleepPreference: boolean | null;
+  weatherPreference: "" | "avoid_rain" | "flexible";
+  accommodation: string;
+  dateRange: string;
+  currentArea: string;
+  travelerType: string;
+  transportMode: "" | "walk" | "scooter" | "tricycle" | "van" | "unknown";
+  rideTimeLimitMinutes: string;
+  durableConstraints: string[];
   tripNotes: string;
   marketingConsent: boolean;
 };
 
 type PrivateSummaryStatus = "idle" | "loading" | "ready" | "error";
+type TripBriefSection = "current-trip" | "traveler-preferences" | "account" | "privacy" | "pass";
+type ProfileFieldErrors = Record<string, string>;
 
 type ChatThreadsResponse = {
   threads: ChatHistoryThread[];
@@ -41,6 +53,10 @@ type ChatThreadsResponse = {
 type SavedTripsResponse = {
   tripId?: string;
   items: SavedTripItem[];
+};
+
+type ProfileErrorResponse = {
+  issues?: { path?: string; message?: string }[];
 };
 
 const emptyForm: ProfileFormState = {
@@ -52,6 +68,16 @@ const emptyForm: ProfileFormState = {
   accessibilityNotes: "",
   interests: "",
   preferredAreas: "",
+  surfAbility: "",
+  quietSleepPreference: null,
+  weatherPreference: "",
+  accommodation: "",
+  dateRange: "",
+  currentArea: "",
+  travelerType: "",
+  transportMode: "",
+  rideTimeLimitMinutes: "",
+  durableConstraints: [],
   tripNotes: "",
   marketingConsent: false,
 };
@@ -129,6 +155,27 @@ export function SettingsDashboardPage() {
   const [profile, setProfile] = useState<UserProfileResponse | null>(null);
   const [form, setForm] = useState<ProfileFormState>(emptyForm);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [isDirty, setIsDirty] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<ProfileFieldErrors>({});
+  const [activeSection, setActiveSection] = useState<TripBriefSection>("current-trip");
+  const editVersionRef = useRef(0);
+
+  useEffect(() => {
+    const syncActiveSection = () => {
+      const section = sectionFromHash(window.location.hash);
+      if (section) {
+        setActiveSection(section);
+      }
+    };
+    syncActiveSection();
+    window.addEventListener("hashchange", syncActiveSection);
+    window.addEventListener("popstate", syncActiveSection);
+    return () => {
+      window.removeEventListener("hashchange", syncActiveSection);
+      window.removeEventListener("popstate", syncActiveSection);
+    };
+  }, []);
 
   useEffect(() => {
     if (!loadedProfile) {
@@ -136,8 +183,27 @@ export function SettingsDashboardPage() {
     }
 
     setProfile(loadedProfile);
-    setForm(formFromProfile(loadedProfile));
-  }, [loadedProfile]);
+    if (!isDirty) {
+      setForm(formFromProfile(loadedProfile));
+    }
+  }, [isDirty, loadedProfile]);
+
+  function updateForm(update: (current: ProfileFormState) => ProfileFormState) {
+    editVersionRef.current += 1;
+    setForm(update);
+    setIsDirty(true);
+    setSaveState("idle");
+    setSaveError(null);
+    setFieldErrors({});
+  }
+
+  function activateSection(section: TripBriefSection) {
+    setActiveSection(section);
+    window.history.pushState(null, "", `#${section}`);
+    const target = document.getElementById(section);
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    target?.focus({ preventScroll: true });
+  }
 
   const status = profileLoadStatus({
     error: profileError,
@@ -148,6 +214,9 @@ export function SettingsDashboardPage() {
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaveState("saving");
+    setSaveError(null);
+    setFieldErrors({});
+    const savedEditVersion = editVersionRef.current;
 
     try {
       const response = await fetch("/api/me/profile", {
@@ -157,15 +226,34 @@ export function SettingsDashboardPage() {
       });
 
       if (!response.ok) {
+        const errorBody = (await response.json().catch(() => null)) as ProfileErrorResponse | null;
+        if (editVersionRef.current !== savedEditVersion) {
+          return;
+        }
+        const issues = profileFieldErrors(errorBody?.issues);
+        setFieldErrors(issues);
+        setSaveError(
+          Object.keys(issues).length
+            ? "Review the highlighted fields and try again."
+            : "Check your entries and try again.",
+        );
         setSaveState("error");
         return;
       }
 
       const nextProfile = (await response.json()) as UserProfileResponse;
+      if (editVersionRef.current !== savedEditVersion) {
+        return;
+      }
       setProfile(nextProfile);
       setForm(formFromProfile(nextProfile));
+      setIsDirty(false);
       setSaveState("saved");
     } catch {
+      if (editVersionRef.current !== savedEditVersion) {
+        return;
+      }
+      setSaveError("Your changes are still here. Check your connection and try again.");
       setSaveState("error");
     }
   }
@@ -187,7 +275,11 @@ export function SettingsDashboardPage() {
           <StatusPanel title="Settings unavailable" />
         ) : (
           <div className="grid min-w-0 gap-6 xl:grid-cols-[20rem_minmax(0,1fr)] 2xl:grid-cols-[22rem_minmax(0,1fr)] xl:items-start">
-            <SettingsSidebar profile={profile} />
+            <SettingsSidebar
+              activeSection={activeSection}
+              onActivate={activateSection}
+              profile={profile}
+            />
             <div className="grid min-w-0 gap-6">
               <PrivatePlanningDataSection
                 chatStatus={privateSummaryStatus({
@@ -204,7 +296,14 @@ export function SettingsDashboardPage() {
                 threads={chatThreads?.threads ?? []}
               />
               <form className="grid min-w-0 gap-6" onSubmit={saveProfile}>
-                <TravelProfileSection form={form} saveState={saveState} setForm={setForm} />
+                <TravelProfileSection
+                  form={form}
+                  fieldErrors={fieldErrors}
+                  isDirty={isDirty}
+                  saveError={saveError}
+                  saveState={saveState}
+                  setForm={updateForm}
+                />
               </form>
             </div>
           </div>
@@ -393,23 +492,95 @@ function SettingsHeader() {
         }
       />
       <PageHeader
-        description="Manage your Ask Siargao account surface, trip preferences, saved planning context, and private travel data."
-        eyebrow="User settings"
-        title="Settings"
+        description="Tell Ask Siargao where you are staying, what your group needs, and how far you want to go."
+        eyebrow="Your trip brief"
+        title="How should Ask Siargao plan for me?"
       />
     </>
   );
 }
 
-function SettingsSidebar({ profile }: { profile: UserProfileResponse }) {
+function SettingsSidebar({
+  activeSection,
+  onActivate,
+  profile,
+}: {
+  activeSection: TripBriefSection;
+  onActivate: (section: TripBriefSection) => void;
+  profile: UserProfileResponse;
+}) {
   return (
     <aside className="grid min-w-0 gap-4 xl:sticky xl:top-6 xl:h-fit">
+      <nav aria-label="Trip brief sections" className={`${settingsPanelClass} grid gap-1 p-3`}>
+        <SectionLink
+          activeSection={activeSection}
+          onActivate={onActivate}
+          section="current-trip"
+          label="Current trip"
+        />
+        <SectionLink
+          activeSection={activeSection}
+          onActivate={onActivate}
+          section="traveler-preferences"
+          label="Traveler preferences"
+        />
+        <SectionLink
+          activeSection={activeSection}
+          onActivate={onActivate}
+          section="account"
+          label="Account"
+        />
+        <SectionLink
+          activeSection={activeSection}
+          onActivate={onActivate}
+          section="privacy"
+          label="Privacy"
+        />
+        <SectionLink
+          activeSection={activeSection}
+          onActivate={onActivate}
+          section="pass"
+          label="Pass"
+        />
+      </nav>
       <AccountPanel profile={profile} />
       <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-1">
         <ShortcutPanel />
         <PrivacyPanel />
+        <PassPanel />
       </div>
     </aside>
+  );
+}
+
+function SectionLink({
+  activeSection,
+  label,
+  onActivate,
+  section,
+}: {
+  activeSection: TripBriefSection;
+  label: string;
+  onActivate: (section: TripBriefSection) => void;
+  section: TripBriefSection;
+}) {
+  const isActive = activeSection === section;
+  return (
+    <a
+      aria-current={isActive ? "location" : undefined}
+      className={`rounded-md px-3 py-2 text-sm font-extrabold no-underline outline-none focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20 ${
+        isActive
+          ? "bg-brand-lagoon-100 text-brand-lagoon-800"
+          : "text-text-default hover:bg-brand-lagoon-100"
+      }`}
+      href={`#${section}`}
+      onClick={(event) => {
+        event.preventDefault();
+        onActivate(section);
+      }}
+    >
+      {label}
+    </a>
   );
 }
 
@@ -419,7 +590,7 @@ function AccountPanel({ profile }: { profile: UserProfileResponse }) {
     .join(" ");
 
   return (
-    <section className={`${settingsPanelClass} grid min-w-0 gap-4`}>
+    <section className={`${settingsPanelClass} grid min-w-0 gap-4`} id="account" tabIndex={-1}>
       <div className="flex items-center gap-3">
         <span className="grid size-12 place-items-center rounded-full bg-brand-lagoon-100 text-brand-lagoon-700">
           <UserRound className="size-5" />
@@ -476,9 +647,20 @@ function ShortcutPanel() {
   );
 }
 
+function PassPanel() {
+  return (
+    <section className={`${settingsPanelClass} grid min-w-0 gap-3`} id="pass" tabIndex={-1}>
+      <h2 className="m-0 text-base font-black">Pass</h2>
+      <p className={appBodyClass}>
+        Pass details and choices will appear here when they are available for your account.
+      </p>
+    </section>
+  );
+}
+
 function PrivacyPanel() {
   return (
-    <section className={`${settingsPanelClass} grid min-w-0 gap-3`}>
+    <section className={`${settingsPanelClass} grid min-w-0 gap-3`} id="privacy" tabIndex={-1}>
       <div className="flex items-center gap-3">
         <span className="grid size-10 place-items-center rounded-md bg-brand-lagoon-100 text-brand-lagoon-700">
           <ShieldCheck className="size-5" />
@@ -550,119 +732,345 @@ function savedItemKindLabel(kind: SavedTripItem["kind"]) {
 }
 
 function TravelProfileSection({
+  fieldErrors,
   form,
+  isDirty,
+  saveError,
   saveState,
   setForm,
 }: {
+  fieldErrors: ProfileFieldErrors;
   form: ProfileFormState;
+  isDirty: boolean;
+  saveError: string | null;
   saveState: "idle" | "saving" | "saved" | "error";
   setForm: (update: (current: ProfileFormState) => ProfileFormState) => void;
 }) {
   return (
-    <section className={`${settingsPanelClass} grid min-w-0 gap-6`}>
-      <div>
-        <h2 className="m-0 text-lg font-black">Travel profile</h2>
-        <p className={appBodyClass}>App profile details for Ask Siargao planning.</p>
-      </div>
+    <section className="grid min-w-0 gap-6">
+      <section
+        className={`${settingsPanelClass} grid min-w-0 gap-6`}
+        id="current-trip"
+        tabIndex={-1}
+      >
+        <div>
+          <h2 className="m-0 text-lg font-black">Current trip</h2>
+          <p className={appBodyClass}>
+            Share the stay, timing, group, and travel limits for this visit.
+          </p>
+        </div>
 
-      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
-        <TextField
-          label="Display name"
-          value={form.displayName}
-          onChange={(displayName) => setForm((current) => ({ ...current, displayName }))}
-        />
-        <TextField
-          label="Home country"
-          value={form.homeCountry}
-          onChange={(homeCountry) => setForm((current) => ({ ...current, homeCountry }))}
-        />
-        <TextField
-          label="Travel style"
-          value={form.travelStyle}
-          onChange={(travelStyle) => setForm((current) => ({ ...current, travelStyle }))}
-        />
-        <label className="grid min-w-0 gap-2 text-sm font-extrabold text-text-default">
-          Budget level
-          <select
-            className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-bold outline-none focus-visible:border-brand-lagoon-600 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
-            value={form.budgetLevel}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, budgetLevel: event.target.value }))
+        <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+          <TextField
+            label="Accommodation"
+            value={form.accommodation}
+            error={fieldErrors["tripContext.accommodation"]}
+            onChange={(accommodation) => setForm((current) => ({ ...current, accommodation }))}
+          />
+          <TextField
+            label="Dates or date range"
+            value={form.dateRange}
+            error={fieldErrors["tripContext.dateRange"]}
+            onChange={(dateRange) => setForm((current) => ({ ...current, dateRange }))}
+          />
+          <label className="grid min-w-0 gap-2 text-sm font-extrabold text-text-default">
+            Current area
+            <select
+              aria-describedby={
+                fieldErrors["tripContext.currentArea"] ? fieldErrorId("Current area") : undefined
+              }
+              aria-invalid={Boolean(fieldErrors["tripContext.currentArea"])}
+              className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-bold outline-none focus-visible:border-brand-lagoon-600 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+              value={form.currentArea}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, currentArea: event.target.value }))
+              }
+            >
+              <option value="">Not set</option>
+              <option value="Cloud 9">Cloud 9</option>
+              <option value="General Luna">General Luna</option>
+              <option value="Del Carmen">Del Carmen</option>
+              <option value="Dapa">Dapa</option>
+              <option value="Siargao Island">Siargao Island</option>
+            </select>
+            <FieldError
+              id={fieldErrorId("Current area")}
+              message={fieldErrors["tripContext.currentArea"]}
+            />
+          </label>
+          <TextField
+            label="Traveler or group type"
+            value={form.travelerType}
+            error={fieldErrors["tripContext.travelerType"]}
+            onChange={(travelerType) => setForm((current) => ({ ...current, travelerType }))}
+          />
+          <label className="grid min-w-0 gap-2 text-sm font-extrabold text-text-default">
+            Transport mode
+            <select
+              aria-describedby={
+                fieldErrors["tripContext.transportMode"]
+                  ? fieldErrorId("Transport mode")
+                  : undefined
+              }
+              aria-invalid={Boolean(fieldErrors["tripContext.transportMode"])}
+              className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-bold outline-none focus-visible:border-brand-lagoon-600 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+              value={form.transportMode}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  transportMode: event.target.value as ProfileFormState["transportMode"],
+                }))
+              }
+            >
+              <option value="">Not set</option>
+              <option value="walk">Walking</option>
+              <option value="scooter">Scooter</option>
+              <option value="tricycle">Tricycle</option>
+              <option value="van">Van or transfer</option>
+              <option value="unknown">Not sure yet</option>
+            </select>
+            <FieldError
+              id={fieldErrorId("Transport mode")}
+              message={fieldErrors["tripContext.transportMode"]}
+            />
+          </label>
+          <TextField
+            label="Maximum ride time in minutes"
+            value={form.rideTimeLimitMinutes}
+            error={fieldErrors["tripContext.rideTimeLimitMinutes"]}
+            onChange={(rideTimeLimitMinutes) =>
+              setForm((current) => ({ ...current, rideTimeLimitMinutes }))
             }
-          >
-            <option value="">Not set</option>
-            <option value="budget">Budget</option>
-            <option value="mid_range">Mid-range</option>
-            <option value="premium">Premium</option>
-            <option value="mixed">Mixed</option>
-          </select>
-        </label>
-        <TextField
-          label="Interests"
-          value={form.interests}
-          onChange={(interests) => setForm((current) => ({ ...current, interests }))}
-        />
-        <TextField
-          label="Preferred areas"
-          value={form.preferredAreas}
-          onChange={(preferredAreas) => setForm((current) => ({ ...current, preferredAreas }))}
-        />
-      </div>
-
-      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+          />
+        </div>
         <TextAreaField
-          label="Dietary notes"
-          value={form.dietaryNotes}
-          onChange={(dietaryNotes) => setForm((current) => ({ ...current, dietaryNotes }))}
+          label="Trip notes"
+          value={form.tripNotes}
+          error={fieldErrors["tripContext.notes"]}
+          onChange={(tripNotes) => setForm((current) => ({ ...current, tripNotes }))}
         />
-        <TextAreaField
-          label="Accessibility notes"
-          value={form.accessibilityNotes}
-          onChange={(accessibilityNotes) =>
-            setForm((current) => ({ ...current, accessibilityNotes }))
+      </section>
+
+      <section
+        className={`${settingsPanelClass} grid min-w-0 gap-6`}
+        id="traveler-preferences"
+        tabIndex={-1}
+      >
+        <div>
+          <h2 className="m-0 text-lg font-black">Traveler preferences</h2>
+          <p className={appBodyClass}>
+            These choices help Ask Siargao shape plans beyond this stay.
+          </p>
+        </div>
+
+        <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+          <TextField
+            label="Display name"
+            value={form.displayName}
+            error={fieldErrors.displayName}
+            onChange={(displayName) => setForm((current) => ({ ...current, displayName }))}
+          />
+          <TextField
+            label="Home country"
+            value={form.homeCountry}
+            error={fieldErrors.homeCountry}
+            onChange={(homeCountry) => setForm((current) => ({ ...current, homeCountry }))}
+          />
+          <TextField
+            label="Travel style"
+            value={form.travelStyle}
+            error={fieldErrors.travelStyle}
+            onChange={(travelStyle) => setForm((current) => ({ ...current, travelStyle }))}
+          />
+          <TextField
+            label="Surf ability"
+            value={form.surfAbility}
+            error={fieldErrors.surfAbility}
+            onChange={(surfAbility) => setForm((current) => ({ ...current, surfAbility }))}
+          />
+          <label className="grid min-w-0 gap-2 text-sm font-extrabold text-text-default">
+            Budget level
+            <select
+              aria-describedby={fieldErrors.budgetLevel ? fieldErrorId("Budget level") : undefined}
+              aria-invalid={Boolean(fieldErrors.budgetLevel)}
+              className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-bold outline-none focus-visible:border-brand-lagoon-600 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+              value={form.budgetLevel}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, budgetLevel: event.target.value }))
+              }
+            >
+              <option value="">Not set</option>
+              <option value="budget">Budget</option>
+              <option value="mid_range">Mid-range</option>
+              <option value="premium">Premium</option>
+              <option value="mixed">Mixed</option>
+            </select>
+            <FieldError id={fieldErrorId("Budget level")} message={fieldErrors.budgetLevel} />
+          </label>
+          <TextField
+            label="Interests"
+            value={form.interests}
+            error={fieldErrors.interests}
+            onChange={(interests) => setForm((current) => ({ ...current, interests }))}
+          />
+          <TextField
+            label="Preferred areas"
+            value={form.preferredAreas}
+            error={fieldErrors.preferredAreas}
+            onChange={(preferredAreas) => setForm((current) => ({ ...current, preferredAreas }))}
+          />
+        </div>
+
+        <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+          <TextAreaField
+            label="Dietary notes"
+            value={form.dietaryNotes}
+            error={fieldErrors.dietaryNotes}
+            onChange={(dietaryNotes) => setForm((current) => ({ ...current, dietaryNotes }))}
+          />
+          <TextAreaField
+            label="Accessibility notes"
+            value={form.accessibilityNotes}
+            error={fieldErrors.accessibilityNotes}
+            onChange={(accessibilityNotes) =>
+              setForm((current) => ({ ...current, accessibilityNotes }))
+            }
+          />
+        </div>
+
+        <div className="grid min-w-0 gap-3 rounded-md border border-border-default p-4 sm:grid-cols-2">
+          <PreferenceCheckbox
+            checked={Boolean(form.quietSleepPreference)}
+            label="Quiet sleep matters"
+            onChange={(quietSleepPreference) =>
+              setForm((current) => ({ ...current, quietSleepPreference }))
+            }
+          />
+          <label className="grid gap-2 text-sm font-extrabold">
+            Weather preference
+            <select
+              aria-describedby={
+                fieldErrors.weatherPreference ? fieldErrorId("Weather preference") : undefined
+              }
+              aria-invalid={Boolean(fieldErrors.weatherPreference)}
+              className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-bold"
+              value={form.weatherPreference}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  weatherPreference: event.target.value as ProfileFormState["weatherPreference"],
+                }))
+              }
+            >
+              <option value="">Flexible</option>
+              <option value="avoid_rain">Prefer drier plans</option>
+              <option value="flexible">Happy to adapt to rain</option>
+            </select>
+            <FieldError
+              id={fieldErrorId("Weather preference")}
+              message={fieldErrors.weatherPreference}
+            />
+          </label>
+        </div>
+
+        <fieldset
+          aria-describedby={
+            fieldErrors["tripContext.durableConstraints"]
+              ? "profile-durable-constraints-error"
+              : undefined
           }
-        />
-      </div>
-
-      <TextAreaField
-        label="Trip notes"
-        value={form.tripNotes}
-        onChange={(tripNotes) => setForm((current) => ({ ...current, tripNotes }))}
-      />
-
-      <label className="flex min-w-0 items-start gap-3 rounded-md border border-brand-lagoon-700/10 bg-brand-lagoon-100 p-3 text-sm font-bold text-text-default sm:items-center">
-        <input
-          checked={form.marketingConsent}
-          className="size-4 accent-brand-lagoon-600"
-          type="checkbox"
-          onChange={(event) =>
-            setForm((current) => ({
-              ...current,
-              marketingConsent: event.target.checked,
-            }))
-          }
-        />
-        Send occasional Ask Siargao product updates
-      </label>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          className="rounded-md whitespace-nowrap"
-          disabled={saveState === "saving"}
-          type="submit"
+          aria-invalid={Boolean(fieldErrors["tripContext.durableConstraints"])}
+          className="grid min-w-0 gap-3 rounded-md border border-border-default p-4 sm:grid-cols-2"
         >
-          <Save className="size-4" />
-          {saveState === "saving" ? "Saving" : "Save profile"}
-        </Button>
-        <output className="min-h-5 text-sm font-bold text-text-muted">
-          {saveState === "saved"
-            ? "Profile saved"
-            : saveState === "error"
-              ? "Profile could not be saved"
-              : ""}
-        </output>
-      </div>
+          <legend className="px-1 text-sm font-extrabold text-text-default">Group needs</legend>
+          <PreferenceCheckbox
+            checked={form.durableConstraints.includes("with_kids")}
+            error={fieldErrors["tripContext.durableConstraints"]}
+            errorId="profile-durable-constraints-error"
+            label="Traveling with children"
+            onChange={(checked) =>
+              setForm((current) => toggleConstraint(current, "with_kids", checked))
+            }
+          />
+          <PreferenceCheckbox
+            checked={form.durableConstraints.includes("avoid_rocky_beach")}
+            error={fieldErrors["tripContext.durableConstraints"]}
+            errorId="profile-durable-constraints-error"
+            label="Avoid rocky beaches"
+            onChange={(checked) =>
+              setForm((current) => toggleConstraint(current, "avoid_rocky_beach", checked))
+            }
+          />
+          <FieldError
+            id="profile-durable-constraints-error"
+            message={fieldErrors["tripContext.durableConstraints"]}
+          />
+        </fieldset>
+
+        <label className="flex min-w-0 items-start gap-3 rounded-md border border-brand-lagoon-700/10 bg-brand-lagoon-100 p-3 text-sm font-bold text-text-default sm:items-center">
+          <input
+            checked={form.marketingConsent}
+            className="size-4 accent-brand-lagoon-600"
+            type="checkbox"
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                marketingConsent: event.target.checked,
+              }))
+            }
+          />
+          Send occasional Ask Siargao product updates
+        </label>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            className="rounded-md whitespace-nowrap"
+            disabled={saveState === "saving"}
+            type="submit"
+          >
+            <Save className="size-4" />
+            {saveState === "saving" ? "Saving trip brief" : "Save trip brief"}
+          </Button>
+          <output className="min-h-5 text-sm font-bold text-text-muted">
+            {saveState === "saved"
+              ? "Trip brief saved"
+              : saveState === "error"
+                ? (saveError ?? "Your trip brief could not be saved.")
+                : isDirty
+                  ? "You have unsaved changes"
+                  : ""}
+          </output>
+        </div>
+      </section>
     </section>
+  );
+}
+
+function PreferenceCheckbox({
+  checked,
+  error,
+  errorId,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  error?: string;
+  errorId?: string;
+  label: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-3 text-sm font-bold">
+      <input
+        aria-describedby={error ? errorId : undefined}
+        aria-invalid={Boolean(error)}
+        checked={checked}
+        className="size-4 accent-brand-lagoon-600"
+        type="checkbox"
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      {label}
+    </label>
   );
 }
 
@@ -717,15 +1125,18 @@ function StatusPanel({ title }: { title: string }) {
 }
 
 function TextField({
+  error,
   label,
   onChange,
   value,
 }: {
+  error?: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
 }) {
   const inputId = fieldId(label);
+  const errorId = fieldErrorId(label);
 
   return (
     <label
@@ -734,25 +1145,31 @@ function TextField({
     >
       {label}
       <Input
+        aria-describedby={error ? errorId : undefined}
+        aria-invalid={Boolean(error)}
         id={inputId}
         className="h-11 rounded-md border-border-default bg-white focus-visible:border-brand-lagoon-600 focus-visible:ring-brand-lagoon-500/20"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
+      <FieldError id={errorId} message={error} />
     </label>
   );
 }
 
 function TextAreaField({
+  error,
   label,
   onChange,
   value,
 }: {
+  error?: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
 }) {
   const inputId = fieldId(label);
+  const errorId = fieldErrorId(label);
 
   return (
     <label
@@ -761,16 +1178,28 @@ function TextAreaField({
     >
       {label}
       <textarea
+        aria-describedby={error ? errorId : undefined}
+        aria-invalid={Boolean(error)}
         id={inputId}
         className="min-h-32 rounded-md border border-border-default bg-white px-3 py-2 text-sm font-semibold outline-none focus-visible:border-brand-lagoon-600 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
+      <FieldError id={errorId} message={error} />
     </label>
   );
 }
 
+function FieldError({ id, message }: { id: string; message?: string }) {
+  return message ? (
+    <span className="text-sm font-bold text-red-700" id={id} role="alert">
+      {message}
+    </span>
+  ) : null;
+}
+
 function formFromProfile(profile: UserProfileResponse): ProfileFormState {
+  const tripContext = profile.profile.tripContext;
   return {
     displayName: profile.profile.displayName ?? "",
     homeCountry: profile.profile.homeCountry ?? "",
@@ -780,10 +1209,17 @@ function formFromProfile(profile: UserProfileResponse): ProfileFormState {
     accessibilityNotes: profile.profile.accessibilityNotes ?? "",
     interests: profile.profile.interests.join(", "),
     preferredAreas: profile.profile.preferredAreas.join(", "),
-    tripNotes:
-      typeof profile.profile.tripContext.notes === "string"
-        ? profile.profile.tripContext.notes
-        : "",
+    surfAbility: profile.profile.surfAbility ?? "",
+    quietSleepPreference: profile.profile.quietSleepPreference,
+    weatherPreference: profile.profile.weatherPreference ?? "",
+    accommodation: tripContext.accommodation ?? "",
+    dateRange: tripContext.dateRange ?? "",
+    currentArea: tripContext.currentArea ?? "",
+    travelerType: tripContext.travelerType ?? "",
+    transportMode: tripContext.transportMode ?? "",
+    rideTimeLimitMinutes: tripContext.rideTimeLimitMinutes?.toString() ?? "",
+    durableConstraints: tripContext.durableConstraints ?? [],
+    tripNotes: tripContext.notes ?? "",
     marketingConsent: profile.profile.marketingConsent,
   };
 }
@@ -818,11 +1254,41 @@ function profilePatchFromForm(form: ProfileFormState) {
     budgetLevel: nullableText(form.budgetLevel),
     dietaryNotes: nullableText(form.dietaryNotes),
     accessibilityNotes: nullableText(form.accessibilityNotes),
+    surfAbility: nullableText(form.surfAbility),
+    ...(form.quietSleepPreference === null
+      ? {}
+      : { quietSleepPreference: form.quietSleepPreference }),
+    weatherPreference: form.weatherPreference || null,
     interests: commaList(form.interests),
     preferredAreas: commaList(form.preferredAreas),
-    tripContext: nullableText(form.tripNotes) ? { notes: form.tripNotes.trim() } : {},
+    tripContext: {
+      notes: nullableText(form.tripNotes),
+      accommodation: nullableText(form.accommodation),
+      dateRange: nullableText(form.dateRange),
+      currentArea: form.currentArea || null,
+      travelerType: nullableText(form.travelerType),
+      transportMode: form.transportMode || null,
+      rideTimeLimitMinutes: nullableInteger(form.rideTimeLimitMinutes),
+      durableConstraints: form.durableConstraints,
+    },
     marketingConsent: form.marketingConsent,
   };
+}
+
+function nullableInteger(value: string) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function toggleConstraint(
+  form: ProfileFormState,
+  constraint: string,
+  checked: boolean,
+): ProfileFormState {
+  const durableConstraints = checked
+    ? [...new Set([...form.durableConstraints, constraint])]
+    : form.durableConstraints.filter((value) => value !== constraint);
+  return { ...form, durableConstraints };
 }
 
 function nullableText(value: string) {
@@ -839,4 +1305,31 @@ function commaList(value: string) {
 
 function fieldId(label: string) {
   return `profile-${label.toLowerCase().replaceAll(" ", "-")}`;
+}
+
+function fieldErrorId(label: string) {
+  return `${fieldId(label)}-error`;
+}
+
+function profileFieldErrors(issues: ProfileErrorResponse["issues"]): ProfileFieldErrors {
+  const errors: ProfileFieldErrors = {};
+  for (const issue of issues ?? []) {
+    if (issue.path && issue.message && !errors[issue.path]) {
+      errors[issue.path] = issue.message;
+    }
+  }
+  return errors;
+}
+
+function sectionFromHash(hash: string): TripBriefSection | null {
+  switch (hash.replace(/^#/, "")) {
+    case "current-trip":
+    case "traveler-preferences":
+    case "account":
+    case "privacy":
+    case "pass":
+      return hash.replace(/^#/, "") as TripBriefSection;
+    default:
+      return null;
+  }
 }

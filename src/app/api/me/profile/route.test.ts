@@ -124,6 +124,62 @@ describe("profile API route", () => {
     await db.close();
   });
 
+  test("preserves untouched trip and durable preferences across partial updates", async () => {
+    const db = await openProfileTestDatabase();
+    const dependencies = profileDependencies(db, { userId: "user_preservation" });
+
+    await patchProfileResponse(
+      profileRequest({
+        homeCountry: "Australia",
+        surfAbility: "Intermediate",
+        quietSleepPreference: true,
+        weatherPreference: "avoid_rain",
+        tripContext: {
+          accommodation: "Near Cloud 9",
+          dateRange: "Aug 1 - 6",
+          currentArea: "Cloud 9",
+          travelerType: "Couple",
+          transportMode: "scooter",
+          rideTimeLimitMinutes: 25,
+          durableConstraints: ["rain_avoidance", "quiet_sleep"],
+          notes: "Late arrival",
+        },
+      }),
+      dependencies,
+    );
+
+    const durableResponse = await patchProfileResponse(
+      profileRequest({ surfAbility: "Advanced", quietSleepPreference: false }),
+      dependencies,
+    );
+    const durableBody = await durableResponse.json();
+    expect(durableBody.profile.tripContext).toEqual({
+      accommodation: "Near Cloud 9",
+      dateRange: "Aug 1 - 6",
+      currentArea: "Cloud 9",
+      travelerType: "Couple",
+      transportMode: "scooter",
+      rideTimeLimitMinutes: 25,
+      durableConstraints: ["rain_avoidance", "quiet_sleep"],
+      notes: "Late arrival",
+    });
+
+    const tripResponse = await patchProfileResponse(
+      profileRequest({ tripContext: { notes: "Early check-in if possible" } }),
+      dependencies,
+    );
+    const tripBody = await tripResponse.json();
+    expect(tripBody.profile).toMatchObject({
+      homeCountry: "Australia",
+      surfAbility: "Advanced",
+      quietSleepPreference: false,
+      weatherPreference: "avoid_rain",
+    });
+    expect(tripBody.profile.tripContext).toEqual({ notes: "Early check-in if possible" });
+
+    await db.close();
+  });
+
   test("rejects arbitrary trip context payloads", async () => {
     const db = await openProfileTestDatabase();
     const dependencies = profileDependencies(db, { userId: "user_invalid_trip_context" });
@@ -216,6 +272,29 @@ describe("profile API route", () => {
     expect(response.status).toBe(400);
     expect(body.error).toBe("invalid_profile_request");
     expect(body.issues[0].path).toBe("interests");
+
+    await db.close();
+  });
+
+  test("returns field-addressable issues for invalid durable preferences", async () => {
+    const db = await openProfileTestDatabase();
+    const dependencies = profileDependencies(db, { userId: "user_invalid_preferences" });
+
+    const response = await patchProfileResponse(
+      profileRequest({
+        surfAbility: "x".repeat(81),
+        weatherPreference: "always_sunny",
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe("invalid_profile_request");
+    expect(body.issues.map((issue: { path: string }) => issue.path).toSorted()).toEqual([
+      "surfAbility",
+      "weatherPreference",
+    ]);
 
     await db.close();
   });
