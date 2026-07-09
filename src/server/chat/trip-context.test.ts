@@ -3,7 +3,9 @@ import { describe, expect, test } from "bun:test";
 import {
   deriveTripContext,
   interpretChatRequestIntent,
+  normalizeOptionalTripContextDraft,
   normalizeTripContextClientContext,
+  normalizeTripContextDraft,
   summarizeClientContextForMetadata,
   summarizeTripContextForAgent,
   summarizeTripContextForLogs,
@@ -12,6 +14,50 @@ import {
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 
 describe("Trip Context module", () => {
+  test("does not backfill former demo values for missing, malformed, or cleared draft fields", () => {
+    const emptyDraft = normalizeTripContextDraft();
+    const malformedDraft = normalizeTripContextDraft({
+      accommodation: " ",
+      dateRange: "",
+      travelerType: " ",
+      nearbyArea: "not-a-siargao-area" as never,
+    });
+    const clientContext = normalizeTripContextClientContext(
+      { tripContext: {} },
+      new Date("2026-07-10T00:00:00.000Z"),
+    );
+    const derived = deriveTripContext([{ role: "user", content: "Help me plan a day." }], {
+      clientContext,
+    });
+
+    expect(emptyDraft).toEqual({});
+    expect(malformedDraft).toEqual({});
+    expect(normalizeOptionalTripContextDraft({})).toBeUndefined();
+    expect(clientContext.tripContext).toBeUndefined();
+    expect(derived.contextSources.uiDraft).toBe(false);
+    expect(derived.accommodation).toBeUndefined();
+    expect(derived.dateRange).toBeUndefined();
+    expect(derived.travelerType).toBeUndefined();
+    expect(JSON.stringify({ emptyDraft, malformedDraft, derived })).not.toContain(
+      "Near Cloud 9 / Catangnan",
+    );
+    expect(JSON.stringify({ emptyDraft, malformedDraft, derived })).not.toContain("Jun 12 - 22");
+    expect(JSON.stringify({ emptyDraft, malformedDraft, derived })).not.toContain("Couple");
+  });
+
+  test("preserves only supplied partial local draft facts", () => {
+    const draft = normalizeTripContextDraft({ accommodation: "  Dapa stay  " });
+    const context = deriveTripContext([{ role: "user", content: "Plan a quiet day." }], {
+      uiDraft: draft,
+    });
+
+    expect(draft).toEqual({ accommodation: "Dapa stay" });
+    expect(context.accommodation).toBe("Dapa stay");
+    expect(context.dateRange).toBeUndefined();
+    expect(context.travelerType).toBeUndefined();
+    expect(context.contextSources.uiDraft).toBe(true);
+  });
+
   test("seeds stable context from bounded signed-in profile fields", () => {
     const context = deriveTripContext([{ role: "user", content: "Where should we eat tonight?" }], {
       profileContext: {
