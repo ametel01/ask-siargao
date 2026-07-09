@@ -959,8 +959,22 @@ function TravelProfileSection({
               message={fieldErrors.weatherPreference}
             />
           </label>
+        </div>
+
+        <fieldset
+          aria-describedby={
+            fieldErrors["tripContext.durableConstraints"]
+              ? "profile-durable-constraints-error"
+              : undefined
+          }
+          aria-invalid={Boolean(fieldErrors["tripContext.durableConstraints"])}
+          className="grid min-w-0 gap-3 rounded-md border border-border-default p-4 sm:grid-cols-2"
+        >
+          <legend className="px-1 text-sm font-extrabold text-text-default">Group needs</legend>
           <PreferenceCheckbox
             checked={form.durableConstraints.includes("with_kids")}
+            error={fieldErrors["tripContext.durableConstraints"]}
+            errorId="profile-durable-constraints-error"
             label="Traveling with children"
             onChange={(checked) =>
               setForm((current) => toggleConstraint(current, "with_kids", checked))
@@ -968,12 +982,18 @@ function TravelProfileSection({
           />
           <PreferenceCheckbox
             checked={form.durableConstraints.includes("avoid_rocky_beach")}
+            error={fieldErrors["tripContext.durableConstraints"]}
+            errorId="profile-durable-constraints-error"
             label="Avoid rocky beaches"
             onChange={(checked) =>
               setForm((current) => toggleConstraint(current, "avoid_rocky_beach", checked))
             }
           />
-        </div>
+          <FieldError
+            id="profile-durable-constraints-error"
+            message={fieldErrors["tripContext.durableConstraints"]}
+          />
+        </fieldset>
 
         <label className="flex min-w-0 items-start gap-3 rounded-md border border-brand-lagoon-700/10 bg-brand-lagoon-100 p-3 text-sm font-bold text-text-default sm:items-center">
           <input
@@ -1016,16 +1036,22 @@ function TravelProfileSection({
 
 function PreferenceCheckbox({
   checked,
+  error,
+  errorId,
   label,
   onChange,
 }: {
   checked: boolean;
+  error?: string;
+  errorId?: string;
   label: string;
   onChange: (checked: boolean) => void;
 }) {
   return (
     <label className="flex items-center gap-3 text-sm font-bold">
       <input
+        aria-describedby={error ? errorId : undefined}
+        aria-invalid={Boolean(error)}
         checked={checked}
         className="size-4 accent-brand-lagoon-600"
         type="checkbox"

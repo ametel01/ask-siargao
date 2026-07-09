@@ -67,7 +67,7 @@ test("renders local admin diagnostics without leaking sample secrets", async ({ 
 
 test("edits profile details and reloads the persisted values", async ({ page }) => {
   let patchPayload: Record<string, unknown> | null = null;
-  let profileSaveMode: "success" | "invalid" | "server" = "success";
+  let profileSaveMode: "success" | "invalid" | "invalidConstraints" | "server" = "success";
   let profile = {
     identity: {
       userId: "user_e2e_profile",
@@ -116,6 +116,22 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
             error: "invalid_profile_request",
             issues: [
               { path: "surfAbility", message: "Choose a surf ability in 80 characters or fewer." },
+            ],
+          }),
+        });
+        return;
+      }
+      if (profileSaveMode === "invalidConstraints") {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 400,
+          body: JSON.stringify({
+            error: "invalid_profile_request",
+            issues: [
+              {
+                path: "tripContext.durableConstraints",
+                message: "Choose supported group needs only.",
+              },
             ],
           }),
         });
@@ -225,6 +241,17 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
     "profile-surf-ability-error",
   );
 
+  profileSaveMode = "invalidConstraints";
+  await page.getByLabel("Traveling with children").check();
+  await page.getByRole("button", { name: "Save trip brief" }).click();
+  const groupNeeds = page.getByRole("group", { name: "Group needs" });
+  await expect(groupNeeds).toHaveAttribute("aria-invalid", "true");
+  await expect(groupNeeds).toHaveAttribute("aria-describedby", "profile-durable-constraints-error");
+  await expect(page.locator("#profile-durable-constraints-error")).toContainText(
+    "Choose supported group needs",
+  );
+  await expect(page.getByLabel("Traveling with children")).toHaveAttribute("aria-invalid", "true");
+
   profileSaveMode = "server";
   await page.getByLabel("Surf ability").fill("Intermediate");
   await page.getByRole("button", { name: "Save trip brief" }).click();
@@ -247,7 +274,7 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
       travelerType: "Couple",
       transportMode: "scooter",
       rideTimeLimitMinutes: 25,
-      durableConstraints: ["rain_avoidance"],
+      durableConstraints: ["rain_avoidance", "with_kids"],
       notes: "Arriving in September",
     },
   });
