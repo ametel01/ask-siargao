@@ -45,6 +45,7 @@ export const userProfiles = pgTable(
     travelStyle: text("travel_style"),
     budgetLevel: text("budget_level"),
     dietaryNotes: text("dietary_notes"),
+    foodNeedsJson: jsonb("food_needs_json").$type<string[]>().notNull().default([]),
     accessibilityNotes: text("accessibility_notes"),
     surfAbility: text("surf_ability"),
     quietSleepPreference: boolean("quiet_sleep_preference"),

@@ -67,8 +67,14 @@ test("renders local admin diagnostics without leaking sample secrets", async ({ 
 
 test("edits profile details and reloads the persisted values", async ({ page }) => {
   let patchPayload: Record<string, unknown> | null = null;
-  let profileSaveMode: "success" | "delayed" | "invalid" | "invalidConstraints" | "server" =
-    "success";
+  let profileSaveMode:
+    | "success"
+    | "delayed"
+    | "invalid"
+    | "invalidConstraints"
+    | "invalidMultiValue"
+    | "server"
+    | "network" = "success";
   let profile = {
     identity: {
       userId: "user_e2e_profile",
@@ -83,6 +89,7 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
       travelStyle: "Surf mornings",
       budgetLevel: "mid_range",
       dietaryNotes: "",
+      foodNeeds: [],
       accessibilityNotes: "",
       surfAbility: "Intermediate",
       quietSleepPreference: null,
@@ -138,12 +145,31 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
         });
         return;
       }
+      if (profileSaveMode === "invalidMultiValue") {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 400,
+          body: JSON.stringify({
+            error: "invalid_profile_request",
+            issues: [
+              { path: "interests.1", message: "Interests must be unique." },
+              { path: "preferredAreas.0", message: "Choose a supported area." },
+              { path: "foodNeeds.0", message: "Choose a supported food need." },
+            ],
+          }),
+        });
+        return;
+      }
       if (profileSaveMode === "server") {
         await route.fulfill({
           contentType: "application/json",
           status: 500,
           body: JSON.stringify({ error: "profile_save_failed" }),
         });
+        return;
+      }
+      if (profileSaveMode === "network") {
+        await route.abort("failed");
         return;
       }
       if (profileSaveMode === "delayed") {
@@ -229,7 +255,20 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await expect(page.getByText("Cloud 9 dinner shortlist")).toBeVisible();
 
   await page.getByLabel("Display name").fill("Alex in Siargao");
-  await page.getByLabel("Preferred areas").fill("Cloud 9, Pacifico");
+  await page.getByLabel("Add preferred area").fill("Pacifico");
+  await page.getByLabel("Add preferred area").press("Enter");
+  await page.getByRole("button", { name: "Remove Pacifico" }).click();
+  await expect(page.getByLabel("Add preferred area")).toBeFocused();
+  await page.getByLabel("Add preferred area").fill("Pacifico");
+  await page.getByLabel("Add preferred area").press("Enter");
+  await page.getByLabel("Current area").selectOption("Dapa");
+  await page.getByLabel("Traveler or group type").selectOption("family_with_kids");
+  await page.getByLabel("Transport mode").selectOption("van");
+  await page.getByLabel("Maximum ride time in minutes").fill("45");
+  await page.getByLabel("Budget level").selectOption("premium");
+  await page.getByLabel("Weather preference").selectOption("flexible");
+  await page.getByLabel("Vegan").check();
+  await page.getByLabel("Quiet sleep matters").check();
   await page.getByLabel("Accommodation").fill("Pacifico beach stay");
   await page.getByLabel("Trip notes").fill("Arriving in September");
   await page.getByLabel("Send occasional Ask Siargao product updates").check();
@@ -243,7 +282,7 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await expect(page.getByText("You have unsaved changes")).toBeVisible();
 
   profileSaveMode = "invalid";
-  await page.getByLabel("Surf ability").fill("x".repeat(81));
+  await page.getByLabel("Surf ability").selectOption("advanced");
   await page.getByRole("button", { name: "Save trip brief" }).click();
   await expect(page.locator("#profile-surf-ability-error")).toContainText("Choose a surf ability");
   await expect(page.getByLabel("Surf ability")).toHaveAttribute("aria-invalid", "true");
@@ -263,11 +302,26 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   );
   await expect(page.getByLabel("Traveling with children")).toHaveAttribute("aria-invalid", "true");
 
+  profileSaveMode = "invalidMultiValue";
+  await page.getByRole("button", { name: "Save trip brief" }).click();
+  for (const field of ["Interests", "Preferred areas", "Food needs"]) {
+    const control = page.getByRole("group", { name: field });
+    await expect(control).toHaveAttribute("aria-invalid", "true");
+    await expect(control).toHaveAttribute("aria-describedby", /-error$/);
+  }
+
   profileSaveMode = "server";
-  await page.getByLabel("Surf ability").fill("Intermediate");
+  await page.getByLabel("Surf ability").selectOption("intermediate");
   await page.getByRole("button", { name: "Save trip brief" }).click();
   await expect(page.getByText("Check your entries and try again.")).toBeVisible();
   await expect(page.getByLabel("Accommodation")).toHaveValue("Pacifico beach stay");
+  await expect(page.getByLabel("Trip notes")).toHaveValue("Arriving in October");
+
+  profileSaveMode = "network";
+  await page.getByRole("button", { name: "Save trip brief" }).click();
+  await expect(
+    page.getByText("Your changes are still here. Check your connection and try again."),
+  ).toBeVisible();
   await expect(page.getByLabel("Trip notes")).toHaveValue("Arriving in October");
 
   profileSaveMode = "success";
@@ -275,24 +329,26 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
 
   await expect(page.getByText("Trip brief saved")).toBeVisible();
   expect(patchPayload).toMatchObject({
-    surfAbility: "Intermediate",
-    weatherPreference: "avoid_rain",
+    budgetLevel: "premium",
+    foodNeeds: ["vegan"],
+    surfAbility: "intermediate",
+    quietSleepPreference: true,
+    weatherPreference: "flexible",
     tripContext: {
       accommodation: "Pacifico beach stay",
       dateRange: "Aug 1 - 6",
-      currentArea: "Cloud 9",
-      travelerType: "Couple",
-      transportMode: "scooter",
-      rideTimeLimitMinutes: 25,
+      currentArea: "Dapa",
+      travelerType: "family_with_kids",
+      transportMode: "van",
+      rideTimeLimitMinutes: 45,
       durableConstraints: ["rain_avoidance", "with_kids"],
       notes: "Arriving in October",
     },
   });
-  expect(patchPayload).not.toHaveProperty("quietSleepPreference");
 
   await page.reload();
   await expect(page.getByLabel("Display name")).toHaveValue("Alex in Siargao");
-  await expect(page.getByLabel("Preferred areas")).toHaveValue("Cloud 9, Pacifico");
+  await expect(page.getByText("Pacifico", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Trip notes")).toHaveValue("Arriving in October");
   await expect(page.getByLabel("Accommodation")).toHaveValue("Pacifico beach stay");
   await expect(page.getByLabel("Send occasional Ask Siargao product updates")).toBeChecked();
@@ -310,15 +366,94 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await expect(page.locator("#traveler-preferences")).toBeFocused();
   await page.screenshot({ path: "test-results/issue-114-trip-brief-desktop.png", fullPage: true });
 
-  await page.setViewportSize({ width: 195, height: 844 });
+  await page.setViewportSize({ width: 360, height: 844 });
   const hasHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth,
   );
   expect(hasHorizontalOverflow).toBe(false);
   await page.screenshot({
-    path: "test-results/issue-114-trip-brief-mobile-200.png",
+    path: "test-results/issue-122-structured-controls-mobile-360.png",
     fullPage: true,
   });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const has390HorizontalOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > window.innerWidth,
+  );
+  expect(has390HorizontalOverflow).toBe(false);
+  await page.screenshot({
+    path: "test-results/issue-122-structured-controls-mobile-390.png",
+    fullPage: true,
+  });
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = "2";
+  });
+  await expect(page.getByLabel("Add preferred area")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save trip brief" })).toBeVisible();
+  await page.screenshot({
+    path: "test-results/issue-122-structured-controls-mobile-390-zoom-200.png",
+    fullPage: true,
+  });
+});
+
+test("preserves untouched legacy multi-value tokens byte-for-byte on an unrelated save", async ({
+  page,
+}) => {
+  let patchPayload: Record<string, unknown> | null = null;
+  let profile = {
+    identity: {
+      userId: "user_e2e_legacy_tokens",
+      email: "legacy@example.com",
+      firstName: "Legacy",
+      lastName: "Traveler",
+      imageUrl: null,
+    },
+    profile: {
+      displayName: "Legacy",
+      homeCountry: null,
+      travelStyle: null,
+      budgetLevel: "slow_travel",
+      dietaryNotes: null,
+      foodNeeds: [],
+      accessibilityNotes: null,
+      surfAbility: "Ocean whisperer",
+      quietSleepPreference: null,
+      weatherPreference: null,
+      interests: ["Surf, yoga", "  Food  "],
+      preferredAreas: ["Cloud 9", "  Secret corner  "],
+      tripContext: {
+        travelerType: "Remote work retreat",
+      },
+      marketingConsent: false,
+      createdAt: "2026-06-29T04:00:00.000Z",
+      updatedAt: "2026-06-29T04:00:00.000Z",
+    },
+  };
+
+  await page.route("**/api/me/profile", async (route) => {
+    if (route.request().method() === "PATCH") {
+      const patch = route.request().postDataJSON() as Partial<typeof profile.profile>;
+      patchPayload = patch as Record<string, unknown>;
+      profile = {
+        ...profile,
+        profile: { ...profile.profile, ...patch, updatedAt: "2026-06-29T05:00:00.000Z" },
+      };
+    }
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(profile) });
+  });
+
+  await page.goto("/settings");
+  await expect(page.getByText("Surf, yoga", { exact: true })).toBeVisible();
+  await expect(page.getByText("Food", { exact: true })).toBeVisible();
+  await expect(page.getByText("Secret corner", { exact: true })).toBeVisible();
+  await page.getByLabel("Display name").fill("Renamed traveler");
+  await page.getByRole("button", { name: "Save trip brief" }).click();
+  await expect(page.getByText("Trip brief saved")).toBeVisible();
+
+  expect(patchPayload).not.toHaveProperty("interests");
+  expect(patchPayload).not.toHaveProperty("preferredAreas");
+  expect(patchPayload).not.toHaveProperty("foodNeeds");
+  expect(profile.profile.interests).toEqual(["Surf, yoga", "  Food  "]);
+  expect(profile.profile.preferredAreas).toEqual(["Cloud 9", "  Secret corner  "]);
 });
 
 test("renders public human, markdown, JSON, sitemap, and llms surfaces", async ({ page }) => {
