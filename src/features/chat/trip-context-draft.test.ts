@@ -33,13 +33,41 @@ describe("trip context draft adapter", () => {
     });
   });
 
-  test("does not send default draft context when nothing has been stored", () => {
+  test("keeps missing, malformed, and cleared storage free of demo trip details", () => {
     const storage = memoryStorage();
 
-    expect(readStoredTripContext({ storage })).toMatchObject({
-      nearbyArea: "Cloud 9",
+    expect(readStoredTripContext({ storage })).toEqual({
+      accommodation: "",
+      dateRange: "",
+      travelerType: "",
+      nearbyArea: "Siargao Island",
     });
     expect(readStoredTripContextForRequest({ storage })).toBeUndefined();
+
+    storage.setItem(tripContextStorageKey, "{not-json");
+    expect(readStoredTripContext({ storage })).toEqual({
+      accommodation: "",
+      dateRange: "",
+      travelerType: "",
+      nearbyArea: "Siargao Island",
+    });
+    expect(readStoredTripContextForRequest({ storage })).toBeUndefined();
+
+    storage.setItem(
+      tripContextStorageKey,
+      JSON.stringify({
+        accommodation: " ",
+        dateRange: "",
+        travelerType: " ",
+        nearbyArea: "unknown",
+      }),
+    );
+    expect(readStoredTripContextForRequest({ storage })).toEqual({
+      accommodation: "",
+      dateRange: "",
+      travelerType: "",
+      nearbyArea: "Siargao Island",
+    });
   });
 
   test("writes normalized bounded draft values", () => {

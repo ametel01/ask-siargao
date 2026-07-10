@@ -93,13 +93,18 @@ export type TripContext = {
   unresolvedReference?: "there";
 };
 
-export type ForecastLocationLabel = "Siargao Island" | "Cloud 9" | "General Luna" | "Del Carmen";
+export type ForecastLocationLabel =
+  | "Siargao Island"
+  | "Cloud 9"
+  | "General Luna"
+  | "Del Carmen"
+  | "Dapa";
 
 export type TripContextDraft = {
-  accommodation: string;
-  dateRange: string;
-  travelerType: string;
-  nearbyArea: ForecastLocationLabel;
+  accommodation?: string;
+  dateRange?: string;
+  travelerType?: string;
+  nearbyArea?: ForecastLocationLabel;
 };
 
 export type TripContextDraftInput = Partial<TripContextDraft> | null | undefined;
@@ -187,15 +192,9 @@ export const forecastLocationLabels = [
   "Cloud 9",
   "General Luna",
   "Del Carmen",
+  "Dapa",
   "Siargao Island",
 ] as const satisfies readonly ForecastLocationLabel[];
-
-export const defaultTripContextDraft: TripContextDraft = {
-  accommodation: "Near Cloud 9 / Catangnan",
-  dateRange: "Jun 12 - 22",
-  travelerType: "Couple",
-  nearbyArea: "Cloud 9",
-};
 
 export const tripContextProfileNotesMaxLength = 1000;
 const maxTripContextTextLength = 80;
@@ -236,6 +235,7 @@ const siargaoAreaBounds = {
 export function deriveTripContext(
   messages: readonly AskSiargaoChatMessage[],
   options: {
+    allowClientTripDraft?: boolean;
     clientContext?: TripContextClientContext;
     profileContext?: TripContextProfileInput | null;
     uiDraft?: TripContextDraftInput;
@@ -248,7 +248,12 @@ export function deriveTripContext(
   const recentLocation = inferSiargaoLocationLabel(recentUserContext);
   const reference = inferLocationReference(latestUserTurn);
   const profileSeed = tripContextSeedFromProfile(options.profileContext);
-  const uiDraft = options.uiDraft ?? options.clientContext?.tripContext;
+  const allowClientTripDraft =
+    options.allowClientTripDraft ??
+    (options.profileContext === null || options.profileContext === undefined);
+  const uiDraft = allowClientTripDraft
+    ? (options.uiDraft ?? options.clientContext?.tripContext)
+    : undefined;
   const uiSeed = tripContextSeedFromDraft(uiDraft);
   const activeGoal = inferActiveGoal(latestUserTurn, recentUserContext);
   const nearMeUsesBrowserGeolocation =
@@ -352,15 +357,18 @@ export function deriveTripContext(
 }
 
 export function interpretChatRequestIntent({
+  allowClientTripDraft,
   clientContext,
   messages,
   profileContext,
 }: {
+  allowClientTripDraft?: boolean;
   clientContext?: TripContextClientContext;
   messages: readonly AskSiargaoChatMessage[];
   profileContext?: TripContextProfileInput | null;
 }): ChatRequestIntent {
   const tripContext = deriveTripContext(messages, {
+    allowClientTripDraft,
     clientContext,
     profileContext,
   });
@@ -441,20 +449,18 @@ export function normalizeClientGeolocation(
   };
 }
 
-export function normalizeTripContextDraft(context: TripContextDraftInput): TripContextDraft {
+export function normalizeTripContextDraft(
+  context: TripContextDraftInput = undefined,
+): TripContextDraft {
+  const accommodation = normalizedOptionalContextText(context?.accommodation);
+  const dateRange = normalizedOptionalContextText(context?.dateRange);
+  const travelerType = normalizedOptionalContextText(context?.travelerType);
+
   return {
-    accommodation: normalizedContextText(
-      context?.accommodation,
-      defaultTripContextDraft.accommodation,
-    ),
-    dateRange: normalizedContextText(context?.dateRange, defaultTripContextDraft.dateRange),
-    travelerType: normalizedContextText(
-      context?.travelerType,
-      defaultTripContextDraft.travelerType,
-    ),
-    nearbyArea: isForecastLocationLabel(context?.nearbyArea)
-      ? context.nearbyArea
-      : defaultTripContextDraft.nearbyArea,
+    ...(accommodation ? { accommodation } : {}),
+    ...(dateRange ? { dateRange } : {}),
+    ...(travelerType ? { travelerType } : {}),
+    ...(isForecastLocationLabel(context?.nearbyArea) ? { nearbyArea: context.nearbyArea } : {}),
   };
 }
 
@@ -464,7 +470,8 @@ export function normalizeOptionalTripContextDraft(
   if (!context || typeof context !== "object") {
     return undefined;
   }
-  return normalizeTripContextDraft(context);
+  const normalized = normalizeTripContextDraft(context);
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 export function parseUserProfileTripContextPatch(
@@ -1042,21 +1049,25 @@ function inferTemporaryModifiers({
 
 function tripContextSeedFromDraft(input: TripContextDraftInput) {
   const draft = normalizeOptionalTripContextDraft(input);
-  const accommodationLocation = draft ? inferSiargaoLocationLabel(draft.accommodation) : null;
+  const accommodationLocation = draft ? inferSiargaoLocationLabel(draft.accommodation ?? "") : null;
   const draftLocation = draft
-    ? locationFromLabel(accommodationLocation ?? draft.nearbyArea, "ui_draft")
+    ? accommodationLocation || draft.nearbyArea
+      ? locationFromLabel(accommodationLocation ?? draft.nearbyArea ?? "Siargao Island", "ui_draft")
+      : undefined
     : undefined;
-  const travelerProfile = draft ? inferTravelerProfile(draft.travelerType) : emptyTravelerProfile();
+  const travelerProfile = draft
+    ? inferTravelerProfile(draft.travelerType ?? "")
+    : emptyTravelerProfile();
   const durableConstraints = draft
-    ? inferDurableConstraints(draft.travelerType, travelerProfile)
+    ? inferDurableConstraints(draft.travelerType ?? "", travelerProfile)
     : [];
 
   return {
-    hasContext: Boolean(draft),
+    hasContext: Boolean(draft && Object.keys(draft).length > 0),
     currentLocation: draftLocation,
     travelerProfile,
     durableConstraints,
-    transportMode: draft ? inferTransportMode(draft.travelerType) : "unknown",
+    transportMode: draft ? inferTransportMode(draft.travelerType ?? "") : "unknown",
     accommodation: draft?.accommodation,
     dateRange: draft?.dateRange,
     travelerType: draft?.travelerType,
@@ -1228,9 +1239,8 @@ function normalizeKey(value: string) {
   return value.toLowerCase().replaceAll(/\s+/g, " ").trim();
 }
 
-function normalizedContextText(value: string | undefined, fallback: string) {
-  const trimmedValue = value?.trim();
-  return trimmedValue ? trimmedValue.slice(0, maxTripContextTextLength) : fallback;
+function normalizedOptionalContextText(value: string | undefined) {
+  return value?.trim().slice(0, maxTripContextTextLength) ?? "";
 }
 
 function isForecastLocationLabel(value: unknown): value is ForecastLocationLabel {

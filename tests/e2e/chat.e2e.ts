@@ -7,6 +7,7 @@ type ChatRequestBody = {
     content?: string;
   }>;
   clientContext?: {
+    tripContext?: unknown;
     geolocation?: {
       latitude?: number;
       longitude?: number;
@@ -145,11 +146,19 @@ type SharedTripCreateRequestBody = {
 };
 
 const savedTripStorageKey = "ask-siargao:saved-trip:v1";
+const tripContextStorageKey = "ask-siargao:trip-context:v1";
 
 test("sends a desktop composer message to the chat API and renders the assistant response", async ({
   page,
-}) => {
+}, testInfo) => {
   await page.setViewportSize({ width: 2048, height: 1153 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
   const mockChat = await mockChatApi(page, {
     message:
       "Mocked dinner answer:\n\n- **Kermit:** casual dinner near Cloud 9\n- **Bravo:** pizza nearby",
@@ -163,7 +172,34 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect(page.getByText("Ask about food, weather, transfers")).toBeVisible();
   await expect(page.getByRole("link", { name: "Start a new chat" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Trip context" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Cloud 9 Weather" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Siargao Island Weather" })).toBeVisible();
+  await expect(page.getByText("No trip details yet")).toBeVisible();
+  await expect(page.getByText("Nothing is assumed about your trip.")).toBeVisible();
+  for (const formerDemoValue of [
+    "Near Cloud 9 / Catangnan",
+    "Jun 12 - 22",
+    "June surf trip",
+    "Cloud 9 shortlist",
+    "4 places",
+    "7 places",
+    "3 places",
+    "Is this hotel quiet?",
+    "Best dinner near Catangnan",
+    "Will it rain this afternoon?",
+    "Surf conditions tomorrow?",
+  ]) {
+    await expect(page.getByText(formerDemoValue, { exact: true })).toHaveCount(0);
+  }
+  await page.screenshot({
+    path: testInfo.outputPath("anonymous-empty-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: testInfo.outputPath("anonymous-empty-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 2048, height: 1153 });
 
   const composerInput = page.getByLabel("Ask anything about Siargao");
   const sendButton = page.getByRole("button", { name: "Send question" });
@@ -202,9 +238,7 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect(page.getByText("At a Glance")).toHaveCount(0);
   await expect(composerInput).toBeDisabled();
   await expect(sendButton).toBeDisabled();
-  await expect(
-    page.getByRole("button", { name: "What should I do near Cloud 9 today?" }),
-  ).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Help me plan a Siargao day" })).toBeDisabled();
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(lastSubmittedContent(mockChat.requests[0])).toBe(
     "Where should we eat near Cloud 9 tonight?",
@@ -240,6 +274,199 @@ test("shows the trip context rail at normal desktop browser width", async ({ pag
   await expect(page.getByTestId("context-rail")).toBeVisible();
   await expect.poll(() => chatWorkspaceScrollSurfaces(page)).toEqual(["chat-message-scroll-area"]);
   await expect.poll(() => rightRailFitsViewport(page)).toBe(true);
+});
+
+test("renders only stored anonymous trip facts across desktop and mobile screenshots", async ({
+  page,
+}, testInfo) => {
+  await page.addInitScript(
+    ({ key, value }) => {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: tripContextStorageKey,
+      value: {
+        accommodation: "Pilar homestay",
+        travelerType: "Two friends",
+      },
+    },
+  );
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/chat");
+
+  const contextRail = page.getByTestId("context-rail");
+  await expect(contextRail).toContainText("Pilar homestay");
+  await expect(contextRail).toContainText("Two friends");
+  await expect(contextRail).not.toContainText("Jun 12 - 22");
+  await expect(contextRail).not.toContainText("Near Cloud 9 / Catangnan");
+  await expect(contextRail).not.toContainText("Couple");
+  await page.screenshot({
+    path: testInfo.outputPath("anonymous-populated-desktop.png"),
+    fullPage: true,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByLabel("Ask Siargao chat workspace")).toBeVisible();
+  await expect(page.getByTestId("context-rail")).toBeHidden();
+  await page.screenshot({
+    path: testInfo.outputPath("anonymous-populated-mobile.png"),
+    fullPage: true,
+  });
+});
+
+test("does not expose browser trip context when the authenticated profile request fails", async ({
+  page,
+}) => {
+  await page.addInitScript(
+    ({ key, value }) => {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: tripContextStorageKey,
+      value: { accommodation: "Stale browser stay", nearbyArea: "Cloud 9" },
+    },
+  );
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "profile_unavailable" }),
+    });
+  });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/chat");
+
+  const contextRail = page.getByTestId("context-rail");
+  await expect(contextRail).toContainText("Trip details could not be loaded.");
+  await expect(contextRail).not.toContainText("Stale browser stay");
+  await expect(contextRail).not.toContainText("Near Cloud 9 / Catangnan");
+});
+
+test("does not submit stale browser trip context after the authenticated profile resolves", async ({
+  page,
+}) => {
+  await page.addInitScript(
+    ({ key, value }) => {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: tripContextStorageKey,
+      value: {
+        accommodation: "Stale browser villa",
+        dateRange: "Jan 1 - 31",
+        travelerType: "Another traveler",
+        nearbyArea: "Del Carmen",
+      },
+    },
+  );
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: {
+          tripContext: {
+            accommodation: "Owner-scoped stay",
+            dateRange: "Aug 1 - 6",
+            currentArea: "Dapa",
+          },
+        },
+      }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [] }),
+    });
+  });
+  const mockChat = await mockChatApi(page, { message: "Owner-scoped response." });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/chat");
+
+  await expect(page.getByTestId("context-rail")).toContainText("Owner-scoped stay");
+  await expect(page.getByTestId("context-rail")).toContainText("Dapa");
+  await expect(page.getByTestId("context-rail")).not.toContainText("Stale browser villa");
+  await page.getByLabel("Ask anything about Siargao").fill("What should I plan?");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect.poll(() => mockChat.requests.length).toBe(1);
+  expect(mockChat.requests[0]?.clientContext?.tripContext).toBeUndefined();
+});
+
+test("hides stale local saved planning while authenticated hydration is pending or fails", async ({
+  page,
+}) => {
+  await page.addInitScript(
+    ({ key, value }) => {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: savedTripStorageKey,
+      value: {
+        tripId: "local_trip_stale_saved_item",
+        updatedAt: "2026-07-10T00:00:00.000Z",
+        items: [
+          {
+            id: "place:stale-browser-item",
+            title: "Stale browser saved place",
+            kind: "place",
+            createdAt: "2026-07-10T00:00:00.000Z",
+            updatedAt: "2026-07-10T00:00:00.000Z",
+            payload: {},
+            sources: [],
+            caveats: [],
+          },
+        ],
+      },
+    },
+  );
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: {} }),
+    });
+  });
+  let releaseSavedTripRequest: (() => void) | undefined;
+  let markSavedTripRequested: (() => void) | undefined;
+  const savedTripRequested = new Promise<void>((resolve) => {
+    markSavedTripRequested = resolve;
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    markSavedTripRequested?.();
+    await new Promise<void>((resolve) => {
+      releaseSavedTripRequest = resolve;
+    });
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "saved_trip_unavailable" }),
+    });
+  });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/chat");
+
+  await savedTripRequested;
+  await expect(page.getByTestId("saved-trip-status")).toContainText("Loading your saved planning.");
+  await expect(page.getByText("Stale browser saved place")).toHaveCount(0);
+  releaseSavedTripRequest?.();
+  await expect(page.getByTestId("saved-trip-status")).toContainText(
+    "Saved planning is unavailable",
+  );
+  await expect(page.getByText("Stale browser saved place")).toHaveCount(0);
 });
 
 test("renders assistant markdown tables as real tables", async ({ page }) => {
@@ -502,6 +729,20 @@ test("loads signed-in chat history and preserves the thread after reload", async
     },
   ];
 
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        tripContext: {
+          accommodation: "Owner's Dapa stay",
+          dateRange: "Aug 1 - 6",
+          travelerType: "Family",
+        },
+      }),
+    });
+  });
+
   await page.route("**/api/chat/threads**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -618,6 +859,9 @@ test("loads signed-in chat history and preserves the thread after reload", async
     "href",
     "/settings",
   );
+  await expect(page.getByTestId("context-rail")).toContainText("Owner's Dapa stay");
+  await expect(page.getByTestId("context-rail")).toContainText("Aug 1 - 6");
+  await expect(page.getByTestId("context-rail")).not.toContainText("Near Cloud 9 / Catangnan");
   await expect(page.getByRole("heading", { name: "Recent questions" })).toBeVisible();
   await page.getByRole("button", { name: /Cloud 9 plan/ }).click();
   await expect(page.getByText("Where should I eat near Cloud 9?")).toBeVisible();
@@ -1134,6 +1378,13 @@ test("saves local cards and itineraries with dedupe, removal, and reload persist
   page,
 }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
   const prompt = "Save a Shaka stop and rainy Cloud 9 plan";
   const deletedItems: string[] = [];
   await page.route("**/api/trips/saved/*", async (route) => {
@@ -1272,6 +1523,14 @@ test("hydrates signed-in saved trips from the owned server list", async ({ page 
     caveats: ["Opening hours can change."],
   };
 
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: {} }),
+    });
+  });
+
   await page.route("**/api/trips/saved", async (route) => {
     await route.fulfill({
       status: 200,
@@ -1296,6 +1555,13 @@ test("creates and copies or opens a share link from saved cards and itineraries"
   page,
 }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -1505,6 +1771,13 @@ test("prevents empty share selections and keeps local saves after share API fail
   page,
 }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
   let savedSyncRequests = 0;
   await page.route("**/api/trips/saved", async (route) => {
     if (route.request().method() === "GET") {

@@ -179,7 +179,7 @@ export function writeAuthenticatedSavedTripState(
   fallbackTripId: string,
   options: SavedTripClientOptions = {},
 ) {
-  if (!savedTrip?.items?.length) {
+  if (!savedTrip) {
     return;
   }
   const tripId = savedTrip.tripId ?? fallbackTripId;
@@ -187,7 +187,7 @@ export function writeAuthenticatedSavedTripState(
   writeSavedTripState(
     {
       tripId,
-      items: savedTrip.items.map((item) => ({ ...item, tripId })),
+      items: (savedTrip.items ?? []).map((item) => ({ ...item, tripId })),
       updatedAt: getNowIso(options),
     },
     options,
@@ -246,7 +246,7 @@ export async function fetchAuthenticatedSavedTrip(
 ): Promise<SavedTripApiResponse | null> {
   const response = await fetcher(url, { cache: "no-store" });
   if (!response.ok) {
-    return null;
+    throw new Error("Saved trip items could not be loaded.");
   }
 
   return (await response.json()) as SavedTripApiResponse;
