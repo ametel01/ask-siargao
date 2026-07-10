@@ -170,6 +170,7 @@ type SurfPanelResponse = {
 type TripProfileFetchResult =
   | { source: "anonymous" }
   | { source: "authenticated"; profile: TripProfileResponse };
+type SavedTripPresentationStatus = "loading" | "ready" | "error";
 
 const chatSignedOutActions = (
   <>
@@ -442,6 +443,7 @@ type ChatWorkspaceController = {
   savedItemIds: ReadonlySet<string>;
   savedPlanSharing: ReturnType<typeof useSavedPlanSharing>;
   savedTripState: SavedTripState;
+  savedTripStatus: SavedTripPresentationStatus;
   selectedThreadId: string | null;
   setInputValue: (value: string) => void;
   startNewChat: () => void;
@@ -481,17 +483,16 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     profile: profileResult?.source === "authenticated" ? profileResult.profile : undefined,
     profileStatus: tripDataSource,
   }).context;
-  const savedTripState = useSyncExternalStore(
+  const localSavedTripState = useSyncExternalStore(
     subscribeSavedTripState,
     getSavedTripSnapshot,
     getSavedTripServerSnapshot,
   );
-  const savedItemIds = useMemo(
-    () => new Set(savedTripState.items.map((item) => item.id)),
-    [savedTripState],
-  );
-  const savedPlanSharing = useSavedPlanSharing(savedTripState);
-  const { data: authenticatedSavedTrip, mutate: refreshAuthenticatedSavedTrip } = useSWR(
+  const {
+    data: authenticatedSavedTrip,
+    error: authenticatedSavedTripError,
+    mutate: refreshAuthenticatedSavedTrip,
+  } = useSWR(
     tripDataSource === "authenticated" ? "/api/trips/saved" : null,
     fetchAuthenticatedSavedTrip,
     {
@@ -499,6 +500,37 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
       shouldRetryOnError: false,
     },
   );
+  const { savedTripState, savedTripStatus } = useMemo(() => {
+    const emptyState = { ...localSavedTripState, items: [] };
+    if (tripDataSource === "anonymous") {
+      return { savedTripState: localSavedTripState, savedTripStatus: "ready" as const };
+    }
+    if (tripDataSource === "authenticated") {
+      if (authenticatedSavedTripError) {
+        return { savedTripState: emptyState, savedTripStatus: "error" as const };
+      }
+      if (!authenticatedSavedTrip) {
+        return { savedTripState: emptyState, savedTripStatus: "loading" as const };
+      }
+      return {
+        savedTripState: {
+          tripId: authenticatedSavedTrip.tripId ?? localSavedTripState.tripId,
+          items: authenticatedSavedTrip.items ?? [],
+          updatedAt: localSavedTripState.updatedAt,
+        },
+        savedTripStatus: "ready" as const,
+      };
+    }
+    return {
+      savedTripState: emptyState,
+      savedTripStatus: tripDataSource === "error" ? ("error" as const) : ("loading" as const),
+    };
+  }, [authenticatedSavedTrip, authenticatedSavedTripError, localSavedTripState, tripDataSource]);
+  const savedItemIds = useMemo(
+    () => new Set(savedTripState.items.map((item) => item.id)),
+    [savedTripState],
+  );
+  const savedPlanSharing = useSavedPlanSharing(savedTripState);
   const { trigger: syncAuthenticatedSavedTripItems } = useSWRMutation(
     "/api/trips/saved",
     syncSavedTripItemsMutation,
@@ -771,6 +803,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
         requestMessages,
         requestLocationState,
         selectedThreadId,
+        tripDataSource,
       );
 
       setInputValue("");
@@ -843,7 +876,15 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
         setIsSending(false);
       }
     },
-    [captureLocation, isSending, locationState, messages, refreshChatThreads, selectedThreadId],
+    [
+      captureLocation,
+      isSending,
+      locationState,
+      messages,
+      refreshChatThreads,
+      selectedThreadId,
+      tripDataSource,
+    ],
   );
 
   const saveRecommendationCard = useCallback(
@@ -911,6 +952,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     savedItemIds,
     savedPlanSharing,
     savedTripState,
+    savedTripStatus,
     selectedThreadId,
     setInputValue,
     startNewChat,
@@ -937,6 +979,7 @@ function ChatWorkspaceView({
   savedItemIds,
   savedPlanSharing,
   savedTripState,
+  savedTripStatus,
   selectedThreadId,
   setInputValue,
   startNewChat,
@@ -986,6 +1029,7 @@ function ChatWorkspaceView({
           }}
           onStartNewChat={startNewChat}
           savedItemCount={savedTripState.items.length}
+          savedTripStatus={savedTripStatus}
           selectedThreadId={selectedThreadId}
           threads={chatThreads}
           tripContext={tripContext}
@@ -1008,6 +1052,22 @@ function ChatWorkspaceView({
             ref={chatScrollAreaRef}
           >
             <div className="mx-auto grid min-h-full max-w-5xl content-start gap-4 pb-6">
+              {savedTripStatus === "loading" ? (
+                <p
+                  className="m-0 text-sm font-bold text-text-muted"
+                  data-testid="saved-trip-status"
+                >
+                  Loading your saved planning.
+                </p>
+              ) : null}
+              {savedTripStatus === "error" ? (
+                <p
+                  className="m-0 text-sm font-bold text-text-alert"
+                  data-testid="saved-trip-status"
+                >
+                  Saved planning is unavailable right now. Try refreshing.
+                </p>
+              ) : null}
               {savedTripState.items.length ? (
                 <SavedPlanTray
                   copyStatus={savedPlanSharing.copyStatus}
@@ -1087,6 +1147,7 @@ function ChatTravelRail({
   onOpenThread,
   onStartNewChat,
   savedItemCount,
+  savedTripStatus,
   selectedThreadId,
   threads,
   tripContext,
@@ -1096,6 +1157,7 @@ function ChatTravelRail({
   onOpenThread: (threadId: string) => void;
   onStartNewChat: () => void;
   savedItemCount: number;
+  savedTripStatus: SavedTripPresentationStatus;
   selectedThreadId: string | null;
   threads: ChatThreadSummary[];
   tripContext: TripContextDraft;
@@ -1155,7 +1217,13 @@ function ChatTravelRail({
             Saved planning
           </p>
           <div className="grid gap-3">
-            {savedItemCount > 0 ? (
+            {savedTripStatus === "loading" ? (
+              <p className="m-0 text-sm font-bold text-text-on-dark-muted">
+                Loading saved planning.
+              </p>
+            ) : savedTripStatus === "error" ? (
+              <p className="m-0 text-sm font-bold text-text-alert">Saved planning unavailable.</p>
+            ) : savedItemCount > 0 ? (
               <p className="m-0 text-sm font-bold text-text-on-dark-muted">
                 {savedItemCount} {savedItemCount === 1 ? "item" : "items"} saved for this trip.
               </p>
@@ -3905,12 +3973,14 @@ function buildChatRequestBody(
   messages: ReturnType<typeof buildChatRequestMessages>,
   locationState: LocationCaptureState,
   threadId: string | null,
+  tripDataSource: TripDataSource,
 ): {
   messages: ReturnType<typeof buildChatRequestMessages>;
   clientContext?: ChatClientContext;
   threadId?: string;
 } {
-  const tripContext = readStoredTripContextForRequest();
+  const tripContext =
+    tripDataSource === "anonymous" ? readStoredTripContextForRequest() : undefined;
   const clientContext: ChatClientContext = {
     ...(locationState.status === "ready" ? { geolocation: locationState.geolocation } : {}),
     ...(tripContext ? { tripContext } : {}),

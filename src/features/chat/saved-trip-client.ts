@@ -246,7 +246,7 @@ export async function fetchAuthenticatedSavedTrip(
 ): Promise<SavedTripApiResponse | null> {
   const response = await fetcher(url, { cache: "no-store" });
   if (!response.ok) {
-    return null;
+    throw new Error("Saved trip items could not be loaded.");
   }
 
   return (await response.json()) as SavedTripApiResponse;

@@ -241,7 +241,10 @@ export function deriveTripContext(
   const recentLocation = inferSiargaoLocationLabel(recentUserContext);
   const reference = inferLocationReference(latestUserTurn);
   const profileSeed = tripContextSeedFromProfile(options.profileContext);
-  const uiDraft = options.uiDraft ?? options.clientContext?.tripContext;
+  const uiDraft =
+    options.profileContext === null || options.profileContext === undefined
+      ? (options.uiDraft ?? options.clientContext?.tripContext)
+      : undefined;
   const uiSeed = tripContextSeedFromDraft(uiDraft);
   const activeGoal = inferActiveGoal(latestUserTurn, recentUserContext);
   const nearMeUsesBrowserGeolocation =

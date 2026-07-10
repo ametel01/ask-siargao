@@ -473,13 +473,13 @@ describe("saved trip API helpers", () => {
     ]);
   });
 
-  test("handles non-OK responses without exposing stale saved-trip state", async () => {
+  test("surfaces non-OK saved-trip responses so callers can render an error state", async () => {
     await expect(
       fetchAuthenticatedSavedTrip(
         "/api/trips/saved",
         createRecordingFetch([{ error: "server_error" }], [500]).fetch,
       ),
-    ).resolves.toBeNull();
+    ).rejects.toThrow("Saved trip items could not be loaded.");
 
     await expect(
       saveSavedTripItems(

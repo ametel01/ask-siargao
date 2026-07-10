@@ -99,7 +99,7 @@ describe("Trip Context module", () => {
     expect(context.durableConstraints).toContain("rain_avoidance");
   });
 
-  test("lets visible local draft context win over profile context when chat has no explicit area", () => {
+  test("keeps owner profile context authoritative over an adversarial client draft", () => {
     const context = deriveTripContext([{ role: "user", content: "Plan a quiet day." }], {
       profileContext: {
         preferredAreas: ["Del Carmen"],
@@ -113,14 +113,16 @@ describe("Trip Context module", () => {
     });
 
     expect(context.currentLocation).toEqual({
-      label: "Cloud 9",
-      area: "General Luna",
-      source: "ui_draft",
+      label: "Del Carmen",
+      area: "Del Carmen",
+      source: "profile",
     });
-    expect(context.dateRange).toBe("Aug 1 - 6");
-    expect(context.travelerProfile.withKids).toBe(true);
-    expect(context.durableConstraints).toContain("with_kids");
-    expect(context.contextSources.uiDraft).toBe(true);
+    expect(context.accommodation).toBeUndefined();
+    expect(context.dateRange).toBeUndefined();
+    expect(context.travelerProfile.withKids).toBe(false);
+    expect(context.durableConstraints).not.toContain("with_kids");
+    expect(context.contextSources.uiDraft).toBe(false);
+    expect(context.contextSources.profile).toBe(true);
   });
 
   test("keeps latest-turn modifiers temporary while stable constraints persist", () => {

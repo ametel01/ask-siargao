@@ -7,6 +7,7 @@ type ChatRequestBody = {
     content?: string;
   }>;
   clientContext?: {
+    tripContext?: unknown;
     geolocation?: {
       latitude?: number;
       longitude?: number;
@@ -348,6 +349,117 @@ test("does not expose browser trip context when the authenticated profile reques
   await expect(contextRail).toContainText("Trip details could not be loaded.");
   await expect(contextRail).not.toContainText("Stale browser stay");
   await expect(contextRail).not.toContainText("Near Cloud 9 / Catangnan");
+});
+
+test("does not submit stale browser trip context after the authenticated profile resolves", async ({
+  page,
+}) => {
+  await page.addInitScript(
+    ({ key, value }) => {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: tripContextStorageKey,
+      value: {
+        accommodation: "Stale browser villa",
+        dateRange: "Jan 1 - 31",
+        travelerType: "Another traveler",
+        nearbyArea: "Del Carmen",
+      },
+    },
+  );
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        tripContext: { accommodation: "Owner-scoped stay", dateRange: "Aug 1 - 6" },
+      }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [] }),
+    });
+  });
+  const mockChat = await mockChatApi(page, { message: "Owner-scoped response." });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/chat");
+
+  await expect(page.getByTestId("context-rail")).toContainText("Owner-scoped stay");
+  await expect(page.getByTestId("context-rail")).not.toContainText("Stale browser villa");
+  await page.getByLabel("Ask anything about Siargao").fill("What should I plan?");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect.poll(() => mockChat.requests.length).toBe(1);
+  expect(mockChat.requests[0]?.clientContext?.tripContext).toBeUndefined();
+});
+
+test("hides stale local saved planning while authenticated hydration is pending or fails", async ({
+  page,
+}) => {
+  await page.addInitScript(
+    ({ key, value }) => {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: savedTripStorageKey,
+      value: {
+        tripId: "local_trip_stale_saved_item",
+        updatedAt: "2026-07-10T00:00:00.000Z",
+        items: [
+          {
+            id: "place:stale-browser-item",
+            title: "Stale browser saved place",
+            kind: "place",
+            createdAt: "2026-07-10T00:00:00.000Z",
+            updatedAt: "2026-07-10T00:00:00.000Z",
+            payload: {},
+            sources: [],
+            caveats: [],
+          },
+        ],
+      },
+    },
+  );
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: {} }),
+    });
+  });
+  let releaseSavedTripRequest: (() => void) | undefined;
+  let markSavedTripRequested: (() => void) | undefined;
+  const savedTripRequested = new Promise<void>((resolve) => {
+    markSavedTripRequested = resolve;
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    markSavedTripRequested?.();
+    await new Promise<void>((resolve) => {
+      releaseSavedTripRequest = resolve;
+    });
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "saved_trip_unavailable" }),
+    });
+  });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/chat");
+
+  await savedTripRequested;
+  await expect(page.getByTestId("saved-trip-status")).toContainText("Loading your saved planning.");
+  await expect(page.getByText("Stale browser saved place")).toHaveCount(0);
+  releaseSavedTripRequest?.();
+  await expect(page.getByTestId("saved-trip-status")).toContainText(
+    "Saved planning is unavailable",
+  );
+  await expect(page.getByText("Stale browser saved place")).toHaveCount(0);
 });
 
 test("renders assistant markdown tables as real tables", async ({ page }) => {

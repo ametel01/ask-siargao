@@ -446,7 +446,7 @@ describe("chat route", () => {
     expect(JSON.stringify(signals)).not.toContain("Near Cloud 9 / Catangnan");
   });
 
-  test("merges bounded signed-in profile trip context into safe agent context", async () => {
+  test("keeps bounded signed-in profile context authoritative over an adversarial client draft", async () => {
     const db = await openChatRouteTestDatabase();
     await insertUser(db, "user_profile_context", "profile-context@example.com");
     await upsertUserProfile(db, {
@@ -478,6 +478,14 @@ describe("chat route", () => {
     const response = await chatResponse(
       jsonRequest({
         messages: [{ role: "user", content: "Where should we eat tonight?" }],
+        clientContext: {
+          tripContext: {
+            accommodation: "Stale browser villa",
+            dateRange: "Jan 1 - 31",
+            travelerType: "Another traveler",
+            nearbyArea: "Del Carmen",
+          },
+        },
       }),
       dependencies,
     );
@@ -502,6 +510,8 @@ describe("chat route", () => {
     });
     expect(metadata).not.toContain("Private Villa Mango");
     expect(metadata).not.toContain("private schedule note");
+    expect(JSON.stringify(signals)).not.toContain("Stale browser villa");
+    expect(JSON.stringify(signals)).not.toContain("Another traveler");
     expect(storedSummary).not.toContain("Private Villa Mango");
     expect(storedSummary).not.toContain("private schedule note");
 
