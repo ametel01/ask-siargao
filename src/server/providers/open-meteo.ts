@@ -28,7 +28,7 @@ const forecastProviderEntityId = "open_meteo_siargao_forecast";
 const timezone = "Asia/Manila";
 
 export type OpenMeteoForecastLocation = {
-  id: "siargao_general_luna" | "siargao_del_carmen";
+  id: "siargao_general_luna" | "siargao_del_carmen" | "siargao_dapa";
   name: string;
   latitude: number;
   longitude: number;
@@ -46,6 +46,12 @@ export const siargaoForecastLocations = {
     name: "Siargao forecast near Del Carmen",
     latitude: 9.869,
     longitude: 125.969,
+  },
+  dapa: {
+    id: "siargao_dapa",
+    name: "Siargao forecast near Dapa",
+    latitude: 9.759,
+    longitude: 126.052,
   },
 } as const satisfies Record<string, OpenMeteoForecastLocation>;
 

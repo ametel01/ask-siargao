@@ -93,7 +93,12 @@ export type TripContext = {
   unresolvedReference?: "there";
 };
 
-export type ForecastLocationLabel = "Siargao Island" | "Cloud 9" | "General Luna" | "Del Carmen";
+export type ForecastLocationLabel =
+  | "Siargao Island"
+  | "Cloud 9"
+  | "General Luna"
+  | "Del Carmen"
+  | "Dapa";
 
 export type TripContextDraft = {
   accommodation?: string;
@@ -187,6 +192,7 @@ export const forecastLocationLabels = [
   "Cloud 9",
   "General Luna",
   "Del Carmen",
+  "Dapa",
   "Siargao Island",
 ] as const satisfies readonly ForecastLocationLabel[];
 

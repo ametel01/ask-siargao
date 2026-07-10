@@ -1,4 +1,5 @@
 import {
+  forecastLocationLabels,
   normalizeTripContextDraft,
   type TripContextDraft,
 } from "@/features/chat/trip-context-draft";
@@ -29,9 +30,7 @@ export function projectTripState({
   if (profileStatus === "authenticated") {
     return {
       context: normalizeTripContextDraft(
-        (profile?.tripContext ?? profile?.profile?.tripContext) as
-          | Partial<TripContextDraft>
-          | undefined,
+        profileTripContextDraft(profile?.tripContext ?? profile?.profile?.tripContext),
       ),
       source: "authenticated",
     };
@@ -42,6 +41,29 @@ export function projectTripState({
   }
 
   return { context: normalizeTripContextDraft(), source: profileStatus };
+}
+
+function profileTripContextDraft(value: unknown): TripContextInput {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const context = value as Record<string, unknown>;
+  const nearbyArea =
+    profileForecastLocation(context.currentArea) ?? profileForecastLocation(context.nearbyArea);
+  return {
+    ...(typeof context.accommodation === "string" ? { accommodation: context.accommodation } : {}),
+    ...(typeof context.dateRange === "string" ? { dateRange: context.dateRange } : {}),
+    ...(typeof context.travelerType === "string" ? { travelerType: context.travelerType } : {}),
+    ...(nearbyArea ? { nearbyArea } : {}),
+  };
+}
+
+function profileForecastLocation(value: unknown): TripContextDraft["nearbyArea"] | undefined {
+  return typeof value === "string" &&
+    forecastLocationLabels.includes(value as (typeof forecastLocationLabels)[number])
+    ? (value as TripContextDraft["nearbyArea"])
+    : undefined;
 }
 
 export function tripContextFacts(context: TripContextDraft) {

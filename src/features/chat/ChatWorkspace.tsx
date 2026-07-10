@@ -1964,6 +1964,10 @@ function nearestForecastLocationLabel(geolocation: ChatClientGeolocation): Forec
       label: "Del Carmen" as const,
       distance: distanceKm(geolocation, { latitude: 9.869, longitude: 125.969 }),
     },
+    {
+      label: "Dapa" as const,
+      distance: distanceKm(geolocation, { latitude: 9.759, longitude: 126.052 }),
+    },
   ].sort((left, right) => left.distance - right.distance);
 
   return distances[0]?.label ?? "Siargao Island";

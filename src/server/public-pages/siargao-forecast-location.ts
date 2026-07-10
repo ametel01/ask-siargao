@@ -8,6 +8,7 @@ const siargaoPublicForecastLocations = [
   "Cloud 9",
   "General Luna",
   "Del Carmen",
+  "Dapa",
 ] as const;
 
 export type SiargaoPublicForecastLocation = (typeof siargaoPublicForecastLocations)[number];
@@ -21,6 +22,9 @@ export function parseSiargaoPublicForecastLocation(
   }
   if (normalizedValue === "general luna" || normalizedValue === "general-luna") {
     return "General Luna";
+  }
+  if (normalizedValue === "dapa") {
+    return "Dapa";
   }
   if (
     normalizedValue === "cloud 9" ||
@@ -37,6 +41,9 @@ export function openMeteoLocationForPublicLabel(
 ): OpenMeteoForecastLocation | undefined {
   if (location === "Del Carmen") {
     return siargaoForecastLocations.delCarmen;
+  }
+  if (location === "Dapa") {
+    return siargaoForecastLocations.dapa;
   }
   if (location === "Cloud 9" || location === "General Luna") {
     return siargaoForecastLocations.generalLuna;

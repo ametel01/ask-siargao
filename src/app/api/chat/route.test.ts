@@ -456,7 +456,7 @@ describe("chat route", () => {
         budgetLevel: "budget",
         preferredAreas: ["Del Carmen"],
         tripContext: {
-          currentArea: "Cloud 9",
+          currentArea: "Dapa",
           accommodation: "Private Villa Mango room 4B",
           notes: "Do not expose this private schedule note.",
           transportMode: "tricycle",
@@ -499,9 +499,9 @@ describe("chat route", () => {
     expect(response.status).toBe(200);
     expectNoRouteOwnedToolSignals(signals);
     expect(signals?.context?.tripContext).toMatchObject({
-      currentArea: "General Luna",
+      currentArea: "Dapa",
       currentLocation: {
-        label: "Cloud 9",
+        label: "Dapa",
         source: "profile",
       },
       durableConstraints: ["budget_cheap"],

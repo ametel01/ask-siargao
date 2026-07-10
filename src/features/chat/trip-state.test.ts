@@ -57,16 +57,16 @@ describe("trip state projection", () => {
   test("uses the authenticated profile without merging local context", () => {
     const state = projectTripState({
       localContext: { accommodation: "Another visitor's local stay", nearbyArea: "Cloud 9" },
-      profile: { profile: { tripContext: { dateRange: "Aug 1 - 6", nearbyArea: "Dapa" } } },
+      profile: { profile: { tripContext: { currentArea: "Dapa" } } },
       profileStatus: "authenticated",
     });
 
     expect(state).toEqual({
       context: {
         accommodation: "",
-        dateRange: "Aug 1 - 6",
+        dateRange: "",
         travelerType: "",
-        nearbyArea: "Siargao Island",
+        nearbyArea: "Dapa",
       },
       source: "authenticated",
     });

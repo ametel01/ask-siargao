@@ -373,7 +373,13 @@ test("does not submit stale browser trip context after the authenticated profile
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        tripContext: { accommodation: "Owner-scoped stay", dateRange: "Aug 1 - 6" },
+        profile: {
+          tripContext: {
+            accommodation: "Owner-scoped stay",
+            dateRange: "Aug 1 - 6",
+            currentArea: "Dapa",
+          },
+        },
       }),
     });
   });
@@ -390,6 +396,7 @@ test("does not submit stale browser trip context after the authenticated profile
   await page.goto("/chat");
 
   await expect(page.getByTestId("context-rail")).toContainText("Owner-scoped stay");
+  await expect(page.getByTestId("context-rail")).toContainText("Dapa");
   await expect(page.getByTestId("context-rail")).not.toContainText("Stale browser villa");
   await page.getByLabel("Ask anything about Siargao").fill("What should I plan?");
   await page.getByRole("button", { name: "Send question" }).click();

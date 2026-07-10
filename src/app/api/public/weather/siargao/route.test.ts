@@ -31,12 +31,12 @@ describe("public Siargao weather route", () => {
     });
 
     const response = await GET(
-      new Request("https://siargao.test/api/public/weather/siargao?location=Del%20Carmen"),
+      new Request("https://siargao.test/api/public/weather/siargao?location=Dapa"),
     );
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.requestedLocation).toBe("Del Carmen");
-    expect(requestedLocations).toEqual(["siargao_del_carmen"]);
+    expect(body.requestedLocation).toBe("Dapa");
+    expect(requestedLocations).toEqual(["siargao_dapa"]);
   });
 });
