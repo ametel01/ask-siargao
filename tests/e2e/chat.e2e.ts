@@ -261,6 +261,218 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect.poll(() => composerFitsViewport(page)).toBe(true);
 });
 
+test("shows checking condition decisions before routes resolve", async ({ page }) => {
+  let releaseRoutes: (() => void) | undefined;
+  const routeGate = new Promise<void>((resolve) => {
+    releaseRoutes = resolve;
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
+  await page.route("**/api/public/weather/siargao**", async (route) => {
+    await routeGate;
+    await route.fulfill({ status: 503, body: "weather unavailable" });
+  });
+  await page.route("**/api/public/surf/siargao**", async (route) => {
+    await routeGate;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        requestedLocation: "Siargao Island",
+        surf: {
+          status: "unavailable",
+          locationName: "Siargao Island",
+          fetchedAt: "2026-07-10T01:00:00.000Z",
+          level: "medium",
+          metrics: { waves: "Unavailable", tide: "Unavailable", wind: "Unavailable" },
+          weather: {
+            status: "unavailable",
+            freshness: "unknown",
+            condition: "Unavailable",
+            precipitationProbability: null,
+            rainSum: null,
+            windGust: null,
+          },
+          tide: { status: "unavailable", stationName: "Dapa tide station", bestWindow: null },
+          caveats: [],
+        },
+      }),
+    });
+  });
+
+  await page.goto("/chat");
+
+  const rail = page.getByTestId("context-rail");
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Checking current signals");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Checking current signals");
+  releaseRoutes?.();
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText(
+    "Current signals unavailable",
+  );
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Current signals unavailable");
+});
+
+test("renders bounded condition decisions before their raw metrics", async ({ page }) => {
+  let weatherMode: "fresh" | "stale" | "unknown" | "error" | "unavailable" = "fresh";
+  let surfMode: "live" | "partial" | "unknown" | "no-window" | "error" | "unavailable" = "live";
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
+  await page.route("**/api/public/weather/siargao**", async (route) => {
+    if (weatherMode === "unavailable" || weatherMode === "error") {
+      await route.fulfill({ status: 503, body: "weather unavailable" });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        requestedLocation: "Siargao Island",
+        weather: {
+          status: "live",
+          locationName: "Siargao Island",
+          fetchedAt: "2026-07-10T01:00:00.000Z",
+          freshness: weatherMode,
+          today: {
+            condition: "Rain",
+            precipitationProbability: 50,
+            rainSum: 7,
+            precipitationSum: 7,
+            windGust: 38,
+          },
+        },
+      }),
+    });
+  });
+  await page.route("**/api/public/surf/siargao**", async (route) => {
+    if (surfMode === "error") {
+      await route.fulfill({ status: 503, body: "surf unavailable" });
+      return;
+    }
+    const isPartial = surfMode === "partial";
+    const isUnavailable = surfMode === "unavailable";
+    const hasWindow = !isPartial && surfMode !== "no-window";
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        requestedLocation: "Siargao Island",
+        surf: {
+          status: isUnavailable ? "unavailable" : isPartial ? "partial" : "live",
+          locationName: "Siargao Island",
+          fetchedAt: "2026-07-10T01:00:00.000Z",
+          level: "medium",
+          metrics: {
+            waves: isPartial || isUnavailable ? "Unavailable" : "0.7m swell / 10s",
+            tide: isPartial || isUnavailable ? "Unavailable" : "High 4:55 AM 1.7m",
+            wind: isUnavailable ? "Unavailable" : "gust 38km/h",
+          },
+          weather: {
+            status: "live",
+            freshness: surfMode === "unknown" ? "unknown" : "fresh",
+            condition: isUnavailable ? "Unavailable" : "Rain",
+            precipitationProbability: isUnavailable ? null : 50,
+            rainSum: isUnavailable ? null : 7,
+            windGust: isUnavailable ? null : 38,
+          },
+          tide: {
+            status: isPartial || isUnavailable ? "unavailable" : "live",
+            stationName: "Dapa tide station",
+            bestWindow: hasWindow ? "5:00 AM-8:00 AM: near high tide" : null,
+          },
+          caveats: [],
+        },
+      }),
+    });
+  });
+
+  await page.goto("/chat");
+
+  const rail = page.getByTestId("context-rail");
+  await expect(rail.getByTestId("weather-condition-action")).toHaveText(
+    "Choose cover and keep the plan flexible.",
+  );
+  await expect(rail.getByTestId("weather-condition-fallback")).toContainText("covered stop");
+  await expect(rail.getByTestId("weather-condition-evidence")).toContainText(
+    "Forecast freshness: fresh",
+  );
+  await expect(rail.getByTestId("surf-condition-action")).toHaveText(
+    "Use the Dapa tide window as a planning cue, then confirm locally.",
+  );
+  await expect(rail.getByTestId("surf-condition-timing")).toContainText("5:00 AM-8:00 AM");
+  await expect(rail.getByTestId("surf-condition-evidence")).toContainText(
+    "Dapa tide freshness was not supplied",
+  );
+  await expect(rail).toContainText("Exact-break conditions");
+  await expect(rail).toContainText("Road access, official marine warnings, and safety status");
+  await expect
+    .poll(() =>
+      rail.evaluate((element) => {
+        const action = element.querySelector("[data-testid='weather-condition-action']");
+        const metric = Array.from(element.querySelectorAll("p")).find(
+          (candidate) => candidate.textContent === "Rain chance",
+        );
+        return Boolean(
+          action &&
+            metric &&
+            action.getBoundingClientRect().top < metric.getBoundingClientRect().top,
+        );
+      }),
+    )
+    .toBe(true);
+
+  weatherMode = "stale";
+  surfMode = "partial";
+  await rail.getByRole("button", { name: "Refresh weather" }).click();
+  await rail.getByRole("button", { name: "Refresh surf conditions" }).click();
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Prior signals; rechecking");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Partial checked signals");
+  await expect(rail.getByTestId("surf-condition-basis")).toContainText("Missing: tide, swell");
+
+  weatherMode = "unknown";
+  surfMode = "unknown";
+  await rail.getByRole("button", { name: "Refresh weather" }).click();
+  await rail.getByRole("button", { name: "Refresh surf conditions" }).click();
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Freshness not verified");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Freshness not verified");
+  await expect(rail.getByTestId("surf-condition-action")).toHaveText(
+    "Keep surf plans flexible and confirm locally.",
+  );
+
+  weatherMode = "fresh";
+  surfMode = "no-window";
+  await rail.getByRole("button", { name: "Refresh weather" }).click();
+  await rail.getByRole("button", { name: "Refresh surf conditions" }).click();
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Checked signals available");
+  await expect(rail.getByTestId("surf-condition-action")).toHaveText(
+    "Keep surf plans flexible and confirm locally.",
+  );
+  await expect(rail.getByTestId("surf-condition-timing")).toHaveCount(0);
+
+  weatherMode = "error";
+  surfMode = "error";
+  await rail.getByRole("button", { name: "Refresh weather" }).click();
+  await rail.getByRole("button", { name: "Refresh surf conditions" }).click();
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Prior signals; rechecking");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Prior signals; rechecking");
+
+  weatherMode = "unavailable";
+  surfMode = "unavailable";
+  await page.reload();
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText(
+    "Current signals unavailable",
+  );
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Current signals unavailable");
+});
+
 test("shows the trip context rail at normal desktop browser width", async ({ page }) => {
   await page.setViewportSize({ width: 1224, height: 768 });
   await mockChatApi(page, {
