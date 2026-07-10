@@ -518,6 +518,55 @@ describe("chat route", () => {
     await db.close();
   });
 
+  test("rejects an adversarial client draft for an authenticated user without a saved profile", async () => {
+    const db = await openChatRouteTestDatabase();
+    await insertUser(db, "user_without_profile", "no-profile@example.com");
+    const dependencies = chatDependencies({
+      message: "The model receives no browser trip draft for this signed-in user.",
+      sources: [genericSourceSummary],
+    });
+    dependencies.db = db;
+    dependencies.auth = async () => ({
+      userId: "user_without_profile",
+      sessionClaims: { email: "no-profile@example.com" },
+    });
+    dependencies.createId = deterministicIds();
+
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [{ role: "user", content: "Where should we eat tonight?" }],
+        clientContext: {
+          tripContext: {
+            accommodation: "Stale browser villa",
+            dateRange: "Jan 1 - 31",
+            travelerType: "Another traveler",
+            nearbyArea: "Cloud 9",
+          },
+        },
+      }),
+      dependencies,
+    );
+    const agentRequest = dependencies.requests[0];
+    const signals = agentRequest?.deterministicSignals as AgentSignals | undefined;
+    const metadata = JSON.stringify(agentRequest?.metadata);
+    const storedMessages = await db.query<{ context_summary_json: unknown }>(
+      "select context_summary_json from chat_messages order by created_at, id",
+    );
+    const storedSummary = JSON.stringify(storedMessages.rows);
+
+    expect(response.status).toBe(200);
+    expectNoRouteOwnedToolSignals(signals);
+    expect(agentRequest?.clientContext).not.toHaveProperty("tripContext");
+    expect(signals?.context?.tripContext?.currentLocation).toBeUndefined();
+    expect(JSON.stringify(signals)).not.toContain("Stale browser villa");
+    expect(metadata).not.toContain("Stale browser villa");
+    expect(metadata).not.toContain("Another traveler");
+    expect(storedSummary).not.toContain("Stale browser villa");
+    expect(storedSummary).not.toContain("Another traveler");
+
+    await db.close();
+  });
+
   test("treats missing optional geolocation as accepted missing browser context", async () => {
     const dependencies = chatDependencies({
       message: "The model continues without browser location.",

@@ -182,13 +182,18 @@ export async function chatResponse(
 
   const messages = parsed.data.messages satisfies AskSiargaoChatMessage[];
   const now = new Date(startedAt);
-  const clientContext = normalizeTripContextClientContext(
+  const normalizedClientContext = normalizeTripContextClientContext(
     parsed.data.clientContext as TripContextClientContextInput | undefined,
     now,
   );
   const latestUserMessage = getLatestUserMessage(messages);
   const authenticatedUserContext = await resolveAuthenticatedChatUserContext(dependencies, now);
+  const allowClientTripDraft = authenticatedUserContext === null;
+  const clientContext = allowClientTripDraft
+    ? normalizedClientContext
+    : withoutClientTripDraft(normalizedClientContext);
   const intent = interpretChatRequestIntent({
+    allowClientTripDraft,
     clientContext,
     messages,
     profileContext: authenticatedUserContext?.profileContext ?? null,
@@ -501,9 +506,16 @@ async function resolveAuthenticatedChatUserContext(
   const profile = await loadUserProfile(db, currentUser.userId);
   return {
     db,
-    profileContext: profile?.profile ?? null,
+    profileContext: profile?.profile.updatedAt ? profile.profile : null,
     userId: currentUser.userId,
   };
+}
+
+function withoutClientTripDraft(
+  clientContext: ReturnType<typeof normalizeTripContextClientContext>,
+) {
+  const { tripContext: _tripContext, ...trustedClientContext } = clientContext;
+  return trustedClientContext;
 }
 
 function createChatRouteId(dependencies: ChatRouteDependencies, prefix: string) {

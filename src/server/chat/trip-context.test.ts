@@ -125,6 +125,29 @@ describe("Trip Context module", () => {
     expect(context.contextSources.profile).toBe(true);
   });
 
+  test("rejects a client draft when an authenticated request has no saved profile", () => {
+    const context = deriveTripContext([{ role: "user", content: "Plan a quiet day." }], {
+      allowClientTripDraft: false,
+      clientContext: normalizeTripContextClientContext(
+        {
+          tripContext: {
+            accommodation: "Stale browser villa",
+            dateRange: "Jan 1 - 31",
+            travelerType: "Another traveler",
+            nearbyArea: "Cloud 9",
+          },
+        },
+        new Date("2026-07-10T00:00:00.000Z"),
+      ),
+      profileContext: null,
+    });
+
+    expect(context.accommodation).toBeUndefined();
+    expect(context.dateRange).toBeUndefined();
+    expect(context.currentLocation).toBeUndefined();
+    expect(context.contextSources.uiDraft).toBe(false);
+  });
+
   test("keeps latest-turn modifiers temporary while stable constraints persist", () => {
     const context = deriveTripContext([
       { role: "user", content: "We are on a budget near Cloud 9 and have no scooter." },

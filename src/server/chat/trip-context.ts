@@ -235,6 +235,7 @@ const siargaoAreaBounds = {
 export function deriveTripContext(
   messages: readonly AskSiargaoChatMessage[],
   options: {
+    allowClientTripDraft?: boolean;
     clientContext?: TripContextClientContext;
     profileContext?: TripContextProfileInput | null;
     uiDraft?: TripContextDraftInput;
@@ -247,10 +248,12 @@ export function deriveTripContext(
   const recentLocation = inferSiargaoLocationLabel(recentUserContext);
   const reference = inferLocationReference(latestUserTurn);
   const profileSeed = tripContextSeedFromProfile(options.profileContext);
-  const uiDraft =
-    options.profileContext === null || options.profileContext === undefined
-      ? (options.uiDraft ?? options.clientContext?.tripContext)
-      : undefined;
+  const allowClientTripDraft =
+    options.allowClientTripDraft ??
+    (options.profileContext === null || options.profileContext === undefined);
+  const uiDraft = allowClientTripDraft
+    ? (options.uiDraft ?? options.clientContext?.tripContext)
+    : undefined;
   const uiSeed = tripContextSeedFromDraft(uiDraft);
   const activeGoal = inferActiveGoal(latestUserTurn, recentUserContext);
   const nearMeUsesBrowserGeolocation =
@@ -354,15 +357,18 @@ export function deriveTripContext(
 }
 
 export function interpretChatRequestIntent({
+  allowClientTripDraft,
   clientContext,
   messages,
   profileContext,
 }: {
+  allowClientTripDraft?: boolean;
   clientContext?: TripContextClientContext;
   messages: readonly AskSiargaoChatMessage[];
   profileContext?: TripContextProfileInput | null;
 }): ChatRequestIntent {
   const tripContext = deriveTripContext(messages, {
+    allowClientTripDraft,
     clientContext,
     profileContext,
   });
