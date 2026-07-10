@@ -1371,6 +1371,13 @@ test("saves local cards and itineraries with dedupe, removal, and reload persist
   page,
 }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
   const prompt = "Save a Shaka stop and rainy Cloud 9 plan";
   const deletedItems: string[] = [];
   await page.route("**/api/trips/saved/*", async (route) => {
@@ -1541,6 +1548,13 @@ test("creates and copies or opens a share link from saved cards and itineraries"
   page,
 }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -1750,6 +1764,13 @@ test("prevents empty share selections and keeps local saves after share API fail
   page,
 }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
   let savedSyncRequests = 0;
   await page.route("**/api/trips/saved", async (route) => {
     if (route.request().method() === "GET") {
