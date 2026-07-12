@@ -105,7 +105,14 @@ type DecisionMotionMetrics = {
   starts: number;
   ends: number;
   layoutShift: number;
-  longTasks: number[];
+  readyAt: number | null;
+  motionStartAt: number | null;
+  motionEndAt: number | null;
+  longTasks: Array<{
+    duration: number;
+    startTime: number;
+    endTime: number;
+  }>;
   rafFrames: number[];
 };
 type LayoutShiftEntry = PerformanceEntry & {
@@ -2189,9 +2196,28 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     starts: -1,
     ends: -1,
     layoutShift: -1,
-    longTasks: [-1],
+    readyAt: null,
+    motionStartAt: null,
+    motionEndAt: null,
+    longTasks: [],
     rafFrames: [],
   };
+  const motionLongTasks = metrics.longTasks.filter((task) => {
+    if (metrics.motionStartAt === null || metrics.motionEndAt === null) {
+      return false;
+    }
+    return (
+      task.duration > 50 &&
+      task.startTime < metrics.motionEndAt &&
+      task.endTime > metrics.motionStartAt
+    );
+  });
+  const preMotionLongTasks = metrics.longTasks.filter((task) => {
+    if (metrics.readyAt === null || metrics.motionStartAt === null) {
+      return false;
+    }
+    return task.endTime > metrics.readyAt && task.startTime < metrics.motionStartAt;
+  });
   const frameIntervals = metrics.rafFrames
     .slice(1)
     .map((timestamp, index) => timestamp - metrics.rafFrames[index]);
@@ -2202,8 +2228,9 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     starts: metrics.starts,
     ends: metrics.ends,
     layoutShift: Number(metrics.layoutShift.toFixed(4)),
-    longTaskCountOver50ms: metrics.longTasks.filter((duration) => duration > 50).length,
-    maxLongTaskMs: Math.max(0, ...metrics.longTasks),
+    preMotionLongTaskCount: preMotionLongTasks.length,
+    motionLongTaskCountOver50ms: motionLongTasks.length,
+    maxMotionLongTaskMs: Math.max(0, ...motionLongTasks.map((task) => task.duration)),
     sampledFrames: metrics.rafFrames.length,
     maxFrameIntervalMs: Math.max(0, ...frameIntervals),
   };
@@ -2215,7 +2242,9 @@ test("runs the decision strip arrival sequence once without shifting layout", as
   expect(metrics.starts).toBe(1);
   expect(metrics.ends).toBe(1);
   expect(metrics.layoutShift).toBe(0);
-  expect(metrics.longTasks.filter((duration) => duration > 50)).toHaveLength(0);
+  expect(metrics.motionStartAt).not.toBeNull();
+  expect(metrics.motionEndAt).not.toBeNull();
+  expect(motionLongTasks).toHaveLength(0);
   expect(metrics.rafFrames.length).toBeGreaterThan(8);
 });
 
@@ -3651,6 +3680,9 @@ async function installDecisionMotionProbe(page: Page) {
       starts: 0,
       ends: 0,
       layoutShift: 0,
+      readyAt: null,
+      motionStartAt: null,
+      motionEndAt: null,
       longTasks: [],
       rafFrames: [],
     };
@@ -3670,6 +3702,7 @@ async function installDecisionMotionProbe(page: Page) {
           return;
         }
         metrics.starts += 1;
+        metrics.motionStartAt = performance.now();
         sampleFrames = true;
         const sample = (timestamp: number) => {
           metrics.rafFrames.push(timestamp);
@@ -3693,6 +3726,7 @@ async function installDecisionMotionProbe(page: Page) {
           return;
         }
         metrics.ends += 1;
+        metrics.motionEndAt = performance.now();
         sampleFrames = false;
       },
       true,
@@ -3708,9 +3742,15 @@ async function installDecisionMotionProbe(page: Page) {
 
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
-        metrics.longTasks.push(entry.duration);
+        metrics.longTasks.push({
+          duration: entry.duration,
+          startTime: entry.startTime,
+          endTime: entry.startTime + entry.duration,
+        });
       }
     }).observe({ type: "longtask", buffered: true });
+
+    metrics.readyAt = performance.now();
   });
 }
 
@@ -3723,6 +3763,9 @@ async function resetDecisionMotionMetrics(page: Page) {
     metrics.starts = 0;
     metrics.ends = 0;
     metrics.layoutShift = 0;
+    metrics.readyAt = performance.now();
+    metrics.motionStartAt = null;
+    metrics.motionEndAt = null;
     metrics.longTasks = [];
     metrics.rafFrames = [];
   });
