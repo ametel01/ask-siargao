@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed source presentation to use an expandable traveler evidence receipt with checked and
+  not-checked boundaries, freshness, friendly labels, and terminal-gap card suppression.
 - Changed evidence presentation to distinguish capability, checking, checked, stale, unavailable,
   and not-verified states across landing, chat, decision strips, and shared-trip surfaces.
 - Changed chat location sharing to use one accessible privacy control with explicit once/trip
