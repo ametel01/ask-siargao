@@ -612,6 +612,9 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   ]) {
     expect(patchPayload).not.toHaveProperty(confirmedOrUnchangedField);
   }
+  await page.getByLabel("Send occasional Ask Siargao product updates").check();
+  await page.getByRole("button", { name: "Save consent" }).click();
+  await expect(page.getByText("Marketing consent saved")).toBeVisible();
 
   await page.reload();
   await expect(page.getByLabel("Display name")).toHaveValue("Alex in Siargao");
@@ -666,6 +669,444 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
     path: "test-results/issue-122-structured-controls-mobile-390-zoom-200.png",
     fullPage: true,
   });
+});
+
+test("manages privacy controls with deliberate confirmation and local cleanup after success", async ({
+  page,
+}) => {
+  const savedTripStorageKey = "ask-siargao:saved-trip:v1";
+  const tripContextStorageKey = "ask-siargao:trip-context:v1";
+  let privacyMode: "success" | "server" | "auth" = "success";
+  let chatDeleted = false;
+  let savedDeleted = false;
+  let profile = {
+    identity: {
+      email: "privacy@example.com",
+      firstName: "Privacy",
+      lastName: "Traveler",
+    },
+    profile: {
+      displayName: "Privacy Traveler",
+      homeCountry: "Australia",
+      travelStyle: "Quiet planning",
+      budgetLevel: "mid_range",
+      dietaryNotes: "",
+      foodNeeds: [],
+      accessibilityNotes: "",
+      surfAbility: "intermediate",
+      quietSleepPreference: false,
+      weatherPreference: "flexible" as const,
+      interests: ["surf"],
+      preferredAreas: ["Cloud 9"],
+      tripContext: {
+        accommodation: "Cloud 9 private stay",
+        currentArea: "Cloud 9",
+        dateRange: "Aug 1 - 6",
+        notes: "Keep the ferry note",
+      },
+      marketingConsent: false,
+      createdAt: "2026-06-29T04:00:00.000Z",
+      updatedAt: "2026-06-29T04:00:00.000Z",
+    },
+  };
+  let savedTrips = {
+    tripId: "saved_trip_privacy",
+    items: [
+      {
+        id: "saved_item_privacy",
+        kind: "place",
+        title: "Private saved cafe",
+        updatedAt: "2026-06-29T05:00:00.000Z",
+      },
+    ],
+  };
+  let chatThreads = {
+    threads: [
+      {
+        id: "chat_thread_privacy",
+        title: "Private cafe chat",
+        updatedAt: "2026-06-29T05:00:00.000Z",
+      },
+    ],
+  };
+
+  await page.addInitScript(
+    ({ savedTripStorageKey, tripContextStorageKey }) => {
+      localStorage.setItem(
+        savedTripStorageKey,
+        JSON.stringify({
+          tripId: "saved_trip_privacy",
+          items: [{ id: "saved_item_privacy", title: "Private saved cafe" }],
+          updatedAt: "2026-06-29T05:00:00.000Z",
+        }),
+      );
+      localStorage.setItem(
+        tripContextStorageKey,
+        JSON.stringify({
+          accommodation: "Browser private stay",
+          dateRange: "Aug 1 - 6",
+          travelerType: "Couple",
+          nearbyArea: "Cloud 9",
+        }),
+      );
+    },
+    { savedTripStorageKey, tripContextStorageKey },
+  );
+  await page.route("**/api/me/profile", async (route) => {
+    if (route.request().method() === "PATCH") {
+      const patch = route.request().postDataJSON() as Partial<typeof profile.profile>;
+      profile = { ...profile, profile: { ...profile.profile, ...patch } };
+    }
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(profile) });
+  });
+  await page.route("**/api/chat/threads", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(chatThreads) });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(savedTrips) });
+  });
+  await page.route("**/api/me/privacy", async (route) => {
+    const body = route.request().postDataJSON() as {
+      action: string;
+      confirmation: string;
+    };
+    if (privacyMode === "auth") {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 401,
+        body: JSON.stringify({ error: "unauthenticated" }),
+      });
+      return;
+    }
+    if (privacyMode === "server") {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 500,
+        body: JSON.stringify({ error: "privacy_action_failed" }),
+      });
+      return;
+    }
+    const expectedConfirmation =
+      body.action === "delete_chat_history"
+        ? "DELETE CHAT HISTORY"
+        : body.action === "delete_saved_planning_data"
+          ? "DELETE SAVED PLANNING DATA"
+          : "CLEAR LOCATION CONTEXT";
+    if (body.confirmation !== expectedConfirmation) {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 400,
+        body: JSON.stringify({ error: "invalid_privacy_request" }),
+      });
+      return;
+    }
+    if (body.action === "delete_chat_history") {
+      const status = chatDeleted ? "already_empty" : "success";
+      chatDeleted = true;
+      chatThreads = { threads: [] };
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          action: body.action,
+          status,
+          counts: {
+            chatRatingsDeleted: status === "success" ? 1 : 0,
+            chatMessagesDeleted: 2,
+            chatThreadsDeleted: status === "success" ? 1 : 0,
+          },
+          requestId: "privacy-chat",
+        }),
+      });
+      return;
+    }
+    if (body.action === "delete_saved_planning_data") {
+      const status = savedDeleted ? "already_empty" : "success";
+      savedDeleted = true;
+      savedTrips = { tripId: "saved_trip_privacy", items: [] };
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          action: body.action,
+          status,
+          counts: {
+            savedTripsDeleted: status === "success" ? 1 : 0,
+            savedItemsDeleted: status === "success" ? 1 : 0,
+            sharedPlansInvalidated: status === "success" ? 1 : 0,
+          },
+          requestId: "privacy-saved",
+        }),
+      });
+      return;
+    }
+    profile = {
+      ...profile,
+      profile: {
+        ...profile.profile,
+        tripContext: {
+          dateRange: profile.profile.tripContext.dateRange,
+          notes: profile.profile.tripContext.notes,
+        } as typeof profile.profile.tripContext,
+      },
+    };
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        action: body.action,
+        status: "success",
+        counts: { profileFieldsCleared: 2 },
+        profile,
+        requestId: "privacy-location",
+      }),
+    });
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/settings#privacy");
+  await expect(page.getByRole("heading", { exact: true, name: "Privacy" })).toBeVisible();
+  await expect(page.getByText("exact browser coordinates")).toBeVisible();
+  await expect(page.getByText("global purge duration")).toBeVisible();
+  await expect(page.getByText("secret-token-value")).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
+    false,
+  );
+
+  privacyMode = "server";
+  await page.getByRole("button", { name: "Delete all saved planning data" }).click();
+  let dialog = page.getByRole("dialog", { name: "Delete all saved planning data?" });
+  await expect(
+    dialog.getByRole("button", { name: "Delete all saved planning data" }),
+  ).toBeDisabled();
+  await dialog
+    .getByLabel("Type DELETE SAVED PLANNING DATA to continue")
+    .fill("DELETE SAVED PLANNING DATA");
+  await dialog.getByRole("button", { name: "Delete all saved planning data" }).click();
+  await expect(page.getByText("No local data was cleared.")).toBeVisible();
+  expect(
+    await page.evaluate(
+      (key) => JSON.parse(localStorage.getItem(key) ?? "{}").items.length,
+      savedTripStorageKey,
+    ),
+  ).toBe(1);
+
+  privacyMode = "success";
+  await dialog.getByRole("button", { name: "Delete all saved planning data" }).click();
+  await expect(page.getByText("Deleted 1 saved item and invalidated 1 share link.")).toBeVisible();
+  expect(
+    await page.evaluate(
+      (key) => JSON.parse(localStorage.getItem(key) ?? "{}").items.length,
+      savedTripStorageKey,
+    ),
+  ).toBe(0);
+
+  await page.getByRole("button", { name: "Delete all chat history" }).click();
+  dialog = page.getByRole("dialog", { name: "Delete all chat history?" });
+  await dialog.getByLabel("Type DELETE CHAT HISTORY to continue").fill("DELETE CHAT HISTORY");
+  await dialog.getByRole("button", { name: "Delete all chat history" }).click();
+  await expect(page.getByText("Deleted 1 chat thread from active records.")).toBeVisible();
+  await page.getByRole("button", { name: "Delete all chat history" }).click();
+  dialog = page.getByRole("dialog", { name: "Delete all chat history?" });
+  await dialog.getByLabel("Type DELETE CHAT HISTORY to continue").fill("DELETE CHAT HISTORY");
+  await dialog.getByRole("button", { name: "Delete all chat history" }).click();
+  await expect(page.getByText("Chat history was already empty.")).toBeVisible();
+
+  await page.getByLabel("Send occasional Ask Siargao product updates").check();
+  await page.getByRole("button", { name: "Save consent" }).click();
+  await expect(page.getByText("Marketing consent saved")).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("Send occasional Ask Siargao product updates")).toBeChecked();
+
+  await page.getByRole("button", { name: "Clear stored location context" }).click();
+  dialog = page.getByRole("dialog", { name: "Clear stored location context?" });
+  await dialog.getByLabel("Type CLEAR LOCATION CONTEXT to continue").fill("CLEAR LOCATION CONTEXT");
+  await dialog.getByRole("button", { name: "Clear stored location context" }).click();
+  await expect(page.getByText("Stored area and accommodation context were cleared.")).toBeVisible();
+  expect(
+    await page.evaluate(
+      (key) => JSON.parse(localStorage.getItem(key) ?? "{}"),
+      tripContextStorageKey,
+    ),
+  ).toMatchObject({ accommodation: "", nearbyArea: "Siargao Island", dateRange: "Aug 1 - 6" });
+  await expect(page.getByText("Cloud 9 private stay")).toHaveCount(0);
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.reload();
+  await expect(page.getByRole("heading", { exact: true, name: "Privacy" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
+    false,
+  );
+});
+
+test("keeps privacy confirmations modal and preserves deterministic failure states", async ({
+  page,
+}) => {
+  let privacyMode: "auth" | "validation" | "network" | "pending" | "success" = "auth";
+  let releasePending = () => {};
+  const profile = {
+    identity: { email: "privacy-states@example.com", firstName: "Privacy", lastName: "States" },
+    profile: {
+      displayName: "Privacy States",
+      homeCountry: "Australia",
+      travelStyle: "Quiet planning",
+      budgetLevel: "mid_range" as const,
+      dietaryNotes: "",
+      foodNeeds: [],
+      accessibilityNotes: "",
+      surfAbility: "intermediate" as const,
+      quietSleepPreference: false,
+      weatherPreference: "flexible" as const,
+      interests: ["surf"],
+      preferredAreas: ["Cloud 9"],
+      tripContext: { dateRange: "Aug 1 - 6" },
+      marketingConsent: false,
+      createdAt: "2026-06-29T04:00:00.000Z",
+      updatedAt: "2026-06-29T04:00:00.000Z",
+    },
+  };
+
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(profile) });
+  });
+  await page.route("**/api/chat/threads", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ threads: [] }) });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ tripId: null, items: [] }),
+    });
+  });
+  await page.route("**/api/me/privacy", async (route) => {
+    if (privacyMode === "auth") {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 401,
+        body: JSON.stringify({ error: "unauthenticated" }),
+      });
+      return;
+    }
+    if (privacyMode === "validation") {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 400,
+        body: JSON.stringify({ error: "invalid_privacy_request" }),
+      });
+      return;
+    }
+    if (privacyMode === "network") {
+      await route.abort("failed");
+      return;
+    }
+    if (privacyMode === "pending") {
+      await new Promise<void>((resolve) => {
+        releasePending = resolve;
+      });
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        action: "delete_chat_history",
+        status: "success",
+        counts: { chatRatingsDeleted: 0, chatMessagesDeleted: 0, chatThreadsDeleted: 0 },
+        requestId: "server-privacy-request",
+      }),
+    });
+  });
+
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 1280, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/settings#privacy");
+    const trigger = page
+      .getByRole("button", { name: "Delete all chat history", exact: true })
+      .first();
+
+    privacyMode = "auth";
+    await trigger.click();
+    let dialog = page.getByRole("dialog", { name: "Delete all chat history?" });
+    const confirmationInput = dialog.getByRole("textbox");
+    await expect(confirmationInput).toBeFocused();
+    await dialog.getByLabel("Type DELETE CHAT HISTORY to continue").fill("DELETE CHAT HISTORY");
+    await page.keyboard.press("Tab");
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(
+      dialog.getByRole("button", { name: "Delete all chat history", exact: true }),
+    ).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(confirmationInput).toBeFocused();
+    await dialog.getByRole("button", { name: "Delete all chat history", exact: true }).click();
+    await expect(
+      page.getByText("Your session expired. Sign in again before changing privacy settings."),
+    ).toBeVisible();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(trigger).toBeFocused();
+
+    privacyMode = "validation";
+    await trigger.click();
+    dialog = page.getByRole("dialog", { name: "Delete all chat history?" });
+    await dialog.getByLabel("Type DELETE CHAT HISTORY to continue").fill("DELETE CHAT HISTORY");
+    await dialog.getByRole("button", { name: "Delete all chat history", exact: true }).click();
+    await expect(
+      page.getByText("The confirmation did not match this privacy action. Try again."),
+    ).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+
+    privacyMode = "network";
+    await trigger.click();
+    dialog = page.getByRole("dialog", { name: "Delete all chat history?" });
+    await dialog.getByLabel("Type DELETE CHAT HISTORY to continue").fill("DELETE CHAT HISTORY");
+    await dialog.getByRole("button", { name: "Delete all chat history", exact: true }).click();
+    await expect(
+      page.getByText("Network error. Server data and local browser data were left unchanged."),
+    ).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+
+    privacyMode = "pending";
+    await trigger.click();
+    dialog = page.getByRole("dialog", { name: "Delete all chat history?" });
+    const confirmButton = dialog.locator("button").nth(1);
+    await dialog.getByLabel("Type DELETE CHAT HISTORY to continue").fill("DELETE CHAT HISTORY");
+    await confirmButton.click();
+    await expect(confirmButton).toHaveText("Deleting");
+    await expect(confirmButton).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("textbox").focus();
+
+    await page.evaluate(() => {
+      const backgroundTrigger = [...document.querySelectorAll("button")].find(
+        (button) => button.textContent?.trim() === "Delete all chat history",
+      );
+      backgroundTrigger?.focus();
+    });
+    await expect(dialog).toBeVisible();
+    expect(
+      await page.evaluate(() =>
+        Array.from(document.body.children)
+          .filter((element) => element.tagName !== "DIALOG")
+          .every(
+            (element) =>
+              element instanceof HTMLElement &&
+              element.inert &&
+              element.getAttribute("aria-hidden") === "true",
+          ),
+      ),
+    ).toBe(true);
+    expect(await page.evaluate(() => document.activeElement?.closest("dialog") !== null)).toBe(
+      true,
+    );
+    await expect(confirmButton).toBeDisabled();
+
+    releasePending();
+    await expect(page.getByText("Deleted 0 chat threads from active records.")).toBeVisible();
+    await expect(trigger).toBeFocused();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    ).toBe(true);
+  }
 });
 
 test("preserves untouched legacy multi-value tokens byte-for-byte on an unrelated save", async ({

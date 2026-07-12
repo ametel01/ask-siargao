@@ -62,6 +62,12 @@ const apiRoutePolicyCases: Array<{
     intent: "authenticated profile surface",
   },
   {
+    routeFile: "src/app/api/me/privacy/route.ts",
+    pathname: "/api/me/privacy",
+    classification: "protected",
+    intent: "authenticated privacy controls surface",
+  },
+  {
     routeFile: "src/app/api/public/accommodations/[...slug]/route.ts",
     pathname: "/api/public/accommodations/example-stay",
     classification: "public",
@@ -171,6 +177,7 @@ describe("Clerk route policy", () => {
     expect(classifyClerkRoute("/profile/settings")).toBe("protected");
     expect(classifyClerkRoute("/chat/history")).toBe("protected");
     expect(classifyClerkRoute("/api/me/profile")).toBe("protected");
+    expect(classifyClerkRoute("/api/me/privacy")).toBe("protected");
     expect(classifyClerkRoute("/api/chat/threads")).toBe("protected");
     expect(classifyClerkRoute("/api/chat/threads/thread_123")).toBe("protected");
     expect(classifyClerkRoute("/api/chat/ratings")).toBe("protected");

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  clearStoredTripLocationContext,
   readStoredTripContext,
   readStoredTripContextForRequest,
   tripContextStorageKey,
@@ -88,6 +89,28 @@ describe("trip context draft adapter", () => {
     expect(stored.dateRange).toBe("Sep 2 - 5");
     expect(stored.travelerType).toBe("Couple");
     expect(stored.nearbyArea).toBe("General Luna");
+  });
+
+  test("clears stored accommodation and nearby area while preserving other local trip context", () => {
+    const storage = memoryStorage();
+    writeStoredTripContext(
+      {
+        accommodation: "Cloud 9 stay",
+        dateRange: "Sep 2 - 5",
+        travelerType: "Couple",
+        nearbyArea: "General Luna",
+      },
+      { storage },
+    );
+
+    clearStoredTripLocationContext({ storage });
+
+    expect(readStoredTripContext({ storage })).toEqual({
+      accommodation: "",
+      dateRange: "Sep 2 - 5",
+      travelerType: "Couple",
+      nearbyArea: "Siargao Island",
+    });
   });
 });
 

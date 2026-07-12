@@ -1,4 +1,4 @@
-import postgres from "postgres";
+import postgres, { type Sql } from "postgres";
 
 import { createPostgresConnectionOptions } from "@/server/db/connection-options";
 
@@ -6,6 +6,7 @@ export type QueryResult<T> = { rows: T[] };
 
 export type DatabaseQueryClient = {
   query<T>(query: string, params?: unknown[]): Promise<QueryResult<T>>;
+  transaction?<T>(callback: (transactionClient: DatabaseQueryClient) => Promise<T>): Promise<T>;
 };
 
 type PostgresTemplateExecutor = (
@@ -25,13 +26,23 @@ function createDatabaseQueryClient(databaseUrl = process.env.DATABASE_URL) {
 }
 
 export function createPostgresQueryClient(sql: PostgresTemplateExecutor) {
-  return {
+  const client: DatabaseQueryClient = {
     async query<T>(query: string, params: unknown[] = []) {
       const preparedQuery = toTemplateQuery(query, params);
       const rows = await sql(preparedQuery.strings, ...(preparedQuery.params as never[]));
       return { rows: rows as unknown as T[] };
     },
-  } satisfies DatabaseQueryClient;
+  };
+  if (isPostgresSql(sql)) {
+    client.transaction = async <T>(
+      callback: (transactionClient: DatabaseQueryClient) => Promise<T>,
+    ) =>
+      (await sql.begin(async (transactionSql) =>
+        callback(createPostgresQueryClient(transactionSql)),
+      )) as T;
+  }
+
+  return client;
 }
 
 export function getDefaultDatabaseQueryClient() {
@@ -64,4 +75,8 @@ function toTemplateQuery(query: string, params: readonly unknown[]) {
 function toTemplateStringsArray(strings: readonly string[]): TemplateStringsArray {
   const cooked = [...strings];
   return Object.assign(cooked, { raw: [...strings] }) as unknown as TemplateStringsArray;
+}
+
+function isPostgresSql(sql: PostgresTemplateExecutor): sql is Sql {
+  return "begin" in sql && typeof (sql as Partial<Sql>).begin === "function";
 }

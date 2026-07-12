@@ -174,6 +174,18 @@ export function writeSavedTripState(state: SavedTripState, options: SavedTripCli
   }
 }
 
+export function clearSavedTripState(options: SavedTripClientOptions = {}) {
+  const current = readSavedTripState(options);
+  writeSavedTripState(
+    {
+      tripId: current.tripId,
+      items: [],
+      updatedAt: getNowIso(options),
+    },
+    options,
+  );
+}
+
 export function writeAuthenticatedSavedTripState(
   savedTrip: SavedTripApiResponse | null,
   fallbackTripId: string,

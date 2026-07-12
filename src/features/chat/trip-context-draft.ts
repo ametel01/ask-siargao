@@ -121,6 +121,22 @@ export function writeStoredTripContext(
   }
 }
 
+export function clearStoredTripLocationContext({
+  storage = browserTripContextStorage(),
+}: {
+  storage?: TripContextDraftStorage | null;
+} = {}) {
+  const current = readStoredTripContext({ storage });
+  writeStoredTripContext(
+    {
+      ...current,
+      accommodation: "",
+      nearbyArea: defaultTripContextDraft.nearbyArea,
+    },
+    { storage },
+  );
+}
+
 function readTripContextDraftFromRawValue(rawValue: string | null) {
   if (!rawValue) {
     return undefined;
