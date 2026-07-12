@@ -61,6 +61,10 @@ The relevant local Clerk skills are:
 8. Shared trip links remain public token pages and must not expose the owner,
    full chat history, profile details, exact geolocation, or non-public provider
    data.
+9. Signed-in users can delete all owned chat-history records, delete all owned
+   saved-planning records while invalidating affected public shares, clear stored
+   area/accommodation context, and manage marketing consent without deleting the
+   Clerk account or unrelated profile fields.
 
 ## Clerk Integration Requirements
 
@@ -104,6 +108,17 @@ Required protected routes:
 - `/api/me(.*)`
 - `/api/chat/threads(.*)`
 - `/api/chat/ratings(.*)`
+
+`POST /api/me/privacy` is part of the protected `/api/me(.*)` surface. It accepts
+only strict action and confirmation discriminators, derives ownership from Clerk
+auth only, runs destructive chat and saved-planning actions transactionally,
+returns repeat-safe already-empty results, and emits sanitized audit evidence
+with action type, actor reference, request ID, timestamp, outcome, and coarse
+counts only. It must not log deleted message text, saved artifact payloads, share
+tokens or hashes, profile free text, exact coordinates, raw provider/tool data,
+or confirmation phrases. The route deletes active product records only; no
+backup, legal-retention, account-closure, or Clerk-managed deletion duration is
+defined here.
 
 Wrap `src/app/layout.tsx` with `ClerkProvider` inside `<body>`, preserving the
 existing font variables, `TooltipProvider`, and `Toaster`.

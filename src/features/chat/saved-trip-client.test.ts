@@ -10,6 +10,7 @@ import {
   buildSavedItemFromCard,
   buildSavedItemFromItinerary,
   buildSharedPlanTitle,
+  clearSavedTripState,
   deleteSavedTripItem,
   fetchAuthenticatedSavedTrip,
   getSavedTripSnapshot,
@@ -176,6 +177,27 @@ describe("saved trip client storage", () => {
     expect(readSavedTripState({ storage })).toMatchObject({
       tripId: "saved_trip_authenticated",
       items: [],
+    });
+  });
+
+  test("clears current-device saved items without changing the current trip id", () => {
+    const storage = new MemoryStorage();
+    const savedItem = sampleSavedCard({ tripId: "saved_trip_authenticated" });
+    writeSavedTripState(
+      {
+        tripId: "saved_trip_authenticated",
+        items: [savedItem],
+        updatedAt: "2026-06-30T07:00:00.000Z",
+      },
+      { storage },
+    );
+
+    clearSavedTripState({ storage, now: () => fixedNow });
+
+    expect(readSavedTripState({ storage })).toEqual({
+      tripId: "saved_trip_authenticated",
+      items: [],
+      updatedAt: fixedNow,
     });
   });
 });

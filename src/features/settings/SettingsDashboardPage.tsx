@@ -5,7 +5,16 @@
  * genre: modern-minimal; macrostructure: account console; contrast/mobile: pass.
  */
 import { SignInButton, SignUpButton, useClerk, useUser } from "@clerk/nextjs";
-import { ArrowRight, MapPinned, MessageCircle, Save, ShieldCheck, UserRound } from "lucide-react";
+import {
+  ArrowRight,
+  CheckCircle2,
+  MapPinned,
+  MessageCircle,
+  Save,
+  ShieldCheck,
+  Trash2,
+  UserRound,
+} from "lucide-react";
 import Link from "next/link";
 import {
   type FormEvent,
@@ -22,6 +31,8 @@ import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isClerkConfigured } from "@/features/auth/clerk-config";
+import { clearSavedTripState } from "@/features/chat/saved-trip-client";
+import { clearStoredTripLocationContext } from "@/features/chat/trip-context-draft";
 import { accountIdentityFromProfile } from "@/features/settings/account-identity";
 import { createAccountManagementAdapter } from "@/features/settings/account-management";
 import type { WeatherPreference } from "@/features/settings/profile-options";
@@ -84,6 +95,22 @@ type SavedTripsResponse = {
 
 type ProfileErrorResponse = {
   issues?: { path?: string; message?: string }[];
+};
+
+type PrivacyActionResponse = {
+  action: "delete_chat_history" | "delete_saved_planning_data" | "clear_location_context";
+  status: "success" | "already_empty";
+  counts: {
+    chatRatingsDeleted?: number;
+    chatMessagesDeleted?: number;
+    chatThreadsDeleted?: number;
+    savedTripsDeleted?: number;
+    savedItemsDeleted?: number;
+    sharedPlansInvalidated?: number;
+    profileFieldsCleared?: number;
+  };
+  profile?: UserProfileResponse;
+  requestId: string;
 };
 
 type ProfileCacheKey = string | readonly ["/api/me/profile", string] | null;
@@ -254,6 +281,7 @@ function SettingsDashboardContent({
     data: chatThreads,
     error: chatThreadsError,
     isLoading: isChatThreadsLoading,
+    mutate: refreshChatThreads,
   } = useSWR(shouldLoadPrivateSummaries ? "/api/chat/threads" : null, fetchChatThreads, {
     revalidateOnFocus: false,
     shouldRetryOnError: false,
@@ -262,6 +290,7 @@ function SettingsDashboardContent({
     data: savedTrips,
     error: savedTripsError,
     isLoading: isSavedTripsLoading,
+    mutate: refreshSavedTrips,
   } = useSWR(shouldLoadPrivateSummaries ? "/api/trips/saved" : null, fetchSavedTrips, {
     revalidateOnFocus: false,
     shouldRetryOnError: false,
@@ -403,6 +432,18 @@ function SettingsDashboardContent({
               manageAccountButtonRef={manageAccountButtonRef}
               onActivate={activateSection}
               onManageAccount={onManageAccount}
+              onProfileUpdated={(nextProfile) => {
+                setProfile(nextProfile);
+                setForm(formFromProfile(nextProfile));
+                setIsDirty(false);
+                setSaveState("idle");
+                setSaveError(null);
+                setFieldErrors({});
+              }}
+              onRefreshPrivateSummaries={() => {
+                void refreshChatThreads();
+                void refreshSavedTrips();
+              }}
               profile={currentProfile}
             />
             <div className="grid min-w-0 gap-6">
@@ -630,12 +671,16 @@ function SettingsSidebar({
   manageAccountButtonRef,
   onActivate,
   onManageAccount,
+  onProfileUpdated,
+  onRefreshPrivateSummaries,
   profile,
 }: {
   activeSection: TripBriefSection;
   manageAccountButtonRef?: RefObject<HTMLButtonElement | null>;
   onActivate: (section: TripBriefSection) => void;
   onManageAccount?: () => void;
+  onProfileUpdated: (profile: UserProfileResponse) => void;
+  onRefreshPrivateSummaries: () => void;
   profile: UserProfileResponse;
 }) {
   return (
@@ -679,7 +724,11 @@ function SettingsSidebar({
       />
       <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-1">
         <ShortcutPanel />
-        <PrivacyPanel />
+        <PrivacyControlsPanel
+          onProfileUpdated={onProfileUpdated}
+          onRefreshPrivateSummaries={onRefreshPrivateSummaries}
+          profile={profile}
+        />
         <PassPanel />
       </div>
     </aside>
@@ -803,9 +852,196 @@ function PassPanel() {
   );
 }
 
-function PrivacyPanel() {
+type PrivacyDialogAction = {
+  action: PrivacyActionResponse["action"];
+  buttonLabel: string;
+  confirmation: string;
+  description: string;
+  title: string;
+};
+
+const privacyDialogActions: Record<PrivacyActionResponse["action"], PrivacyDialogAction> = {
+  delete_chat_history: {
+    action: "delete_chat_history",
+    buttonLabel: "Delete all chat history",
+    confirmation: "DELETE CHAT HISTORY",
+    description:
+      "This deletes your owned chat threads, messages, ratings, public artifacts, source summaries, and redacted tool summaries from active product records. It does not delete your Clerk account, profile, saved planning data, backups, or audit metadata.",
+    title: "Delete all chat history?",
+  },
+  delete_saved_planning_data: {
+    action: "delete_saved_planning_data",
+    buttonLabel: "Delete all saved planning data",
+    confirmation: "DELETE SAVED PLANNING DATA",
+    description:
+      "This deletes your owned saved planning records and removes affected public share snapshots so existing share URLs return the same unavailable response. It does not delete anonymous trips or another browser's local storage.",
+    title: "Delete all saved planning data?",
+  },
+  clear_location_context: {
+    action: "clear_location_context",
+    buttonLabel: "Clear stored location context",
+    confirmation: "CLEAR LOCATION CONTEXT",
+    description:
+      "This clears stored accommodation and current-area context from your profile and this browser's local trip context. Other profile preferences remain in place.",
+    title: "Clear stored location context?",
+  },
+};
+
+function PrivacyControlsPanel({
+  onProfileUpdated,
+  onRefreshPrivateSummaries,
+  profile,
+}: {
+  onProfileUpdated: (profile: UserProfileResponse) => void;
+  onRefreshPrivateSummaries: () => void;
+  profile: UserProfileResponse;
+}) {
+  const [dialogAction, setDialogAction] = useState<PrivacyDialogAction | null>(null);
+  const [confirmationValue, setConfirmationValue] = useState("");
+  const [actionStatus, setActionStatus] = useState<{
+    action: PrivacyActionResponse["action"];
+    kind: "success" | "already_empty" | "auth" | "validation" | "error";
+    message: string;
+  } | null>(null);
+  const [pendingAction, setPendingAction] = useState<PrivacyActionResponse["action"] | null>(null);
+  const [marketingValue, setMarketingValue] = useState(profile.profile.marketingConsent);
+  const [marketingStatus, setMarketingStatus] = useState<
+    "idle" | "saving" | "saved" | "auth" | "error"
+  >("idle");
+  const [marketingError, setMarketingError] = useState<string | null>(null);
+  const chatTriggerRef = useRef<HTMLButtonElement>(null);
+  const savedTriggerRef = useRef<HTMLButtonElement>(null);
+  const locationTriggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    setMarketingValue(profile.profile.marketingConsent);
+    setMarketingError(null);
+  }, [profile.profile.marketingConsent]);
+
+  function openDialog(action: PrivacyDialogAction) {
+    setDialogAction(action);
+    setConfirmationValue("");
+    setActionStatus(null);
+  }
+
+  function closeDialog() {
+    const closingAction = dialogAction?.action;
+    setDialogAction(null);
+    setConfirmationValue("");
+    queueMicrotask(() => {
+      if (closingAction === "delete_chat_history") {
+        chatTriggerRef.current?.focus();
+      } else if (closingAction === "delete_saved_planning_data") {
+        savedTriggerRef.current?.focus();
+      } else if (closingAction === "clear_location_context") {
+        locationTriggerRef.current?.focus();
+      }
+    });
+  }
+
+  async function submitPrivacyAction(action: PrivacyDialogAction) {
+    if (pendingAction || confirmationValue !== action.confirmation) {
+      return;
+    }
+
+    setPendingAction(action.action);
+    setActionStatus(null);
+    try {
+      const response = await fetch("/api/me/privacy", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: action.action,
+          ...(action.action === "clear_location_context"
+            ? { clearFields: ["currentArea", "accommodation"] }
+            : {}),
+          confirmation: action.confirmation,
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as PrivacyActionResponse | null;
+      if (response.status === 401) {
+        setActionStatus({
+          action: action.action,
+          kind: "auth",
+          message: "Your session expired. Sign in again before changing privacy settings.",
+        });
+        return;
+      }
+      if (response.status === 400) {
+        setActionStatus({
+          action: action.action,
+          kind: "validation",
+          message: "The confirmation did not match this privacy action. Try again.",
+        });
+        return;
+      }
+      if (!response.ok || !body) {
+        setActionStatus({
+          action: action.action,
+          kind: "error",
+          message: "The privacy action did not finish. No local data was cleared.",
+        });
+        return;
+      }
+
+      if (action.action === "delete_saved_planning_data") {
+        clearSavedTripState();
+        onRefreshPrivateSummaries();
+      }
+      if (action.action === "delete_chat_history") {
+        onRefreshPrivateSummaries();
+      }
+      if (action.action === "clear_location_context" && body.profile) {
+        clearStoredTripLocationContext();
+        onProfileUpdated(body.profile);
+      }
+      setActionStatus({
+        action: action.action,
+        kind: body.status,
+        message: privacySuccessMessage(body),
+      });
+      closeDialog();
+    } catch {
+      setActionStatus({
+        action: action.action,
+        kind: "error",
+        message: "Network error. Server data and local browser data were left unchanged.",
+      });
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function saveMarketingConsent() {
+    setMarketingStatus("saving");
+    setMarketingError(null);
+    try {
+      const response = await fetch("/api/me/profile", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ marketingConsent: marketingValue }),
+      });
+      if (response.status === 401) {
+        setMarketingStatus("auth");
+        setMarketingError("Your session expired. Sign in again before saving consent.");
+        return;
+      }
+      if (!response.ok) {
+        setMarketingStatus("error");
+        setMarketingError("Marketing consent was not saved. Your choice is still selected.");
+        return;
+      }
+      const nextProfile = (await response.json()) as UserProfileResponse;
+      onProfileUpdated(nextProfile);
+      setMarketingStatus("saved");
+    } catch {
+      setMarketingStatus("error");
+      setMarketingError("Network error. Your choice is still selected and can be retried.");
+    }
+  }
+
   return (
-    <section className={`${settingsPanelClass} grid min-w-0 gap-3`} id="privacy" tabIndex={-1}>
+    <section className={`${settingsPanelClass} grid min-w-0 gap-4`} id="privacy" tabIndex={-1}>
       <div className="flex items-center gap-3">
         <span className="grid size-10 place-items-center rounded-md bg-brand-lagoon-100 text-brand-lagoon-700">
           <ShieldCheck className="size-5" />
@@ -813,11 +1049,232 @@ function PrivacyPanel() {
         <h2 className="m-0 text-base font-black">Privacy</h2>
       </div>
       <p className={appBodyClass}>
-        Private settings stay tied to your signed-in account. Shared trip links only include
-        selected saved items.
+        Ask Siargao keeps active product records for your Clerk-derived account identity cache,
+        profile and preferences, marketing-consent choice, signed-in chat history, owned saved
+        planning records, public share snapshots, and device-local anonymous trip state on this
+        browser.
       </p>
+      <p className={appBodyClass}>
+        It does not store exact browser coordinates in chat history, raw provider payloads or tool
+        arguments, private provider observations, non-public Google review text or author data,
+        owner IDs or profile data in public shares, or secret share tokens.
+      </p>
+      <p className={appBodyClass}>
+        These controls remove active product records only. Backup and audit retention are separate
+        operational records and this app does not define a global purge duration.
+      </p>
+
+      <div className="grid min-w-0 gap-3 rounded-md border border-border-default p-3">
+        <h3 className="m-0 text-sm font-black">Location memory</h3>
+        <p className={appBodyClass}>
+          Use once sends browser coordinates for one request. Use for this trip keeps coordinates
+          only in the in-memory chat session. Stored context is limited to coarse area and
+          accommodation text in your profile or this browser's trip context.
+        </p>
+        <Button
+          className="h-auto w-fit rounded-md border-border-default bg-surface-default px-3 py-2 text-text-default whitespace-normal text-left hover:bg-brand-lagoon-100"
+          ref={locationTriggerRef}
+          type="button"
+          variant="outline"
+          onClick={() => openDialog(privacyDialogActions.clear_location_context)}
+        >
+          Clear stored location context
+        </Button>
+      </div>
+
+      <div className="grid min-w-0 gap-3 rounded-md border border-border-default p-3">
+        <h3 className="m-0 text-sm font-black">Marketing consent</h3>
+        <label className="flex min-w-0 items-start gap-3 text-sm font-bold text-text-default">
+          <input
+            checked={marketingValue}
+            className="mt-1 size-4 accent-brand-lagoon-600"
+            type="checkbox"
+            onChange={(event) => {
+              setMarketingValue(event.target.checked);
+              setMarketingStatus("idle");
+              setMarketingError(null);
+            }}
+          />
+          Send occasional Ask Siargao product updates
+        </label>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            className="h-auto rounded-md px-3 py-2 whitespace-nowrap"
+            disabled={
+              marketingStatus === "saving" || marketingValue === profile.profile.marketingConsent
+            }
+            type="button"
+            onClick={saveMarketingConsent}
+          >
+            <Save className="size-4" />
+            {marketingStatus === "saving" ? "Saving consent" : "Save consent"}
+          </Button>
+          <output className="min-h-5 text-sm font-bold text-text-muted">
+            {marketingStatus === "saved"
+              ? "Marketing consent saved"
+              : marketingStatus === "auth" || marketingStatus === "error"
+                ? marketingError
+                : marketingValue !== profile.profile.marketingConsent
+                  ? "Consent change not saved yet"
+                  : ""}
+          </output>
+        </div>
+      </div>
+
+      <div className="grid min-w-0 gap-3 rounded-md border border-red-200 bg-red-50 p-3">
+        <h3 className="m-0 text-sm font-black text-red-950">Delete active product data</h3>
+        <p className="m-0 text-sm font-bold leading-6 text-red-950">
+          Each action is separate and must be confirmed exactly.
+        </p>
+        <div className="grid min-w-0 gap-2">
+          <Button
+            className="h-auto w-fit rounded-md border-red-300 bg-white px-3 py-2 text-left text-red-950 whitespace-normal hover:bg-red-100 focus-visible:ring-3 focus-visible:ring-red-500/20"
+            ref={chatTriggerRef}
+            type="button"
+            variant="outline"
+            onClick={() => openDialog(privacyDialogActions.delete_chat_history)}
+          >
+            <Trash2 className="size-4" />
+            Delete all chat history
+          </Button>
+          <Button
+            className="h-auto w-fit rounded-md border-red-300 bg-white px-3 py-2 text-left text-red-950 whitespace-normal hover:bg-red-100 focus-visible:ring-3 focus-visible:ring-red-500/20"
+            ref={savedTriggerRef}
+            type="button"
+            variant="outline"
+            onClick={() => openDialog(privacyDialogActions.delete_saved_planning_data)}
+          >
+            <Trash2 className="size-4" />
+            Delete all saved planning data
+          </Button>
+        </div>
+      </div>
+
+      {actionStatus ? (
+        <p
+          className={`m-0 flex items-start gap-2 text-sm font-bold ${
+            actionStatus.kind === "success" || actionStatus.kind === "already_empty"
+              ? "text-green-800"
+              : "text-red-800"
+          }`}
+          role="status"
+        >
+          {actionStatus.kind === "success" || actionStatus.kind === "already_empty" ? (
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+          ) : null}
+          <span>{actionStatus.message}</span>
+        </p>
+      ) : null}
+
+      {dialogAction ? (
+        <PrivacyConfirmationDialog
+          action={dialogAction}
+          confirmationValue={confirmationValue}
+          isPending={pendingAction === dialogAction.action}
+          onCancel={closeDialog}
+          onChangeConfirmation={setConfirmationValue}
+          onConfirm={() => void submitPrivacyAction(dialogAction)}
+        />
+      ) : null}
     </section>
   );
+}
+
+function PrivacyConfirmationDialog({
+  action,
+  confirmationValue,
+  isPending,
+  onCancel,
+  onChangeConfirmation,
+  onConfirm,
+}: {
+  action: PrivacyDialogAction;
+  confirmationValue: string;
+  isPending: boolean;
+  onCancel: () => void;
+  onChangeConfirmation: (value: string) => void;
+  onConfirm: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  return (
+    <div
+      aria-labelledby="privacy-confirmation-title"
+      aria-modal="true"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/50 px-4 py-6"
+      role="dialog"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !isPending) {
+          onCancel();
+        }
+      }}
+    >
+      <div className="grid max-h-[min(42rem,calc(100vh-2rem))] w-full max-w-lg min-w-0 gap-4 overflow-y-auto rounded-md border border-border-default bg-surface-default p-5 shadow-panel">
+        <div>
+          <h3 className="m-0 text-lg font-black" id="privacy-confirmation-title">
+            {action.title}
+          </h3>
+          <p className={appBodyClass}>{action.description}</p>
+        </div>
+        <label
+          className="grid min-w-0 gap-2 text-sm font-extrabold"
+          htmlFor="privacy-confirmation-input"
+        >
+          Type {action.confirmation} to continue
+          <Input
+            id="privacy-confirmation-input"
+            ref={inputRef}
+            value={confirmationValue}
+            onChange={(event) => onChangeConfirmation(event.target.value)}
+          />
+        </label>
+        <div className="flex flex-wrap justify-end gap-3">
+          <Button
+            className="rounded-md"
+            disabled={isPending}
+            type="button"
+            variant="outline"
+            onClick={onCancel}
+          >
+            Cancel
+          </Button>
+          <Button
+            className="rounded-md bg-red-700 text-white hover:bg-red-800"
+            disabled={isPending || confirmationValue !== action.confirmation}
+            type="button"
+            onClick={onConfirm}
+          >
+            <Trash2 className="size-4" />
+            {isPending ? "Deleting" : action.buttonLabel}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function privacySuccessMessage(body: PrivacyActionResponse) {
+  if (body.action === "delete_chat_history") {
+    const count = body.counts.chatThreadsDeleted ?? 0;
+    return body.status === "already_empty"
+      ? "Chat history was already empty."
+      : `Deleted ${count} chat thread${count === 1 ? "" : "s"} from active records.`;
+  }
+  if (body.action === "delete_saved_planning_data") {
+    const itemCount = body.counts.savedItemsDeleted ?? 0;
+    const shareCount = body.counts.sharedPlansInvalidated ?? 0;
+    return body.status === "already_empty"
+      ? "Saved planning data was already empty."
+      : `Deleted ${itemCount} saved item${itemCount === 1 ? "" : "s"} and invalidated ${shareCount} share link${shareCount === 1 ? "" : "s"}.`;
+  }
+
+  return body.status === "already_empty"
+    ? "Stored location context was already empty."
+    : "Stored area and accommodation context were cleared.";
 }
 
 function privateSummaryStatus({
@@ -1110,21 +1567,6 @@ function TravelProfileSection({
             message={fieldErrors["tripContext.durableConstraints"]}
           />
         </fieldset>
-
-        <label className="flex min-w-0 items-start gap-3 rounded-md border border-brand-lagoon-700/10 bg-brand-lagoon-100 p-3 text-sm font-bold text-text-default sm:items-center">
-          <input
-            checked={form.marketingConsent}
-            className="size-4 accent-brand-lagoon-600"
-            type="checkbox"
-            onChange={(event) =>
-              setForm((current) => ({
-                ...current,
-                marketingConsent: event.target.checked,
-              }))
-            }
-          />
-          Send occasional Ask Siargao product updates
-        </label>
 
         <div className="flex flex-wrap items-center gap-3">
           <Button

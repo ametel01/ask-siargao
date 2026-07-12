@@ -1,0 +1,27 @@
+# Issue 116 - Privacy and travel-data controls
+
+- issue: #116 Add actionable privacy and travel-data controls
+- role: builder-agent
+- branch: `run/42f7c271-issue-116`
+- phase: implementation complete; local gates passed; ready for checker
+- summary:
+  - Added Clerk-owner-scoped `POST /api/me/privacy` with strict action/confirmation parsing, transactional chat and saved planning bulk deletion, affected share invalidation, repeat-safe responses, and metadata-only audit events.
+  - Added stable settings Privacy controls with active-data/exclusions copy, separate profile-backed marketing consent, deliberate confirmation dialogs, location-context clearing, and client cache cleanup only after server success.
+  - Updated route documentation, Clerk protected-route inventory, and focused browser/unit coverage for the privacy controls.
+- evidence:
+  - `bun install --frozen-lockfile` passed.
+  - `bun test src/app/api/me/privacy/route.test.ts src/features/chat/saved-trip-client.test.ts src/features/chat/trip-context-draft.test.ts` passed, 24 tests.
+  - `bun test src/server/auth/clerk-route-policy.test.ts` passed, 6 tests.
+  - `bun run lint` passed.
+  - `bun run typecheck --incremental false` passed.
+  - `bun test` passed, 925 tests.
+  - `bun run db:migrate:test && bun run db:seed:test` passed.
+  - `bun run build` passed.
+  - `bun run test:e2e -- tests/e2e/root.e2e.ts -g "manages privacy controls"` passed.
+  - `bun run test:e2e -- tests/e2e/root.e2e.ts -g "edits profile details"` passed.
+  - `bun run test:e2e` passed, 72 tests.
+- notes:
+  - No migration was added; privacy audit evidence is sanitized metadata emitted through the existing logger path, not a new durable audit table.
+  - Build emitted Next's workspace-root inference warning due sibling worktree lockfiles; build passed.
+  - Full E2E emitted baseline dev-server `DATABASE_URL` warnings for unmocked background requests; suite passed.
+- next action: checker should inspect actor scoping, transaction rollback/retry/concurrency, share invalidation, audit redaction, and 390px/desktop browser behavior.
