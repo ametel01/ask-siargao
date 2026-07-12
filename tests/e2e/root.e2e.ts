@@ -46,50 +46,68 @@ test("exposes real desktop navigation in keyboard reading order", async ({ page 
   }
 
   const expectedTabOrder = [
-    { link: page.getByRole("link", { name: "Ask Siargao home" }), color: "rgb(142, 230, 216)" },
+    { link: page.getByRole("link", { name: "Ask Siargao home" }), rgb: [142, 230, 216] },
     {
       link: navigation.getByRole("link", { name: "Start a question" }),
-      color: "rgb(142, 230, 216)",
+      rgb: [142, 230, 216],
     },
     {
       link: navigation.getByRole("link", { name: "Planning inputs" }),
-      color: "rgb(142, 230, 216)",
+      rgb: [142, 230, 216],
     },
     {
       link: navigation.getByRole("link", { name: "Plan smarter" }),
-      color: "rgb(142, 230, 216)",
+      rgb: [142, 230, 216],
     },
-    { link: page.getByRole("link", { name: "Ask in chat" }), color: "rgb(142, 230, 216)" },
+    { link: page.getByRole("link", { name: "Ask in chat" }), rgb: [142, 230, 216] },
     {
       link: page
         .getByLabel("Example Ask Siargao prompt")
         .getByRole("link", { name: "Ask Siargao" }),
-      color: "rgb(10, 111, 103)",
+      rgb: [10, 111, 103],
     },
-    { link: page.getByRole("link", { name: "Quiet base" }), color: "rgb(142, 230, 216)" },
-    { link: page.getByRole("link", { name: "Food route" }), color: "rgb(142, 230, 216)" },
+    { link: page.getByRole("link", { name: "Quiet base" }), rgb: [142, 230, 216] },
+    { link: page.getByRole("link", { name: "Food route" }), rgb: [142, 230, 216] },
     {
       link: page.getByRole("link", { name: "Ask about this" }).nth(0),
-      color: "rgb(10, 111, 103)",
+      rgb: [10, 111, 103],
     },
     {
       link: page.getByRole("link", { name: "Ask about this" }).nth(1),
-      color: "rgb(10, 111, 103)",
+      rgb: [10, 111, 103],
     },
   ];
 
-  for (const { color, link } of expectedTabOrder) {
+  for (const { link, rgb } of expectedTabOrder) {
     await page.keyboard.press("Tab");
     await expect(link).toBeFocused();
     const outline = await link.evaluate((element) => {
       const style = getComputedStyle(element);
+      const canvas = document.createElement("canvas");
+      canvas.width = 1;
+      canvas.height = 1;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) {
+        throw new Error("Canvas 2D context is required to verify the focus outline color");
+      }
+      context.fillStyle = style.outlineColor;
+      context.fillRect(0, 0, 1, 1);
       return {
-        color: style.outlineColor,
+        color: Array.from(context.getImageData(0, 0, 1, 1).data),
+        serializedColor: style.outlineColor,
         style: style.outlineStyle,
         width: style.outlineWidth,
       };
     });
-    expect(outline).toEqual({ color, style: "solid", width: "3px" });
+    expect(outline.style).toBe("solid");
+    expect(outline.width).toBe("3px");
+    expect(outline.color[3], `outline must be opaque: ${outline.serializedColor}`).toBe(255);
+    for (const [channel, expected] of rgb.entries()) {
+      expect(
+        Math.abs((outline.color[channel] ?? Number.NaN) - expected),
+        `outline must resolve to rgb(${rgb.join(", ")}): ${outline.serializedColor}`,
+      ).toBeLessThanOrEqual(1);
+    }
   }
 });
 
@@ -160,6 +178,34 @@ for (const viewport of [
     await expect(page.getByRole("navigation", { name: "Landing page" })).toBeVisible({
       visible: viewport.width >= 1024,
     });
+    if (viewport.width === 390) {
+      const rightMargin = 20;
+      const criticalElements = [
+        { name: "header chat CTA", locator: page.getByRole("link", { name: "Chat" }) },
+        { name: "example prompt card", locator: page.getByLabel("Example Ask Siargao prompt") },
+        {
+          name: "example prompt CTA",
+          locator: page
+            .getByLabel("Example Ask Siargao prompt")
+            .getByRole("link", { name: "Ask Siargao" }),
+        },
+        { name: "planning inputs panel", locator: page.locator("#planning-inputs") },
+      ];
+
+      for (const { locator, name } of criticalElements) {
+        const bounds = await locator.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return { left: rect.left, right: rect.right };
+        });
+        expect(
+          bounds.left,
+          `${name} must stay inside the left viewport edge`,
+        ).toBeGreaterThanOrEqual(0);
+        expect(bounds.right, `${name} must preserve its right page margin`).toBeLessThanOrEqual(
+          viewport.width - rightMargin + 0.5,
+        );
+      }
+    }
     await page.screenshot({
       fullPage: true,
       path: `test-results/issue-110-landing-${viewport.name}.png`,

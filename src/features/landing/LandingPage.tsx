@@ -110,7 +110,7 @@ function Header() {
     <header className="flex min-h-16 items-center justify-between gap-4 lg:min-h-[4.75rem]">
       <Link
         aria-label="Ask Siargao home"
-        className="min-w-0 rounded-md no-underline focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-4 focus-visible:outline-brand-lagoon-300"
+        className="min-w-0 rounded-md no-underline focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-4 focus-visible:outline-brand-lagoon-300!"
         href="/"
       >
         <LandingBrand />
@@ -122,7 +122,7 @@ function Header() {
       >
         {navigationItems.map(({ href, label }) => (
           <a
-            className="inline-flex min-h-11 items-center rounded-full px-4 text-sm font-extrabold text-text-on-dark-muted no-underline transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-surface-night-card-strong hover:text-text-on-dark focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand-lagoon-300 xl:px-5"
+            className="inline-flex min-h-11 items-center rounded-full px-4 text-sm font-extrabold text-text-on-dark-muted no-underline transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-surface-night-card-strong hover:text-text-on-dark focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand-lagoon-300! xl:px-5"
             href={href}
             key={href}
           >
@@ -133,13 +133,13 @@ function Header() {
 
       <Button
         asChild
-        className="min-h-12 shrink-0 rounded-xl border border-border-on-dark bg-surface-night-card px-4 text-sm font-extrabold text-text-on-dark shadow-night-card backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-3 focus-visible:outline-brand-lagoon-300 sm:px-5"
+        className="min-h-12 shrink-0 rounded-xl border border-border-on-dark bg-surface-night-card px-4 text-sm font-extrabold text-text-on-dark shadow-night-card backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-3 focus-visible:outline-brand-lagoon-300! sm:px-5"
         variant="outline"
       >
         <Link href="/chat">
           <MessageCircle aria-hidden="true" size={19} />
-          <span className="hidden min-[390px]:inline">Ask in chat</span>
-          <span className="min-[390px]:hidden">Chat</span>
+          <span className="hidden sm:inline">Ask in chat</span>
+          <span className="sm:hidden">Chat</span>
         </Link>
       </Button>
     </header>
@@ -148,8 +148,8 @@ function Header() {
 
 function LandingBrand() {
   return (
-    <span className="inline-flex min-w-0 items-center gap-3 text-text-on-dark min-[390px]:gap-4">
-      <span className="relative inline-flex size-14 shrink-0 items-center justify-center rounded-full border-2 border-text-on-dark bg-surface-night-card shadow-night-card backdrop-blur-sm min-[390px]:size-16 lg:size-[4.4rem]">
+    <span className="inline-flex min-w-0 items-center gap-3 text-text-on-dark sm:gap-4">
+      <span className="relative inline-flex size-14 shrink-0 items-center justify-center rounded-full border-2 border-text-on-dark bg-surface-night-card shadow-night-card backdrop-blur-sm sm:size-16 lg:size-[4.4rem]">
         <Image
           alt=""
           aria-hidden="true"
@@ -159,7 +159,7 @@ function LandingBrand() {
           width={58}
         />
       </span>
-      <span className="min-w-0 font-heading text-[1.55rem] leading-none font-semibold whitespace-nowrap text-text-on-dark min-[390px]:text-[2rem] lg:text-[2.25rem]">
+      <span className="min-w-0 font-heading text-[1.55rem] leading-none font-semibold whitespace-nowrap text-text-on-dark sm:text-[2rem] lg:text-[2.25rem]">
         Ask Siargao
       </span>
     </span>
@@ -196,7 +196,7 @@ function PromptComposer() {
   return (
     <section
       aria-label="Example Ask Siargao prompt"
-      className="grid min-h-[7.15rem] grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-3 rounded-[1.55rem] border border-brand-paper-200 bg-brand-paper-50 px-5 py-4 text-text-default shadow-panel min-[390px]:grid-cols-[auto_minmax(0,1fr)_auto] min-[390px]:gap-x-4 min-[390px]:px-6 sm:gap-x-6 sm:py-6 lg:max-w-[48rem]"
+      className="grid min-h-[7.15rem] grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-3 rounded-[1.55rem] border border-brand-paper-200 bg-brand-paper-50 px-5 py-4 text-text-default shadow-panel sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-x-6 sm:px-6 sm:py-6 lg:max-w-[48rem]"
     >
       <MessageCircle
         aria-hidden="true"
@@ -207,10 +207,10 @@ function PromptComposer() {
       <p className="m-0 min-w-0 text-[0.94rem] leading-[1.35] font-semibold text-text-muted sm:text-lg lg:text-base xl:text-lg">
         {heroPrompt}
       </p>
-      <div className="col-span-2 flex items-center border-border-default min-[390px]:col-span-1 min-[390px]:border-l min-[390px]:pl-4 sm:pl-6">
+      <div className="col-span-2 flex min-w-0 items-center border-border-default sm:col-span-1 sm:border-l sm:pl-6">
         <Button
           asChild
-          className="min-h-11 w-full rounded-lg bg-[image:var(--gradient-cta)] px-4 text-sm font-extrabold text-text-on-dark shadow-cta hover:shadow-lagoon-glow focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-3 focus-visible:outline-brand-lagoon-700 min-[390px]:w-auto"
+          className="min-h-11 w-full rounded-lg bg-[image:var(--gradient-cta)] px-4 text-sm font-extrabold text-text-on-dark shadow-cta hover:shadow-lagoon-glow focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-3 focus-visible:outline-brand-lagoon-700! sm:w-auto"
         >
           <Link href={chatPromptHref(heroPrompt)}>
             <Send aria-hidden="true" size={19} />
@@ -228,7 +228,7 @@ function QuickChips() {
       {quickChips.map(({ icon: Icon, label, prompt, tone }) => (
         <Button
           asChild
-          className="min-h-11 rounded-full border border-border-on-dark bg-surface-night-card px-5 text-sm font-extrabold text-text-on-dark shadow-night-card backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-3 focus-visible:outline-brand-lagoon-300"
+          className="min-h-11 rounded-full border border-border-on-dark bg-surface-night-card px-5 text-sm font-extrabold text-text-on-dark shadow-night-card backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-3 focus-visible:outline-brand-lagoon-300!"
           key={label}
           variant="outline"
         >
@@ -359,7 +359,7 @@ function PlanningPanel() {
               </p>
             </div>
             <Link
-              className="inline-flex min-h-11 w-fit items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-700 no-underline hover:text-brand-lagoon-600 focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-3 focus-visible:outline-brand-lagoon-700"
+              className="inline-flex min-h-11 w-fit items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-700 no-underline hover:text-brand-lagoon-600 focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-3 focus-visible:outline-brand-lagoon-700!"
               href={chatPromptHref(prompt)}
             >
               Ask about this
