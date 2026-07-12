@@ -180,6 +180,12 @@ const chatTimeFormatter = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
   minute: "2-digit",
 });
+const conditionSourceTimeFormatter = new Intl.DateTimeFormat("en-PH", {
+  hour: "numeric",
+  minute: "2-digit",
+  timeZone: "Asia/Manila",
+  timeZoneName: "short",
+});
 
 type LocationCaptureState =
   | { status: "idle" }
@@ -1837,7 +1843,9 @@ function conditionDecisionStateLabel(state: LiveConditionDecision["state"]) {
 
 function formatConditionSourceTime(value: string) {
   const timestamp = new Date(value);
-  return Number.isNaN(timestamp.getTime()) ? "unavailable" : chatTimeFormatter.format(timestamp);
+  return Number.isNaN(timestamp.getTime())
+    ? "unavailable"
+    : conditionSourceTimeFormatter.format(timestamp);
 }
 
 async function fetchTripProfile(url: string): Promise<TripProfileFetchResult> {
