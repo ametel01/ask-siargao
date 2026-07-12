@@ -101,6 +101,17 @@ type MockDecisionMetadata = {
   label: "best_fit" | "good_now" | "fallback" | "avoid_today" | "needs_confirmation";
   bestAction: string;
 };
+type DecisionMotionMetrics = {
+  starts: number;
+  ends: number;
+  layoutShift: number;
+  longTasks: number[];
+  rafFrames: number[];
+};
+type LayoutShiftEntry = PerformanceEntry & {
+  hadRecentInput?: boolean;
+  value?: number;
+};
 type E2ERecommendationPayload = {
   type: "recommendation_card";
   card: MockRecommendationCard;
@@ -144,6 +155,12 @@ type SharedTripCreateRequestBody = {
   messages?: unknown;
   clientContext?: unknown;
 };
+
+declare global {
+  interface Window {
+    __decisionMotionMetrics?: DecisionMotionMetrics;
+  }
+}
 
 const savedTripStorageKey = "ask-siargao:saved-trip:v1";
 const tripContextStorageKey = "ask-siargao:trip-context:v1";
@@ -1293,6 +1310,7 @@ test("keeps a crowded chat history from clipping the active assistant reply", as
 });
 
 test("loads signed-in chat history and preserves the thread after reload", async ({ page }) => {
+  await installDecisionMotionProbe(page);
   const chatRequests: ChatRequestBody[] = [];
   const thread = {
     id: "thread_existing",
@@ -1391,6 +1409,13 @@ test("loads signed-in chat history and preserves the thread after reload", async
       status: 404,
       contentType: "application/json",
       body: JSON.stringify({ error: "not_found" }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripId: "trip_existing", items: [] }),
     });
   });
 
@@ -1493,6 +1518,7 @@ test("loads signed-in chat history and preserves the thread after reload", async
   });
   const hydratedStrip = hydratedAnswer.getByTestId("decision-strip");
   await expect(hydratedStrip).toContainText("Start with breakfast near Cloud 9.");
+  await expect.poll(async () => (await decisionMotionMetrics(page))?.starts ?? -1).toBe(0);
   await expect(hydratedStrip.getByTestId("decision-strip-source-status")).toHaveCount(0);
   await expect(hydratedStrip.getByText("Where", { exact: true })).toHaveCount(0);
   await expect(hydratedStrip.getByText("When", { exact: true })).toHaveCount(0);
@@ -1536,6 +1562,7 @@ test("loads signed-in chat history and preserves the thread after reload", async
   await expect(page.getByTestId("decision-strip")).toContainText(
     "Start with breakfast near Cloud 9.",
   );
+  await expect.poll(async () => (await decisionMotionMetrics(page))?.starts ?? -1).toBe(0);
   await expect(
     page.getByRole("button", { name: "Rate assistant response helpful" }).first(),
   ).toHaveAttribute("aria-pressed", "true");
@@ -1953,6 +1980,14 @@ test("renders structured recommendation cards and submits action prompts", async
 test("leads live grounded answers with one responsive decision strip", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await installDecisionMotionProbe(page);
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
   const mockChat = await mockChatApi(page, {
     message: "Mocked condition answer: keep the swim flexible today.",
     sources: [mockWeatherSource],
@@ -1989,6 +2024,12 @@ test("leads live grounded answers with one responsive decision strip", async ({ 
   const strip = answer.getByTestId("decision-strip");
   const markdown = answer.getByTestId("assistant-markdown");
   await expect(strip).toHaveCount(1);
+  await expect.poll(async () => (await decisionMotionMetrics(page))?.starts ?? -1).toBe(0);
+  await expect(strip).not.toHaveAttribute("data-answer-arrival-motion", /decision-strip/);
+  await expect(strip.locator("[data-decision-sequence-cue='true']")).toHaveCSS(
+    "animation-name",
+    "none",
+  );
   await expect(strip).toContainText("Best move");
   await expect(strip).toContainText("Keep swimming flexible until the long Cloud 9");
   await expect(strip).toContainText("Where");
@@ -2010,6 +2051,172 @@ test("leads live grounded answers with one responsive decision strip", async ({ 
   expect(await answer.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await expect(page.getByText("Avoid a long scooter ride for now.")).toHaveCount(0);
   await expect.poll(() => mockChat.requests.length).toBe(1);
+});
+
+test("runs the decision strip arrival sequence once without shifting layout", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await installDecisionMotionProbe(page);
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
+  await page.route("**/api/chat/ratings", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        rating: {
+          id: "rating_motion",
+          messageId: "message_motion_assistant",
+          threadId: "thread_motion",
+          userId: "user_motion",
+          rating: "up",
+          reasonCodes: [],
+          comment: null,
+          createdAt: "2026-06-29T01:04:00.000Z",
+          updatedAt: "2026-06-29T01:04:00.000Z",
+        },
+      }),
+    });
+  });
+  const mockChat = await mockChatApi(page, {
+    assistantMessageId: "message_motion_assistant",
+    message: "Mocked condition answer: take the checked breakfast route first.",
+    sources: [mockWeatherSource],
+    waitForRelease: true,
+    decisionSummaries: [
+      {
+        id: "condition_decision:motion:cloud_9:today",
+        bestAction: "Start with the checked Cloud 9 breakfast stop.",
+        basis: "The selected answer has a real sequence from move to context to checked source.",
+        fallback: "Switch to a covered cafe if the shower window arrives early.",
+        timing: "this morning",
+        area: "Cloud 9",
+        sources: [mockWeatherSource],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("What should I do first?");
+  await page.getByRole("button", { name: "Send question" }).click();
+  await expect.poll(() => mockChat.requests.length).toBe(1);
+  await resetDecisionMotionMetrics(page);
+
+  await withCpuThrottle(page, 4, async () => {
+    mockChat.release();
+
+    const answer = page.getByTestId("assistant-message-bubble").filter({
+      hasText: "Mocked condition answer: take the checked breakfast route first.",
+    });
+    await expect(answer).toBeVisible();
+    const strip = answer.getByTestId("decision-strip");
+    const sourceSummary = answer.getByTestId("assistant-sources-panel").locator("summary");
+    const helpfulButton = answer.getByRole("button", {
+      name: "Rate assistant response helpful",
+    });
+    await expect(strip).toHaveAttribute("data-answer-arrival-motion", "decision-strip-sequence");
+    await expect(strip).toContainText("Best move");
+    await expect(strip).toContainText("Where");
+    await expect(strip).toContainText("When");
+    await expect(strip.getByTestId("decision-strip-source-status")).toContainText(
+      "Checked: Open-Meteo weather API: forecast for Cloud 9",
+    );
+    await expect(sourceSummary).toBeVisible();
+    await expect(helpfulButton).toBeVisible();
+    await sourceSummary.click();
+    await expect(answer.getByText("Checked details: forecast for Cloud 9")).toBeVisible();
+
+    const animatedProperties = await strip.evaluate((element) => {
+      const cue = element.querySelector("[data-decision-sequence-cue='true']");
+      return cue
+        ?.getAnimations()
+        .flatMap((animation) =>
+          ((animation.effect as KeyframeEffect | null)?.getKeyframes() ?? []).flatMap((keyframe) =>
+            Object.keys(keyframe),
+          ),
+        );
+    });
+    expect(animatedProperties).toEqual(expect.arrayContaining(["opacity", "transform"]));
+    expect(animatedProperties ?? []).not.toEqual(
+      expect.arrayContaining([
+        "height",
+        "width",
+        "margin",
+        "padding",
+        "top",
+        "left",
+        "filter",
+        "boxShadow",
+      ]),
+    );
+
+    const startBoxes = {
+      strip: await boundingBoxSnapshot(strip),
+      source: await boundingBoxSnapshot(sourceSummary),
+      rating: await boundingBoxSnapshot(helpfulButton),
+    };
+    await page.waitForTimeout(260);
+    expectBoxStable(await boundingBoxSnapshot(strip), startBoxes.strip);
+    expectBoxStable(await boundingBoxSnapshot(sourceSummary), startBoxes.source);
+    expectBoxStable(await boundingBoxSnapshot(helpfulButton), startBoxes.rating);
+    await page.waitForTimeout(420);
+    expectBoxStable(await boundingBoxSnapshot(strip), startBoxes.strip);
+    expectBoxStable(await boundingBoxSnapshot(sourceSummary), startBoxes.source);
+    expectBoxStable(await boundingBoxSnapshot(helpfulButton), startBoxes.rating);
+    await expect(strip).not.toHaveAttribute("data-answer-arrival-motion", /decision-strip/);
+
+    const scrollArea = page.getByTestId("chat-message-scroll-area");
+    await scrollArea.evaluate((element) => {
+      element.scrollTop = Math.max(0, element.scrollTop - 40);
+    });
+    await sourceSummary.focus();
+    await expect(sourceSummary).toBeFocused();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await helpfulButton.click();
+    await expect(helpfulButton).toHaveAttribute("aria-pressed", "true");
+    await page.waitForTimeout(120);
+  });
+
+  const metrics = (await decisionMotionMetrics(page)) ?? {
+    starts: -1,
+    ends: -1,
+    layoutShift: -1,
+    longTasks: [-1],
+    rafFrames: [],
+  };
+  const frameIntervals = metrics.rafFrames
+    .slice(1)
+    .map((timestamp, index) => timestamp - metrics.rafFrames[index]);
+  const summary = {
+    viewport: "390x844",
+    cpuThrottle: "4x",
+    animationDurationMs: 520,
+    starts: metrics.starts,
+    ends: metrics.ends,
+    layoutShift: Number(metrics.layoutShift.toFixed(4)),
+    longTaskCountOver50ms: metrics.longTasks.filter((duration) => duration > 50).length,
+    maxLongTaskMs: Math.max(0, ...metrics.longTasks),
+    sampledFrames: metrics.rafFrames.length,
+    maxFrameIntervalMs: Math.max(0, ...frameIntervals),
+  };
+  console.log("ISSUE_124_MOTION_METRICS", JSON.stringify(summary));
+  await testInfo.attach("issue-124-decision-motion-metrics.json", {
+    body: JSON.stringify(summary, null, 2),
+    contentType: "application/json",
+  });
+  expect(metrics.starts).toBe(1);
+  expect(metrics.ends).toBe(1);
+  expect(metrics.layoutShift).toBe(0);
+  expect(metrics.longTasks.filter((duration) => duration > 50)).toHaveLength(0);
+  expect(metrics.rafFrames.length).toBeGreaterThan(8);
 });
 
 test("keeps plain conversational answers free of overview containers", async ({ page }) => {
@@ -3333,6 +3540,7 @@ async function mockChatApi(
   page: Page,
   {
     actions,
+    assistantMessageId,
     cards,
     decisionSummaries,
     itineraries,
@@ -3341,6 +3549,7 @@ async function mockChatApi(
     waitForRelease = false,
   }: {
     actions?: MockChatAction[];
+    assistantMessageId?: string;
     cards?: MockRecommendationCard[];
     decisionSummaries?: MockDecisionSummary[];
     itineraries?: MockItineraryPlan[];
@@ -3367,6 +3576,7 @@ async function mockChatApi(
         message,
         model: "gpt-5.4-mini-test",
         requestId: "req_playwright_chat",
+        ...(assistantMessageId ? { assistantMessageId } : {}),
         ...(sources?.length ? { sources } : {}),
         ...(cards?.length ? { cards } : {}),
         ...(decisionSummaries?.length ? { decisionSummaries } : {}),
@@ -3433,6 +3643,121 @@ async function mockDeferredChatApi(page: Page) {
 
 function lastSubmittedContent(request?: ChatRequestBody) {
   return request?.messages?.at(-1)?.content;
+}
+
+async function installDecisionMotionProbe(page: Page) {
+  await page.addInitScript(() => {
+    const metrics: DecisionMotionMetrics = {
+      starts: 0,
+      ends: 0,
+      layoutShift: 0,
+      longTasks: [],
+      rafFrames: [],
+    };
+    let sampleFrames = false;
+
+    window.__decisionMotionMetrics = metrics;
+
+    document.addEventListener(
+      "animationstart",
+      (event) => {
+        const target = event.target;
+        if (
+          event.animationName !== "decision-strip-sequence-cue" ||
+          !(target instanceof HTMLElement) ||
+          target.dataset.decisionSequenceCue !== "true"
+        ) {
+          return;
+        }
+        metrics.starts += 1;
+        sampleFrames = true;
+        const sample = (timestamp: number) => {
+          metrics.rafFrames.push(timestamp);
+          if (sampleFrames) {
+            window.requestAnimationFrame(sample);
+          }
+        };
+        window.requestAnimationFrame(sample);
+      },
+      true,
+    );
+    document.addEventListener(
+      "animationend",
+      (event) => {
+        const target = event.target;
+        if (
+          event.animationName !== "decision-strip-sequence-cue" ||
+          !(target instanceof HTMLElement) ||
+          target.dataset.decisionSequenceCue !== "true"
+        ) {
+          return;
+        }
+        metrics.ends += 1;
+        sampleFrames = false;
+      },
+      true,
+    );
+
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries() as LayoutShiftEntry[]) {
+        if (!entry.hadRecentInput) {
+          metrics.layoutShift += entry.value ?? 0;
+        }
+      }
+    }).observe({ type: "layout-shift", buffered: true });
+
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        metrics.longTasks.push(entry.duration);
+      }
+    }).observe({ type: "longtask", buffered: true });
+  });
+}
+
+async function resetDecisionMotionMetrics(page: Page) {
+  await page.evaluate(() => {
+    const metrics = window.__decisionMotionMetrics;
+    if (!metrics) {
+      return;
+    }
+    metrics.starts = 0;
+    metrics.ends = 0;
+    metrics.layoutShift = 0;
+    metrics.longTasks = [];
+    metrics.rafFrames = [];
+  });
+}
+
+async function decisionMotionMetrics(page: Page) {
+  return page.evaluate(() => window.__decisionMotionMetrics);
+}
+
+async function boundingBoxSnapshot(locator: Locator) {
+  const box = await locator.boundingBox();
+  if (!box) {
+    throw new Error("Expected element bounding box.");
+  }
+  return box;
+}
+
+function expectBoxStable(
+  actual: Awaited<ReturnType<typeof boundingBoxSnapshot>>,
+  expected: Awaited<ReturnType<typeof boundingBoxSnapshot>>,
+) {
+  for (const key of ["x", "y", "width", "height"] as const) {
+    expect(Math.abs(actual[key] - expected[key])).toBeLessThanOrEqual(1);
+  }
+}
+
+async function withCpuThrottle<T>(page: Page, rate: number, task: () => Promise<T>) {
+  const session = await page.context().newCDPSession(page);
+  await session.send("Emulation.setCPUThrottlingRate", { rate });
+  try {
+    return await task();
+  } finally {
+    await session.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+    await session.detach();
+  }
 }
 
 async function mockMobileTripContextProfile(

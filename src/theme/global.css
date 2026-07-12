@@ -408,3 +408,58 @@ summary::-webkit-details-marker {
 .landing-focus-ring-strong {
   --landing-focus-ring-color: var(--brand-lagoon-700);
 }
+
+.decision-strip-sequence-cue {
+  position: absolute;
+  top: 0.75rem;
+  bottom: 0.75rem;
+  left: 0.45rem;
+  width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    rgba(10, 111, 103, 0.2) 0%,
+    rgba(10, 111, 103, 0.82) 52%,
+    rgba(10, 111, 103, 0.24) 100%
+  );
+  opacity: 0;
+  pointer-events: none;
+  transform: scaleY(0.12);
+  transform-origin: top center;
+}
+
+[data-answer-arrival-motion="decision-strip-sequence"] .decision-strip-sequence-cue {
+  animation: decision-strip-sequence-cue 520ms var(--ease-standard) both;
+  will-change: opacity, transform;
+}
+
+@keyframes decision-strip-sequence-cue {
+  0% {
+    opacity: 0;
+    transform: scaleY(0.12);
+  }
+  14% {
+    opacity: 0.92;
+    transform: scaleY(0.2);
+  }
+  58% {
+    opacity: 0.9;
+    transform: scaleY(0.72);
+  }
+  86% {
+    opacity: 0.66;
+    transform: scaleY(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-answer-arrival-motion="decision-strip-sequence"] .decision-strip-sequence-cue {
+    animation: none;
+    opacity: 0;
+    transform: scaleY(1);
+  }
+}
