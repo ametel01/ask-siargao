@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed profile settings to use accessible structured travel controls with stable values,
+  legacy-value preservation, diff-only saves, and serialized request handling.
 - Changed `dev:up` to wait for the Compose Postgres healthcheck before running migrations so fresh
   local database volumes do not race startup.
 - Changed default chat final-answer guidance to favor traveler-facing Markdown over JSON wrappers,
