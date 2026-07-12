@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed newly completed decision strips to reveal a restrained, reduced-motion-safe arrival cue
+  without replaying on hydration, focus, or scroll.
 - Changed privacy settings to provide owner-scoped, transactional travel-data controls with
   deliberate confirmations, share invalidation, safe audit metadata, and truthful location/consent states.
 - Changed assistant waiting to use honest indeterminate progress with safe stop/retry behavior,
