@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed evidence presentation to distinguish capability, checking, checked, stale, unavailable,
+  and not-verified states across landing, chat, decision strips, and shared-trip surfaces.
 - Changed chat location sharing to use one accessible privacy control with explicit once/trip
   consent, truthful failure states, race-safe capture, and request-scoped coordinate handling.
 - Changed suggested questions to use deterministic, truthful trip context and condition availability
