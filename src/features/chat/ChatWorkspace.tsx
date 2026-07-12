@@ -82,6 +82,18 @@ import {
   authenticatedTripContextPatch,
   projectMobileTripContextSummary,
 } from "@/features/chat/mobile-trip-context-presentation";
+import {
+  createResponseWaitRequest,
+  invalidateResponseWaitRequest,
+  isCurrentResponseWaitRequest,
+  isResponseWaitAbort,
+  PendingAssistantWaitState,
+  type ResponseWaitRequest,
+  responseStoppedStatusText,
+  responseWaitStatusText,
+  settleResponseWaitRequest,
+  stopResponseWaitRequest,
+} from "@/features/chat/response-wait-state";
 import type {
   ArtifactDecisionMetadata,
   ChatClientContext,
@@ -208,7 +220,7 @@ type InteractiveChatMessage = {
   role: "user" | "assistant";
   text: string;
   timestamp: string;
-  status?: "pending" | "complete" | "error";
+  status?: "pending" | "complete" | "error" | "stopped";
   rating?: ChatResponseRatingValue | null;
   ratingStatus?: "saving";
   retryPrompt?: string;
@@ -437,6 +449,7 @@ type ChatWorkspaceController = {
   selectedThreadId: string | null;
   setInputValue: (value: string) => void;
   startNewChat: () => void;
+  stopWaitingForAssistant: (assistantMessageId: string) => void;
   tripContext: TripContextDraft;
   tripDataSource: TripDataSource;
   updateTripContext: (context: TripContextDraft) => Promise<void>;
@@ -527,6 +540,24 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     syncSavedTripItemsMutation,
   );
   const hasSyncedAuthenticatedSavedTrip = useRef(false);
+  const activeResponseRequestRef = useRef<ResponseWaitRequest | null>(null);
+  const mountedRef = useRef(true);
+
+  const invalidateActiveResponseRequest = useCallback(() => {
+    activeResponseRequestRef.current = invalidateResponseWaitRequest(
+      activeResponseRequestRef.current,
+    );
+    setIsSending(false);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      activeResponseRequestRef.current = invalidateResponseWaitRequest(
+        activeResponseRequestRef.current,
+      );
+    };
+  }, []);
 
   useEffect(() => {
     if (
@@ -601,32 +632,37 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     void refreshChatThreads();
   }, [refreshChatThreads]);
 
-  const openChatThread = useCallback(async (threadId: string) => {
-    setHistoryStatus("loading");
-    try {
-      const response = await fetch(`/api/chat/threads/${threadId}`, { cache: "no-store" });
-      if (!response.ok) {
-        setHistoryStatus("error");
-        return;
-      }
+  const openChatThread = useCallback(
+    async (threadId: string) => {
+      invalidateActiveResponseRequest();
+      setHistoryStatus("loading");
+      try {
+        const response = await fetch(`/api/chat/threads/${threadId}`, { cache: "no-store" });
+        if (!response.ok) {
+          setHistoryStatus("error");
+          return;
+        }
 
-      const body = (await response.json()) as {
-        messages?: ChatThreadDetailMessage[];
-        thread?: ChatThreadSummary;
-      };
-      setSelectedThreadId(threadId);
-      setMessages((body.messages ?? []).map(interactiveMessageFromThreadMessage));
-      setHistoryStatus("idle");
-    } catch {
-      setHistoryStatus("error");
-    }
-  }, []);
+        const body = (await response.json()) as {
+          messages?: ChatThreadDetailMessage[];
+          thread?: ChatThreadSummary;
+        };
+        setSelectedThreadId(threadId);
+        setMessages((body.messages ?? []).map(interactiveMessageFromThreadMessage));
+        setHistoryStatus("idle");
+      } catch {
+        setHistoryStatus("error");
+      }
+    },
+    [invalidateActiveResponseRequest],
+  );
 
   const startNewChat = useCallback(() => {
+    invalidateActiveResponseRequest();
     setSelectedThreadId(null);
     setMessages([]);
     setInputValue("");
-  }, []);
+  }, [invalidateActiveResponseRequest]);
 
   const renameSelectedThread = useCallback(async () => {
     if (!selectedThreadId) {
@@ -782,10 +818,14 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
         status: "complete",
       };
       const pendingAssistantId = createMessageId("assistant");
+      const responseRequest = createResponseWaitRequest({
+        assistantMessageId: pendingAssistantId,
+        prompt: trimmedPrompt,
+      });
       const pendingAssistant: InteractiveChatMessage = {
         id: pendingAssistantId,
         role: "assistant",
-        text: "Thinking through that with Ask Siargao...",
+        text: responseWaitStatusText,
         timestamp,
         status: "pending",
       };
@@ -797,6 +837,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
         tripDataSource,
       );
 
+      activeResponseRequestRef.current = responseRequest;
       setInputValue("");
       setMessages((currentMessages) => [...currentMessages, userMessage, pendingAssistant]);
       if (requestBody.clientContext?.geolocation?.consentScope === "single_request") {
@@ -808,6 +849,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(requestBody),
+          signal: responseRequest.controller.signal,
         });
         const body = (await response.json()) as {
           message?: string;
@@ -821,6 +863,13 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
         };
 
         const responseMessage = body.message;
+
+        if (
+          !mountedRef.current ||
+          !isCurrentResponseWaitRequest(activeResponseRequestRef.current, responseRequest.requestId)
+        ) {
+          return;
+        }
 
         if (!response.ok || !responseMessage) {
           throw new Error(chatErrorMessage);
@@ -849,7 +898,18 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
               : message,
           ),
         );
-      } catch {
+      } catch (error) {
+        if (
+          !mountedRef.current ||
+          !isCurrentResponseWaitRequest(
+            activeResponseRequestRef.current,
+            responseRequest.requestId,
+          ) ||
+          isResponseWaitAbort(error)
+        ) {
+          return;
+        }
+
         setMessages((currentMessages) =>
           currentMessages.map((message) =>
             message.id === pendingAssistantId
@@ -864,7 +924,17 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
           ),
         );
       } finally {
-        setIsSending(false);
+        if (
+          isCurrentResponseWaitRequest(activeResponseRequestRef.current, responseRequest.requestId)
+        ) {
+          activeResponseRequestRef.current = settleResponseWaitRequest(
+            activeResponseRequestRef.current,
+            responseRequest.requestId,
+          );
+          if (mountedRef.current) {
+            setIsSending(false);
+          }
+        }
       }
     },
     [
@@ -877,6 +947,32 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
       tripDataSource,
     ],
   );
+
+  const stopWaitingForAssistant = useCallback((assistantMessageId: string) => {
+    const activeRequest = activeResponseRequestRef.current;
+    if (!activeRequest || activeRequest.assistantMessageId !== assistantMessageId) {
+      return;
+    }
+
+    activeResponseRequestRef.current = stopResponseWaitRequest(
+      activeRequest,
+      activeRequest.requestId,
+    );
+    setIsSending(false);
+    setMessages((currentMessages) =>
+      currentMessages.map((message) =>
+        message.id === assistantMessageId && message.status === "pending"
+          ? {
+              ...message,
+              text: responseStoppedStatusText,
+              timestamp: formatTimestamp(),
+              status: "stopped",
+              retryPrompt: activeRequest.prompt,
+            }
+          : message,
+      ),
+    );
+  }, []);
 
   const saveRecommendationCard = useCallback(
     (card: RecommendationCardArtifact) => {
@@ -974,6 +1070,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     selectedThreadId,
     setInputValue,
     startNewChat,
+    stopWaitingForAssistant,
     tripContext,
     tripDataSource,
     updateTripContext,
@@ -1001,6 +1098,7 @@ function ChatWorkspaceView({
   selectedThreadId,
   setInputValue,
   startNewChat,
+  stopWaitingForAssistant,
   tripContext,
   tripDataSource,
   updateTripContext,
@@ -1130,6 +1228,7 @@ function ChatWorkspaceView({
                         onSaveItineraryPlan={saveItineraryPlan}
                         onSaveRecommendationCard={saveRecommendationCard}
                         onRemoveSavedItem={removeSavedItem}
+                        onStopWaiting={stopWaitingForAssistant}
                         onSubmitPrompt={handlePromptSubmit}
                         savedItemIds={savedItemIds}
                       />
@@ -2578,6 +2677,7 @@ function ChatMessage({
   onRemoveSavedItem,
   onSaveItineraryPlan,
   onSaveRecommendationCard,
+  onStopWaiting,
   onSubmitPrompt,
   savedItemIds,
 }: {
@@ -2588,12 +2688,14 @@ function ChatMessage({
   onRemoveSavedItem: (itemId: string) => void;
   onSaveItineraryPlan: (plan: ItineraryPlanArtifact) => void;
   onSaveRecommendationCard: (card: RecommendationCardArtifact) => void;
+  onStopWaiting: (assistantMessageId: string) => void;
   onSubmitPrompt: (prompt: string) => void;
   savedItemIds: ReadonlySet<string>;
 }) {
   const isUser = message.role === "user";
   const isPending = message.status === "pending";
   const isError = message.status === "error";
+  const isStopped = message.status === "stopped";
 
   if (isUser) {
     return (
@@ -2619,25 +2721,27 @@ function ChatMessage({
         className={
           isError
             ? "min-w-0 overflow-hidden rounded-lg border border-border-alert bg-surface-alert px-5 py-4 shadow-night-card"
-            : "min-w-0 overflow-hidden rounded-xl border border-border-default bg-white px-4 py-4 text-text-strong shadow-card sm:px-5"
+            : isStopped
+              ? "min-w-0 overflow-hidden rounded-lg border border-border-default bg-surface-muted px-5 py-4 text-text-strong shadow-card"
+              : "min-w-0 overflow-hidden rounded-xl border border-border-default bg-white px-4 py-4 text-text-strong shadow-card sm:px-5"
         }
       >
         <div className="flex min-w-0 items-start gap-3">
-          {isPending ? (
-            <LoaderCircle
-              aria-hidden="true"
-              className="mt-0.5 shrink-0 animate-spin text-brand-violet-650"
-              size={18}
-            />
-          ) : null}
           <div className="grid min-w-0 flex-1 gap-4">
             {!isError && !isPending && message.decisionSummaries?.length ? (
               <DecisionStrip summaries={message.decisionSummaries} />
-            ) : !isError && !isPending ? (
+            ) : !isError && !isPending && !isStopped ? (
               <AssistantGlance message={message} />
             ) : null}
-            <AssistantMarkdownText text={message.text} tone={isError ? "error" : "default"} />
-            {!isError && !isPending && message.itineraries?.length ? (
+            {isPending ? (
+              <PendingAssistantWaitState
+                disabled={false}
+                onStopWaiting={() => onStopWaiting(message.id)}
+              />
+            ) : (
+              <AssistantMarkdownText text={message.text} tone={isError ? "error" : "default"} />
+            )}
+            {!isError && !isPending && !isStopped && message.itineraries?.length ? (
               <ItineraryPlans
                 onRemoveSavedItem={onRemoveSavedItem}
                 onSaveItineraryPlan={onSaveItineraryPlan}
@@ -2645,7 +2749,7 @@ function ChatMessage({
                 savedItemIds={savedItemIds}
               />
             ) : null}
-            {!isError && !isPending && message.cards?.length ? (
+            {!isError && !isPending && !isStopped && message.cards?.length ? (
               <RecommendationCards
                 cards={message.cards}
                 onRemoveSavedItem={onRemoveSavedItem}
@@ -2653,14 +2757,14 @@ function ChatMessage({
                 savedItemIds={savedItemIds}
               />
             ) : null}
-            {!isError && !isPending && message.actions?.length ? (
+            {!isError && !isPending && !isStopped && message.actions?.length ? (
               <ChatActionButtons
                 actions={message.actions}
                 disabled={disabled}
                 onSubmitPrompt={onSubmitPrompt}
               />
             ) : null}
-            {!isError && !isPending && message.sources?.length ? (
+            {!isError && !isPending && !isStopped && message.sources?.length ? (
               <AssistantSourcesPanel sources={message.sources} />
             ) : null}
           </div>
@@ -2669,7 +2773,7 @@ function ChatMessage({
           <time className={isError ? "text-text-alert" : "text-text-muted"}>
             {message.timestamp}
           </time>
-          {!isError && !isPending && message.messageId ? (
+          {!isError && !isPending && !isStopped && message.messageId ? (
             <AssistantRatingControls
               disabled={disabled || message.ratingStatus === "saving"}
               messageId={message.messageId}
@@ -2679,15 +2783,20 @@ function ChatMessage({
             />
           ) : null}
         </div>
-        {isError && message.retryPrompt ? (
+        {(isError || isStopped) && message.retryPrompt ? (
           <Button
-            className="mt-4 h-9 rounded-md border-border-alert bg-surface-alert px-3 text-xs font-extrabold text-text-alert hover:bg-surface-alert"
+            className={
+              isError
+                ? "mt-4 h-9 rounded-md border-border-alert bg-surface-alert px-3 text-xs font-extrabold text-text-alert hover:bg-surface-alert"
+                : "mt-4 h-9 rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50"
+            }
             disabled={disabled}
             onClick={() => onRetryPrompt(message.retryPrompt ?? "")}
             type="button"
             variant="outline"
           >
-            Retry last question
+            <RefreshCw aria-hidden="true" size={13} />
+            {isError ? "Retry last question" : "Retry question"}
           </Button>
         ) : null}
       </div>
