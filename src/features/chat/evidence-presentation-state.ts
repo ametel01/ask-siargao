@@ -26,9 +26,17 @@ export type EvidencePresentation = {
 export type SourceEvidenceInput = {
   label: AnswerTrustLabel | string;
   sourceName: string;
+  sourceProfileId?: string;
   fetchedAt?: string;
+  confidence?: "high" | "medium" | "low";
   checked: readonly string[];
   notChecked: readonly string[];
+};
+
+export type SourceEvidenceReceiptItem = {
+  source: SourceEvidenceInput;
+  presentation: EvidencePresentation;
+  fetchedAtValues: readonly string[];
 };
 
 const checkedSourceLabels = new Set<AnswerTrustLabel>([
@@ -205,7 +213,7 @@ export function sourceEvidenceDetailLines(source: SourceEvidenceInput) {
 }
 
 export function sourceEvidenceSummaryText(sources: readonly SourceEvidenceInput[]) {
-  const presentations = sources.map(projectSourceEvidencePresentation);
+  const presentations = sourceEvidenceReceiptItems(sources).map((item) => item.presentation);
   const checkedNames = presentations
     .filter((presentation) => presentation.state === "checked")
     .map((presentation) => presentation.sourceName ?? presentation.label);
@@ -232,8 +240,108 @@ export function sourceEvidenceSummaryText(sources: readonly SourceEvidenceInput[
   return "No source details available";
 }
 
+export function sourceEvidenceReceiptItems(
+  sources: readonly SourceEvidenceInput[],
+): SourceEvidenceReceiptItem[] {
+  const results: SourceEvidenceReceiptItem[] = [];
+  const indexesByKey = new Map<string, number>();
+
+  for (const source of sources) {
+    const key = sourceEvidenceReceiptKey(source);
+    const existingIndex = indexesByKey.get(key);
+    if (existingIndex === undefined) {
+      indexesByKey.set(key, results.length);
+      results.push({
+        source: {
+          ...source,
+          checked: normalizeItems(source.checked),
+          notChecked: normalizeItems(source.notChecked),
+        },
+        presentation: projectSourceEvidencePresentation(source),
+        fetchedAtValues: source.fetchedAt ? [source.fetchedAt] : [],
+      });
+      continue;
+    }
+
+    const existing = results[existingIndex];
+    if (!existing) {
+      continue;
+    }
+    const fetchedAtValues = uniqueNormalizedItems([
+      ...existing.fetchedAtValues,
+      ...(source.fetchedAt ? [source.fetchedAt] : []),
+    ]);
+    const mergedSource = {
+      ...existing.source,
+      ...(latestSourceEvidenceTime(fetchedAtValues)
+        ? { fetchedAt: latestSourceEvidenceTime(fetchedAtValues) }
+        : {}),
+      checked: uniqueNormalizedItems([...existing.source.checked, ...source.checked]),
+      notChecked: uniqueNormalizedItems([...existing.source.notChecked, ...source.notChecked]),
+    };
+    results[existingIndex] = {
+      source: mergedSource,
+      presentation: projectSourceEvidencePresentation(mergedSource),
+      fetchedAtValues,
+    };
+  }
+
+  return results;
+}
+
+export function sourceEvidenceReceiptSummaryText(sources: readonly SourceEvidenceInput[]) {
+  const items = sourceEvidenceReceiptItems(sources);
+  const checkedNames = items
+    .filter((item) => item.presentation.state === "checked")
+    .map((item) => item.presentation.sourceName ?? item.presentation.label);
+  const gapNames = items
+    .filter(
+      (item) =>
+        item.presentation.state === "unavailable" || item.presentation.state === "not-verified",
+    )
+    .map((item) => item.presentation.sourceName ?? item.presentation.label);
+  const latestFetchedAt = latestSourceEvidenceTime(items.flatMap((item) => item.fetchedAtValues));
+  const freshness = latestFetchedAt
+    ? `Latest check ${formatEvidenceReceiptTime(latestFetchedAt)}`
+    : "No check time shown";
+
+  if (checkedNames.length > 0 && gapNames.length > 0) {
+    return `${freshness}: ${formatCompactList(checkedNames)} checked; ${gapNames.length} verification ${
+      gapNames.length === 1 ? "gap" : "gaps"
+    }.`;
+  }
+  if (checkedNames.length > 0) {
+    return `${freshness}: ${formatCompactList(checkedNames)} checked.`;
+  }
+  if (gapNames.length > 0) {
+    return `${freshness}: ${formatCompactList(gapNames)} ${
+      gapNames.length === 1 ? "was" : "were"
+    } not verified.`;
+  }
+  return "No evidence receipt available.";
+}
+
 export function formatEvidenceSourceTime(value: string | undefined) {
   return value ? `fetched ${value}` : undefined;
+}
+
+export function formatEvidenceReceiptTime(value: string | undefined) {
+  if (!value) {
+    return undefined;
+  }
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Manila",
+  })
+    .format(timestamp)
+    .replace(" at ", ", ");
 }
 
 function conditionStateToEvidenceState(state: ConditionDecisionState): EvidencePresentationState {
@@ -302,6 +410,26 @@ function isAnswerTrustLabel(value: string): value is AnswerTrustLabel {
 
 function normalizeItems(items: readonly string[]) {
   return items.map((item) => item.replace(/\s+/g, " ").trim()).filter(Boolean);
+}
+
+function uniqueNormalizedItems(items: readonly string[]) {
+  return [...new Set(normalizeItems(items))];
+}
+
+function sourceEvidenceReceiptKey(source: SourceEvidenceInput) {
+  return JSON.stringify({
+    label: source.label,
+    sourceName: sourceEvidenceDisplayName(source).toLocaleLowerCase(),
+    sourceProfileId: "sourceProfileId" in source ? source.sourceProfileId : undefined,
+    confidence: "confidence" in source ? source.confidence : undefined,
+  });
+}
+
+function latestSourceEvidenceTime(values: readonly string[]) {
+  return values
+    .map((value) => ({ value, timestamp: new Date(value).getTime() }))
+    .filter((item) => Number.isFinite(item.timestamp))
+    .toSorted((first, second) => second.timestamp - first.timestamp)[0]?.value;
 }
 
 function formatCompactList(values: readonly string[]) {

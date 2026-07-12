@@ -171,7 +171,7 @@ describe("nightlife events", () => {
       renderAnswerSourceLines(result.sources).some((line) => line.startsWith("Checked:")),
     ).toBe(false);
     expect(renderAnswerSourceSummaryMarkdown(result.sources)).toContain(
-      "Not checked: Approved General Luna nightlife event source profiles (no current event facts; low confidence; profile source_nightlife_official_venue_websites; fetched 2026-07-07T04:00:00.000Z) - current General Luna nightlife event facts for Tuesday",
+      "Not checked: Approved General Luna nightlife event source profiles (No current event facts; low confidence; checked Jul 7, 12:00 PM) - current General Luna nightlife event facts for Tuesday",
     );
     expect(renderNightlifeEventsText(result)).toContain(
       "Do not substitute Google Places bar rankings as event evidence.",

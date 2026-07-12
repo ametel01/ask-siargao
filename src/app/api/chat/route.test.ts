@@ -2161,7 +2161,7 @@ function routeAnswerQualityScenarios(): RouteAnswerQualityScenario[] {
         }),
       },
       expectedOpening: "Keep Cloud 9 sunset optional today",
-      expectedSources: [],
+      expectedSources: [weatherUnavailableSourceSummary],
       expectedCardIds: [],
       expectedDecisionSummaryIds: [weatherDecisionSummary.id],
       expectedItineraryIds: [],
@@ -2620,9 +2620,7 @@ const localGuideSourceSummary: AnswerSourceSummary = {
 };
 
 function displaySourcesFixture(sources: readonly AnswerSourceSummary[]) {
-  return sources.filter(
-    (source) => source.label !== "not_verified" && source.label !== "provider_unavailable",
-  );
+  return sources.filter((source) => source.label !== "not_verified");
 }
 
 function displayItineraryFixture(itinerary: ItineraryPlan): ItineraryPlan {

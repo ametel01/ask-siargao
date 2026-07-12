@@ -77,12 +77,12 @@ import {
   projectDecisionStrip,
 } from "@/features/chat/decision-strip-presentation";
 import {
-  formatEvidenceSourceTime,
+  formatEvidenceReceiptTime,
   projectConditionEvidencePresentation,
   projectSourceEvidencePresentation,
-  sourceEvidenceDetailLines,
   sourceEvidenceDisplayName,
-  sourceEvidenceSummaryText,
+  sourceEvidenceReceiptItems,
+  sourceEvidenceReceiptSummaryText,
 } from "@/features/chat/evidence-presentation-state";
 import {
   type LiveConditionDecision,
@@ -3710,20 +3710,6 @@ function sourceConfidenceLabel(sources: readonly ChatSourceArtifact[]) {
   return checkedPresentation?.label ?? presentations[0]?.label ?? "Caveated";
 }
 
-function dedupeChatSources(sources: readonly ChatSourceArtifact[]) {
-  const results: ChatSourceArtifact[] = [];
-  const seen = new Set<string>();
-  for (const source of sources) {
-    const key = chatSourceKey(source);
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    results.push(source);
-  }
-  return results;
-}
-
 function chatSourceKey(source: ChatSourceArtifact) {
   return JSON.stringify({
     label: source.label,
@@ -3737,7 +3723,7 @@ function chatSourceKey(source: ChatSourceArtifact) {
 }
 
 function sourceSummaryText(sources: readonly ChatSourceArtifact[]) {
-  return sourceEvidenceSummaryText(sources);
+  return sourceEvidenceReceiptSummaryText(sources);
 }
 
 function SourceIconBadge({ source }: { source: ChatSourceArtifact }) {
@@ -4194,8 +4180,8 @@ function ChatActionButtons({
 }
 
 function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifact[] }) {
-  const visibleSources = dedupeChatSources(sources);
-  if (visibleSources.length === 0) {
+  const receiptItems = sourceEvidenceReceiptItems(sources);
+  if (receiptItems.length === 0) {
     return null;
   }
 
@@ -4204,18 +4190,21 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
       className="group rounded-md border border-border-default bg-brand-lavender-50 p-3"
       data-testid="assistant-sources-panel"
     >
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+      <summary
+        aria-label="Evidence receipt"
+        className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-violet-650"
+      >
         <span className="grid min-w-0 gap-1">
           <span className="flex items-center gap-2 text-sm font-black text-text-strong">
             <ShieldCheck aria-hidden="true" className="text-brand-lagoon-700" size={16} />
-            Sources & Confidence
+            Evidence receipt
           </span>
           <span className="min-w-0 text-xs font-bold text-text-muted">
-            {sourceSummaryText(visibleSources)}
+            {sourceSummaryText(sources)}
           </span>
         </span>
         <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border-default bg-white px-2.5 py-1.5 text-xs font-black text-text-muted">
-          View sources
+          View receipt
           <ChevronDown
             aria-hidden="true"
             className="transition-transform group-open:rotate-180"
@@ -4224,7 +4213,7 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
         </span>
       </summary>
       <div className="mt-3 grid gap-2">
-        {visibleSources.map((source) => (
+        {receiptItems.map(({ fetchedAtValues, presentation, source }) => (
           <div
             className="grid gap-1 rounded-md border border-border-default bg-white p-3"
             key={chatSourceKey(source)}
@@ -4240,14 +4229,21 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
                 </span>
               ) : null}
             </div>
-            {sourceEvidenceDetailLines(source).map((line) => (
-              <p className="m-0 text-xs leading-[1.45] text-text-muted" key={line}>
-                {line}
+            {presentation.checkedScope.length > 0 && presentation.state === "checked" ? (
+              <p className="m-0 text-xs leading-[1.45] text-text-muted">
+                <span className="font-black text-text-strong">Checked fields:</span>{" "}
+                {formatReceiptList(presentation.checkedScope)}
               </p>
-            ))}
-            {source.fetchedAt ? (
+            ) : null}
+            {presentation.notCheckedScope.length > 0 ? (
+              <p className="m-0 text-xs leading-[1.45] text-text-muted">
+                <span className="font-black text-text-strong">Not checked:</span>{" "}
+                {formatReceiptList(presentation.notCheckedScope)}
+              </p>
+            ) : null}
+            {fetchedAtValues.length ? (
               <p className="m-0 text-[0.7rem] font-bold text-text-muted">
-                {formatEvidenceSourceTime(source.fetchedAt)}
+                Checked {fetchedAtValues.map(formatEvidenceReceiptTime).filter(Boolean).join(", ")}
               </p>
             ) : null}
           </div>
@@ -4255,6 +4251,10 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
       </div>
     </details>
   );
+}
+
+function formatReceiptList(values: readonly string[]) {
+  return values.join(", ");
 }
 
 function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" | "error" }) {

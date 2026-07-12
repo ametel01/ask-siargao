@@ -1155,7 +1155,7 @@ test("renders assistant presentation smoke on desktop and mobile", async ({ page
     "| **Shaka Siargao** | Cloud 9 | Easy breakfast before surf. |",
     "| **Bravo** | General Luna | Better dinner backup. |",
     "",
-    "Checked: Google Places API - selected recommendations. Not checked: table availability.",
+    "Checked: Google Places - selected recommendations. Not checked: table availability.",
   ].join("\n");
   const mockChat = await mockChatApi(page, {
     message: smokeMessage,
@@ -1258,14 +1258,21 @@ test("renders mixed chat sources with truthful evidence states", async ({ page }
 
   const sourcesPanel = page.getByTestId("assistant-sources-panel");
   await expect(sourcesPanel).toContainText(
-    "Checked: Google Places, Ask Siargao local beach guide; 2 caveated",
+    "Latest check Jun 28, 8:45 AM: Google Places, Ask Siargao local beach guide checked; 2 verification gaps.",
   );
-  await sourcesPanel.getByText("View sources").click();
+  const receiptSummary = sourcesPanel.locator("summary");
+  await receiptSummary.focus();
+  await expect(receiptSummary).toBeFocused();
+  await page.keyboard.press("Enter");
   await expect(sourcesPanel.getByText("Places checked")).toBeVisible();
   await expect(sourcesPanel.getByText("Guide info checked")).toBeVisible();
   await expect(sourcesPanel.getByText("Could not check")).toBeVisible();
   await expect(sourcesPanel.getByText("Web evidence insufficient")).toBeVisible();
   await expect(sourcesPanel.getByText("Weather forecast: Not checked")).toHaveCount(0);
+  await expect(sourcesPanel).toContainText(
+    "Checked fields: place identity, current opening status",
+  );
+  await expect(sourcesPanel).toContainText("Checked fields: Cloud 9 fallback pattern");
   await expect(sourcesPanel).toContainText("Not checked: weather forecast");
   await expect(sourcesPanel).toContainText("Not checked: current ferry disruption evidence");
   await expect(sourcesPanel).not.toContainText("provider_unavailable");
@@ -2388,7 +2395,7 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     await expect(sourceSummary).toBeVisible();
     await expect(helpfulButton).toBeVisible();
     await sourceSummary.click();
-    await expect(answer.getByText("Checked details: forecast for Cloud 9")).toBeVisible();
+    await expect(answer.getByText("Checked fields: forecast for Cloud 9")).toBeVisible();
 
     const animatedProperties = await strip.evaluate((element) => {
       const cue = element.querySelector("[data-decision-sequence-cue='true']");
@@ -3179,7 +3186,7 @@ test("renders numbered assistant plans from display-ready source footers", async
       "2. Use the heaviest rain window for massage or errands.",
       "3. Walk the Cloud 9 boardwalk only during a clear break.",
       "",
-      "Checked: Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - forecast for Cloud 9. Weather signal: Thunderstorm; rain 0.7mm.",
+      "Checked: Weather forecast (Weather checked; medium confidence; checked Jun 26, 8:00 AM) - forecast for Cloud 9. Weather signal: Thunderstorm; rain 0.7mm.",
     ].join("\n"),
   });
 
@@ -3198,16 +3205,19 @@ test("renders numbered assistant plans from display-ready source footers", async
   await expect(
     sourceLines.filter({
       hasText:
-        "Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - forecast for Cloud 9.",
+        "Weather forecast (Weather checked; medium confidence; checked Jun 26, 8:00 AM) - forecast for Cloud 9.",
     }),
   ).toHaveCount(1);
   await expect(sourceLines.filter({ hasText: "Thunderstorm; rain 0.7mm." })).toHaveCount(1);
   await expect(
     sourceLines.filter({
       hasText:
-        "Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - Google Places open-now results and road flooding.",
+        "Weather forecast (Weather checked; medium confidence; checked Jun 26, 8:00 AM) - Google Places open-now results and road flooding.",
     }),
   ).toHaveCount(0);
+  await expect(page.getByTestId("assistant-message-bubble").last()).not.toContainText(
+    "source_open_meteo",
+  );
   await expect(page.getByTestId("itinerary-plans")).toHaveCount(0);
 
   const orderedListCount = await page

@@ -25,10 +25,14 @@ describe("answer source summaries", () => {
       notChecked: ["bookings", "review text"],
     };
 
-    expect(renderAnswerSourceLines([summary])).toEqual([
-      "Checked: Google Places API (live checked; high confidence; profile source_google_places; fetched 2026-06-26T01:00:00.000Z) - ratings and open-now signal.",
-      "Not checked: Google Places API (live checked; high confidence; profile source_google_places; fetched 2026-06-26T01:00:00.000Z) - bookings and review text.",
+    const lines = renderAnswerSourceLines([summary]);
+
+    expect(lines).toEqual([
+      "Checked: Google Places (Places checked; high confidence; checked Jun 26, 9:00 AM) - ratings and open-now signal.",
+      "Not checked: Google Places (Places checked; high confidence; checked Jun 26, 9:00 AM) - bookings and review text.",
     ]);
+    expect(lines.join("\n")).not.toContain("source_google_places");
+    expect(lines.join("\n")).not.toContain("live_checked");
   });
 
   test("keeps weather signal as its own parser-compatible source line", () => {
@@ -48,9 +52,9 @@ describe("answer source summaries", () => {
       }),
     ).toBe(
       [
-        "Checked: Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - forecast for General Luna.",
+        "Checked: Weather forecast (Weather checked; medium confidence; checked Jun 26, 8:00 AM) - forecast for General Luna.",
         "Weather signal: Thunderstorm; rain 0.7mm.",
-        "Not checked: Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - surf reports and road flooding.",
+        "Not checked: Weather forecast (Weather checked; medium confidence; checked Jun 26, 8:00 AM) - surf reports and road flooding.",
       ].join("\n"),
     );
   });
@@ -73,9 +77,9 @@ describe("answer source summaries", () => {
     ];
 
     expect(renderAnswerSourceLines(summaries)).toEqual([
-      "Checked: Ask Siargao curated local beach guide (curated local guide; medium confidence) - ride-time notes and beach-surface notes.",
-      "Not checked: Ask Siargao curated local beach guide (curated local guide; medium confidence) - live road conditions.",
-      "Not checked: Generic model reasoning (not verified) - live Google Places, Open-Meteo forecast, and curated local guide.",
+      "Checked: Ask Siargao local beach guide (Guide info checked; medium confidence) - ride-time notes and beach-surface notes.",
+      "Not checked: Ask Siargao local beach guide (Guide info checked; medium confidence) - live road conditions.",
+      "Not checked: Ask Siargao estimate (Not verified) - live Google Places, Open-Meteo forecast, and curated local guide.",
     ]);
   });
 
@@ -108,12 +112,12 @@ describe("answer source summaries", () => {
     ];
 
     expect(renderAnswerSourceLines(summaries)).toEqual([
-      "Checked: Local nightlife event directories (event checked; medium confidence; profile source_nightlife_local_event_directories) - approved event occurrence.",
-      "Checked: Google Places API (venue checked; medium confidence; profile source_google_places) - venue identity.",
-      "Checked: Reddit public nightlife threads (community signal; low confidence; profile source_nightlife_reddit_public_threads) - community rhythm signal.",
-      "Not checked: Local nightlife event directories (event checked; medium confidence; profile source_nightlife_local_event_directories) - crowd size.",
-      "Not checked: Google Places API (venue checked; medium confidence; profile source_google_places) - event schedule.",
-      "Not checked: Reddit public nightlife threads (community signal; low confidence; profile source_nightlife_reddit_public_threads) - tonight's event schedule.",
+      "Checked: Local nightlife event directories (Event checked; medium confidence) - approved event occurrence.",
+      "Checked: Google Places (Places checked; medium confidence) - venue identity.",
+      "Checked: Reddit public nightlife threads (Community signal; low confidence) - community rhythm signal.",
+      "Not checked: Local nightlife event directories (Event checked; medium confidence) - crowd size.",
+      "Not checked: Google Places (Places checked; medium confidence) - event schedule.",
+      "Not checked: Reddit public nightlife threads (Community signal; low confidence) - tonight's event schedule.",
     ]);
   });
 
@@ -153,13 +157,13 @@ describe("answer source summaries", () => {
     ];
 
     expect(renderAnswerSourceLines(summaries)).toEqual([
-      "Checked: Barbosa official schedule (official checked; high confidence; profile source_web_official) - Wednesday closed schedule.",
-      "Checked: SiargaoVibes (directory checked; medium confidence; profile source_web_local_directory) - Goodies Funky Wednesday listing.",
-      "Checked: Recent Siargao nightlife guide (web researched; low confidence; profile source_web_guide) - El Lobo Wednesday guide signal.",
-      "Not checked: Barbosa official schedule (official checked; high confidence; profile source_web_official) - last-minute private events.",
-      "Not checked: SiargaoVibes (directory checked; medium confidence; profile source_web_local_directory) - live crowd size.",
-      "Not checked: Recent Siargao nightlife guide (web researched; low confidence; profile source_web_guide) - official same-day confirmation.",
-      "Not checked: Public web research (insufficient web evidence; low confidence) - current ferry disruption evidence.",
+      "Checked: Barbosa official schedule (Official source checked; high confidence) - Wednesday closed schedule.",
+      "Checked: SiargaoVibes (Directory checked; medium confidence) - Goodies Funky Wednesday listing.",
+      "Checked: Recent Siargao nightlife guide (Public web checked; low confidence) - El Lobo Wednesday guide signal.",
+      "Not checked: Barbosa official schedule (Official source checked; high confidence) - last-minute private events.",
+      "Not checked: SiargaoVibes (Directory checked; medium confidence) - live crowd size.",
+      "Not checked: Recent Siargao nightlife guide (Public web checked; low confidence) - official same-day confirmation.",
+      "Not checked: Public web research (Web evidence insufficient; low confidence) - current ferry disruption evidence.",
     ]);
   });
 
@@ -181,7 +185,7 @@ describe("answer source summaries", () => {
     ];
 
     expect(renderAnswerSourceLines(summaries)).toEqual([
-      "Not checked: Open-Meteo weather API (provider unavailable; low confidence) - weather forecast.",
+      "Not checked: Weather forecast (Could not check; low confidence) - weather forecast.",
     ]);
   });
 
@@ -194,8 +198,8 @@ describe("answer source summaries", () => {
     };
 
     expect(renderAnswerSourceLines([summary])).toEqual([
-      "Checked: Google Places API (fresh cache) - cached place listing facts.",
-      "Not checked: Google Places API (fresh cache) - independent local validation.",
+      "Checked: Google Places (Recently checked) - cached place listing facts.",
+      "Not checked: Google Places (Recently checked) - independent local validation.",
     ]);
   });
 });

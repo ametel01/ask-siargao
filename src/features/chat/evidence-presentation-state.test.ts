@@ -8,6 +8,8 @@ import {
   projectSourceEvidencePresentation,
   type SourceEvidenceInput,
   sourceEvidenceDetailLines,
+  sourceEvidenceReceiptItems,
+  sourceEvidenceReceiptSummaryText,
   sourceEvidenceSummaryText,
 } from "@/features/chat/evidence-presentation-state";
 import type { LiveConditionDecision } from "@/features/chat/live-condition-decision";
@@ -136,6 +138,45 @@ describe("evidence presentation state", () => {
       "Checked details: forecast for Cloud 9",
       "Not checked: surf reports, road flooding",
     ]);
+  });
+
+  test("builds a compact receipt summary and deduplicates sources without losing freshness", () => {
+    const items = sourceEvidenceReceiptItems([
+      source({
+        label: "live_checked",
+        sourceName: "Google Places API",
+        fetchedAt: "2026-07-10T01:00:00.000Z",
+        checked: ["place identity"],
+        notChecked: ["review text"],
+      }),
+      source({
+        label: "live_checked",
+        sourceName: "Google Places API",
+        fetchedAt: "2026-07-10T03:15:00.000Z",
+        checked: ["current opening status"],
+        notChecked: ["bookings"],
+      }),
+      source({
+        label: "provider_unavailable",
+        sourceName: "Public web research",
+        checked: [],
+        notChecked: ["current ferry disruption evidence"],
+      }),
+    ]);
+
+    expect(items).toHaveLength(2);
+    expect(items[0]?.presentation.checkedScope).toEqual([
+      "place identity",
+      "current opening status",
+    ]);
+    expect(items[0]?.presentation.notCheckedScope).toEqual(["review text", "bookings"]);
+    expect(items[0]?.fetchedAtValues).toEqual([
+      "2026-07-10T01:00:00.000Z",
+      "2026-07-10T03:15:00.000Z",
+    ]);
+    expect(sourceEvidenceReceiptSummaryText(items.map((item) => item.source))).toBe(
+      "Latest check Jul 10, 11:15 AM: Google Places checked; 1 verification gap.",
+    );
   });
 
   test("rejects unsupported checked or fresh UI claims for stale, failed, or insufficient source states", () => {
