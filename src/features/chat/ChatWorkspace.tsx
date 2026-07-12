@@ -6,6 +6,7 @@
  */
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import {
+  Archive,
   BedDouble,
   Bookmark,
   BookmarkCheck,
@@ -20,6 +21,7 @@ import {
   LoaderCircle,
   MapPin,
   Navigation,
+  Pencil,
   Plus,
   RefreshCw,
   Send,
@@ -141,6 +143,7 @@ import {
   getSavedTripSnapshot,
   postSavedTripItems,
   postSharedTripPlan,
+  resolveSavedTripSelection,
   savedItemIdForCard,
   savedItemIdForItinerary,
   subscribeSavedTripState,
@@ -267,6 +270,13 @@ type PendingChatSubmission = {
 type ActiveThreadLoad = {
   controller: AbortController;
   generation: number;
+};
+type ThreadActionDialog = "rename" | "delete" | null;
+type ThreadActionState = {
+  dialog: ThreadActionDialog;
+  error: string | null;
+  pendingAction: "rename" | "archive" | "delete" | null;
+  status: "idle" | "pending" | "error";
 };
 type SavedPlanShareAction =
   | { type: "reset_link" }
@@ -440,8 +450,20 @@ function createInitialSavedPlanShareState(): SavedPlanShareState {
   };
 }
 
-export function ChatWorkspace({ initialPrompt = "" }: { initialPrompt?: string }) {
-  const controller = useChatWorkspaceController(initialPrompt);
+export function ChatWorkspace({
+  initialPrompt = "",
+  initialSavedItemId,
+  initialThreadId,
+}: {
+  initialPrompt?: string;
+  initialSavedItemId?: string;
+  initialThreadId?: string;
+}) {
+  const controller = useChatWorkspaceController({
+    initialPrompt,
+    initialSavedItemId,
+    initialThreadId,
+  });
 
   return <ChatWorkspaceView {...controller} />;
 }
@@ -454,12 +476,14 @@ type ChatWorkspaceController = {
   isSending: boolean;
   locationState: LocationSharingState;
   messages: InteractiveChatMessage[];
-  openChatThread: (threadId: string) => Promise<void>;
+  openChatThread: (threadId: string) => void;
   archiveSelectedThread: () => Promise<void>;
+  closeThreadActionDialog: () => void;
   deleteSelectedThread: () => Promise<void>;
+  openThreadActionDialog: (dialog: Exclude<ThreadActionDialog, null>) => void;
   rateAssistantMessage: (messageId: string, rating: ChatResponseRatingValue) => Promise<void>;
   removeSavedItem: (itemId: string) => void;
-  renameSelectedThread: () => Promise<void>;
+  renameSelectedThread: (title: string) => Promise<void>;
   requestLocation: (scope: LocationSharingScope) => void;
   saveItineraryPlan: (plan: ItineraryPlanArtifact) => void;
   saveRecommendationCard: (card: RecommendationCardArtifact) => void;
@@ -467,23 +491,51 @@ type ChatWorkspaceController = {
   savedPlanSharing: ReturnType<typeof useSavedPlanSharing>;
   savedTripState: SavedTripState;
   savedTripStatus: SavedTripPresentationStatus;
+  selectedSavedItem: SavedTripItem | null;
+  selectedSavedItemId: string | null;
+  selectedSavedItemStatus: "idle" | "loading" | "ready" | "not_found" | "error";
   selectedThreadId: string | null;
+  selectedThreadTitle: string | null;
+  selectedThreadUnavailable: boolean;
   setInputValue: (value: string) => void;
   startNewChat: () => void;
   stopWaitingForAssistant: (assistantMessageId: string) => void;
+  threadActionState: ThreadActionState;
   turnOffLocation: () => void;
   tripContext: TripContextDraft;
   tripDataSource: TripDataSource;
   updateTripContext: (context: TripContextDraft) => Promise<void>;
 };
 
-function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceController {
+function useChatWorkspaceController({
+  initialPrompt,
+  initialSavedItemId,
+  initialThreadId,
+}: {
+  initialPrompt: string;
+  initialSavedItemId?: string;
+  initialThreadId?: string;
+}): ChatWorkspaceController {
   const [inputValue, setInputValue] = useState(() => initialPrompt.trim());
   const [isSending, setIsSending] = useState(false);
   const [locationState, setLocationState] = useState<LocationSharingState>({ status: "off" });
   const [messages, setMessages] = useState<InteractiveChatMessage[]>([]);
   const [chatThreads, setChatThreads] = useState<ChatThreadSummary[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [selectedThreadTitle, setSelectedThreadTitle] = useState<string | null>(null);
+  const [selectedThreadUnavailable, setSelectedThreadUnavailable] = useState(false);
+  const [selectedSavedItemId, setSelectedSavedItemId] = useState<string | null>(
+    () => sanitizeResourceId(initialSavedItemId) ?? null,
+  );
+  const [selectedSavedItemStatus, setSelectedSavedItemStatus] = useState<
+    "idle" | "loading" | "ready" | "not_found" | "error"
+  >(() => (sanitizeResourceId(initialSavedItemId) ? "loading" : "idle"));
+  const [threadActionState, setThreadActionState] = useState<ThreadActionState>({
+    dialog: null,
+    error: null,
+    pendingAction: null,
+    status: "idle",
+  });
   const [historyStatus, setHistoryStatus] = useState<"idle" | "loading" | "error">("idle");
   const localTripContext = useSyncExternalStore(
     subscribeTripContextState,
@@ -504,6 +556,8 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     : profileError
       ? "error"
       : (profileResult?.source ?? "loading");
+  const canLoadPrivateThread =
+    !profileLoading && !profileError && profileResult?.source === "authenticated";
   const tripContext = projectTripState({
     localContext: localTripContext,
     profile: profileResult?.source === "authenticated" ? profileResult.profile : undefined,
@@ -556,6 +610,10 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     () => new Set(savedTripState.items.map((item) => item.id)),
     [savedTripState],
   );
+  const selectedSavedItem = useMemo(
+    () => savedTripState.items.find((item) => item.id === selectedSavedItemId) ?? null,
+    [savedTripState.items, selectedSavedItemId],
+  );
   const savedPlanSharing = useSavedPlanSharing(savedTripState);
   const { trigger: syncAuthenticatedSavedTripItems } = useSWRMutation(
     "/api/trips/saved",
@@ -572,6 +630,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
   const chatSubmissionGenerationRef = useRef(0);
   const activeThreadLoadRef = useRef<ActiveThreadLoad | null>(null);
   const threadLoadGenerationRef = useRef(0);
+  const threadMutationGenerationRef = useRef(0);
   const mountedRef = useRef(true);
 
   const dispatchLocationState = useCallback(
@@ -723,8 +782,8 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     void refreshChatThreads();
   }, [refreshChatThreads]);
 
-  const openChatThread = useCallback(
-    async (threadId: string) => {
+  const loadChatThread = useCallback(
+    async (threadId: string, historyMode: "push" | "replace" | "none" = "push") => {
       stopActiveResponseForThreadSwitch();
       activeThreadLoadRef.current?.controller.abort();
       const generation = threadLoadGenerationRef.current + 1;
@@ -732,6 +791,12 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
       const controller = new AbortController();
       activeThreadLoadRef.current = { controller, generation };
       setHistoryStatus("loading");
+      setSelectedThreadUnavailable(false);
+      setSelectedSavedItemId(null);
+      setSelectedSavedItemStatus("idle");
+      if (historyMode !== "none") {
+        writeChatResourceQuery({ threadId }, historyMode);
+      }
 
       const isCurrentThreadLoad = () =>
         mountedRef.current &&
@@ -747,6 +812,13 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
           return;
         }
         if (!response.ok) {
+          if (response.status === 401 || response.status === 404) {
+            setSelectedThreadId(null);
+            setSelectedThreadTitle(null);
+            setMessages([]);
+            writeChatResourceQuery({}, "replace");
+          }
+          setSelectedThreadUnavailable(true);
           setHistoryStatus("error");
           return;
         }
@@ -759,6 +831,11 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
           return;
         }
         setSelectedThreadId(threadId);
+        setSelectedThreadTitle(body.thread?.title ?? "Siargao chat");
+        const loadedThread = body.thread;
+        if (loadedThread) {
+          setChatThreads((currentThreads) => upsertThreadSummary(currentThreads, loadedThread));
+        }
         setMessages((body.messages ?? []).map(interactiveMessageFromThreadMessage));
         setHistoryStatus("idle");
       } catch (error) {
@@ -775,11 +852,22 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     [stopActiveResponseForThreadSwitch],
   );
 
-  const startNewChat = useCallback(() => {
+  const openChatThread = useCallback(
+    (threadId: string) => {
+      void loadChatThread(threadId, "push");
+    },
+    [loadChatThread],
+  );
+
+  const startNewChatWithoutHistoryPush = useCallback(() => {
     invalidatePendingChatSubmission();
     invalidateActiveResponseRequest();
     invalidateActiveThreadLoad();
     setSelectedThreadId(null);
+    setSelectedThreadTitle(null);
+    setSelectedThreadUnavailable(false);
+    setSelectedSavedItemId(null);
+    setSelectedSavedItemStatus("idle");
     setMessages([]);
     setInputValue("");
     setHistoryStatus("idle");
@@ -789,48 +877,263 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     invalidatePendingChatSubmission,
   ]);
 
-  const renameSelectedThread = useCallback(async () => {
-    if (!selectedThreadId) {
-      return;
-    }
-
-    const currentTitle =
-      chatThreads.find((thread) => thread.id === selectedThreadId)?.title ?? "Siargao chat";
-    const title = window.prompt("Thread title", currentTitle)?.trim();
-    if (!title) {
-      return;
-    }
-
-    await fetch(`/api/chat/threads/${selectedThreadId}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title }),
+  const startNewChat = useCallback(() => {
+    startNewChatWithoutHistoryPush();
+    setThreadActionState({
+      dialog: null,
+      error: null,
+      pendingAction: null,
+      status: "idle",
     });
-    await refreshChatThreads();
-  }, [chatThreads, refreshChatThreads, selectedThreadId]);
+    writeChatResourceQuery({}, "push");
+  }, [startNewChatWithoutHistoryPush]);
+
+  useEffect(() => {
+    const requestedThreadId = sanitizeResourceId(initialThreadId);
+    if (!requestedThreadId || !canLoadPrivateThread) {
+      return;
+    }
+
+    void loadChatThread(requestedThreadId, "replace");
+  }, [canLoadPrivateThread, initialThreadId, loadChatThread]);
+
+  useEffect(() => {
+    const applyResourceQuery = () => {
+      const resourceQuery = readChatResourceQuery();
+      if (resourceQuery.threadId) {
+        if (canLoadPrivateThread) {
+          void loadChatThread(resourceQuery.threadId, "none");
+        }
+        return;
+      }
+      if (resourceQuery.savedItemId) {
+        startNewChatWithoutHistoryPush();
+        setSelectedSavedItemId(resourceQuery.savedItemId);
+        setSelectedSavedItemStatus("loading");
+        return;
+      }
+      startNewChatWithoutHistoryPush();
+    };
+
+    window.addEventListener("popstate", applyResourceQuery);
+    return () => {
+      window.removeEventListener("popstate", applyResourceQuery);
+    };
+  }, [canLoadPrivateThread, loadChatThread, startNewChatWithoutHistoryPush]);
+
+  useEffect(() => {
+    setSelectedSavedItemStatus(
+      resolveSavedTripSelection({
+        selectedItemId: selectedSavedItemId,
+        state: savedTripState,
+        status: savedTripStatus,
+      }).status,
+    );
+  }, [savedTripState, savedTripStatus, selectedSavedItemId]);
+
+  const closeThreadActionDialog = useCallback(() => {
+    setThreadActionState((currentState) => ({
+      ...currentState,
+      dialog: null,
+      error: null,
+      status: currentState.pendingAction ? currentState.status : "idle",
+    }));
+  }, []);
+
+  const openThreadActionDialog = useCallback((dialog: Exclude<ThreadActionDialog, null>) => {
+    setThreadActionState({
+      dialog,
+      error: null,
+      pendingAction: null,
+      status: "idle",
+    });
+  }, []);
+
+  const renameSelectedThread = useCallback(
+    async (title: string) => {
+      if (!selectedThreadId) {
+        return;
+      }
+
+      const trimmedTitle = title.trim();
+      if (trimmedTitle.length < 1 || trimmedTitle.length > 120) {
+        setThreadActionState((currentState) => ({
+          ...currentState,
+          error: "Use 1 to 120 characters.",
+          status: "error",
+        }));
+        return;
+      }
+
+      const mutationGeneration = threadMutationGenerationRef.current + 1;
+      threadMutationGenerationRef.current = mutationGeneration;
+      setThreadActionState({
+        dialog: "rename",
+        error: null,
+        pendingAction: "rename",
+        status: "pending",
+      });
+
+      try {
+        const response = await fetch(`/api/chat/threads/${selectedThreadId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title: trimmedTitle }),
+        });
+        const body = (await response.json().catch(() => null)) as {
+          thread?: ChatThreadSummary;
+        } | null;
+        if (threadMutationGenerationRef.current !== mutationGeneration) {
+          return;
+        }
+        if (!response.ok || !body?.thread) {
+          setThreadActionState({
+            dialog: "rename",
+            error: threadMutationErrorMessage(response.status),
+            pendingAction: null,
+            status: "error",
+          });
+          return;
+        }
+
+        const renamedThread = body.thread;
+        setSelectedThreadTitle(renamedThread.title);
+        setChatThreads((currentThreads) => upsertThreadSummary(currentThreads, renamedThread));
+        setThreadActionState({
+          dialog: null,
+          error: null,
+          pendingAction: null,
+          status: "idle",
+        });
+        await refreshChatThreads();
+      } catch {
+        if (threadMutationGenerationRef.current !== mutationGeneration) {
+          return;
+        }
+        setThreadActionState({
+          dialog: "rename",
+          error: "Network error. The title was not changed.",
+          pendingAction: null,
+          status: "error",
+        });
+      }
+    },
+    [refreshChatThreads, selectedThreadId],
+  );
 
   const archiveSelectedThread = useCallback(async () => {
     if (!selectedThreadId) {
       return;
     }
 
-    await fetch(`/api/chat/threads/${selectedThreadId}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ archived: true }),
+    const archivedThreadId = selectedThreadId;
+    const mutationGeneration = threadMutationGenerationRef.current + 1;
+    threadMutationGenerationRef.current = mutationGeneration;
+    setThreadActionState({
+      dialog: null,
+      error: null,
+      pendingAction: "archive",
+      status: "pending",
     });
-    await refreshChatThreads();
-  }, [refreshChatThreads, selectedThreadId]);
+
+    try {
+      const response = await fetch(`/api/chat/threads/${archivedThreadId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ archived: true }),
+      });
+      if (threadMutationGenerationRef.current !== mutationGeneration) {
+        return;
+      }
+      if (!response.ok) {
+        setThreadActionState({
+          dialog: null,
+          error: threadMutationErrorMessage(response.status),
+          pendingAction: null,
+          status: "error",
+        });
+        return;
+      }
+
+      setChatThreads((currentThreads) =>
+        currentThreads.filter((thread) => thread.id !== archivedThreadId),
+      );
+      startNewChatWithoutHistoryPush();
+      writeChatResourceQuery({}, "replace");
+      setThreadActionState({
+        dialog: null,
+        error: null,
+        pendingAction: null,
+        status: "idle",
+      });
+      await refreshChatThreads();
+    } catch {
+      if (threadMutationGenerationRef.current !== mutationGeneration) {
+        return;
+      }
+      setThreadActionState({
+        dialog: null,
+        error: "Network error. The thread was not archived.",
+        pendingAction: null,
+        status: "error",
+      });
+    }
+  }, [refreshChatThreads, selectedThreadId, startNewChatWithoutHistoryPush]);
 
   const deleteSelectedThread = useCallback(async () => {
     if (!selectedThreadId) {
       return;
     }
 
-    await fetch(`/api/chat/threads/${selectedThreadId}`, { method: "DELETE" });
-    startNewChat();
-    await refreshChatThreads();
-  }, [refreshChatThreads, selectedThreadId, startNewChat]);
+    const deletedThreadId = selectedThreadId;
+    const mutationGeneration = threadMutationGenerationRef.current + 1;
+    threadMutationGenerationRef.current = mutationGeneration;
+    setThreadActionState({
+      dialog: "delete",
+      error: null,
+      pendingAction: "delete",
+      status: "pending",
+    });
+
+    try {
+      const response = await fetch(`/api/chat/threads/${deletedThreadId}`, { method: "DELETE" });
+      if (threadMutationGenerationRef.current !== mutationGeneration) {
+        return;
+      }
+      if (!response.ok) {
+        setThreadActionState({
+          dialog: "delete",
+          error: threadMutationErrorMessage(response.status),
+          pendingAction: null,
+          status: "error",
+        });
+        return;
+      }
+
+      setChatThreads((currentThreads) =>
+        currentThreads.filter((thread) => thread.id !== deletedThreadId),
+      );
+      startNewChatWithoutHistoryPush();
+      writeChatResourceQuery({}, "replace");
+      setThreadActionState({
+        dialog: null,
+        error: null,
+        pendingAction: null,
+        status: "idle",
+      });
+      await refreshChatThreads();
+    } catch {
+      if (threadMutationGenerationRef.current !== mutationGeneration) {
+        return;
+      }
+      setThreadActionState({
+        dialog: "delete",
+        error: "Network error. The thread was not deleted.",
+        pendingAction: null,
+        status: "error",
+      });
+    }
+  }, [refreshChatThreads, selectedThreadId, startNewChatWithoutHistoryPush]);
 
   const rateAssistantMessage = useCallback(
     async (messageId: string, rating: ChatResponseRatingValue) => {
@@ -1105,6 +1408,10 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
 
         if (body.threadId) {
           setSelectedThreadId(body.threadId);
+          setSelectedThreadTitle(chatThreadTitleFromPrompt(trimmedPrompt));
+          setSelectedSavedItemId(null);
+          setSelectedSavedItemStatus("idle");
+          writeChatResourceQuery({ threadId: body.threadId }, "replace");
           void refreshChatThreads();
         }
 
@@ -1300,7 +1607,9 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     messages,
     openChatThread,
     archiveSelectedThread,
+    closeThreadActionDialog,
     deleteSelectedThread,
+    openThreadActionDialog,
     rateAssistantMessage,
     removeSavedItem,
     renameSelectedThread,
@@ -1311,10 +1620,16 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     savedPlanSharing,
     savedTripState,
     savedTripStatus,
+    selectedSavedItem,
+    selectedSavedItemId,
+    selectedSavedItemStatus,
     selectedThreadId,
+    selectedThreadTitle,
+    selectedThreadUnavailable,
     setInputValue,
     startNewChat,
     stopWaitingForAssistant,
+    threadActionState,
     turnOffLocation,
     tripContext,
     tripDataSource,
@@ -1331,19 +1646,30 @@ function ChatWorkspaceView({
   locationState,
   messages,
   openChatThread,
+  archiveSelectedThread,
+  closeThreadActionDialog,
+  deleteSelectedThread,
+  openThreadActionDialog,
   rateAssistantMessage,
   removeSavedItem,
   requestLocation,
+  renameSelectedThread,
   saveItineraryPlan,
   saveRecommendationCard,
   savedItemIds,
   savedPlanSharing,
   savedTripState,
   savedTripStatus,
+  selectedSavedItem,
+  selectedSavedItemId,
+  selectedSavedItemStatus,
   selectedThreadId,
+  selectedThreadTitle,
+  selectedThreadUnavailable,
   setInputValue,
   startNewChat,
   stopWaitingForAssistant,
+  threadActionState,
   turnOffLocation,
   tripContext,
   tripDataSource,
@@ -1411,7 +1737,10 @@ function ChatWorkspaceView({
 
         <section className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] border-border-default border-x bg-surface-default">
           <ChatTopBar
+            archiveSelectedThread={archiveSelectedThread}
             canSharePlan={savedPlanSharing.selectedShareItems.length > 0}
+            closeThreadActionDialog={closeThreadActionDialog}
+            deleteSelectedThread={deleteSelectedThread}
             mobileTripContext={
               showMobileTripContext ? (
                 <MobileTripContextDisclosure
@@ -1427,6 +1756,11 @@ function ChatWorkspaceView({
               void savedPlanSharing.createShareLink();
             }}
             onStartNewChat={startNewChat}
+            openThreadActionDialog={openThreadActionDialog}
+            renameSelectedThread={renameSelectedThread}
+            selectedThreadId={selectedThreadId}
+            selectedThreadTitle={selectedThreadTitle}
+            threadActionState={threadActionState}
           />
 
           <section
@@ -1464,9 +1798,27 @@ function ChatWorkspaceView({
                   onRemoveItem={removeSavedItem}
                   onToggleShareItem={savedPlanSharing.toggleItem}
                   selectedItemCount={savedPlanSharing.selectedShareItems.length}
+                  selectedSavedItemId={selectedSavedItemId}
                   shareStatus={savedPlanSharing.shareStatus}
                   shareUrl={savedPlanSharing.shareUrl}
                 />
+              ) : null}
+              <SelectedSavedItemStatus
+                item={selectedSavedItem}
+                selectedItemId={selectedSavedItemId}
+                status={selectedSavedItemStatus}
+              />
+              {selectedThreadUnavailable ? (
+                <section
+                  aria-label="Selected chat unavailable"
+                  className="rounded-lg border border-border-default bg-white p-4"
+                  data-testid="selected-thread-status"
+                >
+                  <h2 className="m-0 text-base font-black text-text-strong">Chat unavailable</h2>
+                  <p className="m-0 mt-1 text-sm font-bold text-text-muted">
+                    This chat was not found for the current signed-in account.
+                  </p>
+                </section>
               ) : null}
               {hasMessages ? (
                 <>
@@ -1685,16 +2037,34 @@ function ChatTravelRail({
 }
 
 function ChatTopBar({
+  archiveSelectedThread,
   canSharePlan,
+  closeThreadActionDialog,
+  deleteSelectedThread,
   mobileTripContext,
   onSharePlan,
   onStartNewChat,
+  openThreadActionDialog,
+  renameSelectedThread,
+  selectedThreadId,
+  selectedThreadTitle,
+  threadActionState,
 }: {
+  archiveSelectedThread: () => Promise<void>;
   canSharePlan: boolean;
+  closeThreadActionDialog: () => void;
+  deleteSelectedThread: () => Promise<void>;
   mobileTripContext: ReactNode;
   onSharePlan: () => void;
   onStartNewChat: () => void;
+  openThreadActionDialog: (dialog: Exclude<ThreadActionDialog, null>) => void;
+  renameSelectedThread: (title: string) => Promise<void>;
+  selectedThreadId: string | null;
+  selectedThreadTitle: string | null;
+  threadActionState: ThreadActionState;
 }) {
+  const hasSelectedThread = Boolean(selectedThreadId);
+  const isMutatingThread = threadActionState.pendingAction !== null;
   return (
     <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-3 border-border-default border-b bg-surface-glass px-4 py-3 sm:px-6 lg:px-8">
       <div className="grid min-w-0 gap-1">
@@ -1707,6 +2077,16 @@ function ChatTopBar({
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {hasSelectedThread ? (
+          <ThreadActionControls
+            disabled={isMutatingThread}
+            onArchive={() => {
+              void archiveSelectedThread();
+            }}
+            onDelete={() => openThreadActionDialog("delete")}
+            onRename={() => openThreadActionDialog("rename")}
+          />
+        ) : null}
         <Button
           aria-label="Reset chat"
           className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
@@ -1731,8 +2111,225 @@ function ChatTopBar({
         <ChatSettingsLink />
         <ChatAuthActions />
       </div>
+      {threadActionState.error ? (
+        <p className="basis-full m-0 text-sm font-bold text-text-alert" role="status">
+          {threadActionState.error}
+        </p>
+      ) : null}
       {mobileTripContext ? <div className="basis-full min-w-0">{mobileTripContext}</div> : null}
+      {threadActionState.dialog === "rename" ? (
+        <ThreadRenameDialog
+          error={threadActionState.error}
+          isPending={threadActionState.pendingAction === "rename"}
+          title={selectedThreadTitle ?? "Siargao chat"}
+          onCancel={closeThreadActionDialog}
+          onSave={renameSelectedThread}
+        />
+      ) : null}
+      {threadActionState.dialog === "delete" ? (
+        <ThreadDeleteDialog
+          error={threadActionState.error}
+          isPending={threadActionState.pendingAction === "delete"}
+          title={selectedThreadTitle ?? "Siargao chat"}
+          onCancel={closeThreadActionDialog}
+          onDelete={deleteSelectedThread}
+        />
+      ) : null}
     </header>
+  );
+}
+
+function ThreadActionControls({
+  disabled,
+  onArchive,
+  onDelete,
+  onRename,
+}: {
+  disabled: boolean;
+  onArchive: () => void;
+  onDelete: () => void;
+  onRename: () => void;
+}) {
+  return (
+    <fieldset className="flex items-center gap-1">
+      <legend className="sr-only">Selected thread actions</legend>
+      <Button
+        aria-label="Rename selected chat"
+        className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+        disabled={disabled}
+        onClick={onRename}
+        size="icon"
+        type="button"
+        variant="outline"
+      >
+        <Pencil aria-hidden="true" size={16} />
+      </Button>
+      <Button
+        aria-label="Archive selected chat"
+        className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+        disabled={disabled}
+        onClick={onArchive}
+        size="icon"
+        type="button"
+        variant="outline"
+      >
+        <Archive aria-hidden="true" size={16} />
+      </Button>
+      <Button
+        aria-label="Delete selected chat"
+        className="size-10 rounded-md border-red-200 bg-white text-red-700 hover:bg-red-50"
+        disabled={disabled}
+        onClick={onDelete}
+        size="icon"
+        type="button"
+        variant="outline"
+      >
+        <Trash2 aria-hidden="true" size={16} />
+      </Button>
+    </fieldset>
+  );
+}
+
+function ThreadRenameDialog({
+  error,
+  isPending,
+  onCancel,
+  onSave,
+  title,
+}: {
+  error: string | null;
+  isPending: boolean;
+  onCancel: () => void;
+  onSave: (title: string) => Promise<void>;
+  title: string;
+}) {
+  const [value, setValue] = useState(title);
+  const trimmedLength = value.trim().length;
+  const validationError =
+    trimmedLength === 0
+      ? "Enter a title."
+      : trimmedLength > 120
+        ? "Use 120 characters or fewer."
+        : null;
+
+  return (
+    <Dialog.Root open onOpenChange={(open) => (!open ? onCancel() : undefined)}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-brand-navy-980/45" />
+        <Dialog.Content
+          className="fixed top-1/2 left-1/2 z-50 grid w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border border-border-default bg-white p-5 text-text-strong shadow-night-card focus:outline-none"
+          data-testid="thread-rename-dialog"
+        >
+          <div className="grid gap-1">
+            <Dialog.Title className="m-0 text-lg font-black">Rename chat</Dialog.Title>
+            <Dialog.Description className="m-0 text-sm font-bold text-text-muted">
+              Use a private title you can recognize later.
+            </Dialog.Description>
+          </div>
+          <label className="grid gap-2 text-sm font-extrabold" htmlFor="thread-title-input">
+            Thread title
+            <input
+              className="min-h-11 rounded-md border border-border-default bg-white px-3 text-sm font-bold outline-none focus-visible:ring-2 focus-visible:ring-brand-violet-650"
+              disabled={isPending}
+              id="thread-title-input"
+              maxLength={121}
+              value={value}
+              onChange={(event) => setValue(event.currentTarget.value)}
+            />
+          </label>
+          {validationError || error ? (
+            <p className="m-0 text-sm font-bold text-text-alert" role="alert">
+              {validationError ?? error}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap justify-end gap-2">
+            <Dialog.Close asChild>
+              <Button disabled={isPending} type="button" variant="outline">
+                Cancel
+              </Button>
+            </Dialog.Close>
+            <Button
+              disabled={isPending || Boolean(validationError)}
+              type="button"
+              onClick={() => {
+                void onSave(value);
+              }}
+            >
+              {isPending ? "Saving" : "Save"}
+            </Button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function ThreadDeleteDialog({
+  error,
+  isPending,
+  onCancel,
+  onDelete,
+  title,
+}: {
+  error: string | null;
+  isPending: boolean;
+  onCancel: () => void;
+  onDelete: () => Promise<void>;
+  title: string;
+}) {
+  const confirmation = "DELETE";
+  const [value, setValue] = useState("");
+
+  return (
+    <Dialog.Root open onOpenChange={(open) => (!open ? onCancel() : undefined)}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-brand-navy-980/45" />
+        <Dialog.Content
+          className="fixed top-1/2 left-1/2 z-50 grid w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border border-red-200 bg-white p-5 text-text-strong shadow-night-card focus:outline-none"
+          data-testid="thread-delete-dialog"
+        >
+          <div className="grid gap-1">
+            <Dialog.Title className="m-0 text-lg font-black">Delete chat?</Dialog.Title>
+            <Dialog.Description className="m-0 text-sm font-bold text-text-muted">
+              This removes "{title}" from active chat history. Saved planning items remain separate.
+            </Dialog.Description>
+          </div>
+          <label className="grid gap-2 text-sm font-extrabold" htmlFor="thread-delete-confirmation">
+            Type {confirmation} to delete this chat
+            <input
+              className="min-h-11 rounded-md border border-border-default bg-white px-3 text-sm font-bold outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+              disabled={isPending}
+              id="thread-delete-confirmation"
+              value={value}
+              onChange={(event) => setValue(event.currentTarget.value)}
+            />
+          </label>
+          {error ? (
+            <p className="m-0 text-sm font-bold text-text-alert" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap justify-end gap-2">
+            <Dialog.Close asChild>
+              <Button disabled={isPending} type="button" variant="outline">
+                Cancel
+              </Button>
+            </Dialog.Close>
+            <Button
+              className="bg-red-700 text-white hover:bg-red-800"
+              disabled={isPending || value !== confirmation}
+              type="button"
+              onClick={() => {
+                void onDelete();
+              }}
+            >
+              <Trash2 aria-hidden="true" size={16} />
+              {isPending ? "Deleting" : "Delete chat"}
+            </Button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
@@ -2873,6 +3470,13 @@ function formatThreadRecency(thread: ChatThreadSummary) {
   return `${elapsedDays} days ago`;
 }
 
+function savedItemKindLabel(kind: SavedTripItem["kind"]) {
+  if (kind === "itinerary") {
+    return "Itinerary";
+  }
+  return "Place";
+}
+
 function ChatAuthActions() {
   if (!isClerkConfigured) {
     return (
@@ -3097,6 +3701,67 @@ function AssistantRatingControls({
   );
 }
 
+function SelectedSavedItemStatus({
+  item,
+  selectedItemId,
+  status,
+}: {
+  item: SavedTripItem | null;
+  selectedItemId: string | null;
+  status: "idle" | "loading" | "ready" | "not_found" | "error";
+}) {
+  if (!selectedItemId || status === "idle") {
+    return null;
+  }
+
+  if (status === "loading") {
+    return (
+      <p className="m-0 text-sm font-bold text-text-muted" data-testid="selected-saved-item-status">
+        Opening saved planning item.
+      </p>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <p className="m-0 text-sm font-bold text-text-alert" data-testid="selected-saved-item-status">
+        Saved planning is unavailable right now. The selected item was not opened.
+      </p>
+    );
+  }
+
+  if (status === "not_found" || !item) {
+    return (
+      <section
+        aria-label="Saved planning item unavailable"
+        className="rounded-lg border border-border-default bg-white p-4"
+        data-testid="selected-saved-item-status"
+      >
+        <h2 className="m-0 text-base font-black text-text-strong">Saved item unavailable</h2>
+        <p className="m-0 mt-1 text-sm font-bold text-text-muted">
+          This saved planning item was not found for the current browser or signed-in account.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      aria-label="Selected saved planning item"
+      className="rounded-lg border border-brand-violet-650 bg-brand-lagoon-100 p-4"
+      data-testid="selected-saved-item-status"
+    >
+      <p className="m-0 text-xs font-black tracking-[0.08em] text-brand-violet-650 uppercase">
+        Opened saved item
+      </p>
+      <h2 className="m-0 mt-1 text-base font-black text-text-strong">{item.title}</h2>
+      <p className="m-0 mt-1 text-sm font-bold text-text-muted">
+        {savedItemKindLabel(item.kind)} saved planning item.
+      </p>
+    </section>
+  );
+}
+
 function SavedPlanTray({
   copyStatus,
   excludedShareItemIds,
@@ -3106,6 +3771,7 @@ function SavedPlanTray({
   onRemoveItem,
   onToggleShareItem,
   selectedItemCount,
+  selectedSavedItemId,
   shareStatus,
   shareUrl,
 }: {
@@ -3117,9 +3783,24 @@ function SavedPlanTray({
   onRemoveItem: (itemId: string) => void;
   onToggleShareItem: (itemId: string, shouldInclude: boolean) => void;
   selectedItemCount: number;
+  selectedSavedItemId: string | null;
   shareStatus: SavedPlanShareStatus;
   shareUrl: string | null;
 }) {
+  const selectedItemRef = useRef<HTMLFieldSetElement | null>(null);
+
+  useEffect(() => {
+    if (!selectedSavedItemId || !selectedItemRef.current) {
+      return;
+    }
+    selectedItemRef.current.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "center",
+    });
+    selectedItemRef.current.focus({ preventScroll: true });
+  }, [selectedSavedItemId]);
+
   if (items.length === 0) {
     return null;
   }
@@ -3169,13 +3850,26 @@ function SavedPlanTray({
       >
         {items.map((item) => {
           const isIncluded = !excludedShareItemIds.has(item.id);
+          const isSelected = selectedSavedItemId === item.id;
 
           return (
-            <div
-              className="grid min-w-[14rem] max-w-[19rem] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border-default bg-brand-lavender-50 px-3 py-2"
+            <fieldset
+              aria-current={isSelected ? "true" : undefined}
+              className={cn(
+                "grid min-w-[14rem] max-w-[19rem] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-brand-violet-650",
+                isSelected
+                  ? "border-brand-violet-650 bg-brand-lagoon-100"
+                  : "border-border-default bg-brand-lavender-50",
+              )}
               data-testid="saved-plan-item"
+              data-saved-item-selected={isSelected ? "true" : undefined}
               key={item.id}
+              ref={isSelected ? selectedItemRef : null}
+              tabIndex={isSelected ? 0 : -1}
             >
+              <legend className="sr-only">
+                {item.title}, {savedItemKindLabel(item.kind)} saved item
+              </legend>
               <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-brand-lavender-100 text-brand-violet-650">
                 {item.kind === "itinerary" ? (
                   <Navigation aria-hidden="true" size={14} />
@@ -3205,7 +3899,7 @@ function SavedPlanTray({
               >
                 <Trash2 aria-hidden="true" size={14} />
               </Button>
-            </div>
+            </fieldset>
           );
         })}
       </div>
@@ -4828,6 +5522,72 @@ function ChatEmptyState({
 
 function createMessageId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+function sanitizeResourceId(value: string | undefined | null) {
+  const trimmedValue = value?.trim();
+  return trimmedValue ? trimmedValue.slice(0, 160) : null;
+}
+
+function readChatResourceQuery() {
+  if (typeof window === "undefined") {
+    return { savedItemId: null, threadId: null };
+  }
+  const searchParams = new URLSearchParams(window.location.search);
+  return {
+    savedItemId: sanitizeResourceId(searchParams.get("savedItemId")),
+    threadId: sanitizeResourceId(searchParams.get("threadId")),
+  };
+}
+
+function writeChatResourceQuery(
+  resource: { savedItemId?: string | null; threadId?: string | null },
+  mode: "push" | "replace",
+) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const url = new URL(window.location.href);
+  url.searchParams.delete("prompt");
+  url.searchParams.delete("savedItemId");
+  url.searchParams.delete("threadId");
+  if (resource.threadId) {
+    url.searchParams.set("threadId", resource.threadId);
+  } else if (resource.savedItemId) {
+    url.searchParams.set("savedItemId", resource.savedItemId);
+  }
+  const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+  if (mode === "replace") {
+    window.history.replaceState(null, "", nextUrl);
+    return;
+  }
+  window.history.pushState(null, "", nextUrl);
+}
+
+function upsertThreadSummary(threads: readonly ChatThreadSummary[], nextThread: ChatThreadSummary) {
+  const nextThreads = threads.filter((thread) => thread.id !== nextThread.id);
+  if (!nextThread.archivedAt) {
+    nextThreads.unshift(nextThread);
+  }
+  return nextThreads;
+}
+
+function threadMutationErrorMessage(status: number) {
+  if (status === 401) {
+    return "Your session expired. Sign in again before changing this chat.";
+  }
+  if (status === 404) {
+    return "This chat is unavailable for the current account.";
+  }
+  if (status === 400) {
+    return "Review the title and try again.";
+  }
+  return "The chat was not changed. Try again.";
+}
+
+function chatThreadTitleFromPrompt(prompt: string) {
+  const normalizedPrompt = prompt.trim().replace(/\s+/g, " ");
+  return normalizedPrompt.length <= 80 ? normalizedPrompt : `${normalizedPrompt.slice(0, 77)}...`;
 }
 
 function interactiveMessageFromThreadMessage(

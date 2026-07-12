@@ -18,6 +18,7 @@ import {
   postSharedTripPlan,
   readSavedTripState,
   resetSavedTripClientForTests,
+  resolveSavedTripSelection,
   savedItemIdForCard,
   savedItemIdForItinerary,
   savedTripStorageKey,
@@ -199,6 +200,85 @@ describe("saved trip client storage", () => {
       items: [],
       updatedAt: fixedNow,
     });
+  });
+
+  test("resolves exact saved item deep links without falling back to stale or first items", () => {
+    const firstItem = sampleSavedCard({ tripId: "saved_trip_selection" });
+    const selectedItem = sampleSavedCard({
+      id: "place:selected",
+      title: "Selected dinner plan",
+      tripId: "saved_trip_selection",
+    });
+    const state: SavedTripState = {
+      tripId: "saved_trip_selection",
+      items: [firstItem, selectedItem],
+      updatedAt: fixedNow,
+    };
+
+    expect(
+      resolveSavedTripSelection({
+        selectedItemId: selectedItem.id,
+        state,
+        status: "ready",
+      }),
+    ).toEqual({ item: selectedItem, status: "ready" });
+    expect(
+      resolveSavedTripSelection({
+        selectedItemId: "place:missing",
+        state,
+        status: "ready",
+      }),
+    ).toEqual({ item: null, status: "not_found" });
+    expect(
+      resolveSavedTripSelection({
+        selectedItemId: firstItem.id,
+        state: { ...state, items: [] },
+        status: "ready",
+      }),
+    ).toEqual({ item: null, status: "not_found" });
+  });
+
+  test("keeps saved item deep links pending or unavailable until the authoritative source resolves", () => {
+    const staleLocalItem = sampleSavedCard({ tripId: "local_trip_stale" });
+    const staleState: SavedTripState = {
+      tripId: "local_trip_stale",
+      items: [staleLocalItem],
+      updatedAt: fixedNow,
+    };
+    const authenticatedEmptyState: SavedTripState = {
+      tripId: "saved_trip_authenticated",
+      items: [],
+      updatedAt: fixedNow,
+    };
+
+    expect(
+      resolveSavedTripSelection({
+        selectedItemId: staleLocalItem.id,
+        state: staleState,
+        status: "loading",
+      }),
+    ).toEqual({ item: null, status: "loading" });
+    expect(
+      resolveSavedTripSelection({
+        selectedItemId: staleLocalItem.id,
+        state: authenticatedEmptyState,
+        status: "ready",
+      }),
+    ).toEqual({ item: null, status: "not_found" });
+    expect(
+      resolveSavedTripSelection({
+        selectedItemId: staleLocalItem.id,
+        state: staleState,
+        status: "error",
+      }),
+    ).toEqual({ item: null, status: "error" });
+    expect(
+      resolveSavedTripSelection({
+        selectedItemId: null,
+        state: staleState,
+        status: "ready",
+      }),
+    ).toEqual({ item: null, status: "idle" });
   });
 });
 

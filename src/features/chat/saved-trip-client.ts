@@ -50,6 +50,11 @@ export type SavedTripApiResponse = {
   tripId?: string;
   items?: SavedTripItem[];
 };
+export type SavedTripSelectionStatus = "idle" | "loading" | "ready" | "not_found" | "error";
+export type SavedTripSelectionResolution = {
+  item: SavedTripItem | null;
+  status: SavedTripSelectionStatus;
+};
 
 export type StorageLike = Pick<Storage, "getItem" | "setItem">;
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -204,6 +209,29 @@ export function writeAuthenticatedSavedTripState(
     },
     options,
   );
+}
+
+export function resolveSavedTripSelection({
+  selectedItemId,
+  state,
+  status,
+}: {
+  selectedItemId: string | null;
+  state: SavedTripState;
+  status: "loading" | "ready" | "error";
+}): SavedTripSelectionResolution {
+  if (!selectedItemId) {
+    return { item: null, status: "idle" };
+  }
+  if (status === "loading") {
+    return { item: null, status: "loading" };
+  }
+  if (status === "error") {
+    return { item: null, status: "error" };
+  }
+
+  const item = state.items.find((candidate) => candidate.id === selectedItemId) ?? null;
+  return item ? { item, status: "ready" } : { item: null, status: "not_found" };
 }
 
 export function upsertSavedTripItem(

@@ -1636,6 +1636,254 @@ test("loads signed-in chat history and preserves the thread after reload", async
   ).toHaveAttribute("aria-pressed", "true");
 });
 
+test("opens and manages exact chat and saved planning selections", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.addInitScript(() => {
+    window.prompt = () => {
+      throw new Error("window.prompt must not be used for thread rename.");
+    };
+    window.confirm = () => {
+      throw new Error("window.confirm must not be used for thread deletion.");
+    };
+  });
+
+  let threads = [
+    {
+      id: "thread_manage",
+      title: "Cloud 9 logistics",
+      status: "active",
+      createdAt: "2026-06-29T01:00:00.000Z",
+      updatedAt: "2026-06-29T01:00:00.000Z",
+      lastMessageAt: "2026-06-29T01:01:00.000Z",
+    },
+    {
+      id: "thread_backup",
+      title: "Rain backup",
+      status: "active",
+      createdAt: "2026-06-29T02:00:00.000Z",
+      updatedAt: "2026-06-29T02:00:00.000Z",
+      lastMessageAt: "2026-06-29T02:01:00.000Z",
+    },
+  ];
+  const threadMessages: Record<string, E2EThreadMessage[]> = {
+    thread_manage: [
+      {
+        id: "message_manage_user",
+        role: "user",
+        content: "Can I stay near Cloud 9?",
+        status: "complete",
+        sources: [],
+        cards: [],
+        actions: [],
+        itineraries: [],
+        decisionSummaries: [],
+        createdAt: "2026-06-29T01:00:00.000Z",
+      },
+      {
+        id: "message_manage_assistant",
+        role: "assistant",
+        content: "Yes, but pick a quiet street off the main road.",
+        status: "complete",
+        sources: [],
+        cards: [],
+        actions: [],
+        itineraries: [],
+        decisionSummaries: [],
+        rating: null,
+        createdAt: "2026-06-29T01:01:00.000Z",
+      },
+    ],
+    thread_backup: [
+      {
+        id: "message_backup_user",
+        role: "user",
+        content: "What if it rains?",
+        status: "complete",
+        sources: [],
+        cards: [],
+        actions: [],
+        itineraries: [],
+        decisionSummaries: [],
+        createdAt: "2026-06-29T02:00:00.000Z",
+      },
+      {
+        id: "message_backup_assistant",
+        role: "assistant",
+        content: "Keep an indoor cafe backup.",
+        status: "complete",
+        sources: [],
+        cards: [],
+        actions: [],
+        itineraries: [],
+        decisionSummaries: [],
+        rating: null,
+        createdAt: "2026-06-29T02:01:00.000Z",
+      },
+    ],
+  };
+  const savedItems: E2ESavedTripItem[] = [
+    {
+      id: "saved_item_focus",
+      tripId: "saved_trip_manage",
+      kind: "place",
+      title: "Focused dinner plan",
+      createdAt: "2026-06-29T03:00:00.000Z",
+      updatedAt: "2026-06-29T03:00:00.000Z",
+      payload: {
+        type: "recommendation_card",
+        card: {
+          id: "place_focused",
+          kind: "place",
+          title: "Focused dinner plan",
+          fitReasons: ["Easy after sunset."],
+          caveats: ["Confirm hours."],
+          sourceLabel: "Saved plan",
+        },
+      },
+      sources: [],
+      caveats: [],
+    },
+  ];
+
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: {} }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripId: "saved_trip_manage", items: savedItems }),
+    });
+  });
+  await page.route("**/api/chat/threads**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const threadId = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
+
+    if (request.method() === "GET" && url.pathname === "/api/chat/threads") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ threads }),
+      });
+      return;
+    }
+
+    if (request.method() === "GET") {
+      const thread = threads.find((candidate) => candidate.id === threadId);
+      if (!thread) {
+        await route.fulfill({
+          status: 404,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "chat_thread_not_found" }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ thread, messages: threadMessages[thread.id] ?? [] }),
+      });
+      return;
+    }
+
+    if (request.method() === "PATCH") {
+      const body = request.postDataJSON() as { archived?: boolean; title?: string };
+      const thread = threads.find((candidate) => candidate.id === threadId);
+      if (!thread) {
+        await route.fulfill({
+          status: 404,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "chat_thread_not_found" }),
+        });
+        return;
+      }
+      if (body.archived) {
+        threads = threads.filter((candidate) => candidate.id !== threadId);
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ thread: { ...thread, archivedAt: "2026-06-29T04:00:00.000Z" } }),
+        });
+        return;
+      }
+      const renamedThread = { ...thread, title: body.title ?? thread.title };
+      threads = threads.map((candidate) => (candidate.id === threadId ? renamedThread : candidate));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ thread: renamedThread }),
+      });
+      return;
+    }
+
+    if (request.method() === "DELETE") {
+      const exists = threads.some((candidate) => candidate.id === threadId);
+      threads = threads.filter((candidate) => candidate.id !== threadId);
+      await route.fulfill({
+        status: exists ? 200 : 404,
+        contentType: "application/json",
+        body: JSON.stringify(exists ? { deleted: true } : { error: "chat_thread_not_found" }),
+      });
+      return;
+    }
+
+    await route.fallback();
+  });
+
+  await page.goto("/chat?threadId=thread_manage");
+  await expect(page).toHaveURL(/threadId=thread_manage/);
+  await expect(page.getByText("Can I stay near Cloud 9?")).toBeVisible();
+  await expect(page.getByText("Yes, but pick a quiet street off the main road.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Rename selected chat" }).click();
+  const renameDialog = page.getByRole("dialog", { name: "Rename chat" });
+  await expect(renameDialog.getByLabel("Thread title")).toBeVisible();
+  await renameDialog.getByLabel("Thread title").fill("   ");
+  await expect(renameDialog.getByRole("button", { name: "Save" })).toBeDisabled();
+  await renameDialog.getByLabel("Thread title").fill("Cloud 9 quiet stay");
+  await renameDialog.getByRole("button", { name: "Save" }).click();
+  await expect(renameDialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Cloud 9 quiet stay/ })).toBeVisible();
+
+  await page.getByRole("button", { name: "Archive selected chat" }).click();
+  await expect(page).not.toHaveURL(/threadId=/);
+  await expect(page.getByText("Can I stay near Cloud 9?")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Cloud 9 quiet stay/ })).toHaveCount(0);
+
+  await page.getByRole("button", { name: /Rain backup/ }).click();
+  await expect(page).toHaveURL(/threadId=thread_backup/);
+  await page.getByRole("button", { name: "Delete selected chat" }).click();
+  const deleteDialog = page.getByRole("dialog", { name: "Delete chat?" });
+  await expect(deleteDialog.getByRole("button", { name: "Delete chat" })).toBeDisabled();
+  await deleteDialog.getByLabel("Type DELETE to delete this chat").fill("DELETE");
+  await deleteDialog.getByRole("button", { name: "Delete chat" }).click();
+  await expect(deleteDialog).toHaveCount(0);
+  await expect(page).not.toHaveURL(/threadId=/);
+  await expect(page.getByText("What if it rains?")).toHaveCount(0);
+
+  await page.goto("/chat?threadId=thread_missing");
+  await expect(page.getByTestId("selected-thread-status")).toContainText("Chat unavailable");
+  await expect(page).not.toHaveURL(/threadId=thread_missing/);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/chat?savedItemId=saved_item_focus");
+  await expect(page).toHaveURL(/savedItemId=saved_item_focus/);
+  await expect(page.getByTestId("selected-saved-item-status")).toContainText("Focused dinner plan");
+  await expect(
+    page.getByTestId("saved-plan-item").filter({ hasText: "Focused dinner plan" }),
+  ).toHaveAttribute("data-saved-item-selected", "true");
+
+  await page.goto("/chat?savedItemId=saved_item_missing");
+  await expect(page.getByTestId("selected-saved-item-status")).toContainText(
+    "Saved item unavailable",
+  );
+});
+
 test("wraps long user text inside the composer and user message bubble", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockChatApi(page, {
