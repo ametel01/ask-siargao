@@ -67,6 +67,7 @@ test("renders local admin diagnostics without leaking sample secrets", async ({ 
 
 test("edits profile details and reloads the persisted values", async ({ page }) => {
   let patchPayload: Record<string, unknown> | null = null;
+  const patchPayloads: Record<string, unknown>[] = [];
   let profileSaveMode:
     | "success"
     | "delayed"
@@ -116,6 +117,7 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
     if (route.request().method() === "PATCH") {
       const patch = route.request().postDataJSON() as Partial<typeof profile.profile>;
       patchPayload = patch as Record<string, unknown>;
+      patchPayloads.push(patchPayload);
       if (profileSaveMode === "invalid") {
         await route.fulfill({
           contentType: "application/json",
@@ -261,14 +263,21 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await page.getByLabel("Display name").fill("Alex in Siargao");
   await page.getByRole("button", { name: "Save trip brief" }).click();
   await page.getByLabel("Display name").fill("Alex");
-  await page.waitForTimeout(600);
+  const pendingSaveButton = page.getByRole("button", { name: "Saving trip brief" });
+  await expect(pendingSaveButton).toBeDisabled();
+  await pendingSaveButton.click({ force: true });
+  await page.waitForTimeout(100);
+  expect(patchPayloads).toHaveLength(1);
+  expect(patchPayloads[0]).toMatchObject({ displayName: "Alex in Siargao" });
+  await expect(page.getByRole("button", { name: "Save trip brief" })).toBeEnabled();
   await expect(page.getByLabel("Display name")).toHaveValue("Alex");
   await expect(page.getByText("You have unsaved changes")).toBeVisible();
 
   profileSaveMode = "success";
   await page.getByRole("button", { name: "Save trip brief" }).click();
   await expect(page.getByText("Trip brief saved")).toBeVisible();
-  expect(patchPayload).toMatchObject({ displayName: "Alex" });
+  expect(patchPayloads).toHaveLength(2);
+  expect(patchPayloads[1]).toEqual({ displayName: "Alex" });
   await page.reload();
   await expect(page.getByLabel("Display name")).toHaveValue("Alex");
 

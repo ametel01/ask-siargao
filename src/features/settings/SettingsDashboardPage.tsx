@@ -185,6 +185,7 @@ export function SettingsDashboardPage() {
   const [fieldErrors, setFieldErrors] = useState<ProfileFieldErrors>({});
   const [activeSection, setActiveSection] = useState<TripBriefSection>("current-trip");
   const editVersionRef = useRef(0);
+  const saveInFlightRef = useRef(false);
 
   useEffect(() => {
     const syncActiveSection = () => {
@@ -217,7 +218,7 @@ export function SettingsDashboardPage() {
     editVersionRef.current += 1;
     setForm(update);
     setIsDirty(true);
-    setSaveState("idle");
+    setSaveState((current) => (current === "saving" ? current : "idle"));
     setSaveError(null);
     setFieldErrors({});
   }
@@ -238,6 +239,10 @@ export function SettingsDashboardPage() {
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saveInFlightRef.current) {
+      return;
+    }
+    saveInFlightRef.current = true;
     setSaveState("saving");
     setSaveError(null);
     setFieldErrors({});
@@ -253,6 +258,7 @@ export function SettingsDashboardPage() {
       if (!response.ok) {
         const errorBody = (await response.json().catch(() => null)) as ProfileErrorResponse | null;
         if (editVersionRef.current !== savedEditVersion) {
+          setSaveState("idle");
           return;
         }
         const issues = profileFieldErrors(errorBody?.issues);
@@ -269,6 +275,7 @@ export function SettingsDashboardPage() {
       const nextProfile = (await response.json()) as UserProfileResponse;
       setProfile(nextProfile);
       if (editVersionRef.current !== savedEditVersion) {
+        setSaveState("idle");
         return;
       }
       setForm(formFromProfile(nextProfile));
@@ -276,10 +283,13 @@ export function SettingsDashboardPage() {
       setSaveState("saved");
     } catch {
       if (editVersionRef.current !== savedEditVersion) {
+        setSaveState("idle");
         return;
       }
       setSaveError("Your changes are still here. Check your connection and try again.");
       setSaveState("error");
+    } finally {
+      saveInFlightRef.current = false;
     }
   }
 
