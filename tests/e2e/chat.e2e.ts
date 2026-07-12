@@ -628,10 +628,12 @@ test("keeps mobile modal interaction, anonymous edits, and location scope in the
   const dialog = page.getByTestId("mobile-trip-context-dialog");
   await expect(dialog).toHaveAttribute("role", "dialog");
   await expect(dialog.getByRole("button", { name: "Close trip details" })).toBeFocused();
-  await expect(page.getByLabel("Ask Siargao chat workspace")).toHaveAttribute(
-    "aria-hidden",
-    "true",
-  );
+  await expect
+    .poll(() => radixModalBackgroundContract(page))
+    .toEqual({
+      dialogOutsideHiddenBoundary: true,
+      hasRadixHiddenBoundary: true,
+    });
   expect(
     await page.evaluate(
       () =>
@@ -728,7 +730,9 @@ test("suppresses duplicate authenticated saves and preserves newer edits across 
   await dialog.getByLabel("Accommodation").fill("First save");
   await dialog.getByRole("button", { name: "Save trip details" }).click();
   await firstPatchRequest;
-  await dialog.getByRole("button", { name: "Save trip details" }).dispatchEvent("click");
+  const pendingSave = dialog.getByRole("button", { name: "Saving…" });
+  await expect(pendingSave).toBeDisabled();
+  await pendingSave.dispatchEvent("click");
   await dialog.getByLabel("Dates").fill("Newer unsaved date");
   expect(patchCount).toBe(1);
   releaseFirstPatch?.();
@@ -812,10 +816,10 @@ test("shares one typed live-condition projection between mobile and desktop with
   const dialog = page.getByTestId("mobile-trip-context-dialog");
   const mobileWeather = dialog.getByTestId("mobile-weather-condition");
   const mobileSurf = dialog.getByTestId("mobile-surf-condition");
-  await expect(mobileWeather.getByTestId("weather-condition-action")).toHaveText(
+  await expect(mobileWeather.getByTestId("mobile-weather-condition-action")).toHaveText(
     "Choose cover and keep the plan flexible.",
   );
-  await expect(mobileWeather.getByTestId("weather-condition-basis")).toContainText(
+  await expect(mobileWeather.getByTestId("mobile-weather-condition-basis")).toContainText(
     "checked daily forecast",
   );
   await expect(mobileWeather.getByTestId("weather-condition-state")).toHaveText(
@@ -831,7 +835,7 @@ test("shares one typed live-condition projection between mobile and desktop with
   await expect(dialog).not.toContainText("Roads are safe");
   expect(requestCounts()).toEqual({ surf: 1, weather: 1 });
 
-  const mobileSemantics = await conditionDecisionText(dialog);
+  const mobileSemantics = await conditionDecisionText(dialog, "mobile-");
   await page.setViewportSize({ width: 1280, height: 900 });
   const desktopRail = page.getByTestId("context-rail");
   await expect(desktopRail).toBeVisible();
@@ -3012,6 +3016,18 @@ async function focusIsInsideMobileTripDialog(page: Page) {
   });
 }
 
+async function radixModalBackgroundContract(page: Page) {
+  return page.evaluate(() => {
+    const workspace = document.querySelector("[aria-label='Ask Siargao chat workspace']");
+    const dialog = document.querySelector("[data-testid='mobile-trip-context-dialog']");
+    const hiddenBoundary = workspace?.closest('[data-aria-hidden="true"][aria-hidden="true"]');
+    return {
+      dialogOutsideHiddenBoundary: Boolean(dialog && !hiddenBoundary?.contains(dialog)),
+      hasRadixHiddenBoundary: Boolean(hiddenBoundary),
+    };
+  });
+}
+
 async function readTripContextStorage(page: Page) {
   return page.evaluate((key) => {
     const value = localStorage.getItem(key);
@@ -3019,17 +3035,17 @@ async function readTripContextStorage(page: Page) {
   }, tripContextStorageKey);
 }
 
-async function conditionDecisionText(container: Locator) {
+async function conditionDecisionText(container: Locator, idPrefix = "") {
   return {
     weather: {
-      action: await container.getByTestId("weather-condition-action").textContent(),
-      basis: await container.getByTestId("weather-condition-basis").textContent(),
+      action: await container.getByTestId(`${idPrefix}weather-condition-action`).textContent(),
+      basis: await container.getByTestId(`${idPrefix}weather-condition-basis`).textContent(),
       fallback: await container.getByTestId("weather-condition-fallback").textContent(),
       state: await container.getByTestId("weather-condition-state").textContent(),
     },
     surf: {
-      action: await container.getByTestId("surf-condition-action").textContent(),
-      basis: await container.getByTestId("surf-condition-basis").textContent(),
+      action: await container.getByTestId(`${idPrefix}surf-condition-action`).textContent(),
+      basis: await container.getByTestId(`${idPrefix}surf-condition-basis`).textContent(),
       fallback: await container.getByTestId("surf-condition-fallback").textContent(),
       state: await container.getByTestId("surf-condition-state").textContent(),
     },
