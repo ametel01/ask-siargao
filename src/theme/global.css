@@ -397,3 +397,14 @@ summary::-webkit-details-marker {
     @apply font-sans;
   }
 }
+
+.landing-focus-ring:focus-visible {
+  outline-color: var(--landing-focus-ring-color, var(--brand-lagoon-300));
+  outline-style: solid;
+  outline-width: 3px;
+  transition-property: background-color, border-color, box-shadow, color, opacity, transform;
+}
+
+.landing-focus-ring-strong {
+  --landing-focus-ring-color: var(--brand-lagoon-700);
+}
