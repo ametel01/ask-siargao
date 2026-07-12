@@ -69,6 +69,13 @@ import {
   type DecisionStripSummary,
   projectDecisionStrip,
 } from "@/features/chat/decision-strip-presentation";
+import {
+  type LiveConditionDecision,
+  projectSurfConditionDecision,
+  projectWeatherConditionDecision,
+  type SurfConditionSnapshot,
+  type WeatherConditionSnapshot,
+} from "@/features/chat/live-condition-decision";
 import type {
   ArtifactDecisionMetadata,
   ChatClientContext,
@@ -128,41 +135,12 @@ const suggestedPrompts = [
 ];
 
 type ChatContextIcon = typeof MapPin;
-type WeatherPanelSnapshot = {
-  status: "live" | "fallback";
-  locationName: string;
-  fetchedAt: string;
-  freshness: "fresh" | "stale" | "unknown";
-  today: {
-    condition: string;
-    precipitationProbability: number | null;
-    rainSum: number | null;
-    precipitationSum: number | null;
-    windGust: number | null;
-  };
-};
+type WeatherPanelSnapshot = WeatherConditionSnapshot;
 type WeatherPanelResponse = {
   requestedLocation: ForecastLocationLabel;
   weather: WeatherPanelSnapshot;
 };
-type SurfPanelSnapshot = {
-  status: "live" | "partial" | "unavailable";
-  locationName: ForecastLocationLabel;
-  fetchedAt: string;
-  level: "low" | "medium" | "high";
-  recommendation: string;
-  summary: string;
-  metrics: {
-    waves: string;
-    tide: string;
-    wind: string;
-  };
-  tide: {
-    stationName: string;
-    bestWindow: string | null;
-  };
-  caveats: string[];
-};
+type SurfPanelSnapshot = SurfConditionSnapshot;
 type SurfPanelResponse = {
   requestedLocation: ForecastLocationLabel;
   surf: SurfPanelSnapshot;
@@ -201,6 +179,12 @@ const maxPriorChatRequestMessages = 6;
 const chatTimeFormatter = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
   minute: "2-digit",
+});
+const conditionSourceTimeFormatter = new Intl.DateTimeFormat("en-PH", {
+  hour: "numeric",
+  minute: "2-digit",
+  timeZone: "Asia/Manila",
+  timeZoneName: "short",
 });
 
 type LocationCaptureState =
@@ -1401,6 +1385,7 @@ function ChatContextRail({
     data: weatherData,
     error: weatherError,
     isLoading: weatherLoading,
+    isValidating: weatherRefreshing,
     mutate: refreshWeather,
   } = useSWR<WeatherPanelResponse>(weatherUrl, fetchWeatherPanel, {
     revalidateOnFocus: false,
@@ -1410,6 +1395,7 @@ function ChatContextRail({
     data: surfData,
     error: surfError,
     isLoading: surfLoading,
+    isValidating: surfRefreshing,
     mutate: refreshSurf,
   } = useSWR<SurfPanelResponse>(surfUrl, fetchSurfPanel, {
     revalidateOnFocus: false,
@@ -1417,8 +1403,20 @@ function ChatContextRail({
   });
   const weatherSnapshot = weatherData?.weather;
   const surfSnapshot = surfData?.surf;
-  const weatherMetrics = weatherMetricsForPanel(weatherSnapshot);
-  const surfMetrics = surfMetricsForPanel(surfSnapshot);
+  const weatherDecision = projectWeatherConditionDecision({
+    locationName: activeForecastLocation,
+    snapshot: weatherSnapshot,
+    isLoading: weatherLoading,
+    isRefreshing: weatherRefreshing,
+    hasError: Boolean(weatherError),
+  });
+  const surfDecision = projectSurfConditionDecision({
+    locationName: activeForecastLocation,
+    snapshot: surfSnapshot,
+    isLoading: surfLoading,
+    isRefreshing: surfRefreshing,
+    hasError: Boolean(surfError),
+  });
   const tripContextItems = tripContextFacts({
     activeForecastLocation,
     locationState,
@@ -1542,44 +1540,21 @@ function ChatContextRail({
           <div className="flex items-center gap-3">
             <CloudSun aria-hidden="true" className="text-brand-violet-650" size={30} />
             <div className="min-w-0">
-              <p className="m-0 text-xl font-black leading-tight text-text-strong">
-                {weatherPanelTitle({
-                  error: weatherError,
-                  isLoading: weatherLoading,
-                  weatherSnapshot,
-                })}
+              <p
+                className="m-0 text-xl font-black leading-tight text-text-strong"
+                data-testid="weather-condition-action"
+              >
+                {weatherDecision.action}
               </p>
-              <p className="m-0 text-xs font-bold text-text-muted">
-                {weatherPanelSubtitle({
-                  activeForecastLocation,
-                  error: weatherError,
-                  isLoading: weatherLoading,
-                  weatherSnapshot,
-                })}
+              <p
+                className="m-0 text-xs font-bold text-text-muted"
+                data-testid="weather-condition-basis"
+              >
+                {weatherDecision.basis}
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-1.5">
-            {weatherMetrics.map((item) => (
-              <MetricTile key={item.label} label={item.label} value={item.value} />
-            ))}
-          </div>
-          <p
-            className={cn(
-              "m-0 inline-flex items-center gap-2 text-xs font-extrabold",
-              weatherSnapshot?.status === "live" ? "text-confidence-high" : "text-text-muted",
-            )}
-          >
-            <span
-              className={cn(
-                "size-2 rounded-full",
-                weatherSnapshot?.status === "live" ? "bg-confidence-high" : "bg-text-muted",
-              )}
-            />
-            {weatherSnapshot?.status === "live"
-              ? "Checked with Open-Meteo"
-              : "Open-Meteo forecast unavailable"}
-          </p>
+          <ConditionDecisionDetails decision={weatherDecision} />
         </div>
       </ContextCard>
 
@@ -1606,38 +1581,17 @@ function ChatContextRail({
               <WavesHorizontal aria-hidden="true" className="text-brand-violet-650" size={18} />
               {activeForecastLocation}
             </p>
-            <span
-              className={cn(
-                "shrink-0 rounded-full px-2 py-1 text-[0.68rem] font-black leading-none",
-                surfSnapshot?.status === "live"
-                  ? "bg-confidence-high-soft text-confidence-high"
-                  : "bg-brand-lavender-50 text-text-muted",
-              )}
-            >
-              {surfBadgeLabel({ error: surfError, isLoading: surfLoading, surfSnapshot })}
-            </span>
-          </div>
-          <div className="grid grid-cols-3 gap-1.5">
-            {surfMetrics.map((item) => (
-              <MetricTile key={item.label} label={item.label} value={item.value} />
-            ))}
           </div>
           <p
-            className={cn(
-              "m-0 inline-flex items-start gap-2 text-xs font-extrabold",
-              surfSnapshot?.level === "high" ? "text-text-alert" : "text-confidence-high",
-            )}
+            className="m-0 text-base font-black leading-tight text-text-strong"
+            data-testid="surf-condition-action"
           >
-            <span
-              className={cn(
-                "mt-1 size-2 shrink-0 rounded-full",
-                surfSnapshot?.level === "high" ? "bg-text-alert" : "bg-confidence-high",
-              )}
-            />
-            <span className="min-w-0">
-              {surfPanelSummary({ error: surfError, isLoading: surfLoading, surfSnapshot })}
-            </span>
+            {surfDecision.action}
           </p>
+          <p className="m-0 text-xs font-bold text-text-muted" data-testid="surf-condition-basis">
+            {surfDecision.basis}
+          </p>
+          <ConditionDecisionDetails decision={surfDecision} />
         </div>
       </ContextCard>
     </aside>
@@ -1804,116 +1758,94 @@ function iconForTripContextLabel(label: string): ChatContextIcon {
   }
 }
 
-function weatherMetricsForPanel(weather: WeatherPanelSnapshot | undefined) {
-  return [
-    {
-      label: "Rain chance",
-      value:
-        weather?.today.precipitationProbability === null ||
-        weather?.today.precipitationProbability === undefined
-          ? "-"
-          : `${weather.today.precipitationProbability}%`,
-    },
-    {
-      label: "Rain",
-      value:
-        weather?.today.rainSum === null || weather?.today.rainSum === undefined
-          ? "-"
-          : `${formatPanelNumber(weather.today.rainSum)} mm`,
-    },
-    {
-      label: "Wind gust",
-      value:
-        weather?.today.windGust === null || weather?.today.windGust === undefined
-          ? "-"
-          : `${formatPanelNumber(weather.today.windGust)} km/h`,
-    },
-  ];
+function ConditionDecisionDetails({ decision }: { decision: LiveConditionDecision }) {
+  const stateLabel = conditionDecisionStateLabel(decision.state);
+  return (
+    <div className="grid gap-2">
+      {decision.timing ? (
+        <p
+          className="m-0 text-xs font-black text-brand-violet-650"
+          data-testid={`${decision.kind}-condition-timing`}
+        >
+          Planning cue: {decision.timing}
+        </p>
+      ) : null}
+      <div className="grid grid-cols-3 gap-1.5">
+        {decision.supportingMetrics.map((item) => (
+          <MetricTile key={item.label} label={item.label} value={item.value} />
+        ))}
+      </div>
+      <p
+        className="m-0 text-xs font-extrabold text-text-default"
+        data-testid={`${decision.kind}-condition-fallback`}
+      >
+        <span className="font-black text-text-strong">Fallback: </span>
+        {decision.fallback}
+      </p>
+      <p
+        className={cn(
+          "m-0 inline-flex items-center gap-2 text-xs font-extrabold",
+          decision.state === "live" ? "text-confidence-high" : "text-text-muted",
+        )}
+        data-testid={`${decision.kind}-condition-state`}
+      >
+        <span
+          className={cn(
+            "size-2 rounded-full",
+            decision.state === "live" ? "bg-confidence-high" : "bg-text-muted",
+          )}
+        />
+        {stateLabel}
+      </p>
+      {decision.evidenceStatus ? (
+        <p
+          className="m-0 text-xs font-bold text-text-muted"
+          data-testid={`${decision.kind}-condition-evidence`}
+        >
+          {decision.evidenceStatus}
+          {decision.sourceTime ? (
+            <>
+              {" · Forecast time: "}
+              <time dateTime={decision.sourceTime}>
+                {formatConditionSourceTime(decision.sourceTime)}
+              </time>
+            </>
+          ) : null}
+        </p>
+      ) : null}
+      {decision.notChecked.length > 0 ? (
+        <ul className="m-0 grid list-disc gap-1 pl-4 text-xs leading-[1.4] font-bold text-text-muted">
+          {decision.notChecked.map((boundary) => (
+            <li key={boundary}>{boundary}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
 }
 
-function surfMetricsForPanel(surf: SurfPanelSnapshot | undefined) {
-  return [
-    { label: "Waves", value: surf?.metrics.waves ?? "-" },
-    { label: "Tide", value: surf?.metrics.tide ?? "-" },
-    { label: "Wind", value: surf?.metrics.wind ?? "-" },
-  ];
+function conditionDecisionStateLabel(state: LiveConditionDecision["state"]) {
+  switch (state) {
+    case "loading":
+      return "Checking current signals";
+    case "live":
+      return "Checked signals available";
+    case "partial":
+      return "Partial checked signals";
+    case "stale":
+      return "Prior signals; rechecking";
+    case "unavailable":
+      return "Current signals unavailable";
+    case "not-verified":
+      return "Freshness not verified";
+  }
 }
 
-function weatherPanelTitle({
-  error,
-  isLoading,
-  weatherSnapshot,
-}: {
-  error: unknown;
-  isLoading: boolean;
-  weatherSnapshot: WeatherPanelSnapshot | undefined;
-}) {
-  if (isLoading) {
-    return "Loading forecast";
-  }
-  if (error) {
-    return "Forecast unavailable";
-  }
-  return weatherSnapshot?.status === "live" ? weatherSnapshot.today.condition : "Forecast fallback";
-}
-
-function weatherPanelSubtitle({
-  activeForecastLocation,
-  error,
-  isLoading,
-  weatherSnapshot,
-}: {
-  activeForecastLocation: ForecastLocationLabel;
-  error: unknown;
-  isLoading: boolean;
-  weatherSnapshot: WeatherPanelSnapshot | undefined;
-}) {
-  if (isLoading) {
-    return "Checking Open-Meteo";
-  }
-  if (error || !weatherSnapshot) {
-    return `Could not check ${activeForecastLocation}`;
-  }
-  if (weatherSnapshot.status !== "live") {
-    return "Open-Meteo returned fallback data";
-  }
-  return `Updated ${formatPanelDateTime(weatherSnapshot.fetchedAt)}`;
-}
-
-function surfBadgeLabel({
-  error,
-  isLoading,
-  surfSnapshot,
-}: {
-  error: unknown;
-  isLoading: boolean;
-  surfSnapshot: SurfPanelSnapshot | undefined;
-}) {
-  if (isLoading) {
-    return "Checking";
-  }
-  if (error || !surfSnapshot || surfSnapshot.status === "unavailable") {
-    return "Unavailable";
-  }
-  return surfSnapshot.status === "live" ? "Inferred live" : "Partial";
-}
-
-function surfPanelSummary({
-  error,
-  isLoading,
-  surfSnapshot,
-}: {
-  error: unknown;
-  isLoading: boolean;
-  surfSnapshot: SurfPanelSnapshot | undefined;
-}) {
-  if (isLoading) {
-    return "Checking weather and Dapa tide data.";
-  }
-  if (error || !surfSnapshot) {
-    return "Surf conditions could not be inferred.";
-  }
-  return surfSnapshot.recommendation;
+function formatConditionSourceTime(value: string) {
+  const timestamp = new Date(value);
+  return Number.isNaN(timestamp.getTime())
+    ? "unavailable"
+    : conditionSourceTimeFormatter.format(timestamp);
 }
 
 async function fetchTripProfile(url: string): Promise<TripProfileFetchResult> {
@@ -2003,18 +1935,6 @@ function locationSourceLabel(locationState: LocationCaptureState) {
     return "Browser location denied";
   }
   return "No browser location";
-}
-
-function formatPanelNumber(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
-function formatPanelDateTime(value: string) {
-  const timestamp = new Date(value);
-  if (Number.isNaN(timestamp.getTime())) {
-    return "recently";
-  }
-  return chatTimeFormatter.format(timestamp);
 }
 
 function formatThreadRecency(thread: ChatThreadSummary) {

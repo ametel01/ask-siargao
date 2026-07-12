@@ -31,6 +31,7 @@ export type SurfConditionsSnapshot = {
   };
   weather: {
     status: WeatherSnapshot["status"] | "unavailable";
+    freshness: WeatherSnapshot["freshness"] | "unknown";
     condition: string;
     precipitationProbability: number | null;
     rainSum: number | null;
@@ -145,6 +146,7 @@ function buildSurfConditionsSnapshot({
     metrics,
     weather: {
       status: weatherSnapshot?.status ?? "unavailable",
+      freshness: weatherSnapshot?.freshness ?? "unknown",
       condition: weatherSnapshot?.today.condition ?? "Unavailable",
       precipitationProbability: weatherSnapshot?.today.precipitationProbability ?? null,
       rainSum: weatherSnapshot?.today.rainSum ?? weatherSnapshot?.today.precipitationSum ?? null,

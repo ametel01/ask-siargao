@@ -20,6 +20,7 @@ const surfSnapshot: SurfConditionsSnapshot = {
   },
   weather: {
     status: "live",
+    freshness: "fresh",
     condition: "Rain",
     precipitationProbability: 45,
     rainSum: 6,
@@ -59,5 +60,6 @@ describe("public Siargao surf route", () => {
     expect(body.requestedLocation).toBe("Cloud 9");
     expect(body.surf.sourceName).toContain("Tide-Forecast Dapa");
     expect(body.surf.metrics.waves).toBe("0.7m swell / 10s");
+    expect(body.surf.weather.freshness).toBe("fresh");
   });
 });
