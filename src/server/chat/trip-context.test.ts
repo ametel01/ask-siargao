@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
+import { currentAreaValues } from "@/features/settings/profile-options";
 import {
   deriveTripContext,
+  forecastLocationLabels,
   interpretChatRequestIntent,
   normalizeOptionalTripContextDraft,
   normalizeTripContextClientContext,
@@ -15,6 +17,10 @@ import {
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 
 describe("Trip Context module", () => {
+  test("shares the settings current-area registry with forecast controls", () => {
+    expect(forecastLocationLabels).toBe(currentAreaValues);
+  });
+
   test("accepts only bounded structured trip controls and normalizes recognized aliases", () => {
     expect(
       parseUserProfileTripContextPatch({

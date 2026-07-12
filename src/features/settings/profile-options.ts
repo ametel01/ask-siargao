@@ -3,120 +3,94 @@ export type ProfileOption<Value extends string = string> = {
   label: string;
 };
 
-function optionRegistry<const Values extends readonly string[]>(
-  values: Values,
-  labels: Record<Values[number], string>,
-): readonly ProfileOption<Values[number]>[] {
-  return Array.from(values, (value) => ({ value, label: labels[value as Values[number]] }));
+function optionValues<const Options extends readonly ProfileOption[]>(options: Options) {
+  return options.map((option) => option.value) as {
+    readonly [Index in keyof Options]: Options[Index] extends ProfileOption<infer Value>
+      ? Value
+      : never;
+  };
 }
 
-export const budgetLevelValues = ["budget", "mid_range", "premium", "mixed"] as const;
+export const budgetLevelOptions = [
+  { value: "budget", label: "Budget" },
+  { value: "mid_range", label: "Mid-range" },
+  { value: "premium", label: "Premium" },
+  { value: "mixed", label: "A mix of budgets" },
+] as const satisfies readonly ProfileOption[];
+export const budgetLevelValues = optionValues(budgetLevelOptions);
 export type BudgetLevel = (typeof budgetLevelValues)[number];
-export const budgetLevelOptions = optionRegistry(budgetLevelValues, {
-  budget: "Budget",
-  mid_range: "Mid-range",
-  premium: "Premium",
-  mixed: "A mix of budgets",
-});
 
-export const surfAbilityValues = ["beginner", "intermediate", "advanced"] as const;
+export const surfAbilityOptions = [
+  { value: "beginner", label: "Beginner" },
+  { value: "intermediate", label: "Intermediate" },
+  { value: "advanced", label: "Advanced" },
+] as const satisfies readonly ProfileOption[];
+export const surfAbilityValues = optionValues(surfAbilityOptions);
 export type SurfAbility = (typeof surfAbilityValues)[number];
-export const surfAbilityOptions = optionRegistry(surfAbilityValues, {
-  beginner: "Beginner",
-  intermediate: "Intermediate",
-  advanced: "Advanced",
-});
 
-export const travelerTypeValues = [
-  "solo",
-  "couple",
-  "friends",
-  "family",
-  "family_with_kids",
-  "group",
-] as const;
+export const travelerTypeOptions = [
+  { value: "solo", label: "Solo traveler" },
+  { value: "couple", label: "Couple" },
+  { value: "friends", label: "Friends" },
+  { value: "family", label: "Family" },
+  { value: "family_with_kids", label: "Family with children" },
+  { value: "group", label: "Group" },
+] as const satisfies readonly ProfileOption[];
+export const travelerTypeValues = optionValues(travelerTypeOptions);
 export type TravelerType = (typeof travelerTypeValues)[number];
-export const travelerTypeOptions = optionRegistry(travelerTypeValues, {
-  solo: "Solo traveler",
-  couple: "Couple",
-  friends: "Friends",
-  family: "Family",
-  family_with_kids: "Family with children",
-  group: "Group",
-});
 
-export const foodNeedValues = [
-  "vegetarian",
-  "vegan",
-  "halal",
-  "gluten_free",
-  "seafood_free",
-] as const;
+export const foodNeedOptions = [
+  { value: "vegetarian", label: "Vegetarian" },
+  { value: "vegan", label: "Vegan" },
+  { value: "halal", label: "Halal" },
+  { value: "gluten_free", label: "Gluten-free" },
+  { value: "seafood_free", label: "Avoid seafood" },
+] as const satisfies readonly ProfileOption[];
+export const foodNeedValues = optionValues(foodNeedOptions);
 export type FoodNeed = (typeof foodNeedValues)[number];
-export const foodNeedOptions = optionRegistry(foodNeedValues, {
-  vegetarian: "Vegetarian",
-  vegan: "Vegan",
-  halal: "Halal",
-  gluten_free: "Gluten-free",
-  seafood_free: "Avoid seafood",
-});
 
-export const transportModeValues = ["walk", "scooter", "tricycle", "van", "unknown"] as const;
+export const transportModeOptions = [
+  { value: "walk", label: "Walking" },
+  { value: "scooter", label: "Scooter" },
+  { value: "tricycle", label: "Tricycle" },
+  { value: "van", label: "Van or transfer" },
+  { value: "unknown", label: "Not sure yet" },
+] as const satisfies readonly ProfileOption[];
+export const transportModeValues = optionValues(transportModeOptions);
 export type TransportModeValue = (typeof transportModeValues)[number];
-export const transportModeOptions = optionRegistry(transportModeValues, {
-  walk: "Walking",
-  scooter: "Scooter",
-  tricycle: "Tricycle",
-  van: "Van or transfer",
-  unknown: "Not sure yet",
-});
 
-export const weatherPreferenceValues = ["avoid_rain", "flexible"] as const;
+export const weatherPreferenceOptions = [
+  { value: "avoid_rain", label: "Prefer drier plans" },
+  { value: "flexible", label: "Happy to adapt to rain" },
+] as const satisfies readonly ProfileOption[];
+export const weatherPreferenceValues = optionValues(weatherPreferenceOptions);
 export type WeatherPreference = (typeof weatherPreferenceValues)[number];
-export const weatherPreferenceOptions = optionRegistry(weatherPreferenceValues, {
-  avoid_rain: "Prefer drier plans",
-  flexible: "Happy to adapt to rain",
-});
 
-export const durableConstraintValues = [
-  "with_kids",
-  "budget_cheap",
-  "budget_mid",
-  "budget_premium",
-  "rain_avoidance",
-  "avoid_rocky_beach",
-  "no_scooter",
-  "quiet_sleep",
-] as const;
+export const durableConstraintOptions = [
+  { value: "with_kids", label: "Traveling with children" },
+  { value: "budget_cheap", label: "Budget-conscious" },
+  { value: "budget_mid", label: "Mid-range budget" },
+  { value: "budget_premium", label: "Premium budget" },
+  { value: "rain_avoidance", label: "Prefer drier plans" },
+  { value: "avoid_rocky_beach", label: "Avoid rocky beaches" },
+  { value: "no_scooter", label: "No scooter" },
+  { value: "quiet_sleep", label: "Quiet sleep matters" },
+] as const satisfies readonly ProfileOption[];
+export const durableConstraintValues = optionValues(durableConstraintOptions);
 export type DurableConstraint = (typeof durableConstraintValues)[number];
-export const durableConstraintOptions = optionRegistry(durableConstraintValues, {
-  with_kids: "Traveling with children",
-  budget_cheap: "Budget-conscious",
-  budget_mid: "Mid-range budget",
-  budget_premium: "Premium budget",
-  rain_avoidance: "Prefer drier plans",
-  avoid_rocky_beach: "Avoid rocky beaches",
-  no_scooter: "No scooter",
-  quiet_sleep: "Quiet sleep matters",
-});
 export const groupNeedOptions = durableConstraintOptions.filter(
   (option) => option.value === "with_kids" || option.value === "avoid_rocky_beach",
 );
 
-export const currentAreaValues = [
-  "Cloud 9",
-  "General Luna",
-  "Del Carmen",
-  "Dapa",
-  "Siargao Island",
-] as const;
-export const currentAreaOptions = optionRegistry(currentAreaValues, {
-  "Cloud 9": "Cloud 9",
-  "General Luna": "General Luna",
-  "Del Carmen": "Del Carmen",
-  Dapa: "Dapa",
-  "Siargao Island": "Siargao Island",
-});
+export const currentAreaOptions = [
+  { value: "Cloud 9", label: "Cloud 9" },
+  { value: "General Luna", label: "General Luna" },
+  { value: "Del Carmen", label: "Del Carmen" },
+  { value: "Dapa", label: "Dapa" },
+  { value: "Siargao Island", label: "Siargao Island" },
+] as const satisfies readonly ProfileOption[];
+export const currentAreaValues = optionValues(currentAreaOptions);
+export type CurrentAreaValue = (typeof currentAreaValues)[number];
 
 const legacyAliases = {
   budgetLevel: {

@@ -180,6 +180,9 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
         profile: {
           ...profile.profile,
           ...patch,
+          ...(patch.tripContext
+            ? { tripContext: { ...profile.profile.tripContext, ...patch.tripContext } }
+            : {}),
           updatedAt: "2026-06-29T05:00:00.000Z",
         },
       };
@@ -268,6 +271,8 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await page.getByLabel("Budget level").selectOption("premium");
   await page.getByLabel("Weather preference").selectOption("flexible");
   await page.getByLabel("Vegan").check();
+  await page.getByLabel("Gluten-free").check();
+  await page.getByRole("button", { name: "Add Food", exact: true }).click();
   await page.getByLabel("Quiet sleep matters").check();
   await page.getByLabel("Accommodation").fill("Pacifico beach stay");
   await page.getByLabel("Trip notes").fill("Arriving in September");
@@ -304,11 +309,22 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
 
   profileSaveMode = "invalidMultiValue";
   await page.getByRole("button", { name: "Save trip brief" }).click();
-  for (const field of ["Interests", "Preferred areas", "Food needs"]) {
-    const control = page.getByRole("group", { name: field });
-    await expect(control).toHaveAttribute("aria-invalid", "true");
-    await expect(control).toHaveAttribute("aria-describedby", /-error$/);
-  }
+  await expect(page.getByRole("button", { name: "Remove Food" })).toHaveAttribute(
+    "aria-describedby",
+    "profile-interests-error-item-1",
+  );
+  await expect(page.locator("#profile-interests-error-item-1")).toContainText(
+    "Interests must be unique.",
+  );
+  await expect(page.getByRole("button", { name: "Remove Cloud 9" })).toHaveAttribute(
+    "aria-describedby",
+    "profile-preferred-areas-error-item-0",
+  );
+  await expect(page.getByLabel("Vegan")).toHaveAttribute(
+    "aria-describedby",
+    "profile-food-needs-error-item-0",
+  );
+  await expect(page.getByLabel("Gluten-free")).not.toHaveAttribute("aria-invalid", "true");
 
   profileSaveMode = "server";
   await page.getByLabel("Surf ability").selectOption("intermediate");
@@ -323,6 +339,9 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
     page.getByText("Your changes are still here. Check your connection and try again."),
   ).toBeVisible();
   await expect(page.getByLabel("Trip notes")).toHaveValue("Arriving in October");
+  await expect(page.getByLabel("Vegan")).toBeChecked();
+  await expect(page.getByLabel("Gluten-free")).toBeChecked();
+  await expect(page.getByText("Food", { exact: true })).toBeVisible();
 
   profileSaveMode = "success";
   await page.getByRole("button", { name: "Save trip brief" }).click();
@@ -330,7 +349,7 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await expect(page.getByText("Trip brief saved")).toBeVisible();
   expect(patchPayload).toMatchObject({
     budgetLevel: "premium",
-    foodNeeds: ["vegan"],
+    foodNeeds: ["vegan", "gluten_free"],
     surfAbility: "intermediate",
     quietSleepPreference: true,
     weatherPreference: "flexible",
@@ -351,6 +370,8 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await expect(page.getByText("Pacifico", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Trip notes")).toHaveValue("Arriving in October");
   await expect(page.getByLabel("Accommodation")).toHaveValue("Pacifico beach stay");
+  await expect(page.getByLabel("Vegan")).toBeChecked();
+  await expect(page.getByLabel("Gluten-free")).toBeChecked();
   await expect(page.getByLabel("Send occasional Ask Siargao product updates")).toBeChecked();
 
   await page.goto("/profile");
@@ -389,6 +410,10 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   });
   await expect(page.getByLabel("Add preferred area")).toBeVisible();
   await expect(page.getByRole("button", { name: "Save trip brief" })).toBeVisible();
+  const hasZoomedHorizontalOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(hasZoomedHorizontalOverflow).toBe(false);
   await page.screenshot({
     path: "test-results/issue-122-structured-controls-mobile-390-zoom-200.png",
     fullPage: true,
@@ -413,7 +438,7 @@ test("preserves untouched legacy multi-value tokens byte-for-byte on an unrelate
       travelStyle: null,
       budgetLevel: "slow_travel",
       dietaryNotes: null,
-      foodNeeds: [],
+      foodNeeds: ["vegan", "plant_forward_custom"],
       accessibilityNotes: null,
       surfAbility: "Ocean whisperer",
       quietSleepPreference: null,
@@ -422,6 +447,7 @@ test("preserves untouched legacy multi-value tokens byte-for-byte on an unrelate
       preferredAreas: ["Cloud 9", "  Secret corner  "],
       tripContext: {
         travelerType: "Remote work retreat",
+        durableConstraints: ["quiet_sleep", "legacy_low_ferry"],
       },
       marketingConsent: false,
       createdAt: "2026-06-29T04:00:00.000Z",
@@ -445,15 +471,23 @@ test("preserves untouched legacy multi-value tokens byte-for-byte on an unrelate
   await expect(page.getByText("Surf, yoga", { exact: true })).toBeVisible();
   await expect(page.getByText("Food", { exact: true })).toBeVisible();
   await expect(page.getByText("Secret corner", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Vegan")).toBeChecked();
+  await expect(page.getByLabel("Legacy value: plant_forward_custom")).toBeChecked();
+  await expect(page.getByLabel("Surf ability")).toHaveValue("Ocean whisperer");
+  await expect(page.getByLabel("Budget level")).toHaveValue("slow_travel");
+  await expect(page.getByLabel("Traveler or group type")).toHaveValue("Remote work retreat");
   await page.getByLabel("Display name").fill("Renamed traveler");
   await page.getByRole("button", { name: "Save trip brief" }).click();
   await expect(page.getByText("Trip brief saved")).toBeVisible();
 
-  expect(patchPayload).not.toHaveProperty("interests");
-  expect(patchPayload).not.toHaveProperty("preferredAreas");
-  expect(patchPayload).not.toHaveProperty("foodNeeds");
+  expect(patchPayload).toEqual({ displayName: "Renamed traveler" });
   expect(profile.profile.interests).toEqual(["Surf, yoga", "  Food  "]);
   expect(profile.profile.preferredAreas).toEqual(["Cloud 9", "  Secret corner  "]);
+  expect(profile.profile.foodNeeds).toEqual(["vegan", "plant_forward_custom"]);
+  expect(profile.profile.tripContext.durableConstraints).toEqual([
+    "quiet_sleep",
+    "legacy_low_ferry",
+  ]);
 });
 
 test("renders public human, markdown, JSON, sitemap, and llms surfaces", async ({ page }) => {

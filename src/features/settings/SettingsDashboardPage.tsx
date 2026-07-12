@@ -59,7 +59,7 @@ type ProfileFormState = {
   dateRange: string;
   currentArea: string;
   travelerType: string;
-  transportMode: "" | "walk" | "scooter" | "tricycle" | "van" | "unknown";
+  transportMode: string;
   rideTimeLimitMinutes: string;
   durableConstraints: string[];
   tripNotes: string;
@@ -771,6 +771,8 @@ function TravelProfileSection({
   saveState: "idle" | "saving" | "saved" | "error";
   setForm: (update: (current: ProfileFormState) => ProfileFormState) => void;
 }) {
+  const selectedDurableConstraints = new Set(form.durableConstraints);
+
   return (
     <section className="grid min-w-0 gap-6">
       <section
@@ -895,6 +897,7 @@ function TravelProfileSection({
             label="Interests"
             value={form.interests}
             error={fieldErrors.interests}
+            itemErrors={indexedFieldErrors(fieldErrors, "interests")}
             onChange={(interests) => setForm((current) => ({ ...current, interests }))}
             suggestions={["Surfing", "Food", "Island hopping", "Nature", "Wellness"]}
             maxLength={60}
@@ -904,6 +907,7 @@ function TravelProfileSection({
             label="Preferred areas"
             value={form.preferredAreas}
             error={fieldErrors.preferredAreas}
+            itemErrors={indexedFieldErrors(fieldErrors, "preferredAreas")}
             onChange={(preferredAreas) => setForm((current) => ({ ...current, preferredAreas }))}
             suggestions={["Cloud 9", "General Luna", "Del Carmen", "Dapa", "Pacifico"]}
             maxLength={80}
@@ -932,6 +936,7 @@ function TravelProfileSection({
           label="Food needs"
           value={form.foodNeeds}
           error={fieldErrors.foodNeeds}
+          itemErrors={indexedFieldErrors(fieldErrors, "foodNeeds")}
           options={foodNeedOptions}
           onChange={(foodNeeds) => setForm((current) => ({ ...current, foodNeeds }))}
         />
@@ -970,7 +975,7 @@ function TravelProfileSection({
           <legend className="px-1 text-sm font-extrabold text-text-default">Group needs</legend>
           {groupNeedOptions.map((option) => (
             <PreferenceCheckbox
-              checked={form.durableConstraints.includes(option.value)}
+              checked={selectedDurableConstraints.has(option.value)}
               error={fieldErrors["tripContext.durableConstraints"]}
               errorId="profile-durable-constraints-error"
               key={option.value}
@@ -1201,44 +1206,76 @@ function NumberField({
 
 function MultiOptionField({
   error,
+  itemErrors = {},
   label,
   onChange,
   options,
   value,
 }: {
   error?: string;
+  itemErrors?: Readonly<Record<number, string>>;
   label: string;
   onChange: (value: string[]) => void;
   options: readonly { value: string; label: string }[];
   value: string[];
 }) {
   const errorId = fieldErrorId(label);
+  const selectedLegacyValues = value.filter(
+    (selected, index) => value.indexOf(selected) === index && !isOptionValue(selected, options),
+  );
+  const availableOptions = [
+    ...options,
+    ...selectedLegacyValues.map((selected) => ({
+      value: selected,
+      label: legacyOptionLabel(selected),
+    })),
+  ];
+  const itemErrorIds = Object.keys(itemErrors).map((index) => `${errorId}-item-${index}`);
+  const describedBy = [error ? errorId : null, ...itemErrorIds].filter(Boolean).join(" ");
   return (
     <fieldset
-      aria-describedby={error ? errorId : undefined}
-      aria-invalid={Boolean(error)}
+      aria-describedby={describedBy || undefined}
+      aria-invalid={Boolean(error || itemErrorIds.length)}
       className="grid min-w-0 gap-3 rounded-md border border-border-default p-4"
     >
       <legend className="px-1 text-sm font-extrabold text-text-default">{label}</legend>
       <div className="grid gap-3 sm:grid-cols-2">
-        {options.map((option) => (
-          <label className="flex min-h-11 items-center gap-3 text-sm font-bold" key={option.value}>
-            <input
-              aria-invalid={Boolean(error)}
-              checked={value.includes(option.value)}
-              className="size-4 accent-brand-lagoon-600"
-              type="checkbox"
-              onChange={(event) =>
-                onChange(
-                  event.target.checked
-                    ? [...value, option.value]
-                    : value.filter((selected) => selected !== option.value),
-                )
-              }
-            />
-            {option.label}
-          </label>
-        ))}
+        {availableOptions.map((option) => {
+          const selectedIndex = value.indexOf(option.value);
+          const itemError = selectedIndex >= 0 ? itemErrors[selectedIndex] : undefined;
+          const itemErrorId = `${errorId}-item-${selectedIndex}`;
+          return (
+            <label
+              className="grid min-h-11 min-w-0 grid-cols-[auto_1fr] items-center gap-x-3 text-sm font-bold"
+              key={option.value}
+            >
+              <input
+                aria-describedby={itemError ? itemErrorId : undefined}
+                aria-invalid={Boolean(itemError)}
+                checked={selectedIndex >= 0}
+                className="size-4 accent-brand-lagoon-600"
+                type="checkbox"
+                onChange={(event) =>
+                  onChange(
+                    event.target.checked
+                      ? [...value, option.value]
+                      : value.filter((selected) => selected !== option.value),
+                  )
+                }
+              />
+              {option.label}
+              {itemError ? (
+                <span
+                  className="col-start-2 text-xs font-bold text-red-700"
+                  id={itemErrorId}
+                  role="alert"
+                >
+                  {itemError}
+                </span>
+              ) : null}
+            </label>
+          );
+        })}
       </div>
       <FieldError id={errorId} message={error} />
     </fieldset>
@@ -1247,6 +1284,7 @@ function MultiOptionField({
 
 function MultiValueField({
   error,
+  itemErrors = {},
   label,
   maxItems,
   maxLength,
@@ -1255,6 +1293,7 @@ function MultiValueField({
   value,
 }: {
   error?: string;
+  itemErrors?: Readonly<Record<number, string>>;
   label: string;
   maxItems: number;
   maxLength: number;
@@ -1268,6 +1307,8 @@ function MultiValueField({
   const [entry, setEntry] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const combinedError = localError ?? error;
+  const itemErrorIds = Object.keys(itemErrors).map((index) => `${errorId}-item-${index}`);
+  const describedBy = [combinedError ? errorId : null, ...itemErrorIds].filter(Boolean).join(" ");
   const tokens = value.map((item, index) => {
     const normalized = item.normalize("NFKC").toLocaleLowerCase();
     return {
@@ -1303,8 +1344,8 @@ function MultiValueField({
 
   return (
     <fieldset
-      aria-describedby={combinedError ? errorId : undefined}
-      aria-invalid={Boolean(combinedError)}
+      aria-describedby={describedBy || undefined}
+      aria-invalid={Boolean(combinedError || itemErrorIds.length)}
       className="grid min-w-0 gap-3 rounded-md border border-border-default p-4"
     >
       <legend className="px-1 text-sm font-extrabold text-text-default">{label}</legend>
@@ -1313,26 +1354,41 @@ function MultiValueField({
       </p>
       {value.length ? (
         <ul aria-label={`Selected ${label.toLowerCase()}`} className="m-0 flex flex-wrap gap-2 p-0">
-          {tokens.map((token) => (
-            <li
-              className="flex min-h-11 max-w-full items-center gap-2 rounded-md bg-brand-lagoon-100 px-3 text-sm font-bold text-text-default"
-              key={token.key}
-            >
-              <span className="min-w-0 break-all">{token.item}</span>
-              <button
-                aria-label={`Remove ${token.item}`}
-                className="shrink-0 rounded-sm px-1 text-brand-lagoon-800 underline outline-none focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
-                type="button"
-                onClick={() => {
-                  onChange(value.filter((_, itemIndex) => itemIndex !== token.index));
-                  setLocalError(null);
-                  inputRef.current?.focus();
-                }}
+          {tokens.map((token) => {
+            const itemError = itemErrors[token.index];
+            const itemErrorId = `${errorId}-item-${token.index}`;
+            return (
+              <li
+                aria-describedby={itemError ? itemErrorId : undefined}
+                className="grid min-h-11 max-w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 rounded-md bg-brand-lagoon-100 px-3 text-sm font-bold text-text-default"
+                key={token.key}
               >
-                Remove
-              </button>
-            </li>
-          ))}
+                <span className="min-w-0 break-all">{token.item}</span>
+                <button
+                  aria-label={`Remove ${token.item}`}
+                  aria-describedby={itemError ? itemErrorId : undefined}
+                  className="shrink-0 rounded-sm px-1 text-brand-lagoon-800 underline outline-none focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+                  type="button"
+                  onClick={() => {
+                    onChange(value.filter((_, itemIndex) => itemIndex !== token.index));
+                    setLocalError(null);
+                    inputRef.current?.focus();
+                  }}
+                >
+                  Remove
+                </button>
+                {itemError ? (
+                  <span
+                    className="col-span-2 pb-2 text-xs font-bold text-red-700"
+                    id={itemErrorId}
+                    role="alert"
+                  >
+                    {itemError}
+                  </span>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       ) : null}
       <div className="flex min-w-0 flex-wrap gap-2">
@@ -1456,31 +1512,19 @@ function formFromProfile(profile: UserProfileResponse): ProfileFormState {
     displayName: profile.profile.displayName ?? "",
     homeCountry: profile.profile.homeCountry ?? "",
     travelStyle: profile.profile.travelStyle ?? "",
-    budgetLevel: optionValueOrLegacy(
-      profile.profile.budgetLevel,
-      budgetLevelOptions,
-      profileLegacyAliases.budgetLevel,
-    ),
+    budgetLevel: profile.profile.budgetLevel ?? "",
     dietaryNotes: profile.profile.dietaryNotes ?? "",
     foodNeeds: profile.profile.foodNeeds,
     accessibilityNotes: profile.profile.accessibilityNotes ?? "",
     interests: profile.profile.interests,
     preferredAreas: profile.profile.preferredAreas,
-    surfAbility: optionValueOrLegacy(
-      profile.profile.surfAbility,
-      surfAbilityOptions,
-      profileLegacyAliases.surfAbility,
-    ),
+    surfAbility: profile.profile.surfAbility ?? "",
     quietSleepPreference: profile.profile.quietSleepPreference,
     weatherPreference: profile.profile.weatherPreference ?? "",
     accommodation: tripContext.accommodation ?? "",
     dateRange: tripContext.dateRange ?? "",
     currentArea: tripContext.currentArea ?? "",
-    travelerType: optionValueOrLegacy(
-      tripContext.travelerType,
-      travelerTypeOptions,
-      profileLegacyAliases.travelerType,
-    ),
+    travelerType: tripContext.travelerType ?? "",
     transportMode: tripContext.transportMode ?? "",
     rideTimeLimitMinutes: tripContext.rideTimeLimitMinutes?.toString() ?? "",
     durableConstraints: tripContext.durableConstraints ?? [],
@@ -1512,32 +1556,51 @@ function profileLoadStatus({
 }
 
 function profilePatchFromForm(form: ProfileFormState, profile: UserProfileResponse | null) {
+  const stored = profile ? formFromProfile(profile) : emptyForm;
+  const tripContext = {
+    ...textPatch("notes", form.tripNotes, stored.tripNotes),
+    ...textPatch("accommodation", form.accommodation, stored.accommodation),
+    ...textPatch("dateRange", form.dateRange, stored.dateRange),
+    ...changedOptionPatch("currentArea", form.currentArea, stored.currentArea, currentAreaOptions),
+    ...changedOptionPatch(
+      "travelerType",
+      form.travelerType,
+      stored.travelerType,
+      travelerTypeOptions,
+    ),
+    ...changedOptionPatch(
+      "transportMode",
+      form.transportMode,
+      stored.transportMode,
+      transportModeOptions,
+    ),
+    ...(form.rideTimeLimitMinutes === stored.rideTimeLimitMinutes
+      ? {}
+      : { rideTimeLimitMinutes: nullableInteger(form.rideTimeLimitMinutes) }),
+    ...arrayPatch("durableConstraints", form.durableConstraints, stored.durableConstraints),
+  };
+
   return {
-    displayName: nullableText(form.displayName),
-    homeCountry: nullableText(form.homeCountry),
-    travelStyle: nullableText(form.travelStyle),
-    ...optionPatch("budgetLevel", form.budgetLevel, budgetLevelOptions),
-    dietaryNotes: nullableText(form.dietaryNotes),
-    ...arrayPatch("foodNeeds", form.foodNeeds, profile?.profile.foodNeeds),
-    accessibilityNotes: nullableText(form.accessibilityNotes),
-    ...optionPatch("surfAbility", form.surfAbility, surfAbilityOptions),
-    ...(form.quietSleepPreference === null
+    ...textPatch("displayName", form.displayName, stored.displayName),
+    ...textPatch("homeCountry", form.homeCountry, stored.homeCountry),
+    ...textPatch("travelStyle", form.travelStyle, stored.travelStyle),
+    ...changedOptionPatch("budgetLevel", form.budgetLevel, stored.budgetLevel, budgetLevelOptions),
+    ...textPatch("dietaryNotes", form.dietaryNotes, stored.dietaryNotes),
+    ...arrayPatch("foodNeeds", form.foodNeeds, stored.foodNeeds),
+    ...textPatch("accessibilityNotes", form.accessibilityNotes, stored.accessibilityNotes),
+    ...changedOptionPatch("surfAbility", form.surfAbility, stored.surfAbility, surfAbilityOptions),
+    ...(form.quietSleepPreference === stored.quietSleepPreference
       ? {}
       : { quietSleepPreference: form.quietSleepPreference }),
-    weatherPreference: form.weatherPreference || null,
-    ...arrayPatch("interests", form.interests, profile?.profile.interests),
-    ...arrayPatch("preferredAreas", form.preferredAreas, profile?.profile.preferredAreas),
-    tripContext: {
-      notes: nullableText(form.tripNotes),
-      accommodation: nullableText(form.accommodation),
-      dateRange: nullableText(form.dateRange),
-      currentArea: form.currentArea || null,
-      ...optionPatch("travelerType", form.travelerType, travelerTypeOptions),
-      transportMode: form.transportMode || null,
-      rideTimeLimitMinutes: nullableInteger(form.rideTimeLimitMinutes),
-      durableConstraints: form.durableConstraints,
-    },
-    marketingConsent: form.marketingConsent,
+    ...(form.weatherPreference === stored.weatherPreference
+      ? {}
+      : { weatherPreference: form.weatherPreference || null }),
+    ...arrayPatch("interests", form.interests, stored.interests),
+    ...arrayPatch("preferredAreas", form.preferredAreas, stored.preferredAreas),
+    ...(Object.keys(tripContext).length ? { tripContext } : {}),
+    ...(form.marketingConsent === stored.marketingConsent
+      ? {}
+      : { marketingConsent: form.marketingConsent }),
   };
 }
 
@@ -1560,6 +1623,19 @@ function toggleConstraint(
 function nullableText(value: string) {
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function textPatch(key: string, value: string, storedValue: string) {
+  return value === storedValue ? {} : { [key]: nullableText(value) };
+}
+
+function changedOptionPatch<Value extends string>(
+  key: string,
+  value: string,
+  storedValue: string,
+  options: readonly { value: Value }[],
+) {
+  return value === storedValue ? {} : optionPatch(key, value, options);
 }
 
 function optionPatch<Value extends string>(
@@ -1605,8 +1681,22 @@ function profileFieldErrors(issues: ProfileErrorResponse["issues"]): ProfileFiel
 }
 
 function profileFieldErrorPath(path: string | undefined) {
-  const multiValueField = /^(interests|preferredAreas|foodNeeds)(?:\.\d+)?$/.exec(path ?? "");
-  return multiValueField?.[1] ?? path;
+  return path;
+}
+
+function indexedFieldErrors(errors: ProfileFieldErrors, field: string) {
+  const indexedErrors: Record<number, string> = {};
+  const prefix = `${field}.`;
+  for (const [path, message] of Object.entries(errors)) {
+    if (!path.startsWith(prefix)) {
+      continue;
+    }
+    const index = Number(path.slice(prefix.length));
+    if (Number.isSafeInteger(index) && index >= 0) {
+      indexedErrors[index] = message;
+    }
+  }
+  return indexedErrors;
 }
 
 function sectionFromHash(hash: string): TripBriefSection | null {

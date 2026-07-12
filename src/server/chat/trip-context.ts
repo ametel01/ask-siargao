@@ -1,10 +1,12 @@
 import type {
+  CurrentAreaValue,
   DurableConstraint,
   TransportModeValue,
   WeatherPreference,
 } from "@/features/settings/profile-options";
 import {
   currentAreaOptions,
+  currentAreaValues,
   durableConstraintValues,
   isOptionValue,
   normalizeSurfAbility,
@@ -27,14 +29,7 @@ export type TripContextLocationSource =
   | "profile"
   | "ui_draft";
 
-export type TripContextLocationLabel =
-  | "Cloud 9"
-  | "Del Carmen Port"
-  | "Sugba Lagoon"
-  | "General Luna"
-  | "Del Carmen"
-  | "Dapa"
-  | "Siargao Island";
+export type TripContextLocationLabel = CurrentAreaValue | "Del Carmen Port" | "Sugba Lagoon";
 
 export type TripContextLocation = {
   label: TripContextLocationLabel;
@@ -107,12 +102,7 @@ export type TripContext = {
   unresolvedReference?: "there";
 };
 
-export type ForecastLocationLabel =
-  | "Siargao Island"
-  | "Cloud 9"
-  | "General Luna"
-  | "Del Carmen"
-  | "Dapa";
+export type ForecastLocationLabel = CurrentAreaValue;
 
 export type TripContextDraft = {
   accommodation?: string;
@@ -191,25 +181,11 @@ const defaultNearbyLocation: TripContextLocation = {
   source: "gazetteer",
 };
 
-const knownLocationLabels = [
-  "Del Carmen Port",
-  "Sugba Lagoon",
-  "General Luna",
-  "Cloud 9",
-  "Del Carmen",
-  "Dapa",
-  "Siargao Island",
-] as const;
+const knownLocationLabels = ["Del Carmen Port", "Sugba Lagoon", ...currentAreaValues] as const;
 
 export const tripContextStorageKey = "ask-siargao:trip-context:v1";
 
-export const forecastLocationLabels = [
-  "Cloud 9",
-  "General Luna",
-  "Del Carmen",
-  "Dapa",
-  "Siargao Island",
-] as const satisfies readonly ForecastLocationLabel[];
+export const forecastLocationLabels = currentAreaValues;
 
 export const tripContextProfileNotesMaxLength = 1000;
 const maxTripContextTextLength = 80;
