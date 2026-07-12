@@ -60,6 +60,11 @@ import { InputGroupButton } from "@/components/ui/input-group-button";
 import { clerkAppearance } from "@/features/auth/clerk-appearance";
 import { isClerkConfigured } from "@/features/auth/clerk-config";
 import {
+  type AnswerArrivalMotionActivation,
+  consumeAnswerArrivalMotionActivation,
+  createAnswerArrivalMotionActivation,
+} from "@/features/chat/answer-arrival-motion";
+import {
   type AssistantInlineToken,
   type AssistantMarkdownBlock,
   type AssistantMarkdownTableAlignment,
@@ -229,6 +234,7 @@ type InteractiveChatMessage = {
   itineraries?: readonly ItineraryPlanArtifact[];
   decisionSummaries?: readonly DecisionSummaryArtifact[];
   sources?: readonly ChatSourceArtifact[];
+  answerArrivalMotion?: AnswerArrivalMotionActivation;
 };
 
 type ChatActionArtifact = {
@@ -1050,6 +1056,12 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
             message.id === pendingAssistantId
               ? {
                   ...message,
+                  answerArrivalMotion: createAnswerArrivalMotionActivation({
+                    messageId: pendingAssistantId,
+                    previousStatus: message.status,
+                    nextStatus: "complete",
+                    hasDecisionStrip: Boolean(projectDecisionStrip(body.decisionSummaries)),
+                  }),
                   messageId: body.assistantMessageId ?? message.messageId,
                   text: responseMessage,
                   timestamp: formatTimestamp(),
@@ -1080,6 +1092,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
             message.id === pendingAssistantId
               ? {
                   ...message,
+                  answerArrivalMotion: undefined,
                   text: chatErrorMessage,
                   timestamp: formatTimestamp(),
                   status: "error",
@@ -1134,6 +1147,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
           message.id === assistantMessageId && message.status === "pending"
             ? {
                 ...message,
+                answerArrivalMotion: undefined,
                 text: responseStoppedStatusText,
                 timestamp: formatTimestamp(),
                 status: "stopped",
@@ -2901,7 +2915,10 @@ function ChatMessage({
         <div className="flex min-w-0 items-start gap-3">
           <div className="grid min-w-0 flex-1 gap-4">
             {!isError && !isPending && message.decisionSummaries?.length ? (
-              <DecisionStrip summaries={message.decisionSummaries} />
+              <DecisionStrip
+                arrivalMotion={message.answerArrivalMotion}
+                summaries={message.decisionSummaries}
+              />
             ) : !isError && !isPending && !isStopped ? (
               <AssistantGlance message={message} />
             ) : null}
@@ -3273,8 +3290,19 @@ function AssistantGlance({ message }: { message: InteractiveChatMessage }) {
   );
 }
 
-function DecisionStrip({ summaries }: { summaries: readonly DecisionSummaryArtifact[] }) {
+function DecisionStrip({
+  arrivalMotion,
+  summaries,
+}: {
+  arrivalMotion?: AnswerArrivalMotionActivation;
+  summaries: readonly DecisionSummaryArtifact[];
+}) {
   const presentation = projectDecisionStrip(summaries);
+  const [isSequenceMotionActive, setIsSequenceMotionActive] = useState(() =>
+    consumeAnswerArrivalMotionActivation(arrivalMotion, {
+      reducedMotion: prefersReducedMotion(),
+    }),
+  );
   if (!presentation) {
     return null;
   }
@@ -3282,9 +3310,24 @@ function DecisionStrip({ summaries }: { summaries: readonly DecisionSummaryArtif
   return (
     <section
       aria-label="Decision"
-      className="grid min-w-0 gap-3 rounded-md border border-brand-lagoon-700/15 bg-brand-lagoon-100 p-3 shadow-none"
+      className="relative grid min-w-0 gap-3 overflow-hidden rounded-md border border-brand-lagoon-700/15 bg-brand-lagoon-100 p-3 shadow-none"
+      data-answer-arrival-motion={isSequenceMotionActive ? "decision-strip-sequence" : undefined}
       data-testid="decision-strip"
+      onAnimationEnd={(event) => {
+        if (
+          event.animationName === "decision-strip-sequence-cue" &&
+          event.target instanceof HTMLElement &&
+          event.target.dataset.decisionSequenceCue === "true"
+        ) {
+          setIsSequenceMotionActive(false);
+        }
+      }}
     >
+      <span
+        aria-hidden="true"
+        className="decision-strip-sequence-cue"
+        data-decision-sequence-cue="true"
+      />
       <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
         <div className="grid min-w-0 gap-1">
           <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.68rem] leading-tight font-black text-brand-lagoon-700 uppercase">
@@ -3339,6 +3382,12 @@ function DecisionStrip({ summaries }: { summaries: readonly DecisionSummaryArtif
         </p>
       ) : null}
     </section>
+  );
+}
+
+function prefersReducedMotion() {
+  return (
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
   );
 }
 
