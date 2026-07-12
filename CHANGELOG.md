@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed suggested questions to use deterministic, truthful trip context and condition availability
+  while providing concise onboarding prompts when traveler context is not yet known.
 - Changed newly completed decision strips to reveal a restrained, reduced-motion-safe arrival cue
   without replaying on hydration, focus, or scroll.
 - Changed privacy settings to provide owner-scoped, transactional travel-data controls with
