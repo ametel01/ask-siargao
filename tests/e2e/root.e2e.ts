@@ -362,23 +362,30 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await page.getByRole("button", { name: "Save trip brief" }).click();
 
   await expect(page.getByText("Trip brief saved")).toBeVisible();
-  expect(patchPayload).toMatchObject({
-    budgetLevel: "premium",
-    foodNeeds: ["vegan", "gluten_free"],
+  expect(patchPayload).toEqual({
     surfAbility: "intermediate",
-    quietSleepPreference: true,
-    weatherPreference: "flexible",
     tripContext: {
-      accommodation: "Pacifico beach stay",
-      currentArea: "Dapa",
-      travelerType: "family_with_kids",
-      transportMode: "van",
-      rideTimeLimitMinutes: 45,
       durableConstraints: ["rain_avoidance", "with_kids"],
       notes: "Arriving in October",
     },
   });
-  expect(patchPayload).not.toHaveProperty("tripContext.dateRange");
+  for (const confirmedOrUnchangedField of [
+    "displayName",
+    "budgetLevel",
+    "foodNeeds",
+    "preferredAreas",
+    "quietSleepPreference",
+    "weatherPreference",
+    "marketingConsent",
+    "tripContext.accommodation",
+    "tripContext.currentArea",
+    "tripContext.dateRange",
+    "tripContext.travelerType",
+    "tripContext.transportMode",
+    "tripContext.rideTimeLimitMinutes",
+  ]) {
+    expect(patchPayload).not.toHaveProperty(confirmedOrUnchangedField);
+  }
 
   await page.reload();
   await expect(page.getByLabel("Display name")).toHaveValue("Alex in Siargao");
