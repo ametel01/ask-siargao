@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isClerkConfigured } from "@/features/auth/clerk-config";
 import { accountIdentityFromProfile } from "@/features/settings/account-identity";
+import { createAccountManagementAdapter } from "@/features/settings/account-management";
 import type { WeatherPreference } from "@/features/settings/profile-options";
 import {
   addMultiValue,
@@ -180,6 +181,18 @@ function ConfiguredSettingsDashboardPage() {
   const clerk = useClerk();
   const { isLoaded, isSignedIn, user } = useUser();
   const manageAccountButtonRef = useRef<HTMLButtonElement>(null);
+  const accountManagement = useMemo(
+    () =>
+      createAccountManagementAdapter({
+        focusTrigger: () => {
+          manageAccountButtonRef.current?.focus();
+        },
+        openAccountManagement: (props) => {
+          clerk.openUserProfile(props);
+        },
+      }),
+    [clerk],
+  );
   const profileCacheKey = useMemo<ProfileCacheKey>(
     () => (isLoaded && isSignedIn && user?.id ? ["/api/me/profile", user.id] : null),
     [isLoaded, isSignedIn, user?.id],
@@ -190,15 +203,19 @@ function ConfiguredSettingsDashboardPage() {
       ? "authenticated"
       : "unauthenticated";
 
+  useEffect(() => {
+    return () => {
+      accountManagement.stopWatching();
+    };
+  }, [accountManagement]);
+
   return (
     <SettingsDashboardContent
       authStatus={authStatus}
       key={profileCacheFingerprint(profileCacheKey)}
       manageAccountButtonRef={manageAccountButtonRef}
       profileCacheKey={profileCacheKey}
-      onManageAccount={() => {
-        clerk.openUserProfile();
-      }}
+      onManageAccount={accountManagement.open}
     />
   );
 }
