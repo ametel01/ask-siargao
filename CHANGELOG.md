@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed recommendation artifacts to a route-first, fit-ranked presentation with bounded
+  alternatives, backed signals, map actions, no-photo fallbacks, and explicit card selection authority.
 - Changed source presentation to use an expandable traveler evidence receipt with checked and
   not-checked boundaries, freshness, friendly labels, and terminal-gap card suppression.
 - Changed evidence presentation to distinguish capability, checking, checked, stale, unavailable,
