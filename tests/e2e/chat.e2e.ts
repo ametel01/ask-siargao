@@ -233,7 +233,7 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect(userMessageBubble).toBeVisible();
   await expect(userMessageBubble).toHaveCSS("color", "rgb(255, 255, 255)");
   await expect(page.getByText("Where should we eat near Cloud 9 tonight?")).toBeVisible();
-  await expect(page.getByText("Thinking through that with Ask Siargao...")).toBeVisible();
+  await expect(page.getByText("Ask Siargao is preparing your answer.")).toBeVisible();
   await expect(page.getByTestId("decision-strip")).toHaveCount(0);
   await expect(page.getByText("At a Glance")).toHaveCount(0);
   await expect(composerInput).toBeDisabled();
@@ -1688,6 +1688,78 @@ test("requests browser geolocation for a near-me prompt without the manual butto
   });
 });
 
+test("cancels deferred automatic location before new chat and navigation", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.addInitScript(() => {
+    const scope = window as typeof window & {
+      __locationRequests?: number;
+      __resolveLocation?: () => void;
+    };
+    scope.__locationRequests = 0;
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition(success: PositionCallback) {
+          scope.__locationRequests = (scope.__locationRequests ?? 0) + 1;
+          scope.__resolveLocation = () => {
+            success({
+              coords: {
+                latitude: 9.8116,
+                longitude: 126.1651,
+                accuracy: 25,
+                altitude: null,
+                altitudeAccuracy: null,
+                heading: null,
+                speed: null,
+              },
+              timestamp: Date.now(),
+            } as GeolocationPosition);
+          };
+        },
+      },
+    });
+  });
+  const chat = await mockDeferredChatApi(page);
+
+  await page.goto("/chat");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("What is open near me?");
+  await composerInput.press("Enter");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as typeof window & { __locationRequests?: number }).__locationRequests ?? 0,
+      ),
+    )
+    .toBe(1);
+  await expect(page.getByText("Requesting location...")).toBeVisible();
+  await expect.poll(() => chat.requests.length).toBe(0);
+
+  await page.getByLabel("Start a new chat").first().click();
+  await expect(composerInput).toBeEnabled();
+  await expect(page.getByText("What is open near me?")).toHaveCount(0);
+
+  await page.evaluate(() =>
+    (window as typeof window & { __resolveLocation?: () => void }).__resolveLocation?.(),
+  );
+  await page.waitForTimeout(250);
+  await expect.poll(() => chat.requests.length).toBe(0);
+
+  await composerInput.fill("What is open near me after navigation?");
+  await composerInput.press("Enter");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as typeof window & { __locationRequests?: number }).__locationRequests ?? 0,
+      ),
+    )
+    .toBe(2);
+  await page.goto("/");
+  await page.waitForTimeout(250);
+  await expect.poll(() => chat.requests.length).toBe(0);
+});
+
 test("continues without geolocation after permission is denied", async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "geolocation", {
@@ -2837,6 +2909,426 @@ test("shows safe error copy and lets the user keep asking after a failed request
   expect(lastSubmittedContent(requests[1])).toBe("Can I ask a follow-up?");
 });
 
+test("keeps the delayed assistant wait state stable, accessible, and indeterminate", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const chat = await mockDeferredChatApi(page);
+
+  await page.goto("/chat");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("What is a good rainy afternoon plan?");
+  await composerInput.press("Enter");
+
+  await expect.poll(() => chat.requests.length).toBe(1);
+  const waitState = page.getByTestId("assistant-wait-state");
+  const waitStatus = page.getByTestId("assistant-wait-status");
+  await expect(waitState).toBeVisible();
+  await expect(waitState).toHaveAttribute("aria-busy", "true");
+  await expect(waitStatus).toHaveText("Ask Siargao is preparing your answer.");
+  await expect(page.getByRole("status")).toHaveCount(1);
+  await expect(page.getByRole("progressbar")).toHaveCount(0);
+  await expect(waitState).not.toContainText(/\b\d{1,3}%\b|countdown|elapsed|stage|tool|provider/i);
+  await expect(page.getByText("Thinking through that with Ask Siargao...")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Stop waiting" })).toBeEnabled();
+
+  await waitStatus.evaluate((element) => {
+    const trackedWindow = window as typeof window & { __waitStatusMutationCount?: number };
+    trackedWindow.__waitStatusMutationCount = 0;
+    new MutationObserver(() => {
+      trackedWindow.__waitStatusMutationCount = (trackedWindow.__waitStatusMutationCount ?? 0) + 1;
+    }).observe(element, {
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+  });
+  const waitGeometry = await waitState.boundingBox();
+
+  await page.waitForTimeout(1_450);
+
+  await expect(waitStatus).toHaveText("Ask Siargao is preparing your answer.");
+  await expect(page.getByRole("status")).toHaveCount(1);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as typeof window & { __waitStatusMutationCount?: number })
+          .__waitStatusMutationCount ?? 0,
+    ),
+  ).toBe(0);
+  expect(
+    await waitState.evaluate((element) => element.getAnimations({ subtree: true }).length),
+  ).toBe(0);
+  expect(await waitState.boundingBox()).toMatchObject({
+    height: waitGeometry?.height,
+    width: waitGeometry?.width,
+  });
+
+  chat.release(0, {
+    message: "Rainy afternoon answer: pick a covered cafe and keep travel short.",
+  });
+
+  await expect(
+    page.getByText("Rainy afternoon answer: pick a covered cafe and keep travel short."),
+  ).toBeVisible();
+  await expect(waitState).toHaveCount(0);
+});
+
+test("stops local waiting, ignores the late response, and retries the original question", async ({
+  page,
+}) => {
+  const chat = await mockDeferredChatApi(page);
+
+  await page.goto("/chat");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("Can we surf if the wind picks up?");
+  await composerInput.press("Enter");
+
+  await expect.poll(() => chat.requests.length).toBe(1);
+  await page.getByRole("button", { name: "Stop waiting" }).click();
+
+  await expect(page.getByTestId("assistant-wait-state")).toHaveCount(0);
+  await expect(page.getByText("Stopped waiting here. You can retry that question.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry question" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop waiting" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry last question" })).toHaveCount(0);
+  await expect(composerInput).toBeEnabled();
+
+  await page.getByRole("button", { name: "Retry question" }).click();
+  await expect.poll(() => chat.requests.length).toBe(2);
+  expect(lastSubmittedContent(chat.requests[0])).toBe("Can we surf if the wind picks up?");
+  expect(lastSubmittedContent(chat.requests[1])).toBe("Can we surf if the wind picks up?");
+
+  chat.release(0, { message: "Late stopped answer should not render." });
+  await page.waitForTimeout(250);
+  await expect(page.getByText("Late stopped answer should not render.")).toHaveCount(0);
+  await expect(page.getByTestId("assistant-wait-state")).toBeVisible();
+
+  chat.release(1, { message: "Fresh retry answer: check the wind window before paddling out." });
+
+  await expect(
+    page.getByText("Fresh retry answer: check the wind window before paddling out."),
+  ).toBeVisible();
+  await expect(page.getByTestId("assistant-wait-state")).toHaveCount(0);
+});
+
+test("cleans up pending wait state when previous-thread loading fails", async ({ page }) => {
+  const chat = await mockDeferredChatApi(page);
+  const thread = {
+    id: "thread_detail_failure",
+    title: "Cloud 9 detail failure",
+    status: "active",
+    createdAt: "2026-06-29T01:00:00.000Z",
+    updatedAt: "2026-06-29T01:00:00.000Z",
+    lastMessageAt: "2026-06-29T01:01:00.000Z",
+  };
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: { accommodation: "Cloud 9 stay" } }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripId: "trip_thread_failure", items: [] }),
+    });
+  });
+  await page.route("**/api/chat/threads**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+
+    if (request.method() === "GET" && url.pathname === "/api/chat/threads") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ threads: [thread] }),
+      });
+      return;
+    }
+
+    if (request.method() === "GET" && url.pathname === "/api/chat/threads/thread_detail_failure") {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "thread_unavailable" }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "not_found" }),
+    });
+  });
+
+  await page.goto("/chat");
+
+  const previousThread = page.getByRole("button", { name: /Cloud 9 detail failure/ });
+  await expect(previousThread).toBeVisible();
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("Should we keep a rainy-day backup?");
+  await composerInput.press("Enter");
+  await expect.poll(() => chat.requests.length).toBe(1);
+  await expect(page.getByTestId("assistant-wait-state")).toBeVisible();
+
+  await previousThread.click();
+
+  await expect(page.getByText("Chat history unavailable")).toBeVisible();
+  await expect(page.getByTestId("assistant-wait-state")).toHaveCount(0);
+  await expect(page.getByText("Stopped waiting here. You can retry that question.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry question" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop waiting" })).toHaveCount(0);
+  await expect(composerInput).toBeEnabled();
+
+  chat.release(0, { message: "Late thread-switch answer should not render." });
+  await page.waitForTimeout(250);
+  await expect(page.getByText("Late thread-switch answer should not render.")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Retry question" }).click();
+  await expect.poll(() => chat.requests.length).toBe(2);
+  expect(lastSubmittedContent(chat.requests[1])).toBe("Should we keep a rainy-day backup?");
+
+  chat.release(1, { message: "Fresh thread-failure retry answer." });
+  await expect(page.getByText("Fresh thread-failure retry answer.")).toBeVisible();
+});
+
+test("ignores late thread detail success and failure after a newer selection", async ({ page }) => {
+  const threadA = {
+    id: "thread_race_a",
+    title: "Cloud 9 older plan",
+    status: "active",
+    createdAt: "2026-06-28T01:00:00.000Z",
+    updatedAt: "2026-06-28T01:00:00.000Z",
+    lastMessageAt: "2026-06-28T01:01:00.000Z",
+  };
+  const threadB = {
+    id: "thread_race_b",
+    title: "Dapa newer plan",
+    status: "active",
+    createdAt: "2026-06-29T01:00:00.000Z",
+    updatedAt: "2026-06-29T01:00:00.000Z",
+    lastMessageAt: "2026-06-29T01:01:00.000Z",
+  };
+  const threadC = {
+    id: "thread_race_c",
+    title: "Pacifico fallback plan",
+    status: "active",
+    createdAt: "2026-06-30T01:00:00.000Z",
+    updatedAt: "2026-06-30T01:00:00.000Z",
+    lastMessageAt: "2026-06-30T01:01:00.000Z",
+  };
+  const pendingDetails = new Map<
+    string,
+    (reply: { body: Record<string, unknown>; status: number }) => void
+  >();
+  const detailRequests: string[] = [];
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: { accommodation: "Cloud 9 stay" } }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripId: "trip_thread_race", items: [] }),
+    });
+  });
+  await page.route("**/api/chat/threads**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/chat/threads") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ threads: [threadA, threadB, threadC] }),
+      });
+      return;
+    }
+
+    const threadId = url.pathname.split("/").at(-1);
+    if (!threadId) {
+      await route.fulfill({ status: 404, body: "not found" });
+      return;
+    }
+    detailRequests.push(threadId);
+    const reply = await new Promise<{ body: Record<string, unknown>; status: number }>(
+      (resolve) => {
+        pendingDetails.set(threadId, resolve);
+      },
+    );
+    await route.fulfill({
+      status: reply.status,
+      contentType: "application/json",
+      body: JSON.stringify(reply.body),
+    });
+  });
+
+  await page.goto("/chat");
+  const threadAButton = page.getByRole("button", { name: /Cloud 9 older plan/ });
+  const threadBButton = page.getByRole("button", { name: /Dapa newer plan/ });
+  await expect(threadAButton).toBeVisible();
+  await threadAButton.click();
+  await expect.poll(() => detailRequests).toContain("thread_race_a");
+
+  await threadBButton.click();
+  await expect.poll(() => detailRequests).toContain("thread_race_b");
+  pendingDetails.get("thread_race_b")?.({
+    status: 200,
+    body: {
+      thread: threadB,
+      messages: [
+        {
+          id: "message_race_b",
+          role: "assistant",
+          content: "Dapa loaded before the older thread settled.",
+          status: "complete",
+          createdAt: "2026-06-29T01:01:00.000Z",
+        },
+      ],
+    },
+  });
+  await expect(page.getByText("Dapa loaded before the older thread settled.")).toBeVisible();
+
+  pendingDetails.get("thread_race_a")?.({
+    status: 200,
+    body: {
+      thread: threadA,
+      messages: [
+        {
+          id: "message_race_a_late",
+          role: "assistant",
+          content: "Cloud 9 arrived from a late stale response.",
+          status: "complete",
+          createdAt: "2026-06-28T01:01:00.000Z",
+        },
+      ],
+    },
+  });
+  await page.waitForTimeout(250);
+  await expect(page.getByText("Chat history unavailable")).toHaveCount(0);
+  await expect(page.getByText("Dapa loaded before the older thread settled.")).toBeVisible();
+  await expect(page.getByText("Cloud 9 arrived from a late stale response.")).toHaveCount(0);
+
+  const threadCButton = page.getByRole("button", { name: /Pacifico fallback plan/ });
+  await threadCButton.click();
+  await expect.poll(() => detailRequests).toContain("thread_race_c");
+  await threadBButton.click();
+  await expect
+    .poll(() => detailRequests.filter((threadId) => threadId === "thread_race_b").length)
+    .toBe(2);
+  pendingDetails.get("thread_race_b")?.({
+    status: 200,
+    body: {
+      thread: threadB,
+      messages: [
+        {
+          id: "message_race_b_latest",
+          role: "assistant",
+          content: "Dapa remained selected after the fallback race.",
+          status: "complete",
+          createdAt: "2026-06-29T01:02:00.000Z",
+        },
+      ],
+    },
+  });
+  await expect(page.getByText("Dapa remained selected after the fallback race.")).toBeVisible();
+  pendingDetails.get("thread_race_c")?.({
+    status: 503,
+    body: { error: "fallback_thread_unavailable" },
+  });
+  await page.waitForTimeout(250);
+  await expect(page.getByText("Chat history unavailable")).toHaveCount(0);
+  await expect(page.getByText("Dapa remained selected after the fallback race.")).toBeVisible();
+});
+
+test("renders one failure retry path without stop controls or leaked server details", async ({
+  page,
+}) => {
+  const chat = await mockDeferredChatApi(page);
+
+  await page.goto("/chat");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("Will the ferry run tomorrow?");
+  await composerInput.press("Enter");
+  await expect.poll(() => chat.requests.length).toBe(1);
+
+  chat.release(0, {
+    body: { error: "upstream_timeout", message: "Internal provider timeout" },
+    status: 503,
+  });
+
+  await expect(
+    page.getByText("Ask Siargao could not answer right now. Please try again."),
+  ).toBeVisible();
+  await expect(page.getByText("Internal provider timeout")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry last question" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop waiting" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry question" })).toHaveCount(0);
+  await expect(composerInput).toBeEnabled();
+
+  await page.getByRole("button", { name: "Retry last question" }).click();
+  await expect.poll(() => chat.requests.length).toBe(2);
+  expect(lastSubmittedContent(chat.requests[1])).toBe("Will the ferry run tomorrow?");
+
+  chat.release(1, { message: "Ferry retry answer: check the port notice before leaving." });
+
+  await expect(
+    page.getByText("Ferry retry answer: check the port notice before leaving."),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Ask Siargao could not answer right now. Please try again."),
+  ).toHaveCount(1);
+});
+
+test("invalidates pending wait state on new chat and page navigation", async ({ page }) => {
+  const chat = await mockDeferredChatApi(page);
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/chat");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("Build a first day plan around Cloud 9.");
+  await composerInput.press("Enter");
+  await expect.poll(() => chat.requests.length).toBe(1);
+  await expect(page.getByTestId("assistant-wait-state")).toBeVisible();
+
+  await page.getByLabel("Start a new chat").first().click();
+  await expect(page.getByTestId("assistant-wait-state")).toHaveCount(0);
+  await expect(page.getByText("Build a first day plan around Cloud 9.")).toHaveCount(0);
+  await expect(composerInput).toBeEnabled();
+
+  chat.release(0, { message: "Late new-chat answer should not render." });
+  await page.waitForTimeout(250);
+  await expect(page.getByText("Late new-chat answer should not render.")).toHaveCount(0);
+
+  await composerInput.fill("What if we stay in Dapa?");
+  await composerInput.press("Enter");
+  await expect.poll(() => chat.requests.length).toBe(2);
+  await expect(page.getByTestId("assistant-wait-state")).toBeVisible();
+
+  await page.goto("/");
+  chat.release(1, { message: "Late navigation answer should not render." });
+  await page.goto("/chat");
+  await expect(page.getByText("Late navigation answer should not render.")).toHaveCount(0);
+  await expect(page.getByTestId("assistant-wait-state")).toHaveCount(0);
+  await expect.poll(() => chat.requests.length).toBe(2);
+});
+
 async function mockChatApi(
   page: Page,
   {
@@ -2887,6 +3379,55 @@ async function mockChatApi(
   return {
     requests,
     release: releaseResponse,
+  };
+}
+
+type DeferredChatReply = {
+  body?: Record<string, unknown>;
+  message?: string;
+  requestId?: string;
+  status?: number;
+};
+
+async function mockDeferredChatApi(page: Page) {
+  const requests: ChatRequestBody[] = [];
+  const pendingReplies: Array<(reply: DeferredChatReply) => void> = [];
+
+  await page.route("**/api/chat", async (route) => {
+    const requestIndex = pendingReplies.length;
+    requests.push(route.request().postDataJSON() as ChatRequestBody);
+    const reply = await new Promise<DeferredChatReply>((resolve) => {
+      pendingReplies[requestIndex] = resolve;
+    });
+    const status = reply.status ?? 200;
+    const body =
+      reply.body ??
+      ({
+        message: reply.message ?? `Deferred answer ${requestIndex + 1}`,
+        model: "gpt-5.4-mini-test",
+        requestId: reply.requestId ?? `req_playwright_chat_deferred_${requestIndex + 1}`,
+      } satisfies Record<string, unknown>);
+
+    try {
+      await route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+    } catch {
+      // The browser may have already aborted the local wait; late route release is intentional.
+    }
+  });
+
+  return {
+    requests,
+    release(index: number, reply: DeferredChatReply) {
+      const releaseReply = pendingReplies[index];
+      if (!releaseReply) {
+        throw new Error(`No deferred chat request at index ${index}.`);
+      }
+      releaseReply(reply);
+    },
   };
 }
 
