@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed chat location sharing to use one accessible privacy control with explicit once/trip
+  consent, truthful failure states, race-safe capture, and request-scoped coordinate handling.
 - Changed suggested questions to use deterministic, truthful trip context and condition availability
   while providing concise onboarding prompts when traveler context is not yet known.
 - Changed newly completed decision strips to reveal a restrained, reduced-motion-safe arrival cue
