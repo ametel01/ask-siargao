@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed the settings account surface to expose traveler-safe identity and account-management
+  controls without returning authentication-provider identifiers or fallback identity emails.
 - Changed profile settings to use accessible structured travel controls with stable values,
   legacy-value preservation, diff-only saves, and serialized request handling.
 - Changed `dev:up` to wait for the Compose Postgres healthcheck before running migrations so fresh
