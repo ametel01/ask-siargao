@@ -473,9 +473,16 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await expect(page.getByRole("heading", { exact: true, name: "Pass" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Recent chat history" })).toBeVisible();
   await expect(page.getByText("2 private threads")).toBeVisible();
+  await expect(page.getByRole("link", { name: /Open chat: Cloud 9 quiet sleep/ })).toHaveAttribute(
+    "href",
+    "/chat?threadId=chat_thread_cloud9",
+  );
   await expect(page.getByText("Cloud 9 quiet sleep")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Saved planning items" })).toBeVisible();
   await expect(page.getByText("2 saved items")).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: /Open saved item: Cloud 9 dinner shortlist/ }),
+  ).toHaveAttribute("href", "/chat?savedItemId=saved_item_cloud9");
   await expect(page.getByText("Cloud 9 dinner shortlist")).toBeVisible();
 
   profileSaveMode = "delayed";

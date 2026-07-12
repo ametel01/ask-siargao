@@ -525,12 +525,16 @@ function ChatHistorySummaryPanel({
       >
         <div className="grid gap-3">
           {recentThreads.map((thread) => (
-            <div className="grid gap-1" key={thread.id}>
-              <h3 className="m-0 min-w-0 truncate text-sm font-black">{thread.title}</h3>
+            <Link
+              className="grid gap-1 rounded-md border border-transparent p-2 text-text-default no-underline outline-none hover:border-border-default hover:bg-brand-lagoon-100 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+              href={`/chat?threadId=${encodeURIComponent(thread.id)}`}
+              key={thread.id}
+            >
+              <h3 className="m-0 min-w-0 truncate text-sm font-black">Open chat: {thread.title}</h3>
               <p className="m-0 text-xs font-bold text-text-muted">
                 {formatSummaryTimestamp(thread.lastMessageAt ?? thread.updatedAt)}
               </p>
-            </div>
+            </Link>
           ))}
         </div>
       </SummaryPanelBody>
@@ -574,12 +578,18 @@ function SavedPlanSummaryPanel({
       >
         <div className="grid gap-3">
           {recentItems.map((item) => (
-            <div className="grid gap-1" key={item.id}>
-              <h3 className="m-0 min-w-0 truncate text-sm font-black">{item.title}</h3>
+            <Link
+              className="grid gap-1 rounded-md border border-transparent p-2 text-text-default no-underline outline-none hover:border-border-default hover:bg-brand-lagoon-100 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+              href={`/chat?savedItemId=${encodeURIComponent(item.id)}`}
+              key={item.id}
+            >
+              <h3 className="m-0 min-w-0 truncate text-sm font-black">
+                Open saved item: {item.title}
+              </h3>
               <p className="m-0 text-xs font-bold text-text-muted">
                 {savedItemKindLabel(item.kind)} saved {formatSummaryTimestamp(item.updatedAt)}
               </p>
-            </div>
+            </Link>
           ))}
         </div>
       </SummaryPanelBody>
