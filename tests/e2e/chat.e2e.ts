@@ -808,6 +808,56 @@ test("keeps authenticated edits through validation and network save failures", a
   expect(profile.tripContext).toMatchObject({ accommodation: "Retry-safe stay" });
 });
 
+test("keeps the desktop authenticated editor open when save fails", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  let releasePatch: (() => void) | undefined;
+  let patchStarted: (() => void) | undefined;
+  const patchRequest = new Promise<void>((resolve) => {
+    patchStarted = resolve;
+  });
+  await page.route("**/api/me/profile", async (route) => {
+    if (route.request().method() !== "PATCH") {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify(mobileAuthenticatedProfile()),
+      });
+      return;
+    }
+
+    patchStarted?.();
+    await new Promise<void>((resolve) => {
+      releasePatch = resolve;
+    });
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "profile_save_failed" }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [] }) });
+  });
+  await mockUnavailableMobileConditions(page);
+  await page.goto("/chat");
+
+  const rail = page.getByTestId("context-rail");
+  await rail.getByRole("button", { name: "Edit" }).click();
+  const accommodation = rail.getByLabel("Accommodation");
+  await accommodation.fill("Retry-safe desktop stay");
+  await rail.getByRole("button", { name: "Save" }).click();
+  await patchRequest;
+  await expect(rail.getByRole("button", { name: "Saving…" })).toBeDisabled();
+  await expect(rail).toContainText("Saving your trip details.");
+
+  releasePatch?.();
+  await expect(rail).toContainText(
+    "Your changes are still here. Check your connection and try again.",
+  );
+  await expect(accommodation).toHaveValue("Retry-safe desktop stay");
+  await expect(rail.getByRole("button", { name: "Save" })).toBeVisible();
+  await expect(rail.getByRole("button", { name: "Edit" })).toHaveCount(0);
+});
+
 test("shares one typed live-condition projection between mobile and desktop without duplicate fetches", async ({
   page,
 }) => {

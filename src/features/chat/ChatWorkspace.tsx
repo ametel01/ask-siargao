@@ -1952,6 +1952,8 @@ function ChatContextRail({
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState<TripContextDraft>(defaultTripContext);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving">("idle");
   const { activeForecastLocation, refreshSurf, refreshWeather, surfDecision, weatherDecision } =
     liveConditions;
   const tripContextItems = tripContextFacts({
@@ -1960,10 +1962,26 @@ function ChatContextRail({
     tripContext,
   });
 
-  const saveDraft = useCallback(() => {
-    void onUpdateTripContext(normalizeTripContextDraft(draft));
-    setIsEditing(false);
-  }, [draft, onUpdateTripContext]);
+  const saveDraft = useCallback(async () => {
+    if (saveState === "saving") {
+      return;
+    }
+
+    setSaveError(null);
+    setSaveState("saving");
+    try {
+      await onUpdateTripContext(normalizeTripContextDraft(draft));
+      setIsEditing(false);
+      setSaveState("idle");
+    } catch (error) {
+      setSaveState("idle");
+      setSaveError(
+        error instanceof Error && error.message === "trip_context_validation_failed"
+          ? "Review the trip details and try again."
+          : "Your changes are still here. Check your connection and try again.",
+      );
+    }
+  }, [draft, onUpdateTripContext, saveState]);
 
   return (
     <aside
@@ -1980,6 +1998,8 @@ function ChatContextRail({
                 onClick={() => {
                   setDraft(tripContext);
                   setIsEditing(false);
+                  setSaveError(null);
+                  setSaveState("idle");
                 }}
                 size="sm"
                 type="button"
@@ -1989,11 +2009,14 @@ function ChatContextRail({
               </Button>
               <Button
                 className="h-8 rounded-md bg-brand-violet-650 px-3 text-xs font-extrabold text-white hover:bg-brand-violet-600"
-                onClick={saveDraft}
+                disabled={saveState === "saving"}
+                onClick={() => {
+                  void saveDraft();
+                }}
                 size="sm"
                 type="button"
               >
-                Save
+                {saveState === "saving" ? "Saving…" : "Save"}
               </Button>
             </div>
           ) : (
@@ -2002,6 +2025,8 @@ function ChatContextRail({
               onClick={() => {
                 setDraft(tripContext);
                 setIsEditing(true);
+                setSaveError(null);
+                setSaveState("idle");
               }}
               size="sm"
               type="button"
@@ -2014,7 +2039,18 @@ function ChatContextRail({
         title="Trip context"
       >
         {isEditing ? (
-          <TripContextEditor draft={draft} onDraftChange={setDraft} />
+          <div className="grid gap-3">
+            <TripContextEditor draft={draft} onDraftChange={setDraft} />
+            {saveState === "saving" ? (
+              <p className="m-0 text-xs font-bold text-text-muted" role="status">
+                Saving your trip details.
+              </p>
+            ) : saveError ? (
+              <p className="m-0 text-xs font-bold text-text-alert" role="alert">
+                {saveError}
+              </p>
+            ) : null}
+          </div>
         ) : (
           <div className="grid gap-3">
             {tripDataSource === "loading" ? (
