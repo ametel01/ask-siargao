@@ -4,14 +4,16 @@
  * Hallmark - pre-emit critique: P4 H4 E4 S5 R4 V4
  * genre: modern-minimal; macrostructure: account console; contrast/mobile: pass.
  */
-import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
+import { SignInButton, SignUpButton, useClerk, useUser } from "@clerk/nextjs";
 import { ArrowRight, MapPinned, MessageCircle, Save, ShieldCheck, UserRound } from "lucide-react";
 import Link from "next/link";
 import {
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -19,8 +21,8 @@ import useSWR from "swr";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { clerkAppearance } from "@/features/auth/clerk-appearance";
 import { isClerkConfigured } from "@/features/auth/clerk-config";
+import { accountIdentityFromProfile } from "@/features/settings/account-identity";
 import type { WeatherPreference } from "@/features/settings/profile-options";
 import {
   addMultiValue,
@@ -83,6 +85,9 @@ type ProfileErrorResponse = {
   issues?: { path?: string; message?: string }[];
 };
 
+type ProfileCacheKey = string | readonly ["/api/me/profile", string] | null;
+type AuthProfileStatus = "unknown" | "loading" | "authenticated" | "unauthenticated";
+
 const emptyForm: ProfileFormState = {
   displayName: "",
   homeCountry: "",
@@ -124,13 +129,25 @@ class ProfileFetchError extends Error {
   }
 }
 
-async function fetchProfile(url: string) {
+async function fetchProfile(key: Exclude<ProfileCacheKey, null>) {
+  const url = Array.isArray(key) ? key[0] : key;
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) {
     throw new ProfileFetchError(response.status);
   }
 
   return (await response.json()) as UserProfileResponse;
+}
+
+function profileCacheFingerprint(key: ProfileCacheKey): string {
+  if (!key) {
+    return "none";
+  }
+  if (typeof key === "string") {
+    return key;
+  }
+
+  return `${key[0]}:${key[1]}`;
 }
 
 async function fetchChatThreads(url: string) {
@@ -152,15 +169,70 @@ async function fetchSavedTrips(url: string) {
 }
 
 export function SettingsDashboardPage() {
+  if (isClerkConfigured) {
+    return <ConfiguredSettingsDashboardPage />;
+  }
+
+  return <SettingsDashboardContent authStatus="unknown" profileCacheKey="/api/me/profile" />;
+}
+
+function ConfiguredSettingsDashboardPage() {
+  const clerk = useClerk();
+  const { isLoaded, isSignedIn, user } = useUser();
+  const manageAccountButtonRef = useRef<HTMLButtonElement>(null);
+  const profileCacheKey = useMemo<ProfileCacheKey>(
+    () => (isLoaded && isSignedIn && user?.id ? ["/api/me/profile", user.id] : null),
+    [isLoaded, isSignedIn, user?.id],
+  );
+  const authStatus: AuthProfileStatus = !isLoaded
+    ? "loading"
+    : isSignedIn
+      ? "authenticated"
+      : "unauthenticated";
+
+  return (
+    <SettingsDashboardContent
+      authStatus={authStatus}
+      key={profileCacheFingerprint(profileCacheKey)}
+      manageAccountButtonRef={manageAccountButtonRef}
+      profileCacheKey={profileCacheKey}
+      onManageAccount={() => {
+        clerk.openUserProfile();
+      }}
+    />
+  );
+}
+
+function SettingsDashboardContent({
+  authStatus,
+  manageAccountButtonRef,
+  onManageAccount,
+  profileCacheKey,
+}: {
+  authStatus: AuthProfileStatus;
+  manageAccountButtonRef?: RefObject<HTMLButtonElement | null>;
+  onManageAccount?: () => void;
+  profileCacheKey: ProfileCacheKey;
+}) {
   const {
     data: loadedProfile,
     error: profileError,
     isLoading: isProfileLoading,
-  } = useSWR("/api/me/profile", fetchProfile, {
+  } = useSWR(profileCacheKey, fetchProfile, {
     revalidateOnFocus: false,
     shouldRetryOnError: false,
   });
-  const shouldLoadPrivateSummaries = Boolean(loadedProfile);
+  const [profile, setProfile] = useState<UserProfileResponse | null>(null);
+  const [form, setForm] = useState<ProfileFormState>(emptyForm);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [isDirty, setIsDirty] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<ProfileFieldErrors>({});
+  const [activeSection, setActiveSection] = useState<TripBriefSection>("current-trip");
+  const editVersionRef = useRef(0);
+  const saveInFlightRef = useRef(false);
+  const currentProfile = profile;
+  const shouldLoadPrivateSummaries = Boolean(currentProfile);
   const {
     data: chatThreads,
     error: chatThreadsError,
@@ -177,15 +249,6 @@ export function SettingsDashboardPage() {
     revalidateOnFocus: false,
     shouldRetryOnError: false,
   });
-  const [profile, setProfile] = useState<UserProfileResponse | null>(null);
-  const [form, setForm] = useState<ProfileFormState>(emptyForm);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [isDirty, setIsDirty] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<ProfileFieldErrors>({});
-  const [activeSection, setActiveSection] = useState<TripBriefSection>("current-trip");
-  const editVersionRef = useRef(0);
-  const saveInFlightRef = useRef(false);
 
   useEffect(() => {
     const syncActiveSection = () => {
@@ -204,6 +267,13 @@ export function SettingsDashboardPage() {
   }, []);
 
   useEffect(() => {
+    if (authStatus === "loading") {
+      return;
+    }
+    if (!profileCacheKey || profileError || authStatus === "unauthenticated") {
+      setProfile(null);
+      return;
+    }
     if (!loadedProfile) {
       return;
     }
@@ -212,7 +282,7 @@ export function SettingsDashboardPage() {
     if (!isDirty) {
       setForm(formFromProfile(loadedProfile));
     }
-  }, [isDirty, loadedProfile]);
+  }, [authStatus, isDirty, loadedProfile, profileCacheKey, profileError]);
 
   function updateForm(update: (current: ProfileFormState) => ProfileFormState) {
     editVersionRef.current += 1;
@@ -232,9 +302,10 @@ export function SettingsDashboardPage() {
   }
 
   const status = profileLoadStatus({
+    authStatus,
     error: profileError,
     isLoading: isProfileLoading,
-    profile,
+    profile: currentProfile,
   });
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
@@ -252,7 +323,7 @@ export function SettingsDashboardPage() {
       const response = await fetch("/api/me/profile", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(profilePatchFromForm(form, profile)),
+        body: JSON.stringify(profilePatchFromForm(form, currentProfile)),
       });
 
       if (!response.ok) {
@@ -306,14 +377,16 @@ export function SettingsDashboardPage() {
           <StatusPanel title="Loading settings" />
         ) : status === "unauthenticated" ? (
           <SignedOutPanel />
-        ) : status === "error" || !profile ? (
+        ) : status === "error" || !currentProfile ? (
           <StatusPanel title="Settings unavailable" />
         ) : (
           <div className="grid min-w-0 gap-6 xl:grid-cols-[20rem_minmax(0,1fr)] 2xl:grid-cols-[22rem_minmax(0,1fr)] xl:items-start">
             <SettingsSidebar
               activeSection={activeSection}
+              manageAccountButtonRef={manageAccountButtonRef}
               onActivate={activateSection}
-              profile={profile}
+              onManageAccount={onManageAccount}
+              profile={currentProfile}
             />
             <div className="grid min-w-0 gap-6">
               <PrivatePlanningDataSection
@@ -537,11 +610,15 @@ function SettingsHeader() {
 
 function SettingsSidebar({
   activeSection,
+  manageAccountButtonRef,
   onActivate,
+  onManageAccount,
   profile,
 }: {
   activeSection: TripBriefSection;
+  manageAccountButtonRef?: RefObject<HTMLButtonElement | null>;
   onActivate: (section: TripBriefSection) => void;
+  onManageAccount?: () => void;
   profile: UserProfileResponse;
 }) {
   return (
@@ -578,7 +655,11 @@ function SettingsSidebar({
           label="Pass"
         />
       </nav>
-      <AccountPanel profile={profile} />
+      <AccountPanel
+        manageAccountButtonRef={manageAccountButtonRef}
+        onManageAccount={onManageAccount}
+        profile={profile}
+      />
       <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-1">
         <ShortcutPanel />
         <PrivacyPanel />
@@ -619,44 +700,56 @@ function SectionLink({
   );
 }
 
-function AccountPanel({ profile }: { profile: UserProfileResponse }) {
-  const fullName = [profile.identity.firstName, profile.identity.lastName]
-    .filter(Boolean)
-    .join(" ");
+function AccountPanel({
+  manageAccountButtonRef,
+  onManageAccount,
+  profile,
+}: {
+  manageAccountButtonRef?: RefObject<HTMLButtonElement | null>;
+  onManageAccount?: () => void;
+  profile: UserProfileResponse;
+}) {
+  const account = accountIdentityFromProfile(profile);
 
   return (
     <section className={`${settingsPanelClass} grid min-w-0 gap-4`} id="account" tabIndex={-1}>
-      <div className="flex items-center gap-3">
-        <span className="grid size-12 place-items-center rounded-full bg-brand-lagoon-100 text-brand-lagoon-700">
+      <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
+        <span
+          aria-hidden="true"
+          className="grid size-12 place-items-center rounded-full bg-brand-lagoon-100 text-brand-lagoon-700"
+        >
           <UserRound className="size-5" />
         </span>
         <div className="min-w-0">
-          <h2 className="m-0 truncate text-base font-black">Account</h2>
-          <p className="m-0 truncate text-sm font-bold text-text-muted">
-            {fullName || "Signed-in account"}
+          <h2 className="m-0 text-base font-black">Account</h2>
+          <p className="m-0 min-w-0 [overflow-wrap:anywhere] text-sm font-bold text-text-muted break-words">
+            {account.name}
           </p>
         </div>
       </div>
 
       <dl className="grid min-w-0 gap-3 text-sm">
         <div>
-          <dt className="font-black text-text-muted">Email</dt>
-          <dd className="m-0 break-all font-bold">{profile.identity.email}</dd>
+          <dt className="font-black text-text-muted">{account.emailLabel}</dt>
+          <dd className="m-0 min-w-0 [overflow-wrap:anywhere] font-bold break-words">
+            {account.email ?? "No email is available for this signed-in account."}
+          </dd>
         </div>
         <div>
-          <dt className="font-black text-text-muted">Clerk user ID</dt>
-          <dd className="m-0 break-all font-mono text-xs">{profile.identity.userId}</dd>
+          <dt className="font-black text-text-muted">Status</dt>
+          <dd className="m-0 font-bold">{account.status}</dd>
         </div>
       </dl>
 
-      {isClerkConfigured ? (
-        <Show fallback={null} when="signed-in">
-          <div className="flex items-center gap-3 border-border-default border-t pt-4">
-            <UserButton appearance={clerkAppearance} />
-            <span className="text-sm font-bold text-text-muted">Manage account</span>
-          </div>
-        </Show>
-      ) : null}
+      <Button
+        className="h-auto w-fit rounded-md border-border-default bg-surface-default px-3 py-2 text-text-default whitespace-nowrap hover:bg-brand-lagoon-100 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+        ref={manageAccountButtonRef}
+        type="button"
+        variant="outline"
+        onClick={onManageAccount ?? (() => {})}
+      >
+        Manage account
+      </Button>
     </section>
   );
 }
@@ -1544,14 +1637,22 @@ function formFromProfile(profile: UserProfileResponse): ProfileFormState {
 }
 
 function profileLoadStatus({
+  authStatus,
   error,
   isLoading,
   profile,
 }: {
+  authStatus: AuthProfileStatus;
   error: unknown;
   isLoading: boolean;
   profile: UserProfileResponse | null;
 }): "loading" | "ready" | "unauthenticated" | "error" {
+  if (authStatus === "loading") {
+    return "loading";
+  }
+  if (authStatus === "unauthenticated") {
+    return "unauthenticated";
+  }
   if (error instanceof ProfileFetchError && error.status === 401) {
     return "unauthenticated";
   }

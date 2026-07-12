@@ -23,12 +23,12 @@ describe("profile API route", () => {
     await db.close();
   });
 
-  test("creates a profile on first edit and returns Clerk-owned identity fields", async () => {
+  test("creates a profile on first edit and returns safe traveler identity fields", async () => {
     const db = await openProfileTestDatabase();
     const dependencies = profileDependencies(db, {
       userId: "user_profile",
       email: "profile@example.com",
-      firstName: "Clerk",
+      firstName: "Alex",
       lastName: "Traveler",
       imageUrl: "https://img.clerk.test/profile",
     });
@@ -61,12 +61,12 @@ describe("profile API route", () => {
 
     expect(patchResponse.status).toBe(200);
     expect(body.identity).toEqual({
-      userId: "user_profile",
       email: "profile@example.com",
-      firstName: "Clerk",
+      firstName: "Alex",
       lastName: "Traveler",
-      imageUrl: "https://img.clerk.test/profile",
     });
+    expect(body.identity).not.toHaveProperty("userId");
+    expect(body.identity).not.toHaveProperty("imageUrl");
     expect(body.profile).toMatchObject({
       displayName: "Siargao Planner",
       homeCountry: "Philippines",
@@ -90,7 +90,112 @@ describe("profile API route", () => {
     });
 
     const getResponse = await getProfileResponse(dependencies);
-    expect(await getResponse.json()).toEqual(body);
+    const getBody = await getResponse.json();
+    expect(getBody).toEqual(body);
+    expect(JSON.stringify(getBody)).not.toContain("user_profile");
+
+    await db.close();
+  });
+
+  test("filters internal fallback emails from GET and PATCH profile JSON", async () => {
+    const db = await openProfileTestDatabase();
+    const dependencies = profileDependencies(db, {
+      userId: "user_fallback_email",
+      email: null,
+      firstName: null,
+      lastName: null,
+    });
+
+    const patchResponse = await patchProfileResponse(
+      profileRequest({ displayName: "Fallback Traveler" }),
+      dependencies,
+    );
+    const patchBody = await patchResponse.json();
+    const getResponse = await getProfileResponse(dependencies);
+    const getBody = await getResponse.json();
+
+    expect(patchResponse.status).toBe(200);
+    expect(patchBody.identity).toEqual({
+      email: null,
+      firstName: null,
+      lastName: null,
+    });
+    expect(getBody.identity.email).toBeNull();
+    expect(JSON.stringify(patchBody)).not.toContain(
+      "unavailable+user_fallback_email@clerk.ask-siargao.local",
+    );
+    expect(JSON.stringify(getBody)).not.toContain("user_fallback_email");
+
+    await db.close();
+  });
+
+  test("keeps profile ownership derived from the authenticated user only", async () => {
+    const db = await openProfileTestDatabase();
+    const firstUser = profileDependencies(db, {
+      userId: "user_owner_a",
+      email: "owner-a@example.com",
+      firstName: "Owner",
+      lastName: "A",
+    });
+    const secondUser = profileDependencies(db, {
+      userId: "user_owner_b",
+      email: "owner-b@example.com",
+      firstName: "Owner",
+      lastName: "B",
+    });
+
+    const spoofedOwnerResponse = await patchProfileResponse(
+      profileRequest({
+        displayName: "Owner A",
+        userId: "user_owner_b",
+        identity: { userId: "user_owner_b" },
+      }),
+      firstUser,
+    );
+    const spoofedOwnerBody = await spoofedOwnerResponse.json();
+    const firstValidResponse = await patchProfileResponse(
+      profileRequest({ displayName: "Owner A" }),
+      firstUser,
+    );
+    const secondResponse = await patchProfileResponse(
+      profileRequest({ displayName: "Owner B" }),
+      secondUser,
+    );
+    const firstReadResponse = await getProfileResponse(firstUser);
+    const secondReadResponse = await getProfileResponse(secondUser);
+    const firstBody = await firstReadResponse.json();
+    const secondBody = await secondReadResponse.json();
+    const userRows = await db.query<{ id: string; display_name: string | null }>(
+      `
+        select users.id, user_profiles.display_name
+        from users
+        left join user_profiles on user_profiles.user_id = users.id
+        order by users.id
+      `,
+    );
+
+    expect(spoofedOwnerResponse.status).toBe(400);
+    expect(spoofedOwnerBody.issues.map((issue: { path: string }) => issue.path).toSorted()).toEqual(
+      ["identity", "userId"],
+    );
+    expect(firstValidResponse.status).toBe(200);
+    expect(secondResponse.status).toBe(200);
+    expect(firstBody.profile.displayName).toBe("Owner A");
+    expect(secondBody.profile.displayName).toBe("Owner B");
+    expect(firstBody.identity).toEqual({
+      email: "owner-a@example.com",
+      firstName: "Owner",
+      lastName: "A",
+    });
+    expect(secondBody.identity).toEqual({
+      email: "owner-b@example.com",
+      firstName: "Owner",
+      lastName: "B",
+    });
+    expect(userRows.rows).toEqual([
+      { id: "user_owner_a", display_name: "Owner A" },
+      { id: "user_owner_b", display_name: "Owner B" },
+    ]);
 
     await db.close();
   });
@@ -450,7 +555,7 @@ describe("profile API route", () => {
     await db.close();
   });
 
-  test("does not allow profile patches to mutate Clerk-owned identity fields", async () => {
+  test("does not allow profile patches to mutate provider-owned identity fields", async () => {
     const db = await openProfileTestDatabase();
     const dependencies = profileDependencies(db, {
       userId: "user_identity",
@@ -461,8 +566,16 @@ describe("profile API route", () => {
     const response = await patchProfileResponse(
       profileRequest({
         displayName: "Allowed",
+        userId: "user_attacker",
+        clerkUserId: "user_attacker",
+        identity: { userId: "user_attacker", email: "attacker@example.com" },
         email: "attacker@example.com",
+        emailVerified: true,
         firstName: "Attacker",
+        lastName: "Override",
+        imageUrl: "https://img.clerk.test/attacker",
+        providerId: "user_attacker",
+        externalId: "user_attacker",
       }),
       dependencies,
     );
@@ -472,8 +585,16 @@ describe("profile API route", () => {
     expect(response.status).toBe(400);
     expect(body.error).toBe("invalid_profile_request");
     expect(body.issues.map((issue: { path: string }) => issue.path).toSorted()).toEqual([
+      "clerkUserId",
       "email",
+      "emailVerified",
+      "externalId",
       "firstName",
+      "identity",
+      "imageUrl",
+      "lastName",
+      "providerId",
+      "userId",
     ]);
     expect(user).toMatchObject({
       email: "original@example.com",
@@ -494,10 +615,10 @@ function profileDependencies(
   db: PGlite,
   input: {
     userId: string | null;
-    email?: string;
-    firstName?: string;
-    lastName?: string;
-    imageUrl?: string;
+    email?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+    imageUrl?: string | null;
   },
 ) {
   return {
@@ -505,7 +626,9 @@ function profileDependencies(
       userId: input.userId,
       sessionClaims: input.userId
         ? {
-            email: input.email ?? `${input.userId}@example.com`,
+            ...(input.email === null
+              ? {}
+              : { email: input.email ?? `${input.userId}@example.com` }),
             given_name: input.firstName ?? null,
             family_name: input.lastName ?? null,
             picture: input.imageUrl ?? null,
