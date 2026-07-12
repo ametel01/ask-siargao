@@ -550,6 +550,32 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     setIsSending(false);
   }, []);
 
+  const stopActiveResponseForThreadSwitch = useCallback(() => {
+    const activeRequest = activeResponseRequestRef.current;
+    if (!activeRequest) {
+      return;
+    }
+
+    activeResponseRequestRef.current = stopResponseWaitRequest(
+      activeRequest,
+      activeRequest.requestId,
+    );
+    setIsSending(false);
+    setMessages((currentMessages) =>
+      currentMessages.map((message) =>
+        message.id === activeRequest.assistantMessageId && message.status === "pending"
+          ? {
+              ...message,
+              text: responseStoppedStatusText,
+              timestamp: formatTimestamp(),
+              status: "stopped",
+              retryPrompt: activeRequest.prompt,
+            }
+          : message,
+      ),
+    );
+  }, []);
+
   useEffect(() => {
     return () => {
       mountedRef.current = false;
@@ -634,7 +660,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
 
   const openChatThread = useCallback(
     async (threadId: string) => {
-      invalidateActiveResponseRequest();
+      stopActiveResponseForThreadSwitch();
       setHistoryStatus("loading");
       try {
         const response = await fetch(`/api/chat/threads/${threadId}`, { cache: "no-store" });
@@ -654,7 +680,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
         setHistoryStatus("error");
       }
     },
-    [invalidateActiveResponseRequest],
+    [stopActiveResponseForThreadSwitch],
   );
 
   const startNewChat = useCallback(() => {

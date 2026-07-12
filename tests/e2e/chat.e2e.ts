@@ -2943,6 +2943,93 @@ test("stops local waiting, ignores the late response, and retries the original q
   await expect(page.getByTestId("assistant-wait-state")).toHaveCount(0);
 });
 
+test("cleans up pending wait state when previous-thread loading fails", async ({ page }) => {
+  const chat = await mockDeferredChatApi(page);
+  const thread = {
+    id: "thread_detail_failure",
+    title: "Cloud 9 detail failure",
+    status: "active",
+    createdAt: "2026-06-29T01:00:00.000Z",
+    updatedAt: "2026-06-29T01:00:00.000Z",
+    lastMessageAt: "2026-06-29T01:01:00.000Z",
+  };
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: { accommodation: "Cloud 9 stay" } }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripId: "trip_thread_failure", items: [] }),
+    });
+  });
+  await page.route("**/api/chat/threads**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+
+    if (request.method() === "GET" && url.pathname === "/api/chat/threads") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ threads: [thread] }),
+      });
+      return;
+    }
+
+    if (request.method() === "GET" && url.pathname === "/api/chat/threads/thread_detail_failure") {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "thread_unavailable" }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "not_found" }),
+    });
+  });
+
+  await page.goto("/chat");
+
+  const previousThread = page.getByRole("button", { name: /Cloud 9 detail failure/ });
+  await expect(previousThread).toBeVisible();
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("Should we keep a rainy-day backup?");
+  await composerInput.press("Enter");
+  await expect.poll(() => chat.requests.length).toBe(1);
+  await expect(page.getByTestId("assistant-wait-state")).toBeVisible();
+
+  await previousThread.click();
+
+  await expect(page.getByText("Chat history unavailable")).toBeVisible();
+  await expect(page.getByTestId("assistant-wait-state")).toHaveCount(0);
+  await expect(page.getByText("Stopped waiting here. You can retry that question.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry question" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop waiting" })).toHaveCount(0);
+  await expect(composerInput).toBeEnabled();
+
+  chat.release(0, { message: "Late thread-switch answer should not render." });
+  await page.waitForTimeout(250);
+  await expect(page.getByText("Late thread-switch answer should not render.")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Retry question" }).click();
+  await expect.poll(() => chat.requests.length).toBe(2);
+  expect(lastSubmittedContent(chat.requests[1])).toBe("Should we keep a rainy-day backup?");
+
+  chat.release(1, { message: "Fresh thread-failure retry answer." });
+  await expect(page.getByText("Fresh thread-failure retry answer.")).toBeVisible();
+});
+
 test("renders one failure retry path without stop controls or leaked server details", async ({
   page,
 }) => {
