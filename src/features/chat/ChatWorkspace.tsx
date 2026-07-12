@@ -1738,7 +1738,7 @@ function ChatWorkspaceView({
       aria-label="Ask Siargao chat workspace"
       className="fixed inset-0 isolate h-dvh overflow-hidden bg-brand-paper-100 text-text-strong before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:-z-10 before:w-[42vw] before:bg-[radial-gradient(circle_at_18%_16%,rgba(20,184,166,0.18),transparent_34%),linear-gradient(150deg,rgba(6,47,53,0.18),transparent_58%)] after:pointer-events-none after:absolute after:right-0 after:bottom-0 after:-z-10 after:h-44 after:w-[48vw] after:bg-[radial-gradient(circle_at_bottom_right,rgba(255,155,131,0.16),transparent_58%)]"
     >
-      <section className="grid h-full min-h-0 w-full grid-cols-1 min-[1180px]:grid-cols-[12.25rem_minmax(0,1fr)_23.5rem] xl:grid-cols-[14rem_minmax(0,1fr)_23.5rem] 2xl:grid-cols-[16rem_minmax(0,1fr)_23.5rem]">
+      <section className="grid h-full min-h-0 w-full grid-cols-1 min-[1180px]:grid-cols-[12.25rem_minmax(0,1fr)_21rem] xl:grid-cols-[14rem_minmax(0,1fr)_22rem] 2xl:grid-cols-[16rem_minmax(0,1fr)_23.5rem]">
         <ChatTravelRail
           historyStatus={historyStatus}
           onOpenThread={(threadId) => {
@@ -3057,7 +3057,7 @@ function ChatContextRail({
   return (
     <aside
       aria-label="Trip context and live conditions"
-      className="hidden min-h-0 content-start gap-2 overflow-hidden border-border-default/80 border-l bg-brand-paper-100/88 p-2.5 min-[1180px]:grid"
+      className="hidden min-h-0 content-start gap-1 overflow-hidden border-border-default/80 border-l bg-brand-paper-100/88 p-2 min-[1180px]:grid"
       data-testid="context-rail"
     >
       <ContextCard
@@ -3170,7 +3170,7 @@ function ChatContextRail({
         }
         title={`${activeForecastLocation} Weather`}
       >
-        <div className="grid gap-2">
+        <div className="grid gap-1.5">
           <div className="flex items-center gap-3">
             <CloudSun aria-hidden="true" className="text-brand-lagoon-700" size={30} />
             <div className="min-w-0">
@@ -3209,7 +3209,7 @@ function ChatContextRail({
         }
         title="Live surf conditions"
       >
-        <div className="grid gap-2">
+        <div className="grid gap-1.5">
           <div className="flex items-center justify-between gap-3">
             <p className="m-0 inline-flex min-w-0 items-center gap-2 text-base font-black text-text-strong">
               <WavesHorizontal aria-hidden="true" className="text-brand-lagoon-700" size={18} />
@@ -3242,7 +3242,7 @@ function ContextCard({
   title: string;
 }) {
   return (
-    <section className="grid gap-2 rounded-md border border-border-default/80 bg-white/78 p-2.5 shadow-none">
+    <section className="grid gap-1.5 rounded-md border border-border-default/80 bg-white/78 p-2 shadow-none">
       <div className="flex items-center justify-between gap-3">
         <h2 className="m-0 min-w-0 text-sm font-black leading-tight text-text-strong">{title}</h2>
         {action}
@@ -3392,7 +3392,7 @@ function iconForTripContextLabel(label: string): ChatContextIcon {
 function ConditionDecisionDetails({ decision }: { decision: LiveConditionDecision }) {
   const presentation = projectConditionEvidencePresentation(decision);
   return (
-    <div className="grid gap-1.5">
+    <div className="grid gap-1">
       {decision.timing ? (
         <p
           className="m-0 text-xs font-black text-brand-violet-650"
