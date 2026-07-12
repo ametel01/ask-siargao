@@ -69,7 +69,11 @@ export function assemblePublicChatTurn({
 }): PublicChatTurnAssembly {
   const publicToolCalls = publicAgentToolCallsFromAudits(result.toolCalls);
   const displaySources = sanitizeDisplaySources(result.publicSources);
-  const displayCards = sanitizeDisplayRecommendationCards(result.cards ?? []);
+  const terminalResearchGapApplies = hasTerminalCurrentResearchGap(result.publicSources);
+  const displayCards = sanitizeDisplayRecommendationCards(
+    result.cards ?? [],
+    terminalResearchGapApplies,
+  );
   const displayActions = sanitizeDisplayActions(result.actions ?? []);
   const displayItineraries = sanitizeDisplayItineraries(result.itineraries ?? []);
   const displayDecisionSummaries = sanitizeDisplayDecisionSummaries(result.decisionSummaries ?? []);
@@ -126,7 +130,7 @@ export function assemblePublicChatTurn({
     storage: {
       message: display.message,
       sources: sanitizeStorageSources(result.publicSources),
-      cards: sanitizeStorageRecommendationCards(result.cards ?? []),
+      cards: sanitizeStorageRecommendationCards(result.cards ?? [], terminalResearchGapApplies),
       actions: sanitizeStorageActions(result.actions ?? []),
       itineraries: sanitizeStorageItineraries(result.itineraries ?? []),
       decisionSummaries: sanitizeStorageDecisionSummaries(result.decisionSummaries ?? []),
@@ -151,10 +155,17 @@ export function displayReadyStoredChatTurn({
   itineraries: readonly unknown[];
   decisionSummaries: readonly unknown[];
 }): Omit<DisplayReadyChatTurn, "toolCalls"> {
+  const terminalResearchGapApplies = hasTerminalCurrentResearchGap(
+    sources as readonly AnswerSourceSummary[],
+  );
+
   return {
     message: stripInternalDisclosureText(content),
     sources: sanitizeDisplaySources(sources as readonly AnswerSourceSummary[]),
-    cards: sanitizeDisplayRecommendationCards(cards as readonly RecommendationCard[]),
+    cards: sanitizeDisplayRecommendationCards(
+      cards as readonly RecommendationCard[],
+      terminalResearchGapApplies,
+    ),
     actions: sanitizeDisplayActions(actions as readonly ChatAction[]),
     itineraries: sanitizeDisplayItineraries(itineraries as readonly ItineraryPlan[]),
     decisionSummaries: sanitizeDisplayDecisionSummaries(
@@ -305,9 +316,12 @@ function isDisplayableSource(source: AnswerSourceSummary) {
   return source.label !== "not_verified";
 }
 
-function sanitizeDisplayRecommendationCards(cards: readonly RecommendationCard[]) {
+function sanitizeDisplayRecommendationCards(
+  cards: readonly RecommendationCard[],
+  terminalResearchGapApplies: boolean,
+) {
   return cards
-    .filter((card) => !isBlockedPositivePlaceCard(card))
+    .filter((card) => !isBlockedPositivePlaceCard(card, terminalResearchGapApplies))
     .map((card) => ({
       ...card,
       fitReasons: sanitizeDisplayTextList(card.fitReasons ?? []),
@@ -352,9 +366,12 @@ function sanitizeStorageSources(sources: readonly AnswerSourceSummary[]) {
   }));
 }
 
-function sanitizeStorageRecommendationCards(cards: readonly RecommendationCard[]) {
+function sanitizeStorageRecommendationCards(
+  cards: readonly RecommendationCard[],
+  terminalResearchGapApplies: boolean,
+) {
   return cards
-    .filter((card) => !isBlockedPositivePlaceCard(card))
+    .filter((card) => !isBlockedPositivePlaceCard(card, terminalResearchGapApplies))
     .map((card) => ({
       ...card,
       fitReasons: sanitizeStorageTextList(card.fitReasons ?? []),
@@ -406,13 +423,17 @@ function sanitizeStorageTextList(values: readonly string[]) {
   });
 }
 
-function isBlockedPositivePlaceCard(card: RecommendationCard) {
+function isBlockedPositivePlaceCard(card: RecommendationCard, terminalResearchGapApplies: boolean) {
   return (
     card.kind === "place" &&
     card.decision?.label !== "avoid_today" &&
     card.decision?.label !== "needs_confirmation" &&
-    (card.sources ?? []).some(isTerminalCurrentResearchGap)
+    (terminalResearchGapApplies || (card.sources ?? []).some(isTerminalCurrentResearchGap))
   );
+}
+
+function hasTerminalCurrentResearchGap(sources: readonly AnswerSourceSummary[]) {
+  return sources.some(isTerminalCurrentResearchGap);
 }
 
 function isTerminalCurrentResearchGap(source: AnswerSourceSummary) {

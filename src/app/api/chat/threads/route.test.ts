@@ -378,9 +378,7 @@ describe("chat thread API routes", () => {
         notChecked: ["Google Places lookup"],
       },
     ]);
-    expect(body.messages[0].cards[0].fitReasons).toEqual(["Checked cafe."]);
-    expect(body.messages[0].cards[0].caveats).toEqual(["Bring cash."]);
-    expect(body.messages[0].cards[0].sources[0].notChecked).toEqual(["review text"]);
+    expect(body.messages[0].cards).toEqual([]);
     expect(serializedBody).not.toContain("Review text");
     expect(serializedBody).not.toContain("table availability");
 
