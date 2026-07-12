@@ -789,7 +789,14 @@ function useChatWorkspaceController({
   const loadChatThread = useCallback(
     async (threadId: string, historyMode: "push" | "replace" | "none" = "push") => {
       stopActiveResponseForThreadSwitch();
+      threadMutationGenerationRef.current += 1;
       activeThreadLoadRef.current?.controller.abort();
+      setThreadActionState({
+        dialog: null,
+        error: null,
+        pendingAction: null,
+        status: "idle",
+      });
       const generation = threadLoadGenerationRef.current + 1;
       threadLoadGenerationRef.current = generation;
       const controller = new AbortController();
@@ -867,6 +874,13 @@ function useChatWorkspaceController({
     invalidatePendingChatSubmission();
     invalidateActiveResponseRequest();
     invalidateActiveThreadLoad();
+    threadMutationGenerationRef.current += 1;
+    setThreadActionState({
+      dialog: null,
+      error: null,
+      pendingAction: null,
+      status: "idle",
+    });
     setSelectedThreadId(null);
     setSelectedThreadTitle(null);
     setSelectedThreadUnavailable(false);

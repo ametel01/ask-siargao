@@ -1737,6 +1737,14 @@ test("opens and manages exact chat and saved planning selections", async ({ page
       updatedAt: "2026-06-29T02:00:00.000Z",
       lastMessageAt: "2026-06-29T02:01:00.000Z",
     },
+    {
+      id: "thread_race_target",
+      title: "Island hopping target",
+      status: "active",
+      createdAt: "2026-06-29T03:00:00.000Z",
+      updatedAt: "2026-06-29T03:00:00.000Z",
+      lastMessageAt: "2026-06-29T03:01:00.000Z",
+    },
   ];
   const threadMessages: Record<string, E2EThreadMessage[]> = {
     thread_manage: [
@@ -1793,6 +1801,33 @@ test("opens and manages exact chat and saved planning selections", async ({ page
         createdAt: "2026-06-29T02:01:00.000Z",
       },
     ],
+    thread_race_target: [
+      {
+        id: "message_race_target_user",
+        role: "user",
+        content: "Which island hopping route should I take?",
+        status: "complete",
+        sources: [],
+        cards: [],
+        actions: [],
+        itineraries: [],
+        decisionSummaries: [],
+        createdAt: "2026-06-29T03:00:00.000Z",
+      },
+      {
+        id: "message_race_target_assistant",
+        role: "assistant",
+        content: "Keep the route flexible around the tide and weather.",
+        status: "complete",
+        sources: [],
+        cards: [],
+        actions: [],
+        itineraries: [],
+        decisionSummaries: [],
+        rating: null,
+        createdAt: "2026-06-29T03:01:00.000Z",
+      },
+    ],
   };
   const savedItems: E2ESavedTripItem[] = [
     {
@@ -1818,6 +1853,11 @@ test("opens and manages exact chat and saved planning selections", async ({ page
     },
   ];
   const archivedThreadIds: string[] = [];
+  let releaseLateRename: (() => void) | undefined;
+  let markLateRenameRequested: (() => void) | undefined;
+  const lateRenameRequested = new Promise<void>((resolve) => {
+    markLateRenameRequested = resolve;
+  });
 
   await page.route("**/api/me/profile", async (route) => {
     await route.fulfill({
@@ -1887,6 +1927,12 @@ test("opens and manages exact chat and saved planning selections", async ({ page
         return;
       }
       const renamedThread = { ...thread, title: body.title ?? thread.title };
+      if (body.title === "Late mutation title") {
+        markLateRenameRequested?.();
+        await new Promise<void>((resolve) => {
+          releaseLateRename = resolve;
+        });
+      }
       threads = threads.map((candidate) => (candidate.id === threadId ? renamedThread : candidate));
       await route.fulfill({
         status: 200,
@@ -1924,6 +1970,29 @@ test("opens and manages exact chat and saved planning selections", async ({ page
   await renameDialog.getByRole("button", { name: "Save" }).click();
   await expect(renameDialog).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Cloud 9 quiet stay/ })).toBeVisible();
+
+  await page.getByRole("button", { name: "Rename selected chat" }).click();
+  const lateRenameDialog = page.getByRole("dialog", { name: "Rename chat" });
+  await lateRenameDialog.getByLabel("Thread title").fill("Late mutation title");
+  await lateRenameDialog.getByRole("button", { name: "Save" }).click();
+  await lateRenameRequested;
+  await page.keyboard.press("Escape");
+  await expect(lateRenameDialog).toHaveCount(0);
+
+  await page.getByRole("button", { name: /Island hopping target/ }).click();
+  await expect(page).toHaveURL(/threadId=thread_race_target/);
+  await expect(page.getByText("Which island hopping route should I take?")).toBeVisible();
+  releaseLateRename?.();
+  await page.waitForTimeout(250);
+  await expect(page).toHaveURL(/threadId=thread_race_target/);
+  await expect(
+    page.getByText("Keep the route flexible around the tide and weather."),
+  ).toBeVisible();
+  await expect(page.getByText("Late mutation title")).toHaveCount(0);
+
+  await page.getByRole("button", { name: /Cloud 9 quiet stay/ }).click();
+  await expect(page).toHaveURL(/threadId=thread_manage/);
+  await expect(page.getByText("Can I stay near Cloud 9?")).toBeVisible();
 
   await page.getByRole("button", { name: "Archive selected chat" }).click();
   const archiveDialog = page.getByRole("dialog", { name: "Archive chat?" });
