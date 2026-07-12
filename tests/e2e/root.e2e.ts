@@ -16,7 +16,9 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
   await expect(page.getByText("Weather", { exact: true })).toBeVisible();
   await expect(page.getByText("Places", { exact: true })).toBeVisible();
   await expect(page.getByText("Local caveats", { exact: true })).toBeVisible();
-  await expect(page.getByText("Checked on request")).toHaveCount(2);
+  await expect(page.getByText("Can check forecasts when asked")).toBeVisible();
+  await expect(page.getByText("Can check places when asked")).toBeVisible();
+  await expect(page.getByText("Checked on request")).toHaveCount(0);
   await expect(page.locator("svg.lucide-check")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Choose the right base" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Make the weather call" })).toBeVisible();

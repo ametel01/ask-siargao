@@ -334,13 +334,11 @@ test("shows checking condition decisions before routes resolve", async ({ page }
   await page.goto("/chat");
 
   const rail = page.getByTestId("context-rail");
-  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Checking current signals");
-  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Checking current signals");
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Checking now");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Checking now");
   releaseRoutes?.();
-  await expect(rail.getByTestId("weather-condition-state")).toHaveText(
-    "Current signals unavailable",
-  );
-  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Current signals unavailable");
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Unavailable");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Unavailable");
 });
 
 test("renders bounded condition decisions before their raw metrics", async ({ page }) => {
@@ -459,16 +457,16 @@ test("renders bounded condition decisions before their raw metrics", async ({ pa
   surfMode = "partial";
   await rail.getByRole("button", { name: "Refresh weather" }).click();
   await rail.getByRole("button", { name: "Refresh surf conditions" }).click();
-  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Prior signals; rechecking");
-  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Partial checked signals");
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Prior evidence");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Partly checked signals");
   await expect(rail.getByTestId("surf-condition-basis")).toContainText("Missing: tide, swell");
 
   weatherMode = "unknown";
   surfMode = "unknown";
   await rail.getByRole("button", { name: "Refresh weather" }).click();
   await rail.getByRole("button", { name: "Refresh surf conditions" }).click();
-  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Freshness not verified");
-  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Freshness not verified");
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Not verified");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Not verified");
   await expect(rail.getByTestId("surf-condition-action")).toHaveText(
     "Keep surf plans flexible and confirm locally.",
   );
@@ -477,7 +475,7 @@ test("renders bounded condition decisions before their raw metrics", async ({ pa
   surfMode = "no-window";
   await rail.getByRole("button", { name: "Refresh weather" }).click();
   await rail.getByRole("button", { name: "Refresh surf conditions" }).click();
-  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Checked signals available");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Checked");
   await expect(rail.getByTestId("surf-condition-action")).toHaveText(
     "Keep surf plans flexible and confirm locally.",
   );
@@ -487,16 +485,14 @@ test("renders bounded condition decisions before their raw metrics", async ({ pa
   surfMode = "error";
   await rail.getByRole("button", { name: "Refresh weather" }).click();
   await rail.getByRole("button", { name: "Refresh surf conditions" }).click();
-  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Prior signals; rechecking");
-  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Prior signals; rechecking");
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Prior evidence");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Prior evidence");
 
   weatherMode = "unavailable";
   surfMode = "unavailable";
   await page.reload();
-  await expect(rail.getByTestId("weather-condition-state")).toHaveText(
-    "Current signals unavailable",
-  );
-  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Current signals unavailable");
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Unavailable");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Unavailable");
 });
 
 test("shows the trip context rail at normal desktop browser width", async ({ page }) => {
@@ -906,12 +902,8 @@ test("shares one typed live-condition projection between mobile and desktop with
   await expect(mobileWeather.getByTestId("mobile-weather-condition-basis")).toContainText(
     "checked daily forecast",
   );
-  await expect(mobileWeather.getByTestId("weather-condition-state")).toHaveText(
-    "Checked signals available",
-  );
-  await expect(mobileSurf.getByTestId("surf-condition-state")).toHaveText(
-    "Partial checked signals",
-  );
+  await expect(mobileWeather.getByTestId("weather-condition-state")).toHaveText("Checked");
+  await expect(mobileSurf.getByTestId("surf-condition-state")).toHaveText("Partly checked signals");
   await expect(mobileSurf.getByTestId("mobile-surf-condition-basis")).toContainText(
     "Missing: tide, swell",
   );
@@ -1226,6 +1218,61 @@ test("renders assistant presentation smoke on desktop and mobile", async ({ page
   }
 
   expect(mockChat.requests).toHaveLength(2);
+});
+
+test("renders mixed chat sources with truthful evidence states", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mockChatApi(page, {
+    message: "Use the checked place, but treat weather and public web updates as caveated.",
+    sources: [
+      mockPlacesSource,
+      {
+        label: "provider_unavailable",
+        sourceName: "Open-Meteo weather API",
+        sourceProfileId: "source_open_meteo",
+        confidence: "low",
+        checked: [],
+        notChecked: ["weather forecast"],
+      },
+      {
+        label: "insufficient_web_evidence",
+        sourceName: "Public web research",
+        sourceProfileId: "source_web_research",
+        confidence: "low",
+        checked: [],
+        notChecked: ["current ferry disruption evidence"],
+      },
+      {
+        label: "curated_local_guide",
+        sourceName: "Ask Siargao curated local beach guide",
+        confidence: "medium",
+        checked: ["Cloud 9 fallback pattern"],
+        notChecked: ["live open-now status"],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Build a caveated mixed-source plan");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  const sourcesPanel = page.getByTestId("assistant-sources-panel");
+  await expect(sourcesPanel).toContainText(
+    "Checked: Google Places, Ask Siargao local beach guide; 2 caveated",
+  );
+  await sourcesPanel.getByText("View sources").click();
+  await expect(sourcesPanel.getByText("Places checked")).toBeVisible();
+  await expect(sourcesPanel.getByText("Guide info checked")).toBeVisible();
+  await expect(sourcesPanel.getByText("Could not check")).toBeVisible();
+  await expect(sourcesPanel.getByText("Web evidence insufficient")).toBeVisible();
+  await expect(sourcesPanel.getByText("Weather forecast: Not checked")).toHaveCount(0);
+  await expect(sourcesPanel).toContainText("Not checked: weather forecast");
+  await expect(sourcesPanel).toContainText("Not checked: current ferry disruption evidence");
+  await expect(sourcesPanel).not.toContainText("provider_unavailable");
+  await expect(sourcesPanel).not.toContainText("insufficient_web_evidence");
+  await expect(sourcesPanel).not.toContainText("source_web_research");
+  await expect(sourcesPanel).not.toContainText("Fresh source");
+  await expect(sourcesPanel).not.toContainText("Live checked");
 });
 
 test("keeps a crowded chat history from clipping the active assistant reply", async ({ page }) => {
@@ -2247,7 +2294,7 @@ test("leads live grounded answers with one responsive decision strip", async ({ 
   await expect(strip).toContainText("Backup:");
   await expect(strip).toContainText("Avoid:");
   await expect(strip.getByTestId("decision-strip-source-status")).toContainText(
-    "Checked: Open-Meteo weather API: forecast for Cloud 9",
+    "Checked: Weather forecast: forecast for Cloud 9",
   );
   await expect(strip).not.toContainText("This secondary selected summary must stay out");
   await expect(page.getByText("At a Glance")).toHaveCount(0);
@@ -2336,7 +2383,7 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     await expect(strip).toContainText("Where");
     await expect(strip).toContainText("When");
     await expect(strip.getByTestId("decision-strip-source-status")).toContainText(
-      "Checked: Open-Meteo weather API: forecast for Cloud 9",
+      "Checked: Weather forecast: forecast for Cloud 9",
     );
     await expect(sourceSummary).toBeVisible();
     await expect(helpfulButton).toBeVisible();
@@ -2504,6 +2551,7 @@ test("renders itinerary plans with stops, fallbacks, skip guidance, sources, and
   await expect(page.getByTestId("itinerary-fallbacks")).toContainText("Use during active rain");
   await expect(page.getByTestId("itinerary-skip")).toContainText("Exposed beach hopping");
   await expect(page.getByTestId("itinerary-sources")).toContainText("Local guide");
+  await expect(page.getByTestId("itinerary-sources")).toContainText("Guide info checked");
   await expect(page.getByTestId("itinerary-sources")).not.toContainText("Not checked");
 });
 
@@ -2759,7 +2807,7 @@ test("creates and copies or opens a share link from saved cards and itineraries"
 
     await route.fulfill({
       status: 200,
-      contentType: "text/html",
+      contentType: "text/html; charset=utf-8",
       body: renderSharedTripPlanDocument(publicPlan),
     });
   });
@@ -2858,25 +2906,26 @@ test("creates and copies or opens a share link from saved cards and itineraries"
   ).toBeVisible();
   await expect(popup.getByRole("heading", { name: "Fallback" })).toBeVisible();
   await expect(popup.getByText("Move indoors if rain gets heavier.")).toBeVisible();
-  await expect(popup.getByText("Google Places - live checked")).toBeVisible();
+  await expect(popup.getByText("Google Places · Places checked", { exact: true })).toBeVisible();
   await expect(
-    popup.getByText("Google Places API - live checked - fetched 2026-06-28T00:45:00.000Z"),
+    popup.getByText("Google Places · Places checked · fetched 2026-06-28T00:45:00.000Z"),
   ).toBeVisible();
   await expect(
-    popup.getByText("Checked by Google Places API: current opening status"),
+    popup.getByText("Google Places: Checked details: place identity, current opening status"),
   ).toBeVisible();
   await expect(
-    popup.getByText("Not checked by Google Places API: table availability"),
+    popup.getByText("Google Places: Not checked: review text, table availability"),
   ).toBeVisible();
-  await expect(popup.getByText("Ask Siargao local guide - curated local guide")).toBeVisible();
+  await expect(popup.getByText("Ask Siargao local guide · Guide info checked")).toBeVisible();
   await expect(
-    popup.getByText("Checked by Ask Siargao local guide: rainy-day Cloud 9 fallback pattern"),
+    popup.getByText("Ask Siargao local guide: Checked details: rainy-day Cloud 9 fallback pattern"),
   ).toBeVisible();
   await expect(
     popup.getByText(
-      "Not checked by Browser saved trip: Saved from browser and not reverified by Ask Siargao before sharing.",
+      "Saved browser plan: Not checked: Saved from browser and not reverified by Ask Siargao before sharing.",
     ),
   ).toHaveCount(2);
+  await expect(popup.getByText("Google Places API - live checked")).toHaveCount(0);
   await expect(popup.getByText(prompt)).toHaveCount(0);
   await popup.close();
 });
@@ -2886,7 +2935,7 @@ test("renders generic public shared-plan unavailable state in the browser", asyn
   await page.route("**/trips/shared/expired_playwright", async (route) => {
     await route.fulfill({
       status: 200,
-      contentType: "text/html",
+      contentType: "text/html; charset=utf-8",
       body: renderSharedTripPlanDocument(null),
     });
   });
@@ -3012,6 +3061,7 @@ test("renders initial itinerary theme fixtures without generic brainstorm fallba
   await expect(foodPlan).toContainText("First food stop");
   await expect(foodPlan).toContainText("Second food stop");
   await expect(sunsetPlan.getByTestId("itinerary-sources")).toContainText("Local guide");
+  await expect(sunsetPlan.getByTestId("itinerary-sources")).toContainText("Guide info checked");
 });
 
 test("keeps recommendation cards inside the mobile chat column", async ({ page }) => {
@@ -4318,7 +4368,7 @@ function renderSharedTripItem(item: E2ESavedTripItem) {
       card.subtitle,
       card.distanceLabel,
       card.openStatusLabel,
-      card.sourceLabel,
+      e2eSharedArtifactSourceLabel(card.sourceLabel, item.sources),
     ]
       .filter((value): value is string => Boolean(value))
       .map((value) => `<p>${escapeHtml(value)}</p>`)
@@ -4335,18 +4385,79 @@ function renderSharedTripItem(item: E2ESavedTripItem) {
 
 function renderSources(sources: MockSourceSummary[]) {
   return `<section>${sources
-    .map(
-      (source) =>
-        `<p>${escapeHtml(source.sourceName)} - ${escapeHtml(source.label.replaceAll("_", " "))}${
-          source.fetchedAt ? ` - fetched ${escapeHtml(source.fetchedAt)}` : ""
-        }</p>${[
-          ...source.checked.map((item) => `Checked by ${source.sourceName}: ${item}`),
-          ...source.notChecked.map((item) => `Not checked by ${source.sourceName}: ${item}`),
-        ]
-          .map((item) => `<p>${escapeHtml(item)}</p>`)
-          .join("")}`,
-    )
+    .map((source) => {
+      const presentation = e2eSourcePresentation(source);
+      return `<p>${escapeHtml(presentation.sourceName)} · ${escapeHtml(presentation.label)}${
+        source.fetchedAt ? ` · fetched ${escapeHtml(source.fetchedAt)}` : ""
+      }</p>${[
+        ...(presentation.state === "checked"
+          ? [`${presentation.sourceName}: Checked details: ${source.checked.join(", ")}`]
+          : []),
+        ...(source.notChecked.length
+          ? [`${presentation.sourceName}: Not checked: ${source.notChecked.join(", ")}`]
+          : []),
+      ]
+        .map((item) => `<p>${escapeHtml(item)}</p>`)
+        .join("")}`;
+    })
     .join("")}</section>`;
+}
+
+function e2eSourcePresentation(source: MockSourceSummary) {
+  const sourceName = e2eSourceDisplayName(source.sourceName);
+  if (source.label === "provider_unavailable") {
+    return { state: "unavailable", label: "Could not check", sourceName };
+  }
+  if (
+    source.checked.length === 0 ||
+    ["not_verified", "insufficient_web_evidence", "no_current_event_facts"].includes(source.label)
+  ) {
+    return {
+      state: "not-verified",
+      label:
+        source.label === "insufficient_web_evidence"
+          ? "Web evidence insufficient"
+          : source.label === "no_current_event_facts"
+            ? "No current event facts"
+            : "Not verified",
+      sourceName,
+    };
+  }
+  return {
+    state: "checked",
+    label:
+      source.label === "curated_local_guide"
+        ? "Guide info checked"
+        : source.label === "weather_checked"
+          ? "Weather checked"
+          : "Places checked",
+    sourceName,
+  };
+}
+
+function e2eSourceDisplayName(sourceName: string) {
+  if (/^google places api$/i.test(sourceName)) {
+    return "Google Places";
+  }
+  if (/^open-meteo weather api$/i.test(sourceName)) {
+    return "Weather forecast";
+  }
+  if (/^browser saved trip$/i.test(sourceName)) {
+    return "Saved browser plan";
+  }
+  return sourceName
+    .replace(/\s+API$/i, "")
+    .replace(/^Ask Siargao curated local /i, "Ask Siargao local ")
+    .trim();
+}
+
+function e2eSharedArtifactSourceLabel(sourceLabel: string, sources: MockSourceSummary[]) {
+  const checkedSource = sources
+    .map(e2eSourcePresentation)
+    .find((source) => source.state === "checked");
+  return checkedSource
+    ? `${checkedSource.sourceName} · ${checkedSource.label}`
+    : sourceLabel.replace(/\s+-\s+live checked\b/i, " · source available");
 }
 
 function renderDecision(decision?: MockDecisionMetadata) {

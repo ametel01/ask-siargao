@@ -16,6 +16,7 @@ import {
   CloudSun,
   Copy,
   ExternalLink,
+  Info,
   LoaderCircle,
   MapPin,
   Navigation,
@@ -75,6 +76,14 @@ import {
   type DecisionStripSummary,
   projectDecisionStrip,
 } from "@/features/chat/decision-strip-presentation";
+import {
+  formatEvidenceSourceTime,
+  projectConditionEvidencePresentation,
+  projectSourceEvidencePresentation,
+  sourceEvidenceDetailLines,
+  sourceEvidenceDisplayName,
+  sourceEvidenceSummaryText,
+} from "@/features/chat/evidence-presentation-state";
 import {
   type LiveConditionDecision,
   projectSurfConditionDecision,
@@ -2664,7 +2673,7 @@ function iconForTripContextLabel(label: string): ChatContextIcon {
 }
 
 function ConditionDecisionDetails({ decision }: { decision: LiveConditionDecision }) {
-  const stateLabel = conditionDecisionStateLabel(decision.state);
+  const presentation = projectConditionEvidencePresentation(decision);
   return (
     <div className="grid gap-2">
       {decision.timing ? (
@@ -2690,24 +2699,24 @@ function ConditionDecisionDetails({ decision }: { decision: LiveConditionDecisio
       <p
         className={cn(
           "m-0 inline-flex items-center gap-2 text-xs font-extrabold",
-          decision.state === "live" ? "text-confidence-high" : "text-text-muted",
+          presentation.state === "checked" ? "text-confidence-high" : "text-text-muted",
         )}
         data-testid={`${decision.kind}-condition-state`}
       >
         <span
           className={cn(
             "size-2 rounded-full",
-            decision.state === "live" ? "bg-confidence-high" : "bg-text-muted",
+            presentation.state === "checked" ? "bg-confidence-high" : "bg-text-muted",
           )}
         />
-        {stateLabel}
+        {presentation.label}
       </p>
       {decision.evidenceStatus ? (
         <p
           className="m-0 text-xs font-bold text-text-muted"
           data-testid={`${decision.kind}-condition-evidence`}
         >
-          {decision.evidenceStatus}
+          {presentation.summary}
           {decision.sourceTime ? (
             <>
               {" · Forecast time: "}
@@ -2727,23 +2736,6 @@ function ConditionDecisionDetails({ decision }: { decision: LiveConditionDecisio
       ) : null}
     </div>
   );
-}
-
-function conditionDecisionStateLabel(state: LiveConditionDecision["state"]) {
-  switch (state) {
-    case "loading":
-      return "Checking current signals";
-    case "live":
-      return "Checked signals available";
-    case "partial":
-      return "Partial checked signals";
-    case "stale":
-      return "Prior signals; rechecking";
-    case "unavailable":
-      return "Current signals unavailable";
-    case "not-verified":
-      return "Freshness not verified";
-  }
 }
 
 function formatConditionSourceTime(value: string) {
@@ -3652,11 +3644,35 @@ function ItinerarySources({ sources }: { sources: ItineraryPlanArtifact["sources
       <h4 className="m-0 text-xs font-black text-text-strong">Sources</h4>
       <div className="flex min-w-0 flex-wrap gap-2">
         {sources.map((source) => (
-          <SourceIconBadge key={chatSourceKey(source)} source={source} />
+          <ItinerarySourceBadge key={chatSourceKey(source)} source={source} />
         ))}
       </div>
     </section>
   );
+}
+
+function ItinerarySourceBadge({ source }: { source: ChatSourceArtifact }) {
+  const badge = sourceBadgeInfo(source);
+  const Icon = badge.icon;
+  const sourceName = itinerarySourceDisplayName(source);
+  const label = sourceName ? `${sourceName} · ${badge.label}` : badge.label;
+
+  return (
+    <span
+      className={`inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold ${badge.className}`}
+      data-testid="source-icon-badge"
+    >
+      <Icon aria-hidden="true" className="shrink-0" size={13} />
+      <span className="min-w-0 break-words">{label}</span>
+    </span>
+  );
+}
+
+function itinerarySourceDisplayName(source: ChatSourceArtifact) {
+  if (source.label === "curated_local_guide") {
+    return "Local guide";
+  }
+  return "";
 }
 
 function sortItineraryStops(stops: readonly ItineraryStopArtifact[]) {
@@ -3665,10 +3681,6 @@ function sortItineraryStops(stops: readonly ItineraryStopArtifact[]) {
 
 function formatItineraryStopSummary(stop: ItineraryStopArtifact) {
   return [stop.title, stop.area, stop.rationale].filter(Boolean).join(" - ");
-}
-
-function formatTrustLabel(value: string) {
-  return value.replaceAll("_", " ");
 }
 
 function itineraryPrimaryArea(plan: ItineraryPlanArtifact) {
@@ -3691,12 +3703,11 @@ function sourceConfidenceLabel(sources: readonly ChatSourceArtifact[]) {
   if (sources.length === 0) {
     return "Caveated";
   }
-  const highConfidence = sources.some((source) => source.confidence === "high");
-  const liveChecked = sources.some((source) => source.label === "live_checked");
-  if (liveChecked && highConfidence) {
-    return "Live checked";
-  }
-  return sourceBadgeTitle(sources[0]);
+  const presentations = sources.map(projectSourceEvidencePresentation);
+  const checkedPresentation = presentations.find(
+    (presentation) => presentation.state === "checked",
+  );
+  return checkedPresentation?.label ?? presentations[0]?.label ?? "Caveated";
 }
 
 function dedupeChatSources(sources: readonly ChatSourceArtifact[]) {
@@ -3726,13 +3737,7 @@ function chatSourceKey(source: ChatSourceArtifact) {
 }
 
 function sourceSummaryText(sources: readonly ChatSourceArtifact[]) {
-  return sources.length
-    ? `Checked: ${formatCompactList(sources.map(sourceDisplayName))}`
-    : "Checked source details unavailable";
-}
-
-function sourceDisplayName(source: ChatSourceArtifact) {
-  return source.sourceName || formatTrustLabel(source.label);
+  return sourceEvidenceSummaryText(sources);
 }
 
 function SourceIconBadge({ source }: { source: ChatSourceArtifact }) {
@@ -3751,72 +3756,86 @@ function SourceIconBadge({ source }: { source: ChatSourceArtifact }) {
 }
 
 function sourceBadgeInfo(source: ChatSourceArtifact) {
+  const presentation = projectSourceEvidencePresentation(source);
+  const stateClassName = sourceBadgeStateClassName(presentation.state);
+  const unresolvedIcon =
+    presentation.state === "unavailable" || presentation.state === "not-verified" ? Info : null;
+
+  if (unresolvedIcon) {
+    return {
+      icon: unresolvedIcon,
+      label: presentation.label,
+      className: stateClassName,
+    };
+  }
+
   if (source.label === "weather_checked") {
     return {
       icon: Clock,
-      label: "Weather checked",
-      className: "border-brand-lagoon-700/15 bg-brand-lagoon-100 text-brand-lagoon-700",
+      label: presentation.label,
+      className: stateClassName,
     };
   }
   if (source.label === "marine_checked" || source.label === "tide_forecast_checked") {
     return {
       icon: Navigation,
-      label: source.label === "marine_checked" ? "Marine checked" : "Tide checked",
-      className: "border-brand-lagoon-700/15 bg-brand-lagoon-100 text-brand-lagoon-700",
+      label: presentation.label,
+      className: stateClassName,
     };
   }
   if (source.label === "event_checked") {
     return {
       icon: ShieldCheck,
-      label: "Event checked",
-      className: "border-brand-sunset-gold/30 bg-surface-caveat text-text-caveat",
+      label: presentation.label,
+      className: stateClassName,
     };
   }
   if (source.label === "venue_checked") {
     return {
       icon: ShieldCheck,
-      label: "Venue checked",
-      className: "border-brand-violet-650/15 bg-brand-lavender-100 text-brand-violet-650",
+      label: presentation.label,
+      className: stateClassName,
     };
   }
   if (source.label === "community_signal") {
     return {
       icon: Star,
-      label: "Community signal",
-      className: "border-border-default bg-white text-text-muted",
+      label: presentation.label,
+      className: stateClassName,
     };
   }
   if (source.label === "curated_local_guide") {
     return {
       icon: Star,
-      label: "Local guide",
-      className: "border-brand-sunset-gold/30 bg-surface-caveat text-text-caveat",
+      label: presentation.label,
+      className: stateClassName,
     };
   }
   if (source.label === "fresh_cache") {
     return {
       icon: ShieldCheck,
-      label: "Fresh source",
-      className: "border-brand-violet-650/15 bg-brand-lavender-100 text-brand-violet-650",
+      label: presentation.label,
+      className: stateClassName,
     };
   }
 
   return {
     icon: ShieldCheck,
-    label: source.label === "live_checked" ? "Live checked" : sourceBadgeTitle(source),
-    className: "border-brand-lagoon-700/15 bg-brand-lagoon-100 text-brand-lagoon-700",
+    label: presentation.label,
+    className: stateClassName,
   };
 }
 
-function sourceBadgeTitle(source: ChatSourceArtifact | undefined) {
-  if (!source) {
-    return "Checked";
+function sourceBadgeStateClassName(
+  state: ReturnType<typeof projectSourceEvidencePresentation>["state"],
+) {
+  if (state === "checked") {
+    return "border-brand-lagoon-700/15 bg-brand-lagoon-100 text-brand-lagoon-700";
   }
-  return titleCaseShortLabel(formatTrustLabel(source.label));
-}
-
-function formatCompactList(values: readonly string[]) {
-  return values.slice(0, 3).join(", ");
+  if (state === "unavailable") {
+    return "border-border-alert bg-surface-alert text-text-alert";
+  }
+  return "border-border-default bg-white text-text-muted";
 }
 
 function RecommendationSourceBadge({ cards }: { cards: readonly RecommendationCardArtifact[] }) {
@@ -4212,16 +4231,23 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
           >
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <SourceIconBadge source={source} />
-              <span className="text-xs font-black text-text-strong">{source.sourceName}</span>
+              <span className="text-xs font-black text-text-strong">
+                {sourceEvidenceDisplayName(source)}
+              </span>
               {source.confidence ? (
                 <span className="text-[0.7rem] font-bold text-text-muted">
                   {source.confidence} confidence
                 </span>
               ) : null}
             </div>
-            {source.checked.length ? (
-              <p className="m-0 text-xs leading-[1.45] text-text-muted">
-                Checked details: {formatCompactList(source.checked)}
+            {sourceEvidenceDetailLines(source).map((line) => (
+              <p className="m-0 text-xs leading-[1.45] text-text-muted" key={line}>
+                {line}
+              </p>
+            ))}
+            {source.fetchedAt ? (
+              <p className="m-0 text-[0.7rem] font-bold text-text-muted">
+                {formatEvidenceSourceTime(source.fetchedAt)}
               </p>
             ) : null}
           </div>

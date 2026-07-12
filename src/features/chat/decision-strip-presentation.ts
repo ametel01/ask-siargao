@@ -1,3 +1,7 @@
+import {
+  evidenceStateCopy,
+  projectSourceEvidencePresentation,
+} from "@/features/chat/evidence-presentation-state";
 import type { ChatSourceArtifact } from "@/features/chat/saved-trip-client";
 
 export type DecisionStripSummary = {
@@ -22,7 +26,7 @@ export type DecisionStripPresentation = {
     value: string;
   }>;
   sourceStatus?: {
-    label: "Checked" | "Not verified" | "Source unavailable";
+    label: string;
     value: string;
   };
 };
@@ -53,27 +57,28 @@ export function projectDecisionStrip(
 function projectSourceStatus(
   sources: readonly ChatSourceArtifact[],
 ): DecisionStripPresentation["sourceStatus"] {
-  const checkedSources = sources.filter(
-    (source) =>
-      source.checked.length > 0 &&
-      source.label !== "not_verified" &&
-      source.label !== "provider_unavailable",
-  );
+  const presentations = sources.map(projectSourceEvidencePresentation);
+  const checkedSources = presentations.filter((presentation) => presentation.state === "checked");
   if (checkedSources.length > 0) {
     return {
-      label: "Checked",
+      label: evidenceStateCopy("checked").label,
       value: checkedSources
-        .map((source) => `${source.sourceName}: ${source.checked.join(", ")}`)
+        .map(
+          (presentation) => `${presentation.sourceName}: ${presentation.checkedScope.join(", ")}`,
+        )
         .join(" · "),
     };
   }
 
-  const sourceNames = sources.map((source) => source.sourceName).filter(Boolean);
+  const sourceNames = presentations.map((presentation) => presentation.sourceName).filter(Boolean);
   if (sourceNames.length === 0) {
     return undefined;
   }
 
-  return sources.some((source) => source.label === "provider_unavailable")
-    ? { label: "Source unavailable", value: sourceNames.join(", ") }
-    : { label: "Not verified", value: sourceNames.join(", ") };
+  return presentations.some((presentation) => presentation.state === "unavailable")
+    ? {
+        label: evidenceStateCopy("unavailable").label,
+        value: sourceNames.join(", "),
+      }
+    : { label: evidenceStateCopy("not-verified").label, value: sourceNames.join(", ") };
 }
