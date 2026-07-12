@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 
 type ChatRequestBody = {
   threadId?: string;
@@ -484,8 +484,418 @@ test("shows the trip context rail at normal desktop browser width", async ({ pag
   await expect(page.getByLabel("Ask Siargao chat workspace")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Trip context" })).toBeVisible();
   await expect(page.getByTestId("context-rail")).toBeVisible();
+  await expect(page.getByTestId("mobile-trip-context-trigger")).toHaveCount(0);
   await expect.poll(() => chatWorkspaceScrollSurfaces(page)).toEqual(["chat-message-scroll-area"]);
   await expect.poll(() => rightRailFitsViewport(page)).toBe(true);
+});
+
+const mobileTripContextStateCases = [
+  {
+    state: "empty",
+    profileStatus: "anonymous",
+    triggerAction: "Add trip details",
+    triggerDetail: "No details yet",
+    dialogText: "Nothing is assumed",
+  },
+  {
+    state: "partial",
+    profileStatus: "anonymous",
+    storedContext: { dateRange: "Aug 1 - 6" },
+    triggerAction: "View trip details",
+    triggerDetail: "Aug 1 - 6",
+    dialogText: "Aug 1 - 6",
+  },
+  {
+    state: "populated",
+    profileStatus: "authenticated",
+    triggerAction: "View trip details",
+    triggerDetail: "Dapa · Aug 1 - 6",
+    dialogText: "A very long Pilar homestay name that must wrap without widening the sheet",
+  },
+  {
+    state: "loading",
+    profileStatus: "loading",
+    triggerAction: "View trip details",
+    triggerDetail: "Loading details",
+    dialogText: "Loading your trip details",
+  },
+  {
+    state: "unavailable",
+    profileStatus: "unavailable",
+    triggerAction: "View trip details",
+    triggerDetail: "Details unavailable",
+    dialogText: "Trip details could not be loaded",
+  },
+] as const;
+
+for (const viewport of [
+  { width: 360, height: 800 },
+  { width: 390, height: 844 },
+] as const) {
+  for (const stateCase of mobileTripContextStateCases) {
+    test(`renders ${stateCase.state} mobile trip context at ${viewport.width}px`, async ({
+      page,
+    }, testInfo) => {
+      await page.setViewportSize(viewport);
+      if ("storedContext" in stateCase) {
+        await page.addInitScript(
+          ({ key, value }) => {
+            localStorage.setItem(key, JSON.stringify(value));
+          },
+          { key: tripContextStorageKey, value: stateCase.storedContext },
+        );
+      }
+
+      const profileGate = await mockMobileTripContextProfile(page, stateCase.profileStatus);
+      await mockUnavailableMobileConditions(page);
+      await page.goto("/chat");
+
+      const trigger = page.getByTestId("mobile-trip-context-trigger");
+      await expect(trigger).toBeVisible();
+      await expect(trigger).toContainText(stateCase.triggerAction);
+      await expect(trigger).toContainText(stateCase.triggerDetail);
+      await expect(page.getByTestId("context-rail")).toBeHidden();
+      await expect(page.getByTestId("mobile-trip-context-dialog")).toHaveCount(0);
+
+      await trigger.click();
+      const dialog = page.getByTestId("mobile-trip-context-dialog");
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toContainText(stateCase.dialogText);
+      await expect(dialog.getByTestId("mobile-pass-state")).toContainText(
+        "Trip Pass details are not connected",
+      );
+      await expect(dialog).not.toContainText("Jun 12 - 22");
+      await expect(dialog).not.toContainText("Couple");
+      await expect
+        .poll(() => mobileTripContextGeometry(page))
+        .toMatchObject({
+          documentFitsViewport: true,
+          dialogFitsViewport: true,
+          hasInternalScroll: true,
+          triggerTouchTarget: true,
+          controlsFitDialog: true,
+          safeAreaPaddingApplied: true,
+        });
+
+      await page.screenshot({
+        path: testInfo.outputPath(`mobile-trip-${stateCase.state}-${viewport.width}.png`),
+        fullPage: true,
+      });
+      await dialog.getByRole("button", { name: "Close trip details" }).click();
+      await expect(dialog).toHaveCount(0);
+      await expect(trigger).toBeFocused();
+      profileGate.release();
+    });
+  }
+}
+
+test("keeps mobile modal interaction, anonymous edits, and location scope in the conversation", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    const scope = window as typeof window & { __mobileLocationRequests?: number };
+    scope.__mobileLocationRequests = 0;
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition(success: PositionCallback) {
+          scope.__mobileLocationRequests = (scope.__mobileLocationRequests ?? 0) + 1;
+          success({
+            coords: {
+              latitude: 9.8116,
+              longitude: 126.1651,
+              accuracy: 25,
+              altitude: null,
+              altitudeAccuracy: null,
+              heading: null,
+              speed: null,
+            },
+            timestamp: Date.now(),
+          } as GeolocationPosition);
+        },
+      },
+    });
+  });
+  await mockMobileTripContextProfile(page, "anonymous");
+  await mockUnavailableMobileConditions(page);
+  await page.goto("/chat");
+
+  const composer = page.getByLabel("Ask anything about Siargao");
+  await composer.fill("Keep this draft while I check my trip details");
+  const trigger = page.getByTestId("mobile-trip-context-trigger");
+  await trigger.click();
+  const dialog = page.getByTestId("mobile-trip-context-dialog");
+  await expect(dialog).toHaveAttribute("role", "dialog");
+  await expect(dialog.getByRole("button", { name: "Close trip details" })).toBeFocused();
+  await expect(page.getByRole("textbox", { name: "Ask anything about Siargao" })).toHaveCount(0);
+  let outsideClickBlocked = false;
+  try {
+    await composer.click({ timeout: 500, trial: true });
+  } catch {
+    outsideClickBlocked = true;
+  }
+  expect(outsideClickBlocked).toBe(true);
+  await composer.evaluate((element) => element.focus());
+  await expect.poll(() => focusIsInsideMobileTripDialog(page)).toBe(true);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as typeof window & { __mobileLocationRequests?: number })
+          .__mobileLocationRequests ?? 0,
+    ),
+  ).toBe(0);
+  await expect(dialog.getByTestId("mobile-location-state")).toContainText(
+    "Browser location is off",
+  );
+
+  await page.keyboard.press("Shift+Tab");
+  await expect.poll(() => focusIsInsideMobileTripDialog(page)).toBe(true);
+  await page.keyboard.press("Tab");
+  await expect.poll(() => focusIsInsideMobileTripDialog(page)).toBe(true);
+
+  const accommodation = dialog.getByLabel("Accommodation");
+  await accommodation.fill("Draft stay to cancel");
+  await dialog.getByRole("button", { name: "Cancel edits" }).click();
+  await expect(accommodation).toHaveValue("");
+  await accommodation.fill("Pilar homestay");
+  await dialog.getByLabel("Dates").fill("Aug 1 - 6");
+  await dialog.getByRole("button", { name: "Save trip details" }).click();
+  await expect(dialog).toContainText("Trip details saved.");
+  await expect
+    .poll(() => readTripContextStorage(page))
+    .toMatchObject({ accommodation: "Pilar homestay", dateRange: "Aug 1 - 6" });
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expect(composer).toHaveValue("Keep this draft while I check my trip details");
+  await trigger.click();
+  await expect(dialog.getByLabel("Accommodation")).toHaveValue("Pilar homestay");
+  await dialog.getByRole("button", { name: "Close trip details" }).click();
+
+  await page.getByRole("button", { name: "Enable location" }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as typeof window & { __mobileLocationRequests?: number })
+            .__mobileLocationRequests ?? 0,
+      ),
+    )
+    .toBe(1);
+  await trigger.click();
+  await expect(dialog.getByTestId("mobile-location-state")).toContainText(
+    "Browser location is active for this chat",
+  );
+  await expect(dialog.getByTestId("mobile-location-state")).not.toContainText("9.8116");
+  await expect(dialog.getByTestId("mobile-location-state")).not.toContainText("126.1651");
+});
+
+test("suppresses duplicate authenticated saves and preserves newer edits across late responses", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  let profile = mobileAuthenticatedProfile();
+  let patchCount = 0;
+  let releaseFirstPatch: (() => void) | undefined;
+  let firstPatchStarted: (() => void) | undefined;
+  const firstPatchRequest = new Promise<void>((resolve) => {
+    firstPatchStarted = resolve;
+  });
+  await page.route("**/api/me/profile", async (route) => {
+    if (route.request().method() !== "PATCH") {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify(profile),
+      });
+      return;
+    }
+
+    patchCount += 1;
+    const body = route.request().postDataJSON() as { tripContext: Record<string, unknown> };
+    if (patchCount === 1) {
+      firstPatchStarted?.();
+      await new Promise<void>((resolve) => {
+        releaseFirstPatch = resolve;
+      });
+    }
+    profile = { ...profile, tripContext: body.tripContext };
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(profile) });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [] }) });
+  });
+  await mockUnavailableMobileConditions(page);
+  await page.goto("/chat");
+
+  await page.getByTestId("mobile-trip-context-trigger").click();
+  const dialog = page.getByTestId("mobile-trip-context-dialog");
+  await dialog.getByLabel("Accommodation").fill("First save");
+  await dialog.getByRole("button", { name: "Save trip details" }).click();
+  await firstPatchRequest;
+  const pendingSave = dialog.getByRole("button", { name: "Saving…" });
+  await expect(pendingSave).toBeDisabled();
+  await pendingSave.dispatchEvent("click");
+  await dialog.getByLabel("Dates").fill("Newer unsaved date");
+  expect(patchCount).toBe(1);
+  releaseFirstPatch?.();
+  await expect(dialog.getByLabel("Dates")).toHaveValue("Newer unsaved date");
+  await expect(dialog).toContainText("Unsaved edits");
+  await expect(dialog).not.toContainText("Trip details saved.");
+
+  await dialog.getByRole("button", { name: "Save trip details" }).click();
+  await expect(dialog).toContainText("Trip details saved.");
+  expect(patchCount).toBe(2);
+  expect(profile.tripContext).toMatchObject({
+    accommodation: "First save",
+    dateRange: "Newer unsaved date",
+    notes: "Late arrival",
+  });
+});
+
+test("keeps authenticated edits through validation and network save failures", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let saveMode: "validation" | "network" | "success" = "validation";
+  let profile = mobileAuthenticatedProfile();
+  await page.route("**/api/me/profile", async (route) => {
+    if (route.request().method() !== "PATCH") {
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify(profile) });
+      return;
+    }
+    if (saveMode === "validation") {
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "invalid_profile_request" }),
+      });
+      return;
+    }
+    if (saveMode === "network") {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "profile_save_failed" }),
+      });
+      return;
+    }
+    const body = route.request().postDataJSON() as { tripContext: Record<string, unknown> };
+    profile = { ...profile, tripContext: body.tripContext };
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(profile) });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [] }) });
+  });
+  await mockUnavailableMobileConditions(page);
+  await page.goto("/chat");
+
+  await page.getByTestId("mobile-trip-context-trigger").click();
+  const dialog = page.getByTestId("mobile-trip-context-dialog");
+  const accommodation = dialog.getByLabel("Accommodation");
+  await accommodation.fill("Retry-safe stay");
+  await dialog.getByRole("button", { name: "Save trip details" }).click();
+  await expect(dialog).toContainText("Review the trip details and try again.");
+  await expect(accommodation).toHaveValue("Retry-safe stay");
+
+  saveMode = "network";
+  await dialog.getByRole("button", { name: "Save trip details" }).click();
+  await expect(dialog).toContainText("Your edits are still here.");
+  await expect(accommodation).toHaveValue("Retry-safe stay");
+
+  saveMode = "success";
+  await dialog.getByRole("button", { name: "Save trip details" }).click();
+  await expect(dialog).toContainText("Trip details saved.");
+  expect(profile.tripContext).toMatchObject({ accommodation: "Retry-safe stay" });
+});
+
+test("keeps the desktop authenticated editor open when save fails", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  let releasePatch: (() => void) | undefined;
+  let patchStarted: (() => void) | undefined;
+  const patchRequest = new Promise<void>((resolve) => {
+    patchStarted = resolve;
+  });
+  await page.route("**/api/me/profile", async (route) => {
+    if (route.request().method() !== "PATCH") {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify(mobileAuthenticatedProfile()),
+      });
+      return;
+    }
+
+    patchStarted?.();
+    await new Promise<void>((resolve) => {
+      releasePatch = resolve;
+    });
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "profile_save_failed" }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [] }) });
+  });
+  await mockUnavailableMobileConditions(page);
+  await page.goto("/chat");
+
+  const rail = page.getByTestId("context-rail");
+  await rail.getByRole("button", { name: "Edit" }).click();
+  const accommodation = rail.getByLabel("Accommodation");
+  await accommodation.fill("Retry-safe desktop stay");
+  await rail.getByRole("button", { name: "Save" }).click();
+  await patchRequest;
+  await expect(rail.getByRole("button", { name: "Saving…" })).toBeDisabled();
+  await expect(rail).toContainText("Saving your trip details.");
+
+  releasePatch?.();
+  await expect(rail).toContainText(
+    "Your changes are still here. Check your connection and try again.",
+  );
+  await expect(accommodation).toHaveValue("Retry-safe desktop stay");
+  await expect(rail.getByRole("button", { name: "Save" })).toBeVisible();
+  await expect(rail.getByRole("button", { name: "Edit" })).toHaveCount(0);
+});
+
+test("shares one typed live-condition projection between mobile and desktop without duplicate fetches", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockMobileTripContextProfile(page, "anonymous");
+  const requestCounts = await mockMobileConditionDecisions(page);
+  await page.goto("/chat");
+
+  await page.getByTestId("mobile-trip-context-trigger").click();
+  const dialog = page.getByTestId("mobile-trip-context-dialog");
+  const mobileWeather = dialog.getByTestId("mobile-weather-condition");
+  const mobileSurf = dialog.getByTestId("mobile-surf-condition");
+  await expect(mobileWeather.getByTestId("mobile-weather-condition-action")).toHaveText(
+    "Choose cover and keep the plan flexible.",
+  );
+  await expect(mobileWeather.getByTestId("mobile-weather-condition-basis")).toContainText(
+    "checked daily forecast",
+  );
+  await expect(mobileWeather.getByTestId("weather-condition-state")).toHaveText(
+    "Checked signals available",
+  );
+  await expect(mobileSurf.getByTestId("surf-condition-state")).toHaveText(
+    "Partial checked signals",
+  );
+  await expect(mobileSurf.getByTestId("mobile-surf-condition-basis")).toContainText(
+    "Missing: tide, swell",
+  );
+  await expect(dialog).toContainText("Road access, official marine warnings, and safety status");
+  await expect(dialog).not.toContainText("Roads are safe");
+  expect(requestCounts()).toEqual({ surf: 1, weather: 1 });
+
+  const mobileSemantics = await conditionDecisionText(dialog, "mobile-");
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const desktopRail = page.getByTestId("context-rail");
+  await expect(desktopRail).toBeVisible();
+  await expect(page.getByTestId("mobile-trip-context-trigger")).toHaveCount(0);
+  await expect.poll(() => conditionDecisionText(desktopRail)).toEqual(mobileSemantics);
+  expect(requestCounts()).toEqual({ surf: 1, weather: 1 });
 });
 
 test("renders only stored anonymous trip facts across desktop and mobile screenshots", async ({
@@ -2482,6 +2892,206 @@ async function mockChatApi(
 
 function lastSubmittedContent(request?: ChatRequestBody) {
   return request?.messages?.at(-1)?.content;
+}
+
+async function mockMobileTripContextProfile(
+  page: Page,
+  status: "anonymous" | "authenticated" | "loading" | "unavailable",
+) {
+  let releaseProfile: (() => void) | undefined;
+  await page.route("**/api/me/profile", async (route) => {
+    if (status === "loading") {
+      await new Promise<void>((resolve) => {
+        releaseProfile = resolve;
+      });
+      await route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "unauthenticated" }),
+      });
+      return;
+    }
+    if (status === "anonymous") {
+      await route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "unauthenticated" }),
+      });
+      return;
+    }
+    if (status === "unavailable") {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "profile_unavailable" }),
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(mobileAuthenticatedProfile()),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [] }) });
+  });
+
+  return {
+    release() {
+      releaseProfile?.();
+    },
+  };
+}
+
+function mobileAuthenticatedProfile(): Record<string, unknown> & {
+  tripContext: Record<string, unknown>;
+} {
+  return {
+    userId: "user_mobile_trip_context",
+    tripContext: {
+      notes: "Late arrival",
+      accommodation: "A very long Pilar homestay name that must wrap without widening the sheet",
+      dateRange: "Aug 1 - 6",
+      travelerType: "Two friends",
+      currentArea: "Dapa",
+    },
+  };
+}
+
+async function mockUnavailableMobileConditions(page: Page) {
+  await page.route("**/api/public/weather/siargao**", async (route) => {
+    await route.fulfill({ status: 503, body: "weather unavailable" });
+  });
+  await page.route("**/api/public/surf/siargao**", async (route) => {
+    await route.fulfill({ status: 503, body: "surf unavailable" });
+  });
+}
+
+async function mockMobileConditionDecisions(page: Page) {
+  let weather = 0;
+  let surf = 0;
+  await page.route("**/api/public/weather/siargao**", async (route) => {
+    weather += 1;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        requestedLocation: "Siargao Island",
+        weather: {
+          status: "live",
+          locationName: "Siargao Island",
+          fetchedAt: "2026-07-10T01:00:00.000Z",
+          freshness: "fresh",
+          today: {
+            condition: "Rain",
+            precipitationProbability: 50,
+            rainSum: 7,
+            precipitationSum: 7,
+            windGust: 38,
+          },
+        },
+      }),
+    });
+  });
+  await page.route("**/api/public/surf/siargao**", async (route) => {
+    surf += 1;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        requestedLocation: "Siargao Island",
+        surf: {
+          status: "partial",
+          locationName: "Siargao Island",
+          fetchedAt: "2026-07-10T01:00:00.000Z",
+          level: "medium",
+          metrics: { waves: "Unavailable", tide: "Unavailable", wind: "gust 38km/h" },
+          weather: {
+            status: "live",
+            freshness: "fresh",
+            condition: "Rain",
+            precipitationProbability: 50,
+            rainSum: 7,
+            windGust: 38,
+          },
+          tide: { status: "unavailable", stationName: "Dapa tide station", bestWindow: null },
+          caveats: [],
+        },
+      }),
+    });
+  });
+  return () => ({ surf, weather });
+}
+
+async function mobileTripContextGeometry(page: Page) {
+  return page.evaluate(() => {
+    const trigger = document.querySelector<HTMLElement>(
+      "[data-testid='mobile-trip-context-trigger']",
+    );
+    const dialog = document.querySelector<HTMLElement>(
+      "[data-testid='mobile-trip-context-dialog']",
+    );
+    const scrollArea = document.querySelector<HTMLElement>(
+      "[data-testid='mobile-trip-context-scroll-area']",
+    );
+    if (!trigger || !dialog || !scrollArea) {
+      return { missing: true };
+    }
+    const triggerRect = trigger.getBoundingClientRect();
+    const dialogRect = dialog.getBoundingClientRect();
+    const dialogStyle = getComputedStyle(dialog.firstElementChild ?? dialog);
+    const controls = Array.from(
+      dialog.querySelectorAll<HTMLElement>("button, input, select, textarea"),
+    );
+    return {
+      documentFitsViewport:
+        document.documentElement.scrollWidth <= window.innerWidth + 1 &&
+        document.documentElement.scrollHeight <= window.innerHeight + 1,
+      dialogFitsViewport:
+        dialogRect.left >= -1 &&
+        dialogRect.right <= window.innerWidth + 1 &&
+        dialogRect.top >= -1 &&
+        dialogRect.bottom <= window.innerHeight + 1,
+      hasInternalScroll: scrollArea.scrollHeight > scrollArea.clientHeight,
+      triggerTouchTarget: triggerRect.height >= 44,
+      controlsFitDialog: controls.every((control) => {
+        const rect = control.getBoundingClientRect();
+        return rect.left >= dialogRect.left - 1 && rect.right <= dialogRect.right + 1;
+      }),
+      safeAreaPaddingApplied:
+        Number.parseFloat(dialogStyle.paddingTop) >= 12 &&
+        Number.parseFloat(dialogStyle.paddingBottom) >= 12,
+    };
+  });
+}
+
+async function focusIsInsideMobileTripDialog(page: Page) {
+  return page.evaluate(() => {
+    const dialog = document.querySelector("[data-testid='mobile-trip-context-dialog']");
+    return Boolean(dialog?.contains(document.activeElement));
+  });
+}
+
+async function readTripContextStorage(page: Page) {
+  return page.evaluate((key) => {
+    const value = localStorage.getItem(key);
+    return value ? (JSON.parse(value) as Record<string, unknown>) : {};
+  }, tripContextStorageKey);
+}
+
+async function conditionDecisionText(container: Locator, idPrefix = "") {
+  return {
+    weather: {
+      action: await container.getByTestId(`${idPrefix}weather-condition-action`).textContent(),
+      basis: await container.getByTestId(`${idPrefix}weather-condition-basis`).textContent(),
+      fallback: await container.getByTestId("weather-condition-fallback").textContent(),
+      state: await container.getByTestId("weather-condition-state").textContent(),
+    },
+    surf: {
+      action: await container.getByTestId(`${idPrefix}surf-condition-action`).textContent(),
+      basis: await container.getByTestId(`${idPrefix}surf-condition-basis`).textContent(),
+      fallback: await container.getByTestId("surf-condition-fallback").textContent(),
+      state: await container.getByTestId("surf-condition-state").textContent(),
+    },
+  };
 }
 
 async function chatWorkspaceScrollSurfaces(page: Page) {

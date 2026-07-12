@@ -35,10 +35,12 @@ import {
   WavesHorizontal,
 } from "lucide-react";
 import Link from "next/link";
+import { Dialog } from "radix-ui";
 import {
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useMemo,
@@ -76,6 +78,10 @@ import {
   type SurfConditionSnapshot,
   type WeatherConditionSnapshot,
 } from "@/features/chat/live-condition-decision";
+import {
+  authenticatedTripContextPatch,
+  projectMobileTripContextSummary,
+} from "@/features/chat/mobile-trip-context-presentation";
 import type {
   ArtifactDecisionMetadata,
   ChatClientContext,
@@ -433,7 +439,7 @@ type ChatWorkspaceController = {
   startNewChat: () => void;
   tripContext: TripContextDraft;
   tripDataSource: TripDataSource;
-  updateTripContext: (context: TripContextDraft) => void;
+  updateTripContext: (context: TripContextDraft) => Promise<void>;
 };
 
 function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceController {
@@ -453,6 +459,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     data: profileResult,
     error: profileError,
     isLoading: profileLoading,
+    mutate: mutateProfile,
   } = useSWR<TripProfileFetchResult>("/api/me/profile", fetchTripProfile, {
     revalidateOnFocus: false,
     shouldRetryOnError: false,
@@ -912,9 +919,36 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     [submitPrompt],
   );
 
-  const updateTripContext = useCallback((context: TripContextDraft) => {
-    writeStoredTripContext(context);
-  }, []);
+  async function updateTripContext(context: TripContextDraft) {
+    const nextContext = normalizeTripContextDraft(context);
+    if (tripDataSource === "anonymous") {
+      writeStoredTripContext(nextContext);
+      return;
+    }
+
+    if (tripDataSource !== "authenticated") {
+      throw new Error("trip_context_source_unavailable");
+    }
+
+    const response = await fetch("/api/me/profile", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        tripContext: authenticatedTripContextPatch(
+          profileResult?.source === "authenticated" ? profileResult.profile : undefined,
+          nextContext,
+        ),
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(
+        response.status === 400 ? "trip_context_validation_failed" : "trip_context_save_failed",
+      );
+    }
+
+    const profile = (await response.json()) as TripProfileResponse;
+    await mutateProfile({ source: "authenticated", profile }, { revalidate: false });
+  }
 
   return {
     chatThreads,
@@ -972,6 +1006,8 @@ function ChatWorkspaceView({
   updateTripContext,
 }: ChatWorkspaceController) {
   const hasMessages = messages.length > 0;
+  const showMobileTripContext = useMobileTripContextViewport();
+  const liveConditions = useLiveConditions(locationState, tripContext);
   const chatScrollAreaRef = useRef<HTMLDivElement | null>(null);
   const lastMessage = messages.at(-1);
   const scrollAnchorVersion = `${messages.length}:${
@@ -1023,6 +1059,17 @@ function ChatWorkspaceView({
         <section className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] border-border-default border-x bg-surface-default">
           <ChatTopBar
             canSharePlan={savedPlanSharing.selectedShareItems.length > 0}
+            mobileTripContext={
+              showMobileTripContext ? (
+                <MobileTripContextDisclosure
+                  liveConditions={liveConditions}
+                  locationState={locationState}
+                  onUpdateTripContext={updateTripContext}
+                  tripContext={tripContext}
+                  tripDataSource={tripDataSource}
+                />
+              ) : null
+            }
             onSharePlan={() => {
               void savedPlanSharing.createShareLink();
             }}
@@ -1115,6 +1162,7 @@ function ChatWorkspaceView({
         </section>
 
         <ChatContextRail
+          liveConditions={liveConditions}
           locationState={locationState}
           onRequestLocation={requestLocation}
           tripContext={tripContext}
@@ -1284,15 +1332,17 @@ function ChatTravelRail({
 
 function ChatTopBar({
   canSharePlan,
+  mobileTripContext,
   onSharePlan,
   onStartNewChat,
 }: {
   canSharePlan: boolean;
+  mobileTripContext: ReactNode;
   onSharePlan: () => void;
   onStartNewChat: () => void;
 }) {
   return (
-    <header className="flex min-h-[76px] items-center justify-between gap-4 border-border-default border-b bg-surface-glass px-4 py-3 sm:px-6 lg:px-8">
+    <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-3 border-border-default border-b bg-surface-glass px-4 py-3 sm:px-6 lg:px-8">
       <div className="grid min-w-0 gap-1">
         <h1 className="m-0 min-w-0 truncate text-xl font-black text-text-strong sm:text-2xl">
           Ask Siargao
@@ -1327,7 +1377,534 @@ function ChatTopBar({
         <ChatSettingsLink />
         <ChatAuthActions />
       </div>
+      {mobileTripContext ? <div className="basis-full min-w-0">{mobileTripContext}</div> : null}
     </header>
+  );
+}
+
+type LiveConditionsController = {
+  activeForecastLocation: ForecastLocationLabel;
+  refreshSurf: () => void;
+  refreshWeather: () => void;
+  surfDecision: LiveConditionDecision;
+  weatherDecision: LiveConditionDecision;
+};
+
+function useLiveConditions(
+  locationState: LocationCaptureState,
+  tripContext: TripContextDraft,
+): LiveConditionsController {
+  const activeForecastLocation =
+    locationState.status === "ready"
+      ? nearestForecastLocationLabel(locationState.geolocation)
+      : tripContext.nearbyArea;
+  const weatherUrl = `/api/public/weather/siargao?location=${encodeURIComponent(
+    activeForecastLocation,
+  )}`;
+  const surfUrl = `/api/public/surf/siargao?location=${encodeURIComponent(activeForecastLocation)}`;
+  const {
+    data: weatherData,
+    error: weatherError,
+    isLoading: weatherLoading,
+    isValidating: weatherRefreshing,
+    mutate: refreshWeather,
+  } = useSWR<WeatherPanelResponse>(weatherUrl, fetchWeatherPanel, {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  });
+  const {
+    data: surfData,
+    error: surfError,
+    isLoading: surfLoading,
+    isValidating: surfRefreshing,
+    mutate: refreshSurf,
+  } = useSWR<SurfPanelResponse>(surfUrl, fetchSurfPanel, {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  });
+
+  return {
+    activeForecastLocation,
+    refreshSurf: () => {
+      void refreshSurf();
+    },
+    refreshWeather: () => {
+      void refreshWeather();
+    },
+    surfDecision: projectSurfConditionDecision({
+      locationName: activeForecastLocation,
+      snapshot: surfData?.surf,
+      isLoading: surfLoading,
+      isRefreshing: surfRefreshing,
+      hasError: Boolean(surfError),
+    }),
+    weatherDecision: projectWeatherConditionDecision({
+      locationName: activeForecastLocation,
+      snapshot: weatherData?.weather,
+      isLoading: weatherLoading,
+      isRefreshing: weatherRefreshing,
+      hasError: Boolean(weatherError),
+    }),
+  };
+}
+
+type MobileTripContextEditState = {
+  draft: TripContextDraft;
+  isDirty: boolean;
+  saveError: string | null;
+  saveState: "idle" | "saving" | "saved" | "error";
+};
+
+type MobileTripContextEditAction =
+  | { type: "reset"; draft: TripContextDraft }
+  | { type: "update"; draft: TripContextDraft }
+  | { type: "saving" }
+  | { type: "saved" }
+  | { type: "error"; message: string };
+
+function mobileTripContextEditReducer(
+  state: MobileTripContextEditState,
+  action: MobileTripContextEditAction,
+): MobileTripContextEditState {
+  switch (action.type) {
+    case "reset":
+      return { draft: action.draft, isDirty: false, saveError: null, saveState: "idle" };
+    case "update":
+      return { draft: action.draft, isDirty: true, saveError: null, saveState: "idle" };
+    case "saving":
+      return { ...state, saveError: null, saveState: "saving" };
+    case "saved":
+      return { ...state, isDirty: false, saveError: null, saveState: "saved" };
+    case "error":
+      return { ...state, saveError: action.message, saveState: "error" };
+  }
+}
+
+function MobileTripContextDisclosure({
+  liveConditions,
+  locationState,
+  onUpdateTripContext,
+  tripContext,
+  tripDataSource,
+}: {
+  liveConditions: LiveConditionsController;
+  locationState: LocationCaptureState;
+  onUpdateTripContext: (context: TripContextDraft) => Promise<void>;
+  tripContext: TripContextDraft;
+  tripDataSource: TripDataSource;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [editState, dispatchEdit] = useReducer(mobileTripContextEditReducer, {
+    draft: tripContext,
+    isDirty: false,
+    saveError: null,
+    saveState: "idle",
+  });
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const editVersionRef = useRef(0);
+  const saveInFlightRef = useRef(false);
+  const summary = projectMobileTripContextSummary({ context: tripContext, source: tripDataSource });
+  const canEdit = tripDataSource === "anonymous" || tripDataSource === "authenticated";
+  const draft = editState.isDirty ? editState.draft : tripContext;
+
+  const openSheet = useCallback(() => {
+    dispatchEdit({ type: "reset", draft: tripContext });
+    editVersionRef.current += 1;
+    setIsOpen(true);
+  }, [tripContext]);
+
+  const updateDraft = useCallback((nextDraft: TripContextDraft) => {
+    editVersionRef.current += 1;
+    dispatchEdit({ type: "update", draft: nextDraft });
+  }, []);
+
+  const cancelEdit = useCallback(() => {
+    editVersionRef.current += 1;
+    dispatchEdit({ type: "reset", draft: tripContext });
+  }, [tripContext]);
+
+  async function save() {
+    if (!canEdit || saveInFlightRef.current) {
+      return;
+    }
+
+    saveInFlightRef.current = true;
+    const savedEditVersion = editVersionRef.current;
+    dispatchEdit({ type: "saving" });
+    try {
+      await onUpdateTripContext(normalizeTripContextDraft(draft));
+      if (editVersionRef.current !== savedEditVersion) {
+        return;
+      }
+      dispatchEdit({ type: "saved" });
+    } catch (error) {
+      if (editVersionRef.current !== savedEditVersion) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "trip_context_save_failed";
+      dispatchEdit({
+        type: "error",
+        message:
+          message === "trip_context_validation_failed"
+            ? "Review the trip details and try again."
+            : "Your edits are still here. Check your connection and try again.",
+      });
+    } finally {
+      saveInFlightRef.current = false;
+    }
+  }
+
+  const triggerLabel = summary.facts.length
+    ? `${summary.actionLabel}: ${summary.facts.map((fact) => fact.value).join(", ")}`
+    : summary.actionLabel;
+
+  return (
+    <Dialog.Root
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) {
+          openSheet();
+          return;
+        }
+        setIsOpen(false);
+      }}
+      open={isOpen}
+    >
+      <Dialog.Trigger asChild>
+        <Button
+          aria-label={triggerLabel}
+          className="min-h-11 w-full min-w-0 justify-start gap-2 rounded-lg border-brand-violet-400/30 bg-brand-lavender-50 px-3 text-left text-text-strong hover:bg-brand-lavender-100 focus-visible:ring-2 focus-visible:ring-brand-violet-650"
+          data-testid="mobile-trip-context-trigger"
+          type="button"
+          variant="outline"
+        >
+          <MapPin aria-hidden="true" className="shrink-0 text-brand-violet-650" size={17} />
+          <span className="grid min-w-0 flex-1 gap-0.5">
+            <span className="text-xs leading-tight font-extrabold">{summary.actionLabel}</span>
+            <span className="break-words text-[0.7rem] leading-tight font-bold text-text-muted">
+              {summary.facts.length
+                ? summary.facts.map((fact) => fact.value).join(" · ")
+                : summary.state === "loading"
+                  ? "Loading details"
+                  : summary.state === "unavailable"
+                    ? "Details unavailable"
+                    : "No details yet"}
+            </span>
+          </span>
+          <ChevronDown aria-hidden="true" className="shrink-0" size={16} />
+        </Button>
+      </Dialog.Trigger>
+
+      <Dialog.Portal>
+        <Dialog.Overlay
+          className="fixed inset-0 z-50 bg-brand-navy-980/60"
+          data-testid="mobile-trip-context-overlay"
+        />
+        <MobileTripContextSheet
+          canEdit={canEdit}
+          closeButtonRef={closeButtonRef}
+          draft={draft}
+          isDirty={editState.isDirty}
+          liveConditions={liveConditions}
+          locationState={locationState}
+          onCancelEdit={cancelEdit}
+          onSave={save}
+          onUpdateDraft={updateDraft}
+          saveError={editState.saveError}
+          saveState={editState.saveState}
+          tripContext={tripContext}
+          tripDataSource={tripDataSource}
+        />
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function MobileTripContextSheet({
+  canEdit,
+  closeButtonRef,
+  draft,
+  isDirty,
+  liveConditions,
+  locationState,
+  onCancelEdit,
+  onSave,
+  onUpdateDraft,
+  saveError,
+  saveState,
+  tripContext,
+  tripDataSource,
+}: {
+  canEdit: boolean;
+  closeButtonRef: RefObject<HTMLButtonElement | null>;
+  draft: TripContextDraft;
+  isDirty: boolean;
+  liveConditions: LiveConditionsController;
+  locationState: LocationCaptureState;
+  onCancelEdit: () => void;
+  onSave: () => Promise<void>;
+  onUpdateDraft: (draft: TripContextDraft) => void;
+  saveError: string | null;
+  saveState: MobileTripContextEditState["saveState"];
+  tripContext: TripContextDraft;
+  tripDataSource: TripDataSource;
+}) {
+  return (
+    <Dialog.Content
+      className="fixed inset-x-0 bottom-0 z-50 m-0 max-h-[min(92dvh,52rem)] w-full max-w-none overflow-hidden rounded-t-2xl border border-border-default bg-surface-default p-0 text-text-strong shadow-night-card focus:outline-none"
+      data-testid="mobile-trip-context-dialog"
+      onOpenAutoFocus={(event) => {
+        event.preventDefault();
+        closeButtonRef.current?.focus();
+      }}
+    >
+      <section
+        className="grid max-h-[min(92dvh,52rem)] min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]"
+        style={{
+          paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+          paddingTop: "max(0.75rem, env(safe-area-inset-top))",
+        }}
+      >
+        <header className="flex items-start justify-between gap-4 px-4 pb-3">
+          <div className="grid min-w-0 gap-1">
+            <Dialog.Title className="m-0 text-lg font-black text-text-strong">
+              Trip details and live conditions
+            </Dialog.Title>
+            <Dialog.Description className="m-0 text-sm font-bold text-text-muted">
+              Review what Ask Siargao is using without leaving this conversation.
+            </Dialog.Description>
+          </div>
+          <Dialog.Close asChild>
+            <Button
+              aria-label="Close trip details"
+              className="size-11 shrink-0 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100 focus-visible:ring-2 focus-visible:ring-brand-violet-650"
+              ref={closeButtonRef}
+              size="icon"
+              type="button"
+              variant="outline"
+            >
+              <span aria-hidden="true" className="text-xl leading-none">
+                ×
+              </span>
+            </Button>
+          </Dialog.Close>
+        </header>
+
+        <div
+          className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pb-4"
+          data-testid="mobile-trip-context-scroll-area"
+        >
+          <div className="grid gap-5">
+            {tripDataSource === "loading" ? (
+              <p className="m-0 text-sm font-bold text-text-muted" data-testid="mobile-trip-state">
+                Loading your trip details. Nothing from this browser is being used yet.
+              </p>
+            ) : tripDataSource === "error" ? (
+              <p className="m-0 text-sm font-bold text-text-alert" data-testid="mobile-trip-state">
+                Trip details could not be loaded. Refresh the conversation to try again.
+              </p>
+            ) : (
+              <section className="grid gap-3" aria-labelledby="mobile-trip-fields-title">
+                <div className="flex items-center justify-between gap-3">
+                  <h3
+                    className="m-0 text-sm font-black text-text-strong"
+                    id="mobile-trip-fields-title"
+                  >
+                    Trip context
+                  </h3>
+                  {isDirty ? (
+                    <span className="text-xs font-bold text-text-muted">Unsaved edits</span>
+                  ) : null}
+                </div>
+                {hasTripContext(tripContext) ? (
+                  <div
+                    className="grid gap-2 rounded-lg border border-border-default bg-white p-3"
+                    data-testid="mobile-trip-facts"
+                  >
+                    {tripContextDisplayFacts(tripContext).map((fact) => (
+                      <ContextFact
+                        icon={iconForTripContextLabel(fact.label)}
+                        key={fact.label}
+                        label={fact.label}
+                        value={fact.value}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p
+                    className="m-0 text-sm font-bold text-text-muted"
+                    data-testid="mobile-trip-state"
+                  >
+                    Add only the details you want Ask Siargao to use. Nothing is assumed.
+                  </p>
+                )}
+                <TripContextEditor draft={draft} onDraftChange={onUpdateDraft} />
+              </section>
+            )}
+
+            <section
+              className="grid gap-2 rounded-lg border border-border-default bg-white p-3"
+              data-testid="mobile-location-state"
+            >
+              <h3 className="m-0 text-sm font-black text-text-strong">Location sharing</h3>
+              <p className="m-0 text-sm font-bold text-text-muted">
+                {mobileLocationScopeLabel(locationState)}
+              </p>
+              <p className="m-0 text-xs font-bold text-text-muted">
+                Opening this sheet never requests location. Trip area and browser location are
+                separate, and precise coordinates are not shown here.
+              </p>
+            </section>
+
+            <section
+              className="grid gap-2 rounded-lg border border-border-default bg-white p-3"
+              data-testid="mobile-pass-state"
+            >
+              <h3 className="m-0 text-sm font-black text-text-strong">Trip Pass</h3>
+              <p className="m-0 text-sm font-bold text-text-muted">
+                Trip Pass details are not connected here yet. No activation, balance, or expiry is
+                assumed.
+              </p>
+            </section>
+
+            <MobileConditionCard
+              decision={liveConditions.weatherDecision}
+              icon={<CloudSun aria-hidden="true" className="text-brand-violet-650" size={22} />}
+              onRefresh={liveConditions.refreshWeather}
+              title={`${liveConditions.activeForecastLocation} weather`}
+            />
+            <MobileConditionCard
+              decision={liveConditions.surfDecision}
+              icon={
+                <WavesHorizontal aria-hidden="true" className="text-brand-violet-650" size={22} />
+              }
+              onRefresh={liveConditions.refreshSurf}
+              title={`${liveConditions.activeForecastLocation} surf`}
+            />
+          </div>
+        </div>
+
+        <footer className="flex flex-wrap justify-end gap-2 border-border-default border-t bg-surface-default px-4 pt-3">
+          {canEdit ? (
+            <>
+              <Button
+                className="h-11 rounded-md border-border-default bg-white px-4 text-sm font-extrabold text-text-muted hover:bg-brand-lavender-50 focus-visible:ring-2 focus-visible:ring-brand-violet-650"
+                disabled={saveState === "saving" || !isDirty}
+                onClick={onCancelEdit}
+                type="button"
+                variant="outline"
+              >
+                Cancel edits
+              </Button>
+              <Button
+                className="h-11 rounded-md bg-brand-violet-650 px-4 text-sm font-extrabold text-white hover:bg-brand-violet-600 focus-visible:ring-2 focus-visible:ring-brand-violet-650 disabled:opacity-55"
+                disabled={saveState === "saving" || !isDirty}
+                onClick={() => {
+                  void onSave();
+                }}
+                type="button"
+              >
+                {saveState === "saving" ? "Saving…" : "Save trip details"}
+              </Button>
+            </>
+          ) : (
+            <Dialog.Close asChild>
+              <Button
+                className="h-11 rounded-md bg-brand-violet-650 px-4 text-sm font-extrabold text-white"
+                type="button"
+              >
+                Done
+              </Button>
+            </Dialog.Close>
+          )}
+          <p aria-live="polite" className="basis-full m-0 text-sm font-bold text-text-muted">
+            {saveState === "saved" ? "Trip details saved." : saveError}
+          </p>
+        </footer>
+      </section>
+    </Dialog.Content>
+  );
+}
+
+function MobileConditionCard({
+  decision,
+  icon,
+  onRefresh,
+  title,
+}: {
+  decision: LiveConditionDecision;
+  icon: ReactNode;
+  onRefresh: () => void;
+  title: string;
+}) {
+  return (
+    <section
+      className="grid gap-3 rounded-lg border border-border-default bg-white p-3"
+      data-testid={`mobile-${decision.kind}-condition`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2">
+          {icon}
+          <div className="min-w-0">
+            <h3 className="m-0 text-sm font-black text-text-strong">{title}</h3>
+            <p
+              className="m-0 break-words text-base leading-tight font-black text-text-strong"
+              data-testid={`mobile-${decision.kind}-condition-action`}
+            >
+              {decision.action}
+            </p>
+          </div>
+        </div>
+        <Button
+          aria-label={`Refresh ${decision.kind} conditions`}
+          className="size-11 shrink-0 rounded-md border-border-default bg-white text-brand-violet-650 focus-visible:ring-2 focus-visible:ring-brand-violet-650"
+          onClick={onRefresh}
+          size="icon"
+          type="button"
+          variant="outline"
+        >
+          <RefreshCw aria-hidden="true" size={16} />
+        </Button>
+      </div>
+      <p
+        className="m-0 text-xs font-bold text-text-muted"
+        data-testid={`mobile-${decision.kind}-condition-basis`}
+      >
+        {decision.basis}
+      </p>
+      <ConditionDecisionDetails decision={decision} />
+    </section>
+  );
+}
+
+function mobileLocationScopeLabel(locationState: LocationCaptureState) {
+  if (locationState.status === "ready") {
+    return locationState.geolocation.consentScope === "trip_session"
+      ? "Browser location is active for this chat."
+      : "Browser location is ready for the next question.";
+  }
+  if (locationState.status === "requesting") {
+    return "Browser location permission is being requested.";
+  }
+  if (locationState.status === "denied") {
+    return "Browser location permission is off.";
+  }
+  if (locationState.status === "unavailable" || locationState.status === "unsupported") {
+    return "Browser location is unavailable in this browser.";
+  }
+  return "Browser location is off.";
+}
+
+function useMobileTripContextViewport() {
+  return useSyncExternalStore(
+    (notify) => {
+      const mediaQuery = window.matchMedia("(max-width: 1179px)");
+      mediaQuery.addEventListener("change", notify);
+      return () => {
+        mediaQuery.removeEventListener("change", notify);
+      };
+    },
+    () => window.matchMedia("(max-width: 1179px)").matches,
+    () => false,
   );
 }
 
@@ -1359,74 +1936,52 @@ function ChatSettingsLink() {
 }
 
 function ChatContextRail({
+  liveConditions,
   locationState,
   onRequestLocation,
   onUpdateTripContext,
   tripContext,
   tripDataSource,
 }: {
+  liveConditions: LiveConditionsController;
   locationState: LocationCaptureState;
   onRequestLocation: () => void;
-  onUpdateTripContext: (context: TripContextDraft) => void;
+  onUpdateTripContext: (context: TripContextDraft) => Promise<void>;
   tripContext: TripContextDraft;
   tripDataSource: TripDataSource;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState<TripContextDraft>(defaultTripContext);
-  const activeForecastLocation =
-    locationState.status === "ready"
-      ? nearestForecastLocationLabel(locationState.geolocation)
-      : tripContext.nearbyArea;
-  const weatherUrl = `/api/public/weather/siargao?location=${encodeURIComponent(
-    activeForecastLocation,
-  )}`;
-  const surfUrl = `/api/public/surf/siargao?location=${encodeURIComponent(activeForecastLocation)}`;
-  const {
-    data: weatherData,
-    error: weatherError,
-    isLoading: weatherLoading,
-    isValidating: weatherRefreshing,
-    mutate: refreshWeather,
-  } = useSWR<WeatherPanelResponse>(weatherUrl, fetchWeatherPanel, {
-    revalidateOnFocus: false,
-    shouldRetryOnError: false,
-  });
-  const {
-    data: surfData,
-    error: surfError,
-    isLoading: surfLoading,
-    isValidating: surfRefreshing,
-    mutate: refreshSurf,
-  } = useSWR<SurfPanelResponse>(surfUrl, fetchSurfPanel, {
-    revalidateOnFocus: false,
-    shouldRetryOnError: false,
-  });
-  const weatherSnapshot = weatherData?.weather;
-  const surfSnapshot = surfData?.surf;
-  const weatherDecision = projectWeatherConditionDecision({
-    locationName: activeForecastLocation,
-    snapshot: weatherSnapshot,
-    isLoading: weatherLoading,
-    isRefreshing: weatherRefreshing,
-    hasError: Boolean(weatherError),
-  });
-  const surfDecision = projectSurfConditionDecision({
-    locationName: activeForecastLocation,
-    snapshot: surfSnapshot,
-    isLoading: surfLoading,
-    isRefreshing: surfRefreshing,
-    hasError: Boolean(surfError),
-  });
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving">("idle");
+  const { activeForecastLocation, refreshSurf, refreshWeather, surfDecision, weatherDecision } =
+    liveConditions;
   const tripContextItems = tripContextFacts({
     activeForecastLocation,
     locationState,
     tripContext,
   });
 
-  const saveDraft = useCallback(() => {
-    onUpdateTripContext(normalizeTripContextDraft(draft));
-    setIsEditing(false);
-  }, [draft, onUpdateTripContext]);
+  const saveDraft = useCallback(async () => {
+    if (saveState === "saving") {
+      return;
+    }
+
+    setSaveError(null);
+    setSaveState("saving");
+    try {
+      await onUpdateTripContext(normalizeTripContextDraft(draft));
+      setIsEditing(false);
+      setSaveState("idle");
+    } catch (error) {
+      setSaveState("idle");
+      setSaveError(
+        error instanceof Error && error.message === "trip_context_validation_failed"
+          ? "Review the trip details and try again."
+          : "Your changes are still here. Check your connection and try again.",
+      );
+    }
+  }, [draft, onUpdateTripContext, saveState]);
 
   return (
     <aside
@@ -1443,6 +1998,8 @@ function ChatContextRail({
                 onClick={() => {
                   setDraft(tripContext);
                   setIsEditing(false);
+                  setSaveError(null);
+                  setSaveState("idle");
                 }}
                 size="sm"
                 type="button"
@@ -1452,11 +2009,14 @@ function ChatContextRail({
               </Button>
               <Button
                 className="h-8 rounded-md bg-brand-violet-650 px-3 text-xs font-extrabold text-white hover:bg-brand-violet-600"
-                onClick={saveDraft}
+                disabled={saveState === "saving"}
+                onClick={() => {
+                  void saveDraft();
+                }}
                 size="sm"
                 type="button"
               >
-                Save
+                {saveState === "saving" ? "Saving…" : "Save"}
               </Button>
             </div>
           ) : (
@@ -1465,6 +2025,8 @@ function ChatContextRail({
               onClick={() => {
                 setDraft(tripContext);
                 setIsEditing(true);
+                setSaveError(null);
+                setSaveState("idle");
               }}
               size="sm"
               type="button"
@@ -1477,7 +2039,18 @@ function ChatContextRail({
         title="Trip context"
       >
         {isEditing ? (
-          <TripContextEditor draft={draft} onDraftChange={setDraft} />
+          <div className="grid gap-3">
+            <TripContextEditor draft={draft} onDraftChange={setDraft} />
+            {saveState === "saving" ? (
+              <p className="m-0 text-xs font-bold text-text-muted" role="status">
+                Saving your trip details.
+              </p>
+            ) : saveError ? (
+              <p className="m-0 text-xs font-bold text-text-alert" role="alert">
+                {saveError}
+              </p>
+            ) : null}
+          </div>
         ) : (
           <div className="grid gap-3">
             {tripDataSource === "loading" ? (
@@ -1525,7 +2098,7 @@ function ChatContextRail({
             aria-label="Refresh weather"
             className="size-8 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
             onClick={() => {
-              void refreshWeather();
+              refreshWeather();
             }}
             size="icon"
             type="button"
@@ -1564,7 +2137,7 @@ function ChatContextRail({
             aria-label="Refresh surf conditions"
             className="size-8 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
             onClick={() => {
-              void refreshSurf();
+              refreshSurf();
             }}
             size="icon"
             type="button"
@@ -1673,7 +2246,7 @@ function TripContextEditor({
       <label className="grid gap-1 text-xs font-extrabold text-text-muted">
         Nearby area
         <select
-          className="h-10 rounded-md border border-border-default bg-white px-3 text-sm font-black text-text-strong outline-none focus:border-brand-violet-650"
+          className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-black text-text-strong outline-none focus:border-brand-violet-650"
           onChange={(event) => {
             onDraftChange({
               ...draft,
@@ -1706,7 +2279,7 @@ function TripContextField({
     <label className="grid gap-1 text-xs font-extrabold text-text-muted">
       {label}
       <input
-        className="h-10 rounded-md border border-border-default bg-white px-3 text-sm font-black text-text-strong outline-none focus:border-brand-violet-650"
+        className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-black text-text-strong outline-none focus:border-brand-violet-650"
         onChange={(event) => {
           onChange(event.currentTarget.value);
         }}
