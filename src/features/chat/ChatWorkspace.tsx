@@ -248,6 +248,14 @@ type SavedPlanShareState = {
   shareUrl: string | null;
   copyStatus: SavedPlanCopyStatus;
 };
+type PendingChatSubmission = {
+  controller: AbortController;
+  generation: number;
+};
+type ActiveThreadLoad = {
+  controller: AbortController;
+  generation: number;
+};
 type SavedPlanShareAction =
   | { type: "reset_link" }
   | { type: "include_item"; itemId: string }
@@ -541,6 +549,11 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
   );
   const hasSyncedAuthenticatedSavedTrip = useRef(false);
   const activeResponseRequestRef = useRef<ResponseWaitRequest | null>(null);
+  const activeLocationCaptureRef = useRef<AbortController | null>(null);
+  const pendingChatSubmissionRef = useRef<PendingChatSubmission | null>(null);
+  const chatSubmissionGenerationRef = useRef(0);
+  const activeThreadLoadRef = useRef<ActiveThreadLoad | null>(null);
+  const threadLoadGenerationRef = useRef(0);
   const mountedRef = useRef(true);
 
   const invalidateActiveResponseRequest = useCallback(() => {
@@ -550,7 +563,26 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     setIsSending(false);
   }, []);
 
+  const invalidatePendingChatSubmission = useCallback(() => {
+    chatSubmissionGenerationRef.current += 1;
+    pendingChatSubmissionRef.current?.controller.abort();
+    pendingChatSubmissionRef.current = null;
+    activeLocationCaptureRef.current?.abort();
+    activeLocationCaptureRef.current = null;
+    setLocationState((currentState) =>
+      currentState.status === "requesting" ? { status: "idle" } : currentState,
+    );
+    setIsSending(false);
+  }, []);
+
+  const invalidateActiveThreadLoad = useCallback(() => {
+    threadLoadGenerationRef.current += 1;
+    activeThreadLoadRef.current?.controller.abort();
+    activeThreadLoadRef.current = null;
+  }, []);
+
   const stopActiveResponseForThreadSwitch = useCallback(() => {
+    invalidatePendingChatSubmission();
     const activeRequest = activeResponseRequestRef.current;
     if (!activeRequest) {
       return;
@@ -574,11 +606,19 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
           : message,
       ),
     );
-  }, []);
+  }, [invalidatePendingChatSubmission]);
 
   useEffect(() => {
     return () => {
       mountedRef.current = false;
+      chatSubmissionGenerationRef.current += 1;
+      pendingChatSubmissionRef.current?.controller.abort();
+      pendingChatSubmissionRef.current = null;
+      activeLocationCaptureRef.current?.abort();
+      activeLocationCaptureRef.current = null;
+      threadLoadGenerationRef.current += 1;
+      activeThreadLoadRef.current?.controller.abort();
+      activeThreadLoadRef.current = null;
       activeResponseRequestRef.current = invalidateResponseWaitRequest(
         activeResponseRequestRef.current,
       );
@@ -661,9 +701,26 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
   const openChatThread = useCallback(
     async (threadId: string) => {
       stopActiveResponseForThreadSwitch();
+      activeThreadLoadRef.current?.controller.abort();
+      const generation = threadLoadGenerationRef.current + 1;
+      threadLoadGenerationRef.current = generation;
+      const controller = new AbortController();
+      activeThreadLoadRef.current = { controller, generation };
       setHistoryStatus("loading");
+
+      const isCurrentThreadLoad = () =>
+        mountedRef.current &&
+        !controller.signal.aborted &&
+        activeThreadLoadRef.current?.generation === generation;
+
       try {
-        const response = await fetch(`/api/chat/threads/${threadId}`, { cache: "no-store" });
+        const response = await fetch(`/api/chat/threads/${threadId}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!isCurrentThreadLoad()) {
+          return;
+        }
         if (!response.ok) {
           setHistoryStatus("error");
           return;
@@ -673,22 +730,39 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
           messages?: ChatThreadDetailMessage[];
           thread?: ChatThreadSummary;
         };
+        if (!isCurrentThreadLoad()) {
+          return;
+        }
         setSelectedThreadId(threadId);
         setMessages((body.messages ?? []).map(interactiveMessageFromThreadMessage));
         setHistoryStatus("idle");
-      } catch {
+      } catch (error) {
+        if (!isCurrentThreadLoad() || isResponseWaitAbort(error)) {
+          return;
+        }
         setHistoryStatus("error");
+      } finally {
+        if (activeThreadLoadRef.current?.generation === generation) {
+          activeThreadLoadRef.current = null;
+        }
       }
     },
     [stopActiveResponseForThreadSwitch],
   );
 
   const startNewChat = useCallback(() => {
+    invalidatePendingChatSubmission();
     invalidateActiveResponseRequest();
+    invalidateActiveThreadLoad();
     setSelectedThreadId(null);
     setMessages([]);
     setInputValue("");
-  }, [invalidateActiveResponseRequest]);
+    setHistoryStatus("idle");
+  }, [
+    invalidateActiveResponseRequest,
+    invalidateActiveThreadLoad,
+    invalidatePendingChatSubmission,
+  ]);
 
   const renameSelectedThread = useCallback(async () => {
     if (!selectedThreadId) {
@@ -773,18 +847,57 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
   const captureLocation = useCallback(
     async (
       consentScope: ChatClientGeolocation["consentScope"] = "single_request",
-    ): Promise<LocationCaptureState> => {
-      if (!("geolocation" in navigator)) {
-        const nextState = { status: "unsupported" } satisfies LocationCaptureState;
-        setLocationState(nextState);
-        return nextState;
-      }
+      ownerSignal?: AbortSignal,
+    ): Promise<LocationCaptureState | null> => {
+      activeLocationCaptureRef.current?.abort();
+      const controller = new AbortController();
+      activeLocationCaptureRef.current = controller;
 
-      setLocationState({ status: "requesting" });
+      return new Promise<LocationCaptureState | null>((resolve) => {
+        let settled = false;
+        const finish = (nextState: LocationCaptureState | null) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          controller.signal.removeEventListener("abort", handleAbort);
+          ownerSignal?.removeEventListener("abort", handleOwnerAbort);
+          if (activeLocationCaptureRef.current === controller) {
+            activeLocationCaptureRef.current = null;
+          }
+          resolve(nextState);
+        };
+        const handleAbort = () => finish(null);
+        const handleOwnerAbort = () => controller.abort();
 
-      return new Promise<LocationCaptureState>((resolve) => {
+        controller.signal.addEventListener("abort", handleAbort, { once: true });
+        if (ownerSignal) {
+          if (ownerSignal.aborted) {
+            handleOwnerAbort();
+            return;
+          }
+          ownerSignal.addEventListener("abort", handleOwnerAbort, { once: true });
+        }
+
+        if (!mountedRef.current) {
+          finish(null);
+          return;
+        }
+
+        if (!("geolocation" in navigator)) {
+          const nextState = { status: "unsupported" } satisfies LocationCaptureState;
+          setLocationState(nextState);
+          finish(nextState);
+          return;
+        }
+
+        setLocationState({ status: "requesting" });
         navigator.geolocation.getCurrentPosition(
           (position) => {
+            if (controller.signal.aborted || !mountedRef.current) {
+              finish(null);
+              return;
+            }
             const nextState = {
               status: "ready",
               geolocation: {
@@ -798,14 +911,18 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
               },
             } satisfies LocationCaptureState;
             setLocationState(nextState);
-            resolve(nextState);
+            finish(nextState);
           },
           (error) => {
+            if (controller.signal.aborted || !mountedRef.current) {
+              finish(null);
+              return;
+            }
             const nextState = {
               status: error.code === error.PERMISSION_DENIED ? "denied" : "unavailable",
             } satisfies LocationCaptureState;
             setLocationState(nextState);
-            resolve(nextState);
+            finish(nextState);
           },
           {
             enableHighAccuracy: true,
@@ -829,10 +946,32 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
         return;
       }
 
+      const submission = {
+        controller: new AbortController(),
+        generation: chatSubmissionGenerationRef.current + 1,
+      } satisfies PendingChatSubmission;
+      chatSubmissionGenerationRef.current = submission.generation;
+      pendingChatSubmissionRef.current = submission;
       setIsSending(true);
       let requestLocationState = locationState;
       if (shouldCaptureLocationForPrompt(trimmedPrompt, locationState)) {
-        requestLocationState = await captureLocation();
+        requestLocationState =
+          (await captureLocation("single_request", submission.controller.signal)) ?? locationState;
+        if (
+          !mountedRef.current ||
+          submission.controller.signal.aborted ||
+          pendingChatSubmissionRef.current?.generation !== submission.generation
+        ) {
+          return;
+        }
+      }
+
+      if (
+        !mountedRef.current ||
+        submission.controller.signal.aborted ||
+        pendingChatSubmissionRef.current?.generation !== submission.generation
+      ) {
+        return;
       }
 
       const timestamp = formatTimestamp();
@@ -961,6 +1100,9 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
             setIsSending(false);
           }
         }
+        if (pendingChatSubmissionRef.current?.generation === submission.generation) {
+          pendingChatSubmissionRef.current = null;
+        }
       }
     },
     [
@@ -974,31 +1116,35 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     ],
   );
 
-  const stopWaitingForAssistant = useCallback((assistantMessageId: string) => {
-    const activeRequest = activeResponseRequestRef.current;
-    if (!activeRequest || activeRequest.assistantMessageId !== assistantMessageId) {
-      return;
-    }
+  const stopWaitingForAssistant = useCallback(
+    (assistantMessageId: string) => {
+      invalidatePendingChatSubmission();
+      const activeRequest = activeResponseRequestRef.current;
+      if (!activeRequest || activeRequest.assistantMessageId !== assistantMessageId) {
+        return;
+      }
 
-    activeResponseRequestRef.current = stopResponseWaitRequest(
-      activeRequest,
-      activeRequest.requestId,
-    );
-    setIsSending(false);
-    setMessages((currentMessages) =>
-      currentMessages.map((message) =>
-        message.id === assistantMessageId && message.status === "pending"
-          ? {
-              ...message,
-              text: responseStoppedStatusText,
-              timestamp: formatTimestamp(),
-              status: "stopped",
-              retryPrompt: activeRequest.prompt,
-            }
-          : message,
-      ),
-    );
-  }, []);
+      activeResponseRequestRef.current = stopResponseWaitRequest(
+        activeRequest,
+        activeRequest.requestId,
+      );
+      setIsSending(false);
+      setMessages((currentMessages) =>
+        currentMessages.map((message) =>
+          message.id === assistantMessageId && message.status === "pending"
+            ? {
+                ...message,
+                text: responseStoppedStatusText,
+                timestamp: formatTimestamp(),
+                status: "stopped",
+                retryPrompt: activeRequest.prompt,
+              }
+            : message,
+        ),
+      );
+    },
+    [invalidatePendingChatSubmission],
+  );
 
   const saveRecommendationCard = useCallback(
     (card: RecommendationCardArtifact) => {

@@ -1688,6 +1688,78 @@ test("requests browser geolocation for a near-me prompt without the manual butto
   });
 });
 
+test("cancels deferred automatic location before new chat and navigation", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.addInitScript(() => {
+    const scope = window as typeof window & {
+      __locationRequests?: number;
+      __resolveLocation?: () => void;
+    };
+    scope.__locationRequests = 0;
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition(success: PositionCallback) {
+          scope.__locationRequests = (scope.__locationRequests ?? 0) + 1;
+          scope.__resolveLocation = () => {
+            success({
+              coords: {
+                latitude: 9.8116,
+                longitude: 126.1651,
+                accuracy: 25,
+                altitude: null,
+                altitudeAccuracy: null,
+                heading: null,
+                speed: null,
+              },
+              timestamp: Date.now(),
+            } as GeolocationPosition);
+          };
+        },
+      },
+    });
+  });
+  const chat = await mockDeferredChatApi(page);
+
+  await page.goto("/chat");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("What is open near me?");
+  await composerInput.press("Enter");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as typeof window & { __locationRequests?: number }).__locationRequests ?? 0,
+      ),
+    )
+    .toBe(1);
+  await expect(page.getByText("Requesting location...")).toBeVisible();
+  await expect.poll(() => chat.requests.length).toBe(0);
+
+  await page.getByLabel("Start a new chat").first().click();
+  await expect(composerInput).toBeEnabled();
+  await expect(page.getByText("What is open near me?")).toHaveCount(0);
+
+  await page.evaluate(() =>
+    (window as typeof window & { __resolveLocation?: () => void }).__resolveLocation?.(),
+  );
+  await page.waitForTimeout(250);
+  await expect.poll(() => chat.requests.length).toBe(0);
+
+  await composerInput.fill("What is open near me after navigation?");
+  await composerInput.press("Enter");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as typeof window & { __locationRequests?: number }).__locationRequests ?? 0,
+      ),
+    )
+    .toBe(2);
+  await page.goto("/");
+  await page.waitForTimeout(250);
+  await expect.poll(() => chat.requests.length).toBe(0);
+});
+
 test("continues without geolocation after permission is denied", async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "geolocation", {
@@ -3028,6 +3100,159 @@ test("cleans up pending wait state when previous-thread loading fails", async ({
 
   chat.release(1, { message: "Fresh thread-failure retry answer." });
   await expect(page.getByText("Fresh thread-failure retry answer.")).toBeVisible();
+});
+
+test("ignores late thread detail success and failure after a newer selection", async ({ page }) => {
+  const threadA = {
+    id: "thread_race_a",
+    title: "Cloud 9 older plan",
+    status: "active",
+    createdAt: "2026-06-28T01:00:00.000Z",
+    updatedAt: "2026-06-28T01:00:00.000Z",
+    lastMessageAt: "2026-06-28T01:01:00.000Z",
+  };
+  const threadB = {
+    id: "thread_race_b",
+    title: "Dapa newer plan",
+    status: "active",
+    createdAt: "2026-06-29T01:00:00.000Z",
+    updatedAt: "2026-06-29T01:00:00.000Z",
+    lastMessageAt: "2026-06-29T01:01:00.000Z",
+  };
+  const threadC = {
+    id: "thread_race_c",
+    title: "Pacifico fallback plan",
+    status: "active",
+    createdAt: "2026-06-30T01:00:00.000Z",
+    updatedAt: "2026-06-30T01:00:00.000Z",
+    lastMessageAt: "2026-06-30T01:01:00.000Z",
+  };
+  const pendingDetails = new Map<
+    string,
+    (reply: { body: Record<string, unknown>; status: number }) => void
+  >();
+  const detailRequests: string[] = [];
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: { accommodation: "Cloud 9 stay" } }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripId: "trip_thread_race", items: [] }),
+    });
+  });
+  await page.route("**/api/chat/threads**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/chat/threads") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ threads: [threadA, threadB, threadC] }),
+      });
+      return;
+    }
+
+    const threadId = url.pathname.split("/").at(-1);
+    if (!threadId) {
+      await route.fulfill({ status: 404, body: "not found" });
+      return;
+    }
+    detailRequests.push(threadId);
+    const reply = await new Promise<{ body: Record<string, unknown>; status: number }>(
+      (resolve) => {
+        pendingDetails.set(threadId, resolve);
+      },
+    );
+    await route.fulfill({
+      status: reply.status,
+      contentType: "application/json",
+      body: JSON.stringify(reply.body),
+    });
+  });
+
+  await page.goto("/chat");
+  const threadAButton = page.getByRole("button", { name: /Cloud 9 older plan/ });
+  const threadBButton = page.getByRole("button", { name: /Dapa newer plan/ });
+  await expect(threadAButton).toBeVisible();
+  await threadAButton.click();
+  await expect.poll(() => detailRequests).toContain("thread_race_a");
+
+  await threadBButton.click();
+  await expect.poll(() => detailRequests).toContain("thread_race_b");
+  pendingDetails.get("thread_race_b")?.({
+    status: 200,
+    body: {
+      thread: threadB,
+      messages: [
+        {
+          id: "message_race_b",
+          role: "assistant",
+          content: "Dapa loaded before the older thread settled.",
+          status: "complete",
+          createdAt: "2026-06-29T01:01:00.000Z",
+        },
+      ],
+    },
+  });
+  await expect(page.getByText("Dapa loaded before the older thread settled.")).toBeVisible();
+
+  pendingDetails.get("thread_race_a")?.({
+    status: 200,
+    body: {
+      thread: threadA,
+      messages: [
+        {
+          id: "message_race_a_late",
+          role: "assistant",
+          content: "Cloud 9 arrived from a late stale response.",
+          status: "complete",
+          createdAt: "2026-06-28T01:01:00.000Z",
+        },
+      ],
+    },
+  });
+  await page.waitForTimeout(250);
+  await expect(page.getByText("Chat history unavailable")).toHaveCount(0);
+  await expect(page.getByText("Dapa loaded before the older thread settled.")).toBeVisible();
+  await expect(page.getByText("Cloud 9 arrived from a late stale response.")).toHaveCount(0);
+
+  const threadCButton = page.getByRole("button", { name: /Pacifico fallback plan/ });
+  await threadCButton.click();
+  await expect.poll(() => detailRequests).toContain("thread_race_c");
+  await threadBButton.click();
+  await expect
+    .poll(() => detailRequests.filter((threadId) => threadId === "thread_race_b").length)
+    .toBe(2);
+  pendingDetails.get("thread_race_b")?.({
+    status: 200,
+    body: {
+      thread: threadB,
+      messages: [
+        {
+          id: "message_race_b_latest",
+          role: "assistant",
+          content: "Dapa remained selected after the fallback race.",
+          status: "complete",
+          createdAt: "2026-06-29T01:02:00.000Z",
+        },
+      ],
+    },
+  });
+  await expect(page.getByText("Dapa remained selected after the fallback race.")).toBeVisible();
+  pendingDetails.get("thread_race_c")?.({
+    status: 503,
+    body: { error: "fallback_thread_unavailable" },
+  });
+  await page.waitForTimeout(250);
+  await expect(page.getByText("Chat history unavailable")).toHaveCount(0);
+  await expect(page.getByText("Dapa remained selected after the fallback race.")).toBeVisible();
 });
 
 test("renders one failure retry path without stop controls or leaked server details", async ({
