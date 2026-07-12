@@ -202,15 +202,23 @@ describe("public chat turn assembly", () => {
       id: "beach_private",
       kind: "beach" as const,
       title: "Private Beach",
+      mapsUrl: "https://maps.google.com/?cid=private-beach",
       fitReasons: ["Should stay out of display."],
       caveats: ["PRIVATE_CARD_CAVEAT_47"],
       sourceLabel: "Private source",
-      sources: [providerUnavailableSource],
+      sources: [
+        {
+          ...providerUnavailableSource,
+          sourceName: "Private unavailable source",
+          notChecked: ["PRIVATE_SOURCE_BOUNDARY_47"],
+        },
+      ],
     };
     const unselectedCard = {
       id: "place_unselected",
       kind: "place" as const,
       title: "Unselected Cafe",
+      mapsUrl: "https://maps.google.com/?cid=unselected-cafe",
       fitReasons: ["Mentioned in tool output but not selected."],
       caveats: ["PRIVATE_UNSELECTED_CARD_47"],
       sourceLabel: "Google Places - live checked",
@@ -264,6 +272,13 @@ describe("public chat turn assembly", () => {
       unknownCardIds: ["beach_private", "missing_private_card"],
       unselectedCardCount: 1,
     });
+    expect(JSON.stringify(turn.display)).toContain("Allowed Cafe");
+    expect(JSON.stringify(turn.display)).not.toContain("Private Beach");
+    expect(JSON.stringify(turn.display)).not.toContain("Unselected Cafe");
+    expect(JSON.stringify(turn.storage)).not.toContain("private-beach");
+    expect(JSON.stringify(turn.storage)).not.toContain("unselected-cafe");
+    expect(JSON.stringify(turn)).not.toContain("Private unavailable source");
+    expect(JSON.stringify(turn)).not.toContain("PRIVATE_SOURCE_BOUNDARY_47");
     expect(JSON.stringify(turn)).not.toContain("PRIVATE_CARD_CAVEAT_47");
     expect(JSON.stringify(turn)).not.toContain("PRIVATE_UNSELECTED_CARD_47");
   });

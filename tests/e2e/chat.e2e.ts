@@ -79,6 +79,7 @@ type MockItineraryStop = {
 };
 
 type MockItineraryPlan = {
+  id?: string;
   title: string;
   durationLabel: string;
   decision?: MockDecisionMetadata;
@@ -2195,7 +2196,10 @@ test("renders structured recommendation cards and submits action prompts", async
         mapsUrl: "https://maps.google.com/?cid=shaka",
         distanceLabel: "About 50 m from search center.",
         openStatusLabel: "Open now according to Google Places.",
-        fitReasons: ["Returned #1 by Google Places for this request."],
+        fitReasons: [
+          "Fits a quick Cloud 9 cafe stop before your next surf lesson.",
+          "Returned #1 by Google Places for this request.",
+        ],
         caveats: ["Review text and bookings were not checked."],
         sourceLabel: "Google Places - live checked",
         decision: {
@@ -2228,6 +2232,10 @@ test("renders structured recommendation cards and submits action prompts", async
   );
   await expect(card.getByText("50 m away")).toBeVisible();
   await expect(card.getByText("Open now")).toBeVisible();
+  await expect(card.getByText("Why this fits:")).toBeVisible();
+  await expect(
+    card.getByText("Fits a quick Cloud 9 cafe stop before your next surf lesson."),
+  ).toBeVisible();
   await expect(card.getByText("Returned #1 by Google Places for this request.")).toHaveCount(0);
   await expect(card.getByText("Review text and bookings were not checked.")).toHaveCount(0);
 
@@ -2239,6 +2247,118 @@ test("renders structured recommendation cards and submits action prompts", async
 
   await expect.poll(() => mockChat.requests.length).toBe(2);
   expect(lastSubmittedContent(mockChat.requests[1])).toBe(actionPrompt);
+});
+
+test("renders one recommendation as a focused best move on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockChatApi(page, {
+    message: "Mocked card answer: start with the strongest fit.",
+    cards: [
+      {
+        id: "place_best_mobile",
+        kind: "place",
+        title: "Goodies Cafe",
+        subtitle: "Cafe - General Luna",
+        mapsUrl: "https://maps.google.com/?cid=goodies",
+        fitReasons: ["Fits your quiet breakfast request before an early island-hopping pickup."],
+        caveats: [],
+        sourceLabel: "Google Places - live checked",
+        decision: {
+          label: "best_fit",
+          bestAction: "Start here before the pickup.",
+        },
+        sources: [mockPlacesSource],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Find one breakfast stop");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  const cards = page.getByTestId("recommendation-cards");
+  const card = page.getByTestId("recommendation-card");
+  await expect(cards).toBeVisible();
+  await expect(card).toHaveCount(1);
+  await expect(card).toHaveAttribute("data-recommendation-role", "best");
+  await expect(card.getByTestId("recommendation-role")).toHaveText("Best fit");
+  await expect(card).toContainText(
+    "Fits your quiet breakfast request before an early island-hopping pickup.",
+  );
+  await expect(
+    page.getByRole("link", { name: "Open Goodies Cafe in Google Maps" }),
+  ).toHaveAttribute("href", "https://maps.google.com/?cid=goodies");
+  expect(await cards.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+});
+
+test("renders three selected recommendations with one best fit and bounded alternatives", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1180, height: 900 });
+  await mockChatApi(page, {
+    message: "Mocked card answer: choose the best fit first, then backups.",
+    cards: [
+      {
+        id: "place_alt",
+        kind: "place",
+        title: "Alt Cafe",
+        subtitle: "Cafe - Cloud 9",
+        mapsUrl: "https://maps.google.com/?cid=alt",
+        distanceLabel: "About 400 m from search center.",
+        openStatusLabel: "Hours not returned by Google Places.",
+        fitReasons: ["Useful if you are already beside the boardwalk."],
+        caveats: [],
+        sourceLabel: "Google Places - live checked",
+        decision: { label: "good_now", bestAction: "Use if you are already nearby." },
+        sources: [mockPlacesSource],
+      },
+      {
+        id: "place_best",
+        kind: "place",
+        title: "Best Cafe",
+        subtitle: "Cafe - General Luna",
+        mapsUrl: "https://maps.google.com/?cid=best",
+        distanceLabel: "About 150 m from search center.",
+        openStatusLabel: "Open now according to Google Places.",
+        fitReasons: ["Best fit for a short ride, quiet seating, and your rain-sensitive plan."],
+        caveats: [],
+        sourceLabel: "Google Places - live checked",
+        decision: { label: "best_fit", bestAction: "Start here." },
+        sources: [mockPlacesSource],
+      },
+      {
+        id: "place_fallback",
+        kind: "place",
+        title: "Covered Backup",
+        subtitle: "Cafe - General Luna",
+        fitReasons: ["Works as a covered fallback if the shower starts early."],
+        caveats: [],
+        sourceLabel: "Google Places - live checked",
+        decision: { label: "fallback", bestAction: "Use if the first cafe is full." },
+        sources: [mockPlacesSource],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Compare three cafe options");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  const cardTitles = await page
+    .getByTestId("recommendation-card")
+    .locator("h4")
+    .evaluateAll((elements) => elements.map((element) => element.textContent?.trim()));
+  expect(cardTitles).toEqual(["Best Cafe", "Alt Cafe", "Covered Backup"]);
+  await expect(page.getByTestId("recommendation-role")).toHaveText([
+    "Best fit",
+    "Alternative",
+    "Fallback",
+  ]);
+  await expect(page.getByText("150 m away")).toBeVisible();
+  await expect(page.getByText("Open now")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open Covered Backup in Google Maps" })).toHaveCount(
+    0,
+  );
 });
 
 test("leads live grounded answers with one responsive decision strip", async ({ page }) => {
@@ -2562,6 +2682,115 @@ test("renders itinerary plans with stops, fallbacks, skip guidance, sources, and
   await expect(page.getByTestId("itinerary-sources")).not.toContainText("Not checked");
 });
 
+test("renders a selected route as ordered movement without duplicating stop cards", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockChatApi(page, {
+    message: "Mocked route answer: follow the ordered route instead of a ranked directory.",
+    itineraries: [mockRainyCloud9Itinerary()],
+    cards: [
+      {
+        id: "place_boardwalk",
+        kind: "place",
+        title: "Cloud 9 boardwalk",
+        fitReasons: ["Good first stop before moving indoors."],
+        caveats: [],
+        sourceLabel: "Ask Siargao local guide",
+        sources: [mockWeatherSource],
+      },
+      {
+        id: "place_cafe",
+        kind: "place",
+        title: "Covered cafe near Cloud 9",
+        fitReasons: ["Useful second stop during rain."],
+        caveats: [],
+        sourceLabel: "Ask Siargao local guide",
+        sources: [mockWeatherSource],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Build a rainy Cloud 9 route");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  const plan = page.getByTestId("itinerary-plan").filter({ hasText: "Rainy Cloud 9 Afternoon" });
+  await expect(plan).toBeVisible();
+  const stopTitles = await plan
+    .getByTestId("itinerary-stops")
+    .locator("h4")
+    .evaluateAll((elements) => elements.map((element) => element.textContent?.trim()));
+  expect(stopTitles).toEqual(["Cloud 9 boardwalk", "Covered cafe near Cloud 9"]);
+  await expect(plan.getByText("About 5 minutes from the previous stop.")).toBeVisible();
+  await expect(page.getByTestId("recommendation-cards")).toHaveCount(0);
+  expect(await plan.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+});
+
+test("collapses missing map and optional recommendation signals without dead controls", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1180, height: 900 });
+  await mockChatApi(page, {
+    message: "Mocked card answer: this fallback has limited display facts.",
+    cards: [
+      {
+        id: "place_limited",
+        kind: "place",
+        title: "Limited Facts Cafe",
+        fitReasons: ["Works as a neutral nearby fallback when you want to stay in General Luna."],
+        caveats: [],
+        sourceLabel: "Google Places - live checked",
+        decision: { label: "needs_confirmation", bestAction: "Confirm before going." },
+        sources: [mockPlacesSource],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Show a limited fallback");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  const card = page.getByTestId("recommendation-card").filter({ hasText: "Limited Facts Cafe" });
+  await expect(card).toBeVisible();
+  await expect(card).toHaveAttribute("data-recommendation-role", "confirm");
+  await expect(card.getByText("Why this fits:")).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: /Open Limited Facts Cafe in Google Maps/ }),
+  ).toHaveCount(0);
+  await expect(card.getByText(/away/)).toHaveCount(0);
+  await expect(card.getByText(/Open now|Hours not listed/)).toHaveCount(0);
+});
+
+test("renders provider-unavailable answers without positive recommendation cards", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1180, height: 900 });
+  await mockChatApi(page, {
+    message: "Mocked provider answer: I could not verify current cafe evidence.",
+    sources: [
+      {
+        label: "provider_unavailable",
+        sourceName: "Google Places",
+        sourceProfileId: "source_google_places",
+        confidence: "low",
+        checked: [],
+        notChecked: ["current Places availability"],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Find a current open cafe");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByText("Mocked provider answer:")).toBeVisible();
+  await expect(page.getByTestId("recommendation-card")).toHaveCount(0);
+  const sourcesPanel = page.getByTestId("assistant-sources-panel");
+  await expect(sourcesPanel).toContainText("Could not check");
+  await expect(sourcesPanel).not.toContainText("Best fit");
+});
+
 test("saves local cards and itineraries with dedupe, removal, and reload persistence", async ({
   page,
 }) => {
@@ -2595,7 +2824,10 @@ test("saves local cards and itineraries with dedupe, removal, and reload persist
         mapsUrl: "https://maps.google.com/?cid=shaka",
         distanceLabel: "About 50 m from search center.",
         openStatusLabel: "Open now according to Google Places.",
-        fitReasons: ["Returned #1 by Google Places for this request."],
+        fitReasons: [
+          "Fits a quick Cloud 9 cafe stop before saving the rainy route.",
+          "Returned #1 by Google Places for this request.",
+        ],
         caveats: ["Review text and bookings were not checked."],
         sourceLabel: "Google Places - live checked",
         decision: {
@@ -2830,7 +3062,10 @@ test("creates and copies or opens a share link from saved cards and itineraries"
         mapsUrl: "https://maps.google.com/?cid=shaka",
         distanceLabel: "About 50 m from search center.",
         openStatusLabel: "Open now according to Google Places.",
-        fitReasons: ["Returned #1 by Google Places for this request."],
+        fitReasons: [
+          "Fits a quick Cloud 9 cafe stop before saving the rainy route.",
+          "Returned #1 by Google Places for this request.",
+        ],
         caveats: ["Review text and bookings were not checked."],
         sourceLabel: "Google Places - live checked",
         decision: {
@@ -2996,7 +3231,10 @@ test("prevents empty share selections and keeps local saves after share API fail
         mapsUrl: "https://maps.google.com/?cid=shaka",
         distanceLabel: "About 50 m from search center.",
         openStatusLabel: "Open now according to Google Places.",
-        fitReasons: ["Returned #1 by Google Places for this request."],
+        fitReasons: [
+          "Fits a quick Cloud 9 cafe stop before you share the saved plan.",
+          "Returned #1 by Google Places for this request.",
+        ],
         caveats: ["Review text and bookings were not checked."],
         sourceLabel: "Google Places - live checked",
       },
@@ -3087,6 +3325,7 @@ test("keeps recommendation cards inside the mobile chat column", async ({ page }
         distanceLabel: "About 1.7 km from search center.",
         openStatusLabel: "Hours not returned by Google Places.",
         fitReasons: [
+          "Fits a deliberately long mobile layout request near Cloud 9 without requiring a scooter.",
           "Returned #1 by Google Places for a deliberately long mobile layout request.",
           "Google Places primary type: cafe.",
         ],
