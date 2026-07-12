@@ -27,7 +27,7 @@
 | Route | Method | Purpose | Protection |
 | --- | --- | --- | --- |
 | `/api/clerk/webhooks` | `POST` | Verify Clerk webhook signatures and sync local user identity cache rows for user create, update, and delete events | Public at the Clerk proxy layer; Clerk webhook signature required |
-| `/api/me/profile` | `GET`, `PATCH` | Return Clerk-derived identity fields and read or partially update owner-scoped profile details; structured preference writes use stable bounded values and preserve legacy values until deliberately changed | Clerk-authenticated user only |
+| `/api/me/profile` | `GET`, `PATCH` | Return a browser-safe traveler identity/profile DTO and read or partially update owner-scoped profile details; structured preference writes use stable bounded values and preserve legacy values until deliberately changed | Clerk-authenticated user only |
 
 ## Chat APIs
 

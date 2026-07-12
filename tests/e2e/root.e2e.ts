@@ -78,11 +78,9 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
     | "network" = "success";
   let profile = {
     identity: {
-      userId: "user_e2e_profile",
       email: "traveler@example.com",
       firstName: "Alex",
       lastName: "Traveler",
-      imageUrl: null,
     },
     profile: {
       displayName: "Alex",
@@ -202,14 +200,14 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
         threads: [
           {
             id: "chat_thread_cloud9",
-            userId: "user_e2e_profile",
+            userId: "private-profile-owner",
             title: "Cloud 9 quiet sleep",
             lastMessageAt: "2026-06-29T05:00:00.000Z",
             updatedAt: "2026-06-29T05:00:00.000Z",
           },
           {
             id: "chat_thread_ferry",
-            userId: "user_e2e_profile",
+            userId: "private-profile-owner",
             title: "Airport ferry timing",
             lastMessageAt: "2026-06-28T05:00:00.000Z",
             updatedAt: "2026-06-28T05:00:00.000Z",
@@ -250,6 +248,18 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
     page.getByRole("heading", { exact: true, name: "Traveler preferences" }),
   ).toBeVisible();
   await expect(page.getByRole("heading", { exact: true, name: "Account" })).toBeVisible();
+  const accountPanel = page.locator("#account");
+  await expect(accountPanel).toContainText("Alex");
+  await expect(accountPanel).toContainText("traveler@example.com");
+  await expect(accountPanel).toContainText("Signed in");
+  const manageAccountButton = accountPanel.getByRole("button", { name: "Manage account" });
+  await expect(manageAccountButton).toBeVisible();
+  await manageAccountButton.focus();
+  await expect(manageAccountButton).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Clerk user ID")).toHaveCount(0);
+  await expect(page.getByText("user_e2e_profile")).toHaveCount(0);
+  await expect(page.getByText("clerkUserId")).toHaveCount(0);
   await expect(page.getByRole("heading", { exact: true, name: "Privacy" })).toBeVisible();
   await expect(page.getByRole("heading", { exact: true, name: "Pass" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Recent chat history" })).toBeVisible();
@@ -457,11 +467,9 @@ test("preserves untouched legacy multi-value tokens byte-for-byte on an unrelate
   let patchPayload: Record<string, unknown> | null = null;
   let profile = {
     identity: {
-      userId: "user_e2e_legacy_tokens",
       email: "legacy@example.com",
       firstName: "Legacy",
       lastName: "Traveler",
-      imageUrl: null,
     },
     profile: {
       displayName: "Legacy",
@@ -519,6 +527,119 @@ test("preserves untouched legacy multi-value tokens byte-for-byte on an unrelate
     "quiet_sleep",
     "legacy_low_ferry",
   ]);
+});
+
+test("renders safe account identity across settings states and narrow layouts", async ({
+  page,
+}) => {
+  const longName = "María-Luisa Ngọc Nguyễn surf planning ".repeat(5).trim();
+  let profileMode: "long" | "partial" | "server" | "anonymous" = "long";
+
+  await page.route("**/api/me/profile", async (route) => {
+    if (profileMode === "anonymous") {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 401,
+        body: JSON.stringify({ error: "unauthenticated" }),
+      });
+      return;
+    }
+    if (profileMode === "server") {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 500,
+        body: JSON.stringify({ error: "profile_load_failed" }),
+      });
+      return;
+    }
+
+    const profile = {
+      identity:
+        profileMode === "partial"
+          ? { email: "partial@example.com", firstName: "Taylor", lastName: null }
+          : { email: null, firstName: null, lastName: null },
+      profile: {
+        displayName: profileMode === "partial" ? null : longName,
+        homeCountry: null,
+        travelStyle: null,
+        budgetLevel: null,
+        dietaryNotes: null,
+        foodNeeds: [],
+        accessibilityNotes: null,
+        surfAbility: null,
+        quietSleepPreference: null,
+        weatherPreference: null,
+        interests: [],
+        preferredAreas: [],
+        tripContext: {},
+        marketingConsent: false,
+        createdAt: null,
+        updatedAt: null,
+      },
+    };
+    const responseBody = JSON.stringify(profile);
+    expect(responseBody).not.toContain("user_safe_identity");
+    expect(responseBody).not.toContain("clerkUserId");
+    await route.fulfill({ contentType: "application/json", body: responseBody });
+  });
+  await page.route("**/api/chat/threads", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ threads: [] }) });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [] }) });
+  });
+
+  await page.goto("/settings");
+  const accountPanel = page.locator("#account");
+  await expect(accountPanel).toContainText(longName);
+  await expect(accountPanel).toContainText("Email unavailable");
+  await expect(accountPanel).toContainText("Signed in");
+  await expect(accountPanel.getByRole("button", { name: "Manage account" })).toBeVisible();
+  await expect(page.getByText("Clerk user ID")).toHaveCount(0);
+  await expect(page.getByText("user_safe_identity")).toHaveCount(0);
+  await expect(
+    page.getByText("unavailable+user_safe_identity@clerk.ask-siargao.local"),
+  ).toHaveCount(0);
+
+  for (const width of [360, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await accountPanel.getByRole("button", { name: "Manage account" }).focus();
+    await expect(accountPanel.getByRole("button", { name: "Manage account" })).toBeFocused();
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    );
+    expect(overflow).toBe(false);
+  }
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = "2";
+  });
+  await expect(accountPanel.getByRole("button", { name: "Manage account" })).toBeVisible();
+  const zoomedOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(zoomedOverflow).toBe(false);
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = "";
+  });
+
+  profileMode = "partial";
+  await page.goto("/profile");
+  await expect(page.locator("#account")).toContainText("Taylor");
+  await expect(page.locator("#account")).toContainText("partial@example.com");
+  await expect(page.getByText("Clerk user ID")).toHaveCount(0);
+
+  profileMode = "server";
+  await page.goto("/settings");
+  await expect(page.getByRole("heading", { name: "Settings unavailable" })).toBeVisible();
+  await expect(page.getByText(longName)).toHaveCount(0);
+  await expect(page.getByText("partial@example.com")).toHaveCount(0);
+
+  profileMode = "anonymous";
+  await page.goto("/settings");
+  await expect(
+    page.getByRole("heading", { name: "Sign in to manage your settings" }),
+  ).toBeVisible();
+  await expect(page.getByText("Taylor")).toHaveCount(0);
 });
 
 test("renders public human, markdown, JSON, sitemap, and llms surfaces", async ({ page }) => {

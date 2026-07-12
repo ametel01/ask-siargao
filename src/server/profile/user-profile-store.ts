@@ -1,4 +1,5 @@
 import type { WeatherPreference } from "@/features/settings/profile-options";
+import { travelerEmailFromStoredEmail } from "@/lib/traveler-identity";
 import {
   normalizeStoredProfileTripContext,
   tripContextProfileNotesMaxLength,
@@ -29,11 +30,9 @@ export type UserProfileDetails = {
 };
 
 export type UserProfileIdentity = {
-  userId: string;
-  email: string;
+  email: string | null;
   firstName: string | null;
   lastName: string | null;
-  imageUrl: string | null;
 };
 
 export type UserProfileResponse = {
@@ -63,7 +62,6 @@ type UserProfileRow = {
   email: string;
   first_name: string | null;
   last_name: string | null;
-  image_url: string | null;
   display_name: string | null;
   home_country: string | null;
   travel_style: string | null;
@@ -93,7 +91,6 @@ export async function loadUserProfile(
         users.email,
         users.first_name,
         users.last_name,
-        users.image_url,
         user_profiles.display_name,
         user_profiles.home_country,
         user_profiles.travel_style,
@@ -206,11 +203,9 @@ export async function upsertUserProfile(
 function profileResponseFromRow(row: UserProfileRow): UserProfileResponse {
   return {
     identity: {
-      userId: row.user_id,
-      email: row.email,
+      email: travelerEmailFromStoredEmail(row.email),
       firstName: row.first_name,
       lastName: row.last_name,
-      imageUrl: row.image_url,
     },
     profile: {
       displayName: row.display_name,
