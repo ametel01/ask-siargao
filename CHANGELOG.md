@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed the desktop chat workspace into a restrained Siargao field desk with a dominant
+  conversation surface, subordinate travel rails, coastal brand cues, and viewport-safe layouts.
 - Changed chat history and saved planning summaries to open actionable owned content with typed
   rename/archive/delete controls, authoritative empty-state handling, and race-safe selection.
 - Changed recommendation artifacts to a route-first, fit-ranked presentation with bounded
