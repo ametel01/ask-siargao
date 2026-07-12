@@ -81,7 +81,7 @@ describe("profile API route", () => {
         currentArea: "Cloud 9",
         accommodation: "Near Cloud 9",
         dateRange: "Aug 1 - 6",
-        travelerType: "Family with kids",
+        travelerType: "family_with_kids",
         transportMode: "tricycle",
         rideTimeLimitMinutes: 25,
         durableConstraints: ["with_kids", "budget_cheap"],
@@ -157,7 +157,7 @@ describe("profile API route", () => {
       accommodation: "Near Cloud 9",
       dateRange: "Aug 1 - 6",
       currentArea: "Cloud 9",
-      travelerType: "Couple",
+      travelerType: "couple",
       transportMode: "scooter",
       rideTimeLimitMinutes: 25,
       durableConstraints: ["rain_avoidance", "quiet_sleep"],
@@ -171,11 +171,20 @@ describe("profile API route", () => {
     const tripBody = await tripResponse.json();
     expect(tripBody.profile).toMatchObject({
       homeCountry: "Australia",
-      surfAbility: "Advanced",
+      surfAbility: "advanced",
       quietSleepPreference: false,
       weatherPreference: "avoid_rain",
     });
-    expect(tripBody.profile.tripContext).toEqual({ notes: "Early check-in if possible" });
+    expect(tripBody.profile.tripContext).toEqual({
+      accommodation: "Near Cloud 9",
+      dateRange: "Aug 1 - 6",
+      currentArea: "Cloud 9",
+      travelerType: "couple",
+      transportMode: "scooter",
+      rideTimeLimitMinutes: 25,
+      durableConstraints: ["rain_avoidance", "quiet_sleep"],
+      notes: "Early check-in if possible",
+    });
 
     await db.close();
   });
@@ -276,6 +285,31 @@ describe("profile API route", () => {
     await db.close();
   });
 
+  test("rejects empty and duplicate multi-value writes with field-addressable issues", async () => {
+    const db = await openProfileTestDatabase();
+    const dependencies = profileDependencies(db, { userId: "user_invalid_multi_values" });
+
+    const response = await patchProfileResponse(
+      profileRequest({
+        interests: ["Surf", " surf ", ""],
+        preferredAreas: ["Cloud 9", "Cloud 9"],
+        foodNeeds: ["vegan", "vegan"],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.issues.map((issue: { path: string }) => issue.path).toSorted()).toEqual([
+      "foodNeeds.1",
+      "interests.1",
+      "interests.2",
+      "preferredAreas.1",
+    ]);
+
+    await db.close();
+  });
+
   test("returns field-addressable issues for invalid durable preferences", async () => {
     const db = await openProfileTestDatabase();
     const dependencies = profileDependencies(db, { userId: "user_invalid_preferences" });
@@ -295,6 +329,123 @@ describe("profile API route", () => {
       "surfAbility",
       "weatherPreference",
     ]);
+
+    await db.close();
+  });
+
+  test("round-trips only stable structured values and rejects new unknown choices", async () => {
+    const db = await openProfileTestDatabase();
+    const dependencies = profileDependencies(db, { userId: "user_structured_preferences" });
+
+    const response = await patchProfileResponse(
+      profileRequest({
+        budgetLevel: "premium",
+        surfAbility: "intermediate",
+        foodNeeds: ["vegan", "gluten_free"],
+        tripContext: {
+          travelerType: "family_with_kids",
+          rideTimeLimitMinutes: 360,
+          transportMode: "van",
+        },
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.profile).toMatchObject({
+      budgetLevel: "premium",
+      surfAbility: "intermediate",
+      foodNeeds: ["vegan", "gluten_free"],
+      tripContext: {
+        travelerType: "family_with_kids",
+        rideTimeLimitMinutes: 360,
+        transportMode: "van",
+      },
+    });
+
+    const invalidResponse = await patchProfileResponse(
+      profileRequest({
+        budgetLevel: "good_value",
+        surfAbility: "expert",
+        foodNeeds: ["pescatarian"],
+        tripContext: { travelerType: "work retreat", rideTimeLimitMinutes: 361 },
+      }),
+      dependencies,
+    );
+    const invalidBody = await invalidResponse.json();
+
+    expect(invalidResponse.status).toBe(400);
+    expect(invalidBody.issues.map((issue: { path: string }) => issue.path).toSorted()).toEqual([
+      "budgetLevel",
+      "foodNeeds.0",
+      "surfAbility",
+    ]);
+
+    const invalidTripResponse = await patchProfileResponse(
+      profileRequest({ tripContext: { travelerType: "work retreat", rideTimeLimitMinutes: 361 } }),
+      dependencies,
+    );
+    const invalidTripBody = await invalidTripResponse.json();
+    expect(invalidTripResponse.status).toBe(400);
+    expect(invalidTripBody.issues.map((issue: { path: string }) => issue.path).toSorted()).toEqual([
+      "tripContext.rideTimeLimitMinutes",
+      "tripContext.travelerType",
+    ]);
+
+    await db.close();
+  });
+
+  test("preserves unknown legacy values when an unrelated field changes", async () => {
+    const db = await openProfileTestDatabase();
+    await seedLegacyProfile(
+      db,
+      "user_legacy_structured",
+      {
+        travelerType: "Remote work retreat",
+        currentArea: "Cloud 9",
+        transportMode: "scooter",
+        rideTimeLimitMinutes: 45,
+        notes: "Keep this note",
+      },
+      {
+        budgetLevel: "slow_travel",
+        surfAbility: "Ocean whisperer",
+        interests: ["Surf, yoga", "  Food  "],
+        preferredAreas: ["Cloud 9", "Secret corner"],
+      },
+    );
+    const dependencies = profileDependencies(db, { userId: "user_legacy_structured" });
+
+    const loaded = await getProfileResponse(dependencies);
+    const before = await loaded.json();
+    expect(before.profile).toMatchObject({
+      budgetLevel: "slow_travel",
+      surfAbility: "Ocean whisperer",
+      interests: ["Surf, yoga", "  Food  "],
+      preferredAreas: ["Cloud 9", "Secret corner"],
+      tripContext: { travelerType: "Remote work retreat" },
+    });
+
+    const saved = await patchProfileResponse(
+      profileRequest({ displayName: "A new name" }),
+      dependencies,
+    );
+    const after = await saved.json();
+    expect(after.profile).toMatchObject({
+      displayName: "A new name",
+      budgetLevel: "slow_travel",
+      surfAbility: "Ocean whisperer",
+      interests: ["Surf, yoga", "  Food  "],
+      preferredAreas: ["Cloud 9", "Secret corner"],
+      tripContext: {
+        travelerType: "Remote work retreat",
+        currentArea: "Cloud 9",
+        transportMode: "scooter",
+        rideTimeLimitMinutes: 45,
+        notes: "Keep this note",
+      },
+    });
 
     await db.close();
   });
@@ -382,7 +533,17 @@ async function loadUser(db: PGlite, userId: string) {
   return result.rows[0] ?? null;
 }
 
-async function seedLegacyProfile(db: PGlite, userId: string, tripContext: Record<string, unknown>) {
+async function seedLegacyProfile(
+  db: PGlite,
+  userId: string,
+  tripContext: Record<string, unknown>,
+  profile: Partial<{
+    budgetLevel: string;
+    surfAbility: string;
+    interests: string[];
+    preferredAreas: string[];
+  }> = {},
+) {
   await db.query(
     `
       insert into users (id, email, created_at, updated_at)
@@ -392,9 +553,20 @@ async function seedLegacyProfile(db: PGlite, userId: string, tripContext: Record
   );
   await db.query(
     `
-      insert into user_profiles (user_id, trip_context_json, created_at, updated_at)
-      values ($1, $2::jsonb, $3, $3)
+      insert into user_profiles (
+        user_id, budget_level, surf_ability, interests_json, preferred_areas_json,
+        trip_context_json, created_at, updated_at
+      )
+      values ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7, $7)
     `,
-    [userId, JSON.stringify(tripContext), "2026-06-29T04:00:00.000Z"],
+    [
+      userId,
+      profile.budgetLevel ?? null,
+      profile.surfAbility ?? null,
+      JSON.stringify(profile.interests ?? []),
+      JSON.stringify(profile.preferredAreas ?? []),
+      JSON.stringify(tripContext),
+      "2026-06-29T04:00:00.000Z",
+    ],
   );
 }

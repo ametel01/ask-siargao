@@ -7,13 +7,36 @@
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { ArrowRight, MapPinned, MessageCircle, Save, ShieldCheck, UserRound } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import useSWR from "swr";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { clerkAppearance } from "@/features/auth/clerk-appearance";
 import { isClerkConfigured } from "@/features/auth/clerk-config";
+import type { WeatherPreference } from "@/features/settings/profile-options";
+import {
+  addMultiValue,
+  budgetLevelOptions,
+  currentAreaOptions,
+  foodNeedOptions,
+  groupNeedOptions,
+  isOptionValue,
+  legacyOptionLabel,
+  optionValueOrLegacy,
+  profileLegacyAliases,
+  surfAbilityOptions,
+  transportModeOptions,
+  travelerTypeOptions,
+  weatherPreferenceOptions,
+} from "@/features/settings/profile-options";
 import type { ChatHistoryThread } from "@/server/chat/chat-history-store";
 import type { UserProfileResponse } from "@/server/profile/user-profile-store";
 import type { SavedTripItem } from "@/server/trips/shared-trip-types";
@@ -26,16 +49,17 @@ type ProfileFormState = {
   budgetLevel: string;
   dietaryNotes: string;
   accessibilityNotes: string;
-  interests: string;
-  preferredAreas: string;
+  interests: string[];
+  preferredAreas: string[];
+  foodNeeds: string[];
   surfAbility: string;
   quietSleepPreference: boolean | null;
-  weatherPreference: "" | "avoid_rain" | "flexible";
+  weatherPreference: "" | WeatherPreference;
   accommodation: string;
   dateRange: string;
   currentArea: string;
   travelerType: string;
-  transportMode: "" | "walk" | "scooter" | "tricycle" | "van" | "unknown";
+  transportMode: string;
   rideTimeLimitMinutes: string;
   durableConstraints: string[];
   tripNotes: string;
@@ -66,8 +90,9 @@ const emptyForm: ProfileFormState = {
   budgetLevel: "",
   dietaryNotes: "",
   accessibilityNotes: "",
-  interests: "",
-  preferredAreas: "",
+  interests: [],
+  preferredAreas: [],
+  foodNeeds: [],
   surfAbility: "",
   quietSleepPreference: null,
   weatherPreference: "",
@@ -160,6 +185,7 @@ export function SettingsDashboardPage() {
   const [fieldErrors, setFieldErrors] = useState<ProfileFieldErrors>({});
   const [activeSection, setActiveSection] = useState<TripBriefSection>("current-trip");
   const editVersionRef = useRef(0);
+  const saveInFlightRef = useRef(false);
 
   useEffect(() => {
     const syncActiveSection = () => {
@@ -192,7 +218,7 @@ export function SettingsDashboardPage() {
     editVersionRef.current += 1;
     setForm(update);
     setIsDirty(true);
-    setSaveState("idle");
+    setSaveState((current) => (current === "saving" ? current : "idle"));
     setSaveError(null);
     setFieldErrors({});
   }
@@ -213,6 +239,10 @@ export function SettingsDashboardPage() {
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saveInFlightRef.current) {
+      return;
+    }
+    saveInFlightRef.current = true;
     setSaveState("saving");
     setSaveError(null);
     setFieldErrors({});
@@ -222,12 +252,13 @@ export function SettingsDashboardPage() {
       const response = await fetch("/api/me/profile", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(profilePatchFromForm(form)),
+        body: JSON.stringify(profilePatchFromForm(form, profile)),
       });
 
       if (!response.ok) {
         const errorBody = (await response.json().catch(() => null)) as ProfileErrorResponse | null;
         if (editVersionRef.current !== savedEditVersion) {
+          setSaveState("idle");
           return;
         }
         const issues = profileFieldErrors(errorBody?.issues);
@@ -242,19 +273,23 @@ export function SettingsDashboardPage() {
       }
 
       const nextProfile = (await response.json()) as UserProfileResponse;
+      setProfile(nextProfile);
       if (editVersionRef.current !== savedEditVersion) {
+        setSaveState("idle");
         return;
       }
-      setProfile(nextProfile);
       setForm(formFromProfile(nextProfile));
       setIsDirty(false);
       setSaveState("saved");
     } catch {
       if (editVersionRef.current !== savedEditVersion) {
+        setSaveState("idle");
         return;
       }
       setSaveError("Your changes are still here. Check your connection and try again.");
       setSaveState("error");
+    } finally {
+      saveInFlightRef.current = false;
     }
   }
 
@@ -746,6 +781,8 @@ function TravelProfileSection({
   saveState: "idle" | "saving" | "saved" | "error";
   setForm: (update: (current: ProfileFormState) => ProfileFormState) => void;
 }) {
+  const selectedDurableConstraints = new Set(form.durableConstraints);
+
   return (
     <section className="grid min-w-0 gap-6">
       <section
@@ -773,71 +810,39 @@ function TravelProfileSection({
             error={fieldErrors["tripContext.dateRange"]}
             onChange={(dateRange) => setForm((current) => ({ ...current, dateRange }))}
           />
-          <label className="grid min-w-0 gap-2 text-sm font-extrabold text-text-default">
-            Current area
-            <select
-              aria-describedby={
-                fieldErrors["tripContext.currentArea"] ? fieldErrorId("Current area") : undefined
-              }
-              aria-invalid={Boolean(fieldErrors["tripContext.currentArea"])}
-              className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-bold outline-none focus-visible:border-brand-lagoon-600 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
-              value={form.currentArea}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, currentArea: event.target.value }))
-              }
-            >
-              <option value="">Not set</option>
-              <option value="Cloud 9">Cloud 9</option>
-              <option value="General Luna">General Luna</option>
-              <option value="Del Carmen">Del Carmen</option>
-              <option value="Dapa">Dapa</option>
-              <option value="Siargao Island">Siargao Island</option>
-            </select>
-            <FieldError
-              id={fieldErrorId("Current area")}
-              message={fieldErrors["tripContext.currentArea"]}
-            />
-          </label>
-          <TextField
+          <OptionSelect
+            label="Current area"
+            options={currentAreaOptions}
+            value={form.currentArea}
+            error={fieldErrors["tripContext.currentArea"]}
+            onChange={(currentArea) => setForm((current) => ({ ...current, currentArea }))}
+          />
+          <OptionSelect
             label="Traveler or group type"
             value={form.travelerType}
             error={fieldErrors["tripContext.travelerType"]}
             onChange={(travelerType) => setForm((current) => ({ ...current, travelerType }))}
+            options={travelerTypeOptions}
+            aliases={profileLegacyAliases.travelerType}
           />
-          <label className="grid min-w-0 gap-2 text-sm font-extrabold text-text-default">
-            Transport mode
-            <select
-              aria-describedby={
-                fieldErrors["tripContext.transportMode"]
-                  ? fieldErrorId("Transport mode")
-                  : undefined
-              }
-              aria-invalid={Boolean(fieldErrors["tripContext.transportMode"])}
-              className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-bold outline-none focus-visible:border-brand-lagoon-600 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
-              value={form.transportMode}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  transportMode: event.target.value as ProfileFormState["transportMode"],
-                }))
-              }
-            >
-              <option value="">Not set</option>
-              <option value="walk">Walking</option>
-              <option value="scooter">Scooter</option>
-              <option value="tricycle">Tricycle</option>
-              <option value="van">Van or transfer</option>
-              <option value="unknown">Not sure yet</option>
-            </select>
-            <FieldError
-              id={fieldErrorId("Transport mode")}
-              message={fieldErrors["tripContext.transportMode"]}
-            />
-          </label>
-          <TextField
+          <OptionSelect
+            label="Transport mode"
+            options={transportModeOptions}
+            value={form.transportMode}
+            error={fieldErrors["tripContext.transportMode"]}
+            onChange={(transportMode) =>
+              setForm((current) => ({
+                ...current,
+                transportMode: transportMode as ProfileFormState["transportMode"],
+              }))
+            }
+          />
+          <NumberField
             label="Maximum ride time in minutes"
             value={form.rideTimeLimitMinutes}
             error={fieldErrors["tripContext.rideTimeLimitMinutes"]}
+            min={1}
+            max={360}
             onChange={(rideTimeLimitMinutes) =>
               setForm((current) => ({ ...current, rideTimeLimitMinutes }))
             }
@@ -882,48 +887,47 @@ function TravelProfileSection({
             error={fieldErrors.travelStyle}
             onChange={(travelStyle) => setForm((current) => ({ ...current, travelStyle }))}
           />
-          <TextField
+          <OptionSelect
             label="Surf ability"
             value={form.surfAbility}
             error={fieldErrors.surfAbility}
             onChange={(surfAbility) => setForm((current) => ({ ...current, surfAbility }))}
+            options={surfAbilityOptions}
+            aliases={profileLegacyAliases.surfAbility}
           />
-          <label className="grid min-w-0 gap-2 text-sm font-extrabold text-text-default">
-            Budget level
-            <select
-              aria-describedby={fieldErrors.budgetLevel ? fieldErrorId("Budget level") : undefined}
-              aria-invalid={Boolean(fieldErrors.budgetLevel)}
-              className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-bold outline-none focus-visible:border-brand-lagoon-600 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
-              value={form.budgetLevel}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, budgetLevel: event.target.value }))
-              }
-            >
-              <option value="">Not set</option>
-              <option value="budget">Budget</option>
-              <option value="mid_range">Mid-range</option>
-              <option value="premium">Premium</option>
-              <option value="mixed">Mixed</option>
-            </select>
-            <FieldError id={fieldErrorId("Budget level")} message={fieldErrors.budgetLevel} />
-          </label>
-          <TextField
+          <OptionSelect
+            label="Budget level"
+            options={budgetLevelOptions}
+            value={form.budgetLevel}
+            error={fieldErrors.budgetLevel}
+            onChange={(budgetLevel) => setForm((current) => ({ ...current, budgetLevel }))}
+            aliases={profileLegacyAliases.budgetLevel}
+          />
+          <MultiValueField
             label="Interests"
             value={form.interests}
             error={fieldErrors.interests}
+            itemErrors={indexedFieldErrors(fieldErrors, "interests")}
             onChange={(interests) => setForm((current) => ({ ...current, interests }))}
+            suggestions={["Surfing", "Food", "Island hopping", "Nature", "Wellness"]}
+            maxLength={60}
+            maxItems={20}
           />
-          <TextField
+          <MultiValueField
             label="Preferred areas"
             value={form.preferredAreas}
             error={fieldErrors.preferredAreas}
+            itemErrors={indexedFieldErrors(fieldErrors, "preferredAreas")}
             onChange={(preferredAreas) => setForm((current) => ({ ...current, preferredAreas }))}
+            suggestions={["Cloud 9", "General Luna", "Del Carmen", "Dapa", "Pacifico"]}
+            maxLength={80}
+            maxItems={20}
           />
         </div>
 
         <div className="grid min-w-0 gap-4 lg:grid-cols-2">
           <TextAreaField
-            label="Dietary notes"
+            label="Dietary details"
             value={form.dietaryNotes}
             error={fieldErrors.dietaryNotes}
             onChange={(dietaryNotes) => setForm((current) => ({ ...current, dietaryNotes }))}
@@ -938,6 +942,15 @@ function TravelProfileSection({
           />
         </div>
 
+        <MultiOptionField
+          label="Food needs"
+          value={form.foodNeeds}
+          error={fieldErrors.foodNeeds}
+          itemErrors={indexedFieldErrors(fieldErrors, "foodNeeds")}
+          options={foodNeedOptions}
+          onChange={(foodNeeds) => setForm((current) => ({ ...current, foodNeeds }))}
+        />
+
         <div className="grid min-w-0 gap-3 rounded-md border border-border-default p-4 sm:grid-cols-2">
           <PreferenceCheckbox
             checked={Boolean(form.quietSleepPreference)}
@@ -946,31 +959,18 @@ function TravelProfileSection({
               setForm((current) => ({ ...current, quietSleepPreference }))
             }
           />
-          <label className="grid gap-2 text-sm font-extrabold">
-            Weather preference
-            <select
-              aria-describedby={
-                fieldErrors.weatherPreference ? fieldErrorId("Weather preference") : undefined
-              }
-              aria-invalid={Boolean(fieldErrors.weatherPreference)}
-              className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-bold"
-              value={form.weatherPreference}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  weatherPreference: event.target.value as ProfileFormState["weatherPreference"],
-                }))
-              }
-            >
-              <option value="">Flexible</option>
-              <option value="avoid_rain">Prefer drier plans</option>
-              <option value="flexible">Happy to adapt to rain</option>
-            </select>
-            <FieldError
-              id={fieldErrorId("Weather preference")}
-              message={fieldErrors.weatherPreference}
-            />
-          </label>
+          <OptionSelect
+            label="Weather preference"
+            options={weatherPreferenceOptions}
+            value={form.weatherPreference}
+            error={fieldErrors.weatherPreference}
+            onChange={(weatherPreference) =>
+              setForm((current) => ({
+                ...current,
+                weatherPreference: weatherPreference as ProfileFormState["weatherPreference"],
+              }))
+            }
+          />
         </div>
 
         <fieldset
@@ -983,24 +983,18 @@ function TravelProfileSection({
           className="grid min-w-0 gap-3 rounded-md border border-border-default p-4 sm:grid-cols-2"
         >
           <legend className="px-1 text-sm font-extrabold text-text-default">Group needs</legend>
-          <PreferenceCheckbox
-            checked={form.durableConstraints.includes("with_kids")}
-            error={fieldErrors["tripContext.durableConstraints"]}
-            errorId="profile-durable-constraints-error"
-            label="Traveling with children"
-            onChange={(checked) =>
-              setForm((current) => toggleConstraint(current, "with_kids", checked))
-            }
-          />
-          <PreferenceCheckbox
-            checked={form.durableConstraints.includes("avoid_rocky_beach")}
-            error={fieldErrors["tripContext.durableConstraints"]}
-            errorId="profile-durable-constraints-error"
-            label="Avoid rocky beaches"
-            onChange={(checked) =>
-              setForm((current) => toggleConstraint(current, "avoid_rocky_beach", checked))
-            }
-          />
+          {groupNeedOptions.map((option) => (
+            <PreferenceCheckbox
+              checked={selectedDurableConstraints.has(option.value)}
+              error={fieldErrors["tripContext.durableConstraints"]}
+              errorId="profile-durable-constraints-error"
+              key={option.value}
+              label={option.label}
+              onChange={(checked) =>
+                setForm((current) => toggleConstraint(current, option.value, checked))
+              }
+            />
+          ))}
           <FieldError
             id="profile-durable-constraints-error"
             message={fieldErrors["tripContext.durableConstraints"]}
@@ -1124,6 +1118,330 @@ function StatusPanel({ title }: { title: string }) {
   );
 }
 
+function OptionSelect({
+  aliases,
+  error,
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  aliases?: Readonly<Record<string, string>>;
+  error?: string;
+  label: string;
+  onChange: (value: string) => void;
+  options: readonly { value: string; label: string }[];
+  value: string;
+}) {
+  const inputId = fieldId(label);
+  const errorId = fieldErrorId(label);
+  const selectedValue = optionValueOrLegacy(value, options, aliases);
+  const isLegacy = selectedValue && !isOptionValue(selectedValue, options);
+
+  return (
+    <label
+      className="grid min-w-0 gap-2 text-sm font-extrabold text-text-default"
+      htmlFor={inputId}
+    >
+      {label}
+      <select
+        aria-describedby={error ? errorId : undefined}
+        aria-invalid={Boolean(error)}
+        className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-bold outline-none focus-visible:border-brand-lagoon-600 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+        id={inputId}
+        value={selectedValue}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">Not set</option>
+        {isLegacy ? (
+          <option value={selectedValue}>{legacyOptionLabel(selectedValue)}</option>
+        ) : null}
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {isLegacy ? (
+        <span className="text-xs font-semibold text-text-muted">
+          This saved value is no longer a current choice. Keep it, clear it, or choose a supported
+          value.
+        </span>
+      ) : null}
+      <FieldError id={errorId} message={error} />
+    </label>
+  );
+}
+
+function NumberField({
+  error,
+  label,
+  max,
+  min,
+  onChange,
+  value,
+}: {
+  error?: string;
+  label: string;
+  max: number;
+  min: number;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const inputId = fieldId(label);
+  const errorId = fieldErrorId(label);
+
+  return (
+    <label
+      className="grid min-w-0 gap-2 text-sm font-extrabold text-text-default"
+      htmlFor={inputId}
+    >
+      {label}
+      <Input
+        aria-describedby={error ? errorId : undefined}
+        aria-invalid={Boolean(error)}
+        className="h-11 rounded-md border-border-default bg-white focus-visible:border-brand-lagoon-600 focus-visible:ring-brand-lagoon-500/20"
+        id={inputId}
+        max={max}
+        min={min}
+        step={1}
+        type="number"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <FieldError id={errorId} message={error} />
+    </label>
+  );
+}
+
+function MultiOptionField({
+  error,
+  itemErrors = {},
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  error?: string;
+  itemErrors?: Readonly<Record<number, string>>;
+  label: string;
+  onChange: (value: string[]) => void;
+  options: readonly { value: string; label: string }[];
+  value: string[];
+}) {
+  const errorId = fieldErrorId(label);
+  const selectedLegacyValues = value.filter(
+    (selected, index) => value.indexOf(selected) === index && !isOptionValue(selected, options),
+  );
+  const availableOptions = [
+    ...options,
+    ...selectedLegacyValues.map((selected) => ({
+      value: selected,
+      label: legacyOptionLabel(selected),
+    })),
+  ];
+  const itemErrorIds = Object.keys(itemErrors).map((index) => `${errorId}-item-${index}`);
+  const describedBy = [error ? errorId : null, ...itemErrorIds].filter(Boolean).join(" ");
+  return (
+    <fieldset
+      aria-describedby={describedBy || undefined}
+      aria-invalid={Boolean(error || itemErrorIds.length)}
+      className="grid min-w-0 gap-3 rounded-md border border-border-default p-4"
+    >
+      <legend className="px-1 text-sm font-extrabold text-text-default">{label}</legend>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {availableOptions.map((option) => {
+          const selectedIndex = value.indexOf(option.value);
+          const itemError = selectedIndex >= 0 ? itemErrors[selectedIndex] : undefined;
+          const itemErrorId = `${errorId}-item-${selectedIndex}`;
+          return (
+            <label
+              className="grid min-h-11 min-w-0 grid-cols-[auto_1fr] items-center gap-x-3 text-sm font-bold"
+              key={option.value}
+            >
+              <input
+                aria-describedby={itemError ? itemErrorId : undefined}
+                aria-invalid={Boolean(itemError)}
+                checked={selectedIndex >= 0}
+                className="size-4 accent-brand-lagoon-600"
+                type="checkbox"
+                onChange={(event) =>
+                  onChange(
+                    event.target.checked
+                      ? [...value, option.value]
+                      : value.filter((selected) => selected !== option.value),
+                  )
+                }
+              />
+              {option.label}
+              {itemError ? (
+                <span
+                  className="col-start-2 text-xs font-bold text-red-700"
+                  id={itemErrorId}
+                  role="alert"
+                >
+                  {itemError}
+                </span>
+              ) : null}
+            </label>
+          );
+        })}
+      </div>
+      <FieldError id={errorId} message={error} />
+    </fieldset>
+  );
+}
+
+function MultiValueField({
+  error,
+  itemErrors = {},
+  label,
+  maxItems,
+  maxLength,
+  onChange,
+  suggestions,
+  value,
+}: {
+  error?: string;
+  itemErrors?: Readonly<Record<number, string>>;
+  label: string;
+  maxItems: number;
+  maxLength: number;
+  onChange: (value: string[]) => void;
+  suggestions: readonly string[];
+  value: string[];
+}) {
+  const inputId = `${fieldId(label)}-entry`;
+  const errorId = fieldErrorId(label);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [entry, setEntry] = useState("");
+  const [localError, setLocalError] = useState<string | null>(null);
+  const combinedError = localError ?? error;
+  const itemErrorIds = Object.keys(itemErrors).map((index) => `${errorId}-item-${index}`);
+  const describedBy = [combinedError ? errorId : null, ...itemErrorIds].filter(Boolean).join(" ");
+  const tokens = value.map((item, index) => {
+    const normalized = item.normalize("NFKC").toLocaleLowerCase();
+    return {
+      item,
+      index,
+      key: `${normalized}-${
+        value
+          .slice(0, index)
+          .filter((candidate) => candidate.normalize("NFKC").toLocaleLowerCase() === normalized)
+          .length
+      }`,
+    };
+  });
+
+  function add(valueToAdd = entry) {
+    const result = addMultiValue(value, valueToAdd, maxLength, maxItems);
+    if (result.error) {
+      setLocalError(result.error);
+      return;
+    }
+    setLocalError(null);
+    setEntry("");
+    onChange(result.values);
+    inputRef.current?.focus();
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      add();
+    }
+  }
+
+  return (
+    <fieldset
+      aria-describedby={describedBy || undefined}
+      aria-invalid={Boolean(combinedError || itemErrorIds.length)}
+      className="grid min-w-0 gap-3 rounded-md border border-border-default p-4"
+    >
+      <legend className="px-1 text-sm font-extrabold text-text-default">{label}</legend>
+      <p className="m-0 text-xs font-semibold text-text-muted">
+        Add up to {maxItems} values. A comma stays part of the value you enter.
+      </p>
+      {value.length ? (
+        <ul aria-label={`Selected ${label.toLowerCase()}`} className="m-0 flex flex-wrap gap-2 p-0">
+          {tokens.map((token) => {
+            const itemError = itemErrors[token.index];
+            const itemErrorId = `${errorId}-item-${token.index}`;
+            return (
+              <li
+                aria-describedby={itemError ? itemErrorId : undefined}
+                className="grid min-h-11 max-w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 rounded-md bg-brand-lagoon-100 px-3 text-sm font-bold text-text-default"
+                key={token.key}
+              >
+                <span className="min-w-0 break-all">{token.item}</span>
+                <button
+                  aria-label={`Remove ${token.item}`}
+                  aria-describedby={itemError ? itemErrorId : undefined}
+                  className="shrink-0 rounded-sm px-1 text-brand-lagoon-800 underline outline-none focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+                  type="button"
+                  onClick={() => {
+                    onChange(value.filter((_, itemIndex) => itemIndex !== token.index));
+                    setLocalError(null);
+                    inputRef.current?.focus();
+                  }}
+                >
+                  Remove
+                </button>
+                {itemError ? (
+                  <span
+                    className="col-span-2 pb-2 text-xs font-bold text-red-700"
+                    id={itemErrorId}
+                    role="alert"
+                  >
+                    {itemError}
+                  </span>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      <div className="flex min-w-0 flex-wrap gap-2">
+        <Input
+          aria-label={`Add ${label.toLowerCase().slice(0, -1)}`}
+          aria-describedby={combinedError ? errorId : undefined}
+          aria-invalid={Boolean(combinedError)}
+          className="h-11 min-w-0 flex-1 rounded-md border-border-default bg-white focus-visible:border-brand-lagoon-600 focus-visible:ring-brand-lagoon-500/20"
+          id={inputId}
+          maxLength={maxLength}
+          placeholder={`Add ${label.toLowerCase().slice(0, -1)}`}
+          ref={inputRef}
+          value={entry}
+          onChange={(event) => {
+            setEntry(event.target.value);
+            setLocalError(null);
+          }}
+          onKeyDown={onKeyDown}
+        />
+        <Button className="min-h-11 shrink-0 rounded-md" type="button" onClick={() => add()}>
+          Add
+        </Button>
+      </div>
+      <div className="grid gap-2">
+        <p className="m-0 text-xs font-semibold text-text-muted">Suggestions</p>
+        <div className="flex flex-wrap gap-2">
+          {suggestions.map((suggestion) => (
+            <button
+              className="min-h-11 rounded-md border border-border-default px-3 text-sm font-bold outline-none hover:bg-brand-lagoon-100 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+              key={suggestion}
+              type="button"
+              onClick={() => add(suggestion)}
+            >
+              Add {suggestion}
+            </button>
+          ))}
+        </div>
+      </div>
+      <FieldError id={errorId} message={combinedError} />
+    </fieldset>
+  );
+}
+
 function TextField({
   error,
   label,
@@ -1206,9 +1524,10 @@ function formFromProfile(profile: UserProfileResponse): ProfileFormState {
     travelStyle: profile.profile.travelStyle ?? "",
     budgetLevel: profile.profile.budgetLevel ?? "",
     dietaryNotes: profile.profile.dietaryNotes ?? "",
+    foodNeeds: profile.profile.foodNeeds,
     accessibilityNotes: profile.profile.accessibilityNotes ?? "",
-    interests: profile.profile.interests.join(", "),
-    preferredAreas: profile.profile.preferredAreas.join(", "),
+    interests: profile.profile.interests,
+    preferredAreas: profile.profile.preferredAreas,
     surfAbility: profile.profile.surfAbility ?? "",
     quietSleepPreference: profile.profile.quietSleepPreference,
     weatherPreference: profile.profile.weatherPreference ?? "",
@@ -1246,38 +1565,58 @@ function profileLoadStatus({
   return isLoading ? "loading" : "error";
 }
 
-function profilePatchFromForm(form: ProfileFormState) {
+function profilePatchFromForm(form: ProfileFormState, profile: UserProfileResponse | null) {
+  const stored = profile ? formFromProfile(profile) : emptyForm;
+  const tripContext = {
+    ...textPatch("notes", form.tripNotes, stored.tripNotes),
+    ...textPatch("accommodation", form.accommodation, stored.accommodation),
+    ...textPatch("dateRange", form.dateRange, stored.dateRange),
+    ...changedOptionPatch("currentArea", form.currentArea, stored.currentArea, currentAreaOptions),
+    ...changedOptionPatch(
+      "travelerType",
+      form.travelerType,
+      stored.travelerType,
+      travelerTypeOptions,
+    ),
+    ...changedOptionPatch(
+      "transportMode",
+      form.transportMode,
+      stored.transportMode,
+      transportModeOptions,
+    ),
+    ...(form.rideTimeLimitMinutes === stored.rideTimeLimitMinutes
+      ? {}
+      : { rideTimeLimitMinutes: nullableInteger(form.rideTimeLimitMinutes) }),
+    ...arrayPatch("durableConstraints", form.durableConstraints, stored.durableConstraints),
+  };
+
   return {
-    displayName: nullableText(form.displayName),
-    homeCountry: nullableText(form.homeCountry),
-    travelStyle: nullableText(form.travelStyle),
-    budgetLevel: nullableText(form.budgetLevel),
-    dietaryNotes: nullableText(form.dietaryNotes),
-    accessibilityNotes: nullableText(form.accessibilityNotes),
-    surfAbility: nullableText(form.surfAbility),
-    ...(form.quietSleepPreference === null
+    ...textPatch("displayName", form.displayName, stored.displayName),
+    ...textPatch("homeCountry", form.homeCountry, stored.homeCountry),
+    ...textPatch("travelStyle", form.travelStyle, stored.travelStyle),
+    ...changedOptionPatch("budgetLevel", form.budgetLevel, stored.budgetLevel, budgetLevelOptions),
+    ...textPatch("dietaryNotes", form.dietaryNotes, stored.dietaryNotes),
+    ...arrayPatch("foodNeeds", form.foodNeeds, stored.foodNeeds),
+    ...textPatch("accessibilityNotes", form.accessibilityNotes, stored.accessibilityNotes),
+    ...changedOptionPatch("surfAbility", form.surfAbility, stored.surfAbility, surfAbilityOptions),
+    ...(form.quietSleepPreference === stored.quietSleepPreference
       ? {}
       : { quietSleepPreference: form.quietSleepPreference }),
-    weatherPreference: form.weatherPreference || null,
-    interests: commaList(form.interests),
-    preferredAreas: commaList(form.preferredAreas),
-    tripContext: {
-      notes: nullableText(form.tripNotes),
-      accommodation: nullableText(form.accommodation),
-      dateRange: nullableText(form.dateRange),
-      currentArea: form.currentArea || null,
-      travelerType: nullableText(form.travelerType),
-      transportMode: form.transportMode || null,
-      rideTimeLimitMinutes: nullableInteger(form.rideTimeLimitMinutes),
-      durableConstraints: form.durableConstraints,
-    },
-    marketingConsent: form.marketingConsent,
+    ...(form.weatherPreference === stored.weatherPreference
+      ? {}
+      : { weatherPreference: form.weatherPreference || null }),
+    ...arrayPatch("interests", form.interests, stored.interests),
+    ...arrayPatch("preferredAreas", form.preferredAreas, stored.preferredAreas),
+    ...(Object.keys(tripContext).length ? { tripContext } : {}),
+    ...(form.marketingConsent === stored.marketingConsent
+      ? {}
+      : { marketingConsent: form.marketingConsent }),
   };
 }
 
 function nullableInteger(value: string) {
   const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 360 ? parsed : null;
 }
 
 function toggleConstraint(
@@ -1296,11 +1635,40 @@ function nullableText(value: string) {
   return trimmed ? trimmed : null;
 }
 
-function commaList(value: string) {
-  return value.split(",").flatMap((item) => {
-    const trimmed = item.trim();
-    return trimmed ? [trimmed] : [];
-  });
+function textPatch(key: string, value: string, storedValue: string) {
+  return value === storedValue ? {} : { [key]: nullableText(value) };
+}
+
+function changedOptionPatch<Value extends string>(
+  key: string,
+  value: string,
+  storedValue: string,
+  options: readonly { value: Value }[],
+) {
+  return value === storedValue ? {} : optionPatch(key, value, options);
+}
+
+function optionPatch<Value extends string>(
+  key: string,
+  value: string,
+  options: readonly { value: Value }[],
+) {
+  if (!value) {
+    return { [key]: null };
+  }
+  return isOptionValue(value, options) ? { [key]: value } : {};
+}
+
+function arrayPatch(key: string, value: string[], storedValue: readonly string[] | undefined) {
+  return arraysMatchExactly(value, storedValue) ? {} : { [key]: value };
+}
+
+function arraysMatchExactly(value: readonly string[], storedValue: readonly string[] | undefined) {
+  return (
+    storedValue !== undefined &&
+    value.length === storedValue.length &&
+    value.every((item, index) => item === storedValue[index])
+  );
 }
 
 function fieldId(label: string) {
@@ -1314,11 +1682,31 @@ function fieldErrorId(label: string) {
 function profileFieldErrors(issues: ProfileErrorResponse["issues"]): ProfileFieldErrors {
   const errors: ProfileFieldErrors = {};
   for (const issue of issues ?? []) {
-    if (issue.path && issue.message && !errors[issue.path]) {
-      errors[issue.path] = issue.message;
+    const path = profileFieldErrorPath(issue.path);
+    if (path && issue.message) {
+      errors[path] = errors[path] ? `${errors[path]} ${issue.message}` : issue.message;
     }
   }
   return errors;
+}
+
+function profileFieldErrorPath(path: string | undefined) {
+  return path;
+}
+
+function indexedFieldErrors(errors: ProfileFieldErrors, field: string) {
+  const indexedErrors: Record<number, string> = {};
+  const prefix = `${field}.`;
+  for (const [path, message] of Object.entries(errors)) {
+    if (!path.startsWith(prefix)) {
+      continue;
+    }
+    const index = Number(path.slice(prefix.length));
+    if (Number.isSafeInteger(index) && index >= 0) {
+      indexedErrors[index] = message;
+    }
+  }
+  return indexedErrors;
 }
 
 function sectionFromHash(hash: string): TripBriefSection | null {

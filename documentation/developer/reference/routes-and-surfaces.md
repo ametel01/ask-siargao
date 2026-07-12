@@ -7,7 +7,7 @@
 | `/` | Ask Siargao chat-first landing page | Public |
 | `/chat` | Ask Siargao assistant workspace with anonymous chat and signed-in chat history | Public |
 | `/trips/shared/[token]` | Public shared saved-trip plan with selected cards/itineraries only | `noindex, nofollow` metadata |
-| `/settings` | Signed-in traveler trip brief for current-trip details, durable preferences, account, privacy, and pass sections; it also includes private chat and saved-planning summaries | Private authenticated surface |
+| `/settings` | Signed-in traveler trip brief with structured current-trip and durable-preference controls, including removable interests/areas and bounded travel, food, surf, quiet-sleep, and weather choices; it also includes private chat and saved-planning summaries | Private authenticated surface |
 | `/profile` | Compatibility alias that renders the signed-in traveler trip brief | Private authenticated surface |
 | `/audits/[auditRequestId]/status` | Post-checkout processing/status page | Private audit surface |
 | `/audits/[auditRequestId]/report?token=...` | Signed-token paid report delivery for published, paid, reviewer-approved audits | `x-robots-tag: noindex, nofollow` |
@@ -27,7 +27,7 @@
 | Route | Method | Purpose | Protection |
 | --- | --- | --- | --- |
 | `/api/clerk/webhooks` | `POST` | Verify Clerk webhook signatures and sync local user identity cache rows for user create, update, and delete events | Public at the Clerk proxy layer; Clerk webhook signature required |
-| `/api/me/profile` | `GET`, `PATCH` | Return Clerk-derived identity fields and read or update Ask Siargao-specific profile details | Clerk-authenticated user only |
+| `/api/me/profile` | `GET`, `PATCH` | Return Clerk-derived identity fields and read or partially update owner-scoped profile details; structured preference writes use stable bounded values and preserve legacy values until deliberately changed | Clerk-authenticated user only |
 
 ## Chat APIs
 

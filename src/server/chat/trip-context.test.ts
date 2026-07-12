@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
+import { currentAreaValues } from "@/features/settings/profile-options";
 import {
   deriveTripContext,
+  forecastLocationLabels,
   interpretChatRequestIntent,
   normalizeOptionalTripContextDraft,
   normalizeTripContextClientContext,
   normalizeTripContextDraft,
+  parseUserProfileTripContextPatch,
   summarizeClientContextForMetadata,
   summarizeTripContextForAgent,
   summarizeTripContextForLogs,
@@ -14,6 +17,36 @@ import {
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 
 describe("Trip Context module", () => {
+  test("shares the settings current-area registry with forecast controls", () => {
+    expect(forecastLocationLabels).toBe(currentAreaValues);
+  });
+
+  test("accepts only bounded structured trip controls and normalizes recognized aliases", () => {
+    expect(
+      parseUserProfileTripContextPatch({
+        travelerType: "Family with kids",
+        transportMode: "scooter",
+        rideTimeLimitMinutes: 1,
+      }),
+    ).toEqual({
+      success: true,
+      data: {
+        travelerType: "family_with_kids",
+        transportMode: "scooter",
+        rideTimeLimitMinutes: 1,
+      },
+    });
+
+    expect(parseUserProfileTripContextPatch({ rideTimeLimitMinutes: null })).toEqual({
+      success: true,
+      data: { rideTimeLimitMinutes: null },
+    });
+    for (const rideTimeLimitMinutes of [0, -1, 1.5, 361]) {
+      const parsed = parseUserProfileTripContextPatch({ rideTimeLimitMinutes });
+      expect(parsed.success).toBe(false);
+    }
+  });
+
   test("does not backfill former demo values for missing, malformed, or cleared draft fields", () => {
     const emptyDraft = normalizeTripContextDraft();
     const malformedDraft = normalizeTripContextDraft({
@@ -93,10 +126,28 @@ describe("Trip Context module", () => {
       },
     });
 
-    expect(context.surfAbility).toBe("Intermediate");
+    expect(context.surfAbility).toBe("intermediate");
     expect(context.prefersQuietSleep).toBe(true);
     expect(context.durableConstraints).toContain("quiet_sleep");
     expect(context.durableConstraints).toContain("rain_avoidance");
+  });
+
+  test("does not leak structured food needs into agent or log context", () => {
+    const intent = interpretChatRequestIntent({
+      messages: [{ role: "user", content: "Help me choose dinner." }],
+      profileContext: {
+        foodNeeds: ["vegan", "gluten_free"],
+        dietaryNotes: "Private allergy details must stay out of trip context.",
+      },
+    });
+    const summaries = JSON.stringify({
+      agent: summarizeTripContextForAgent(intent),
+      logs: summarizeTripContextForLogs(intent),
+    });
+
+    expect(summaries).not.toContain("vegan");
+    expect(summaries).not.toContain("gluten_free");
+    expect(summaries).not.toContain("Private allergy");
   });
 
   test("keeps owner profile context authoritative over an adversarial client draft", () => {
