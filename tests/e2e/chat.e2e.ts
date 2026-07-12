@@ -512,6 +512,154 @@ test("shows the trip context rail at normal desktop browser width", async ({ pag
   await expect.poll(() => rightRailFitsViewport(page)).toBe(true);
 });
 
+test("renders the field desk workspace across desktop visual fixtures", async ({
+  page,
+}, testInfo) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(
+    ({ key, value }) => {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: tripContextStorageKey,
+      value: {
+        accommodation: "Pilar field stay",
+        dateRange: "Aug 1 - 6",
+        travelerType: "Two friends",
+        nearbyArea: "Cloud 9",
+      },
+    },
+  );
+  await mockFieldDeskExternalState(page);
+  const mockChat = await mockChatApi(page, {
+    message: [
+      "Mocked field desk answer: keep the day compact and weather-aware.",
+      "",
+      "1. Start at Shaka Siargao while the Cloud 9 area is easy to reach.",
+      "2. Keep the boardwalk stop short if the rain builds.",
+      "3. Move indoors before the afternoon shower window.",
+      ...Array.from(
+        { length: 22 },
+        (_, index) =>
+          `${index + 4}. Preserve this long-response checkpoint inside the conversation scroll area.`,
+      ),
+      "",
+      "Final checkpoint: ask one more local question before committing to a long ride.",
+    ].join("\n"),
+    sources: [mockPlacesSource, mockWeatherSource],
+    cards: [
+      {
+        id: "place_shaka_field_desk",
+        kind: "place",
+        title: "Shaka Siargao",
+        subtitle: "Cafe - Cloud 9, General Luna",
+        mapsUrl: "https://maps.google.com/?cid=shaka-field-desk",
+        distanceLabel: "About 50 m from search center.",
+        openStatusLabel: "Open now according to Google Places.",
+        fitReasons: ["Keeps the first stop close to the weather-aware plan."],
+        caveats: ["Table availability was not checked."],
+        sourceLabel: "Google Places - live checked",
+        decision: {
+          label: "best_fit",
+          bestAction: "Start here before the weather window narrows.",
+        },
+        sources: [mockPlacesSource],
+      },
+    ],
+    decisionSummaries: [
+      {
+        id: "field_desk_decision",
+        bestAction: "Start close to Cloud 9, then keep the covered fallback ready.",
+        basis: "Weather evidence is checked, while surf safety still needs local confirmation.",
+        fallback: "Use the covered cafe stop if rain arrives early.",
+        avoid: "Avoid a long northbound ride before the forecast is refreshed.",
+        timing: "today",
+        area: "Cloud 9",
+        sources: [mockWeatherSource],
+      },
+    ],
+    itineraries: [mockRainyCloud9Itinerary()],
+  });
+
+  await page.setViewportSize({ width: 1180, height: 900 });
+  await page.goto("/chat");
+
+  const workspace = page.getByRole("main", { name: "Ask Siargao chat workspace" });
+  await expect(workspace).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Ask a real question/i })).toBeVisible();
+  await expect(page.getByTestId("context-rail")).toContainText("Pilar field stay");
+  await expect
+    .poll(() => fieldDeskGeometry(page))
+    .toMatchObject({
+      conversationDominates: true,
+      documentFitsViewport: true,
+      oneScrollSurface: true,
+      railsFitViewport: true,
+    });
+  await page.screenshot({
+    path: testInfo.outputPath("field-desk-empty-desktop-1180.png"),
+    fullPage: true,
+  });
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.focus();
+  await expect(composerInput).toBeFocused();
+  await composerInput.fill("Build a rainy Cloud 9 field plan");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByText("Mocked field desk answer:")).toBeVisible();
+  await expect(page.getByTestId("decision-strip")).toContainText("Best move");
+  await page.getByRole("button", { name: "Save Shaka Siargao" }).click();
+  await page.getByRole("button", { name: "Save Rainy Cloud 9 Afternoon" }).click();
+  await expect(page.getByTestId("saved-plan-tray")).toContainText("2 items saved locally");
+  await expect.poll(() => mockChat.requests.length).toBe(1);
+
+  for (const viewport of [
+    { label: "1180", width: 1180, height: 900 },
+    { label: "1440", width: 1440, height: 1000 },
+    { label: "wide-1920", width: 1920, height: 1080 },
+  ] as const) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await expect
+      .poll(() => fieldDeskGeometry(page))
+      .toMatchObject({
+        conversationDominates: true,
+        documentFitsViewport: true,
+        longResponseUsesMessageScroll: true,
+        oneScrollSurface: true,
+        railsFitViewport: true,
+      });
+    await expect.poll(() => composerFitsViewport(page)).toBe(true);
+    await expect(page.getByTestId("saved-plan-tray")).toBeVisible();
+    await expect(page.getByTestId("assistant-sources-panel")).toContainText(
+      "Google Places, Weather forecast checked",
+    );
+    await expect(workspace).not.toContainText(/\btelemetry|dashboard|KPI\b/i);
+    await page.screenshot({
+      path: testInfo.outputPath(`field-desk-active-saved-long-${viewport.label}.png`),
+      fullPage: true,
+    });
+  }
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = "2";
+  });
+  await expect(page.getByRole("button", { name: "Send question" })).toBeVisible();
+  await expect(page.getByLabel("Ask anything about Siargao")).toBeVisible();
+  await expect.poll(() => composerFitsViewport(page)).toBe(true);
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = "";
+  });
+  await expect
+    .poll(() => fieldDeskGeometry(page))
+    .toMatchObject({
+      conversationDominates: true,
+      documentFitsViewport: true,
+      oneScrollSurface: true,
+    });
+});
+
 const mobileTripContextStateCases = [
   {
     state: "empty",
@@ -4913,6 +5061,124 @@ async function conditionDecisionText(container: Locator, idPrefix = "") {
       state: await container.getByTestId("surf-condition-state").textContent(),
     },
   };
+}
+
+async function mockFieldDeskExternalState(page: Page) {
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
+  await page.route("**/api/public/weather/siargao**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        requestedLocation: "Cloud 9",
+        weather: {
+          status: "live",
+          locationName: "Cloud 9",
+          fetchedAt: "2026-07-10T01:00:00.000Z",
+          freshness: "fresh",
+          today: {
+            condition: "Passing showers",
+            precipitationProbability: 44,
+            rainSum: 4,
+            precipitationSum: 4,
+            windGust: 30,
+          },
+        },
+      }),
+    });
+  });
+  await page.route("**/api/public/surf/siargao**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        requestedLocation: "Cloud 9",
+        surf: {
+          status: "live",
+          locationName: "Cloud 9",
+          fetchedAt: "2026-07-10T01:00:00.000Z",
+          level: "medium",
+          metrics: {
+            waves: "0.8m swell / 10s",
+            tide: "High 4:55 AM 1.7m",
+            wind: "gust 30km/h",
+          },
+          weather: {
+            status: "live",
+            freshness: "fresh",
+            condition: "Passing showers",
+            precipitationProbability: 44,
+            rainSum: 4,
+            windGust: 30,
+          },
+          tide: {
+            status: "live",
+            stationName: "Dapa tide station",
+            bestWindow: "5:00 AM-8:00 AM: near high tide",
+          },
+          caveats: [],
+        },
+      }),
+    });
+  });
+}
+
+async function fieldDeskGeometry(page: Page) {
+  return page.evaluate(() => {
+    const leftRail = document.querySelector<HTMLElement>("aside");
+    const conversation = document.querySelector<HTMLElement>("[data-testid='conversation-region']");
+    const rightRail = document.querySelector<HTMLElement>("[data-testid='context-rail']");
+    const scrollArea = document.querySelector<HTMLElement>(
+      "[data-testid='chat-message-scroll-area']",
+    );
+    if (!leftRail || !conversation || !rightRail || !scrollArea) {
+      return {
+        conversationDominates: false,
+        documentFitsViewport: false,
+        longResponseUsesMessageScroll: false,
+        oneScrollSurface: false,
+        railsFitViewport: false,
+      };
+    }
+
+    const workspace = document.querySelector("[aria-label='Ask Siargao chat workspace']");
+    const scrollSurfaces = workspace
+      ? Array.from(workspace.querySelectorAll<HTMLElement>("*")).filter((element) => {
+          const style = getComputedStyle(element);
+          return (
+            style.overflowX === "auto" ||
+            style.overflowX === "scroll" ||
+            style.overflowY === "auto" ||
+            style.overflowY === "scroll"
+          );
+        })
+      : [];
+    const leftRect = leftRail.getBoundingClientRect();
+    const conversationRect = conversation.getBoundingClientRect();
+    const rightRect = rightRail.getBoundingClientRect();
+
+    return {
+      conversationDominates:
+        conversationRect.width > leftRect.width && conversationRect.width > rightRect.width,
+      documentFitsViewport:
+        document.documentElement.scrollWidth <= window.innerWidth + 1 &&
+        document.documentElement.scrollHeight <= window.innerHeight + 1,
+      longResponseUsesMessageScroll: scrollArea.scrollHeight > scrollArea.clientHeight,
+      oneScrollSurface:
+        scrollSurfaces.length === 1 &&
+        scrollSurfaces[0]?.getAttribute("data-testid") === "chat-message-scroll-area",
+      railsFitViewport:
+        leftRect.top >= 0 &&
+        leftRect.bottom <= window.innerHeight + 1 &&
+        rightRect.top >= 0 &&
+        rightRect.bottom <= window.innerHeight + 1 &&
+        rightRail.scrollHeight <= rightRect.height + 1,
+    };
+  });
 }
 
 async function chatWorkspaceScrollSurfaces(page: Page) {

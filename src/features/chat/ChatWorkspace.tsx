@@ -1736,9 +1736,9 @@ function ChatWorkspaceView({
   return (
     <main
       aria-label="Ask Siargao chat workspace"
-      className="fixed inset-0 h-dvh overflow-hidden bg-brand-lavender-50 text-text-strong"
+      className="fixed inset-0 isolate h-dvh overflow-hidden bg-brand-paper-100 text-text-strong before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:-z-10 before:w-[42vw] before:bg-[radial-gradient(circle_at_18%_16%,rgba(20,184,166,0.18),transparent_34%),linear-gradient(150deg,rgba(6,47,53,0.18),transparent_58%)] after:pointer-events-none after:absolute after:right-0 after:bottom-0 after:-z-10 after:h-44 after:w-[48vw] after:bg-[radial-gradient(circle_at_bottom_right,rgba(255,155,131,0.16),transparent_58%)]"
     >
-      <section className="grid h-full min-h-0 w-full grid-cols-1 min-[1180px]:grid-cols-[15rem_minmax(0,1fr)_18rem] xl:grid-cols-[17rem_minmax(0,1fr)_20rem] 2xl:grid-cols-[19.5rem_minmax(0,1fr)_22.5rem]">
+      <section className="grid h-full min-h-0 w-full grid-cols-1 min-[1180px]:grid-cols-[12.25rem_minmax(0,1fr)_21rem] xl:grid-cols-[14rem_minmax(0,1fr)_22rem] 2xl:grid-cols-[16rem_minmax(0,1fr)_23.5rem]">
         <ChatTravelRail
           historyStatus={historyStatus}
           onOpenThread={(threadId) => {
@@ -1753,7 +1753,14 @@ function ChatWorkspaceView({
           tripDataSource={tripDataSource}
         />
 
-        <section className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] border-border-default border-x bg-surface-default">
+        <section
+          className="relative grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-border-strong border-x bg-brand-paper-50 shadow-[0_0_0_1px_rgba(255,255,255,0.45),0_24px_80px_rgba(6,47,53,0.12)]"
+          data-testid="conversation-region"
+        >
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,var(--brand-lagoon-500),var(--brand-sunset-gold),var(--brand-sunset-coral))]"
+          />
           <ChatTopBar
             archiveSelectedThread={archiveSelectedThread}
             canSharePlan={savedPlanSharing.selectedShareItems.length > 0}
@@ -1783,7 +1790,7 @@ function ChatWorkspaceView({
 
           <section
             aria-label="Chat message scroll area"
-            className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 lg:px-8"
+            className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain bg-[linear-gradient(180deg,rgba(255,253,247,0.96),rgba(251,246,232,0.9))] px-4 py-4 sm:px-6 lg:px-8"
             data-testid="chat-message-scroll-area"
             ref={chatScrollAreaRef}
           >
@@ -1888,7 +1895,6 @@ function ChatWorkspaceView({
 
         <ChatContextRail
           liveConditions={liveConditions}
-          locationState={locationState}
           tripContext={tripContext}
           tripDataSource={tripDataSource}
           onUpdateTripContext={updateTripContext}
@@ -1923,14 +1929,14 @@ function ChatTravelRail({
   const hasContext = hasTripContext(tripContext);
 
   return (
-    <aside className="hidden min-h-0 bg-brand-navy-980 px-5 py-6 text-text-on-dark min-[1180px]:grid min-[1180px]:grid-rows-[auto_auto_minmax(0,1fr)_auto] min-[1180px]:gap-6">
+    <aside className="hidden min-h-0 bg-[linear-gradient(180deg,var(--brand-reef-900),var(--brand-navy-980)_72%)] px-4 py-5 text-text-on-dark min-[1180px]:grid min-[1180px]:grid-rows-[auto_auto_minmax(0,1fr)_auto] min-[1180px]:gap-5 xl:px-5">
       <Link aria-label="Ask Siargao home" className="min-w-0 no-underline" href="/">
         <BrandLockup className="[&_span:last-child]:text-[1.55rem]" />
       </Link>
 
       <Button
         asChild
-        className="h-14 w-full justify-between rounded-lg bg-brand-violet-600 px-5 text-base font-black text-white shadow-violet-glow hover:bg-brand-violet-550"
+        className="h-[3.25rem] w-full justify-between rounded-md bg-[image:var(--gradient-lagoon-cta)] px-4 text-sm font-black text-white shadow-none hover:bg-brand-lagoon-600 xl:text-base"
       >
         <Link aria-label="Start a new chat" href="/chat" onClick={onStartNewChat}>
           <span className="inline-flex items-center gap-2">
@@ -1942,11 +1948,11 @@ function ChatTravelRail({
       </Button>
 
       <div className="grid min-h-0 content-start gap-5 overflow-hidden">
-        <section className="grid gap-3">
+        <section className="grid gap-3 border-white/10 border-t pt-4">
           <p className="m-0 text-xs font-black tracking-[0.08em] text-text-on-dark-muted uppercase">
             Current trip
           </p>
-          <div className="grid gap-1 rounded-lg border border-white/16 bg-white/8 p-4">
+          <div className="grid gap-1 border-brand-lagoon-300/45 border-l-2 py-1 pl-3">
             <h2 className="m-0 min-w-0 text-sm font-black text-white">
               {tripDataSource === "loading"
                 ? "Loading your trip"
@@ -1968,7 +1974,7 @@ function ChatTravelRail({
           </div>
         </section>
 
-        <section className="grid gap-3">
+        <section className="grid gap-3 border-white/10 border-t pt-4">
           <p className="m-0 text-xs font-black tracking-[0.08em] text-text-on-dark-muted uppercase">
             Saved planning
           </p>
@@ -1998,7 +2004,7 @@ function ChatTravelRail({
           </Link>
         </section>
 
-        <section className="grid gap-3 border-white/12 border-t pt-5">
+        <section className="grid gap-3 border-white/10 border-t pt-4">
           <h2 className="m-0 text-xs font-black tracking-[0.08em] text-text-on-dark-muted uppercase">
             Recent questions
           </h2>
@@ -2014,10 +2020,10 @@ function ChatTravelRail({
                 threads.slice(0, 4).map((thread) => (
                   <button
                     className={cn(
-                      "grid min-w-0 gap-1 rounded-md border border-transparent p-0 text-left",
-                      "text-sm transition-[color,opacity] duration-[var(--duration-fast)] ease-[var(--ease-standard)]",
+                      "grid min-w-0 gap-1 rounded-md border border-transparent py-1 text-left",
+                      "text-sm transition-[background-color,color,opacity] duration-[var(--duration-fast)] ease-[var(--ease-standard)]",
                       thread.id === selectedThreadId
-                        ? "text-brand-lagoon-300"
+                        ? "bg-white/8 px-2 text-brand-lagoon-300"
                         : "text-white hover:text-brand-lagoon-300",
                     )}
                     key={thread.id}
@@ -2041,12 +2047,14 @@ function ChatTravelRail({
       </div>
 
       <Link
-        className="grid min-h-28 content-between overflow-hidden rounded-lg border border-brand-violet-400/25 bg-[image:var(--gradient-sunset-backdrop)] bg-cover bg-center p-4 text-white no-underline"
+        className="grid min-h-24 content-between overflow-hidden rounded-md border border-white/12 bg-white/8 p-4 text-white no-underline transition-colors hover:border-brand-lagoon-300/45 hover:bg-white/12"
         href="/settings"
       >
         <span className="grid gap-1">
-          <span className="text-base font-black">Love Ask Siargao?</span>
-          <span className="text-xs font-bold text-white/85">Invite friends and unlock extras.</span>
+          <span className="text-base font-black">Field desk settings</span>
+          <span className="text-xs font-bold text-white/85">
+            Saved plans, privacy, and account controls.
+          </span>
         </span>
         <ExternalLink aria-hidden="true" size={18} />
       </Link>
@@ -2093,13 +2101,17 @@ function ChatTopBar({
   };
 
   return (
-    <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-3 border-border-default border-b bg-surface-glass px-4 py-3 sm:px-6 lg:px-8">
+    <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-3 border-border-default/80 border-b bg-brand-paper-50/95 px-4 py-3 backdrop-blur-md sm:px-6 lg:px-8">
       <div className="grid min-w-0 gap-1">
         <h1 className="m-0 min-w-0 truncate text-xl font-black text-text-strong sm:text-2xl">
           Ask Siargao
         </h1>
         <p className="m-0 inline-flex min-w-0 items-center gap-2 text-sm font-extrabold text-text-muted">
-          <span className="size-2 shrink-0 rounded-full bg-brand-lagoon-500" />
+          <WavesHorizontal
+            aria-hidden="true"
+            className="shrink-0 text-brand-lagoon-700"
+            size={16}
+          />
           Local travel assistant
         </p>
       </div>
@@ -3001,13 +3013,11 @@ function ChatSettingsLink() {
 
 function ChatContextRail({
   liveConditions,
-  locationState,
   onUpdateTripContext,
   tripContext,
   tripDataSource,
 }: {
   liveConditions: LiveConditionsController;
-  locationState: LocationSharingState;
   onUpdateTripContext: (context: TripContextDraft) => Promise<void>;
   tripContext: TripContextDraft;
   tripDataSource: TripDataSource;
@@ -3020,7 +3030,6 @@ function ChatContextRail({
     liveConditions;
   const tripContextItems = tripContextFacts({
     activeForecastLocation,
-    locationState,
     tripContext,
   });
 
@@ -3048,7 +3057,7 @@ function ChatContextRail({
   return (
     <aside
       aria-label="Trip context and live conditions"
-      className="hidden min-h-0 content-start gap-3 overflow-hidden border-border-default border-l bg-surface-default p-3 min-[1180px]:grid"
+      className="hidden min-h-0 content-start gap-1 overflow-hidden border-border-default/80 border-l bg-brand-paper-100/88 p-1.5 min-[1180px]:grid"
       data-testid="context-rail"
     >
       <ContextCard
@@ -3056,7 +3065,7 @@ function ChatContextRail({
           isEditing ? (
             <div className="flex items-center gap-2">
               <Button
-                className="h-8 rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-muted hover:bg-brand-lavender-50"
+                className="h-7 rounded-md border-border-default bg-white px-2.5 text-xs font-extrabold text-text-muted hover:bg-brand-lavender-50"
                 onClick={() => {
                   setDraft(tripContext);
                   setIsEditing(false);
@@ -3070,7 +3079,7 @@ function ChatContextRail({
                 Cancel
               </Button>
               <Button
-                className="h-8 rounded-md bg-brand-violet-650 px-3 text-xs font-extrabold text-white hover:bg-brand-violet-600"
+                className="h-7 rounded-md bg-brand-violet-650 px-2.5 text-xs font-extrabold text-white hover:bg-brand-violet-600"
                 disabled={saveState === "saving"}
                 onClick={() => {
                   void saveDraft();
@@ -3083,7 +3092,7 @@ function ChatContextRail({
             </div>
           ) : (
             <Button
-              className="h-8 rounded-md border-brand-violet-400/25 bg-brand-lavender-50 px-3 text-xs font-extrabold text-brand-violet-650 hover:bg-brand-lavender-100"
+              className="h-7 rounded-md border-brand-lagoon-700/20 bg-brand-lagoon-100 px-2.5 text-xs font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
               onClick={() => {
                 setDraft(tripContext);
                 setIsEditing(true);
@@ -3148,7 +3157,7 @@ function ChatContextRail({
         action={
           <Button
             aria-label="Refresh weather"
-            className="size-8 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+            className="size-7 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
             onClick={() => {
               refreshWeather();
             }}
@@ -3161,12 +3170,12 @@ function ChatContextRail({
         }
         title={`${activeForecastLocation} Weather`}
       >
-        <div className="grid gap-3">
+        <div className="grid gap-1">
           <div className="flex items-center gap-3">
-            <CloudSun aria-hidden="true" className="text-brand-violet-650" size={30} />
+            <CloudSun aria-hidden="true" className="text-brand-lagoon-700" size={30} />
             <div className="min-w-0">
               <p
-                className="m-0 text-xl font-black leading-tight text-text-strong"
+                className="m-0 text-base font-black leading-tight text-text-strong"
                 data-testid="weather-condition-action"
               >
                 {weatherDecision.action}
@@ -3187,7 +3196,7 @@ function ChatContextRail({
         action={
           <Button
             aria-label="Refresh surf conditions"
-            className="size-8 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+            className="size-7 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
             onClick={() => {
               refreshSurf();
             }}
@@ -3200,15 +3209,15 @@ function ChatContextRail({
         }
         title="Live surf conditions"
       >
-        <div className="grid gap-3">
+        <div className="grid gap-1">
           <div className="flex items-center justify-between gap-3">
             <p className="m-0 inline-flex min-w-0 items-center gap-2 text-base font-black text-text-strong">
-              <WavesHorizontal aria-hidden="true" className="text-brand-violet-650" size={18} />
+              <WavesHorizontal aria-hidden="true" className="text-brand-lagoon-700" size={18} />
               {activeForecastLocation}
             </p>
           </div>
           <p
-            className="m-0 text-base font-black leading-tight text-text-strong"
+            className="m-0 text-sm font-black leading-tight text-text-strong"
             data-testid="surf-condition-action"
           >
             {surfDecision.action}
@@ -3233,9 +3242,9 @@ function ContextCard({
   title: string;
 }) {
   return (
-    <section className="grid gap-3 rounded-lg border border-border-default bg-white p-3 shadow-card">
+    <section className="grid gap-1 rounded-md border border-border-default/80 bg-white/78 p-1.5 shadow-none">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="m-0 min-w-0 text-base font-black leading-tight text-text-strong">{title}</h2>
+        <h2 className="m-0 min-w-0 text-sm font-black leading-tight text-text-strong">{title}</h2>
         {action}
       </div>
       {children}
@@ -3253,8 +3262,8 @@ function ContextFact({
   value: string;
 }) {
   return (
-    <div className="grid min-w-0 grid-cols-[18px_minmax(0,1fr)] gap-2">
-      <Icon aria-hidden="true" className="mt-0.5 text-brand-violet-650" size={16} />
+    <div className="grid min-w-0 grid-cols-[18px_minmax(0,1fr)] gap-1.5">
+      <Icon aria-hidden="true" className="mt-0.5 text-brand-lagoon-700" size={16} />
       <div className="min-w-0">
         <p className="m-0 text-[0.68rem] font-bold leading-tight text-text-muted">{label}</p>
         <p className="m-0 min-w-0 break-words text-xs font-black leading-tight text-text-strong">
@@ -3273,7 +3282,7 @@ function TripContextEditor({
   onDraftChange: (draft: TripContextDraft) => void;
 }) {
   return (
-    <div className="grid gap-3">
+    <div className="grid gap-2">
       <TripContextField
         label="Accommodation"
         onChange={(value) => {
@@ -3343,7 +3352,7 @@ function TripContextField({
 
 function MetricTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid min-h-12 content-center gap-0.5 rounded-md bg-brand-lavender-50 px-2 py-1.5">
+    <div className="grid min-h-10 content-center gap-0.5 rounded-md bg-brand-paper-150 px-1.5 py-1">
       <p className="m-0 text-[0.68rem] font-bold leading-tight text-text-muted">{label}</p>
       <p className="m-0 text-xs font-black leading-tight text-text-strong">{value}</p>
     </div>
@@ -3352,11 +3361,9 @@ function MetricTile({ label, value }: { label: string; value: string }) {
 
 function tripContextFacts({
   activeForecastLocation,
-  locationState,
   tripContext,
 }: {
   activeForecastLocation: ForecastLocationLabel;
-  locationState: LocationSharingState;
   tripContext: TripContextDraft;
 }): Array<{ icon: ChatContextIcon; label: string; value: string }> {
   return [
@@ -3366,7 +3373,6 @@ function tripContextFacts({
       value: fact.value,
     })),
     { icon: CloudSun, label: "Forecast coverage", value: activeForecastLocation },
-    { icon: Clock, label: "Location source", value: locationSourceLabel(locationState) },
   ];
 }
 
@@ -3386,7 +3392,7 @@ function iconForTripContextLabel(label: string): ChatContextIcon {
 function ConditionDecisionDetails({ decision }: { decision: LiveConditionDecision }) {
   const presentation = projectConditionEvidencePresentation(decision);
   return (
-    <div className="grid gap-2">
+    <div className="grid gap-0.5">
       {decision.timing ? (
         <p
           className="m-0 text-xs font-black text-brand-violet-650"
@@ -3395,13 +3401,13 @@ function ConditionDecisionDetails({ decision }: { decision: LiveConditionDecisio
           Planning cue: {decision.timing}
         </p>
       ) : null}
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid grid-cols-3 gap-1">
         {decision.supportingMetrics.map((item) => (
           <MetricTile key={item.label} label={item.label} value={item.value} />
         ))}
       </div>
       <p
-        className="m-0 text-xs font-extrabold text-text-default"
+        className="m-0 text-[0.7rem] leading-snug font-extrabold text-text-default"
         data-testid={`${decision.kind}-condition-fallback`}
       >
         <span className="font-black text-text-strong">Fallback: </span>
@@ -3409,7 +3415,7 @@ function ConditionDecisionDetails({ decision }: { decision: LiveConditionDecisio
       </p>
       <p
         className={cn(
-          "m-0 inline-flex items-center gap-2 text-xs font-extrabold",
+          "m-0 inline-flex items-center gap-2 text-[0.7rem] font-extrabold",
           presentation.state === "checked" ? "text-confidence-high" : "text-text-muted",
         )}
         data-testid={`${decision.kind}-condition-state`}
@@ -3424,7 +3430,7 @@ function ConditionDecisionDetails({ decision }: { decision: LiveConditionDecisio
       </p>
       {decision.evidenceStatus ? (
         <p
-          className="m-0 text-xs font-bold text-text-muted"
+          className="m-0 text-[0.7rem] leading-snug font-bold text-text-muted"
           data-testid={`${decision.kind}-condition-evidence`}
         >
           {presentation.summary}
@@ -3439,7 +3445,7 @@ function ConditionDecisionDetails({ decision }: { decision: LiveConditionDecisio
         </p>
       ) : null}
       {decision.notChecked.length > 0 ? (
-        <ul className="m-0 grid list-disc gap-1 pl-4 text-xs leading-[1.4] font-bold text-text-muted">
+        <ul className="m-0 grid list-disc gap-0.5 pl-4 text-[0.7rem] leading-snug font-bold text-text-muted">
           {decision.notChecked.map((boundary) => (
             <li key={boundary}>{boundary}</li>
           ))}
@@ -3530,27 +3536,6 @@ function distanceKm(
 
 function degreesToRadians(value: number) {
   return (value * Math.PI) / 180;
-}
-
-function locationSourceLabel(locationState: LocationSharingState) {
-  if (locationState.status === "ready") {
-    return locationState.scope === "trip_session"
-      ? "Browser location on for this trip"
-      : "Browser location ready once";
-  }
-  if (locationState.status === "requesting") {
-    return "Requesting browser location";
-  }
-  if (locationState.status === "blocked") {
-    return "Browser location blocked";
-  }
-  if (locationState.status === "unavailable") {
-    return "Browser location unavailable";
-  }
-  if (locationState.status === "used") {
-    return "Browser location used once";
-  }
-  return "No browser location";
 }
 
 function formatThreadRecency(thread: ChatThreadSummary) {
