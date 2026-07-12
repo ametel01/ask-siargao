@@ -302,16 +302,18 @@ function sanitizeDisplaySources(sources: readonly AnswerSourceSummary[]) {
 }
 
 function isDisplayableSource(source: AnswerSourceSummary) {
-  return source.label !== "not_verified" && source.label !== "provider_unavailable";
+  return source.label !== "not_verified";
 }
 
 function sanitizeDisplayRecommendationCards(cards: readonly RecommendationCard[]) {
-  return cards.map((card) => ({
-    ...card,
-    fitReasons: sanitizeDisplayTextList(card.fitReasons ?? []),
-    caveats: sanitizeDisplayTextList(card.caveats ?? []),
-    ...(card.sources ? { sources: sanitizeDisplaySources(card.sources) } : {}),
-  }));
+  return cards
+    .filter((card) => !isBlockedPositivePlaceCard(card))
+    .map((card) => ({
+      ...card,
+      fitReasons: sanitizeDisplayTextList(card.fitReasons ?? []),
+      caveats: sanitizeDisplayTextList(card.caveats ?? []),
+      ...(card.sources ? { sources: sanitizeDisplaySources(card.sources) } : {}),
+    }));
 }
 
 function sanitizeDisplayActions(actions: readonly ChatAction[]) {
@@ -351,12 +353,14 @@ function sanitizeStorageSources(sources: readonly AnswerSourceSummary[]) {
 }
 
 function sanitizeStorageRecommendationCards(cards: readonly RecommendationCard[]) {
-  return cards.map((card) => ({
-    ...card,
-    fitReasons: sanitizeStorageTextList(card.fitReasons ?? []),
-    caveats: sanitizeStorageTextList(card.caveats ?? []),
-    ...(card.sources ? { sources: sanitizeStorageSources(card.sources) } : {}),
-  }));
+  return cards
+    .filter((card) => !isBlockedPositivePlaceCard(card))
+    .map((card) => ({
+      ...card,
+      fitReasons: sanitizeStorageTextList(card.fitReasons ?? []),
+      caveats: sanitizeStorageTextList(card.caveats ?? []),
+      ...(card.sources ? { sources: sanitizeStorageSources(card.sources) } : {}),
+    }));
 }
 
 function sanitizeStorageActions(actions: readonly ChatAction[]) {
@@ -400,6 +404,23 @@ function sanitizeStorageTextList(values: readonly string[]) {
     const trimmed = value.trim();
     return trimmed.length > 0 ? [trimmed] : [];
   });
+}
+
+function isBlockedPositivePlaceCard(card: RecommendationCard) {
+  return (
+    card.kind === "place" &&
+    card.decision?.label !== "avoid_today" &&
+    card.decision?.label !== "needs_confirmation" &&
+    (card.sources ?? []).some(isTerminalCurrentResearchGap)
+  );
+}
+
+function isTerminalCurrentResearchGap(source: AnswerSourceSummary) {
+  return (
+    source.label === "provider_unavailable" ||
+    source.label === "insufficient_web_evidence" ||
+    source.label === "no_current_event_facts"
+  );
 }
 
 function summarizeToolCallsForStoredHistory(toolCalls: readonly PublicAgentToolCall[]) {

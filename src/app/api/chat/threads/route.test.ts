@@ -369,11 +369,18 @@ describe("chat thread API routes", () => {
         checked: ["open-now result"],
         notChecked: ["review text"],
       },
+      {
+        label: "provider_unavailable",
+        sourceName: "Google Places",
+        sourceProfileId: "source_google_places",
+        confidence: "low",
+        checked: [],
+        notChecked: ["Google Places lookup"],
+      },
     ]);
     expect(body.messages[0].cards[0].fitReasons).toEqual(["Checked cafe."]);
     expect(body.messages[0].cards[0].caveats).toEqual(["Bring cash."]);
     expect(body.messages[0].cards[0].sources[0].notChecked).toEqual(["review text"]);
-    expect(serializedBody).not.toContain("provider_unavailable");
     expect(serializedBody).not.toContain("Review text");
     expect(serializedBody).not.toContain("table availability");
 
