@@ -26,6 +26,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import useSWR from "swr";
 
 import { Button } from "@/components/ui/button";
@@ -912,6 +913,23 @@ function PrivacyControlsPanel({
   const chatTriggerRef = useRef<HTMLButtonElement>(null);
   const savedTriggerRef = useRef<HTMLButtonElement>(null);
   const locationTriggerRef = useRef<HTMLButtonElement>(null);
+  const previousDialogActionRef = useRef<PrivacyDialogAction["action"] | null>(null);
+
+  useEffect(() => {
+    const closingAction = previousDialogActionRef.current;
+    if (!dialogAction && closingAction) {
+      window.setTimeout(() => {
+        if (closingAction === "delete_chat_history") {
+          chatTriggerRef.current?.focus();
+        } else if (closingAction === "delete_saved_planning_data") {
+          savedTriggerRef.current?.focus();
+        } else {
+          locationTriggerRef.current?.focus();
+        }
+      }, 0);
+    }
+    previousDialogActionRef.current = dialogAction?.action ?? null;
+  }, [dialogAction]);
 
   useEffect(() => {
     setMarketingValue(profile.profile.marketingConsent);
@@ -925,18 +943,8 @@ function PrivacyControlsPanel({
   }
 
   function closeDialog() {
-    const closingAction = dialogAction?.action;
     setDialogAction(null);
     setConfirmationValue("");
-    queueMicrotask(() => {
-      if (closingAction === "delete_chat_history") {
-        chatTriggerRef.current?.focus();
-      } else if (closingAction === "delete_saved_planning_data") {
-        savedTriggerRef.current?.focus();
-      } else if (closingAction === "clear_location_context") {
-        locationTriggerRef.current?.focus();
-      }
-    });
   }
 
   async function submitPrivacyAction(action: PrivacyDialogAction) {
@@ -1195,21 +1203,92 @@ function PrivacyConfirmationDialog({
   onChangeConfirmation: (value: string) => void;
   onConfirm: () => void;
 }) {
+  const [isMounted, setIsMounted] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    inputRef.current?.focus();
+    setIsMounted(true);
   }, []);
 
-  return (
-    <div
+  useEffect(() => {
+    if (!isMounted) {
+      return;
+    }
+    const dialog = dialogRef.current;
+    if (!dialog) {
+      return;
+    }
+    const backgroundState = Array.from(document.body.children)
+      .filter(
+        (element): element is HTMLElement => element instanceof HTMLElement && element !== dialog,
+      )
+      .map((element) => ({
+        ariaHidden: element.getAttribute("aria-hidden"),
+        element,
+        inert: element.inert,
+      }));
+    for (const { element } of backgroundState) {
+      element.inert = true;
+      element.setAttribute("aria-hidden", "true");
+    }
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+    inputRef.current?.focus();
+
+    return () => {
+      for (const { ariaHidden, element, inert } of backgroundState) {
+        element.inert = inert;
+        if (ariaHidden === null) {
+          element.removeAttribute("aria-hidden");
+        } else {
+          element.setAttribute("aria-hidden", ariaHidden);
+        }
+      }
+      if (dialog.open) {
+        dialog.close();
+      }
+    };
+  }, [isMounted]);
+
+  if (!isMounted) {
+    return null;
+  }
+
+  return createPortal(
+    <dialog
       aria-labelledby="privacy-confirmation-title"
       aria-modal="true"
-      className="fixed inset-0 z-50 grid place-items-center bg-black/50 px-4 py-6"
-      role="dialog"
+      className="fixed inset-0 z-50 m-0 grid h-full max-h-none w-full max-w-none place-items-center border-0 bg-transparent p-4 backdrop:bg-black/50"
+      ref={dialogRef}
+      onCancel={(event) => {
+        if (isPending) {
+          event.preventDefault();
+          return;
+        }
+        onCancel();
+      }}
       onKeyDown={(event) => {
-        if (event.key === "Escape" && !isPending) {
-          onCancel();
+        if (event.key !== "Tab") {
+          return;
+        }
+        const focusable = Array.from(
+          dialogRef.current?.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+          ) ?? [],
+        );
+        const first = focusable[0];
+        const last = focusable.at(-1);
+        if (!first || !last) {
+          return;
+        }
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
         }
       }}
     >
@@ -1253,7 +1332,8 @@ function PrivacyConfirmationDialog({
           </Button>
         </div>
       </div>
-    </div>
+    </dialog>,
+    document.body,
   );
 }
 

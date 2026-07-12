@@ -319,6 +319,29 @@ describe("privacy data controls route", () => {
 
     await dependencies.close();
   });
+
+  test("uses a server-generated audit correlation id instead of a client request header", async () => {
+    const dependencies = await privacyDependencies({ userId: "user_request_id_privacy" });
+    const clientControlledId =
+      "message text share-token secret 9.8116,126.1651 DELETE CHAT HISTORY";
+
+    const response = await postPrivacyActionResponse(
+      privacyRequest(
+        { action: "delete_chat_history", confirmation: "DELETE CHAT HISTORY" },
+        { "x-request-id": clientControlledId },
+      ),
+      dependencies,
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).requestId).toBe("privacy-request-id");
+    expect(dependencies.auditEvents.at(-1)?.requestId).toBe("privacy-request-id");
+    expect(JSON.stringify(dependencies.auditEvents)).not.toContain(clientControlledId);
+    expect(JSON.stringify(dependencies.auditEvents)).not.toContain("message text");
+    expect(JSON.stringify(dependencies.auditEvents)).not.toContain("9.8116");
+
+    await dependencies.close();
+  });
 });
 
 type TestPrivacyDependencies = Omit<PrivacyRouteDependencies, "db"> & {
@@ -495,10 +518,10 @@ async function lookupShareByToken(db: PGlite, token: string) {
   return result.rows[0] ?? null;
 }
 
-function privacyRequest(body: unknown) {
+function privacyRequest(body: unknown, headers: Record<string, string> = {}) {
   return new Request("https://siargao.test/api/me/privacy", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
 }

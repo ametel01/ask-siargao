@@ -936,6 +936,179 @@ test("manages privacy controls with deliberate confirmation and local cleanup af
   );
 });
 
+test("keeps privacy confirmations modal and preserves deterministic failure states", async ({
+  page,
+}) => {
+  let privacyMode: "auth" | "validation" | "network" | "pending" | "success" = "auth";
+  let releasePending = () => {};
+  const profile = {
+    identity: { email: "privacy-states@example.com", firstName: "Privacy", lastName: "States" },
+    profile: {
+      displayName: "Privacy States",
+      homeCountry: "Australia",
+      travelStyle: "Quiet planning",
+      budgetLevel: "mid_range" as const,
+      dietaryNotes: "",
+      foodNeeds: [],
+      accessibilityNotes: "",
+      surfAbility: "intermediate" as const,
+      quietSleepPreference: false,
+      weatherPreference: "flexible" as const,
+      interests: ["surf"],
+      preferredAreas: ["Cloud 9"],
+      tripContext: { dateRange: "Aug 1 - 6" },
+      marketingConsent: false,
+      createdAt: "2026-06-29T04:00:00.000Z",
+      updatedAt: "2026-06-29T04:00:00.000Z",
+    },
+  };
+
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(profile) });
+  });
+  await page.route("**/api/chat/threads", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ threads: [] }) });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ tripId: null, items: [] }),
+    });
+  });
+  await page.route("**/api/me/privacy", async (route) => {
+    if (privacyMode === "auth") {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 401,
+        body: JSON.stringify({ error: "unauthenticated" }),
+      });
+      return;
+    }
+    if (privacyMode === "validation") {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 400,
+        body: JSON.stringify({ error: "invalid_privacy_request" }),
+      });
+      return;
+    }
+    if (privacyMode === "network") {
+      await route.abort("failed");
+      return;
+    }
+    if (privacyMode === "pending") {
+      await new Promise<void>((resolve) => {
+        releasePending = resolve;
+      });
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        action: "delete_chat_history",
+        status: "success",
+        counts: { chatRatingsDeleted: 0, chatMessagesDeleted: 0, chatThreadsDeleted: 0 },
+        requestId: "server-privacy-request",
+      }),
+    });
+  });
+
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 1280, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/settings#privacy");
+    const trigger = page
+      .getByRole("button", { name: "Delete all chat history", exact: true })
+      .first();
+
+    privacyMode = "auth";
+    await trigger.click();
+    let dialog = page.getByRole("dialog", { name: "Delete all chat history?" });
+    const confirmationInput = dialog.getByRole("textbox");
+    await expect(confirmationInput).toBeFocused();
+    await dialog.getByLabel("Type DELETE CHAT HISTORY to continue").fill("DELETE CHAT HISTORY");
+    await page.keyboard.press("Tab");
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(
+      dialog.getByRole("button", { name: "Delete all chat history", exact: true }),
+    ).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(confirmationInput).toBeFocused();
+    await dialog.getByRole("button", { name: "Delete all chat history", exact: true }).click();
+    await expect(
+      page.getByText("Your session expired. Sign in again before changing privacy settings."),
+    ).toBeVisible();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(trigger).toBeFocused();
+
+    privacyMode = "validation";
+    await trigger.click();
+    dialog = page.getByRole("dialog", { name: "Delete all chat history?" });
+    await dialog.getByLabel("Type DELETE CHAT HISTORY to continue").fill("DELETE CHAT HISTORY");
+    await dialog.getByRole("button", { name: "Delete all chat history", exact: true }).click();
+    await expect(
+      page.getByText("The confirmation did not match this privacy action. Try again."),
+    ).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+
+    privacyMode = "network";
+    await trigger.click();
+    dialog = page.getByRole("dialog", { name: "Delete all chat history?" });
+    await dialog.getByLabel("Type DELETE CHAT HISTORY to continue").fill("DELETE CHAT HISTORY");
+    await dialog.getByRole("button", { name: "Delete all chat history", exact: true }).click();
+    await expect(
+      page.getByText("Network error. Server data and local browser data were left unchanged."),
+    ).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+
+    privacyMode = "pending";
+    await trigger.click();
+    dialog = page.getByRole("dialog", { name: "Delete all chat history?" });
+    const confirmButton = dialog.locator("button").nth(1);
+    await dialog.getByLabel("Type DELETE CHAT HISTORY to continue").fill("DELETE CHAT HISTORY");
+    await confirmButton.click();
+    await expect(confirmButton).toHaveText("Deleting");
+    await expect(confirmButton).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("textbox").focus();
+
+    await page.evaluate(() => {
+      const backgroundTrigger = [...document.querySelectorAll("button")].find(
+        (button) => button.textContent?.trim() === "Delete all chat history",
+      );
+      backgroundTrigger?.focus();
+    });
+    await expect(dialog).toBeVisible();
+    expect(
+      await page.evaluate(() =>
+        Array.from(document.body.children)
+          .filter((element) => element.tagName !== "DIALOG")
+          .every(
+            (element) =>
+              element instanceof HTMLElement &&
+              element.inert &&
+              element.getAttribute("aria-hidden") === "true",
+          ),
+      ),
+    ).toBe(true);
+    expect(await page.evaluate(() => document.activeElement?.closest("dialog") !== null)).toBe(
+      true,
+    );
+    await expect(confirmButton).toBeDisabled();
+
+    releasePending();
+    await expect(page.getByText("Deleted 0 chat threads from active records.")).toBeVisible();
+    await expect(trigger).toBeFocused();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    ).toBe(true);
+  }
+});
+
 test("preserves untouched legacy multi-value tokens byte-for-byte on an unrelated save", async ({
   page,
 }) => {

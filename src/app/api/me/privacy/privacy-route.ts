@@ -63,7 +63,8 @@ export async function postPrivacyActionResponse(
   request: Request,
   dependencies: PrivacyRouteDependencies = createDefaultPrivacyRouteDependencies(),
 ) {
-  const requestId = request.headers.get("x-request-id") ?? dependencies.requestId();
+  // Correlation IDs are audit metadata. Never let a caller choose the value that is logged.
+  const requestId = dependencies.requestId();
   const auditSink = dependencies.auditSink ?? defaultPrivacyAuditSink;
   const now = dependencies.now();
   let body: unknown;
