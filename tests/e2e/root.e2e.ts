@@ -180,6 +180,17 @@ for (const viewport of [
     await expect(page.getByRole("navigation", { name: "Landing page" })).toBeVisible({
       visible: viewport.width >= 1024,
     });
+    const landingSurfaceChrome = await page
+      .getByLabel("Example Ask Siargao prompt")
+      .evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          borderRadius: style.borderRadius,
+          boxShadow: style.boxShadow,
+        };
+      });
+    expect(Number.parseFloat(landingSurfaceChrome.borderRadius)).toBeLessThanOrEqual(20);
+    expect(landingSurfaceChrome.boxShadow).not.toContain("48px");
     if (viewport.width === 390) {
       const rightMargin = 20;
       const criticalElements = [
@@ -212,6 +223,12 @@ for (const viewport of [
       fullPage: true,
       path: `test-results/issue-110-landing-${viewport.name}.png`,
     });
+    if (viewport.name === "mobile-390" || viewport.name === "desktop-1440") {
+      await page.screenshot({
+        fullPage: true,
+        path: `test-results/issue-120-landing-${viewport.name}.png`,
+      });
+    }
   });
 }
 
@@ -484,6 +501,22 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
     page.getByRole("link", { name: /Open saved item: Cloud 9 dinner shortlist/ }),
   ).toHaveAttribute("href", "/chat?savedItemId=saved_item_cloud9");
   await expect(page.getByText("Cloud 9 dinner shortlist")).toBeVisible();
+  const settingsSurfaceChrome = await page
+    .getByRole("heading", { name: "Recent chat history" })
+    .locator("xpath=ancestor::section[1]")
+    .evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        borderRadius: style.borderRadius,
+        boxShadow: style.boxShadow,
+      };
+    });
+  expect(Number.parseFloat(settingsSurfaceChrome.borderRadius)).toBeLessThanOrEqual(10);
+  expect(settingsSurfaceChrome.boxShadow).not.toContain("48px");
+  await page.screenshot({
+    path: "test-results/issue-120-settings-desktop.png",
+    fullPage: true,
+  });
 
   profileSaveMode = "delayed";
   await page.getByLabel("Display name").fill("Alex in Siargao");
@@ -663,6 +696,10 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   expect(has390HorizontalOverflow).toBe(false);
   await page.screenshot({
     path: "test-results/issue-122-structured-controls-mobile-390.png",
+    fullPage: true,
+  });
+  await page.screenshot({
+    path: "test-results/issue-120-settings-mobile-390.png",
     fullPage: true,
   });
   await page.evaluate(() => {

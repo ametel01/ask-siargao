@@ -634,11 +634,42 @@ test("renders the field desk workspace across desktop visual fixtures", async ({
     await expect(page.getByTestId("assistant-sources-panel")).toContainText(
       "Google Places, Weather forecast checked",
     );
+    const visualHierarchy = await page.evaluate(() => {
+      const recommendationGroup = document.querySelector('[data-testid="recommendation-cards"]');
+      const recommendationCard = document.querySelector('[data-testid="recommendation-card"]');
+      const assistantBubble = document.querySelector('[data-testid="assistant-message-bubble"]');
+      if (!recommendationGroup || !recommendationCard || !assistantBubble) {
+        throw new Error("Expected recommendation and assistant surfaces to render");
+      }
+      const groupStyle = getComputedStyle(recommendationGroup);
+      const cardStyle = getComputedStyle(recommendationCard);
+      const bubbleStyle = getComputedStyle(assistantBubble);
+      return {
+        assistantShadow: bubbleStyle.boxShadow,
+        cardShadow: cardStyle.boxShadow,
+        groupBackground: groupStyle.backgroundColor,
+        groupBorderTopWidth: groupStyle.borderTopWidth,
+        groupShadow: groupStyle.boxShadow,
+      };
+    });
+    expect(visualHierarchy.assistantShadow).not.toContain("48px");
+    expect(visualHierarchy.cardShadow).not.toContain("12px");
+    expect(visualHierarchy.cardShadow).not.toContain("28px");
+    expect(visualHierarchy.groupBackground).toBe("rgba(0, 0, 0, 0)");
+    expect(visualHierarchy.groupBorderTopWidth).toBe("0px");
+    expect(visualHierarchy.groupShadow).not.toContain("12px");
+    expect(visualHierarchy.groupShadow).not.toContain("28px");
     await expect(workspace).not.toContainText(/\btelemetry|dashboard|KPI\b/i);
     await page.screenshot({
       path: testInfo.outputPath(`field-desk-active-saved-long-${viewport.label}.png`),
       fullPage: true,
     });
+    if (viewport.label === "1180" || viewport.label === "wide-1920") {
+      await page.screenshot({
+        path: testInfo.outputPath(`issue-120-chat-${viewport.label}.png`),
+        fullPage: true,
+      });
+    }
   }
 
   await page.setViewportSize({ width: 1440, height: 1000 });

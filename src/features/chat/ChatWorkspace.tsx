@@ -173,7 +173,13 @@ import {
   tripContextFacts as tripContextDisplayFacts,
 } from "@/features/chat/trip-state";
 import { cn } from "@/lib/utils";
-import { BrandLockup, PalmMark } from "@/ui/components/ask-siargao";
+import {
+  appSurfaceInsetClass,
+  appSurfaceOverlayClass,
+  appSurfacePanelClass,
+  BrandLockup,
+  PalmMark,
+} from "@/ui/components/ask-siargao";
 
 type ChatContextIcon = typeof MapPin;
 type WeatherPanelSnapshot = WeatherConditionSnapshot;
@@ -1754,7 +1760,7 @@ function ChatWorkspaceView({
         />
 
         <section
-          className="relative grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-border-strong border-x bg-brand-paper-50 shadow-[0_0_0_1px_rgba(255,255,255,0.45),0_24px_80px_rgba(6,47,53,0.12)]"
+          className="relative grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-border-strong border-x bg-brand-paper-50 shadow-surface-panel"
           data-testid="conversation-region"
         >
           <span
@@ -1839,7 +1845,7 @@ function ChatWorkspaceView({
                   className="rounded-lg border border-border-default bg-white p-4"
                   data-testid="selected-thread-status"
                 >
-                  <h2 className="m-0 text-base font-black text-text-strong">Chat unavailable</h2>
+                  <h2 className="m-0 text-base font-semibold text-text-strong">Chat unavailable</h2>
                   <p className="m-0 mt-1 text-sm font-bold text-text-muted">
                     This chat was not found for the current signed-in account.
                   </p>
@@ -1936,7 +1942,7 @@ function ChatTravelRail({
 
       <Button
         asChild
-        className="h-[3.25rem] w-full justify-between rounded-md bg-[image:var(--gradient-lagoon-cta)] px-4 text-sm font-black text-white shadow-none hover:bg-brand-lagoon-600 xl:text-base"
+        className="h-[3.25rem] w-full justify-between rounded-md bg-[image:var(--gradient-lagoon-cta)] px-4 text-sm font-semibold text-white shadow-none hover:bg-brand-lagoon-600 xl:text-base"
       >
         <Link aria-label="Start a new chat" href="/chat" onClick={onStartNewChat}>
           <span className="inline-flex items-center gap-2">
@@ -1949,11 +1955,11 @@ function ChatTravelRail({
 
       <div className="grid min-h-0 content-start gap-5 overflow-hidden">
         <section className="grid gap-3 border-white/10 border-t pt-4">
-          <p className="m-0 text-xs font-black tracking-[0.08em] text-text-on-dark-muted uppercase">
+          <p className="m-0 text-xs font-semibold tracking-[0.08em] text-text-on-dark-muted uppercase">
             Current trip
           </p>
           <div className="grid gap-1 border-brand-lagoon-300/45 border-l-2 py-1 pl-3">
-            <h2 className="m-0 min-w-0 text-sm font-black text-white">
+            <h2 className="m-0 min-w-0 text-sm font-semibold text-white">
               {tripDataSource === "loading"
                 ? "Loading your trip"
                 : tripDataSource === "error"
@@ -1975,7 +1981,7 @@ function ChatTravelRail({
         </section>
 
         <section className="grid gap-3 border-white/10 border-t pt-4">
-          <p className="m-0 text-xs font-black tracking-[0.08em] text-text-on-dark-muted uppercase">
+          <p className="m-0 text-xs font-semibold tracking-[0.08em] text-text-on-dark-muted uppercase">
             Saved planning
           </p>
           <div className="grid gap-3">
@@ -2005,7 +2011,7 @@ function ChatTravelRail({
         </section>
 
         <section className="grid gap-3 border-white/10 border-t pt-4">
-          <h2 className="m-0 text-xs font-black tracking-[0.08em] text-text-on-dark-muted uppercase">
+          <h2 className="m-0 text-xs font-semibold tracking-[0.08em] text-text-on-dark-muted uppercase">
             Recent questions
           </h2>
           {historyStatus === "error" ? (
@@ -2051,7 +2057,7 @@ function ChatTravelRail({
         href="/settings"
       >
         <span className="grid gap-1">
-          <span className="text-base font-black">Field desk settings</span>
+          <span className="text-base font-semibold">Field desk settings</span>
           <span className="text-xs font-bold text-white/85">
             Saved plans, privacy, and account controls.
           </span>
@@ -2103,7 +2109,7 @@ function ChatTopBar({
   return (
     <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-3 border-border-default/80 border-b bg-brand-paper-50/95 px-4 py-3 backdrop-blur-md sm:px-6 lg:px-8">
       <div className="grid min-w-0 gap-1">
-        <h1 className="m-0 min-w-0 truncate text-xl font-black text-text-strong sm:text-2xl">
+        <h1 className="m-0 min-w-0 truncate text-xl font-semibold text-text-strong sm:text-2xl">
           Ask Siargao
         </h1>
         <p className="m-0 inline-flex min-w-0 items-center gap-2 text-sm font-extrabold text-text-muted">
@@ -2263,11 +2269,14 @@ function ThreadRenameDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-brand-navy-980/45" />
         <Dialog.Content
-          className="fixed top-1/2 left-1/2 z-50 grid w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border border-border-default bg-white p-5 text-text-strong shadow-night-card focus:outline-none"
+          className={cn(
+            appSurfaceOverlayClass,
+            "fixed top-1/2 left-1/2 z-50 grid w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-4 p-5 text-text-strong focus:outline-none",
+          )}
           data-testid="thread-rename-dialog"
         >
           <div className="grid gap-1">
-            <Dialog.Title className="m-0 text-lg font-black">Rename chat</Dialog.Title>
+            <Dialog.Title className="m-0 text-lg font-semibold">Rename chat</Dialog.Title>
             <Dialog.Description className="m-0 text-sm font-bold text-text-muted">
               Use a private title you can recognize later.
             </Dialog.Description>
@@ -2331,11 +2340,14 @@ function ThreadDeleteDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-brand-navy-980/45" />
         <Dialog.Content
-          className="fixed top-1/2 left-1/2 z-50 grid w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border border-red-200 bg-white p-5 text-text-strong shadow-night-card focus:outline-none"
+          className={cn(
+            appSurfaceOverlayClass,
+            "fixed top-1/2 left-1/2 z-50 grid w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-4 border-red-200 p-5 text-text-strong focus:outline-none",
+          )}
           data-testid="thread-delete-dialog"
         >
           <div className="grid gap-1">
-            <Dialog.Title className="m-0 text-lg font-black">Delete chat?</Dialog.Title>
+            <Dialog.Title className="m-0 text-lg font-semibold">Delete chat?</Dialog.Title>
             <Dialog.Description className="m-0 text-sm font-bold text-text-muted">
               This removes "{title}" from active chat history. Saved planning items remain separate.
             </Dialog.Description>
@@ -2400,7 +2412,10 @@ function ThreadArchiveDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-brand-navy-980/45" />
         <Dialog.Content
-          className="fixed top-1/2 left-1/2 z-50 grid w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border border-border-default bg-white p-5 text-text-strong shadow-night-card focus:outline-none"
+          className={cn(
+            appSurfaceOverlayClass,
+            "fixed top-1/2 left-1/2 z-50 grid w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-4 p-5 text-text-strong focus:outline-none",
+          )}
           data-testid="thread-archive-dialog"
         >
           <form
@@ -2413,7 +2428,7 @@ function ThreadArchiveDialog({
             }}
           >
             <div className="grid gap-1">
-              <Dialog.Title className="m-0 text-lg font-black">Archive chat?</Dialog.Title>
+              <Dialog.Title className="m-0 text-lg font-semibold">Archive chat?</Dialog.Title>
               <Dialog.Description className="m-0 text-sm font-bold text-text-muted">
                 This removes "{title}" from active chat history. Saved planning items remain
                 separate.
@@ -2723,7 +2738,10 @@ function MobileTripContextSheet({
 }) {
   return (
     <Dialog.Content
-      className="fixed inset-x-0 bottom-0 z-50 m-0 max-h-[min(92dvh,52rem)] w-full max-w-none overflow-hidden rounded-t-2xl border border-border-default bg-surface-default p-0 text-text-strong shadow-night-card focus:outline-none"
+      className={cn(
+        appSurfaceOverlayClass,
+        "fixed inset-x-0 bottom-0 z-50 m-0 max-h-[min(92dvh,52rem)] w-full max-w-none overflow-hidden rounded-t-2xl p-0 text-text-strong focus:outline-none",
+      )}
       data-testid="mobile-trip-context-dialog"
       onOpenAutoFocus={(event) => {
         event.preventDefault();
@@ -2739,7 +2757,7 @@ function MobileTripContextSheet({
       >
         <header className="flex items-start justify-between gap-4 px-4 pb-3">
           <div className="grid min-w-0 gap-1">
-            <Dialog.Title className="m-0 text-lg font-black text-text-strong">
+            <Dialog.Title className="m-0 text-lg font-semibold text-text-strong">
               Trip details and live conditions
             </Dialog.Title>
             <Dialog.Description className="m-0 text-sm font-bold text-text-muted">
@@ -2779,7 +2797,7 @@ function MobileTripContextSheet({
               <section className="grid gap-3" aria-labelledby="mobile-trip-fields-title">
                 <div className="flex items-center justify-between gap-3">
                   <h3
-                    className="m-0 text-sm font-black text-text-strong"
+                    className="m-0 text-sm font-semibold text-text-strong"
                     id="mobile-trip-fields-title"
                   >
                     Trip context
@@ -2818,7 +2836,7 @@ function MobileTripContextSheet({
               className="grid gap-2 rounded-lg border border-border-default bg-white p-3"
               data-testid="mobile-location-state"
             >
-              <h3 className="m-0 text-sm font-black text-text-strong">Location sharing</h3>
+              <h3 className="m-0 text-sm font-semibold text-text-strong">Location sharing</h3>
               <p className="m-0 text-sm font-bold text-text-muted">
                 {mobileLocationScopeLabel(locationState)}
               </p>
@@ -2832,7 +2850,7 @@ function MobileTripContextSheet({
               className="grid gap-2 rounded-lg border border-border-default bg-white p-3"
               data-testid="mobile-pass-state"
             >
-              <h3 className="m-0 text-sm font-black text-text-strong">Trip Pass</h3>
+              <h3 className="m-0 text-sm font-semibold text-text-strong">Trip Pass</h3>
               <p className="m-0 text-sm font-bold text-text-muted">
                 Trip Pass details are not connected here yet. No activation, balance, or expiry is
                 assumed.
@@ -2918,9 +2936,9 @@ function MobileConditionCard({
         <div className="flex min-w-0 items-start gap-2">
           {icon}
           <div className="min-w-0">
-            <h3 className="m-0 text-sm font-black text-text-strong">{title}</h3>
+            <h3 className="m-0 text-sm font-semibold text-text-strong">{title}</h3>
             <p
-              className="m-0 break-words text-base leading-tight font-black text-text-strong"
+              className="m-0 break-words text-base leading-tight font-semibold text-text-strong"
               data-testid={`mobile-${decision.kind}-condition-action`}
             >
               {decision.action}
@@ -3175,7 +3193,7 @@ function ChatContextRail({
             <CloudSun aria-hidden="true" className="text-brand-lagoon-700" size={30} />
             <div className="min-w-0">
               <p
-                className="m-0 text-base font-black leading-tight text-text-strong"
+                className="m-0 text-base font-semibold leading-tight text-text-strong"
                 data-testid="weather-condition-action"
               >
                 {weatherDecision.action}
@@ -3211,13 +3229,13 @@ function ChatContextRail({
       >
         <div className="grid gap-1">
           <div className="flex items-center justify-between gap-3">
-            <p className="m-0 inline-flex min-w-0 items-center gap-2 text-base font-black text-text-strong">
+            <p className="m-0 inline-flex min-w-0 items-center gap-2 text-base font-semibold text-text-strong">
               <WavesHorizontal aria-hidden="true" className="text-brand-lagoon-700" size={18} />
               {activeForecastLocation}
             </p>
           </div>
           <p
-            className="m-0 text-sm font-black leading-tight text-text-strong"
+            className="m-0 text-sm font-semibold leading-tight text-text-strong"
             data-testid="surf-condition-action"
           >
             {surfDecision.action}
@@ -3244,7 +3262,9 @@ function ContextCard({
   return (
     <section className="grid gap-1 rounded-md border border-border-default/80 bg-white/78 p-1.5 shadow-none">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="m-0 min-w-0 text-sm font-black leading-tight text-text-strong">{title}</h2>
+        <h2 className="m-0 min-w-0 text-sm font-semibold leading-tight text-text-strong">
+          {title}
+        </h2>
         {action}
       </div>
       {children}
@@ -3266,7 +3286,7 @@ function ContextFact({
       <Icon aria-hidden="true" className="mt-0.5 text-brand-lagoon-700" size={16} />
       <div className="min-w-0">
         <p className="m-0 text-[0.68rem] font-bold leading-tight text-text-muted">{label}</p>
-        <p className="m-0 min-w-0 break-words text-xs font-black leading-tight text-text-strong">
+        <p className="m-0 min-w-0 break-words text-xs font-semibold leading-tight text-text-strong">
           {value}
         </p>
       </div>
@@ -3307,7 +3327,7 @@ function TripContextEditor({
       <label className="grid gap-1 text-xs font-extrabold text-text-muted">
         Nearby area
         <select
-          className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-black text-text-strong outline-none focus:border-brand-violet-650"
+          className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-semibold text-text-strong outline-none focus:border-brand-violet-650"
           onChange={(event) => {
             onDraftChange({
               ...draft,
@@ -3340,7 +3360,7 @@ function TripContextField({
     <label className="grid gap-1 text-xs font-extrabold text-text-muted">
       {label}
       <input
-        className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-black text-text-strong outline-none focus:border-brand-violet-650"
+        className="h-11 rounded-md border border-border-default bg-white px-3 text-sm font-semibold text-text-strong outline-none focus:border-brand-violet-650"
         onChange={(event) => {
           onChange(event.currentTarget.value);
         }}
@@ -3354,7 +3374,7 @@ function MetricTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid min-h-10 content-center gap-0.5 rounded-md bg-brand-paper-150 px-1.5 py-1">
       <p className="m-0 text-[0.68rem] font-bold leading-tight text-text-muted">{label}</p>
-      <p className="m-0 text-xs font-black leading-tight text-text-strong">{value}</p>
+      <p className="m-0 text-xs font-semibold leading-tight text-text-strong">{value}</p>
     </div>
   );
 }
@@ -3395,7 +3415,7 @@ function ConditionDecisionDetails({ decision }: { decision: LiveConditionDecisio
     <div className="grid gap-0.5">
       {decision.timing ? (
         <p
-          className="m-0 text-xs font-black text-brand-violet-650"
+          className="m-0 text-xs font-semibold text-brand-violet-650"
           data-testid={`${decision.kind}-condition-timing`}
         >
           Planning cue: {decision.timing}
@@ -3410,7 +3430,7 @@ function ConditionDecisionDetails({ decision }: { decision: LiveConditionDecisio
         className="m-0 text-[0.7rem] leading-snug font-extrabold text-text-default"
         data-testid={`${decision.kind}-condition-fallback`}
       >
-        <span className="font-black text-text-strong">Fallback: </span>
+        <span className="font-semibold text-text-strong">Fallback: </span>
         {decision.fallback}
       </p>
       <p
@@ -3636,13 +3656,13 @@ function ChatMessage({
   if (isUser) {
     return (
       <article
-        className="min-w-0 max-w-[min(88%,42rem)] justify-self-end overflow-hidden rounded-lg border border-brand-violet-400/25 bg-brand-violet-650 px-5 py-4 text-white shadow-violet-glow"
+        className="min-w-0 max-w-[min(88%,42rem)] justify-self-end overflow-hidden rounded-lg border border-brand-violet-400/25 bg-brand-violet-650 px-5 py-4 text-white shadow-none"
         data-testid="user-message-bubble"
       >
         <p className="m-0 whitespace-pre-wrap break-words text-sm leading-[1.55] font-extrabold [overflow-wrap:anywhere] sm:text-base">
           {message.text}
         </p>
-        <time className="mt-2 block text-right text-xs font-black text-white/75">
+        <time className="mt-2 block text-right text-xs font-semibold text-white/75">
           {message.timestamp}
         </time>
       </article>
@@ -3656,10 +3676,19 @@ function ChatMessage({
         data-testid="assistant-message-bubble"
         className={
           isError
-            ? "min-w-0 overflow-hidden rounded-lg border border-border-alert bg-surface-alert px-5 py-4 shadow-night-card"
+            ? cn(
+                appSurfaceOverlayClass,
+                "min-w-0 overflow-hidden rounded-lg border-border-alert bg-surface-alert px-5 py-4 text-text-alert",
+              )
             : isStopped
-              ? "min-w-0 overflow-hidden rounded-lg border border-border-default bg-surface-muted px-5 py-4 text-text-strong shadow-card"
-              : "min-w-0 overflow-hidden rounded-xl border border-border-default bg-white px-4 py-4 text-text-strong shadow-card sm:px-5"
+              ? cn(
+                  appSurfaceInsetClass,
+                  "min-w-0 overflow-hidden rounded-lg bg-brand-lavender-50 px-5 py-4 text-text-strong",
+                )
+              : cn(
+                  appSurfacePanelClass,
+                  "min-w-0 overflow-hidden rounded-xl px-4 py-4 text-text-strong sm:px-5",
+                )
         }
       >
         <div className="flex min-w-0 items-start gap-3">
@@ -3832,7 +3861,7 @@ function SelectedSavedItemStatus({
         className="rounded-lg border border-border-default bg-white p-4"
         data-testid="selected-saved-item-status"
       >
-        <h2 className="m-0 text-base font-black text-text-strong">Saved item unavailable</h2>
+        <h2 className="m-0 text-base font-semibold text-text-strong">Saved item unavailable</h2>
         <p className="m-0 mt-1 text-sm font-bold text-text-muted">
           This saved planning item was not found for the current browser or signed-in account.
         </p>
@@ -3846,10 +3875,10 @@ function SelectedSavedItemStatus({
       className="rounded-lg border border-brand-violet-650 bg-brand-lagoon-100 p-4"
       data-testid="selected-saved-item-status"
     >
-      <p className="m-0 text-xs font-black tracking-[0.08em] text-brand-violet-650 uppercase">
+      <p className="m-0 text-xs font-semibold tracking-[0.08em] text-brand-violet-650 uppercase">
         Opened saved item
       </p>
-      <h2 className="m-0 mt-1 text-base font-black text-text-strong">{item.title}</h2>
+      <h2 className="m-0 mt-1 text-base font-semibold text-text-strong">{item.title}</h2>
       <p className="m-0 mt-1 text-sm font-bold text-text-muted">
         {savedItemKindLabel(item.kind)} saved planning item.
       </p>
@@ -3906,7 +3935,7 @@ function SavedPlanTray({
   return (
     <section
       aria-label="Saved plan"
-      className="grid min-w-0 gap-3 rounded-lg border border-border-default bg-white p-3 text-text-strong shadow-card"
+      className={cn(appSurfaceInsetClass, "grid min-w-0 gap-3 rounded-lg p-3 text-text-strong")}
       data-testid="saved-plan-tray"
     >
       <div className="flex min-w-0 items-center justify-between gap-3">
@@ -3915,7 +3944,7 @@ function SavedPlanTray({
             <BookmarkCheck aria-hidden="true" size={16} />
           </div>
           <div className="min-w-0">
-            <h2 className="m-0 text-sm font-black text-text-strong">Saved plan</h2>
+            <h2 className="m-0 text-sm font-semibold text-text-strong">Saved plan</h2>
             <p className="m-0 text-xs font-bold text-text-muted">
               {items.length} {items.length === 1 ? "item" : "items"} saved locally,{" "}
               {selectedItemCount} selected to share
@@ -4098,9 +4127,9 @@ function AssistantGlance({ message }: { message: InteractiveChatMessage }) {
   return (
     <section
       aria-label="At a glance"
-      className="grid min-w-0 gap-3 rounded-md border border-border-default bg-brand-lavender-50 p-3 shadow-none"
+      className={cn(appSurfaceInsetClass, "grid min-w-0 gap-3 rounded-md p-3")}
     >
-      <h3 className="m-0 flex items-center gap-2 text-sm font-black text-text-strong">
+      <h3 className="m-0 flex items-center gap-2 text-sm font-semibold text-text-strong">
         <Sparkles aria-hidden="true" className="text-brand-sunset-gold" size={17} />
         At a Glance
       </h3>
@@ -4116,10 +4145,10 @@ function AssistantGlance({ message }: { message: InteractiveChatMessage }) {
                 <Icon aria-hidden="true" size={15} />
               </span>
               <span className="min-w-0">
-                <span className="block text-[0.68rem] leading-tight font-black text-text-muted">
+                <span className="block text-[0.68rem] leading-tight font-semibold text-text-muted">
                   {item.label}
                 </span>
-                <span className="block truncate text-xs font-black text-text-strong">
+                <span className="block truncate text-xs font-semibold text-text-strong">
                   {item.value}
                 </span>
               </span>
@@ -4171,11 +4200,11 @@ function DecisionStrip({
       />
       <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
         <div className="grid min-w-0 gap-1">
-          <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.68rem] leading-tight font-black text-brand-lagoon-700 uppercase">
+          <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.68rem] leading-tight font-semibold text-brand-lagoon-700 uppercase">
             <Navigation aria-hidden="true" className="shrink-0" size={13} />
             Best move
           </span>
-          <h3 className="m-0 text-base leading-tight font-black break-words text-text-strong">
+          <h3 className="m-0 text-base leading-tight font-semibold break-words text-text-strong">
             {presentation.summary.bestAction}
           </h3>
         </div>
@@ -4186,7 +4215,7 @@ function DecisionStrip({
                 className="grid min-w-0 gap-0.5 rounded-md border border-brand-lagoon-700/15 bg-white px-2.5 py-2"
                 key={item.label}
               >
-                <dt className="text-[0.68rem] leading-tight font-black text-text-muted uppercase">
+                <dt className="text-[0.68rem] leading-tight font-semibold text-text-muted uppercase">
                   {item.label}
                 </dt>
                 <dd className="m-0 text-xs leading-[1.35] font-extrabold break-words text-text-strong">
@@ -4207,7 +4236,7 @@ function DecisionStrip({
               className="m-0 rounded-md border border-border-default bg-white px-3 py-2 text-xs leading-[1.45] font-bold break-words text-text-muted"
               key={item.label}
             >
-              <span className="font-black text-text-strong">{item.label}: </span>
+              <span className="font-semibold text-text-strong">{item.label}: </span>
               {item.value}
             </p>
           ))}
@@ -4218,7 +4247,9 @@ function DecisionStrip({
           className="m-0 min-w-0 rounded-md border border-brand-lagoon-700/15 bg-white px-3 py-2 text-xs leading-[1.45] font-bold break-words text-text-muted"
           data-testid="decision-strip-source-status"
         >
-          <span className="font-black text-text-strong">{presentation.sourceStatus.label}: </span>
+          <span className="font-semibold text-text-strong">
+            {presentation.sourceStatus.label}:{" "}
+          </span>
           {presentation.sourceStatus.value}
         </p>
       ) : null}
@@ -4242,7 +4273,7 @@ function ArtifactDecision({ decision }: { decision?: ArtifactDecisionMetadata })
       className="mt-1 grid min-w-0 gap-1 rounded-md border border-brand-lagoon-700/12 bg-brand-lagoon-100 px-2.5 py-2"
       data-testid="artifact-decision"
     >
-      <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.7rem] leading-tight font-black text-brand-lagoon-700 uppercase">
+      <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.7rem] leading-tight font-semibold text-brand-lagoon-700 uppercase">
         <Sparkles aria-hidden="true" className="shrink-0" size={12} />
         <span className="min-w-0 break-words">{artifactDecisionLabel(decision.label)}</span>
       </span>
@@ -4297,7 +4328,7 @@ function ItineraryPlans({
                 <Navigation aria-hidden="true" size={17} />
               </div>
               <div className="grid min-w-0 flex-1 gap-1">
-                <h3 className="m-0 text-sm leading-[1.25] font-black break-words text-text-strong sm:text-base">
+                <h3 className="m-0 text-sm leading-[1.25] font-semibold break-words text-text-strong sm:text-base">
                   {plan.title}
                 </h3>
                 <span className="inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border border-border-default bg-white px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold text-text-muted">
@@ -4344,12 +4375,12 @@ function ItineraryPlans({
 function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
   return (
     <li className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] gap-3">
-      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-brand-lagoon-700/15 bg-brand-lagoon-100 text-xs font-black text-brand-lagoon-700">
+      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-brand-lagoon-700/15 bg-brand-lagoon-100 text-xs font-semibold text-brand-lagoon-700">
         {stop.sequence}
       </span>
       <div className="grid min-w-0 gap-1.5">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <h4 className="m-0 min-w-0 text-sm leading-[1.3] font-black break-words text-text-strong">
+          <h4 className="m-0 min-w-0 text-sm leading-[1.3] font-semibold break-words text-text-strong">
             {stop.title}
           </h4>
           {stop.area ? (
@@ -4416,7 +4447,7 @@ function ItineraryNoteSection({
 
   return (
     <section className="grid min-w-0 gap-1.5" data-testid={testId}>
-      <h4 className="m-0 text-xs font-black text-text-strong">{title}</h4>
+      <h4 className="m-0 text-xs font-semibold text-text-strong">{title}</h4>
       <ul className="m-0 grid min-w-0 gap-1 pl-4 text-xs leading-[1.45] text-text-muted sm:text-sm">
         {items.map((item) => (
           <li className="break-words" key={item}>
@@ -4435,7 +4466,7 @@ function ItinerarySources({ sources }: { sources: ItineraryPlanArtifact["sources
 
   return (
     <section className="grid min-w-0 gap-2" data-testid="itinerary-sources">
-      <h4 className="m-0 text-xs font-black text-text-strong">Sources</h4>
+      <h4 className="m-0 text-xs font-semibold text-text-strong">Sources</h4>
       <div className="flex min-w-0 flex-wrap gap-2">
         {sources.map((source) => (
           <ItinerarySourceBadge key={chatSourceKey(source)} source={source} />
@@ -4774,11 +4805,11 @@ function RecommendationCards({
   return (
     <section
       aria-label="Recommended places"
-      className="grid min-w-0 gap-3 rounded-md border border-border-default bg-brand-lavender-50 p-3 shadow-none"
+      className="grid min-w-0 gap-3 p-0 shadow-none"
       data-testid="recommendation-cards"
     >
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-        <h3 className="m-0 flex items-center gap-2 text-sm font-black text-text-strong">
+        <h3 className="m-0 flex items-center gap-2 text-sm font-semibold text-text-strong">
           <Utensils aria-hidden="true" className="text-brand-sunset-gold" size={17} />
           Recommended Places
         </h3>
@@ -4792,11 +4823,13 @@ function RecommendationCards({
 
         return (
           <article
-            className={
+            className={cn(
+              appSurfaceInsetClass,
+              "grid min-w-0 gap-3 rounded-md p-3",
               cardPresentation.isPrimary
-                ? "grid min-w-0 gap-3 rounded-md border border-brand-lagoon-700/25 bg-white p-3 shadow-[0_12px_30px_rgba(31,128,120,0.12)]"
-                : "grid min-w-0 gap-3 rounded-md border border-border-default bg-white p-3"
-            }
+                ? "border-brand-lagoon-700/25 bg-brand-lagoon-100"
+                : "bg-white",
+            )}
             data-testid="recommendation-card"
             data-recommendation-role={cardPresentation.role}
             key={card.id}
@@ -4811,7 +4844,7 @@ function RecommendationCards({
                   )}
                 </div>
                 <div className="grid min-w-0 flex-1 gap-1">
-                  <h4 className="m-0 text-sm leading-[1.25] font-black break-words text-text-strong sm:text-base">
+                  <h4 className="m-0 text-sm leading-[1.25] font-semibold break-words text-text-strong sm:text-base">
                     {card.title}
                   </h4>
                   {presentation.hasComparison || cardPresentation.isPrimary ? (
@@ -4848,7 +4881,7 @@ function RecommendationCards({
               </div>
 
               <p className="m-0 text-xs leading-[1.45] break-words text-text-default sm:text-sm">
-                <span className="font-black text-text-strong">Why this fits:</span>{" "}
+                <span className="font-semibold text-text-strong">Why this fits:</span>{" "}
                 {cardPresentation.fitRationale}
               </p>
 
@@ -4882,7 +4915,7 @@ function RecommendationRoleBadge({
     <span
       className={
         presentation.isPrimary
-          ? "inline-flex w-fit max-w-full items-center gap-1.5 rounded-md bg-brand-lagoon-100 px-2.5 py-1 text-[0.7rem] leading-tight font-black text-brand-lagoon-700"
+          ? "inline-flex w-fit max-w-full items-center gap-1.5 rounded-md bg-brand-lagoon-100 px-2.5 py-1 text-[0.7rem] leading-tight font-semibold text-brand-lagoon-700"
           : "inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border border-border-default bg-brand-lavender-50 px-2.5 py-1 text-[0.7rem] leading-tight font-extrabold text-text-muted"
       }
       data-testid="recommendation-role"
@@ -5005,7 +5038,7 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
         className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-violet-650"
       >
         <span className="grid min-w-0 gap-1">
-          <span className="flex items-center gap-2 text-sm font-black text-text-strong">
+          <span className="flex items-center gap-2 text-sm font-semibold text-text-strong">
             <ShieldCheck aria-hidden="true" className="text-brand-lagoon-700" size={16} />
             Evidence receipt
           </span>
@@ -5013,7 +5046,7 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
             {sourceSummaryText(sources)}
           </span>
         </span>
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border-default bg-white px-2.5 py-1.5 text-xs font-black text-text-muted">
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border-default bg-white px-2.5 py-1.5 text-xs font-semibold text-text-muted">
           View receipt
           <ChevronDown
             aria-hidden="true"
@@ -5030,7 +5063,7 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
           >
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <SourceIconBadge source={source} />
-              <span className="text-xs font-black text-text-strong">
+              <span className="text-xs font-semibold text-text-strong">
                 {sourceEvidenceDisplayName(source)}
               </span>
               {source.confidence ? (
@@ -5041,13 +5074,13 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
             </div>
             {presentation.checkedScope.length > 0 && presentation.state === "checked" ? (
               <p className="m-0 text-xs leading-[1.45] text-text-muted">
-                <span className="font-black text-text-strong">Checked fields:</span>{" "}
+                <span className="font-semibold text-text-strong">Checked fields:</span>{" "}
                 {formatReceiptList(presentation.checkedScope)}
               </p>
             ) : null}
             {presentation.notCheckedScope.length > 0 ? (
               <p className="m-0 text-xs leading-[1.45] text-text-muted">
-                <span className="font-black text-text-strong">Not checked:</span>{" "}
+                <span className="font-semibold text-text-strong">Not checked:</span>{" "}
                 {formatReceiptList(presentation.notCheckedScope)}
               </p>
             ) : null}
@@ -5086,7 +5119,7 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
         if (block.type === "heading") {
           return (
             <h3
-              className={`m-0 max-w-full text-sm leading-[1.35] font-black break-words sm:text-base ${strongClass}`}
+              className={`m-0 max-w-full text-sm leading-[1.35] font-semibold break-words sm:text-base ${strongClass}`}
               key={block.key}
             >
               {block.text}
@@ -5104,7 +5137,7 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
 
           return block.ordered ? (
             <ol
-              className={`${listClass} list-outside list-decimal marker:font-black marker:text-brand-violet-650`}
+              className={`${listClass} list-outside list-decimal marker:font-semibold marker:text-brand-violet-650`}
               key={block.key}
             >
               {items}
@@ -5193,7 +5226,7 @@ function AssistantMarkdownTable({
             <tr>
               {block.headers.map((header, index) => (
                 <th
-                  className={`border-border-default border-b px-3 py-2 align-top font-black ${tableTextAlignmentClass(block.alignments[index])}`}
+                  className={`border-border-default border-b px-3 py-2 align-top font-semibold ${tableTextAlignmentClass(block.alignments[index])}`}
                   key={`${block.key}-head-${header}`}
                   scope="col"
                 >
@@ -5232,7 +5265,7 @@ function AssistantMarkdownTable({
             {card.cells.map((cell) => (
               <div className="grid min-w-0 gap-0.5" key={cell.key}>
                 <dt
-                  className={`text-[0.68rem] leading-tight font-black text-text-muted uppercase ${tableTextAlignmentClass(cell.alignment)}`}
+                  className={`text-[0.68rem] leading-tight font-semibold text-text-muted uppercase ${tableTextAlignmentClass(cell.alignment)}`}
                 >
                   <InlineMarkdown
                     linkClass={linkClass}
@@ -5346,7 +5379,7 @@ function ChatComposer({
         className="mx-auto w-full max-w-5xl min-w-0"
         onSubmit={handleSubmit}
       >
-        <InputGroup className="min-h-[58px] items-start rounded-lg border-border-default bg-white p-2 text-text-strong shadow-card ring-1 ring-border-default">
+        <InputGroup className="min-h-[58px] items-start rounded-lg border-border-default bg-white p-2 text-text-strong shadow-none ring-1 ring-border-default">
           <textarea
             data-slot="input-group-control"
             aria-label="Ask anything about Siargao"
@@ -5445,11 +5478,14 @@ function LocationSharingControl({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-brand-navy-980/45" />
         <Dialog.Content
-          className="fixed right-3 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] left-3 z-50 grid max-h-[min(78dvh,30rem)] gap-4 overflow-y-auto rounded-lg border border-border-default bg-white p-4 text-text-strong shadow-night-card focus:outline-none sm:right-auto sm:left-1/2 sm:w-[min(28rem,calc(100vw-2rem))] sm:-translate-x-1/2"
+          className={cn(
+            appSurfaceOverlayClass,
+            "fixed right-3 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] left-3 z-50 grid max-h-[min(78dvh,30rem)] gap-4 overflow-y-auto p-4 text-text-strong focus:outline-none sm:right-auto sm:left-1/2 sm:w-[min(28rem,calc(100vw-2rem))] sm:-translate-x-1/2",
+          )}
           data-testid="location-sharing-dialog"
         >
           <div className="grid gap-1">
-            <Dialog.Title className="m-0 text-base font-black text-text-strong">
+            <Dialog.Title className="m-0 text-base font-semibold text-text-strong">
               Location sharing
             </Dialog.Title>
             <Dialog.Description className="m-0 text-sm leading-[1.5] font-bold text-text-muted">
@@ -5601,7 +5637,7 @@ function ChatEmptyState({
           <Sparkles aria-hidden="true" size={24} />
         </div>
         <div className="grid gap-3">
-          <h1 className="m-0 max-w-full text-3xl leading-[1.05] font-black break-words text-text-strong [overflow-wrap:anywhere] sm:text-5xl">
+          <h1 className="m-0 max-w-full text-3xl leading-[1.05] font-semibold break-words text-text-strong [overflow-wrap:anywhere] sm:text-5xl">
             Ask a real question about your Siargao trip.
           </h1>
           <p className="m-0 max-w-xl text-base leading-[1.7] break-words text-text-muted">

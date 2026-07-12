@@ -55,7 +55,13 @@ import {
 import type { ChatHistoryThread } from "@/server/chat/chat-history-store";
 import type { UserProfileResponse } from "@/server/profile/user-profile-store";
 import type { SavedTripItem } from "@/server/trips/shared-trip-types";
-import { appBodyClass, BrandHeader, PageHeader } from "@/ui/components/ask-siargao";
+import {
+  appBodyClass,
+  appSurfaceOverlayClass,
+  appSurfacePanelClass,
+  BrandHeader,
+  PageHeader,
+} from "@/ui/components/ask-siargao";
 
 type ProfileFormState = {
   displayName: string;
@@ -144,8 +150,7 @@ const emptyForm: ProfileFormState = {
 const settingsWorkspaceClass =
   "grid w-full max-w-none gap-6 px-4 py-5 sm:px-6 lg:px-8 lg:py-7 2xl:px-10";
 
-const settingsPanelClass =
-  "rounded-md border border-border-default bg-surface-default p-5 text-text-default shadow-panel md:p-6";
+const settingsPanelClass = `${appSurfacePanelClass} p-5 md:p-6`;
 
 const summaryDateFormatter = new Intl.DateTimeFormat("en", {
   day: "numeric",
@@ -530,7 +535,9 @@ function ChatHistorySummaryPanel({
               href={`/chat?threadId=${encodeURIComponent(thread.id)}`}
               key={thread.id}
             >
-              <h3 className="m-0 min-w-0 truncate text-sm font-black">Open chat: {thread.title}</h3>
+              <h3 className="m-0 min-w-0 truncate text-sm font-semibold">
+                Open chat: {thread.title}
+              </h3>
               <p className="m-0 text-xs font-bold text-text-muted">
                 {formatSummaryTimestamp(thread.lastMessageAt ?? thread.updatedAt)}
               </p>
@@ -583,7 +590,7 @@ function SavedPlanSummaryPanel({
               href={`/chat?savedItemId=${encodeURIComponent(item.id)}`}
               key={item.id}
             >
-              <h3 className="m-0 min-w-0 truncate text-sm font-black">
+              <h3 className="m-0 min-w-0 truncate text-sm font-semibold">
                 Open saved item: {item.title}
               </h3>
               <p className="m-0 text-xs font-bold text-text-muted">
@@ -619,7 +626,7 @@ function SummaryPanelHeader({
         {icon}
       </span>
       <div className="min-w-0">
-        <h2 className="m-0 text-base font-black">{title}</h2>
+        <h2 className="m-0 text-base font-semibold">{title}</h2>
         <p className="m-0 text-sm font-bold text-text-muted">{description}</p>
       </div>
     </div>
@@ -798,7 +805,7 @@ function AccountPanel({
           <UserRound className="size-5" />
         </span>
         <div className="min-w-0">
-          <h2 className="m-0 text-base font-black">Account</h2>
+          <h2 className="m-0 text-base font-semibold">Account</h2>
           <p className="m-0 min-w-0 [overflow-wrap:anywhere] text-sm font-bold text-text-muted break-words">
             {account.name}
           </p>
@@ -807,13 +814,13 @@ function AccountPanel({
 
       <dl className="grid min-w-0 gap-3 text-sm">
         <div>
-          <dt className="font-black text-text-muted">{account.emailLabel}</dt>
+          <dt className="font-semibold text-text-muted">{account.emailLabel}</dt>
           <dd className="m-0 min-w-0 [overflow-wrap:anywhere] font-bold break-words">
             {account.email ?? "No email is available for this signed-in account."}
           </dd>
         </div>
         <div>
-          <dt className="font-black text-text-muted">Status</dt>
+          <dt className="font-semibold text-text-muted">Status</dt>
           <dd className="m-0 font-bold">{account.status}</dd>
         </div>
       </dl>
@@ -834,7 +841,7 @@ function AccountPanel({
 function ShortcutPanel() {
   return (
     <section className={`${settingsPanelClass} grid min-w-0 gap-3`}>
-      <h2 className="m-0 text-base font-black">Shortcuts</h2>
+      <h2 className="m-0 text-base font-semibold">Shortcuts</h2>
       <Button
         asChild
         className="h-auto justify-between rounded-md border-border-default bg-surface-default px-3 py-3 text-left text-text-default whitespace-nowrap hover:bg-brand-lagoon-100"
@@ -855,7 +862,7 @@ function ShortcutPanel() {
 function PassPanel() {
   return (
     <section className={`${settingsPanelClass} grid min-w-0 gap-3`} id="pass" tabIndex={-1}>
-      <h2 className="m-0 text-base font-black">Pass</h2>
+      <h2 className="m-0 text-base font-semibold">Pass</h2>
       <p className={appBodyClass}>
         Pass details and choices will appear here when they are available for your account.
       </p>
@@ -1064,7 +1071,7 @@ function PrivacyControlsPanel({
         <span className="grid size-10 place-items-center rounded-md bg-brand-lagoon-100 text-brand-lagoon-700">
           <ShieldCheck className="size-5" />
         </span>
-        <h2 className="m-0 text-base font-black">Privacy</h2>
+        <h2 className="m-0 text-base font-semibold">Privacy</h2>
       </div>
       <p className={appBodyClass}>
         Ask Siargao keeps active product records for your Clerk-derived account identity cache,
@@ -1083,7 +1090,7 @@ function PrivacyControlsPanel({
       </p>
 
       <div className="grid min-w-0 gap-3 rounded-md border border-border-default p-3">
-        <h3 className="m-0 text-sm font-black">Location memory</h3>
+        <h3 className="m-0 text-sm font-semibold">Location memory</h3>
         <p className={appBodyClass}>
           Use once sends browser coordinates for one request. Use for this trip keeps coordinates
           only in the in-memory chat session. Stored context is limited to coarse area and
@@ -1101,7 +1108,7 @@ function PrivacyControlsPanel({
       </div>
 
       <div className="grid min-w-0 gap-3 rounded-md border border-border-default p-3">
-        <h3 className="m-0 text-sm font-black">Marketing consent</h3>
+        <h3 className="m-0 text-sm font-semibold">Marketing consent</h3>
         <label className="flex min-w-0 items-start gap-3 text-sm font-bold text-text-default">
           <input
             checked={marketingValue}
@@ -1140,7 +1147,7 @@ function PrivacyControlsPanel({
       </div>
 
       <div className="grid min-w-0 gap-3 rounded-md border border-red-200 bg-red-50 p-3">
-        <h3 className="m-0 text-sm font-black text-red-950">Delete active product data</h3>
+        <h3 className="m-0 text-sm font-semibold text-red-950">Delete active product data</h3>
         <p className="m-0 text-sm font-bold leading-6 text-red-950">
           Each action is separate and must be confirmed exactly.
         </p>
@@ -1302,9 +1309,11 @@ function PrivacyConfirmationDialog({
         }
       }}
     >
-      <div className="grid max-h-[min(42rem,calc(100vh-2rem))] w-full max-w-lg min-w-0 gap-4 overflow-y-auto rounded-md border border-border-default bg-surface-default p-5 shadow-panel">
+      <div
+        className={`${appSurfaceOverlayClass} grid max-h-[min(42rem,calc(100vh-2rem))] w-full max-w-lg min-w-0 gap-4 overflow-y-auto p-5`}
+      >
         <div>
-          <h3 className="m-0 text-lg font-black" id="privacy-confirmation-title">
+          <h3 className="m-0 text-lg font-semibold" id="privacy-confirmation-title">
             {action.title}
           </h3>
           <p className={appBodyClass}>{action.description}</p>
@@ -1448,7 +1457,7 @@ function TravelProfileSection({
         tabIndex={-1}
       >
         <div>
-          <h2 className="m-0 text-lg font-black">Current trip</h2>
+          <h2 className="m-0 text-lg font-semibold">Current trip</h2>
           <p className={appBodyClass}>
             Share the stay, timing, group, and travel limits for this visit.
           </p>
@@ -1519,7 +1528,7 @@ function TravelProfileSection({
         tabIndex={-1}
       >
         <div>
-          <h2 className="m-0 text-lg font-black">Traveler preferences</h2>
+          <h2 className="m-0 text-lg font-semibold">Traveler preferences</h2>
           <p className={appBodyClass}>
             These choices help Ask Siargao shape plans beyond this stay.
           </p>
@@ -1713,7 +1722,7 @@ function PreferenceCheckbox({
 function SignedOutPanel() {
   return (
     <section className={`${settingsPanelClass} grid max-w-xl gap-4`}>
-      <h2 className="m-0 text-xl font-black">Sign in to manage your settings</h2>
+      <h2 className="m-0 text-xl font-semibold">Sign in to manage your settings</h2>
       <p className={appBodyClass}>Ask Siargao keeps settings with your signed-in account.</p>
       <div className="flex flex-wrap gap-3">
         {isClerkConfigured ? (
@@ -1755,7 +1764,7 @@ function SignedOutPanel() {
 function StatusPanel({ title }: { title: string }) {
   return (
     <section className={settingsPanelClass}>
-      <h2 className="m-0 text-xl font-black">{title}</h2>
+      <h2 className="m-0 text-xl font-semibold">{title}</h2>
     </section>
   );
 }

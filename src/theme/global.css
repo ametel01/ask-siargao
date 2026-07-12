@@ -135,14 +135,18 @@
   --duration-normal: 220ms;
   --duration-slow: 360ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
-  --shadow-card: 0 14px 36px rgba(14, 12, 56, 0.12);
-  --shadow-panel: 0 18px 48px rgba(14, 12, 56, 0.16);
-  --shadow-strong: 0 22px 54px rgba(8, 8, 38, 0.28);
-  --shadow-cta: 0 10px 28px rgba(20, 184, 166, 0.3);
-  --shadow-violet-glow: 0 18px 46px rgba(124, 81, 240, 0.38);
-  --shadow-lagoon-glow: 0 16px 42px rgba(20, 184, 166, 0.28);
-  --shadow-coastal-frame: 0 24px 80px rgba(0, 0, 0, 0.42);
-  --shadow-night-card: 0 18px 44px rgba(0, 0, 0, 0.16);
+  /* Product elevation roles: flat, panel, overlay. Keep one-off media frames rare. */
+  --shadow-surface-flat: none;
+  --shadow-surface-panel: 0 1px 2px rgba(14, 12, 56, 0.08), 0 10px 28px rgba(14, 12, 56, 0.08);
+  --shadow-surface-overlay: 0 1px 2px rgba(8, 8, 38, 0.12), 0 18px 48px rgba(8, 8, 38, 0.18);
+  --shadow-card: var(--shadow-surface-flat);
+  --shadow-panel: var(--shadow-surface-panel);
+  --shadow-strong: var(--shadow-surface-overlay);
+  --shadow-cta: 0 6px 18px rgba(20, 184, 166, 0.22);
+  --shadow-violet-glow: 0 8px 22px rgba(93, 62, 209, 0.18);
+  --shadow-lagoon-glow: 0 8px 20px rgba(20, 184, 166, 0.18);
+  --shadow-coastal-frame: 0 18px 56px rgba(0, 0, 0, 0.34);
+  --shadow-night-card: 0 1px 2px rgba(0, 0, 0, 0.14), 0 10px 28px rgba(0, 0, 0, 0.12);
   --background: var(--brand-navy-980);
   --foreground: var(--text-on-dark);
   --card: var(--surface-glass);
@@ -297,6 +301,9 @@ summary::-webkit-details-marker {
   --shadow-card: var(--shadow-card);
   --shadow-panel: var(--shadow-panel);
   --shadow-strong: var(--shadow-strong);
+  --shadow-surface-flat: var(--shadow-surface-flat);
+  --shadow-surface-panel: var(--shadow-surface-panel);
+  --shadow-surface-overlay: var(--shadow-surface-overlay);
   --shadow-cta: var(--shadow-cta);
   --shadow-violet-glow: var(--shadow-violet-glow);
   --shadow-lagoon-glow: var(--shadow-lagoon-glow);
