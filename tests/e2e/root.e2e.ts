@@ -4,31 +4,238 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: /ask siargao anything about your trip/i }),
+    page.getByRole("heading", { name: /plan the island around your real constraints/i }),
   ).toBeVisible();
-  await expect(page.getByRole("link", { name: /ask a trip question/i })).toHaveAttribute(
-    "href",
-    "/chat",
-  );
+  await expect(page.getByRole("link", { name: "Ask in chat" })).toHaveAttribute("href", "/chat");
   await expect(page.getByLabel("Example Ask Siargao prompt")).toContainText(
-    "Staying near Cloud 9 for 10 days",
+    "What should we do today if rain hits Cloud 9?",
   );
-  await expect(page.getByRole("heading", { name: "Planning checks for Siargao" })).toBeVisible();
-  await expect(page.getByText("Start with a real trip constraint")).toBeVisible();
-  await expect(page.getByText("GPT-backed answers", { exact: true })).toBeVisible();
-  await expect(page.getByText("Weather snapshot support")).toBeVisible();
-  await expect(page.getByText("Live local data")).toHaveCount(0);
-  await expect(page.getByText("Freshness + confidence shown")).toHaveCount(0);
-  await expect(page.getByText("Updated 12 min ago")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Planning inputs available in chat" }),
+  ).toBeAttached();
+  await expect(page.getByText("Weather", { exact: true })).toBeVisible();
+  await expect(page.getByText("Places", { exact: true })).toBeVisible();
+  await expect(page.getByText("Local caveats", { exact: true })).toBeVisible();
+  await expect(page.getByText("Checked on request")).toHaveCount(2);
+  await expect(page.locator("svg.lucide-check")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Choose the right base" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Make the weather call" })).toBeVisible();
   await expect(
-    page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: /Ask Siargao/i }),
+    page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
   ).toHaveAttribute("href", /\/chat\?prompt=/);
-  await expect(page.getByRole("link", { name: "Cloud 9 quiet sleep" })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Quiet base" })).toHaveAttribute(
     "href",
-    /\/chat\?prompt=Is%20my%20accommodation/,
+    /\/chat\?prompt=Where%20should%20we%20stay/,
   );
+});
+
+test("exposes real desktop navigation in keyboard reading order", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+
+  const navigation = page.getByRole("navigation", { name: "Landing page" });
+  await expect(navigation).toBeVisible();
+  for (const [label, target] of [
+    ["Start a question", "#start-a-question"],
+    ["Planning inputs", "#planning-inputs"],
+    ["Plan smarter", "#plan-smarter"],
+  ] as const) {
+    const link = navigation.getByRole("link", { name: label });
+    await expect(link).toHaveAttribute("href", target);
+    await expect(page.locator(target)).toHaveCount(1);
+  }
+
+  const expectedTabOrder = [
+    { link: page.getByRole("link", { name: "Ask Siargao home" }), rgb: [142, 230, 216] },
+    {
+      link: navigation.getByRole("link", { name: "Start a question" }),
+      rgb: [142, 230, 216],
+    },
+    {
+      link: navigation.getByRole("link", { name: "Planning inputs" }),
+      rgb: [142, 230, 216],
+    },
+    {
+      link: navigation.getByRole("link", { name: "Plan smarter" }),
+      rgb: [142, 230, 216],
+    },
+    { link: page.getByRole("link", { name: "Ask in chat" }), rgb: [142, 230, 216] },
+    {
+      link: page
+        .getByLabel("Example Ask Siargao prompt")
+        .getByRole("link", { name: "Ask Siargao" }),
+      rgb: [10, 111, 103],
+    },
+    { link: page.getByRole("link", { name: "Quiet base" }), rgb: [142, 230, 216] },
+    { link: page.getByRole("link", { name: "Food route" }), rgb: [142, 230, 216] },
+    {
+      link: page.getByRole("link", { name: "Ask about this" }).nth(0),
+      rgb: [10, 111, 103],
+    },
+    {
+      link: page.getByRole("link", { name: "Ask about this" }).nth(1),
+      rgb: [10, 111, 103],
+    },
+  ];
+
+  for (const { link, rgb } of expectedTabOrder) {
+    await page.keyboard.press("Tab");
+    await expect(link).toBeFocused();
+    const outline = await link.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const canvas = document.createElement("canvas");
+      canvas.width = 1;
+      canvas.height = 1;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) {
+        throw new Error("Canvas 2D context is required to verify the focus outline color");
+      }
+      context.fillStyle = style.outlineColor;
+      context.fillRect(0, 0, 1, 1);
+      return {
+        color: Array.from(context.getImageData(0, 0, 1, 1).data),
+        serializedColor: style.outlineColor,
+        style: style.outlineStyle,
+        width: style.outlineWidth,
+      };
+    });
+    expect(outline.style).toBe("solid");
+    expect(outline.width).toBe("3px");
+    expect(outline.color[3], `outline must be opaque: ${outline.serializedColor}`).toBe(255);
+    for (const [channel, expected] of rgb.entries()) {
+      expect(
+        Math.abs((outline.color[channel] ?? Number.NaN) - expected),
+        `outline must resolve to rgb(${rgb.join(", ")}): ${outline.serializedColor}`,
+      ).toBeLessThanOrEqual(1);
+    }
+  }
+});
+
+test("landing prompt actions preserve exact chat handoff without submitting", async ({ page }) => {
+  const actions = [
+    {
+      link: () =>
+        page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
+      prompt: "What should we do today if rain hits Cloud 9?",
+    },
+    {
+      link: () => page.getByRole("link", { name: "Quiet base" }),
+      prompt:
+        "Where should we stay in Siargao if we want quiet sleep, surf access, and easy dinner options?",
+    },
+    {
+      link: () =>
+        page
+          .getByRole("article")
+          .filter({ has: page.getByRole("heading", { name: "Make the weather call" }) })
+          .getByRole("link", { name: "Ask about this" }),
+      prompt: "Build a Siargao plan for today that adapts if rain gets heavy around Cloud 9.",
+    },
+  ];
+  let chatSubmissions = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/api/chat") {
+      chatSubmissions += 1;
+    }
+  });
+
+  for (const action of actions) {
+    await page.goto("/");
+    const link = action.link();
+    await expect(link).toHaveAttribute("href", `/chat?prompt=${encodeURIComponent(action.prompt)}`);
+    await link.click();
+
+    await expect(page.getByLabel("Ask anything about Siargao")).toHaveValue(action.prompt);
+    expect(new URL(page.url()).searchParams.get("prompt")).toBe(action.prompt);
+    expect(chatSubmissions).toBe(0);
+  }
+});
+
+for (const viewport of [
+  { name: "mobile-390", width: 390, height: 844 },
+  { name: "tablet-768", width: 768, height: 1024 },
+  { name: "desktop-1440", width: 1440, height: 1000 },
+  { name: "wide-1920", width: 1920, height: 1080 },
+] as const) {
+  test(`landing remains intentional and overflow-free at ${viewport.name}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("heading", { name: /plan the island around your real constraints/i }),
+    ).toBeVisible();
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+      await Promise.all(Array.from(document.images).map((image) => image.decode().catch(() => {})));
+    });
+
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    ).toBe(true);
+    await expect(
+      page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Plan smarter in Siargao" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Landing page" })).toBeVisible({
+      visible: viewport.width >= 1024,
+    });
+    if (viewport.width === 390) {
+      const rightMargin = 20;
+      const criticalElements = [
+        { name: "header chat CTA", locator: page.getByRole("link", { name: "Chat" }) },
+        { name: "example prompt card", locator: page.getByLabel("Example Ask Siargao prompt") },
+        {
+          name: "example prompt CTA",
+          locator: page
+            .getByLabel("Example Ask Siargao prompt")
+            .getByRole("link", { name: "Ask Siargao" }),
+        },
+        { name: "planning inputs panel", locator: page.locator("#planning-inputs") },
+      ];
+
+      for (const { locator, name } of criticalElements) {
+        const bounds = await locator.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return { left: rect.left, right: rect.right };
+        });
+        expect(
+          bounds.left,
+          `${name} must stay inside the left viewport edge`,
+        ).toBeGreaterThanOrEqual(0);
+        expect(bounds.right, `${name} must preserve its right page margin`).toBeLessThanOrEqual(
+          viewport.width - rightMargin + 0.5,
+        );
+      }
+    }
+    await page.screenshot({
+      fullPage: true,
+      path: `test-results/issue-110-landing-${viewport.name}.png`,
+    });
+  });
+}
+
+test("landing remains usable at a 200 percent zoom equivalent with reduced motion", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 720, height: 900 });
+  await page.goto("/");
+
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+  ).toBe(true);
+  for (const link of [
+    page.getByRole("link", { name: "Ask in chat" }),
+    page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
+    page.getByRole("link", { name: "Quiet base" }),
+    page.getByRole("link", { name: "Food route" }),
+  ]) {
+    await expect(link).toBeVisible();
+    const box = await link.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box?.x ?? -1).toBeGreaterThanOrEqual(0);
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(721);
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+  }
 });
 
 test("shows processing state after checkout return", async ({ page }) => {
@@ -67,15 +274,20 @@ test("renders local admin diagnostics without leaking sample secrets", async ({ 
 
 test("edits profile details and reloads the persisted values", async ({ page }) => {
   let patchPayload: Record<string, unknown> | null = null;
-  let profileSaveMode: "success" | "delayed" | "invalid" | "invalidConstraints" | "server" =
-    "success";
+  const patchPayloads: Record<string, unknown>[] = [];
+  let profileSaveMode:
+    | "success"
+    | "delayed"
+    | "invalid"
+    | "invalidConstraints"
+    | "invalidMultiValue"
+    | "server"
+    | "network" = "success";
   let profile = {
     identity: {
-      userId: "user_e2e_profile",
       email: "traveler@example.com",
       firstName: "Alex",
       lastName: "Traveler",
-      imageUrl: null,
     },
     profile: {
       displayName: "Alex",
@@ -83,6 +295,7 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
       travelStyle: "Surf mornings",
       budgetLevel: "mid_range",
       dietaryNotes: "",
+      foodNeeds: [],
       accessibilityNotes: "",
       surfAbility: "Intermediate",
       quietSleepPreference: null,
@@ -109,6 +322,7 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
     if (route.request().method() === "PATCH") {
       const patch = route.request().postDataJSON() as Partial<typeof profile.profile>;
       patchPayload = patch as Record<string, unknown>;
+      patchPayloads.push(patchPayload);
       if (profileSaveMode === "invalid") {
         await route.fulfill({
           contentType: "application/json",
@@ -138,12 +352,31 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
         });
         return;
       }
+      if (profileSaveMode === "invalidMultiValue") {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 400,
+          body: JSON.stringify({
+            error: "invalid_profile_request",
+            issues: [
+              { path: "interests.1", message: "Interests must be unique." },
+              { path: "preferredAreas.0", message: "Choose a supported area." },
+              { path: "foodNeeds.0", message: "Choose a supported food need." },
+            ],
+          }),
+        });
+        return;
+      }
       if (profileSaveMode === "server") {
         await route.fulfill({
           contentType: "application/json",
           status: 500,
           body: JSON.stringify({ error: "profile_save_failed" }),
         });
+        return;
+      }
+      if (profileSaveMode === "network") {
+        await route.abort("failed");
         return;
       }
       if (profileSaveMode === "delayed") {
@@ -154,6 +387,9 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
         profile: {
           ...profile.profile,
           ...patch,
+          ...(patch.tripContext
+            ? { tripContext: { ...profile.profile.tripContext, ...patch.tripContext } }
+            : {}),
           updatedAt: "2026-06-29T05:00:00.000Z",
         },
       };
@@ -171,14 +407,14 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
         threads: [
           {
             id: "chat_thread_cloud9",
-            userId: "user_e2e_profile",
+            userId: "private-profile-owner",
             title: "Cloud 9 quiet sleep",
             lastMessageAt: "2026-06-29T05:00:00.000Z",
             updatedAt: "2026-06-29T05:00:00.000Z",
           },
           {
             id: "chat_thread_ferry",
-            userId: "user_e2e_profile",
+            userId: "private-profile-owner",
             title: "Airport ferry timing",
             lastMessageAt: "2026-06-28T05:00:00.000Z",
             updatedAt: "2026-06-28T05:00:00.000Z",
@@ -219,6 +455,18 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
     page.getByRole("heading", { exact: true, name: "Traveler preferences" }),
   ).toBeVisible();
   await expect(page.getByRole("heading", { exact: true, name: "Account" })).toBeVisible();
+  const accountPanel = page.locator("#account");
+  await expect(accountPanel).toContainText("Alex");
+  await expect(accountPanel).toContainText("traveler@example.com");
+  await expect(accountPanel).toContainText("Signed in");
+  const manageAccountButton = accountPanel.getByRole("button", { name: "Manage account" });
+  await expect(manageAccountButton).toBeVisible();
+  await manageAccountButton.focus();
+  await expect(manageAccountButton).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Clerk user ID")).toHaveCount(0);
+  await expect(page.getByText("user_e2e_profile")).toHaveCount(0);
+  await expect(page.getByText("clerkUserId")).toHaveCount(0);
   await expect(page.getByRole("heading", { exact: true, name: "Privacy" })).toBeVisible();
   await expect(page.getByRole("heading", { exact: true, name: "Pass" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Recent chat history" })).toBeVisible();
@@ -228,8 +476,45 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await expect(page.getByText("2 saved items")).toBeVisible();
   await expect(page.getByText("Cloud 9 dinner shortlist")).toBeVisible();
 
+  profileSaveMode = "delayed";
   await page.getByLabel("Display name").fill("Alex in Siargao");
-  await page.getByLabel("Preferred areas").fill("Cloud 9, Pacifico");
+  await page.getByRole("button", { name: "Save trip brief" }).click();
+  await page.getByLabel("Display name").fill("Alex");
+  const pendingSaveButton = page.getByRole("button", { name: "Saving trip brief" });
+  await expect(pendingSaveButton).toBeDisabled();
+  await pendingSaveButton.click({ force: true });
+  await page.waitForTimeout(100);
+  expect(patchPayloads).toHaveLength(1);
+  expect(patchPayloads[0]).toMatchObject({ displayName: "Alex in Siargao" });
+  await expect(page.getByRole("button", { name: "Save trip brief" })).toBeEnabled();
+  await expect(page.getByLabel("Display name")).toHaveValue("Alex");
+  await expect(page.getByText("You have unsaved changes")).toBeVisible();
+
+  profileSaveMode = "success";
+  await page.getByRole("button", { name: "Save trip brief" }).click();
+  await expect(page.getByText("Trip brief saved")).toBeVisible();
+  expect(patchPayloads).toHaveLength(2);
+  expect(patchPayloads[1]).toEqual({ displayName: "Alex" });
+  await page.reload();
+  await expect(page.getByLabel("Display name")).toHaveValue("Alex");
+
+  await page.getByLabel("Display name").fill("Alex in Siargao");
+  await page.getByLabel("Add preferred area").fill("Pacifico");
+  await page.getByLabel("Add preferred area").press("Enter");
+  await page.getByRole("button", { name: "Remove Pacifico" }).click();
+  await expect(page.getByLabel("Add preferred area")).toBeFocused();
+  await page.getByLabel("Add preferred area").fill("Pacifico");
+  await page.getByLabel("Add preferred area").press("Enter");
+  await page.getByLabel("Current area").selectOption("Dapa");
+  await page.getByLabel("Traveler or group type").selectOption("family_with_kids");
+  await page.getByLabel("Transport mode").selectOption("van");
+  await page.getByLabel("Maximum ride time in minutes").fill("45");
+  await page.getByLabel("Budget level").selectOption("premium");
+  await page.getByLabel("Weather preference").selectOption("flexible");
+  await page.getByLabel("Vegan").check();
+  await page.getByLabel("Gluten-free").check();
+  await page.getByRole("button", { name: "Add Food", exact: true }).click();
+  await page.getByLabel("Quiet sleep matters").check();
   await page.getByLabel("Accommodation").fill("Pacifico beach stay");
   await page.getByLabel("Trip notes").fill("Arriving in September");
   await page.getByLabel("Send occasional Ask Siargao product updates").check();
@@ -243,7 +528,7 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await expect(page.getByText("You have unsaved changes")).toBeVisible();
 
   profileSaveMode = "invalid";
-  await page.getByLabel("Surf ability").fill("x".repeat(81));
+  await page.getByLabel("Surf ability").selectOption("advanced");
   await page.getByRole("button", { name: "Save trip brief" }).click();
   await expect(page.locator("#profile-surf-ability-error")).toContainText("Choose a surf ability");
   await expect(page.getByLabel("Surf ability")).toHaveAttribute("aria-invalid", "true");
@@ -263,38 +548,78 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   );
   await expect(page.getByLabel("Traveling with children")).toHaveAttribute("aria-invalid", "true");
 
+  profileSaveMode = "invalidMultiValue";
+  await page.getByRole("button", { name: "Save trip brief" }).click();
+  await expect(page.getByRole("button", { name: "Remove Food" })).toHaveAttribute(
+    "aria-describedby",
+    "profile-interests-error-item-1",
+  );
+  await expect(page.locator("#profile-interests-error-item-1")).toContainText(
+    "Interests must be unique.",
+  );
+  await expect(page.getByRole("button", { name: "Remove Cloud 9" })).toHaveAttribute(
+    "aria-describedby",
+    "profile-preferred-areas-error-item-0",
+  );
+  await expect(page.getByLabel("Vegan")).toHaveAttribute(
+    "aria-describedby",
+    "profile-food-needs-error-item-0",
+  );
+  await expect(page.getByLabel("Gluten-free")).not.toHaveAttribute("aria-invalid", "true");
+
   profileSaveMode = "server";
-  await page.getByLabel("Surf ability").fill("Intermediate");
+  await page.getByLabel("Surf ability").selectOption("intermediate");
   await page.getByRole("button", { name: "Save trip brief" }).click();
   await expect(page.getByText("Check your entries and try again.")).toBeVisible();
   await expect(page.getByLabel("Accommodation")).toHaveValue("Pacifico beach stay");
   await expect(page.getByLabel("Trip notes")).toHaveValue("Arriving in October");
 
+  profileSaveMode = "network";
+  await page.getByRole("button", { name: "Save trip brief" }).click();
+  await expect(
+    page.getByText("Your changes are still here. Check your connection and try again."),
+  ).toBeVisible();
+  await expect(page.getByLabel("Trip notes")).toHaveValue("Arriving in October");
+  await expect(page.getByLabel("Vegan")).toBeChecked();
+  await expect(page.getByLabel("Gluten-free")).toBeChecked();
+  await expect(page.getByText("Food", { exact: true })).toBeVisible();
+
   profileSaveMode = "success";
   await page.getByRole("button", { name: "Save trip brief" }).click();
 
   await expect(page.getByText("Trip brief saved")).toBeVisible();
-  expect(patchPayload).toMatchObject({
-    surfAbility: "Intermediate",
-    weatherPreference: "avoid_rain",
+  expect(patchPayload).toEqual({
+    surfAbility: "intermediate",
     tripContext: {
-      accommodation: "Pacifico beach stay",
-      dateRange: "Aug 1 - 6",
-      currentArea: "Cloud 9",
-      travelerType: "Couple",
-      transportMode: "scooter",
-      rideTimeLimitMinutes: 25,
       durableConstraints: ["rain_avoidance", "with_kids"],
       notes: "Arriving in October",
     },
   });
-  expect(patchPayload).not.toHaveProperty("quietSleepPreference");
+  for (const confirmedOrUnchangedField of [
+    "displayName",
+    "budgetLevel",
+    "foodNeeds",
+    "preferredAreas",
+    "quietSleepPreference",
+    "weatherPreference",
+    "marketingConsent",
+    "tripContext.accommodation",
+    "tripContext.currentArea",
+    "tripContext.dateRange",
+    "tripContext.travelerType",
+    "tripContext.transportMode",
+    "tripContext.rideTimeLimitMinutes",
+  ]) {
+    expect(patchPayload).not.toHaveProperty(confirmedOrUnchangedField);
+  }
 
   await page.reload();
   await expect(page.getByLabel("Display name")).toHaveValue("Alex in Siargao");
-  await expect(page.getByLabel("Preferred areas")).toHaveValue("Cloud 9, Pacifico");
+  await expect(page.getByText("Pacifico", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Trip notes")).toHaveValue("Arriving in October");
   await expect(page.getByLabel("Accommodation")).toHaveValue("Pacifico beach stay");
+  await expect(page.getByLabel("Vegan")).toBeChecked();
+  await expect(page.getByLabel("Gluten-free")).toBeChecked();
   await expect(page.getByLabel("Send occasional Ask Siargao product updates")).toBeChecked();
 
   await page.goto("/profile");
@@ -310,15 +635,218 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await expect(page.locator("#traveler-preferences")).toBeFocused();
   await page.screenshot({ path: "test-results/issue-114-trip-brief-desktop.png", fullPage: true });
 
-  await page.setViewportSize({ width: 195, height: 844 });
+  await page.setViewportSize({ width: 360, height: 844 });
   const hasHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth,
   );
   expect(hasHorizontalOverflow).toBe(false);
   await page.screenshot({
-    path: "test-results/issue-114-trip-brief-mobile-200.png",
+    path: "test-results/issue-122-structured-controls-mobile-360.png",
     fullPage: true,
   });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const has390HorizontalOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > window.innerWidth,
+  );
+  expect(has390HorizontalOverflow).toBe(false);
+  await page.screenshot({
+    path: "test-results/issue-122-structured-controls-mobile-390.png",
+    fullPage: true,
+  });
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = "2";
+  });
+  await expect(page.getByLabel("Add preferred area")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save trip brief" })).toBeVisible();
+  const hasZoomedHorizontalOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(hasZoomedHorizontalOverflow).toBe(false);
+  await page.screenshot({
+    path: "test-results/issue-122-structured-controls-mobile-390-zoom-200.png",
+    fullPage: true,
+  });
+});
+
+test("preserves untouched legacy multi-value tokens byte-for-byte on an unrelated save", async ({
+  page,
+}) => {
+  let patchPayload: Record<string, unknown> | null = null;
+  let profile = {
+    identity: {
+      email: "legacy@example.com",
+      firstName: "Legacy",
+      lastName: "Traveler",
+    },
+    profile: {
+      displayName: "Legacy",
+      homeCountry: null,
+      travelStyle: null,
+      budgetLevel: "slow_travel",
+      dietaryNotes: null,
+      foodNeeds: ["vegan", "plant_forward_custom"],
+      accessibilityNotes: null,
+      surfAbility: "Ocean whisperer",
+      quietSleepPreference: null,
+      weatherPreference: null,
+      interests: ["Surf, yoga", "  Food  "],
+      preferredAreas: ["Cloud 9", "  Secret corner  "],
+      tripContext: {
+        travelerType: "Remote work retreat",
+        durableConstraints: ["quiet_sleep", "legacy_low_ferry"],
+      },
+      marketingConsent: false,
+      createdAt: "2026-06-29T04:00:00.000Z",
+      updatedAt: "2026-06-29T04:00:00.000Z",
+    },
+  };
+
+  await page.route("**/api/me/profile", async (route) => {
+    if (route.request().method() === "PATCH") {
+      const patch = route.request().postDataJSON() as Partial<typeof profile.profile>;
+      patchPayload = patch as Record<string, unknown>;
+      profile = {
+        ...profile,
+        profile: { ...profile.profile, ...patch, updatedAt: "2026-06-29T05:00:00.000Z" },
+      };
+    }
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(profile) });
+  });
+
+  await page.goto("/settings");
+  await expect(page.getByText("Surf, yoga", { exact: true })).toBeVisible();
+  await expect(page.getByText("Food", { exact: true })).toBeVisible();
+  await expect(page.getByText("Secret corner", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Vegan")).toBeChecked();
+  await expect(page.getByLabel("Legacy value: plant_forward_custom")).toBeChecked();
+  await expect(page.getByLabel("Surf ability")).toHaveValue("Ocean whisperer");
+  await expect(page.getByLabel("Budget level")).toHaveValue("slow_travel");
+  await expect(page.getByLabel("Traveler or group type")).toHaveValue("Remote work retreat");
+  await page.getByLabel("Display name").fill("Renamed traveler");
+  await page.getByRole("button", { name: "Save trip brief" }).click();
+  await expect(page.getByText("Trip brief saved")).toBeVisible();
+
+  expect(patchPayload).toEqual({ displayName: "Renamed traveler" });
+  expect(profile.profile.interests).toEqual(["Surf, yoga", "  Food  "]);
+  expect(profile.profile.preferredAreas).toEqual(["Cloud 9", "  Secret corner  "]);
+  expect(profile.profile.foodNeeds).toEqual(["vegan", "plant_forward_custom"]);
+  expect(profile.profile.tripContext.durableConstraints).toEqual([
+    "quiet_sleep",
+    "legacy_low_ferry",
+  ]);
+});
+
+test("renders safe account identity across settings states and narrow layouts", async ({
+  page,
+}) => {
+  const longName = "María-Luisa Ngọc Nguyễn surf planning ".repeat(5).trim();
+  let profileMode: "long" | "partial" | "server" | "anonymous" = "long";
+
+  await page.route("**/api/me/profile", async (route) => {
+    if (profileMode === "anonymous") {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 401,
+        body: JSON.stringify({ error: "unauthenticated" }),
+      });
+      return;
+    }
+    if (profileMode === "server") {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 500,
+        body: JSON.stringify({ error: "profile_load_failed" }),
+      });
+      return;
+    }
+
+    const profile = {
+      identity:
+        profileMode === "partial"
+          ? { email: "partial@example.com", firstName: "Taylor", lastName: null }
+          : { email: null, firstName: null, lastName: null },
+      profile: {
+        displayName: profileMode === "partial" ? null : longName,
+        homeCountry: null,
+        travelStyle: null,
+        budgetLevel: null,
+        dietaryNotes: null,
+        foodNeeds: [],
+        accessibilityNotes: null,
+        surfAbility: null,
+        quietSleepPreference: null,
+        weatherPreference: null,
+        interests: [],
+        preferredAreas: [],
+        tripContext: {},
+        marketingConsent: false,
+        createdAt: null,
+        updatedAt: null,
+      },
+    };
+    const responseBody = JSON.stringify(profile);
+    expect(responseBody).not.toContain("user_safe_identity");
+    expect(responseBody).not.toContain("clerkUserId");
+    await route.fulfill({ contentType: "application/json", body: responseBody });
+  });
+  await page.route("**/api/chat/threads", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ threads: [] }) });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [] }) });
+  });
+
+  await page.goto("/settings");
+  const accountPanel = page.locator("#account");
+  await expect(accountPanel).toContainText(longName);
+  await expect(accountPanel).toContainText("Email unavailable");
+  await expect(accountPanel).toContainText("Signed in");
+  await expect(accountPanel.getByRole("button", { name: "Manage account" })).toBeVisible();
+  await expect(page.getByText("Clerk user ID")).toHaveCount(0);
+  await expect(page.getByText("user_safe_identity")).toHaveCount(0);
+  await expect(
+    page.getByText("unavailable+user_safe_identity@clerk.ask-siargao.local"),
+  ).toHaveCount(0);
+
+  for (const width of [360, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await accountPanel.getByRole("button", { name: "Manage account" }).focus();
+    await expect(accountPanel.getByRole("button", { name: "Manage account" })).toBeFocused();
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    );
+    expect(overflow).toBe(false);
+  }
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = "2";
+  });
+  await expect(accountPanel.getByRole("button", { name: "Manage account" })).toBeVisible();
+  const zoomedOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(zoomedOverflow).toBe(false);
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = "";
+  });
+
+  profileMode = "partial";
+  await page.goto("/profile");
+  await expect(page.locator("#account")).toContainText("Taylor");
+  await expect(page.locator("#account")).toContainText("partial@example.com");
+  await expect(page.getByText("Clerk user ID")).toHaveCount(0);
+
+  profileMode = "server";
+  await page.goto("/settings");
+  await expect(page.getByRole("heading", { name: "Settings unavailable" })).toBeVisible();
+  await expect(page.getByText(longName)).toHaveCount(0);
+  await expect(page.getByText("partial@example.com")).toHaveCount(0);
+
+  profileMode = "anonymous";
+  await page.goto("/settings");
+  await expect(
+    page.getByRole("heading", { name: "Sign in to manage your settings" }),
+  ).toBeVisible();
+  await expect(page.getByText("Taylor")).toHaveCount(0);
 });
 
 test("renders public human, markdown, JSON, sitemap, and llms surfaces", async ({ page }) => {
@@ -370,7 +898,10 @@ test("allows same-origin browser geolocation while blocking unrelated sensitive 
 for (const width of [390, 768, 1024, 1366]) {
   test(`does not create horizontal overflow at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto("/");
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("heading", { name: /plan the island around your real constraints/i }),
+    ).toBeVisible();
 
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth,

@@ -1,4 +1,20 @@
 import type {
+  CurrentAreaValue,
+  DurableConstraint,
+  TransportModeValue,
+  WeatherPreference,
+} from "@/features/settings/profile-options";
+import {
+  currentAreaOptions,
+  currentAreaValues,
+  durableConstraintValues,
+  isOptionValue,
+  normalizeSurfAbility,
+  normalizeTravelerType,
+  profileBudgetForTripContext,
+  transportModeOptions,
+} from "@/features/settings/profile-options";
+import type {
   ChatClientContext,
   ChatClientGeolocationConsentScope,
   ChatClientGeolocationContext,
@@ -13,14 +29,7 @@ export type TripContextLocationSource =
   | "profile"
   | "ui_draft";
 
-export type TripContextLocationLabel =
-  | "Cloud 9"
-  | "Del Carmen Port"
-  | "Sugba Lagoon"
-  | "General Luna"
-  | "Del Carmen"
-  | "Dapa"
-  | "Siargao Island";
+export type TripContextLocationLabel = CurrentAreaValue | "Del Carmen Port" | "Sugba Lagoon";
 
 export type TripContextLocation = {
   label: TripContextLocationLabel;
@@ -28,7 +37,7 @@ export type TripContextLocation = {
   source: TripContextLocationSource;
 };
 
-export type TransportMode = "walk" | "scooter" | "tricycle" | "van" | "unknown";
+export type TransportMode = TransportModeValue;
 
 export type BudgetPreference = "cheap" | "mid" | "premium";
 
@@ -93,12 +102,7 @@ export type TripContext = {
   unresolvedReference?: "there";
 };
 
-export type ForecastLocationLabel =
-  | "Siargao Island"
-  | "Cloud 9"
-  | "General Luna"
-  | "Del Carmen"
-  | "Dapa";
+export type ForecastLocationLabel = CurrentAreaValue;
 
 export type TripContextDraft = {
   accommodation?: string;
@@ -124,10 +128,11 @@ export type TripContextProfileInput = Partial<{
   travelStyle: string | null;
   budgetLevel: string | null;
   dietaryNotes: string | null;
+  foodNeeds: readonly string[];
   accessibilityNotes: string | null;
   surfAbility: string | null;
   quietSleepPreference: boolean | null;
-  weatherPreference: "avoid_rain" | "flexible" | null;
+  weatherPreference: WeatherPreference | null;
   interests: readonly string[];
   preferredAreas: readonly string[];
   tripContext: UserProfileTripContext;
@@ -176,25 +181,11 @@ const defaultNearbyLocation: TripContextLocation = {
   source: "gazetteer",
 };
 
-const knownLocationLabels = [
-  "Del Carmen Port",
-  "Sugba Lagoon",
-  "General Luna",
-  "Cloud 9",
-  "Del Carmen",
-  "Dapa",
-  "Siargao Island",
-] as const;
+const knownLocationLabels = ["Del Carmen Port", "Sugba Lagoon", ...currentAreaValues] as const;
 
 export const tripContextStorageKey = "ask-siargao:trip-context:v1";
 
-export const forecastLocationLabels = [
-  "Cloud 9",
-  "General Luna",
-  "Del Carmen",
-  "Dapa",
-  "Siargao Island",
-] as const satisfies readonly ForecastLocationLabel[];
+export const forecastLocationLabels = currentAreaValues;
 
 export const tripContextProfileNotesMaxLength = 1000;
 const maxTripContextTextLength = 80;
@@ -203,16 +194,7 @@ const maxGeolocationAgeMs = 30 * 60 * 1_000;
 const maxFutureGeolocationSkewMs = 5 * 60 * 1_000;
 const maxUsableAccuracyMeters = 3_000;
 
-const allowedDurableConstraints = [
-  "with_kids",
-  "budget_cheap",
-  "budget_mid",
-  "budget_premium",
-  "rain_avoidance",
-  "avoid_rocky_beach",
-  "no_scooter",
-  "quiet_sleep",
-] as const;
+const allowedDurableConstraints = durableConstraintValues;
 
 const profileTripContextKeys = [
   "notes",
@@ -535,14 +517,7 @@ export function parseUserProfileTripContextPatch(
     "dateRange",
     issues,
   );
-  readNullableBoundedText(
-    record.travelerType,
-    "tripContext.travelerType",
-    maxTripContextTextLength,
-    data,
-    "travelerType",
-    issues,
-  );
+  readNullableTravelerType(record.travelerType, data, issues);
   readNullableTransportMode(record.transportMode, data, issues);
   readNullableRideTimeLimit(record.rideTimeLimitMinutes, data, issues);
   readDurableConstraints(record.durableConstraints, data, issues);
@@ -563,7 +538,45 @@ export function normalizeStoredProfileTripContext(value: unknown): UserProfileTr
       .map((key) => [key, storedRecord[key]]),
   );
   const normalized = parseUserProfileTripContextPatch(boundedStoredRecord);
-  return normalized.success ? normalized.data : {};
+  if (normalized.success) {
+    return normalized.data;
+  }
+
+  // Historic rows predate the structured controls. Keep safe, bounded values visible so an
+  // unrelated profile save cannot erase a traveler-owned value just because it is no longer a
+  // selectable option. New PATCH requests still use the strict parser above.
+  const legacy: UserProfileTripContext = {};
+  const legacyTravelerType = normalizedOptionalContextText(storedRecord.travelerType);
+  if (legacyTravelerType) {
+    legacy.travelerType = legacyTravelerType;
+  }
+  const accommodation = normalizedOptionalContextText(storedRecord.accommodation);
+  if (accommodation) {
+    legacy.accommodation = accommodation;
+  }
+  const dateRange = normalizedOptionalContextText(storedRecord.dateRange);
+  if (dateRange) {
+    legacy.dateRange = dateRange;
+  }
+  const notes = normalizedOptionalProfileNotes(storedRecord.notes);
+  if (notes) {
+    legacy.notes = notes;
+  }
+  if (isLocationLabel(storedRecord.currentArea)) {
+    legacy.currentArea = storedRecord.currentArea;
+  }
+  if (isTransportMode(storedRecord.transportMode)) {
+    legacy.transportMode = storedRecord.transportMode;
+  }
+  if (isValidRideTimeLimit(storedRecord.rideTimeLimitMinutes)) {
+    legacy.rideTimeLimitMinutes = storedRecord.rideTimeLimitMinutes;
+  }
+  if (Array.isArray(storedRecord.durableConstraints)) {
+    legacy.durableConstraints = storedRecord.durableConstraints.filter(
+      (item): item is string => typeof item === "string" && item.length <= maxTripContextTextLength,
+    );
+  }
+  return legacy;
 }
 
 export function summarizeTripContextForAgent(intent: ChatRequestIntent) {
@@ -1085,21 +1098,20 @@ function tripContextSeedFromProfile(input: TripContextProfileInput | null | unde
     null;
   const profileText = [
     input?.travelStyle,
-    input?.budgetLevel,
     input?.dietaryNotes,
     input?.accessibilityNotes,
-    input?.surfAbility,
     ...(input?.interests ?? []),
     profileTripContext.travelerType,
   ]
     .filter((value): value is string => typeof value === "string")
     .join(" ");
   const inferredProfile = inferTravelerProfile(profileText);
-  const budget = inferBudgetPreference(input?.budgetLevel ?? "") ?? inferredProfile.budget;
+  const budget = profileBudgetForTripContext(input?.budgetLevel) ?? inferredProfile.budget;
+  const surfAbility = normalizeSurfAbility(input?.surfAbility) ?? input?.surfAbility ?? undefined;
   const travelerProfile = {
     ...inferredProfile,
     ...(budget ? { budget } : {}),
-    ...(input?.surfAbility ? { surfAbility: input.surfAbility } : {}),
+    ...(surfAbility ? { surfAbility } : {}),
     prefersQuietSleep: input?.quietSleepPreference === true,
     avoidsRain: input?.weatherPreference === "avoid_rain" || inferredProfile.avoidsRain,
   };
@@ -1137,7 +1149,7 @@ function tripContextSeedFromProfile(input: TripContextProfileInput | null | unde
     dateRange: profileTripContext.dateRange ?? undefined,
     travelerType: profileTripContext.travelerType ?? undefined,
     rideTimeLimitMinutes: profileTripContext.rideTimeLimitMinutes ?? undefined,
-    surfAbility: input?.surfAbility ?? undefined,
+    surfAbility,
   };
 }
 
@@ -1239,8 +1251,12 @@ function normalizeKey(value: string) {
   return value.toLowerCase().replaceAll(/\s+/g, " ").trim();
 }
 
-function normalizedOptionalContextText(value: string | undefined) {
-  return value?.trim().slice(0, maxTripContextTextLength) ?? "";
+function normalizedOptionalContextText(value: unknown) {
+  return typeof value === "string" ? value.trim().slice(0, maxTripContextTextLength) : "";
+}
+
+function normalizedOptionalProfileNotes(value: unknown) {
+  return typeof value === "string" ? value.trim().slice(0, tripContextProfileNotesMaxLength) : "";
 }
 
 function isForecastLocationLabel(value: unknown): value is ForecastLocationLabel {
@@ -1258,19 +1274,12 @@ function isLocationLabel(value: unknown): value is TripContextLocationLabel {
 }
 
 function isTransportMode(value: unknown): value is TransportMode {
-  return (
-    value === "walk" ||
-    value === "scooter" ||
-    value === "tricycle" ||
-    value === "van" ||
-    value === "unknown"
-  );
+  return isOptionValue(value, transportModeOptions);
 }
 
-function isDurableConstraint(value: unknown): value is (typeof allowedDurableConstraints)[number] {
+function isDurableConstraint(value: unknown): value is DurableConstraint {
   return (
-    typeof value === "string" &&
-    allowedDurableConstraints.includes(value as (typeof allowedDurableConstraints)[number])
+    typeof value === "string" && allowedDurableConstraints.includes(value as DurableConstraint)
   );
 }
 
@@ -1302,6 +1311,29 @@ function readNullableBoundedText<K extends keyof UserProfileTripContext>(
   output[key] = (trimmedValue || null) as UserProfileTripContext[K];
 }
 
+function readNullableTravelerType(
+  value: unknown,
+  target: UserProfileTripContext,
+  issues: TripContextValidationIssue[],
+) {
+  if (value === undefined) {
+    return;
+  }
+  if (value === null) {
+    target.travelerType = null;
+    return;
+  }
+  const normalized = typeof value === "string" ? normalizeTravelerType(value) : undefined;
+  if (!normalized) {
+    issues.push({
+      path: "tripContext.travelerType",
+      message: "Choose a supported traveler or group type.",
+    });
+    return;
+  }
+  target.travelerType = normalized;
+}
+
 function readNullableBoundedLocation(
   value: unknown,
   path: string,
@@ -1316,7 +1348,7 @@ function readNullableBoundedLocation(
     output[key] = null;
     return;
   }
-  if (!isLocationLabel(value)) {
+  if (!isOptionValue(value, currentAreaOptions)) {
     issues.push({ path, message: "Expected a supported Siargao location label or null." });
     return;
   }
@@ -1370,6 +1402,15 @@ function readNullableRideTimeLimit(
     return;
   }
   output.rideTimeLimitMinutes = value;
+}
+
+function isValidRideTimeLimit(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= maxRideTimeLimitMinutes
+  );
 }
 
 function readDurableConstraints(
