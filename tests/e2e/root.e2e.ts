@@ -4,31 +4,171 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: /ask siargao anything about your trip/i }),
+    page.getByRole("heading", { name: /plan the island around your real constraints/i }),
   ).toBeVisible();
-  await expect(page.getByRole("link", { name: /ask a trip question/i })).toHaveAttribute(
-    "href",
-    "/chat",
-  );
+  await expect(page.getByRole("link", { name: "Ask in chat" })).toHaveAttribute("href", "/chat");
   await expect(page.getByLabel("Example Ask Siargao prompt")).toContainText(
-    "Staying near Cloud 9 for 10 days",
+    "What should we do today if rain hits Cloud 9?",
   );
-  await expect(page.getByRole("heading", { name: "Planning checks for Siargao" })).toBeVisible();
-  await expect(page.getByText("Start with a real trip constraint")).toBeVisible();
-  await expect(page.getByText("GPT-backed answers", { exact: true })).toBeVisible();
-  await expect(page.getByText("Weather snapshot support")).toBeVisible();
-  await expect(page.getByText("Live local data")).toHaveCount(0);
-  await expect(page.getByText("Freshness + confidence shown")).toHaveCount(0);
-  await expect(page.getByText("Updated 12 min ago")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Planning inputs available in chat" }),
+  ).toBeAttached();
+  await expect(page.getByText("Weather", { exact: true })).toBeVisible();
+  await expect(page.getByText("Places", { exact: true })).toBeVisible();
+  await expect(page.getByText("Local caveats", { exact: true })).toBeVisible();
+  await expect(page.getByText("Checked on request")).toHaveCount(2);
+  await expect(page.locator("svg.lucide-check")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Choose the right base" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Make the weather call" })).toBeVisible();
   await expect(
-    page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: /Ask Siargao/i }),
+    page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
   ).toHaveAttribute("href", /\/chat\?prompt=/);
-  await expect(page.getByRole("link", { name: "Cloud 9 quiet sleep" })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Quiet base" })).toHaveAttribute(
     "href",
-    /\/chat\?prompt=Is%20my%20accommodation/,
+    /\/chat\?prompt=Where%20should%20we%20stay/,
   );
+});
+
+test("exposes real desktop navigation in keyboard reading order", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+
+  const navigation = page.getByRole("navigation", { name: "Landing page" });
+  await expect(navigation).toBeVisible();
+  for (const [label, target] of [
+    ["Start a question", "#start-a-question"],
+    ["Planning inputs", "#planning-inputs"],
+    ["Plan smarter", "#plan-smarter"],
+  ] as const) {
+    const link = navigation.getByRole("link", { name: label });
+    await expect(link).toHaveAttribute("href", target);
+    await expect(page.locator(target)).toHaveCount(1);
+  }
+
+  const expectedTabOrder = [
+    page.getByRole("link", { name: "Ask Siargao home" }),
+    navigation.getByRole("link", { name: "Start a question" }),
+    navigation.getByRole("link", { name: "Planning inputs" }),
+    navigation.getByRole("link", { name: "Plan smarter" }),
+    page.getByRole("link", { name: "Ask in chat" }),
+    page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
+    page.getByRole("link", { name: "Quiet base" }),
+    page.getByRole("link", { name: "Food route" }),
+  ];
+
+  for (const link of expectedTabOrder) {
+    await page.keyboard.press("Tab");
+    await expect(link).toBeFocused();
+    const outlineStyle = await link.evaluate((element) => getComputedStyle(element).outlineStyle);
+    expect(outlineStyle).not.toBe("none");
+  }
+});
+
+test("landing prompt actions preserve exact chat handoff without submitting", async ({ page }) => {
+  const actions = [
+    {
+      link: () =>
+        page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
+      prompt: "What should we do today if rain hits Cloud 9?",
+    },
+    {
+      link: () => page.getByRole("link", { name: "Quiet base" }),
+      prompt:
+        "Where should we stay in Siargao if we want quiet sleep, surf access, and easy dinner options?",
+    },
+    {
+      link: () =>
+        page
+          .getByRole("article")
+          .filter({ has: page.getByRole("heading", { name: "Make the weather call" }) })
+          .getByRole("link", { name: "Ask about this" }),
+      prompt: "Build a Siargao plan for today that adapts if rain gets heavy around Cloud 9.",
+    },
+  ];
+  let chatSubmissions = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/api/chat") {
+      chatSubmissions += 1;
+    }
+  });
+
+  for (const action of actions) {
+    await page.goto("/");
+    const link = action.link();
+    await expect(link).toHaveAttribute("href", `/chat?prompt=${encodeURIComponent(action.prompt)}`);
+    await link.click();
+
+    await expect(page.getByLabel("Ask anything about Siargao")).toHaveValue(action.prompt);
+    expect(new URL(page.url()).searchParams.get("prompt")).toBe(action.prompt);
+    expect(chatSubmissions).toBe(0);
+  }
+});
+
+test("landing remains intentional and overflow-free across target viewports", async ({ page }) => {
+  const viewports = [
+    { name: "mobile-390", width: 390, height: 844 },
+    { name: "tablet-768", width: 768, height: 1024 },
+    { name: "desktop-1440", width: 1440, height: 1000 },
+    { name: "wide-1920", width: 1920, height: 1080 },
+  ] as const;
+
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+      await Promise.all(
+        Array.from(document.images).map((image) =>
+          image.complete
+            ? Promise.resolve()
+            : new Promise<void>((resolve) => {
+                image.addEventListener("load", () => resolve(), { once: true });
+                image.addEventListener("error", () => resolve(), { once: true });
+              }),
+        ),
+      );
+    });
+
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    ).toBe(true);
+    await expect(
+      page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Plan smarter in Siargao" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Landing page" })).toBeVisible({
+      visible: viewport.width >= 1024,
+    });
+    await page.screenshot({
+      fullPage: true,
+      path: `test-results/issue-110-landing-${viewport.name}.png`,
+    });
+  }
+});
+
+test("landing remains usable at a 200 percent zoom equivalent with reduced motion", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 720, height: 900 });
+  await page.goto("/");
+
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+  ).toBe(true);
+  for (const link of [
+    page.getByRole("link", { name: "Ask in chat" }),
+    page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
+    page.getByRole("link", { name: "Quiet base" }),
+    page.getByRole("link", { name: "Food route" }),
+  ]) {
+    await expect(link).toBeVisible();
+    const box = await link.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box?.x ?? -1).toBeGreaterThanOrEqual(0);
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(721);
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+  }
 });
 
 test("shows processing state after checkout return", async ({ page }) => {
