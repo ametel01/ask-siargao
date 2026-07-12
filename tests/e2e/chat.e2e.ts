@@ -628,12 +628,16 @@ test("keeps mobile modal interaction, anonymous edits, and location scope in the
   const dialog = page.getByTestId("mobile-trip-context-dialog");
   await expect(dialog).toHaveAttribute("role", "dialog");
   await expect(dialog.getByRole("button", { name: "Close trip details" })).toBeFocused();
-  await expect
-    .poll(() => radixModalBackgroundContract(page))
-    .toEqual({
-      dialogOutsideHiddenBoundary: true,
-      hasRadixHiddenBoundary: true,
-    });
+  await expect(page.getByRole("textbox", { name: "Ask anything about Siargao" })).toHaveCount(0);
+  let outsideClickBlocked = false;
+  try {
+    await composer.click({ timeout: 500, trial: true });
+  } catch {
+    outsideClickBlocked = true;
+  }
+  expect(outsideClickBlocked).toBe(true);
+  await composer.evaluate((element) => element.focus());
+  await expect.poll(() => focusIsInsideMobileTripDialog(page)).toBe(true);
   expect(
     await page.evaluate(
       () =>
@@ -828,7 +832,7 @@ test("shares one typed live-condition projection between mobile and desktop with
   await expect(mobileSurf.getByTestId("surf-condition-state")).toHaveText(
     "Partial checked signals",
   );
-  await expect(mobileSurf.getByTestId("surf-condition-basis")).toContainText(
+  await expect(mobileSurf.getByTestId("mobile-surf-condition-basis")).toContainText(
     "Missing: tide, swell",
   );
   await expect(dialog).toContainText("Road access, official marine warnings, and safety status");
@@ -3013,18 +3017,6 @@ async function focusIsInsideMobileTripDialog(page: Page) {
   return page.evaluate(() => {
     const dialog = document.querySelector("[data-testid='mobile-trip-context-dialog']");
     return Boolean(dialog?.contains(document.activeElement));
-  });
-}
-
-async function radixModalBackgroundContract(page: Page) {
-  return page.evaluate(() => {
-    const workspace = document.querySelector("[aria-label='Ask Siargao chat workspace']");
-    const dialog = document.querySelector("[data-testid='mobile-trip-context-dialog']");
-    const hiddenBoundary = workspace?.closest('[data-aria-hidden="true"][aria-hidden="true"]');
-    return {
-      dialogOutsideHiddenBoundary: Boolean(dialog && !hiddenBoundary?.contains(dialog)),
-      hasRadixHiddenBoundary: Boolean(hiddenBoundary),
-    };
   });
 }
 
