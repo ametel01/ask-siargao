@@ -262,7 +262,9 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect(page.getByText("At a Glance")).toHaveCount(0);
   await expect(composerInput).toBeDisabled();
   await expect(sendButton).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Help me plan a Siargao day" })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Plan my Siargao day around my accommodation." }),
+  ).toBeDisabled();
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(lastSubmittedContent(mockChat.requests[0])).toBe(
     "Where should we eat near Cloud 9 tonight?",
@@ -1905,16 +1907,20 @@ test("sends a mobile suggested prompt through the same chat API path", async ({ 
   await expect(page.getByText("24 live refreshes left")).toHaveCount(0);
   await expect(page.getByText(/Will my place be quiet/i)).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Help me plan a quiet Siargao day" }).click();
+  await page.getByRole("button", { name: "Plan my Siargao day around my accommodation." }).click();
 
   await expect(
-    page.getByLabel("Conversation messages").getByText("Help me plan a quiet Siargao day"),
+    page
+      .getByLabel("Conversation messages")
+      .getByText("Plan my Siargao day around my accommodation."),
   ).toBeVisible();
   await expect(
     page.getByText("Mocked mobile answer: keep the day slow around Cloud 9 and Catangnan."),
   ).toBeVisible();
   await expect.poll(() => mockChat.requests.length).toBe(1);
-  expect(lastSubmittedContent(mockChat.requests[0])).toBe("Help me plan a quiet Siargao day");
+  expect(lastSubmittedContent(mockChat.requests[0])).toBe(
+    "Plan my Siargao day around my accommodation.",
+  );
   expect(mockChat.requests[0]?.clientContext?.geolocation).toMatchObject({
     latitude: 9.8116,
     longitude: 126.1651,
@@ -1922,6 +1928,89 @@ test("sends a mobile suggested prompt through the same chat API path", async ({ 
     consentScope: "single_request",
   });
   await expect(page.getByLabel("Ask anything about Siargao")).toBeVisible();
+});
+
+test("personalizes suggested prompts and submits the exact visible prompt with context", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.addInitScript(
+    ({ key, value }) => {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: tripContextStorageKey,
+      value: {
+        accommodation: "Dapa family stay",
+        dateRange: "Aug 1 - 6",
+        travelerType: "Family with kids, no scooter, quiet sleep, rain-sensitive",
+        nearbyArea: "Dapa",
+      },
+    },
+  );
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
+  await mockUnavailableMobileConditions(page);
+  const mockChat = await mockChatApi(page, {
+    message: "Context answer.",
+  });
+
+  await page.goto("/chat");
+
+  const suggestedPromptBar = page.getByLabel("Suggested prompts");
+  await expect(suggestedPromptBar.getByRole("button")).toHaveCount(4);
+  await expect(
+    suggestedPromptBar.getByRole("button", {
+      name: "Plan a day around Dapa without relying on a scooter.",
+    }),
+  ).toBeVisible();
+  await expect(
+    suggestedPromptBar.getByRole("button", {
+      name: "What kid-friendly plan works around Dapa with easy fallback stops?",
+    }),
+  ).toBeVisible();
+  await expect(
+    suggestedPromptBar.getByRole("button", {
+      name: "How can we keep quiet sleep in mind around Dapa?",
+    }),
+  ).toBeVisible();
+  await expect(
+    suggestedPromptBar.getByRole("button", {
+      name: "What should we do around Dapa if rain changes the plan?",
+    }),
+  ).toBeVisible();
+  await expect(
+    suggestedPromptBar.getByRole("button", { name: "Help me choose a Siargao area to stay." }),
+  ).toHaveCount(0);
+  expect(mockChat.requests).toHaveLength(0);
+
+  await page.getByLabel("Ask anything about Siargao").fill("Start with my arrival plan.");
+  await page.getByRole("button", { name: "Send question" }).click();
+  await expect(page.getByText("Context answer.")).toBeVisible();
+  await expect.poll(() => mockChat.requests.length).toBe(1);
+
+  const visiblePrompt = "What should we do around Dapa if rain changes the plan?";
+  await suggestedPromptBar.getByRole("button", { name: visiblePrompt }).click();
+
+  await expect(page.getByLabel("Conversation messages").getByText(visiblePrompt)).toBeVisible();
+  await expect.poll(() => mockChat.requests.length).toBe(2);
+  expect(lastSubmittedContent(mockChat.requests[1])).toBe(visiblePrompt);
+  expect(mockChat.requests[1]?.messages?.map((message) => message.content)).toEqual([
+    "Start with my arrival plan.",
+    "Context answer.",
+    visiblePrompt,
+  ]);
+  expect(mockChat.requests[1]?.clientContext?.tripContext).toMatchObject({
+    accommodation: "Dapa family stay",
+    dateRange: "Aug 1 - 6",
+    travelerType: "Family with kids, no scooter, quiet sleep, rain-sensitive",
+    nearbyArea: "Dapa",
+  });
 });
 
 test("renders structured recommendation cards and submits action prompts", async ({ page }) => {

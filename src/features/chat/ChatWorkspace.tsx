@@ -129,6 +129,7 @@ import {
   writeAuthenticatedSavedTripState,
   writeSavedTripState,
 } from "@/features/chat/saved-trip-client";
+import { buildSuggestedPrompts } from "@/features/chat/suggested-prompts";
 import {
   defaultTripContextDraft as defaultTripContext,
   type ForecastLocationLabel,
@@ -150,12 +151,6 @@ import {
 } from "@/features/chat/trip-state";
 import { cn } from "@/lib/utils";
 import { BrandLockup, PalmMark } from "@/ui/components/ask-siargao";
-
-const suggestedPrompts = [
-  "Help me plan a Siargao day",
-  "What should I check before a beach day?",
-  "Help me plan a quiet Siargao day",
-];
 
 type ChatContextIcon = typeof MapPin;
 type WeatherPanelSnapshot = WeatherConditionSnapshot;
@@ -1292,6 +1287,15 @@ function ChatWorkspaceView({
   const hasMessages = messages.length > 0;
   const showMobileTripContext = useMobileTripContextViewport();
   const liveConditions = useLiveConditions(locationState, tripContext);
+  const suggestedPrompts = useMemo(
+    () =>
+      buildSuggestedPrompts({
+        context: tripContext,
+        surfDecision: liveConditions.surfDecision,
+        weatherDecision: liveConditions.weatherDecision,
+      }),
+    [liveConditions.surfDecision, liveConditions.weatherDecision, tripContext],
+  );
   const chatScrollAreaRef = useRef<HTMLDivElement | null>(null);
   const lastMessage = messages.at(-1);
   const scrollAnchorVersion = `${messages.length}:${
@@ -4637,7 +4641,7 @@ function SuggestedPromptBar({
 }: {
   disabled: boolean;
   onSubmitPrompt: (prompt: string) => void;
-  prompts: string[];
+  prompts: readonly string[];
 }) {
   return (
     <fieldset
@@ -4667,7 +4671,7 @@ function ChatEmptyState({
 }: {
   disabled: boolean;
   onSubmitPrompt: (prompt: string) => void;
-  prompts: string[];
+  prompts: readonly string[];
 }) {
   return (
     <div className="grid min-h-full min-w-0 content-center gap-8 py-10 sm:py-14">
