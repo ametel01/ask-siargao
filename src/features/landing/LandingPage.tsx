@@ -15,6 +15,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
+import { projectCapabilityEvidencePresentation } from "@/features/chat/evidence-presentation-state";
 import { cn } from "@/lib/utils";
 
 const heroPrompt = "What should we do today if rain hits Cloud 9?";
@@ -43,9 +44,24 @@ const quickChips = [
 ] as const;
 
 const planningInputs = [
-  { label: "Weather", detail: "Checked on request", icon: CloudRain, tone: "lagoon" },
-  { label: "Places", detail: "Checked on request", icon: MapPin, tone: "lagoon" },
-  { label: "Local caveats", detail: "Added when relevant", icon: Info, tone: "gold" },
+  {
+    label: "Weather",
+    evidence: projectCapabilityEvidencePresentation("Can check forecasts when asked"),
+    icon: CloudRain,
+    tone: "lagoon",
+  },
+  {
+    label: "Places",
+    evidence: projectCapabilityEvidencePresentation("Can check places when asked"),
+    icon: MapPin,
+    tone: "lagoon",
+  },
+  {
+    label: "Local caveats",
+    evidence: projectCapabilityEvidencePresentation("Can explain limits when relevant"),
+    icon: Info,
+    tone: "gold",
+  },
 ] as const;
 
 const planningCards: {
@@ -257,25 +273,28 @@ function PlanningInputs() {
       <h2 className="sr-only" id="planning-inputs-title">
         Planning inputs available in chat
       </h2>
-      {planningInputs.map(({ detail, icon: Icon, label, tone }) => (
-        <div
-          className="flex min-w-0 items-center gap-3 sm:justify-center sm:border-border-on-dark sm:px-2 sm:not-last:border-r"
-          key={label}
-        >
-          <Icon
-            aria-hidden="true"
-            className={tone === "gold" ? "text-brand-sunset-gold" : "text-brand-lagoon-300"}
-            size={22}
-            strokeWidth={2.1}
-          />
-          <span className="grid min-w-0 gap-0.5">
-            <strong className="text-sm leading-tight text-text-on-dark">{label}</strong>
-            <span className="text-[0.68rem] leading-tight font-semibold text-text-on-dark-muted">
-              {detail}
+      <ul className="contents">
+        {planningInputs.map(({ evidence, icon: Icon, label, tone }) => (
+          <li
+            className="flex min-w-0 items-center gap-3 sm:justify-center sm:border-border-on-dark sm:px-2 sm:not-last:border-r"
+            key={label}
+          >
+            <Icon
+              aria-hidden="true"
+              className={tone === "gold" ? "text-brand-sunset-gold" : "text-brand-lagoon-300"}
+              size={22}
+              strokeWidth={2.1}
+            />
+            <span className="grid min-w-0 gap-0.5">
+              <strong className="text-sm leading-tight text-text-on-dark">{label}</strong>
+              <span className="text-[0.68rem] leading-tight font-semibold text-text-on-dark-muted">
+                <span className="sr-only">{evidence.label}. </span>
+                {evidence.summary}
+              </span>
             </span>
-          </span>
-        </div>
-      ))}
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

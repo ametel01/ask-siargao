@@ -33,8 +33,11 @@ describe("shared trip page route", () => {
     expect(html).toContain("Cloud 9 food stop");
     expect(html).toContain("Shaka Siargao");
     expect(html).toContain("Open now from Google Places");
-    expect(html).toContain("Google Places - live checked");
-    expect(html).toContain("Checked by Google Places API: place identity");
+    expect(html).toContain("Google Places · Places checked");
+    expect(html).toContain(
+      "Google Places: Checked details: place identity, current opening status",
+    );
+    expect(html).not.toContain("Google Places - live checked");
     expect(html).not.toContain("trip_shared_page");
     expect(html).not.toContain("browser-trip-shared-page");
 

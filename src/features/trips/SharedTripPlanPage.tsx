@@ -1,5 +1,11 @@
 import { Clock, ExternalLink, MapPin, Navigation, ShieldCheck, Sparkles, Star } from "lucide-react";
 
+import {
+  formatEvidenceSourceTime,
+  projectSourceEvidencePresentation,
+  sourceEvidenceDetailLines,
+  sourceEvidenceDisplayName,
+} from "@/features/chat/evidence-presentation-state";
 import type { SavedTripItem, SharedTripPlan } from "@/server/trips/shared-trip-types";
 import {
   AppBackdrop,
@@ -123,7 +129,13 @@ function SharedRecommendationItem({ item }: { item: SavedTripItem }) {
         </div>
       </div>
 
-      <SignalList labels={[card.distanceLabel, card.openStatusLabel, card.sourceLabel]} />
+      <SignalList
+        labels={[
+          card.distanceLabel,
+          card.openStatusLabel,
+          sharedArtifactSourceLabel(card.sourceLabel, item.sources),
+        ]}
+      />
       <SharedArtifactDecision decision={card.decision} />
       <BulletList items={card.fitReasons} />
       <CaveatList items={card.caveats} />
@@ -321,11 +333,14 @@ function CaveatList({ items }: { items: readonly string[] }) {
 
 function SourceSummaryList({ sources }: { sources: SharedTripPlan["items"][number]["sources"] }) {
   const visibleSources = sources.filter(hasPublicSourceContext);
-  const checkedSources = visibleSources.filter(isActuallyCheckedSource);
-  const sourceDetails = visibleSources.flatMap((source) => [
-    ...source.checked.map((item) => `Checked by ${source.sourceName}: ${item}`),
-    ...source.notChecked.map((item) => `Not checked by ${source.sourceName}: ${item}`),
-  ]);
+  const checkedSources = visibleSources.filter(
+    (source) => projectSourceEvidencePresentation(source).state === "checked",
+  );
+  const sourceDetails = visibleSources.flatMap((source) =>
+    sourceEvidenceDetailLines(source).map(
+      (line) => `${sourceEvidenceDisplayName(source)}: ${line}`,
+    ),
+  );
 
   if (visibleSources.length === 0) {
     return null;
@@ -370,21 +385,30 @@ function SharedSourceIcon({
 }
 
 function sharedSourceLabel(source: SharedTripPlan["items"][number]["sources"][number]) {
-  return [
-    source.sourceName,
-    source.label.replaceAll("_", " "),
-    source.fetchedAt ? `fetched ${source.fetchedAt}` : undefined,
-  ]
+  const presentation = projectSourceEvidencePresentation(source);
+  return [presentation.sourceName, presentation.label, formatEvidenceSourceTime(source.fetchedAt)]
     .filter((part): part is string => Boolean(part))
-    .join(" - ");
-}
-
-function isActuallyCheckedSource(source: SharedTripPlan["items"][number]["sources"][number]) {
-  return source.label !== "not_verified" && source.label !== "provider_unavailable";
+    .join(" · ");
 }
 
 function hasPublicSourceContext(source: SharedTripPlan["items"][number]["sources"][number]) {
   return source.checked.length > 0 || source.notChecked.length > 0;
+}
+
+function sharedArtifactSourceLabel(
+  sourceLabel: string,
+  sources: SharedTripPlan["items"][number]["sources"],
+) {
+  const checkedSource = sources
+    .map(projectSourceEvidencePresentation)
+    .find((source) => source.state === "checked");
+  if (checkedSource?.sourceName) {
+    return `${checkedSource.sourceName} · ${checkedSource.label}`;
+  }
+  return sourceLabel
+    .replace(/\s+-\s+live checked\b/i, " · source available")
+    .replace(/\s+-\s+fresh cache\b/i, " · recent source")
+    .replaceAll("_", " ");
 }
 
 function publicDisplayCaveats(caveats: readonly string[]) {
