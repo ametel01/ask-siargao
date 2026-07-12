@@ -3057,7 +3057,7 @@ function ChatContextRail({
   return (
     <aside
       aria-label="Trip context and live conditions"
-      className="hidden min-h-0 content-start gap-1 overflow-hidden border-border-default/80 border-l bg-brand-paper-100/88 p-2 min-[1180px]:grid"
+      className="hidden min-h-0 content-start gap-1 overflow-hidden border-border-default/80 border-l bg-brand-paper-100/88 p-1.5 min-[1180px]:grid"
       data-testid="context-rail"
     >
       <ContextCard
@@ -3170,7 +3170,7 @@ function ChatContextRail({
         }
         title={`${activeForecastLocation} Weather`}
       >
-        <div className="grid gap-1.5">
+        <div className="grid gap-1">
           <div className="flex items-center gap-3">
             <CloudSun aria-hidden="true" className="text-brand-lagoon-700" size={30} />
             <div className="min-w-0">
@@ -3209,7 +3209,7 @@ function ChatContextRail({
         }
         title="Live surf conditions"
       >
-        <div className="grid gap-1.5">
+        <div className="grid gap-1">
           <div className="flex items-center justify-between gap-3">
             <p className="m-0 inline-flex min-w-0 items-center gap-2 text-base font-black text-text-strong">
               <WavesHorizontal aria-hidden="true" className="text-brand-lagoon-700" size={18} />
@@ -3242,7 +3242,7 @@ function ContextCard({
   title: string;
 }) {
   return (
-    <section className="grid gap-1.5 rounded-md border border-border-default/80 bg-white/78 p-2 shadow-none">
+    <section className="grid gap-1 rounded-md border border-border-default/80 bg-white/78 p-1.5 shadow-none">
       <div className="flex items-center justify-between gap-3">
         <h2 className="m-0 min-w-0 text-sm font-black leading-tight text-text-strong">{title}</h2>
         {action}
@@ -3392,7 +3392,7 @@ function iconForTripContextLabel(label: string): ChatContextIcon {
 function ConditionDecisionDetails({ decision }: { decision: LiveConditionDecision }) {
   const presentation = projectConditionEvidencePresentation(decision);
   return (
-    <div className="grid gap-1">
+    <div className="grid gap-0.5">
       {decision.timing ? (
         <p
           className="m-0 text-xs font-black text-brand-violet-650"
