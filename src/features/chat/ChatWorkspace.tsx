@@ -271,7 +271,7 @@ type ActiveThreadLoad = {
   controller: AbortController;
   generation: number;
 };
-type ThreadActionDialog = "rename" | "delete" | null;
+type ThreadActionDialog = "rename" | "archive" | "delete" | null;
 type ThreadActionState = {
   dialog: ThreadActionDialog;
   error: string | null;
@@ -723,6 +723,10 @@ function useChatWorkspaceController({
     let isActive = true;
 
     async function syncAuthenticatedSavedTrip() {
+      if ((initialAuthenticatedSavedTrip.items ?? []).length === 0) {
+        return;
+      }
+
       const currentState = getSavedTripSnapshot();
       let nextSavedTrip: SavedTripApiResponse | null = initialAuthenticatedSavedTrip;
       if (currentState.items.length > 0) {
@@ -1030,7 +1034,7 @@ function useChatWorkspaceController({
     const mutationGeneration = threadMutationGenerationRef.current + 1;
     threadMutationGenerationRef.current = mutationGeneration;
     setThreadActionState({
-      dialog: null,
+      dialog: "archive",
       error: null,
       pendingAction: "archive",
       status: "pending",
@@ -1047,7 +1051,7 @@ function useChatWorkspaceController({
       }
       if (!response.ok) {
         setThreadActionState({
-          dialog: null,
+          dialog: "archive",
           error: threadMutationErrorMessage(response.status),
           pendingAction: null,
           status: "error",
@@ -1072,7 +1076,7 @@ function useChatWorkspaceController({
         return;
       }
       setThreadActionState({
-        dialog: null,
+        dialog: "archive",
         error: "Network error. The thread was not archived.",
         pendingAction: null,
         status: "error",
@@ -2065,6 +2069,15 @@ function ChatTopBar({
 }) {
   const hasSelectedThread = Boolean(selectedThreadId);
   const isMutatingThread = threadActionState.pendingAction !== null;
+  const closeArchiveDialog = () => {
+    closeThreadActionDialog();
+    window.setTimeout(() => {
+      document
+        .querySelector<HTMLButtonElement>('button[aria-label="Archive selected chat"]')
+        ?.focus();
+    }, 0);
+  };
+
   return (
     <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-3 border-border-default border-b bg-surface-glass px-4 py-3 sm:px-6 lg:px-8">
       <div className="grid min-w-0 gap-1">
@@ -2080,9 +2093,7 @@ function ChatTopBar({
         {hasSelectedThread ? (
           <ThreadActionControls
             disabled={isMutatingThread}
-            onArchive={() => {
-              void archiveSelectedThread();
-            }}
+            onArchive={() => openThreadActionDialog("archive")}
             onDelete={() => openThreadActionDialog("delete")}
             onRename={() => openThreadActionDialog("rename")}
           />
@@ -2133,6 +2144,15 @@ function ChatTopBar({
           title={selectedThreadTitle ?? "Siargao chat"}
           onCancel={closeThreadActionDialog}
           onDelete={deleteSelectedThread}
+        />
+      ) : null}
+      {threadActionState.dialog === "archive" ? (
+        <ThreadArchiveDialog
+          error={threadActionState.error}
+          isPending={threadActionState.pendingAction === "archive"}
+          title={selectedThreadTitle ?? "Siargao chat"}
+          onArchive={archiveSelectedThread}
+          onCancel={closeArchiveDialog}
         />
       ) : null}
     </header>
@@ -2327,6 +2347,82 @@ function ThreadDeleteDialog({
               {isPending ? "Deleting" : "Delete chat"}
             </Button>
           </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function ThreadArchiveDialog({
+  error,
+  isPending,
+  onArchive,
+  onCancel,
+  title,
+}: {
+  error: string | null;
+  isPending: boolean;
+  onArchive: () => Promise<void>;
+  onCancel: () => void;
+  title: string;
+}) {
+  const confirmation = "ARCHIVE";
+  const [value, setValue] = useState("");
+
+  return (
+    <Dialog.Root open onOpenChange={(open) => (!open && !isPending ? onCancel() : undefined)}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-brand-navy-980/45" />
+        <Dialog.Content
+          className="fixed top-1/2 left-1/2 z-50 grid w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border border-border-default bg-white p-5 text-text-strong shadow-night-card focus:outline-none"
+          data-testid="thread-archive-dialog"
+        >
+          <form
+            className="grid gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!isPending && value === confirmation) {
+                void onArchive();
+              }
+            }}
+          >
+            <div className="grid gap-1">
+              <Dialog.Title className="m-0 text-lg font-black">Archive chat?</Dialog.Title>
+              <Dialog.Description className="m-0 text-sm font-bold text-text-muted">
+                This removes "{title}" from active chat history. Saved planning items remain
+                separate.
+              </Dialog.Description>
+            </div>
+            <label
+              className="grid gap-2 text-sm font-extrabold"
+              htmlFor="thread-archive-confirmation"
+            >
+              Type {confirmation} to archive this chat
+              <input
+                className="min-h-11 rounded-md border border-border-default bg-white px-3 text-sm font-bold outline-none focus-visible:ring-2 focus-visible:ring-brand-violet-650"
+                disabled={isPending}
+                id="thread-archive-confirmation"
+                value={value}
+                onChange={(event) => setValue(event.currentTarget.value)}
+              />
+            </label>
+            {error ? (
+              <p className="m-0 text-sm font-bold text-text-alert" role="alert">
+                {error}
+              </p>
+            ) : null}
+            <div className="flex flex-wrap justify-end gap-2">
+              <Dialog.Close asChild>
+                <Button disabled={isPending} type="button" variant="outline">
+                  Cancel
+                </Button>
+              </Dialog.Close>
+              <Button disabled={isPending || value !== confirmation} type="submit">
+                <Archive aria-hidden="true" size={16} />
+                {isPending ? "Archiving" : "Archive chat"}
+              </Button>
+            </div>
+          </form>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

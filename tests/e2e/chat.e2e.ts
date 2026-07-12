@@ -1114,6 +1114,79 @@ test("hides stale local saved planning while authenticated hydration is pending 
   await expect(page.getByText("Stale browser saved place")).toHaveCount(0);
 });
 
+test("treats authenticated empty saved planning as authoritative for stale deep links", async ({
+  page,
+}) => {
+  const staleSavedItem = {
+    id: "place:stale-browser-item",
+    title: "Stale browser saved place",
+    kind: "place",
+    createdAt: "2026-07-10T00:00:00.000Z",
+    updatedAt: "2026-07-10T00:00:00.000Z",
+    payload: {},
+    sources: [],
+    caveats: [],
+  };
+  await page.addInitScript(
+    ({ key, value }) => {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: savedTripStorageKey,
+      value: {
+        tripId: "local_trip_stale_saved_item",
+        updatedAt: "2026-07-10T00:00:00.000Z",
+        items: [staleSavedItem],
+      },
+    },
+  );
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: {} }),
+    });
+  });
+  const savedTripWrites: string[] = [];
+  await page.route("**/api/trips/saved", async (route) => {
+    if (route.request().method() !== "GET") {
+      savedTripWrites.push(route.request().method());
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "stale_write_forbidden" }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripId: "saved_trip_empty_authoritative", items: [] }),
+    });
+  });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/chat?savedItemId=place%3Astale-browser-item");
+
+  await expect(page.getByTestId("selected-saved-item-status")).toContainText(
+    "Saved item unavailable",
+  );
+  await expect(page.getByText("Stale browser saved place")).toHaveCount(0);
+  await page.waitForTimeout(250);
+  expect(savedTripWrites).toEqual([]);
+  await expect
+    .poll(() =>
+      page
+        .evaluate((key) => localStorage.getItem(key), savedTripStorageKey)
+        .then((value) => {
+          const storedValue = JSON.parse(value ?? "{}") as { items?: Array<{ id?: string }> };
+          return storedValue.items?.map((item) => item.id) ?? [];
+        }),
+    )
+    .toEqual(["place:stale-browser-item"]);
+});
+
 test("renders assistant markdown tables as real tables", async ({ page }) => {
   await page.setViewportSize({ width: 2048, height: 1153 });
   await mockChatApi(page, {
@@ -1643,7 +1716,7 @@ test("opens and manages exact chat and saved planning selections", async ({ page
       throw new Error("window.prompt must not be used for thread rename.");
     };
     window.confirm = () => {
-      throw new Error("window.confirm must not be used for thread deletion.");
+      throw new Error("window.confirm must not be used for thread destruction.");
     };
   });
 
@@ -1744,6 +1817,7 @@ test("opens and manages exact chat and saved planning selections", async ({ page
       caveats: [],
     },
   ];
+  const archivedThreadIds: string[] = [];
 
   await page.route("**/api/me/profile", async (route) => {
     await route.fulfill({
@@ -1803,6 +1877,7 @@ test("opens and manages exact chat and saved planning selections", async ({ page
         return;
       }
       if (body.archived) {
+        archivedThreadIds.push(threadId);
         threads = threads.filter((candidate) => candidate.id !== threadId);
         await route.fulfill({
           status: 200,
@@ -1851,6 +1926,24 @@ test("opens and manages exact chat and saved planning selections", async ({ page
   await expect(page.getByRole("button", { name: /Cloud 9 quiet stay/ })).toBeVisible();
 
   await page.getByRole("button", { name: "Archive selected chat" }).click();
+  const archiveDialog = page.getByRole("dialog", { name: "Archive chat?" });
+  const archiveConfirmation = archiveDialog.getByLabel("Type ARCHIVE to archive this chat");
+  await expect(archiveConfirmation).toBeFocused();
+  await expect(archiveDialog.getByRole("button", { name: "Archive chat" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(archiveDialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Archive selected chat" })).toBeFocused();
+  expect(archivedThreadIds).toEqual([]);
+  await expect(page).toHaveURL(/threadId=thread_manage/);
+  await expect(page.getByText("Can I stay near Cloud 9?")).toBeVisible();
+
+  await page.getByRole("button", { name: "Archive selected chat" }).click();
+  await expect(archiveConfirmation).toBeFocused();
+  await archiveConfirmation.fill("ARCHIVE");
+  await expect(archiveDialog.getByRole("button", { name: "Archive chat" })).toBeEnabled();
+  await archiveConfirmation.press("Enter");
+  await expect(archiveDialog).toHaveCount(0);
+  expect(archivedThreadIds).toEqual(["thread_manage"]);
   await expect(page).not.toHaveURL(/threadId=/);
   await expect(page.getByText("Can I stay near Cloud 9?")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Cloud 9 quiet stay/ })).toHaveCount(0);

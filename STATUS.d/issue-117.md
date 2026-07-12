@@ -3,7 +3,7 @@
 - issue: #117 Make chat history and saved planning items actionable
 - role: builder-agent
 - branch: `run/42f7c271-issue-117`
-- phase: builder implementation complete; pushed for checker after PR creation
+- phase: builder fix-only update complete; ready for checker
 - summary:
   - Added `/chat?threadId=...` and `/chat?savedItemId=...` resource selection wiring.
   - Made chat and settings recent-thread rows open exact owned threads, with URL/back-forward
@@ -17,6 +17,11 @@
     delete confirmation.
   - Preserved authenticated saved-trip authority over stale local storage and existing anonymous
     local/authenticated migration behavior.
+  - Fix-only update: authenticated empty `/api/trips/saved` responses no longer POST stale
+    browser-local saved items back to the server or rewrite local storage, so stale saved item deep
+    links settle to `not_found`.
+  - Fix-only update: archive now uses an in-product typed `ARCHIVE` confirmation dialog before
+    `PATCH`, with Escape cancel focus restoration and Enter-to-confirm coverage.
 - evidence:
   - `bun install --frozen-lockfile` passed; no lockfile changes.
   - Focused API/client: `bun test src/app/api/chat/threads/route.test.ts src/features/chat/saved-trip-client.test.ts` passed, 32 tests / 119 assertions.
@@ -32,12 +37,16 @@
   - `git diff --check` passed.
   - Production `window.prompt`/`window.confirm` scan passed; remaining matches are only the #117
     Playwright guard, plus pre-existing XSS fixture strings.
+  - Fix-only focused style/type/client: `bunx biome check src/features/chat/ChatWorkspace.tsx tests/e2e/chat.e2e.ts` passed; `bun run typecheck --incremental false` passed; `bun test src/features/chat/saved-trip-client.test.ts` passed, 17 tests / 43 assertions.
+  - Fix-only focused browser: `bun run test:e2e -- tests/e2e/chat.e2e.ts -g "treats authenticated empty saved planning|opens and manages exact chat" --workers=1` passed, 2 tests.
+  - Fix-only focused API/client: `bun test src/app/api/chat/threads/route.test.ts src/features/chat/saved-trip-client.test.ts` passed, 32 tests / 119 assertions.
+  - Fix-only gates: `bun run lint` passed; `bun run typecheck --incremental false` passed; `git diff --check` passed; `bun test` passed, 987 tests / 5210 assertions; `bun run build` passed; `bun run test:e2e` passed, 91 tests.
 - notes:
   - The first full `bun test` and `db:migrate:test` attempts were started concurrently with other
     database-heavy gates and hit PGlite/temporary filesystem contention. Serial reruns passed.
   - Build/E2E emitted the known sibling-lockfile Next workspace-root warning.
   - Full E2E emitted baseline dev-server `DATABASE_URL is required` warnings for unmocked
-    background requests; suite passed 90/90.
+    background requests; latest fix-only suite passed 91/91.
 - checker focus:
   - Verify URL, selected row, messages, title/actions, and list cleanup stay aligned on direct
     navigation, rapid switching, stale 404, archive, and delete.
