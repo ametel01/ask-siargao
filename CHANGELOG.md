@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed chat to expose a truthful mobile trip-context surface, shared live-condition decisions,
+  privacy-safe location scope, resilient draft saves, and responsive accessibility states.
 - Changed the landing page into a responsive mobile-to-desktop story with real navigation,
   truthful capability labels, encoded chat handoff, and robust keyboard focus treatment.
 - Changed the settings account surface to expose traveler-safe identity and account-management
