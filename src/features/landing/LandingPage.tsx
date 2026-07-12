@@ -1,201 +1,145 @@
 import {
   ArrowRight,
-  BedDouble,
-  CalendarDays,
-  Car,
   CloudRain,
-  CloudSun,
   Compass,
-  Globe2,
+  Home,
+  Info,
   type LucideIcon,
-  MapPinned,
-  Menu,
-  Plus,
+  MapPin,
+  MessageCircle,
   Send,
-  Sparkles,
-  TreePalm,
   Utensils,
   Waves,
-  Wind,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  NavigationMenu,
-  NavigationMenuItem,
-  NavigationMenuLink,
-  NavigationMenuList,
-} from "@/components/ui/navigation-menu";
 import { cn } from "@/lib/utils";
-import { GradientLink, SignalBadge } from "@/ui/components/ask-siargao";
 
-const tripModeItems = [
-  { label: "Stay fit", href: "#where-to-stay" },
-  { label: "Rain plan", href: "#weather" },
-  { label: "Save route", href: "#saved-places" },
-];
+const heroPrompt = "What should we do today if rain hits Cloud 9?";
 
-const weatherRows: {
-  label: string;
-  value: string;
-  icon: LucideIcon;
-}[] = [
-  { label: "Forecast", value: "Ask in chat", icon: CloudSun },
-  { label: "Rain planning", value: "Open-Meteo", icon: CloudRain },
-  { label: "Wind planning", value: "Snapshot", icon: Wind },
-  { label: "Data status", value: "Caveated in chat", icon: Waves },
-];
+const navigationItems = [
+  { label: "Start a question", href: "#start-a-question" },
+  { label: "Planning inputs", href: "#planning-inputs" },
+  { label: "Plan smarter", href: "#plan-smarter" },
+] as const;
 
-const examplePrompt =
-  "Staying near Cloud 9 for 10 days with quiet sleep, surfing, good restaurants, and easy airport transfer. What should we know?";
-
-const suggestionChips = [
+const quickChips = [
   {
-    label: "Cloud 9 quiet sleep",
-    prompt: "Is my accommodation near Cloud 9 quiet enough for sleep?",
-    icon: BedDouble,
-  },
-  {
-    label: "Dinner near the break",
-    prompt: "What are the best restaurants near Cloud 9 tonight?",
-    icon: Utensils,
-  },
-  {
-    label: "Airport to General Luna",
-    prompt: "What is the easiest airport transfer option to General Luna?",
-    icon: Car,
-  },
-  {
-    label: "Weekend events",
-    prompt: "What parties or events are worth checking this weekend in Siargao?",
-    icon: CalendarDays,
-  },
-  {
-    label: "Weather-adjusted plan",
-    prompt: "How should Siargao weather change our plans today?",
-    icon: CloudSun,
-  },
-];
-
-const trustItems = [
-  ["GPT-backed answers", Globe2],
-  ["No booking bias", Compass],
-  ["Weather snapshot support", Sparkles],
-];
-
-const planningTasks = [
-  {
-    icon: MapPinned,
-    title: "Choose the right base",
-    signal: "Area fit",
-    body: "Compare Cloud 9, General Luna, Catangnan, Pacifico, and ferry timing against how you actually want to spend the day.",
+    label: "Quiet base",
     prompt:
       "Where should we stay in Siargao if we want quiet sleep, surf access, and easy dinner options?",
-    rows: ["Sleep noise", "Surf access", "Dinner radius"],
-    className: "md:col-span-5 md:row-span-2",
+    icon: Waves,
+    tone: "lagoon",
   },
   {
-    icon: CloudSun,
-    title: "Make the weather call",
-    signal: "Open-Meteo caveats",
-    body: "Turn a rainy or windy forecast into an indoor fallback, exposed-road warning, or beach timing check.",
-    prompt: "Build a Siargao plan for today that adapts if rain gets heavy around Cloud 9.",
-    rows: ["Rain window", "Wind exposure", "Fallback stop"],
-    className: "md:col-span-7",
-  },
-  {
-    icon: Utensils,
-    title: "Stack food around the route",
-    signal: "Place checks",
-    body: "Ask for breakfast, coffee, dinner, or party stops in the same route instead of a generic list.",
+    label: "Food route",
     prompt:
       "Plan coffee, dinner, and a low-key drink around General Luna without a long scooter loop.",
-    rows: ["Open status", "Map link", "Budget fit"],
-    className: "md:col-span-4",
+    icon: Utensils,
+    tone: "coral",
+  },
+] as const;
+
+const planningInputs = [
+  { label: "Weather", detail: "Checked on request", icon: CloudRain, tone: "lagoon" },
+  { label: "Places", detail: "Checked on request", icon: MapPin, tone: "lagoon" },
+  { label: "Local caveats", detail: "Added when relevant", icon: Info, tone: "gold" },
+] as const;
+
+const planningCards: {
+  title: string;
+  body: string;
+  prompt: string;
+  icon: LucideIcon;
+  tone: "lagoon" | "gold";
+}[] = [
+  {
+    title: "Choose the right base",
+    body: "Compare sleep, surf access, dinner radius, and airport transfer ease.",
+    prompt:
+      "Where should we stay in Siargao if we want quiet sleep, surf access, and easy dinner options?",
+    icon: Home,
+    tone: "lagoon",
   },
   {
-    icon: Car,
-    title: "Keep transfers realistic",
-    signal: "Route friction",
-    body: "Pressure-test airport, ferry, scooter, tricycle, and van assumptions before the itinerary gets too tight.",
-    prompt:
-      "Check if our airport transfer and first-night dinner plan in General Luna is realistic.",
-    rows: ["Arrival time", "Vehicle choice", "Backup move"],
-    className: "md:col-span-3",
+    title: "Make the weather call",
+    body: "Turn forecast into a smarter plan with indoor fallbacks and timing advice.",
+    prompt: "Build a Siargao plan for today that adapts if rain gets heavy around Cloud 9.",
+    icon: CloudRain,
+    tone: "gold",
   },
 ];
 
 export function LandingPage() {
   return (
-    <main className="min-h-screen overflow-x-hidden bg-brand-navy-980">
+    <main className="min-h-screen overflow-x-clip bg-brand-navy-980 text-text-on-dark">
       <section
         aria-label="Ask Siargao landing page"
-        className={cn(
-          "relative min-h-screen w-full overflow-hidden bg-[image:var(--gradient-hero-overlay),var(--gradient-hero-shade),url('/images/hero-bg.png')] bg-[position:center_center,center_center,center_center] bg-[size:100%_100%,100%_100%,cover] bg-no-repeat shadow-coastal-frame",
-          "before:pointer-events-none before:absolute before:inset-0 before:z-0 before:bg-[image:var(--gradient-hero-atmosphere)] before:content-['']",
-        )}
+        className="relative isolate overflow-hidden bg-brand-navy-980"
       >
-        <div className="relative z-2 flex min-h-screen w-full flex-col px-[clamp(1.25rem,5vw,5.5rem)]">
+        <div className="pointer-events-none absolute inset-0 z-0 lg:hidden">
+          <Image
+            alt=""
+            aria-hidden="true"
+            className="object-cover object-[72%_34%]"
+            fill
+            priority
+            sizes="(min-width: 1024px) 0px, 100vw"
+            src="/images/ask-siargao-mobile-hero-bg.png"
+          />
+          <div className="absolute inset-0 bg-[image:var(--gradient-landing-coastal-overlay)]" />
+        </div>
+
+        <div className="relative z-10 mx-auto grid w-full max-w-[112rem] gap-6 px-5 pt-5 pb-0 sm:px-8 md:gap-10 md:px-10 md:pt-7 lg:px-12 lg:pt-8 xl:px-16 2xl:px-20">
           <Header />
-          <Hero />
-          <SuggestionChips />
-          <TrustRow />
-          <PlanningWorkbench />
+          <div className="grid min-w-0 gap-7 md:gap-10 lg:grid-cols-[minmax(0,1.08fr)_minmax(25rem,0.92fr)] lg:items-stretch lg:gap-10 xl:gap-16">
+            <Hero />
+            <CoastalFrame />
+          </div>
+          <PlanningPanel />
         </div>
       </section>
-      <MobileFooter />
     </main>
   );
 }
 
 function Header() {
   return (
-    <header className="flex min-h-[80px] items-center justify-between gap-5 pt-1 lg:pt-0">
-      <Link className="no-underline" href="/">
+    <header className="flex min-h-16 items-center justify-between gap-4 lg:min-h-[4.75rem]">
+      <Link
+        aria-label="Ask Siargao home"
+        className="min-w-0 rounded-md no-underline landing-focus-ring focus-visible:outline-offset-4"
+        href="/"
+      >
         <LandingBrand />
       </Link>
-      <NavigationMenu className="ml-auto hidden min-[900px]:flex" viewport={false}>
-        <NavigationMenuList className="rounded-full border border-border-on-dark bg-surface-night-card px-2 py-1 backdrop-blur-md">
-          {tripModeItems.map((item) => (
-            <NavigationMenuItem key={item.label}>
-              <NavigationMenuLink asChild>
-                <a
-                  className="rounded-full px-3 py-2 text-xs font-extrabold text-text-on-dark-muted no-underline transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-surface-night-card-strong hover:text-text-on-dark focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-brand-lagoon-300 xl:text-sm"
-                  href={item.href}
-                >
-                  {item.label}
-                </a>
-              </NavigationMenuLink>
-            </NavigationMenuItem>
-          ))}
-        </NavigationMenuList>
-      </NavigationMenu>
+
+      <nav
+        aria-label="Landing page"
+        className="ml-auto hidden items-center rounded-full border border-border-on-dark bg-surface-night-card p-1 shadow-night-card backdrop-blur-md lg:flex"
+      >
+        {navigationItems.map(({ href, label }) => (
+          <a
+            className="inline-flex min-h-11 items-center rounded-full px-4 text-sm font-extrabold text-text-on-dark-muted no-underline transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-surface-night-card-strong hover:text-text-on-dark landing-focus-ring focus-visible:outline-offset-2 xl:px-5"
+            href={href}
+            key={href}
+          >
+            {label}
+          </a>
+        ))}
+      </nav>
+
       <Button
         asChild
-        className="hidden min-h-[46px] rounded-full border-border-on-dark bg-surface-night-card px-4 text-xs font-extrabold text-text-on-dark hover:bg-surface-night-card-strong min-[900px]:inline-flex"
+        className="min-h-12 shrink-0 rounded-xl border border-border-on-dark bg-surface-night-card px-4 text-sm font-extrabold text-text-on-dark shadow-night-card backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3 sm:px-5"
         variant="outline"
       >
         <Link href="/chat">
-          <Send aria-hidden="true" size={15} /> Ask a trip question
-        </Link>
-      </Button>
-      <GradientLink
-        className="hidden min-h-[54px] shrink-0 rounded-lg px-6 md:inline-flex min-[900px]:hidden"
-        href="/chat"
-      >
-        <Sparkles aria-hidden="true" size={17} /> Open assistant
-      </GradientLink>
-      <Button
-        aria-label="Open navigation menu"
-        asChild
-        className="inline-flex size-10 border border-white/25 bg-white/10 text-text-on-dark hover:bg-white/15 md:hidden"
-        size="icon"
-        variant="outline"
-      >
-        <Link href="/chat">
-          <Menu aria-hidden="true" size={20} />
+          <MessageCircle aria-hidden="true" size={19} />
+          <span className="hidden sm:inline">Ask in chat</span>
+          <span className="sm:hidden">Chat</span>
         </Link>
       </Button>
     </header>
@@ -204,11 +148,20 @@ function Header() {
 
 function LandingBrand() {
   return (
-    <span className="inline-flex items-center gap-4 text-text-on-dark">
-      <span className="inline-flex size-12 items-center justify-center rounded-full border-2 border-text-on-dark text-text-on-dark shadow-night-card">
-        <TreePalm aria-hidden="true" size={30} strokeWidth={2.1} />
+    <span className="inline-flex min-w-0 items-center gap-3 text-text-on-dark sm:gap-4">
+      <span className="relative inline-flex size-14 shrink-0 items-center justify-center rounded-full border-2 border-text-on-dark bg-surface-night-card shadow-night-card backdrop-blur-sm sm:size-16 lg:size-[4.4rem]">
+        <Image
+          alt=""
+          aria-hidden="true"
+          className="size-[72%] object-contain"
+          height={58}
+          src="/ask_siargao_palm_icon.svg"
+          width={58}
+        />
       </span>
-      <span className="font-heading text-2xl leading-none font-bold md:text-3xl">Ask Siargao</span>
+      <span className="min-w-0 font-heading text-[1.55rem] leading-none font-semibold whitespace-nowrap text-text-on-dark sm:text-[2rem] lg:text-[2.25rem]">
+        Ask Siargao
+      </span>
     </span>
   );
 }
@@ -216,202 +169,206 @@ function LandingBrand() {
 function Hero() {
   return (
     <section
-      className="grid content-start gap-4 pt-7 pb-3 md:pt-7 md:pb-4 xl:gap-3"
-      id="how-it-works"
+      className="grid min-w-0 content-start gap-5 pt-3 md:gap-7 md:pt-10 lg:gap-6 lg:pt-10 xl:pt-16"
+      id="start-a-question"
     >
-      <div className="max-w-[620px] self-start">
-        <h1 className="m-0 text-balance font-heading text-[3.35rem] leading-[0.88] font-semibold text-text-on-dark sm:text-[4.35rem] md:text-[5rem] xl:text-[6rem]">
-          Ask Siargao
-          <br />
-          anything about
-          <br />
-          <span className="font-semibold text-brand-lagoon-300">your trip.</span>
+      <div className="grid min-w-0 gap-3">
+        <p className="m-0 text-xs font-black tracking-[0.18em] text-brand-sunset-gold uppercase md:text-sm">
+          Your island decision desk
+        </p>
+        <h1 className="m-0 max-w-[12ch] min-w-0 font-heading text-[clamp(3rem,12.6vw,5.3rem)] leading-[0.92] font-semibold text-text-on-dark tracking-[-0.02em] [overflow-wrap:anywhere] md:max-w-[13ch] md:text-[clamp(5.3rem,10.5vw,7.8rem)] lg:text-[clamp(4.6rem,6.1vw,7.25rem)] 2xl:text-[7.6rem]">
+          Plan the island around your{" "}
+          <span className="text-brand-lagoon-300">real constraints</span>
         </h1>
-        <p className="mt-4 mb-0 max-w-[470px] text-sm leading-[1.45] font-bold text-text-on-dark-muted md:text-lg">
-          GPT-backed answers for where to stay, what to do, how to get around, and how the
-          configured weather snapshot could affect your plans.
+        <p className="m-0 max-w-[38ch] text-base leading-[1.42] font-semibold text-text-on-dark-muted md:text-xl lg:max-w-[40ch] lg:text-lg xl:text-xl">
+          Ask about surf, sleep, food, transport, or weather. Get local, caveated answers that
+          explain what still needs checking.
         </p>
       </div>
-      <div className="grid w-full max-w-[1118px] grid-cols-1 gap-4 self-start md:gap-6 min-[900px]:grid-cols-[minmax(0,785px)_309px]">
-        <PromptCard />
-        <WeatherCard />
+      <PromptComposer />
+      <QuickChips />
+      <PlanningInputs />
+    </section>
+  );
+}
+
+function PromptComposer() {
+  return (
+    <section
+      aria-label="Example Ask Siargao prompt"
+      className="grid min-h-[7.15rem] grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-3 rounded-[1.55rem] border border-brand-paper-200 bg-brand-paper-50 px-5 py-4 text-text-default shadow-panel sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-x-6 sm:px-6 sm:py-6 lg:max-w-[48rem]"
+    >
+      <MessageCircle
+        aria-hidden="true"
+        className="shrink-0 text-brand-lagoon-700"
+        size={28}
+        strokeWidth={2}
+      />
+      <p className="m-0 min-w-0 text-[0.94rem] leading-[1.35] font-semibold text-text-muted sm:text-lg lg:text-base xl:text-lg">
+        {heroPrompt}
+      </p>
+      <div className="col-span-2 flex min-w-0 items-center border-border-default sm:col-span-1 sm:border-l sm:pl-6">
+        <Button
+          asChild
+          className="min-h-11 w-full rounded-lg bg-[image:var(--gradient-cta)] px-4 text-sm font-extrabold text-text-on-dark shadow-cta hover:shadow-lagoon-glow landing-focus-ring landing-focus-ring-strong focus-visible:outline-offset-3 sm:w-auto"
+        >
+          <Link href={chatPromptHref(heroPrompt)}>
+            <Send aria-hidden="true" size={19} />
+            Ask Siargao
+          </Link>
+        </Button>
       </div>
     </section>
   );
 }
 
-function PromptCard() {
+function QuickChips() {
   return (
-    <Card
-      aria-label="Example Ask Siargao prompt"
-      className="relative grid min-h-[186px] gap-5 rounded-xl border-brand-lagoon-300/75 bg-surface-glass p-5 text-text-default shadow-panel md:p-6"
+    <section aria-label="Common trip constraints" className="flex flex-wrap items-center gap-3">
+      {quickChips.map(({ icon: Icon, label, prompt, tone }) => (
+        <Button
+          asChild
+          className="min-h-11 rounded-full border border-border-on-dark bg-surface-night-card px-5 text-sm font-extrabold text-text-on-dark shadow-night-card backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3"
+          key={label}
+          variant="outline"
+        >
+          <Link href={chatPromptHref(prompt)}>
+            <Icon
+              aria-hidden="true"
+              className={cn(tone === "coral" ? "text-brand-sunset-coral" : "text-brand-lagoon-300")}
+              size={22}
+              strokeWidth={2.1}
+            />
+            {label}
+          </Link>
+        </Button>
+      ))}
+    </section>
+  );
+}
+
+function PlanningInputs() {
+  return (
+    <section
+      aria-labelledby="planning-inputs-title"
+      className="grid gap-3 rounded-[1.35rem] border border-border-on-dark bg-surface-night-card px-5 py-4 shadow-night-card backdrop-blur-md sm:grid-cols-3 sm:px-3 lg:max-w-[48rem]"
+      id="planning-inputs"
     >
-      <CardContent className="grid gap-3 p-0">
-        <div className="flex items-start gap-3">
-          <Sparkles aria-hidden="true" className="shrink-0 text-brand-lagoon-700" />
-          <p className="m-0 max-w-[520px] text-sm leading-[1.48] font-bold text-text-strong md:text-lg">
-            {examplePrompt}
+      <h2 className="sr-only" id="planning-inputs-title">
+        Planning inputs available in chat
+      </h2>
+      {planningInputs.map(({ detail, icon: Icon, label, tone }) => (
+        <div
+          className="flex min-w-0 items-center gap-3 sm:justify-center sm:border-border-on-dark sm:px-2 sm:not-last:border-r"
+          key={label}
+        >
+          <Icon
+            aria-hidden="true"
+            className={tone === "gold" ? "text-brand-sunset-gold" : "text-brand-lagoon-300"}
+            size={22}
+            strokeWidth={2.1}
+          />
+          <span className="grid min-w-0 gap-0.5">
+            <strong className="text-sm leading-tight text-text-on-dark">{label}</strong>
+            <span className="text-[0.68rem] leading-tight font-semibold text-text-on-dark-muted">
+              {detail}
+            </span>
+          </span>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function CoastalFrame() {
+  return (
+    <aside
+      aria-label="A coastal view from Siargao"
+      className="relative hidden min-h-[39rem] overflow-hidden rounded-[2.25rem] border border-border-on-dark shadow-coastal-frame lg:block"
+    >
+      <Image
+        alt=""
+        aria-hidden="true"
+        className="object-cover object-[58%_42%]"
+        fill
+        priority
+        sizes="(min-width: 1536px) 42vw, (min-width: 1024px) 38vw, 0px"
+        src="/images/ask-siargao-mobile-hero-bg.png"
+      />
+      <div className="absolute inset-0 bg-gradient-to-t from-brand-navy-980/90 via-transparent to-brand-navy-980/10" />
+      <div className="absolute right-6 bottom-6 left-6 rounded-[1.5rem] border border-border-on-dark bg-surface-dark-glass p-5 shadow-night-card backdrop-blur-md xl:right-8 xl:bottom-8 xl:left-8 xl:p-6">
+        <p className="m-0 text-xs font-black tracking-[0.16em] text-brand-sunset-gold uppercase">
+          Siargao, in context
+        </p>
+        <p className="mt-2 mb-0 max-w-[31ch] font-heading text-2xl leading-tight font-semibold text-text-on-dark xl:text-3xl">
+          One route, one weather window, one honest trade-off at a time.
+        </p>
+      </div>
+    </aside>
+  );
+}
+
+function PlanningPanel() {
+  return (
+    <section
+      aria-labelledby="plan-smarter-title"
+      className="-mx-5 mt-1 grid gap-6 rounded-t-[1.8rem] bg-brand-paper-50 px-5 pt-6 pb-8 text-text-default shadow-strong sm:-mx-8 sm:px-8 md:-mx-10 md:gap-8 md:px-10 md:pt-9 lg:mx-0 lg:mt-4 lg:grid-cols-[minmax(16rem,0.72fr)_minmax(0,1.28fr)] lg:items-start lg:rounded-[2rem] lg:px-10 lg:py-10 xl:px-12"
+      id="plan-smarter"
+    >
+      <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-4 lg:sticky lg:top-6">
+        <div className="inline-flex size-14 items-center justify-center rounded-full border border-border-default bg-surface-default text-brand-lagoon-700 shadow-card">
+          <Compass aria-hidden="true" size={30} strokeWidth={1.9} />
+        </div>
+        <div className="grid min-w-0 gap-2">
+          <h2
+            className="m-0 min-w-0 font-heading text-[clamp(1.55rem,6vw,2.2rem)] leading-[1.04] font-semibold text-text-strong lg:text-[2.65rem]"
+            id="plan-smarter-title"
+          >
+            Plan smarter in Siargao
+          </h2>
+          <p className="m-0 max-w-[38ch] text-[0.94rem] leading-[1.42] font-medium text-text-muted lg:text-base">
+            Bring your real constraints. Ask Siargao can consult available tools and tell you what
+            remains uncertain.
           </p>
         </div>
-        <div className="flex w-full items-end gap-2 self-end">
-          <Button
-            aria-label="Add trip detail"
-            className="size-10 border-border-default bg-surface-default text-brand-lagoon-700 hover:bg-brand-lagoon-100"
-            size="icon"
-            type="button"
-            variant="outline"
-          >
-            <Plus aria-hidden="true" size={18} />
-          </Button>
-          <Button
-            aria-label="Other source-backed local data is not connected yet"
-            className="size-10 border-border-default bg-surface-default text-brand-lagoon-700 hover:bg-brand-lagoon-100"
-            size="icon"
-            type="button"
-            variant="outline"
-          >
-            <Globe2 aria-hidden="true" size={18} />
-          </Button>
-          <GradientLink
-            className="ml-auto min-h-12 rounded-lg px-8 whitespace-nowrap"
-            href={chatPromptHref(examplePrompt)}
-          >
-            Ask Siargao <Send aria-hidden="true" size={16} />
-          </GradientLink>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+      </div>
 
-function WeatherCard() {
-  return (
-    <Card
-      className="min-h-auto overflow-hidden rounded-xl border-border-default bg-surface-glass p-0 text-text-default shadow-panel backdrop-blur-md min-[900px]:min-h-[193px]"
-      id="weather"
-    >
-      <CardContent className="p-0">
-        <div className="flex items-center gap-2 border-b border-border-default px-6 py-3">
-          <h2 className="m-0 text-base font-extrabold text-text-strong">
-            Planning checks for Siargao
-          </h2>
-        </div>
-        <div className="grid">
-          {weatherRows.map(({ icon: Icon, label, value }) => (
-            <div
-              className="grid min-h-[35px] grid-cols-[1.25rem_1fr_auto] items-center gap-3 px-6 text-xs text-text-muted"
-              key={label}
-            >
-              <Icon aria-hidden="true" className="text-brand-lagoon-700" size={17} />
-              <span>{label}</span>
-              {label === "Data status" ? (
-                <SignalBadge tone="medium">{value}</SignalBadge>
-              ) : (
-                <strong className="font-extrabold text-text-strong">{value}</strong>
+      <div className="grid gap-4 sm:grid-cols-2 lg:gap-5">
+        {planningCards.map(({ body, icon: Icon, prompt, title, tone }) => (
+          <article
+            className={cn(
+              "grid min-w-0 content-start gap-4 rounded-[1.35rem] p-5 lg:min-h-[17rem] lg:p-6",
+              tone === "gold" ? "bg-confidence-medium-soft" : "bg-brand-lagoon-100",
+            )}
+            key={title}
+          >
+            <span
+              className={cn(
+                "inline-flex size-12 items-center justify-center rounded-full bg-surface-default",
+                tone === "gold" ? "text-confidence-medium" : "text-brand-lagoon-700",
               )}
+            >
+              <Icon aria-hidden="true" size={27} strokeWidth={2} />
+            </span>
+            <div className="grid min-w-0 gap-2">
+              <h3 className="m-0 min-w-0 font-heading text-[1.45rem] leading-[1.06] font-semibold text-text-strong [overflow-wrap:anywhere] lg:text-[1.7rem]">
+                {title}
+              </h3>
+              <p className="m-0 text-[0.96rem] leading-[1.44] font-medium text-text-muted">
+                {body}
+              </p>
             </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function SuggestionChips() {
-  return (
-    <section className="w-full max-w-[1118px] pb-3 md:pb-4" id="where-to-stay">
-      <p className="mt-0 mb-3 text-xs font-extrabold text-brand-lavender-200/85">
-        Start with a real trip constraint
-      </p>
-      <div className="flex flex-wrap gap-3">
-        {suggestionChips.map(({ icon: Icon, label, prompt }) => (
-          <Button
-            asChild
-            className="min-h-9 rounded-full border border-border-on-dark bg-surface-night-card px-5 text-xs font-bold text-text-on-dark shadow-night-card hover:bg-surface-night-card-strong hover:text-text-on-dark"
-            key={label}
-            variant="outline"
-          >
-            <Link href={chatPromptHref(prompt)}>
-              <Icon aria-hidden="true" size={15} />
-              {label}
+            <Link
+              className="inline-flex min-h-11 w-fit items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-700 no-underline hover:text-brand-lagoon-600 landing-focus-ring landing-focus-ring-strong focus-visible:outline-offset-3"
+              href={chatPromptHref(prompt)}
+            >
+              Ask about this
+              <ArrowRight aria-hidden="true" size={20} strokeWidth={2.1} />
             </Link>
-          </Button>
+          </article>
         ))}
       </div>
     </section>
-  );
-}
-
-function TrustRow() {
-  return (
-    <section
-      className="mx-auto flex w-full max-w-[970px] flex-wrap items-center justify-center gap-3 px-5 py-2 md:gap-0 md:py-2"
-      id="saved-places"
-    >
-      {trustItems.map(([label, Icon]) => (
-        <div
-          className="inline-flex items-center gap-2 px-2 text-xs font-extrabold text-white/88 not-last:md:border-r not-last:md:border-white/22 md:px-12 [&_svg]:text-brand-lagoon-300"
-          key={label as string}
-        >
-          <Icon aria-hidden="true" size={18} />
-          <span>{label as string}</span>
-        </div>
-      ))}
-    </section>
-  );
-}
-
-function PlanningWorkbench() {
-  return (
-    <section
-      aria-label="Ask Siargao trip planning workbench"
-      className="grid grid-cols-1 gap-3 pt-3 pb-6 md:grid-cols-12 md:gap-4 md:pt-2 md:pb-5"
-    >
-      {planningTasks.map(({ body, className, icon: Icon, prompt, rows, signal, title }) => (
-        <Card
-          className={cn(
-            "min-h-0 rounded-xl border border-border-on-dark bg-surface-glass p-4 text-text-default shadow-card transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-brand-paper-100 md:p-5",
-            className,
-          )}
-          key={title}
-        >
-          <CardContent className="grid gap-3 p-0">
-            <div className="flex min-w-0 items-center justify-between gap-3">
-              <h2 className="m-0 text-lg leading-tight font-extrabold text-text-strong">{title}</h2>
-              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-brand-lagoon-700/10 bg-brand-lagoon-100 px-2 py-1 text-[0.68rem] font-black text-brand-lagoon-700">
-                <Icon aria-hidden="true" size={13} />
-                {signal}
-              </span>
-            </div>
-            <p className="m-0 text-sm leading-[1.55] text-text-muted">{body}</p>
-            <div className="flex flex-wrap gap-2">
-              {rows.map((row) => (
-                <span
-                  className="rounded-md border border-border-default bg-surface-soft px-2 py-1 text-xs font-bold text-text-muted"
-                  key={row}
-                >
-                  {row}
-                </span>
-              ))}
-            </div>
-            <Link
-              className="inline-flex w-fit items-center gap-1 text-sm font-extrabold text-brand-lagoon-700 no-underline"
-              href={chatPromptHref(prompt)}
-            >
-              Ask about this <ArrowRight aria-hidden="true" size={15} />
-            </Link>
-          </CardContent>
-        </Card>
-      ))}
-    </section>
-  );
-}
-
-function MobileFooter() {
-  return (
-    <p className="m-0 block pt-1 pb-2 text-center text-xs font-extrabold text-white/70 md:hidden">
-      Built for travelers · Loved by locals
-    </p>
   );
 }
 
