@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed assistant waiting to use honest indeterminate progress with safe stop/retry behavior,
+  stale-request guards, and lifecycle-safe thread/location transitions.
 - Changed chat to expose a truthful mobile trip-context surface, shared live-condition decisions,
   privacy-safe location scope, resilient draft saves, and responsive accessibility states.
 - Changed the landing page into a responsive mobile-to-desktop story with real navigation,
