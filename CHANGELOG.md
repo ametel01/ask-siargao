@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed privacy settings to provide owner-scoped, transactional travel-data controls with
+  deliberate confirmations, share invalidation, safe audit metadata, and truthful location/consent states.
 - Changed assistant waiting to use honest indeterminate progress with safe stop/retry behavior,
   stale-request guards, and lifecycle-safe thread/location transitions.
 - Changed chat to expose a truthful mobile trip-context surface, shared live-condition decisions,
