@@ -3708,7 +3708,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.artifactSelection?.unknownCardIds).toEqual([]);
   });
 
-  test("exposes required Places cards when final payload omits display card IDs", async () => {
+  test("does not expose Places cards when structured final payload selects no card IDs", async () => {
     const placeCard = {
       id: "place_chij_lost_in_siargao",
       kind: "place" as const,
@@ -3764,11 +3764,12 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
 
     expect(client.requests).toHaveLength(2);
     expect(result.message).toContain("Lost In Siargao");
-    expect(result.cards).toEqual([placeCard]);
+    expect(result.cards).toBeUndefined();
     expect(result.publicSources).toEqual([openNowPlacesSourceSummary]);
     expect(result.artifactSelection).toMatchObject({
-      selectedCardCount: 1,
+      selectedCardCount: 0,
       totalCardCount: 1,
+      unselectedCardCount: 1,
     });
   });
 

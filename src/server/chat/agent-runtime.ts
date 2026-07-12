@@ -690,10 +690,7 @@ function selectAgentArtifacts({
     );
   }
 
-  const resolvedCardIds = unique([
-    ...selectedCardIds.resolvedIds,
-    ...(allowedCardIdSet ? [] : referencedCardIds(finalPayload.answer, cardRegistry.cardsById)),
-  ]);
+  const resolvedCardIds = selectedCardIds.resolvedIds;
   const selectedCards = resolvedCardIds.flatMap((id) => {
     const card = cardRegistry.cardsById.get(id);
     return card ? [card] : [];

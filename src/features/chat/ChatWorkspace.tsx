@@ -104,6 +104,10 @@ import {
   projectMobileTripContextSummary,
 } from "@/features/chat/mobile-trip-context-presentation";
 import {
+  projectRecommendationSet,
+  type RecommendationCardPresentation,
+} from "@/features/chat/recommendation-presentation";
+import {
   createResponseWaitRequest,
   invalidateResponseWaitRequest,
   isCurrentResponseWaitRequest,
@@ -2988,6 +2992,7 @@ function ChatMessage({
             {!isError && !isPending && !isStopped && message.cards?.length ? (
               <RecommendationCards
                 cards={message.cards}
+                itineraries={message.itineraries ?? []}
                 onRemoveSavedItem={onRemoveSavedItem}
                 onSaveRecommendationCard={onSaveRecommendationCard}
                 savedItemIds={savedItemIds}
@@ -3954,38 +3959,29 @@ function compactOpenStatusLabel(label: string) {
   );
 }
 
-function usefulRecommendationReasons(reasons: readonly string[]) {
-  return reasons.filter((reason) => !isRedundantRecommendationReason(reason)).slice(0, 1);
-}
-
-function isRedundantRecommendationReason(reason: string) {
-  return [
-    /google places/i,
-    /matching what you asked/i,
-    /returned\s+#?\d+/i,
-    /\btop\b.*\bmatch\b/i,
-    /\blisted as\b/i,
-    /\beasy to reach\b/i,
-    /\bopen\b/i,
-    /\bwell rated\b/i,
-  ].some((pattern) => pattern.test(reason));
-}
-
 function trimTrailingPeriod(value: string) {
   return value.trim().replace(/\.$/, "");
 }
 
 function RecommendationCards({
   cards,
+  itineraries,
   onRemoveSavedItem,
   onSaveRecommendationCard,
   savedItemIds,
 }: {
   cards: readonly RecommendationCardArtifact[];
+  itineraries: readonly ItineraryPlanArtifact[];
   onRemoveSavedItem: (itemId: string) => void;
   onSaveRecommendationCard: (card: RecommendationCardArtifact) => void;
   savedItemIds: ReadonlySet<string>;
 }) {
+  const presentation = projectRecommendationSet({ cards, itineraries });
+
+  if (presentation.cards.length === 0) {
+    return null;
+  }
+
   return (
     <section
       aria-label="Recommended places"
@@ -3997,18 +3993,23 @@ function RecommendationCards({
           <Utensils aria-hidden="true" className="text-brand-sunset-gold" size={17} />
           Recommended Places
         </h3>
-        <RecommendationSourceBadge cards={cards} />
+        <RecommendationSourceBadge cards={presentation.cards.map(({ card }) => card)} />
       </div>
-      {cards.map((card) => {
+      {presentation.cards.map((cardPresentation) => {
+        const { card } = cardPresentation;
         const savedItemId = savedItemIdForCard(card);
         const isSaved = savedItemIds.has(savedItemId);
         const subtitle = compactRecommendationSubtitle(card.subtitle);
-        const usefulReasons = usefulRecommendationReasons(card.fitReasons);
 
         return (
           <article
-            className="grid min-w-0 gap-3 rounded-md border border-border-default bg-white p-3"
+            className={
+              cardPresentation.isPrimary
+                ? "grid min-w-0 gap-3 rounded-md border border-brand-lagoon-700/25 bg-white p-3 shadow-[0_12px_30px_rgba(31,128,120,0.12)]"
+                : "grid min-w-0 gap-3 rounded-md border border-border-default bg-white p-3"
+            }
             data-testid="recommendation-card"
+            data-recommendation-role={cardPresentation.role}
             key={card.id}
           >
             <div className="grid min-w-0 gap-3">
@@ -4024,6 +4025,9 @@ function RecommendationCards({
                   <h4 className="m-0 text-sm leading-[1.25] font-black break-words text-text-strong sm:text-base">
                     {card.title}
                   </h4>
+                  {presentation.hasComparison || cardPresentation.isPrimary ? (
+                    <RecommendationRoleBadge presentation={cardPresentation} />
+                  ) : null}
                   {subtitle.meta ? (
                     <p className="m-0 text-xs leading-[1.45] break-words text-text-muted sm:text-sm">
                       {subtitle.meta}
@@ -4054,12 +4058,10 @@ function RecommendationCards({
                 ) : null}
               </div>
 
-              {usefulReasons.length ? (
-                <p className="m-0 text-xs leading-[1.45] break-words text-text-default sm:text-sm">
-                  <span className="font-black text-text-strong">Why this:</span>{" "}
-                  {usefulReasons.join(" ")}
-                </p>
-              ) : null}
+              <p className="m-0 text-xs leading-[1.45] break-words text-text-default sm:text-sm">
+                <span className="font-black text-text-strong">Why this fits:</span>{" "}
+                {cardPresentation.fitRationale}
+              </p>
 
               {card.mapsUrl ? (
                 <a
@@ -4079,6 +4081,25 @@ function RecommendationCards({
         );
       })}
     </section>
+  );
+}
+
+function RecommendationRoleBadge({
+  presentation,
+}: {
+  presentation: RecommendationCardPresentation;
+}) {
+  return (
+    <span
+      className={
+        presentation.isPrimary
+          ? "inline-flex w-fit max-w-full items-center gap-1.5 rounded-md bg-brand-lagoon-100 px-2.5 py-1 text-[0.7rem] leading-tight font-black text-brand-lagoon-700"
+          : "inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border border-border-default bg-brand-lavender-50 px-2.5 py-1 text-[0.7rem] leading-tight font-extrabold text-text-muted"
+      }
+      data-testid="recommendation-role"
+    >
+      <span className="min-w-0 break-words">{presentation.roleLabel}</span>
+    </span>
   );
 }
 
