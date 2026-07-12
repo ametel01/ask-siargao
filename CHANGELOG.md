@@ -80,6 +80,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed chat history and saved planning summaries to open actionable owned content with typed
+  rename/archive/delete controls, authoritative empty-state handling, and race-safe selection.
 - Changed recommendation artifacts to a route-first, fit-ranked presentation with bounded
   alternatives, backed signals, map actions, no-photo fallbacks, and explicit card selection authority.
 - Changed source presentation to use an expandable traveler evidence receipt with checked and
