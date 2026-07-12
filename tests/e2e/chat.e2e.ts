@@ -700,7 +700,11 @@ test("keeps mobile modal interaction, anonymous edits, and location scope in the
   await expect(dialog.getByLabel("Accommodation")).toHaveValue("Pilar homestay");
   await dialog.getByRole("button", { name: "Close trip details" }).click();
 
-  await page.getByRole("button", { name: "Enable location" }).click();
+  await page.getByTestId("location-sharing-trigger").click();
+  await page
+    .getByTestId("location-sharing-dialog")
+    .getByRole("button", { name: "Use for this trip" })
+    .click();
   await expect
     .poll(() =>
       page.evaluate(
@@ -712,7 +716,7 @@ test("keeps mobile modal interaction, anonymous edits, and location scope in the
     .toBe(1);
   await trigger.click();
   await expect(dialog.getByTestId("mobile-location-state")).toContainText(
-    "Browser location is active for this chat",
+    "Browser location is on for this in-memory trip session",
   );
   await expect(dialog.getByTestId("mobile-location-state")).not.toContainText("9.8116");
   await expect(dialog.getByTestId("mobile-location-state")).not.toContainText("126.1651");
@@ -1616,12 +1620,15 @@ test("wraps long user text inside the composer and user message bubble", async (
     .toBe(true);
 });
 
-test("sends granted browser geolocation for a trip session", async ({ page }) => {
+test("sends granted browser geolocation for a trip session", async ({ page }, testInfo) => {
   await page.addInitScript(() => {
+    const scope = window as typeof window & { __locationRequests?: number };
+    scope.__locationRequests = 0;
     Object.defineProperty(navigator, "geolocation", {
       configurable: true,
       value: {
         getCurrentPosition(success: PositionCallback) {
+          scope.__locationRequests = (scope.__locationRequests ?? 0) + 1;
           success({
             coords: {
               latitude: 9.8116,
@@ -1644,18 +1651,38 @@ test("sends granted browser geolocation for a trip session", async ({ page }) =>
 
   await page.goto("/chat");
 
-  await expect(page.getByText("Location off")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Enable location" })).toBeVisible();
-  await page.getByRole("button", { name: "Enable location" }).click();
-  await expect(page.getByText("Location active for this chat.")).toBeVisible();
-  await expect(page.getByText("Location active", { exact: true })).toBeVisible();
+  const locationTrigger = page.getByTestId("location-sharing-trigger");
+  await expect(locationTrigger).toContainText("Location: Off");
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("latitude"))).toBeNull();
+  await locationTrigger.click();
+  const locationDialog = page.getByTestId("location-sharing-dialog");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as typeof window & { __locationRequests?: number }).__locationRequests ?? 0,
+      ),
+    )
+    .toBe(0);
+  await page.screenshot({
+    path: testInfo.outputPath("location-control-desktop-off-dialog.png"),
+    fullPage: true,
+  });
+  await locationDialog.getByRole("button", { name: "Use for this trip" }).click();
+  await expect(locationTrigger).toContainText("Location: On for this trip");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as typeof window & { __locationRequests?: number }).__locationRequests ?? 0,
+      ),
+    )
+    .toBe(1);
 
   const composerInput = page.getByLabel("Ask anything about Siargao");
   await composerInput.fill("What is open near me?");
   await page.getByRole("button", { name: "Send question" }).click();
 
   await expect(page.getByText("Mocked near-me answer:")).toBeVisible();
-  await expect(page.getByText("Location active for this chat.")).toBeVisible();
+  await expect(locationTrigger).toContainText("Location: On for this trip");
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(mockChat.requests[0]?.clientContext?.geolocation).toMatchObject({
     latitude: 9.8116,
@@ -1664,6 +1691,8 @@ test("sends granted browser geolocation for a trip session", async ({ page }) =>
     consentScope: "trip_session",
   });
   expect(mockChat.requests[0]?.clientContext?.geolocation?.capturedAt).toEqual(expect.any(String));
+  expect(JSON.stringify(await page.locator("body").textContent())).not.toContain("9.8116");
+  expect(JSON.stringify(await page.locator("body").textContent())).not.toContain("126.1651");
 
   await composerInput.fill("What about tomorrow?");
   await page.getByRole("button", { name: "Send question" }).click();
@@ -1676,7 +1705,79 @@ test("sends granted browser geolocation for a trip session", async ({ page }) =>
     accuracyMeters: 25,
     consentScope: "trip_session",
   });
-  await expect(page.getByText("Location active for this chat.")).toBeVisible();
+  await expect(locationTrigger).toContainText("Location: On for this trip");
+
+  await locationTrigger.click();
+  await locationDialog.getByRole("button", { name: "Turn off" }).click();
+  await expect(locationTrigger).toContainText("Location: Off");
+  await composerInput.fill("What about after I turn it off?");
+  await page.getByRole("button", { name: "Send question" }).click();
+  await expect.poll(() => mockChat.requests.length).toBe(3);
+  expect(lastSubmittedContent(mockChat.requests[2])).toBe("What about after I turn it off?");
+  expect(mockChat.requests[2]?.clientContext?.geolocation).toBeUndefined();
+});
+
+test("sends manually shared browser geolocation for exactly one request", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition(success: PositionCallback) {
+          success({
+            coords: {
+              latitude: 9.8116,
+              longitude: 126.1651,
+              accuracy: 25,
+              altitude: null,
+              altitudeAccuracy: null,
+              heading: null,
+              speed: null,
+            },
+            timestamp: Date.now(),
+          } as GeolocationPosition);
+        },
+      },
+    });
+  });
+  const mockChat = await mockChatApi(page, {
+    message: "Mocked one-time answer: I used location once.",
+  });
+
+  await page.goto("/chat");
+
+  const locationTrigger = page.getByTestId("location-sharing-trigger");
+  await locationTrigger.click();
+  await page.screenshot({
+    path: testInfo.outputPath("location-control-mobile-use-once-dialog.png"),
+    fullPage: true,
+  });
+  await page
+    .getByTestId("location-sharing-dialog")
+    .getByRole("button", { name: "Use once" })
+    .click();
+  await expect(locationTrigger).toContainText("Location: Ready for one question");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("What is open near me?");
+  await page.getByRole("button", { name: "Send question" }).click();
+  await expect(page.getByText("Mocked one-time answer:")).toBeVisible();
+  await expect(locationTrigger).toContainText("Location: Used");
+  await expect.poll(() => mockChat.requests.length).toBe(1);
+  expect(mockChat.requests[0]?.clientContext?.geolocation).toMatchObject({
+    latitude: 9.8116,
+    longitude: 126.1651,
+    accuracyMeters: 25,
+    consentScope: "single_request",
+  });
+
+  await composerInput.fill("What about tomorrow?");
+  await page.getByRole("button", { name: "Send question" }).click();
+  await expect.poll(() => mockChat.requests.length).toBe(2);
+  expect(lastSubmittedContent(mockChat.requests[1])).toBe("What about tomorrow?");
+  expect(mockChat.requests[1]?.clientContext?.geolocation).toBeUndefined();
 });
 
 test("requests browser geolocation for a near-me prompt without the manual button", async ({
@@ -1714,7 +1815,7 @@ test("requests browser geolocation for a near-me prompt without the manual butto
   await page.getByRole("button", { name: "Send question" }).click();
 
   await expect(page.getByText("Mocked automatic near-me answer:")).toBeVisible();
-  await expect(page.getByText("Location used for the last question.")).toBeVisible();
+  await expect(page.getByTestId("location-sharing-trigger")).toContainText("Location: Used");
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(mockChat.requests[0]?.clientContext?.geolocation).toMatchObject({
     latitude: 9.8116,
@@ -1769,7 +1870,7 @@ test("cancels deferred automatic location before new chat and navigation", async
       ),
     )
     .toBe(1);
-  await expect(page.getByText("Requesting location...")).toBeVisible();
+  await expect(page.getByTestId("location-sharing-trigger")).toContainText("Location: Requesting");
   await expect.poll(() => chat.requests.length).toBe(0);
 
   await page.getByLabel("Start a new chat").first().click();
@@ -1819,10 +1920,12 @@ test("continues without geolocation after permission is denied", async ({ page }
 
   await page.goto("/chat");
 
-  await page.getByRole("button", { name: "Enable location" }).click();
-  await expect(page.getByText("Location permission denied.")).toBeVisible();
-  await expect(page.getByText("Location blocked")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+  await page.getByTestId("location-sharing-trigger").click();
+  await page
+    .getByTestId("location-sharing-dialog")
+    .getByRole("button", { name: "Use once" })
+    .click();
+  await expect(page.getByTestId("location-sharing-trigger")).toContainText("Location: Blocked");
 
   const composerInput = page.getByLabel("Ask anything about Siargao");
   await composerInput.fill("What is open in General Luna?");
@@ -1863,22 +1966,29 @@ test("continues without geolocation when automatic location permission is denied
   await composerInput.fill("What is open near me?");
   await page.getByRole("button", { name: "Send question" }).click();
 
-  await expect(page.getByText("Location permission denied.")).toBeVisible();
-  await expect(page.getByText("Location blocked")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+  await expect(page.getByTestId("location-sharing-trigger")).toContainText("Location: Blocked");
   await expect(page.getByText("Mocked no-location near-me answer:")).toBeVisible();
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(lastSubmittedContent(mockChat.requests[0])).toBe("What is open near me?");
   expect(mockChat.requests[0]?.clientContext).toBeUndefined();
+
+  await composerInput.fill("What else is open near me?");
+  await page.getByRole("button", { name: "Send question" }).click();
+  await expect.poll(() => mockChat.requests.length).toBe(2);
+  expect(lastSubmittedContent(mockChat.requests[1])).toBe("What else is open near me?");
+  expect(mockChat.requests[1]?.clientContext).toBeUndefined();
 });
 
 test("sends a mobile suggested prompt through the same chat API path", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => {
+    const scope = window as typeof window & { __suggestedLocationRequests?: number };
+    scope.__suggestedLocationRequests = 0;
     Object.defineProperty(navigator, "geolocation", {
       configurable: true,
       value: {
         getCurrentPosition(success: PositionCallback) {
+          scope.__suggestedLocationRequests = (scope.__suggestedLocationRequests ?? 0) + 1;
           success({
             coords: {
               latitude: 9.8116,
@@ -1921,12 +2031,16 @@ test("sends a mobile suggested prompt through the same chat API path", async ({ 
   expect(lastSubmittedContent(mockChat.requests[0])).toBe(
     "Plan my Siargao day around my accommodation.",
   );
-  expect(mockChat.requests[0]?.clientContext?.geolocation).toMatchObject({
-    latitude: 9.8116,
-    longitude: 126.1651,
-    accuracyMeters: 25,
-    consentScope: "single_request",
-  });
+  expect(mockChat.requests[0]?.clientContext?.geolocation).toBeUndefined();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as typeof window & { __suggestedLocationRequests?: number })
+            .__suggestedLocationRequests ?? 0,
+      ),
+    )
+    .toBe(0);
   await expect(page.getByLabel("Ask anything about Siargao")).toBeVisible();
 });
 

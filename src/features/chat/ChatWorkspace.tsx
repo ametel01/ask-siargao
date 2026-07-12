@@ -52,7 +52,6 @@ import {
 import useSWR from "swr";
 import useSWRMutation from "swr/mutation";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { InputGroup } from "@/components/ui/input-group";
 import { InputGroupAddon } from "@/components/ui/input-group-addon";
@@ -83,6 +82,14 @@ import {
   type SurfConditionSnapshot,
   type WeatherConditionSnapshot,
 } from "@/features/chat/live-condition-decision";
+import {
+  type LocationSharingScope,
+  type LocationSharingState,
+  locationGeolocationForRequest,
+  locationSharingReducer,
+  locationStateLabel,
+  shouldCaptureLocationForPrompt,
+} from "@/features/chat/location-sharing-state";
 import {
   authenticatedTripContextPatch,
   projectMobileTripContextSummary,
@@ -205,15 +212,6 @@ const conditionSourceTimeFormatter = new Intl.DateTimeFormat("en-PH", {
   timeZoneName: "short",
 });
 
-type LocationCaptureState =
-  | { status: "idle" }
-  | { status: "requesting" }
-  | { status: "ready"; geolocation: ChatClientGeolocation }
-  | { status: "denied" }
-  | { status: "unavailable" }
-  | { status: "unsupported" }
-  | { status: "consumed" };
-
 type InteractiveChatMessage = {
   id: string;
   messageId?: string;
@@ -301,9 +299,10 @@ type ChatThreadDetailMessage = {
 type ChatComposerProps = {
   inputValue: string;
   isSending: boolean;
-  locationState: LocationCaptureState;
+  locationState: LocationSharingState;
   onInputValueChange: (value: string) => void;
-  onRequestLocation: () => void;
+  onRequestLocation: (scope: LocationSharingScope) => void;
+  onTurnOffLocation: () => void;
   onSubmitPrompt: (prompt: string) => void;
 };
 
@@ -440,7 +439,7 @@ type ChatWorkspaceController = {
   historyStatus: "idle" | "loading" | "error";
   inputValue: string;
   isSending: boolean;
-  locationState: LocationCaptureState;
+  locationState: LocationSharingState;
   messages: InteractiveChatMessage[];
   openChatThread: (threadId: string) => Promise<void>;
   archiveSelectedThread: () => Promise<void>;
@@ -448,7 +447,7 @@ type ChatWorkspaceController = {
   rateAssistantMessage: (messageId: string, rating: ChatResponseRatingValue) => Promise<void>;
   removeSavedItem: (itemId: string) => void;
   renameSelectedThread: () => Promise<void>;
-  requestLocation: () => void;
+  requestLocation: (scope: LocationSharingScope) => void;
   saveItineraryPlan: (plan: ItineraryPlanArtifact) => void;
   saveRecommendationCard: (card: RecommendationCardArtifact) => void;
   savedItemIds: ReadonlySet<string>;
@@ -459,6 +458,7 @@ type ChatWorkspaceController = {
   setInputValue: (value: string) => void;
   startNewChat: () => void;
   stopWaitingForAssistant: (assistantMessageId: string) => void;
+  turnOffLocation: () => void;
   tripContext: TripContextDraft;
   tripDataSource: TripDataSource;
   updateTripContext: (context: TripContextDraft) => Promise<void>;
@@ -467,7 +467,7 @@ type ChatWorkspaceController = {
 function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceController {
   const [inputValue, setInputValue] = useState(() => initialPrompt.trim());
   const [isSending, setIsSending] = useState(false);
-  const [locationState, setLocationState] = useState<LocationCaptureState>({ status: "idle" });
+  const [locationState, setLocationState] = useState<LocationSharingState>({ status: "off" });
   const [messages, setMessages] = useState<InteractiveChatMessage[]>([]);
   const [chatThreads, setChatThreads] = useState<ChatThreadSummary[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -550,12 +550,23 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
   );
   const hasSyncedAuthenticatedSavedTrip = useRef(false);
   const activeResponseRequestRef = useRef<ResponseWaitRequest | null>(null);
-  const activeLocationCaptureRef = useRef<AbortController | null>(null);
+  const activeLocationCaptureRef = useRef<{
+    controller: AbortController;
+    requestId: number;
+  } | null>(null);
+  const locationCaptureRequestIdRef = useRef(0);
   const pendingChatSubmissionRef = useRef<PendingChatSubmission | null>(null);
   const chatSubmissionGenerationRef = useRef(0);
   const activeThreadLoadRef = useRef<ActiveThreadLoad | null>(null);
   const threadLoadGenerationRef = useRef(0);
   const mountedRef = useRef(true);
+
+  const dispatchLocationState = useCallback(
+    (action: Parameters<typeof locationSharingReducer>[1]) => {
+      setLocationState((currentState) => locationSharingReducer(currentState, action));
+    },
+    [],
+  );
 
   const invalidateActiveResponseRequest = useCallback(() => {
     activeResponseRequestRef.current = invalidateResponseWaitRequest(
@@ -568,10 +579,10 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     chatSubmissionGenerationRef.current += 1;
     pendingChatSubmissionRef.current?.controller.abort();
     pendingChatSubmissionRef.current = null;
-    activeLocationCaptureRef.current?.abort();
+    activeLocationCaptureRef.current?.controller.abort();
     activeLocationCaptureRef.current = null;
     setLocationState((currentState) =>
-      currentState.status === "requesting" ? { status: "idle" } : currentState,
+      currentState.status === "requesting" ? { status: "off" } : currentState,
     );
     setIsSending(false);
   }, []);
@@ -615,7 +626,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
       chatSubmissionGenerationRef.current += 1;
       pendingChatSubmissionRef.current?.controller.abort();
       pendingChatSubmissionRef.current = null;
-      activeLocationCaptureRef.current?.abort();
+      activeLocationCaptureRef.current?.controller.abort();
       activeLocationCaptureRef.current = null;
       threadLoadGenerationRef.current += 1;
       activeThreadLoadRef.current?.controller.abort();
@@ -847,23 +858,27 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
 
   const captureLocation = useCallback(
     async (
-      consentScope: ChatClientGeolocation["consentScope"] = "single_request",
+      consentScope: LocationSharingScope = "single_request",
       ownerSignal?: AbortSignal,
-    ): Promise<LocationCaptureState | null> => {
-      activeLocationCaptureRef.current?.abort();
+    ): Promise<LocationSharingState | null> => {
+      if (activeLocationCaptureRef.current) {
+        return null;
+      }
       const controller = new AbortController();
-      activeLocationCaptureRef.current = controller;
+      const requestId = locationCaptureRequestIdRef.current + 1;
+      locationCaptureRequestIdRef.current = requestId;
+      activeLocationCaptureRef.current = { controller, requestId };
 
-      return new Promise<LocationCaptureState | null>((resolve) => {
+      return new Promise<LocationSharingState | null>((resolve) => {
         let settled = false;
-        const finish = (nextState: LocationCaptureState | null) => {
+        const finish = (nextState: LocationSharingState | null) => {
           if (settled) {
             return;
           }
           settled = true;
           controller.signal.removeEventListener("abort", handleAbort);
           ownerSignal?.removeEventListener("abort", handleOwnerAbort);
-          if (activeLocationCaptureRef.current === controller) {
+          if (activeLocationCaptureRef.current?.requestId === requestId) {
             activeLocationCaptureRef.current = null;
           }
           resolve(nextState);
@@ -885,17 +900,25 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
           return;
         }
 
+        dispatchLocationState({ type: "request", requestId, scope: consentScope });
+
         if (!("geolocation" in navigator)) {
-          const nextState = { status: "unsupported" } satisfies LocationCaptureState;
-          setLocationState(nextState);
+          const nextState = {
+            status: "unavailable",
+            reason: "unsupported",
+          } satisfies LocationSharingState;
+          dispatchLocationState({ type: "fail", requestId, reason: "unsupported" });
           finish(nextState);
           return;
         }
 
-        setLocationState({ status: "requesting" });
         navigator.geolocation.getCurrentPosition(
           (position) => {
-            if (controller.signal.aborted || !mountedRef.current) {
+            if (
+              controller.signal.aborted ||
+              !mountedRef.current ||
+              activeLocationCaptureRef.current?.requestId !== requestId
+            ) {
               finish(null);
               return;
             }
@@ -910,19 +933,36 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
                 capturedAt: new Date(position.timestamp).toISOString(),
                 consentScope,
               },
-            } satisfies LocationCaptureState;
-            setLocationState(nextState);
+              scope: consentScope,
+            } satisfies LocationSharingState;
+            dispatchLocationState({
+              type: "resolve",
+              requestId,
+              geolocation: nextState.geolocation,
+            });
             finish(nextState);
           },
           (error) => {
-            if (controller.signal.aborted || !mountedRef.current) {
+            if (
+              controller.signal.aborted ||
+              !mountedRef.current ||
+              activeLocationCaptureRef.current?.requestId !== requestId
+            ) {
               finish(null);
               return;
             }
+            if (error.code === error.PERMISSION_DENIED) {
+              const nextState = { status: "blocked" } satisfies LocationSharingState;
+              dispatchLocationState({ type: "deny", requestId });
+              finish(nextState);
+              return;
+            }
+            const reason = error.code === error.TIMEOUT ? "timeout" : "position_unavailable";
             const nextState = {
-              status: error.code === error.PERMISSION_DENIED ? "denied" : "unavailable",
-            } satisfies LocationCaptureState;
-            setLocationState(nextState);
+              status: "unavailable",
+              reason,
+            } satisfies LocationSharingState;
+            dispatchLocationState({ type: "fail", requestId, reason });
             finish(nextState);
           },
           {
@@ -933,12 +973,21 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
         );
       });
     },
-    [],
+    [dispatchLocationState],
   );
 
-  const requestLocation = useCallback(() => {
-    void captureLocation("trip_session");
-  }, [captureLocation]);
+  const requestLocation = useCallback(
+    (scope: LocationSharingScope) => {
+      void captureLocation(scope);
+    },
+    [captureLocation],
+  );
+
+  const turnOffLocation = useCallback(() => {
+    activeLocationCaptureRef.current?.controller.abort();
+    activeLocationCaptureRef.current = null;
+    dispatchLocationState({ type: "turn_off" });
+  }, [dispatchLocationState]);
 
   const submitPrompt = useCallback(
     async (prompt: string) => {
@@ -1007,7 +1056,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
       setInputValue("");
       setMessages((currentMessages) => [...currentMessages, userMessage, pendingAssistant]);
       if (requestBody.clientContext?.geolocation?.consentScope === "single_request") {
-        setLocationState({ status: "consumed" });
+        dispatchLocationState({ type: "consume_request" });
       }
 
       try {
@@ -1115,6 +1164,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     },
     [
       captureLocation,
+      dispatchLocationState,
       isSending,
       locationState,
       messages,
@@ -1252,6 +1302,7 @@ function useChatWorkspaceController(initialPrompt: string): ChatWorkspaceControl
     setInputValue,
     startNewChat,
     stopWaitingForAssistant,
+    turnOffLocation,
     tripContext,
     tripDataSource,
     updateTripContext,
@@ -1280,6 +1331,7 @@ function ChatWorkspaceView({
   setInputValue,
   startNewChat,
   stopWaitingForAssistant,
+  turnOffLocation,
   tripContext,
   tripDataSource,
   updateTripContext,
@@ -1446,6 +1498,7 @@ function ChatWorkspaceView({
             locationState={locationState}
             onInputValueChange={setInputValue}
             onRequestLocation={requestLocation}
+            onTurnOffLocation={turnOffLocation}
             onSubmitPrompt={handlePromptSubmit}
           />
         </section>
@@ -1453,7 +1506,6 @@ function ChatWorkspaceView({
         <ChatContextRail
           liveConditions={liveConditions}
           locationState={locationState}
-          onRequestLocation={requestLocation}
           tripContext={tripContext}
           tripDataSource={tripDataSource}
           onUpdateTripContext={updateTripContext}
@@ -1680,7 +1732,7 @@ type LiveConditionsController = {
 };
 
 function useLiveConditions(
-  locationState: LocationCaptureState,
+  locationState: LocationSharingState,
   tripContext: TripContextDraft,
 ): LiveConditionsController {
   const activeForecastLocation =
@@ -1777,7 +1829,7 @@ function MobileTripContextDisclosure({
   tripDataSource,
 }: {
   liveConditions: LiveConditionsController;
-  locationState: LocationCaptureState;
+  locationState: LocationSharingState;
   onUpdateTripContext: (context: TripContextDraft) => Promise<void>;
   tripContext: TripContextDraft;
   tripDataSource: TripDataSource;
@@ -1928,7 +1980,7 @@ function MobileTripContextSheet({
   draft: TripContextDraft;
   isDirty: boolean;
   liveConditions: LiveConditionsController;
-  locationState: LocationCaptureState;
+  locationState: LocationSharingState;
   onCancelEdit: () => void;
   onSave: () => Promise<void>;
   onUpdateDraft: (draft: TripContextDraft) => void;
@@ -2165,20 +2217,23 @@ function MobileConditionCard({
   );
 }
 
-function mobileLocationScopeLabel(locationState: LocationCaptureState) {
+function mobileLocationScopeLabel(locationState: LocationSharingState) {
   if (locationState.status === "ready") {
     return locationState.geolocation.consentScope === "trip_session"
-      ? "Browser location is active for this chat."
+      ? "Browser location is on for this in-memory trip session."
       : "Browser location is ready for the next question.";
   }
   if (locationState.status === "requesting") {
     return "Browser location permission is being requested.";
   }
-  if (locationState.status === "denied") {
-    return "Browser location permission is off.";
+  if (locationState.status === "blocked") {
+    return "Browser location is blocked. You can still name an area or continue without it.";
   }
-  if (locationState.status === "unavailable" || locationState.status === "unsupported") {
+  if (locationState.status === "unavailable") {
     return "Browser location is unavailable in this browser.";
+  }
+  if (locationState.status === "used") {
+    return "Browser location was used for the last question and is no longer kept.";
   }
   return "Browser location is off.";
 }
@@ -2227,14 +2282,12 @@ function ChatSettingsLink() {
 function ChatContextRail({
   liveConditions,
   locationState,
-  onRequestLocation,
   onUpdateTripContext,
   tripContext,
   tripDataSource,
 }: {
   liveConditions: LiveConditionsController;
-  locationState: LocationCaptureState;
-  onRequestLocation: () => void;
+  locationState: LocationSharingState;
   onUpdateTripContext: (context: TripContextDraft) => Promise<void>;
   tripContext: TripContextDraft;
   tripDataSource: TripDataSource;
@@ -2367,16 +2420,6 @@ function ChatContextRail({
                 </div>
               </>
             )}
-            {locationState.status !== "ready" ? (
-              <Button
-                className="h-8 rounded-md border-brand-lagoon-500/25 bg-brand-lagoon-50 px-3 text-xs font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
-                onClick={onRequestLocation}
-                type="button"
-                variant="outline"
-              >
-                Use browser location
-              </Button>
-            ) : null}
           </div>
         )}
       </ContextCard>
@@ -2593,7 +2636,7 @@ function tripContextFacts({
   tripContext,
 }: {
   activeForecastLocation: ForecastLocationLabel;
-  locationState: LocationCaptureState;
+  locationState: LocationSharingState;
   tripContext: TripContextDraft;
 }): Array<{ icon: ChatContextIcon; label: string; value: string }> {
   return [
@@ -2786,15 +2829,23 @@ function degreesToRadians(value: number) {
   return (value * Math.PI) / 180;
 }
 
-function locationSourceLabel(locationState: LocationCaptureState) {
+function locationSourceLabel(locationState: LocationSharingState) {
   if (locationState.status === "ready") {
-    return "Browser location active";
+    return locationState.scope === "trip_session"
+      ? "Browser location on for this trip"
+      : "Browser location ready once";
   }
   if (locationState.status === "requesting") {
     return "Requesting browser location";
   }
-  if (locationState.status === "denied") {
-    return "Browser location denied";
+  if (locationState.status === "blocked") {
+    return "Browser location blocked";
+  }
+  if (locationState.status === "unavailable") {
+    return "Browser location unavailable";
+  }
+  if (locationState.status === "used") {
+    return "Browser location used once";
   }
   return "No browser location";
 }
@@ -4420,6 +4471,7 @@ function ChatComposer({
   locationState,
   onInputValueChange,
   onRequestLocation,
+  onTurnOffLocation,
   onSubmitPrompt,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -4430,23 +4482,26 @@ function ChatComposer({
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (locationState.status === "requesting") {
+      return;
+    }
     onSubmitPrompt(inputValue);
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== "Enter" || event.shiftKey || isSending || inputValue.trim().length === 0) {
+    if (
+      event.key !== "Enter" ||
+      event.shiftKey ||
+      isSending ||
+      locationState.status === "requesting" ||
+      inputValue.trim().length === 0
+    ) {
       return;
     }
 
     event.preventDefault();
     onSubmitPrompt(inputValue);
   }
-
-  const locationStatus = locationStatusText(locationState);
-  const locationIndicator = locationIndicatorState(locationState);
-  const locationActivationLabel = locationActivationButtonLabel(locationState);
-  const locationReady = locationState.status === "ready";
-  const locationRequesting = locationState.status === "requesting";
 
   return (
     <footer className="border-border-default border-t bg-white px-4 py-3 sm:px-6 lg:px-8">
@@ -4456,29 +4511,6 @@ function ChatComposer({
         onSubmit={handleSubmit}
       >
         <InputGroup className="min-h-[58px] items-start rounded-lg border-border-default bg-white p-2 text-text-strong shadow-card ring-1 ring-border-default">
-          <InputGroupAddon align="inline-start" className="shrink-0 pt-1.5">
-            <InputGroupButton
-              aria-label={
-                locationReady ? "Location ready for next question" : "Share location once"
-              }
-              aria-pressed={locationReady}
-              className={
-                locationReady
-                  ? "size-11 rounded-md bg-brand-lagoon-100 text-brand-lagoon-700 hover:bg-brand-lagoon-100"
-                  : "size-11 rounded-md text-text-muted hover:bg-brand-lavender-50 hover:text-text-strong"
-              }
-              disabled={isSending || locationRequesting}
-              onClick={onRequestLocation}
-              size="icon-sm"
-              type="button"
-            >
-              {locationRequesting ? (
-                <LoaderCircle aria-hidden="true" className="animate-spin" size={18} />
-              ) : (
-                <MapPin aria-hidden="true" size={18} />
-              )}
-            </InputGroupButton>
-          </InputGroupAddon>
           <textarea
             data-slot="input-group-control"
             aria-label="Ask anything about Siargao"
@@ -4502,7 +4534,9 @@ function ChatComposer({
             <InputGroupButton
               aria-label="Send question"
               className="size-11 rounded-md bg-brand-violet-650 text-white hover:bg-brand-violet-600 disabled:opacity-50"
-              disabled={isSending || inputValue.trim().length === 0}
+              disabled={
+                isSending || locationState.status === "requesting" || inputValue.trim().length === 0
+              }
               size="icon-sm"
               type="submit"
             >
@@ -4514,37 +4548,146 @@ function ChatComposer({
             </InputGroupButton>
           </InputGroupAddon>
         </InputGroup>
-        <div className="mt-2 flex min-h-5 flex-wrap items-center gap-2 px-1">
-          <Badge
-            aria-label={`Location ${locationIndicator.label.toLowerCase()}`}
-            className={locationIndicator.className}
+        <LocationSharingControl
+          disabled={isSending}
+          locationState={locationState}
+          onRequestLocation={onRequestLocation}
+          onTurnOffLocation={onTurnOffLocation}
+        />
+      </form>
+    </footer>
+  );
+}
+
+function LocationSharingControl({
+  disabled,
+  locationState,
+  onRequestLocation,
+  onTurnOffLocation,
+}: {
+  disabled: boolean;
+  locationState: LocationSharingState;
+  onRequestLocation: (scope: LocationSharingScope) => void;
+  onTurnOffLocation: () => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const label = locationStateLabel(locationState);
+  const summary = locationSummaryText(locationState);
+  const isRequesting = locationState.status === "requesting";
+  const canTurnOff = locationState.status === "ready" || locationState.status === "requesting";
+
+  const requestScope = (scope: LocationSharingScope) => {
+    onRequestLocation(scope);
+    setIsOpen(false);
+  };
+
+  return (
+    <Dialog.Root onOpenChange={setIsOpen} open={isOpen}>
+      <div className="mt-2 min-w-0 px-1">
+        <Dialog.Trigger asChild>
+          <Button
+            aria-label={`Location sharing: ${label}. ${summary}`}
+            className="h-auto min-h-11 max-w-full justify-start gap-2 rounded-md border-border-default bg-brand-lavender-50 px-3 py-2 text-left text-xs font-extrabold text-text-strong hover:bg-brand-lavender-100 focus-visible:ring-2 focus-visible:ring-brand-violet-650"
+            data-testid="location-sharing-trigger"
+            type="button"
             variant="outline"
           >
-            <span className={locationIndicator.dotClassName} />
-            {locationIndicator.label}
-          </Badge>
-          <p
-            aria-live="polite"
-            className="m-0 text-[0.72rem] leading-tight font-extrabold text-text-muted"
-          >
-            {locationStatus}
+            {isRequesting ? (
+              <LoaderCircle aria-hidden="true" className="shrink-0 animate-spin" size={16} />
+            ) : (
+              <MapPin aria-hidden="true" className="shrink-0 text-brand-violet-650" size={16} />
+            )}
+            <span className="grid min-w-0 gap-0.5">
+              <span className="min-w-0 break-words">Location: {label}</span>
+              <span className="min-w-0 break-words text-[0.7rem] leading-tight text-text-muted">
+                {summary}
+              </span>
+            </span>
+          </Button>
+        </Dialog.Trigger>
+      </div>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-brand-navy-980/45" />
+        <Dialog.Content
+          className="fixed right-3 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] left-3 z-50 grid max-h-[min(78dvh,30rem)] gap-4 overflow-y-auto rounded-lg border border-border-default bg-white p-4 text-text-strong shadow-night-card focus:outline-none sm:right-auto sm:left-1/2 sm:w-[min(28rem,calc(100vw-2rem))] sm:-translate-x-1/2"
+          data-testid="location-sharing-dialog"
+        >
+          <div className="grid gap-1">
+            <Dialog.Title className="m-0 text-base font-black text-text-strong">
+              Location sharing
+            </Dialog.Title>
+            <Dialog.Description className="m-0 text-sm leading-[1.5] font-bold text-text-muted">
+              Share exact browser location only when it helps this question. Coordinates stay in
+              memory until the allowed request is sent and are not saved to trip details or history.
+            </Dialog.Description>
+          </div>
+          <p className="m-0 text-sm font-extrabold text-text-strong" aria-live="polite">
+            Current state: {label}. {summary}
           </p>
-          {locationActivationLabel ? (
+          {locationState.status === "blocked" ? (
+            <p className="m-0 text-xs leading-[1.45] font-bold text-text-muted">
+              Allow location for this site in browser settings to retry, or name an area like
+              General Luna and continue without browser location.
+            </p>
+          ) : null}
+          {locationState.status === "unavailable" ? (
+            <p className="m-0 text-xs leading-[1.45] font-bold text-text-muted">
+              This browser could not provide a usable position. You can retry from here or ask with
+              a named Siargao area.
+            </p>
+          ) : null}
+          <div className="grid gap-2">
             <Button
-              className="h-7 rounded-md border-border-default bg-white px-2.5 text-[0.68rem] font-black text-text-strong hover:bg-brand-lavender-50"
-              disabled={isSending || locationRequesting}
-              onClick={onRequestLocation}
-              size="sm"
+              className="h-auto min-h-11 justify-start rounded-md bg-brand-violet-650 px-3 py-2 text-sm font-extrabold text-white hover:bg-brand-violet-600 disabled:opacity-55"
+              disabled={disabled || isRequesting}
+              onClick={() => requestScope("single_request")}
+              type="button"
+            >
+              Use once
+            </Button>
+            <p className="m-0 text-xs leading-tight font-bold text-text-muted">
+              Adds location to the next chat request only, then clears it even if the answer fails.
+            </p>
+            <Button
+              className="h-auto min-h-11 justify-start rounded-md border-brand-lagoon-500/25 bg-brand-lagoon-50 px-3 py-2 text-sm font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100 disabled:opacity-55"
+              disabled={disabled || isRequesting}
+              onClick={() => requestScope("trip_session")}
               type="button"
               variant="outline"
             >
-              <MapPin aria-hidden="true" size={12} />
-              {locationActivationLabel}
+              Use for this trip
             </Button>
-          ) : null}
-        </div>
-      </form>
-    </footer>
+            <p className="m-0 text-xs leading-tight font-bold text-text-muted">
+              Keeps location only in this open chat workspace until you turn it off or leave.
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2 border-border-default border-t pt-3">
+            {canTurnOff ? (
+              <Button
+                className="h-10 rounded-md border-border-default bg-white px-3 text-sm font-extrabold text-text-strong hover:bg-brand-lavender-50"
+                onClick={() => {
+                  onTurnOffLocation();
+                  setIsOpen(false);
+                }}
+                type="button"
+                variant="outline"
+              >
+                Turn off
+              </Button>
+            ) : null}
+            <Dialog.Close asChild>
+              <Button
+                className="h-10 rounded-md border-border-default bg-white px-3 text-sm font-extrabold text-text-muted hover:bg-brand-lavender-50"
+                type="button"
+                variant="outline"
+              >
+                Close
+              </Button>
+            </Dialog.Close>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
@@ -4557,80 +4700,22 @@ function resizeComposerTextarea(textarea: HTMLTextAreaElement | null) {
   textarea.style.height = `${Math.min(textarea.scrollHeight, 128)}px`;
 }
 
-function locationStatusText(locationState: LocationCaptureState) {
+function locationSummaryText(locationState: LocationSharingState) {
   switch (locationState.status) {
     case "requesting":
-      return "Requesting location...";
+      return "Requesting browser permission now.";
     case "ready":
       return locationState.geolocation.consentScope === "trip_session"
-        ? "Location active for this chat."
-        : "Location ready for the next question.";
-    case "denied":
-      return "Location permission denied. Allow it in browser site settings, then try again.";
+        ? "Will be included until you turn it off or leave this chat."
+        : "Will be included with the next question only.";
+    case "blocked":
+      return "Permission is blocked; continue without location or retry from this control.";
     case "unavailable":
-      return "Location unavailable.";
-    case "unsupported":
-      return "Location unavailable in this browser.";
-    case "consumed":
-      return "Location used for the last question.";
-    case "idle":
-      return "Location sharing is optional.";
-  }
-}
-
-function locationActivationButtonLabel(locationState: LocationCaptureState) {
-  switch (locationState.status) {
-    case "idle":
-    case "consumed":
-      return "Enable location";
-    case "denied":
-    case "unavailable":
-    case "unsupported":
-      return "Try again";
-    case "requesting":
-    case "ready":
-      return null;
-  }
-}
-
-function locationIndicatorState(locationState: LocationCaptureState) {
-  switch (locationState.status) {
-    case "ready":
-      return {
-        label: "Location active",
-        className:
-          "gap-1.5 rounded-md border-brand-lagoon-700/15 bg-brand-lagoon-100 px-2 py-0.5 text-[0.68rem] font-black text-brand-lagoon-700",
-        dotClassName: "size-1.5 rounded-full bg-brand-lagoon-500",
-      };
-    case "requesting":
-      return {
-        label: "Location pending",
-        className:
-          "gap-1.5 rounded-md border-brand-sunset-gold/35 bg-surface-caveat px-2 py-0.5 text-[0.68rem] font-black text-text-caveat",
-        dotClassName: "size-1.5 rounded-full bg-brand-sunset-gold",
-      };
-    case "denied":
-      return {
-        label: "Location blocked",
-        className:
-          "gap-1.5 rounded-md border-border-alert bg-surface-alert px-2 py-0.5 text-[0.68rem] font-black text-text-alert",
-        dotClassName: "size-1.5 rounded-full bg-brand-sunset-coral",
-      };
-    case "unavailable":
-    case "unsupported":
-      return {
-        label: "Location unavailable",
-        className:
-          "gap-1.5 rounded-md border-brand-sunset-gold/35 bg-surface-caveat px-2 py-0.5 text-[0.68rem] font-black text-text-caveat",
-        dotClassName: "size-1.5 rounded-full bg-brand-sunset-gold",
-      };
-    default:
-      return {
-        label: "Location off",
-        className:
-          "gap-1.5 rounded-md border-border-default bg-brand-lavender-50 px-2 py-0.5 text-[0.68rem] font-black text-text-muted",
-        dotClassName: "size-1.5 rounded-full bg-text-soft",
-      };
+      return "Browser location is unavailable; you can retry or name an area.";
+    case "used":
+      return "Used for the last question and cleared.";
+    case "off":
+      return "Optional. Ask normally or choose a scope first.";
   }
 }
 
@@ -4754,55 +4839,9 @@ function buildChatRequestMessages(messages: readonly InteractiveChatMessage[], p
   ];
 }
 
-function shouldCaptureLocationForPrompt(prompt: string, locationState: LocationCaptureState) {
-  if (locationState.status === "ready" || locationState.status === "requesting") {
-    return false;
-  }
-
-  if (locationState.status === "consumed") {
-    return hasDirectBrowserLocationPrompt(prompt);
-  }
-
-  if (
-    locationState.status === "denied" ||
-    locationState.status === "unavailable" ||
-    locationState.status === "unsupported"
-  ) {
-    return false;
-  }
-
-  return isLocationSensitivePrompt(prompt);
-}
-
-function isLocationSensitivePrompt(prompt: string) {
-  if (hasDirectBrowserLocationPrompt(prompt)) {
-    return true;
-  }
-
-  if (hasExplicitSiargaoArea(prompt)) {
-    return false;
-  }
-
-  return /\b(?:open\s+now|weather|rain|today|tonight|tomorrow|plan\b.{0,48}\bday|itinerary)\b/i.test(
-    prompt,
-  );
-}
-
-function hasDirectBrowserLocationPrompt(prompt: string) {
-  return /\b(?:near\s+me|nearby|around\s+me|close\s+to\s+me|my\s+(?:location|area)|current\s+location|where\s+i\s+am)\b/i.test(
-    prompt,
-  );
-}
-
-function hasExplicitSiargaoArea(prompt: string) {
-  return /\b(?:cloud\s*9|general\s+luna|del\s+carmen|dapa|pacifico|burgos|pilar|malinao|catangnan|union|maasin|santa\s+monica|san\s+isidro)\b/i.test(
-    prompt,
-  );
-}
-
 function buildChatRequestBody(
   messages: ReturnType<typeof buildChatRequestMessages>,
-  locationState: LocationCaptureState,
+  locationState: LocationSharingState,
   threadId: string | null,
   tripDataSource: TripDataSource,
 ): {
@@ -4812,8 +4851,9 @@ function buildChatRequestBody(
 } {
   const tripContext =
     tripDataSource === "anonymous" ? readStoredTripContextForRequest() : undefined;
+  const geolocation = locationGeolocationForRequest(locationState);
   const clientContext: ChatClientContext = {
-    ...(locationState.status === "ready" ? { geolocation: locationState.geolocation } : {}),
+    ...(geolocation ? { geolocation } : {}),
     ...(tripContext ? { tripContext } : {}),
   };
 
