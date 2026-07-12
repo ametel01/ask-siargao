@@ -87,6 +87,34 @@ describe("suggested prompt generation", () => {
     expect(prompts.length).toBeGreaterThanOrEqual(2);
     expect(prompts.length).toBeLessThanOrEqual(4);
   });
+
+  test("keeps traveler-type-only context within the two-to-four prompt contract", () => {
+    const soloPrompts = buildSuggestedPrompts({
+      context: tripContext({ travelerType: "Solo traveler" }),
+      surfDecision: decision("surf", "loading"),
+      weatherDecision: decision("weather", "unavailable"),
+    });
+    const unclassifiedPrompts = buildSuggestedPrompts({
+      context: tripContext({ travelerType: "Another traveler" }),
+      surfDecision: decision("surf", "loading"),
+      weatherDecision: decision("weather", "unavailable"),
+    });
+
+    expect(soloPrompts).toEqual([
+      "What should I prioritize for Solo traveler in Siargao?",
+      "Help me make a flexible plan around Siargao.",
+    ]);
+    expect(unclassifiedPrompts).toEqual([
+      "What should I prioritize for Another traveler in Siargao?",
+      "Help me make a flexible plan around Siargao.",
+    ]);
+    expect(soloPrompts).toHaveLength(2);
+    expect(unclassifiedPrompts).toHaveLength(2);
+    expect(soloPrompts.join(" ")).not.toMatch(/\b(?:open now|safe today|sunny|good now)\b/i);
+    expect(unclassifiedPrompts.join(" ")).not.toMatch(
+      /\b(?:open now|safe today|sunny|good now)\b/i,
+    );
+  });
 });
 
 function tripContext(context: Partial<TripContextDraft> = {}): TripContextDraft {

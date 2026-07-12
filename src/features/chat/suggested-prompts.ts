@@ -66,6 +66,9 @@ export function buildSuggestedPrompts({
   if (prompts.length < maxSuggestedPromptCount && context.dateRange) {
     prompts.push(`Help me plan around my ${context.dateRange} dates.`);
   }
+  if (prompts.length < maxSuggestedPromptCount && context.travelerType) {
+    prompts.push(`What should I prioritize for ${context.travelerType} in Siargao?`);
+  }
   if (prompts.length < maxSuggestedPromptCount && hasConditionSignals(weatherDecision)) {
     prompts.push(`How should the checked forecast affect my plan ${areaPlanSuffix}?`);
   }
