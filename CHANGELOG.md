@@ -80,6 +80,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed shared product surfaces across landing, chat, and settings to use restrained panel, inset,
+  overlay, and line-item roles with clearer typography, flatter recommendation grouping, and
+  committed before/after visual evidence at mobile and desktop widths.
 - Changed the desktop chat workspace into a restrained Siargao field desk with a dominant
   conversation surface, subordinate travel rails, coastal brand cues, and viewport-safe layouts.
 - Changed chat history and saved planning summaries to open actionable owned content with typed
