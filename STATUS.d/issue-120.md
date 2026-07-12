@@ -27,7 +27,8 @@
 - screenshots:
   - Landing: `issue-120-landing-mobile-390.png`, `issue-120-landing-desktop-1440.png`.
   - Settings: `issue-120-settings-desktop.png`, `issue-120-settings-mobile-390.png`.
-  - Chat: `issue-120-chat-1180.png`, `issue-120-chat-wide-1920.png`, plus a 390px mobile shell.
+  - Chat: `issue-120-chat-1180.png`, `issue-120-chat-1440.png`, `issue-120-chat-wide-1920.png`,
+    plus a 390px mobile shell.
 - durable before/after evidence: `docs/visual-evidence/issue-120/{before,after}/` contains paired
   landing, settings, and chat PNGs at mobile 390px and desktop 1440px viewports. `file` verified
   all twelve artifacts as PNGs with the expected dimensions.
@@ -82,8 +83,8 @@
   - `docs/visual-evidence/issue-120/before/landing-{mobile-390,desktop-1440}.png`
   - `docs/visual-evidence/issue-120/before/settings-{mobile-390,desktop-1440}.png`
   - `docs/visual-evidence/issue-120/before/chat-{mobile-390,desktop-1440}.png`
-  - `docs/visual-evidence/issue-120/after/chat-{mobile-390,1180,wide-1920}.png` captured from
-    the current mocked E2E/desktop shell paths.
+  - `docs/visual-evidence/issue-120/after/chat-{mobile-390,1180,desktop-1440,wide-1920}.png`
+    captured from the current mocked E2E/desktop shell paths.
 - Requesting checker rerun against the same code head with this durable evidence present.
 
 ## Independent Checker Rerun - 2026-07-13

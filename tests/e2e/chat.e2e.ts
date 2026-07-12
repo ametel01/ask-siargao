@@ -664,7 +664,7 @@ test("renders the field desk workspace across desktop visual fixtures", async ({
       path: testInfo.outputPath(`field-desk-active-saved-long-${viewport.label}.png`),
       fullPage: true,
     });
-    if (viewport.label === "1180" || viewport.label === "wide-1920") {
+    if (viewport.label === "1180" || viewport.label === "1440" || viewport.label === "wide-1920") {
       await page.screenshot({
         path: testInfo.outputPath(`issue-120-chat-${viewport.label}.png`),
         fullPage: true,

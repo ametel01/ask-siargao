@@ -513,6 +513,7 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
     });
   expect(Number.parseFloat(settingsSurfaceChrome.borderRadius)).toBeLessThanOrEqual(10);
   expect(settingsSurfaceChrome.boxShadow).not.toContain("48px");
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({
     path: "test-results/issue-120-settings-desktop.png",
     fullPage: true,
