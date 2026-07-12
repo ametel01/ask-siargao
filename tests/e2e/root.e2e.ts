@@ -46,21 +46,50 @@ test("exposes real desktop navigation in keyboard reading order", async ({ page 
   }
 
   const expectedTabOrder = [
-    page.getByRole("link", { name: "Ask Siargao home" }),
-    navigation.getByRole("link", { name: "Start a question" }),
-    navigation.getByRole("link", { name: "Planning inputs" }),
-    navigation.getByRole("link", { name: "Plan smarter" }),
-    page.getByRole("link", { name: "Ask in chat" }),
-    page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
-    page.getByRole("link", { name: "Quiet base" }),
-    page.getByRole("link", { name: "Food route" }),
+    { link: page.getByRole("link", { name: "Ask Siargao home" }), color: "rgb(142, 230, 216)" },
+    {
+      link: navigation.getByRole("link", { name: "Start a question" }),
+      color: "rgb(142, 230, 216)",
+    },
+    {
+      link: navigation.getByRole("link", { name: "Planning inputs" }),
+      color: "rgb(142, 230, 216)",
+    },
+    {
+      link: navigation.getByRole("link", { name: "Plan smarter" }),
+      color: "rgb(142, 230, 216)",
+    },
+    { link: page.getByRole("link", { name: "Ask in chat" }), color: "rgb(142, 230, 216)" },
+    {
+      link: page
+        .getByLabel("Example Ask Siargao prompt")
+        .getByRole("link", { name: "Ask Siargao" }),
+      color: "rgb(10, 111, 103)",
+    },
+    { link: page.getByRole("link", { name: "Quiet base" }), color: "rgb(142, 230, 216)" },
+    { link: page.getByRole("link", { name: "Food route" }), color: "rgb(142, 230, 216)" },
+    {
+      link: page.getByRole("link", { name: "Ask about this" }).nth(0),
+      color: "rgb(10, 111, 103)",
+    },
+    {
+      link: page.getByRole("link", { name: "Ask about this" }).nth(1),
+      color: "rgb(10, 111, 103)",
+    },
   ];
 
-  for (const link of expectedTabOrder) {
+  for (const { color, link } of expectedTabOrder) {
     await page.keyboard.press("Tab");
     await expect(link).toBeFocused();
-    const outlineStyle = await link.evaluate((element) => getComputedStyle(element).outlineStyle);
-    expect(outlineStyle).not.toBe("none");
+    const outline = await link.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        color: style.outlineColor,
+        style: style.outlineStyle,
+        width: style.outlineWidth,
+      };
+    });
+    expect(outline).toEqual({ color, style: "solid", width: "3px" });
   }
 });
 
@@ -104,29 +133,21 @@ test("landing prompt actions preserve exact chat handoff without submitting", as
   }
 });
 
-test("landing remains intentional and overflow-free across target viewports", async ({ page }) => {
-  const viewports = [
-    { name: "mobile-390", width: 390, height: 844 },
-    { name: "tablet-768", width: 768, height: 1024 },
-    { name: "desktop-1440", width: 1440, height: 1000 },
-    { name: "wide-1920", width: 1920, height: 1080 },
-  ] as const;
-
-  for (const viewport of viewports) {
+for (const viewport of [
+  { name: "mobile-390", width: 390, height: 844 },
+  { name: "tablet-768", width: 768, height: 1024 },
+  { name: "desktop-1440", width: 1440, height: 1000 },
+  { name: "wide-1920", width: 1920, height: 1080 },
+] as const) {
+  test(`landing remains intentional and overflow-free at ${viewport.name}`, async ({ page }) => {
     await page.setViewportSize(viewport);
-    await page.goto("/");
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("heading", { name: /plan the island around your real constraints/i }),
+    ).toBeVisible();
     await page.evaluate(async () => {
       await document.fonts.ready;
-      await Promise.all(
-        Array.from(document.images).map((image) =>
-          image.complete
-            ? Promise.resolve()
-            : new Promise<void>((resolve) => {
-                image.addEventListener("load", () => resolve(), { once: true });
-                image.addEventListener("error", () => resolve(), { once: true });
-              }),
-        ),
-      );
+      await Promise.all(Array.from(document.images).map((image) => image.decode().catch(() => {})));
     });
 
     expect(
@@ -143,8 +164,8 @@ test("landing remains intentional and overflow-free across target viewports", as
       fullPage: true,
       path: `test-results/issue-110-landing-${viewport.name}.png`,
     });
-  }
-});
+  });
+}
 
 test("landing remains usable at a 200 percent zoom equivalent with reduced motion", async ({
   page,
@@ -510,7 +531,10 @@ test("allows same-origin browser geolocation while blocking unrelated sensitive 
 for (const width of [390, 768, 1024, 1366]) {
   test(`does not create horizontal overflow at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto("/");
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("heading", { name: /plan the island around your real constraints/i }),
+    ).toBeVisible();
 
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth,

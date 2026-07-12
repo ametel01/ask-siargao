@@ -86,7 +86,7 @@ export function LandingPage() {
             className="object-cover object-[72%_34%]"
             fill
             priority
-            sizes="100vw"
+            sizes="(min-width: 1024px) 0px, 100vw"
             src="/images/ask-siargao-mobile-hero-bg.png"
           />
           <div className="absolute inset-0 bg-[image:var(--gradient-landing-coastal-overlay)]" />
@@ -110,7 +110,7 @@ function Header() {
     <header className="flex min-h-16 items-center justify-between gap-4 lg:min-h-[4.75rem]">
       <Link
         aria-label="Ask Siargao home"
-        className="min-w-0 rounded-md no-underline focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-brand-lagoon-300"
+        className="min-w-0 rounded-md no-underline focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-4 focus-visible:outline-brand-lagoon-300"
         href="/"
       >
         <LandingBrand />
@@ -122,7 +122,7 @@ function Header() {
       >
         {navigationItems.map(({ href, label }) => (
           <a
-            className="inline-flex min-h-11 items-center rounded-full px-4 text-sm font-extrabold text-text-on-dark-muted no-underline transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-surface-night-card-strong hover:text-text-on-dark focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-brand-lagoon-300 xl:px-5"
+            className="inline-flex min-h-11 items-center rounded-full px-4 text-sm font-extrabold text-text-on-dark-muted no-underline transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-surface-night-card-strong hover:text-text-on-dark focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-brand-lagoon-300 xl:px-5"
             href={href}
             key={href}
           >
@@ -133,7 +133,7 @@ function Header() {
 
       <Button
         asChild
-        className="min-h-12 shrink-0 rounded-xl border border-border-on-dark bg-surface-night-card px-4 text-sm font-extrabold text-text-on-dark shadow-night-card backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-brand-lagoon-300 sm:px-5"
+        className="min-h-12 shrink-0 rounded-xl border border-border-on-dark bg-surface-night-card px-4 text-sm font-extrabold text-text-on-dark shadow-night-card backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-3 focus-visible:outline-brand-lagoon-300 sm:px-5"
         variant="outline"
       >
         <Link href="/chat">
@@ -210,7 +210,7 @@ function PromptComposer() {
       <div className="col-span-2 flex items-center border-border-default min-[390px]:col-span-1 min-[390px]:border-l min-[390px]:pl-4 sm:pl-6">
         <Button
           asChild
-          className="min-h-11 w-full rounded-lg bg-[image:var(--gradient-cta)] px-4 text-sm font-extrabold text-text-on-dark shadow-cta hover:shadow-lagoon-glow focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-brand-lagoon-700 min-[390px]:w-auto"
+          className="min-h-11 w-full rounded-lg bg-[image:var(--gradient-cta)] px-4 text-sm font-extrabold text-text-on-dark shadow-cta hover:shadow-lagoon-glow focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-3 focus-visible:outline-brand-lagoon-700 min-[390px]:w-auto"
         >
           <Link href={chatPromptHref(heroPrompt)}>
             <Send aria-hidden="true" size={19} />
@@ -228,7 +228,7 @@ function QuickChips() {
       {quickChips.map(({ icon: Icon, label, prompt, tone }) => (
         <Button
           asChild
-          className="min-h-11 rounded-full border border-border-on-dark bg-surface-night-card px-5 text-sm font-extrabold text-text-on-dark shadow-night-card backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-brand-lagoon-300"
+          className="min-h-11 rounded-full border border-border-on-dark bg-surface-night-card px-5 text-sm font-extrabold text-text-on-dark shadow-night-card backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-3 focus-visible:outline-brand-lagoon-300"
           key={label}
           variant="outline"
         >
@@ -359,7 +359,7 @@ function PlanningPanel() {
               </p>
             </div>
             <Link
-              className="inline-flex min-h-11 w-fit items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-700 no-underline hover:text-brand-lagoon-600 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-brand-lagoon-700"
+              className="inline-flex min-h-11 w-fit items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-700 no-underline hover:text-brand-lagoon-600 focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-3 focus-visible:outline-brand-lagoon-700"
               href={chatPromptHref(prompt)}
             >
               Ask about this
