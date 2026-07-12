@@ -17,6 +17,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { projectCapabilityEvidencePresentation } from "@/features/chat/evidence-presentation-state";
 import { cn } from "@/lib/utils";
+import { appSurfaceInsetClass, appSurfacePanelClass } from "@/ui/components/ask-siargao";
 
 const heroPrompt = "What should we do today if rain hits Cloud 9?";
 
@@ -134,7 +135,7 @@ function Header() {
 
       <nav
         aria-label="Landing page"
-        className="ml-auto hidden items-center rounded-full border border-border-on-dark bg-surface-night-card p-1 shadow-night-card backdrop-blur-md lg:flex"
+        className="ml-auto hidden items-center rounded-full border border-border-on-dark bg-surface-night-card p-1 shadow-none backdrop-blur-md lg:flex"
       >
         {navigationItems.map(({ href, label }) => (
           <a
@@ -149,7 +150,7 @@ function Header() {
 
       <Button
         asChild
-        className="min-h-12 shrink-0 rounded-xl border border-border-on-dark bg-surface-night-card px-4 text-sm font-extrabold text-text-on-dark shadow-night-card backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3 sm:px-5"
+        className="min-h-12 shrink-0 rounded-xl border border-border-on-dark bg-surface-night-card px-4 text-sm font-semibold text-text-on-dark shadow-none backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3 sm:px-5"
         variant="outline"
       >
         <Link href="/chat">
@@ -165,7 +166,7 @@ function Header() {
 function LandingBrand() {
   return (
     <span className="inline-flex min-w-0 items-center gap-3 text-text-on-dark sm:gap-4">
-      <span className="relative inline-flex size-14 shrink-0 items-center justify-center rounded-full border-2 border-text-on-dark bg-surface-night-card shadow-night-card backdrop-blur-sm sm:size-16 lg:size-[4.4rem]">
+      <span className="relative inline-flex size-14 shrink-0 items-center justify-center rounded-full border-2 border-text-on-dark bg-surface-night-card shadow-none backdrop-blur-sm sm:size-16 lg:size-[4.4rem]">
         <Image
           alt=""
           aria-hidden="true"
@@ -189,7 +190,7 @@ function Hero() {
       id="start-a-question"
     >
       <div className="grid min-w-0 gap-3">
-        <p className="m-0 text-xs font-black tracking-[0.18em] text-brand-sunset-gold uppercase md:text-sm">
+        <p className="m-0 text-xs font-semibold tracking-[0.18em] text-brand-sunset-gold uppercase md:text-sm">
           Your island decision desk
         </p>
         <h1 className="m-0 max-w-[12ch] min-w-0 font-heading text-[clamp(3rem,12.6vw,5.3rem)] leading-[0.92] font-semibold text-text-on-dark tracking-[-0.02em] [overflow-wrap:anywhere] md:max-w-[13ch] md:text-[clamp(5.3rem,10.5vw,7.8rem)] lg:text-[clamp(4.6rem,6.1vw,7.25rem)] 2xl:text-[7.6rem]">
@@ -212,7 +213,10 @@ function PromptComposer() {
   return (
     <section
       aria-label="Example Ask Siargao prompt"
-      className="grid min-h-[7.15rem] grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-3 rounded-[1.55rem] border border-brand-paper-200 bg-brand-paper-50 px-5 py-4 text-text-default shadow-panel sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-x-6 sm:px-6 sm:py-6 lg:max-w-[48rem]"
+      className={cn(
+        appSurfacePanelClass,
+        "grid min-h-[7.15rem] grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-3 rounded-2xl px-5 py-4 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-x-6 sm:px-6 sm:py-6 lg:max-w-[48rem]",
+      )}
     >
       <MessageCircle
         aria-hidden="true"
@@ -226,7 +230,7 @@ function PromptComposer() {
       <div className="col-span-2 flex min-w-0 items-center border-border-default sm:col-span-1 sm:border-l sm:pl-6">
         <Button
           asChild
-          className="min-h-11 w-full rounded-lg bg-[image:var(--gradient-cta)] px-4 text-sm font-extrabold text-text-on-dark shadow-cta hover:shadow-lagoon-glow landing-focus-ring landing-focus-ring-strong focus-visible:outline-offset-3 sm:w-auto"
+          className="min-h-11 w-full rounded-lg bg-[image:var(--gradient-cta)] px-4 text-sm font-semibold text-text-on-dark shadow-cta hover:shadow-cta landing-focus-ring landing-focus-ring-strong focus-visible:outline-offset-3 sm:w-auto"
         >
           <Link href={chatPromptHref(heroPrompt)}>
             <Send aria-hidden="true" size={19} />
@@ -244,7 +248,7 @@ function QuickChips() {
       {quickChips.map(({ icon: Icon, label, prompt, tone }) => (
         <Button
           asChild
-          className="min-h-11 rounded-full border border-border-on-dark bg-surface-night-card px-5 text-sm font-extrabold text-text-on-dark shadow-night-card backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3"
+          className="min-h-11 rounded-full border border-border-on-dark bg-surface-night-card px-5 text-sm font-semibold text-text-on-dark shadow-none backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3"
           key={label}
           variant="outline"
         >
@@ -267,7 +271,7 @@ function PlanningInputs() {
   return (
     <section
       aria-labelledby="planning-inputs-title"
-      className="grid gap-3 rounded-[1.35rem] border border-border-on-dark bg-surface-night-card px-5 py-4 shadow-night-card backdrop-blur-md sm:grid-cols-3 sm:px-3 lg:max-w-[48rem]"
+      className="grid gap-3 rounded-2xl border border-border-on-dark bg-surface-night-card px-5 py-4 shadow-none backdrop-blur-md sm:grid-cols-3 sm:px-3 lg:max-w-[48rem]"
       id="planning-inputs"
     >
       <h2 className="sr-only" id="planning-inputs-title">
@@ -315,8 +319,8 @@ function CoastalFrame() {
         src="/images/ask-siargao-mobile-hero-bg.png"
       />
       <div className="absolute inset-0 bg-gradient-to-t from-brand-navy-980/90 via-transparent to-brand-navy-980/10" />
-      <div className="absolute right-6 bottom-6 left-6 rounded-[1.5rem] border border-border-on-dark bg-surface-dark-glass p-5 shadow-night-card backdrop-blur-md xl:right-8 xl:bottom-8 xl:left-8 xl:p-6">
-        <p className="m-0 text-xs font-black tracking-[0.16em] text-brand-sunset-gold uppercase">
+      <div className="absolute right-6 bottom-6 left-6 rounded-2xl border border-border-on-dark bg-surface-dark-glass p-5 shadow-surface-panel backdrop-blur-md xl:right-8 xl:bottom-8 xl:left-8 xl:p-6">
+        <p className="m-0 text-xs font-semibold tracking-[0.16em] text-brand-sunset-gold uppercase">
           Siargao, in context
         </p>
         <p className="mt-2 mb-0 max-w-[31ch] font-heading text-2xl leading-tight font-semibold text-text-on-dark xl:text-3xl">
@@ -331,11 +335,14 @@ function PlanningPanel() {
   return (
     <section
       aria-labelledby="plan-smarter-title"
-      className="-mx-5 mt-1 grid gap-6 rounded-t-[1.8rem] bg-brand-paper-50 px-5 pt-6 pb-8 text-text-default shadow-strong sm:-mx-8 sm:px-8 md:-mx-10 md:gap-8 md:px-10 md:pt-9 lg:mx-0 lg:mt-4 lg:grid-cols-[minmax(16rem,0.72fr)_minmax(0,1.28fr)] lg:items-start lg:rounded-[2rem] lg:px-10 lg:py-10 xl:px-12"
+      className={cn(
+        appSurfacePanelClass,
+        "-mx-5 mt-1 grid gap-6 rounded-t-2xl border-x-0 border-b-0 px-5 pt-6 pb-8 sm:-mx-8 sm:px-8 md:-mx-10 md:gap-8 md:px-10 md:pt-9 lg:mx-0 lg:mt-4 lg:grid-cols-[minmax(16rem,0.72fr)_minmax(0,1.28fr)] lg:items-start lg:rounded-2xl lg:border lg:px-10 lg:py-10 xl:px-12",
+      )}
       id="plan-smarter"
     >
       <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-4 lg:sticky lg:top-6">
-        <div className="inline-flex size-14 items-center justify-center rounded-full border border-border-default bg-surface-default text-brand-lagoon-700 shadow-card">
+        <div className="inline-flex size-14 items-center justify-center rounded-full border border-border-default bg-surface-default text-brand-lagoon-700 shadow-none">
           <Compass aria-hidden="true" size={30} strokeWidth={1.9} />
         </div>
         <div className="grid min-w-0 gap-2">
@@ -356,7 +363,8 @@ function PlanningPanel() {
         {planningCards.map(({ body, icon: Icon, prompt, title, tone }) => (
           <article
             className={cn(
-              "grid min-w-0 content-start gap-4 rounded-[1.35rem] p-5 lg:min-h-[17rem] lg:p-6",
+              appSurfaceInsetClass,
+              "grid min-w-0 content-start gap-4 rounded-xl p-5 lg:min-h-[17rem] lg:p-6",
               tone === "gold" ? "bg-confidence-medium-soft" : "bg-brand-lagoon-100",
             )}
             key={title}
