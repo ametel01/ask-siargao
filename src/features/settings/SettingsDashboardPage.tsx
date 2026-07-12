@@ -267,10 +267,10 @@ export function SettingsDashboardPage() {
       }
 
       const nextProfile = (await response.json()) as UserProfileResponse;
+      setProfile(nextProfile);
       if (editVersionRef.current !== savedEditVersion) {
         return;
       }
-      setProfile(nextProfile);
       setForm(formFromProfile(nextProfile));
       setIsDirty(false);
       setSaveState("saved");

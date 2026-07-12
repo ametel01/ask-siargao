@@ -257,6 +257,21 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await expect(page.getByText("2 saved items")).toBeVisible();
   await expect(page.getByText("Cloud 9 dinner shortlist")).toBeVisible();
 
+  profileSaveMode = "delayed";
+  await page.getByLabel("Display name").fill("Alex in Siargao");
+  await page.getByRole("button", { name: "Save trip brief" }).click();
+  await page.getByLabel("Display name").fill("Alex");
+  await page.waitForTimeout(600);
+  await expect(page.getByLabel("Display name")).toHaveValue("Alex");
+  await expect(page.getByText("You have unsaved changes")).toBeVisible();
+
+  profileSaveMode = "success";
+  await page.getByRole("button", { name: "Save trip brief" }).click();
+  await expect(page.getByText("Trip brief saved")).toBeVisible();
+  expect(patchPayload).toMatchObject({ displayName: "Alex" });
+  await page.reload();
+  await expect(page.getByLabel("Display name")).toHaveValue("Alex");
+
   await page.getByLabel("Display name").fill("Alex in Siargao");
   await page.getByLabel("Add preferred area").fill("Pacifico");
   await page.getByLabel("Add preferred area").press("Enter");
