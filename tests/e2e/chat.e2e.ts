@@ -2294,7 +2294,7 @@ test("leads live grounded answers with one responsive decision strip", async ({ 
   await expect(strip).toContainText("Backup:");
   await expect(strip).toContainText("Avoid:");
   await expect(strip.getByTestId("decision-strip-source-status")).toContainText(
-    "Checked: Open-Meteo weather API: forecast for Cloud 9",
+    "Checked: Weather forecast: forecast for Cloud 9",
   );
   await expect(strip).not.toContainText("This secondary selected summary must stay out");
   await expect(page.getByText("At a Glance")).toHaveCount(0);
@@ -2383,7 +2383,7 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     await expect(strip).toContainText("Where");
     await expect(strip).toContainText("When");
     await expect(strip.getByTestId("decision-strip-source-status")).toContainText(
-      "Checked: Open-Meteo weather API: forecast for Cloud 9",
+      "Checked: Weather forecast: forecast for Cloud 9",
     );
     await expect(sourceSummary).toBeVisible();
     await expect(helpfulButton).toBeVisible();
