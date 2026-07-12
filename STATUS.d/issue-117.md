@@ -4,6 +4,7 @@
 - role: builder-agent
 - branch: `run/42f7c271-issue-117`
 - phase: builder fix-only update complete; ready for checker
+- head: `6fe0d27c184ee97f8db36ca7d8c80f05fc79ab2f`
 - summary:
   - Added `/chat?threadId=...` and `/chat?savedItemId=...` resource selection wiring.
   - Made chat and settings recent-thread rows open exact owned threads, with URL/back-forward
@@ -22,6 +23,9 @@
     links settle to `not_found`.
   - Fix-only update: archive now uses an in-product typed `ARCHIVE` confirmation dialog before
     `PATCH`, with Escape cancel focus restoration and Enter-to-confirm coverage.
+  - Fix-only update: thread selection and new-chat transitions now invalidate pending thread
+    mutations and clear stale action state, preventing late rename/archive/delete responses from
+    overwriting a newer selection.
 - evidence:
   - `bun install --frozen-lockfile` passed; no lockfile changes.
   - Focused API/client: `bun test src/app/api/chat/threads/route.test.ts src/features/chat/saved-trip-client.test.ts` passed, 32 tests / 119 assertions.
@@ -33,7 +37,7 @@
   - `bun test` passed, 987 tests / 5210 assertions.
   - `bun run db:migrate:test && bun run db:seed:test` passed.
   - `bun run build` passed.
-  - `bun run test:e2e` passed, 90 tests.
+  - `bun run test:e2e` passed, 91 tests.
   - `git diff --check` passed.
   - Production `window.prompt`/`window.confirm` scan passed; remaining matches are only the #117
     Playwright guard, plus pre-existing XSS fixture strings.
@@ -41,6 +45,7 @@
   - Fix-only focused browser: `bun run test:e2e -- tests/e2e/chat.e2e.ts -g "treats authenticated empty saved planning|opens and manages exact chat" --workers=1` passed, 2 tests.
   - Fix-only focused API/client: `bun test src/app/api/chat/threads/route.test.ts src/features/chat/saved-trip-client.test.ts` passed, 32 tests / 119 assertions.
   - Fix-only gates: `bun run lint` passed; `bun run typecheck --incremental false` passed; `git diff --check` passed; `bun test` passed, 987 tests / 5210 assertions; `bun run build` passed; `bun run test:e2e` passed, 91 tests.
+  - Latest head: `6fe0d27c184ee97f8db36ca7d8c80f05fc79ab2f`, pushed to PR #141.
 - notes:
   - The first full `bun test` and `db:migrate:test` attempts were started concurrently with other
     database-heavy gates and hit PGlite/temporary filesystem contention. Serial reruns passed.
