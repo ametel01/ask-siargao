@@ -355,7 +355,6 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
     weatherPreference: "flexible",
     tripContext: {
       accommodation: "Pacifico beach stay",
-      dateRange: "Aug 1 - 6",
       currentArea: "Dapa",
       travelerType: "family_with_kids",
       transportMode: "van",
@@ -364,6 +363,7 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
       notes: "Arriving in October",
     },
   });
+  expect(patchPayload).not.toHaveProperty("tripContext.dateRange");
 
   await page.reload();
   await expect(page.getByLabel("Display name")).toHaveValue("Alex in Siargao");
