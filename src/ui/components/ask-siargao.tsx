@@ -1,10 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
-import type { AnchorHTMLAttributes, ComponentType, HTMLAttributes, ReactNode } from "react";
+import type { ComponentType, HTMLAttributes, ReactNode } from "react";
 
 import { Avatar } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 type IconComponent = ComponentType<{
@@ -183,55 +181,5 @@ export function SectionHeading({ icon: Icon, title }: { icon?: IconComponent; ti
       ) : null}
       <h2 className="m-0 text-xl leading-tight font-extrabold text-text-strong">{title}</h2>
     </div>
-  );
-}
-
-export function GradientLink({
-  children,
-  className,
-  href,
-  ...props
-}: AnchorHTMLAttributes<HTMLAnchorElement> & {
-  children: ReactNode;
-  href: string;
-}) {
-  return (
-    <Button
-      asChild
-      className={cn(
-        "min-h-[42px] rounded-md bg-[image:var(--gradient-cta)] px-4 font-semibold text-text-on-dark shadow-cta transition-[box-shadow,transform] duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:-translate-y-px hover:shadow-cta focus-visible:ring-brand-lagoon-300",
-        className,
-      )}
-    >
-      <Link href={href} {...props}>
-        {children}
-      </Link>
-    </Button>
-  );
-}
-
-export function SignalBadge({
-  children,
-  tone = "fresh",
-}: {
-  children: ReactNode;
-  tone?: "fresh" | "high" | "medium" | "local";
-}) {
-  const toneClass = {
-    fresh: "bg-brand-lagoon-100 text-brand-lagoon-700",
-    high: "bg-confidence-high-soft text-confidence-high",
-    medium: "bg-confidence-medium-soft text-confidence-medium",
-    local: "bg-brand-lagoon-100 text-brand-lagoon-700",
-  }[tone];
-
-  return (
-    <Badge
-      className={cn(
-        "min-h-[22px] rounded-full border-transparent px-2 text-[0.6875rem] font-extrabold whitespace-nowrap",
-        toneClass,
-      )}
-    >
-      {children}
-    </Badge>
   );
 }
