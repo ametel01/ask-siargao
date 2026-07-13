@@ -61,6 +61,14 @@ const unsupportedPositiveSourceLabels = new Set<AnswerTrustLabel>([
   "provider_unavailable",
 ]);
 
+const evidenceReceiptTimeFormatter = new Intl.DateTimeFormat("en-PH", {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZone: "Asia/Manila",
+});
+
 export function evidenceStateCopy(state: EvidencePresentationState) {
   switch (state) {
     case "capability":
@@ -214,15 +222,19 @@ export function sourceEvidenceDetailLines(source: SourceEvidenceInput) {
 
 export function sourceEvidenceSummaryText(sources: readonly SourceEvidenceInput[]) {
   const presentations = sourceEvidenceReceiptItems(sources).map((item) => item.presentation);
-  const checkedNames = presentations
-    .filter((presentation) => presentation.state === "checked")
-    .map((presentation) => presentation.sourceName ?? presentation.label);
-  const unavailableNames = presentations
-    .filter((presentation) => presentation.state === "unavailable")
-    .map((presentation) => presentation.sourceName ?? presentation.label);
-  const notVerifiedNames = presentations
-    .filter((presentation) => presentation.state === "not-verified")
-    .map((presentation) => presentation.sourceName ?? presentation.label);
+  const checkedNames: string[] = [];
+  const unavailableNames: string[] = [];
+  const notVerifiedNames: string[] = [];
+  for (const presentation of presentations) {
+    const name = presentation.sourceName ?? presentation.label;
+    if (presentation.state === "checked") {
+      checkedNames.push(name);
+    } else if (presentation.state === "unavailable") {
+      unavailableNames.push(name);
+    } else if (presentation.state === "not-verified") {
+      notVerifiedNames.push(name);
+    }
+  }
 
   if (checkedNames.length > 0) {
     const suffix =
@@ -291,15 +303,17 @@ export function sourceEvidenceReceiptItems(
 
 export function sourceEvidenceReceiptSummaryText(sources: readonly SourceEvidenceInput[]) {
   const items = sourceEvidenceReceiptItems(sources);
-  const checkedNames = items
-    .filter((item) => item.presentation.state === "checked")
-    .map((item) => item.presentation.sourceName ?? item.presentation.label);
-  const gapNames = items
-    .filter(
-      (item) =>
-        item.presentation.state === "unavailable" || item.presentation.state === "not-verified",
-    )
-    .map((item) => item.presentation.sourceName ?? item.presentation.label);
+  const checkedNames: string[] = [];
+  const gapNames: string[] = [];
+  for (const item of items) {
+    const { label, sourceName, state } = item.presentation;
+    const name = sourceName ?? label;
+    if (state === "checked") {
+      checkedNames.push(name);
+    } else if (state === "unavailable" || state === "not-verified") {
+      gapNames.push(name);
+    }
+  }
   const latestFetchedAt = latestSourceEvidenceTime(items.flatMap((item) => item.fetchedAtValues));
   const freshness = latestFetchedAt
     ? `Latest check ${formatEvidenceReceiptTime(latestFetchedAt)}`
@@ -333,15 +347,7 @@ export function formatEvidenceReceiptTime(value: string | undefined) {
   if (Number.isNaN(timestamp.getTime())) {
     return value;
   }
-  return new Intl.DateTimeFormat("en-PH", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "Asia/Manila",
-  })
-    .format(timestamp)
-    .replace(" at ", ", ");
+  return evidenceReceiptTimeFormatter.format(timestamp).replace(" at ", ", ");
 }
 
 function conditionStateToEvidenceState(state: ConditionDecisionState): EvidencePresentationState {
@@ -409,7 +415,10 @@ function isAnswerTrustLabel(value: string): value is AnswerTrustLabel {
 }
 
 function normalizeItems(items: readonly string[]) {
-  return items.map((item) => item.replace(/\s+/g, " ").trim()).filter(Boolean);
+  return items.flatMap((item) => {
+    const normalized = item.replace(/\s+/g, " ").trim();
+    return normalized ? [normalized] : [];
+  });
 }
 
 function uniqueNormalizedItems(items: readonly string[]) {
@@ -426,10 +435,16 @@ function sourceEvidenceReceiptKey(source: SourceEvidenceInput) {
 }
 
 function latestSourceEvidenceTime(values: readonly string[]) {
-  return values
-    .map((value) => ({ value, timestamp: new Date(value).getTime() }))
-    .filter((item) => Number.isFinite(item.timestamp))
-    .toSorted((first, second) => second.timestamp - first.timestamp)[0]?.value;
+  let latestValue: string | undefined;
+  let latestTimestamp = Number.NEGATIVE_INFINITY;
+  for (const value of values) {
+    const timestamp = new Date(value).getTime();
+    if (Number.isFinite(timestamp) && timestamp > latestTimestamp) {
+      latestTimestamp = timestamp;
+      latestValue = value;
+    }
+  }
+  return latestValue;
 }
 
 function formatCompactList(values: readonly string[]) {

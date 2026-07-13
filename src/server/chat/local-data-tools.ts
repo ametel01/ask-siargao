@@ -800,8 +800,11 @@ function localFactMatchesQuery(fact: LocalFactResultItem, query: LocalFactsQuery
     return false;
   }
 
-  if (query.tags?.length && !query.tags.every((tag) => fact.tags.includes(tag))) {
-    return false;
+  if (query.tags?.length) {
+    const factTagSet = new Set(fact.tags);
+    if (!query.tags.every((tag) => factTagSet.has(tag))) {
+      return false;
+    }
   }
 
   if (

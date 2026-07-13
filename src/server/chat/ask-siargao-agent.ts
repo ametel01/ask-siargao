@@ -1134,8 +1134,9 @@ function missingStructuredAnswerQualityRepair(
   if (evidenceToolCallIds.length === 0) {
     return undefined;
   }
+  const evidenceToolCallIdSet = new Set(evidenceToolCallIds);
   const selectedEvidenceToolCallIds = finalPayload.usedToolCallIds.filter((toolCallId) =>
-    evidenceToolCallIds.includes(toolCallId),
+    evidenceToolCallIdSet.has(toolCallId),
   );
   const answerIsStructured = isStructuredPracticalAnswer(finalPayload.answer);
   const answerPunts = puntsOnAvailableEvidence(finalPayload.answer);
@@ -1565,11 +1566,12 @@ function isFoodOrPlaceMemoryExclusion(content: string) {
 }
 
 function hasMemoryLoadAttemptForFile(toolCalls: readonly AgentToolCallAudit[], fileName: string) {
-  return toolCalls.some(
-    (toolCall) =>
-      toolCall.name === "load_agent_memory_file" &&
-      readStringArrayFromPath(toolCall.arguments, ["documents"]).includes(fileName),
-  );
+  return toolCalls.some((toolCall) => {
+    if (toolCall.name !== "load_agent_memory_file") {
+      return false;
+    }
+    return new Set(readStringArrayFromPath(toolCall.arguments, ["documents"])).has(fileName);
+  });
 }
 
 function hasValidationRepairInput(

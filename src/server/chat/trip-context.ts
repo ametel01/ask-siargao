@@ -532,11 +532,12 @@ export function normalizeStoredProfileTripContext(value: unknown): UserProfileTr
   }
 
   const storedRecord = parsed as Record<string, unknown>;
-  const boundedStoredRecord = Object.fromEntries(
-    profileTripContextKeys
-      .filter((key) => key in storedRecord)
-      .map((key) => [key, storedRecord[key]]),
-  );
+  const boundedStoredRecord: Record<string, unknown> = {};
+  for (const key of profileTripContextKeys) {
+    if (key in storedRecord) {
+      boundedStoredRecord[key] = storedRecord[key];
+    }
+  }
   const normalized = parseUserProfileTripContextPatch(boundedStoredRecord);
   if (normalized.success) {
     return normalized.data;

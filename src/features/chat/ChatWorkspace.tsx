@@ -5087,7 +5087,13 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
             ) : null}
             {fetchedAtValues.length ? (
               <p className="m-0 text-[0.7rem] font-bold text-text-muted">
-                Checked {fetchedAtValues.map(formatEvidenceReceiptTime).filter(Boolean).join(", ")}
+                Checked{" "}
+                {fetchedAtValues
+                  .flatMap((value) => {
+                    const formatted = formatEvidenceReceiptTime(value);
+                    return formatted ? [formatted] : [];
+                  })
+                  .join(", ")}
               </p>
             ) : null}
           </div>
