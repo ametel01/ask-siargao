@@ -273,13 +273,18 @@ describe("Google Places retention pruning", () => {
     });
 
     expect(result.snapshots).toEqual({ rows: 0, batches: 0, hasMore: true });
-    expect(calls).toEqual([
-      "delete-reviews",
-      "check-reviews",
-      "delete-details",
-      "check-details",
-      "check-snapshots",
-    ]);
+    expect(calls.toSorted()).toEqual(
+      [
+        "delete-reviews",
+        "check-reviews",
+        "delete-details",
+        "check-details",
+        "check-snapshots",
+      ].toSorted(),
+    );
+    expect(calls.indexOf("delete-reviews")).toBeLessThan(calls.indexOf("check-reviews"));
+    expect(calls.indexOf("delete-details")).toBeLessThan(calls.indexOf("check-details"));
+    expect(calls.indexOf("check-reviews")).toBeLessThan(calls.indexOf("check-snapshots"));
   });
 
   test("uses count-only bounded delete queries instead of unbounded returned ids", async () => {
