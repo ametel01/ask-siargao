@@ -105,6 +105,7 @@ import {
   authenticatedTripContextPatch,
   projectMobileTripContextSummary,
 } from "@/features/chat/mobile-trip-context-presentation";
+import { PendingAssistantWaitState } from "@/features/chat/PendingAssistantWaitState";
 import {
   projectRecommendationSet,
   type RecommendationCardPresentation,
@@ -114,7 +115,6 @@ import {
   invalidateResponseWaitRequest,
   isCurrentResponseWaitRequest,
   isResponseWaitAbort,
-  PendingAssistantWaitState,
   type ResponseWaitRequest,
   responseStoppedStatusText,
   responseWaitStatusText,

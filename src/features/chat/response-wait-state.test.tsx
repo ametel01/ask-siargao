@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { PendingAssistantWaitState } from "@/features/chat/PendingAssistantWaitState";
 import {
   createResponseWaitRequest,
   invalidateResponseWaitRequest,
   isCurrentResponseWaitRequest,
-  PendingAssistantWaitState,
   reduceResponseWaitLifecycle,
   responseStoppedStatusText,
   responseWaitStatusText,
