@@ -382,6 +382,42 @@ describe("saved trip API routes", () => {
     await dependencies.close();
   });
 
+  test("does not expose shared trip creation exception text", async () => {
+    const dependencies = await tripRouteDependencies();
+    const tripId = "local_trip_creation_error_123456";
+    const internalPhrase = "fixture_should_not_render_shared_trip_creation";
+    await saveRouteItem(dependencies, tripId, shakaCard);
+
+    const response = await createSharedTripResponse(
+      jsonRequest("/api/trips/share", {
+        tripId,
+        title: "Hidden store details",
+        itemIds: ["place_shaka"],
+      }),
+      {
+        ...dependencies,
+        db: {
+          query: async (query, params) => {
+            if (query.includes("insert into shared_trip_plans")) {
+              throw new Error(`shared trip insert failed ${internalPhrase}`);
+            }
+
+            return dependencies.db.query(query, params);
+          },
+        },
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body).toEqual({
+      error: "shared_trip_not_available",
+      message: "Shared trip could not be created.",
+    });
+    expect(JSON.stringify(body)).not.toContain(internalPhrase);
+    await dependencies.close();
+  });
+
   test("does not return expired or deleted share tokens", async () => {
     const dependencies = await tripRouteDependencies();
     const tripId = "local_trip_expiring_123456";

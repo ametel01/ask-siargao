@@ -79,6 +79,8 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toContain("0001_chat_decision_summaries.sql");
     expect(migrationNames).toContain("0004_hot_path_indexes.sql");
     expect(migrationNames).toContain("0005_public_page_relationships.sql");
+    expect(migrationNames).toContain("0006_traveler_preferences.sql");
+    expect(migrationNames).toContain("0007_structured_profile_food_needs.sql");
   });
 
   test("creates required core tables and accepts taxonomy seed rows", async () => {
@@ -460,6 +462,10 @@ describe("Step 3 database migration", () => {
       ["marketing_consent", "boolean", "NO", "false"],
       ["created_at", "timestamp with time zone", "NO", "now()"],
       ["updated_at", "timestamp with time zone", "NO", "now()"],
+      ["surf_ability", "text", "YES", null],
+      ["quiet_sleep_preference", "boolean", "YES", null],
+      ["weather_preference", "text", "YES", null],
+      ["food_needs_json", "jsonb", "NO", "'[]'::jsonb"],
     ]);
     expect(
       columnsByTable.chat_threads?.map((column) => [
@@ -1168,7 +1174,7 @@ describe("Step 3 database migration", () => {
     const migrationFiles = await loadMigrationFiles();
     const relationshipMigrationName = "0005_public_page_relationships.sql";
     const setupMigrations = migrationFiles.filter(
-      (migrationFile) => migrationFile.name !== relationshipMigrationName,
+      (migrationFile) => migrationFile.name < relationshipMigrationName,
     );
 
     await runLedgerBackedMigrations(createPgliteMigrationDatabase(db), setupMigrations);

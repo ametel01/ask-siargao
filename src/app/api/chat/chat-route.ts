@@ -8,9 +8,6 @@ import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/
 import type {
   AgentMemoryMetadata,
   AgentTurnResult,
-  ChatClientContext,
-  ChatClientGeolocationConsentScope,
-  ChatClientGeolocationContext,
   PublicAgentToolCall,
 } from "@/server/chat/agent-runtime";
 import {
@@ -24,12 +21,24 @@ import {
   loadOwnedChatThread,
   touchChatThread,
 } from "@/server/chat/chat-history-store";
-import { deriveTripContext, type TripContext } from "@/server/chat/intent";
 import { assemblePublicChatTurn } from "@/server/chat/public-turn-assembly";
 import { SourceConsistencyError } from "@/server/chat/source-consistency";
+import {
+  type ChatRequestIntent,
+  interpretChatRequestIntent,
+  normalizeTripContextClientContext,
+  summarizeClientContextForAgent,
+  summarizeClientContextForMetadata,
+  summarizeTripContextForAgent,
+  summarizeTripContextForLogs,
+  summarizeTripContextForStoredHistory,
+  type TripContextClientContextInput,
+  type TripContextProfileInput,
+} from "@/server/chat/trip-context";
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 import { createComponentLogger } from "@/server/observability/logger";
+import { loadUserProfile } from "@/server/profile/user-profile-store";
 
 const chatRequestSchema = z.strictObject({
   threadId: z.string().min(1).max(128).optional(),
@@ -53,11 +62,10 @@ const chatRequestSchema = z.strictObject({
           consentScope: z.enum(["single_request", "trip_session"]),
         })
         .optional(),
+      tripContext: z.unknown().optional(),
     })
     .optional(),
 });
-
-type ParsedChatClientContext = z.infer<typeof chatRequestSchema>["clientContext"];
 
 export type ChatRouteDependencies = AskSiargaoAgentDependencies & {
   auth?: EnsureCurrentUserDependencies["auth"] | null;
@@ -75,12 +83,10 @@ type AuthenticatedChatPersistence = {
   userMessageId: string;
 };
 
-type ChatRequestIntent = {
-  tripContext: TripContext;
-  locationLabel?: "Cloud 9" | "Del Carmen" | "General Luna" | "Siargao Island";
-  nearby: boolean;
-  nearMeUsesBrowserGeolocation: boolean;
-  shouldDeclineNonSiargaoTopic: boolean;
+type AuthenticatedChatUserContext = {
+  db: DatabaseQueryClient;
+  profileContext: TripContextProfileInput | null;
+  userId: string;
 };
 
 type PublicAgentMemoryMetadata = {
@@ -92,15 +98,6 @@ type PublicAgentMemoryMetadata = {
   }>;
 };
 
-const siargaoAreaBounds = {
-  minLatitude: 9.35,
-  maxLatitude: 10.15,
-  minLongitude: 125.75,
-  maxLongitude: 126.45,
-} as const;
-const maxGeolocationAgeMs = 30 * 60 * 1_000;
-const maxFutureGeolocationSkewMs = 5 * 60 * 1_000;
-const maxUsableAccuracyMeters = 3_000;
 const maxChatRequestBodyBytes = 32_768;
 
 const chatLogger = createComponentLogger("api.chat");
@@ -184,16 +181,30 @@ export async function chatResponse(
   }
 
   const messages = parsed.data.messages satisfies AskSiargaoChatMessage[];
-  const clientContext = normalizeChatClientContext(parsed.data.clientContext, new Date(startedAt));
-  const intent = interpretChatRequestIntent(messages, clientContext);
+  const now = new Date(startedAt);
+  const normalizedClientContext = normalizeTripContextClientContext(
+    parsed.data.clientContext as TripContextClientContextInput | undefined,
+    now,
+  );
   const latestUserMessage = getLatestUserMessage(messages);
+  const authenticatedUserContext = await resolveAuthenticatedChatUserContext(dependencies, now);
+  const allowClientTripDraft = authenticatedUserContext === null;
+  const clientContext = allowClientTripDraft
+    ? normalizedClientContext
+    : withoutClientTripDraft(normalizedClientContext);
+  const intent = interpretChatRequestIntent({
+    allowClientTripDraft,
+    clientContext,
+    messages,
+    profileContext: authenticatedUserContext?.profileContext ?? null,
+  });
   const authenticatedPersistence = await prepareAuthenticatedChatPersistence({
+    authenticatedUserContext,
     dependencies,
     latestUserMessage,
     threadId: parsed.data.threadId,
-    clientContext,
     intent,
-    now: new Date(startedAt),
+    now,
   });
 
   if (authenticatedPersistence?.status === "not_found") {
@@ -207,13 +218,13 @@ export async function chatResponse(
         ? summarizeMessageForLogs(latestUserMessage.content)
         : null,
       shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
-      geolocation: summarizeGeolocationForLogs(clientContext.geolocation),
+      geolocation: intent.tripContext.browserGeolocation,
     },
     "Chat request received.",
   );
   logger.debug(
     {
-      scope: summarizeScopeForLogs(intent),
+      scope: summarizeTripContextForLogs(intent),
     },
     "Chat request scope interpreted.",
   );
@@ -228,9 +239,11 @@ export async function chatResponse(
         metadata: {
           route: "/api/chat",
           clientContext: summarizeClientContextForMetadata(clientContext),
+          tripContext: summarizeTripContextForLogs(intent).tripContext,
         },
         deterministicSignals: {
           clientContext: summarizeClientContextForAgent(clientContext),
+          context: summarizeTripContextForAgent(intent),
           scope: {
             shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
           },
@@ -273,7 +286,7 @@ export async function chatResponse(
         itineraries: publicTurn.storage.itineraries,
         decisionSummaries: publicTurn.storage.decisionSummaries,
         toolCalls: publicTurn.storage.toolCalls,
-        contextSummary: summarizeClientContextForStoredHistory(clientContext, intent),
+        contextSummary: summarizeTripContextForStoredHistory(intent),
         createdAt: completedAt,
       });
       await touchChatThread(authenticatedPersistence.db, {
@@ -302,7 +315,7 @@ export async function chatResponse(
           : {}),
         upstreamRequestIds: result.upstreamRequestIds,
         agentMemoryVersionId: result.memory?.versionId,
-        geolocation: summarizeGeolocationForLogs(clientContext.geolocation),
+        geolocation: intent.tripContext.browserGeolocation,
         durationMs: Date.now() - startedAt,
       },
       "Chat request answered.",
@@ -414,118 +427,31 @@ function concatChunks(chunks: readonly Uint8Array[], totalBytes: number) {
   return body;
 }
 
-function normalizeChatClientContext(
-  clientContext: ParsedChatClientContext,
-  now: Date,
-): ChatClientContext {
-  return {
-    geolocation: normalizeClientGeolocation(clientContext?.geolocation, now),
-  };
-}
-
-function normalizeClientGeolocation(
-  geolocation: NonNullable<ParsedChatClientContext>["geolocation"] | undefined,
-  now: Date,
-): ChatClientGeolocationContext {
-  if (!geolocation) {
-    return {
-      status: "missing",
-      source: "browser_geolocation",
-    };
-  }
-
-  const base = {
-    source: "browser_geolocation",
-    consentScope: geolocation.consentScope satisfies ChatClientGeolocationConsentScope,
-  } as const;
-
-  if (!isInSiargaoArea(geolocation.latitude, geolocation.longitude)) {
-    return {
-      ...base,
-      status: "out_of_area",
-    };
-  }
-
-  if (isStaleGeolocation(geolocation.capturedAt, now)) {
-    return {
-      ...base,
-      status: "stale",
-    };
-  }
-
-  if (
-    geolocation.accuracyMeters !== undefined &&
-    geolocation.accuracyMeters > maxUsableAccuracyMeters
-  ) {
-    return {
-      ...base,
-      status: "low_accuracy",
-    };
-  }
-
-  return {
-    ...base,
-    status: "available",
-    latitude: geolocation.latitude,
-    longitude: geolocation.longitude,
-    ...(geolocation.accuracyMeters !== undefined
-      ? { accuracyMeters: geolocation.accuracyMeters }
-      : {}),
-    capturedAt: geolocation.capturedAt,
-  };
-}
-
-function isInSiargaoArea(latitude: number, longitude: number) {
-  return (
-    latitude >= siargaoAreaBounds.minLatitude &&
-    latitude <= siargaoAreaBounds.maxLatitude &&
-    longitude >= siargaoAreaBounds.minLongitude &&
-    longitude <= siargaoAreaBounds.maxLongitude
-  );
-}
-
-function isStaleGeolocation(capturedAt: string, now: Date) {
-  const capturedTime = Date.parse(capturedAt);
-  const ageMs = now.getTime() - capturedTime;
-  return ageMs > maxGeolocationAgeMs || ageMs < -maxFutureGeolocationSkewMs;
-}
-
-function summarizeClientContextForMetadata(clientContext: ChatClientContext) {
-  return {
-    geolocation: summarizeGeolocationForLogs(clientContext.geolocation),
-  };
-}
-
 async function prepareAuthenticatedChatPersistence({
-  clientContext,
+  authenticatedUserContext,
   dependencies,
   intent,
   latestUserMessage,
   now,
   threadId,
 }: {
-  clientContext: ChatClientContext;
+  authenticatedUserContext: AuthenticatedChatUserContext | null;
   dependencies: ChatRouteDependencies;
   intent: ChatRequestIntent;
   latestUserMessage: AskSiargaoChatMessage | undefined;
   now: Date;
   threadId: string | undefined;
 }) {
-  if (latestUserMessage?.role !== "user") {
+  if (latestUserMessage?.role !== "user" || !authenticatedUserContext) {
     return null;
   }
 
-  const currentUser = await resolveAuthenticatedChatUser(dependencies, now);
-  if (!currentUser) {
-    return null;
-  }
-
-  const db = dependencies.db ?? getDefaultDatabaseQueryClient();
+  const { db, userId } = authenticatedUserContext;
   const thread = threadId
-    ? await loadOwnedChatThread(db, { threadId, userId: currentUser.userId })
+    ? await loadOwnedChatThread(db, { threadId, userId })
     : await createChatThread(db, {
         id: createChatRouteId(dependencies, "chat_thread"),
-        userId: currentUser.userId,
+        userId,
         title: chatThreadTitleFromMessage(latestUserMessage.content),
         now,
       });
@@ -538,10 +464,10 @@ async function prepareAuthenticatedChatPersistence({
   await appendChatHistoryMessage(db, {
     id: userMessageId,
     threadId: thread.id,
-    userId: currentUser.userId,
+    userId,
     role: "user",
     content: latestUserMessage.content,
-    contextSummary: summarizeClientContextForStoredHistory(clientContext, intent),
+    contextSummary: summarizeTripContextForStoredHistory(intent),
     createdAt: now,
   });
   await touchChatThread(db, { threadId: thread.id, lastMessageAt: now });
@@ -550,12 +476,15 @@ async function prepareAuthenticatedChatPersistence({
     status: "ready" as const,
     db,
     thread,
-    userId: currentUser.userId,
+    userId,
     userMessageId,
   } satisfies AuthenticatedChatPersistence & { status: "ready" };
 }
 
-async function resolveAuthenticatedChatUser(dependencies: ChatRouteDependencies, now: Date) {
+async function resolveAuthenticatedChatUserContext(
+  dependencies: ChatRouteDependencies,
+  now: Date,
+): Promise<AuthenticatedChatUserContext | null> {
   if (dependencies.auth === null) {
     return null;
   }
@@ -563,27 +492,30 @@ async function resolveAuthenticatedChatUser(dependencies: ChatRouteDependencies,
     return null;
   }
 
-  return ensureCurrentUser({
+  const db = dependencies.db ?? getDefaultDatabaseQueryClient();
+  const currentUser = await ensureCurrentUser({
     ...(dependencies.auth ? { auth: dependencies.auth } : {}),
-    db: dependencies.db ?? getDefaultDatabaseQueryClient(),
+    db,
     now: () => now,
   });
+
+  if (!currentUser) {
+    return null;
+  }
+
+  const profile = await loadUserProfile(db, currentUser.userId);
+  return {
+    db,
+    profileContext: profile?.profile.updatedAt ? profile.profile : null,
+    userId: currentUser.userId,
+  };
 }
 
-function summarizeClientContextForStoredHistory(
-  clientContext: ChatClientContext,
-  intent: ChatRequestIntent,
+function withoutClientTripDraft(
+  clientContext: ReturnType<typeof normalizeTripContextClientContext>,
 ) {
-  const geolocation = clientContext.geolocation;
-  return {
-    geolocation: {
-      status: geolocation.status,
-      source: geolocation.source,
-      consentScope: geolocation.consentScope,
-      usedAsProximityAnchor:
-        geolocation.status === "available" && intent.nearMeUsesBrowserGeolocation,
-    },
-  };
+  const { tripContext: _tripContext, ...trustedClientContext } = clientContext;
+  return trustedClientContext;
 }
 
 function createChatRouteId(dependencies: ChatRouteDependencies, prefix: string) {
@@ -597,26 +529,6 @@ function chatThreadTitleFromMessage(message: string) {
   }
 
   return singleLine.length > 72 ? `${singleLine.slice(0, 69)}...` : singleLine;
-}
-
-function summarizeClientContextForAgent(clientContext: ChatClientContext) {
-  const geolocation = clientContext.geolocation;
-  return {
-    geolocation: {
-      status: geolocation.status,
-      source: geolocation.source,
-      consentScope: geolocation.consentScope,
-      ...(geolocation.status === "available" ? { centerSource: "browser_geolocation" } : {}),
-    },
-  };
-}
-
-function summarizeGeolocationForLogs(geolocation: ChatClientGeolocationContext) {
-  return {
-    status: geolocation.status,
-    source: geolocation.source,
-    consentScope: geolocation.consentScope,
-  };
 }
 
 function summarizeMemoryForResponse(memory: AgentMemoryMetadata): PublicAgentMemoryMetadata {
@@ -680,122 +592,6 @@ function isProviderFailureToolCall(toolCall: PublicAgentToolCall) {
     toolCall.status === "error" ||
     toolCall.errorCode === "provider_unavailable" ||
     toolCall.sources.some((source) => source.label === "provider_unavailable")
-  );
-}
-
-function interpretChatRequestIntent(
-  messages: readonly AskSiargaoChatMessage[],
-  clientContext?: ChatClientContext,
-): ChatRequestIntent {
-  const derivedTripContext = deriveTripContext(messages);
-  const { fullUserContext, latestUserTurn } = derivedTripContext;
-  const nearMeUsesBrowserGeolocation =
-    isBrowserLocationNearMeRequest(latestUserTurn) &&
-    clientContext?.geolocation.status === "available";
-  const tripContext = nearMeUsesBrowserGeolocation
-    ? withoutDefaultNearbyLocation(derivedTripContext)
-    : derivedTripContext;
-  const locationLabel =
-    inferChatLocationLabelFromTripContext(tripContext) ?? inferChatLocationLabel(fullUserContext);
-  const nearby = /\bnear(?:by)?|around|close\s+to|that\s+area|in\s+that\s+area|by\s+/i.test(
-    fullUserContext,
-  );
-
-  return {
-    tripContext,
-    ...(locationLabel ? { locationLabel } : {}),
-    nearby,
-    nearMeUsesBrowserGeolocation,
-    shouldDeclineNonSiargaoTopic: shouldDeclineNonSiargaoTopic(messages),
-  };
-}
-
-function withoutDefaultNearbyLocation(tripContext: TripContext): TripContext {
-  if (tripContext.currentLocation?.source !== "gazetteer") {
-    return tripContext;
-  }
-
-  const { currentArea: _currentArea, currentLocation: _currentLocation, ...rest } = tripContext;
-  return rest;
-}
-
-function isBrowserLocationNearMeRequest(content: string) {
-  return /\b(?:near\s+me|around\s+me|close\s+to\s+me|by\s+me|my\s+(?:location|area)|current\s+location|where\s+i\s+am|around\s+here|near\s+here|near\s+us|around\s+us|close\s+to\s+us)\b/i.test(
-    content,
-  );
-}
-
-function inferChatLocationLabel(content: string): ChatRequestIntent["locationLabel"] {
-  if (/\bcloud\s*9|cloud9|catangnan\b/i.test(content)) {
-    return "Cloud 9";
-  }
-  if (/\bdel\s+carmen\b|\bsugba(?:\s+lagoon)?\b/i.test(content)) {
-    return "Del Carmen";
-  }
-  if (/\bgeneral\s+luna|\bgl\b/i.test(content)) {
-    return "General Luna";
-  }
-  if (/\bsiargao\b/i.test(content)) {
-    return "Siargao Island";
-  }
-  return undefined;
-}
-
-function inferChatLocationLabelFromTripContext(
-  tripContext: TripContext,
-): ChatRequestIntent["locationLabel"] {
-  const label = tripContext.currentLocation?.label ?? tripContext.currentArea;
-  if (label === "Cloud 9" || label === "General Luna" || label === "Siargao Island") {
-    return label;
-  }
-  if (label === "Del Carmen" || label === "Del Carmen Port" || label === "Sugba Lagoon") {
-    return "Del Carmen";
-  }
-  return undefined;
-}
-
-function summarizeScopeForLogs(intent: ChatRequestIntent) {
-  return {
-    locationLabel: intent.locationLabel,
-    nearby: intent.nearby,
-    nearMeUsesBrowserGeolocation: intent.nearMeUsesBrowserGeolocation,
-    tripContext: {
-      currentLocation: intent.tripContext.currentLocation?.label,
-      currentLocationSource: intent.tripContext.currentLocation?.source,
-      durableConstraints: intent.tripContext.durableConstraints,
-      temporaryModifiers: intent.tripContext.temporaryModifiers,
-      unresolvedReference: intent.tripContext.unresolvedReference,
-    },
-    shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
-  };
-}
-
-function shouldDeclineNonSiargaoTopic(messages: readonly AskSiargaoChatMessage[]) {
-  const latestUserMessage = getLatestUserMessage(messages);
-  const content = latestUserMessage?.content ?? "";
-
-  if (!content || hasSiargaoScopeSignal(content) || hasLikelySiargaoTravelSignal(content)) {
-    return false;
-  }
-
-  return hasClearlyUnrelatedTopicSignal(content);
-}
-
-function hasSiargaoScopeSignal(content: string) {
-  return /\b(siargao|general\s+luna|cloud\s*9|cloud9|catangnan|dapa|del\s+carmen|sayak|pacifico|malinao|pilar|santa\s+monica|bucas\s+grande|sugba\s+lagoon|magpupungko|maasin\s+river|daku|guyam|naked\s+island|sohoton)\b/i.test(
-    content,
-  );
-}
-
-function hasLikelySiargaoTravelSignal(content: string) {
-  return /\b(weather|forecast|rain|wind|waves?|surf|tides?|ferr(?:y|ies)|airport|flight|van|tricycle|scooter|motorbike|transfer|route|itinerary|trip|stay|stays|hotel|hostel|resort|villa|accommodation|restaurants?|cafes?|coffee|bars?|nightlife|food|dinner|lunch|breakfast|brunch|beach|island\s+hopping|tour|activity|activities|budget|cash|atm|sim|wifi|internet|power|brownout|quiet|safe|safety|pack|packing)\b/i.test(
-    content,
-  );
-}
-
-function hasClearlyUnrelatedTopicSignal(content: string) {
-  return /\b(capital\s+of|president\s+of|prime\s+minister|who\s+(is|was|won)|nba|nfl|mlb|nhl|olympics|stock|stocks|bitcoin|crypto|cryptocurrency|recipe|homework|essay|poem|song|lyrics|movie|netflix|celebrity|quantum|calculus|algebra|debug|code|coding|program|script|function|regex|sql|python|javascript|typescript|react|next\.?js)\b/i.test(
-    content,
   );
 }
 

@@ -1,4 +1,12 @@
+import type { WeatherPreference } from "@/features/settings/profile-options";
+import { travelerEmailFromStoredEmail } from "@/lib/traveler-identity";
+import {
+  normalizeStoredProfileTripContext,
+  type UserProfileTripContext,
+} from "@/server/chat/trip-context";
 import type { DatabaseQueryClient } from "@/server/db/query-client";
+
+export type { UserProfileTripContext };
 
 export type UserProfileDetails = {
   displayName: string | null;
@@ -6,21 +14,23 @@ export type UserProfileDetails = {
   travelStyle: string | null;
   budgetLevel: string | null;
   dietaryNotes: string | null;
+  foodNeeds: string[];
   accessibilityNotes: string | null;
+  surfAbility: string | null;
+  quietSleepPreference: boolean | null;
+  weatherPreference: WeatherPreference | null;
   interests: string[];
   preferredAreas: string[];
-  tripContext: Record<string, unknown>;
+  tripContext: UserProfileTripContext;
   marketingConsent: boolean;
   createdAt: string | null;
   updatedAt: string | null;
 };
 
 export type UserProfileIdentity = {
-  userId: string;
-  email: string;
+  email: string | null;
   firstName: string | null;
   lastName: string | null;
-  imageUrl: string | null;
 };
 
 export type UserProfileResponse = {
@@ -34,10 +44,14 @@ export type UserProfilePatch = Partial<{
   travelStyle: string | null;
   budgetLevel: string | null;
   dietaryNotes: string | null;
+  foodNeeds: string[];
   accessibilityNotes: string | null;
+  surfAbility: string | null;
+  quietSleepPreference: boolean | null;
+  weatherPreference: WeatherPreference | null;
   interests: string[];
   preferredAreas: string[];
-  tripContext: Record<string, unknown>;
+  tripContext: UserProfileTripContext;
   marketingConsent: boolean;
 }>;
 
@@ -46,13 +60,16 @@ type UserProfileRow = {
   email: string;
   first_name: string | null;
   last_name: string | null;
-  image_url: string | null;
   display_name: string | null;
   home_country: string | null;
   travel_style: string | null;
   budget_level: string | null;
   dietary_notes: string | null;
+  food_needs_json: unknown;
   accessibility_notes: string | null;
+  surf_ability: string | null;
+  quiet_sleep_preference: boolean | null;
+  weather_preference: WeatherPreference | null;
   interests_json: unknown;
   preferred_areas_json: unknown;
   trip_context_json: unknown;
@@ -72,13 +89,16 @@ export async function loadUserProfile(
         users.email,
         users.first_name,
         users.last_name,
-        users.image_url,
         user_profiles.display_name,
         user_profiles.home_country,
         user_profiles.travel_style,
         user_profiles.budget_level,
         user_profiles.dietary_notes,
+        user_profiles.food_needs_json,
         user_profiles.accessibility_notes,
+        user_profiles.surf_ability,
+        user_profiles.quiet_sleep_preference,
+        user_profiles.weather_preference,
         user_profiles.interests_json,
         user_profiles.preferred_areas_json,
         user_profiles.trip_context_json,
@@ -120,7 +140,11 @@ export async function upsertUserProfile(
         travel_style,
         budget_level,
         dietary_notes,
+        food_needs_json,
         accessibility_notes,
+        surf_ability,
+        quiet_sleep_preference,
+        weather_preference,
         interests_json,
         preferred_areas_json,
         trip_context_json,
@@ -128,14 +152,18 @@ export async function upsertUserProfile(
         created_at,
         updated_at
       )
-      values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12, $12)
+      values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14::jsonb, $15, $16, $16)
       on conflict (user_id) do update set
         display_name = excluded.display_name,
         home_country = excluded.home_country,
         travel_style = excluded.travel_style,
         budget_level = excluded.budget_level,
         dietary_notes = excluded.dietary_notes,
+        food_needs_json = excluded.food_needs_json,
         accessibility_notes = excluded.accessibility_notes,
+        surf_ability = excluded.surf_ability,
+        quiet_sleep_preference = excluded.quiet_sleep_preference,
+        weather_preference = excluded.weather_preference,
         interests_json = excluded.interests_json,
         preferred_areas_json = excluded.preferred_areas_json,
         trip_context_json = excluded.trip_context_json,
@@ -149,7 +177,11 @@ export async function upsertUserProfile(
       next.travelStyle,
       next.budgetLevel,
       next.dietaryNotes,
+      JSON.stringify(next.foodNeeds),
       next.accessibilityNotes,
+      next.surfAbility,
+      next.quietSleepPreference,
+      next.weatherPreference,
       JSON.stringify(next.interests),
       JSON.stringify(next.preferredAreas),
       JSON.stringify(next.tripContext),
@@ -169,11 +201,9 @@ export async function upsertUserProfile(
 function profileResponseFromRow(row: UserProfileRow): UserProfileResponse {
   return {
     identity: {
-      userId: row.user_id,
-      email: row.email,
+      email: travelerEmailFromStoredEmail(row.email),
       firstName: row.first_name,
       lastName: row.last_name,
-      imageUrl: row.image_url,
     },
     profile: {
       displayName: row.display_name,
@@ -181,10 +211,14 @@ function profileResponseFromRow(row: UserProfileRow): UserProfileResponse {
       travelStyle: row.travel_style,
       budgetLevel: row.budget_level,
       dietaryNotes: row.dietary_notes,
+      foodNeeds: stringArrayFromJson(row.food_needs_json),
       accessibilityNotes: row.accessibility_notes,
+      surfAbility: row.surf_ability,
+      quietSleepPreference: row.quiet_sleep_preference,
+      weatherPreference: row.weather_preference,
       interests: stringArrayFromJson(row.interests_json),
       preferredAreas: stringArrayFromJson(row.preferred_areas_json),
-      tripContext: objectFromJson(row.trip_context_json),
+      tripContext: tripContextFromJson(row.trip_context_json),
       marketingConsent: row.marketing_consent ?? false,
       createdAt: timestampToIso(row.profile_created_at),
       updatedAt: timestampToIso(row.profile_updated_at),
@@ -199,7 +233,11 @@ function emptyProfile(): UserProfileDetails {
     travelStyle: null,
     budgetLevel: null,
     dietaryNotes: null,
+    foodNeeds: [],
     accessibilityNotes: null,
+    surfAbility: null,
+    quietSleepPreference: null,
+    weatherPreference: null,
     interests: [],
     preferredAreas: [],
     tripContext: {},
@@ -216,11 +254,8 @@ function stringArrayFromJson(value: unknown) {
     : [];
 }
 
-function objectFromJson(value: unknown) {
-  const parsed = parseJsonValue(value);
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? (parsed as Record<string, unknown>)
-    : {};
+function tripContextFromJson(value: unknown): UserProfileTripContext {
+  return normalizeStoredProfileTripContext(value);
 }
 
 function parseJsonValue(value: unknown) {

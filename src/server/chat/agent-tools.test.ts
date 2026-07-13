@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { AgentMemorySnapshot } from "@/server/chat/agent-memory";
 import {
   agentToolDefinitions,
+  agentToolFamilies,
   buildAgentResponseTools,
   describeAvailableTools,
   executeAgentTool,
@@ -725,6 +726,83 @@ describe("agent tools", () => {
       },
     ]);
     expect(agentToolDefinitions.map((tool) => tool.name)).not.toContain("describe_available_tools");
+  });
+
+  test("composes one family-owned catalogue without exposing fallback memory search by default", () => {
+    const familySummaries = agentToolFamilies.map((family) => ({
+      id: family.id,
+      toolNames: family.toolNames,
+      registeredNames: Object.keys(family.tools).sort(),
+    }));
+
+    expect(familySummaries).toEqual([
+      {
+        id: "conditions",
+        toolNames: [
+          "get_weather_forecast",
+          "get_marine_conditions",
+          "get_tide_forecast",
+          "get_condition_judgment",
+        ],
+        registeredNames: [
+          "get_condition_judgment",
+          "get_marine_conditions",
+          "get_tide_forecast",
+          "get_weather_forecast",
+        ],
+      },
+      {
+        id: "public_web_research",
+        toolNames: ["research_web"],
+        registeredNames: ["research_web"],
+      },
+      {
+        id: "nightlife_events",
+        toolNames: ["search_nightlife_events"],
+        registeredNames: ["search_nightlife_events"],
+      },
+      {
+        id: "google_places",
+        toolNames: ["search_places", "get_place_details"],
+        registeredNames: ["get_place_details", "search_places"],
+      },
+      {
+        id: "local_knowledge",
+        toolNames: [
+          "search_local_guide",
+          "rank_surf_spots_nearby",
+          "plan_local_itinerary",
+          "describe_database_schema",
+          "query_local_facts",
+          "get_source_evidence",
+        ],
+        registeredNames: [
+          "describe_database_schema",
+          "get_source_evidence",
+          "plan_local_itinerary",
+          "query_local_facts",
+          "rank_surf_spots_nearby",
+          "search_local_guide",
+        ],
+      },
+      {
+        id: "source_policy",
+        toolNames: ["describe_source_policy"],
+        registeredNames: ["describe_source_policy"],
+      },
+      {
+        id: "memory",
+        toolNames: ["load_agent_memory_file"],
+        registeredNames: ["load_agent_memory_file", "search_agent_memory"],
+      },
+    ]);
+
+    const defaultToolNames = agentToolDefinitions.map((tool) => tool.name);
+    expect(defaultToolNames).toEqual(agentToolFamilies.flatMap((family) => family.toolNames));
+    expect(defaultToolNames).not.toContain("search_agent_memory");
+
+    const registeredNames = agentToolFamilies.flatMap((family) => Object.keys(family.tools));
+    expect(new Set(registeredNames).size).toBe(registeredNames.length);
   });
 
   test("accepts nullable optional fields required by strict Responses schemas", async () => {
@@ -2342,7 +2420,36 @@ not-json
 
     expect(result.status).toBe("error");
     expect(result.errorCode).toBe("tool_execution_failed");
-    expect(result.text).toBe("Local data query timed out after 1ms.");
+    expect(result.text).toBe("query_local_facts failed before it could return safe data.");
+    expect(result.sources).toEqual([]);
+  });
+
+  test("keeps generic tool wrapper exception text out of model-visible output", async () => {
+    const fixtureSuffix = "fixture_should_not_render_generic";
+    const fixtureToken = `token=${fixtureSuffix}`;
+
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_db_facts_failure",
+        name: "query_local_facts",
+        arguments: {
+          entityTypes: ["route"],
+          limit: 5,
+        },
+      },
+      {
+        localFactsQueryRunner: async () => {
+          throw new Error(`Local facts backend returned HTTP 502 with ${fixtureToken}`);
+        },
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("tool_execution_failed");
+    expect(result.text).toBe("query_local_facts failed before it could return safe data.");
+    expect(result.text).not.toContain(fixtureSuffix);
+    expect(result.text).not.toContain("HTTP 502");
+    expect(result.text).not.toContain("Local facts backend");
     expect(result.sources).toEqual([]);
   });
 
@@ -2843,6 +2950,8 @@ not-json
   });
 
   test("returns provider-unavailable output for weather provider failures", async () => {
+    const fixtureSuffix = "fixture_should_not_render_weather";
+    const fixtureToken = `token=${fixtureSuffix}`;
     const result = await executeAgentTool(
       {
         requestId: "agent_request_weather",
@@ -2851,15 +2960,68 @@ not-json
       },
       {
         getLatestSiargaoWeatherSnapshot: async () => {
-          throw new Error("Open-Meteo forecast request failed with HTTP 503.");
+          throw new Error(`Open-Meteo forecast request failed with HTTP 503 and ${fixtureToken}.`);
         },
       },
     );
 
     expect(result.status).toBe("error");
     expect(result.errorCode).toBe("provider_unavailable");
-    expect(result.text).toContain("HTTP 503");
+    expect(result.text).toBe("Open-Meteo weather forecast is temporarily unavailable.");
+    expect(result.text).not.toContain(fixtureSuffix);
+    expect(result.text).not.toContain("HTTP 503");
+    expect(result.text).not.toContain("forecast request failed");
     expect(result.sources[0]?.notChecked.join(" ")).toContain("General Luna");
+  });
+
+  test("returns provider-unavailable output for marine provider failures", async () => {
+    const fixtureSuffix = "fixture_should_not_render_marine";
+    const bearerFragment = `Bearer ${fixtureSuffix}_12345`;
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_marine_failure",
+        name: "get_marine_conditions",
+        arguments: { location: "Cloud 9", date_range: "next_48_hours" },
+      },
+      {
+        buildOpenMeteoMarineIngestionBatch: async () => {
+          throw new Error(`Open-Meteo Marine returned HTTP 504 for ${bearerFragment}`);
+        },
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("provider_unavailable");
+    expect(result.text).toBe("Open-Meteo Marine conditions are temporarily unavailable.");
+    expect(result.text).not.toContain(fixtureSuffix);
+    expect(result.text).not.toContain("HTTP 504");
+    expect(result.text).not.toContain("Open-Meteo Marine returned");
+    expect(result.sources[0]?.notChecked.join(" ")).toContain("Cloud 9");
+  });
+
+  test("returns provider-unavailable output for tide provider failures", async () => {
+    const fixtureSuffix = "fixture_should_not_render_tide";
+    const keyFragment = `api_key=${fixtureSuffix}`;
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_tide_failure",
+        name: "get_tide_forecast",
+        arguments: { location: "Dapa", date_range: "tomorrow" },
+      },
+      {
+        buildTideForecastSnapshot: async () => {
+          throw new Error(`Tide-Forecast request failed with HTTP 429 and ${keyFragment}`);
+        },
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.errorCode).toBe("provider_unavailable");
+    expect(result.text).toBe("Tide-Forecast tide data is temporarily unavailable.");
+    expect(result.text).not.toContain(fixtureSuffix);
+    expect(result.text).not.toContain("HTTP 429");
+    expect(result.text).not.toContain("Tide-Forecast request failed");
+    expect(result.sources[0]?.notChecked.join(" ")).toContain("Dapa");
   });
 
   test("returns governed nightlife event route evidence before venue enrichment", async () => {

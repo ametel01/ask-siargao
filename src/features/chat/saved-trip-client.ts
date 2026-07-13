@@ -1,3 +1,4 @@
+import type { TripContextDraft } from "@/server/chat/trip-context";
 import {
   buildSavedTripItemFromItineraryPlanArtifact,
   buildSavedTripItemFromRecommendationCardArtifact,
@@ -25,7 +26,8 @@ export type ChatClientGeolocation = {
 };
 
 export type ChatClientContext = {
-  geolocation: ChatClientGeolocation;
+  geolocation?: ChatClientGeolocation;
+  tripContext?: TripContextDraft;
 };
 
 export type ArtifactDecisionMetadata = SavedTripArtifactDecisionMetadata;
@@ -47,6 +49,11 @@ export type SavedTripState = {
 export type SavedTripApiResponse = {
   tripId?: string;
   items?: SavedTripItem[];
+};
+export type SavedTripSelectionStatus = "idle" | "loading" | "ready" | "not_found" | "error";
+export type SavedTripSelectionResolution = {
+  item: SavedTripItem | null;
+  status: SavedTripSelectionStatus;
 };
 
 export type StorageLike = Pick<Storage, "getItem" | "setItem">;
@@ -172,12 +179,24 @@ export function writeSavedTripState(state: SavedTripState, options: SavedTripCli
   }
 }
 
+export function clearSavedTripState(options: SavedTripClientOptions = {}) {
+  const current = readSavedTripState(options);
+  writeSavedTripState(
+    {
+      tripId: current.tripId,
+      items: [],
+      updatedAt: getNowIso(options),
+    },
+    options,
+  );
+}
+
 export function writeAuthenticatedSavedTripState(
   savedTrip: SavedTripApiResponse | null,
   fallbackTripId: string,
   options: SavedTripClientOptions = {},
 ) {
-  if (!savedTrip?.items?.length) {
+  if (!savedTrip) {
     return;
   }
   const tripId = savedTrip.tripId ?? fallbackTripId;
@@ -185,11 +204,34 @@ export function writeAuthenticatedSavedTripState(
   writeSavedTripState(
     {
       tripId,
-      items: savedTrip.items.map((item) => ({ ...item, tripId })),
+      items: (savedTrip.items ?? []).map((item) => ({ ...item, tripId })),
       updatedAt: getNowIso(options),
     },
     options,
   );
+}
+
+export function resolveSavedTripSelection({
+  selectedItemId,
+  state,
+  status,
+}: {
+  selectedItemId: string | null;
+  state: SavedTripState;
+  status: "loading" | "ready" | "error";
+}): SavedTripSelectionResolution {
+  if (!selectedItemId) {
+    return { item: null, status: "idle" };
+  }
+  if (status === "loading") {
+    return { item: null, status: "loading" };
+  }
+  if (status === "error") {
+    return { item: null, status: "error" };
+  }
+
+  const item = state.items.find((candidate) => candidate.id === selectedItemId) ?? null;
+  return item ? { item, status: "ready" } : { item: null, status: "not_found" };
 }
 
 export function upsertSavedTripItem(
@@ -244,7 +286,7 @@ export async function fetchAuthenticatedSavedTrip(
 ): Promise<SavedTripApiResponse | null> {
   const response = await fetcher(url, { cache: "no-store" });
   if (!response.ok) {
-    return null;
+    throw new Error("Saved trip items could not be loaded.");
   }
 
   return (await response.json()) as SavedTripApiResponse;

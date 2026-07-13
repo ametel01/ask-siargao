@@ -118,7 +118,7 @@ user, venue, or partner submits the content with permission.
 For current nightlife questions:
 
 - Load this file for local context.
-- Use source-policy and tool-use memory when checked/not-checked wording matters.
+- Use source-policy and tool-use memory when source-boundary wording matters.
 - Use `research_web` for same-day or date-specific party, DJ, event, and
   "where should we go tonight" prompts. Good query templates include:
   - `General Luna Siargao party tonight [local date or weekday] official`
@@ -130,11 +130,11 @@ For current nightlife questions:
   opening-hour signals.
 - Use weather tools for tonight routes that require moving between venues.
 
-If `search_nightlife_events` is unavailable or returns no events, say event
-sources were not checked or did not return usable event data. If `research_web`
-also fails or is insufficient, give bounded stable guidance from this file only
-with a clear caveat that current public evidence could not be verified. Do not
-turn broad Google Places bar results or weather into the party ranking.
+If `search_nightlife_events` is unavailable or returns no events, do not claim a
+current event check. If `research_web` also fails or is insufficient, give
+bounded stable guidance from this file only with a practical caveat that current
+public evidence could not be verified. Do not turn broad Google Places bar
+results or weather into the party ranking.
 
 ## Answer Shape
 
@@ -151,11 +151,11 @@ Tonight's strongest route in General Luna is:
 
 Then add one short practical note for weather or transport when relevant.
 
-Good source boundary:
+Structured source boundary for metadata, not normal traveler prose:
 
 ```text
-Checked: event schedule sources and Google Places venue details.
-Not checked: live crowd size, door policy, table availability, or last-minute
+checked: event schedule sources and Google Places venue details.
+notChecked: live crowd size, door policy, table availability, or last-minute
 cancellations.
 ```
 

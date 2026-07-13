@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 
 type ChatRequestBody = {
   threadId?: string;
@@ -7,6 +7,7 @@ type ChatRequestBody = {
     content?: string;
   }>;
   clientContext?: {
+    tripContext?: unknown;
     geolocation?: {
       latitude?: number;
       longitude?: number;
@@ -22,10 +23,10 @@ type E2EThreadMessage = {
   role: "user" | "assistant";
   content: string;
   status: "complete";
-  sources: [];
-  cards: [];
-  actions: [];
-  itineraries: [];
+  sources: MockSourceSummary[];
+  cards: MockRecommendationCard[];
+  actions: MockChatAction[];
+  itineraries: MockItineraryPlan[];
   decisionSummaries: unknown[];
   rating?: {
     rating: "up" | "down";
@@ -78,6 +79,7 @@ type MockItineraryStop = {
 };
 
 type MockItineraryPlan = {
+  id?: string;
   title: string;
   durationLabel: string;
   decision?: MockDecisionMetadata;
@@ -99,6 +101,24 @@ type MockDecisionSummary = {
 type MockDecisionMetadata = {
   label: "best_fit" | "good_now" | "fallback" | "avoid_today" | "needs_confirmation";
   bestAction: string;
+};
+type DecisionMotionMetrics = {
+  starts: number;
+  ends: number;
+  layoutShift: number;
+  readyAt: number | null;
+  motionStartAt: number | null;
+  motionEndAt: number | null;
+  longTasks: Array<{
+    duration: number;
+    startTime: number;
+    endTime: number;
+  }>;
+  rafFrames: number[];
+};
+type LayoutShiftEntry = PerformanceEntry & {
+  hadRecentInput?: boolean;
+  value?: number;
 };
 type E2ERecommendationPayload = {
   type: "recommendation_card";
@@ -144,12 +164,26 @@ type SharedTripCreateRequestBody = {
   clientContext?: unknown;
 };
 
+declare global {
+  interface Window {
+    __decisionMotionMetrics?: DecisionMotionMetrics;
+  }
+}
+
 const savedTripStorageKey = "ask-siargao:saved-trip:v1";
+const tripContextStorageKey = "ask-siargao:trip-context:v1";
 
 test("sends a desktop composer message to the chat API and renders the assistant response", async ({
   page,
-}) => {
+}, testInfo) => {
   await page.setViewportSize({ width: 2048, height: 1153 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
   const mockChat = await mockChatApi(page, {
     message:
       "Mocked dinner answer:\n\n- **Kermit:** casual dinner near Cloud 9\n- **Bravo:** pizza nearby",
@@ -163,7 +197,34 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect(page.getByText("Ask about food, weather, transfers")).toBeVisible();
   await expect(page.getByRole("link", { name: "Start a new chat" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Trip context" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Cloud 9 Weather" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Siargao Island Weather" })).toBeVisible();
+  await expect(page.getByText("No trip details yet")).toBeVisible();
+  await expect(page.getByText("Nothing is assumed about your trip.")).toBeVisible();
+  for (const formerDemoValue of [
+    "Near Cloud 9 / Catangnan",
+    "Jun 12 - 22",
+    "June surf trip",
+    "Cloud 9 shortlist",
+    "4 places",
+    "7 places",
+    "3 places",
+    "Is this hotel quiet?",
+    "Best dinner near Catangnan",
+    "Will it rain this afternoon?",
+    "Surf conditions tomorrow?",
+  ]) {
+    await expect(page.getByText(formerDemoValue, { exact: true })).toHaveCount(0);
+  }
+  await page.screenshot({
+    path: testInfo.outputPath("anonymous-empty-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: testInfo.outputPath("anonymous-empty-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 2048, height: 1153 });
 
   const composerInput = page.getByLabel("Ask anything about Siargao");
   const sendButton = page.getByRole("button", { name: "Send question" });
@@ -197,11 +258,13 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect(userMessageBubble).toBeVisible();
   await expect(userMessageBubble).toHaveCSS("color", "rgb(255, 255, 255)");
   await expect(page.getByText("Where should we eat near Cloud 9 tonight?")).toBeVisible();
-  await expect(page.getByText("Thinking through that with Ask Siargao...")).toBeVisible();
+  await expect(page.getByText("Ask Siargao is preparing your answer.")).toBeVisible();
+  await expect(page.getByTestId("decision-strip")).toHaveCount(0);
+  await expect(page.getByText("At a Glance")).toHaveCount(0);
   await expect(composerInput).toBeDisabled();
   await expect(sendButton).toBeDisabled();
   await expect(
-    page.getByRole("button", { name: "What should I do near Cloud 9 today?" }),
+    page.getByRole("button", { name: "Plan my Siargao day around my accommodation." }),
   ).toBeDisabled();
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(lastSubmittedContent(mockChat.requests[0])).toBe(
@@ -225,6 +288,214 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect.poll(() => composerFitsViewport(page)).toBe(true);
 });
 
+test("shows checking condition decisions before routes resolve", async ({ page }) => {
+  let releaseRoutes: (() => void) | undefined;
+  const routeGate = new Promise<void>((resolve) => {
+    releaseRoutes = resolve;
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
+  await page.route("**/api/public/weather/siargao**", async (route) => {
+    await routeGate;
+    await route.fulfill({ status: 503, body: "weather unavailable" });
+  });
+  await page.route("**/api/public/surf/siargao**", async (route) => {
+    await routeGate;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        requestedLocation: "Siargao Island",
+        surf: {
+          status: "unavailable",
+          locationName: "Siargao Island",
+          fetchedAt: "2026-07-10T01:00:00.000Z",
+          level: "medium",
+          metrics: { waves: "Unavailable", tide: "Unavailable", wind: "Unavailable" },
+          weather: {
+            status: "unavailable",
+            freshness: "unknown",
+            condition: "Unavailable",
+            precipitationProbability: null,
+            rainSum: null,
+            windGust: null,
+          },
+          tide: { status: "unavailable", stationName: "Dapa tide station", bestWindow: null },
+          caveats: [],
+        },
+      }),
+    });
+  });
+
+  await page.goto("/chat");
+
+  const rail = page.getByTestId("context-rail");
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Checking now");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Checking now");
+  releaseRoutes?.();
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Unavailable");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Unavailable");
+});
+
+test("renders bounded condition decisions before their raw metrics", async ({ page }) => {
+  let weatherMode: "fresh" | "stale" | "unknown" | "error" | "unavailable" = "fresh";
+  let surfMode: "live" | "partial" | "unknown" | "no-window" | "error" | "unavailable" = "live";
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
+  await page.route("**/api/public/weather/siargao**", async (route) => {
+    if (weatherMode === "unavailable" || weatherMode === "error") {
+      await route.fulfill({ status: 503, body: "weather unavailable" });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        requestedLocation: "Siargao Island",
+        weather: {
+          status: "live",
+          locationName: "Siargao Island",
+          fetchedAt: "2026-07-10T01:00:00.000Z",
+          freshness: weatherMode,
+          today: {
+            condition: "Rain",
+            precipitationProbability: 50,
+            rainSum: 7,
+            precipitationSum: 7,
+            windGust: 38,
+          },
+        },
+      }),
+    });
+  });
+  await page.route("**/api/public/surf/siargao**", async (route) => {
+    if (surfMode === "error") {
+      await route.fulfill({ status: 503, body: "surf unavailable" });
+      return;
+    }
+    const isPartial = surfMode === "partial";
+    const isUnavailable = surfMode === "unavailable";
+    const hasWindow = !isPartial && surfMode !== "no-window";
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        requestedLocation: "Siargao Island",
+        surf: {
+          status: isUnavailable ? "unavailable" : isPartial ? "partial" : "live",
+          locationName: "Siargao Island",
+          fetchedAt: "2026-07-10T01:00:00.000Z",
+          level: "medium",
+          metrics: {
+            waves: isPartial || isUnavailable ? "Unavailable" : "0.7m swell / 10s",
+            tide: isPartial || isUnavailable ? "Unavailable" : "High 4:55 AM 1.7m",
+            wind: isUnavailable ? "Unavailable" : "gust 38km/h",
+          },
+          weather: {
+            status: "live",
+            freshness: surfMode === "unknown" ? "unknown" : "fresh",
+            condition: isUnavailable ? "Unavailable" : "Rain",
+            precipitationProbability: isUnavailable ? null : 50,
+            rainSum: isUnavailable ? null : 7,
+            windGust: isUnavailable ? null : 38,
+          },
+          tide: {
+            status: isPartial || isUnavailable ? "unavailable" : "live",
+            stationName: "Dapa tide station",
+            bestWindow: hasWindow ? "5:00 AM-8:00 AM: near high tide" : null,
+          },
+          caveats: [],
+        },
+      }),
+    });
+  });
+
+  await page.goto("/chat");
+
+  const rail = page.getByTestId("context-rail");
+  await expect(rail.getByTestId("weather-condition-action")).toHaveText(
+    "Choose cover and keep the plan flexible.",
+  );
+  await expect(rail.getByTestId("weather-condition-fallback")).toContainText("covered stop");
+  await expect(rail.getByTestId("weather-condition-evidence")).toContainText(
+    "Forecast freshness: fresh",
+  );
+  await expect(rail.getByTestId("surf-condition-action")).toHaveText(
+    "Use the Dapa tide window as a planning cue, then confirm locally.",
+  );
+  await expect(rail.getByTestId("surf-condition-timing")).toContainText("5:00 AM-8:00 AM");
+  await expect(rail.getByTestId("surf-condition-evidence")).toContainText(
+    "Dapa tide freshness was not supplied",
+  );
+  await expect(rail).toContainText("Exact-break conditions");
+  await expect(rail).toContainText("Road access, official marine warnings, and safety status");
+  await expect
+    .poll(() =>
+      rail.evaluate((element) => {
+        const action = element.querySelector("[data-testid='weather-condition-action']");
+        const metric = Array.from(element.querySelectorAll("p")).find(
+          (candidate) => candidate.textContent === "Rain chance",
+        );
+        return Boolean(
+          action &&
+            metric &&
+            action.getBoundingClientRect().top < metric.getBoundingClientRect().top,
+        );
+      }),
+    )
+    .toBe(true);
+
+  weatherMode = "stale";
+  surfMode = "partial";
+  await rail.getByRole("button", { name: "Refresh weather" }).click();
+  await rail.getByRole("button", { name: "Refresh surf conditions" }).click();
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Prior evidence");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Partly checked signals");
+  await expect(rail.getByTestId("surf-condition-basis")).toContainText("Missing: tide, swell");
+
+  weatherMode = "unknown";
+  surfMode = "unknown";
+  await rail.getByRole("button", { name: "Refresh weather" }).click();
+  await rail.getByRole("button", { name: "Refresh surf conditions" }).click();
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Not verified");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Not verified");
+  await expect(rail.getByTestId("surf-condition-action")).toHaveText(
+    "Keep surf plans flexible and confirm locally.",
+  );
+
+  weatherMode = "fresh";
+  surfMode = "no-window";
+  await rail.getByRole("button", { name: "Refresh weather" }).click();
+  await rail.getByRole("button", { name: "Refresh surf conditions" }).click();
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Checked");
+  await expect(rail.getByTestId("surf-condition-action")).toHaveText(
+    "Keep surf plans flexible and confirm locally.",
+  );
+  await expect(rail.getByTestId("surf-condition-timing")).toHaveCount(0);
+
+  weatherMode = "error";
+  surfMode = "error";
+  await rail.getByRole("button", { name: "Refresh weather" }).click();
+  await rail.getByRole("button", { name: "Refresh surf conditions" }).click();
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Prior evidence");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Prior evidence");
+
+  weatherMode = "unavailable";
+  surfMode = "unavailable";
+  await page.reload();
+  await expect(rail.getByTestId("weather-condition-state")).toHaveText("Unavailable");
+  await expect(rail.getByTestId("surf-condition-state")).toHaveText("Unavailable");
+});
+
 test("shows the trip context rail at normal desktop browser width", async ({ page }) => {
   await page.setViewportSize({ width: 1224, height: 768 });
   await mockChatApi(page, {
@@ -236,8 +507,863 @@ test("shows the trip context rail at normal desktop browser width", async ({ pag
   await expect(page.getByLabel("Ask Siargao chat workspace")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Trip context" })).toBeVisible();
   await expect(page.getByTestId("context-rail")).toBeVisible();
+  await expect(page.getByTestId("mobile-trip-context-trigger")).toHaveCount(0);
   await expect.poll(() => chatWorkspaceScrollSurfaces(page)).toEqual(["chat-message-scroll-area"]);
   await expect.poll(() => rightRailFitsViewport(page)).toBe(true);
+});
+
+test("renders the field desk workspace across desktop visual fixtures", async ({
+  page,
+}, testInfo) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(
+    ({ key, value }) => {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: tripContextStorageKey,
+      value: {
+        accommodation: "Pilar field stay",
+        dateRange: "Aug 1 - 6",
+        travelerType: "Two friends",
+        nearbyArea: "Cloud 9",
+      },
+    },
+  );
+  await mockFieldDeskExternalState(page);
+  const mockChat = await mockChatApi(page, {
+    message: [
+      "Mocked field desk answer: keep the day compact and weather-aware.",
+      "",
+      "1. Start at Shaka Siargao while the Cloud 9 area is easy to reach.",
+      "2. Keep the boardwalk stop short if the rain builds.",
+      "3. Move indoors before the afternoon shower window.",
+      ...Array.from(
+        { length: 22 },
+        (_, index) =>
+          `${index + 4}. Preserve this long-response checkpoint inside the conversation scroll area.`,
+      ),
+      "",
+      "Final checkpoint: ask one more local question before committing to a long ride.",
+    ].join("\n"),
+    sources: [mockPlacesSource, mockWeatherSource],
+    cards: [
+      {
+        id: "place_shaka_field_desk",
+        kind: "place",
+        title: "Shaka Siargao",
+        subtitle: "Cafe - Cloud 9, General Luna",
+        mapsUrl: "https://maps.google.com/?cid=shaka-field-desk",
+        distanceLabel: "About 50 m from search center.",
+        openStatusLabel: "Open now according to Google Places.",
+        fitReasons: ["Keeps the first stop close to the weather-aware plan."],
+        caveats: ["Table availability was not checked."],
+        sourceLabel: "Google Places - live checked",
+        decision: {
+          label: "best_fit",
+          bestAction: "Start here before the weather window narrows.",
+        },
+        sources: [mockPlacesSource],
+      },
+    ],
+    decisionSummaries: [
+      {
+        id: "field_desk_decision",
+        bestAction: "Start close to Cloud 9, then keep the covered fallback ready.",
+        basis: "Weather evidence is checked, while surf safety still needs local confirmation.",
+        fallback: "Use the covered cafe stop if rain arrives early.",
+        avoid: "Avoid a long northbound ride before the forecast is refreshed.",
+        timing: "today",
+        area: "Cloud 9",
+        sources: [mockWeatherSource],
+      },
+    ],
+    itineraries: [mockRainyCloud9Itinerary()],
+  });
+
+  await page.setViewportSize({ width: 1180, height: 900 });
+  await page.goto("/chat");
+
+  const workspace = page.getByRole("main", { name: "Ask Siargao chat workspace" });
+  await expect(workspace).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Ask a real question/i })).toBeVisible();
+  await expect(page.getByTestId("context-rail")).toContainText("Pilar field stay");
+  await expect
+    .poll(() => fieldDeskGeometry(page))
+    .toMatchObject({
+      conversationDominates: true,
+      documentFitsViewport: true,
+      oneScrollSurface: true,
+      railsFitViewport: true,
+    });
+  await page.screenshot({
+    path: testInfo.outputPath("field-desk-empty-desktop-1180.png"),
+    fullPage: true,
+  });
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.focus();
+  await expect(composerInput).toBeFocused();
+  await composerInput.fill("Build a rainy Cloud 9 field plan");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByText("Mocked field desk answer:")).toBeVisible();
+  await expect(page.getByTestId("decision-strip")).toContainText("Best move");
+  await page.getByRole("button", { name: "Save Shaka Siargao" }).click();
+  await page.getByRole("button", { name: "Save Rainy Cloud 9 Afternoon" }).click();
+  await expect(page.getByTestId("saved-plan-tray")).toContainText("2 items saved locally");
+  await expect.poll(() => mockChat.requests.length).toBe(1);
+
+  for (const viewport of [
+    { label: "1180", width: 1180, height: 900 },
+    { label: "1440", width: 1440, height: 1000 },
+    { label: "wide-1920", width: 1920, height: 1080 },
+  ] as const) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await expect
+      .poll(() => fieldDeskGeometry(page))
+      .toMatchObject({
+        conversationDominates: true,
+        documentFitsViewport: true,
+        longResponseUsesMessageScroll: true,
+        oneScrollSurface: true,
+        railsFitViewport: true,
+      });
+    await expect.poll(() => composerFitsViewport(page)).toBe(true);
+    await expect(page.getByTestId("saved-plan-tray")).toBeVisible();
+    await expect(page.getByTestId("assistant-sources-panel")).toContainText(
+      "Google Places, Weather forecast checked",
+    );
+    const visualHierarchy = await page.evaluate(() => {
+      const recommendationGroup = document.querySelector('[data-testid="recommendation-cards"]');
+      const recommendationCard = document.querySelector('[data-testid="recommendation-card"]');
+      const assistantBubble = document.querySelector('[data-testid="assistant-message-bubble"]');
+      if (!recommendationGroup || !recommendationCard || !assistantBubble) {
+        throw new Error("Expected recommendation and assistant surfaces to render");
+      }
+      const groupStyle = getComputedStyle(recommendationGroup);
+      const cardStyle = getComputedStyle(recommendationCard);
+      const bubbleStyle = getComputedStyle(assistantBubble);
+      return {
+        assistantShadow: bubbleStyle.boxShadow,
+        cardShadow: cardStyle.boxShadow,
+        groupBackground: groupStyle.backgroundColor,
+        groupBorderTopWidth: groupStyle.borderTopWidth,
+        groupShadow: groupStyle.boxShadow,
+      };
+    });
+    expect(visualHierarchy.assistantShadow).not.toContain("48px");
+    expect(visualHierarchy.cardShadow).not.toContain("12px");
+    expect(visualHierarchy.cardShadow).not.toContain("28px");
+    expect(visualHierarchy.groupBackground).toBe("rgba(0, 0, 0, 0)");
+    expect(visualHierarchy.groupBorderTopWidth).toBe("0px");
+    expect(visualHierarchy.groupShadow).not.toContain("12px");
+    expect(visualHierarchy.groupShadow).not.toContain("28px");
+    await expect(workspace).not.toContainText(/\btelemetry|dashboard|KPI\b/i);
+    await page.screenshot({
+      path: testInfo.outputPath(`field-desk-active-saved-long-${viewport.label}.png`),
+      fullPage: true,
+    });
+    if (viewport.label === "1180" || viewport.label === "1440" || viewport.label === "wide-1920") {
+      await page.screenshot({
+        path: testInfo.outputPath(`issue-120-chat-${viewport.label}.png`),
+        fullPage: true,
+      });
+    }
+  }
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = "2";
+  });
+  await expect(page.getByRole("button", { name: "Send question" })).toBeVisible();
+  await expect(page.getByLabel("Ask anything about Siargao")).toBeVisible();
+  await expect.poll(() => composerFitsViewport(page)).toBe(true);
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = "";
+  });
+  await expect
+    .poll(() => fieldDeskGeometry(page))
+    .toMatchObject({
+      conversationDominates: true,
+      documentFitsViewport: true,
+      oneScrollSurface: true,
+    });
+});
+
+const mobileTripContextStateCases = [
+  {
+    state: "empty",
+    profileStatus: "anonymous",
+    triggerAction: "Add trip details",
+    triggerDetail: "No details yet",
+    dialogText: "Nothing is assumed",
+  },
+  {
+    state: "partial",
+    profileStatus: "anonymous",
+    storedContext: { dateRange: "Aug 1 - 6" },
+    triggerAction: "View trip details",
+    triggerDetail: "Aug 1 - 6",
+    dialogText: "Aug 1 - 6",
+  },
+  {
+    state: "populated",
+    profileStatus: "authenticated",
+    triggerAction: "View trip details",
+    triggerDetail: "Dapa · Aug 1 - 6",
+    dialogText: "A very long Pilar homestay name that must wrap without widening the sheet",
+  },
+  {
+    state: "loading",
+    profileStatus: "loading",
+    triggerAction: "View trip details",
+    triggerDetail: "Loading details",
+    dialogText: "Loading your trip details",
+  },
+  {
+    state: "unavailable",
+    profileStatus: "unavailable",
+    triggerAction: "View trip details",
+    triggerDetail: "Details unavailable",
+    dialogText: "Trip details could not be loaded",
+  },
+] as const;
+
+for (const viewport of [
+  { width: 360, height: 800 },
+  { width: 390, height: 844 },
+] as const) {
+  for (const stateCase of mobileTripContextStateCases) {
+    test(`renders ${stateCase.state} mobile trip context at ${viewport.width}px`, async ({
+      page,
+    }, testInfo) => {
+      await page.setViewportSize(viewport);
+      if ("storedContext" in stateCase) {
+        await page.addInitScript(
+          ({ key, value }) => {
+            localStorage.setItem(key, JSON.stringify(value));
+          },
+          { key: tripContextStorageKey, value: stateCase.storedContext },
+        );
+      }
+
+      const profileGate = await mockMobileTripContextProfile(page, stateCase.profileStatus);
+      await mockUnavailableMobileConditions(page);
+      await page.goto("/chat");
+
+      const trigger = page.getByTestId("mobile-trip-context-trigger");
+      await expect(trigger).toBeVisible();
+      await expect(trigger).toContainText(stateCase.triggerAction);
+      await expect(trigger).toContainText(stateCase.triggerDetail);
+      await expect(page.getByTestId("context-rail")).toBeHidden();
+      await expect(page.getByTestId("mobile-trip-context-dialog")).toHaveCount(0);
+
+      await trigger.click();
+      const dialog = page.getByTestId("mobile-trip-context-dialog");
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toContainText(stateCase.dialogText);
+      await expect(dialog.getByTestId("mobile-pass-state")).toContainText(
+        "Trip Pass details are not connected",
+      );
+      await expect(dialog).not.toContainText("Jun 12 - 22");
+      await expect(dialog).not.toContainText("Couple");
+      await expect
+        .poll(() => mobileTripContextGeometry(page))
+        .toMatchObject({
+          documentFitsViewport: true,
+          dialogFitsViewport: true,
+          hasInternalScroll: true,
+          triggerTouchTarget: true,
+          controlsFitDialog: true,
+          safeAreaPaddingApplied: true,
+        });
+
+      await page.screenshot({
+        path: testInfo.outputPath(`mobile-trip-${stateCase.state}-${viewport.width}.png`),
+        fullPage: true,
+      });
+      await dialog.getByRole("button", { name: "Close trip details" }).click();
+      await expect(dialog).toHaveCount(0);
+      await expect(trigger).toBeFocused();
+      profileGate.release();
+    });
+  }
+}
+
+test("keeps mobile modal interaction, anonymous edits, and location scope in the conversation", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    const scope = window as typeof window & { __mobileLocationRequests?: number };
+    scope.__mobileLocationRequests = 0;
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition(success: PositionCallback) {
+          scope.__mobileLocationRequests = (scope.__mobileLocationRequests ?? 0) + 1;
+          success({
+            coords: {
+              latitude: 9.8116,
+              longitude: 126.1651,
+              accuracy: 25,
+              altitude: null,
+              altitudeAccuracy: null,
+              heading: null,
+              speed: null,
+            },
+            timestamp: Date.now(),
+          } as GeolocationPosition);
+        },
+      },
+    });
+  });
+  await mockMobileTripContextProfile(page, "anonymous");
+  await mockUnavailableMobileConditions(page);
+  await page.goto("/chat");
+
+  const composer = page.getByLabel("Ask anything about Siargao");
+  await composer.fill("Keep this draft while I check my trip details");
+  const trigger = page.getByTestId("mobile-trip-context-trigger");
+  await trigger.click();
+  const dialog = page.getByTestId("mobile-trip-context-dialog");
+  await expect(dialog).toHaveAttribute("role", "dialog");
+  await expect(dialog.getByRole("button", { name: "Close trip details" })).toBeFocused();
+  await expect(page.getByRole("textbox", { name: "Ask anything about Siargao" })).toHaveCount(0);
+  let outsideClickBlocked = false;
+  try {
+    await composer.click({ timeout: 500, trial: true });
+  } catch {
+    outsideClickBlocked = true;
+  }
+  expect(outsideClickBlocked).toBe(true);
+  await composer.evaluate((element) => element.focus());
+  await expect.poll(() => focusIsInsideMobileTripDialog(page)).toBe(true);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as typeof window & { __mobileLocationRequests?: number })
+          .__mobileLocationRequests ?? 0,
+    ),
+  ).toBe(0);
+  await expect(dialog.getByTestId("mobile-location-state")).toContainText(
+    "Browser location is off",
+  );
+
+  await page.keyboard.press("Shift+Tab");
+  await expect.poll(() => focusIsInsideMobileTripDialog(page)).toBe(true);
+  await page.keyboard.press("Tab");
+  await expect.poll(() => focusIsInsideMobileTripDialog(page)).toBe(true);
+
+  const accommodation = dialog.getByLabel("Accommodation");
+  await accommodation.fill("Draft stay to cancel");
+  await dialog.getByRole("button", { name: "Cancel edits" }).click();
+  await expect(accommodation).toHaveValue("");
+  await accommodation.fill("Pilar homestay");
+  await dialog.getByLabel("Dates").fill("Aug 1 - 6");
+  await dialog.getByRole("button", { name: "Save trip details" }).click();
+  await expect(dialog).toContainText("Trip details saved.");
+  await expect
+    .poll(() => readTripContextStorage(page))
+    .toMatchObject({ accommodation: "Pilar homestay", dateRange: "Aug 1 - 6" });
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expect(composer).toHaveValue("Keep this draft while I check my trip details");
+  await trigger.click();
+  await expect(dialog.getByLabel("Accommodation")).toHaveValue("Pilar homestay");
+  await dialog.getByRole("button", { name: "Close trip details" }).click();
+
+  await page.getByTestId("location-sharing-trigger").click();
+  await page
+    .getByTestId("location-sharing-dialog")
+    .getByRole("button", { name: "Use for this trip" })
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as typeof window & { __mobileLocationRequests?: number })
+            .__mobileLocationRequests ?? 0,
+      ),
+    )
+    .toBe(1);
+  await trigger.click();
+  await expect(dialog.getByTestId("mobile-location-state")).toContainText(
+    "Browser location is on for this in-memory trip session",
+  );
+  await expect(dialog.getByTestId("mobile-location-state")).not.toContainText("9.8116");
+  await expect(dialog.getByTestId("mobile-location-state")).not.toContainText("126.1651");
+});
+
+test("suppresses duplicate authenticated saves and preserves newer edits across late responses", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  let profile = mobileAuthenticatedProfile();
+  let patchCount = 0;
+  let releaseFirstPatch: (() => void) | undefined;
+  let firstPatchStarted: (() => void) | undefined;
+  const firstPatchRequest = new Promise<void>((resolve) => {
+    firstPatchStarted = resolve;
+  });
+  await page.route("**/api/me/profile", async (route) => {
+    if (route.request().method() !== "PATCH") {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify(profile),
+      });
+      return;
+    }
+
+    patchCount += 1;
+    const body = route.request().postDataJSON() as { tripContext: Record<string, unknown> };
+    if (patchCount === 1) {
+      firstPatchStarted?.();
+      await new Promise<void>((resolve) => {
+        releaseFirstPatch = resolve;
+      });
+    }
+    profile = { ...profile, tripContext: body.tripContext };
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(profile) });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [] }) });
+  });
+  await mockUnavailableMobileConditions(page);
+  await page.goto("/chat");
+
+  await page.getByTestId("mobile-trip-context-trigger").click();
+  const dialog = page.getByTestId("mobile-trip-context-dialog");
+  await dialog.getByLabel("Accommodation").fill("First save");
+  await dialog.getByRole("button", { name: "Save trip details" }).click();
+  await firstPatchRequest;
+  const pendingSave = dialog.getByRole("button", { name: "Saving…" });
+  await expect(pendingSave).toBeDisabled();
+  await pendingSave.dispatchEvent("click");
+  await dialog.getByLabel("Dates").fill("Newer unsaved date");
+  expect(patchCount).toBe(1);
+  releaseFirstPatch?.();
+  await expect(dialog.getByLabel("Dates")).toHaveValue("Newer unsaved date");
+  await expect(dialog).toContainText("Unsaved edits");
+  await expect(dialog).not.toContainText("Trip details saved.");
+
+  await dialog.getByRole("button", { name: "Save trip details" }).click();
+  await expect(dialog).toContainText("Trip details saved.");
+  expect(patchCount).toBe(2);
+  expect(profile.tripContext).toMatchObject({
+    accommodation: "First save",
+    dateRange: "Newer unsaved date",
+    notes: "Late arrival",
+  });
+});
+
+test("keeps authenticated edits through validation and network save failures", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let saveMode: "validation" | "network" | "success" = "validation";
+  let profile = mobileAuthenticatedProfile();
+  await page.route("**/api/me/profile", async (route) => {
+    if (route.request().method() !== "PATCH") {
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify(profile) });
+      return;
+    }
+    if (saveMode === "validation") {
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "invalid_profile_request" }),
+      });
+      return;
+    }
+    if (saveMode === "network") {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "profile_save_failed" }),
+      });
+      return;
+    }
+    const body = route.request().postDataJSON() as { tripContext: Record<string, unknown> };
+    profile = { ...profile, tripContext: body.tripContext };
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(profile) });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [] }) });
+  });
+  await mockUnavailableMobileConditions(page);
+  await page.goto("/chat");
+
+  await page.getByTestId("mobile-trip-context-trigger").click();
+  const dialog = page.getByTestId("mobile-trip-context-dialog");
+  const accommodation = dialog.getByLabel("Accommodation");
+  await accommodation.fill("Retry-safe stay");
+  await dialog.getByRole("button", { name: "Save trip details" }).click();
+  await expect(dialog).toContainText("Review the trip details and try again.");
+  await expect(accommodation).toHaveValue("Retry-safe stay");
+
+  saveMode = "network";
+  await dialog.getByRole("button", { name: "Save trip details" }).click();
+  await expect(dialog).toContainText("Your edits are still here.");
+  await expect(accommodation).toHaveValue("Retry-safe stay");
+
+  saveMode = "success";
+  await dialog.getByRole("button", { name: "Save trip details" }).click();
+  await expect(dialog).toContainText("Trip details saved.");
+  expect(profile.tripContext).toMatchObject({ accommodation: "Retry-safe stay" });
+});
+
+test("keeps the desktop authenticated editor open when save fails", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  let releasePatch: (() => void) | undefined;
+  let patchStarted: (() => void) | undefined;
+  const patchRequest = new Promise<void>((resolve) => {
+    patchStarted = resolve;
+  });
+  await page.route("**/api/me/profile", async (route) => {
+    if (route.request().method() !== "PATCH") {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify(mobileAuthenticatedProfile()),
+      });
+      return;
+    }
+
+    patchStarted?.();
+    await new Promise<void>((resolve) => {
+      releasePatch = resolve;
+    });
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "profile_save_failed" }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [] }) });
+  });
+  await mockUnavailableMobileConditions(page);
+  await page.goto("/chat");
+
+  const rail = page.getByTestId("context-rail");
+  await rail.getByRole("button", { name: "Edit" }).click();
+  const accommodation = rail.getByLabel("Accommodation");
+  await accommodation.fill("Retry-safe desktop stay");
+  await rail.getByRole("button", { name: "Save" }).click();
+  await patchRequest;
+  await expect(rail.getByRole("button", { name: "Saving…" })).toBeDisabled();
+  await expect(rail).toContainText("Saving your trip details.");
+
+  releasePatch?.();
+  await expect(rail).toContainText(
+    "Your changes are still here. Check your connection and try again.",
+  );
+  await expect(accommodation).toHaveValue("Retry-safe desktop stay");
+  await expect(rail.getByRole("button", { name: "Save" })).toBeVisible();
+  await expect(rail.getByRole("button", { name: "Edit" })).toHaveCount(0);
+});
+
+test("shares one typed live-condition projection between mobile and desktop without duplicate fetches", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockMobileTripContextProfile(page, "anonymous");
+  const requestCounts = await mockMobileConditionDecisions(page);
+  await page.goto("/chat");
+
+  await page.getByTestId("mobile-trip-context-trigger").click();
+  const dialog = page.getByTestId("mobile-trip-context-dialog");
+  const mobileWeather = dialog.getByTestId("mobile-weather-condition");
+  const mobileSurf = dialog.getByTestId("mobile-surf-condition");
+  await expect(mobileWeather.getByTestId("mobile-weather-condition-action")).toHaveText(
+    "Choose cover and keep the plan flexible.",
+  );
+  await expect(mobileWeather.getByTestId("mobile-weather-condition-basis")).toContainText(
+    "checked daily forecast",
+  );
+  await expect(mobileWeather.getByTestId("weather-condition-state")).toHaveText("Checked");
+  await expect(mobileSurf.getByTestId("surf-condition-state")).toHaveText("Partly checked signals");
+  await expect(mobileSurf.getByTestId("mobile-surf-condition-basis")).toContainText(
+    "Missing: tide, swell",
+  );
+  await expect(dialog).toContainText("Road access, official marine warnings, and safety status");
+  await expect(dialog).not.toContainText("Roads are safe");
+  expect(requestCounts()).toEqual({ surf: 1, weather: 1 });
+
+  const mobileSemantics = await conditionDecisionText(dialog, "mobile-");
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const desktopRail = page.getByTestId("context-rail");
+  await expect(desktopRail).toBeVisible();
+  await expect(page.getByTestId("mobile-trip-context-trigger")).toHaveCount(0);
+  await expect.poll(() => conditionDecisionText(desktopRail)).toEqual(mobileSemantics);
+  expect(requestCounts()).toEqual({ surf: 1, weather: 1 });
+});
+
+test("renders only stored anonymous trip facts across desktop and mobile screenshots", async ({
+  page,
+}, testInfo) => {
+  await page.addInitScript(
+    ({ key, value }) => {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: tripContextStorageKey,
+      value: {
+        accommodation: "Pilar homestay",
+        travelerType: "Two friends",
+      },
+    },
+  );
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/chat");
+
+  const contextRail = page.getByTestId("context-rail");
+  await expect(contextRail).toContainText("Pilar homestay");
+  await expect(contextRail).toContainText("Two friends");
+  await expect(contextRail).not.toContainText("Jun 12 - 22");
+  await expect(contextRail).not.toContainText("Near Cloud 9 / Catangnan");
+  await expect(contextRail).not.toContainText("Couple");
+  await page.screenshot({
+    path: testInfo.outputPath("anonymous-populated-desktop.png"),
+    fullPage: true,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByLabel("Ask Siargao chat workspace")).toBeVisible();
+  await expect(page.getByTestId("context-rail")).toBeHidden();
+  await page.screenshot({
+    path: testInfo.outputPath("anonymous-populated-mobile.png"),
+    fullPage: true,
+  });
+});
+
+test("does not expose browser trip context when the authenticated profile request fails", async ({
+  page,
+}) => {
+  await page.addInitScript(
+    ({ key, value }) => {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: tripContextStorageKey,
+      value: { accommodation: "Stale browser stay", nearbyArea: "Cloud 9" },
+    },
+  );
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "profile_unavailable" }),
+    });
+  });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/chat");
+
+  const contextRail = page.getByTestId("context-rail");
+  await expect(contextRail).toContainText("Trip details could not be loaded.");
+  await expect(contextRail).not.toContainText("Stale browser stay");
+  await expect(contextRail).not.toContainText("Near Cloud 9 / Catangnan");
+});
+
+test("does not submit stale browser trip context after the authenticated profile resolves", async ({
+  page,
+}) => {
+  await page.addInitScript(
+    ({ key, value }) => {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: tripContextStorageKey,
+      value: {
+        accommodation: "Stale browser villa",
+        dateRange: "Jan 1 - 31",
+        travelerType: "Another traveler",
+        nearbyArea: "Del Carmen",
+      },
+    },
+  );
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: {
+          tripContext: {
+            accommodation: "Owner-scoped stay",
+            dateRange: "Aug 1 - 6",
+            currentArea: "Dapa",
+          },
+        },
+      }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [] }),
+    });
+  });
+  const mockChat = await mockChatApi(page, { message: "Owner-scoped response." });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/chat");
+
+  await expect(page.getByTestId("context-rail")).toContainText("Owner-scoped stay");
+  await expect(page.getByTestId("context-rail")).toContainText("Dapa");
+  await expect(page.getByTestId("context-rail")).not.toContainText("Stale browser villa");
+  await page.getByLabel("Ask anything about Siargao").fill("What should I plan?");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect.poll(() => mockChat.requests.length).toBe(1);
+  expect(mockChat.requests[0]?.clientContext?.tripContext).toBeUndefined();
+});
+
+test("hides stale local saved planning while authenticated hydration is pending or fails", async ({
+  page,
+}) => {
+  await page.addInitScript(
+    ({ key, value }) => {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: savedTripStorageKey,
+      value: {
+        tripId: "local_trip_stale_saved_item",
+        updatedAt: "2026-07-10T00:00:00.000Z",
+        items: [
+          {
+            id: "place:stale-browser-item",
+            title: "Stale browser saved place",
+            kind: "place",
+            createdAt: "2026-07-10T00:00:00.000Z",
+            updatedAt: "2026-07-10T00:00:00.000Z",
+            payload: {},
+            sources: [],
+            caveats: [],
+          },
+        ],
+      },
+    },
+  );
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: {} }),
+    });
+  });
+  let releaseSavedTripRequest: (() => void) | undefined;
+  let markSavedTripRequested: (() => void) | undefined;
+  const savedTripRequested = new Promise<void>((resolve) => {
+    markSavedTripRequested = resolve;
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    markSavedTripRequested?.();
+    await new Promise<void>((resolve) => {
+      releaseSavedTripRequest = resolve;
+    });
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "saved_trip_unavailable" }),
+    });
+  });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/chat");
+
+  await savedTripRequested;
+  await expect(page.getByTestId("saved-trip-status")).toContainText("Loading your saved planning.");
+  await expect(page.getByText("Stale browser saved place")).toHaveCount(0);
+  releaseSavedTripRequest?.();
+  await expect(page.getByTestId("saved-trip-status")).toContainText(
+    "Saved planning is unavailable",
+  );
+  await expect(page.getByText("Stale browser saved place")).toHaveCount(0);
+});
+
+test("treats authenticated empty saved planning as authoritative for stale deep links", async ({
+  page,
+}) => {
+  const staleSavedItem = {
+    id: "place:stale-browser-item",
+    title: "Stale browser saved place",
+    kind: "place",
+    createdAt: "2026-07-10T00:00:00.000Z",
+    updatedAt: "2026-07-10T00:00:00.000Z",
+    payload: {},
+    sources: [],
+    caveats: [],
+  };
+  await page.addInitScript(
+    ({ key, value }) => {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: savedTripStorageKey,
+      value: {
+        tripId: "local_trip_stale_saved_item",
+        updatedAt: "2026-07-10T00:00:00.000Z",
+        items: [staleSavedItem],
+      },
+    },
+  );
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: {} }),
+    });
+  });
+  const savedTripWrites: string[] = [];
+  await page.route("**/api/trips/saved", async (route) => {
+    if (route.request().method() !== "GET") {
+      savedTripWrites.push(route.request().method());
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "stale_write_forbidden" }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripId: "saved_trip_empty_authoritative", items: [] }),
+    });
+  });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/chat?savedItemId=place%3Astale-browser-item");
+
+  await expect(page.getByTestId("selected-saved-item-status")).toContainText(
+    "Saved item unavailable",
+  );
+  await expect(page.getByText("Stale browser saved place")).toHaveCount(0);
+  await page.waitForTimeout(250);
+  expect(savedTripWrites).toEqual([]);
+  await expect
+    .poll(() =>
+      page
+        .evaluate((key) => localStorage.getItem(key), savedTripStorageKey)
+        .then((value) => {
+          const storedValue = JSON.parse(value ?? "{}") as { items?: Array<{ id?: string }> };
+          return storedValue.items?.map((item) => item.id) ?? [];
+        }),
+    )
+    .toEqual(["place:stale-browser-item"]);
 });
 
 test("renders assistant markdown tables as real tables", async ({ page }) => {
@@ -269,6 +1395,144 @@ test("renders assistant markdown tables as real tables", async ({ page }) => {
   await expect(assistantBubble.getByRole("cell", { name: "From ₱350/day" })).toBeVisible();
   await expect(assistantBubble.getByText("| Rental shop |")).toHaveCount(0);
   await expect(assistantBubble.getByText("My pick:")).toBeVisible();
+});
+
+test("renders assistant presentation smoke on desktop and mobile", async ({ page }) => {
+  const smokeMessage = [
+    "Here is the short list with an inline guide link: https://example.com/siargao-guide.",
+    "",
+    "## Quick picks",
+    "",
+    "| Place | Area | Why |",
+    "| --- | :---: | --- |",
+    "| **Shaka Siargao** | Cloud 9 | Easy breakfast before surf. |",
+    "| **Bravo** | General Luna | Better dinner backup. |",
+    "",
+    "Checked: Google Places - selected recommendations. Not checked: table availability.",
+  ].join("\n");
+  const mockChat = await mockChatApi(page, {
+    message: smokeMessage,
+    cards: [
+      {
+        id: "place_shaka_smoke",
+        kind: "place",
+        title: "Shaka Siargao",
+        subtitle: "Cafe - Cloud 9, General Luna",
+        mapsUrl: "https://maps.google.com/?cid=shaka-smoke",
+        distanceLabel: "About 50 m from search center.",
+        openStatusLabel: "Open now according to Google Places.",
+        fitReasons: ["Selected by the smoke fixture."],
+        caveats: ["Table availability was not checked."],
+        sourceLabel: "Google Places - live checked",
+        sources: [mockPlacesSource],
+      },
+    ],
+  });
+
+  for (const viewport of [
+    { label: "desktop", width: 1280, height: 900 },
+    { label: "mobile", width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.goto("/chat");
+    await page
+      .getByLabel("Ask anything about Siargao")
+      .fill(`Render assistant smoke on ${viewport.label}`);
+    await page.getByRole("button", { name: "Send question" }).click();
+
+    const assistantBubble = page.getByTestId("assistant-message-bubble").last();
+    await expect(assistantBubble).toContainText("Here is the short list");
+    await expect(
+      assistantBubble.getByRole("link", { name: "Open example.com link" }),
+    ).toHaveAttribute("href", "https://example.com/siargao-guide");
+    await expect(assistantBubble.getByTestId("assistant-source-line")).toHaveCount(2);
+    await expect(assistantBubble.getByTestId("recommendation-card")).toContainText("Shaka Siargao");
+
+    if (viewport.label === "mobile") {
+      await expect(assistantBubble.getByTestId("assistant-mobile-table-card")).toHaveCount(2);
+      await expect(
+        assistantBubble.getByTestId("assistant-mobile-table-card").first(),
+      ).toContainText("Easy breakfast before surf.");
+    } else {
+      await expect(assistantBubble.getByRole("table")).toBeVisible();
+      await expect(assistantBubble.getByRole("columnheader", { name: "Place" })).toBeVisible();
+    }
+
+    await expect
+      .poll(async () =>
+        assistantBubble.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+      )
+      .toBe(true);
+    await expect
+      .poll(async () =>
+        page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+      )
+      .toBe(true);
+  }
+
+  expect(mockChat.requests).toHaveLength(2);
+});
+
+test("renders mixed chat sources with truthful evidence states", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mockChatApi(page, {
+    message: "Use the checked place, but treat weather and public web updates as caveated.",
+    sources: [
+      mockPlacesSource,
+      {
+        label: "provider_unavailable",
+        sourceName: "Open-Meteo weather API",
+        sourceProfileId: "source_open_meteo",
+        confidence: "low",
+        checked: [],
+        notChecked: ["weather forecast"],
+      },
+      {
+        label: "insufficient_web_evidence",
+        sourceName: "Public web research",
+        sourceProfileId: "source_web_research",
+        confidence: "low",
+        checked: [],
+        notChecked: ["current ferry disruption evidence"],
+      },
+      {
+        label: "curated_local_guide",
+        sourceName: "Ask Siargao curated local beach guide",
+        confidence: "medium",
+        checked: ["Cloud 9 fallback pattern"],
+        notChecked: ["live open-now status"],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Build a caveated mixed-source plan");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  const sourcesPanel = page.getByTestId("assistant-sources-panel");
+  await expect(sourcesPanel).toContainText(
+    "Latest check Jun 28, 8:45 AM: Google Places, Ask Siargao local beach guide checked; 2 verification gaps.",
+  );
+  const receiptSummary = sourcesPanel.locator("summary");
+  await receiptSummary.focus();
+  await expect(receiptSummary).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(sourcesPanel.getByText("Places checked")).toBeVisible();
+  await expect(sourcesPanel.getByText("Guide info checked")).toBeVisible();
+  await expect(sourcesPanel.getByText("Could not check")).toBeVisible();
+  await expect(sourcesPanel.getByText("Web evidence insufficient")).toBeVisible();
+  await expect(sourcesPanel.getByText("Weather forecast: Not checked")).toHaveCount(0);
+  await expect(sourcesPanel).toContainText(
+    "Checked fields: place identity, current opening status",
+  );
+  await expect(sourcesPanel).toContainText("Checked fields: Cloud 9 fallback pattern");
+  await expect(sourcesPanel).toContainText("Not checked: weather forecast");
+  await expect(sourcesPanel).toContainText("Not checked: current ferry disruption evidence");
+  await expect(sourcesPanel).not.toContainText("provider_unavailable");
+  await expect(sourcesPanel).not.toContainText("insufficient_web_evidence");
+  await expect(sourcesPanel).not.toContainText("source_web_research");
+  await expect(sourcesPanel).not.toContainText("Fresh source");
+  await expect(sourcesPanel).not.toContainText("Live checked");
 });
 
 test("keeps a crowded chat history from clipping the active assistant reply", async ({ page }) => {
@@ -366,6 +1630,7 @@ test("keeps a crowded chat history from clipping the active assistant reply", as
 });
 
 test("loads signed-in chat history and preserves the thread after reload", async ({ page }) => {
+  await installDecisionMotionProbe(page);
   const chatRequests: ChatRequestBody[] = [];
   const thread = {
     id: "thread_existing",
@@ -393,8 +1658,22 @@ test("loads signed-in chat history and preserves the thread after reload", async
       role: "assistant",
       content: "Try Shaka for breakfast and Bravo for dinner.",
       status: "complete",
-      sources: [],
-      cards: [],
+      sources: [mockWeatherSource],
+      cards: [
+        {
+          id: "place_shaka_hydrated",
+          kind: "place",
+          title: "Shaka Siargao",
+          subtitle: "Cafe - Cloud 9, General Luna",
+          mapsUrl: "https://maps.google.com/?cid=shaka",
+          distanceLabel: "About 50 m from search center.",
+          openStatusLabel: "Open now according to Google Places.",
+          fitReasons: ["Selected card remains visible beside the decision strip."],
+          caveats: ["Table availability was not checked."],
+          sourceLabel: "Google Places - live checked",
+          sources: [mockPlacesSource],
+        },
+      ],
       actions: [],
       itineraries: [],
       decisionSummaries: [
@@ -402,16 +1681,27 @@ test("loads signed-in chat history and preserves the thread after reload", async
           id: "condition_decision:breakfast:cloud_9:today",
           bestAction: "Start with breakfast near Cloud 9.",
           basis: "The existing thread selected a compact next move.",
-          fallback: "Keep Bravo for dinner if breakfast runs long.",
-          timing: "today",
-          area: "Cloud 9",
-          sources: [mockWeatherSource],
+          sources: [],
         },
       ],
       rating: null,
       createdAt: "2026-06-29T01:01:00.000Z",
     },
   ];
+
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        tripContext: {
+          accommodation: "Owner's Dapa stay",
+          dateRange: "Aug 1 - 6",
+          travelerType: "Family",
+        },
+      }),
+    });
+  });
 
   await page.route("**/api/chat/threads**", async (route) => {
     const request = route.request();
@@ -439,6 +1729,13 @@ test("loads signed-in chat history and preserves the thread after reload", async
       status: 404,
       contentType: "application/json",
       body: JSON.stringify({ error: "not_found" }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripId: "trip_existing", items: [] }),
     });
   });
 
@@ -529,16 +1826,40 @@ test("loads signed-in chat history and preserves the thread after reload", async
     "href",
     "/settings",
   );
+  await expect(page.getByTestId("context-rail")).toContainText("Owner's Dapa stay");
+  await expect(page.getByTestId("context-rail")).toContainText("Aug 1 - 6");
+  await expect(page.getByTestId("context-rail")).not.toContainText("Near Cloud 9 / Catangnan");
   await expect(page.getByRole("heading", { name: "Recent questions" })).toBeVisible();
   await page.getByRole("button", { name: /Cloud 9 plan/ }).click();
   await expect(page.getByText("Where should I eat near Cloud 9?")).toBeVisible();
   await expect(page.getByText("Try Shaka for breakfast and Bravo for dinner.")).toBeVisible();
-  await expect(page.getByTestId("decision-summary-panel")).toContainText(
-    "Start with breakfast near Cloud 9.",
-  );
-  const helpfulButton = page.getByRole("button", {
+  const hydratedAnswer = page.getByTestId("assistant-message-bubble").filter({
+    hasText: "Try Shaka for breakfast and Bravo for dinner.",
+  });
+  const hydratedStrip = hydratedAnswer.getByTestId("decision-strip");
+  await expect(hydratedStrip).toContainText("Start with breakfast near Cloud 9.");
+  await expect.poll(async () => (await decisionMotionMetrics(page))?.starts ?? -1).toBe(0);
+  await expect(hydratedStrip.getByTestId("decision-strip-source-status")).toHaveCount(0);
+  await expect(hydratedStrip.getByText("Where", { exact: true })).toHaveCount(0);
+  await expect(hydratedStrip.getByText("When", { exact: true })).toHaveCount(0);
+  await expect(hydratedStrip.getByText("Backup:", { exact: true })).toHaveCount(0);
+  await expect(hydratedStrip.getByText("Avoid:", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("At a Glance")).toHaveCount(0);
+  await expect(
+    hydratedAnswer.getByTestId("recommendation-card").filter({ hasText: "Shaka Siargao" }),
+  ).toBeVisible();
+  const sourceControl = hydratedAnswer.getByTestId("assistant-sources-panel").locator("summary");
+  const helpfulButton = hydratedAnswer.getByRole("button", {
     name: "Rate assistant response helpful",
   });
+  await sourceControl.focus();
+  await expect(sourceControl).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(helpfulButton).toBeFocused();
+  expect(await helpfulButton.evaluate((element) => element.matches(":focus-visible"))).toBe(true);
+  expect(await helpfulButton.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe(
+    "none",
+  );
   await expect(helpfulButton).toHaveAttribute("aria-pressed", "false");
   await helpfulButton.click();
   await expect(helpfulButton).toHaveAttribute("aria-pressed", "true");
@@ -558,12 +1879,350 @@ test("loads signed-in chat history and preserves the thread after reload", async
   await expect(
     page.getByText("Add Bravo after Shaka for an easy General Luna dinner."),
   ).toBeVisible();
-  await expect(page.getByTestId("decision-summary-panel")).toContainText(
+  await expect(page.getByTestId("decision-strip")).toContainText(
     "Start with breakfast near Cloud 9.",
   );
+  await expect.poll(async () => (await decisionMotionMetrics(page))?.starts ?? -1).toBe(0);
   await expect(
     page.getByRole("button", { name: "Rate assistant response helpful" }).first(),
   ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("opens and manages exact chat and saved planning selections", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.addInitScript(() => {
+    window.prompt = () => {
+      throw new Error("window.prompt must not be used for thread rename.");
+    };
+    window.confirm = () => {
+      throw new Error("window.confirm must not be used for thread destruction.");
+    };
+  });
+
+  let threads = [
+    {
+      id: "thread_manage",
+      title: "Cloud 9 logistics",
+      status: "active",
+      createdAt: "2026-06-29T01:00:00.000Z",
+      updatedAt: "2026-06-29T01:00:00.000Z",
+      lastMessageAt: "2026-06-29T01:01:00.000Z",
+    },
+    {
+      id: "thread_backup",
+      title: "Rain backup",
+      status: "active",
+      createdAt: "2026-06-29T02:00:00.000Z",
+      updatedAt: "2026-06-29T02:00:00.000Z",
+      lastMessageAt: "2026-06-29T02:01:00.000Z",
+    },
+    {
+      id: "thread_race_target",
+      title: "Island hopping target",
+      status: "active",
+      createdAt: "2026-06-29T03:00:00.000Z",
+      updatedAt: "2026-06-29T03:00:00.000Z",
+      lastMessageAt: "2026-06-29T03:01:00.000Z",
+    },
+  ];
+  const threadMessages: Record<string, E2EThreadMessage[]> = {
+    thread_manage: [
+      {
+        id: "message_manage_user",
+        role: "user",
+        content: "Can I stay near Cloud 9?",
+        status: "complete",
+        sources: [],
+        cards: [],
+        actions: [],
+        itineraries: [],
+        decisionSummaries: [],
+        createdAt: "2026-06-29T01:00:00.000Z",
+      },
+      {
+        id: "message_manage_assistant",
+        role: "assistant",
+        content: "Yes, but pick a quiet street off the main road.",
+        status: "complete",
+        sources: [],
+        cards: [],
+        actions: [],
+        itineraries: [],
+        decisionSummaries: [],
+        rating: null,
+        createdAt: "2026-06-29T01:01:00.000Z",
+      },
+    ],
+    thread_backup: [
+      {
+        id: "message_backup_user",
+        role: "user",
+        content: "What if it rains?",
+        status: "complete",
+        sources: [],
+        cards: [],
+        actions: [],
+        itineraries: [],
+        decisionSummaries: [],
+        createdAt: "2026-06-29T02:00:00.000Z",
+      },
+      {
+        id: "message_backup_assistant",
+        role: "assistant",
+        content: "Keep an indoor cafe backup.",
+        status: "complete",
+        sources: [],
+        cards: [],
+        actions: [],
+        itineraries: [],
+        decisionSummaries: [],
+        rating: null,
+        createdAt: "2026-06-29T02:01:00.000Z",
+      },
+    ],
+    thread_race_target: [
+      {
+        id: "message_race_target_user",
+        role: "user",
+        content: "Which island hopping route should I take?",
+        status: "complete",
+        sources: [],
+        cards: [],
+        actions: [],
+        itineraries: [],
+        decisionSummaries: [],
+        createdAt: "2026-06-29T03:00:00.000Z",
+      },
+      {
+        id: "message_race_target_assistant",
+        role: "assistant",
+        content: "Keep the route flexible around the tide and weather.",
+        status: "complete",
+        sources: [],
+        cards: [],
+        actions: [],
+        itineraries: [],
+        decisionSummaries: [],
+        rating: null,
+        createdAt: "2026-06-29T03:01:00.000Z",
+      },
+    ],
+  };
+  const savedItems: E2ESavedTripItem[] = [
+    {
+      id: "saved_item_focus",
+      tripId: "saved_trip_manage",
+      kind: "place",
+      title: "Focused dinner plan",
+      createdAt: "2026-06-29T03:00:00.000Z",
+      updatedAt: "2026-06-29T03:00:00.000Z",
+      payload: {
+        type: "recommendation_card",
+        card: {
+          id: "place_focused",
+          kind: "place",
+          title: "Focused dinner plan",
+          fitReasons: ["Easy after sunset."],
+          caveats: ["Confirm hours."],
+          sourceLabel: "Saved plan",
+        },
+      },
+      sources: [],
+      caveats: [],
+    },
+  ];
+  const archivedThreadIds: string[] = [];
+  let releaseLateRename: (() => void) | undefined;
+  let markLateRenameRequested: (() => void) | undefined;
+  const lateRenameRequested = new Promise<void>((resolve) => {
+    markLateRenameRequested = resolve;
+  });
+
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: {} }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripId: "saved_trip_manage", items: savedItems }),
+    });
+  });
+  await page.route("**/api/chat/threads**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const threadId = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
+
+    if (request.method() === "GET" && url.pathname === "/api/chat/threads") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ threads }),
+      });
+      return;
+    }
+
+    if (request.method() === "GET") {
+      const thread = threads.find((candidate) => candidate.id === threadId);
+      if (!thread) {
+        await route.fulfill({
+          status: 404,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "chat_thread_not_found" }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ thread, messages: threadMessages[thread.id] ?? [] }),
+      });
+      return;
+    }
+
+    if (request.method() === "PATCH") {
+      const body = request.postDataJSON() as { archived?: boolean; title?: string };
+      const thread = threads.find((candidate) => candidate.id === threadId);
+      if (!thread) {
+        await route.fulfill({
+          status: 404,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "chat_thread_not_found" }),
+        });
+        return;
+      }
+      if (body.archived) {
+        archivedThreadIds.push(threadId);
+        threads = threads.filter((candidate) => candidate.id !== threadId);
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ thread: { ...thread, archivedAt: "2026-06-29T04:00:00.000Z" } }),
+        });
+        return;
+      }
+      const renamedThread = { ...thread, title: body.title ?? thread.title };
+      if (body.title === "Late mutation title") {
+        markLateRenameRequested?.();
+        await new Promise<void>((resolve) => {
+          releaseLateRename = resolve;
+        });
+      }
+      threads = threads.map((candidate) => (candidate.id === threadId ? renamedThread : candidate));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ thread: renamedThread }),
+      });
+      return;
+    }
+
+    if (request.method() === "DELETE") {
+      const exists = threads.some((candidate) => candidate.id === threadId);
+      threads = threads.filter((candidate) => candidate.id !== threadId);
+      await route.fulfill({
+        status: exists ? 200 : 404,
+        contentType: "application/json",
+        body: JSON.stringify(exists ? { deleted: true } : { error: "chat_thread_not_found" }),
+      });
+      return;
+    }
+
+    await route.fallback();
+  });
+
+  await page.goto("/chat?threadId=thread_manage");
+  await expect(page).toHaveURL(/threadId=thread_manage/);
+  await expect(page.getByText("Can I stay near Cloud 9?")).toBeVisible();
+  await expect(page.getByText("Yes, but pick a quiet street off the main road.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Rename selected chat" }).click();
+  const renameDialog = page.getByRole("dialog", { name: "Rename chat" });
+  await expect(renameDialog.getByLabel("Thread title")).toBeVisible();
+  await renameDialog.getByLabel("Thread title").fill("   ");
+  await expect(renameDialog.getByRole("button", { name: "Save" })).toBeDisabled();
+  await renameDialog.getByLabel("Thread title").fill("Cloud 9 quiet stay");
+  await renameDialog.getByRole("button", { name: "Save" }).click();
+  await expect(renameDialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Cloud 9 quiet stay/ })).toBeVisible();
+
+  await page.getByRole("button", { name: "Rename selected chat" }).click();
+  const lateRenameDialog = page.getByRole("dialog", { name: "Rename chat" });
+  await lateRenameDialog.getByLabel("Thread title").fill("Late mutation title");
+  await lateRenameDialog.getByRole("button", { name: "Save" }).click();
+  await lateRenameRequested;
+  await page.keyboard.press("Escape");
+  await expect(lateRenameDialog).toHaveCount(0);
+
+  await page.getByRole("button", { name: /Island hopping target/ }).click();
+  await expect(page).toHaveURL(/threadId=thread_race_target/);
+  await expect(page.getByText("Which island hopping route should I take?")).toBeVisible();
+  releaseLateRename?.();
+  await page.waitForTimeout(250);
+  await expect(page).toHaveURL(/threadId=thread_race_target/);
+  await expect(
+    page.getByText("Keep the route flexible around the tide and weather."),
+  ).toBeVisible();
+  await expect(page.getByText("Late mutation title")).toHaveCount(0);
+
+  await page.getByRole("button", { name: /Cloud 9 quiet stay/ }).click();
+  await expect(page).toHaveURL(/threadId=thread_manage/);
+  await expect(page.getByText("Can I stay near Cloud 9?")).toBeVisible();
+
+  await page.getByRole("button", { name: "Archive selected chat" }).click();
+  const archiveDialog = page.getByRole("dialog", { name: "Archive chat?" });
+  const archiveConfirmation = archiveDialog.getByLabel("Type ARCHIVE to archive this chat");
+  await expect(archiveConfirmation).toBeFocused();
+  await expect(archiveDialog.getByRole("button", { name: "Archive chat" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(archiveDialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Archive selected chat" })).toBeFocused();
+  expect(archivedThreadIds).toEqual([]);
+  await expect(page).toHaveURL(/threadId=thread_manage/);
+  await expect(page.getByText("Can I stay near Cloud 9?")).toBeVisible();
+
+  await page.getByRole("button", { name: "Archive selected chat" }).click();
+  await expect(archiveConfirmation).toBeFocused();
+  await archiveConfirmation.fill("ARCHIVE");
+  await expect(archiveDialog.getByRole("button", { name: "Archive chat" })).toBeEnabled();
+  await archiveConfirmation.press("Enter");
+  await expect(archiveDialog).toHaveCount(0);
+  expect(archivedThreadIds).toEqual(["thread_manage"]);
+  await expect(page).not.toHaveURL(/threadId=/);
+  await expect(page.getByText("Can I stay near Cloud 9?")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Cloud 9 quiet stay/ })).toHaveCount(0);
+
+  await page.getByRole("button", { name: /Rain backup/ }).click();
+  await expect(page).toHaveURL(/threadId=thread_backup/);
+  await page.getByRole("button", { name: "Delete selected chat" }).click();
+  const deleteDialog = page.getByRole("dialog", { name: "Delete chat?" });
+  await expect(deleteDialog.getByRole("button", { name: "Delete chat" })).toBeDisabled();
+  await deleteDialog.getByLabel("Type DELETE to delete this chat").fill("DELETE");
+  await deleteDialog.getByRole("button", { name: "Delete chat" }).click();
+  await expect(deleteDialog).toHaveCount(0);
+  await expect(page).not.toHaveURL(/threadId=/);
+  await expect(page.getByText("What if it rains?")).toHaveCount(0);
+
+  await page.goto("/chat?threadId=thread_missing");
+  await expect(page.getByTestId("selected-thread-status")).toContainText("Chat unavailable");
+  await expect(page).not.toHaveURL(/threadId=thread_missing/);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/chat?savedItemId=saved_item_focus");
+  await expect(page).toHaveURL(/savedItemId=saved_item_focus/);
+  await expect(page.getByTestId("selected-saved-item-status")).toContainText("Focused dinner plan");
+  await expect(
+    page.getByTestId("saved-plan-item").filter({ hasText: "Focused dinner plan" }),
+  ).toHaveAttribute("data-saved-item-selected", "true");
+
+  await page.goto("/chat?savedItemId=saved_item_missing");
+  await expect(page.getByTestId("selected-saved-item-status")).toContainText(
+    "Saved item unavailable",
+  );
 });
 
 test("wraps long user text inside the composer and user message bubble", async ({ page }) => {
@@ -605,12 +2264,15 @@ test("wraps long user text inside the composer and user message bubble", async (
     .toBe(true);
 });
 
-test("sends granted browser geolocation for a trip session", async ({ page }) => {
+test("sends granted browser geolocation for a trip session", async ({ page }, testInfo) => {
   await page.addInitScript(() => {
+    const scope = window as typeof window & { __locationRequests?: number };
+    scope.__locationRequests = 0;
     Object.defineProperty(navigator, "geolocation", {
       configurable: true,
       value: {
         getCurrentPosition(success: PositionCallback) {
+          scope.__locationRequests = (scope.__locationRequests ?? 0) + 1;
           success({
             coords: {
               latitude: 9.8116,
@@ -633,18 +2295,38 @@ test("sends granted browser geolocation for a trip session", async ({ page }) =>
 
   await page.goto("/chat");
 
-  await expect(page.getByText("Location off")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Enable location" })).toBeVisible();
-  await page.getByRole("button", { name: "Enable location" }).click();
-  await expect(page.getByText("Location active for this chat.")).toBeVisible();
-  await expect(page.getByText("Location active", { exact: true })).toBeVisible();
+  const locationTrigger = page.getByTestId("location-sharing-trigger");
+  await expect(locationTrigger).toContainText("Location: Off");
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("latitude"))).toBeNull();
+  await locationTrigger.click();
+  const locationDialog = page.getByTestId("location-sharing-dialog");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as typeof window & { __locationRequests?: number }).__locationRequests ?? 0,
+      ),
+    )
+    .toBe(0);
+  await page.screenshot({
+    path: testInfo.outputPath("location-control-desktop-off-dialog.png"),
+    fullPage: true,
+  });
+  await locationDialog.getByRole("button", { name: "Use for this trip" }).click();
+  await expect(locationTrigger).toContainText("Location: On for this trip");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as typeof window & { __locationRequests?: number }).__locationRequests ?? 0,
+      ),
+    )
+    .toBe(1);
 
   const composerInput = page.getByLabel("Ask anything about Siargao");
   await composerInput.fill("What is open near me?");
   await page.getByRole("button", { name: "Send question" }).click();
 
   await expect(page.getByText("Mocked near-me answer:")).toBeVisible();
-  await expect(page.getByText("Location active for this chat.")).toBeVisible();
+  await expect(locationTrigger).toContainText("Location: On for this trip");
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(mockChat.requests[0]?.clientContext?.geolocation).toMatchObject({
     latitude: 9.8116,
@@ -653,6 +2335,8 @@ test("sends granted browser geolocation for a trip session", async ({ page }) =>
     consentScope: "trip_session",
   });
   expect(mockChat.requests[0]?.clientContext?.geolocation?.capturedAt).toEqual(expect.any(String));
+  expect(JSON.stringify(await page.locator("body").textContent())).not.toContain("9.8116");
+  expect(JSON.stringify(await page.locator("body").textContent())).not.toContain("126.1651");
 
   await composerInput.fill("What about tomorrow?");
   await page.getByRole("button", { name: "Send question" }).click();
@@ -665,7 +2349,79 @@ test("sends granted browser geolocation for a trip session", async ({ page }) =>
     accuracyMeters: 25,
     consentScope: "trip_session",
   });
-  await expect(page.getByText("Location active for this chat.")).toBeVisible();
+  await expect(locationTrigger).toContainText("Location: On for this trip");
+
+  await locationTrigger.click();
+  await locationDialog.getByRole("button", { name: "Turn off" }).click();
+  await expect(locationTrigger).toContainText("Location: Off");
+  await composerInput.fill("What about after I turn it off?");
+  await page.getByRole("button", { name: "Send question" }).click();
+  await expect.poll(() => mockChat.requests.length).toBe(3);
+  expect(lastSubmittedContent(mockChat.requests[2])).toBe("What about after I turn it off?");
+  expect(mockChat.requests[2]?.clientContext?.geolocation).toBeUndefined();
+});
+
+test("sends manually shared browser geolocation for exactly one request", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition(success: PositionCallback) {
+          success({
+            coords: {
+              latitude: 9.8116,
+              longitude: 126.1651,
+              accuracy: 25,
+              altitude: null,
+              altitudeAccuracy: null,
+              heading: null,
+              speed: null,
+            },
+            timestamp: Date.now(),
+          } as GeolocationPosition);
+        },
+      },
+    });
+  });
+  const mockChat = await mockChatApi(page, {
+    message: "Mocked one-time answer: I used location once.",
+  });
+
+  await page.goto("/chat");
+
+  const locationTrigger = page.getByTestId("location-sharing-trigger");
+  await locationTrigger.click();
+  await page.screenshot({
+    path: testInfo.outputPath("location-control-mobile-use-once-dialog.png"),
+    fullPage: true,
+  });
+  await page
+    .getByTestId("location-sharing-dialog")
+    .getByRole("button", { name: "Use once" })
+    .click();
+  await expect(locationTrigger).toContainText("Location: Ready for one question");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("What is open near me?");
+  await page.getByRole("button", { name: "Send question" }).click();
+  await expect(page.getByText("Mocked one-time answer:")).toBeVisible();
+  await expect(locationTrigger).toContainText("Location: Used");
+  await expect.poll(() => mockChat.requests.length).toBe(1);
+  expect(mockChat.requests[0]?.clientContext?.geolocation).toMatchObject({
+    latitude: 9.8116,
+    longitude: 126.1651,
+    accuracyMeters: 25,
+    consentScope: "single_request",
+  });
+
+  await composerInput.fill("What about tomorrow?");
+  await page.getByRole("button", { name: "Send question" }).click();
+  await expect.poll(() => mockChat.requests.length).toBe(2);
+  expect(lastSubmittedContent(mockChat.requests[1])).toBe("What about tomorrow?");
+  expect(mockChat.requests[1]?.clientContext?.geolocation).toBeUndefined();
 });
 
 test("requests browser geolocation for a near-me prompt without the manual button", async ({
@@ -703,7 +2459,7 @@ test("requests browser geolocation for a near-me prompt without the manual butto
   await page.getByRole("button", { name: "Send question" }).click();
 
   await expect(page.getByText("Mocked automatic near-me answer:")).toBeVisible();
-  await expect(page.getByText("Location used for the last question.")).toBeVisible();
+  await expect(page.getByTestId("location-sharing-trigger")).toContainText("Location: Used");
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(mockChat.requests[0]?.clientContext?.geolocation).toMatchObject({
     latitude: 9.8116,
@@ -711,6 +2467,78 @@ test("requests browser geolocation for a near-me prompt without the manual butto
     accuracyMeters: 25,
     consentScope: "single_request",
   });
+});
+
+test("cancels deferred automatic location before new chat and navigation", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.addInitScript(() => {
+    const scope = window as typeof window & {
+      __locationRequests?: number;
+      __resolveLocation?: () => void;
+    };
+    scope.__locationRequests = 0;
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition(success: PositionCallback) {
+          scope.__locationRequests = (scope.__locationRequests ?? 0) + 1;
+          scope.__resolveLocation = () => {
+            success({
+              coords: {
+                latitude: 9.8116,
+                longitude: 126.1651,
+                accuracy: 25,
+                altitude: null,
+                altitudeAccuracy: null,
+                heading: null,
+                speed: null,
+              },
+              timestamp: Date.now(),
+            } as GeolocationPosition);
+          };
+        },
+      },
+    });
+  });
+  const chat = await mockDeferredChatApi(page);
+
+  await page.goto("/chat");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("What is open near me?");
+  await composerInput.press("Enter");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as typeof window & { __locationRequests?: number }).__locationRequests ?? 0,
+      ),
+    )
+    .toBe(1);
+  await expect(page.getByTestId("location-sharing-trigger")).toContainText("Location: Requesting");
+  await expect.poll(() => chat.requests.length).toBe(0);
+
+  await page.getByLabel("Start a new chat").first().click();
+  await expect(composerInput).toBeEnabled();
+  await expect(page.getByText("What is open near me?")).toHaveCount(0);
+
+  await page.evaluate(() =>
+    (window as typeof window & { __resolveLocation?: () => void }).__resolveLocation?.(),
+  );
+  await page.waitForTimeout(250);
+  await expect.poll(() => chat.requests.length).toBe(0);
+
+  await composerInput.fill("What is open near me after navigation?");
+  await composerInput.press("Enter");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as typeof window & { __locationRequests?: number }).__locationRequests ?? 0,
+      ),
+    )
+    .toBe(2);
+  await page.goto("/");
+  await page.waitForTimeout(250);
+  await expect.poll(() => chat.requests.length).toBe(0);
 });
 
 test("continues without geolocation after permission is denied", async ({ page }) => {
@@ -736,10 +2564,12 @@ test("continues without geolocation after permission is denied", async ({ page }
 
   await page.goto("/chat");
 
-  await page.getByRole("button", { name: "Enable location" }).click();
-  await expect(page.getByText("Location permission denied.")).toBeVisible();
-  await expect(page.getByText("Location blocked")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+  await page.getByTestId("location-sharing-trigger").click();
+  await page
+    .getByTestId("location-sharing-dialog")
+    .getByRole("button", { name: "Use once" })
+    .click();
+  await expect(page.getByTestId("location-sharing-trigger")).toContainText("Location: Blocked");
 
   const composerInput = page.getByLabel("Ask anything about Siargao");
   await composerInput.fill("What is open in General Luna?");
@@ -780,22 +2610,29 @@ test("continues without geolocation when automatic location permission is denied
   await composerInput.fill("What is open near me?");
   await page.getByRole("button", { name: "Send question" }).click();
 
-  await expect(page.getByText("Location permission denied.")).toBeVisible();
-  await expect(page.getByText("Location blocked")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+  await expect(page.getByTestId("location-sharing-trigger")).toContainText("Location: Blocked");
   await expect(page.getByText("Mocked no-location near-me answer:")).toBeVisible();
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(lastSubmittedContent(mockChat.requests[0])).toBe("What is open near me?");
   expect(mockChat.requests[0]?.clientContext).toBeUndefined();
+
+  await composerInput.fill("What else is open near me?");
+  await page.getByRole("button", { name: "Send question" }).click();
+  await expect.poll(() => mockChat.requests.length).toBe(2);
+  expect(lastSubmittedContent(mockChat.requests[1])).toBe("What else is open near me?");
+  expect(mockChat.requests[1]?.clientContext).toBeUndefined();
 });
 
 test("sends a mobile suggested prompt through the same chat API path", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => {
+    const scope = window as typeof window & { __suggestedLocationRequests?: number };
+    scope.__suggestedLocationRequests = 0;
     Object.defineProperty(navigator, "geolocation", {
       configurable: true,
       value: {
         getCurrentPosition(success: PositionCallback) {
+          scope.__suggestedLocationRequests = (scope.__suggestedLocationRequests ?? 0) + 1;
           success({
             coords: {
               latitude: 9.8116,
@@ -824,23 +2661,114 @@ test("sends a mobile suggested prompt through the same chat API path", async ({ 
   await expect(page.getByText("24 live refreshes left")).toHaveCount(0);
   await expect(page.getByText(/Will my place be quiet/i)).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Help me plan a quiet Siargao day" }).click();
+  await page.getByRole("button", { name: "Plan my Siargao day around my accommodation." }).click();
 
   await expect(
-    page.getByLabel("Conversation messages").getByText("Help me plan a quiet Siargao day"),
+    page
+      .getByLabel("Conversation messages")
+      .getByText("Plan my Siargao day around my accommodation."),
   ).toBeVisible();
   await expect(
     page.getByText("Mocked mobile answer: keep the day slow around Cloud 9 and Catangnan."),
   ).toBeVisible();
   await expect.poll(() => mockChat.requests.length).toBe(1);
-  expect(lastSubmittedContent(mockChat.requests[0])).toBe("Help me plan a quiet Siargao day");
-  expect(mockChat.requests[0]?.clientContext?.geolocation).toMatchObject({
-    latitude: 9.8116,
-    longitude: 126.1651,
-    accuracyMeters: 25,
-    consentScope: "single_request",
-  });
+  expect(lastSubmittedContent(mockChat.requests[0])).toBe(
+    "Plan my Siargao day around my accommodation.",
+  );
+  expect(mockChat.requests[0]?.clientContext?.geolocation).toBeUndefined();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as typeof window & { __suggestedLocationRequests?: number })
+            .__suggestedLocationRequests ?? 0,
+      ),
+    )
+    .toBe(0);
   await expect(page.getByLabel("Ask anything about Siargao")).toBeVisible();
+});
+
+test("personalizes suggested prompts and submits the exact visible prompt with context", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.addInitScript(
+    ({ key, value }) => {
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    {
+      key: tripContextStorageKey,
+      value: {
+        accommodation: "Dapa family stay",
+        dateRange: "Aug 1 - 6",
+        travelerType: "Family with kids, no scooter, quiet sleep, rain-sensitive",
+        nearbyArea: "Dapa",
+      },
+    },
+  );
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
+  await mockUnavailableMobileConditions(page);
+  const mockChat = await mockChatApi(page, {
+    message: "Context answer.",
+  });
+
+  await page.goto("/chat");
+
+  const suggestedPromptBar = page.getByLabel("Suggested prompts");
+  await expect(suggestedPromptBar.getByRole("button")).toHaveCount(4);
+  await expect(
+    suggestedPromptBar.getByRole("button", {
+      name: "Plan a day around Dapa without relying on a scooter.",
+    }),
+  ).toBeVisible();
+  await expect(
+    suggestedPromptBar.getByRole("button", {
+      name: "What kid-friendly plan works around Dapa with easy fallback stops?",
+    }),
+  ).toBeVisible();
+  await expect(
+    suggestedPromptBar.getByRole("button", {
+      name: "How can we keep quiet sleep in mind around Dapa?",
+    }),
+  ).toBeVisible();
+  await expect(
+    suggestedPromptBar.getByRole("button", {
+      name: "What should we do around Dapa if rain changes the plan?",
+    }),
+  ).toBeVisible();
+  await expect(
+    suggestedPromptBar.getByRole("button", { name: "Help me choose a Siargao area to stay." }),
+  ).toHaveCount(0);
+  expect(mockChat.requests).toHaveLength(0);
+
+  await page.getByLabel("Ask anything about Siargao").fill("Start with my arrival plan.");
+  await page.getByRole("button", { name: "Send question" }).click();
+  await expect(page.getByText("Context answer.")).toBeVisible();
+  await expect.poll(() => mockChat.requests.length).toBe(1);
+
+  const visiblePrompt = "What should we do around Dapa if rain changes the plan?";
+  await suggestedPromptBar.getByRole("button", { name: visiblePrompt }).click();
+
+  await expect(page.getByLabel("Conversation messages").getByText(visiblePrompt)).toBeVisible();
+  await expect.poll(() => mockChat.requests.length).toBe(2);
+  expect(lastSubmittedContent(mockChat.requests[1])).toBe(visiblePrompt);
+  expect(mockChat.requests[1]?.messages?.map((message) => message.content)).toEqual([
+    "Start with my arrival plan.",
+    "Context answer.",
+    visiblePrompt,
+  ]);
+  expect(mockChat.requests[1]?.clientContext?.tripContext).toMatchObject({
+    accommodation: "Dapa family stay",
+    dateRange: "Aug 1 - 6",
+    travelerType: "Family with kids, no scooter, quiet sleep, rain-sensitive",
+    nearbyArea: "Dapa",
+  });
 });
 
 test("renders structured recommendation cards and submits action prompts", async ({ page }) => {
@@ -857,7 +2785,10 @@ test("renders structured recommendation cards and submits action prompts", async
         mapsUrl: "https://maps.google.com/?cid=shaka",
         distanceLabel: "About 50 m from search center.",
         openStatusLabel: "Open now according to Google Places.",
-        fitReasons: ["Returned #1 by Google Places for this request."],
+        fitReasons: [
+          "Fits a quick Cloud 9 cafe stop before your next surf lesson.",
+          "Returned #1 by Google Places for this request.",
+        ],
         caveats: ["Review text and bookings were not checked."],
         sourceLabel: "Google Places - live checked",
         decision: {
@@ -890,6 +2821,10 @@ test("renders structured recommendation cards and submits action prompts", async
   );
   await expect(card.getByText("50 m away")).toBeVisible();
   await expect(card.getByText("Open now")).toBeVisible();
+  await expect(card.getByText("Why this fits:")).toBeVisible();
+  await expect(
+    card.getByText("Fits a quick Cloud 9 cafe stop before your next surf lesson."),
+  ).toBeVisible();
   await expect(card.getByText("Returned #1 by Google Places for this request.")).toHaveCount(0);
   await expect(card.getByText("Review text and bookings were not checked.")).toHaveCount(0);
 
@@ -903,20 +2838,149 @@ test("renders structured recommendation cards and submits action prompts", async
   expect(lastSubmittedContent(mockChat.requests[1])).toBe(actionPrompt);
 });
 
-test("renders selected decision summaries and hides unselected summaries", async ({ page }) => {
-  await page.setViewportSize({ width: 1024, height: 900 });
+test("renders one recommendation as a focused best move on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockChatApi(page, {
+    message: "Mocked card answer: start with the strongest fit.",
+    cards: [
+      {
+        id: "place_best_mobile",
+        kind: "place",
+        title: "Goodies Cafe",
+        subtitle: "Cafe - General Luna",
+        mapsUrl: "https://maps.google.com/?cid=goodies",
+        fitReasons: ["Fits your quiet breakfast request before an early island-hopping pickup."],
+        caveats: [],
+        sourceLabel: "Google Places - live checked",
+        decision: {
+          label: "best_fit",
+          bestAction: "Start here before the pickup.",
+        },
+        sources: [mockPlacesSource],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Find one breakfast stop");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  const cards = page.getByTestId("recommendation-cards");
+  const card = page.getByTestId("recommendation-card");
+  await expect(cards).toBeVisible();
+  await expect(card).toHaveCount(1);
+  await expect(card).toHaveAttribute("data-recommendation-role", "best");
+  await expect(card.getByTestId("recommendation-role")).toHaveText("Best fit");
+  await expect(card).toContainText(
+    "Fits your quiet breakfast request before an early island-hopping pickup.",
+  );
+  await expect(
+    page.getByRole("link", { name: "Open Goodies Cafe in Google Maps" }),
+  ).toHaveAttribute("href", "https://maps.google.com/?cid=goodies");
+  expect(await cards.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+});
+
+test("renders three selected recommendations with one best fit and bounded alternatives", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1180, height: 900 });
+  await mockChatApi(page, {
+    message: "Mocked card answer: choose the best fit first, then backups.",
+    cards: [
+      {
+        id: "place_alt",
+        kind: "place",
+        title: "Alt Cafe",
+        subtitle: "Cafe - Cloud 9",
+        mapsUrl: "https://maps.google.com/?cid=alt",
+        distanceLabel: "About 400 m from search center.",
+        openStatusLabel: "Hours not returned by Google Places.",
+        fitReasons: ["Useful if you are already beside the boardwalk."],
+        caveats: [],
+        sourceLabel: "Google Places - live checked",
+        decision: { label: "good_now", bestAction: "Use if you are already nearby." },
+        sources: [mockPlacesSource],
+      },
+      {
+        id: "place_best",
+        kind: "place",
+        title: "Best Cafe",
+        subtitle: "Cafe - General Luna",
+        mapsUrl: "https://maps.google.com/?cid=best",
+        distanceLabel: "About 150 m from search center.",
+        openStatusLabel: "Open now according to Google Places.",
+        fitReasons: ["Best fit for a short ride, quiet seating, and your rain-sensitive plan."],
+        caveats: [],
+        sourceLabel: "Google Places - live checked",
+        decision: { label: "best_fit", bestAction: "Start here." },
+        sources: [mockPlacesSource],
+      },
+      {
+        id: "place_fallback",
+        kind: "place",
+        title: "Covered Backup",
+        subtitle: "Cafe - General Luna",
+        fitReasons: ["Works as a covered fallback if the shower starts early."],
+        caveats: [],
+        sourceLabel: "Google Places - live checked",
+        decision: { label: "fallback", bestAction: "Use if the first cafe is full." },
+        sources: [mockPlacesSource],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Compare three cafe options");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  const cardTitles = await page
+    .getByTestId("recommendation-card")
+    .locator("h4")
+    .evaluateAll((elements) => elements.map((element) => element.textContent?.trim()));
+  expect(cardTitles).toEqual(["Best Cafe", "Alt Cafe", "Covered Backup"]);
+  await expect(page.getByTestId("recommendation-role")).toHaveText([
+    "Best fit",
+    "Alternative",
+    "Fallback",
+  ]);
+  await expect(page.getByText("150 m away")).toBeVisible();
+  await expect(page.getByText("Open now")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open Covered Backup in Google Maps" })).toHaveCount(
+    0,
+  );
+});
+
+test("leads live grounded answers with one responsive decision strip", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await installDecisionMotionProbe(page);
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
   const mockChat = await mockChatApi(page, {
     message: "Mocked condition answer: keep the swim flexible today.",
     sources: [mockWeatherSource],
     decisionSummaries: [
       {
         id: "condition_decision:swimming:cloud_9:today",
-        bestAction: "Keep swimming flexible.",
+        bestAction:
+          "Keep swimming flexible until the long Cloud 9 weather-and-surf decision can be confirmed locally.",
         basis: "Weather is usable, but surf reports are not checked.",
-        fallback: "Use a nearby covered stop if conditions worsen.",
+        fallback:
+          "Use a nearby covered stop if conditions worsen during the afternoon rain window.",
         avoid: "Avoid treating this as beach safety clearance.",
         timing: "today",
         area: "Cloud 9",
+        sources: [mockWeatherSource],
+      },
+      {
+        id: "condition_decision:secondary",
+        bestAction: "This secondary selected summary must stay out of a second top-level strip.",
+        basis: "It is not the primary answer-level decision.",
         sources: [mockWeatherSource],
       },
     ],
@@ -926,17 +2990,242 @@ test("renders selected decision summaries and hides unselected summaries", async
   await page.getByLabel("Ask anything about Siargao").fill("Should I swim at Cloud 9 today?");
   await page.getByRole("button", { name: "Send question" }).click();
 
-  await expect(page.getByText("Mocked condition answer:")).toBeVisible();
-  const panel = page.getByTestId("decision-summary-panel");
-  await expect(panel).toBeVisible();
-  await expect(panel).toContainText("Best move");
-  await expect(panel).toContainText("Keep swimming flexible.");
-  await expect(panel).toContainText("Weather is usable, but surf reports are not checked.");
-  await expect(panel).toContainText("Fallback: Use a nearby covered stop if conditions worsen.");
-  await expect(panel).toContainText("Avoid: Avoid treating this as beach safety clearance.");
-  await expect(panel.getByTestId("decision-summary-sources")).toContainText("Weather checked");
+  const answer = page.getByTestId("assistant-message-bubble").filter({
+    hasText: "Mocked condition answer: keep the swim flexible today.",
+  });
+  await expect(answer).toBeVisible();
+  const strip = answer.getByTestId("decision-strip");
+  const markdown = answer.getByTestId("assistant-markdown");
+  await expect(strip).toHaveCount(1);
+  await expect.poll(async () => (await decisionMotionMetrics(page))?.starts ?? -1).toBe(0);
+  await expect(strip).not.toHaveAttribute("data-answer-arrival-motion", /decision-strip/);
+  await expect(strip.locator("[data-decision-sequence-cue='true']")).toHaveCSS(
+    "animation-name",
+    "none",
+  );
+  await expect(strip).toContainText("Best move");
+  await expect(strip).toContainText("Keep swimming flexible until the long Cloud 9");
+  await expect(strip).toContainText("Where");
+  await expect(strip).toContainText("When");
+  await expect(strip).toContainText("Backup:");
+  await expect(strip).toContainText("Avoid:");
+  await expect(strip.getByTestId("decision-strip-source-status")).toContainText(
+    "Checked: Weather forecast: forecast for Cloud 9",
+  );
+  await expect(strip).not.toContainText("This secondary selected summary must stay out");
+  await expect(page.getByText("At a Glance")).toHaveCount(0);
+  expect(
+    await strip.evaluate((element) => element.nextElementSibling?.getAttribute("data-testid")),
+  ).toBe("assistant-markdown");
+  expect(await answer.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expect(strip.locator("a, button, input, select, textarea")).toHaveCount(0);
+  await expect(markdown).toContainText("Mocked condition answer: keep the swim flexible today.");
+  await page.setViewportSize({ width: 1180, height: 900 });
+  expect(await answer.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await expect(page.getByText("Avoid a long scooter ride for now.")).toHaveCount(0);
   await expect.poll(() => mockChat.requests.length).toBe(1);
+});
+
+test("runs the decision strip arrival sequence once without shifting layout", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await installDecisionMotionProbe(page);
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
+  await page.route("**/api/chat/ratings", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        rating: {
+          id: "rating_motion",
+          messageId: "message_motion_assistant",
+          threadId: "thread_motion",
+          userId: "user_motion",
+          rating: "up",
+          reasonCodes: [],
+          comment: null,
+          createdAt: "2026-06-29T01:04:00.000Z",
+          updatedAt: "2026-06-29T01:04:00.000Z",
+        },
+      }),
+    });
+  });
+  const mockChat = await mockChatApi(page, {
+    assistantMessageId: "message_motion_assistant",
+    message: "Mocked condition answer: take the checked breakfast route first.",
+    sources: [mockWeatherSource],
+    waitForRelease: true,
+    decisionSummaries: [
+      {
+        id: "condition_decision:motion:cloud_9:today",
+        bestAction: "Start with the checked Cloud 9 breakfast stop.",
+        basis: "The selected answer has a real sequence from move to context to checked source.",
+        fallback: "Switch to a covered cafe if the shower window arrives early.",
+        timing: "this morning",
+        area: "Cloud 9",
+        sources: [mockWeatherSource],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("What should I do first?");
+  await page.getByRole("button", { name: "Send question" }).click();
+  await expect.poll(() => mockChat.requests.length).toBe(1);
+  await resetDecisionMotionMetrics(page);
+
+  await withCpuThrottle(page, 4, async () => {
+    mockChat.release();
+
+    const answer = page.getByTestId("assistant-message-bubble").filter({
+      hasText: "Mocked condition answer: take the checked breakfast route first.",
+    });
+    await expect(answer).toBeVisible();
+    const strip = answer.getByTestId("decision-strip");
+    const sourceSummary = answer.getByTestId("assistant-sources-panel").locator("summary");
+    const helpfulButton = answer.getByRole("button", {
+      name: "Rate assistant response helpful",
+    });
+    await expect(strip).toHaveAttribute("data-answer-arrival-motion", "decision-strip-sequence");
+    await expect(strip).toContainText("Best move");
+    await expect(strip).toContainText("Where");
+    await expect(strip).toContainText("When");
+    await expect(strip.getByTestId("decision-strip-source-status")).toContainText(
+      "Checked: Weather forecast: forecast for Cloud 9",
+    );
+    await expect(sourceSummary).toBeVisible();
+    await expect(helpfulButton).toBeVisible();
+    await sourceSummary.click();
+    await expect(answer.getByText("Checked fields: forecast for Cloud 9")).toBeVisible();
+
+    const animatedProperties = await strip.evaluate((element) => {
+      const cue = element.querySelector("[data-decision-sequence-cue='true']");
+      return cue
+        ?.getAnimations()
+        .flatMap((animation) =>
+          ((animation.effect as KeyframeEffect | null)?.getKeyframes() ?? []).flatMap((keyframe) =>
+            Object.keys(keyframe),
+          ),
+        );
+    });
+    expect(animatedProperties).toEqual(expect.arrayContaining(["opacity", "transform"]));
+    expect(animatedProperties ?? []).not.toEqual(
+      expect.arrayContaining([
+        "height",
+        "width",
+        "margin",
+        "padding",
+        "top",
+        "left",
+        "filter",
+        "boxShadow",
+      ]),
+    );
+
+    const startBoxes = {
+      strip: await boundingBoxSnapshot(strip),
+      source: await boundingBoxSnapshot(sourceSummary),
+      rating: await boundingBoxSnapshot(helpfulButton),
+    };
+    await page.waitForTimeout(260);
+    expectBoxStable(await boundingBoxSnapshot(strip), startBoxes.strip);
+    expectBoxStable(await boundingBoxSnapshot(sourceSummary), startBoxes.source);
+    expectBoxStable(await boundingBoxSnapshot(helpfulButton), startBoxes.rating);
+    await page.waitForTimeout(420);
+    expectBoxStable(await boundingBoxSnapshot(strip), startBoxes.strip);
+    expectBoxStable(await boundingBoxSnapshot(sourceSummary), startBoxes.source);
+    expectBoxStable(await boundingBoxSnapshot(helpfulButton), startBoxes.rating);
+    await expect(strip).not.toHaveAttribute("data-answer-arrival-motion", /decision-strip/);
+
+    const scrollArea = page.getByTestId("chat-message-scroll-area");
+    await scrollArea.evaluate((element) => {
+      element.scrollTop = Math.max(0, element.scrollTop - 40);
+    });
+    await sourceSummary.focus();
+    await expect(sourceSummary).toBeFocused();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await helpfulButton.click();
+    await expect(helpfulButton).toHaveAttribute("aria-pressed", "true");
+    await page.waitForTimeout(120);
+  });
+
+  const metrics = (await decisionMotionMetrics(page)) ?? {
+    starts: -1,
+    ends: -1,
+    layoutShift: -1,
+    readyAt: null,
+    motionStartAt: null,
+    motionEndAt: null,
+    longTasks: [],
+    rafFrames: [],
+  };
+  const motionLongTasks = metrics.longTasks.filter((task) => {
+    if (metrics.motionStartAt === null || metrics.motionEndAt === null) {
+      return false;
+    }
+    return (
+      task.duration > 50 &&
+      task.startTime < metrics.motionEndAt &&
+      task.endTime > metrics.motionStartAt
+    );
+  });
+  const preMotionLongTasks = metrics.longTasks.filter((task) => {
+    if (metrics.readyAt === null || metrics.motionStartAt === null) {
+      return false;
+    }
+    return task.endTime > metrics.readyAt && task.startTime < metrics.motionStartAt;
+  });
+  const frameIntervals = metrics.rafFrames
+    .slice(1)
+    .map((timestamp, index) => timestamp - metrics.rafFrames[index]);
+  const summary = {
+    viewport: "390x844",
+    cpuThrottle: "4x",
+    animationDurationMs: 520,
+    starts: metrics.starts,
+    ends: metrics.ends,
+    layoutShift: Number(metrics.layoutShift.toFixed(4)),
+    preMotionLongTaskCount: preMotionLongTasks.length,
+    motionLongTaskCountOver50ms: motionLongTasks.length,
+    maxMotionLongTaskMs: Math.max(0, ...motionLongTasks.map((task) => task.duration)),
+    sampledFrames: metrics.rafFrames.length,
+    maxFrameIntervalMs: Math.max(0, ...frameIntervals),
+  };
+  console.log("ISSUE_124_MOTION_METRICS", JSON.stringify(summary));
+  await testInfo.attach("issue-124-decision-motion-metrics.json", {
+    body: JSON.stringify(summary, null, 2),
+    contentType: "application/json",
+  });
+  expect(metrics.starts).toBe(1);
+  expect(metrics.ends).toBe(1);
+  expect(metrics.layoutShift).toBe(0);
+  expect(metrics.motionStartAt).not.toBeNull();
+  expect(metrics.motionEndAt).not.toBeNull();
+  expect(motionLongTasks).toHaveLength(0);
+  expect(metrics.rafFrames.length).toBeGreaterThan(8);
+});
+
+test("keeps plain conversational answers free of overview containers", async ({ page }) => {
+  await mockChatApi(page, { message: "A plain answer without structured decision metadata." });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Say hello");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(
+    page.getByText("A plain answer without structured decision metadata."),
+  ).toBeVisible();
+  await expect(page.getByTestId("decision-strip")).toHaveCount(0);
+  await expect(page.getByText("At a Glance")).toHaveCount(0);
 });
 
 test("renders itinerary plans with stops, fallbacks, skip guidance, sources, and map links", async ({
@@ -978,13 +3267,130 @@ test("renders itinerary plans with stops, fallbacks, skip guidance, sources, and
   await expect(page.getByTestId("itinerary-fallbacks")).toContainText("Use during active rain");
   await expect(page.getByTestId("itinerary-skip")).toContainText("Exposed beach hopping");
   await expect(page.getByTestId("itinerary-sources")).toContainText("Local guide");
+  await expect(page.getByTestId("itinerary-sources")).toContainText("Guide info checked");
   await expect(page.getByTestId("itinerary-sources")).not.toContainText("Not checked");
+});
+
+test("renders a selected route as ordered movement without duplicating stop cards", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockChatApi(page, {
+    message: "Mocked route answer: follow the ordered route instead of a ranked directory.",
+    itineraries: [mockRainyCloud9Itinerary()],
+    cards: [
+      {
+        id: "place_boardwalk",
+        kind: "place",
+        title: "Cloud 9 boardwalk",
+        fitReasons: ["Good first stop before moving indoors."],
+        caveats: [],
+        sourceLabel: "Ask Siargao local guide",
+        sources: [mockWeatherSource],
+      },
+      {
+        id: "place_cafe",
+        kind: "place",
+        title: "Covered cafe near Cloud 9",
+        fitReasons: ["Useful second stop during rain."],
+        caveats: [],
+        sourceLabel: "Ask Siargao local guide",
+        sources: [mockWeatherSource],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Build a rainy Cloud 9 route");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  const plan = page.getByTestId("itinerary-plan").filter({ hasText: "Rainy Cloud 9 Afternoon" });
+  await expect(plan).toBeVisible();
+  const stopTitles = await plan
+    .getByTestId("itinerary-stops")
+    .locator("h4")
+    .evaluateAll((elements) => elements.map((element) => element.textContent?.trim()));
+  expect(stopTitles).toEqual(["Cloud 9 boardwalk", "Covered cafe near Cloud 9"]);
+  await expect(plan.getByText("About 5 minutes from the previous stop.")).toBeVisible();
+  await expect(page.getByTestId("recommendation-cards")).toHaveCount(0);
+  expect(await plan.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+});
+
+test("collapses missing map and optional recommendation signals without dead controls", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1180, height: 900 });
+  await mockChatApi(page, {
+    message: "Mocked card answer: this fallback has limited display facts.",
+    cards: [
+      {
+        id: "place_limited",
+        kind: "place",
+        title: "Limited Facts Cafe",
+        fitReasons: ["Works as a neutral nearby fallback when you want to stay in General Luna."],
+        caveats: [],
+        sourceLabel: "Google Places - live checked",
+        decision: { label: "needs_confirmation", bestAction: "Confirm before going." },
+        sources: [mockPlacesSource],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Show a limited fallback");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  const card = page.getByTestId("recommendation-card").filter({ hasText: "Limited Facts Cafe" });
+  await expect(card).toBeVisible();
+  await expect(card).toHaveAttribute("data-recommendation-role", "confirm");
+  await expect(card.getByText("Why this fits:")).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: /Open Limited Facts Cafe in Google Maps/ }),
+  ).toHaveCount(0);
+  await expect(card.getByText(/away/)).toHaveCount(0);
+  await expect(card.getByText(/Open now|Hours not listed/)).toHaveCount(0);
+});
+
+test("renders provider-unavailable answers without positive recommendation cards", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1180, height: 900 });
+  await mockChatApi(page, {
+    message: "Mocked provider answer: I could not verify current cafe evidence.",
+    sources: [
+      {
+        label: "provider_unavailable",
+        sourceName: "Google Places",
+        sourceProfileId: "source_google_places",
+        confidence: "low",
+        checked: [],
+        notChecked: ["current Places availability"],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Find a current open cafe");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByText("Mocked provider answer:")).toBeVisible();
+  await expect(page.getByTestId("recommendation-card")).toHaveCount(0);
+  const sourcesPanel = page.getByTestId("assistant-sources-panel");
+  await expect(sourcesPanel).toContainText("Could not check");
+  await expect(sourcesPanel).not.toContainText("Best fit");
 });
 
 test("saves local cards and itineraries with dedupe, removal, and reload persistence", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
   const prompt = "Save a Shaka stop and rainy Cloud 9 plan";
   const deletedItems: string[] = [];
   await page.route("**/api/trips/saved/*", async (route) => {
@@ -1007,7 +3413,10 @@ test("saves local cards and itineraries with dedupe, removal, and reload persist
         mapsUrl: "https://maps.google.com/?cid=shaka",
         distanceLabel: "About 50 m from search center.",
         openStatusLabel: "Open now according to Google Places.",
-        fitReasons: ["Returned #1 by Google Places for this request."],
+        fitReasons: [
+          "Fits a quick Cloud 9 cafe stop before saving the rainy route.",
+          "Returned #1 by Google Places for this request.",
+        ],
         caveats: ["Review text and bookings were not checked."],
         sourceLabel: "Google Places - live checked",
         decision: {
@@ -1123,6 +3532,14 @@ test("hydrates signed-in saved trips from the owned server list", async ({ page 
     caveats: ["Opening hours can change."],
   };
 
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: {} }),
+    });
+  });
+
   await page.route("**/api/trips/saved", async (route) => {
     await route.fulfill({
       status: 200,
@@ -1147,6 +3564,13 @@ test("creates and copies or opens a share link from saved cards and itineraries"
   page,
 }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -1211,7 +3635,7 @@ test("creates and copies or opens a share link from saved cards and itineraries"
 
     await route.fulfill({
       status: 200,
-      contentType: "text/html",
+      contentType: "text/html; charset=utf-8",
       body: renderSharedTripPlanDocument(publicPlan),
     });
   });
@@ -1227,7 +3651,10 @@ test("creates and copies or opens a share link from saved cards and itineraries"
         mapsUrl: "https://maps.google.com/?cid=shaka",
         distanceLabel: "About 50 m from search center.",
         openStatusLabel: "Open now according to Google Places.",
-        fitReasons: ["Returned #1 by Google Places for this request."],
+        fitReasons: [
+          "Fits a quick Cloud 9 cafe stop before saving the rainy route.",
+          "Returned #1 by Google Places for this request.",
+        ],
         caveats: ["Review text and bookings were not checked."],
         sourceLabel: "Google Places - live checked",
         decision: {
@@ -1310,25 +3737,26 @@ test("creates and copies or opens a share link from saved cards and itineraries"
   ).toBeVisible();
   await expect(popup.getByRole("heading", { name: "Fallback" })).toBeVisible();
   await expect(popup.getByText("Move indoors if rain gets heavier.")).toBeVisible();
-  await expect(popup.getByText("Google Places - live checked")).toBeVisible();
+  await expect(popup.getByText("Google Places · Places checked", { exact: true })).toBeVisible();
   await expect(
-    popup.getByText("Google Places API - live checked - fetched 2026-06-28T00:45:00.000Z"),
+    popup.getByText("Google Places · Places checked · fetched 2026-06-28T00:45:00.000Z"),
   ).toBeVisible();
   await expect(
-    popup.getByText("Checked by Google Places API: current opening status"),
+    popup.getByText("Google Places: Checked details: place identity, current opening status"),
   ).toBeVisible();
   await expect(
-    popup.getByText("Not checked by Google Places API: table availability"),
+    popup.getByText("Google Places: Not checked: review text, table availability"),
   ).toBeVisible();
-  await expect(popup.getByText("Ask Siargao local guide - curated local guide")).toBeVisible();
+  await expect(popup.getByText("Ask Siargao local guide · Guide info checked")).toBeVisible();
   await expect(
-    popup.getByText("Checked by Ask Siargao local guide: rainy-day Cloud 9 fallback pattern"),
+    popup.getByText("Ask Siargao local guide: Checked details: rainy-day Cloud 9 fallback pattern"),
   ).toBeVisible();
   await expect(
     popup.getByText(
-      "Not checked by Browser saved trip: Saved from browser and not reverified by Ask Siargao before sharing.",
+      "Saved browser plan: Not checked: Saved from browser and not reverified by Ask Siargao before sharing.",
     ),
   ).toHaveCount(2);
+  await expect(popup.getByText("Google Places API - live checked")).toHaveCount(0);
   await expect(popup.getByText(prompt)).toHaveCount(0);
   await popup.close();
 });
@@ -1338,7 +3766,7 @@ test("renders generic public shared-plan unavailable state in the browser", asyn
   await page.route("**/trips/shared/expired_playwright", async (route) => {
     await route.fulfill({
       status: 200,
-      contentType: "text/html",
+      contentType: "text/html; charset=utf-8",
       body: renderSharedTripPlanDocument(null),
     });
   });
@@ -1356,6 +3784,13 @@ test("prevents empty share selections and keeps local saves after share API fail
   page,
 }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
   let savedSyncRequests = 0;
   await page.route("**/api/trips/saved", async (route) => {
     if (route.request().method() === "GET") {
@@ -1385,7 +3820,10 @@ test("prevents empty share selections and keeps local saves after share API fail
         mapsUrl: "https://maps.google.com/?cid=shaka",
         distanceLabel: "About 50 m from search center.",
         openStatusLabel: "Open now according to Google Places.",
-        fitReasons: ["Returned #1 by Google Places for this request."],
+        fitReasons: [
+          "Fits a quick Cloud 9 cafe stop before you share the saved plan.",
+          "Returned #1 by Google Places for this request.",
+        ],
         caveats: ["Review text and bookings were not checked."],
         sourceLabel: "Google Places - live checked",
       },
@@ -1457,6 +3895,7 @@ test("renders initial itinerary theme fixtures without generic brainstorm fallba
   await expect(foodPlan).toContainText("First food stop");
   await expect(foodPlan).toContainText("Second food stop");
   await expect(sunsetPlan.getByTestId("itinerary-sources")).toContainText("Local guide");
+  await expect(sunsetPlan.getByTestId("itinerary-sources")).toContainText("Guide info checked");
 });
 
 test("keeps recommendation cards inside the mobile chat column", async ({ page }) => {
@@ -1475,6 +3914,7 @@ test("keeps recommendation cards inside the mobile chat column", async ({ page }
         distanceLabel: "About 1.7 km from search center.",
         openStatusLabel: "Hours not returned by Google Places.",
         fitReasons: [
+          "Fits a deliberately long mobile layout request near Cloud 9 without requiring a scooter.",
           "Returned #1 by Google Places for a deliberately long mobile layout request.",
           "Google Places primary type: cafe.",
         ],
@@ -1574,7 +4014,7 @@ test("renders numbered assistant plans from display-ready source footers", async
       "2. Use the heaviest rain window for massage or errands.",
       "3. Walk the Cloud 9 boardwalk only during a clear break.",
       "",
-      "Checked: Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - forecast for Cloud 9. Weather signal: Thunderstorm; rain 0.7mm.",
+      "Checked: Weather forecast (Weather checked; medium confidence; checked Jun 26, 8:00 AM) - forecast for Cloud 9. Weather signal: Thunderstorm; rain 0.7mm.",
     ].join("\n"),
   });
 
@@ -1593,16 +4033,19 @@ test("renders numbered assistant plans from display-ready source footers", async
   await expect(
     sourceLines.filter({
       hasText:
-        "Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - forecast for Cloud 9.",
+        "Weather forecast (Weather checked; medium confidence; checked Jun 26, 8:00 AM) - forecast for Cloud 9.",
     }),
   ).toHaveCount(1);
   await expect(sourceLines.filter({ hasText: "Thunderstorm; rain 0.7mm." })).toHaveCount(1);
   await expect(
     sourceLines.filter({
       hasText:
-        "Open-Meteo weather API (weather checked; medium confidence; profile source_open_meteo; fetched 2026-06-26T00:00:00.000Z) - Google Places open-now results and road flooding.",
+        "Weather forecast (Weather checked; medium confidence; checked Jun 26, 8:00 AM) - Google Places open-now results and road flooding.",
     }),
   ).toHaveCount(0);
+  await expect(page.getByTestId("assistant-message-bubble").last()).not.toContainText(
+    "source_open_meteo",
+  );
   await expect(page.getByTestId("itinerary-plans")).toHaveCount(0);
 
   const orderedListCount = await page
@@ -1775,6 +4218,8 @@ test("shows safe error copy and lets the user keep asking after a failed request
   await expect(
     page.getByText("Ask Siargao could not answer right now. Please try again."),
   ).toBeVisible();
+  await expect(page.getByTestId("decision-strip")).toHaveCount(0);
+  await expect(page.getByText("At a Glance")).toHaveCount(0);
   await expect(page.getByText("OPENAI_API_KEY")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Retry last question" })).toBeVisible();
   await expect(composerInput).toBeEnabled();
@@ -1791,10 +4236,431 @@ test("shows safe error copy and lets the user keep asking after a failed request
   expect(lastSubmittedContent(requests[1])).toBe("Can I ask a follow-up?");
 });
 
+test("keeps the delayed assistant wait state stable, accessible, and indeterminate", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const chat = await mockDeferredChatApi(page);
+
+  await page.goto("/chat");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("What is a good rainy afternoon plan?");
+  await composerInput.press("Enter");
+
+  await expect.poll(() => chat.requests.length).toBe(1);
+  const waitState = page.getByTestId("assistant-wait-state");
+  const waitStatus = page.getByTestId("assistant-wait-status");
+  await expect(waitState).toBeVisible();
+  await expect(waitState).toHaveAttribute("aria-busy", "true");
+  await expect(waitStatus).toHaveText("Ask Siargao is preparing your answer.");
+  await expect(page.getByRole("status")).toHaveCount(1);
+  await expect(page.getByRole("progressbar")).toHaveCount(0);
+  await expect(waitState).not.toContainText(/\b\d{1,3}%\b|countdown|elapsed|stage|tool|provider/i);
+  await expect(page.getByText("Thinking through that with Ask Siargao...")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Stop waiting" })).toBeEnabled();
+
+  await waitStatus.evaluate((element) => {
+    const trackedWindow = window as typeof window & { __waitStatusMutationCount?: number };
+    trackedWindow.__waitStatusMutationCount = 0;
+    new MutationObserver(() => {
+      trackedWindow.__waitStatusMutationCount = (trackedWindow.__waitStatusMutationCount ?? 0) + 1;
+    }).observe(element, {
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+  });
+  const waitGeometry = await waitState.boundingBox();
+
+  await page.waitForTimeout(1_450);
+
+  await expect(waitStatus).toHaveText("Ask Siargao is preparing your answer.");
+  await expect(page.getByRole("status")).toHaveCount(1);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as typeof window & { __waitStatusMutationCount?: number })
+          .__waitStatusMutationCount ?? 0,
+    ),
+  ).toBe(0);
+  expect(
+    await waitState.evaluate((element) => element.getAnimations({ subtree: true }).length),
+  ).toBe(0);
+  expect(await waitState.boundingBox()).toMatchObject({
+    height: waitGeometry?.height,
+    width: waitGeometry?.width,
+  });
+
+  chat.release(0, {
+    message: "Rainy afternoon answer: pick a covered cafe and keep travel short.",
+  });
+
+  await expect(
+    page.getByText("Rainy afternoon answer: pick a covered cafe and keep travel short."),
+  ).toBeVisible();
+  await expect(waitState).toHaveCount(0);
+});
+
+test("stops local waiting, ignores the late response, and retries the original question", async ({
+  page,
+}) => {
+  const chat = await mockDeferredChatApi(page);
+
+  await page.goto("/chat");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("Can we surf if the wind picks up?");
+  await composerInput.press("Enter");
+
+  await expect.poll(() => chat.requests.length).toBe(1);
+  await page.getByRole("button", { name: "Stop waiting" }).click();
+
+  await expect(page.getByTestId("assistant-wait-state")).toHaveCount(0);
+  await expect(page.getByText("Stopped waiting here. You can retry that question.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry question" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop waiting" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry last question" })).toHaveCount(0);
+  await expect(composerInput).toBeEnabled();
+
+  await page.getByRole("button", { name: "Retry question" }).click();
+  await expect.poll(() => chat.requests.length).toBe(2);
+  expect(lastSubmittedContent(chat.requests[0])).toBe("Can we surf if the wind picks up?");
+  expect(lastSubmittedContent(chat.requests[1])).toBe("Can we surf if the wind picks up?");
+
+  chat.release(0, { message: "Late stopped answer should not render." });
+  await page.waitForTimeout(250);
+  await expect(page.getByText("Late stopped answer should not render.")).toHaveCount(0);
+  await expect(page.getByTestId("assistant-wait-state")).toBeVisible();
+
+  chat.release(1, { message: "Fresh retry answer: check the wind window before paddling out." });
+
+  await expect(
+    page.getByText("Fresh retry answer: check the wind window before paddling out."),
+  ).toBeVisible();
+  await expect(page.getByTestId("assistant-wait-state")).toHaveCount(0);
+});
+
+test("cleans up pending wait state when previous-thread loading fails", async ({ page }) => {
+  const chat = await mockDeferredChatApi(page);
+  const thread = {
+    id: "thread_detail_failure",
+    title: "Cloud 9 detail failure",
+    status: "active",
+    createdAt: "2026-06-29T01:00:00.000Z",
+    updatedAt: "2026-06-29T01:00:00.000Z",
+    lastMessageAt: "2026-06-29T01:01:00.000Z",
+  };
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: { accommodation: "Cloud 9 stay" } }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripId: "trip_thread_failure", items: [] }),
+    });
+  });
+  await page.route("**/api/chat/threads**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+
+    if (request.method() === "GET" && url.pathname === "/api/chat/threads") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ threads: [thread] }),
+      });
+      return;
+    }
+
+    if (request.method() === "GET" && url.pathname === "/api/chat/threads/thread_detail_failure") {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "thread_unavailable" }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "not_found" }),
+    });
+  });
+
+  await page.goto("/chat");
+
+  const previousThread = page.getByRole("button", { name: /Cloud 9 detail failure/ });
+  await expect(previousThread).toBeVisible();
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("Should we keep a rainy-day backup?");
+  await composerInput.press("Enter");
+  await expect.poll(() => chat.requests.length).toBe(1);
+  await expect(page.getByTestId("assistant-wait-state")).toBeVisible();
+
+  await previousThread.click();
+
+  await expect(page.getByText("Chat history unavailable")).toBeVisible();
+  await expect(page.getByTestId("assistant-wait-state")).toHaveCount(0);
+  await expect(page.getByText("Stopped waiting here. You can retry that question.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry question" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop waiting" })).toHaveCount(0);
+  await expect(composerInput).toBeEnabled();
+
+  chat.release(0, { message: "Late thread-switch answer should not render." });
+  await page.waitForTimeout(250);
+  await expect(page.getByText("Late thread-switch answer should not render.")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Retry question" }).click();
+  await expect.poll(() => chat.requests.length).toBe(2);
+  expect(lastSubmittedContent(chat.requests[1])).toBe("Should we keep a rainy-day backup?");
+
+  chat.release(1, { message: "Fresh thread-failure retry answer." });
+  await expect(page.getByText("Fresh thread-failure retry answer.")).toBeVisible();
+});
+
+test("ignores late thread detail success and failure after a newer selection", async ({ page }) => {
+  const threadA = {
+    id: "thread_race_a",
+    title: "Cloud 9 older plan",
+    status: "active",
+    createdAt: "2026-06-28T01:00:00.000Z",
+    updatedAt: "2026-06-28T01:00:00.000Z",
+    lastMessageAt: "2026-06-28T01:01:00.000Z",
+  };
+  const threadB = {
+    id: "thread_race_b",
+    title: "Dapa newer plan",
+    status: "active",
+    createdAt: "2026-06-29T01:00:00.000Z",
+    updatedAt: "2026-06-29T01:00:00.000Z",
+    lastMessageAt: "2026-06-29T01:01:00.000Z",
+  };
+  const threadC = {
+    id: "thread_race_c",
+    title: "Pacifico fallback plan",
+    status: "active",
+    createdAt: "2026-06-30T01:00:00.000Z",
+    updatedAt: "2026-06-30T01:00:00.000Z",
+    lastMessageAt: "2026-06-30T01:01:00.000Z",
+  };
+  const pendingDetails = new Map<
+    string,
+    (reply: { body: Record<string, unknown>; status: number }) => void
+  >();
+  const detailRequests: string[] = [];
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripContext: { accommodation: "Cloud 9 stay" } }),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripId: "trip_thread_race", items: [] }),
+    });
+  });
+  await page.route("**/api/chat/threads**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/chat/threads") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ threads: [threadA, threadB, threadC] }),
+      });
+      return;
+    }
+
+    const threadId = url.pathname.split("/").at(-1);
+    if (!threadId) {
+      await route.fulfill({ status: 404, body: "not found" });
+      return;
+    }
+    detailRequests.push(threadId);
+    const reply = await new Promise<{ body: Record<string, unknown>; status: number }>(
+      (resolve) => {
+        pendingDetails.set(threadId, resolve);
+      },
+    );
+    await route.fulfill({
+      status: reply.status,
+      contentType: "application/json",
+      body: JSON.stringify(reply.body),
+    });
+  });
+
+  await page.goto("/chat");
+  const threadAButton = page.getByRole("button", { name: /Cloud 9 older plan/ });
+  const threadBButton = page.getByRole("button", { name: /Dapa newer plan/ });
+  await expect(threadAButton).toBeVisible();
+  await threadAButton.click();
+  await expect.poll(() => detailRequests).toContain("thread_race_a");
+
+  await threadBButton.click();
+  await expect.poll(() => detailRequests).toContain("thread_race_b");
+  pendingDetails.get("thread_race_b")?.({
+    status: 200,
+    body: {
+      thread: threadB,
+      messages: [
+        {
+          id: "message_race_b",
+          role: "assistant",
+          content: "Dapa loaded before the older thread settled.",
+          status: "complete",
+          createdAt: "2026-06-29T01:01:00.000Z",
+        },
+      ],
+    },
+  });
+  await expect(page.getByText("Dapa loaded before the older thread settled.")).toBeVisible();
+
+  pendingDetails.get("thread_race_a")?.({
+    status: 200,
+    body: {
+      thread: threadA,
+      messages: [
+        {
+          id: "message_race_a_late",
+          role: "assistant",
+          content: "Cloud 9 arrived from a late stale response.",
+          status: "complete",
+          createdAt: "2026-06-28T01:01:00.000Z",
+        },
+      ],
+    },
+  });
+  await page.waitForTimeout(250);
+  await expect(page.getByText("Chat history unavailable")).toHaveCount(0);
+  await expect(page.getByText("Dapa loaded before the older thread settled.")).toBeVisible();
+  await expect(page.getByText("Cloud 9 arrived from a late stale response.")).toHaveCount(0);
+
+  const threadCButton = page.getByRole("button", { name: /Pacifico fallback plan/ });
+  await threadCButton.click();
+  await expect.poll(() => detailRequests).toContain("thread_race_c");
+  await threadBButton.click();
+  await expect
+    .poll(() => detailRequests.filter((threadId) => threadId === "thread_race_b").length)
+    .toBe(2);
+  pendingDetails.get("thread_race_b")?.({
+    status: 200,
+    body: {
+      thread: threadB,
+      messages: [
+        {
+          id: "message_race_b_latest",
+          role: "assistant",
+          content: "Dapa remained selected after the fallback race.",
+          status: "complete",
+          createdAt: "2026-06-29T01:02:00.000Z",
+        },
+      ],
+    },
+  });
+  await expect(page.getByText("Dapa remained selected after the fallback race.")).toBeVisible();
+  pendingDetails.get("thread_race_c")?.({
+    status: 503,
+    body: { error: "fallback_thread_unavailable" },
+  });
+  await page.waitForTimeout(250);
+  await expect(page.getByText("Chat history unavailable")).toHaveCount(0);
+  await expect(page.getByText("Dapa remained selected after the fallback race.")).toBeVisible();
+});
+
+test("renders one failure retry path without stop controls or leaked server details", async ({
+  page,
+}) => {
+  const chat = await mockDeferredChatApi(page);
+
+  await page.goto("/chat");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("Will the ferry run tomorrow?");
+  await composerInput.press("Enter");
+  await expect.poll(() => chat.requests.length).toBe(1);
+
+  chat.release(0, {
+    body: { error: "upstream_timeout", message: "Internal provider timeout" },
+    status: 503,
+  });
+
+  await expect(
+    page.getByText("Ask Siargao could not answer right now. Please try again."),
+  ).toBeVisible();
+  await expect(page.getByText("Internal provider timeout")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry last question" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop waiting" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry question" })).toHaveCount(0);
+  await expect(composerInput).toBeEnabled();
+
+  await page.getByRole("button", { name: "Retry last question" }).click();
+  await expect.poll(() => chat.requests.length).toBe(2);
+  expect(lastSubmittedContent(chat.requests[1])).toBe("Will the ferry run tomorrow?");
+
+  chat.release(1, { message: "Ferry retry answer: check the port notice before leaving." });
+
+  await expect(
+    page.getByText("Ferry retry answer: check the port notice before leaving."),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Ask Siargao could not answer right now. Please try again."),
+  ).toHaveCount(1);
+});
+
+test("invalidates pending wait state on new chat and page navigation", async ({ page }) => {
+  const chat = await mockDeferredChatApi(page);
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/chat");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("Build a first day plan around Cloud 9.");
+  await composerInput.press("Enter");
+  await expect.poll(() => chat.requests.length).toBe(1);
+  await expect(page.getByTestId("assistant-wait-state")).toBeVisible();
+
+  await page.getByLabel("Start a new chat").first().click();
+  await expect(page.getByTestId("assistant-wait-state")).toHaveCount(0);
+  await expect(page.getByText("Build a first day plan around Cloud 9.")).toHaveCount(0);
+  await expect(composerInput).toBeEnabled();
+
+  chat.release(0, { message: "Late new-chat answer should not render." });
+  await page.waitForTimeout(250);
+  await expect(page.getByText("Late new-chat answer should not render.")).toHaveCount(0);
+
+  await composerInput.fill("What if we stay in Dapa?");
+  await composerInput.press("Enter");
+  await expect.poll(() => chat.requests.length).toBe(2);
+  await expect(page.getByTestId("assistant-wait-state")).toBeVisible();
+
+  await page.goto("/");
+  chat.release(1, { message: "Late navigation answer should not render." });
+  await page.goto("/chat");
+  await expect(page.getByText("Late navigation answer should not render.")).toHaveCount(0);
+  await expect(page.getByTestId("assistant-wait-state")).toHaveCount(0);
+  await expect.poll(() => chat.requests.length).toBe(2);
+});
+
 async function mockChatApi(
   page: Page,
   {
     actions,
+    assistantMessageId,
     cards,
     decisionSummaries,
     itineraries,
@@ -1803,6 +4669,7 @@ async function mockChatApi(
     waitForRelease = false,
   }: {
     actions?: MockChatAction[];
+    assistantMessageId?: string;
     cards?: MockRecommendationCard[];
     decisionSummaries?: MockDecisionSummary[];
     itineraries?: MockItineraryPlan[];
@@ -1829,6 +4696,7 @@ async function mockChatApi(
         message,
         model: "gpt-5.4-mini-test",
         requestId: "req_playwright_chat",
+        ...(assistantMessageId ? { assistantMessageId } : {}),
         ...(sources?.length ? { sources } : {}),
         ...(cards?.length ? { cards } : {}),
         ...(decisionSummaries?.length ? { decisionSummaries } : {}),
@@ -1844,8 +4712,504 @@ async function mockChatApi(
   };
 }
 
+type DeferredChatReply = {
+  body?: Record<string, unknown>;
+  message?: string;
+  requestId?: string;
+  status?: number;
+};
+
+async function mockDeferredChatApi(page: Page) {
+  const requests: ChatRequestBody[] = [];
+  const pendingReplies: Array<(reply: DeferredChatReply) => void> = [];
+
+  await page.route("**/api/chat", async (route) => {
+    const requestIndex = pendingReplies.length;
+    requests.push(route.request().postDataJSON() as ChatRequestBody);
+    const reply = await new Promise<DeferredChatReply>((resolve) => {
+      pendingReplies[requestIndex] = resolve;
+    });
+    const status = reply.status ?? 200;
+    const body =
+      reply.body ??
+      ({
+        message: reply.message ?? `Deferred answer ${requestIndex + 1}`,
+        model: "gpt-5.4-mini-test",
+        requestId: reply.requestId ?? `req_playwright_chat_deferred_${requestIndex + 1}`,
+      } satisfies Record<string, unknown>);
+
+    try {
+      await route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+    } catch {
+      // The browser may have already aborted the local wait; late route release is intentional.
+    }
+  });
+
+  return {
+    requests,
+    release(index: number, reply: DeferredChatReply) {
+      const releaseReply = pendingReplies[index];
+      if (!releaseReply) {
+        throw new Error(`No deferred chat request at index ${index}.`);
+      }
+      releaseReply(reply);
+    },
+  };
+}
+
 function lastSubmittedContent(request?: ChatRequestBody) {
   return request?.messages?.at(-1)?.content;
+}
+
+async function installDecisionMotionProbe(page: Page) {
+  await page.addInitScript(() => {
+    const metrics: DecisionMotionMetrics = {
+      starts: 0,
+      ends: 0,
+      layoutShift: 0,
+      readyAt: null,
+      motionStartAt: null,
+      motionEndAt: null,
+      longTasks: [],
+      rafFrames: [],
+    };
+    let sampleFrames = false;
+
+    window.__decisionMotionMetrics = metrics;
+
+    document.addEventListener(
+      "animationstart",
+      (event) => {
+        const target = event.target;
+        if (
+          event.animationName !== "decision-strip-sequence-cue" ||
+          !(target instanceof HTMLElement) ||
+          target.dataset.decisionSequenceCue !== "true"
+        ) {
+          return;
+        }
+        metrics.starts += 1;
+        metrics.motionStartAt = performance.now();
+        sampleFrames = true;
+        const sample = (timestamp: number) => {
+          metrics.rafFrames.push(timestamp);
+          if (sampleFrames) {
+            window.requestAnimationFrame(sample);
+          }
+        };
+        window.requestAnimationFrame(sample);
+      },
+      true,
+    );
+    document.addEventListener(
+      "animationend",
+      (event) => {
+        const target = event.target;
+        if (
+          event.animationName !== "decision-strip-sequence-cue" ||
+          !(target instanceof HTMLElement) ||
+          target.dataset.decisionSequenceCue !== "true"
+        ) {
+          return;
+        }
+        metrics.ends += 1;
+        metrics.motionEndAt = performance.now();
+        sampleFrames = false;
+      },
+      true,
+    );
+
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries() as LayoutShiftEntry[]) {
+        if (!entry.hadRecentInput) {
+          metrics.layoutShift += entry.value ?? 0;
+        }
+      }
+    }).observe({ type: "layout-shift", buffered: true });
+
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        metrics.longTasks.push({
+          duration: entry.duration,
+          startTime: entry.startTime,
+          endTime: entry.startTime + entry.duration,
+        });
+      }
+    }).observe({ type: "longtask", buffered: true });
+
+    metrics.readyAt = performance.now();
+  });
+}
+
+async function resetDecisionMotionMetrics(page: Page) {
+  await page.evaluate(() => {
+    const metrics = window.__decisionMotionMetrics;
+    if (!metrics) {
+      return;
+    }
+    metrics.starts = 0;
+    metrics.ends = 0;
+    metrics.layoutShift = 0;
+    metrics.readyAt = performance.now();
+    metrics.motionStartAt = null;
+    metrics.motionEndAt = null;
+    metrics.longTasks = [];
+    metrics.rafFrames = [];
+  });
+}
+
+async function decisionMotionMetrics(page: Page) {
+  return page.evaluate(() => window.__decisionMotionMetrics);
+}
+
+async function boundingBoxSnapshot(locator: Locator) {
+  const box = await locator.boundingBox();
+  if (!box) {
+    throw new Error("Expected element bounding box.");
+  }
+  return box;
+}
+
+function expectBoxStable(
+  actual: Awaited<ReturnType<typeof boundingBoxSnapshot>>,
+  expected: Awaited<ReturnType<typeof boundingBoxSnapshot>>,
+) {
+  for (const key of ["x", "y", "width", "height"] as const) {
+    expect(Math.abs(actual[key] - expected[key])).toBeLessThanOrEqual(1);
+  }
+}
+
+async function withCpuThrottle<T>(page: Page, rate: number, task: () => Promise<T>) {
+  const session = await page.context().newCDPSession(page);
+  await session.send("Emulation.setCPUThrottlingRate", { rate });
+  try {
+    return await task();
+  } finally {
+    await session.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+    await session.detach();
+  }
+}
+
+async function mockMobileTripContextProfile(
+  page: Page,
+  status: "anonymous" | "authenticated" | "loading" | "unavailable",
+) {
+  let releaseProfile: (() => void) | undefined;
+  await page.route("**/api/me/profile", async (route) => {
+    if (status === "loading") {
+      await new Promise<void>((resolve) => {
+        releaseProfile = resolve;
+      });
+      await route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "unauthenticated" }),
+      });
+      return;
+    }
+    if (status === "anonymous") {
+      await route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "unauthenticated" }),
+      });
+      return;
+    }
+    if (status === "unavailable") {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "profile_unavailable" }),
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(mobileAuthenticatedProfile()),
+    });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [] }) });
+  });
+
+  return {
+    release() {
+      releaseProfile?.();
+    },
+  };
+}
+
+function mobileAuthenticatedProfile(): Record<string, unknown> & {
+  tripContext: Record<string, unknown>;
+} {
+  return {
+    userId: "user_mobile_trip_context",
+    tripContext: {
+      notes: "Late arrival",
+      accommodation: "A very long Pilar homestay name that must wrap without widening the sheet",
+      dateRange: "Aug 1 - 6",
+      travelerType: "Two friends",
+      currentArea: "Dapa",
+    },
+  };
+}
+
+async function mockUnavailableMobileConditions(page: Page) {
+  await page.route("**/api/public/weather/siargao**", async (route) => {
+    await route.fulfill({ status: 503, body: "weather unavailable" });
+  });
+  await page.route("**/api/public/surf/siargao**", async (route) => {
+    await route.fulfill({ status: 503, body: "surf unavailable" });
+  });
+}
+
+async function mockMobileConditionDecisions(page: Page) {
+  let weather = 0;
+  let surf = 0;
+  await page.route("**/api/public/weather/siargao**", async (route) => {
+    weather += 1;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        requestedLocation: "Siargao Island",
+        weather: {
+          status: "live",
+          locationName: "Siargao Island",
+          fetchedAt: "2026-07-10T01:00:00.000Z",
+          freshness: "fresh",
+          today: {
+            condition: "Rain",
+            precipitationProbability: 50,
+            rainSum: 7,
+            precipitationSum: 7,
+            windGust: 38,
+          },
+        },
+      }),
+    });
+  });
+  await page.route("**/api/public/surf/siargao**", async (route) => {
+    surf += 1;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        requestedLocation: "Siargao Island",
+        surf: {
+          status: "partial",
+          locationName: "Siargao Island",
+          fetchedAt: "2026-07-10T01:00:00.000Z",
+          level: "medium",
+          metrics: { waves: "Unavailable", tide: "Unavailable", wind: "gust 38km/h" },
+          weather: {
+            status: "live",
+            freshness: "fresh",
+            condition: "Rain",
+            precipitationProbability: 50,
+            rainSum: 7,
+            windGust: 38,
+          },
+          tide: { status: "unavailable", stationName: "Dapa tide station", bestWindow: null },
+          caveats: [],
+        },
+      }),
+    });
+  });
+  return () => ({ surf, weather });
+}
+
+async function mobileTripContextGeometry(page: Page) {
+  return page.evaluate(() => {
+    const trigger = document.querySelector<HTMLElement>(
+      "[data-testid='mobile-trip-context-trigger']",
+    );
+    const dialog = document.querySelector<HTMLElement>(
+      "[data-testid='mobile-trip-context-dialog']",
+    );
+    const scrollArea = document.querySelector<HTMLElement>(
+      "[data-testid='mobile-trip-context-scroll-area']",
+    );
+    if (!trigger || !dialog || !scrollArea) {
+      return { missing: true };
+    }
+    const triggerRect = trigger.getBoundingClientRect();
+    const dialogRect = dialog.getBoundingClientRect();
+    const dialogStyle = getComputedStyle(dialog.firstElementChild ?? dialog);
+    const controls = Array.from(
+      dialog.querySelectorAll<HTMLElement>("button, input, select, textarea"),
+    );
+    return {
+      documentFitsViewport:
+        document.documentElement.scrollWidth <= window.innerWidth + 1 &&
+        document.documentElement.scrollHeight <= window.innerHeight + 1,
+      dialogFitsViewport:
+        dialogRect.left >= -1 &&
+        dialogRect.right <= window.innerWidth + 1 &&
+        dialogRect.top >= -1 &&
+        dialogRect.bottom <= window.innerHeight + 1,
+      hasInternalScroll: scrollArea.scrollHeight > scrollArea.clientHeight,
+      triggerTouchTarget: triggerRect.height >= 44,
+      controlsFitDialog: controls.every((control) => {
+        const rect = control.getBoundingClientRect();
+        return rect.left >= dialogRect.left - 1 && rect.right <= dialogRect.right + 1;
+      }),
+      safeAreaPaddingApplied:
+        Number.parseFloat(dialogStyle.paddingTop) >= 12 &&
+        Number.parseFloat(dialogStyle.paddingBottom) >= 12,
+    };
+  });
+}
+
+async function focusIsInsideMobileTripDialog(page: Page) {
+  return page.evaluate(() => {
+    const dialog = document.querySelector("[data-testid='mobile-trip-context-dialog']");
+    return Boolean(dialog?.contains(document.activeElement));
+  });
+}
+
+async function readTripContextStorage(page: Page) {
+  return page.evaluate((key) => {
+    const value = localStorage.getItem(key);
+    return value ? (JSON.parse(value) as Record<string, unknown>) : {};
+  }, tripContextStorageKey);
+}
+
+async function conditionDecisionText(container: Locator, idPrefix = "") {
+  return {
+    weather: {
+      action: await container.getByTestId(`${idPrefix}weather-condition-action`).textContent(),
+      basis: await container.getByTestId(`${idPrefix}weather-condition-basis`).textContent(),
+      fallback: await container.getByTestId("weather-condition-fallback").textContent(),
+      state: await container.getByTestId("weather-condition-state").textContent(),
+    },
+    surf: {
+      action: await container.getByTestId(`${idPrefix}surf-condition-action`).textContent(),
+      basis: await container.getByTestId(`${idPrefix}surf-condition-basis`).textContent(),
+      fallback: await container.getByTestId("surf-condition-fallback").textContent(),
+      state: await container.getByTestId("surf-condition-state").textContent(),
+    },
+  };
+}
+
+async function mockFieldDeskExternalState(page: Page) {
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
+  await page.route("**/api/public/weather/siargao**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        requestedLocation: "Cloud 9",
+        weather: {
+          status: "live",
+          locationName: "Cloud 9",
+          fetchedAt: "2026-07-10T01:00:00.000Z",
+          freshness: "fresh",
+          today: {
+            condition: "Passing showers",
+            precipitationProbability: 44,
+            rainSum: 4,
+            precipitationSum: 4,
+            windGust: 30,
+          },
+        },
+      }),
+    });
+  });
+  await page.route("**/api/public/surf/siargao**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        requestedLocation: "Cloud 9",
+        surf: {
+          status: "live",
+          locationName: "Cloud 9",
+          fetchedAt: "2026-07-10T01:00:00.000Z",
+          level: "medium",
+          metrics: {
+            waves: "0.8m swell / 10s",
+            tide: "High 4:55 AM 1.7m",
+            wind: "gust 30km/h",
+          },
+          weather: {
+            status: "live",
+            freshness: "fresh",
+            condition: "Passing showers",
+            precipitationProbability: 44,
+            rainSum: 4,
+            windGust: 30,
+          },
+          tide: {
+            status: "live",
+            stationName: "Dapa tide station",
+            bestWindow: "5:00 AM-8:00 AM: near high tide",
+          },
+          caveats: [],
+        },
+      }),
+    });
+  });
+}
+
+async function fieldDeskGeometry(page: Page) {
+  return page.evaluate(() => {
+    const leftRail = document.querySelector<HTMLElement>("aside");
+    const conversation = document.querySelector<HTMLElement>("[data-testid='conversation-region']");
+    const rightRail = document.querySelector<HTMLElement>("[data-testid='context-rail']");
+    const scrollArea = document.querySelector<HTMLElement>(
+      "[data-testid='chat-message-scroll-area']",
+    );
+    if (!leftRail || !conversation || !rightRail || !scrollArea) {
+      return {
+        conversationDominates: false,
+        documentFitsViewport: false,
+        longResponseUsesMessageScroll: false,
+        oneScrollSurface: false,
+        railsFitViewport: false,
+      };
+    }
+
+    const workspace = document.querySelector("[aria-label='Ask Siargao chat workspace']");
+    const scrollSurfaces = workspace
+      ? Array.from(workspace.querySelectorAll<HTMLElement>("*")).filter((element) => {
+          const style = getComputedStyle(element);
+          return (
+            style.overflowX === "auto" ||
+            style.overflowX === "scroll" ||
+            style.overflowY === "auto" ||
+            style.overflowY === "scroll"
+          );
+        })
+      : [];
+    const leftRect = leftRail.getBoundingClientRect();
+    const conversationRect = conversation.getBoundingClientRect();
+    const rightRect = rightRail.getBoundingClientRect();
+
+    return {
+      conversationDominates:
+        conversationRect.width > leftRect.width && conversationRect.width > rightRect.width,
+      documentFitsViewport:
+        document.documentElement.scrollWidth <= window.innerWidth + 1 &&
+        document.documentElement.scrollHeight <= window.innerHeight + 1,
+      longResponseUsesMessageScroll: scrollArea.scrollHeight > scrollArea.clientHeight,
+      oneScrollSurface:
+        scrollSurfaces.length === 1 &&
+        scrollSurfaces[0]?.getAttribute("data-testid") === "chat-message-scroll-area",
+      railsFitViewport:
+        leftRect.top >= 0 &&
+        leftRect.bottom <= window.innerHeight + 1 &&
+        rightRect.top >= 0 &&
+        rightRect.bottom <= window.innerHeight + 1 &&
+        rightRail.scrollHeight <= rightRect.height + 1,
+    };
+  });
 }
 
 async function chatWorkspaceScrollSurfaces(page: Page) {
@@ -1960,7 +5324,7 @@ function renderSharedTripItem(item: E2ESavedTripItem) {
       card.subtitle,
       card.distanceLabel,
       card.openStatusLabel,
-      card.sourceLabel,
+      e2eSharedArtifactSourceLabel(card.sourceLabel, item.sources),
     ]
       .filter((value): value is string => Boolean(value))
       .map((value) => `<p>${escapeHtml(value)}</p>`)
@@ -1977,18 +5341,79 @@ function renderSharedTripItem(item: E2ESavedTripItem) {
 
 function renderSources(sources: MockSourceSummary[]) {
   return `<section>${sources
-    .map(
-      (source) =>
-        `<p>${escapeHtml(source.sourceName)} - ${escapeHtml(source.label.replaceAll("_", " "))}${
-          source.fetchedAt ? ` - fetched ${escapeHtml(source.fetchedAt)}` : ""
-        }</p>${[
-          ...source.checked.map((item) => `Checked by ${source.sourceName}: ${item}`),
-          ...source.notChecked.map((item) => `Not checked by ${source.sourceName}: ${item}`),
-        ]
-          .map((item) => `<p>${escapeHtml(item)}</p>`)
-          .join("")}`,
-    )
+    .map((source) => {
+      const presentation = e2eSourcePresentation(source);
+      return `<p>${escapeHtml(presentation.sourceName)} · ${escapeHtml(presentation.label)}${
+        source.fetchedAt ? ` · fetched ${escapeHtml(source.fetchedAt)}` : ""
+      }</p>${[
+        ...(presentation.state === "checked"
+          ? [`${presentation.sourceName}: Checked details: ${source.checked.join(", ")}`]
+          : []),
+        ...(source.notChecked.length
+          ? [`${presentation.sourceName}: Not checked: ${source.notChecked.join(", ")}`]
+          : []),
+      ]
+        .map((item) => `<p>${escapeHtml(item)}</p>`)
+        .join("")}`;
+    })
     .join("")}</section>`;
+}
+
+function e2eSourcePresentation(source: MockSourceSummary) {
+  const sourceName = e2eSourceDisplayName(source.sourceName);
+  if (source.label === "provider_unavailable") {
+    return { state: "unavailable", label: "Could not check", sourceName };
+  }
+  if (
+    source.checked.length === 0 ||
+    ["not_verified", "insufficient_web_evidence", "no_current_event_facts"].includes(source.label)
+  ) {
+    return {
+      state: "not-verified",
+      label:
+        source.label === "insufficient_web_evidence"
+          ? "Web evidence insufficient"
+          : source.label === "no_current_event_facts"
+            ? "No current event facts"
+            : "Not verified",
+      sourceName,
+    };
+  }
+  return {
+    state: "checked",
+    label:
+      source.label === "curated_local_guide"
+        ? "Guide info checked"
+        : source.label === "weather_checked"
+          ? "Weather checked"
+          : "Places checked",
+    sourceName,
+  };
+}
+
+function e2eSourceDisplayName(sourceName: string) {
+  if (/^google places api$/i.test(sourceName)) {
+    return "Google Places";
+  }
+  if (/^open-meteo weather api$/i.test(sourceName)) {
+    return "Weather forecast";
+  }
+  if (/^browser saved trip$/i.test(sourceName)) {
+    return "Saved browser plan";
+  }
+  return sourceName
+    .replace(/\s+API$/i, "")
+    .replace(/^Ask Siargao curated local /i, "Ask Siargao local ")
+    .trim();
+}
+
+function e2eSharedArtifactSourceLabel(sourceLabel: string, sources: MockSourceSummary[]) {
+  const checkedSource = sources
+    .map(e2eSourcePresentation)
+    .find((source) => source.state === "checked");
+  return checkedSource
+    ? `${checkedSource.sourceName} · ${checkedSource.label}`
+    : sourceLabel.replace(/\s+-\s+live checked\b/i, " · source available");
 }
 
 function renderDecision(decision?: MockDecisionMetadata) {

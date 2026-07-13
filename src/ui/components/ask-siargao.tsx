@@ -1,10 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
-import type { AnchorHTMLAttributes, ComponentType, HTMLAttributes, ReactNode } from "react";
+import type { ComponentType, HTMLAttributes, ReactNode } from "react";
 
 import { Avatar } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 type IconComponent = ComponentType<{
@@ -20,14 +18,32 @@ const sunsetBackdropClass =
 
 export const appShellClass = "mx-auto grid w-full max-w-[1180px] gap-6 px-5 py-7 md:px-8 md:py-12";
 
+/*
+ * Shared product surface roles:
+ * - panel: the primary bounded workspace or section.
+ * - inset: quiet supporting groups inside a workspace.
+ * - overlay: dialogs, sheets, and transient floating UI.
+ * - line item: repeated rows that should not become nested cards.
+ */
+export const appSurfacePanelClass =
+  "rounded-md border border-border-default bg-surface-default text-text-default shadow-surface-panel";
+
+export const appSurfaceInsetClass =
+  "rounded-md border border-border-default/80 bg-surface-soft text-text-default shadow-none";
+
+export const appSurfaceOverlayClass =
+  "rounded-md border border-border-default bg-surface-default text-text-default shadow-surface-overlay";
+
+export const appSurfaceLineItemClass =
+  "border-border-default border-t bg-transparent shadow-none first:border-t-0";
+
 export const appPanelClass =
-  "rounded-none border border-border-on-dark bg-surface-glass p-5 text-text-default shadow-panel md:p-6";
+  "rounded-md border border-border-on-dark bg-surface-glass p-5 text-text-default shadow-surface-panel md:p-6";
 
 export const appNightPanelClass =
-  "rounded-md border border-border-on-dark bg-surface-night-panel p-5 text-text-on-dark shadow-strong backdrop-blur-md md:p-6";
+  "rounded-md border border-border-on-dark bg-surface-night-panel p-5 text-text-on-dark shadow-surface-panel backdrop-blur-md md:p-6";
 
-export const appCardClass =
-  "grid gap-2 rounded-none border-0 border-border-default border-t bg-transparent p-0 pt-4 shadow-none first:border-t-0 first:pt-0";
+export const appCardClass = `grid gap-2 rounded-none border-0 ${appSurfaceLineItemClass} p-0 pt-4 first:pt-0`;
 
 export const appCardContentClass = "grid gap-2 p-0";
 export const appLabelClass = "m-0 text-xs leading-tight font-extrabold text-brand-lagoon-700";
@@ -40,7 +56,7 @@ export function PalmMark({ className }: { className?: string }) {
     <Avatar
       aria-hidden="true"
       className={cn(
-        "inline-flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full border-0 bg-transparent shadow-night-card",
+        "inline-flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full border-0 bg-transparent shadow-none",
         className,
       )}
     >
@@ -165,55 +181,5 @@ export function SectionHeading({ icon: Icon, title }: { icon?: IconComponent; ti
       ) : null}
       <h2 className="m-0 text-xl leading-tight font-extrabold text-text-strong">{title}</h2>
     </div>
-  );
-}
-
-export function GradientLink({
-  children,
-  className,
-  href,
-  ...props
-}: AnchorHTMLAttributes<HTMLAnchorElement> & {
-  children: ReactNode;
-  href: string;
-}) {
-  return (
-    <Button
-      asChild
-      className={cn(
-        "min-h-[42px] rounded-md bg-[image:var(--gradient-cta)] px-4 font-extrabold text-text-on-dark shadow-cta transition-[box-shadow,transform] duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:-translate-y-px hover:shadow-lagoon-glow focus-visible:ring-brand-lagoon-300",
-        className,
-      )}
-    >
-      <Link href={href} {...props}>
-        {children}
-      </Link>
-    </Button>
-  );
-}
-
-export function SignalBadge({
-  children,
-  tone = "fresh",
-}: {
-  children: ReactNode;
-  tone?: "fresh" | "high" | "medium" | "local";
-}) {
-  const toneClass = {
-    fresh: "bg-brand-lagoon-100 text-brand-lagoon-700",
-    high: "bg-confidence-high-soft text-confidence-high",
-    medium: "bg-confidence-medium-soft text-confidence-medium",
-    local: "bg-brand-lagoon-100 text-brand-lagoon-700",
-  }[tone];
-
-  return (
-    <Badge
-      className={cn(
-        "min-h-[22px] rounded-full border-transparent px-2 text-[0.6875rem] font-extrabold whitespace-nowrap",
-        toneClass,
-      )}
-    >
-      {children}
-    </Badge>
   );
 }

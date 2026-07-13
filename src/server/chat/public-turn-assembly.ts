@@ -69,7 +69,11 @@ export function assemblePublicChatTurn({
 }): PublicChatTurnAssembly {
   const publicToolCalls = publicAgentToolCallsFromAudits(result.toolCalls);
   const displaySources = sanitizeDisplaySources(result.publicSources);
-  const displayCards = sanitizeDisplayRecommendationCards(result.cards ?? []);
+  const terminalResearchGapApplies = hasTerminalCurrentResearchGap(result.publicSources);
+  const displayCards = sanitizeDisplayRecommendationCards(
+    result.cards ?? [],
+    terminalResearchGapApplies,
+  );
   const displayActions = sanitizeDisplayActions(result.actions ?? []);
   const displayItineraries = sanitizeDisplayItineraries(result.itineraries ?? []);
   const displayDecisionSummaries = sanitizeDisplayDecisionSummaries(result.decisionSummaries ?? []);
@@ -126,7 +130,7 @@ export function assemblePublicChatTurn({
     storage: {
       message: display.message,
       sources: sanitizeStorageSources(result.publicSources),
-      cards: sanitizeStorageRecommendationCards(result.cards ?? []),
+      cards: sanitizeStorageRecommendationCards(result.cards ?? [], terminalResearchGapApplies),
       actions: sanitizeStorageActions(result.actions ?? []),
       itineraries: sanitizeStorageItineraries(result.itineraries ?? []),
       decisionSummaries: sanitizeStorageDecisionSummaries(result.decisionSummaries ?? []),
@@ -151,10 +155,17 @@ export function displayReadyStoredChatTurn({
   itineraries: readonly unknown[];
   decisionSummaries: readonly unknown[];
 }): Omit<DisplayReadyChatTurn, "toolCalls"> {
+  const terminalResearchGapApplies = hasTerminalCurrentResearchGap(
+    sources as readonly AnswerSourceSummary[],
+  );
+
   return {
     message: stripInternalDisclosureText(content),
     sources: sanitizeDisplaySources(sources as readonly AnswerSourceSummary[]),
-    cards: sanitizeDisplayRecommendationCards(cards as readonly RecommendationCard[]),
+    cards: sanitizeDisplayRecommendationCards(
+      cards as readonly RecommendationCard[],
+      terminalResearchGapApplies,
+    ),
     actions: sanitizeDisplayActions(actions as readonly ChatAction[]),
     itineraries: sanitizeDisplayItineraries(itineraries as readonly ItineraryPlan[]),
     decisionSummaries: sanitizeDisplayDecisionSummaries(
@@ -302,16 +313,25 @@ function sanitizeDisplaySources(sources: readonly AnswerSourceSummary[]) {
 }
 
 function isDisplayableSource(source: AnswerSourceSummary) {
-  return source.label !== "not_verified" && source.label !== "provider_unavailable";
+  return source.label !== "not_verified";
 }
 
-function sanitizeDisplayRecommendationCards(cards: readonly RecommendationCard[]) {
-  return cards.map((card) => ({
-    ...card,
-    fitReasons: sanitizeDisplayTextList(card.fitReasons ?? []),
-    caveats: sanitizeDisplayTextList(card.caveats ?? []),
-    ...(card.sources ? { sources: sanitizeDisplaySources(card.sources) } : {}),
-  }));
+function sanitizeDisplayRecommendationCards(
+  cards: readonly RecommendationCard[],
+  terminalResearchGapApplies: boolean,
+) {
+  return cards.flatMap((card) =>
+    isBlockedPositivePlaceCard(card, terminalResearchGapApplies)
+      ? []
+      : [
+          {
+            ...card,
+            fitReasons: sanitizeDisplayTextList(card.fitReasons ?? []),
+            caveats: sanitizeDisplayTextList(card.caveats ?? []),
+            ...(card.sources ? { sources: sanitizeDisplaySources(card.sources) } : {}),
+          },
+        ],
+  );
 }
 
 function sanitizeDisplayActions(actions: readonly ChatAction[]) {
@@ -350,13 +370,22 @@ function sanitizeStorageSources(sources: readonly AnswerSourceSummary[]) {
   }));
 }
 
-function sanitizeStorageRecommendationCards(cards: readonly RecommendationCard[]) {
-  return cards.map((card) => ({
-    ...card,
-    fitReasons: sanitizeStorageTextList(card.fitReasons ?? []),
-    caveats: sanitizeStorageTextList(card.caveats ?? []),
-    ...(card.sources ? { sources: sanitizeStorageSources(card.sources) } : {}),
-  }));
+function sanitizeStorageRecommendationCards(
+  cards: readonly RecommendationCard[],
+  terminalResearchGapApplies: boolean,
+) {
+  return cards.flatMap((card) =>
+    isBlockedPositivePlaceCard(card, terminalResearchGapApplies)
+      ? []
+      : [
+          {
+            ...card,
+            fitReasons: sanitizeStorageTextList(card.fitReasons ?? []),
+            caveats: sanitizeStorageTextList(card.caveats ?? []),
+            ...(card.sources ? { sources: sanitizeStorageSources(card.sources) } : {}),
+          },
+        ],
+  );
 }
 
 function sanitizeStorageActions(actions: readonly ChatAction[]) {
@@ -400,6 +429,27 @@ function sanitizeStorageTextList(values: readonly string[]) {
     const trimmed = value.trim();
     return trimmed.length > 0 ? [trimmed] : [];
   });
+}
+
+function isBlockedPositivePlaceCard(card: RecommendationCard, terminalResearchGapApplies: boolean) {
+  return (
+    card.kind === "place" &&
+    card.decision?.label !== "avoid_today" &&
+    card.decision?.label !== "needs_confirmation" &&
+    (terminalResearchGapApplies || (card.sources ?? []).some(isTerminalCurrentResearchGap))
+  );
+}
+
+function hasTerminalCurrentResearchGap(sources: readonly AnswerSourceSummary[]) {
+  return sources.some(isTerminalCurrentResearchGap);
+}
+
+function isTerminalCurrentResearchGap(source: AnswerSourceSummary) {
+  return (
+    source.label === "provider_unavailable" ||
+    source.label === "insufficient_web_evidence" ||
+    source.label === "no_current_event_facts"
+  );
 }
 
 function summarizeToolCallsForStoredHistory(toolCalls: readonly PublicAgentToolCall[]) {

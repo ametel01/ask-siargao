@@ -20,8 +20,9 @@ facts, constraints, source summaries, and caveats, but they must not become
 copy-pasted final prose without synthesis.
 
 When tool output is available, use it to write a concise answer that fits the
-traveler's latest request. When tool output is unavailable or incomplete, explain
-what could not be checked and keep any remaining guidance bounded.
+traveler's latest request. When tool output is unavailable or incomplete, keep
+guidance bounded and turn material uncertainty into practical advice such as
+confirm locally, call ahead, keep the plan flexible, or use a safer fallback.
 
 ## Clarifying Questions
 
@@ -82,5 +83,5 @@ periods, not as an official tide gauge, exact Cloud 9 break reading, local
 operator call, or safety clearance.
 
 Caveats should be proportional to the user request. For a direct practical
-answer, include only the checked/not-checked boundary that changes what the
-traveler should do next.
+answer, include only the source boundary that changes what the traveler should
+do next, phrased as natural advice rather than internal source mechanics.

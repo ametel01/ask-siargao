@@ -218,6 +218,28 @@ describe("database public knowledge catalog", () => {
 
     await db.close();
   });
+
+  test("drops query rows whose page_type is not a registered public family", async () => {
+    const client = {
+      async query<T>(): Promise<QueryResult<T>> {
+        return {
+          rows: [
+            {
+              public_page_id: "page_unregistered_family",
+              page_type: "restaurants",
+            },
+          ] as T[],
+        };
+      },
+    } satisfies DatabaseQueryClient;
+    const catalog = createDatabasePublicKnowledgeCatalog({
+      client,
+      now: new Date("2026-06-23T00:00:00.000Z"),
+    });
+
+    expect(await catalog.listPages()).toEqual([]);
+    expect(await catalog.listEligiblePages()).toEqual([]);
+  });
 });
 
 async function openPublicCatalogTestDatabase() {

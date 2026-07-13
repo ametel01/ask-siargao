@@ -48,9 +48,10 @@ Provider-unavailable results stay in the tool transcript. A failed `research_web
 `search_places` call does not become a terminal hard-coded route answer, and it does not erase
 successful evidence from another provider.
 
-The model should answer from successful evidence when it exists and caveat only the missing check
-when that missing check matters. If no provider can verify the requested current fact, the answer
-must be transparent about the unavailable provider and avoid checked or live claims.
+The model should answer from successful evidence when it exists and turn missing checks into
+practical caveats only when they matter. If no provider can verify the requested current fact, the
+answer must avoid checked or live claims and give a bounded next step such as confirming locally,
+calling ahead, or keeping the plan flexible.
 
 ## Source Labels
 
@@ -64,8 +65,8 @@ The important label boundaries are:
   evidence.
 - `provider_unavailable` is a failure label only. It cannot carry checked facts.
 - Memory retrieval can provide context, but it cannot back checked provider labels.
-- Rendered `Checked:` source lines must match public structured sources or selected public
-  artifacts.
+- Legacy/internal rendered `Checked:` source lines must match public structured sources or selected
+  public artifacts. They are not normal traveler-facing prose.
 
 Recommendation cards from failed provider outputs are not selectable public artifacts. Failure
 sources and unavailable decision summaries may still appear when they support a caveated answer.

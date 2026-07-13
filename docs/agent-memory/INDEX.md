@@ -72,7 +72,7 @@ and local-guide tools.
 
 ### ASK_SIARGAO_SOURCE_POLICY.md
 
-Use for checked/not-checked wording, source-label meaning, confidence boundaries,
+Use for source-boundary wording, source-label meaning, confidence boundaries,
 provider caveats, and preventing memory or generic reasoning from becoming live
 evidence.
 

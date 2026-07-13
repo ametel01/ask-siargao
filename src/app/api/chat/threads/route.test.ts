@@ -22,10 +22,23 @@ describe("chat thread API routes", () => {
     const db = await openThreadRouteTestDatabase();
     const dependencies = threadDependencies(db, { userId: null });
 
-    const response = await listChatThreadsResponse(dependencies);
+    const listResponse = await listChatThreadsResponse(dependencies);
+    const getResponse = await getChatThreadResponse("thread_private", dependencies);
+    const patchResponse = await patchChatThreadResponse(
+      jsonRequest({ title: "No auth" }),
+      "thread_private",
+      dependencies,
+    );
+    const deleteResponse = await deleteChatThreadResponse("thread_private", dependencies);
 
-    expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: "unauthenticated" });
+    expect(listResponse.status).toBe(401);
+    expect(await listResponse.json()).toEqual({ error: "unauthenticated" });
+    expect(getResponse.status).toBe(401);
+    expect(await getResponse.json()).toEqual({ error: "unauthenticated" });
+    expect(patchResponse.status).toBe(401);
+    expect(await patchResponse.json()).toEqual({ error: "unauthenticated" });
+    expect(deleteResponse.status).toBe(401);
+    expect(await deleteResponse.json()).toEqual({ error: "unauthenticated" });
 
     await db.close();
   });
@@ -369,11 +382,16 @@ describe("chat thread API routes", () => {
         checked: ["open-now result"],
         notChecked: ["review text"],
       },
+      {
+        label: "provider_unavailable",
+        sourceName: "Google Places",
+        sourceProfileId: "source_google_places",
+        confidence: "low",
+        checked: [],
+        notChecked: ["Google Places lookup"],
+      },
     ]);
-    expect(body.messages[0].cards[0].fitReasons).toEqual(["Checked cafe."]);
-    expect(body.messages[0].cards[0].caveats).toEqual(["Bring cash."]);
-    expect(body.messages[0].cards[0].sources[0].notChecked).toEqual(["review text"]);
-    expect(serializedBody).not.toContain("provider_unavailable");
+    expect(body.messages[0].cards).toEqual([]);
     expect(serializedBody).not.toContain("Review text");
     expect(serializedBody).not.toContain("table availability");
 
@@ -447,6 +465,83 @@ describe("chat thread API routes", () => {
     await db.close();
   });
 
+  test("does not reveal or mutate another user's thread across management actions", async () => {
+    const db = await openThreadRouteTestDatabase();
+    const ownerDependencies = threadDependencies(db, { userId: "user_owner" });
+    const intruderDependencies = threadDependencies(db, { userId: "user_intruder" });
+    await createThreadWithMessage(
+      db,
+      "user_owner",
+      "thread_foreign",
+      "Owner title",
+      "2026-06-29T01:00:00.000Z",
+    );
+
+    const getResponse = await getChatThreadResponse("thread_foreign", intruderDependencies);
+    const renameResponse = await patchChatThreadResponse(
+      jsonRequest({ title: "Intruder title" }),
+      "thread_foreign",
+      intruderDependencies,
+    );
+    const archiveResponse = await patchChatThreadResponse(
+      jsonRequest({ archived: true }),
+      "thread_foreign",
+      intruderDependencies,
+    );
+    const deleteResponse = await deleteChatThreadResponse("thread_foreign", intruderDependencies);
+    const ownerResponse = await getChatThreadResponse("thread_foreign", ownerDependencies);
+    const ownerBody = await ownerResponse.json();
+
+    expect(getResponse.status).toBe(404);
+    expect(await getResponse.json()).toEqual({ error: "chat_thread_not_found" });
+    expect(renameResponse.status).toBe(404);
+    expect(await renameResponse.json()).toEqual({ error: "chat_thread_not_found" });
+    expect(archiveResponse.status).toBe(404);
+    expect(await archiveResponse.json()).toEqual({ error: "chat_thread_not_found" });
+    expect(deleteResponse.status).toBe(404);
+    expect(await deleteResponse.json()).toEqual({ error: "chat_thread_not_found" });
+    expect(ownerBody.thread).toMatchObject({
+      id: "thread_foreign",
+      title: "Owner title",
+    });
+    expect(ownerBody.thread.archivedAt ?? null).toBeNull();
+
+    await db.close();
+  });
+
+  test("validates thread title updates before mutating", async () => {
+    const db = await openThreadRouteTestDatabase();
+    const dependencies = threadDependencies(db, { userId: "user_validation" });
+    await createThreadWithMessage(
+      db,
+      "user_validation",
+      "thread_validation",
+      "Original",
+      "2026-06-29T01:00:00.000Z",
+    );
+
+    const emptyResponse = await patchChatThreadResponse(
+      jsonRequest({ title: "   " }),
+      "thread_validation",
+      dependencies,
+    );
+    const longResponse = await patchChatThreadResponse(
+      jsonRequest({ title: "x".repeat(121) }),
+      "thread_validation",
+      dependencies,
+    );
+    const ownerResponse = await getChatThreadResponse("thread_validation", dependencies);
+    const ownerBody = await ownerResponse.json();
+
+    expect(emptyResponse.status).toBe(400);
+    expect((await emptyResponse.json()).error).toBe("invalid_chat_thread_request");
+    expect(longResponse.status).toBe(400);
+    expect((await longResponse.json()).error).toBe("invalid_chat_thread_request");
+    expect(ownerBody.thread.title).toBe("Original");
+
+    await db.close();
+  });
+
   test("renames, archives, and deletes owned threads", async () => {
     const db = await openThreadRouteTestDatabase();
     const dependencies = threadDependencies(db, { userId: "user_update" });
@@ -474,6 +569,34 @@ describe("chat thread API routes", () => {
     expect(deleteResponse.status).toBe(200);
     expect(await deleteResponse.json()).toEqual({ deleted: true });
     expect(listBody.threads).toEqual([]);
+
+    await db.close();
+  });
+
+  test("returns the same unavailable response for stale repeat mutations", async () => {
+    const db = await openThreadRouteTestDatabase();
+    const dependencies = threadDependencies(db, { userId: "user_repeat" });
+    await createThreadWithMessage(
+      db,
+      "user_repeat",
+      "thread_repeat",
+      "Repeat",
+      "2026-06-29T01:00:00.000Z",
+    );
+
+    const firstDeleteResponse = await deleteChatThreadResponse("thread_repeat", dependencies);
+    const secondDeleteResponse = await deleteChatThreadResponse("thread_repeat", dependencies);
+    const renameDeletedResponse = await patchChatThreadResponse(
+      jsonRequest({ title: "Should not return" }),
+      "thread_repeat",
+      dependencies,
+    );
+
+    expect(firstDeleteResponse.status).toBe(200);
+    expect(secondDeleteResponse.status).toBe(404);
+    expect(await secondDeleteResponse.json()).toEqual({ error: "chat_thread_not_found" });
+    expect(renameDeletedResponse.status).toBe(404);
+    expect(await renameDeletedResponse.json()).toEqual({ error: "chat_thread_not_found" });
 
     await db.close();
   });

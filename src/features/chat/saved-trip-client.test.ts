@@ -10,6 +10,7 @@ import {
   buildSavedItemFromCard,
   buildSavedItemFromItinerary,
   buildSharedPlanTitle,
+  clearSavedTripState,
   deleteSavedTripItem,
   fetchAuthenticatedSavedTrip,
   getSavedTripSnapshot,
@@ -17,6 +18,7 @@ import {
   postSharedTripPlan,
   readSavedTripState,
   resetSavedTripClientForTests,
+  resolveSavedTripSelection,
   savedItemIdForCard,
   savedItemIdForItinerary,
   savedTripStorageKey,
@@ -154,6 +156,129 @@ describe("saved trip client storage", () => {
       updatedAt: fixedNow,
       items: [{ ...savedItem, tripId: "saved_trip_authenticated" }],
     });
+  });
+
+  test("replaces stale local items when an authenticated trip is empty", () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      savedTripStorageKey,
+      JSON.stringify({
+        tripId: "local_trip_before_auth",
+        items: [sampleSavedCard({ tripId: "local_trip_before_auth" })],
+        updatedAt: fixedNow,
+      }),
+    );
+
+    writeAuthenticatedSavedTripState(
+      { tripId: "saved_trip_authenticated", items: [] },
+      "local_trip_before_auth",
+      { storage, now: () => fixedNow },
+    );
+
+    expect(readSavedTripState({ storage })).toMatchObject({
+      tripId: "saved_trip_authenticated",
+      items: [],
+    });
+  });
+
+  test("clears current-device saved items without changing the current trip id", () => {
+    const storage = new MemoryStorage();
+    const savedItem = sampleSavedCard({ tripId: "saved_trip_authenticated" });
+    writeSavedTripState(
+      {
+        tripId: "saved_trip_authenticated",
+        items: [savedItem],
+        updatedAt: "2026-06-30T07:00:00.000Z",
+      },
+      { storage },
+    );
+
+    clearSavedTripState({ storage, now: () => fixedNow });
+
+    expect(readSavedTripState({ storage })).toEqual({
+      tripId: "saved_trip_authenticated",
+      items: [],
+      updatedAt: fixedNow,
+    });
+  });
+
+  test("resolves exact saved item deep links without falling back to stale or first items", () => {
+    const firstItem = sampleSavedCard({ tripId: "saved_trip_selection" });
+    const selectedItem = sampleSavedCard({
+      id: "place:selected",
+      title: "Selected dinner plan",
+      tripId: "saved_trip_selection",
+    });
+    const state: SavedTripState = {
+      tripId: "saved_trip_selection",
+      items: [firstItem, selectedItem],
+      updatedAt: fixedNow,
+    };
+
+    expect(
+      resolveSavedTripSelection({
+        selectedItemId: selectedItem.id,
+        state,
+        status: "ready",
+      }),
+    ).toEqual({ item: selectedItem, status: "ready" });
+    expect(
+      resolveSavedTripSelection({
+        selectedItemId: "place:missing",
+        state,
+        status: "ready",
+      }),
+    ).toEqual({ item: null, status: "not_found" });
+    expect(
+      resolveSavedTripSelection({
+        selectedItemId: firstItem.id,
+        state: { ...state, items: [] },
+        status: "ready",
+      }),
+    ).toEqual({ item: null, status: "not_found" });
+  });
+
+  test("keeps saved item deep links pending or unavailable until the authoritative source resolves", () => {
+    const staleLocalItem = sampleSavedCard({ tripId: "local_trip_stale" });
+    const staleState: SavedTripState = {
+      tripId: "local_trip_stale",
+      items: [staleLocalItem],
+      updatedAt: fixedNow,
+    };
+    const authenticatedEmptyState: SavedTripState = {
+      tripId: "saved_trip_authenticated",
+      items: [],
+      updatedAt: fixedNow,
+    };
+
+    expect(
+      resolveSavedTripSelection({
+        selectedItemId: staleLocalItem.id,
+        state: staleState,
+        status: "loading",
+      }),
+    ).toEqual({ item: null, status: "loading" });
+    expect(
+      resolveSavedTripSelection({
+        selectedItemId: staleLocalItem.id,
+        state: authenticatedEmptyState,
+        status: "ready",
+      }),
+    ).toEqual({ item: null, status: "not_found" });
+    expect(
+      resolveSavedTripSelection({
+        selectedItemId: staleLocalItem.id,
+        state: staleState,
+        status: "error",
+      }),
+    ).toEqual({ item: null, status: "error" });
+    expect(
+      resolveSavedTripSelection({
+        selectedItemId: null,
+        state: staleState,
+        status: "ready",
+      }),
+    ).toEqual({ item: null, status: "idle" });
   });
 });
 
@@ -450,13 +575,13 @@ describe("saved trip API helpers", () => {
     ]);
   });
 
-  test("handles non-OK responses without exposing stale saved-trip state", async () => {
+  test("surfaces non-OK saved-trip responses so callers can render an error state", async () => {
     await expect(
       fetchAuthenticatedSavedTrip(
         "/api/trips/saved",
         createRecordingFetch([{ error: "server_error" }], [500]).fetch,
       ),
-    ).resolves.toBeNull();
+    ).rejects.toThrow("Saved trip items could not be loaded.");
 
     await expect(
       saveSavedTripItems(

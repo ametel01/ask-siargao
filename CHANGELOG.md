@@ -80,8 +80,37 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
-- Redesigned the mobile chat surface with a larger brand header, calmer message cards, compact
-  topic chips, mobile-native table cards, and a cleaner composer.
+- Changed shared product surfaces across landing, chat, and settings to use restrained panel, inset,
+  overlay, and line-item roles with clearer typography, flatter recommendation grouping, and
+  committed before/after visual evidence at mobile and desktop widths.
+- Changed the desktop chat workspace into a restrained Siargao field desk with a dominant
+  conversation surface, subordinate travel rails, coastal brand cues, and viewport-safe layouts.
+- Changed chat history and saved planning summaries to open actionable owned content with typed
+  rename/archive/delete controls, authoritative empty-state handling, and race-safe selection.
+- Changed recommendation artifacts to a route-first, fit-ranked presentation with bounded
+  alternatives, backed signals, map actions, no-photo fallbacks, and explicit card selection authority.
+- Changed source presentation to use an expandable traveler evidence receipt with checked and
+  not-checked boundaries, freshness, friendly labels, and terminal-gap card suppression.
+- Changed evidence presentation to distinguish capability, checking, checked, stale, unavailable,
+  and not-verified states across landing, chat, decision strips, and shared-trip surfaces.
+- Changed chat location sharing to use one accessible privacy control with explicit once/trip
+  consent, truthful failure states, race-safe capture, and request-scoped coordinate handling.
+- Changed suggested questions to use deterministic, truthful trip context and condition availability
+  while providing concise onboarding prompts when traveler context is not yet known.
+- Changed newly completed decision strips to reveal a restrained, reduced-motion-safe arrival cue
+  without replaying on hydration, focus, or scroll.
+- Changed privacy settings to provide owner-scoped, transactional travel-data controls with
+  deliberate confirmations, share invalidation, safe audit metadata, and truthful location/consent states.
+- Changed assistant waiting to use honest indeterminate progress with safe stop/retry behavior,
+  stale-request guards, and lifecycle-safe thread/location transitions.
+- Changed chat to expose a truthful mobile trip-context surface, shared live-condition decisions,
+  privacy-safe location scope, resilient draft saves, and responsive accessibility states.
+- Changed the landing page into a responsive mobile-to-desktop story with real navigation,
+  truthful capability labels, encoded chat handoff, and robust keyboard focus treatment.
+- Changed the settings account surface to expose traveler-safe identity and account-management
+  controls without returning authentication-provider identifiers or fallback identity emails.
+- Changed profile settings to use accessible structured travel controls with stable values,
+  legacy-value preservation, diff-only saves, and serialized request handling.
 - Changed `dev:up` to wait for the Compose Postgres healthcheck before running migrations so fresh
   local database volumes do not race startup.
 - Changed default chat final-answer guidance to favor traveler-facing Markdown over JSON wrappers,
@@ -186,14 +215,6 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
-- Hardened chat web-research tool handling so DeepSeek-style argument aliases normalize before
-  validation, invalid argument diagnostics are logged, and repeated invalid tool-call loops force a
-  caveated final answer instead of a 502.
-- Hardened chat repair retries so exhausted tool-call budgets force a no-tools, caveated final
-  answer instead of failing the request with `chat_generation_failed`.
-- Parsed DeepSeek DSML tool-call envelopes as real tool calls and repaired any leaked DSML final
-  text so internal tool markup is not shown to travelers.
-- Replaced the pending chat assistant spinner with a shadcn badge and animated progress indicator.
 - Tolerated model-style `research_web` arguments with omitted nullable fields or snake_case aliases
   so valid web-research requests no longer fail chat with repeated `invalid_tool_arguments`.
 - Made the chat right-hand trip context rail fixed and vertically compact so only the chat message

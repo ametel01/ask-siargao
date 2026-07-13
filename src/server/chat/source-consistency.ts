@@ -57,20 +57,28 @@ type ToolSourceEvidence = {
 };
 
 const renderedTrustLabels: Record<string, AnswerTrustLabel> = {
+  "could not check": "provider_unavailable",
   "curated local guide": "curated_local_guide",
   "community signal": "community_signal",
+  "directory checked": "directory_checked",
   "event checked": "event_checked",
   "fresh cache": "fresh_cache",
-  "directory checked": "directory_checked",
+  "guide info checked": "curated_local_guide",
   "live checked": "live_checked",
   "marine checked": "marine_checked",
+  "marine forecast checked": "marine_checked",
   "no current event facts": "no_current_event_facts",
   "not verified": "not_verified",
   "official checked": "official_checked",
+  "official source checked": "official_checked",
+  "places checked": "live_checked",
   "provider unavailable": "provider_unavailable",
+  "public web checked": "web_researched",
+  "recently checked": "fresh_cache",
   "tide forecast checked": "tide_forecast_checked",
   "venue checked": "venue_checked",
   "web researched": "web_researched",
+  "web evidence insufficient": "insufficient_web_evidence",
   "weather checked": "weather_checked",
   "insufficient web evidence": "insufficient_web_evidence",
 };
@@ -498,7 +506,8 @@ function isToolBackedClaimSupported(
     (toolSource) =>
       toolNames.has(toolSource.toolName) &&
       toolSource.label === claim.label &&
-      toolSource.sourceName === normalizeText(claim.sourceName) &&
+      normalizeSourceDisplayName(toolSource.sourceName) ===
+        normalizeSourceDisplayName(claim.sourceName) &&
       doesSourceProfileMatch(claim, toolSource) &&
       doesClaimTextMatchToolSource(claim, toolSource),
   );
@@ -549,6 +558,9 @@ function validateSourceProfileForLabel(claim: SourceClaim): SourceConsistencyIss
   if (!claim.label) {
     return undefined;
   }
+  if (claim.origin === "rendered_source_line" && !claim.sourceProfileId) {
+    return undefined;
+  }
   if (claim.label === "event_checked") {
     return validateRequiredSourceProfile(claim, new Set(nightlifeEventSourceProfileIds));
   }
@@ -590,6 +602,9 @@ function doesSourceProfileMatch(claim: SourceClaim, toolSource: ToolSourceEviden
     claim.label === "community_signal" ||
     claim.label === "no_current_event_facts"
   ) {
+    if (claim.origin === "rendered_source_line" && !claim.sourceProfileId) {
+      return true;
+    }
     return Boolean(
       claim.sourceProfileId &&
         toolSource.sourceProfileId &&
@@ -687,7 +702,7 @@ function renderedSourceLineToClaim(line: string): SourceClaim {
 function readRenderedTrustLabel(metadata: string): AnswerTrustLabel | undefined {
   const parts = metadata.split(";").map((part) => normalizeText(part));
   for (const part of parts) {
-    const label = renderedTrustLabels[part];
+    const label = renderedTrustLabels[part.toLowerCase()];
     if (label) {
       return label;
     }
@@ -696,7 +711,11 @@ function readRenderedTrustLabel(metadata: string): AnswerTrustLabel | undefined 
 }
 
 function isGenericReasoningSource(sourceName: string | undefined) {
-  return normalizeText(sourceName).toLowerCase() === "generic model reasoning";
+  const normalizedSourceName = normalizeText(sourceName).toLowerCase();
+  return (
+    normalizedSourceName === "generic model reasoning" ||
+    normalizedSourceName === "ask siargao estimate"
+  );
 }
 
 function isVerifyingLabel(label: AnswerTrustLabel) {
@@ -728,6 +747,29 @@ function readRenderedSourceProfileId(metadata: string) {
 
 function normalizeText(value: string | undefined) {
   return value?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+function normalizeSourceDisplayName(value: string | undefined) {
+  const normalizedValue = normalizeText(value);
+  if (/^google places api$/i.test(normalizedValue)) {
+    return "Google Places";
+  }
+  if (/^open-meteo weather api$/i.test(normalizedValue)) {
+    return "Weather forecast";
+  }
+  if (/^open-meteo marine api$/i.test(normalizedValue)) {
+    return "Marine forecast";
+  }
+  if (/^browser saved trip$/i.test(normalizedValue)) {
+    return "Saved browser plan";
+  }
+  if (/generic model reasoning/i.test(normalizedValue)) {
+    return "Ask Siargao estimate";
+  }
+  return normalizedValue
+    .replace(/\s+API(?:\s+profile)?$/i, "")
+    .replace(/^Ask Siargao curated local /i, "Ask Siargao local ")
+    .trim();
 }
 
 function normalizeItems(items: readonly string[]) {

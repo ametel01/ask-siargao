@@ -6,8 +6,15 @@ import type {
 } from "@/server/audit/enums";
 import { createDefaultSourceRegistry } from "@/server/providers/adapters";
 import type { SourceRegistry } from "@/server/providers/source-registry";
+import {
+  buildPublicCanonicalUrl,
+  buildPublicHumanPath,
+  buildPublicJsonApiPath,
+  buildPublicLlmMarkdownPath,
+  type PublicPageFamily,
+} from "@/server/public-pages/public-surface-registry";
 
-export type PublicPageFamily = "accommodations" | "areas" | "routes" | "operators" | "risks";
+export type { PublicPageFamily } from "@/server/public-pages/public-surface-registry";
 
 export type PublicFactRecord = {
   id: string;
@@ -488,7 +495,7 @@ function createPersistedPublicPage(
     | "generationSourceFactIds"
   > & { evidenceBundleId: string },
 ): PublicKnowledgePage {
-  const humanPath = `/${input.family}/${input.slug}`;
+  const humanPath = buildPublicHumanPath(input.family, input.slug);
   const { evidenceBundleId, ...pageInput } = input;
   const page = {
     ...pageInput,
@@ -498,10 +505,10 @@ function createPersistedPublicPage(
       evidenceIds: input.facts.map((fact) => fact.evidenceId),
       allowedUse: "public_republish" as const,
     },
-    canonicalUrl: `${appUrl}${humanPath}`,
+    canonicalUrl: buildPublicCanonicalUrl(appUrl, input.family, input.slug),
     humanPath,
-    llmMarkdownPath: `${humanPath}/llm.md`,
-    jsonApiPath: `/api/public/${input.family}/${input.slug}.json`,
+    llmMarkdownPath: buildPublicLlmMarkdownPath(input.family, input.slug),
+    jsonApiPath: buildPublicJsonApiPath(input.family, input.slug),
     visibility: "eligible" as const,
     indexingStatus: "index" as const,
     updatedAt: "2026-06-23T00:00:00.000Z",

@@ -47,23 +47,31 @@ const verifyingLabels = new Set<AnswerTrustLabel>([
   "directory_checked",
 ]);
 
+const sourceTimeFormatter = new Intl.DateTimeFormat("en-PH", {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZone: "Asia/Manila",
+});
+
 const trustLabelText: Record<AnswerTrustLabel, string> = {
-  live_checked: "live checked",
-  fresh_cache: "fresh cache",
-  event_checked: "event checked",
-  venue_checked: "venue checked",
-  curated_local_guide: "curated local guide",
-  weather_checked: "weather checked",
-  marine_checked: "marine checked",
-  tide_forecast_checked: "tide forecast checked",
-  community_signal: "community signal",
-  no_current_event_facts: "no current event facts",
-  web_researched: "web researched",
-  official_checked: "official checked",
-  directory_checked: "directory checked",
-  insufficient_web_evidence: "insufficient web evidence",
-  not_verified: "not verified",
-  provider_unavailable: "provider unavailable",
+  live_checked: "Places checked",
+  fresh_cache: "Recently checked",
+  event_checked: "Event checked",
+  venue_checked: "Places checked",
+  curated_local_guide: "Guide info checked",
+  weather_checked: "Weather checked",
+  marine_checked: "Marine forecast checked",
+  tide_forecast_checked: "Tide forecast checked",
+  community_signal: "Community signal",
+  no_current_event_facts: "No current event facts",
+  web_researched: "Public web checked",
+  official_checked: "Official source checked",
+  directory_checked: "Directory checked",
+  insufficient_web_evidence: "Web evidence insufficient",
+  not_verified: "Not verified",
+  provider_unavailable: "Could not check",
 };
 
 export function googlePlacesFreshnessToTrustLabel(
@@ -122,10 +130,9 @@ function sourceDescriptor(summary: AnswerSourceSummary) {
   const metadata = [
     trustLabelText[summary.label],
     ...(summary.confidence ? [`${summary.confidence} confidence`] : []),
-    ...(summary.sourceProfileId ? [`profile ${summary.sourceProfileId}`] : []),
-    ...(summary.fetchedAt ? [`fetched ${summary.fetchedAt}`] : []),
+    ...(summary.fetchedAt ? [`checked ${formatSourceTime(summary.fetchedAt)}`] : []),
   ];
-  return `${summary.sourceName} (${metadata.join("; ")})`;
+  return `${sourceDisplayName(summary.sourceName)} (${metadata.join("; ")})`;
 }
 
 function normalizeItems(items: readonly string[]) {
@@ -149,4 +156,35 @@ function formatItems(items: readonly string[]) {
   const lastItem = items.at(-1);
   const leadingItems = items.slice(0, -1);
   return `${leadingItems.join(", ")}, and ${lastItem}`;
+}
+
+function sourceDisplayName(value: string) {
+  const trimmed = value.trim();
+  if (/^google places api$/i.test(trimmed)) {
+    return "Google Places";
+  }
+  if (/^open-meteo weather api$/i.test(trimmed)) {
+    return "Weather forecast";
+  }
+  if (/^open-meteo marine api$/i.test(trimmed)) {
+    return "Marine forecast";
+  }
+  if (/^browser saved trip$/i.test(trimmed)) {
+    return "Saved browser plan";
+  }
+  if (/generic model reasoning/i.test(trimmed)) {
+    return "Ask Siargao estimate";
+  }
+  return trimmed
+    .replace(/\s+API(?:\s+profile)?$/i, "")
+    .replace(/^Ask Siargao curated local /i, "Ask Siargao local ")
+    .trim();
+}
+
+function formatSourceTime(value: string) {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) {
+    return value;
+  }
+  return sourceTimeFormatter.format(timestamp).replace(" at ", ", ");
 }

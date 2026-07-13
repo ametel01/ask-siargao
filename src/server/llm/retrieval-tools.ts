@@ -102,10 +102,8 @@ export function callAuditRetrievalTool(input: {
     };
   }
 
-  const allowedTypes = factTypeByTool[input.toolName] ?? [];
-  const facts = permittedFacts(input.context).filter((fact) =>
-    allowedTypes.includes(fact.factType),
-  );
+  const allowedTypeSet = new Set(factTypeByTool[input.toolName] ?? []);
+  const facts = permittedFacts(input.context).filter((fact) => allowedTypeSet.has(fact.factType));
 
   return {
     toolName: input.toolName,

@@ -10,6 +10,22 @@ import { redactDiagnosticValue } from "@/server/admin/redaction";
 
 const now = new Date("2026-06-23T08:00:00.000Z");
 
+function credentialFragment(...parts: string[]) {
+  return parts.join("-");
+}
+
+function underscoreCredential(...parts: string[]) {
+  return parts.join("_");
+}
+
+function bearerFragment(scope: string, suffix: string) {
+  return ["Bearer", credentialFragment("provider", "sample", scope, suffix)].join(" ");
+}
+
+function keyValueCredential(key: string, separator: "=" | ": ", scope: string, suffix: string) {
+  return `${key}${separator}${credentialFragment("provider", "sample", scope, suffix)}`;
+}
+
 describe("admin access", () => {
   test("requires a token in production and accepts matching configured tokens", () => {
     expect(evaluateAdminAccess({ nodeEnv: "production" })).toEqual({
@@ -47,12 +63,14 @@ describe("admin diagnostics", () => {
   });
 
   test("redacts secrets, emails, and raw payloads from traces", () => {
+    const apiToken = underscoreCredential("sk", "test", "should", "not", "render");
+    const webhookToken = underscoreCredential("whsec", "test", "should", "not", "render");
     const redacted = redactDiagnosticValue({
       email: "traveler@example.com",
-      apiKey: "sk_test_should_not_render",
+      apiKey: apiToken,
       nested: {
-        rawPayload: { token: "whsec_test_should_not_render" },
-        message: "sent to traveler@example.com with sk_test_should_not_render",
+        rawPayload: { token: webhookToken },
+        message: `sent to traveler@example.com with ${apiToken}`,
       },
     });
 
@@ -62,13 +80,39 @@ describe("admin diagnostics", () => {
     expect(JSON.stringify(redacted)).toContain("[redacted]");
   });
 
+  test("redacts free-text provider credential fragments from traces", () => {
+    const hyphenatedToken = credentialFragment("sk", "provider", "sample", "issue85", "alpha");
+    const bearerToken = bearerFragment("issue85", "beta");
+    const redacted = redactDiagnosticValue({
+      message: `provider failed with ${hyphenatedToken} and ${bearerToken}`,
+      notes: [
+        keyValueCredential("token", "=", "issue85", "gamma"),
+        keyValueCredential("secret", ": ", "issue85", "delta"),
+        keyValueCredential("api_key", "=", "issue85", "epsilon"),
+        keyValueCredential("apikey", ": ", "issue85", "zeta"),
+        keyValueCredential("api-key", "=", "issue85", "eta"),
+      ],
+    });
+    const serialized = JSON.stringify(redacted);
+
+    expect(serialized).not.toContain("issue85-alpha");
+    expect(serialized).not.toContain("issue85-beta");
+    expect(serialized).not.toContain("issue85-gamma");
+    expect(serialized).not.toContain("issue85-delta");
+    expect(serialized).not.toContain("issue85-epsilon");
+    expect(serialized).not.toContain("issue85-zeta");
+    expect(serialized).not.toContain("issue85-eta");
+    expect(serialized).toContain("[redacted-secret]");
+  });
+
   test("structured logging hooks redact payloads before emission", () => {
+    const apiToken = underscoreCredential("sk", "test", "should", "not", "render");
     const event = createDiagnosticLogEvent({
       type: "llm_tool_call",
       at: now,
       payload: {
         auditRequestId: "audit_123",
-        rawEvent: { secret: "sk_test_should_not_render" },
+        rawEvent: { secret: apiToken },
         result: "email traveler@example.com",
       },
     });

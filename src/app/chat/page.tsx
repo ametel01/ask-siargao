@@ -3,9 +3,15 @@ import { ChatWorkspace } from "@/features/chat/ChatWorkspace";
 export default async function ChatPage({
   searchParams,
 }: {
-  searchParams: Promise<{ prompt?: string }>;
+  searchParams: Promise<{ prompt?: string; savedItemId?: string; threadId?: string }>;
 }) {
-  const { prompt } = await searchParams;
+  const { prompt, savedItemId, threadId } = await searchParams;
 
-  return <ChatWorkspace initialPrompt={prompt} />;
+  return (
+    <ChatWorkspace
+      initialPrompt={prompt}
+      initialSavedItemId={savedItemId}
+      initialThreadId={threadId}
+    />
+  );
 }

@@ -7,11 +7,12 @@ import {
   buildPublicPageJson,
   buildPublicPageMarkdown,
   normalizeJsonSlug,
-  type PublicPageFamily,
 } from "@/server/public-pages/public-content";
+import type { PublicSurfaceDefinition } from "@/server/public-pages/public-surface-registry";
 import { rateLimitedJson, rateLimitRequest } from "@/server/security/rate-limit";
 
-export async function renderPublicHumanPage(family: PublicPageFamily, slug: string) {
+export async function renderPublicHumanPage(surface: PublicSurfaceDefinition, slug: string) {
+  const family = surface.catalogFamilyKey;
   const page = await getPublicKnowledgeCatalog().getPage(family, slug);
 
   if (!page) {
@@ -21,7 +22,8 @@ export async function renderPublicHumanPage(family: PublicPageFamily, slug: stri
   return <PublicKnowledgePage page={page} />;
 }
 
-export async function publicMarkdownResponse(family: PublicPageFamily, slug: string) {
+export async function publicMarkdownResponse(surface: PublicSurfaceDefinition, slug: string) {
+  const family = surface.catalogFamilyKey;
   const page = await getPublicKnowledgeCatalog().getPage(family, slug);
 
   if (!page) {
@@ -34,10 +36,11 @@ export async function publicMarkdownResponse(family: PublicPageFamily, slug: str
 }
 
 export async function publicJsonResponse(
-  family: PublicPageFamily,
+  surface: PublicSurfaceDefinition,
   slug: string,
   request?: Request,
 ) {
+  const family = surface.catalogFamilyKey;
   if (request) {
     const rateLimit = rateLimitRequest(request, "public_api");
     if (!rateLimit.allowed) {

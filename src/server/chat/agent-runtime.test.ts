@@ -378,7 +378,7 @@ describe("agent runtime contracts", () => {
     });
   });
 
-  test("selects Places cards explicitly named in the final answer", () => {
+  test("auto-selects answer-referenced Places cards without a structured final payload", () => {
     const coastalGroundsCard = {
       ...cloud9CafeCard,
       id: "place_chijdaeowq8jbdmrzu25fwq34ju",
@@ -396,13 +396,10 @@ describe("agent runtime contracts", () => {
     };
 
     const turn = createAgentTurnResult({
-      message: "This should be replaced by final payload answer.",
+      message:
+        "Good nearby open cafe picks include Coastal Grounds Coffee Siargao, /WEEK ·END/ Café, and Coco Cafe.",
       requestId: "agent_request_answer_named_places",
       model: "gpt-test",
-      finalPayload: finalPayloadFixture({
-        answer:
-          "Good nearby open cafe picks include Coastal Grounds Coffee Siargao, /WEEK ·END/ Café, and Coco Cafe.",
-      }),
       toolResults: [
         {
           sources: [placesSourceSummary],
@@ -419,6 +416,76 @@ describe("agent runtime contracts", () => {
     expect(turn.artifactSelection).toMatchObject({
       selectedCardCount: 3,
       unselectedCardCount: 0,
+    });
+  });
+
+  test("does not auto-select answer-referenced cards when displayCardIds is explicitly empty", () => {
+    const selectedCard = {
+      ...cloud9CafeCard,
+      id: "place_selected",
+      title: "Selected Cafe",
+    };
+    const referencedCard = {
+      ...cloud9CafeCard,
+      id: "place_referenced",
+      title: "Referenced Cafe",
+    };
+
+    const turn = createAgentTurnResult({
+      message: "Structured answer with no cards.",
+      requestId: "agent_request_explicit_empty_cards",
+      model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        answer: "Selected Cafe is useful, but Referenced Cafe is only mentioned in prose.",
+        displayCardIds: [],
+      }),
+      toolResults: [
+        {
+          sources: [placesSourceSummary],
+          cards: [selectedCard, referencedCard],
+        },
+      ],
+    });
+
+    expect(turn.cards).toBeUndefined();
+    expect(turn.artifactSelection).toMatchObject({
+      selectedCardCount: 0,
+      unselectedCardCount: 2,
+    });
+  });
+
+  test("does not append answer-referenced cards after explicit mixed selection", () => {
+    const selectedCard = {
+      ...cloud9CafeCard,
+      id: "place_selected",
+      title: "Selected Cafe",
+    };
+    const referencedCard = {
+      ...cloud9CafeCard,
+      id: "place_referenced",
+      title: "Referenced Cafe",
+    };
+
+    const turn = createAgentTurnResult({
+      message: "Structured answer with one selected card.",
+      requestId: "agent_request_mixed_cards_with_answer_reference",
+      model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        answer: "Use Selected Cafe; Referenced Cafe is an unselected alternative in the prose.",
+        displayCardIds: [selectedCard.id],
+      }),
+      toolResults: [
+        {
+          sources: [placesSourceSummary],
+          cards: [selectedCard, referencedCard],
+        },
+      ],
+    });
+
+    expect(turn.cards?.map((card) => card.id)).toEqual([selectedCard.id]);
+    expect(turn.artifactSelection).toMatchObject({
+      selectedCardCount: 1,
+      unselectedCardCount: 1,
     });
   });
 
