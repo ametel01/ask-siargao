@@ -23,8 +23,10 @@ import {
   type RefObject,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { createPortal } from "react-dom";
 import useSWR from "swr";
@@ -90,6 +92,26 @@ type ProfileFormState = {
 type PrivateSummaryStatus = "idle" | "loading" | "ready" | "error";
 type TripBriefSection = "current-trip" | "traveler-preferences" | "account" | "privacy" | "pass";
 type ProfileFieldErrors = Record<string, string>;
+type ProfileSaveState = "idle" | "saving" | "saved" | "error";
+
+type ProfileEditorState = {
+  fieldErrors: ProfileFieldErrors;
+  form: ProfileFormState;
+  isDirty: boolean;
+  profile: UserProfileResponse | null;
+  saveError: string | null;
+  saveState: ProfileSaveState;
+};
+
+type ProfileEditorAction =
+  | { type: "profileUnavailable" }
+  | { type: "profileLoaded"; profile: UserProfileResponse }
+  | { type: "formChanged"; update: (current: ProfileFormState) => ProfileFormState }
+  | { type: "saveStarted" }
+  | { type: "saveAbandoned" }
+  | { type: "saveFailed"; error: string; fieldErrors?: ProfileFieldErrors }
+  | { type: "saveCompleted"; profile: UserProfileResponse; editsChanged: boolean }
+  | { type: "profileReplaced"; profile: UserProfileResponse };
 
 type ChatThreadsResponse = {
   threads: ChatHistoryThread[];
@@ -147,6 +169,75 @@ const emptyForm: ProfileFormState = {
   marketingConsent: false,
 };
 
+const initialProfileEditorState: ProfileEditorState = {
+  fieldErrors: {},
+  form: emptyForm,
+  isDirty: false,
+  profile: null,
+  saveError: null,
+  saveState: "idle",
+};
+
+const subscribeToHydration = () => () => {};
+const getHydratedSnapshot = () => true;
+const getServerHydratedSnapshot = () => false;
+
+function profileEditorReducer(
+  state: ProfileEditorState,
+  action: ProfileEditorAction,
+): ProfileEditorState {
+  switch (action.type) {
+    case "profileUnavailable":
+      return { ...state, profile: null };
+    case "profileLoaded":
+      return {
+        ...state,
+        profile: action.profile,
+        form: state.isDirty ? state.form : formFromProfile(action.profile),
+      };
+    case "formChanged":
+      return {
+        ...state,
+        fieldErrors: {},
+        form: action.update(state.form),
+        isDirty: true,
+        saveError: null,
+        saveState: state.saveState === "saving" ? "saving" : "idle",
+      };
+    case "saveStarted":
+      return { ...state, fieldErrors: {}, saveError: null, saveState: "saving" };
+    case "saveAbandoned":
+      return { ...state, saveState: "idle" };
+    case "saveFailed":
+      return {
+        ...state,
+        fieldErrors: action.fieldErrors ?? state.fieldErrors,
+        saveError: action.error,
+        saveState: "error",
+      };
+    case "saveCompleted":
+      return action.editsChanged
+        ? { ...state, profile: action.profile, saveState: "idle" }
+        : {
+            ...state,
+            form: formFromProfile(action.profile),
+            isDirty: false,
+            profile: action.profile,
+            saveState: "saved",
+          };
+    case "profileReplaced":
+      return {
+        ...state,
+        fieldErrors: {},
+        form: formFromProfile(action.profile),
+        isDirty: false,
+        profile: action.profile,
+        saveError: null,
+        saveState: "idle",
+      };
+  }
+}
+
 const settingsWorkspaceClass =
   "grid w-full max-w-none gap-6 px-4 py-5 sm:px-6 lg:px-8 lg:py-7 2xl:px-10";
 
@@ -155,6 +246,7 @@ const settingsPanelClass = `${appSurfacePanelClass} p-5 md:p-6`;
 const summaryDateFormatter = new Intl.DateTimeFormat("en", {
   day: "numeric",
   month: "short",
+  timeZone: "Asia/Manila",
 });
 
 class ProfileFetchError extends Error {
@@ -272,12 +364,8 @@ function SettingsDashboardContent({
     revalidateOnFocus: false,
     shouldRetryOnError: false,
   });
-  const [profile, setProfile] = useState<UserProfileResponse | null>(null);
-  const [form, setForm] = useState<ProfileFormState>(emptyForm);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [isDirty, setIsDirty] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<ProfileFieldErrors>({});
+  const [editor, dispatchEditor] = useReducer(profileEditorReducer, initialProfileEditorState);
+  const { fieldErrors, form, isDirty, profile, saveError, saveState } = editor;
   const [activeSection, setActiveSection] = useState<TripBriefSection>("current-trip");
   const editVersionRef = useRef(0);
   const saveInFlightRef = useRef(false);
@@ -323,26 +411,19 @@ function SettingsDashboardContent({
       return;
     }
     if (!profileCacheKey || profileError || authStatus === "unauthenticated") {
-      setProfile(null);
+      dispatchEditor({ type: "profileUnavailable" });
       return;
     }
     if (!loadedProfile) {
       return;
     }
 
-    setProfile(loadedProfile);
-    if (!isDirty) {
-      setForm(formFromProfile(loadedProfile));
-    }
-  }, [authStatus, isDirty, loadedProfile, profileCacheKey, profileError]);
+    dispatchEditor({ type: "profileLoaded", profile: loadedProfile });
+  }, [authStatus, loadedProfile, profileCacheKey, profileError]);
 
   function updateForm(update: (current: ProfileFormState) => ProfileFormState) {
     editVersionRef.current += 1;
-    setForm(update);
-    setIsDirty(true);
-    setSaveState((current) => (current === "saving" ? current : "idle"));
-    setSaveError(null);
-    setFieldErrors({});
+    dispatchEditor({ type: "formChanged", update });
   }
 
   function activateSection(section: TripBriefSection) {
@@ -366,9 +447,7 @@ function SettingsDashboardContent({
       return;
     }
     saveInFlightRef.current = true;
-    setSaveState("saving");
-    setSaveError(null);
-    setFieldErrors({});
+    dispatchEditor({ type: "saveStarted" });
     const savedEditVersion = editVersionRef.current;
 
     try {
@@ -381,36 +460,35 @@ function SettingsDashboardContent({
       if (!response.ok) {
         const errorBody = (await response.json().catch(() => null)) as ProfileErrorResponse | null;
         if (editVersionRef.current !== savedEditVersion) {
-          setSaveState("idle");
+          dispatchEditor({ type: "saveAbandoned" });
           return;
         }
         const issues = profileFieldErrors(errorBody?.issues);
-        setFieldErrors(issues);
-        setSaveError(
-          Object.keys(issues).length
+        dispatchEditor({
+          type: "saveFailed",
+          error: Object.keys(issues).length
             ? "Review the highlighted fields and try again."
             : "Check your entries and try again.",
-        );
-        setSaveState("error");
+          fieldErrors: issues,
+        });
         return;
       }
 
       const nextProfile = (await response.json()) as UserProfileResponse;
-      setProfile(nextProfile);
-      if (editVersionRef.current !== savedEditVersion) {
-        setSaveState("idle");
-        return;
-      }
-      setForm(formFromProfile(nextProfile));
-      setIsDirty(false);
-      setSaveState("saved");
+      dispatchEditor({
+        type: "saveCompleted",
+        profile: nextProfile,
+        editsChanged: editVersionRef.current !== savedEditVersion,
+      });
     } catch {
       if (editVersionRef.current !== savedEditVersion) {
-        setSaveState("idle");
+        dispatchEditor({ type: "saveAbandoned" });
         return;
       }
-      setSaveError("Your changes are still here. Check your connection and try again.");
-      setSaveState("error");
+      dispatchEditor({
+        type: "saveFailed",
+        error: "Your changes are still here. Check your connection and try again.",
+      });
     } finally {
       saveInFlightRef.current = false;
     }
@@ -439,12 +517,7 @@ function SettingsDashboardContent({
               onActivate={activateSection}
               onManageAccount={onManageAccount}
               onProfileUpdated={(nextProfile) => {
-                setProfile(nextProfile);
-                setForm(formFromProfile(nextProfile));
-                setIsDirty(false);
-                setSaveState("idle");
-                setSaveError(null);
-                setFieldErrors({});
+                dispatchEditor({ type: "profileReplaced", profile: nextProfile });
               }}
               onRefreshPrivateSummaries={() => {
                 void refreshChatThreads();
@@ -1220,13 +1293,13 @@ function PrivacyConfirmationDialog({
   onChangeConfirmation: (value: string) => void;
   onConfirm: () => void;
 }) {
-  const [isMounted, setIsMounted] = useState(false);
+  const isMounted = useSyncExternalStore(
+    subscribeToHydration,
+    getHydratedSnapshot,
+    getServerHydratedSnapshot,
+  );
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
 
   useEffect(() => {
     if (!isMounted) {
@@ -1269,7 +1342,7 @@ function PrivacyConfirmationDialog({
     };
   }, [isMounted]);
 
-  if (!isMounted) {
+  if (!isMounted || typeof document === "undefined") {
     return null;
   }
 

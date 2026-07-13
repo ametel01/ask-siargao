@@ -223,9 +223,10 @@ const chatErrorMessage = "Ask Siargao could not answer right now. Please try aga
 const shareErrorMessage = "Share link could not be created. Your saved items are still here.";
 const maxChatRequestMessageLength = 2_000;
 const maxPriorChatRequestMessages = 6;
-const chatTimeFormatter = new Intl.DateTimeFormat(undefined, {
+const chatTimeFormatter = new Intl.DateTimeFormat("en-PH", {
   hour: "numeric",
   minute: "2-digit",
+  timeZone: "Asia/Manila",
 });
 const conditionSourceTimeFormatter = new Intl.DateTimeFormat("en-PH", {
   hour: "numeric",
@@ -557,11 +558,11 @@ function useChatWorkspaceController({
     revalidateOnFocus: false,
     shouldRetryOnError: false,
   });
-  const tripDataSource: TripDataSource = profileLoading
-    ? "loading"
-    : profileError
-      ? "error"
-      : (profileResult?.source ?? "loading");
+  const tripDataSource = useMemo<TripDataSource>(
+    () =>
+      profileLoading ? "loading" : profileError ? "error" : (profileResult?.source ?? "loading"),
+    [profileError, profileLoading, profileResult],
+  );
   const canLoadPrivateThread =
     !profileLoading && !profileError && profileResult?.source === "authenticated";
   const tripContext = projectTripState({
