@@ -17,7 +17,7 @@ export const budgetLevelOptions = [
   { value: "premium", label: "Premium" },
   { value: "mixed", label: "A mix of budgets" },
 ] as const satisfies readonly ProfileOption[];
-export const budgetLevelValues = optionValues(budgetLevelOptions);
+const budgetLevelValues = optionValues(budgetLevelOptions);
 export type BudgetLevel = (typeof budgetLevelValues)[number];
 
 export const surfAbilityOptions = [
@@ -25,7 +25,7 @@ export const surfAbilityOptions = [
   { value: "intermediate", label: "Intermediate" },
   { value: "advanced", label: "Advanced" },
 ] as const satisfies readonly ProfileOption[];
-export const surfAbilityValues = optionValues(surfAbilityOptions);
+const surfAbilityValues = optionValues(surfAbilityOptions);
 export type SurfAbility = (typeof surfAbilityValues)[number];
 
 export const travelerTypeOptions = [
@@ -36,7 +36,7 @@ export const travelerTypeOptions = [
   { value: "family_with_kids", label: "Family with children" },
   { value: "group", label: "Group" },
 ] as const satisfies readonly ProfileOption[];
-export const travelerTypeValues = optionValues(travelerTypeOptions);
+const travelerTypeValues = optionValues(travelerTypeOptions);
 export type TravelerType = (typeof travelerTypeValues)[number];
 
 export const foodNeedOptions = [
@@ -46,7 +46,7 @@ export const foodNeedOptions = [
   { value: "gluten_free", label: "Gluten-free" },
   { value: "seafood_free", label: "Avoid seafood" },
 ] as const satisfies readonly ProfileOption[];
-export const foodNeedValues = optionValues(foodNeedOptions);
+const foodNeedValues = optionValues(foodNeedOptions);
 export type FoodNeed = (typeof foodNeedValues)[number];
 
 export const transportModeOptions = [
@@ -56,14 +56,14 @@ export const transportModeOptions = [
   { value: "van", label: "Van or transfer" },
   { value: "unknown", label: "Not sure yet" },
 ] as const satisfies readonly ProfileOption[];
-export const transportModeValues = optionValues(transportModeOptions);
+const transportModeValues = optionValues(transportModeOptions);
 export type TransportModeValue = (typeof transportModeValues)[number];
 
 export const weatherPreferenceOptions = [
   { value: "avoid_rain", label: "Prefer drier plans" },
   { value: "flexible", label: "Happy to adapt to rain" },
 ] as const satisfies readonly ProfileOption[];
-export const weatherPreferenceValues = optionValues(weatherPreferenceOptions);
+const weatherPreferenceValues = optionValues(weatherPreferenceOptions);
 export type WeatherPreference = (typeof weatherPreferenceValues)[number];
 
 export const durableConstraintOptions = [

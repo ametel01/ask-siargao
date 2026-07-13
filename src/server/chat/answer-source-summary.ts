@@ -47,6 +47,14 @@ const verifyingLabels = new Set<AnswerTrustLabel>([
   "directory_checked",
 ]);
 
+const sourceTimeFormatter = new Intl.DateTimeFormat("en-PH", {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZone: "Asia/Manila",
+});
+
 const trustLabelText: Record<AnswerTrustLabel, string> = {
   live_checked: "Places checked",
   fresh_cache: "Recently checked",
@@ -178,13 +186,5 @@ function formatSourceTime(value: string) {
   if (Number.isNaN(timestamp.getTime())) {
     return value;
   }
-  return new Intl.DateTimeFormat("en-PH", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "Asia/Manila",
-  })
-    .format(timestamp)
-    .replace(" at ", ", ");
+  return sourceTimeFormatter.format(timestamp).replace(" at ", ", ");
 }

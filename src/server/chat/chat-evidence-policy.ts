@@ -93,9 +93,10 @@ function ensureFinalPayloadUsesVehicleRentalEvidence(
   }
 
   const evidenceToolCallIds = preferredVehicleRentalEvidenceToolCallIds(toolCalls, toolResults);
+  const evidenceToolCallIdSet = new Set(evidenceToolCallIds);
   if (
     evidenceToolCallIds.length === 0 ||
-    finalPayload.usedToolCallIds.some((toolCallId) => evidenceToolCallIds.includes(toolCallId))
+    finalPayload.usedToolCallIds.some((toolCallId) => evidenceToolCallIdSet.has(toolCallId))
   ) {
     return finalPayload;
   }

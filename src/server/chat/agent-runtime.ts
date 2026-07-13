@@ -462,11 +462,12 @@ export function createAgentTurnResult({
       sourceReconciliation,
     ),
   );
+  const usedToolCallIdSet = finalPayload ? new Set(finalPayload.usedToolCallIds) : undefined;
   const publicSources = finalPayload
     ? reconcileSourceSummaries(
         aggregateAgentSourceSummaries([
           ...sourceCarriers.filter((carrier) =>
-            carrier.toolCallId ? finalPayload.usedToolCallIds.includes(carrier.toolCallId) : false,
+            carrier.toolCallId ? usedToolCallIdSet?.has(carrier.toolCallId) : false,
           ),
           ...selectedArtifacts.cards.map((card) => ({ sources: card.sources ?? [] })),
           ...selectedItineraries.map((itinerary) => ({ sources: itinerary.sources })),
@@ -584,13 +585,12 @@ function selectAgentArtifacts({
   summary: AgentArtifactSelectionSummary;
 } {
   const allowedCardIdSet = allowedCardIds ? new Set(allowedCardIds) : undefined;
-  const kindFilteredCardRegistry = allowedCardKinds?.length
+  const allowedCardKindSet = allowedCardKinds?.length ? new Set(allowedCardKinds) : undefined;
+  const kindFilteredCardRegistry = allowedCardKindSet
     ? {
         ...registry,
         cardsById: new Map(
-          [...registry.cardsById.entries()].filter(([, card]) =>
-            allowedCardKinds.includes(card.kind),
-          ),
+          [...registry.cardsById.entries()].filter(([, card]) => allowedCardKindSet.has(card.kind)),
         ),
       }
     : registry;
@@ -608,16 +608,17 @@ function selectAgentArtifacts({
   if (!finalPayload) {
     const explicitlyProvidedCards = dedupeCardsById(cards ?? []).filter(
       (card) =>
-        (!allowedCardKinds?.length || allowedCardKinds.includes(card.kind)) &&
+        (!allowedCardKindSet || allowedCardKindSet.has(card.kind)) &&
         (!allowedCardIdSet || allowedCardIdSet.has(card.id)),
     );
     const explicitlyProvidedCardIds = new Set(explicitlyProvidedCards.map((card) => card.id));
-    const referencedCards = referencedCardIds(message, cardRegistry.cardsById)
-      .filter((id) => !explicitlyProvidedCardIds.has(id))
-      .flatMap((id) => {
-        const card = cardRegistry.cardsById.get(id);
-        return card ? [card] : [];
-      });
+    const referencedCards = referencedCardIds(message, cardRegistry.cardsById).flatMap((id) => {
+      if (explicitlyProvidedCardIds.has(id)) {
+        return [];
+      }
+      const card = cardRegistry.cardsById.get(id);
+      return card ? [card] : [];
+    });
     const compatibilityCards = [...explicitlyProvidedCards, ...referencedCards];
     const compatibilityActions = dedupeById(actions ?? []);
     const compatibilityItineraries = dedupeItineraries(itineraries ?? []);
@@ -1478,11 +1479,12 @@ function hasSuccessfulRequiredToolCall(
   acceptedSourceLabels: readonly AnswerSourceSummary["label"][],
 ) {
   const requiredKey = normalizeRequiredToolArguments(requiredArguments);
+  const acceptedSourceLabelSet = new Set(acceptedSourceLabels);
   return toolCalls.some(
     (toolCall) =>
       toolCall.name === name &&
       toolCall.status === "success" &&
-      toolCall.sources.some((source) => acceptedSourceLabels.includes(source.label)) &&
+      toolCall.sources.some((source) => acceptedSourceLabelSet.has(source.label)) &&
       normalizeRequiredToolArguments(toolCall.arguments) === requiredKey,
   );
 }

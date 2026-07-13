@@ -70,7 +70,9 @@ function projectSourceStatus(
     };
   }
 
-  const sourceNames = presentations.map((presentation) => presentation.sourceName).filter(Boolean);
+  const sourceNames = presentations.flatMap((presentation) =>
+    presentation.sourceName ? [presentation.sourceName] : [],
+  );
   if (sourceNames.length === 0) {
     return undefined;
   }

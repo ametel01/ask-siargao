@@ -162,13 +162,14 @@ export function parseTideForecastPage(input: {
   const days = fcgon.tideDays.map(normalizeTideForecastDay);
   const seaPeriods = parseSeaPeriods(input.html);
   const targetDates = targetDatesForRange(input.dateRange, input.now, days);
-  const selectedDays = days.filter((day) => targetDates.includes(day.date));
+  const targetDateSet = new Set(targetDates);
+  const selectedDays = days.filter((day) => targetDateSet.has(day.date));
   if (selectedDays.length === 0) {
     throw new Error(`Tide-Forecast page does not contain tide days for ${targetDates.join(", ")}.`);
   }
 
   const targetSeaPeriods = seaPeriods.filter((period) =>
-    targetDates.includes(dateKeyFromTimestamp(period.timestamp)),
+    targetDateSet.has(dateKeyFromTimestamp(period.timestamp)),
   );
   const stationMap = fcgon.maps?.[0];
   const snapshot: TideForecastSnapshot = {

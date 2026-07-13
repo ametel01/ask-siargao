@@ -2,12 +2,10 @@ import type { WeatherPreference } from "@/features/settings/profile-options";
 import { travelerEmailFromStoredEmail } from "@/lib/traveler-identity";
 import {
   normalizeStoredProfileTripContext,
-  tripContextProfileNotesMaxLength,
   type UserProfileTripContext,
 } from "@/server/chat/trip-context";
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 
-export const TRIP_CONTEXT_NOTES_MAX_LENGTH = tripContextProfileNotesMaxLength;
 export type { UserProfileTripContext };
 
 export type UserProfileDetails = {

@@ -33,8 +33,9 @@ export function projectRecommendationSet({
   const routeBackedCards = routeStopTitles.size
     ? cards.filter((card) => routeStopTitles.has(normalizedIdentity(card.title)))
     : [];
+  const routeBackedCardSet = new Set(routeBackedCards);
   const cardsForDisplay =
-    routeBackedCards.length >= 2 ? cards.filter((card) => !routeBackedCards.includes(card)) : cards;
+    routeBackedCards.length >= 2 ? cards.filter((card) => !routeBackedCardSet.has(card)) : cards;
 
   const usefulCards = cardsForDisplay.flatMap((card) => {
     const fitRationale = usefulRecommendationReasons(card.fitReasons)[0];

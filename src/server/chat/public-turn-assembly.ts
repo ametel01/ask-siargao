@@ -320,14 +320,18 @@ function sanitizeDisplayRecommendationCards(
   cards: readonly RecommendationCard[],
   terminalResearchGapApplies: boolean,
 ) {
-  return cards
-    .filter((card) => !isBlockedPositivePlaceCard(card, terminalResearchGapApplies))
-    .map((card) => ({
-      ...card,
-      fitReasons: sanitizeDisplayTextList(card.fitReasons ?? []),
-      caveats: sanitizeDisplayTextList(card.caveats ?? []),
-      ...(card.sources ? { sources: sanitizeDisplaySources(card.sources) } : {}),
-    }));
+  return cards.flatMap((card) =>
+    isBlockedPositivePlaceCard(card, terminalResearchGapApplies)
+      ? []
+      : [
+          {
+            ...card,
+            fitReasons: sanitizeDisplayTextList(card.fitReasons ?? []),
+            caveats: sanitizeDisplayTextList(card.caveats ?? []),
+            ...(card.sources ? { sources: sanitizeDisplaySources(card.sources) } : {}),
+          },
+        ],
+  );
 }
 
 function sanitizeDisplayActions(actions: readonly ChatAction[]) {
@@ -370,14 +374,18 @@ function sanitizeStorageRecommendationCards(
   cards: readonly RecommendationCard[],
   terminalResearchGapApplies: boolean,
 ) {
-  return cards
-    .filter((card) => !isBlockedPositivePlaceCard(card, terminalResearchGapApplies))
-    .map((card) => ({
-      ...card,
-      fitReasons: sanitizeStorageTextList(card.fitReasons ?? []),
-      caveats: sanitizeStorageTextList(card.caveats ?? []),
-      ...(card.sources ? { sources: sanitizeStorageSources(card.sources) } : {}),
-    }));
+  return cards.flatMap((card) =>
+    isBlockedPositivePlaceCard(card, terminalResearchGapApplies)
+      ? []
+      : [
+          {
+            ...card,
+            fitReasons: sanitizeStorageTextList(card.fitReasons ?? []),
+            caveats: sanitizeStorageTextList(card.caveats ?? []),
+            ...(card.sources ? { sources: sanitizeStorageSources(card.sources) } : {}),
+          },
+        ],
+  );
 }
 
 function sanitizeStorageActions(actions: readonly ChatAction[]) {

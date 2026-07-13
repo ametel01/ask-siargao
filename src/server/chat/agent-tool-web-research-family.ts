@@ -24,6 +24,9 @@ const researchWebSchema = z.strictObject({
   maxSources: optionalNullable(z.number().int().min(1).max(8)),
 });
 
+const webResearchIntentSet = new Set(webResearchIntents);
+const webResearchSourceTypeSet = new Set(webResearchSourceTypes);
+
 export type ResearchWebArguments = z.infer<typeof researchWebSchema>;
 
 export type WebResearchToolHandlers = {
@@ -141,7 +144,7 @@ function researchWebArgumentsForValidation(request: AgentToolExecutionRequest) {
 
 function normalizeWebResearchIntent(value: unknown) {
   return typeof value === "string" &&
-    webResearchIntents.includes(value as (typeof webResearchIntents)[number])
+    webResearchIntentSet.has(value as (typeof webResearchIntents)[number])
     ? value
     : undefined;
 }
@@ -151,7 +154,7 @@ function normalizeWebResearchSourceTypes(value: unknown) {
   const sourceTypes = candidates.filter(
     (candidate): candidate is (typeof webResearchSourceTypes)[number] =>
       typeof candidate === "string" &&
-      webResearchSourceTypes.includes(candidate as (typeof webResearchSourceTypes)[number]),
+      webResearchSourceTypeSet.has(candidate as (typeof webResearchSourceTypes)[number]),
   );
   return sourceTypes.length > 0 ? sourceTypes : undefined;
 }

@@ -105,6 +105,7 @@ import {
   authenticatedTripContextPatch,
   projectMobileTripContextSummary,
 } from "@/features/chat/mobile-trip-context-presentation";
+import { PendingAssistantWaitState } from "@/features/chat/PendingAssistantWaitState";
 import {
   projectRecommendationSet,
   type RecommendationCardPresentation,
@@ -114,7 +115,6 @@ import {
   invalidateResponseWaitRequest,
   isCurrentResponseWaitRequest,
   isResponseWaitAbort,
-  PendingAssistantWaitState,
   type ResponseWaitRequest,
   responseStoppedStatusText,
   responseWaitStatusText,
@@ -223,9 +223,10 @@ const chatErrorMessage = "Ask Siargao could not answer right now. Please try aga
 const shareErrorMessage = "Share link could not be created. Your saved items are still here.";
 const maxChatRequestMessageLength = 2_000;
 const maxPriorChatRequestMessages = 6;
-const chatTimeFormatter = new Intl.DateTimeFormat(undefined, {
+const chatTimeFormatter = new Intl.DateTimeFormat("en-PH", {
   hour: "numeric",
   minute: "2-digit",
+  timeZone: "Asia/Manila",
 });
 const conditionSourceTimeFormatter = new Intl.DateTimeFormat("en-PH", {
   hour: "numeric",
@@ -557,11 +558,11 @@ function useChatWorkspaceController({
     revalidateOnFocus: false,
     shouldRetryOnError: false,
   });
-  const tripDataSource: TripDataSource = profileLoading
-    ? "loading"
-    : profileError
-      ? "error"
-      : (profileResult?.source ?? "loading");
+  const tripDataSource = useMemo<TripDataSource>(
+    () =>
+      profileLoading ? "loading" : profileError ? "error" : (profileResult?.source ?? "loading"),
+    [profileError, profileLoading, profileResult],
+  );
   const canLoadPrivateThread =
     !profileLoading && !profileError && profileResult?.source === "authenticated";
   const tripContext = projectTripState({
@@ -5086,7 +5087,13 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
             ) : null}
             {fetchedAtValues.length ? (
               <p className="m-0 text-[0.7rem] font-bold text-text-muted">
-                Checked {fetchedAtValues.map(formatEvidenceReceiptTime).filter(Boolean).join(", ")}
+                Checked{" "}
+                {fetchedAtValues
+                  .flatMap((value) => {
+                    const formatted = formatEvidenceReceiptTime(value);
+                    return formatted ? [formatted] : [];
+                  })
+                  .join(", ")}
               </p>
             ) : null}
           </div>

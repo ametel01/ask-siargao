@@ -547,6 +547,7 @@ function hasSatisfyingToolCall(
   requiredCall: RequiredEvidenceToolCall,
   toolCalls: readonly AgentToolCallAudit[],
 ) {
+  const acceptedSourceLabelSet = new Set(requiredCall.acceptedSourceLabels);
   return toolCalls.some(
     (toolCall) =>
       toolCall.name === requiredCall.name &&
@@ -554,7 +555,7 @@ function hasSatisfyingToolCall(
       toolCall.status === "success" &&
       toolCall.sources.some(
         (source) =>
-          requiredCall.acceptedSourceLabels.includes(source.label) &&
+          acceptedSourceLabelSet.has(source.label) &&
           (requiredCall.name !== "search_places" ||
             !requiredCall.requiresOpenNow ||
             source.checked.some((item) => /\bopen[- ]?now signal\b/i.test(item))),
@@ -566,14 +567,15 @@ function hasCompletedToolCall(
   requiredCall: RequiredEvidenceToolCall,
   toolCalls: readonly AgentToolCallAudit[],
 ) {
+  const acceptedSourceLabelSet = new Set(requiredCall.acceptedSourceLabels);
+  const terminalSourceLabelSet = new Set(requiredCall.terminalSourceLabels);
   return toolCalls.some(
     (toolCall) =>
       toolCall.name === requiredCall.name &&
       requiredEvidenceArgumentsMatch(requiredCall, toolCall.arguments) &&
       toolCall.sources.some(
         (source) =>
-          requiredCall.acceptedSourceLabels.includes(source.label) ||
-          requiredCall.terminalSourceLabels.includes(source.label),
+          acceptedSourceLabelSet.has(source.label) || terminalSourceLabelSet.has(source.label),
       ),
   );
 }
@@ -582,11 +584,12 @@ function hasTerminalToolCall(
   requiredCall: RequiredEvidenceToolCall,
   toolCalls: readonly AgentToolCallAudit[],
 ) {
+  const terminalSourceLabelSet = new Set(requiredCall.terminalSourceLabels);
   return toolCalls.some(
     (toolCall) =>
       toolCall.name === requiredCall.name &&
       requiredEvidenceArgumentsMatch(requiredCall, toolCall.arguments) &&
-      toolCall.sources.some((source) => requiredCall.terminalSourceLabels.includes(source.label)),
+      toolCall.sources.some((source) => terminalSourceLabelSet.has(source.label)),
   );
 }
 
