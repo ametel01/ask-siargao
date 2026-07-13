@@ -848,7 +848,7 @@ function useChatWorkspaceController({
         if (!isCurrentThreadLoad()) {
           return;
         }
-        setSelectedThreadId(threadId);
+        setSelectedThreadId(() => threadId);
         setSelectedThreadTitle(body.thread?.title ?? "Siargao chat");
         const loadedThread = body.thread;
         if (loadedThread) {
@@ -870,12 +870,7 @@ function useChatWorkspaceController({
     [stopActiveResponseForThreadSwitch],
   );
 
-  const openChatThread = useCallback(
-    (threadId: string) => {
-      void loadChatThread(threadId, "push");
-    },
-    [loadChatThread],
-  );
+  const openChatThread = loadChatThread;
 
   const startNewChatWithoutHistoryPush = useCallback(() => {
     invalidatePendingChatSubmission();
@@ -1317,12 +1312,7 @@ function useChatWorkspaceController({
     [dispatchLocationState],
   );
 
-  const requestLocation = useCallback(
-    (scope: LocationSharingScope) => {
-      void captureLocation(scope);
-    },
-    [captureLocation],
-  );
+  const requestLocation = captureLocation;
 
   const turnOffLocation = useCallback(() => {
     activeLocationCaptureRef.current?.controller.abort();
@@ -1584,12 +1574,7 @@ function useChatWorkspaceController({
     [savedPlanSharing],
   );
 
-  const handlePromptSubmit = useCallback(
-    (prompt: string) => {
-      void submitPrompt(prompt);
-    },
-    [submitPrompt],
-  );
+  const handlePromptSubmit = submitPrompt;
 
   async function updateTripContext(context: TripContextDraft) {
     const nextContext = normalizeTripContextDraft(context);

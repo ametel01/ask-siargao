@@ -3341,9 +3341,13 @@ function repeatedInvalidToolArgumentNames(toolCalls: readonly AgentToolCallAudit
       (invalidCountsByToolName.get(toolCall.name) ?? 0) + 1,
     );
   }
-  return [...invalidCountsByToolName]
-    .filter(([, count]) => count >= 2)
-    .map(([toolName]) => toolName);
+  const repeatedToolNames: string[] = [];
+  for (const [toolName, count] of invalidCountsByToolName) {
+    if (count >= 2) {
+      repeatedToolNames.push(toolName);
+    }
+  }
+  return repeatedToolNames;
 }
 
 function invalidToolArgumentsFinalAnswerInstruction(toolNames: readonly string[]) {

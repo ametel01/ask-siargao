@@ -427,7 +427,7 @@ function SettingsDashboardContent({
   }
 
   function activateSection(section: TripBriefSection) {
-    setActiveSection(section);
+    setActiveSection(() => section);
     window.history.pushState(null, "", `#${section}`);
     const target = document.getElementById(section);
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1027,7 +1027,7 @@ function PrivacyControlsPanel({
   }, [profile.profile.marketingConsent]);
 
   function openDialog(action: PrivacyDialogAction) {
-    setDialogAction(action);
+    setDialogAction(() => action);
     setConfirmationValue("");
     setActionStatus(null);
   }
