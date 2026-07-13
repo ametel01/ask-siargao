@@ -99,7 +99,6 @@ import {
   locationGeolocationForRequest,
   locationSharingReducer,
   locationStateLabel,
-  shouldCaptureLocationForPrompt,
 } from "@/features/chat/location-sharing-state";
 import {
   authenticatedTripContextPatch,
@@ -1334,18 +1333,7 @@ function useChatWorkspaceController({
       chatSubmissionGenerationRef.current = submission.generation;
       pendingChatSubmissionRef.current = submission;
       setIsSending(true);
-      let requestLocationState = locationState;
-      if (shouldCaptureLocationForPrompt(trimmedPrompt, locationState)) {
-        requestLocationState =
-          (await captureLocation("single_request", submission.controller.signal)) ?? locationState;
-        if (
-          !mountedRef.current ||
-          submission.controller.signal.aborted ||
-          pendingChatSubmissionRef.current?.generation !== submission.generation
-        ) {
-          return;
-        }
-      }
+      const requestLocationState = locationState;
 
       if (
         !mountedRef.current ||
@@ -1498,7 +1486,6 @@ function useChatWorkspaceController({
       }
     },
     [
-      captureLocation,
       dispatchLocationState,
       isSending,
       locationState,

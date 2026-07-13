@@ -63,25 +63,6 @@ export function locationGeolocationForRequest(
   return state.status === "ready" ? state.geolocation : undefined;
 }
 
-export function shouldCaptureLocationForPrompt(prompt: string, state: LocationSharingState) {
-  if (state.status !== "off" && state.status !== "used") {
-    return false;
-  }
-  return hasDirectBrowserLocationPrompt(prompt) && !hasExplicitSiargaoArea(prompt);
-}
-
-export function hasDirectBrowserLocationPrompt(prompt: string) {
-  return /\b(?:near\s+me|nearby|around\s+me|close\s+to\s+me|my\s+(?:location|area)|current\s+location|where\s+i\s+am)\b/i.test(
-    prompt,
-  );
-}
-
-export function hasExplicitSiargaoArea(prompt: string) {
-  return /\b(?:cloud\s*9|general\s+luna|del\s+carmen|dapa|pacifico|burgos|pilar|malinao|catangnan|union|maasin|santa\s+monica|san\s+isidro)\b/i.test(
-    prompt,
-  );
-}
-
 export function locationStateLabel(state: LocationSharingState) {
   switch (state.status) {
     case "off":

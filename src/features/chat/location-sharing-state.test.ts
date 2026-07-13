@@ -5,7 +5,6 @@ import {
   type LocationSharingState,
   locationGeolocationForRequest,
   locationSharingReducer,
-  shouldCaptureLocationForPrompt,
 } from "@/features/chat/location-sharing-state";
 import type { ChatClientGeolocation } from "@/features/chat/saved-trip-client";
 
@@ -102,42 +101,5 @@ describe("location sharing state", () => {
         geolocation: geolocation("single_request"),
       }),
     ).toEqual({ status: "off" });
-  });
-
-  test("captures only direct browser-relative prompts from off or used states", () => {
-    for (const prompt of [
-      "Will it rain today?",
-      "What is open now?",
-      "Plan my day",
-      "Build an itinerary for tomorrow",
-      "Where should we eat in General Luna?",
-      "Surf near Cloud 9 today?",
-      "Plan my Siargao day around my accommodation.",
-    ]) {
-      expect(shouldCaptureLocationForPrompt(prompt, { status: "off" }), prompt).toBe(false);
-    }
-
-    for (const prompt of [
-      "What is open near me?",
-      "Coffee around me",
-      "Use my current location for food",
-      "Where I am, what is close?",
-    ]) {
-      expect(shouldCaptureLocationForPrompt(prompt, { status: "off" }), prompt).toBe(true);
-      expect(shouldCaptureLocationForPrompt(prompt, { status: "used" }), prompt).toBe(true);
-    }
-
-    expect(shouldCaptureLocationForPrompt("What is near me in Dapa?", { status: "off" })).toBe(
-      false,
-    );
-    expect(shouldCaptureLocationForPrompt("What is open near me?", { status: "blocked" })).toBe(
-      false,
-    );
-    expect(
-      shouldCaptureLocationForPrompt("What is open near me?", {
-        status: "unavailable",
-        reason: "timeout",
-      }),
-    ).toBe(false);
   });
 });
