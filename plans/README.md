@@ -3,38 +3,37 @@
 These plans turn the remaining `$improve` findings into independently executable work.
 They are written for another coding agent to implement from a clean checkout.
 
-Last reconciled: `2026-06-30`
-Repository revision reviewed: `a9d1775`
+Last reconciled: `2026-07-08`
+Repository revision reviewed: `8775d60`
 
 ## Execution Order
 
-1. [003 - Stop logging plaintext chat previews](003-stop-chat-preview-logging.md)
-2. [008 - Separate public tool calls from internal tool audits](008-separate-public-tool-call-dto.md)
-3. [004 - Enforce shared production rate-limit storage](004-enforce-shared-rate-limit-store.md)
-4. [009 - Consolidate live place evidence planning](009-consolidate-live-place-evidence-planning.md)
-5. [006 - Make local verification non-mutating and CI-aligned](006-make-verify-non-mutating.md)
-6. [010 - Pin Bun runtime in CI](010-pin-bun-runtime-in-ci.md)
-7. [002 - Align shared-trip source disclosure docs with the public contract](002-reconcile-shared-trip-source-disclosure.md)
-8. [005 - Extract saved-trip client state from ChatWorkspace](005-extract-saved-trip-client-state.md)
-9. [007 - Add nightlife event sources and route-style answers](007-nightlife-event-sources.md)
-10. [011 - Add trip pass usage meter foundation](011-add-trip-pass-usage-meter-foundation.md)
+1. [012 - Expand diagnostics token redaction](012-expand-diagnostics-token-redaction.md)
+2. [016 - Normalize model-visible agent tool failure text](016-normalize-agent-tool-failure-text.md)
+3. [017 - Stop returning raw exception messages from public API errors](017-stop-public-api-raw-exception-messages.md)
+4. [013 - Align source-caveat memory with the chat response contract](013-align-source-caveat-contract.md)
+5. [014 - Bound persisted profile trip context](014-bound-profile-trip-context.md)
+6. [015 - Make API route protection explicit](015-make-api-route-policy-explicit.md)
 
 Plan 001 was deleted during reconciliation because the saved-trip route tests were fixed
 independently before execution. Plan 002 was corrected after the issue #23 maintainer decision:
 issue #8 / PR #9 is authoritative, so public shared trips preserve governed traveler-safe
 `notChecked` source context while private/internal data remains hidden.
 
-Plans 003, 004, and 008 are the highest-leverage security/privacy work. Plan 009 is the highest
-product-correctness item after the security fixes. Plans 006 and 010 improve verification and CI
-determinism. Plans 005, 007, and 011 are larger direction or maintainability work and should follow
-once the lower-risk fixes are clear.
+Plans 012, 016, and 017 are the current security/privacy fixes. Plan 013 is the highest current
+chat-correctness item because model-facing memory conflicts with the runtime response contract.
+Plans 014 and 015 are bounded data-shape and route-policy guardrails.
+
+Older plans 002 and 004-011 are retained as historical completed work. Plan 003 is rejected as
+fixed independently: current `src/app/api/chat/chat-route.ts` logs latest user-message length and
+hash only, with no plaintext preview.
 
 ## Status Table
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 | --- | --- | --- | --- | --- | --- |
 | 002 | Align shared-trip source disclosure docs with the public contract | P2 | small | none | DONE |
-| 003 | Stop logging plaintext chat previews | P1 | small | none | TODO |
+| 003 | Stop logging plaintext chat previews | P1 | small | none | REJECTED - fixed independently before this run |
 | 004 | Enforce shared production rate-limit storage | P1 | medium | none | DONE |
 | 005 | Extract saved-trip client state from ChatWorkspace | P2 | large | none | DONE |
 | 006 | Make local verification non-mutating and CI-aligned | P2 | small | none | DONE |
@@ -43,9 +42,30 @@ once the lower-risk fixes are clear.
 | 009 | Consolidate live place evidence planning | P1 | medium | none | DONE |
 | 010 | Pin Bun runtime in CI | P2 | small | none | DONE |
 | 011 | Add trip pass usage meter foundation | P2 | large | none | DONE |
+| 012 | Expand diagnostics token redaction | P1 | small | none | TODO |
+| 013 | Align source-caveat memory with the chat response contract | P1 | medium | none | TODO |
+| 014 | Bound persisted profile trip context | P2 | small | none | TODO |
+| 015 | Make API route protection explicit | P2 | medium | none | TODO |
+| 016 | Normalize model-visible agent tool failure text | P1 | medium | none | TODO |
+| 017 | Stop returning raw exception messages from public API errors | P2 | medium | none | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED
 (with one-line rationale).
+
+## Published Issues
+
+- [#85 - Expand diagnostics token redaction](https://github.com/ametel01/ask-siargao/issues/85)
+  maps to [012](012-expand-diagnostics-token-redaction.md).
+- [#86 - Align source-caveat memory with chat response contract](https://github.com/ametel01/ask-siargao/issues/86)
+  maps to [013](013-align-source-caveat-contract.md).
+- [#87 - Bound persisted profile trip context](https://github.com/ametel01/ask-siargao/issues/87)
+  maps to [014](014-bound-profile-trip-context.md).
+- [#88 - Make API route protection explicit](https://github.com/ametel01/ask-siargao/issues/88)
+  maps to [015](015-make-api-route-policy-explicit.md).
+- [#93 - Normalize agent tool failure text](https://github.com/ametel01/ask-siargao/issues/93)
+  maps to [016](016-normalize-agent-tool-failure-text.md).
+- [#94 - Stop returning raw exception messages from public API errors](https://github.com/ametel01/ask-siargao/issues/94)
+  maps to [017](017-stop-public-api-raw-exception-messages.md).
 
 ## Shared Executor Rules
 
@@ -62,22 +82,22 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 
 ## Baseline Observed During Reconciliation
 
-Passing at `a9d1775`:
+Passing at `8775d60`:
 
 ```sh
+bun audit
 bun run lint
 bun run typecheck --incremental false
-bun audit
 bun test
 ```
 
 Observed `bun test` result:
 
 ```text
-582 pass
+808 pass
 0 fail
-2853 expect() calls
-Ran 582 tests across 55 files.
+4169 expect() calls
+Ran 808 tests across 74 files.
 ```
 
 ## Findings Considered And Rejected
@@ -91,3 +111,8 @@ Ran 582 tests across 55 files.
   applies the chat rate-limit policy.
 - Committed live secrets: no committed real secret values were found during this review; only
   placeholders and test fixtures were observed.
+- Plan 003, plaintext chat preview logging: rejected because
+  `src/app/api/chat/chat-route.ts:806-810` now returns only message length and hash.
+- Admin diagnostics displaying sample data: not treated as a bug in this run because
+  `documentation/developer/reference/demo-data.md` documents that admin diagnostics use
+  `createSampleDiagnosticsSnapshot`; wiring live diagnostics remains a product-direction option.
