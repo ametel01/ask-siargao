@@ -8,8 +8,12 @@ import { SignInButton, SignUpButton, useClerk, useUser } from "@clerk/nextjs";
 import {
   ArrowRight,
   CheckCircle2,
+  CircleAlert,
+  CreditCard,
+  LoaderCircle,
   MapPinned,
   MessageCircle,
+  RefreshCw,
   Save,
   ShieldCheck,
   Trash2,
@@ -54,8 +58,13 @@ import {
   travelerTypeOptions,
   weatherPreferenceOptions,
 } from "@/features/settings/profile-options";
+import {
+  projectTripPassAccountView,
+  type TripPassAccountFetchState,
+} from "@/features/trip-pass/account-presentation";
 import type { ChatHistoryThread } from "@/server/chat/chat-history-store";
 import type { UserProfileResponse } from "@/server/profile/user-profile-store";
+import type { TripPassAccountPresentation } from "@/server/trip-pass/presentation";
 import type { SavedTripItem } from "@/server/trips/shared-trip-types";
 import {
   appBodyClass,
@@ -263,6 +272,15 @@ async function fetchProfile(key: Exclude<ProfileCacheKey, null>) {
   }
 
   return (await response.json()) as UserProfileResponse;
+}
+
+async function fetchTripPassAccount(url: string) {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("trip_pass_status_unavailable");
+  }
+
+  return (await response.json()) as TripPassAccountPresentation;
 }
 
 function profileCacheFingerprint(key: ProfileCacheKey): string {
@@ -933,12 +951,200 @@ function ShortcutPanel() {
 }
 
 function PassPanel() {
+  const [checkoutState, setCheckoutState] = useState<"idle" | "starting" | "redirecting" | "error">(
+    "idle",
+  );
+  const [checkoutReturn, setCheckoutReturn] = useState<"none" | "return" | "cancelled">("none");
+  const {
+    data: tripPass,
+    error: tripPassError,
+    isLoading,
+    mutate: refreshTripPass,
+  } = useSWR("/api/me/trip-pass", fetchTripPassAccount, {
+    refreshInterval: (latest) =>
+      checkoutReturn === "return" && latest?.status === "pending" ? 4_000 : 0,
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  });
+  const fetchState: TripPassAccountFetchState = isLoading
+    ? "loading"
+    : tripPassError
+      ? "unavailable"
+      : "ready";
+  const view = projectTripPassAccountView(tripPass ?? null, fetchState);
+  const canStartCheckout =
+    view.actionLabel !== null && checkoutState !== "starting" && checkoutState !== "redirecting";
+  const checkoutStatusMessage =
+    checkoutState === "error"
+      ? "Checkout could not start. Refresh the pass status and try again."
+      : checkoutState === "starting"
+        ? "Starting secure checkout."
+        : checkoutState === "redirecting"
+          ? "Redirecting to secure checkout."
+          : checkoutReturn === "return" && tripPass?.status === "pending"
+            ? "Payment is being confirmed. This panel will refresh automatically."
+            : checkoutReturn === "cancelled"
+              ? "Checkout was cancelled. No pass was activated."
+              : null;
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get("trip_pass_checkout");
+    if (result === "return" || result === "cancelled") {
+      setCheckoutReturn(result);
+      void refreshTripPass();
+    }
+  }, [refreshTripPass]);
+
+  async function startCheckout() {
+    if (!canStartCheckout) {
+      return;
+    }
+    setCheckoutState("starting");
+    try {
+      const response = await fetch("/api/me/trip-pass/checkout", {
+        method: "POST",
+      });
+      const body = (await response.json().catch(() => null)) as {
+        checkoutUrl?: string;
+      } | null;
+      if (!response.ok || !body?.checkoutUrl) {
+        setCheckoutState("error");
+        void refreshTripPass();
+        return;
+      }
+      setCheckoutState("redirecting");
+      window.location.assign(body.checkoutUrl);
+    } catch {
+      setCheckoutState("error");
+      void refreshTripPass();
+    }
+  }
+
   return (
-    <section className={`${settingsPanelClass} grid min-w-0 gap-3`} id="pass" tabIndex={-1}>
-      <h2 className="m-0 text-base font-semibold">Pass</h2>
-      <p className={appBodyClass}>
-        Pass details and choices will appear here when they are available for your account.
+    <section
+      aria-busy={fetchState === "loading" || checkoutState === "starting"}
+      className={`${settingsPanelClass} grid min-w-0 gap-4`}
+      id="pass"
+      tabIndex={-1}
+    >
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="grid min-w-0 gap-1">
+          <h2 className="m-0 text-base font-semibold">Pass</h2>
+          <p className="m-0 text-sm font-extrabold text-text-strong">{view.headline}</p>
+        </div>
+        <span className="rounded-md border border-brand-lagoon-200 bg-brand-lagoon-50 px-2 py-1 text-xs font-extrabold text-brand-lagoon-800">
+          {view.badge}
+        </span>
+      </div>
+
+      <p className={appBodyClass}>{view.detail}</p>
+
+      <p className="sr-only" role="status" aria-live="polite">
+        {view.announcement}
       </p>
+
+      {view.validityLabel ? (
+        <p className="m-0 text-sm font-bold text-text-muted">{view.validityLabel}</p>
+      ) : null}
+
+      {checkoutStatusMessage ? (
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 rounded-md border border-brand-sunset-gold/50 bg-brand-sunset-gold/10 p-3 text-sm font-bold text-text-strong">
+          {checkoutState === "starting" || checkoutState === "redirecting" ? (
+            <LoaderCircle aria-hidden="true" className="mt-0.5 size-4 animate-spin" />
+          ) : (
+            <CircleAlert aria-hidden="true" className="mt-0.5 size-4" />
+          )}
+          <p className="m-0">{checkoutStatusMessage}</p>
+        </div>
+      ) : null}
+
+      {view.warnings.length ? (
+        <ul aria-label="Trip Pass warnings" className="m-0 grid list-none gap-2 p-0">
+          {view.warnings.map((warning) => (
+            <li
+              className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 rounded-md border border-brand-sunset-coral/35 bg-brand-sunset-coral/10 p-2 text-xs font-extrabold text-text-strong"
+              key={warning}
+            >
+              <CircleAlert aria-hidden="true" className="mt-0.5 size-4 text-brand-sunset-coral" />
+              <span>{warning}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {view.allowances.length ? (
+        <dl className="grid min-w-0 gap-2 text-sm" data-testid="trip-pass-allowances">
+          {view.allowances.map((allowance) => (
+            <div
+              className="grid min-w-0 gap-1 rounded-md border border-border-default bg-white p-3"
+              key={allowance.meterType}
+            >
+              <div className="flex min-w-0 items-center justify-between gap-3">
+                <dt className="font-extrabold text-text-strong">{allowance.label}</dt>
+                <dd className="m-0 text-xs font-extrabold text-text-muted">{allowance.summary}</dd>
+              </div>
+              <div
+                aria-label={`${allowance.label}: ${allowance.used} of ${allowance.limit} used`}
+                aria-valuemax={allowance.limit}
+                aria-valuemin={0}
+                aria-valuenow={allowance.used}
+                className="h-2 overflow-hidden rounded-full bg-brand-lagoon-100"
+                role="progressbar"
+              >
+                <span
+                  className={`block h-full ${
+                    allowance.remaining === 0
+                      ? "bg-brand-sunset-coral"
+                      : allowance.warning
+                        ? "bg-brand-sunset-gold"
+                        : "bg-brand-lagoon-500"
+                  }`}
+                  style={{
+                    width: `${Math.min(100, Math.max(0, (allowance.used / allowance.limit) * 100))}%`,
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+
+      <p className="m-0 text-xs font-bold text-text-muted">{view.resetLabel}</p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {view.actionLabel ? (
+          <Button
+            className="h-auto rounded-md bg-brand-lagoon-600 px-3 py-2 text-sm font-extrabold text-white hover:bg-brand-lagoon-700 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20 disabled:opacity-60"
+            disabled={!canStartCheckout}
+            onClick={() => {
+              void startCheckout();
+            }}
+            type="button"
+          >
+            <CreditCard aria-hidden="true" className="size-4" />
+            {checkoutState === "starting" ? "Starting" : view.actionLabel}
+          </Button>
+        ) : null}
+        <Button
+          className="h-auto rounded-md border-border-default bg-surface-default px-3 py-2 text-sm font-extrabold text-text-default hover:bg-brand-lagoon-100 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+          onClick={() => {
+            void refreshTripPass();
+          }}
+          type="button"
+          variant="outline"
+        >
+          <RefreshCw aria-hidden="true" className="size-4" />
+          Refresh
+        </Button>
+      </div>
+
+      {view.checkoutDisabledReason ? (
+        <p className="m-0 text-xs font-bold text-text-muted">{view.checkoutDisabledReason}</p>
+      ) : null}
+      {view.supportGuidance ? (
+        <p className="m-0 text-xs font-bold text-text-muted">{view.supportGuidance}</p>
+      ) : null}
     </section>
   );
 }

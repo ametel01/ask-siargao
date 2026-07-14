@@ -35,6 +35,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added traveler-facing Trip Pass status surfaces in settings and mobile chat, including
+  account-scoped allowance, expiry, pending checkout, unavailable, warning, and checkout-return
+  handling without local activation controls.
 - Added end-to-end free Trip Pass chat decision metering so anonymous and signed-in no-pass
   travelers get the seven-day 10-chat, 3-live, and 1-heavy trial with burst, concurrency, reset, and
   sign-in transition protections before upgrading.

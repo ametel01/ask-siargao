@@ -609,15 +609,54 @@ commit.
 
 ## Step 11 - Build the Settings and Chat Trip Pass Experience
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T03:30:10Z`
+- Completed: `2026-07-14T03:50:56Z`
+- Implementing commit SHA: this Step 11 commit.
+- Files and behavior changed: added a shared Trip Pass account UI presenter for owner-scoped status,
+  allowance, warning, expiry, reset, checkout-disabled, and mobile projection copy; replaced the
+  settings pass placeholder with an account-scoped `/api/me/trip-pass` panel, accessible status
+  announcements, allowance meters, checkout duplicate-click protection, checkout-return polling,
+  refresh handling, delayed-webhook guidance, unavailable support guidance, and no extension/top-up
+  controls; replaced the mobile chat pass placeholder with compact account-derived warning/status
+  copy; mapped known chat allowance, burst/concurrency, challenge, sign-in-required, rate-limit, and
+  provider-cost-circuit errors without leaking arbitrary server messages; added presenter and
+  Playwright coverage for free, pending, active, expired, exhausted, unavailable, mobile, desktop,
+  checkout return, stale refresh, and duplicate checkout states.
+- Acceptance criteria checked: settings and mobile chat derive pass state from the owner-scoped API
+  and never activate or increment a pass locally; travelers can distinguish free, pending, active,
+  expired, exhausted, unavailable, delayed webhook activation, checkout disabled/unavailable, and
+  stale status with safe next actions; seven-day free reset copy is separate from temporary burst,
+  concurrency, challenge, sign-in-required, and provider-cost-circuit errors; warnings render only
+  for used near-limit/exhausted allowances or expiry, avoiding false urgency on fresh free limits;
+  no unlimited-use, live-data guarantee, network identifier, fingerprint, extension, or top-up copy
+  ships.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes on final run.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 377 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test src/features/trip-pass/account-presentation.test.ts src/features/chat/mobile-trip-context-presentation.test.ts`:
+    passed, 19 tests, 0 failures, 49 assertions.
+  - `bunx playwright test tests/e2e/root.e2e.ts -g "Trip Pass account states"`: passed, 1 test,
+    captured `test-results/trip-pass-settings-desktop-active.png` and
+    `test-results/trip-pass-settings-mobile-active.png`.
+  - `bunx playwright test tests/e2e/chat.e2e.ts -g "renders .* mobile trip context"`: passed, 10
+    mobile tests and refreshed mobile trip-context screenshots, including
+    `test-results/chat.e2e.ts-renders-populated-mobile-trip-context-at-390px-chromium/mobile-trip-populated-390.png`.
+  - `bun test`: passed, 1097 tests, 0 failures, 5907 assertions.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed on final rerun, 93 tests, 0 failures. An earlier full e2e attempt
+    had one CPU-throttled decision-strip motion long-task variance failure; the unchanged test
+    passed on rerun.
+  - `bun run doctor -- --verbose --scope changed`: passed, React Doctor reported no issues and
+    score `100 / 100`.
+- Changelog decision and entry location: added an `Added` entry under `[Unreleased]` for
+  traveler-facing Trip Pass settings and mobile chat status surfaces.
+- Risks, follow-ups, or blocker: no Step 11 blocker; checkout and extension feature flags remain
+  disabled until the release approvals tracked in the baseline are complete.
 
 ## Step 12 - Ship Differentiated Pricing and Trust Copy
 

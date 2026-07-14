@@ -171,7 +171,12 @@ import {
   type TripProfileResponse,
   tripContextFacts as tripContextDisplayFacts,
 } from "@/features/chat/trip-state";
+import {
+  projectMobileTripPass,
+  type TripPassAccountFetchState,
+} from "@/features/trip-pass/account-presentation";
 import { cn } from "@/lib/utils";
+import type { TripPassAccountPresentation } from "@/server/trip-pass/presentation";
 import {
   appSurfaceInsetClass,
   appSurfaceOverlayClass,
@@ -195,6 +200,11 @@ type TripProfileFetchResult =
   | { source: "anonymous" }
   | { source: "authenticated"; profile: TripProfileResponse };
 type SavedTripPresentationStatus = "loading" | "ready" | "error";
+type ChatResponseErrorBody = {
+  error?: string;
+  reason?: string;
+  message?: string;
+};
 
 const chatSignedOutActions = (
   <>
@@ -508,6 +518,8 @@ type ChatWorkspaceController = {
   stopWaitingForAssistant: (assistantMessageId: string) => void;
   threadActionState: ThreadActionState;
   turnOffLocation: () => void;
+  tripPassAccount: TripPassAccountPresentation | null;
+  tripPassStatus: TripPassAccountFetchState;
   tripContext: TripContextDraft;
   tripDataSource: TripDataSource;
   updateTripContext: (context: TripContextDraft) => Promise<void>;
@@ -562,6 +574,26 @@ function useChatWorkspaceController({
       profileLoading ? "loading" : profileError ? "error" : (profileResult?.source ?? "loading"),
     [profileError, profileLoading, profileResult],
   );
+  const {
+    data: tripPassAccount,
+    error: tripPassError,
+    isLoading: tripPassLoading,
+  } = useSWR(
+    tripDataSource === "authenticated" ? "/api/me/trip-pass" : null,
+    fetchTripPassAccount,
+    {
+      revalidateOnFocus: false,
+      shouldRetryOnError: false,
+    },
+  );
+  const tripPassStatus: TripPassAccountFetchState =
+    tripDataSource !== "authenticated"
+      ? "ready"
+      : tripPassLoading
+        ? "loading"
+        : tripPassError
+          ? "unavailable"
+          : "ready";
   const canLoadPrivateThread =
     !profileLoading && !profileError && profileResult?.source === "authenticated";
   const tripContext = projectTripState({
@@ -1411,6 +1443,8 @@ function useChatWorkspaceController({
           sources?: ChatSourceArtifact[];
           threadId?: string;
           assistantMessageId?: string;
+          error?: string;
+          reason?: string;
         };
 
         const responseMessage = body.message;
@@ -1423,7 +1457,7 @@ function useChatWorkspaceController({
         }
 
         if (!response.ok || !responseMessage) {
-          throw new Error(chatErrorMessage);
+          throw new Error(chatResponseErrorMessage(response.status, body));
         }
 
         if (body.threadId) {
@@ -1477,7 +1511,7 @@ function useChatWorkspaceController({
               ? {
                   ...message,
                   answerArrivalMotion: undefined,
-                  text: chatErrorMessage,
+                  text: error instanceof Error ? error.message : chatErrorMessage,
                   timestamp: formatTimestamp(),
                   status: "error",
                   retryPrompt: trimmedPrompt,
@@ -1646,6 +1680,8 @@ function useChatWorkspaceController({
     stopWaitingForAssistant,
     threadActionState,
     turnOffLocation,
+    tripPassAccount: tripPassAccount ?? null,
+    tripPassStatus,
     tripContext,
     tripDataSource,
     updateTripContext,
@@ -1686,6 +1722,8 @@ function ChatWorkspaceView({
   stopWaitingForAssistant,
   threadActionState,
   turnOffLocation,
+  tripPassAccount,
+  tripPassStatus,
   tripContext,
   tripDataSource,
   updateTripContext,
@@ -1769,6 +1807,8 @@ function ChatWorkspaceView({
                   liveConditions={liveConditions}
                   locationState={locationState}
                   onUpdateTripContext={updateTripContext}
+                  tripPassAccount={tripPassAccount}
+                  tripPassStatus={tripPassStatus}
                   tripContext={tripContext}
                   tripDataSource={tripDataSource}
                 />
@@ -2563,12 +2603,16 @@ function MobileTripContextDisclosure({
   liveConditions,
   locationState,
   onUpdateTripContext,
+  tripPassAccount,
+  tripPassStatus,
   tripContext,
   tripDataSource,
 }: {
   liveConditions: LiveConditionsController;
   locationState: LocationSharingState;
   onUpdateTripContext: (context: TripContextDraft) => Promise<void>;
+  tripPassAccount: TripPassAccountPresentation | null;
+  tripPassStatus: TripPassAccountFetchState;
   tripContext: TripContextDraft;
   tripDataSource: TripDataSource;
 }) {
@@ -2582,7 +2626,15 @@ function MobileTripContextDisclosure({
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const editVersionRef = useRef(0);
   const saveInFlightRef = useRef(false);
-  const summary = projectMobileTripContextSummary({ context: tripContext, source: tripDataSource });
+  const mobileTripPass = projectMobileTripPass(tripPassAccount);
+  const summary = projectMobileTripContextSummary({
+    context: tripContext,
+    pass:
+      mobileTripPass.status === "visible"
+        ? { status: "available", summary: mobileTripPass.text }
+        : undefined,
+    source: tripDataSource,
+  });
   const canEdit = tripDataSource === "anonymous" || tripDataSource === "authenticated";
   const draft = editState.isDirty ? editState.draft : tripContext;
 
@@ -2690,6 +2742,8 @@ function MobileTripContextDisclosure({
           onUpdateDraft={updateDraft}
           saveError={editState.saveError}
           saveState={editState.saveState}
+          tripPassAccount={tripPassAccount}
+          tripPassStatus={tripPassStatus}
           tripContext={tripContext}
           tripDataSource={tripDataSource}
         />
@@ -2710,6 +2764,8 @@ function MobileTripContextSheet({
   onUpdateDraft,
   saveError,
   saveState,
+  tripPassAccount,
+  tripPassStatus,
   tripContext,
   tripDataSource,
 }: {
@@ -2724,6 +2780,8 @@ function MobileTripContextSheet({
   onUpdateDraft: (draft: TripContextDraft) => void;
   saveError: string | null;
   saveState: MobileTripContextEditState["saveState"];
+  tripPassAccount: TripPassAccountPresentation | null;
+  tripPassStatus: TripPassAccountFetchState;
   tripContext: TripContextDraft;
   tripDataSource: TripDataSource;
 }) {
@@ -2837,16 +2895,11 @@ function MobileTripContextSheet({
               </p>
             </section>
 
-            <section
-              className="grid gap-2 rounded-lg border border-border-default bg-white p-3"
-              data-testid="mobile-pass-state"
-            >
-              <h3 className="m-0 text-sm font-semibold text-text-strong">Trip Pass</h3>
-              <p className="m-0 text-sm font-bold text-text-muted">
-                Trip Pass details are not connected here yet. No activation, balance, or expiry is
-                assumed.
-              </p>
-            </section>
+            <MobileTripPassStateCard
+              tripPassAccount={tripPassAccount}
+              tripPassStatus={tripPassStatus}
+              tripDataSource={tripDataSource}
+            />
 
             <MobileConditionCard
               decision={liveConditions.weatherDecision}
@@ -2905,6 +2958,59 @@ function MobileTripContextSheet({
       </section>
     </Dialog.Content>
   );
+}
+
+function MobileTripPassStateCard({
+  tripDataSource,
+  tripPassAccount,
+  tripPassStatus,
+}: {
+  tripDataSource: TripDataSource;
+  tripPassAccount: TripPassAccountPresentation | null;
+  tripPassStatus: TripPassAccountFetchState;
+}) {
+  const projection = projectMobileTripPass(tripPassAccount);
+  const statusText =
+    tripDataSource === "loading" || tripPassStatus === "loading"
+      ? "Trip Pass status is loading."
+      : tripDataSource !== "authenticated"
+        ? "Sign in to view account Trip Pass status."
+        : tripPassStatus === "unavailable"
+          ? "Trip Pass status is temporarily unavailable. Your pass was not changed."
+          : projection.status === "visible"
+            ? projection.text
+            : "No Trip Pass warning right now.";
+  const tone =
+    tripPassStatus === "unavailable"
+      ? "warning"
+      : projection.status === "visible"
+        ? projection.tone
+        : "neutral";
+
+  return (
+    <section
+      className={`grid gap-2 rounded-lg border p-3 ${mobileTripPassToneClass(tone)}`}
+      data-testid="mobile-pass-state"
+    >
+      <h3 className="m-0 text-sm font-semibold text-text-strong">Trip Pass</h3>
+      <p className="m-0 text-sm font-bold text-text-muted">{statusText}</p>
+      {tripDataSource === "authenticated" ? (
+        <p className="m-0 text-xs font-bold text-text-muted">
+          Status comes from your account. This sheet cannot activate a pass or change allowance.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function mobileTripPassToneClass(tone: "neutral" | "warning" | "critical") {
+  if (tone === "critical") {
+    return "border-brand-sunset-coral/45 bg-brand-sunset-coral/10";
+  }
+  if (tone === "warning") {
+    return "border-brand-sunset-gold/55 bg-brand-sunset-gold/10";
+  }
+  return "border-border-default bg-white";
 }
 
 function MobileConditionCard({
@@ -3491,6 +3597,15 @@ async function fetchTripProfile(url: string): Promise<TripProfileFetchResult> {
   };
 }
 
+async function fetchTripPassAccount(url: string): Promise<TripPassAccountPresentation> {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("trip_pass_status_unavailable");
+  }
+
+  return (await response.json()) as TripPassAccountPresentation;
+}
+
 async function fetchWeatherPanel(url: string): Promise<WeatherPanelResponse> {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) {
@@ -3505,6 +3620,45 @@ async function fetchSurfPanel(url: string): Promise<SurfPanelResponse> {
     throw new Error("surf_unavailable");
   }
   return (await response.json()) as SurfPanelResponse;
+}
+
+function chatResponseErrorMessage(status: number, body: ChatResponseErrorBody) {
+  if (body.error === "usage_limit_reached") {
+    if (body.reason?.includes("chat_meter_exhausted")) {
+      return "Your Trip Pass chat allowance is exhausted. Use saved planning context or wait until the allowance resets.";
+    }
+    if (body.reason?.includes("concurrency")) {
+      return "Another answer is still running. Wait for it to finish before starting another request.";
+    }
+    if (body.reason?.includes("start_limit") || body.reason?.includes("daily_limit")) {
+      return "Chat is temporarily rate-limited. Try again after the current window resets.";
+    }
+    return "This Trip Pass allowance is exhausted for now.";
+  }
+
+  if (body.error === "sign_in_required") {
+    if (body.reason?.includes("concurrency")) {
+      return "Another free answer is still running. Wait for it to finish before trying again.";
+    }
+    if (body.reason?.includes("free_allowance_exhausted")) {
+      return "The free seven-day allowance is used. Sign in to manage Trip Pass options.";
+    }
+    return "Sign in to continue after the free allowance window.";
+  }
+
+  if (body.error === "challenge_required") {
+    return "Ask Siargao needs a quick browser verification before continuing. Refresh and try again.";
+  }
+
+  if (body.error === "rate_limited" || status === 429) {
+    return "Requests are coming in too quickly. Wait a moment and try again.";
+  }
+
+  if (body.error === "model_budget_exhausted") {
+    return "Ask Siargao hit a temporary provider cost limit before finishing. Try a narrower question later.";
+  }
+
+  return chatErrorMessage;
 }
 
 function nearestForecastLocationLabel(geolocation: ChatClientGeolocation): ForecastLocationLabel {

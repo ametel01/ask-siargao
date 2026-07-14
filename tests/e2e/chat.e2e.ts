@@ -698,6 +698,7 @@ const mobileTripContextStateCases = [
     triggerAction: "Add trip details",
     triggerDetail: "No details yet",
     dialogText: "Nothing is assumed",
+    passText: "Sign in to view account Trip Pass status.",
   },
   {
     state: "partial",
@@ -706,6 +707,7 @@ const mobileTripContextStateCases = [
     triggerAction: "View trip details",
     triggerDetail: "Aug 1 - 6",
     dialogText: "Aug 1 - 6",
+    passText: "Sign in to view account Trip Pass status.",
   },
   {
     state: "populated",
@@ -713,6 +715,7 @@ const mobileTripContextStateCases = [
     triggerAction: "View trip details",
     triggerDetail: "Dapa · Aug 1 - 6",
     dialogText: "A very long Pilar homestay name that must wrap without widening the sheet",
+    passText: "Live refreshes are low: 2 of 40 left.",
   },
   {
     state: "loading",
@@ -720,6 +723,7 @@ const mobileTripContextStateCases = [
     triggerAction: "View trip details",
     triggerDetail: "Loading details",
     dialogText: "Loading your trip details",
+    passText: "Trip Pass status is loading.",
   },
   {
     state: "unavailable",
@@ -727,6 +731,7 @@ const mobileTripContextStateCases = [
     triggerAction: "View trip details",
     triggerDetail: "Details unavailable",
     dialogText: "Trip details could not be loaded",
+    passText: "Sign in to view account Trip Pass status.",
   },
 ] as const;
 
@@ -763,9 +768,7 @@ for (const viewport of [
       const dialog = page.getByTestId("mobile-trip-context-dialog");
       await expect(dialog).toBeVisible();
       await expect(dialog).toContainText(stateCase.dialogText);
-      await expect(dialog.getByTestId("mobile-pass-state")).toContainText(
-        "Trip Pass details are not connected",
-      );
+      await expect(dialog.getByTestId("mobile-pass-state")).toContainText(stateCase.passText);
       await expect(dialog).not.toContainText("Jun 12 - 22");
       await expect(dialog).not.toContainText("Couple");
       await expect
@@ -4935,6 +4938,20 @@ async function mockMobileTripContextProfile(
   await page.route("**/api/trips/saved", async (route) => {
     await route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [] }) });
   });
+  await page.route("**/api/me/trip-pass", async (route) => {
+    if (status !== "authenticated") {
+      await route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "unauthenticated" }),
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(mobileTripPassWarning()),
+    });
+  });
 
   return {
     release() {
@@ -4954,6 +4971,36 @@ function mobileAuthenticatedProfile(): Record<string, unknown> & {
       dateRange: "Aug 1 - 6",
       travelerType: "Two friends",
       currentArea: "Dapa",
+    },
+  };
+}
+
+function mobileTripPassWarning() {
+  return {
+    status: "active",
+    product: {
+      label: "Siargao Trip Pass",
+      durationDays: 14,
+    },
+    validity: {
+      startsAt: "2026-07-04T08:00:00.000Z",
+      expiresAt: "2026-07-18T08:00:00.000Z",
+    },
+    allowances: [
+      { meterType: "chat_message", used: 10, limit: 150, remaining: 140, warning: false },
+      { meterType: "live_refresh", used: 38, limit: 40, remaining: 2, warning: true },
+    ],
+    attention: {
+      lowChatMessages: false,
+      lowLiveRefreshes: true,
+      expiresSoon: false,
+    },
+    checkout: {
+      status: "unavailable",
+      reason: null,
+    },
+    actions: {
+      startCheckout: false,
     },
   };
 }

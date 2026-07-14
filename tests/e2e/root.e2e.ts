@@ -1337,6 +1337,185 @@ test("renders safe account identity across settings states and narrow layouts", 
   await expect(page.getByText("Taylor")).toHaveCount(0);
 });
 
+test("renders Trip Pass account states and checkout return handling", async ({ page }) => {
+  let passMode: "free" | "pending" | "active" | "expired" | "unavailable" | "fetch_error" = "free";
+  let checkoutCalls = 0;
+  let releaseCheckout: (() => void) | undefined;
+  const checkoutPending = new Promise<void>((resolve) => {
+    releaseCheckout = resolve;
+  });
+
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(settingsProfile()),
+    });
+  });
+  await page.route("**/api/chat/threads", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ threads: [] }) });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [] }) });
+  });
+  await page.route("**/api/me/trip-pass/checkout", async (route) => {
+    checkoutCalls += 1;
+    await checkoutPending;
+    passMode = "pending";
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "started",
+        checkoutUrl: "/settings?trip_pass_checkout=return#pass",
+      }),
+    });
+  });
+  await page.route("**/api/me/trip-pass", async (route) => {
+    if (passMode === "fetch_error") {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "trip_pass_status_unavailable" }),
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(settingsTripPass(passMode)),
+    });
+  });
+
+  await page.goto("/settings#pass");
+  const passPanel = page.locator("#pass");
+  const refreshPassPanel = async () => {
+    await passPanel.getByRole("button", { name: "Refresh" }).click();
+  };
+  await expect(passPanel).toContainText("Free launch allowance");
+  await expect(passPanel).toContainText("Free launch allowances reset every seven days.");
+  const checkoutButton = passPanel.getByRole("button", { name: /Start checkout|Starting/ });
+  await checkoutButton.click();
+  await expect(checkoutButton).toBeDisabled();
+  await expect(checkoutButton).toContainText("Starting");
+  await expect.poll(() => checkoutCalls).toBe(1);
+  releaseCheckout?.();
+  await page.waitForURL("**/settings?trip_pass_checkout=return#pass");
+  await expect(passPanel).toContainText("Checkout is waiting for confirmation");
+  await expect(passPanel).toContainText("Payment is being confirmed");
+
+  passMode = "active";
+  await page.goto("/settings#pass");
+  await expect(passPanel).toContainText("Trip Pass is active");
+  await expect(passPanel).toContainText("Expires 18 Jul");
+  await expect(passPanel).toContainText("Chat answers are near the limit: 20 left.");
+  await expect(passPanel).toContainText("Live refreshes allowance is exhausted.");
+  await expect(passPanel.getByRole("button", { name: "Start checkout" })).toHaveCount(0);
+  await page.screenshot({
+    path: "test-results/trip-pass-settings-desktop-active.png",
+    fullPage: true,
+  });
+
+  passMode = "expired";
+  await refreshPassPanel();
+  await expect(passPanel).toContainText("Trip Pass has expired");
+  await expect(passPanel).toContainText("Expired 3 Jul");
+
+  passMode = "unavailable";
+  await refreshPassPanel();
+  await expect(passPanel).toContainText("Trip Pass checkout is unavailable");
+  await expect(passPanel).toContainText("Checkout cannot start right now.");
+
+  passMode = "fetch_error";
+  await refreshPassPanel();
+  await expect(passPanel).toContainText("Trip Pass status is temporarily unavailable");
+  await expect(passPanel).toContainText("Status could not be refreshed.");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  passMode = "active";
+  await page.goto("/settings#pass");
+  await refreshPassPanel();
+  await expect(passPanel).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+    .toBe(true);
+  await page.screenshot({
+    path: "test-results/trip-pass-settings-mobile-active.png",
+    fullPage: true,
+  });
+});
+
+function settingsProfile() {
+  return {
+    identity: {
+      email: "trip-pass@example.com",
+      firstName: "Trip",
+      lastName: "Traveler",
+    },
+    profile: {
+      displayName: "Trip Traveler",
+      homeCountry: null,
+      travelStyle: null,
+      budgetLevel: null,
+      dietaryNotes: null,
+      foodNeeds: [],
+      accessibilityNotes: null,
+      surfAbility: null,
+      quietSleepPreference: null,
+      weatherPreference: null,
+      interests: [],
+      preferredAreas: [],
+      tripContext: {},
+      marketingConsent: false,
+      createdAt: null,
+      updatedAt: null,
+    },
+  };
+}
+
+function settingsTripPass(status: "free" | "pending" | "active" | "expired" | "unavailable") {
+  const isPaidState = status === "active" || status === "expired";
+  const allowances =
+    status === "active"
+      ? [
+          { meterType: "chat_message", used: 130, limit: 150, remaining: 20, warning: true },
+          { meterType: "live_refresh", used: 40, limit: 40, remaining: 0, warning: true },
+          { meterType: "route_lookup", used: 1, limit: 25, remaining: 24, warning: false },
+        ]
+      : [
+          { meterType: "chat_message", used: 0, limit: 10, remaining: 10, warning: true },
+          { meterType: "live_refresh", used: 0, limit: 3, remaining: 3, warning: true },
+          { meterType: "heavy_recommendation", used: 0, limit: 1, remaining: 1, warning: false },
+        ];
+
+  return {
+    status,
+    product: {
+      label: "Siargao Trip Pass",
+      durationDays: 14,
+    },
+    validity: {
+      startsAt: isPaidState ? "2026-07-04T08:00:00.000Z" : null,
+      expiresAt:
+        status === "active"
+          ? "2026-07-18T08:00:00.000Z"
+          : status === "expired"
+            ? "2026-07-03T08:00:00.000Z"
+            : null,
+    },
+    allowances,
+    attention: {
+      lowChatMessages: status === "active",
+      lowLiveRefreshes: status === "active",
+      expiresSoon: false,
+    },
+    checkout: {
+      status: status === "unavailable" || status === "active" ? "unavailable" : "available",
+      reason: status === "unavailable" ? "checkout_unavailable" : null,
+    },
+    actions: {
+      startCheckout: status !== "active" && status !== "unavailable",
+    },
+  };
+}
+
 test("renders public human, markdown, JSON, sitemap, and llms surfaces", async ({ page }) => {
   await page.goto("/accommodations/example-surf-stay");
 
