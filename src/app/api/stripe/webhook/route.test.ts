@@ -63,6 +63,35 @@ describe("Stripe webhook route", () => {
     expect(await response.json()).toMatchObject({ error: "rate_limited" });
   });
 
+  test("dispatches handled Trip Pass events before audit payment application", async () => {
+    const response = await stripeWebhookResponse(
+      await signedRequest(ignoredEventPayload({ eventId: "evt_trip_pass_dispatch" })),
+      {
+        ...routeDependencies(createMemoryPaymentStore(pendingPaymentAudit()).store),
+        applyTripPassStripeEvent: async () => ({
+          status: "applied",
+          action: "activated",
+          orderId: "order_trip_pass_dispatch",
+          stripeEventId: "evt_trip_pass_dispatch",
+        }),
+        applyVerifiedCheckoutPayment: async () => {
+          throw new Error("audit path should not handle applied Trip Pass events");
+        },
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      received: true,
+      product: "trip_pass",
+      applicationStatus: "applied",
+      action: "activated",
+      orderId: "order_trip_pass_dispatch",
+      stripeEventId: "evt_trip_pass_dispatch",
+    });
+  });
+
   test("applies valid paid checkout events and enqueues generation", async () => {
     const store = createMemoryPaymentStore(pendingPaymentAudit());
     const response = await stripeWebhookResponse(await signedRequest(checkoutSessionPayload()), {
@@ -260,6 +289,7 @@ function restoreEnvValue(name: string, value: string | undefined) {
 
 function routeDependencies(store: PaymentApplicationStore) {
   return {
+    applyTripPassStripeEvent: async () => ({ status: "ignored", reason: "not_trip_pass_event" }),
     applyVerifiedCheckoutPayment: (payment, rawEvent) =>
       applyVerifiedCheckoutPayment(payment, rawEvent, { store, now }),
     stripeWebhookSecretFromEnv: () => webhookSecret,

@@ -267,15 +267,42 @@ commit.
 
 ## Step 5 - Apply Verified Stripe Events to Trip Pass Orders
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T01:38:02Z`
+- Completed: `2026-07-14T01:48:47Z`
+- Implementing commit SHA: this Step 5 commit.
+- Files and behavior changed: added `src/server/trip-pass/webhook-application.ts` and fixture
+  tests; dispatched Trip Pass events from the verified Stripe webhook route before audit payment
+  handling; registered Trip Pass webhook telemetry; applied checkout paid, async failure, expiry,
+  refund, and dispute outcomes only after local order/session/product/Price/payment matching.
+- Acceptance criteria checked: paid checkout events activate only when matched to the owned local
+  order; replayed and concurrent paid deliveries produce one pass, one grant, and one meter
+  allocation; refund and dispute events are idempotent and scoped to the matched Trip Pass payment
+  intent; unrelated audit product events still flow through the audit webhook path, while unsigned
+  requests are rejected before event application.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes on final run.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 362 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed on the final sequential run, 1036 tests, 0 failures, 5538 assertions.
+  - `bun test src/server/trip-pass/webhook-application.test.ts src/app/api/stripe/webhook/route.test.ts`:
+    passed, 20 tests, 0 failures, 157 assertions.
+  - `bun test src/server/trip-pass/webhook-application.test.ts src/app/api/stripe/webhook/route.test.ts src/server/payments/stripe-lifecycle.test.ts src/app/api/audit/checkout/route.test.ts`:
+    initial overlapping PGlite run failed because a concurrent `db:migrate:test` process corrupted
+    the shared `.tmp/pglite-step3` test database; reran the failing Trip Pass meter lane in
+    isolation successfully, then reran full `bun test` sequentially successfully. Deterministic
+    Stripe fixture coverage was used for duplicate/reordered, forged, mismatched, refund, dispute,
+    and audit cross-product events because live Stripe CLI credentials/configuration are not present
+    in this workspace.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 92 tests, 0 failures.
+- Changelog decision and entry location: added a `Security` entry under `[Unreleased]` for verified
+  webhook-only Trip Pass activation and idempotent lifecycle handling.
+- Risks, follow-ups, or blocker: no blocker; Step 6 still needs owner-scoped status and checkout
+  routes.
 
 ## Step 6 - Expose Owner-Scoped Trip Pass Status and Checkout Routes
 

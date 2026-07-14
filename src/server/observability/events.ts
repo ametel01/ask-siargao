@@ -10,6 +10,7 @@ export type ObservabilityEventName =
   | "completeness_gate_completed"
   | "preview_to_payment_started"
   | "payment_succeeded"
+  | "trip_pass_stripe_event_applied"
   | "generation_latency_recorded"
   | "provider_error_recorded"
   | "llm_cost_recorded"

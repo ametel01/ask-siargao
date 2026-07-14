@@ -4,9 +4,11 @@ import {
   extractVerifiedCheckoutPayment,
   verifyStripeWebhookPayload,
 } from "@/server/payments/stripe";
+import { applyTripPassStripeEvent } from "@/server/trip-pass/webhook-application";
 
 export type StripeWebhookRouteDependencies = {
   applyVerifiedCheckoutPayment: typeof applyVerifiedCheckoutPayment;
+  applyTripPassStripeEvent: typeof applyTripPassStripeEvent;
   stripeWebhookSecretFromEnv: typeof stripeWebhookSecretFromEnv;
   trackServerEvent: typeof trackServerEvent;
   verifyStripeWebhookPayload: typeof verifyStripeWebhookPayload;
@@ -14,6 +16,7 @@ export type StripeWebhookRouteDependencies = {
 
 const defaultDependencies: StripeWebhookRouteDependencies = {
   applyVerifiedCheckoutPayment,
+  applyTripPassStripeEvent,
   stripeWebhookSecretFromEnv,
   trackServerEvent,
   verifyStripeWebhookPayload,
@@ -26,6 +29,32 @@ export async function stripeWebhookResponseFromEvent(
   event: VerifiedWebhookEvent,
   dependencies: StripeWebhookRouteDependencies = defaultDependencies,
 ) {
+  const tripPassResult = await dependencies.applyTripPassStripeEvent(event);
+  if (tripPassResult.status !== "ignored") {
+    dependencies.trackServerEvent({
+      name: "trip_pass_stripe_event_applied",
+      payload: {
+        stripeEventId: "stripeEventId" in tripPassResult ? tripPassResult.stripeEventId : event.id,
+        eventType: event.type,
+        applicationStatus: tripPassResult.status,
+        orderId: "orderId" in tripPassResult ? tripPassResult.orderId : undefined,
+      },
+    });
+
+    return Response.json(
+      {
+        received: true,
+        product: "trip_pass",
+        applicationStatus: tripPassResult.status,
+        action: "action" in tripPassResult ? tripPassResult.action : undefined,
+        orderId: "orderId" in tripPassResult ? tripPassResult.orderId : undefined,
+        stripeEventId: "stripeEventId" in tripPassResult ? tripPassResult.stripeEventId : event.id,
+        reason: "reason" in tripPassResult ? tripPassResult.reason : undefined,
+      },
+      { status: tripPassResult.status === "rejected" ? 400 : 200 },
+    );
+  }
+
   const payment = extractVerifiedCheckoutPayment(event);
 
   if (!payment) {

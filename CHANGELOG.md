@@ -13,6 +13,11 @@ and this project adheres to Semantic Versioning when releases are tagged.
   paid turns use bounded non-thinking requests, paid heavy turns retain thinking-high, and OpenAI
   fallback is disabled for free traffic.
 
+### Security
+
+- Required verified Stripe webhook events matched to local Trip Pass orders before activation, with
+  idempotent paid, failed, expired, refund, and dispute lifecycle handling.
+
 ### Added
 
 - Added authenticated Trip Pass Checkout order creation with duplicate-click idempotency, Stripe
