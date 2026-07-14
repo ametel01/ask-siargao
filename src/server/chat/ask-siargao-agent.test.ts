@@ -342,6 +342,78 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     ]);
   });
 
+  test("free decision metering charges live and heavy categories without paid-only sublimits", async () => {
+    const settlements: Array<{ meterType: PaidDecisionMeterType; success: boolean }> = [];
+    const session = fakePaidUsageSession({
+      reserveDecisionMeter: async (meterType) =>
+        reservedDecisionMeter(meterType, {
+          onSettle: (success) => settlements.push({ meterType, success }),
+        }),
+    });
+    const meteredExecuteTool = createMeteredToolExecutor({
+      executeTool: async (request) => ({
+        name: request.name,
+        toolCallId: request.toolCallId,
+        status: "success",
+        text: "Live web research returned current evidence.",
+        sources: [
+          {
+            ...placesSourceSummary,
+            label: "official_checked",
+            sourceName: "Public web source",
+          },
+        ],
+      }),
+      plan: "free",
+      usageSession: session,
+    });
+
+    await meteredExecuteTool({
+      arguments: { query: "events tonight" },
+      name: "research_web",
+      requestId: "request_free_research",
+      toolCallId: "call_free_research",
+    });
+
+    expect(settlements).toEqual([
+      { meterType: "live_refresh", success: true },
+      { meterType: "heavy_recommendation", success: true },
+    ]);
+  });
+
+  test("paid route decisions consume the live umbrella meter and the route sublimit", async () => {
+    const settlements: Array<{ meterType: PaidDecisionMeterType; success: boolean }> = [];
+    const session = fakePaidUsageSession({
+      reserveDecisionMeter: async (meterType) =>
+        reservedDecisionMeter(meterType, {
+          onSettle: (success) => settlements.push({ meterType, success }),
+        }),
+    });
+    const meteredExecuteTool = createMeteredToolExecutor({
+      executeTool: async (request) => ({
+        name: request.name,
+        toolCallId: request.toolCallId,
+        status: "success",
+        text: "Itinerary planning returned a route.",
+        sources: [localGuideSourceSummary],
+      }),
+      plan: "paid",
+      usageSession: session,
+    });
+
+    await meteredExecuteTool({
+      arguments: { goal: "rainy afternoon" },
+      name: "plan_local_itinerary",
+      requestId: "request_paid_route",
+      toolCallId: "call_paid_route",
+    });
+
+    expect(settlements).toEqual([
+      { meterType: "live_refresh", success: true },
+      { meterType: "route_lookup", success: true },
+    ]);
+  });
+
   test("repairs leaked DSML tool-call markup before returning a default chat answer", async () => {
     const client = fakeResponsesClient([
       {

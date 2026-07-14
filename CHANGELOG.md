@@ -35,6 +35,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added end-to-end free Trip Pass chat decision metering so anonymous and signed-in no-pass
+  travelers get the seven-day 10-chat, 3-live, and 1-heavy trial with burst, concurrency, reset, and
+  sign-in transition protections before upgrading.
 - Added a Vercel WAF log-mode runbook for Trip Pass chat, checkout, and auth-entry perimeter rules,
   including promotion criteria, rollback, and privacy-safe verification evidence.
 - Added anonymous Trip Pass free-allowance enforcement for chat, including Secure/HttpOnly/SameSite

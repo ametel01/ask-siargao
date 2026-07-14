@@ -63,7 +63,19 @@ import { trackServerEvent } from "@/server/observability/events";
 import { createComponentLogger } from "@/server/observability/logger";
 import { createConfiguredWebResearchProvider } from "@/server/providers/web-search";
 import type { QuotaStore } from "@/server/security/rate-limit";
-import type { PaidChatUsageSessionResult, PaidDecisionMeterType } from "@/server/trip-pass/usage";
+import type {
+  PaidChatUsageSessionResult,
+  PaidDecisionMeterReservation,
+  PaidDecisionMeterType,
+} from "@/server/trip-pass/usage";
+
+export type MeteredToolPlan = "free" | "paid";
+
+export type MeteredToolUsageSession = {
+  reserveDecisionMeter(input: {
+    meterType: PaidDecisionMeterType;
+  }): Promise<PaidDecisionMeterReservation>;
+};
 
 export type AskSiargaoAgentDependencies = AgentRuntimeDependencies &
   AgentToolDependencies & {
@@ -75,6 +87,8 @@ export type AskSiargaoAgentDependencies = AgentRuntimeDependencies &
     requireStructuredFinalOutput?: boolean;
     costPolicyEnv?: Record<string, string | undefined>;
     costCircuitStore?: QuotaStore;
+    decisionMeterPlan?: MeteredToolPlan;
+    decisionMeterSession?: MeteredToolUsageSession | null;
     usageSession?: Extract<PaidChatUsageSessionResult, { status: "allowed" }> | null;
   };
 
@@ -120,10 +134,12 @@ export async function runAskSiargaoAgentTurn(
   const baseExecuteTool =
     dependencies.executeTool ??
     ((toolRequest: AgentToolExecutionRequest) => executeAgentTool(toolRequest, toolDependencies));
-  const executeTool = dependencies.usageSession
+  const decisionMeterSession = dependencies.usageSession ?? dependencies.decisionMeterSession;
+  const executeTool = decisionMeterSession
     ? createMeteredToolExecutor({
         executeTool: baseExecuteTool,
-        usageSession: dependencies.usageSession,
+        plan: dependencies.usageSession ? "paid" : (dependencies.decisionMeterPlan ?? "paid"),
+        usageSession: decisionMeterSession,
       })
     : baseExecuteTool;
   const logger = (dependencies.logger ?? agentLogger).child({ requestId: resolved.requestId });
@@ -539,13 +555,15 @@ function createBudgetedModelClient({
 
 export function createMeteredToolExecutor({
   executeTool,
+  plan = "paid",
   usageSession,
 }: {
   executeTool: (request: AgentToolExecutionRequest) => Promise<AgentToolResult>;
-  usageSession: Extract<PaidChatUsageSessionResult, { status: "allowed" }>;
+  plan?: MeteredToolPlan;
+  usageSession: MeteredToolUsageSession;
 }) {
   return async (request: AgentToolExecutionRequest) => {
-    const meterTypes = meterTypesForTool(request.name);
+    const meterTypes = meterTypesForTool(request.name, plan);
     const reservations = await Promise.all(
       meterTypes.map(async (meterType) => usageSession.reserveDecisionMeter({ meterType })),
     );
@@ -586,7 +604,25 @@ export function createMeteredToolExecutor({
   };
 }
 
-function meterTypesForTool(toolName: string): PaidDecisionMeterType[] {
+function meterTypesForTool(toolName: string, plan: MeteredToolPlan): PaidDecisionMeterType[] {
+  if (plan === "free") {
+    switch (toolName) {
+      case "get_weather_forecast":
+      case "get_marine_conditions":
+      case "get_tide_forecast":
+      case "get_condition_judgment":
+      case "plan_local_itinerary":
+        return ["live_refresh"];
+      case "research_web":
+      case "search_nightlife_events":
+      case "search_places":
+      case "get_place_details":
+        return ["live_refresh", "heavy_recommendation"];
+      default:
+        return [];
+    }
+  }
+
   switch (toolName) {
     case "get_weather_forecast":
     case "get_marine_conditions":
@@ -599,7 +635,7 @@ function meterTypesForTool(toolName: string): PaidDecisionMeterType[] {
     case "get_place_details":
       return ["live_refresh", "heavy_recommendation"];
     case "plan_local_itinerary":
-      return ["route_lookup"];
+      return ["live_refresh", "route_lookup"];
     default:
       return [];
   }
@@ -627,6 +663,13 @@ function toolResultConsumesMeter(
   }
   if (meterType === "heavy_recommendation") {
     return sourceLabels.has("live_checked") || toolName === "research_web";
+  }
+  if (
+    toolName === "plan_local_itinerary" ||
+    toolName === "research_web" ||
+    toolName === "search_nightlife_events"
+  ) {
+    return true;
   }
   return (
     sourceLabels.has("live_checked") ||

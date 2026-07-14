@@ -425,6 +425,207 @@ describe("anonymous free allowance", () => {
     }
   });
 
+  test("enforces the free live and heavy decision meters at the tool boundary", async () => {
+    const store = createMemoryQuotaStore();
+    const first = await beginAnonymousFreeChat(request(), {
+      createId: ids("trip_live_decision"),
+      env,
+      now: () => new Date("2026-07-14T03:00:00.000Z"),
+      requestId: "free_live_0",
+      store,
+      trustProxyHeaders: true,
+    });
+    expect(first.status).toBe("allowed");
+    if (first.status !== "allowed") {
+      return;
+    }
+    const cookie = cookiePair(first.headers);
+
+    for (let index = 0; index < 3; index += 1) {
+      const result =
+        index === 0
+          ? first
+          : await beginAnonymousFreeChat(request({ cookie }), {
+              env,
+              now: () => new Date(`2026-07-14T03:0${index}:00.000Z`),
+              requestId: `free_live_${index}`,
+              store,
+              trustProxyHeaders: true,
+            });
+      expect(result.status).toBe("allowed");
+      if (result.status === "allowed") {
+        const live = await result.reserveDecisionMeter?.({ meterType: "live_refresh" });
+        expect(live).toMatchObject({ status: "reserved", meterType: "live_refresh" });
+        if (live?.status === "reserved") {
+          await live.settle({ success: true });
+        }
+        await result.settle({ success: true });
+      }
+    }
+
+    const exhausted = await beginAnonymousFreeChat(request({ cookie }), {
+      env,
+      now: () => new Date("2026-07-14T03:10:00.000Z"),
+      requestId: "free_live_exhausted",
+      store,
+      trustProxyHeaders: true,
+    });
+    expect(exhausted.status).toBe("allowed");
+    if (exhausted.status === "allowed") {
+      await expect(
+        exhausted.reserveDecisionMeter?.({ meterType: "live_refresh" }),
+      ).resolves.toMatchObject({
+        status: "usage_limit_reached",
+        allowance: { meterType: "live_refresh", used: 3, remaining: 0, limit: 3 },
+      });
+      await exhausted.settle({ success: false });
+    }
+
+    const heavyFirst = await beginAnonymousFreeChat(request(), {
+      createId: ids("trip_heavy_decision"),
+      env,
+      now: () => new Date("2026-07-14T03:20:00.000Z"),
+      requestId: "free_heavy_0",
+      store,
+      trustProxyHeaders: true,
+    });
+    expect(heavyFirst.status).toBe("allowed");
+    if (heavyFirst.status !== "allowed") {
+      return;
+    }
+    const heavyCookie = cookiePair(heavyFirst.headers);
+    const heavy = await heavyFirst.reserveDecisionMeter?.({ meterType: "heavy_recommendation" });
+    expect(heavy).toMatchObject({ status: "reserved", meterType: "heavy_recommendation" });
+    if (heavy?.status === "reserved") {
+      await heavy.settle({ success: true });
+    }
+    await heavyFirst.settle({ success: true });
+
+    const heavySecond = await beginAnonymousFreeChat(request({ cookie: heavyCookie }), {
+      env,
+      now: () => new Date("2026-07-14T03:21:00.000Z"),
+      requestId: "free_heavy_1",
+      store,
+      trustProxyHeaders: true,
+    });
+    expect(heavySecond.status).toBe("allowed");
+    if (heavySecond.status === "allowed") {
+      await expect(
+        heavySecond.reserveDecisionMeter?.({ meterType: "heavy_recommendation" }),
+      ).resolves.toMatchObject({
+        status: "usage_limit_reached",
+        allowance: { meterType: "heavy_recommendation", used: 1, remaining: 0, limit: 1 },
+      });
+      await heavySecond.settle({ success: false });
+    }
+  });
+
+  test("releases free live decision reservations when provider evidence is not billable", async () => {
+    const store = createMemoryQuotaStore();
+    const first = await beginAnonymousFreeChat(request(), {
+      createId: ids("trip_live_release"),
+      env,
+      now: () => new Date("2026-07-14T03:30:00.000Z"),
+      requestId: "free_live_release_0",
+      store,
+      trustProxyHeaders: true,
+    });
+    expect(first.status).toBe("allowed");
+    if (first.status !== "allowed") {
+      return;
+    }
+    const cookie = cookiePair(first.headers);
+    const failedLive = await first.reserveDecisionMeter?.({ meterType: "live_refresh" });
+    expect(failedLive?.status).toBe("reserved");
+    if (failedLive?.status === "reserved") {
+      await expect(failedLive.settle({ success: false })).resolves.toMatchObject({
+        status: "released",
+      });
+    }
+    await first.settle({ success: true });
+
+    for (let index = 1; index <= 3; index += 1) {
+      const result = await beginAnonymousFreeChat(request({ cookie }), {
+        env,
+        now: () => new Date(`2026-07-14T03:3${index}:00.000Z`),
+        requestId: `free_live_after_release_${index}`,
+        store,
+        trustProxyHeaders: true,
+      });
+      expect(result.status).toBe("allowed");
+      if (result.status === "allowed") {
+        const live = await result.reserveDecisionMeter?.({ meterType: "live_refresh" });
+        expect(live).toMatchObject({ status: "reserved" });
+        if (live?.status === "reserved") {
+          await live.settle({ success: true });
+        }
+        await result.settle({ success: true });
+      }
+    }
+  });
+
+  test("does not reset linked anonymous live usage after sign-in", async () => {
+    const store = createMemoryQuotaStore();
+    const first = await beginAnonymousFreeChat(request(), {
+      createId: ids("trip_live_before_sign_in"),
+      env,
+      now: () => new Date("2026-07-14T03:40:00.000Z"),
+      requestId: "anonymous_live_before_sign_in_0",
+      store,
+      trustProxyHeaders: true,
+    });
+    expect(first.status).toBe("allowed");
+    if (first.status !== "allowed") {
+      return;
+    }
+    const cookie = cookiePair(first.headers);
+
+    for (let index = 0; index < 3; index += 1) {
+      const result =
+        index === 0
+          ? first
+          : await beginAnonymousFreeChat(request({ cookie }), {
+              env,
+              now: () => new Date(`2026-07-14T03:4${index}:00.000Z`),
+              requestId: `anonymous_live_before_sign_in_${index}`,
+              store,
+              trustProxyHeaders: true,
+            });
+      expect(result.status).toBe("allowed");
+      if (result.status === "allowed") {
+        const live = await result.reserveDecisionMeter?.({ meterType: "live_refresh" });
+        expect(live?.status).toBe("reserved");
+        if (live?.status === "reserved") {
+          await live.settle({ success: true });
+        }
+        await result.settle({ success: true });
+      }
+    }
+
+    const signedIn = await beginAuthenticatedFreeChat(
+      request({ cookie }),
+      { userId: "user_after_anonymous_live" },
+      {
+        env,
+        now: () => new Date("2026-07-14T03:50:00.000Z"),
+        requestId: "signed_in_after_anon_live",
+        store,
+        trustProxyHeaders: true,
+      },
+    );
+
+    expect(signedIn.status).toBe("allowed");
+    if (signedIn.status === "allowed") {
+      await expect(
+        signedIn.reserveDecisionMeter?.({ meterType: "live_refresh" }),
+      ).resolves.toMatchObject({
+        status: "usage_limit_reached",
+        allowance: { meterType: "live_refresh", used: 3, remaining: 0, limit: 3 },
+      });
+      await signedIn.settle({ success: false });
+    }
+  });
+
   test("challenges suspicious authenticated account velocity by cohort", async () => {
     const store = createMemoryQuotaStore();
     const statuses: string[] = [];

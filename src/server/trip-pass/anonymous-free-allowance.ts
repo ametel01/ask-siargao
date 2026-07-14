@@ -7,6 +7,12 @@ import {
   type QuotaStore,
 } from "@/server/security/rate-limit";
 import { tripPassFreeMeterLimits, tripPassRateLimits } from "@/server/trip-pass/catalog";
+import type {
+  PaidDecisionMeterReservation,
+  PaidDecisionMeterSettlement,
+  PaidDecisionMeterType,
+  PaidMeterAllowance,
+} from "@/server/trip-pass/usage";
 
 export const anonymousTripCookieName = "as_trip";
 
@@ -19,6 +25,9 @@ export type AnonymousFreeAllowanceBeginResult =
       cookie: AnonymousTripCookie;
       headers: Headers;
       release(): Promise<void>;
+      reserveDecisionMeter?: (input: {
+        meterType: PaidDecisionMeterType;
+      }) => Promise<PaidDecisionMeterReservation>;
       settle(input: { success: boolean; meters?: readonly FreeUsageMeter[] }): Promise<void>;
     }
   | {
@@ -67,6 +76,8 @@ type Reservation = {
   key: string;
   reservationId: string;
 };
+
+type FreeDecisionMeterType = Extract<FreeUsageMeter, "heavy_recommendation" | "live_refresh">;
 
 const sevenDaysMs = 7 * 24 * 60 * 60 * 1_000;
 const oneDayMs = 24 * 60 * 60 * 1_000;
@@ -206,6 +217,10 @@ export async function beginAuthenticatedFreeChat(
     }
     successReservations.push(...tripSuccess.reservations);
   }
+  const decisionReservations = new Map<
+    FreeDecisionMeterType,
+    Promise<PaidDecisionMeterReservation>
+  >();
 
   let released = false;
 
@@ -232,6 +247,25 @@ export async function beginAuthenticatedFreeChat(
     },
     headers,
     release,
+    reserveDecisionMeter(decisionInput) {
+      return reserveFreeDecisionMeter({
+        actor,
+        config,
+        decisionReservations,
+        linkedActor: existingCookie
+          ? {
+              cohortHash,
+              cohortVersion: config.keyVersion,
+              tripHash: hmacIdentifier(config, existingCookie.id, "trip"),
+              tripVersion: existingCookie.keyVersion,
+            }
+          : null,
+        meterType: decisionInput.meterType,
+        nowMs,
+        requestId,
+        store,
+      });
+    },
     async settle(settleInput) {
       if (!settleInput.success) {
         await releaseReservations(store, successReservations);
@@ -343,6 +377,10 @@ export async function beginAnonymousFreeUsage(
     });
     return denied(successCheck.status, headers, successCheck.reason, actor);
   }
+  const decisionReservations = new Map<
+    FreeDecisionMeterType,
+    Promise<PaidDecisionMeterReservation>
+  >();
   successReservations.push(...successCheck.reservations);
 
   let released = false;
@@ -364,6 +402,18 @@ export async function beginAnonymousFreeUsage(
     cookie,
     headers,
     release,
+    reserveDecisionMeter(decisionInput) {
+      return reserveFreeDecisionMeter({
+        actor,
+        config,
+        decisionReservations,
+        linkedActor: null,
+        meterType: decisionInput.meterType,
+        nowMs,
+        requestId,
+        store,
+      });
+    },
     async settle(input) {
       if (!input.success) {
         await Promise.all(
@@ -371,6 +421,137 @@ export async function beginAnonymousFreeUsage(
         );
       }
       await release();
+    },
+  };
+}
+
+function reserveFreeDecisionMeter(input: {
+  actor: AnonymousFreeActor;
+  config: Extract<AnonymousIdentityConfig, { status: "available" }>;
+  decisionReservations: Map<FreeDecisionMeterType, Promise<PaidDecisionMeterReservation>>;
+  linkedActor: AnonymousFreeActor | null;
+  meterType: PaidDecisionMeterType;
+  nowMs: number;
+  requestId: string;
+  store: QuotaStore;
+}) {
+  const meterType = toFreeDecisionMeter(input.meterType);
+  if (!meterType) {
+    return Promise.resolve({
+      status: "usage_limit_reached",
+      allowance: null,
+      meterType: input.meterType,
+    } satisfies PaidDecisionMeterReservation);
+  }
+
+  const existing = input.decisionReservations.get(meterType);
+  if (existing) {
+    return existing;
+  }
+
+  const promise = reserveFreeDecisionMeterHandle({
+    actor: input.actor,
+    config: input.config,
+    linkedActor: input.linkedActor,
+    meterType,
+    nowMs: input.nowMs,
+    requestId: input.requestId,
+    store: input.store,
+  });
+  input.decisionReservations.set(meterType, promise);
+  return promise;
+}
+
+async function reserveFreeDecisionMeterHandle(input: {
+  actor: AnonymousFreeActor;
+  config: Extract<AnonymousIdentityConfig, { status: "available" }>;
+  linkedActor: AnonymousFreeActor | null;
+  meterType: FreeDecisionMeterType;
+  nowMs: number;
+  requestId: string;
+  store: QuotaStore;
+}): Promise<PaidDecisionMeterReservation> {
+  const reservations: Reservation[] = [];
+  const primary = await reserveSuccessMeters({
+    actor: input.actor,
+    config: input.config,
+    meters: [input.meterType],
+    nowMs: input.nowMs,
+    requestId: `${input.requestId}:decision`,
+    store: input.store,
+  });
+  if (primary.status !== "allowed") {
+    return {
+      status: "usage_limit_reached",
+      allowance: exhaustedFreeMeterAllowance(input.meterType),
+      meterType: input.meterType,
+    };
+  }
+  reservations.push(...primary.reservations);
+
+  if (input.linkedActor) {
+    const linked = await reserveSuccessMeters({
+      actor: input.linkedActor,
+      config: input.config,
+      meters: [input.meterType],
+      nowMs: input.nowMs,
+      requestId: `${input.requestId}:linked-trip-decision`,
+      store: input.store,
+    });
+    if (linked.status !== "allowed") {
+      await releaseReservations(input.store, reservations);
+      return {
+        status: "usage_limit_reached",
+        allowance: exhaustedFreeMeterAllowance(input.meterType),
+        meterType: input.meterType,
+      };
+    }
+    reservations.push(...linked.reservations);
+  }
+
+  let closed = false;
+  let finalSettlement: PaidDecisionMeterSettlement | null = null;
+
+  async function release() {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    await releaseReservations(input.store, reservations);
+    finalSettlement = {
+      status: "released",
+      allowance: availableFreeMeterAllowance(input.meterType),
+    };
+  }
+
+  return {
+    status: "reserved",
+    meterType: input.meterType,
+    release,
+    async settle(settleInput) {
+      if (!settleInput.success) {
+        await release();
+        return (
+          finalSettlement ?? {
+            status: "released",
+            allowance: availableFreeMeterAllowance(input.meterType),
+          }
+        );
+      }
+      if (closed) {
+        return (
+          finalSettlement ?? {
+            status: "released",
+            allowance: availableFreeMeterAllowance(input.meterType),
+          }
+        );
+      }
+      closed = true;
+      finalSettlement = {
+        status: "settled",
+        allowance: consumedFreeMeterAllowance(input.meterType),
+      };
+      return finalSettlement;
     },
   };
 }
@@ -420,6 +601,42 @@ function denied(
     ...(actor ? { actor } : {}),
     headers,
     response,
+  };
+}
+
+function toFreeDecisionMeter(meterType: PaidDecisionMeterType): FreeDecisionMeterType | null {
+  if (meterType === "live_refresh" || meterType === "heavy_recommendation") {
+    return meterType;
+  }
+  return null;
+}
+
+function availableFreeMeterAllowance(meterType: FreeDecisionMeterType): PaidMeterAllowance {
+  return {
+    limit: tripPassFreeMeterLimits[meterType],
+    meterType,
+    remaining: tripPassFreeMeterLimits[meterType],
+    used: 0,
+  };
+}
+
+function consumedFreeMeterAllowance(meterType: FreeDecisionMeterType): PaidMeterAllowance {
+  const limit = tripPassFreeMeterLimits[meterType];
+  return {
+    limit,
+    meterType,
+    remaining: Math.max(limit - 1, 0),
+    used: 1,
+  };
+}
+
+function exhaustedFreeMeterAllowance(meterType: FreeDecisionMeterType): PaidMeterAllowance {
+  const limit = tripPassFreeMeterLimits[meterType];
+  return {
+    limit,
+    meterType,
+    remaining: 0,
+    used: limit,
   };
 }
 

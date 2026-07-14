@@ -150,6 +150,59 @@ describe("chat route", () => {
     expect(settled).toEqual([true]);
   });
 
+  test("passes anonymous free decision metering into the agent runtime", async () => {
+    const dependencies = chatDependencies({
+      message: "Free live answer.",
+      sources: [genericSourceSummary],
+    });
+    const reservedMeters: string[] = [];
+    dependencies.beginAnonymousFreeChat = async () => ({
+      status: "allowed",
+      actor: {
+        cohortHash: "cohort_hash",
+        cohortVersion: 1,
+        tripHash: "trip_hash",
+        tripVersion: 1,
+      },
+      cookie: {
+        id: "trip_cookie_id",
+        expiresAt: Date.now() + 60_000,
+        keyVersion: 1,
+        state: "valid",
+        value: "cookie_value",
+      },
+      headers: new Headers({ "set-cookie": "as_trip=cookie_value; Path=/; HttpOnly" }),
+      release: async () => {},
+      reserveDecisionMeter: async ({ meterType }) => {
+        reservedMeters.push(meterType);
+        return {
+          status: "reserved",
+          meterType,
+          release: async () => {},
+          settle: async () => ({
+            status: "settled",
+            allowance: { meterType, used: 1, remaining: 2, limit: 3 },
+          }),
+        };
+      },
+      settle: async () => {},
+    });
+
+    const response = await chatResponse(
+      jsonRequest({ messages: [{ role: "user", content: "Is Cloud 9 good right now?" }] }),
+      dependencies,
+    );
+
+    expect(response.status).toBe(200);
+    expect(dependencies.agentDependencies[0]?.decisionMeterPlan).toBe("free");
+    await expect(
+      dependencies.agentDependencies[0]?.decisionMeterSession?.reserveDecisionMeter({
+        meterType: "live_refresh",
+      }),
+    ).resolves.toMatchObject({ status: "reserved", meterType: "live_refresh" });
+    expect(reservedMeters).toEqual(["live_refresh"]);
+  });
+
   test("returns anonymous free allowance challenges before calling the agent", async () => {
     const dependencies = chatDependencies();
     dependencies.beginAnonymousFreeChat = async () => ({
@@ -2577,14 +2630,20 @@ function chatDependencies(
   },
 ) {
   const requests: AgentRuntimeRequest[] = [];
+  type CapturedAgentDependencies = Parameters<
+    NonNullable<ChatRouteDependencies["runAskSiargaoAgentTurn"]>
+  >[1];
+  const agentDependencies: CapturedAgentDependencies[] = [];
   const dependencies: ChatRouteDependencies & {
+    agentDependencies: typeof agentDependencies;
     requests: typeof requests;
   } = {
     auth: null,
     beginAuthenticatedFreeChat: null,
     beginAnonymousFreeChat: null,
-    runAskSiargaoAgentTurn: async (request) => {
+    runAskSiargaoAgentTurn: async (request, runtimeDependencies) => {
       requests.push(request);
+      agentDependencies.push(runtimeDependencies);
       return {
         message: result.message ?? "Agent response.",
         requestId: request.requestId ?? "route_request_test",
@@ -2601,6 +2660,7 @@ function chatDependencies(
         ...(result.artifactSelection ? { artifactSelection: result.artifactSelection } : {}),
       };
     },
+    agentDependencies,
     requests,
   };
 

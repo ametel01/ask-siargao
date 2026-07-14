@@ -564,15 +564,48 @@ commit.
 
 ## Step 10 - Connect the Free Tier to the Chat Runtime
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T03:20:00Z`
+- Completed: `2026-07-14T03:29:54Z`
+- Implementing commit SHA: this Step 10 commit.
+- Files and behavior changed: added a free-mode decision-meter session for anonymous and signed-in
+  no-pass chat usage; wired `/api/chat` to pass either the paid ledger session or the free session
+  into the agent runtime; generalized live-tool metering so free users consume only the launch
+  `live_refresh` and `heavy_recommendation` meters, while paid route decisions consume both the live
+  umbrella meter and the route sublimit; added lazy Redis/memory-backed free decision reservations
+  that are reused per request category, settle on successful live evidence, release on provider or
+  cache-only failure, and preserve linked anonymous usage across sign-in.
+- Acceptance criteria checked: anonymous/no-pass travelers retain the existing 10-chat
+  seven-day allowance, 3 starts/minute, 10 successes/day, and 2 concurrent request controls; free
+  live decisions are limited to 3 per seven-day trip identity; free heavy decisions are limited to 1;
+  failed/cache-only live reservations release and can be reused; signed-in free usage checks the
+  Clerk user and linked anonymous trip identity so sign-in cannot reset anonymous live usage; active
+  paid users keep paid ledger precedence and do not invoke authenticated free allowance; route tests
+  verify the free decision-meter session reaches the agent runtime.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes on final run.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 375 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test src/server/trip-pass/anonymous-free-allowance.test.ts src/server/chat/ask-siargao-agent.test.ts src/app/api/chat/route.test.ts src/server/security/security.test.ts`:
+    passed, 215 tests, 0 failures, 1674 assertions.
+  - `bun test`: passed, 1088 tests, 0 failures, 5876 assertions.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed on isolated rerun, 5 areas, 3 routes, and 6 source profiles.
+    The first attempt raced `db:migrate:test` because both were launched together, before the test
+    database tables existed.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 92 tests, 0 failures.
+  - `REDIS_URL=redis://127.0.0.1:6381 bun --eval <redis quota smoke>` with a temporary local
+    `redis-server --port 6381`: passed; exercised Redis-backed free chat, 3-live exhaustion,
+    1-heavy exhaustion, and released live-decision reuse.
+- Changelog decision and entry location: added an `Added` entry under `[Unreleased]` for the
+  end-to-end seven-day free Trip Pass trial with 10 chat, 3 live, 1 heavy, burst/concurrency,
+  reset-resistance, and sign-in transition protections.
+- Risks, follow-ups, or blocker: no blocker; free remaining-count projections are not returned from
+  `/api/chat` yet because the quota store exposes reservation outcomes rather than current-window
+  count snapshots. Step 11's UI/API work must present coherent free/paid warnings from the account
+  state surfaces without leaking quota identifiers.
 
 ## Step 11 - Build the Settings and Chat Trip Pass Experience
 
