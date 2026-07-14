@@ -178,6 +178,39 @@ describe("rate limiting", () => {
     expect(differentForwardedClient.allowed).toBe(true);
   });
 
+  test("scopes public API request buckets by path", () => {
+    const limiter = createRateLimiter({
+      store: createMemoryRateLimitStore(),
+      trustProxyHeaders: false,
+    });
+    const now = new Date("2026-06-23T08:00:00.000Z");
+
+    for (let index = 0; index < 120; index += 1) {
+      expect(
+        limiter.rateLimitRequest(
+          new Request("https://example.test/api/public/weather/siargao"),
+          "public_api",
+          { now },
+        ).allowed,
+      ).toBe(true);
+    }
+
+    expect(
+      limiter.rateLimitRequest(
+        new Request("https://example.test/api/public/accommodations/example-surf-stay.json"),
+        "public_api",
+        { now },
+      ).allowed,
+    ).toBe(true);
+    expect(
+      limiter.rateLimitRequest(
+        new Request("https://example.test/api/public/weather/siargao"),
+        "public_api",
+        { now },
+      ).allowed,
+    ).toBe(false);
+  });
+
   test("can install an injected shared store for the default limiter", () => {
     const sharedStore = createMemoryRateLimitStore();
     configureRateLimitStore({ ...sharedStore, scope: "shared" });

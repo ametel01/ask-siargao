@@ -128,7 +128,7 @@ export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter
     checkRateLimit,
     rateLimitRequest(request, policy, requestOptions) {
       return checkRateLimit({
-        key: requestClientKey(request, trustProxyHeaders),
+        key: requestPolicyKey(request, policy, trustProxyHeaders),
         policy,
         now: requestOptions?.now,
       });
@@ -195,4 +195,13 @@ function requestClientKey(request: Request, trustProxyHeaders: boolean) {
   const realIp = request.headers.get("x-real-ip")?.trim();
 
   return forwarded || realIp || "local";
+}
+
+function requestPolicyKey(request: Request, policy: RateLimitPolicy, trustProxyHeaders: boolean) {
+  const clientKey = requestClientKey(request, trustProxyHeaders);
+  if (policy !== "public_api") {
+    return clientKey;
+  }
+
+  return `${clientKey}:${new URL(request.url).pathname}`;
 }

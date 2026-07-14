@@ -217,6 +217,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 - Kept public sitemap and LLM index routes available when the optional database-backed public
   catalog is temporarily unreachable.
+- Scoped public API rate limiting by route path so high-volume weather or surf checks do not block
+  unrelated public catalog JSON.
 - Restored one-request browser-location capture for near-me chat prompts without requiring the
   traveler to open the location control first.
 - Tolerated model-style `research_web` arguments with omitted nullable fields or snake_case aliases
