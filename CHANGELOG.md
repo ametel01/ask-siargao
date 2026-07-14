@@ -20,6 +20,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added owner-scoped Trip Pass status and checkout APIs for signed-in travelers, including protected
+  account routes, private no-store responses, sanitized checkout failure handling, and redacted pass
+  allowance presentation.
 - Added authenticated Trip Pass Checkout order creation with duplicate-click idempotency, Stripe
   Price validation, and webhook-only activation boundaries.
 - Added a durable Trip Pass order, grant, and usage-event ledger plus server entitlement decisions

@@ -68,6 +68,18 @@ const apiRoutePolicyCases: Array<{
     intent: "authenticated privacy controls surface",
   },
   {
+    routeFile: "src/app/api/me/trip-pass/checkout/route.ts",
+    pathname: "/api/me/trip-pass/checkout",
+    classification: "protected",
+    intent: "authenticated Trip Pass checkout surface",
+  },
+  {
+    routeFile: "src/app/api/me/trip-pass/route.ts",
+    pathname: "/api/me/trip-pass",
+    classification: "protected",
+    intent: "authenticated Trip Pass status surface",
+  },
+  {
     routeFile: "src/app/api/public/accommodations/[...slug]/route.ts",
     pathname: "/api/public/accommodations/example-stay",
     classification: "public",

@@ -306,15 +306,37 @@ commit.
 
 ## Step 6 - Expose Owner-Scoped Trip Pass Status and Checkout Routes
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T01:50:56Z`
+- Completed: `2026-07-14T02:01:02Z`
+- Implementing commit SHA: this Step 6 commit.
+- Files and behavior changed: added `src/server/trip-pass/presentation.ts`,
+  `GET /api/me/trip-pass`, and `POST /api/me/trip-pass/checkout`; projected free, pending,
+  active, expired, and unavailable Trip Pass states with redacted allowances, warning flags,
+  validity timestamps, private no-store headers, same-origin checkout protection, and sanitized
+  checkout failure mapping; updated Clerk route-policy inventory for the new protected account APIs.
+- Acceptance criteria checked: responses omit Stripe IDs, internal user IDs, local order IDs, raw
+  provider errors, grants, and webhook records; warning thresholds cover chat remaining `<= 20`,
+  live remaining `<= 5`, and expiry within `<= 48` hours; unauthenticated and cross-user requests
+  cannot inspect or buy another user's pass; cross-origin checkout attempts are rejected before the
+  checkout service runs.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes on final run.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 368 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test src/server/auth/clerk-route-policy.test.ts src/server/trip-pass/presentation.test.ts src/app/api/me/trip-pass/route.test.ts`:
+    passed, 15 tests, 0 failures, 152 assertions.
+  - `bun test`: passed, 1045 tests, 0 failures, 5594 assertions.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed; production route inventory includes `/api/me/trip-pass` and
+    `/api/me/trip-pass/checkout`.
+  - `bun run test:e2e`: passed, 92 tests, 0 failures.
+- Changelog decision and entry location: added an `Added` entry under `[Unreleased]` for
+  owner-scoped Trip Pass status and checkout APIs.
+- Risks, follow-ups, or blocker: no blocker; Step 7 still needs the shared atomic quota store before
+  anonymous identity and paid metering can depend on cross-instance counters.
 
 ## Step 7 - Install the Shared Atomic Quota Store
 
