@@ -15,6 +15,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added authenticated Trip Pass Checkout order creation with duplicate-click idempotency, Stripe
+  Price validation, and webhook-only activation boundaries.
 - Added a durable Trip Pass order, grant, and usage-event ledger plus server entitlement decisions
   with idempotency keys, provider-key snapshots, validity checks, and migration coverage for
   checkout and meter evidence.

@@ -229,15 +229,41 @@ commit.
 
 ## Step 4 - Create Safe Trip Pass Checkout Orders
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T01:29:54Z`
+- Completed: `2026-07-14T01:36:54Z`
+- Implementing commit SHA: this Step 4 commit.
+- Files and behavior changed: added `src/server/trip-pass/stripe-adapter.ts` and
+  `src/server/trip-pass/commerce.ts` for Trip Pass-specific Checkout Session construction,
+  restricted-key-compatible Stripe calls, local order creation/reuse, stale pending order
+  replacement, returned-session metadata and Price validation, checkout-created persistence, and
+  safe checkout URL return without exposing Stripe identifiers from the service result.
+- Acceptance criteria checked: disabled and unavailable checkout do not create orders or call
+  Stripe; local pending orders are created before Stripe calls; duplicate clicks reuse the same
+  local order and Stripe idempotency key; stale pending orders are expired before deterministic
+  replacement; Stripe failures leave a retryable pending order; another user's pending order is not
+  reused or exposed; mismatched Stripe session metadata or Price is rejected; checkout creation
+  creates no pass or grant; existing audit checkout and webhook fixture behavior remains unchanged.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes applied after final edits.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 360 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed, 1029 tests, 0 failures, 5503 assertions.
+  - `bun test src/server/trip-pass/commerce.test.ts`: passed, 7 tests, 0 failures, 45
+    assertions.
+  - `bun test src/server/trip-pass/commerce.test.ts src/server/payments/stripe-lifecycle.test.ts src/app/api/audit/checkout/route.test.ts`:
+    passed, 23 tests, 0 failures, 106 assertions; used deterministic test-mode Stripe fixtures and
+    audit checkout regressions because live Stripe CLI credentials/configuration are not present in
+    this workspace.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 92 tests, 0 failures.
+- Changelog decision and entry location: added an `Added` entry under `[Unreleased]` for
+  authenticated Trip Pass Checkout order creation with webhook-only activation boundaries.
+- Risks, follow-ups, or blocker: no blocker; Step 6 still needs to expose the protected API route
+  and Step 5 still needs to apply verified Stripe events to these orders.
 
 ## Step 5 - Apply Verified Stripe Events to Trip Pass Orders
 
