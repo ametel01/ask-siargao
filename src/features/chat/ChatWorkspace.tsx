@@ -1333,7 +1333,24 @@ function useChatWorkspaceController({
       chatSubmissionGenerationRef.current = submission.generation;
       pendingChatSubmissionRef.current = submission;
       setIsSending(true);
-      const requestLocationState = locationState;
+      let requestLocationState = locationState;
+
+      if (shouldRequestAutomaticLocationForPrompt(trimmedPrompt, locationState)) {
+        const capturedLocationState = await captureLocation(
+          "single_request",
+          submission.controller.signal,
+        );
+        if (
+          !mountedRef.current ||
+          submission.controller.signal.aborted ||
+          pendingChatSubmissionRef.current?.generation !== submission.generation
+        ) {
+          return;
+        }
+        if (capturedLocationState) {
+          requestLocationState = capturedLocationState;
+        }
+      }
 
       if (
         !mountedRef.current ||
@@ -1487,6 +1504,7 @@ function useChatWorkspaceController({
     },
     [
       dispatchLocationState,
+      captureLocation,
       isSending,
       locationState,
       messages,
@@ -5754,6 +5772,17 @@ function buildChatRequestMessages(messages: readonly InteractiveChatMessage[], p
       })),
     { role: "user" as const, content: truncateChatRequestMessage(prompt) },
   ];
+}
+
+function shouldRequestAutomaticLocationForPrompt(
+  prompt: string,
+  locationState: LocationSharingState,
+) {
+  if (locationState.status !== "off" && locationState.status !== "used") {
+    return false;
+  }
+
+  return /\bnear\s+me\b|\baround\s+me\b|\bclose\s+to\s+me\b|\bnearby\b/i.test(prompt);
 }
 
 function buildChatRequestBody(

@@ -217,6 +217,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 - Kept public sitemap and LLM index routes available when the optional database-backed public
   catalog is temporarily unreachable.
+- Restored one-request browser-location capture for near-me chat prompts without requiring the
+  traveler to open the location control first.
 - Tolerated model-style `research_web` arguments with omitted nullable fields or snake_case aliases
   so valid web-research requests no longer fail chat with repeated `invalid_tool_arguments`.
 - Made the chat right-hand trip context rail fixed and vertically compact so only the chat message
