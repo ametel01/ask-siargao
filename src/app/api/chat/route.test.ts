@@ -175,6 +175,47 @@ describe("chat route", () => {
     expect(dependencies.requests).toHaveLength(0);
   });
 
+  test("dedupes same-body idempotency token replays before model work", async () => {
+    const dependencies = chatDependencies({
+      message: "Idempotent first response.",
+      sources: [genericSourceSummary],
+    });
+    const body = { messages: [{ role: "user", content: "Where should I eat?" }] };
+    const headers = { "idempotency-key": "route-test-same-body-token" };
+
+    const first = await chatResponse(jsonRequest(body, { headers }), dependencies);
+    const replay = await chatResponse(jsonRequest(body, { headers }), dependencies);
+    const replayBody = await replay.json();
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(409);
+    expect(replayBody.error).toBe("idempotent_request_replay");
+    expect(dependencies.requests).toHaveLength(1);
+  });
+
+  test("rejects idempotency token reuse with different content", async () => {
+    const dependencies = chatDependencies({
+      message: "Idempotent first response.",
+      sources: [genericSourceSummary],
+    });
+    const headers = { "idempotency-key": "route-test-conflict-token" };
+
+    const first = await chatResponse(
+      jsonRequest({ messages: [{ role: "user", content: "Where should I eat?" }] }, { headers }),
+      dependencies,
+    );
+    const conflict = await chatResponse(
+      jsonRequest({ messages: [{ role: "user", content: "Where should I surf?" }] }, { headers }),
+      dependencies,
+    );
+    const conflictBody = await conflict.json();
+
+    expect(first.status).toBe(200);
+    expect(conflict.status).toBe(409);
+    expect(conflictBody.error).toBe("idempotency_key_conflict");
+    expect(dependencies.requests).toHaveLength(1);
+  });
+
   test("passes scooter rental lookup without scooter condition routing hints", async () => {
     const dependencies = chatDependencies({
       message: "The model can choose web or Places tools for scooter rentals.",
@@ -2412,6 +2453,7 @@ function chatDependencies(
     requests: typeof requests;
   } = {
     auth: null,
+    beginAuthenticatedFreeChat: null,
     beginAnonymousFreeChat: null,
     runAskSiargaoAgentTurn: async (request) => {
       requests.push(request);
@@ -2461,8 +2503,8 @@ function deterministicIds() {
   };
 }
 
-function jsonRequest(body: unknown) {
-  return rawRequest(JSON.stringify(body));
+function jsonRequest(body: unknown, init: RequestInit = {}) {
+  return rawRequest(JSON.stringify(body), init);
 }
 
 function rawRequest(body: string, init: RequestInit = {}) {

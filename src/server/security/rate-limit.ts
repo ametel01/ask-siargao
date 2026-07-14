@@ -63,6 +63,7 @@ export type QuotaStore = {
     ttlMs: number;
     value: string;
   }): Promise<IdempotencyRecordResult>;
+  releaseBudget(input: { amount: number; key: string }): Promise<void>;
   releaseConcurrency(input: { key: string; leaseId: string }): Promise<void>;
   releaseRollingWindow(input: { key: string; reservationId: string }): Promise<void>;
   reserveRollingWindow(input: {
@@ -245,6 +246,16 @@ export function createMemoryQuotaStore(): MemoryQuotaStore {
       idempotency.set(input.key, { value: input.value, expiresAt });
       return { status: "stored", key: input.key, expiresAt };
     },
+    async releaseBudget(input) {
+      const counter = counters.get(input.key);
+      if (!counter) {
+        return;
+      }
+      counter.count = Math.max(counter.count - input.amount, 0);
+      if (counter.count === 0) {
+        counters.delete(input.key);
+      }
+    },
     async releaseConcurrency(input) {
       const lease = leases.get(input.key);
       if (!lease) {
@@ -397,6 +408,9 @@ export function createRedisQuotaStore(
         value: await client.get(key),
         expiresAt: await redisResetAt(client, key, idempotencyInput.nowMs, idempotencyInput.ttlMs),
       };
+    },
+    async releaseBudget(input) {
+      await client.decrby(redisKey(keyPrefix, input.key), input.amount);
     },
     async releaseConcurrency(input) {
       await client.send("ZREM", [redisKey(keyPrefix, input.key), input.leaseId]);

@@ -432,15 +432,51 @@ commit.
 
 ## Step 7B - Add Perimeter, Account-Velocity, and Global Cost Controls
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T02:30:25Z`
+- Completed: `2026-07-14T03:43:36Z`
+- Implementing commit SHA: this Step 7B commit.
+- Files and behavior changed: added authenticated free-chat allowance checks that bind Clerk users to
+  the same HMAC cohort/usage windows as a valid anonymous trip cookie, added same-cohort account
+  velocity challenges, added request idempotency binding for actor, canonical body hash, policy
+  version, and token hash, added provider/global model cost circuits before budgeted DeepSeek/OpenAI
+  calls, extended the shared quota store with reversible budget reservations, added
+  `trip_pass_free_allowance_blocked` telemetry, updated Redis/environment documentation, and added a
+  Vercel WAF log-mode runbook for chat, checkout, and auth-entry perimeter rules.
+- Acceptance criteria checked: anonymous usage does not reset on sign-in with the same valid trip
+  cookie; seven same-cohort Clerk accounts trigger `challenge_required`; forwarded IPs are ignored
+  outside trusted ingress but honored in Vercel-mode ingress; same idempotency token plus same body
+  dedupes before model work while the same token plus different content returns a conflict;
+  idempotency records use only HMAC token/actor hashes and SHA-256 body hashes; provider and global
+  model budget races allow exactly one reservation at a one-unit budget; partial cost reservations
+  release when a later circuit blocks; model budget failures return the existing controlled
+  `model_budget_exhausted` route error; WAF deployment remains log-mode documentation with explicit
+  promotion, rollback, owner/expiry, and privacy-safe evidence requirements.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes on final run.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 373 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test src/server/trip-pass/anonymous-free-allowance.test.ts src/app/api/chat/route.test.ts src/server/chat/cost-circuits.test.ts src/server/security/security.test.ts`:
+    passed, 115 tests, 0 failures, 897 assertions.
+  - `redis-server --port 6380 --save "" --appendonly no --daemonize yes`: passed for isolated
+    local Redis validation; the process was stopped afterward with `redis-cli -p 6380 shutdown
+    nosave`.
+  - `REDIS_URL=redis://127.0.0.1:6380 ... bun --eval ...`: passed against local Redis with a
+    throwaway key prefix; sign-in after ten anonymous successes returned `sign_in_required`,
+    same-cohort account velocity returned
+    `allowed,allowed,allowed,allowed,allowed,allowed,challenge_required`, idempotency returned
+    `stored,duplicate,conflict`, provider budget returned `allowed,blocked` with
+    `provider_budget`, and global budget returned `allowed,blocked` with `global_budget`.
+  - `bun test`: passed, 1065 tests, 0 failures, 5707 assertions.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 92 tests, 0 failures.
+- Changelog decision and entry location: added `Security` and `Added` entries under `[Unreleased]`
+  for perimeter/account velocity/idempotency/cost circuits and the Vercel WAF log-mode runbook.
+- Risks, follow-ups, or blocker: no blocker; WAF rules are intentionally documented for log-mode
+  operator setup and verification rather than applied from application code.
 
 ## Step 8 - Add Request-Idempotent Paid Chat Metering
 

@@ -417,6 +417,17 @@ describe("rate limiting", () => {
         expect.objectContaining({ status: "exceeded" }),
       ]),
     );
+
+    await store.releaseBudget({ key: "budget:provider", amount: 70 });
+    await expect(
+      store.consumeBudget({
+        key: "budget:provider",
+        amount: 100,
+        limit: 100,
+        nowMs,
+        windowMs: 60_000,
+      }),
+    ).resolves.toMatchObject({ status: "consumed", used: 100 });
   });
 });
 
@@ -439,6 +450,7 @@ function createUnavailableQuotaStore() {
     consumeBudget: fail,
     incrementFixedWindow: fail,
     recordIdempotency: fail,
+    releaseBudget: fail,
     releaseConcurrency: fail,
     releaseRollingWindow: fail,
     reserveConcurrency: fail,

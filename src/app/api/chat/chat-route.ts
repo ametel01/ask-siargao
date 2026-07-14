@@ -21,6 +21,7 @@ import {
   loadOwnedChatThread,
   touchChatThread,
 } from "@/server/chat/chat-history-store";
+import { ModelCostCircuitError } from "@/server/chat/cost-circuits";
 import { ChatCostPolicyBudgetError } from "@/server/chat/cost-policy";
 import { assemblePublicChatTurn } from "@/server/chat/public-turn-assembly";
 import { SourceConsistencyError } from "@/server/chat/source-consistency";
@@ -38,11 +39,14 @@ import {
 } from "@/server/chat/trip-context";
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
+import { trackServerEvent } from "@/server/observability/events";
 import { createComponentLogger } from "@/server/observability/logger";
 import { loadUserProfile } from "@/server/profile/user-profile-store";
+import { checkRequestIdempotency, idempotencyJson } from "@/server/security/request-idempotency";
 import {
   type AnonymousFreeAllowanceBeginResult,
   beginAnonymousFreeChat as defaultBeginAnonymousFreeChat,
+  beginAuthenticatedFreeChat as defaultBeginAuthenticatedFreeChat,
   mergeHeaders,
 } from "@/server/trip-pass/anonymous-free-allowance";
 
@@ -77,6 +81,7 @@ export type ChatRouteDependencies = AskSiargaoAgentDependencies & {
   auth?: EnsureCurrentUserDependencies["auth"] | null;
   createId?: (prefix: string) => string;
   db?: DatabaseQueryClient;
+  beginAuthenticatedFreeChat?: typeof defaultBeginAuthenticatedFreeChat | null;
   beginAnonymousFreeChat?: typeof defaultBeginAnonymousFreeChat | null;
   runAskSiargaoAgentTurn?: typeof defaultRunAskSiargaoAgentTurn;
   now?: () => Date;
@@ -226,7 +231,24 @@ export async function chatResponse(
     );
   }
 
-  if (!authenticatedUserContext && dependencies.beginAnonymousFreeChat !== null) {
+  if (authenticatedUserContext && dependencies.beginAuthenticatedFreeChat !== null) {
+    const beginAuthenticatedFreeChat =
+      dependencies.beginAuthenticatedFreeChat ?? defaultBeginAuthenticatedFreeChat;
+    const allowance = await beginAuthenticatedFreeChat(
+      request,
+      { userId: authenticatedUserContext.userId },
+      {
+        now: () => now,
+        requestId,
+      },
+    );
+    responseHeaders = mergeHeaders(responseHeaders, allowance.headers);
+    if (allowance.status !== "allowed") {
+      trackFreeAllowanceBlock(allowance, now);
+      return cloneJsonResponseWithHeaders(allowance.response, responseHeaders);
+    }
+    anonymousFreeAllowance = allowance;
+  } else if (!authenticatedUserContext && dependencies.beginAnonymousFreeChat !== null) {
     const beginAnonymousFreeChat =
       dependencies.beginAnonymousFreeChat ?? defaultBeginAnonymousFreeChat;
     const allowance = await beginAnonymousFreeChat(request, {
@@ -235,9 +257,28 @@ export async function chatResponse(
     });
     responseHeaders = mergeHeaders(responseHeaders, allowance.headers);
     if (allowance.status !== "allowed") {
+      trackFreeAllowanceBlock(allowance, now);
       return cloneJsonResponseWithHeaders(allowance.response, responseHeaders);
     }
     anonymousFreeAllowance = allowance;
+  }
+
+  const idempotency = await checkRequestIdempotency({
+    actorId:
+      anonymousFreeAllowance?.actor.tripHash ??
+      authenticatedUserContext?.userId ??
+      "anonymous-free-allowance-disabled",
+    body: rawBody.text,
+    headerValue: request.headers.get("idempotency-key") ?? request.headers.get("x-idempotency-key"),
+    nowMs: now.getTime(),
+  });
+  if (
+    idempotency.status === "duplicate" ||
+    idempotency.status === "conflict" ||
+    idempotency.status === "unavailable"
+  ) {
+    await anonymousFreeAllowance?.settle({ success: false });
+    return cloneJsonResponseWithHeaders(idempotencyJson(idempotency), responseHeaders);
   }
 
   logger.info(
@@ -399,7 +440,8 @@ export async function chatResponse(
       message.includes("GOOGLE_API_KEY") ||
       message.includes("GOOGLE_PLACES_API_KEY");
     const sourceConsistencyFailure = error instanceof SourceConsistencyError;
-    const modelBudgetFailure = error instanceof ChatCostPolicyBudgetError;
+    const modelBudgetFailure =
+      error instanceof ChatCostPolicyBudgetError || error instanceof ModelCostCircuitError;
     const status =
       missingConfiguration || modelBudgetFailure ? 503 : sourceConsistencyFailure ? 502 : 502;
     const errorCode = missingConfiguration
@@ -440,6 +482,25 @@ async function cloneJsonResponseWithHeaders(response: Response, headers: Headers
   return Response.json(await response.json(), {
     status: response.status,
     headers,
+  });
+}
+
+function trackFreeAllowanceBlock(
+  allowance: Exclude<AnonymousFreeAllowanceBeginResult, { status: "allowed" }>,
+  now: Date,
+) {
+  trackServerEvent({
+    name: "trip_pass_free_allowance_blocked",
+    now,
+    payload: {
+      status: allowance.status,
+      actor: allowance.actor
+        ? {
+            cohortVersion: allowance.actor.cohortVersion,
+            tripVersion: allowance.actor.tripVersion,
+          }
+        : null,
+    },
   });
 }
 

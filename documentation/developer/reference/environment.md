@@ -26,14 +26,16 @@ The app reads these environment variables.
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Public/client-safe | Client-side Stripe surfaces | Present in `.env.example`; current Checkout flow is server initiated. |
 | `TRIP_PASS_CHECKOUT_ENABLED` | Server only | Trip Pass rollout | Optional boolean. Defaults to `false`; when `true` without `STRIPE_TRIP_PASS_PRICE_ID`, the Trip Pass catalog reports checkout as unavailable instead of enabled. |
 | `TRIP_PASS_EXTENSION_ENABLED` | Server only | Future Trip Pass extensions | Optional boolean. Defaults to `false`; extensions remain unavailable until launch approval. |
-| `TRIP_PASS_ANON_HMAC_KEY` | Server only | Anonymous Trip Pass/free-tier identity | Server-side HMAC key for privacy-safe anonymous quota cohorts. Required before anonymous launch limits can be production-ready. |
-| `TRIP_PASS_ANON_HMAC_KEY_VERSION` | Server only | Anonymous identity key rotation | Optional positive integer. Defaults to `1`. |
-| `TRIP_PASS_WAF_MODE` | Server only | Trip Pass perimeter rollout | Optional. Allowed values: `disabled`, `log`, or `challenge`. Defaults to `disabled`. |
+| `TRIP_PASS_ANON_HMAC_KEY` | Server only | Anonymous Trip Pass identity signing and HMAC cohorts | Required in production for anonymous reset resistance. Local development uses a fallback key for cookie behavior but does not enforce cohort reset-resistance unless this key is set. |
+| `TRIP_PASS_ANON_HMAC_KEY_VERSION` | Server only | Anonymous Trip Pass identity key version | Optional positive integer. Defaults to `1`; increment during HMAC key rotation. |
+| `TRIP_PASS_IPV6_COHORT_BITS` | Server only | Anonymous network cohorting | Optional positive integer. Defaults to `64`; controls IPv6 prefix grouping before HMAC. |
+| `TRIP_PASS_WAF_MODE` | Server only | Perimeter WAF rollout mode | Optional enum: `disabled`, `log`, or `challenge`. See `documentation/developer/reference/vercel-waf-trip-pass.md` for Vercel WAF log-mode rules, promotion criteria, and rollback. |
 | `DEEPSEEK_API_KEY` | Server only | Primary Ask Siargao chat model | Required for DeepSeek primary chat generation. When unset, chat can still run with `OPENAI_API_KEY` as the fallback provider. |
 | `DEEPSEEK_BASE_URL` | Server only | DeepSeek OpenAI-compatible client | Optional. Defaults to `https://api.deepseek.com`. |
 | `DEEPSEEK_MODEL` | Server only | Primary Ask Siargao chat model override | Optional. Defaults to `deepseek-v4-flash`, DeepSeek's basic/lower-cost current model. |
 | `DEEPSEEK_COST_POLICY_ENABLED` | Server only | DeepSeek cost-policy rollout | Optional boolean. Defaults to `false`; candidate mode must pass the fixed cost/quality corpus before promotion. |
 | `DEEPSEEK_DAILY_USD_LIMIT` | Server only | DeepSeek cost circuit | Optional non-negative number for provider-level daily budget checks. |
+| `MODEL_COST_RESERVATION_MICRO_USD` | Server only | Model cost circuit reservation size | Optional positive integer reservation in micro-USD per model call. Defaults to `1`; use a conservative value in production so provider/global circuits stop before budget exhaustion. |
 | `OPENAI_API_KEY` | Server only | OpenAI fallback and OpenAI Responses API services | Required for chat fallback, real report generation, reviewer calls, hosted web search, hosted agent-memory file search, and `bun run agent-memory:sync` when not using `--dry-run`. |
 | `OPENAI_MODEL` | Server only | OpenAI fallback and audit generator model override | Defaults to `gpt-5.4-mini`. Chat uses this only when DeepSeek is unavailable or not configured; audit generation still uses OpenAI Responses. |
 | `OPENAI_REVIEWER_MODEL` | Server only | Reviewer model override | Defaults to `gpt-5.4-mini`. |
@@ -47,8 +49,9 @@ The app reads these environment variables.
 | `GOOGLE_API_KEY` | Server only | Google Places adapters, discovery, and enrichment | Required for live Google Places provider calls and by `bun run db:discover:google-places` and `bun run db:enrich:google-places`. Keep field masks narrow; chat lookup uses Google Places Text Search Enterprise fields for rating signals, opening hours, price, website, phone, and map links, but still excludes review text, bookings, and availability; discovery uses ID-only fields, enrichment uses Place Details Pro fields. Google retention pruning uses `DATABASE_URL` and does not require this key. |
 | `INNGEST_EVENT_KEY` | Server only | Future job worker integration | Placeholder until the production worker backend is wired. |
 | `INNGEST_SIGNING_KEY` | Server only | Future job worker integration | Placeholder until the production worker backend is wired. |
-| `REDIS_URL` | Server only | Future worker/rate-limit infrastructure | Production rate limiting must be backed by an injected shared `RateLimitStore` configured through `configureRateLimitStore`; no Redis adapter is bundled yet. |
+| `REDIS_URL` | Server only | Shared quota infrastructure | Enables the bundled Redis quota store for production rate limits, anonymous free allowance, request idempotency, and model cost circuits. Production traffic fails closed for quota-backed controls when a shared store is required but unavailable. |
 | `TRUST_PROXY_HEADERS` | Server only | Rate-limit request identity | Defaults to `false`. Set to `true` only when a trusted edge/proxy owns `x-forwarded-for` or `x-real-ip`; otherwise requests share the local fallback identity. |
+| `TRIP_PASS_IDEMPOTENCY_HMAC_KEY` | Server only | Request idempotency token hashing | Required in production for privacy-safe request idempotency tokens. Local development uses a fallback key. |
 | `ADMIN_ACCESS_TOKEN` | Server only | Production admin diagnostics access | Send the same value in the `x-admin-token` request header. |
 | `SENTRY_DSN` | Server only | Observability sink configuration | Current event helper records whether it is configured. |
 | `NEXT_PUBLIC_POSTHOG_KEY` | Public/client-safe | PostHog sink configuration | Current event helper records whether it is configured. |
@@ -71,10 +74,7 @@ See [Database authorization reference](database-authorization.md) for the role a
 ## Production Rate-Limit Storage
 
 Production rate limiting fails closed when the active `RateLimitStore` has `scope: "process"`.
-Development and test can use the default process-local memory store, but production must inject a
-shared, atomic store with `scope: "shared"` by calling `configureRateLimitStore` before handling
-rate-limited requests.
-
-No Redis, Upstash, or Vercel KV adapter is bundled yet. When one is added, it must preserve atomic
-increment and expiry semantics across all production instances. There is no environment override for
-process-local production rate limits.
+Development and test can use the default process-local memory store. Production should set
+`REDIS_URL` so the bundled Redis quota store provides atomic increments, rolling-window
+reservations, concurrency leases, idempotency records, and budget reservations across all runtime
+instances. There is no environment override for process-local production rate limits.

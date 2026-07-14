@@ -39,6 +39,7 @@ import {
   requiredEvidenceAllowedCardIds,
 } from "@/server/chat/chat-evidence-policy";
 import type { ConditionJudgmentRequest } from "@/server/chat/condition-tools";
+import { assertModelCostCircuit, reserveModelCost } from "@/server/chat/cost-circuits";
 import {
   assertModelCallAllowed,
   type ChatCostPolicy,
@@ -61,6 +62,7 @@ import { createModelCostAccumulator, modelCostTelemetryPayload } from "@/server/
 import { trackServerEvent } from "@/server/observability/events";
 import { createComponentLogger } from "@/server/observability/logger";
 import { createConfiguredWebResearchProvider } from "@/server/providers/web-search";
+import type { QuotaStore } from "@/server/security/rate-limit";
 
 export type AskSiargaoAgentDependencies = AgentRuntimeDependencies &
   AgentToolDependencies & {
@@ -71,6 +73,7 @@ export type AskSiargaoAgentDependencies = AgentRuntimeDependencies &
     now?: () => Date;
     requireStructuredFinalOutput?: boolean;
     costPolicyEnv?: Record<string, string | undefined>;
+    costCircuitStore?: QuotaStore;
   };
 
 type ParsedFunctionCall = {
@@ -128,8 +131,11 @@ export async function runAskSiargaoAgentTurn(
     client,
     costAccumulator,
     costPolicy,
+    costPolicyEnv: dependencies.costPolicyEnv,
+    costCircuitStore: dependencies.costCircuitStore,
     maxOutputTokens,
     modelCostPolicy,
+    now: dependencies.now,
   });
   const agentMemoryVectorStoreId =
     dependencies.agentMemoryVectorStoreId ?? process.env.OPENAI_AGENT_MEMORY_VECTOR_STORE_ID;
@@ -202,6 +208,9 @@ export async function runAskSiargaoAgentTurn(
     client,
     costAccumulator,
     costPolicy,
+    costPolicyEnv: dependencies.costPolicyEnv,
+    costCircuitStore: dependencies.costCircuitStore,
+    now: dependencies.now,
     params: {
       model: resolved.model,
       store: false,
@@ -289,6 +298,9 @@ export async function runAskSiargaoAgentTurn(
           client,
           costAccumulator,
           costPolicy,
+          costPolicyEnv: dependencies.costPolicyEnv,
+          costCircuitStore: dependencies.costCircuitStore,
+          now: dependencies.now,
           params: {
             model: activeModel,
             store: false,
@@ -387,6 +399,9 @@ export async function runAskSiargaoAgentTurn(
           client,
           costAccumulator,
           costPolicy,
+          costPolicyEnv: dependencies.costPolicyEnv,
+          costCircuitStore: dependencies.costCircuitStore,
+          now: dependencies.now,
           params: {
             model: activeModel,
             store: false,
@@ -453,6 +468,9 @@ export async function runAskSiargaoAgentTurn(
       client,
       costAccumulator,
       costPolicy,
+      costPolicyEnv: dependencies.costPolicyEnv,
+      costCircuitStore: dependencies.costCircuitStore,
+      now: dependencies.now,
       params: {
         model: activeModel,
         store: false,
@@ -476,14 +494,20 @@ function createBudgetedModelClient({
   client,
   costAccumulator,
   costPolicy,
+  costPolicyEnv,
+  costCircuitStore,
   maxOutputTokens,
   modelCostPolicy,
+  now,
 }: {
   client: AgentResponsesClient;
   costAccumulator: ReturnType<typeof createModelCostAccumulator>;
   costPolicy: ChatCostPolicy;
+  costPolicyEnv?: Record<string, string | undefined>;
+  costCircuitStore?: QuotaStore;
   maxOutputTokens: number;
   modelCostPolicy: ReturnType<typeof responseModelCostPolicy>;
+  now?: () => Date;
 }) {
   return {
     responses: {
@@ -492,6 +516,9 @@ function createBudgetedModelClient({
           client,
           costAccumulator,
           costPolicy,
+          costPolicyEnv,
+          costCircuitStore,
+          now,
           params: {
             ...params,
             max_output_tokens: boundedMaxOutputTokens(params.max_output_tokens, maxOutputTokens),
@@ -506,14 +533,27 @@ async function createBudgetedModelResponse({
   client,
   costAccumulator,
   costPolicy,
+  costPolicyEnv,
+  costCircuitStore,
+  now,
   params,
 }: {
   client: AgentResponsesClient;
   costAccumulator: ReturnType<typeof createModelCostAccumulator>;
   costPolicy: ChatCostPolicy;
+  costPolicyEnv?: Record<string, string | undefined>;
+  costCircuitStore?: QuotaStore;
+  now?: () => Date;
   params: Record<string, unknown>;
 }) {
   assertModelCallAllowed(costAccumulator.summary().callCount, costPolicy);
+  const model = typeof params.model === "string" ? params.model : "unknown";
+  assertModelCostCircuit(
+    await reserveModelCost(
+      { model, requestId: costAccumulator.summary().requestId },
+      { env: costPolicyEnv, now, store: costCircuitStore },
+    ),
+  );
   return client.responses.create(params);
 }
 

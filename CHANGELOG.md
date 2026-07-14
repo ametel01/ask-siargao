@@ -15,6 +15,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Security
 
+- Added Trip Pass perimeter and cost controls, including authenticated account-velocity challenges,
+  trusted-ingress cohort handling, request idempotency token binding, and provider/global model
+  budget circuits before expensive model work.
 - Added privacy-safe anonymous reset resistance for free chat usage, including signed trip
   identities, HMAC network cohorts, challenge outcomes for suspicious cleared-cookie velocity, and
   production fail-closed behavior without Redis.
@@ -26,6 +29,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added a Vercel WAF log-mode runbook for Trip Pass chat, checkout, and auth-entry perimeter rules,
+  including promotion criteria, rollback, and privacy-safe verification evidence.
 - Added anonymous Trip Pass free-allowance enforcement for chat, including Secure/HttpOnly/SameSite
   trip cookies, seven-day and daily success windows, minute starts, per-actor concurrency, and
   local-development cookie behavior.

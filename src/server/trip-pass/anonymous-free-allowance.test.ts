@@ -4,6 +4,7 @@ import { createMemoryQuotaStore } from "@/server/security/rate-limit";
 import {
   anonymousTripCookieName,
   beginAnonymousFreeChat,
+  beginAuthenticatedFreeChat,
 } from "@/server/trip-pass/anonymous-free-allowance";
 
 const env = {
@@ -134,6 +135,58 @@ describe("anonymous free allowance", () => {
         result.status === "allowed" ? result.settle({ success: false }) : Promise.resolve(),
       ),
     );
+  });
+
+  test("trusts forwarded cohorts only inside configured ingress boundaries", async () => {
+    const noTrustEnv = { ...env, TRUST_PROXY_HEADERS: undefined };
+    const spoofedStore = createMemoryQuotaStore();
+    const spoofedStatuses: string[] = [];
+
+    for (let index = 0; index < 5; index += 1) {
+      const result = await beginAnonymousFreeChat(
+        request({ forwardedFor: `203.0.113.${index + 10}` }),
+        {
+          createId: ids(`spoofed_${index}`),
+          env: noTrustEnv,
+          now: () => new Date("2026-07-14T01:30:00.000Z"),
+          requestId: `spoofed_${index}`,
+          store: spoofedStore,
+        },
+      );
+      spoofedStatuses.push(result.status);
+      if (result.status === "allowed") {
+        await result.settle({ success: false });
+      }
+    }
+
+    const vercelStore = createMemoryQuotaStore();
+    const vercelStatuses: string[] = [];
+
+    for (let index = 0; index < 5; index += 1) {
+      const result = await beginAnonymousFreeChat(
+        request({ forwardedFor: `203.0.113.${index + 10}` }),
+        {
+          createId: ids(`vercel_${index}`),
+          env: { ...noTrustEnv, VERCEL: "1" },
+          now: () => new Date("2026-07-14T01:31:00.000Z"),
+          requestId: `vercel_${index}`,
+          store: vercelStore,
+        },
+      );
+      vercelStatuses.push(result.status);
+      if (result.status === "allowed") {
+        await result.settle({ success: false });
+      }
+    }
+
+    expect(spoofedStatuses).toEqual([
+      "allowed",
+      "allowed",
+      "allowed",
+      "allowed",
+      "challenge_required",
+    ]);
+    expect(vercelStatuses).toEqual(["allowed", "allowed", "allowed", "allowed", "allowed"]);
   });
 
   test("fails closed in production when Redis is not configured", async () => {
@@ -318,6 +371,91 @@ describe("anonymous free allowance", () => {
         result.status === "allowed" ? result.settle({ success: true }) : Promise.resolve(),
       ),
     );
+  });
+
+  test("does not reset linked anonymous free usage after sign-in", async () => {
+    const store = createMemoryQuotaStore();
+    const first = await beginAnonymousFreeChat(request(), {
+      createId: ids("trip_before_sign_in"),
+      env,
+      now: () => new Date("2026-07-14T02:00:00.000Z"),
+      requestId: "anonymous_before_sign_in_0",
+      store,
+      trustProxyHeaders: true,
+    });
+    expect(first.status).toBe("allowed");
+    if (first.status !== "allowed") {
+      return;
+    }
+    const cookie = cookiePair(first.headers);
+    await first.settle({ success: true });
+
+    for (let index = 1; index < 10; index += 1) {
+      const result = await beginAnonymousFreeChat(request({ cookie }), {
+        env,
+        now: () => new Date(`2026-07-14T02:${String(index).padStart(2, "0")}:00.000Z`),
+        requestId: `anonymous_before_sign_in_${index}`,
+        store,
+        trustProxyHeaders: true,
+      });
+      expect(result.status).toBe("allowed");
+      if (result.status === "allowed") {
+        await result.settle({ success: true });
+      }
+    }
+
+    const signedIn = await beginAuthenticatedFreeChat(
+      request({ cookie }),
+      { userId: "user_after_anonymous" },
+      {
+        env,
+        now: () => new Date("2026-07-14T02:20:00.000Z"),
+        requestId: "signed_in_after_anon",
+        store,
+        trustProxyHeaders: true,
+      },
+    );
+
+    expect(signedIn.status).toBe("sign_in_required");
+    if (signedIn.status === "sign_in_required") {
+      await expect(signedIn.response.json()).resolves.toMatchObject({
+        error: "sign_in_required",
+        reason: "chat_message_free_allowance_exhausted",
+      });
+    }
+  });
+
+  test("challenges suspicious authenticated account velocity by cohort", async () => {
+    const store = createMemoryQuotaStore();
+    const statuses: string[] = [];
+
+    for (let index = 0; index < 7; index += 1) {
+      const result = await beginAuthenticatedFreeChat(
+        request({ forwardedFor: "203.0.113.55" }),
+        { userId: `user_velocity_${index}` },
+        {
+          env,
+          now: () => new Date(`2026-07-14T04:0${index}:00.000Z`),
+          requestId: `auth_velocity_${index}`,
+          store,
+          trustProxyHeaders: true,
+        },
+      );
+      statuses.push(result.status);
+      if (result.status === "allowed") {
+        await result.settle({ success: false });
+      }
+    }
+
+    expect(statuses).toEqual([
+      "allowed",
+      "allowed",
+      "allowed",
+      "allowed",
+      "allowed",
+      "allowed",
+      "challenge_required",
+    ]);
   });
 });
 

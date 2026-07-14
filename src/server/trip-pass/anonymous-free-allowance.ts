@@ -86,6 +86,161 @@ export async function beginAnonymousFreeChat(
   });
 }
 
+export async function beginAuthenticatedFreeChat(
+  request: Request,
+  input: { userId: string },
+  options: AnonymousFreeAllowanceOptions = {},
+): Promise<AnonymousFreeAllowanceBeginResult> {
+  const now = options.now?.() ?? new Date();
+  const nowMs = now.getTime();
+  const config = readAnonymousIdentityConfig(options.env, request);
+  const headers = new Headers();
+
+  if (config.status === "unavailable") {
+    return denied("unavailable", headers, "anonymous_identity_unavailable", null);
+  }
+  if (!options.store && isProductionEnvironment(options.env) && !options.env?.REDIS_URL) {
+    return denied("unavailable", headers, "anonymous_quota_store_unavailable", null);
+  }
+
+  const cohortHash = hmacIdentifier(
+    config,
+    normalizeNetworkCohort(request, {
+      env: options.env,
+      trustProxyHeaders: options.trustProxyHeaders,
+    }),
+    "network",
+  );
+  const userHash = hmacIdentifier(config, input.userId, "user");
+  const actor = {
+    cohortHash,
+    cohortVersion: config.keyVersion,
+    tripHash: userHash,
+    tripVersion: config.keyVersion,
+  } satisfies AnonymousFreeActor;
+  const store = options.store ?? getDefaultAnonymousFreeAllowanceStore(options.env);
+  const requestId = options.requestId ?? createReservationId(options.createId);
+  const leaseId = requestId;
+  const keyVersion = config.keyVersion;
+
+  if (config.enforceCohortLimits) {
+    const accountVelocity = await store.reserveRollingWindow({
+      key: `anon:v${config.keyVersion}:cohort:${cohortHash}:auth-users:1d`,
+      reservationId: userHash,
+      limit: 6,
+      nowMs,
+      windowMs: oneDayMs,
+    });
+    if (accountVelocity.status === "rejected") {
+      return denied("challenge_required", headers, "account_velocity_challenge_required", actor);
+    }
+  }
+
+  const start = await store.reserveRollingWindow({
+    key: `anon:v${config.keyVersion}:user:${userHash}:starts:1m`,
+    reservationId: requestId,
+    limit: tripPassRateLimits.free.chatStartsPerMinute,
+    nowMs,
+    windowMs: oneMinuteMs,
+  });
+  if (start.status === "rejected") {
+    return denied("sign_in_required", headers, "free_chat_start_limit_exceeded", actor);
+  }
+
+  const lease = await store.reserveConcurrency({
+    key: `anon:v${config.keyVersion}:user:${userHash}:chat-concurrency`,
+    leaseId,
+    limit: tripPassRateLimits.free.concurrentChatRequests,
+    nowMs,
+    ttlMs: 2 * oneMinuteMs,
+  });
+  if (lease.status === "rejected") {
+    return denied("sign_in_required", headers, "free_chat_concurrency_exceeded", actor);
+  }
+
+  const successReservations: Reservation[] = [];
+  const userSuccess = await reserveSuccessMeters({
+    actor,
+    config,
+    meters: ["chat_message"],
+    nowMs,
+    requestId,
+    store,
+  });
+  if (userSuccess.status !== "allowed") {
+    await store.releaseConcurrency({
+      key: `anon:v${config.keyVersion}:user:${userHash}:chat-concurrency`,
+      leaseId,
+    });
+    return denied(userSuccess.status, headers, userSuccess.reason, actor);
+  }
+  successReservations.push(...userSuccess.reservations);
+
+  const existingCookie = resolveExistingAnonymousTripCookie({
+    config,
+    cookieHeader: request.headers.get("cookie"),
+    nowMs,
+  });
+  if (existingCookie) {
+    const tripActor = {
+      cohortHash,
+      cohortVersion: config.keyVersion,
+      tripHash: hmacIdentifier(config, existingCookie.id, "trip"),
+      tripVersion: existingCookie.keyVersion,
+    } satisfies AnonymousFreeActor;
+    const tripSuccess = await reserveSuccessMeters({
+      actor: tripActor,
+      config,
+      meters: ["chat_message"],
+      nowMs,
+      requestId: `${requestId}:linked-trip`,
+      store,
+    });
+    if (tripSuccess.status !== "allowed") {
+      await releaseReservations(store, successReservations);
+      await store.releaseConcurrency({
+        key: `anon:v${config.keyVersion}:user:${userHash}:chat-concurrency`,
+        leaseId,
+      });
+      return denied(tripSuccess.status, headers, tripSuccess.reason, actor);
+    }
+    successReservations.push(...tripSuccess.reservations);
+  }
+
+  let released = false;
+
+  async function release() {
+    if (released) {
+      return;
+    }
+    released = true;
+    await store.releaseConcurrency({
+      key: `anon:v${keyVersion}:user:${userHash}:chat-concurrency`,
+      leaseId,
+    });
+  }
+
+  return {
+    status: "allowed",
+    actor,
+    cookie: existingCookie ?? {
+      id: input.userId,
+      expiresAt: nowMs + sevenDaysMs,
+      keyVersion: config.keyVersion,
+      state: "valid",
+      value: "",
+    },
+    headers,
+    release,
+    async settle(settleInput) {
+      if (!settleInput.success) {
+        await releaseReservations(store, successReservations);
+      }
+      await release();
+    },
+  };
+}
+
 export async function beginAnonymousFreeUsage(
   request: Request,
   options: AnonymousFreeAllowanceOptions & { meters: readonly FreeUsageMeter[] },
@@ -383,6 +538,43 @@ function resolveAnonymousTripCookie(input: {
   };
 }
 
+function resolveExistingAnonymousTripCookie(input: {
+  config: Extract<AnonymousIdentityConfig, { status: "available" }>;
+  cookieHeader: string | null;
+  nowMs: number;
+}) {
+  const parsed = parseCookieHeader(input.cookieHeader).get(anonymousTripCookieName);
+  if (!parsed) {
+    return null;
+  }
+
+  const parts = parsed.split(".");
+  if (parts.length !== 4 || parts[0] !== "v1") {
+    return null;
+  }
+
+  const [, encodedId, encodedExpiresAt, signature] = parts;
+  const id = decodeBase64Url(encodedId);
+  const expiresAtText = decodeBase64Url(encodedExpiresAt);
+  const expiresAt = Number(expiresAtText);
+  if (!id || !Number.isFinite(expiresAt) || expiresAt <= input.nowMs) {
+    return null;
+  }
+
+  const signedValue = `${encodedId}.${encodedExpiresAt}.${input.config.keyVersion}`;
+  if (!verifySignature(input.config.key, signedValue, signature)) {
+    return null;
+  }
+
+  return {
+    id,
+    expiresAt,
+    keyVersion: input.config.keyVersion,
+    state: "valid" as const,
+    value: parsed,
+  } satisfies AnonymousTripCookie;
+}
+
 function issueCookie(
   config: Extract<AnonymousIdentityConfig, { status: "available" }>,
   state: AnonymousTripCookie["state"],
@@ -445,7 +637,8 @@ function getDefaultAnonymousFreeAllowanceStore(
   env: Record<string, string | undefined> = process.env,
 ) {
   if (!defaultStore) {
-    defaultStore = env.REDIS_URL ? createRedisQuotaStore() : createMemoryQuotaStore();
+    defaultStore =
+      env.REDIS_URL && env.NODE_ENV !== "test" ? createRedisQuotaStore() : createMemoryQuotaStore();
   }
   return defaultStore;
 }
@@ -520,7 +713,7 @@ function parseIpv6Bytes(value: string) {
 function hmacIdentifier(
   config: Extract<AnonymousIdentityConfig, { status: "available" }>,
   value: string,
-  purpose: "network" | "trip",
+  purpose: "network" | "trip" | "user",
 ) {
   return createHmac("sha256", config.key)
     .update(`ask-siargao:${purpose}:v${config.keyVersion}:`)
