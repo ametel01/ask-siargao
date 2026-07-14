@@ -76,12 +76,29 @@
     "cases": [
       {
         "ordinal": 1,
-        "id": "routine_first_day_plan",
-        "promptClass": "routine_trip_planning",
-        "contextClass": "anonymous_no_trip_context",
+        "id": "current_weather_conditions",
+        "promptClass": "current_weather_conditions",
+        "contextClass": "dated_trip_context",
         "qualityResult": "pass",
-        "toolOrder": ["load_agent_memory_file"],
-        "artifactKinds": [],
+        "qualityContract": {
+          "category": "current weather and conditions",
+          "requiredEvidence": ["fresh_weather", "condition_judgment"],
+          "sourceFreshnessBoundary": "fresh, stale, cached, unavailable, and not-checked states stay explicit",
+          "tripContextUse": "uses travel date and area without inventing live facts",
+          "artifactAssertions": {
+            "requiredKinds": ["decision_summary"],
+            "displayCardFiltering": null
+          },
+          "semanticToolOrdering": ["get_weather_forecast before get_condition_judgment"],
+          "metering": {
+            "meterType": "weather_refresh",
+            "settlesOncePerDecision": true
+          },
+          "safetyBoundaries": ["no road, official-warning, or safety claims from weather alone"],
+          "result": "pass"
+        },
+        "toolOrder": ["get_weather_forecast", "get_condition_judgment"],
+        "artifactKinds": ["decision_summary"],
         "runPhase": "cold_prefix_priming",
         "callCount": 1,
         "totals": {
@@ -98,24 +115,45 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_01_final",
             "inputCacheHitTokens": 12000,
             "inputCacheMissTokens": 8000,
             "outputTokens": 650,
             "reasoningTokens": 120,
             "totalTokens": 20650,
+            "latencyMs": 900,
             "modeledCostUsd": "0.0013356"
           }
         ]
       },
       {
         "ordinal": 2,
-        "id": "weather_sensitive_scooter_decision",
-        "promptClass": "live_weather_decision",
-        "contextClass": "dated_trip_context",
+        "id": "open_now_food",
+        "promptClass": "open_now_food_recommendation",
+        "contextClass": "signed_in_trip_context",
         "qualityResult": "pass",
-        "toolOrder": ["get_weather_forecast", "get_condition_judgment"],
-        "artifactKinds": ["decision_summary"],
+        "qualityContract": {
+          "category": "open-now food",
+          "requiredEvidence": ["places_open_now", "source_freshness"],
+          "sourceFreshnessBoundary": "fresh, stale, cached, unavailable, and not-checked states stay explicit",
+          "tripContextUse": "uses meal need, area, and time window from trip context",
+          "artifactAssertions": {
+            "requiredKinds": ["recommendation_card", "action"],
+            "displayCardFiltering": null
+          },
+          "semanticToolOrdering": ["search_places before get_place_details"],
+          "metering": {
+            "meterType": "live_refresh",
+            "settlesOncePerDecision": true
+          },
+          "safetyBoundaries": [
+            "does not claim table availability or independent local quality checks"
+          ],
+          "result": "pass"
+        },
+        "toolOrder": ["search_places", "get_place_details"],
+        "artifactKinds": ["recommendation_card", "action"],
         "runPhase": "warm_repeated",
         "callCount": 2,
         "totals": {
@@ -132,12 +170,14 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_02_tools",
             "inputCacheHitTokens": 22000,
             "inputCacheMissTokens": 11000,
             "outputTokens": 420,
             "reasoningTokens": 180,
             "totalTokens": 33420,
+            "latencyMs": 975,
             "modeledCostUsd": "0.0017192"
           },
           {
@@ -145,23 +185,42 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_02_final",
             "inputCacheHitTokens": 24000,
             "inputCacheMissTokens": 7500,
             "outputTokens": 780,
             "reasoningTokens": 140,
             "totalTokens": 32280,
+            "latencyMs": 1100,
             "modeledCostUsd": "0.0013356"
           }
         ]
       },
       {
         "ordinal": 3,
-        "id": "nearby_open_places",
-        "promptClass": "browser_location_places",
+        "id": "beach_fit",
+        "promptClass": "beach_fit_recommendation",
         "contextClass": "single_request_geolocation_available",
         "qualityResult": "pass",
-        "toolOrder": ["search_places"],
+        "qualityContract": {
+          "category": "beach fit",
+          "requiredEvidence": ["curated_beach_fit", "condition_boundary"],
+          "sourceFreshnessBoundary": "fresh, stale, cached, unavailable, and not-checked states stay explicit",
+          "tripContextUse": "uses traveler constraints, beach preference, and one-request location consent",
+          "artifactAssertions": {
+            "requiredKinds": ["recommendation_card"],
+            "displayCardFiltering": null
+          },
+          "semanticToolOrdering": ["local facts before condition caveats"],
+          "metering": {
+            "meterType": "heavy_recommendation",
+            "settlesOncePerDecision": true
+          },
+          "safetyBoundaries": ["does not present exact browser coordinates"],
+          "result": "pass"
+        },
+        "toolOrder": ["query_local_facts", "get_condition_judgment"],
         "artifactKinds": ["recommendation_card"],
         "runPhase": "warm_repeated",
         "callCount": 2,
@@ -179,12 +238,14 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_03_tools",
             "inputCacheHitTokens": 21500,
             "inputCacheMissTokens": 10200,
             "outputTokens": 360,
             "reasoningTokens": 160,
             "totalTokens": 32060,
+            "latencyMs": 1050,
             "modeledCostUsd": "0.001589"
           },
           {
@@ -192,24 +253,43 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_03_final",
             "inputCacheHitTokens": 23700,
             "inputCacheMissTokens": 7200,
             "outputTokens": 710,
             "reasoningTokens": 110,
             "totalTokens": 31610,
+            "latencyMs": 1175,
             "modeledCostUsd": "0.00127316"
           }
         ]
       },
       {
         "ordinal": 4,
-        "id": "heavy_restaurant_research",
-        "promptClass": "heavy_recommendation_current_web",
-        "contextClass": "signed_in_trip_context",
+        "id": "route_time",
+        "promptClass": "route_time_transfer",
+        "contextClass": "dated_transfer_context",
         "qualityResult": "pass",
-        "toolOrder": ["research_web", "search_places", "get_place_details"],
-        "artifactKinds": ["recommendation_card", "action"],
+        "qualityContract": {
+          "category": "route time",
+          "requiredEvidence": ["curated_route_time", "transport_mode"],
+          "sourceFreshnessBoundary": "fresh, stale, cached, unavailable, and not-checked states stay explicit",
+          "tripContextUse": "uses ferry/airport timing and transport constraints",
+          "artifactAssertions": {
+            "requiredKinds": ["itinerary"],
+            "displayCardFiltering": null
+          },
+          "semanticToolOrdering": ["route facts before itinerary assembly"],
+          "metering": {
+            "meterType": "route_lookup",
+            "settlesOncePerDecision": true
+          },
+          "safetyBoundaries": ["labels route timing as planning guidance rather than live traffic"],
+          "result": "pass"
+        },
+        "toolOrder": ["plan_local_itinerary"],
+        "artifactKinds": ["itinerary"],
         "runPhase": "warm_repeated",
         "callCount": 3,
         "totals": {
@@ -226,12 +306,14 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_04_tools_1",
             "inputCacheHitTokens": 28000,
             "inputCacheMissTokens": 17000,
             "outputTokens": 540,
             "reasoningTokens": 220,
             "totalTokens": 45540,
+            "latencyMs": 1125,
             "modeledCostUsd": "0.0026096"
           },
           {
@@ -239,12 +321,14 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_04_tools_2",
             "inputCacheHitTokens": 32000,
             "inputCacheMissTokens": 13000,
             "outputTokens": 620,
             "reasoningTokens": 200,
             "totalTokens": 45620,
+            "latencyMs": 1250,
             "modeledCostUsd": "0.0020832"
           },
           {
@@ -252,24 +336,45 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_04_final",
             "inputCacheHitTokens": 34000,
             "inputCacheMissTokens": 9800,
             "outputTokens": 1050,
             "reasoningTokens": 180,
             "totalTokens": 44850,
+            "latencyMs": 1375,
             "modeledCostUsd": "0.0017612"
           }
         ]
       },
       {
         "ordinal": 5,
-        "id": "route_before_ferry_transfer",
-        "promptClass": "route_lookup_itinerary",
-        "contextClass": "dated_transfer_context",
+        "id": "accommodation_comparison",
+        "promptClass": "accommodation_area_comparison",
+        "contextClass": "signed_in_trip_context",
         "qualityResult": "pass",
-        "toolOrder": ["plan_local_itinerary"],
-        "artifactKinds": ["itinerary"],
+        "qualityContract": {
+          "category": "accommodation comparison",
+          "requiredEvidence": ["source_governed_area_fact", "source_evidence"],
+          "sourceFreshnessBoundary": "fresh, stale, cached, unavailable, and not-checked states stay explicit",
+          "tripContextUse": "uses sleep, budget, and area constraints without reading raw provider payloads",
+          "artifactAssertions": {
+            "requiredKinds": ["recommendation_card"],
+            "displayCardFiltering": null
+          },
+          "semanticToolOrdering": ["local facts before source evidence drilldown"],
+          "metering": {
+            "meterType": "heavy_recommendation",
+            "settlesOncePerDecision": true
+          },
+          "safetyBoundaries": [
+            "does not claim room availability, booking inventory, or unpublished reviews"
+          ],
+          "result": "pass"
+        },
+        "toolOrder": ["query_local_facts", "get_source_evidence"],
+        "artifactKinds": ["recommendation_card"],
         "runPhase": "warm_repeated",
         "callCount": 2,
         "totals": {
@@ -286,12 +391,14 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_05_tools",
             "inputCacheHitTokens": 20200,
             "inputCacheMissTokens": 9400,
             "outputTokens": 390,
             "reasoningTokens": 130,
             "totalTokens": 29990,
+            "latencyMs": 1200,
             "modeledCostUsd": "0.00148176"
           },
           {
@@ -299,23 +406,44 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_05_final",
             "inputCacheHitTokens": 22100,
             "inputCacheMissTokens": 6700,
             "outputTokens": 760,
             "reasoningTokens": 100,
             "totalTokens": 29560,
+            "latencyMs": 1325,
             "modeledCostUsd": "0.00121268"
           }
         ]
       },
       {
         "ordinal": 6,
-        "id": "surf_spots_nearby",
-        "promptClass": "browser_location_surf_ranking",
-        "contextClass": "trip_session_geolocation_available",
+        "id": "boat_safety_caveats",
+        "promptClass": "boat_and_safety_caveats",
+        "contextClass": "dated_boat_context",
         "qualityResult": "pass",
-        "toolOrder": ["rank_surf_spots_nearby", "get_marine_conditions"],
+        "qualityContract": {
+          "category": "boat and safety caveats",
+          "requiredEvidence": ["marine_conditions", "unchecked_safety_boundary"],
+          "sourceFreshnessBoundary": "fresh, stale, cached, unavailable, and not-checked states stay explicit",
+          "tripContextUse": "uses boat date, route, and risk tolerance",
+          "artifactAssertions": {
+            "requiredKinds": ["decision_summary"],
+            "displayCardFiltering": null
+          },
+          "semanticToolOrdering": ["marine conditions before condition judgment"],
+          "metering": {
+            "meterType": "weather_refresh",
+            "settlesOncePerDecision": true
+          },
+          "safetyBoundaries": [
+            "does not invent coast guard warnings, currents, or official closures"
+          ],
+          "result": "pass"
+        },
+        "toolOrder": ["get_marine_conditions", "get_condition_judgment"],
         "artifactKinds": ["decision_summary"],
         "runPhase": "warm_repeated",
         "callCount": 2,
@@ -333,12 +461,14 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_06_tools",
             "inputCacheHitTokens": 24800,
             "inputCacheMissTokens": 12300,
             "outputTokens": 480,
             "reasoningTokens": 170,
             "totalTokens": 37580,
+            "latencyMs": 1275,
             "modeledCostUsd": "0.00192584"
           },
           {
@@ -346,24 +476,43 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_06_final",
             "inputCacheHitTokens": 27400,
             "inputCacheMissTokens": 8100,
             "outputTokens": 820,
             "reasoningTokens": 130,
             "totalTokens": 36320,
+            "latencyMs": 1400,
             "modeledCostUsd": "0.00144032"
           }
         ]
       },
       {
         "ordinal": 7,
-        "id": "provider_failure_caveat",
-        "promptClass": "live_provider_failure",
-        "contextClass": "weather_provider_unavailable",
+        "id": "rainy_day_itinerary",
+        "promptClass": "rainy_day_itinerary",
+        "contextClass": "dated_trip_context",
         "qualityResult": "pass",
-        "toolOrder": ["get_weather_forecast"],
-        "artifactKinds": [],
+        "qualityContract": {
+          "category": "rainy-day itinerary",
+          "requiredEvidence": ["fresh_weather", "curated_itinerary"],
+          "sourceFreshnessBoundary": "fresh, stale, cached, unavailable, and not-checked states stay explicit",
+          "tripContextUse": "uses rain sensitivity, date, area, and transport mode",
+          "artifactAssertions": {
+            "requiredKinds": ["itinerary", "decision_summary"],
+            "displayCardFiltering": null
+          },
+          "semanticToolOrdering": ["weather lookup before itinerary plan"],
+          "metering": {
+            "meterType": "weather_refresh",
+            "settlesOncePerDecision": true
+          },
+          "safetyBoundaries": ["does not overstate forecast certainty"],
+          "result": "pass"
+        },
+        "toolOrder": ["get_weather_forecast", "plan_local_itinerary"],
+        "artifactKinds": ["itinerary", "decision_summary"],
         "runPhase": "warm_repeated",
         "callCount": 2,
         "totals": {
@@ -380,12 +529,14 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_07_tools",
             "inputCacheHitTokens": 18900,
             "inputCacheMissTokens": 7900,
             "outputTokens": 340,
             "reasoningTokens": 110,
             "totalTokens": 27140,
+            "latencyMs": 1350,
             "modeledCostUsd": "0.00125412"
           },
           {
@@ -393,24 +544,48 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_07_final",
             "inputCacheHitTokens": 20500,
             "inputCacheMissTokens": 5600,
             "outputTokens": 610,
             "reasoningTokens": 90,
             "totalTokens": 26710,
+            "latencyMs": 1475,
             "modeledCostUsd": "0.0010122"
           }
         ]
       },
       {
         "ordinal": 8,
-        "id": "public_source_disclosure",
-        "promptClass": "source_governed_local_fact",
-        "contextClass": "local_guide_memory",
+        "id": "near_me_consent",
+        "promptClass": "near_me_browser_location",
+        "contextClass": "trip_session_geolocation_available",
         "qualityResult": "pass",
-        "toolOrder": ["query_local_facts", "get_source_evidence"],
-        "artifactKinds": [],
+        "qualityContract": {
+          "category": "near-me consent",
+          "requiredEvidence": [
+            "browser_geolocation_claim_not_tool_backed",
+            "places_location_scope"
+          ],
+          "sourceFreshnessBoundary": "fresh, stale, cached, unavailable, and not-checked states stay explicit",
+          "tripContextUse": "uses one-request browser location only after consent",
+          "artifactAssertions": {
+            "requiredKinds": ["recommendation_card"],
+            "displayCardFiltering": null
+          },
+          "semanticToolOrdering": ["consent gate before Places search"],
+          "metering": {
+            "meterType": "live_refresh",
+            "settlesOncePerDecision": true
+          },
+          "safetyBoundaries": [
+            "does not say near a named area unless user text or tool output supports it"
+          ],
+          "result": "pass"
+        },
+        "toolOrder": ["search_places"],
+        "artifactKinds": ["recommendation_card"],
         "runPhase": "warm_repeated",
         "callCount": 2,
         "totals": {
@@ -427,12 +602,14 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_08_tools",
             "inputCacheHitTokens": 26200,
             "inputCacheMissTokens": 10100,
             "outputTokens": 430,
             "reasoningTokens": 150,
             "totalTokens": 36730,
+            "latencyMs": 1425,
             "modeledCostUsd": "0.00160776"
           },
           {
@@ -440,23 +617,44 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_08_final",
             "inputCacheHitTokens": 28900,
             "inputCacheMissTokens": 6900,
             "outputTokens": 690,
             "reasoningTokens": 110,
             "totalTokens": 36490,
+            "latencyMs": 1550,
             "modeledCostUsd": "0.00124012"
           }
         ]
       },
       {
         "ordinal": 9,
-        "id": "mixed_card_selection",
-        "promptClass": "adversarial_artifact_selection",
-        "contextClass": "mixed_allowed_disallowed_cards",
+        "id": "provider_outage",
+        "promptClass": "provider_outage_fallback",
+        "contextClass": "weather_provider_unavailable",
         "qualityResult": "pass",
-        "toolOrder": ["search_places"],
+        "qualityContract": {
+          "category": "provider outage",
+          "requiredEvidence": ["provider_unavailable", "fallback_source_boundary"],
+          "sourceFreshnessBoundary": "fresh, stale, cached, unavailable, and not-checked states stay explicit",
+          "tripContextUse": "uses fallback location and caveats without inventing live weather",
+          "artifactAssertions": {
+            "requiredKinds": ["recommendation_card"],
+            "displayCardFiltering": "mixed displayCardIds keep allowed cards and drop disallowed cards"
+          },
+          "semanticToolOrdering": ["failed required lookup before downstream Places fallback"],
+          "metering": {
+            "meterType": "live_refresh",
+            "settlesOncePerDecision": true
+          },
+          "safetyBoundaries": [
+            "reports provider/configuration failure instead of accepting product success"
+          ],
+          "result": "pass"
+        },
+        "toolOrder": ["get_weather_forecast", "search_places"],
         "artifactKinds": ["recommendation_card"],
         "runPhase": "warm_repeated",
         "callCount": 2,
@@ -474,12 +672,14 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_09_tools",
             "inputCacheHitTokens": 23400,
             "inputCacheMissTokens": 9600,
             "outputTokens": 390,
             "reasoningTokens": 140,
             "totalTokens": 33390,
+            "latencyMs": 1500,
             "modeledCostUsd": "0.00151872"
           },
           {
@@ -487,12 +687,14 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_09_final",
             "inputCacheHitTokens": 25800,
             "inputCacheMissTokens": 6500,
             "outputTokens": 740,
             "reasoningTokens": 100,
             "totalTokens": 33040,
+            "latencyMs": 1625,
             "modeledCostUsd": "0.00118944"
           }
         ]
@@ -503,6 +705,23 @@
         "promptClass": "live_limit_cached_fallback",
         "contextClass": "paid_live_meter_exhausted",
         "qualityResult": "pass",
+        "qualityContract": {
+          "category": "live-limit cached fallback",
+          "requiredEvidence": ["cached_or_local_only", "live_access_required_boundary"],
+          "sourceFreshnessBoundary": "fresh, stale, cached, unavailable, and not-checked states stay explicit",
+          "tripContextUse": "uses paid live meter state without exposing internal pass identifiers",
+          "artifactAssertions": {
+            "requiredKinds": [],
+            "displayCardFiltering": null
+          },
+          "semanticToolOrdering": ["meter exhaustion before live provider call"],
+          "metering": {
+            "meterType": "live_refresh",
+            "settlesOncePerDecision": true
+          },
+          "safetyBoundaries": ["labels cached/local fallback and does not claim fresh live data"],
+          "result": "pass"
+        },
         "toolOrder": ["search_local_guide"],
         "artifactKinds": [],
         "runPhase": "warm_repeated",
@@ -521,12 +740,14 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_10_tools",
             "inputCacheHitTokens": 19800,
             "inputCacheMissTokens": 6400,
             "outputTokens": 330,
             "reasoningTokens": 90,
             "totalTokens": 26530,
+            "latencyMs": 1575,
             "modeledCostUsd": "0.00104384"
           },
           {
@@ -534,12 +755,14 @@
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "mode": "thinking_high",
+            "fallback": "none",
             "upstreamRequestId": "req_eval_10_final",
             "inputCacheHitTokens": 21300,
             "inputCacheMissTokens": 4800,
             "outputTokens": 580,
             "reasoningTokens": 80,
             "totalTokens": 26680,
+            "latencyMs": 1700,
             "modeledCostUsd": "0.00089404"
           }
         ]

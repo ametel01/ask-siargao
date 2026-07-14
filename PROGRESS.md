@@ -801,15 +801,55 @@ commit.
 
 ## Step 15 - Prove Siargao Decision Quality Under Monetisation Limits
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T04:39:00Z`
+- Completed: `2026-07-14T04:47:45Z`
+- Implementing commit SHA: this Step 15 commit.
+- Files and behavior changed: finalized the existing Step 1A/1B cost corpus into the required
+  10-case decision-quality corpus covering current weather/conditions, open-now food, beach fit,
+  route time, accommodation comparison, boat/safety caveats, rainy-day itinerary, near-me consent,
+  provider outage, and live-limit cached fallback; added per-case evidence, freshness, trip-context,
+  semantic ordering, artifact, mixed-card filtering, safety, metering, latency, mode, fallback, and
+  cost fields to the baseline/candidate artifacts; added a deterministic quality/bypass artifact
+  and runner; added tests that pin corpus categories, 20% cost/cache target, routine model-call
+  budget, failed-upstream-before-downstream ordering, mixed `displayCardIds` filtering, bypass
+  outcomes, and redaction.
+- Acceptance criteria checked: all 10 quality cases pass their fixture contracts; provider outage
+  records failed required lookup before downstream Places fallback; mixed card filtering keeps
+  allowed cards and drops disallowed cards; candidate cache-miss input tokens fell from `178000` to
+  `113579` (`36.19%` reduction), modeled DeepSeek cost fell from `0.0295274` USD to `0.02011338`
+  USD (`31.88%` reduction), and normal candidate turns use at most 3 model calls; bypass matrix
+  covers cleared cookie, new device identity, VPN/network change, shared hotel network, multiple
+  authenticated accounts, request-ID/body mismatch, parallel final unit, client abort after model
+  success, provider budget exhaustion, and global budget exhaustion with expected allow, challenge,
+  deny, consume, release/consume-once, and unavailable outcomes; quality/bypass artifacts omit raw
+  cookies, IPs, emails, Clerk IDs, prompt bodies, precise coordinates, provider payloads, and
+  upstream request IDs.
+- Exact validation commands and results:
+  - `bun run format`: passed, one generated JSON formatting fix on the final full run.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 391 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test src/server/evaluations/trip-pass-quality-bypass.test.ts`: passed, 3 tests, 0
+    failures, 20 assertions.
+  - `bun test`: passed, 1114 tests, 0 failures, 5993 assertions.
+  - `bun run eval:trip-pass-cost-baseline`: passed.
+  - `bun run eval:trip-pass-cost-candidate`: passed.
+  - `bun run eval:trip-pass-quality-bypass`: passed.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 94 tests, 0 failures.
+  - `bun run doctor -- --verbose --scope changed`: passed, React Doctor reported no issues and
+    score `100 / 100`.
+  - Clean full-gate log: `/tmp/ask-siargao-step15-gates-20260714T044158Z.log`.
+- Changelog decision and entry location: no changelog entry added because this step only strengthens
+  deterministic evaluation artifacts and verification lanes without changing supported behavior.
+- Risks, follow-ups, or blocker: no Step 15 blocker; local Redis bypass smoke was skipped because
+  `TRIP_PASS_EVAL_REDIS_URL` was not explicitly configured, and live-provider smoke was skipped
+  because `TRIP_PASS_LIVE_PROVIDER_SMOKE=1` was not explicitly configured with provider keys. The
+  deterministic memory/PGlite fixture lanes remain passing and the skipped external lanes are
+  recorded in `docs/evaluations/trip-pass-quality-bypass-2026-07-14.json`.
 
 ## Step 16 - Complete Launch Operations and End-to-End Release Proof
 

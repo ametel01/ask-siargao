@@ -1,0 +1,226 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-14T00:00:00.000Z",
+  "redactionPolicy": "Raw cookies, IP addresses, emails, Clerk identifiers, request bodies, prompts, provider payloads, and upstream request IDs are absent.",
+  "decisionQuality": {
+    "caseCount": 10,
+    "allCasesPass": true,
+    "categories": [
+      {
+        "id": "current_weather_conditions",
+        "category": "current weather and conditions",
+        "toolOrder": ["get_weather_forecast", "get_condition_judgment"],
+        "artifactKinds": ["decision_summary"],
+        "meterType": "weather_refresh",
+        "semanticToolOrdering": ["get_weather_forecast before get_condition_judgment"],
+        "displayCardFiltering": null
+      },
+      {
+        "id": "open_now_food",
+        "category": "open-now food",
+        "toolOrder": ["search_places", "get_place_details"],
+        "artifactKinds": ["recommendation_card", "action"],
+        "meterType": "live_refresh",
+        "semanticToolOrdering": ["search_places before get_place_details"],
+        "displayCardFiltering": null
+      },
+      {
+        "id": "beach_fit",
+        "category": "beach fit",
+        "toolOrder": ["query_local_facts", "get_condition_judgment"],
+        "artifactKinds": ["recommendation_card"],
+        "meterType": "heavy_recommendation",
+        "semanticToolOrdering": ["local facts before condition caveats"],
+        "displayCardFiltering": null
+      },
+      {
+        "id": "route_time",
+        "category": "route time",
+        "toolOrder": ["plan_local_itinerary"],
+        "artifactKinds": ["itinerary"],
+        "meterType": "route_lookup",
+        "semanticToolOrdering": ["route facts before itinerary assembly"],
+        "displayCardFiltering": null
+      },
+      {
+        "id": "accommodation_comparison",
+        "category": "accommodation comparison",
+        "toolOrder": ["query_local_facts", "get_source_evidence"],
+        "artifactKinds": ["recommendation_card"],
+        "meterType": "heavy_recommendation",
+        "semanticToolOrdering": ["local facts before source evidence drilldown"],
+        "displayCardFiltering": null
+      },
+      {
+        "id": "boat_safety_caveats",
+        "category": "boat and safety caveats",
+        "toolOrder": ["get_marine_conditions", "get_condition_judgment"],
+        "artifactKinds": ["decision_summary"],
+        "meterType": "weather_refresh",
+        "semanticToolOrdering": ["marine conditions before condition judgment"],
+        "displayCardFiltering": null
+      },
+      {
+        "id": "rainy_day_itinerary",
+        "category": "rainy-day itinerary",
+        "toolOrder": ["get_weather_forecast", "plan_local_itinerary"],
+        "artifactKinds": ["itinerary", "decision_summary"],
+        "meterType": "weather_refresh",
+        "semanticToolOrdering": ["weather lookup before itinerary plan"],
+        "displayCardFiltering": null
+      },
+      {
+        "id": "near_me_consent",
+        "category": "near-me consent",
+        "toolOrder": ["search_places"],
+        "artifactKinds": ["recommendation_card"],
+        "meterType": "live_refresh",
+        "semanticToolOrdering": ["consent gate before Places search"],
+        "displayCardFiltering": null
+      },
+      {
+        "id": "provider_outage",
+        "category": "provider outage",
+        "toolOrder": ["get_weather_forecast", "search_places"],
+        "artifactKinds": ["recommendation_card"],
+        "meterType": "live_refresh",
+        "semanticToolOrdering": ["failed required lookup before downstream Places fallback"],
+        "displayCardFiltering": "mixed displayCardIds keep allowed cards and drop disallowed cards"
+      },
+      {
+        "id": "cached_local_fallback_after_live_limit",
+        "category": "live-limit cached fallback",
+        "toolOrder": ["search_local_guide"],
+        "artifactKinds": [],
+        "meterType": "live_refresh",
+        "semanticToolOrdering": ["meter exhaustion before live provider call"],
+        "displayCardFiltering": null
+      }
+    ]
+  },
+  "costComparison": {
+    "baselineArtifact": "docs/evaluations/trip-pass-cost-baseline-2026-07-14.json",
+    "candidateArtifact": "docs/evaluations/trip-pass-cost-candidate-2026-07-14.json",
+    "cacheMissReductionPercent": "36.19%",
+    "modeledCostReductionPercent": "31.88%",
+    "passesTwentyPercentTarget": true,
+    "maxNormalModelCalls": 3
+  },
+  "bypassMatrix": {
+    "caseCount": 10,
+    "allCasesPass": true,
+    "memoryLane": "pass",
+    "localRedisLane": "skipped",
+    "localRedisSkipReason": "No explicit TRIP_PASS_EVAL_REDIS_URL configured for this deterministic artifact run.",
+    "cases": [
+      {
+        "ordinal": 1,
+        "id": "cleared_cookie_same_network",
+        "scenario": "cleared anonymous cookie in the same abuse cohort",
+        "expectedResult": "challenge",
+        "fixtureLane": "memory_quota_store",
+        "privacyBoundary": "uses HMAC cohort label only",
+        "observedResult": "challenge",
+        "status": "pass"
+      },
+      {
+        "ordinal": 2,
+        "id": "new_device_identity",
+        "scenario": "new anonymous device identity with no linked usage",
+        "expectedResult": "allow",
+        "fixtureLane": "memory_quota_store",
+        "privacyBoundary": "does not expose raw cookie material",
+        "observedResult": "allow",
+        "status": "pass"
+      },
+      {
+        "ordinal": 3,
+        "id": "vpn_network_change",
+        "scenario": "same signed trip identity appears from a different network cohort",
+        "expectedResult": "allow",
+        "fixtureLane": "memory_quota_store",
+        "privacyBoundary": "network cohort is not rendered",
+        "observedResult": "allow",
+        "status": "pass"
+      },
+      {
+        "ordinal": 4,
+        "id": "shared_hotel_network_velocity",
+        "scenario": "many anonymous starts from one hotel network cohort",
+        "expectedResult": "challenge",
+        "fixtureLane": "memory_quota_store",
+        "privacyBoundary": "challenge is cohort-level without raw IP",
+        "observedResult": "challenge",
+        "status": "pass"
+      },
+      {
+        "ordinal": 5,
+        "id": "multiple_authenticated_accounts_same_cohort",
+        "scenario": "account velocity from multiple Clerk-backed users in one trusted cohort",
+        "expectedResult": "challenge",
+        "fixtureLane": "memory_quota_store",
+        "privacyBoundary": "stores account velocity without raw user identifiers in output",
+        "observedResult": "challenge",
+        "status": "pass"
+      },
+      {
+        "ordinal": 6,
+        "id": "request_id_body_mismatch",
+        "scenario": "same idempotency token reused for a different request body",
+        "expectedResult": "deny",
+        "fixtureLane": "request_idempotency",
+        "privacyBoundary": "compares body hashes only",
+        "observedResult": "deny",
+        "status": "pass"
+      },
+      {
+        "ordinal": 7,
+        "id": "parallel_final_unit",
+        "scenario": "parallel requests compete for the final paid meter unit",
+        "expectedResult": "consume_once",
+        "fixtureLane": "pglite_meter_store",
+        "privacyBoundary": "returns allowance counts only",
+        "observedResult": "consume_once",
+        "status": "pass"
+      },
+      {
+        "ordinal": 8,
+        "id": "client_abort_after_model_success",
+        "scenario": "client disconnects after billable model success",
+        "expectedResult": "consume",
+        "fixtureLane": "pglite_meter_store",
+        "privacyBoundary": "does not log prompt or message text",
+        "observedResult": "consume",
+        "status": "pass"
+      },
+      {
+        "ordinal": 9,
+        "id": "provider_budget_exhaustion",
+        "scenario": "provider-level model cost circuit is exhausted",
+        "expectedResult": "unavailable",
+        "fixtureLane": "memory_quota_store",
+        "privacyBoundary": "reports provider and budget type only",
+        "observedResult": "unavailable",
+        "status": "pass"
+      },
+      {
+        "ordinal": 10,
+        "id": "global_budget_exhaustion",
+        "scenario": "global model cost circuit is exhausted",
+        "expectedResult": "unavailable",
+        "fixtureLane": "memory_quota_store",
+        "privacyBoundary": "reports global budget type only",
+        "observedResult": "unavailable",
+        "status": "pass"
+      }
+    ]
+  },
+  "liveProviderSmoke": {
+    "status": "skipped",
+    "skipReason": "Live provider smoke requires TRIP_PASS_LIVE_PROVIDER_SMOKE=1 plus explicit provider keys and is not treated as fixture success."
+  },
+  "launchComparisonNotes": [
+    "The fixture corpus measures Ask Siargao-specific evidence use, trip-context preservation, artifact filtering, and metered degradation paths; it does not claim unmeasured model superiority.",
+    "Observable strengths versus generic assistants are local source boundaries, map/action artifacts, consent-aware near-me behavior, and explicit provider-unavailable/cached-fallback labels."
+  ]
+}

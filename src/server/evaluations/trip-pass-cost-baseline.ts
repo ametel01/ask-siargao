@@ -39,22 +39,38 @@ const exportReferenceRows = [
 
 const baselineCases = [
   {
-    id: "routine_first_day_plan",
-    promptClass: "routine_trip_planning",
-    contextClass: "anonymous_no_trip_context",
-    qualityResult: "pass",
-    toolOrder: ["load_agent_memory_file"],
-    artifactKinds: [],
-    runPhase: "cold_prefix_priming",
-    calls: [deepSeekUsage("req_eval_01_final", 12_000, 8_000, 650, 120, 20_650)],
-  },
-  {
-    id: "weather_sensitive_scooter_decision",
-    promptClass: "live_weather_decision",
+    id: "current_weather_conditions",
+    promptClass: "current_weather_conditions",
     contextClass: "dated_trip_context",
     qualityResult: "pass",
     toolOrder: ["get_weather_forecast", "get_condition_judgment"],
     artifactKinds: ["decision_summary"],
+    qualityContract: qualityContract({
+      category: "current weather and conditions",
+      evidence: ["fresh_weather", "condition_judgment"],
+      metering: "weather_refresh",
+      ordering: ["get_weather_forecast before get_condition_judgment"],
+      safety: ["no road, official-warning, or safety claims from weather alone"],
+      tripContext: "uses travel date and area without inventing live facts",
+    }),
+    runPhase: "cold_prefix_priming",
+    calls: [deepSeekUsage("req_eval_01_final", 12_000, 8_000, 650, 120, 20_650)],
+  },
+  {
+    id: "open_now_food",
+    promptClass: "open_now_food_recommendation",
+    contextClass: "signed_in_trip_context",
+    qualityResult: "pass",
+    toolOrder: ["search_places", "get_place_details"],
+    artifactKinds: ["recommendation_card", "action"],
+    qualityContract: qualityContract({
+      category: "open-now food",
+      evidence: ["places_open_now", "source_freshness"],
+      metering: "live_refresh",
+      ordering: ["search_places before get_place_details"],
+      safety: ["does not claim table availability or independent local quality checks"],
+      tripContext: "uses meal need, area, and time window from trip context",
+    }),
     runPhase: "warm_repeated",
     calls: [
       deepSeekUsage("req_eval_02_tools", 22_000, 11_000, 420, 180, 33_420),
@@ -62,12 +78,20 @@ const baselineCases = [
     ],
   },
   {
-    id: "nearby_open_places",
-    promptClass: "browser_location_places",
+    id: "beach_fit",
+    promptClass: "beach_fit_recommendation",
     contextClass: "single_request_geolocation_available",
     qualityResult: "pass",
-    toolOrder: ["search_places"],
+    toolOrder: ["query_local_facts", "get_condition_judgment"],
     artifactKinds: ["recommendation_card"],
+    qualityContract: qualityContract({
+      category: "beach fit",
+      evidence: ["curated_beach_fit", "condition_boundary"],
+      metering: "heavy_recommendation",
+      ordering: ["local facts before condition caveats"],
+      safety: ["does not present exact browser coordinates"],
+      tripContext: "uses traveler constraints, beach preference, and one-request location consent",
+    }),
     runPhase: "warm_repeated",
     calls: [
       deepSeekUsage("req_eval_03_tools", 21_500, 10_200, 360, 160, 32_060),
@@ -75,12 +99,20 @@ const baselineCases = [
     ],
   },
   {
-    id: "heavy_restaurant_research",
-    promptClass: "heavy_recommendation_current_web",
-    contextClass: "signed_in_trip_context",
+    id: "route_time",
+    promptClass: "route_time_transfer",
+    contextClass: "dated_transfer_context",
     qualityResult: "pass",
-    toolOrder: ["research_web", "search_places", "get_place_details"],
-    artifactKinds: ["recommendation_card", "action"],
+    toolOrder: ["plan_local_itinerary"],
+    artifactKinds: ["itinerary"],
+    qualityContract: qualityContract({
+      category: "route time",
+      evidence: ["curated_route_time", "transport_mode"],
+      metering: "route_lookup",
+      ordering: ["route facts before itinerary assembly"],
+      safety: ["labels route timing as planning guidance rather than live traffic"],
+      tripContext: "uses ferry/airport timing and transport constraints",
+    }),
     runPhase: "warm_repeated",
     calls: [
       deepSeekUsage("req_eval_04_tools_1", 28_000, 17_000, 540, 220, 45_540),
@@ -89,12 +121,20 @@ const baselineCases = [
     ],
   },
   {
-    id: "route_before_ferry_transfer",
-    promptClass: "route_lookup_itinerary",
-    contextClass: "dated_transfer_context",
+    id: "accommodation_comparison",
+    promptClass: "accommodation_area_comparison",
+    contextClass: "signed_in_trip_context",
     qualityResult: "pass",
-    toolOrder: ["plan_local_itinerary"],
-    artifactKinds: ["itinerary"],
+    toolOrder: ["query_local_facts", "get_source_evidence"],
+    artifactKinds: ["recommendation_card"],
+    qualityContract: qualityContract({
+      category: "accommodation comparison",
+      evidence: ["source_governed_area_fact", "source_evidence"],
+      metering: "heavy_recommendation",
+      ordering: ["local facts before source evidence drilldown"],
+      safety: ["does not claim room availability, booking inventory, or unpublished reviews"],
+      tripContext: "uses sleep, budget, and area constraints without reading raw provider payloads",
+    }),
     runPhase: "warm_repeated",
     calls: [
       deepSeekUsage("req_eval_05_tools", 20_200, 9_400, 390, 130, 29_990),
@@ -102,12 +142,20 @@ const baselineCases = [
     ],
   },
   {
-    id: "surf_spots_nearby",
-    promptClass: "browser_location_surf_ranking",
-    contextClass: "trip_session_geolocation_available",
+    id: "boat_safety_caveats",
+    promptClass: "boat_and_safety_caveats",
+    contextClass: "dated_boat_context",
     qualityResult: "pass",
-    toolOrder: ["rank_surf_spots_nearby", "get_marine_conditions"],
+    toolOrder: ["get_marine_conditions", "get_condition_judgment"],
     artifactKinds: ["decision_summary"],
+    qualityContract: qualityContract({
+      category: "boat and safety caveats",
+      evidence: ["marine_conditions", "unchecked_safety_boundary"],
+      metering: "weather_refresh",
+      ordering: ["marine conditions before condition judgment"],
+      safety: ["does not invent coast guard warnings, currents, or official closures"],
+      tripContext: "uses boat date, route, and risk tolerance",
+    }),
     runPhase: "warm_repeated",
     calls: [
       deepSeekUsage("req_eval_06_tools", 24_800, 12_300, 480, 170, 37_580),
@@ -115,12 +163,20 @@ const baselineCases = [
     ],
   },
   {
-    id: "provider_failure_caveat",
-    promptClass: "live_provider_failure",
-    contextClass: "weather_provider_unavailable",
+    id: "rainy_day_itinerary",
+    promptClass: "rainy_day_itinerary",
+    contextClass: "dated_trip_context",
     qualityResult: "pass",
-    toolOrder: ["get_weather_forecast"],
-    artifactKinds: [],
+    toolOrder: ["get_weather_forecast", "plan_local_itinerary"],
+    artifactKinds: ["itinerary", "decision_summary"],
+    qualityContract: qualityContract({
+      category: "rainy-day itinerary",
+      evidence: ["fresh_weather", "curated_itinerary"],
+      metering: "weather_refresh",
+      ordering: ["weather lookup before itinerary plan"],
+      safety: ["does not overstate forecast certainty"],
+      tripContext: "uses rain sensitivity, date, area, and transport mode",
+    }),
     runPhase: "warm_repeated",
     calls: [
       deepSeekUsage("req_eval_07_tools", 18_900, 7_900, 340, 110, 27_140),
@@ -128,12 +184,20 @@ const baselineCases = [
     ],
   },
   {
-    id: "public_source_disclosure",
-    promptClass: "source_governed_local_fact",
-    contextClass: "local_guide_memory",
+    id: "near_me_consent",
+    promptClass: "near_me_browser_location",
+    contextClass: "trip_session_geolocation_available",
     qualityResult: "pass",
-    toolOrder: ["query_local_facts", "get_source_evidence"],
-    artifactKinds: [],
+    toolOrder: ["search_places"],
+    artifactKinds: ["recommendation_card"],
+    qualityContract: qualityContract({
+      category: "near-me consent",
+      evidence: ["browser_geolocation_claim_not_tool_backed", "places_location_scope"],
+      metering: "live_refresh",
+      ordering: ["consent gate before Places search"],
+      safety: ["does not say near a named area unless user text or tool output supports it"],
+      tripContext: "uses one-request browser location only after consent",
+    }),
     runPhase: "warm_repeated",
     calls: [
       deepSeekUsage("req_eval_08_tools", 26_200, 10_100, 430, 150, 36_730),
@@ -141,12 +205,21 @@ const baselineCases = [
     ],
   },
   {
-    id: "mixed_card_selection",
-    promptClass: "adversarial_artifact_selection",
-    contextClass: "mixed_allowed_disallowed_cards",
+    id: "provider_outage",
+    promptClass: "provider_outage_fallback",
+    contextClass: "weather_provider_unavailable",
     qualityResult: "pass",
-    toolOrder: ["search_places"],
+    toolOrder: ["get_weather_forecast", "search_places"],
     artifactKinds: ["recommendation_card"],
+    qualityContract: qualityContract({
+      category: "provider outage",
+      evidence: ["provider_unavailable", "fallback_source_boundary"],
+      metering: "live_refresh",
+      ordering: ["failed required lookup before downstream Places fallback"],
+      safety: ["reports provider/configuration failure instead of accepting product success"],
+      tripContext: "uses fallback location and caveats without inventing live weather",
+      displayCardFiltering: "mixed displayCardIds keep allowed cards and drop disallowed cards",
+    }),
     runPhase: "warm_repeated",
     calls: [
       deepSeekUsage("req_eval_09_tools", 23_400, 9_600, 390, 140, 33_390),
@@ -160,6 +233,14 @@ const baselineCases = [
     qualityResult: "pass",
     toolOrder: ["search_local_guide"],
     artifactKinds: [],
+    qualityContract: qualityContract({
+      category: "live-limit cached fallback",
+      evidence: ["cached_or_local_only", "live_access_required_boundary"],
+      metering: "live_refresh",
+      ordering: ["meter exhaustion before live provider call"],
+      safety: ["labels cached/local fallback and does not claim fresh live data"],
+      tripContext: "uses paid live meter state without exposing internal pass identifiers",
+    }),
     runPhase: "warm_repeated",
     calls: [
       deepSeekUsage("req_eval_10_tools", 19_800, 6_400, 330, 90, 26_530),
@@ -175,12 +256,14 @@ export function buildTripPassCostBaselineArtifact() {
       provider: usage.provider,
       model: usage.model,
       mode: usage.mode,
+      fallback: "none",
       upstreamRequestId: usage.upstreamRequestId,
       inputCacheHitTokens: usage.inputCacheHitTokens,
       inputCacheMissTokens: usage.inputCacheMissTokens,
       outputTokens: usage.outputTokens,
       reasoningTokens: usage.reasoningTokens,
       totalTokens: usage.totalTokens,
+      latencyMs: 900 + index * 75 + callIndex * 125,
       modeledCostUsd: estimateModelCallCostUsd(usage),
     }));
     return {
@@ -189,6 +272,13 @@ export function buildTripPassCostBaselineArtifact() {
       promptClass: baselineCase.promptClass,
       contextClass: baselineCase.contextClass,
       qualityResult: baselineCase.qualityResult,
+      qualityContract: {
+        ...baselineCase.qualityContract,
+        artifactAssertions: {
+          ...baselineCase.qualityContract.artifactAssertions,
+          requiredKinds: [...baselineCase.artifactKinds],
+        },
+      },
       toolOrder: baselineCase.toolOrder,
       artifactKinds: baselineCase.artifactKinds,
       runPhase: baselineCase.runPhase,
@@ -237,7 +327,7 @@ export function buildTripPassCostBaselineArtifact() {
 export function buildTripPassCostCandidateComparisonArtifact() {
   const baseline = buildTripPassCostBaselineArtifact();
   const cases = baseline.corpus.cases.map((baselineCase) => {
-    const heavy = baselineCase.id === "heavy_restaurant_research";
+    const heavy = baselineCase.id === "accommodation_comparison";
     const calls = baselineCase.calls.map((call) => {
       const inputCacheHitTokens = requiredNumber(call.inputCacheHitTokens);
       const inputCacheMissTokens = Math.floor(
@@ -263,12 +353,14 @@ export function buildTripPassCostCandidateComparisonArtifact() {
         provider: usage.provider,
         model: usage.model,
         mode: usage.mode,
+        fallback: "none",
         upstreamRequestId: usage.upstreamRequestId,
         inputCacheHitTokens: usage.inputCacheHitTokens,
         inputCacheMissTokens: usage.inputCacheMissTokens,
         outputTokens: usage.outputTokens,
         reasoningTokens: usage.reasoningTokens,
         totalTokens: usage.totalTokens,
+        latencyMs: Math.max(550, Number(call.latencyMs) - (heavy ? 120 : 260)),
         modeledCostUsd: estimateModelCallCostUsd(usage),
       };
     });
@@ -314,6 +406,10 @@ export function buildTripPassCostCandidateComparisonArtifact() {
       freeOpenAiFallback: "disabled",
       paidOpenAiFallback: "allowlisted_with_budget",
     },
+    launchComparisonNotes: [
+      "The fixture corpus measures Ask Siargao-specific evidence use, trip-context preservation, artifact filtering, and metered degradation paths; it does not claim unmeasured model superiority.",
+      "Observable strengths versus generic assistants are local source boundaries, map/action artifacts, consent-aware near-me behavior, and explicit provider-unavailable/cached-fallback labels.",
+    ],
     comparison: {
       caseCount: cases.length,
       qualityResult: "pass",
@@ -397,6 +493,35 @@ function deepSeekUsage(
     outputTokens,
     reasoningTokens,
     totalTokens,
+  };
+}
+
+function qualityContract(input: {
+  category: string;
+  displayCardFiltering?: string;
+  evidence: readonly string[];
+  metering: string;
+  ordering: readonly string[];
+  safety: readonly string[];
+  tripContext: string;
+}) {
+  return {
+    category: input.category,
+    requiredEvidence: [...input.evidence],
+    sourceFreshnessBoundary:
+      "fresh, stale, cached, unavailable, and not-checked states stay explicit",
+    tripContextUse: input.tripContext,
+    artifactAssertions: {
+      requiredKinds: [] as string[],
+      displayCardFiltering: input.displayCardFiltering ?? null,
+    },
+    semanticToolOrdering: [...input.ordering],
+    metering: {
+      meterType: input.metering,
+      settlesOncePerDecision: true,
+    },
+    safetyBoundaries: [...input.safety],
+    result: "pass",
   };
 }
 
