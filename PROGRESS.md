@@ -340,15 +340,49 @@ commit.
 
 ## Step 7 - Install the Shared Atomic Quota Store
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T02:02:25Z`
+- Completed: `2026-07-14T02:15:35Z`
+- Implementing commit SHA: this Step 7 commit.
+- Files and behavior changed: refactored `src/server/security/rate-limit.ts` to an asynchronous
+  injected `QuotaStore` contract; migrated all existing audit, chat, public, Trip Pass checkout,
+  Stripe webhook, saved-trip, share, report-access, and public-page rate-limit callers to await the
+  async result without changing their 429 response contract; added deterministic in-memory quota
+  primitives and Redis-backed fixed-window counters, rolling-window reservations, concurrency
+  leases, idempotency records, and budget consumption with rollback on exceeded budgets; retained
+  process-local memory for tests while failing closed in production unless a shared store is
+  injected.
+- Acceptance criteria checked: separate limiter instances observe the same injected store; production
+  process-memory usage returns `production_store_required` before mutating local counters; shared
+  store failures return typed `quota_store_unavailable` results; parallel memory and Redis checks do
+  not overspend provider budgets, do not acquire more than the configured concurrency slots, preserve
+  duplicate lease/reservation/idempotency behavior, and expire leases/windows at deterministic
+  boundaries; migrated public, chat, checkout, Stripe webhook, Trip Pass, and saved-trip callers
+  retain their tested rate-limit behavior after becoming async.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes on final run.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 368 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test src/server/security/security.test.ts`: passed, 18 tests, 0 failures, 193 assertions.
+  - `bun test src/app/api/audit/intake/route.test.ts src/app/api/audit/checkout/route.test.ts src/app/api/chat/route.test.ts src/app/api/public/public-index-routes.test.ts src/app/api/public/public-family-routes.test.ts src/app/api/stripe/webhook/route.test.ts src/app/api/me/trip-pass/route.test.ts`:
+    passed, 111 tests, 0 failures, 843 assertions.
+  - `redis-server --port 6380 --save "" --appendonly no --daemonize yes && redis-cli -p 6380 ping`:
+    passed, isolated local Redis returned `PONG`; the process was stopped afterward with
+    `redis-cli -p 6380 shutdown nosave`.
+  - `bun -e ...createRedisQuotaStore...`: passed against local Redis with a throwaway key prefix;
+    fixed counters reached 3, duplicate concurrency leases did not consume a slot, releasing a
+    lease allowed a new acquisition, the third unique rolling reservation was rejected, duplicate
+    idempotency returned the original value, and an exceeded budget rolled back to 70 used units.
+  - `bun test`: passed, 1047 tests, 0 failures, 5612 assertions.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 92 tests, 0 failures.
+- Changelog decision and entry location: added a `Security` entry under `[Unreleased]` because
+  production fail-closed shared quota enforcement is operator-visible.
+- Risks, follow-ups, or blocker: no blocker; Step 7A still needs to bind anonymous identities and
+  product limits to these shared primitives.
 
 ## Step 7A - Issue Privacy-Safe Anonymous Identities and Rolling Limits
 

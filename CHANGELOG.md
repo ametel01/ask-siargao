@@ -15,6 +15,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Security
 
+- Added shared async quota-store enforcement for rate limits and future product controls, including
+  production fail-closed behavior when a shared store is unavailable and Redis-backed fixed-window,
+  rolling-reservation, concurrency-lease, idempotency, and budget primitives.
 - Required verified Stripe webhook events matched to local Trip Pass orders before activation, with
   idempotent paid, failed, expired, refund, and dispute lifecycle handling.
 

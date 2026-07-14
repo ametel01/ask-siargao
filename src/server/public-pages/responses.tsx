@@ -42,7 +42,7 @@ export async function publicJsonResponse(
 ) {
   const family = surface.catalogFamilyKey;
   if (request) {
-    const rateLimit = rateLimitRequest(request, "public_api");
+    const rateLimit = await rateLimitRequest(request, "public_api");
     if (!rateLimit.allowed) {
       return rateLimitedJson(rateLimit);
     }

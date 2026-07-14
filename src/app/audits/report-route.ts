@@ -16,7 +16,7 @@ export async function resolveAuditReportRoute(
   },
   dependencies: AuditReportRouteDependencies = defaultDependencies,
 ) {
-  const rateLimit = checkRateLimit({ key: input.auditRequestId, policy: "report_access" });
+  const rateLimit = await checkRateLimit({ key: input.auditRequestId, policy: "report_access" });
 
   if (!rateLimit.allowed) {
     return { status: "rate_limited" as const };

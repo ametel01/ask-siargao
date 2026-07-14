@@ -5,7 +5,7 @@ import { sanitizeIntakeForMetrics } from "@/server/security/privacy";
 import { rateLimitedJson, rateLimitRequest } from "@/server/security/rate-limit";
 
 export async function POST(request: Request) {
-  const rateLimit = rateLimitRequest(request, "intake");
+  const rateLimit = await rateLimitRequest(request, "intake");
   if (!rateLimit.allowed) {
     return rateLimitedJson(rateLimit);
   }

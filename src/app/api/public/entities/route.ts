@@ -3,7 +3,7 @@ import { buildPublicEntityIndex } from "@/server/public-pages/public-content";
 import { rateLimitedJson, rateLimitRequest } from "@/server/security/rate-limit";
 
 export async function GET(request: Request) {
-  const rateLimit = rateLimitRequest(request, "public_api");
+  const rateLimit = await rateLimitRequest(request, "public_api");
   if (!rateLimit.allowed) {
     return rateLimitedJson(rateLimit);
   }

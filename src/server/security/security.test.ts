@@ -8,25 +8,25 @@ import {
   configureRateLimitStore,
   createMemoryRateLimitStore,
   createRateLimiter,
-  type RateLimitStore,
+  type QuotaStore,
   resetRateLimitStoreForTests,
 } from "@/server/security/rate-limit";
 
 describe("rate limiting", () => {
-  test("blocks requests after the policy threshold", () => {
+  test("blocks requests after the policy threshold", async () => {
     resetRateLimitStoreForTests();
     const now = new Date("2026-06-23T08:00:00.000Z");
-    let last = checkRateLimit({ key: "traveler", policy: "checkout", now });
+    let last = await checkRateLimit({ key: "traveler", policy: "checkout", now });
 
     for (let index = 0; index < 4; index += 1) {
-      last = checkRateLimit({ key: "traveler", policy: "checkout", now });
+      last = await checkRateLimit({ key: "traveler", policy: "checkout", now });
     }
 
     expect(last.allowed).toBe(false);
     expect(last.headers).toHaveProperty("x-ratelimit-reset");
   });
 
-  test("shares counts across injected limiter instances", () => {
+  test("shares counts across injected limiter instances", async () => {
     const store = createMemoryRateLimitStore();
     const firstInstance = createRateLimiter({ store });
     const secondInstance = createRateLimiter({ store });
@@ -34,37 +34,45 @@ describe("rate limiting", () => {
 
     for (let index = 0; index < 4; index += 1) {
       expect(
-        firstInstance.checkRateLimit({ key: "traveler", policy: "checkout", now }).allowed,
+        (await firstInstance.checkRateLimit({ key: "traveler", policy: "checkout", now })).allowed,
       ).toBe(true);
     }
 
-    const blocked = secondInstance.checkRateLimit({ key: "traveler", policy: "checkout", now });
+    const blocked = await secondInstance.checkRateLimit({
+      key: "traveler",
+      policy: "checkout",
+      now,
+    });
 
     expect(blocked.allowed).toBe(false);
   });
 
-  test("resets expired buckets and cleans stale entries", () => {
+  test("resets expired buckets and cleans stale entries", async () => {
     const store = createMemoryRateLimitStore();
     const limiter = createRateLimiter({ store });
     const firstWindow = new Date("2026-06-23T08:00:00.000Z");
     const nextWindow = new Date("2026-06-23T08:01:01.000Z");
 
     for (let index = 0; index < 4; index += 1) {
-      limiter.checkRateLimit({ key: "traveler", policy: "checkout", now: firstWindow });
+      await limiter.checkRateLimit({ key: "traveler", policy: "checkout", now: firstWindow });
     }
     expect(store.size()).toBe(1);
 
-    const reset = limiter.checkRateLimit({ key: "traveler", policy: "checkout", now: nextWindow });
+    const reset = await limiter.checkRateLimit({
+      key: "traveler",
+      policy: "checkout",
+      now: nextWindow,
+    });
 
     expect(reset.allowed).toBe(true);
     expect(reset.remaining).toBe(3);
     expect(store.size()).toBe(1);
   });
 
-  test("keeps process-local memory available outside production", () => {
+  test("keeps process-local memory available outside production", async () => {
     const store = createMemoryRateLimitStore();
     const limiter = createRateLimiter({ store, env: "test" });
-    const result = limiter.checkRateLimit({
+    const result = await limiter.checkRateLimit({
       key: "traveler",
       policy: "checkout",
       now: new Date("2026-06-23T08:00:00.000Z"),
@@ -74,44 +82,45 @@ describe("rate limiting", () => {
     expect(store.size()).toBe(1);
   });
 
-  test("fails closed before using process-local memory in production", () => {
+  test("fails closed before using process-local memory in production", async () => {
     const store = createMemoryRateLimitStore();
     const limiter = createRateLimiter({ store, env: "production" });
 
-    expect(() =>
-      limiter.checkRateLimit({
-        key: "traveler",
-        policy: "checkout",
-        now: new Date("2026-06-23T08:00:00.000Z"),
-      }),
-    ).toThrow(/Configure a shared rate-limit store/);
+    const result = await limiter.checkRateLimit({
+      key: "traveler",
+      policy: "checkout",
+      now: new Date("2026-06-23T08:00:00.000Z"),
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.blockedReason).toBe("production_store_required");
     expect(store.size()).toBe(0);
   });
 
-  test("default process-local limiter fails closed in production", () => {
+  test("default process-local limiter fails closed in production", async () => {
     const originalNodeEnv = process.env.NODE_ENV;
     setEnvValue("NODE_ENV", "production");
     resetRateLimitStoreForTests();
 
     try {
-      expect(() =>
-        checkRateLimit({
-          key: "traveler",
-          policy: "checkout",
-          now: new Date("2026-06-23T08:00:00.000Z"),
-        }),
-      ).toThrow(/shared RateLimitStore/);
+      const result = await checkRateLimit({
+        key: "traveler",
+        policy: "checkout",
+        now: new Date("2026-06-23T08:00:00.000Z"),
+      });
+      expect(result.allowed).toBe(false);
+      expect(result.blockedReason).toBe("production_store_required");
     } finally {
       setEnvValue("NODE_ENV", originalNodeEnv);
       resetRateLimitStoreForTests();
     }
   });
 
-  test("allows an injected shared store in production", () => {
+  test("allows an injected shared store in production", async () => {
     const sharedStore = createFakeSharedRateLimitStore();
     const limiter = createRateLimiter({ store: sharedStore, env: "production" });
 
-    const result = limiter.checkRateLimit({
+    const result = await limiter.checkRateLimit({
       key: "traveler",
       policy: "checkout",
       now: new Date("2026-06-23T08:00:00.000Z"),
@@ -121,13 +130,13 @@ describe("rate limiting", () => {
     expect(sharedStore.size()).toBe(1);
   });
 
-  test("does not trust spoofed forwarding headers by default", () => {
+  test("does not trust spoofed forwarding headers by default", async () => {
     const limiter = createRateLimiter({
       store: createMemoryRateLimitStore(),
       trustProxyHeaders: false,
     });
     const now = new Date("2026-06-23T08:00:00.000Z");
-    let last = limiter.rateLimitRequest(
+    let last = await limiter.rateLimitRequest(
       new Request("https://example.test/checkout", {
         headers: { "x-forwarded-for": "198.51.100.10" },
       }),
@@ -136,7 +145,7 @@ describe("rate limiting", () => {
     );
 
     for (let index = 0; index < 4; index += 1) {
-      last = limiter.rateLimitRequest(
+      last = await limiter.rateLimitRequest(
         new Request("https://example.test/checkout", {
           headers: { "x-forwarded-for": `198.51.100.${index + 20}` },
         }),
@@ -148,7 +157,7 @@ describe("rate limiting", () => {
     expect(last.allowed).toBe(false);
   });
 
-  test("uses forwarding headers only when trusted proxy mode is enabled", () => {
+  test("uses forwarding headers only when trusted proxy mode is enabled", async () => {
     const limiter = createRateLimiter({
       store: createMemoryRateLimitStore(),
       trustProxyHeaders: true,
@@ -157,17 +166,19 @@ describe("rate limiting", () => {
 
     for (let index = 0; index < 4; index += 1) {
       expect(
-        limiter.rateLimitRequest(
-          new Request("https://example.test/checkout", {
-            headers: { "x-forwarded-for": "198.51.100.10" },
-          }),
-          "checkout",
-          { now },
+        (
+          await limiter.rateLimitRequest(
+            new Request("https://example.test/checkout", {
+              headers: { "x-forwarded-for": "198.51.100.10" },
+            }),
+            "checkout",
+            { now },
+          )
         ).allowed,
       ).toBe(true);
     }
 
-    const differentForwardedClient = limiter.rateLimitRequest(
+    const differentForwardedClient = await limiter.rateLimitRequest(
       new Request("https://example.test/checkout", {
         headers: { "x-forwarded-for": "198.51.100.99" },
       }),
@@ -178,7 +189,7 @@ describe("rate limiting", () => {
     expect(differentForwardedClient.allowed).toBe(true);
   });
 
-  test("scopes public API request buckets by path", () => {
+  test("scopes public API request buckets by path", async () => {
     const limiter = createRateLimiter({
       store: createMemoryRateLimitStore(),
       trustProxyHeaders: false,
@@ -187,61 +198,251 @@ describe("rate limiting", () => {
 
     for (let index = 0; index < 120; index += 1) {
       expect(
-        limiter.rateLimitRequest(
-          new Request("https://example.test/api/public/weather/siargao"),
-          "public_api",
-          { now },
+        (
+          await limiter.rateLimitRequest(
+            new Request("https://example.test/api/public/weather/siargao"),
+            "public_api",
+            { now },
+          )
         ).allowed,
       ).toBe(true);
     }
 
     expect(
-      limiter.rateLimitRequest(
-        new Request("https://example.test/api/public/accommodations/example-surf-stay.json"),
-        "public_api",
-        { now },
+      (
+        await limiter.rateLimitRequest(
+          new Request("https://example.test/api/public/accommodations/example-surf-stay.json"),
+          "public_api",
+          { now },
+        )
       ).allowed,
     ).toBe(true);
     expect(
-      limiter.rateLimitRequest(
-        new Request("https://example.test/api/public/weather/siargao"),
-        "public_api",
-        { now },
+      (
+        await limiter.rateLimitRequest(
+          new Request("https://example.test/api/public/weather/siargao"),
+          "public_api",
+          { now },
+        )
       ).allowed,
     ).toBe(false);
   });
 
-  test("can install an injected shared store for the default limiter", () => {
+  test("can install an injected shared store for the default limiter", async () => {
     const sharedStore = createMemoryRateLimitStore();
     configureRateLimitStore({ ...sharedStore, scope: "shared" });
     const now = new Date("2026-06-23T08:00:00.000Z");
 
     for (let index = 0; index < 4; index += 1) {
-      expect(checkRateLimit({ key: "traveler", policy: "checkout", now }).allowed).toBe(true);
+      expect((await checkRateLimit({ key: "traveler", policy: "checkout", now })).allowed).toBe(
+        true,
+      );
     }
 
-    expect(checkRateLimit({ key: "traveler", policy: "checkout", now }).allowed).toBe(false);
+    expect((await checkRateLimit({ key: "traveler", policy: "checkout", now })).allowed).toBe(
+      false,
+    );
     resetRateLimitStoreForTests();
+  });
+
+  test("returns a typed fail-closed result when the quota store is unavailable", async () => {
+    const limiter = createRateLimiter({
+      store: createUnavailableQuotaStore(),
+    });
+
+    const result = await limiter.checkRateLimit({
+      key: "traveler",
+      policy: "checkout",
+      now: new Date("2026-06-23T08:00:00.000Z"),
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.blockedReason).toBe("quota_store_unavailable");
+    expect(result.remaining).toBe(0);
+  });
+
+  test("provides atomic memory quota primitives for leases, reservations, idempotency, and budgets", async () => {
+    const store = createMemoryRateLimitStore();
+    const nowMs = Date.parse("2026-06-23T08:00:00.000Z");
+
+    const [firstLease, duplicateLease, secondLease, thirdLease] = await Promise.all([
+      store.reserveConcurrency({
+        key: "lease:chat",
+        leaseId: "lease_a",
+        limit: 2,
+        nowMs,
+        ttlMs: 30_000,
+      }),
+      store.reserveConcurrency({
+        key: "lease:chat",
+        leaseId: "lease_a",
+        limit: 2,
+        nowMs,
+        ttlMs: 30_000,
+      }),
+      store.reserveConcurrency({
+        key: "lease:chat",
+        leaseId: "lease_b",
+        limit: 2,
+        nowMs,
+        ttlMs: 30_000,
+      }),
+      store.reserveConcurrency({
+        key: "lease:chat",
+        leaseId: "lease_c",
+        limit: 2,
+        nowMs,
+        ttlMs: 30_000,
+      }),
+    ]);
+
+    expect(firstLease.status).toBe("acquired");
+    expect(duplicateLease.status).toBe("duplicate");
+    expect([secondLease.status, thirdLease.status].toSorted()).toEqual(["acquired", "rejected"]);
+
+    await store.releaseConcurrency({ key: "lease:chat", leaseId: "lease_a" });
+    expect(
+      (
+        await store.reserveConcurrency({
+          key: "lease:chat",
+          leaseId: "lease_d",
+          limit: 2,
+          nowMs,
+          ttlMs: 30_000,
+        })
+      ).status,
+    ).toBe("acquired");
+
+    const expiredLease = await store.reserveConcurrency({
+      key: "lease:chat",
+      leaseId: "lease_e",
+      limit: 2,
+      nowMs: nowMs + 31_000,
+      ttlMs: 30_000,
+    });
+    expect(expiredLease.status).toBe("acquired");
+    expect(expiredLease.count).toBe(1);
+
+    const [firstReservation, duplicateReservation, rejectedReservation] = await Promise.all([
+      store.reserveRollingWindow({
+        key: "identity:velocity",
+        reservationId: "request_a",
+        limit: 2,
+        nowMs,
+        windowMs: 60_000,
+      }),
+      store.reserveRollingWindow({
+        key: "identity:velocity",
+        reservationId: "request_a",
+        limit: 2,
+        nowMs,
+        windowMs: 60_000,
+      }),
+      store.reserveRollingWindow({
+        key: "identity:velocity",
+        reservationId: "request_b",
+        limit: 2,
+        nowMs,
+        windowMs: 60_000,
+      }),
+    ]);
+    expect(firstReservation.status).toBe("reserved");
+    expect(duplicateReservation.status).toBe("duplicate");
+    expect(rejectedReservation.status).toBe("reserved");
+    expect(
+      (
+        await store.reserveRollingWindow({
+          key: "identity:velocity",
+          reservationId: "request_c",
+          limit: 2,
+          nowMs,
+          windowMs: 60_000,
+        })
+      ).status,
+    ).toBe("rejected");
+    expect(
+      (
+        await store.reserveRollingWindow({
+          key: "identity:velocity",
+          reservationId: "request_d",
+          limit: 2,
+          nowMs: nowMs + 61_000,
+          windowMs: 60_000,
+        })
+      ).status,
+    ).toBe("reserved");
+
+    await expect(
+      Promise.all([
+        store.recordIdempotency({
+          key: "idempotency:request",
+          value: "stored",
+          nowMs,
+          ttlMs: 60_000,
+        }),
+        store.recordIdempotency({
+          key: "idempotency:request",
+          value: "duplicate",
+          nowMs,
+          ttlMs: 60_000,
+        }),
+      ]),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: "stored" }),
+        expect.objectContaining({ status: "duplicate", value: "stored" }),
+      ]),
+    );
+
+    await expect(
+      Promise.all([
+        store.consumeBudget({
+          key: "budget:provider",
+          amount: 70,
+          limit: 100,
+          nowMs,
+          windowMs: 60_000,
+        }),
+        store.consumeBudget({
+          key: "budget:provider",
+          amount: 40,
+          limit: 100,
+          nowMs,
+          windowMs: 60_000,
+        }),
+      ]),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: "consumed", used: 70 }),
+        expect.objectContaining({ status: "exceeded" }),
+      ]),
+    );
   });
 });
 
 function createFakeSharedRateLimitStore() {
-  const buckets = new Map<string, { count: number; resetAt: number }>();
+  const store = createMemoryRateLimitStore();
+
+  return {
+    ...store,
+    scope: "shared",
+  } satisfies QuotaStore & { size(): number };
+}
+
+function createUnavailableQuotaStore() {
+  const fail = async () => {
+    throw new Error("quota store unavailable");
+  };
 
   return {
     scope: "shared",
-    increment(bucketKey, windowMs, nowMs) {
-      const bucket = buckets.get(bucketKey) ?? { count: 0, resetAt: nowMs + windowMs };
-
-      bucket.count += 1;
-      buckets.set(bucketKey, bucket);
-
-      return bucket;
-    },
-    size() {
-      return buckets.size;
-    },
-  } satisfies RateLimitStore & { size(): number };
+    consumeBudget: fail,
+    incrementFixedWindow: fail,
+    recordIdempotency: fail,
+    releaseConcurrency: fail,
+    reserveConcurrency: fail,
+    reserveRollingWindow: fail,
+  } satisfies QuotaStore;
 }
 
 function setEnvValue(name: string, value: string | undefined) {
@@ -270,7 +471,7 @@ function keyValueCredential(key: string, separator: "=" | ": ", scope: string, s
 }
 
 describe("privacy and observability", () => {
-  test("captures viability metrics without private trip details", () => {
+  test("captures viability metrics without private trip details", async () => {
     const metrics = sanitizeIntakeForMetrics({
       travelMonth: "2026-08",
       arrivalOrigin: "Manila",
@@ -291,7 +492,7 @@ describe("privacy and observability", () => {
     expect(metrics.groupSizeBucket).toBe("solo");
   });
 
-  test("redacts telemetry payloads before Sentry or PostHog sinks", () => {
+  test("redacts telemetry payloads before Sentry or PostHog sinks", async () => {
     const apiToken = underscoreCredential("sk", "test", "should", "not", "render");
     const hyphenatedToken = credentialFragment("sk", "provider", "sample", "security", "alpha");
     const bearerToken = bearerFragment("security", "beta");
@@ -330,7 +531,7 @@ describe("privacy and observability", () => {
     expect(JSON.stringify(event.payload)).toContain("[redacted-secret]");
   });
 
-  test("server-only secret helper refuses public env names", () => {
+  test("server-only secret helper refuses public env names", async () => {
     const webhookToken = underscoreCredential("whsec", "test");
 
     expect(getServerSecret("STRIPE_WEBHOOK_SECRET", { STRIPE_WEBHOOK_SECRET: webhookToken })).toBe(
@@ -341,7 +542,7 @@ describe("privacy and observability", () => {
 });
 
 describe("public and private data boundaries", () => {
-  test("public eligibility blocks private paid audit facts and restricted provider payloads", () => {
+  test("public eligibility blocks private paid audit facts and restricted provider payloads", async () => {
     const result = evaluatePublicEligibility({
       facts: [
         {

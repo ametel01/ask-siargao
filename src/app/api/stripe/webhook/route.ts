@@ -33,7 +33,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const rateLimit = rateLimitRequest(request, "provider_call");
+  const rateLimit = await rateLimitRequest(request, "provider_call");
   if (!rateLimit.allowed) {
     return rateLimitedJson(rateLimit);
   }
