@@ -40,13 +40,48 @@ export function createFixturePublicKnowledgeCatalog(
   };
 }
 
+export function createResilientPublicKnowledgeCatalog(input: {
+  primary: PublicKnowledgeCatalog;
+  fallback?: PublicKnowledgeCatalog;
+}): PublicKnowledgeCatalog {
+  const fallback = input.fallback ?? createFixturePublicKnowledgeCatalog();
+
+  return {
+    async getPage(family, slug) {
+      try {
+        return (await input.primary.getPage(family, slug)) ?? fallback.getPage(family, slug);
+      } catch {
+        return fallback.getPage(family, slug);
+      }
+    },
+    async listPages(options) {
+      try {
+        const pages = await input.primary.listPages(options);
+        return pages.length > 0 ? pages : fallback.listPages(options);
+      } catch {
+        return fallback.listPages(options);
+      }
+    },
+    async listEligiblePages(options) {
+      try {
+        const pages = await input.primary.listEligiblePages(options);
+        return pages.length > 0 ? pages : fallback.listEligiblePages(options);
+      } catch {
+        return fallback.listEligiblePages(options);
+      }
+    },
+  };
+}
+
 export function getPublicKnowledgeCatalog() {
   if (defaultCatalog) {
     return defaultCatalog;
   }
 
   defaultCatalog = process.env.DATABASE_URL
-    ? createDatabasePublicKnowledgeCatalog({ client: getDefaultDatabaseQueryClient() })
+    ? createResilientPublicKnowledgeCatalog({
+        primary: createDatabasePublicKnowledgeCatalog({ client: getDefaultDatabaseQueryClient() }),
+      })
     : createFixturePublicKnowledgeCatalog();
 
   return defaultCatalog;

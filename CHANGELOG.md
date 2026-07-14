@@ -215,6 +215,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Fixed
 
+- Kept public sitemap and LLM index routes available when the optional database-backed public
+  catalog is temporarily unreachable.
 - Tolerated model-style `research_web` arguments with omitted nullable fields or snake_case aliases
   so valid web-research requests no longer fail chat with repeated `invalid_tool_arguments`.
 - Made the chat right-hand trip context rail fixed and vertically compact so only the chat message
