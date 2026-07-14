@@ -7,6 +7,12 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ## [Unreleased]
 
+### Changed
+
+- Changed DeepSeek chat runtime behavior behind `DEEPSEEK_COST_POLICY_ENABLED` so routine free and
+  paid turns use bounded non-thinking requests, paid heavy turns retain thinking-high, and OpenAI
+  fallback is disabled for free traffic.
+
 ### Added
 
 - Added redacted request-scoped model-cost telemetry, DeepSeek usage normalization, and a Trip Pass

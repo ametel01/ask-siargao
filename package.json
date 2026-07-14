@@ -25,6 +25,7 @@
     "db:ingest:open-meteo-marine": "bun run src/server/providers/ingest-open-meteo-marine.ts",
     "agent-memory:sync": "bun run src/server/chat/sync-agent-memory-vector-store.ts",
     "eval:trip-pass-cost-baseline": "bun run src/server/evaluations/run-trip-pass-cost-baseline.ts",
+    "eval:trip-pass-cost-candidate": "bun run src/server/evaluations/run-trip-pass-cost-baseline.ts --candidate",
     "db:migrate:test": "bun run src/server/db/migrate-test.ts",
     "db:seed:test": "bun run src/server/db/seed-test.ts",
     "format": "biome format --write .",

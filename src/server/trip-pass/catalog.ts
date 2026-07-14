@@ -53,9 +53,16 @@ export const tripPassCostPolicy = {
     maxModelCalls: 3,
   },
   paid: {
-    maxOutputTokens: 2_500,
-    maxToolCalls: 8,
-    normalMaxModelCalls: 4,
+    routine: {
+      maxOutputTokens: 2_500,
+      maxToolCalls: 6,
+      normalMaxModelCalls: 4,
+    },
+    heavy: {
+      maxOutputTokens: 3_000,
+      maxToolCalls: 8,
+      normalMaxModelCalls: 6,
+    },
   },
   absoluteModelCallBound: 7,
 } as const;

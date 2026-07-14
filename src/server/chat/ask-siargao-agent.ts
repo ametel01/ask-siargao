@@ -13,6 +13,7 @@ import {
 import {
   type AgentFinalPayload,
   type AgentMemoryMetadata,
+  type AgentResponsesClient,
   type AgentRuntimeDependencies,
   type AgentRuntimeRequest,
   type AgentToolCallAudit,
@@ -38,6 +39,12 @@ import {
   requiredEvidenceAllowedCardIds,
 } from "@/server/chat/chat-evidence-policy";
 import type { ConditionJudgmentRequest } from "@/server/chat/condition-tools";
+import {
+  assertModelCallAllowed,
+  type ChatCostPolicy,
+  resolveChatCostPolicy,
+  responseModelCostPolicy,
+} from "@/server/chat/cost-policy";
 import type {
   ItineraryRequiredToolChecks,
   LocalItineraryRequest,
@@ -63,6 +70,7 @@ export type AskSiargaoAgentDependencies = AgentRuntimeDependencies &
     loadMemorySnapshot?: () => AgentMemorySnapshot;
     now?: () => Date;
     requireStructuredFinalOutput?: boolean;
+    costPolicyEnv?: Record<string, string | undefined>;
   };
 
 type ParsedFunctionCall = {
@@ -81,9 +89,6 @@ type ModelFacingAgentMemoryMetadata = {
 
 type ResponseInputItem = Record<string, unknown>;
 
-const defaultMaxToolCalls = 8;
-const defaultMaxTurns = 6;
-const defaultResponseMaxOutputTokens = 3_000;
 const maxConversationMessages = 10;
 const agentLogger = createComponentLogger("chat_agent");
 
@@ -92,9 +97,13 @@ export async function runAskSiargaoAgentTurn(
   dependencies: AskSiargaoAgentDependencies = {},
 ): Promise<AgentTurnResult> {
   const resolved = resolveAgentRuntimeRequest(request, dependencies);
+  const costPolicy = resolveChatCostPolicy(resolved, { env: dependencies.costPolicyEnv });
   const costAccumulator = createModelCostAccumulator({ requestId: resolved.requestId });
   const client = costAccumulator.wrapClient(
-    dependencies.client ?? createConfiguredChatResponsesClient(),
+    dependencies.client ??
+      createConfiguredChatResponsesClient({
+        openAiFallbackEnabled: costPolicy.openAiFallback.enabled,
+      }),
   );
   const memorySnapshot =
     dependencies.memorySnapshot ?? dependencies.loadMemorySnapshot?.() ?? loadAgentMemorySnapshot();
@@ -111,8 +120,17 @@ export async function runAskSiargaoAgentTurn(
   const toolCalls: AgentToolCallAudit[] = [];
   const toolResults: AgentToolResult[] = [];
   const hostedMemoryFileNames = new Set<string>();
-  const maxToolCalls = dependencies.maxToolCalls ?? defaultMaxToolCalls;
-  const maxTurns = dependencies.maxTurns ?? defaultMaxTurns;
+  const maxToolCalls = dependencies.maxToolCalls ?? costPolicy.maxToolCalls;
+  const maxTurns = dependencies.maxTurns ?? costPolicy.maxTurns;
+  const maxOutputTokens = costPolicy.maxOutputTokens;
+  const modelCostPolicy = responseModelCostPolicy(costPolicy);
+  const budgetedClient = createBudgetedModelClient({
+    client,
+    costAccumulator,
+    costPolicy,
+    maxOutputTokens,
+    modelCostPolicy,
+  });
   const agentMemoryVectorStoreId =
     dependencies.agentMemoryVectorStoreId ?? process.env.OPENAI_AGENT_MEMORY_VECTOR_STORE_ID;
   const memory = createAgentMemoryMetadata(memorySnapshot, agentMemoryVectorStoreId);
@@ -136,6 +154,7 @@ export async function runAskSiargaoAgentTurn(
       messageCount: resolved.messages.length,
       maxToolCalls,
       maxTurns,
+      costPolicy,
       agentMemory: summarizeMemoryForLogs(memory),
     },
     "Ask Siargao agent turn started.",
@@ -179,14 +198,20 @@ export async function runAskSiargaoAgentTurn(
       responseContract: responseContract,
     }),
   ];
-  let response = await client.responses.create({
-    model: resolved.model,
-    store: false,
-    max_output_tokens: defaultResponseMaxOutputTokens,
-    instructions,
-    tools,
-    ...(responseInclude ? { include: responseInclude } : {}),
-    input: responseInput,
+  let response = await createBudgetedModelResponse({
+    client,
+    costAccumulator,
+    costPolicy,
+    params: {
+      model: resolved.model,
+      store: false,
+      max_output_tokens: maxOutputTokens,
+      instructions,
+      modelCostPolicy,
+      tools,
+      ...(responseInclude ? { include: responseInclude } : {}),
+      input: responseInput,
+    },
   });
   let activeModel = response.model ?? resolved.model;
   collectUpstreamRequestId(response._request_id, upstreamRequestIds);
@@ -203,7 +228,7 @@ export async function runAskSiargaoAgentTurn(
           request: resolved,
           requireStructuredFinalOutput,
         }),
-        client,
+        client: budgetedClient,
         executeToolCalls: (functionCalls) =>
           executeAndAuditToolBatch({
             executeTool,
@@ -260,14 +285,20 @@ export async function runAskSiargaoAgentTurn(
             responseContract,
           }),
         ];
-        response = await client.responses.create({
-          model: activeModel,
-          store: false,
-          max_output_tokens: defaultResponseMaxOutputTokens,
-          instructions,
-          tools,
-          ...(responseInclude ? { include: responseInclude } : {}),
-          input: responseInput,
+        response = await createBudgetedModelResponse({
+          client,
+          costAccumulator,
+          costPolicy,
+          params: {
+            model: activeModel,
+            store: false,
+            max_output_tokens: maxOutputTokens,
+            instructions,
+            modelCostPolicy,
+            tools,
+            ...(responseInclude ? { include: responseInclude } : {}),
+            input: responseInput,
+          },
         });
         activeModel = response.model ?? activeModel;
         collectUpstreamRequestId(response._request_id, upstreamRequestIds);
@@ -352,12 +383,18 @@ export async function runAskSiargaoAgentTurn(
             responseContract,
           }),
         ];
-        response = await client.responses.create({
-          model: activeModel,
-          store: false,
-          max_output_tokens: defaultResponseMaxOutputTokens,
-          instructions,
-          input: responseInput,
+        response = await createBudgetedModelResponse({
+          client,
+          costAccumulator,
+          costPolicy,
+          params: {
+            model: activeModel,
+            store: false,
+            max_output_tokens: maxOutputTokens,
+            instructions,
+            modelCostPolicy,
+            input: responseInput,
+          },
         });
         activeModel = response.model ?? activeModel;
         collectUpstreamRequestId(response._request_id, upstreamRequestIds);
@@ -412,14 +449,20 @@ export async function runAskSiargaoAgentTurn(
         }),
       ];
     }
-    response = await client.responses.create({
-      model: activeModel,
-      store: false,
-      max_output_tokens: defaultResponseMaxOutputTokens,
-      instructions,
-      ...(forceFinalAnswer ? {} : { tools }),
-      ...(!forceFinalAnswer && responseInclude ? { include: responseInclude } : {}),
-      input: responseInput,
+    response = await createBudgetedModelResponse({
+      client,
+      costAccumulator,
+      costPolicy,
+      params: {
+        model: activeModel,
+        store: false,
+        max_output_tokens: maxOutputTokens,
+        instructions,
+        modelCostPolicy,
+        ...(forceFinalAnswer ? {} : { tools }),
+        ...(!forceFinalAnswer && responseInclude ? { include: responseInclude } : {}),
+        input: responseInput,
+      },
     });
     activeModel = response.model ?? activeModel;
     collectUpstreamRequestId(response._request_id, upstreamRequestIds);
@@ -427,6 +470,57 @@ export async function runAskSiargaoAgentTurn(
   }
 
   throw new Error("Ask Siargao agent exceeded the maximum turn count.");
+}
+
+function createBudgetedModelClient({
+  client,
+  costAccumulator,
+  costPolicy,
+  maxOutputTokens,
+  modelCostPolicy,
+}: {
+  client: AgentResponsesClient;
+  costAccumulator: ReturnType<typeof createModelCostAccumulator>;
+  costPolicy: ChatCostPolicy;
+  maxOutputTokens: number;
+  modelCostPolicy: ReturnType<typeof responseModelCostPolicy>;
+}) {
+  return {
+    responses: {
+      create: (params: Record<string, unknown>) =>
+        createBudgetedModelResponse({
+          client,
+          costAccumulator,
+          costPolicy,
+          params: {
+            ...params,
+            max_output_tokens: boundedMaxOutputTokens(params.max_output_tokens, maxOutputTokens),
+            modelCostPolicy: params.modelCostPolicy ?? modelCostPolicy,
+          },
+        }),
+    },
+  };
+}
+
+async function createBudgetedModelResponse({
+  client,
+  costAccumulator,
+  costPolicy,
+  params,
+}: {
+  client: AgentResponsesClient;
+  costAccumulator: ReturnType<typeof createModelCostAccumulator>;
+  costPolicy: ChatCostPolicy;
+  params: Record<string, unknown>;
+}) {
+  assertModelCallAllowed(costAccumulator.summary().callCount, costPolicy);
+  return client.responses.create(params);
+}
+
+function boundedMaxOutputTokens(value: unknown, maxOutputTokens: number) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.min(value, maxOutputTokens)
+    : maxOutputTokens;
 }
 
 function userInputMessage(input: Record<string, unknown>): ResponseInputItem {

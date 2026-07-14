@@ -120,15 +120,46 @@ commit.
 
 ## Step 1B - Apply Entitlement-Aware DeepSeek Cost Policies
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T00:56:20Z`
+- Completed: `2026-07-14T01:07:21Z`
+- Implementing commit SHA: this Step 1B commit.
+- Files and behavior changed: added `src/server/chat/cost-policy.ts` with baseline, free, paid
+  routine, and paid heavy policies; made DeepSeek thinking mode explicit through internal request
+  policy metadata while preserving baseline request construction when
+  `DEEPSEEK_COST_POLICY_ENABLED=false`; bounded free/paid output, tool, turn, normal-call, and
+  absolute-call budgets; disabled automatic OpenAI fallback for free candidate traffic and required
+  paid fallback to be explicitly enabled with a positive budget; added a typed
+  `model_budget_exhausted` API error; extended the fixed corpus runner to write a candidate
+  comparison artifact at `docs/evaluations/trip-pass-cost-candidate-2026-07-14.json`.
+- Acceptance criteria checked: flag-off behavior remains baseline thinking-high with automatic
+  fallback; flag-on free and paid routine requests use `thinking: disabled`; paid heavy requests keep
+  thinking-high; free DeepSeek failure does not invoke OpenAI fallback; paid fallback is allowed only
+  with `OPENAI_FALLBACK_ENABLED=true` and a positive fallback daily budget; all model calls,
+  including repair retries, pass through the absolute model-call budget; fixed candidate corpus
+  preserves all 10 passing quality cases and remains at 20 calls with normal fixture paths at or
+  under four calls.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes applied after final edits.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 355 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed, 1014 tests, 0 failures, 5419 assertions.
+  - `bun run eval:trip-pass-cost-baseline -- --write`: passed; baseline remains `0.0295274` USD,
+    178000 cache-miss input tokens, and 20 modeled calls.
+  - `bun run eval:trip-pass-cost-candidate -- --write`: passed; candidate is `0.02077698` USD,
+    118319 cache-miss input tokens, and 20 modeled calls; cache-miss input reduced 33.53% and
+    modeled cost reduced 29.63%, passing the 20% target.
+  - `bun run db:migrate:test`: passed, 50 tables and 8 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 92 tests, 0 failures.
+- Changelog decision and entry location: added a `Changed` entry under `[Unreleased]` for
+  flag-gated entitlement-aware model and fallback behavior.
+- Risks, follow-ups, or blocker: entitlement metadata is not yet persisted, so the runtime policy
+  seam accepts `tripPassEntitlement` / `tripPassCostPolicyTier` metadata until later steps wire
+  server-authoritative entitlements; the candidate comparison is fixture-backed and must be rerun on
+  the same case IDs when live provider measurements are promoted.
 
 ## Step 2 - Add the Order, Grant, and Usage Event Ledger
 

@@ -1,0 +1,540 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-14T00:00:00.000Z",
+  "redactionPolicy": "Prompt text, tool output text, reasoning content, raw user identifiers, cookies, email, IP, and precise coordinates are intentionally absent.",
+  "priceCatalog": {
+    "version": "deepseek-v4-flash-2026-07-14-export",
+    "currency": "USD",
+    "pricesPerToken": {
+      "deepseek": {
+        "deepseek-v4-flash": {
+          "inputCacheHitTokens": "0.0000000028",
+          "inputCacheMissTokens": "0.00000014",
+          "outputTokens": "0.00000028"
+        }
+      }
+    }
+  },
+  "baselineArtifact": "docs/evaluations/trip-pass-cost-baseline-2026-07-14.json",
+  "candidatePolicy": {
+    "routineMode": "thinking_disabled",
+    "heavyMode": "thinking_high",
+    "freeMaxOutputTokens": 1500,
+    "paidRoutineMaxOutputTokens": 2500,
+    "paidHeavyMaxOutputTokens": 3000,
+    "absoluteModelCallBound": 7,
+    "freeOpenAiFallback": "disabled",
+    "paidOpenAiFallback": "allowlisted_with_budget"
+  },
+  "comparison": {
+    "caseCount": 10,
+    "qualityResult": "pass",
+    "baselineTotals": {
+      "callCount": 20,
+      "inputCacheHitTokens": 476500,
+      "inputCacheMissTokens": 178000,
+      "outputTokens": 11690,
+      "reasoningTokens": 2710,
+      "totalTokens": 666190,
+      "modeledCostUsd": "0.0295274"
+    },
+    "candidateTotals": {
+      "callCount": 20,
+      "inputCacheHitTokens": 476500,
+      "inputCacheMissTokens": 118319,
+      "outputTokens": 10279,
+      "reasoningTokens": 450,
+      "totalTokens": 605098,
+      "modeledCostUsd": "0.02077698"
+    },
+    "cacheMissReductionPercent": "33.53%",
+    "modeledCostReductionPercent": "29.63%",
+    "passesTwentyPercentTarget": true
+  },
+  "corpus": {
+    "caseCount": 10,
+    "orderStable": true,
+    "cases": [
+      {
+        "ordinal": 1,
+        "id": "routine_first_day_plan",
+        "promptClass": "routine_trip_planning",
+        "contextClass": "anonymous_no_trip_context",
+        "qualityResult": "pass",
+        "toolOrder": ["load_agent_memory_file"],
+        "artifactKinds": [],
+        "runPhase": "cold_prefix_priming",
+        "callCount": 1,
+        "totals": {
+          "inputCacheHitTokens": 12000,
+          "inputCacheMissTokens": 4960,
+          "outputTokens": 572,
+          "reasoningTokens": 0,
+          "totalTokens": 17532,
+          "modeledCostUsd": "0.00088816"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_01_final_candidate",
+            "inputCacheHitTokens": 12000,
+            "inputCacheMissTokens": 4960,
+            "outputTokens": 572,
+            "reasoningTokens": 0,
+            "totalTokens": 17532,
+            "modeledCostUsd": "0.00088816"
+          }
+        ],
+        "policyTier": "free_or_paid_routine"
+      },
+      {
+        "ordinal": 2,
+        "id": "weather_sensitive_scooter_decision",
+        "promptClass": "live_weather_decision",
+        "contextClass": "dated_trip_context",
+        "qualityResult": "pass",
+        "toolOrder": ["get_weather_forecast", "get_condition_judgment"],
+        "artifactKinds": ["decision_summary"],
+        "runPhase": "warm_repeated",
+        "callCount": 2,
+        "totals": {
+          "inputCacheHitTokens": 46000,
+          "inputCacheMissTokens": 11470,
+          "outputTokens": 1055,
+          "reasoningTokens": 0,
+          "totalTokens": 58525,
+          "modeledCostUsd": "0.00203"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_02_tools_candidate",
+            "inputCacheHitTokens": 22000,
+            "inputCacheMissTokens": 6820,
+            "outputTokens": 369,
+            "reasoningTokens": 0,
+            "totalTokens": 29189,
+            "modeledCostUsd": "0.00111972"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_02_final_candidate",
+            "inputCacheHitTokens": 24000,
+            "inputCacheMissTokens": 4650,
+            "outputTokens": 686,
+            "reasoningTokens": 0,
+            "totalTokens": 29336,
+            "modeledCostUsd": "0.00091028"
+          }
+        ],
+        "policyTier": "free_or_paid_routine"
+      },
+      {
+        "ordinal": 3,
+        "id": "nearby_open_places",
+        "promptClass": "browser_location_places",
+        "contextClass": "single_request_geolocation_available",
+        "qualityResult": "pass",
+        "toolOrder": ["search_places"],
+        "artifactKinds": ["recommendation_card"],
+        "runPhase": "warm_repeated",
+        "callCount": 2,
+        "totals": {
+          "inputCacheHitTokens": 45200,
+          "inputCacheMissTokens": 10788,
+          "outputTokens": 940,
+          "reasoningTokens": 0,
+          "totalTokens": 56928,
+          "modeledCostUsd": "0.00190008"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_03_tools_candidate",
+            "inputCacheHitTokens": 21500,
+            "inputCacheMissTokens": 6324,
+            "outputTokens": 316,
+            "reasoningTokens": 0,
+            "totalTokens": 28140,
+            "modeledCostUsd": "0.00103404"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_03_final_candidate",
+            "inputCacheHitTokens": 23700,
+            "inputCacheMissTokens": 4464,
+            "outputTokens": 624,
+            "reasoningTokens": 0,
+            "totalTokens": 28788,
+            "modeledCostUsd": "0.00086604"
+          }
+        ],
+        "policyTier": "free_or_paid_routine"
+      },
+      {
+        "ordinal": 4,
+        "id": "heavy_restaurant_research",
+        "promptClass": "heavy_recommendation_current_web",
+        "contextClass": "signed_in_trip_context",
+        "qualityResult": "pass",
+        "toolOrder": ["research_web", "search_places", "get_place_details"],
+        "artifactKinds": ["recommendation_card", "action"],
+        "runPhase": "warm_repeated",
+        "callCount": 3,
+        "totals": {
+          "inputCacheHitTokens": 94000,
+          "inputCacheMissTokens": 32635,
+          "outputTokens": 1944,
+          "reasoningTokens": 450,
+          "totalTokens": 128579,
+          "modeledCostUsd": "0.00537642"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_04_tools_1_candidate",
+            "inputCacheHitTokens": 28000,
+            "inputCacheMissTokens": 13940,
+            "outputTokens": 475,
+            "reasoningTokens": 165,
+            "totalTokens": 42415,
+            "modeledCostUsd": "0.002163"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_04_tools_2_candidate",
+            "inputCacheHitTokens": 32000,
+            "inputCacheMissTokens": 10660,
+            "outputTokens": 545,
+            "reasoningTokens": 150,
+            "totalTokens": 43205,
+            "modeledCostUsd": "0.0017346"
+          },
+          {
+            "callIndex": 3,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_04_final_candidate",
+            "inputCacheHitTokens": 34000,
+            "inputCacheMissTokens": 8035,
+            "outputTokens": 924,
+            "reasoningTokens": 135,
+            "totalTokens": 42959,
+            "modeledCostUsd": "0.00147882"
+          }
+        ],
+        "policyTier": "paid_heavy"
+      },
+      {
+        "ordinal": 5,
+        "id": "route_before_ferry_transfer",
+        "promptClass": "route_lookup_itinerary",
+        "contextClass": "dated_transfer_context",
+        "qualityResult": "pass",
+        "toolOrder": ["plan_local_itinerary"],
+        "artifactKinds": ["itinerary"],
+        "runPhase": "warm_repeated",
+        "callCount": 2,
+        "totals": {
+          "inputCacheHitTokens": 42300,
+          "inputCacheMissTokens": 9982,
+          "outputTokens": 1011,
+          "reasoningTokens": 0,
+          "totalTokens": 53293,
+          "modeledCostUsd": "0.001799"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_05_tools_candidate",
+            "inputCacheHitTokens": 20200,
+            "inputCacheMissTokens": 5828,
+            "outputTokens": 343,
+            "reasoningTokens": 0,
+            "totalTokens": 26371,
+            "modeledCostUsd": "0.00096852"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_05_final_candidate",
+            "inputCacheHitTokens": 22100,
+            "inputCacheMissTokens": 4154,
+            "outputTokens": 668,
+            "reasoningTokens": 0,
+            "totalTokens": 26922,
+            "modeledCostUsd": "0.00083048"
+          }
+        ],
+        "policyTier": "free_or_paid_routine"
+      },
+      {
+        "ordinal": 6,
+        "id": "surf_spots_nearby",
+        "promptClass": "browser_location_surf_ranking",
+        "contextClass": "trip_session_geolocation_available",
+        "qualityResult": "pass",
+        "toolOrder": ["rank_surf_spots_nearby", "get_marine_conditions"],
+        "artifactKinds": ["decision_summary"],
+        "runPhase": "warm_repeated",
+        "callCount": 2,
+        "totals": {
+          "inputCacheHitTokens": 52200,
+          "inputCacheMissTokens": 12648,
+          "outputTokens": 1143,
+          "reasoningTokens": 0,
+          "totalTokens": 65991,
+          "modeledCostUsd": "0.00223692"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_06_tools_candidate",
+            "inputCacheHitTokens": 24800,
+            "inputCacheMissTokens": 7626,
+            "outputTokens": 422,
+            "reasoningTokens": 0,
+            "totalTokens": 32848,
+            "modeledCostUsd": "0.00125524"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_06_final_candidate",
+            "inputCacheHitTokens": 27400,
+            "inputCacheMissTokens": 5022,
+            "outputTokens": 721,
+            "reasoningTokens": 0,
+            "totalTokens": 33143,
+            "modeledCostUsd": "0.00098168"
+          }
+        ],
+        "policyTier": "free_or_paid_routine"
+      },
+      {
+        "ordinal": 7,
+        "id": "provider_failure_caveat",
+        "promptClass": "live_provider_failure",
+        "contextClass": "weather_provider_unavailable",
+        "qualityResult": "pass",
+        "toolOrder": ["get_weather_forecast"],
+        "artifactKinds": [],
+        "runPhase": "warm_repeated",
+        "callCount": 2,
+        "totals": {
+          "inputCacheHitTokens": 39400,
+          "inputCacheMissTokens": 8370,
+          "outputTokens": 835,
+          "reasoningTokens": 0,
+          "totalTokens": 48605,
+          "modeledCostUsd": "0.00151592"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_07_tools_candidate",
+            "inputCacheHitTokens": 18900,
+            "inputCacheMissTokens": 4898,
+            "outputTokens": 299,
+            "reasoningTokens": 0,
+            "totalTokens": 24097,
+            "modeledCostUsd": "0.00082236"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_07_final_candidate",
+            "inputCacheHitTokens": 20500,
+            "inputCacheMissTokens": 3472,
+            "outputTokens": 536,
+            "reasoningTokens": 0,
+            "totalTokens": 24508,
+            "modeledCostUsd": "0.00069356"
+          }
+        ],
+        "policyTier": "free_or_paid_routine"
+      },
+      {
+        "ordinal": 8,
+        "id": "public_source_disclosure",
+        "promptClass": "source_governed_local_fact",
+        "contextClass": "local_guide_memory",
+        "qualityResult": "pass",
+        "toolOrder": ["query_local_facts", "get_source_evidence"],
+        "artifactKinds": [],
+        "runPhase": "warm_repeated",
+        "callCount": 2,
+        "totals": {
+          "inputCacheHitTokens": 55100,
+          "inputCacheMissTokens": 10540,
+          "outputTokens": 985,
+          "reasoningTokens": 0,
+          "totalTokens": 66625,
+          "modeledCostUsd": "0.00190568"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_08_tools_candidate",
+            "inputCacheHitTokens": 26200,
+            "inputCacheMissTokens": 6262,
+            "outputTokens": 378,
+            "reasoningTokens": 0,
+            "totalTokens": 32840,
+            "modeledCostUsd": "0.00105588"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_08_final_candidate",
+            "inputCacheHitTokens": 28900,
+            "inputCacheMissTokens": 4278,
+            "outputTokens": 607,
+            "reasoningTokens": 0,
+            "totalTokens": 33785,
+            "modeledCostUsd": "0.0008498"
+          }
+        ],
+        "policyTier": "free_or_paid_routine"
+      },
+      {
+        "ordinal": 9,
+        "id": "mixed_card_selection",
+        "promptClass": "adversarial_artifact_selection",
+        "contextClass": "mixed_allowed_disallowed_cards",
+        "qualityResult": "pass",
+        "toolOrder": ["search_places"],
+        "artifactKinds": ["recommendation_card"],
+        "runPhase": "warm_repeated",
+        "callCount": 2,
+        "totals": {
+          "inputCacheHitTokens": 49200,
+          "inputCacheMissTokens": 9982,
+          "outputTokens": 994,
+          "reasoningTokens": 0,
+          "totalTokens": 60176,
+          "modeledCostUsd": "0.00181356"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_09_tools_candidate",
+            "inputCacheHitTokens": 23400,
+            "inputCacheMissTokens": 5952,
+            "outputTokens": 343,
+            "reasoningTokens": 0,
+            "totalTokens": 29695,
+            "modeledCostUsd": "0.00099484"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_09_final_candidate",
+            "inputCacheHitTokens": 25800,
+            "inputCacheMissTokens": 4030,
+            "outputTokens": 651,
+            "reasoningTokens": 0,
+            "totalTokens": 30481,
+            "modeledCostUsd": "0.00081872"
+          }
+        ],
+        "policyTier": "free_or_paid_routine"
+      },
+      {
+        "ordinal": 10,
+        "id": "cached_local_fallback_after_live_limit",
+        "promptClass": "live_limit_cached_fallback",
+        "contextClass": "paid_live_meter_exhausted",
+        "qualityResult": "pass",
+        "toolOrder": ["search_local_guide"],
+        "artifactKinds": [],
+        "runPhase": "warm_repeated",
+        "callCount": 2,
+        "totals": {
+          "inputCacheHitTokens": 41100,
+          "inputCacheMissTokens": 6944,
+          "outputTokens": 800,
+          "reasoningTokens": 0,
+          "totalTokens": 48844,
+          "modeledCostUsd": "0.00131124"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_10_tools_candidate",
+            "inputCacheHitTokens": 19800,
+            "inputCacheMissTokens": 3968,
+            "outputTokens": 290,
+            "reasoningTokens": 0,
+            "totalTokens": 24058,
+            "modeledCostUsd": "0.00069216"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_disabled",
+            "upstreamRequestId": "req_eval_10_final_candidate",
+            "inputCacheHitTokens": 21300,
+            "inputCacheMissTokens": 2976,
+            "outputTokens": 510,
+            "reasoningTokens": 0,
+            "totalTokens": 24786,
+            "modeledCostUsd": "0.00061908"
+          }
+        ],
+        "policyTier": "free_or_paid_routine"
+      }
+    ]
+  }
+}

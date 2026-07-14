@@ -140,6 +140,34 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
   });
 
+  test("applies the free cost policy when the candidate flag is enabled", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_free_policy",
+        output_text: "Keep the first Siargao answer compact.",
+        _request_id: "req_free_policy",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "How should I spend my first afternoon?" }],
+        requestId: "agent_request_free_policy",
+      },
+      {
+        client,
+        agentMemoryVectorStoreId: "",
+        costPolicyEnv: { DEEPSEEK_COST_POLICY_ENABLED: "true" },
+        model: "deepseek-v4-flash",
+      },
+    );
+
+    expect(result.message).toContain("compact");
+    expect(client.requests).toHaveLength(1);
+    expect(client.requests[0]?.max_output_tokens).toBe(1_500);
+    expect(client.requests[0]?.modelCostPolicy).toEqual({ deepSeekThinkingMode: "disabled" });
+  });
+
   test("repairs leaked DSML tool-call markup before returning a default chat answer", async () => {
     const client = fakeResponsesClient([
       {

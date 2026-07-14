@@ -201,6 +201,37 @@ describe("chat model provider", () => {
     });
   });
 
+  test("builds explicit non-thinking DeepSeek requests for cost-policy candidate calls", async () => {
+    const requests: Record<string, unknown>[] = [];
+    const client = createConfiguredChatResponsesClient({
+      deepSeekClient: {
+        chat: {
+          completions: {
+            create: async (params) => {
+              requests.push(params);
+              return {
+                id: "deepseek_non_thinking_response",
+                model: "deepseek-v4-flash",
+                usage: { completion_tokens: 10 },
+                choices: [{ message: { content: "Non-thinking answer." } }],
+              };
+            },
+          },
+        },
+      },
+      deepSeekModel: "deepseek-v4-flash",
+    });
+
+    const response = await client.responses.create({
+      input: "Hello",
+      modelCostPolicy: { deepSeekThinkingMode: "disabled" },
+    });
+
+    expect(requests[0]?.thinking).toEqual({ type: "disabled" });
+    expect(requests[0]).not.toHaveProperty("reasoning_effort");
+    expect(response.usage?.mode).toBe("thinking_disabled");
+  });
+
   test("falls back to OpenAI after a DeepSeek request failure", async () => {
     const fallbackRequests: Record<string, unknown>[] = [];
     const fallbackClient: ResponsesClientLike = {
@@ -258,6 +289,35 @@ describe("chat model provider", () => {
     });
     expect(fallbackRequests).toHaveLength(1);
     expect(fallbackRequests[0]?.model).toBe("gpt-5.4-mini");
+  });
+
+  test("does not create automatic OpenAI fallback when fallback is disabled", async () => {
+    const fallbackClient: ResponsesClientLike = {
+      responses: {
+        create: async () => {
+          throw new Error("Fallback should not run.");
+        },
+      },
+    };
+    const client = createConfiguredChatResponsesClient({
+      deepSeekClient: {
+        chat: {
+          completions: {
+            create: async () => {
+              throw new Error("DeepSeek unavailable");
+            },
+          },
+        },
+      },
+      deepSeekModel: "deepseek-v4-flash",
+      openAiClient: fallbackClient,
+      openAiFallbackEnabled: false,
+      openAiFallbackModel: "gpt-5.4-mini",
+    });
+
+    await expect(client.responses.create({ input: "Hello" })).rejects.toThrow(
+      "DeepSeek unavailable",
+    );
   });
 });
 

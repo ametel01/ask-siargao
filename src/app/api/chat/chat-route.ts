@@ -21,6 +21,7 @@ import {
   loadOwnedChatThread,
   touchChatThread,
 } from "@/server/chat/chat-history-store";
+import { ChatCostPolicyBudgetError } from "@/server/chat/cost-policy";
 import { assemblePublicChatTurn } from "@/server/chat/public-turn-assembly";
 import { SourceConsistencyError } from "@/server/chat/source-consistency";
 import {
@@ -367,12 +368,16 @@ export async function chatResponse(
       message.includes("GOOGLE_API_KEY") ||
       message.includes("GOOGLE_PLACES_API_KEY");
     const sourceConsistencyFailure = error instanceof SourceConsistencyError;
-    const status = missingConfiguration ? 503 : sourceConsistencyFailure ? 502 : 502;
+    const modelBudgetFailure = error instanceof ChatCostPolicyBudgetError;
+    const status =
+      missingConfiguration || modelBudgetFailure ? 503 : sourceConsistencyFailure ? 502 : 502;
     const errorCode = missingConfiguration
       ? "chat_not_configured"
-      : sourceConsistencyFailure
-        ? "source_consistency_failed"
-        : "chat_generation_failed";
+      : modelBudgetFailure
+        ? "model_budget_exhausted"
+        : sourceConsistencyFailure
+          ? "source_consistency_failed"
+          : "chat_generation_failed";
 
     logger.error(
       {
@@ -389,9 +394,11 @@ export async function chatResponse(
         error: errorCode,
         message: missingConfiguration
           ? "Ask Siargao is missing required provider configuration."
-          : sourceConsistencyFailure
-            ? "Ask Siargao could not verify the answer sources."
-            : "Ask Siargao could not generate a response right now.",
+          : modelBudgetFailure
+            ? "Ask Siargao hit a model budget limit before finishing."
+            : sourceConsistencyFailure
+              ? "Ask Siargao could not verify the answer sources."
+              : "Ask Siargao could not generate a response right now.",
       },
       { status, headers },
     );

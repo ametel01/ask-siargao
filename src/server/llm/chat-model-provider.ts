@@ -27,6 +27,7 @@ type ChatModelProviderOptions = {
   deepSeekBaseUrl?: string;
   deepSeekClient?: ChatCompletionsClientLike;
   deepSeekModel?: string;
+  openAiFallbackEnabled?: boolean;
   openAiApiKey?: string;
   openAiClient?: ResponsesClientLike;
   openAiFallbackModel?: string;
@@ -54,7 +55,10 @@ export function createConfiguredChatResponsesClient(
 ): ResponsesClientLike {
   const timeout = options.timeoutMs ?? 30_000;
   const deepSeekApiKey = options.deepSeekApiKey ?? process.env.DEEPSEEK_API_KEY;
-  const openAiApiKey = options.openAiApiKey ?? process.env.OPENAI_API_KEY;
+  const openAiFallbackEnabled = options.openAiFallbackEnabled ?? true;
+  const openAiApiKey = openAiFallbackEnabled
+    ? (options.openAiApiKey ?? process.env.OPENAI_API_KEY)
+    : undefined;
   const deepSeekModel = options.deepSeekModel ?? resolvePrimaryChatModel();
   const openAiFallbackModel =
     options.openAiFallbackModel ?? process.env.OPENAI_MODEL ?? defaultOpenAiFallbackChatModel;
@@ -71,7 +75,7 @@ export function createConfiguredChatResponsesClient(
         })
       : undefined;
   const fallback =
-    (options.openAiClient
+    (openAiFallbackEnabled && options.openAiClient
       ? withOpenAIResponseModel(options.openAiClient, openAiFallbackModel)
       : undefined) ??
     (openAiApiKey
@@ -117,8 +121,9 @@ function withOpenAIResponseModel(client: ResponsesClientLike, model: string): Re
   return {
     responses: {
       create: async (params) => {
+        const providerParams = stripInternalModelParams(params);
         const response = await client.responses.create({
-          ...params,
+          ...providerParams,
           model,
         });
         return {
@@ -149,8 +154,9 @@ function createOpenAIResponsesFallbackClient({
   return {
     responses: {
       create: async (params) => {
+        const providerParams = stripInternalModelParams(params);
         const response = await client.responses.create({
-          ...params,
+          ...providerParams,
           model,
         });
         return {
@@ -204,13 +210,16 @@ function createDeepSeekResponsesCompatibilityClient({
 
 function responseParamsToChatCompletionParams(params: Record<string, unknown>, model: string) {
   const tools = responseToolsToChatTools(params.tools);
+  const thinkingMode = readDeepSeekThinkingMode(params.modelCostPolicy);
   const body: Record<string, unknown> = {
     model,
     messages: responseInputToChatMessages(params.instructions, params.input),
     stream: false,
-    thinking: { type: "enabled" },
-    reasoning_effort: "high",
+    thinking: { type: thinkingMode === "disabled" ? "disabled" : "enabled" },
   };
+  if (thinkingMode !== "disabled") {
+    body.reasoning_effort = "high";
+  }
   const maxOutputTokens = readNumber(params.max_output_tokens);
   if (maxOutputTokens !== undefined) {
     body.max_tokens = maxOutputTokens;
@@ -399,6 +408,18 @@ function modelUsageModeForDeepSeekRequest(params: Record<string, unknown>): Mode
     return "thinking_disabled";
   }
   return "unknown";
+}
+
+function readDeepSeekThinkingMode(value: unknown) {
+  if (!isRecord(value)) {
+    return "baseline_high";
+  }
+  return value.deepSeekThinkingMode === "disabled" ? "disabled" : "baseline_high";
+}
+
+function stripInternalModelParams(params: Record<string, unknown>) {
+  const { modelCostPolicy: _modelCostPolicy, ...providerParams } = params;
+  return providerParams;
 }
 
 function chatToolCallToResponseOutput(

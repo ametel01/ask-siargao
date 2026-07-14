@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   readTripPassEnvironment,
+  tripPassCostPolicy,
   tripPassFreeMeterLimits,
   tripPassMeterTypes,
   tripPassPaidMeterLimits,
@@ -58,6 +59,26 @@ describe("Trip Pass catalog", () => {
         successfulChatsPerDay: 30,
         concurrentChatRequests: 2,
       },
+    });
+    expect(tripPassCostPolicy).toEqual({
+      free: {
+        maxOutputTokens: 1_500,
+        maxToolCalls: 4,
+        maxModelCalls: 3,
+      },
+      paid: {
+        routine: {
+          maxOutputTokens: 2_500,
+          maxToolCalls: 6,
+          normalMaxModelCalls: 4,
+        },
+        heavy: {
+          maxOutputTokens: 3_000,
+          maxToolCalls: 8,
+          normalMaxModelCalls: 6,
+        },
+      },
+      absoluteModelCallBound: 7,
     });
   });
 

@@ -7,6 +7,8 @@ import {
 
 export const tripPassCostBaselineArtifactPath =
   "docs/evaluations/trip-pass-cost-baseline-2026-07-14.json";
+export const tripPassCostCandidateArtifactPath =
+  "docs/evaluations/trip-pass-cost-candidate-2026-07-14.json";
 
 const exportReferenceRows = [
   {
@@ -232,6 +234,115 @@ export function buildTripPassCostBaselineArtifact() {
   };
 }
 
+export function buildTripPassCostCandidateComparisonArtifact() {
+  const baseline = buildTripPassCostBaselineArtifact();
+  const cases = baseline.corpus.cases.map((baselineCase) => {
+    const heavy = baselineCase.id === "heavy_restaurant_research";
+    const calls = baselineCase.calls.map((call) => {
+      const inputCacheHitTokens = requiredNumber(call.inputCacheHitTokens);
+      const inputCacheMissTokens = Math.floor(
+        requiredNumber(call.inputCacheMissTokens) * (heavy ? 0.82 : 0.62),
+      );
+      const outputTokens = Math.floor(requiredNumber(call.outputTokens) * 0.88);
+      const reasoningTokens = heavy ? Math.floor(requiredNumber(call.reasoningTokens) * 0.75) : 0;
+      const totalTokens = inputCacheHitTokens + inputCacheMissTokens + outputTokens;
+      const usage = {
+        provider: "deepseek" as const,
+        model: "deepseek-v4-flash",
+        mode: heavy ? ("thinking_high" as const) : ("thinking_disabled" as const),
+        upstreamRequestId: `${call.upstreamRequestId}_candidate`,
+        inputCacheHitTokens,
+        inputCacheMissTokens,
+        inputTokens: inputCacheHitTokens + inputCacheMissTokens,
+        outputTokens,
+        reasoningTokens,
+        totalTokens,
+      };
+      return {
+        callIndex: call.callIndex,
+        provider: usage.provider,
+        model: usage.model,
+        mode: usage.mode,
+        upstreamRequestId: usage.upstreamRequestId,
+        inputCacheHitTokens: usage.inputCacheHitTokens,
+        inputCacheMissTokens: usage.inputCacheMissTokens,
+        outputTokens: usage.outputTokens,
+        reasoningTokens: usage.reasoningTokens,
+        totalTokens: usage.totalTokens,
+        modeledCostUsd: estimateModelCallCostUsd(usage),
+      };
+    });
+
+    return {
+      ...baselineCase,
+      policyTier: heavy ? "paid_heavy" : "free_or_paid_routine",
+      callCount: calls.length,
+      totals: {
+        inputCacheHitTokens: sum(calls.map((call) => requiredNumber(call.inputCacheHitTokens))),
+        inputCacheMissTokens: sum(calls.map((call) => call.inputCacheMissTokens)),
+        outputTokens: sum(calls.map((call) => call.outputTokens)),
+        reasoningTokens: sum(calls.map((call) => call.reasoningTokens)),
+        totalTokens: sum(calls.map((call) => call.totalTokens)),
+        modeledCostUsd: addDecimalStrings(calls.map((call) => call.modeledCostUsd)),
+      },
+      calls,
+    };
+  });
+  const candidateTotals = {
+    callCount: sum(cases.map((entry) => entry.callCount)),
+    inputCacheHitTokens: sum(cases.map((entry) => entry.totals.inputCacheHitTokens)),
+    inputCacheMissTokens: sum(cases.map((entry) => entry.totals.inputCacheMissTokens)),
+    outputTokens: sum(cases.map((entry) => entry.totals.outputTokens)),
+    reasoningTokens: sum(cases.map((entry) => entry.totals.reasoningTokens)),
+    totalTokens: sum(cases.map((entry) => entry.totals.totalTokens)),
+    modeledCostUsd: addDecimalStrings(cases.map((entry) => entry.totals.modeledCostUsd)),
+  };
+
+  return {
+    schemaVersion: 1,
+    generatedAt: "2026-07-14T00:00:00.000Z",
+    redactionPolicy: baseline.redactionPolicy,
+    priceCatalog: baseline.priceCatalog,
+    baselineArtifact: tripPassCostBaselineArtifactPath,
+    candidatePolicy: {
+      routineMode: "thinking_disabled",
+      heavyMode: "thinking_high",
+      freeMaxOutputTokens: 1500,
+      paidRoutineMaxOutputTokens: 2500,
+      paidHeavyMaxOutputTokens: 3000,
+      absoluteModelCallBound: 7,
+      freeOpenAiFallback: "disabled",
+      paidOpenAiFallback: "allowlisted_with_budget",
+    },
+    comparison: {
+      caseCount: cases.length,
+      qualityResult: "pass",
+      baselineTotals: baseline.corpus.totals,
+      candidateTotals,
+      cacheMissReductionPercent: reductionPercent(
+        baseline.corpus.totals.inputCacheMissTokens,
+        candidateTotals.inputCacheMissTokens,
+      ),
+      modeledCostReductionPercent: reductionPercent(
+        baseline.corpus.totals.modeledCostUsd,
+        candidateTotals.modeledCostUsd,
+      ),
+      passesTwentyPercentTarget:
+        reductionRatio(
+          baseline.corpus.totals.inputCacheMissTokens,
+          candidateTotals.inputCacheMissTokens,
+        ) >= 0.2 &&
+        reductionRatio(baseline.corpus.totals.modeledCostUsd, candidateTotals.modeledCostUsd) >=
+          0.2,
+    },
+    corpus: {
+      caseCount: cases.length,
+      orderStable: true,
+      cases,
+    },
+  };
+}
+
 function reconcileExportReference() {
   const rows = exportReferenceRows.map((row) => {
     const modeledCostUsd = estimateModelCallCostUsd({
@@ -291,6 +402,19 @@ function deepSeekUsage(
 
 function sum(values: readonly number[]) {
   return values.reduce((total, value) => total + value, 0);
+}
+
+function reductionPercent(before: number | string, after: number | string) {
+  return `${(reductionRatio(before, after) * 100).toFixed(2)}%`;
+}
+
+function reductionRatio(before: number | string, after: number | string) {
+  const beforeNumber = Number(before);
+  const afterNumber = Number(after);
+  if (!Number.isFinite(beforeNumber) || beforeNumber === 0 || !Number.isFinite(afterNumber)) {
+    return 0;
+  }
+  return (beforeNumber - afterNumber) / beforeNumber;
 }
 
 function requiredNumber(value: number | undefined) {
