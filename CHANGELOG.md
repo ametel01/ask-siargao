@@ -15,6 +15,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Security
 
+- Added privacy-safe anonymous reset resistance for free chat usage, including signed trip
+  identities, HMAC network cohorts, challenge outcomes for suspicious cleared-cookie velocity, and
+  production fail-closed behavior without Redis.
 - Added shared async quota-store enforcement for rate limits and future product controls, including
   production fail-closed behavior when a shared store is unavailable and Redis-backed fixed-window,
   rolling-reservation, concurrency-lease, idempotency, and budget primitives.
@@ -23,6 +26,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added anonymous Trip Pass free-allowance enforcement for chat, including Secure/HttpOnly/SameSite
+  trip cookies, seven-day and daily success windows, minute starts, per-actor concurrency, and
+  local-development cookie behavior.
 - Added owner-scoped Trip Pass status and checkout APIs for signed-in travelers, including protected
   account routes, private no-store responses, sanitized checkout failure handling, and redacted pass
   allowance presentation.

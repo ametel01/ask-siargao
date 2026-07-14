@@ -64,6 +64,7 @@ export type QuotaStore = {
     value: string;
   }): Promise<IdempotencyRecordResult>;
   releaseConcurrency(input: { key: string; leaseId: string }): Promise<void>;
+  releaseRollingWindow(input: { key: string; reservationId: string }): Promise<void>;
   reserveRollingWindow(input: {
     key: string;
     limit: number;
@@ -254,6 +255,16 @@ export function createMemoryQuotaStore(): MemoryQuotaStore {
         leases.delete(input.key);
       }
     },
+    async releaseRollingWindow(input) {
+      const rollingWindow = rollingWindows.get(input.key);
+      if (!rollingWindow) {
+        return;
+      }
+      rollingWindow.delete(input.reservationId);
+      if (rollingWindow.size === 0) {
+        rollingWindows.delete(input.key);
+      }
+    },
     async reserveRollingWindow(input) {
       cleanup(input.nowMs);
       const rollingWindow = rollingWindows.get(input.key) ?? new Map<string, number>();
@@ -389,6 +400,9 @@ export function createRedisQuotaStore(
     },
     async releaseConcurrency(input) {
       await client.send("ZREM", [redisKey(keyPrefix, input.key), input.leaseId]);
+    },
+    async releaseRollingWindow(input) {
+      await client.send("ZREM", [redisKey(keyPrefix, input.key), input.reservationId]);
     },
     async reserveRollingWindow(input) {
       const result = await client.send("EVAL", [

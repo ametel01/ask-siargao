@@ -440,6 +440,7 @@ function createUnavailableQuotaStore() {
     incrementFixedWindow: fail,
     recordIdempotency: fail,
     releaseConcurrency: fail,
+    releaseRollingWindow: fail,
     reserveConcurrency: fail,
     reserveRollingWindow: fail,
   } satisfies QuotaStore;

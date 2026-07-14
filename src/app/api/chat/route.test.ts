@@ -109,6 +109,72 @@ describe("chat route", () => {
     expect(dependencies.requests[0]?.metadata?.route).toBe("/api/chat");
   });
 
+  test("settles anonymous free chat allowance after a successful answer", async () => {
+    const dependencies = chatDependencies({
+      message: "Free chat answer.",
+      sources: [genericSourceSummary],
+    });
+    const settled: boolean[] = [];
+    dependencies.beginAnonymousFreeChat = async () => ({
+      status: "allowed",
+      actor: {
+        cohortHash: "cohort_hash",
+        cohortVersion: 1,
+        tripHash: "trip_hash",
+        tripVersion: 1,
+      },
+      cookie: {
+        id: "trip_cookie_id",
+        expiresAt: Date.now() + 60_000,
+        keyVersion: 1,
+        state: "valid",
+        value: "cookie_value",
+      },
+      headers: new Headers({ "set-cookie": "as_trip=cookie_value; Path=/; HttpOnly" }),
+      release: async () => {
+        settled.push(false);
+      },
+      settle: async (input) => {
+        settled.push(input.success);
+      },
+    });
+
+    const response = await chatResponse(
+      jsonRequest({ messages: [{ role: "user", content: "Where should I eat?" }] }),
+      dependencies,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("set-cookie")).toContain("as_trip=");
+    expect(settled).toEqual([true]);
+  });
+
+  test("returns anonymous free allowance challenges before calling the agent", async () => {
+    const dependencies = chatDependencies();
+    dependencies.beginAnonymousFreeChat = async () => ({
+      status: "challenge_required",
+      headers: new Headers({ "set-cookie": "as_trip=challenge_cookie; Path=/; HttpOnly" }),
+      response: Response.json(
+        { error: "challenge_required", reason: "anonymous_identity_challenge_required" },
+        { status: 403 },
+      ),
+    });
+
+    const response = await chatResponse(
+      jsonRequest({ messages: [{ role: "user", content: "Where should I eat?" }] }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get("set-cookie")).toContain("as_trip=");
+    expect(body).toEqual({
+      error: "challenge_required",
+      reason: "anonymous_identity_challenge_required",
+    });
+    expect(dependencies.requests).toHaveLength(0);
+  });
+
   test("passes scooter rental lookup without scooter condition routing hints", async () => {
     const dependencies = chatDependencies({
       message: "The model can choose web or Places tools for scooter rentals.",
@@ -2039,6 +2105,7 @@ describe("chat route", () => {
       jsonRequest({ messages: [{ role: "user", content: "Hi" }] }),
       {
         auth: null,
+        beginAnonymousFreeChat: null,
         runAskSiargaoAgentTurn: async () => {
           throw new Error("OPENAI_API_KEY is required for Ask Siargao agent chat.");
         },
@@ -2345,6 +2412,7 @@ function chatDependencies(
     requests: typeof requests;
   } = {
     auth: null,
+    beginAnonymousFreeChat: null,
     runAskSiargaoAgentTurn: async (request) => {
       requests.push(request);
       return {

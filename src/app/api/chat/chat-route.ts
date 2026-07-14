@@ -40,6 +40,11 @@ import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/serve
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 import { createComponentLogger } from "@/server/observability/logger";
 import { loadUserProfile } from "@/server/profile/user-profile-store";
+import {
+  type AnonymousFreeAllowanceBeginResult,
+  beginAnonymousFreeChat as defaultBeginAnonymousFreeChat,
+  mergeHeaders,
+} from "@/server/trip-pass/anonymous-free-allowance";
 
 const chatRequestSchema = z.strictObject({
   threadId: z.string().min(1).max(128).optional(),
@@ -72,6 +77,7 @@ export type ChatRouteDependencies = AskSiargaoAgentDependencies & {
   auth?: EnsureCurrentUserDependencies["auth"] | null;
   createId?: (prefix: string) => string;
   db?: DatabaseQueryClient;
+  beginAnonymousFreeChat?: typeof defaultBeginAnonymousFreeChat | null;
   runAskSiargaoAgentTurn?: typeof defaultRunAskSiargaoAgentTurn;
   now?: () => Date;
   logger?: Logger;
@@ -182,6 +188,11 @@ export async function chatResponse(
   }
 
   const messages = parsed.data.messages satisfies AskSiargaoChatMessage[];
+  let responseHeaders = new Headers(headers);
+  let anonymousFreeAllowance: Extract<
+    AnonymousFreeAllowanceBeginResult,
+    { status: "allowed" }
+  > | null = null;
   const now = new Date(startedAt);
   const normalizedClientContext = normalizeTripContextClientContext(
     parsed.data.clientContext as TripContextClientContextInput | undefined,
@@ -209,7 +220,24 @@ export async function chatResponse(
   });
 
   if (authenticatedPersistence?.status === "not_found") {
-    return Response.json({ error: "chat_thread_not_found" }, { status: 404, headers });
+    return Response.json(
+      { error: "chat_thread_not_found" },
+      { status: 404, headers: responseHeaders },
+    );
+  }
+
+  if (!authenticatedUserContext && dependencies.beginAnonymousFreeChat !== null) {
+    const beginAnonymousFreeChat =
+      dependencies.beginAnonymousFreeChat ?? defaultBeginAnonymousFreeChat;
+    const allowance = await beginAnonymousFreeChat(request, {
+      now: () => now,
+      requestId,
+    });
+    responseHeaders = mergeHeaders(responseHeaders, allowance.headers);
+    if (allowance.status !== "allowed") {
+      return cloneJsonResponseWithHeaders(allowance.response, responseHeaders);
+    }
+    anonymousFreeAllowance = allowance;
   }
 
   logger.info(
@@ -331,6 +359,8 @@ export async function chatResponse(
       "Chat request answered.",
     );
 
+    await anonymousFreeAllowance?.settle({ success: true, meters: ["chat_message"] });
+
     return Response.json(
       {
         message: publicTurn.display.message,
@@ -358,9 +388,10 @@ export async function chatResponse(
             }
           : {}),
       },
-      { headers },
+      { headers: responseHeaders },
     );
   } catch (error) {
+    await anonymousFreeAllowance?.settle({ success: false });
     const message = error instanceof Error ? error.message : "Chat response failed.";
     const missingConfiguration =
       message.includes("OPENAI_API_KEY") ||
@@ -400,9 +431,16 @@ export async function chatResponse(
               ? "Ask Siargao could not verify the answer sources."
               : "Ask Siargao could not generate a response right now.",
       },
-      { status, headers },
+      { status, headers: responseHeaders },
     );
   }
+}
+
+async function cloneJsonResponseWithHeaders(response: Response, headers: HeadersInit) {
+  return Response.json(await response.json(), {
+    status: response.status,
+    headers,
+  });
 }
 
 async function readChatRequestBodyText(request: Request) {

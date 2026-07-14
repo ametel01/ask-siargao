@@ -386,15 +386,49 @@ commit.
 
 ## Step 7A - Issue Privacy-Safe Anonymous Identities and Rolling Limits
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T02:16:47Z`
+- Completed: `2026-07-14T02:29:19Z`
+- Implementing commit SHA: this Step 7A commit.
+- Files and behavior changed: added `src/server/trip-pass/anonymous-free-allowance.ts` and tests;
+  issued signed anonymous trip cookies with key version, expiry, tamper replacement, near-expiry
+  rotation, HttpOnly/SameSite/Secure attributes, and local-development fallback behavior; normalized
+  trusted ingress IPs into HMAC-only network cohorts with configurable IPv6 prefixing; bound
+  anonymous `/api/chat` to free allowance pre-authorization and post-answer settlement while
+  authenticated chat bypasses the anonymous limiter; added release support for rolling-window quota
+  reservations so failed generations release success units.
+- Acceptance criteria checked: clearing only the cookie from one configured cohort triggers
+  `challenge_required` after fresh-trip velocity rather than repeatedly granting a full allowance;
+  same trip identity stays bound across VPN/network changes and exhausts the seven-day chat
+  allowance; hotel/carrier NAT-style cohorts challenge new identities instead of silently consuming
+  one traveler quota; minute starts, daily successes, seven-day meter windows, and per-actor
+  concurrency are deterministic; parallel final-unit requests allow exactly one success reservation;
+  production with an anonymous HMAC key but no Redis fails closed; response bodies, actor state,
+  Redis keys, and tests use only versioned HMAC/coarse state and do not include raw IPs, cookies,
+  prompts, emails, User-Agent strings, or coordinates.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes on final run.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 370 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test src/server/trip-pass/anonymous-free-allowance.test.ts src/app/api/chat/route.test.ts src/server/security/security.test.ts`:
+    passed, 105 tests, 0 failures, 863 assertions.
+  - `redis-server --port 6380 --save "" --appendonly no --daemonize yes && redis-cli -p 6380 ping`:
+    passed, isolated local Redis returned `PONG`; the process was stopped afterward with
+    `redis-cli -p 6380 shutdown nosave`.
+  - `bun -e ...beginAnonymousFreeChat/createRedisQuotaStore...`: passed against local Redis with a
+    throwaway key prefix; after nine successful uses exactly one of two parallel final requests
+    reserved the last free chat unit, and fresh-ID velocity on the same cohort returned
+    `allowed,allowed,allowed,challenge_required,challenge_required`.
+  - `bun test`: passed, 1055 tests, 0 failures, 5673 assertions.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 92 tests, 0 failures.
+- Changelog decision and entry location: added `Security` and `Added` entries under `[Unreleased]`
+  for privacy-safe anonymous reset resistance and the free rolling allowance.
+- Risks, follow-ups, or blocker: no blocker; Step 7B still needs perimeter/account-velocity/global
+  cost controls on top of this identity substrate.
 
 ## Step 7B - Add Perimeter, Account-Velocity, and Global Cost Controls
 
