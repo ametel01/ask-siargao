@@ -1,22 +1,11 @@
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
+import {
+  type TripPassMeterType,
+  tripPassPaidMeterLimits as tripPassMeterLimits,
+  tripPassMeterTypes,
+} from "@/server/trip-pass/catalog";
 
-export const tripPassMeterTypes = [
-  "chat_message",
-  "live_refresh",
-  "heavy_recommendation",
-  "weather_refresh",
-  "route_lookup",
-] as const;
-
-export type TripPassMeterType = (typeof tripPassMeterTypes)[number];
-
-export const tripPassMeterLimits = {
-  chat_message: 100,
-  live_refresh: 30,
-  heavy_recommendation: 10,
-  weather_refresh: 14,
-  route_lookup: 20,
-} as const satisfies Record<TripPassMeterType, number>;
+export { type TripPassMeterType, tripPassMeterLimits, tripPassMeterTypes };
 
 export const tripPassStatuses = ["active", "expired", "cancelled", "refunded"] as const;
 

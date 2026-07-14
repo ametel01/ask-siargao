@@ -9,6 +9,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added a server-owned Trip Pass product catalog with disabled checkout, extension, DeepSeek
+  cost-policy, anonymous identity, Redis, analytics, fallback, WAF, and cost-budget configuration
+  states.
 - Added private settings dashboard summaries for recent signed-in chat threads and saved planning
   items without exposing full chat transcripts.
 - Added a protected `/settings` route for signed-in Ask Siargao user settings.

@@ -1,0 +1,175 @@
+import { describe, expect, test } from "bun:test";
+
+import {
+  readTripPassEnvironment,
+  tripPassFreeMeterLimits,
+  tripPassMeterTypes,
+  tripPassPaidMeterLimits,
+  tripPassProductCatalog,
+  tripPassRateLimits,
+  tripPassWarningThresholds,
+} from "@/server/trip-pass/catalog";
+
+describe("Trip Pass catalog", () => {
+  test("defines the launch product contract in one versioned catalog", () => {
+    expect(tripPassProductCatalog).toMatchObject({
+      code: "siargao_trip_pass_14d_v1",
+      version: 1,
+      label: "Siargao Trip Pass",
+      durationDays: 14,
+      freeWindowDays: 7,
+      presentation: {
+        priceAuthority: "stripe_price",
+        launchPriceLabel: "Configured in Stripe",
+      },
+    });
+    expect(tripPassMeterTypes).toEqual([
+      "chat_message",
+      "live_refresh",
+      "heavy_recommendation",
+      "weather_refresh",
+      "route_lookup",
+    ]);
+    expect(tripPassPaidMeterLimits).toEqual({
+      chat_message: 150,
+      live_refresh: 40,
+      heavy_recommendation: 8,
+      weather_refresh: 20,
+      route_lookup: 25,
+    });
+    expect(tripPassFreeMeterLimits).toEqual({
+      chat_message: 10,
+      live_refresh: 3,
+      heavy_recommendation: 1,
+    });
+    expect(tripPassWarningThresholds).toEqual({
+      chatRemaining: 20,
+      liveRemaining: 5,
+      expiresWithinHours: 48,
+    });
+    expect(tripPassRateLimits).toEqual({
+      free: {
+        chatStartsPerMinute: 3,
+        successfulChatsPerDay: 10,
+        concurrentChatRequests: 2,
+      },
+      paid: {
+        chatStartsPerMinute: 10,
+        successfulChatsPerDay: 30,
+        concurrentChatRequests: 2,
+      },
+    });
+  });
+
+  test("keeps feature flags disabled and unavailable when configuration is missing", () => {
+    const environment = readTripPassEnvironment({});
+
+    expect(environment.checkout).toEqual({
+      enabled: false,
+      priceId: undefined,
+      status: "disabled",
+      unavailableReason: null,
+    });
+    expect(environment.extension).toEqual({
+      enabled: false,
+      status: "disabled",
+      unavailableReason: null,
+    });
+    expect(environment.deepSeekCostPolicy).toEqual({ enabled: false, status: "disabled" });
+    expect(environment.anonymousIdentity).toMatchObject({
+      hmacKeyConfigured: false,
+      keyVersion: 1,
+      status: "unavailable",
+    });
+    expect(environment.redis).toEqual({ urlConfigured: false, status: "unavailable" });
+    expect(environment.analytics.status).toBe("unavailable");
+  });
+
+  test("reports checkout unavailable when enabled without a Stripe Price", () => {
+    const environment = readTripPassEnvironment({
+      TRIP_PASS_CHECKOUT_ENABLED: "true",
+    });
+
+    expect(environment.checkout).toEqual({
+      enabled: true,
+      priceId: undefined,
+      status: "unavailable",
+      unavailableReason: "missing_stripe_trip_pass_price_id",
+    });
+  });
+
+  test("reports enabled server configuration without reading public names as secrets", () => {
+    const environment = readTripPassEnvironment({
+      TRIP_PASS_CHECKOUT_ENABLED: "1",
+      TRIP_PASS_EXTENSION_ENABLED: "false",
+      DEEPSEEK_COST_POLICY_ENABLED: "on",
+      STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass_123",
+      TRIP_PASS_ANON_HMAC_KEY: "hmac_test_key",
+      TRIP_PASS_ANON_HMAC_KEY_VERSION: "2",
+      REDIS_URL: "redis://localhost:6379",
+      NEXT_PUBLIC_POSTHOG_KEY: "phc_test",
+      NEXT_PUBLIC_POSTHOG_HOST: "https://app.posthog.com",
+      OPENAI_FALLBACK_ENABLED: "yes",
+      OPENAI_FALLBACK_DAILY_USD_LIMIT: "5.5",
+      TRIP_PASS_WAF_MODE: "log",
+      DEEPSEEK_DAILY_USD_LIMIT: "3",
+      OPENAI_DAILY_USD_LIMIT: "4",
+      GLOBAL_MODEL_DAILY_USD_LIMIT: "7",
+    });
+
+    expect(environment.checkout).toEqual({
+      enabled: true,
+      priceId: "price_trip_pass_123",
+      status: "available",
+      unavailableReason: null,
+    });
+    expect(environment.deepSeekCostPolicy).toEqual({ enabled: true, status: "candidate" });
+    expect(environment.anonymousIdentity).toEqual({
+      hmacKeyConfigured: true,
+      keyVersion: 2,
+      status: "available",
+    });
+    expect(environment.redis).toEqual({ urlConfigured: true, status: "available" });
+    expect(environment.analytics).toEqual({
+      posthogKeyConfigured: true,
+      posthogHostConfigured: true,
+      status: "available",
+    });
+    expect(environment.fallback).toEqual({ openAiEnabled: true, dailyUsdLimit: 5.5 });
+    expect(environment.waf.mode).toBe("log");
+    expect(environment.costBudgets).toEqual({
+      deepSeekDailyUsd: 3,
+      openAiDailyUsd: 4,
+      globalDailyUsd: 7,
+    });
+  });
+
+  test("rejects malformed flag and budget configuration", () => {
+    expect(() => readTripPassEnvironment({ TRIP_PASS_CHECKOUT_ENABLED: "maybe" })).toThrow(
+      "Invalid boolean feature flag",
+    );
+    expect(() => readTripPassEnvironment({ TRIP_PASS_ANON_HMAC_KEY_VERSION: "0" })).toThrow(
+      "TRIP_PASS_ANON_HMAC_KEY_VERSION must be a positive integer.",
+    );
+    expect(() => readTripPassEnvironment({ OPENAI_DAILY_USD_LIMIT: "-1" })).toThrow(
+      "OPENAI_DAILY_USD_LIMIT must be a non-negative number.",
+    );
+    expect(() => readTripPassEnvironment({ TRIP_PASS_WAF_MODE: "deny" })).toThrow(
+      "TRIP_PASS_WAF_MODE must be one of",
+    );
+  });
+
+  test("refuses public-prefixed names for server-only configuration paths", () => {
+    const environment = readTripPassEnvironment({
+      NEXT_PUBLIC_STRIPE_TRIP_PASS_PRICE_ID: "price_123",
+      TRIP_PASS_CHECKOUT_ENABLED: "true",
+    });
+
+    expect(environment.checkout).toEqual({
+      enabled: true,
+      priceId: undefined,
+      status: "unavailable",
+      unavailableReason: "missing_stripe_trip_pass_price_id",
+    });
+  });
+});

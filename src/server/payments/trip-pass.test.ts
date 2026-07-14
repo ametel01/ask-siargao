@@ -31,11 +31,11 @@ describe("trip pass meter defaults", () => {
       "route_lookup",
     ]);
     expect(tripPassMeterLimits).toEqual({
-      chat_message: 100,
-      live_refresh: 30,
-      heavy_recommendation: 10,
-      weather_refresh: 14,
-      route_lookup: 20,
+      chat_message: 150,
+      live_refresh: 40,
+      heavy_recommendation: 8,
+      weather_refresh: 20,
+      route_lookup: 25,
     });
   });
 
@@ -54,11 +54,11 @@ describe("trip pass meter defaults", () => {
       "trip_meter_trip_pass_123_route_lookup",
     ]);
     expect(rows.map((row) => [row.meterType, row.used, row.limit, row.resetAt])).toEqual([
-      ["chat_message", 0, 100, expiresAt],
-      ["live_refresh", 0, 30, expiresAt],
-      ["heavy_recommendation", 0, 10, expiresAt],
-      ["weather_refresh", 0, 14, expiresAt],
-      ["route_lookup", 0, 20, expiresAt],
+      ["chat_message", 0, 150, expiresAt],
+      ["live_refresh", 0, 40, expiresAt],
+      ["heavy_recommendation", 0, 8, expiresAt],
+      ["weather_refresh", 0, 20, expiresAt],
+      ["route_lookup", 0, 25, expiresAt],
     ]);
   });
 
@@ -101,11 +101,11 @@ describe("trip pass usage meter store", () => {
         stripeEventId: "evt_trip_pass_123",
       });
       expect(created.usage.map((meter) => [meter.meterType, meter.used, meter.limit])).toEqual([
-        ["chat_message", 0, 100],
-        ["live_refresh", 0, 30],
-        ["heavy_recommendation", 0, 10],
-        ["weather_refresh", 0, 14],
-        ["route_lookup", 0, 20],
+        ["chat_message", 0, 150],
+        ["live_refresh", 0, 40],
+        ["heavy_recommendation", 0, 8],
+        ["weather_refresh", 0, 20],
+        ["route_lookup", 0, 25],
       ]);
     });
   });
@@ -165,7 +165,7 @@ describe("trip pass usage meter store", () => {
         {
           tripPassId: "trip_pass_limits",
           meterType: "live_refresh",
-          increment: 28,
+          increment: 38,
           now,
         },
         db,
@@ -180,13 +180,13 @@ describe("trip pass usage meter store", () => {
         db,
       );
 
-      expect(first).toMatchObject({ status: "consumed", meter: { used: 2, limit: 30 } });
-      expect(fillsLimit).toMatchObject({ status: "consumed", meter: { used: 30, limit: 30 } });
+      expect(first).toMatchObject({ status: "consumed", meter: { used: 2, limit: 40 } });
+      expect(fillsLimit).toMatchObject({ status: "consumed", meter: { used: 40, limit: 40 } });
       expect(exceeded).toMatchObject({
         status: "limit_exceeded",
-        meter: { used: 30, limit: 30 },
+        meter: { used: 40, limit: 40 },
       });
-      await expectMeterUsed(db, "trip_pass_limits", "live_refresh", 30);
+      await expectMeterUsed(db, "trip_pass_limits", "live_refresh", 40);
     });
   });
 
@@ -205,7 +205,7 @@ describe("trip pass usage meter store", () => {
         {
           tripPassId: "trip_pass_concurrent",
           meterType: "weather_refresh",
-          increment: 13,
+          increment: 19,
           now,
         },
         db,
@@ -236,7 +236,7 @@ describe("trip pass usage meter store", () => {
         "consumed",
         "limit_exceeded",
       ]);
-      await expectMeterUsed(db, "trip_pass_concurrent", "weather_refresh", 14);
+      await expectMeterUsed(db, "trip_pass_concurrent", "weather_refresh", 20);
     });
   });
 

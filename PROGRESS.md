@@ -48,15 +48,36 @@ commit.
 
 ## Step 1 - Freeze the Versioned Product and Feature-Flag Contract
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T00:35:00Z`
+- Completed: `2026-07-14T00:45:11Z`
+- Implementing commit SHA: this Step 1 commit.
+- Files and behavior changed: added `src/server/trip-pass/catalog.ts` and catalog tests for the
+  versioned 14-day Trip Pass product, 10/3/1 free limits, 150/40/8/20/25 paid limits, warning
+  thresholds, free/paid rate caps, cost budgets, disabled checkout and extension rollout states,
+  DeepSeek cost-policy state, anonymous identity, Redis, analytics, fallback, WAF, and provider
+  budget environment parsing; moved the existing payment meter defaults to the shared catalog;
+  replaced the disconnected site price constant with Stripe-authority presentation data; documented
+  the new environment variables in `.env.example` and the developer environment reference.
+- Acceptance criteria checked: one authoritative catalog now owns the duration, free limits, paid
+  limits, thresholds, rate caps, and cost budgets; checkout and extension default to disabled and
+  typed unavailable when enabled without launch configuration; tests cover missing, malformed,
+  disabled, enabled, and public-prefixed server-only configuration states; no Stripe amount is
+  hard-coded as entitlement authority.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes applied.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 347 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed, 1002 tests, 0 failures, 5385 assertions.
+  - `bun run db:migrate:test`: passed, 50 tables and 8 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 92 tests, 0 failures.
+- Changelog decision and entry location: added an `Added` entry under `[Unreleased]` for the
+  operator-visible Trip Pass product and configuration contract.
+- Risks, follow-ups, or blocker: launch approvals remain required before enabling checkout,
+  extensions, WAF challenge mode, paid fallback, analytics, and production price use.
 
 ## Step 1A - Capture Per-Answer DeepSeek Usage and Cost Baselines
 

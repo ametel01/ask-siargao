@@ -22,13 +22,25 @@ The app reads these environment variables.
 | `STRIPE_RESTRICTED_KEY` | Server only | Stripe Checkout API calls | Preferred server key for Checkout permissions. |
 | `STRIPE_SECRET_KEY` | Server only | Stripe Checkout API calls | Fallback when `STRIPE_RESTRICTED_KEY` is not set. |
 | `STRIPE_WEBHOOK_SECRET` | Server only | Stripe webhook verification | Required by `/api/stripe/webhook`. |
+| `STRIPE_TRIP_PASS_PRICE_ID` | Server only | Trip Pass Checkout | Required before `TRIP_PASS_CHECKOUT_ENABLED=true` can create Trip Pass Checkout sessions. This Price is the amount/currency authority for the Trip Pass. Do not expose it as `NEXT_PUBLIC_*`. |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Public/client-safe | Client-side Stripe surfaces | Present in `.env.example`; current Checkout flow is server initiated. |
+| `TRIP_PASS_CHECKOUT_ENABLED` | Server only | Trip Pass rollout | Optional boolean. Defaults to `false`; when `true` without `STRIPE_TRIP_PASS_PRICE_ID`, the Trip Pass catalog reports checkout as unavailable instead of enabled. |
+| `TRIP_PASS_EXTENSION_ENABLED` | Server only | Future Trip Pass extensions | Optional boolean. Defaults to `false`; extensions remain unavailable until launch approval. |
+| `TRIP_PASS_ANON_HMAC_KEY` | Server only | Anonymous Trip Pass/free-tier identity | Server-side HMAC key for privacy-safe anonymous quota cohorts. Required before anonymous launch limits can be production-ready. |
+| `TRIP_PASS_ANON_HMAC_KEY_VERSION` | Server only | Anonymous identity key rotation | Optional positive integer. Defaults to `1`. |
+| `TRIP_PASS_WAF_MODE` | Server only | Trip Pass perimeter rollout | Optional. Allowed values: `disabled`, `log`, or `challenge`. Defaults to `disabled`. |
 | `DEEPSEEK_API_KEY` | Server only | Primary Ask Siargao chat model | Required for DeepSeek primary chat generation. When unset, chat can still run with `OPENAI_API_KEY` as the fallback provider. |
 | `DEEPSEEK_BASE_URL` | Server only | DeepSeek OpenAI-compatible client | Optional. Defaults to `https://api.deepseek.com`. |
 | `DEEPSEEK_MODEL` | Server only | Primary Ask Siargao chat model override | Optional. Defaults to `deepseek-v4-flash`, DeepSeek's basic/lower-cost current model. |
+| `DEEPSEEK_COST_POLICY_ENABLED` | Server only | DeepSeek cost-policy rollout | Optional boolean. Defaults to `false`; candidate mode must pass the fixed cost/quality corpus before promotion. |
+| `DEEPSEEK_DAILY_USD_LIMIT` | Server only | DeepSeek cost circuit | Optional non-negative number for provider-level daily budget checks. |
 | `OPENAI_API_KEY` | Server only | OpenAI fallback and OpenAI Responses API services | Required for chat fallback, real report generation, reviewer calls, hosted web search, hosted agent-memory file search, and `bun run agent-memory:sync` when not using `--dry-run`. |
 | `OPENAI_MODEL` | Server only | OpenAI fallback and audit generator model override | Defaults to `gpt-5.4-mini`. Chat uses this only when DeepSeek is unavailable or not configured; audit generation still uses OpenAI Responses. |
 | `OPENAI_REVIEWER_MODEL` | Server only | Reviewer model override | Defaults to `gpt-5.4-mini`. |
+| `OPENAI_FALLBACK_ENABLED` | Server only | Paid Trip Pass fallback policy | Optional boolean. Defaults to `false`; free traffic must not silently fall back to OpenAI. |
+| `OPENAI_FALLBACK_DAILY_USD_LIMIT` | Server only | Paid fallback cost circuit | Optional non-negative number for paid fallback budget checks. |
+| `OPENAI_DAILY_USD_LIMIT` | Server only | OpenAI provider cost circuit | Optional non-negative number for provider-level daily budget checks. |
+| `GLOBAL_MODEL_DAILY_USD_LIMIT` | Server only | Global model cost circuit | Optional non-negative number for global model budget checks. |
 | `OPENAI_AGENT_MEMORY_VECTOR_STORE_ID` | Server only | Chat agent file-search memory | Optional vector store ID containing synced `docs/agent-memory/` reference files. Set this from `bun run agent-memory:sync` output in deployed environments. Do not prefix it with `NEXT_PUBLIC_`. |
 | `WEB_RESEARCH_PROVIDER` | Server only | Public web research for current chat prompts | Optional. Set to `openai` to enable the `research_web` tool's OpenAI hosted web-search adapter. When unset, `research_web` returns explicit `provider_unavailable` evidence instead of using memory, weather, or Places as a fallback. |
 | `OPENAI_WEB_SEARCH_MODEL` | Server only | OpenAI hosted web-search extraction model | Optional model override for the web research adapter. Defaults to `gpt-5.4-mini`. Requires `WEB_RESEARCH_PROVIDER=openai` and `OPENAI_API_KEY`. |
