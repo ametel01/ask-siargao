@@ -107,6 +107,20 @@ describe("Trip Pass account API routes", () => {
           appUrl: "https://siargao.test",
         },
       ]);
+      expect(dependencies.events).toEqual([
+        {
+          name: "trip_pass_checkout_started",
+          payload: {
+            checkoutAvailable: true,
+            productCode: "siargao_trip_pass_14d_v1",
+            productVersion: 1,
+            reason: undefined,
+            status: "started",
+            surface: "settings",
+          },
+        },
+      ]);
+      expect(JSON.stringify(dependencies.events)).not.toContain("order_route_secret");
     });
   });
 
@@ -151,12 +165,33 @@ describe("Trip Pass account API routes", () => {
       });
       expect(JSON.stringify(unavailableBody)).not.toContain("missing_stripe_trip_pass_price_id");
       expect(JSON.stringify(throwingBody)).not.toContain("pi_should_not_render");
+      expect(disabled.events.map((event) => event.name)).toEqual([
+        "trip_pass_checkout_started",
+        "trip_pass_checkout_failed",
+      ]);
+      expect(unavailable.events.map((event) => event.name)).toEqual([
+        "trip_pass_checkout_started",
+        "trip_pass_checkout_failed",
+      ]);
+      expect(throwing.events).toEqual([
+        {
+          name: "trip_pass_checkout_failed",
+          payload: {
+            applicationStatus: "thrown",
+            reason: "checkout_exception",
+            status: "failed",
+          },
+        },
+      ]);
+      expect(JSON.stringify(unavailable.events)).not.toContain("missing_stripe_trip_pass_price_id");
+      expect(JSON.stringify(throwing.events)).not.toContain("pi_should_not_render");
     });
   });
 });
 
 type TestRouteDependencies = TripPassAccountRouteDependencies & {
   checkoutCalls: Array<{ userId: string; appUrl: string }>;
+  events: Array<{ name: string; payload: Record<string, unknown> }>;
 };
 
 function routeDependencies(
@@ -168,6 +203,7 @@ function routeDependencies(
   },
 ): TestRouteDependencies {
   const checkoutCalls: TestRouteDependencies["checkoutCalls"] = [];
+  const events: TestRouteDependencies["events"] = [];
 
   return {
     auth: async (): Promise<CurrentUserAuthSnapshot> => ({
@@ -181,6 +217,7 @@ function routeDependencies(
     checkoutCalls,
     db,
     env: availableEnv,
+    events,
     now: () => now,
     startTripPassCheckout: async (checkoutInput) => {
       checkoutCalls.push({ userId: checkoutInput.userId, appUrl: checkoutInput.appUrl });
@@ -194,6 +231,18 @@ function routeDependencies(
           checkoutUrl: "https://checkout.stripe.test/trip-pass",
         }
       );
+    },
+    trackServerEvent: (event) => {
+      events.push({ name: event.name, payload: event.payload });
+      return {
+        name: event.name,
+        at: now.toISOString(),
+        payload: event.payload,
+        sinks: {
+          posthogConfigured: false,
+          sentryConfigured: false,
+        },
+      };
     },
   };
 }

@@ -80,6 +80,12 @@ const apiRoutePolicyCases: Array<{
     intent: "authenticated Trip Pass status surface",
   },
   {
+    routeFile: "src/app/api/observability/events/route.ts",
+    pathname: "/api/observability/events",
+    classification: "rate_limit_public",
+    intent: "rate-limit-only client analytics event surface",
+  },
+  {
     routeFile: "src/app/api/public/accommodations/[...slug]/route.ts",
     pathname: "/api/public/accommodations/example-stay",
     classification: "public",

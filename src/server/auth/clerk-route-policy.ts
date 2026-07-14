@@ -38,6 +38,7 @@ const externallyVerifiedApiRouteExpressions = [
 const rateLimitPublicApiRouteExpressions = [
   /^\/api\/audit\/checkout\/?$/,
   /^\/api\/audit\/intake\/?$/,
+  /^\/api\/observability\/events\/?$/,
 ] as const;
 
 const protectedRouteExpressions = [

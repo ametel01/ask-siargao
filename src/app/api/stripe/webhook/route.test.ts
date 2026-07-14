@@ -64,6 +64,7 @@ describe("Stripe webhook route", () => {
   });
 
   test("dispatches handled Trip Pass events before audit payment application", async () => {
+    const events: string[] = [];
     const response = await stripeWebhookResponse(
       await signedRequest(ignoredEventPayload({ eventId: "evt_trip_pass_dispatch" })),
       {
@@ -76,6 +77,18 @@ describe("Stripe webhook route", () => {
         }),
         applyVerifiedCheckoutPayment: async () => {
           throw new Error("audit path should not handle applied Trip Pass events");
+        },
+        trackServerEvent: (event) => {
+          events.push(event.name);
+          return {
+            name: event.name,
+            at: now.toISOString(),
+            payload: event.payload,
+            sinks: {
+              posthogConfigured: false,
+              sentryConfigured: false,
+            },
+          };
         },
       },
     );
@@ -90,6 +103,41 @@ describe("Stripe webhook route", () => {
       orderId: "order_trip_pass_dispatch",
       stripeEventId: "evt_trip_pass_dispatch",
     });
+    expect(events).toEqual([
+      "trip_pass_stripe_event_applied",
+      "trip_pass_activated",
+      "trip_pass_checkout_completed",
+    ]);
+  });
+
+  test("does not inflate Trip Pass activation telemetry for duplicate webhook delivery", async () => {
+    const events: string[] = [];
+    const response = await stripeWebhookResponse(
+      await signedRequest(ignoredEventPayload({ eventId: "evt_trip_pass_duplicate" })),
+      {
+        ...routeDependencies(createMemoryPaymentStore(pendingPaymentAudit()).store),
+        applyTripPassStripeEvent: async () => ({
+          status: "duplicate",
+          orderId: "order_trip_pass_duplicate",
+          stripeEventId: "evt_trip_pass_duplicate",
+        }),
+        trackServerEvent: (event) => {
+          events.push(event.name);
+          return {
+            name: event.name,
+            at: now.toISOString(),
+            payload: event.payload,
+            sinks: {
+              posthogConfigured: false,
+              sentryConfigured: false,
+            },
+          };
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual(["trip_pass_stripe_event_applied"]);
   });
 
   test("applies valid paid checkout events and enqueues generation", async () => {

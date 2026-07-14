@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
+import { trackServerEvent } from "@/server/observability/events";
 import type { TripPassUsageMeter } from "@/server/payments/trip-pass";
 import {
   createMemoryQuotaStore,
@@ -156,6 +157,9 @@ export async function openChatUsageSession(
   const chatMeter = entitlement.meters.find((meter) => meter.meterType === "chat_message") ?? null;
   const allowance = chatMeter ? projectChatAllowance(chatMeter) : null;
   if (!chatMeter || chatMeter.used >= chatMeter.limit) {
+    trackMeterTelemetry("trip_pass_meter_exhausted", "chat_message", allowance, now, {
+      reason: "paid_chat_meter_exhausted",
+    });
     return { status: "usage_limit_reached", reason: "paid_chat_meter_exhausted", allowance };
   }
 
@@ -221,6 +225,9 @@ export async function openChatUsageSession(
   if (reservation.status === "limit_reached") {
     await releaseReservations(store, [successReservation]);
     await store.releaseConcurrency({ key: concurrencyKey, leaseId: input.requestId });
+    trackMeterTelemetry("trip_pass_meter_exhausted", "chat_message", reservation.allowance, now, {
+      reason: "paid_chat_meter_exhausted",
+    });
     return {
       status: "usage_limit_reached",
       reason: "paid_chat_meter_exhausted",
@@ -287,6 +294,9 @@ export async function openChatUsageSession(
         db,
       );
       await closeConcurrency();
+      if (settled.status === "settled") {
+        trackMeterTelemetry("trip_pass_meter_warning", "chat_message", settled.allowance, now);
+      }
       return settled;
     },
   };
@@ -413,6 +423,14 @@ async function reserveDecisionMeterEventHandle(input: {
     input.db,
   );
   if (reservation.status === "limit_reached" || reservation.status === "unavailable") {
+    if (reservation.status === "limit_reached") {
+      trackMeterTelemetry(
+        "trip_pass_meter_exhausted",
+        input.meterType,
+        reservation.allowance,
+        input.now,
+      );
+    }
     return {
       status: "usage_limit_reached",
       allowance: reservation.allowance,
@@ -453,6 +471,14 @@ async function reserveDecisionMeterEventHandle(input: {
         },
         input.db,
       );
+      if (finalSettlement.status === "settled") {
+        trackMeterTelemetry(
+          "trip_pass_meter_warning",
+          input.meterType,
+          finalSettlement.allowance,
+          input.now,
+        );
+      }
       return finalSettlement;
     },
   };
@@ -878,4 +904,66 @@ function usageEventId(idempotencyKey: string) {
 
 function hashText(value: string) {
   return createHash("sha256").update(value).digest("base64url");
+}
+
+function trackMeterTelemetry(
+  name: "trip_pass_meter_exhausted" | "trip_pass_meter_warning",
+  meterType: TripPassMeterType,
+  allowance: PaidChatUsageAllowance | PaidMeterAllowance | null,
+  now: Date,
+  extra: { reason?: string } = {},
+) {
+  const projected = meterTelemetryPayload(meterType, allowance);
+  if (!projected) {
+    return;
+  }
+  if (
+    name === "trip_pass_meter_warning" &&
+    projected.remaining > warningThresholdForMeter(meterType)
+  ) {
+    return;
+  }
+
+  trackServerEvent({
+    name,
+    now,
+    payload: {
+      ...extra,
+      ...projected,
+      status: name === "trip_pass_meter_exhausted" ? "exhausted" : "warning",
+    },
+  });
+}
+
+function meterTelemetryPayload(
+  meterType: TripPassMeterType,
+  allowance: PaidChatUsageAllowance | PaidMeterAllowance | null,
+) {
+  if (!allowance) {
+    return null;
+  }
+  if ("chatMessages" in allowance) {
+    return {
+      limit: allowance.chatMessages.limit,
+      meterType,
+      remaining: allowance.chatMessages.remaining,
+      used: allowance.chatMessages.used,
+    };
+  }
+  return {
+    limit: allowance.limit,
+    meterType: allowance.meterType,
+    remaining: allowance.remaining,
+    used: allowance.used,
+  };
+}
+
+function warningThresholdForMeter(meterType: TripPassMeterType) {
+  if (meterType === "chat_message") {
+    return 20;
+  }
+  if (meterType === "live_refresh") {
+    return 5;
+  }
+  return 1;
 }

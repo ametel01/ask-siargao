@@ -4,6 +4,7 @@ import {
   extractVerifiedCheckoutPayment,
   verifyStripeWebhookPayload,
 } from "@/server/payments/stripe";
+import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/catalog";
 import { applyTripPassStripeEvent } from "@/server/trip-pass/webhook-application";
 
 export type StripeWebhookRouteDependencies = {
@@ -34,12 +35,40 @@ export async function stripeWebhookResponseFromEvent(
     dependencies.trackServerEvent({
       name: "trip_pass_stripe_event_applied",
       payload: {
+        action: "action" in tripPassResult ? tripPassResult.action : undefined,
         stripeEventId: "stripeEventId" in tripPassResult ? tripPassResult.stripeEventId : event.id,
         eventType: event.type,
         applicationStatus: tripPassResult.status,
         orderId: "orderId" in tripPassResult ? tripPassResult.orderId : undefined,
       },
     });
+    if (tripPassResult.status === "applied") {
+      const eventName = tripPassEventNameForAppliedAction(tripPassResult.action);
+      dependencies.trackServerEvent({
+        name: eventName,
+        payload: {
+          action: tripPassResult.action,
+          applicationStatus: tripPassResult.status,
+          eventType: event.type,
+          productCode: tripPassProductCode,
+          productVersion: tripPassProductVersion,
+          status: "completed",
+        },
+      });
+      if (tripPassResult.action === "activated") {
+        dependencies.trackServerEvent({
+          name: "trip_pass_checkout_completed",
+          payload: {
+            action: tripPassResult.action,
+            applicationStatus: tripPassResult.status,
+            eventType: event.type,
+            productCode: tripPassProductCode,
+            productVersion: tripPassProductVersion,
+            status: "completed",
+          },
+        });
+      }
+    }
 
     return Response.json(
       {
@@ -80,6 +109,27 @@ export async function stripeWebhookResponseFromEvent(
     stripeEventId: payment.stripeEventId,
     generationJobId: result.status === "applied" ? result.job.id : undefined,
   });
+}
+
+function tripPassEventNameForAppliedAction(
+  action: Extract<
+    Awaited<ReturnType<typeof applyTripPassStripeEvent>>,
+    { status: "applied" }
+  >["action"],
+) {
+  if (action === "activated") {
+    return "trip_pass_activated";
+  }
+  if (action === "failed") {
+    return "trip_pass_checkout_failed";
+  }
+  if (action === "expired") {
+    return "trip_pass_expired";
+  }
+  if (action === "refunded") {
+    return "trip_pass_refund_transition";
+  }
+  return "trip_pass_dispute_transition";
 }
 
 export async function stripeWebhookResponse(

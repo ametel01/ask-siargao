@@ -708,15 +708,49 @@ commit.
 
 ## Step 13 - Send Privacy-Safe Monetisation Analytics
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T04:03:00Z`
+- Completed: `2026-07-14T04:18:53Z`
+- Implementing commit SHA: this Step 13 commit.
+- Files and behavior changed: replaced the logging-only telemetry facade with an injected,
+  timeout-bounded PostHog-compatible analytics sink; added event-name payload allowlists and
+  prohibited-field filtering after the shared redactor; added a strict, rate-limited
+  `/api/observability/events` route plus a DNT-aware one-shot landing pricing-view beacon; emitted
+  server-authoritative Trip Pass checkout started/failed/completed, activation, refund, dispute,
+  expiry, paid meter warning, and paid meter exhaustion events from existing checkout, webhook, and
+  usage transitions; kept duplicate webhook delivery from inflating activation/completion events;
+  updated the Clerk route inventory, environment reference, and Trip Pass analytics operator
+  documentation.
+- Acceptance criteria checked: configured/injected events reach a sink without making checkout,
+  webhook, chat, or quota responses depend on analytics delivery; unconfigured and timed-out sinks
+  return safe delivery states; duplicate Trip Pass webhook results emit only the generic
+  application event; tests prove analytics payloads exclude prompts, message text, email, raw user
+  IDs, raw IP/coordinate fields, cookies, idempotency keys, Stripe IDs, webhook bodies, secrets,
+  tokens, and upstream request IDs while preserving coarse call/token/cache/mode/fallback/cost
+  projections; operator documentation covers pricing views, checkout conversion, activation
+  failure, meter warning/exhaustion, free allowance blocks, cost per answer, cache efficiency,
+  thinking/fallback share, and reserved provider-budget/challenge events.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes on final run.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 385 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test src/server/observability/events.test.ts src/app/api/observability/events/route.test.ts src/app/api/me/trip-pass/route.test.ts src/app/api/stripe/webhook/route.test.ts src/server/security/security.test.ts`:
+    passed, 44 tests, 0 failures, 378 assertions.
+  - `bun test src/server/auth/clerk-route-policy.test.ts`: passed, 6 tests, 0 failures, 105
+    assertions after adding the new public analytics route to the explicit route inventory.
+  - `bun test`: passed, 1106 tests, 0 failures, 5949 assertions.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed and generated the dynamic `/api/observability/events` route.
+  - `bun run test:e2e`: passed, 94 tests, 0 failures.
+  - `bun run doctor -- --verbose --scope changed`: passed, React Doctor reported no issues and
+    score `100 / 100`.
+- Changelog decision and entry location: added an `Added` entry under `[Unreleased]` for
+  privacy-safe Trip Pass funnel, meter, and model-cost analytics delivery.
+- Risks, follow-ups, or blocker: no Step 13 blocker; live PostHog delivery still depends on
+  production `NEXT_PUBLIC_POSTHOG_KEY`/host configuration and the release approval for analytics
+  host, retention, and consent wording tracked in the baseline.
 
 ## Step 14 - Add Reconciliation and Support Diagnostics
 

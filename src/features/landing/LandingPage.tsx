@@ -19,6 +19,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { projectCapabilityEvidencePresentation } from "@/features/chat/evidence-presentation-state";
 import { tripPassDifferentiators, tripPassPublicOffer } from "@/features/trip-pass/public-copy";
+import { TripPassPricingTelemetry } from "@/features/trip-pass/TripPassPricingTelemetry";
 import { cn } from "@/lib/utils";
 import { appSurfaceInsetClass, appSurfacePanelClass } from "@/ui/components/ask-siargao";
 
@@ -411,6 +412,7 @@ function TripPassPricingSection() {
       className="grid min-w-0 gap-6 border-border-on-dark border-t px-0 pt-8 pb-10 md:gap-8 md:pt-10 lg:grid-cols-[minmax(18rem,0.62fr)_minmax(0,1.38fr)] lg:items-start lg:pb-14"
       id="trip-pass"
     >
+      <TripPassPricingTelemetry />
       <div className="grid min-w-0 gap-4 lg:sticky lg:top-6">
         <p className="m-0 text-xs font-semibold tracking-[0.18em] text-brand-sunset-gold uppercase">
           Free trial to Trip Pass

@@ -37,6 +37,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added privacy-safe Trip Pass funnel, meter, and model-cost analytics delivery through an
+  allowlisted PostHog-compatible sink, DNT-aware pricing-view beacon, and operator event matrix.
 - Added traveler-facing Trip Pass status surfaces in settings and mobile chat, including
   account-scoped allowance, expiry, pending checkout, unavailable, warning, and checkout-return
   handling without local activation controls.

@@ -1,6 +1,8 @@
 import { isClerkServerConfigured } from "@/features/auth/clerk-config";
 import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/auth/clerk-users";
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
+import { trackServerEvent } from "@/server/observability/events";
+import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/catalog";
 import { startTripPassCheckout, type TripPassCheckoutResult } from "@/server/trip-pass/commerce";
 import { buildTripPassAccountPresentation } from "@/server/trip-pass/presentation";
 
@@ -10,6 +12,7 @@ export type TripPassAccountRouteDependencies = {
   env?: Record<string, string | undefined>;
   now: () => Date;
   startTripPassCheckout: typeof startTripPassCheckout;
+  trackServerEvent: typeof trackServerEvent;
 };
 
 function createDefaultTripPassAccountRouteDependencies(): TripPassAccountRouteDependencies {
@@ -18,6 +21,7 @@ function createDefaultTripPassAccountRouteDependencies(): TripPassAccountRouteDe
     env: process.env,
     now: () => new Date(),
     startTripPassCheckout,
+    trackServerEvent,
   };
 }
 
@@ -80,8 +84,29 @@ export async function postTripPassCheckoutResponse(
         now: dependencies.now(),
       },
     );
+    dependencies.trackServerEvent({
+      name: "trip_pass_checkout_started",
+      now: dependencies.now(),
+      payload: {
+        checkoutAvailable: result.status === "started" || result.status === "reused",
+        productCode: tripPassProductCode,
+        productVersion: tripPassProductVersion,
+        reason: checkoutTelemetryReason(result),
+        status: result.status,
+        surface: "settings",
+      },
+    });
 
     if (result.status === "disabled" || result.status === "unavailable") {
+      dependencies.trackServerEvent({
+        name: "trip_pass_checkout_failed",
+        now: dependencies.now(),
+        payload: {
+          applicationStatus: result.status,
+          reason: result.status === "disabled" ? "checkout_disabled" : "checkout_unavailable",
+          status: "failed",
+        },
+      });
       return Response.json(sanitizedUnavailableCheckout(result), {
         status: 409,
         headers: responseHeaders,
@@ -98,11 +123,29 @@ export async function postTripPassCheckoutResponse(
       );
     }
 
+    dependencies.trackServerEvent({
+      name: "trip_pass_checkout_failed",
+      now: dependencies.now(),
+      payload: {
+        applicationStatus: result.status,
+        reason: "unexpected_checkout_result",
+        status: "failed",
+      },
+    });
     return Response.json(
       { error: "trip_pass_checkout_unavailable" },
       { status: 409, headers: responseHeaders },
     );
   } catch {
+    dependencies.trackServerEvent({
+      name: "trip_pass_checkout_failed",
+      now: dependencies.now(),
+      payload: {
+        applicationStatus: "thrown",
+        reason: "checkout_exception",
+        status: "failed",
+      },
+    });
     return Response.json(
       {
         error: "trip_pass_checkout_unavailable",
@@ -131,6 +174,16 @@ function sanitizedUnavailableCheckout(result: Extract<TripPassCheckoutResult, { 
     status: result.status,
     reason: result.status === "disabled" ? "checkout_disabled" : "checkout_unavailable",
   };
+}
+
+function checkoutTelemetryReason(result: TripPassCheckoutResult) {
+  if (result.status === "disabled") {
+    return "checkout_disabled";
+  }
+  if (result.status === "unavailable") {
+    return "checkout_unavailable";
+  }
+  return undefined;
 }
 
 function isAllowedMutationOrigin(request: Request) {
