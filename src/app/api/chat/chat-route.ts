@@ -49,6 +49,12 @@ import {
   beginAuthenticatedFreeChat as defaultBeginAuthenticatedFreeChat,
   mergeHeaders,
 } from "@/server/trip-pass/anonymous-free-allowance";
+import {
+  openChatUsageSession as defaultOpenChatUsageSession,
+  type PaidChatUsageSessionResult,
+  type PaidChatUsageSettlement,
+  paidChatUsageJson,
+} from "@/server/trip-pass/usage";
 
 const chatRequestSchema = z.strictObject({
   threadId: z.string().min(1).max(128).optional(),
@@ -83,6 +89,7 @@ export type ChatRouteDependencies = AskSiargaoAgentDependencies & {
   db?: DatabaseQueryClient;
   beginAuthenticatedFreeChat?: typeof defaultBeginAuthenticatedFreeChat | null;
   beginAnonymousFreeChat?: typeof defaultBeginAnonymousFreeChat | null;
+  openChatUsageSession?: typeof defaultOpenChatUsageSession | null;
   runAskSiargaoAgentTurn?: typeof defaultRunAskSiargaoAgentTurn;
   now?: () => Date;
   logger?: Logger;
@@ -198,6 +205,8 @@ export async function chatResponse(
     AnonymousFreeAllowanceBeginResult,
     { status: "allowed" }
   > | null = null;
+  let paidChatUsage: Extract<PaidChatUsageSessionResult, { status: "allowed" }> | null = null;
+  let paidChatSettlement: PaidChatUsageSettlement | null = null;
   const now = new Date(startedAt);
   const normalizedClientContext = normalizeTripContextClientContext(
     parsed.data.clientContext as TripContextClientContextInput | undefined,
@@ -231,7 +240,48 @@ export async function chatResponse(
     );
   }
 
-  if (authenticatedUserContext && dependencies.beginAuthenticatedFreeChat !== null) {
+  if (authenticatedUserContext) {
+    const idempotency = await checkRequestIdempotency({
+      actorId: authenticatedUserContext.userId,
+      body: rawBody.text,
+      headerValue:
+        request.headers.get("idempotency-key") ?? request.headers.get("x-idempotency-key"),
+      nowMs: now.getTime(),
+    });
+    if (
+      idempotency.status === "duplicate" ||
+      idempotency.status === "conflict" ||
+      idempotency.status === "unavailable"
+    ) {
+      return cloneJsonResponseWithHeaders(idempotencyJson(idempotency), responseHeaders);
+    }
+
+    if (dependencies.openChatUsageSession !== null) {
+      const openChatUsageSession = dependencies.openChatUsageSession ?? defaultOpenChatUsageSession;
+      const usage = await openChatUsageSession({
+        bodyHash:
+          idempotency.status === "stored"
+            ? idempotency.bodyHash
+            : hashChatRequestBody(rawBody.text),
+        db: authenticatedUserContext.db,
+        idempotencyKey: idempotency.status === "stored" ? idempotency.tokenHash : undefined,
+        now,
+        requestId,
+        userId: authenticatedUserContext.userId,
+      });
+      if (usage.status === "allowed") {
+        paidChatUsage = usage;
+      } else if (usage.status === "usage_limit_reached" || usage.status === "unavailable") {
+        return cloneJsonResponseWithHeaders(paidChatUsageJson(usage), responseHeaders);
+      }
+    }
+  }
+
+  if (
+    authenticatedUserContext &&
+    !paidChatUsage &&
+    dependencies.beginAuthenticatedFreeChat !== null
+  ) {
     const beginAuthenticatedFreeChat =
       dependencies.beginAuthenticatedFreeChat ?? defaultBeginAuthenticatedFreeChat;
     const allowance = await beginAuthenticatedFreeChat(
@@ -263,22 +313,22 @@ export async function chatResponse(
     anonymousFreeAllowance = allowance;
   }
 
-  const idempotency = await checkRequestIdempotency({
-    actorId:
-      anonymousFreeAllowance?.actor.tripHash ??
-      authenticatedUserContext?.userId ??
-      "anonymous-free-allowance-disabled",
-    body: rawBody.text,
-    headerValue: request.headers.get("idempotency-key") ?? request.headers.get("x-idempotency-key"),
-    nowMs: now.getTime(),
-  });
-  if (
-    idempotency.status === "duplicate" ||
-    idempotency.status === "conflict" ||
-    idempotency.status === "unavailable"
-  ) {
-    await anonymousFreeAllowance?.settle({ success: false });
-    return cloneJsonResponseWithHeaders(idempotencyJson(idempotency), responseHeaders);
+  if (!authenticatedUserContext) {
+    const idempotency = await checkRequestIdempotency({
+      actorId: anonymousFreeAllowance?.actor.tripHash ?? "anonymous-free-allowance-disabled",
+      body: rawBody.text,
+      headerValue:
+        request.headers.get("idempotency-key") ?? request.headers.get("x-idempotency-key"),
+      nowMs: now.getTime(),
+    });
+    if (
+      idempotency.status === "duplicate" ||
+      idempotency.status === "conflict" ||
+      idempotency.status === "unavailable"
+    ) {
+      await anonymousFreeAllowance?.settle({ success: false });
+      return cloneJsonResponseWithHeaders(idempotencyJson(idempotency), responseHeaders);
+    }
   }
 
   logger.info(
@@ -324,6 +374,21 @@ export async function chatResponse(
         logger,
       },
     );
+    paidChatSettlement =
+      (await paidChatUsage?.settle({
+        success: true,
+        providerRequestIds: result.upstreamRequestIds ?? [],
+      })) ?? null;
+    if (paidChatSettlement?.status === "settled" && request.signal.aborted) {
+      trackServerEvent({
+        name: "trip_pass_paid_chat_delivery_cancelled",
+        now,
+        payload: {
+          requestId: result.requestId,
+          settlementStatus: paidChatSettlement.status,
+        },
+      });
+    }
     const publicTurn = assemblePublicChatTurn({
       result,
       browserGeolocation: clientContext.geolocation,
@@ -413,6 +478,7 @@ export async function chatResponse(
         toolCalls: publicTurn.display.toolCalls,
         sources: publicTurn.display.sources,
         ...(result.memory ? { memory: summarizeMemoryForResponse(result.memory) } : {}),
+        ...(paidChatSettlement?.allowance ? { tripPassUsage: paidChatSettlement.allowance } : {}),
         ...(publicTurn.display.cards.length ? { cards: publicTurn.display.cards } : {}),
         ...(publicTurn.display.actions.length ? { actions: publicTurn.display.actions } : {}),
         ...(publicTurn.display.itineraries.length
@@ -433,6 +499,9 @@ export async function chatResponse(
     );
   } catch (error) {
     await anonymousFreeAllowance?.settle({ success: false });
+    if (!paidChatSettlement) {
+      await paidChatUsage?.settle({ success: false });
+    }
     const message = error instanceof Error ? error.message : "Chat response failed.";
     const missingConfiguration =
       message.includes("OPENAI_API_KEY") ||
@@ -719,4 +788,8 @@ function summarizeMessageForLogs(content: string) {
     length: content.length,
     hash: createHash("sha256").update(content).digest("hex").slice(0, 16),
   };
+}
+
+function hashChatRequestBody(body: string) {
+  return createHash("sha256").update(body).digest("base64url");
 }

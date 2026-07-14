@@ -12,6 +12,7 @@ export type ObservabilityEventName =
   | "payment_succeeded"
   | "trip_pass_stripe_event_applied"
   | "trip_pass_free_allowance_blocked"
+  | "trip_pass_paid_chat_delivery_cancelled"
   | "generation_latency_recorded"
   | "provider_error_recorded"
   | "llm_cost_recorded"

@@ -9,6 +9,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed authenticated paid chat to reserve and settle Trip Pass `chat_message` usage
+  server-side, returning typed `usage_limit_reached` exhaustion before model execution and
+  preserving exactly-once settlement for idempotent successful requests.
 - Changed DeepSeek chat runtime behavior behind `DEEPSEEK_COST_POLICY_ENABLED` so routine free and
   paid turns use bounded non-thinking requests, paid heavy turns retain thinking-high, and OpenAI
   fallback is disabled for free traffic.

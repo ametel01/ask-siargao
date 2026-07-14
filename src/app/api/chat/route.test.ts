@@ -21,6 +21,7 @@ import type {
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import { createChatThread } from "@/server/chat/chat-history-store";
 import { runInitialMigration } from "@/server/db/test-database";
+import { createActiveTripPassWithMeters } from "@/server/payments/trip-pass";
 import { upsertUserProfile } from "@/server/profile/user-profile-store";
 
 describe("chat route", () => {
@@ -214,6 +215,133 @@ describe("chat route", () => {
     expect(conflict.status).toBe(409);
     expect(conflictBody.error).toBe("idempotency_key_conflict");
     expect(dependencies.requests).toHaveLength(1);
+  });
+
+  test("meters one successful paid Trip Pass chat and skips the free limiter", async () => {
+    const db = await openChatRouteTestDatabase();
+    await seedActiveTripPass(db, "user_paid_chat", "trip_pass_paid_chat");
+    const dependencies = chatDependencies({
+      message: "Paid Trip Pass answer.",
+      sources: [genericSourceSummary],
+    });
+    dependencies.db = db;
+    dependencies.auth = async () => ({
+      userId: "user_paid_chat",
+      sessionClaims: { email: "paid-chat@example.com" },
+    });
+    dependencies.beginAuthenticatedFreeChat = async () => {
+      throw new Error("paid chat should not use authenticated free allowance");
+    };
+
+    const response = await chatResponse(
+      jsonRequest({ messages: [{ role: "user", content: "Where should I eat?" }] }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.tripPassUsage).toEqual({
+      chatMessages: { used: 1, remaining: 149, limit: 150 },
+    });
+    expect(dependencies.requests).toHaveLength(1);
+    await expectChatMeterUsed(db, "trip_pass_paid_chat", 1);
+    await expectUsageEvent(db, {
+      eventType: "settled",
+      providerRequestIds: ["req_agent_test"],
+      userId: "user_paid_chat",
+    });
+
+    await db.close();
+  });
+
+  test("does not meter a duplicate paid idempotency replay", async () => {
+    const db = await openChatRouteTestDatabase();
+    await seedActiveTripPass(db, "user_paid_replay", "trip_pass_paid_replay");
+    const dependencies = chatDependencies({
+      message: "Paid replay answer.",
+      sources: [genericSourceSummary],
+    });
+    dependencies.db = db;
+    dependencies.auth = async () => ({
+      userId: "user_paid_replay",
+      sessionClaims: { email: "paid-replay@example.com" },
+    });
+    const requestBody = { messages: [{ role: "user", content: "Where should I eat?" }] };
+    const headers = { "idempotency-key": "paid-replay-token" };
+
+    const first = await chatResponse(jsonRequest(requestBody, { headers }), dependencies);
+    const replay = await chatResponse(jsonRequest(requestBody, { headers }), dependencies);
+    const replayBody = await replay.json();
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(409);
+    expect(replayBody.error).toBe("idempotent_request_replay");
+    expect(dependencies.requests).toHaveLength(1);
+    await expectChatMeterUsed(db, "trip_pass_paid_replay", 1);
+
+    await db.close();
+  });
+
+  test("stops exhausted paid Trip Pass chat before model execution", async () => {
+    const db = await openChatRouteTestDatabase();
+    await seedActiveTripPass(db, "user_paid_exhausted", "trip_pass_paid_exhausted");
+    await setChatMeterUsed(db, "trip_pass_paid_exhausted", 150);
+    const dependencies = chatDependencies({
+      message: "Should not be used.",
+      sources: [genericSourceSummary],
+    });
+    dependencies.db = db;
+    dependencies.auth = async () => ({
+      userId: "user_paid_exhausted",
+      sessionClaims: { email: "paid-exhausted@example.com" },
+    });
+
+    const response = await chatResponse(
+      jsonRequest({ messages: [{ role: "user", content: "Where should I eat?" }] }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(402);
+    expect(body).toMatchObject({
+      error: "usage_limit_reached",
+      reason: "paid_chat_meter_exhausted",
+      allowance: { chatMessages: { used: 150, remaining: 0, limit: 150 } },
+    });
+    expect(dependencies.requests).toHaveLength(0);
+    await expectChatMeterUsed(db, "trip_pass_paid_exhausted", 150);
+
+    await db.close();
+  });
+
+  test("releases paid chat reservations when the agent fails before billable success", async () => {
+    const db = await openChatRouteTestDatabase();
+    await seedActiveTripPass(db, "user_paid_failure", "trip_pass_paid_failure");
+    const dependencies = chatDependencies();
+    dependencies.db = db;
+    dependencies.auth = async () => ({
+      userId: "user_paid_failure",
+      sessionClaims: { email: "paid-failure@example.com" },
+    });
+    dependencies.runAskSiargaoAgentTurn = async () => {
+      throw new Error("provider failed before a billable answer");
+    };
+
+    const response = await chatResponse(
+      jsonRequest({ messages: [{ role: "user", content: "Where should I eat?" }] }),
+      dependencies,
+    );
+
+    expect(response.status).toBe(502);
+    expect(dependencies.requests).toHaveLength(0);
+    await expectChatMeterUsed(db, "trip_pass_paid_failure", 0);
+    await expectUsageEvent(db, {
+      eventType: "released",
+      providerRequestIds: [],
+      userId: "user_paid_failure",
+    });
+
+    await db.close();
   });
 
   test("passes scooter rental lookup without scooter condition routing hints", async () => {
@@ -2493,6 +2621,78 @@ async function insertUser(db: PGlite, userId: string, email: string) {
     `,
     [userId, email],
   );
+}
+
+async function seedActiveTripPass(db: PGlite, userId: string, tripPassId: string) {
+  await insertUser(db, userId, `${userId}@example.com`);
+  await createActiveTripPassWithMeters(
+    {
+      id: tripPassId,
+      userId,
+      email: `${userId}@example.com`,
+      startsAt: new Date("2026-07-01T00:00:00.000Z"),
+      expiresAt: new Date("2026-07-20T00:00:00.000Z"),
+      now: new Date("2026-07-14T00:00:00.000Z"),
+    },
+    db,
+  );
+}
+
+async function setChatMeterUsed(db: PGlite, tripPassId: string, used: number) {
+  await db.query(
+    `
+      update trip_usage_meters
+      set used = $2
+      where trip_pass_id = $1
+        and meter_type = 'chat_message'
+    `,
+    [tripPassId, used],
+  );
+}
+
+async function expectChatMeterUsed(db: PGlite, tripPassId: string, used: number) {
+  const result = await db.query<{ used: number }>(
+    `
+      select used
+      from trip_usage_meters
+      where trip_pass_id = $1
+        and meter_type = 'chat_message'
+    `,
+    [tripPassId],
+  );
+  expect(result.rows[0]?.used).toBe(used);
+}
+
+async function expectUsageEvent(
+  db: PGlite,
+  expected: {
+    eventType: string;
+    providerRequestIds: readonly string[];
+    userId: string;
+  },
+) {
+  const result = await db.query<{
+    event_type: string;
+    provider_request_ids_json: string[] | string;
+    user_id: string | null;
+  }>(
+    `
+      select event_type, provider_request_ids_json, user_id
+      from trip_usage_events
+      where user_id = $1
+      order by created_at desc
+      limit 1
+    `,
+    [expected.userId],
+  );
+  const row = result.rows[0];
+  expect(row?.event_type).toBe(expected.eventType);
+  expect(row?.user_id).toBe(expected.userId);
+  const providerRequestIds =
+    typeof row?.provider_request_ids_json === "string"
+      ? JSON.parse(row.provider_request_ids_json)
+      : row?.provider_request_ids_json;
+  expect(providerRequestIds).toEqual([...expected.providerRequestIds]);
 }
 
 function deterministicIds() {

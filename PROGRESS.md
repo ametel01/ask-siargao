@@ -480,15 +480,44 @@ commit.
 
 ## Step 8 - Add Request-Idempotent Paid Chat Metering
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T03:46:51Z`
+- Completed: `2026-07-14T04:15:08Z`
+- Implementing commit SHA: this Step 8 commit.
+- Files and behavior changed: added `src/server/trip-pass/usage.ts` with paid chat usage sessions,
+  active-pass resolution, start/concurrency/daily-success quota reservations, reversible reserved
+  ledger events, exactly-once settlement, release-on-failure behavior, and safe allowance
+  projection; wired `/api/chat` so active paid travelers skip the authenticated free limiter,
+  settle one `chat_message` unit after billable agent success, release reservations on pre-billable
+  failure, expose `tripPassUsage` remaining allowance on success, return typed
+  `usage_limit_reached` before model execution, and record a sanitized delivery-cancelled telemetry
+  event when the request signal is already aborted after settlement.
+- Acceptance criteria checked: one successful paid chat settles exactly one meter unit and one
+  `settled` usage event; calling settlement twice for the same idempotency key returns duplicate
+  without another meter increment; same-body idempotency replay stops before model work and does not
+  meter again; pre-billable agent failure releases the reserved event and leaves meter usage
+  unchanged; parallel final-unit reservations allow one request and block the other without
+  overspending; 2-request concurrency and 30-success/day burst controls stop before model execution
+  while preserving the 150-use entitlement; expired and other-owner passes are not treated as active
+  paid entitlement; exhausted paid chat returns `usage_limit_reached` with safe remaining allowance
+  data.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes on final run.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 375 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test src/server/trip-pass/usage.test.ts src/app/api/chat/route.test.ts src/server/trip-pass/anonymous-free-allowance.test.ts src/server/security/security.test.ts`:
+    passed, 120 tests, 0 failures, 991 assertions.
+  - `bun test`: passed, 1075 tests, 0 failures, 5810 assertions.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 92 tests, 0 failures.
+- Changelog decision and entry location: added a `Changed` entry under `[Unreleased]` for
+  server-authoritative paid successful-chat metering and typed exhaustion behavior.
+- Risks, follow-ups, or blocker: no blocker; matching idempotent replay currently returns the
+  existing duplicate response instead of replaying a cached assistant body because no response-cache
+  table exists in this plan slice.
 
 ## Step 9 - Meter Live Decisions at the Agent Tool Boundary
 
