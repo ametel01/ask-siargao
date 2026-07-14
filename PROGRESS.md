@@ -853,12 +853,57 @@ commit.
 
 ## Step 16 - Complete Launch Operations and End-to-End Release Proof
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T04:49:00Z`
+- Completed: `2026-07-14T04:59:15Z`
+- Implementing commit SHA: this Step 16 commit.
+- Files and behavior changed: added an executable Trip Pass launch-proof module, runner, package
+  script, generated artifact, and release-candidate regression tests; expanded the environment
+  reference with Trip Pass launch ownership, key rotation, alert thresholds, support escalation,
+  backup/restore, and flag-based rollback guidance; expanded release-candidate QA with the full
+  Trip Pass free-to-paid lifecycle, adversarial controls, production approval checklist, rollback,
+  and recovery procedures; reconciled the changelog with a final operational launch-proof entry.
+- Acceptance criteria checked: launch proof records 13 deterministic lifecycle checks across UI,
+  API, database, Stripe event application, quota/metering, model-cost controls, analytics,
+  diagnostics, perimeter controls, and operations; checkout remains disabled, extensions remain
+  disabled, and `launchReady` remains `false`; the artifact records 16 exact blockers for external
+  approvals and sandbox/live smoke lanes rather than claiming production launch readiness; rollback
+  uses flag disablement, WAF demotion, fallback disablement, dry-run reconciliation, and
+  forward-repair without destructive data changes.
+- Exact validation commands and results:
+  - `bun run format`: passed.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 394 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test src/server/qa/release-candidate-demo.test.ts`: passed, 3 tests, 0 failures, 16
+    assertions.
+  - `bun test`: passed, 1116 tests, 0 failures, 6005 assertions.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 94 tests, 0 failures.
+  - `bun run verify:ci`: first rerun inside the full sequence hit the existing timing-sensitive
+    motion long-task variance once (`54ms`); standalone rerun passed cleanly with 1116 Bun tests, 0
+    failures, database migrate/seed, build, and 94 Playwright tests, 0 failures.
+  - `bun run eval:trip-pass-cost-baseline`: passed.
+  - `bun run eval:trip-pass-cost-candidate`: passed.
+  - `bun run eval:trip-pass-quality-bypass`: passed.
+  - `bun run qa:trip-pass-launch -- --write`: passed and wrote
+    `docs/evaluations/trip-pass-launch-proof-2026-07-14.json`.
+  - Clean full-gate log with the expected flaky `verify:ci` interruption:
+    `/tmp/ask-siargao-step16-gates-clean-20260714T045132Z.log`.
+  - Clean `verify:ci` rerun log:
+    `/tmp/ask-siargao-step16-verify-ci-rerun-20260714T045613Z.log`.
+  - Trip Pass artifact log:
+    `/tmp/ask-siargao-step16-trip-pass-artifacts-20260714T045842Z.log`.
+- Changelog decision and entry location: added `CHANGELOG.md` `## [Unreleased]` `### Added`
+  entry for the executable Trip Pass launch-proof artifact and release-candidate runbook.
+- Risks, follow-ups, or blocker: implementation is complete, but production launch remains blocked
+  by external approvals and smoke checks recorded in
+  `docs/evaluations/trip-pass-launch-proof-2026-07-14.json`: live Stripe Price/currency,
+  legal/refund policy, production Redis, analytics host/retention, Stripe account eligibility/fees,
+  webhook endpoint/events, DeepSeek price version, paid fallback budget, Vercel WAF log-to-challenge
+  evidence, HMAC rotation, provider/global budgets, secrets/monitoring/non-author review, Stripe
+  sandbox lifecycle, Redis integration, WAF verification, and analytics sink smoke. Production
+  checkout must stay disabled until those blockers are cleared; Trip Pass extensions remain
+  disabled.

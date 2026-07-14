@@ -7,10 +7,34 @@ Use this checklist before treating the current build as a release candidate.
 Run the full gate suite from a clean working tree or after reviewing intentional local changes.
 
 ```sh
+bun run format
+git diff --check
+bun run lint
+bun run typecheck --incremental false
+bun test
+bun run db:migrate:test
+bun run db:seed:test
+bun run build
+bun run test:e2e
 bun run verify:ci
 ```
 
 `bun run verify:ci` mirrors the CI release gate: lint, clean typecheck, Bun tests, test database migrate/seed, build, and Playwright e2e. `bun run verify` runs the fast non-mutating local subset. Use `bun run format` only when you want Biome to write formatting fixes. React Doctor runs in a separate advisory GitHub workflow and is available locally with `bun run doctor`.
+
+For Trip Pass release candidates, also run the fixed cost, quality, bypass, and launch-proof
+artifacts:
+
+```sh
+bun run eval:trip-pass-cost-baseline
+bun run eval:trip-pass-cost-candidate
+bun run eval:trip-pass-quality-bypass
+bun run qa:trip-pass-launch -- --write
+```
+
+The launch-proof artifact is written to
+`docs/evaluations/trip-pass-launch-proof-2026-07-14.json`. It is allowed to show
+`launchReady: false` while external approvals or smoke checks are unresolved. It must not show
+`TRIP_PASS_CHECKOUT_ENABLED=true` or `TRIP_PASS_EXTENSION_ENABLED=true` while blockers remain.
 
 ## Manual Product QA
 
@@ -40,6 +64,85 @@ bun run verify:ci
 - Observability events sanitize payloads before reporting sink configuration for Sentry and PostHog.
 - Rate limits are applied to intake, checkout, public APIs, Stripe webhook/provider calls, and report access.
 
+## Trip Pass End-to-End QA
+
+Run this sequence in a test-mode environment with `TRIP_PASS_CHECKOUT_ENABLED=false` until every
+approval and smoke check is recorded. Use redacted identifiers such as `cs_test_...abcd` or
+`evt_test_...abcd` in notes; never paste full Stripe IDs, webhook payloads, cookies, prompts, IP
+addresses, emails, precise coordinates, or provider responses.
+
+1. Anonymous free allowance: ask enough successful chat questions to reach warning and exhausted
+   states; verify the UI, `/api/chat` response shape, quota store, and analytics events.
+2. Sign-in transition: sign in after anonymous usage and confirm the free context is bounded by the
+   signed-in actor rather than reset to a new unrestricted allowance.
+3. Checkout start: start a Trip Pass checkout from settings or chat; verify duplicate clicks do not
+   create duplicate effective local orders.
+4. Delayed return: visit the checkout return URL before webhook delivery; verify the UI remains
+   pending and no pass is activated.
+5. Verified activation: deliver the test-mode Stripe checkout completion through the signed webhook
+   path; verify one active 14-day pass, 150 chat, 40 live, 8 heavy, 20 weather, and 25 route meters.
+6. Multi-tool consumption: run a current/live paid answer that uses more than one support tool;
+   verify chat and applicable live sub-meters settle once for the request.
+7. Failure release: force a provider failure before billable success; verify reservations release
+   and the response labels unavailable or cached evidence truthfully.
+8. Expiry boundary: move the fixture clock or use an expired fixture; verify the effective pass is
+   no longer selected and UI/API warnings are coherent.
+9. Refund or dispute: replay the verified test-mode refund or dispute fixture; verify access is
+   revoked or suspended according to the launch policy without deleting ledger records.
+10. Analytics delivery: confirm `trip_pass_checkout_started`, `trip_pass_activated`,
+    `trip_pass_meter_warning` or `trip_pass_meter_exhausted`, and `llm_cost_recorded` reach the
+    approved sink with sanitized fields only.
+11. Reconciliation: run dry-run diagnostics and confirm paid order, pass, grant, usage meter,
+    provider request, price catalog, sink, store, and cost-circuit checks are visible and redacted.
+
+Then run the adversarial controls:
+
+- Clear the anonymous trip cookie from the same network cohort and verify challenge or sign-in
+  friction instead of a full reset.
+- Simulate shared hotel/carrier-network velocity and verify challenge rather than silent blanket
+  denial of legitimate users.
+- Replay one request ID with a different body and verify denial before model/provider work.
+- Send parallel final-unit requests and verify only one request consumes the final allowance.
+- Abort the client after model/provider success and verify the server settles the successful work
+  once.
+- Disable DeepSeek for free traffic and verify OpenAI fallback is not used.
+- Exhaust the paid fallback budget and the global model budget and verify safe unavailable or
+  cached/local responses.
+
+## Trip Pass Production Approval Checklist
+
+Checkout can be enabled only after all items below are approved and the launch-proof artifact is
+updated with redacted evidence.
+
+| Item | Required evidence |
+| --- | --- |
+| Price/currency | Approved live Stripe Price ID, amount, currency, fees, and tax treatment. |
+| Legal/refund policy | Approved Trip Pass Terms, Privacy, support, full-refund, partial-refund, and dispute handling. |
+| Redis | Provider URL configured, TLS/retention/eviction documented, and integration smoke passed. |
+| Analytics | Sink host/key/retention/consent approved and sanitized smoke events observed. |
+| Stripe account | Account eligibility, settlement currency, fees, and restricted-key permissions confirmed. |
+| Webhook | Production endpoint, signing secret, subscribed events, and retry handling confirmed. |
+| DeepSeek price version | Launch price catalog version and cost policy approved. |
+| Paid fallback budget | OpenAI fallback policy, daily budget, and alert owner approved. |
+| WAF log evidence | Vercel WAF rule IDs, log-mode sample counts, and challenge promotion decision recorded. |
+| HMAC rotation | Anonymous and idempotency key owner, version, rotation date, and rollback handling recorded. |
+| Provider/global budgets | DeepSeek, OpenAI, and global daily budget limits configured with alerts. |
+| Secrets and monitoring | Secret inventory, alert thresholds, backup/restore proof, and non-author release review complete. |
+
+## Trip Pass Rollback And Recovery
+
+Rollback does not require destructive data changes:
+
+1. Set `TRIP_PASS_CHECKOUT_ENABLED=false` and redeploy.
+2. Keep `TRIP_PASS_EXTENSION_ENABLED=false`.
+3. Disable paid fallback with `OPENAI_FALLBACK_ENABLED=false` if provider cost or quality is
+   suspect.
+4. Move WAF challenge rules back to log mode if shared-network traffic is affected.
+5. Run Trip Pass reconciliation in dry-run mode and escalate findings with redacted local order or
+   pass references.
+6. Repair only idempotent local omissions after explicit operator confirmation; preserve Stripe,
+   order, grant, pass, meter, usage-event, analytics, and cost records.
+
 ## Provider And Launch Limitations
 
 - Real Stripe Checkout requires `STRIPE_RESTRICTED_KEY` or `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and a configured webhook endpoint.
@@ -51,3 +154,6 @@ bun run verify:ci
 - The first provider ingestion slice is local verified accommodation records from the public tourism directory source profile; it is permitted for public republication, does not store raw payloads, and emits governed accommodation-area facts only.
 - Agoda, Tripadvisor/Terra, social, marketplace, and partner-source integrations remain approval-dependent and must not be scraped unless terms allow it.
 - Public pages currently use synthetic or explicitly permitted fixture data for release-candidate QA.
+- Trip Pass production checkout remains approval-dependent even when the local deterministic proof
+  passes. Missing sandbox/live evidence must be recorded as a release blocker, not as launch
+  readiness.

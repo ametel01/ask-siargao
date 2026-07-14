@@ -78,3 +78,74 @@ Development and test can use the default process-local memory store. Production 
 `REDIS_URL` so the bundled Redis quota store provides atomic increments, rolling-window
 reservations, concurrency leases, idempotency records, and budget reservations across all runtime
 instances. There is no environment override for process-local production rate limits.
+
+## Trip Pass Launch Ownership
+
+Production checkout must remain disabled until the release owner records the final approval state in
+the release-candidate QA run. Code completion is not launch approval.
+
+| Area | Owner | Required action before `TRIP_PASS_CHECKOUT_ENABLED=true` |
+| --- | --- | --- |
+| Stripe Price | Finance/operator | Confirm live Price ID, amount, currency, fees, tax treatment, and Stripe-account eligibility. |
+| Stripe webhook | Engineering | Confirm endpoint URL, signing secret, and subscribed Checkout, refund, dispute, and expiry events. |
+| Legal/refund policy | Legal/operator | Approve Trip Pass Terms, Privacy wording, full-refund revocation, dispute suspension, and support contact copy. |
+| Redis | Engineering | Confirm provider, TLS, eviction policy, retention expectations, and operational owner. |
+| Analytics | Operator | Confirm PostHog-compatible host, key, retention, consent wording, and DNT behavior. |
+| DeepSeek cost policy | Operator | Confirm price catalog version, `DEEPSEEK_COST_POLICY_ENABLED`, and daily provider budget. |
+| Paid fallback | Operator | Confirm whether `OPENAI_FALLBACK_ENABLED` is allowed, plus the daily fallback budget. |
+| WAF | Security/operator | Run Vercel WAF in log mode first and record evidence before challenge promotion. |
+| Identity keys | Security | Record `TRIP_PASS_ANON_HMAC_KEY` and `TRIP_PASS_IDEMPOTENCY_HMAC_KEY` owners, rotation date, and rollback plan. |
+| Monitoring | Operator | Confirm alerts for checkout failures, webhook failures, cost-circuit exhaustion, analytics sink failures, and reconciliation issues. |
+| Review | Operator | Record non-author release review before checkout enablement. |
+
+## Trip Pass Key Rotation
+
+Rotate anonymous and idempotency HMAC keys deliberately:
+
+1. Generate new server-only key material and store it outside the client environment.
+2. Increment `TRIP_PASS_ANON_HMAC_KEY_VERSION` when rotating anonymous cohort keys.
+3. Deploy with the new key and version while monitoring reset-resistance and challenge rates.
+4. Keep the prior key available only for the planned grace window if the implementation requires
+   compatibility, then remove it from the secret store.
+5. Record the rotation date, owner, prior version, new version, and rollback decision in the release
+   notes or incident log.
+
+Do not rotate by changing a `NEXT_PUBLIC_*` variable, and do not store raw IP addresses, cookie
+values, Clerk IDs, prompts, or precise coordinates as a replacement for HMAC cohorts.
+
+## Trip Pass Alert Thresholds
+
+Operators should alert on:
+
+- Stripe webhook verification or application failures above zero after deployment.
+- Checkout start failures, duplicate-order conflicts, or pending orders that do not receive a
+  terminal webhook.
+- Trip Pass meter warning/exhaustion spikes by meter type.
+- Redis quota-store unavailability, stale reservations, or production process-local fallback.
+- DeepSeek, OpenAI fallback, or global model-cost budget exhaustion.
+- Analytics sink delivery failures or unexpected absence of `trip_pass_checkout_started`,
+  `trip_pass_activated`, and `llm_cost_recorded` events.
+- Reconciliation findings for missing grants, missing meters, duplicate grants, stale reservations,
+  price-catalog mismatch, or sink/store/circuit misconfiguration.
+
+Support escalation starts with `/admin/diagnostics` and the dry-run reconciliation snapshot. Do not
+ask support staff to inspect raw prompts, email addresses, Stripe payloads, precise locations,
+cookies, provider payloads, or upstream request IDs.
+
+## Trip Pass Rollback
+
+Rollback is flag-based and forward-repair only:
+
+1. Set `TRIP_PASS_CHECKOUT_ENABLED=false` and redeploy.
+2. Keep `TRIP_PASS_EXTENSION_ENABLED=false`.
+3. Set `OPENAI_FALLBACK_ENABLED=false` if fallback cost or quality behavior is suspect.
+4. Set `TRIP_PASS_WAF_MODE=log` or disable promoted WAF rules if legitimate shared-network traffic
+   is challenged incorrectly.
+5. Run dry-run reconciliation and repair only idempotent local omissions with explicit operator
+   confirmation.
+6. Preserve order, pass, grant, meter, usage-event, analytics, and cost records. Do not drop launch
+   data to roll back.
+
+Database rollback uses backups and forward repair. Before enabling checkout, confirm production
+backup restore has been tested for the database provider and that migration credentials are separate
+from runtime credentials.

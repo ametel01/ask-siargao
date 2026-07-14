@@ -37,6 +37,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added an executable Trip Pass launch-proof artifact and release-candidate runbook covering
+  free-to-paid lifecycle evidence, approval blockers, external smoke lanes, and flag-based rollback.
 - Added redacted Trip Pass reconciliation and support diagnostics for paid-order, pass, grant,
   usage-meter, provider-request, price-catalog, sink, store, and cost-circuit recovery checks.
 - Added privacy-safe Trip Pass funnel, meter, and model-cost analytics delivery through an
