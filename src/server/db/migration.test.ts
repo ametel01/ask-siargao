@@ -56,6 +56,9 @@ import {
   sourceProfiles,
   sourceRecords,
   tripPasses,
+  tripPassGrants,
+  tripPassOrders,
+  tripUsageEvents,
   tripUsageMeters,
   userProfiles,
   users,
@@ -81,6 +84,7 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toContain("0005_public_page_relationships.sql");
     expect(migrationNames).toContain("0006_traveler_preferences.sql");
     expect(migrationNames).toContain("0007_structured_profile_food_needs.sql");
+    expect(migrationNames).toContain("0008_trip_pass_commerce_ledger.sql");
   });
 
   test("creates required core tables and accepts taxonomy seed rows", async () => {
@@ -99,6 +103,9 @@ describe("Step 3 database migration", () => {
       "shared_trip_plans",
       "trip_passes",
       "trip_usage_meters",
+      "trip_pass_orders",
+      "trip_pass_grants",
+      "trip_usage_events",
       "audit_requests",
       "audit_inputs",
       "audit_runs",
@@ -354,6 +361,9 @@ describe("Step 3 database migration", () => {
       sharedTripPlans,
       tripPasses,
       tripUsageMeters,
+      tripPassOrders,
+      tripPassGrants,
+      tripUsageEvents,
       areas,
       routes,
       providers,
@@ -755,6 +765,77 @@ describe("Step 3 database migration", () => {
       ["reset_at", "timestamp with time zone", "YES", null],
       ["updated_at", "timestamp with time zone", "NO", "now()"],
     ]);
+    expect(
+      columnsByTable.trip_pass_orders?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+        column.column_default,
+      ]),
+    ).toEqual([
+      ["id", "text", "NO", null],
+      ["user_id", "text", "YES", null],
+      ["email", "text", "YES", null],
+      ["status", "text", "NO", null],
+      ["product_code", "text", "NO", null],
+      ["product_version", "integer", "NO", null],
+      ["stripe_price_id", "text", "NO", null],
+      ["amount_total_minor", "integer", "YES", null],
+      ["currency", "text", "YES", null],
+      ["checkout_idempotency_key", "text", "NO", null],
+      ["stripe_checkout_session_id", "text", "YES", null],
+      ["stripe_payment_intent_id", "text", "YES", null],
+      ["stripe_customer_id", "text", "YES", null],
+      ["metadata_json", "jsonb", "NO", "'{}'::jsonb"],
+      ["created_at", "timestamp with time zone", "NO", "now()"],
+      ["updated_at", "timestamp with time zone", "NO", "now()"],
+      ["completed_at", "timestamp with time zone", "YES", null],
+    ]);
+    expect(
+      columnsByTable.trip_pass_grants?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+        column.column_default,
+      ]),
+    ).toEqual([
+      ["id", "text", "NO", null],
+      ["order_id", "text", "YES", null],
+      ["trip_pass_id", "text", "NO", null],
+      ["user_id", "text", "YES", null],
+      ["source_type", "text", "NO", null],
+      ["source_event_id", "text", "NO", null],
+      ["product_code", "text", "NO", null],
+      ["product_version", "integer", "NO", null],
+      ["quantity", "integer", "NO", "1"],
+      ["duration_days", "integer", "NO", null],
+      ["meter_limits_json", "jsonb", "NO", null],
+      ["starts_at", "timestamp with time zone", "NO", null],
+      ["expires_at", "timestamp with time zone", "NO", null],
+      ["created_at", "timestamp with time zone", "NO", "now()"],
+    ]);
+    expect(
+      columnsByTable.trip_usage_events?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+        column.column_default,
+      ]),
+    ).toEqual([
+      ["id", "text", "NO", null],
+      ["trip_pass_id", "text", "NO", null],
+      ["usage_meter_id", "text", "YES", null],
+      ["user_id", "text", "YES", null],
+      ["event_type", "text", "NO", null],
+      ["meter_type", "text", "NO", null],
+      ["quantity", "integer", "NO", null],
+      ["idempotency_key", "text", "NO", null],
+      ["request_id", "text", "NO", null],
+      ["request_hash", "text", "YES", null],
+      ["provider_request_ids_json", "jsonb", "NO", "'[]'::jsonb"],
+      ["occurred_at", "timestamp with time zone", "NO", "now()"],
+      ["created_at", "timestamp with time zone", "NO", "now()"],
+    ]);
 
     const primaryKeys = await db.query<{
       table_name: string;
@@ -778,7 +859,10 @@ describe("Step 3 database migration", () => {
       saved_trip_items: ["trip_id", "id"],
       saved_trips: ["id"],
       shared_trip_plans: ["id"],
+      trip_pass_grants: ["id"],
+      trip_pass_orders: ["id"],
       trip_passes: ["id"],
+      trip_usage_events: ["id"],
       trip_usage_meters: ["id"],
     });
 
@@ -799,7 +883,14 @@ describe("Step 3 database migration", () => {
     expect(groupColumnNames(uniqueKeys.rows)).toEqual({
       saved_trips: ["client_trip_key_hash"],
       shared_trip_plans: ["public_token_hash"],
+      trip_pass_grants: ["source_event_id", "source_type"],
+      trip_pass_orders: [
+        "checkout_idempotency_key",
+        "stripe_checkout_session_id",
+        "stripe_payment_intent_id",
+      ],
       trip_passes: ["stripe_checkout_session_id", "stripe_event_id"],
+      trip_usage_events: ["idempotency_key"],
     });
 
     const foreignKeys = await db.query<{
@@ -839,7 +930,14 @@ describe("Step 3 database migration", () => {
       ["saved_trip_items", "trip_id", "saved_trips", "id"],
       ["saved_trips", "user_id", "users", "id"],
       ["shared_trip_plans", "trip_id", "saved_trips", "id"],
+      ["trip_pass_grants", "order_id", "trip_pass_orders", "id"],
+      ["trip_pass_grants", "trip_pass_id", "trip_passes", "id"],
+      ["trip_pass_grants", "user_id", "users", "id"],
+      ["trip_pass_orders", "user_id", "users", "id"],
       ["trip_passes", "user_id", "users", "id"],
+      ["trip_usage_events", "trip_pass_id", "trip_passes", "id"],
+      ["trip_usage_events", "usage_meter_id", "trip_usage_meters", "id"],
+      ["trip_usage_events", "user_id", "users", "id"],
       ["trip_usage_meters", "trip_pass_id", "trip_passes", "id"],
     ]);
 
@@ -896,6 +994,42 @@ describe("Step 3 database migration", () => {
         "CREATE INDEX trip_usage_meters_trip_pass_id_idx ON public.trip_usage_meters USING btree (trip_pass_id)",
       "trip_usage_meters.trip_usage_meters_trip_pass_id_meter_type_idx":
         "CREATE UNIQUE INDEX trip_usage_meters_trip_pass_id_meter_type_idx ON public.trip_usage_meters USING btree (trip_pass_id, meter_type)",
+      "trip_pass_orders.trip_pass_orders_checkout_idempotency_key_key":
+        "CREATE UNIQUE INDEX trip_pass_orders_checkout_idempotency_key_key ON public.trip_pass_orders USING btree (checkout_idempotency_key)",
+      "trip_pass_orders.trip_pass_orders_pkey":
+        "CREATE UNIQUE INDEX trip_pass_orders_pkey ON public.trip_pass_orders USING btree (id)",
+      "trip_pass_orders.trip_pass_orders_product_code_idx":
+        "CREATE INDEX trip_pass_orders_product_code_idx ON public.trip_pass_orders USING btree (product_code)",
+      "trip_pass_orders.trip_pass_orders_status_created_at_idx":
+        "CREATE INDEX trip_pass_orders_status_created_at_idx ON public.trip_pass_orders USING btree (status, created_at)",
+      "trip_pass_orders.trip_pass_orders_stripe_checkout_session_id_key":
+        "CREATE UNIQUE INDEX trip_pass_orders_stripe_checkout_session_id_key ON public.trip_pass_orders USING btree (stripe_checkout_session_id)",
+      "trip_pass_orders.trip_pass_orders_stripe_payment_intent_id_key":
+        "CREATE UNIQUE INDEX trip_pass_orders_stripe_payment_intent_id_key ON public.trip_pass_orders USING btree (stripe_payment_intent_id)",
+      "trip_pass_orders.trip_pass_orders_user_status_created_at_idx":
+        "CREATE INDEX trip_pass_orders_user_status_created_at_idx ON public.trip_pass_orders USING btree (user_id, status, created_at)",
+      "trip_pass_grants.trip_pass_grants_order_id_idx":
+        "CREATE INDEX trip_pass_grants_order_id_idx ON public.trip_pass_grants USING btree (order_id)",
+      "trip_pass_grants.trip_pass_grants_pkey":
+        "CREATE UNIQUE INDEX trip_pass_grants_pkey ON public.trip_pass_grants USING btree (id)",
+      "trip_pass_grants.trip_pass_grants_source_type_event_id_key":
+        "CREATE UNIQUE INDEX trip_pass_grants_source_type_event_id_key ON public.trip_pass_grants USING btree (source_type, source_event_id)",
+      "trip_pass_grants.trip_pass_grants_trip_pass_id_idx":
+        "CREATE INDEX trip_pass_grants_trip_pass_id_idx ON public.trip_pass_grants USING btree (trip_pass_id)",
+      "trip_pass_grants.trip_pass_grants_user_expires_at_idx":
+        "CREATE INDEX trip_pass_grants_user_expires_at_idx ON public.trip_pass_grants USING btree (user_id, expires_at)",
+      "trip_usage_events.trip_usage_events_idempotency_key_key":
+        "CREATE UNIQUE INDEX trip_usage_events_idempotency_key_key ON public.trip_usage_events USING btree (idempotency_key)",
+      "trip_usage_events.trip_usage_events_pkey":
+        "CREATE UNIQUE INDEX trip_usage_events_pkey ON public.trip_usage_events USING btree (id)",
+      "trip_usage_events.trip_usage_events_request_id_idx":
+        "CREATE INDEX trip_usage_events_request_id_idx ON public.trip_usage_events USING btree (request_id)",
+      "trip_usage_events.trip_usage_events_trip_pass_meter_created_at_idx":
+        "CREATE INDEX trip_usage_events_trip_pass_meter_created_at_idx ON public.trip_usage_events USING btree (trip_pass_id, meter_type, created_at)",
+      "trip_usage_events.trip_usage_events_usage_meter_id_idx":
+        "CREATE INDEX trip_usage_events_usage_meter_id_idx ON public.trip_usage_events USING btree (usage_meter_id)",
+      "trip_usage_events.trip_usage_events_user_created_at_idx":
+        "CREATE INDEX trip_usage_events_user_created_at_idx ON public.trip_usage_events USING btree (user_id, created_at)",
     });
 
     await db.close();
@@ -919,6 +1053,331 @@ describe("Step 3 database migration", () => {
 
     expect(indexes.rows.map((row) => row.indexname)).toEqual(
       hardeningSupportingIndexNames.toSorted(),
+    );
+
+    await db.close();
+  });
+
+  test("enforces Trip Pass ledger idempotency and validity constraints", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    await runInitialMigration(db);
+
+    await db.query("insert into users (id, email) values ($1, $2)", [
+      "user_trip_ledger",
+      "trip-ledger@example.com",
+    ]);
+    await db.query(
+      `
+        insert into trip_pass_orders (
+          id,
+          user_id,
+          email,
+          status,
+          product_code,
+          product_version,
+          stripe_price_id,
+          amount_total_minor,
+          currency,
+          checkout_idempotency_key,
+          stripe_checkout_session_id,
+          stripe_payment_intent_id,
+          stripe_customer_id,
+          metadata_json,
+          created_at,
+          updated_at,
+          completed_at
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16, $17)
+      `,
+      [
+        "order_trip_ledger",
+        "user_trip_ledger",
+        "trip-ledger@example.com",
+        "paid",
+        "siargao_trip_pass_14d_v1",
+        1,
+        "price_trip_pass",
+        900,
+        "usd",
+        "checkout_key_trip_ledger",
+        "cs_trip_ledger",
+        "pi_trip_ledger",
+        "cus_trip_ledger",
+        JSON.stringify({ productCode: "siargao_trip_pass_14d_v1" }),
+        "2026-07-03T00:00:00.000Z",
+        "2026-07-03T00:00:00.000Z",
+        "2026-07-03T00:01:00.000Z",
+      ],
+    );
+    await db.query(
+      `
+        insert into trip_passes (
+          id,
+          user_id,
+          email,
+          status,
+          stripe_checkout_session_id,
+          stripe_payment_intent_id,
+          stripe_event_id,
+          starts_at,
+          expires_at
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `,
+      [
+        "pass_trip_ledger",
+        "user_trip_ledger",
+        "trip-ledger@example.com",
+        "active",
+        "cs_trip_pass_ledger",
+        "pi_trip_pass_ledger",
+        "evt_trip_pass_ledger",
+        "2026-07-03T00:00:00.000Z",
+        "2026-07-17T00:00:00.000Z",
+      ],
+    );
+    await db.query(
+      `
+        insert into trip_pass_grants (
+          id,
+          order_id,
+          trip_pass_id,
+          user_id,
+          source_type,
+          source_event_id,
+          product_code,
+          product_version,
+          quantity,
+          duration_days,
+          meter_limits_json,
+          starts_at,
+          expires_at
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13)
+      `,
+      [
+        "grant_trip_ledger",
+        "order_trip_ledger",
+        "pass_trip_ledger",
+        "user_trip_ledger",
+        "stripe_checkout",
+        "evt_trip_ledger",
+        "siargao_trip_pass_14d_v1",
+        1,
+        1,
+        14,
+        JSON.stringify({ chat_message: 150, live_refresh: 40 }),
+        "2026-07-03T00:00:00.000Z",
+        "2026-07-17T00:00:00.000Z",
+      ],
+    );
+    await db.query(
+      `
+        insert into trip_usage_meters (id, trip_pass_id, meter_type, used, "limit")
+        values ($1, $2, $3, $4, $5)
+      `,
+      ["meter_trip_ledger", "pass_trip_ledger", "chat_message", 1, 150],
+    );
+    await db.query(
+      `
+        insert into trip_usage_events (
+          id,
+          trip_pass_id,
+          usage_meter_id,
+          user_id,
+          event_type,
+          meter_type,
+          quantity,
+          idempotency_key,
+          request_id,
+          request_hash,
+          provider_request_ids_json
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
+      `,
+      [
+        "usage_event_trip_ledger",
+        "pass_trip_ledger",
+        "meter_trip_ledger",
+        "user_trip_ledger",
+        "settled",
+        "chat_message",
+        1,
+        "usage_key_trip_ledger",
+        "request_trip_ledger",
+        "hash_trip_ledger",
+        JSON.stringify(["deepseek_request_trip_ledger"]),
+      ],
+    );
+
+    await expectUniqueViolation(
+      db.query(
+        `
+          insert into trip_pass_orders (
+            id,
+            status,
+            product_code,
+            product_version,
+            stripe_price_id,
+            checkout_idempotency_key
+          )
+          values ($1, $2, $3, $4, $5, $6)
+        `,
+        [
+          "order_duplicate_checkout_key",
+          "pending",
+          "siargao_trip_pass_14d_v1",
+          1,
+          "price_trip_pass",
+          "checkout_key_trip_ledger",
+        ],
+      ),
+      "trip_pass_orders_checkout_idempotency_key_key",
+    );
+    await expectUniqueViolation(
+      db.query(
+        `
+          insert into trip_pass_grants (
+            id,
+            trip_pass_id,
+            source_type,
+            source_event_id,
+            product_code,
+            product_version,
+            duration_days,
+            meter_limits_json,
+            starts_at,
+            expires_at
+          )
+          values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
+        `,
+        [
+          "grant_duplicate_source",
+          "pass_trip_ledger",
+          "stripe_checkout",
+          "evt_trip_ledger",
+          "siargao_trip_pass_14d_v1",
+          1,
+          14,
+          JSON.stringify({ chat_message: 150 }),
+          "2026-07-03T00:00:00.000Z",
+          "2026-07-17T00:00:00.000Z",
+        ],
+      ),
+      "trip_pass_grants_source_type_event_id_key",
+    );
+    await expectUniqueViolation(
+      db.query(
+        `
+          insert into trip_usage_events (
+            id,
+            trip_pass_id,
+            event_type,
+            meter_type,
+            quantity,
+            idempotency_key,
+            request_id
+          )
+          values ($1, $2, $3, $4, $5, $6, $7)
+        `,
+        [
+          "usage_event_duplicate_key",
+          "pass_trip_ledger",
+          "settled",
+          "chat_message",
+          1,
+          "usage_key_trip_ledger",
+          "request_duplicate_usage_key",
+        ],
+      ),
+      "trip_usage_events_idempotency_key_key",
+    );
+    await expectCheckViolation(
+      db.query(
+        `
+          insert into trip_pass_orders (
+            id,
+            status,
+            product_code,
+            product_version,
+            stripe_price_id,
+            amount_total_minor,
+            checkout_idempotency_key
+          )
+          values ($1, $2, $3, $4, $5, $6, $7)
+        `,
+        [
+          "order_invalid_amount",
+          "pending",
+          "siargao_trip_pass_14d_v1",
+          1,
+          "price_trip_pass",
+          -1,
+          "checkout_key_invalid_amount",
+        ],
+      ),
+      "trip_pass_orders_amount_total_minor_check",
+    );
+    await expectCheckViolation(
+      db.query(
+        `
+          insert into trip_pass_grants (
+            id,
+            trip_pass_id,
+            source_type,
+            source_event_id,
+            product_code,
+            product_version,
+            quantity,
+            duration_days,
+            meter_limits_json,
+            starts_at,
+            expires_at
+          )
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
+        `,
+        [
+          "grant_invalid_quantity",
+          "pass_trip_ledger",
+          "manual_operator",
+          "manual_invalid_quantity",
+          "siargao_trip_pass_14d_v1",
+          1,
+          0,
+          14,
+          JSON.stringify({ chat_message: 150 }),
+          "2026-07-03T00:00:00.000Z",
+          "2026-07-17T00:00:00.000Z",
+        ],
+      ),
+      "trip_pass_grants_quantity_check",
+    );
+    await expectCheckViolation(
+      db.query(
+        `
+          insert into trip_usage_events (
+            id,
+            trip_pass_id,
+            event_type,
+            meter_type,
+            quantity,
+            idempotency_key,
+            request_id
+          )
+          values ($1, $2, $3, $4, $5, $6, $7)
+        `,
+        [
+          "usage_event_invalid_quantity",
+          "pass_trip_ledger",
+          "settled",
+          "chat_message",
+          0,
+          "usage_key_invalid_quantity",
+          "request_invalid_quantity",
+        ],
+      ),
+      "trip_usage_events_quantity_check",
     );
 
     await db.close();
@@ -1458,6 +1917,9 @@ const tripTableNames = [
   "shared_trip_plans",
   "trip_passes",
   "trip_usage_meters",
+  "trip_pass_orders",
+  "trip_pass_grants",
+  "trip_usage_events",
 ];
 const hardeningSupportingIndexNames = [
   "agent_readable_snapshots_public_page_id_idx",
@@ -1508,6 +1970,13 @@ const hardeningSupportingIndexNames = [
   "source_profiles_provider_id_idx",
   "source_records_raw_snapshot_id_idx",
   "source_records_source_profile_id_idx",
+  "trip_pass_grants_order_id_idx",
+  "trip_pass_grants_trip_pass_id_idx",
+  "trip_pass_grants_user_expires_at_idx",
+  "trip_pass_orders_user_status_created_at_idx",
+  "trip_usage_events_trip_pass_meter_created_at_idx",
+  "trip_usage_events_usage_meter_id_idx",
+  "trip_usage_events_user_created_at_idx",
 ];
 const hotPathIndexNames = [
   "chat_messages_thread_user_created_id_idx",
@@ -1609,6 +2078,19 @@ const hardeningCheckConstraintNames = [
   "source_records_allowed_use_check",
   "trip_passes_status_check",
   "trip_passes_timestamp_order_check",
+  "trip_pass_grants_duration_days_check",
+  "trip_pass_grants_product_version_check",
+  "trip_pass_grants_quantity_check",
+  "trip_pass_grants_source_type_check",
+  "trip_pass_grants_timestamp_order_check",
+  "trip_pass_orders_amount_total_minor_check",
+  "trip_pass_orders_completed_at_check",
+  "trip_pass_orders_currency_check",
+  "trip_pass_orders_product_version_check",
+  "trip_pass_orders_status_check",
+  "trip_usage_events_event_type_check",
+  "trip_usage_events_meter_type_check",
+  "trip_usage_events_quantity_check",
   "trip_usage_meters_counter_check",
   "trip_usage_meters_meter_type_check",
 ];
@@ -1649,6 +2131,10 @@ function requiredString(value: string | undefined): string {
 }
 
 async function expectCheckViolation(promise: Promise<unknown>, constraintName: string) {
+  await expect(promise).rejects.toThrow(new RegExp(constraintName));
+}
+
+async function expectUniqueViolation(promise: Promise<unknown>, constraintName: string) {
   await expect(promise).rejects.toThrow(new RegExp(constraintName));
 }
 

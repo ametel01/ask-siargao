@@ -18,6 +18,9 @@ export const applicationTables = [
   "shared_trip_plans",
   "trip_passes",
   "trip_usage_meters",
+  "trip_pass_orders",
+  "trip_pass_grants",
+  "trip_usage_events",
   "areas",
   "routes",
   "providers",
@@ -68,6 +71,9 @@ export const userOwnedTables = [
   "shared_trip_plans",
   "trip_passes",
   "trip_usage_meters",
+  "trip_pass_orders",
+  "trip_pass_grants",
+  "trip_usage_events",
 ] as const;
 
 export const defaultReportingTables = [

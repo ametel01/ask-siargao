@@ -311,6 +311,137 @@ export const tripUsageMeters = pgTable(
   ],
 );
 
+export const tripPassOrders = pgTable(
+  "trip_pass_orders",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").references(() => users.id),
+    email: text("email"),
+    status: text("status").notNull(),
+    productCode: text("product_code").notNull(),
+    productVersion: integer("product_version").notNull(),
+    stripePriceId: text("stripe_price_id").notNull(),
+    amountTotalMinor: integer("amount_total_minor"),
+    currency: text("currency"),
+    checkoutIdempotencyKey: text("checkout_idempotency_key").notNull().unique(),
+    stripeCheckoutSessionId: text("stripe_checkout_session_id").unique(),
+    stripePaymentIntentId: text("stripe_payment_intent_id").unique(),
+    stripeCustomerId: text("stripe_customer_id"),
+    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("trip_pass_orders_user_status_created_at_idx").on(
+      table.userId,
+      table.status,
+      table.createdAt,
+    ),
+    index("trip_pass_orders_status_created_at_idx").on(table.status, table.createdAt),
+    index("trip_pass_orders_product_code_idx").on(table.productCode),
+    check(
+      "trip_pass_orders_status_check",
+      sql`${table.status} in ('pending', 'checkout_created', 'paid', 'cancelled', 'expired', 'refunded', 'disputed', 'failed')`,
+    ),
+    check("trip_pass_orders_product_version_check", sql`${table.productVersion} > 0`),
+    check(
+      "trip_pass_orders_amount_total_minor_check",
+      sql`${table.amountTotalMinor} is null or ${table.amountTotalMinor} >= 0`,
+    ),
+    check(
+      "trip_pass_orders_currency_check",
+      sql`${table.currency} is null or ${table.currency} ~ '^[a-z]{3}$'`,
+    ),
+    check(
+      "trip_pass_orders_completed_at_check",
+      sql`${table.completedAt} is null or ${table.completedAt} >= ${table.createdAt}`,
+    ),
+  ],
+);
+
+export const tripPassGrants = pgTable(
+  "trip_pass_grants",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id").references(() => tripPassOrders.id),
+    tripPassId: text("trip_pass_id")
+      .notNull()
+      .references(() => tripPasses.id),
+    userId: text("user_id").references(() => users.id),
+    sourceType: text("source_type").notNull(),
+    sourceEventId: text("source_event_id").notNull(),
+    productCode: text("product_code").notNull(),
+    productVersion: integer("product_version").notNull(),
+    quantity: integer("quantity").notNull().default(1),
+    durationDays: integer("duration_days").notNull(),
+    meterLimitsJson: jsonb("meter_limits_json").$type<Record<string, number>>().notNull(),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("trip_pass_grants_source_type_event_id_idx").on(
+      table.sourceType,
+      table.sourceEventId,
+    ),
+    index("trip_pass_grants_order_id_idx").on(table.orderId),
+    index("trip_pass_grants_trip_pass_id_idx").on(table.tripPassId),
+    index("trip_pass_grants_user_expires_at_idx").on(table.userId, table.expiresAt),
+    check(
+      "trip_pass_grants_source_type_check",
+      sql`${table.sourceType} in ('stripe_checkout', 'manual_operator', 'refund_adjustment', 'dispute_adjustment')`,
+    ),
+    check("trip_pass_grants_product_version_check", sql`${table.productVersion} > 0`),
+    check("trip_pass_grants_quantity_check", sql`${table.quantity} > 0`),
+    check("trip_pass_grants_duration_days_check", sql`${table.durationDays} > 0`),
+    check("trip_pass_grants_timestamp_order_check", sql`${table.startsAt} < ${table.expiresAt}`),
+  ],
+);
+
+export const tripUsageEvents = pgTable(
+  "trip_usage_events",
+  {
+    id: text("id").primaryKey(),
+    tripPassId: text("trip_pass_id")
+      .notNull()
+      .references(() => tripPasses.id),
+    usageMeterId: text("usage_meter_id").references(() => tripUsageMeters.id),
+    userId: text("user_id").references(() => users.id),
+    eventType: text("event_type").notNull(),
+    meterType: text("meter_type").notNull(),
+    quantity: integer("quantity").notNull(),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    requestId: text("request_id").notNull(),
+    requestHash: text("request_hash"),
+    providerRequestIdsJson: jsonb("provider_request_ids_json")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("trip_usage_events_trip_pass_meter_created_at_idx").on(
+      table.tripPassId,
+      table.meterType,
+      table.createdAt,
+    ),
+    index("trip_usage_events_usage_meter_id_idx").on(table.usageMeterId),
+    index("trip_usage_events_user_created_at_idx").on(table.userId, table.createdAt),
+    index("trip_usage_events_request_id_idx").on(table.requestId),
+    check(
+      "trip_usage_events_event_type_check",
+      sql`${table.eventType} in ('reserved', 'settled', 'released', 'adjusted')`,
+    ),
+    check(
+      "trip_usage_events_meter_type_check",
+      sql`${table.meterType} in ('chat_message', 'live_refresh', 'heavy_recommendation', 'weather_refresh', 'route_lookup')`,
+    ),
+    check("trip_usage_events_quantity_check", sql`${table.quantity} > 0`),
+  ],
+);
+
 export const areas = pgTable(
   "areas",
   {

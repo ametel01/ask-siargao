@@ -60,6 +60,9 @@ describe("database authorization boundaries", () => {
       "shared_trip_plans",
       "trip_passes",
       "trip_usage_meters",
+      "trip_pass_orders",
+      "trip_pass_grants",
+      "trip_usage_events",
     ]);
   });
 

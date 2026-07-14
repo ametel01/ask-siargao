@@ -163,15 +163,36 @@ commit.
 
 ## Step 2 - Add the Order, Grant, and Usage Event Ledger
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T01:10:37Z`
+- Completed: `2026-07-14T01:19:07Z`
+- Implementing commit SHA: this Step 2 commit.
+- Files and behavior changed: added `trip_pass_orders`, `trip_pass_grants`, and
+  `trip_usage_events` to the Drizzle schema and additive `0008` migration; included safe product,
+  price, amount, currency, provider, metadata, grant, and usage snapshots; added unique checkout,
+  provider-event, and usage idempotency keys; added status/type/timestamp/positive quantity checks;
+  added hot-path and foreign-key-supporting indexes; included operational rollback guidance as
+  flag disablement plus forward repair; updated database authorization table grants for the new
+  runtime-owned ledger tables.
+- Acceptance criteria checked: fresh and idempotent test migrations apply; the migrated schema and
+  typed Drizzle exports remain in parity; PGlite constraints reject duplicate checkout, grant, and
+  usage application keys plus negative or invalid amount and quantity records; existing Trip Pass,
+  audit, payment, chat, seed, build, and browser flows remain compatible.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes applied after final edits.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 355 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed, 1015 tests, 0 failures, 5432 assertions.
+  - `bun test src/server/db/migration.test.ts`: passed, 19 tests, 0 failures, 130 assertions.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 92 tests, 0 failures.
+- Changelog decision and entry location: added an `Added` entry under `[Unreleased]` for the
+  durable Trip Pass order, grant, and usage-event ledger.
+- Risks, follow-ups, or blocker: no blocker; later checkout, webhook, and entitlement steps still
+  need to write server-authoritative rows into the new ledger.
 
 ## Step 3 - Implement Entitlement Selection and Idempotent Grants
 
