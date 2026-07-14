@@ -754,15 +754,50 @@ commit.
 
 ## Step 14 - Add Reconciliation and Support Diagnostics
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending.
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T04:22:00Z`
+- Completed: `2026-07-14T04:37:30Z`
+- Implementing commit SHA: this Step 14 commit.
+- Files and behavior changed: added a Trip Pass reconciliation service with dry-run default,
+  explicit-confirmation repair mode, redacted issue/action output, safe support lookup by local
+  order/pass reference or authenticated user guard, and idempotent repairs for paid-without-pass,
+  missing-meter, and stale reserved-usage states; extended admin diagnostics with redacted Trip Pass
+  reconciliation and support lookup snapshots; documented operator boundaries for cost circuits,
+  shared quota-store leases, and durable usage-event reconciliation; added PGlite fixtures covering
+  dry-run planning, repeat repair, ambiguous mixed references, cross-user protection, stale
+  reservation release, and redaction.
+- Acceptance criteria checked: paid travelers without access are identified as `paid_without_pass`
+  and repaired only through an owner-scoped manual reconciliation grant; repeated repair does not
+  create duplicate grants; support lookup rejects cross-user order/pass references and flags mixed
+  owner references as ambiguous; stale SQL usage reservations are released only in confirmed repair
+  mode; diagnostics report missing/duplicate provider request references and meter aggregate
+  mismatches without reconstructing prompts or repricing history; output redaction tests block
+  emails and Stripe-like checkout/payment references; shared quota-store lease and budget state is
+  documented as non-introspectable because the quota store expires those entries internally without
+  exposing a read API.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes on final run.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 387 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test src/server/trip-pass/reconciliation.test.ts src/server/admin/diagnostics.test.ts`:
+    passed, 12 tests, 0 failures, 53 assertions.
+  - `bun test`: passed, 1111 tests, 0 failures, 5973 assertions.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed and generated the dynamic `/admin/diagnostics` route.
+  - `bun run test:e2e`: passed, 94 tests, 0 failures. The clean run included
+    `ISSUE_124_MOTION_METRICS` with `motionLongTaskCountOver50ms: 0`; an earlier full attempt had
+    one known motion long-task variance and was rerun cleanly.
+  - `bun run doctor -- --verbose --scope changed`: passed, React Doctor reported no issues and
+    score `100 / 100`.
+  - Clean full-gate log: `/tmp/ask-siargao-step14-gates-clean-20260714T043318Z.log`.
+- Changelog decision and entry location: added an `Added` entry under `[Unreleased]` for redacted
+  Trip Pass reconciliation and support diagnostics.
+- Risks, follow-ups, or blocker: no Step 14 blocker; live operator use still depends on production
+  `ADMIN_ACCESS_TOKEN`, Stripe Price, Redis, analytics, and model-budget configuration, while
+  expired quota-store concurrency leases and budget reservations remain intentionally reported as
+  configuration/state boundaries rather than durable per-request rows.
 
 ## Step 15 - Prove Siargao Decision Quality Under Monetisation Limits
 

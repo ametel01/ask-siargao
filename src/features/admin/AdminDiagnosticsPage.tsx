@@ -5,8 +5,10 @@ import {
   Gauge,
   Lock,
   type LucideIcon,
+  ReceiptText,
   ServerCrash,
   ShieldCheck,
+  Wrench,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +60,7 @@ export function AdminDiagnosticsPage({
   }
 
   const providerAndJobFailuresCount = snapshot.providerErrors.length + snapshot.jobFailures.length;
+  const tripPassIssueCount = snapshot.tripPassReconciliation?.issues.length ?? 0;
 
   return (
     <AppBackdrop>
@@ -66,18 +69,20 @@ export function AdminDiagnosticsPage({
           description={
             <>
               Inspect blocked audits, stale facts, reviewer rejections, provider failures, job
-              errors, and LLM cost drivers without exposing raw provider payloads or secrets.
+              errors, Trip Pass reconciliation, and LLM cost drivers without exposing raw provider
+              payloads or secrets.
             </>
           }
           eyebrow={`Operator console · ${access.mode} access`}
           title="Audit diagnostics"
         />
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <Metric label="Blocked audits" value={snapshot.blockedAudits.length} />
           <Metric label="Provider errors" value={snapshot.providerErrors.length} />
           <Metric label="Stale facts" value={snapshot.sourceFreshnessIssues.length} />
           <Metric label="Job failures" value={snapshot.jobFailures.length} />
+          <Metric label="Trip Pass issues" value={tripPassIssueCount} />
         </div>
 
         <div className={gridClass}>
@@ -195,6 +200,76 @@ export function AdminDiagnosticsPage({
         </section>
 
         <section className={appPanelClass}>
+          <SectionHeading icon={Wrench} title="Trip Pass reconciliation" />
+          {snapshot.tripPassReconciliation ? (
+            <div className={gridClass}>
+              <DiagnosticCard
+                body={[
+                  `analytics: ${snapshot.tripPassReconciliation.infrastructure.analyticsSink}`,
+                  `quota store: ${snapshot.tripPassReconciliation.infrastructure.sharedQuotaStore}`,
+                  `DeepSeek circuit: ${snapshot.tripPassReconciliation.infrastructure.costCircuits.deepseek}`,
+                  `global circuit: ${snapshot.tripPassReconciliation.infrastructure.costCircuits.global}`,
+                ].join(", ")}
+                meta={`${snapshot.tripPassReconciliation.mode} · ${snapshot.tripPassReconciliation.actions.length} actions`}
+                title="Store and circuit health"
+              />
+              {snapshot.tripPassReconciliation.issues.map((issue) => (
+                <DiagnosticCard
+                  body={formatIssueDetails(issue.details)}
+                  key={`${issue.code}:${issue.localRef}`}
+                  meta={`${issue.severity} · ${issue.repairable ? "repairable" : "manual"}`}
+                  title={`${issue.code}: ${issue.localRef}`}
+                />
+              ))}
+              {snapshot.tripPassReconciliation.actions.map((action) => (
+                <DiagnosticCard
+                  body={action.reason}
+                  key={`${action.action}:${action.localRef}`}
+                  meta={action.status}
+                  title={`${action.action}: ${action.localRef}`}
+                />
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              description="No Trip Pass reconciliation snapshot is present for this diagnostics view."
+              icon={Wrench}
+              title="No Trip Pass diagnostics"
+            />
+          )}
+        </section>
+
+        <section className={appPanelClass}>
+          <SectionHeading icon={ReceiptText} title="Support lookup" />
+          {snapshot.tripPassSupportLookup?.status === "found" ? (
+            <div className={gridClass}>
+              <DiagnosticCard
+                body={formatList(snapshot.tripPassSupportLookup.summary.statuses)}
+                meta={snapshot.tripPassSupportLookup.referenceType}
+                title={formatList([
+                  ...snapshot.tripPassSupportLookup.summary.orderRefs,
+                  ...snapshot.tripPassSupportLookup.summary.passRefs,
+                ])}
+              />
+              {snapshot.tripPassSupportLookup.summary.meterSummary.map((meter) => (
+                <DiagnosticCard
+                  body={`${meter.used} used, ${meter.reserved} reserved, ${meter.limit} limit`}
+                  key={meter.meterType}
+                  meta="meter"
+                  title={meter.meterType}
+                />
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              description="No support reference lookup is present for this diagnostics view."
+              icon={ReceiptText}
+              title="No support lookup"
+            />
+          )}
+        </section>
+
+        <section className={appPanelClass}>
           <SectionHeading icon={ClipboardList} title="Drill-down views" />
           <div className={gridClass}>
             <DiagnosticCard
@@ -305,4 +380,13 @@ function metaTone(meta: string): "secondary" | "destructive" | "outline" {
 
 function formatList(items: string[], fallback = "No details recorded.") {
   return items.length > 0 ? items.join(", ") : fallback;
+}
+
+function formatIssueDetails(details: Record<string, string | number | boolean | null> | undefined) {
+  if (!details) {
+    return "No details recorded.";
+  }
+  return Object.entries(details)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(", ");
 }
