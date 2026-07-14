@@ -4,6 +4,7 @@ import {
   createConfiguredChatResponsesClient,
   defaultDeepSeekChatModel,
   type ResponsesClientLike,
+  type ResponsesCreateResult,
   resolvePrimaryChatModel,
 } from "@/server/llm/chat-model-provider";
 
@@ -29,7 +30,18 @@ describe("chat model provider", () => {
               requests.push(params);
               return {
                 id: "deepseek_response_1",
+                _request_id: "deepseek_req_1",
                 model: "deepseek-v4-flash",
+                usage: {
+                  prompt_tokens: 1200,
+                  prompt_cache_hit_tokens: 800,
+                  prompt_cache_miss_tokens: 400,
+                  completion_tokens: 90,
+                  completion_tokens_details: {
+                    reasoning_tokens: 30,
+                  },
+                  total_tokens: 1290,
+                },
                 choices: [
                   {
                     message: {
@@ -79,6 +91,18 @@ describe("chat model provider", () => {
     });
 
     expect(response.model).toBe("deepseek-v4-flash");
+    expect(response.usage).toEqual({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      mode: "thinking_high",
+      upstreamRequestId: "deepseek_req_1",
+      inputCacheHitTokens: 800,
+      inputCacheMissTokens: 400,
+      inputTokens: 1200,
+      outputTokens: 90,
+      reasoningTokens: 30,
+      totalTokens: 1290,
+    });
     expect(response.output_text).toBeUndefined();
     expect(response.output).toEqual([
       {
@@ -145,6 +169,38 @@ describe("chat model provider", () => {
     ]);
   });
 
+  test("keeps partial DeepSeek usage fields without inventing missing token classes", async () => {
+    const client = createConfiguredChatResponsesClient({
+      deepSeekClient: {
+        chat: {
+          completions: {
+            create: async () => ({
+              id: "deepseek_partial_usage",
+              model: "deepseek-v4-flash",
+              usage: {
+                prompt_cache_hit_tokens: 7,
+                completion_tokens: 3,
+              },
+              choices: [{ message: { content: "Partial usage answer." } }],
+            }),
+          },
+        },
+      },
+      deepSeekModel: "deepseek-v4-flash",
+    });
+
+    const response = await client.responses.create({ input: "Hello" });
+
+    expect(response.usage).toEqual({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      mode: "thinking_high",
+      upstreamRequestId: "deepseek_partial_usage",
+      inputCacheHitTokens: 7,
+      outputTokens: 3,
+    });
+  });
+
   test("falls back to OpenAI after a DeepSeek request failure", async () => {
     const fallbackRequests: Record<string, unknown>[] = [];
     const fallbackClient: ResponsesClientLike = {
@@ -153,9 +209,18 @@ describe("chat model provider", () => {
           fallbackRequests.push(params);
           return {
             id: "openai_response_1",
+            _request_id: "openai_req_1",
             model: "gpt-5.4-mini",
             output_text: "Fallback answer.",
-          };
+            usage: {
+              input_tokens: 123,
+              output_tokens: 45,
+              output_tokens_details: {
+                reasoning_tokens: 6,
+              },
+              total_tokens: 168,
+            },
+          } as unknown as ResponsesCreateResult;
         },
       },
     };
@@ -181,6 +246,16 @@ describe("chat model provider", () => {
 
     expect(response.output_text).toBe("Fallback answer.");
     expect(response.model).toBe("gpt-5.4-mini");
+    expect(response.usage).toEqual({
+      provider: "openai",
+      model: "gpt-5.4-mini",
+      mode: "unknown",
+      upstreamRequestId: "openai_req_1",
+      inputTokens: 123,
+      outputTokens: 45,
+      reasoningTokens: 6,
+      totalTokens: 168,
+    });
     expect(fallbackRequests).toHaveLength(1);
     expect(fallbackRequests[0]?.model).toBe("gpt-5.4-mini");
   });

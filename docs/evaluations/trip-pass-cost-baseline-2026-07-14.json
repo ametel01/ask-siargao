@@ -1,0 +1,549 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-14T00:00:00.000Z",
+  "redactionPolicy": "Prompt text, tool output text, reasoning content, raw user identifiers, cookies, email, IP, and precise coordinates are intentionally absent.",
+  "priceCatalog": {
+    "version": "deepseek-v4-flash-2026-07-14-export",
+    "currency": "USD",
+    "pricesPerToken": {
+      "deepseek": {
+        "deepseek-v4-flash": {
+          "inputCacheHitTokens": "0.0000000028",
+          "inputCacheMissTokens": "0.00000014",
+          "outputTokens": "0.00000028"
+        }
+      }
+    }
+  },
+  "providerModeBaseline": "deepseek_v4_flash_thinking_high",
+  "exportReference": {
+    "source": "/Users/alexmetelli/Downloads/usage_data_2026-06-14_2026-07-13/{amount,cost}-2026-06-14_2026-07-14.csv",
+    "model": "deepseek-v4-flash",
+    "apiKeyName": "ask-siargao",
+    "requestCount": 76,
+    "exportedCostUsd": "0.111115984",
+    "modeledCostUsd": "0.111115984",
+    "averageCostPerRequestUsd": "0.001462052",
+    "cacheHitRate": "0.6663",
+    "reconciles": true,
+    "rows": [
+      {
+        "utcDate": "20260705",
+        "requestCount": 24,
+        "inputCacheHitTokens": 536832,
+        "inputCacheMissTokens": 257653,
+        "outputTokens": 14896,
+        "costUsd": "0.0417454296",
+        "modeledCostUsd": "0.0417454296",
+        "reconciles": true
+      },
+      {
+        "utcDate": "20260706",
+        "requestCount": 38,
+        "inputCacheHitTokens": 694784,
+        "inputCacheMissTokens": 352593,
+        "outputTokens": 25254,
+        "costUsd": "0.0583795352",
+        "modeledCostUsd": "0.0583795352",
+        "reconciles": true
+      },
+      {
+        "utcDate": "20260713",
+        "requestCount": 14,
+        "inputCacheHitTokens": 113664,
+        "inputCacheMissTokens": 63630,
+        "outputTokens": 6302,
+        "costUsd": "0.0109910192",
+        "modeledCostUsd": "0.0109910192",
+        "reconciles": true
+      }
+    ]
+  },
+  "corpus": {
+    "caseCount": 10,
+    "orderStable": true,
+    "coldPrefixPrimingCaseCount": 1,
+    "warmRepeatedCaseCount": 9,
+    "totals": {
+      "callCount": 20,
+      "inputCacheHitTokens": 476500,
+      "inputCacheMissTokens": 178000,
+      "outputTokens": 11690,
+      "reasoningTokens": 2710,
+      "totalTokens": 666190,
+      "modeledCostUsd": "0.0295274"
+    },
+    "cases": [
+      {
+        "ordinal": 1,
+        "id": "routine_first_day_plan",
+        "promptClass": "routine_trip_planning",
+        "contextClass": "anonymous_no_trip_context",
+        "qualityResult": "pass",
+        "toolOrder": ["load_agent_memory_file"],
+        "artifactKinds": [],
+        "runPhase": "cold_prefix_priming",
+        "callCount": 1,
+        "totals": {
+          "inputCacheHitTokens": 12000,
+          "inputCacheMissTokens": 8000,
+          "outputTokens": 650,
+          "reasoningTokens": 120,
+          "totalTokens": 20650,
+          "modeledCostUsd": "0.0013356"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_01_final",
+            "inputCacheHitTokens": 12000,
+            "inputCacheMissTokens": 8000,
+            "outputTokens": 650,
+            "reasoningTokens": 120,
+            "totalTokens": 20650,
+            "modeledCostUsd": "0.0013356"
+          }
+        ]
+      },
+      {
+        "ordinal": 2,
+        "id": "weather_sensitive_scooter_decision",
+        "promptClass": "live_weather_decision",
+        "contextClass": "dated_trip_context",
+        "qualityResult": "pass",
+        "toolOrder": ["get_weather_forecast", "get_condition_judgment"],
+        "artifactKinds": ["decision_summary"],
+        "runPhase": "warm_repeated",
+        "callCount": 2,
+        "totals": {
+          "inputCacheHitTokens": 46000,
+          "inputCacheMissTokens": 18500,
+          "outputTokens": 1200,
+          "reasoningTokens": 320,
+          "totalTokens": 65700,
+          "modeledCostUsd": "0.0030548"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_02_tools",
+            "inputCacheHitTokens": 22000,
+            "inputCacheMissTokens": 11000,
+            "outputTokens": 420,
+            "reasoningTokens": 180,
+            "totalTokens": 33420,
+            "modeledCostUsd": "0.0017192"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_02_final",
+            "inputCacheHitTokens": 24000,
+            "inputCacheMissTokens": 7500,
+            "outputTokens": 780,
+            "reasoningTokens": 140,
+            "totalTokens": 32280,
+            "modeledCostUsd": "0.0013356"
+          }
+        ]
+      },
+      {
+        "ordinal": 3,
+        "id": "nearby_open_places",
+        "promptClass": "browser_location_places",
+        "contextClass": "single_request_geolocation_available",
+        "qualityResult": "pass",
+        "toolOrder": ["search_places"],
+        "artifactKinds": ["recommendation_card"],
+        "runPhase": "warm_repeated",
+        "callCount": 2,
+        "totals": {
+          "inputCacheHitTokens": 45200,
+          "inputCacheMissTokens": 17400,
+          "outputTokens": 1070,
+          "reasoningTokens": 270,
+          "totalTokens": 63670,
+          "modeledCostUsd": "0.00286216"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_03_tools",
+            "inputCacheHitTokens": 21500,
+            "inputCacheMissTokens": 10200,
+            "outputTokens": 360,
+            "reasoningTokens": 160,
+            "totalTokens": 32060,
+            "modeledCostUsd": "0.001589"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_03_final",
+            "inputCacheHitTokens": 23700,
+            "inputCacheMissTokens": 7200,
+            "outputTokens": 710,
+            "reasoningTokens": 110,
+            "totalTokens": 31610,
+            "modeledCostUsd": "0.00127316"
+          }
+        ]
+      },
+      {
+        "ordinal": 4,
+        "id": "heavy_restaurant_research",
+        "promptClass": "heavy_recommendation_current_web",
+        "contextClass": "signed_in_trip_context",
+        "qualityResult": "pass",
+        "toolOrder": ["research_web", "search_places", "get_place_details"],
+        "artifactKinds": ["recommendation_card", "action"],
+        "runPhase": "warm_repeated",
+        "callCount": 3,
+        "totals": {
+          "inputCacheHitTokens": 94000,
+          "inputCacheMissTokens": 39800,
+          "outputTokens": 2210,
+          "reasoningTokens": 600,
+          "totalTokens": 136010,
+          "modeledCostUsd": "0.006454"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_04_tools_1",
+            "inputCacheHitTokens": 28000,
+            "inputCacheMissTokens": 17000,
+            "outputTokens": 540,
+            "reasoningTokens": 220,
+            "totalTokens": 45540,
+            "modeledCostUsd": "0.0026096"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_04_tools_2",
+            "inputCacheHitTokens": 32000,
+            "inputCacheMissTokens": 13000,
+            "outputTokens": 620,
+            "reasoningTokens": 200,
+            "totalTokens": 45620,
+            "modeledCostUsd": "0.0020832"
+          },
+          {
+            "callIndex": 3,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_04_final",
+            "inputCacheHitTokens": 34000,
+            "inputCacheMissTokens": 9800,
+            "outputTokens": 1050,
+            "reasoningTokens": 180,
+            "totalTokens": 44850,
+            "modeledCostUsd": "0.0017612"
+          }
+        ]
+      },
+      {
+        "ordinal": 5,
+        "id": "route_before_ferry_transfer",
+        "promptClass": "route_lookup_itinerary",
+        "contextClass": "dated_transfer_context",
+        "qualityResult": "pass",
+        "toolOrder": ["plan_local_itinerary"],
+        "artifactKinds": ["itinerary"],
+        "runPhase": "warm_repeated",
+        "callCount": 2,
+        "totals": {
+          "inputCacheHitTokens": 42300,
+          "inputCacheMissTokens": 16100,
+          "outputTokens": 1150,
+          "reasoningTokens": 230,
+          "totalTokens": 59550,
+          "modeledCostUsd": "0.00269444"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_05_tools",
+            "inputCacheHitTokens": 20200,
+            "inputCacheMissTokens": 9400,
+            "outputTokens": 390,
+            "reasoningTokens": 130,
+            "totalTokens": 29990,
+            "modeledCostUsd": "0.00148176"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_05_final",
+            "inputCacheHitTokens": 22100,
+            "inputCacheMissTokens": 6700,
+            "outputTokens": 760,
+            "reasoningTokens": 100,
+            "totalTokens": 29560,
+            "modeledCostUsd": "0.00121268"
+          }
+        ]
+      },
+      {
+        "ordinal": 6,
+        "id": "surf_spots_nearby",
+        "promptClass": "browser_location_surf_ranking",
+        "contextClass": "trip_session_geolocation_available",
+        "qualityResult": "pass",
+        "toolOrder": ["rank_surf_spots_nearby", "get_marine_conditions"],
+        "artifactKinds": ["decision_summary"],
+        "runPhase": "warm_repeated",
+        "callCount": 2,
+        "totals": {
+          "inputCacheHitTokens": 52200,
+          "inputCacheMissTokens": 20400,
+          "outputTokens": 1300,
+          "reasoningTokens": 300,
+          "totalTokens": 73900,
+          "modeledCostUsd": "0.00336616"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_06_tools",
+            "inputCacheHitTokens": 24800,
+            "inputCacheMissTokens": 12300,
+            "outputTokens": 480,
+            "reasoningTokens": 170,
+            "totalTokens": 37580,
+            "modeledCostUsd": "0.00192584"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_06_final",
+            "inputCacheHitTokens": 27400,
+            "inputCacheMissTokens": 8100,
+            "outputTokens": 820,
+            "reasoningTokens": 130,
+            "totalTokens": 36320,
+            "modeledCostUsd": "0.00144032"
+          }
+        ]
+      },
+      {
+        "ordinal": 7,
+        "id": "provider_failure_caveat",
+        "promptClass": "live_provider_failure",
+        "contextClass": "weather_provider_unavailable",
+        "qualityResult": "pass",
+        "toolOrder": ["get_weather_forecast"],
+        "artifactKinds": [],
+        "runPhase": "warm_repeated",
+        "callCount": 2,
+        "totals": {
+          "inputCacheHitTokens": 39400,
+          "inputCacheMissTokens": 13500,
+          "outputTokens": 950,
+          "reasoningTokens": 200,
+          "totalTokens": 53850,
+          "modeledCostUsd": "0.00226632"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_07_tools",
+            "inputCacheHitTokens": 18900,
+            "inputCacheMissTokens": 7900,
+            "outputTokens": 340,
+            "reasoningTokens": 110,
+            "totalTokens": 27140,
+            "modeledCostUsd": "0.00125412"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_07_final",
+            "inputCacheHitTokens": 20500,
+            "inputCacheMissTokens": 5600,
+            "outputTokens": 610,
+            "reasoningTokens": 90,
+            "totalTokens": 26710,
+            "modeledCostUsd": "0.0010122"
+          }
+        ]
+      },
+      {
+        "ordinal": 8,
+        "id": "public_source_disclosure",
+        "promptClass": "source_governed_local_fact",
+        "contextClass": "local_guide_memory",
+        "qualityResult": "pass",
+        "toolOrder": ["query_local_facts", "get_source_evidence"],
+        "artifactKinds": [],
+        "runPhase": "warm_repeated",
+        "callCount": 2,
+        "totals": {
+          "inputCacheHitTokens": 55100,
+          "inputCacheMissTokens": 17000,
+          "outputTokens": 1120,
+          "reasoningTokens": 260,
+          "totalTokens": 73220,
+          "modeledCostUsd": "0.00284788"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_08_tools",
+            "inputCacheHitTokens": 26200,
+            "inputCacheMissTokens": 10100,
+            "outputTokens": 430,
+            "reasoningTokens": 150,
+            "totalTokens": 36730,
+            "modeledCostUsd": "0.00160776"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_08_final",
+            "inputCacheHitTokens": 28900,
+            "inputCacheMissTokens": 6900,
+            "outputTokens": 690,
+            "reasoningTokens": 110,
+            "totalTokens": 36490,
+            "modeledCostUsd": "0.00124012"
+          }
+        ]
+      },
+      {
+        "ordinal": 9,
+        "id": "mixed_card_selection",
+        "promptClass": "adversarial_artifact_selection",
+        "contextClass": "mixed_allowed_disallowed_cards",
+        "qualityResult": "pass",
+        "toolOrder": ["search_places"],
+        "artifactKinds": ["recommendation_card"],
+        "runPhase": "warm_repeated",
+        "callCount": 2,
+        "totals": {
+          "inputCacheHitTokens": 49200,
+          "inputCacheMissTokens": 16100,
+          "outputTokens": 1130,
+          "reasoningTokens": 240,
+          "totalTokens": 66430,
+          "modeledCostUsd": "0.00270816"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_09_tools",
+            "inputCacheHitTokens": 23400,
+            "inputCacheMissTokens": 9600,
+            "outputTokens": 390,
+            "reasoningTokens": 140,
+            "totalTokens": 33390,
+            "modeledCostUsd": "0.00151872"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_09_final",
+            "inputCacheHitTokens": 25800,
+            "inputCacheMissTokens": 6500,
+            "outputTokens": 740,
+            "reasoningTokens": 100,
+            "totalTokens": 33040,
+            "modeledCostUsd": "0.00118944"
+          }
+        ]
+      },
+      {
+        "ordinal": 10,
+        "id": "cached_local_fallback_after_live_limit",
+        "promptClass": "live_limit_cached_fallback",
+        "contextClass": "paid_live_meter_exhausted",
+        "qualityResult": "pass",
+        "toolOrder": ["search_local_guide"],
+        "artifactKinds": [],
+        "runPhase": "warm_repeated",
+        "callCount": 2,
+        "totals": {
+          "inputCacheHitTokens": 41100,
+          "inputCacheMissTokens": 11200,
+          "outputTokens": 910,
+          "reasoningTokens": 170,
+          "totalTokens": 53210,
+          "modeledCostUsd": "0.00193788"
+        },
+        "calls": [
+          {
+            "callIndex": 1,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_10_tools",
+            "inputCacheHitTokens": 19800,
+            "inputCacheMissTokens": 6400,
+            "outputTokens": 330,
+            "reasoningTokens": 90,
+            "totalTokens": 26530,
+            "modeledCostUsd": "0.00104384"
+          },
+          {
+            "callIndex": 2,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "thinking_high",
+            "upstreamRequestId": "req_eval_10_final",
+            "inputCacheHitTokens": 21300,
+            "inputCacheMissTokens": 4800,
+            "outputTokens": 580,
+            "reasoningTokens": 80,
+            "totalTokens": 26680,
+            "modeledCostUsd": "0.00089404"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -50,6 +50,8 @@ import {
   selectedResearchEntityNames,
 } from "@/server/chat/required-evidence";
 import { createConfiguredChatResponsesClient } from "@/server/llm/chat-model-provider";
+import { createModelCostAccumulator, modelCostTelemetryPayload } from "@/server/llm/model-cost";
+import { trackServerEvent } from "@/server/observability/events";
 import { createComponentLogger } from "@/server/observability/logger";
 import { createConfiguredWebResearchProvider } from "@/server/providers/web-search";
 
@@ -90,7 +92,10 @@ export async function runAskSiargaoAgentTurn(
   dependencies: AskSiargaoAgentDependencies = {},
 ): Promise<AgentTurnResult> {
   const resolved = resolveAgentRuntimeRequest(request, dependencies);
-  const client = dependencies.client ?? createConfiguredChatResponsesClient();
+  const costAccumulator = createModelCostAccumulator({ requestId: resolved.requestId });
+  const client = costAccumulator.wrapClient(
+    dependencies.client ?? createConfiguredChatResponsesClient(),
+  );
   const memorySnapshot =
     dependencies.memorySnapshot ?? dependencies.loadMemorySnapshot?.() ?? loadAgentMemorySnapshot();
   const toolDependencies: AgentToolDependencies = {
@@ -299,10 +304,19 @@ export async function runAskSiargaoAgentTurn(
         finalPayload && sanitizedAnswer !== finalPayload.answer
           ? { ...finalPayload, answer: sanitizedAnswer }
           : finalPayload;
+      const modelCost = costAccumulator.summary();
+      if (modelCost.callCount > 0) {
+        trackServerEvent({
+          name: "llm_cost_recorded",
+          payload: modelCostTelemetryPayload(modelCost),
+          now: dependencies.now?.(),
+        });
+      }
       return createAgentTurnResult({
         message: sanitizedAnswer,
         requestId: resolved.requestId,
         model: activeModel,
+        modelCost,
         memory,
         upstreamRequestIds,
         toolCalls,

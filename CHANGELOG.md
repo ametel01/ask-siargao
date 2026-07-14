@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added redacted request-scoped model-cost telemetry, DeepSeek usage normalization, and a Trip Pass
+  cost-baseline runner for operator unit-economics evidence.
 - Added a server-owned Trip Pass product catalog with disabled checkout, extension, DeepSeek
   cost-policy, anonymous identity, Redis, analytics, fallback, WAF, and cost-budget configuration
   states.

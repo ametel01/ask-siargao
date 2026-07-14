@@ -310,6 +310,15 @@ export async function chatResponse(
         actionCount: publicTurn.display.actions.length,
         itineraryCount: publicTurn.display.itineraries.length,
         decisionSummaryCount: publicTurn.display.decisionSummaries.length,
+        modelCost: result.modelCost
+          ? {
+              callCount: result.modelCost.callCount,
+              fallbackUsed: result.modelCost.fallbackUsed,
+              totalModeledCostUsd: result.modelCost.totalModeledCostUsd,
+              priceVersion: result.modelCost.priceVersion,
+              totals: result.modelCost.totals,
+            }
+          : undefined,
         ...(result.artifactSelection
           ? { artifactSelection: summarizeArtifactSelectionForLogs(result.artifactSelection) }
           : {}),

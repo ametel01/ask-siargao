@@ -24,6 +24,18 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         id: "resp_general",
         output_text: "For a first Siargao day, keep Cloud 9 and General Luna easy.",
         _request_id: "req_general",
+        usage: {
+          provider: "deepseek",
+          model: "deepseek-v4-flash",
+          mode: "thinking_high",
+          upstreamRequestId: "req_general",
+          inputCacheHitTokens: 100,
+          inputCacheMissTokens: 50,
+          inputTokens: 150,
+          outputTokens: 25,
+          reasoningTokens: 5,
+          totalTokens: 175,
+        },
       },
     ]);
 
@@ -39,6 +51,21 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.model).toBe("gpt-test");
     expect(result.requestId).toBe("agent_request_general");
     expect(result.upstreamRequestIds).toEqual(["req_general"]);
+    expect(result.modelCost).toMatchObject({
+      requestId: "agent_request_general",
+      callCount: 1,
+      fallbackUsed: false,
+      totalModeledCostUsd: "0.00001428",
+      totals: {
+        inputCacheHitTokens: 100,
+        inputCacheMissTokens: 50,
+        inputTokens: 150,
+        outputTokens: 25,
+        reasoningTokens: 5,
+        totalTokens: 175,
+      },
+    });
+    expect(JSON.stringify(result.modelCost)).not.toContain("first afternoon");
     expect(result.toolCalls).toEqual([]);
     expect(result.memory?.versionId).toMatch(/^agent-memory:[a-f0-9]{24}$/);
     expect(result.memory?.files.map((file) => file.fileName)).toContain(

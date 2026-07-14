@@ -81,15 +81,42 @@ commit.
 
 ## Step 1A - Capture Per-Answer DeepSeek Usage and Cost Baselines
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T00:45:30Z`
+- Completed: `2026-07-14T00:56:10Z`
+- Implementing commit SHA: this Step 1A commit.
+- Files and behavior changed: added normalized model-usage and cost accounting in
+  `src/server/llm/model-cost.ts`; extended DeepSeek and OpenAI response adaptation to carry
+  cache-hit input, cache-miss input, input, output, reasoning, total tokens, model, mode, and
+  upstream request ID when provided; wrapped agent model calls in a request-scoped accumulator that
+  records sanitized `llm_cost_recorded` telemetry and exposes aggregate `modelCost` on internal turn
+  results; added a fixed 10-case Trip Pass cost baseline corpus and runner plus the generated
+  redacted artifact at `docs/evaluations/trip-pass-cost-baseline-2026-07-14.json`.
+- Acceptance criteria checked: DeepSeek representative full and partial usage fields round-trip
+  without invented zeros; OpenAI fallback maps onto the same normalized type; request totals
+  aggregate across calls and exclude prompt text, tool output, reasoning content, raw user/IP/cookie,
+  email, and precise coordinates; supplied DeepSeek CSV rows reconcile exactly to modeled costs;
+  the baseline artifact records 10 stable cases, quality result, tool order, artifact kinds, call
+  counts, token classes, thinking-high mode, fallback state, and modeled costs without sensitive
+  content.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes applied after final edits.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 352 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed, 1006 tests, 0 failures, 5405 assertions.
+  - `bun run eval:trip-pass-cost-baseline -- --write`: passed; export reconciliation
+    `0.111115984` USD modeled vs exported across 76 calls; baseline corpus total `0.0295274` USD
+    across 20 modeled calls.
+  - `bun run db:migrate:test`: passed, 50 tables and 8 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 92 tests, 0 failures.
+- Changelog decision and entry location: added an `Added` entry under `[Unreleased]` because
+  operators now have redacted model-cost telemetry and a supported Trip Pass cost-baseline runner.
+- Risks, follow-ups, or blocker: the baseline runner uses sanitized fixture measurements for the
+  fixed corpus; future candidate optimization must use the same ordered case IDs and distinguish
+  cold-prefix priming from warm repeated runs.
 
 ## Step 1B - Apply Entitlement-Aware DeepSeek Cost Policies
 

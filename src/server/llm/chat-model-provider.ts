@@ -1,11 +1,19 @@
 import OpenAI from "openai";
 
+import {
+  type ModelUsageMode,
+  type NormalizedModelUsage,
+  normalizeDeepSeekChatCompletionUsage,
+  normalizeOpenAIResponsesUsage,
+} from "@/server/llm/model-cost";
+
 export type ResponsesCreateResult = {
   id?: string;
   output_text?: string;
   _request_id?: string;
   output?: unknown;
   model?: string;
+  usage?: NormalizedModelUsage;
 };
 
 export type ResponsesClientLike = {
@@ -116,6 +124,11 @@ function withOpenAIResponseModel(client: ResponsesClientLike, model: string): Re
         return {
           ...response,
           model: response.model ?? model,
+          usage: normalizeOpenAIResponsesUsage({
+            fallback: true,
+            model,
+            response: response as Record<string, unknown>,
+          }),
         };
       },
     },
@@ -143,6 +156,11 @@ function createOpenAIResponsesFallbackClient({
         return {
           ...response,
           model: readString(response.model) ?? model,
+          usage: normalizeOpenAIResponsesUsage({
+            fallback: true,
+            model,
+            response: response as Record<string, unknown>,
+          }),
         };
       },
     },
@@ -174,10 +192,11 @@ function createDeepSeekResponsesCompatibilityClient({
     responses: {
       create: async (params) => {
         const requestedModel = readString(params.model) ?? model;
-        const response = await client.chat.completions.create(
-          responseParamsToChatCompletionParams(params, requestedModel),
-        );
-        return chatCompletionToResponseResult(response, requestedModel);
+        const chatCompletionParams = responseParamsToChatCompletionParams(params, requestedModel);
+        const response = await client.chat.completions.create(chatCompletionParams);
+        return chatCompletionToResponseResult(response, requestedModel, {
+          mode: modelUsageModeForDeepSeekRequest(chatCompletionParams),
+        });
       },
     },
   };
@@ -324,6 +343,11 @@ function responseToolsToChatTools(tools: unknown) {
 function chatCompletionToResponseResult(
   response: Record<string, unknown>,
   requestedModel: string,
+  {
+    mode,
+  }: {
+    mode: ModelUsageMode;
+  },
 ): ResponsesCreateResult {
   const choices = Array.isArray(response.choices) ? response.choices : [];
   const firstChoice = choices.find(isRecord);
@@ -358,7 +382,23 @@ function chatCompletionToResponseResult(
     output,
     ...(toolCalls.length === 0 && content ? { output_text: content } : {}),
     model: readString(response.model) ?? requestedModel,
+    usage: normalizeDeepSeekChatCompletionUsage({
+      mode,
+      requestedModel,
+      response,
+    }),
   };
+}
+
+function modelUsageModeForDeepSeekRequest(params: Record<string, unknown>): ModelUsageMode {
+  const thinking = isRecord(params.thinking) ? params.thinking : undefined;
+  if (thinking?.type === "enabled" && params.reasoning_effort === "high") {
+    return "thinking_high";
+  }
+  if (thinking?.type === "disabled") {
+    return "thinking_disabled";
+  }
+  return "unknown";
 }
 
 function chatToolCallToResponseOutput(

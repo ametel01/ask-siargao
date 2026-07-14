@@ -6,6 +6,7 @@ import type { AgentMemorySnapshot } from "@/server/chat/agent-memory";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 import { resolvePrimaryChatModel } from "@/server/llm/chat-model-provider";
+import type { ModelCostSummary, NormalizedModelUsage } from "@/server/llm/model-cost";
 
 export type AskSiargaoAgentToolName =
   | "get_weather_forecast"
@@ -210,6 +211,7 @@ export type AgentTurnResult = {
   requestId: string;
   upstreamRequestIds?: readonly string[];
   model: string;
+  modelCost?: ModelCostSummary;
   toolCalls: readonly AgentToolCallAudit[];
   sources: readonly AnswerSourceSummary[];
   publicSources: readonly AnswerSourceSummary[];
@@ -286,6 +288,7 @@ export type AgentResponsesCreateResult = {
   _request_id?: string;
   output?: unknown;
   model?: string;
+  usage?: NormalizedModelUsage;
 };
 
 export type AgentResponsesClient = {
@@ -418,10 +421,12 @@ export function createAgentTurnResult({
   toolCalls = [],
   toolResults,
   upstreamRequestIds,
+  modelCost,
 }: {
   message: string;
   requestId: string;
   model: string;
+  modelCost?: ModelCostSummary;
   memory?: AgentMemoryMetadata;
   upstreamRequestIds?: readonly string[];
   toolCalls?: readonly AgentToolCallAudit[];
@@ -482,6 +487,7 @@ export function createAgentTurnResult({
     requestId,
     ...(upstreamRequestIds?.length ? { upstreamRequestIds: unique(upstreamRequestIds) } : {}),
     model,
+    ...(modelCost && modelCost.callCount > 0 ? { modelCost } : {}),
     toolCalls,
     sources: reconciledSources,
     publicSources,
