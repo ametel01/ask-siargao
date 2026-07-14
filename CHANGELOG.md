@@ -15,8 +15,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
-- Added a durable Trip Pass order, grant, and usage-event ledger with idempotency keys,
-  provider-key snapshots, validity checks, and migration coverage for checkout and meter evidence.
+- Added a durable Trip Pass order, grant, and usage-event ledger plus server entitlement decisions
+  with idempotency keys, provider-key snapshots, validity checks, and migration coverage for
+  checkout and meter evidence.
 - Added redacted request-scoped model-cost telemetry, DeepSeek usage normalization, and a Trip Pass
   cost-baseline runner for operator unit-economics evidence.
 - Added a server-owned Trip Pass product catalog with disabled checkout, extension, DeepSeek

@@ -196,15 +196,36 @@ commit.
 
 ## Step 3 - Implement Entitlement Selection and Idempotent Grants
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T01:21:33Z`
+- Completed: `2026-07-14T01:28:42Z`
+- Implementing commit SHA: this Step 3 commit.
+- Files and behavior changed: added `src/server/trip-pass/entitlement.ts` as the server-owned
+  entitlement core for idempotent Trip Pass grants, transactional pass/grant/meter creation,
+  owner-scoped source and order validation, deterministic effective-pass selection, computed expiry,
+  and revoked-access projection.
+- Acceptance criteria checked: repeated source references return one grant/pass effect; a two-client
+  duplicate grant race produces one granted result and one duplicate result; source or order reuse
+  for another owner is rejected without creating extra rows; meter grants match the catalog snapshot;
+  active selection chooses one owner-scoped pass by latest expiry and deterministic tie-break; expiry
+  is computed at the exact boundary without cron-driven status changes; refunded passes project as
+  revoked and unrelated owners receive no pass.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes applied after final edits.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 357 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed, 1022 tests, 0 failures, 5458 assertions.
+  - `bun test src/server/trip-pass/entitlement.test.ts`: passed, 7 tests, 0 failures, 26
+    assertions.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 92 tests, 0 failures.
+- Changelog decision and entry location: extended the existing `[Unreleased]` `Added` ledger entry
+  to include server entitlement decisions rather than adding a duplicate internal-domain entry.
+- Risks, follow-ups, or blocker: no blocker; later checkout and webhook steps still need to call
+  `grantTripPass` from authenticated checkout/webhook flows.
 
 ## Step 4 - Create Safe Trip Pass Checkout Orders
 
