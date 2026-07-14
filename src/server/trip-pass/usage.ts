@@ -7,8 +7,10 @@ import {
   createRedisQuotaStore,
   type QuotaStore,
 } from "@/server/security/rate-limit";
-import { tripPassRateLimits } from "@/server/trip-pass/catalog";
+import { type TripPassMeterType, tripPassRateLimits } from "@/server/trip-pass/catalog";
 import { getEffectiveTripPass } from "@/server/trip-pass/entitlement";
+
+export type PaidDecisionMeterType = Exclude<TripPassMeterType, "chat_message">;
 
 export type PaidChatUsageAllowance = {
   chatMessages: {
@@ -24,6 +26,9 @@ export type PaidChatUsageSessionResult =
       allowance: PaidChatUsageAllowance;
       passId: string;
       release(): Promise<void>;
+      reserveDecisionMeter(input: {
+        meterType: PaidDecisionMeterType;
+      }): Promise<PaidDecisionMeterReservation>;
       settle(input: {
         providerRequestIds?: readonly string[];
         success: boolean;
@@ -52,6 +57,35 @@ export type PaidChatUsageSettlement =
   | { status: "duplicate"; allowance: PaidChatUsageAllowance | null }
   | { status: "released"; allowance: PaidChatUsageAllowance | null }
   | { status: "usage_limit_reached"; allowance: PaidChatUsageAllowance | null };
+
+export type PaidMeterAllowance = {
+  limit: number;
+  meterType: TripPassMeterType;
+  remaining: number;
+  used: number;
+};
+
+export type PaidDecisionMeterReservation =
+  | {
+      status: "reserved";
+      meterType: PaidDecisionMeterType;
+      release(): Promise<void>;
+      settle(input: {
+        providerRequestIds?: readonly string[];
+        success: boolean;
+      }): Promise<PaidDecisionMeterSettlement>;
+    }
+  | {
+      status: "usage_limit_reached";
+      allowance: PaidMeterAllowance | null;
+      meterType: PaidDecisionMeterType;
+    };
+
+export type PaidDecisionMeterSettlement =
+  | { status: "settled"; allowance: PaidMeterAllowance }
+  | { status: "duplicate"; allowance: PaidMeterAllowance | null }
+  | { status: "released"; allowance: PaidMeterAllowance | null }
+  | { status: "usage_limit_reached"; allowance: PaidMeterAllowance | null };
 
 export type OpenChatUsageSessionInput = {
   bodyHash?: string;
@@ -200,6 +234,10 @@ export async function openChatUsageSession(
   }
 
   let closed = false;
+  const decisionReservations = new Map<
+    PaidDecisionMeterType,
+    Promise<PaidDecisionMeterReservation>
+  >();
 
   async function closeConcurrency() {
     if (closed) {
@@ -214,6 +252,24 @@ export async function openChatUsageSession(
     allowance: reservation.allowance,
     passId,
     release: closeConcurrency,
+    reserveDecisionMeter(decisionInput) {
+      const existing = decisionReservations.get(decisionInput.meterType);
+      if (existing) {
+        return existing;
+      }
+      const promise = reserveDecisionMeterEventHandle({
+        db,
+        idempotencyKey: `${idempotencyKey}:${decisionInput.meterType}`,
+        meterType: decisionInput.meterType,
+        now,
+        passId,
+        requestHash,
+        requestId: `${input.requestId}:${decisionInput.meterType}`,
+        userId: input.userId,
+      });
+      decisionReservations.set(decisionInput.meterType, promise);
+      return promise;
+    },
     async settle(settleInput) {
       if (!settleInput.success) {
         await releaseChatMeterEvent(idempotencyKey, db);
@@ -334,6 +390,228 @@ async function reserveChatMeterEvent(
   }
 }
 
+async function reserveDecisionMeterEventHandle(input: {
+  db: DatabaseQueryClient;
+  idempotencyKey: string;
+  meterType: PaidDecisionMeterType;
+  now: Date;
+  passId: string;
+  requestHash: string;
+  requestId: string;
+  userId: string;
+}): Promise<PaidDecisionMeterReservation> {
+  const reservation = await reserveGenericMeterEvent(
+    {
+      idempotencyKey: input.idempotencyKey,
+      meterType: input.meterType,
+      now: input.now,
+      passId: input.passId,
+      requestHash: input.requestHash,
+      requestId: input.requestId,
+      userId: input.userId,
+    },
+    input.db,
+  );
+  if (reservation.status === "limit_reached" || reservation.status === "unavailable") {
+    return {
+      status: "usage_limit_reached",
+      allowance: reservation.allowance,
+      meterType: input.meterType,
+    };
+  }
+
+  let closed = false;
+  let finalSettlement: PaidDecisionMeterSettlement | null = null;
+
+  async function release() {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    await releaseGenericMeterEvent(input.idempotencyKey, input.db);
+    finalSettlement = { status: "released", allowance: reservation.allowance };
+  }
+
+  return {
+    status: "reserved",
+    meterType: input.meterType,
+    release,
+    async settle(settleInput) {
+      if (!settleInput.success) {
+        await release();
+        return finalSettlement ?? { status: "released", allowance: reservation.allowance };
+      }
+      if (closed) {
+        return finalSettlement ?? { status: "released", allowance: reservation.allowance };
+      }
+      closed = true;
+      finalSettlement = await settleGenericMeterEvent(
+        {
+          idempotencyKey: input.idempotencyKey,
+          now: input.now,
+          providerRequestIds: settleInput.providerRequestIds ?? [],
+        },
+        input.db,
+      );
+      return finalSettlement;
+    },
+  };
+}
+
+async function reserveGenericMeterEvent(
+  input: {
+    idempotencyKey: string;
+    meterType: PaidDecisionMeterType;
+    now: Date;
+    passId: string;
+    requestHash: string;
+    requestId: string;
+    userId: string;
+  },
+  db: DatabaseQueryClient,
+): Promise<
+  | { status: "reserved"; allowance: PaidMeterAllowance }
+  | { status: "limit_reached"; allowance: PaidMeterAllowance | null }
+  | { status: "unavailable"; allowance: null }
+> {
+  try {
+    return await withDatabaseTransaction(db, async (transaction) => {
+      const existing = await loadUsageEvent(input.idempotencyKey, transaction);
+      if (existing) {
+        const meter = existing.usage_meter_id
+          ? await loadMeterById(existing.usage_meter_id, transaction)
+          : await loadMeter(input.passId, input.meterType, transaction);
+        return meter
+          ? { status: "reserved", allowance: projectMeterAllowance(meter) }
+          : { status: "unavailable", allowance: null };
+      }
+
+      const meter = await loadMeter(input.passId, input.meterType, transaction);
+      if (!meter) {
+        return { status: "limit_reached", allowance: null };
+      }
+
+      const pending = await countReservedMeterEvents(input.passId, input.meterType, transaction);
+      if (meter.used + pending >= meter.limit) {
+        return { status: "limit_reached", allowance: projectMeterAllowance(meter) };
+      }
+
+      await transaction.query(
+        `
+          insert into trip_usage_events (
+            id,
+            trip_pass_id,
+            usage_meter_id,
+            user_id,
+            event_type,
+            meter_type,
+            quantity,
+            idempotency_key,
+            request_id,
+            request_hash,
+            provider_request_ids_json,
+            occurred_at,
+            created_at
+          )
+          values ($1, $2, $3, $4, 'reserved', $5, 1, $6, $7, $8, '[]'::jsonb, $9, $9)
+        `,
+        [
+          usageEventId(input.idempotencyKey),
+          input.passId,
+          meter.id,
+          input.userId,
+          input.meterType,
+          input.idempotencyKey,
+          input.requestId,
+          input.requestHash,
+          input.now,
+        ],
+      );
+
+      return { status: "reserved", allowance: projectMeterAllowance(meter) };
+    });
+  } catch {
+    return { status: "unavailable", allowance: null };
+  }
+}
+
+async function settleGenericMeterEvent(
+  input: {
+    idempotencyKey: string;
+    now: Date;
+    providerRequestIds: readonly string[];
+  },
+  db: DatabaseQueryClient,
+): Promise<PaidDecisionMeterSettlement> {
+  return withDatabaseTransaction(db, async (transaction) => {
+    const existing = await loadUsageEvent(input.idempotencyKey, transaction);
+    if (!existing?.usage_meter_id) {
+      return { status: "usage_limit_reached", allowance: null };
+    }
+    if (existing.event_type === "settled") {
+      const meter = await loadMeterById(existing.usage_meter_id, transaction);
+      return {
+        status: "duplicate",
+        allowance: meter ? projectMeterAllowance(meter) : null,
+      };
+    }
+    if (existing.event_type === "released") {
+      const meter = await loadMeterById(existing.usage_meter_id, transaction);
+      return {
+        status: "released",
+        allowance: meter ? projectMeterAllowance(meter) : null,
+      };
+    }
+
+    const consumed = await transaction.query<UsageMeterRow>(
+      `
+        update trip_usage_meters
+        set used = used + 1,
+            updated_at = $2
+        where id = $1
+          and used + 1 <= "limit"
+        returning id, trip_pass_id, meter_type, used, "limit", reset_at, updated_at
+      `,
+      [existing.usage_meter_id, input.now],
+    );
+    const meter = consumed.rows[0] ? mapMeterRow(consumed.rows[0]) : null;
+    if (!meter) {
+      return {
+        status: "usage_limit_reached",
+        allowance: await loadMeterById(existing.usage_meter_id, transaction).then((row) =>
+          row ? projectMeterAllowance(row) : null,
+        ),
+      };
+    }
+
+    await transaction.query(
+      `
+        update trip_usage_events
+        set event_type = 'settled',
+            provider_request_ids_json = $2::jsonb,
+            occurred_at = $3
+        where idempotency_key = $1
+          and event_type = 'reserved'
+      `,
+      [input.idempotencyKey, JSON.stringify([...input.providerRequestIds]), input.now],
+    );
+
+    return { status: "settled", allowance: projectMeterAllowance(meter) };
+  });
+}
+
+async function releaseGenericMeterEvent(idempotencyKey: string, db: DatabaseQueryClient) {
+  await db.query(
+    `
+      update trip_usage_events
+      set event_type = 'released'
+      where idempotency_key = $1
+        and event_type = 'reserved'
+    `,
+    [idempotencyKey],
+  );
+}
+
 async function settleChatMeterEvent(
   input: {
     idempotencyKey: string;
@@ -451,6 +729,37 @@ async function loadChatMeterById(meterId: string, db: DatabaseQueryClient) {
   return result.rows[0] ? mapMeterRow(result.rows[0]) : null;
 }
 
+async function loadMeter(
+  tripPassId: string,
+  meterType: TripPassMeterType,
+  db: DatabaseQueryClient,
+) {
+  const result = await db.query<UsageMeterRow>(
+    `
+      select id, trip_pass_id, meter_type, used, "limit", reset_at, updated_at
+      from trip_usage_meters
+      where trip_pass_id = $1
+        and meter_type = $2
+      limit 1
+    `,
+    [tripPassId, meterType],
+  );
+  return result.rows[0] ? mapMeterRow(result.rows[0]) : null;
+}
+
+async function loadMeterById(meterId: string, db: DatabaseQueryClient) {
+  const result = await db.query<UsageMeterRow>(
+    `
+      select id, trip_pass_id, meter_type, used, "limit", reset_at, updated_at
+      from trip_usage_meters
+      where id = $1
+      limit 1
+    `,
+    [meterId],
+  );
+  return result.rows[0] ? mapMeterRow(result.rows[0]) : null;
+}
+
 async function countReservedChatEvents(tripPassId: string, db: DatabaseQueryClient) {
   const result = await db.query<{ count: string }>(
     `
@@ -461,6 +770,24 @@ async function countReservedChatEvents(tripPassId: string, db: DatabaseQueryClie
         and event_type = 'reserved'
     `,
     [tripPassId],
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+async function countReservedMeterEvents(
+  tripPassId: string,
+  meterType: TripPassMeterType,
+  db: DatabaseQueryClient,
+) {
+  const result = await db.query<{ count: string }>(
+    `
+      select count(*)::text as count
+      from trip_usage_events
+      where trip_pass_id = $1
+        and meter_type = $2
+        and event_type = 'reserved'
+    `,
+    [tripPassId, meterType],
   );
   return Number(result.rows[0]?.count ?? 0);
 }
@@ -498,16 +825,39 @@ function projectChatAllowance(meter: Pick<TripPassUsageMeter, "limit" | "used">)
   } satisfies PaidChatUsageAllowance;
 }
 
+function projectMeterAllowance(meter: Pick<TripPassUsageMeter, "limit" | "meterType" | "used">) {
+  return {
+    limit: meter.limit,
+    meterType: meter.meterType,
+    remaining: Math.max(meter.limit - meter.used, 0),
+    used: meter.used,
+  } satisfies PaidMeterAllowance;
+}
+
 function mapMeterRow(row: UsageMeterRow): TripPassUsageMeter {
   return {
     id: row.id,
     tripPassId: row.trip_pass_id,
-    meterType: "chat_message",
+    meterType: parseTripPassMeterType(row.meter_type),
     used: row.used,
     limit: row.limit,
     resetAt: row.reset_at ? new Date(row.reset_at) : null,
     updatedAt: new Date(row.updated_at),
   };
+}
+
+function parseTripPassMeterType(value: string): TripPassMeterType {
+  const meterTypes = [
+    "chat_message",
+    "live_refresh",
+    "heavy_recommendation",
+    "weather_refresh",
+    "route_lookup",
+  ] as const satisfies readonly TripPassMeterType[];
+  if (meterTypes.includes(value as TripPassMeterType)) {
+    return value as TripPassMeterType;
+  }
+  throw new Error(`Unknown trip pass meter type: ${value}`);
 }
 
 function getDefaultPaidUsageStore(env: Record<string, string | undefined> = process.env) {

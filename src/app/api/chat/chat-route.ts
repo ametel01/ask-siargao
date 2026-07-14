@@ -372,6 +372,7 @@ export async function chatResponse(
       {
         ...dependencies,
         logger,
+        usageSession: paidChatUsage,
       },
     );
     paidChatSettlement =

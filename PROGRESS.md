@@ -521,15 +521,46 @@ commit.
 
 ## Step 9 - Meter Live Decisions at the Agent Tool Boundary
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T03:00:00Z`
+- Completed: `2026-07-14T03:19:07Z`
+- Implementing commit SHA: this Step 9 commit.
+- Files and behavior changed: extended paid chat usage sessions with reusable per-request decision
+  meter reservations for `live_refresh`, `heavy_recommendation`, `weather_refresh`, and
+  `route_lookup`; passed the active paid usage session into the chat agent runtime; wrapped live
+  tool execution so applicable meters reserve before provider work, settle only after successful
+  live evidence, release on provider errors, release on fresh-cache-only answers, and return typed
+  `live_access_required` tool outcomes without exposing quota state to the model as a tool
+  argument.
+- Acceptance criteria checked: two supporting Places tools reuse one reservation per live/heavy
+  category and consume each category at most once; weather decision reservations block before live
+  work when exhausted; provider-unavailable tool results release the reserved decision meter; fresh
+  cache results do not consume live or heavy allowance; blocked mixed-category attempts release any
+  sibling reservation before returning `live_access_required`; tool call IDs and upstream provider
+  request IDs are preserved in metered tool outcomes and usage events; existing mixed artifact
+  selection, semantic tool ordering, provider failure, and route-boundary source checks remain
+  covered by the focused agent and route suites.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes on final run.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 375 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test src/server/trip-pass/usage.test.ts src/server/chat/ask-siargao-agent.test.ts src/app/api/chat/route.test.ts src/server/security/security.test.ts`:
+    passed, 209 tests, 0 failures, 1659 assertions.
+  - `bun test src/server/payments/trip-pass.test.ts`: passed, 9 tests, 0 failures, 22 assertions
+    after clearing an ignored PGlite temp directory created by an earlier concurrent gate attempt.
+  - `bun test`: passed on clean rerun, 1082 tests, 0 failures, 5835 assertions.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed, 92 tests, 0 failures.
+- Changelog decision and entry location: added a `Changed` entry under `[Unreleased]` for
+  once-per-request-category live/heavy/weather/route metering, failed/cache-only release behavior,
+  and typed `live_access_required` fallback outcomes.
+- Risks, follow-ups, or blocker: no code blocker; provider/global cost circuits from Step 7B remain
+  enforced for expensive model work, while provider-specific tool-cost accounting is limited to
+  Trip Pass decision meters because the current provider tool adapters do not expose per-call cost
+  budgets.
 
 ## Step 10 - Connect the Free Tier to the Chat Runtime
 

@@ -15,7 +15,12 @@ import type {
 } from "@/server/chat/agent-runtime";
 import { executeAgentTool } from "@/server/chat/agent-tools";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
-import { runAskSiargaoAgentTurn } from "@/server/chat/ask-siargao-agent";
+import { createMeteredToolExecutor, runAskSiargaoAgentTurn } from "@/server/chat/ask-siargao-agent";
+import type {
+  PaidChatUsageSessionResult,
+  PaidDecisionMeterReservation,
+  PaidDecisionMeterType,
+} from "@/server/trip-pass/usage";
 
 describe("Ask Siargao Responses tool-loop runtime", () => {
   test("returns a no-tool Siargao answer from one model call", async () => {
@@ -166,6 +171,175 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(client.requests).toHaveLength(1);
     expect(client.requests[0]?.max_output_tokens).toBe(1_500);
     expect(client.requests[0]?.modelCostPolicy).toEqual({ deepSeekThinkingMode: "disabled" });
+  });
+
+  test("returns live_access_required before calling a live tool when a decision meter is exhausted", async () => {
+    const releases: PaidDecisionMeterType[] = [];
+    const session = fakePaidUsageSession({
+      reserveDecisionMeter: async (meterType) => {
+        if (meterType === "live_refresh") {
+          return {
+            status: "usage_limit_reached",
+            allowance: { meterType, limit: 40, remaining: 0, used: 40 },
+            meterType,
+          };
+        }
+        return reservedDecisionMeter(meterType, {
+          onRelease: () => releases.push(meterType),
+        });
+      },
+    });
+    const executeTool: AgentToolExecutor = async () => {
+      throw new Error("provider should not run after live allowance exhaustion");
+    };
+    const meteredExecuteTool = createMeteredToolExecutor({ executeTool, usageSession: session });
+
+    const result = await meteredExecuteTool({
+      arguments: { query: "breakfast in Dapa" },
+      name: "search_places",
+      requestId: "request_live_exhausted",
+      toolCallId: "call_live_exhausted",
+    });
+
+    expect(result).toMatchObject({
+      errorCode: "live_access_required",
+      name: "search_places",
+      status: "error",
+      toolCallId: "call_live_exhausted",
+    });
+    expect(result.data).toEqual({ meterType: "live_refresh", reason: "live_access_required" });
+    expect(releases).toEqual(["heavy_recommendation"]);
+  });
+
+  test("releases live decision meter reservations when a live provider returns an error result", async () => {
+    const settlements: Array<{ meterType: PaidDecisionMeterType; success: boolean }> = [];
+    const session = fakePaidUsageSession({
+      reserveDecisionMeter: async (meterType) =>
+        reservedDecisionMeter(meterType, {
+          onSettle: (success) => settlements.push({ meterType, success }),
+        }),
+    });
+    const executeTool: AgentToolExecutor = async (request) => ({
+      name: request.name,
+      toolCallId: request.toolCallId,
+      status: "error",
+      text: "Google Places search is temporarily unavailable.",
+      errorCode: "provider_unavailable",
+      sources: [providerUnavailableSourceSummary],
+    });
+    const meteredExecuteTool = createMeteredToolExecutor({ executeTool, usageSession: session });
+
+    const result = await meteredExecuteTool({
+      arguments: { query: "breakfast in Dapa" },
+      name: "search_places",
+      requestId: "request_provider_unavailable",
+      toolCallId: "call_provider_unavailable",
+    });
+
+    expect(result).toMatchObject({
+      errorCode: "provider_unavailable",
+      status: "error",
+      toolCallId: "call_provider_unavailable",
+    });
+    expect(settlements).toEqual([
+      { meterType: "live_refresh", success: false },
+      { meterType: "heavy_recommendation", success: false },
+    ]);
+  });
+
+  test("settles each live decision meter category once across supporting tool calls", async () => {
+    const reservations = new Map<PaidDecisionMeterType, PaidDecisionMeterReservation>();
+    const settlementCounts = new Map<PaidDecisionMeterType, number>();
+    const providerIds: string[] = [];
+    const session = fakePaidUsageSession({
+      reserveDecisionMeter: async (meterType) => {
+        const existing = reservations.get(meterType);
+        if (existing) {
+          return existing;
+        }
+        const reservation = reservedDecisionMeter(meterType, {
+          onSettle: (success, ids) => {
+            if (success) {
+              settlementCounts.set(meterType, (settlementCounts.get(meterType) ?? 0) + 1);
+              providerIds.push(...ids);
+            }
+          },
+          reuseSettlement: true,
+        });
+        reservations.set(meterType, reservation);
+        return reservation;
+      },
+    });
+    const meteredExecuteTool = createMeteredToolExecutor({
+      executeTool: async (request) => ({
+        name: request.name,
+        toolCallId: request.toolCallId,
+        status: "success",
+        text: "Google Places returned live evidence.",
+        logData: { upstreamRequestId: `${request.toolCallId}_upstream` },
+        sources: [placesSourceSummary],
+      }),
+      usageSession: session,
+    });
+
+    await meteredExecuteTool({
+      arguments: { query: "breakfast in Dapa" },
+      name: "search_places",
+      requestId: "request_supporting_tools",
+      toolCallId: "call_search_places",
+    });
+    await meteredExecuteTool({
+      arguments: { placeId: "place_dapa_breakfast" },
+      name: "get_place_details",
+      requestId: "request_supporting_tools",
+      toolCallId: "call_place_details",
+    });
+
+    expect([...reservations.keys()]).toEqual(["live_refresh", "heavy_recommendation"]);
+    expect([...settlementCounts.entries()]).toEqual([
+      ["live_refresh", 1],
+      ["heavy_recommendation", 1],
+    ]);
+    expect(providerIds).toEqual(["call_search_places_upstream", "call_search_places_upstream"]);
+  });
+
+  test("releases decision meter reservations for cache-only tool results", async () => {
+    const settlements: Array<{ meterType: PaidDecisionMeterType; success: boolean }> = [];
+    const session = fakePaidUsageSession({
+      reserveDecisionMeter: async (meterType) =>
+        reservedDecisionMeter(meterType, {
+          onSettle: (success) => settlements.push({ meterType, success }),
+        }),
+    });
+    const meteredExecuteTool = createMeteredToolExecutor({
+      executeTool: async (request) => ({
+        name: request.name,
+        toolCallId: request.toolCallId,
+        status: "success",
+        text: "Recently checked cached Places evidence.",
+        sources: [
+          {
+            ...placesSourceSummary,
+            label: "fresh_cache",
+            sourceName: "Google Places cache",
+          },
+        ],
+      }),
+      usageSession: session,
+    });
+
+    const result = await meteredExecuteTool({
+      arguments: { query: "breakfast in Dapa" },
+      name: "search_places",
+      requestId: "request_fresh_cache",
+      toolCallId: "call_fresh_cache",
+    });
+
+    expect(result.status).toBe("success");
+    expect(settlements).toEqual([
+      { meterType: "live_refresh", success: false },
+      { meterType: "heavy_recommendation", success: false },
+    ]);
   });
 
   test("repairs leaked DSML tool-call markup before returning a default chat answer", async () => {
@@ -6804,6 +6978,70 @@ function requiredMemoryContent(memorySnapshot: AgentMemorySnapshot, fileName: st
     throw new Error(`Missing memory fixture file ${fileName}`);
   }
   return memoryFile.content;
+}
+
+function fakePaidUsageSession({
+  reserveDecisionMeter,
+}: {
+  reserveDecisionMeter: (meterType: PaidDecisionMeterType) => Promise<PaidDecisionMeterReservation>;
+}): Extract<PaidChatUsageSessionResult, { status: "allowed" }> {
+  return {
+    status: "allowed",
+    allowance: {
+      chatMessages: {
+        limit: 150,
+        remaining: 149,
+        used: 1,
+      },
+    },
+    passId: "trip_pass_test",
+    release: async () => {},
+    reserveDecisionMeter: ({ meterType }) => reserveDecisionMeter(meterType),
+    settle: async () => ({
+      status: "settled",
+      allowance: {
+        chatMessages: {
+          limit: 150,
+          remaining: 149,
+          used: 1,
+        },
+      },
+    }),
+  };
+}
+
+function reservedDecisionMeter(
+  meterType: PaidDecisionMeterType,
+  options: {
+    onRelease?: () => void;
+    onSettle?: (success: boolean, providerRequestIds: readonly string[]) => void;
+    reuseSettlement?: boolean;
+  } = {},
+): Extract<PaidDecisionMeterReservation, { status: "reserved" }> {
+  let settled = false;
+  return {
+    status: "reserved",
+    meterType,
+    release: async () => {
+      options.onRelease?.();
+    },
+    settle: async ({ providerRequestIds = [], success }) => {
+      if (!options.reuseSettlement || !settled) {
+        options.onSettle?.(success, providerRequestIds);
+      }
+      settled = true;
+      if (!success) {
+        return {
+          status: "released",
+          allowance: { meterType, limit: 40, remaining: 40, used: 0 },
+        };
+      }
+      return {
+        status: "settled",
+        allowance: { meterType, limit: 40, remaining: 39, used: 1 },
+      };
+    },
+  };
 }
 
 const weatherSourceSummary: AnswerSourceSummary = {

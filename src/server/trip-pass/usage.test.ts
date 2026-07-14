@@ -98,7 +98,7 @@ describe("paid Trip Pass chat usage", () => {
   test("does not overspend when parallel requests race for the final chat unit", async () => {
     await withTestDb(async (db) => {
       await seedActivePass(db, "user_paid_final", "trip_pass_paid_final");
-      await setChatMeterUsed(db, "trip_pass_paid_final", 149);
+      await setMeterUsed(db, "trip_pass_paid_final", "chat_message", 149);
       const store = createMemoryQuotaStore();
 
       const results = await Promise.all([
@@ -207,6 +207,106 @@ describe("paid Trip Pass chat usage", () => {
     });
   });
 
+  test("reuses one live decision meter reservation across supporting tools", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_live_once", "trip_pass_paid_live_once");
+      const session = await openChatUsageSession({
+        bodyHash: "body_hash_live_once",
+        db,
+        idempotencyKey: "token_hash_live_once",
+        now,
+        requestId: "request_paid_live_once",
+        store: createMemoryQuotaStore(),
+        userId: "user_paid_live_once",
+      });
+      expect(session.status).toBe("allowed");
+      if (session.status !== "allowed") {
+        return;
+      }
+
+      const first = await session.reserveDecisionMeter({ meterType: "live_refresh" });
+      const second = await session.reserveDecisionMeter({ meterType: "live_refresh" });
+      expect(first.status).toBe("reserved");
+      expect(second.status).toBe("reserved");
+      if (first.status === "reserved" && second.status === "reserved") {
+        await expect(
+          first.settle({ success: true, providerRequestIds: ["places_request_a"] }),
+        ).resolves.toMatchObject({
+          status: "settled",
+          allowance: { meterType: "live_refresh", used: 1, remaining: 39, limit: 40 },
+        });
+        await expect(
+          second.settle({ success: true, providerRequestIds: ["places_request_b"] }),
+        ).resolves.toMatchObject({
+          status: "settled",
+          allowance: { meterType: "live_refresh", used: 1, remaining: 39, limit: 40 },
+        });
+      }
+      await expectMeterUsed(db, "trip_pass_paid_live_once", 0);
+      await expectMeterUsed(db, "trip_pass_paid_live_once", 1, "live_refresh");
+    });
+  });
+
+  test("releases decision meter reservations when live provider evidence fails", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_live_release", "trip_pass_paid_live_release");
+      const session = await openChatUsageSession({
+        bodyHash: "body_hash_live_release",
+        db,
+        idempotencyKey: "token_hash_live_release",
+        now,
+        requestId: "request_paid_live_release",
+        store: createMemoryQuotaStore(),
+        userId: "user_paid_live_release",
+      });
+      expect(session.status).toBe("allowed");
+      if (session.status !== "allowed") {
+        return;
+      }
+
+      const reservation = await session.reserveDecisionMeter({ meterType: "weather_refresh" });
+      expect(reservation.status).toBe("reserved");
+      if (reservation.status === "reserved") {
+        await expect(reservation.settle({ success: false })).resolves.toMatchObject({
+          status: "released",
+        });
+      }
+      await expectMeterUsed(db, "trip_pass_paid_live_release", 0, "weather_refresh");
+      await expectUsageEvents(db, {
+        eventType: "released",
+        meterType: "weather_refresh",
+        requestHash: "body_hash_live_release",
+      });
+    });
+  });
+
+  test("blocks exhausted decision meter categories before the live tool runs", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_weather_exhausted", "trip_pass_paid_weather_exhausted");
+      await setMeterUsed(db, "trip_pass_paid_weather_exhausted", "weather_refresh", 20);
+      const session = await openChatUsageSession({
+        bodyHash: "body_hash_weather_exhausted",
+        db,
+        idempotencyKey: "token_hash_weather_exhausted",
+        now,
+        requestId: "request_paid_weather_exhausted",
+        store: createMemoryQuotaStore(),
+        userId: "user_paid_weather_exhausted",
+      });
+      expect(session.status).toBe("allowed");
+      if (session.status !== "allowed") {
+        return;
+      }
+
+      await expect(
+        session.reserveDecisionMeter({ meterType: "weather_refresh" }),
+      ).resolves.toMatchObject({
+        status: "usage_limit_reached",
+        allowance: { meterType: "weather_refresh", used: 20, remaining: 0, limit: 20 },
+      });
+    });
+  });
+
   test("treats expired and other-owner passes as not paid-applicable", async () => {
     await withTestDb(async (db) => {
       await seedActivePass(db, "user_paid_expired", "trip_pass_paid_expired", {
@@ -270,27 +370,37 @@ async function seedActivePass(
   );
 }
 
-async function setChatMeterUsed(db: DatabaseQueryClient, tripPassId: string, used: number) {
+async function setMeterUsed(
+  db: DatabaseQueryClient,
+  tripPassId: string,
+  meterType: string,
+  used: number,
+) {
   await db.query(
     `
       update trip_usage_meters
       set used = $2
       where trip_pass_id = $1
-        and meter_type = 'chat_message'
+        and meter_type = $3
     `,
-    [tripPassId, used],
+    [tripPassId, used, meterType],
   );
 }
 
-async function expectMeterUsed(db: DatabaseQueryClient, tripPassId: string, used: number) {
+async function expectMeterUsed(
+  db: DatabaseQueryClient,
+  tripPassId: string,
+  used: number,
+  meterType = "chat_message",
+) {
   const result = await db.query<{ used: number }>(
     `
       select used
       from trip_usage_meters
       where trip_pass_id = $1
-        and meter_type = 'chat_message'
+        and meter_type = $2
     `,
-    [tripPassId],
+    [tripPassId, meterType],
   );
 
   expect(result.rows[0]?.used).toBe(used);
@@ -300,6 +410,7 @@ async function expectUsageEvents(
   db: DatabaseQueryClient,
   expected: {
     eventType: string;
+    meterType?: string;
     providerRequestIds?: readonly string[];
     requestHash: string;
   },
@@ -313,8 +424,9 @@ async function expectUsageEvents(
       select event_type, provider_request_ids_json, request_hash
       from trip_usage_events
       where request_hash = $1
+        and ($2::text is null or meter_type = $2)
     `,
-    [expected.requestHash],
+    [expected.requestHash, expected.meterType ?? null],
   );
   const row = result.rows[0];
   expect(row?.event_type).toBe(expected.eventType);

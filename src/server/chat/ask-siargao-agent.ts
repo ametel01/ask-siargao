@@ -63,6 +63,7 @@ import { trackServerEvent } from "@/server/observability/events";
 import { createComponentLogger } from "@/server/observability/logger";
 import { createConfiguredWebResearchProvider } from "@/server/providers/web-search";
 import type { QuotaStore } from "@/server/security/rate-limit";
+import type { PaidChatUsageSessionResult, PaidDecisionMeterType } from "@/server/trip-pass/usage";
 
 export type AskSiargaoAgentDependencies = AgentRuntimeDependencies &
   AgentToolDependencies & {
@@ -74,6 +75,7 @@ export type AskSiargaoAgentDependencies = AgentRuntimeDependencies &
     requireStructuredFinalOutput?: boolean;
     costPolicyEnv?: Record<string, string | undefined>;
     costCircuitStore?: QuotaStore;
+    usageSession?: Extract<PaidChatUsageSessionResult, { status: "allowed" }> | null;
   };
 
 type ParsedFunctionCall = {
@@ -115,9 +117,15 @@ export async function runAskSiargaoAgentTurn(
     memorySnapshot,
     webResearchProvider: dependencies.webResearchProvider ?? createConfiguredWebResearchProvider(),
   };
-  const executeTool =
+  const baseExecuteTool =
     dependencies.executeTool ??
     ((toolRequest: AgentToolExecutionRequest) => executeAgentTool(toolRequest, toolDependencies));
+  const executeTool = dependencies.usageSession
+    ? createMeteredToolExecutor({
+        executeTool: baseExecuteTool,
+        usageSession: dependencies.usageSession,
+      })
+    : baseExecuteTool;
   const logger = (dependencies.logger ?? agentLogger).child({ requestId: resolved.requestId });
   const upstreamRequestIds: string[] = [];
   const toolCalls: AgentToolCallAudit[] = [];
@@ -527,6 +535,143 @@ function createBudgetedModelClient({
         }),
     },
   };
+}
+
+export function createMeteredToolExecutor({
+  executeTool,
+  usageSession,
+}: {
+  executeTool: (request: AgentToolExecutionRequest) => Promise<AgentToolResult>;
+  usageSession: Extract<PaidChatUsageSessionResult, { status: "allowed" }>;
+}) {
+  return async (request: AgentToolExecutionRequest) => {
+    const meterTypes = meterTypesForTool(request.name);
+    const reservations = await Promise.all(
+      meterTypes.map(async (meterType) => usageSession.reserveDecisionMeter({ meterType })),
+    );
+    const blocked = reservations.find(
+      (reservation) => reservation.status === "usage_limit_reached",
+    );
+    if (blocked) {
+      await Promise.all(
+        reservations.map((reservation) =>
+          reservation.status === "reserved" ? reservation.release() : Promise.resolve(),
+        ),
+      );
+      return liveAccessRequiredToolResult(request, blocked.meterType);
+    }
+
+    try {
+      const result = await executeTool(request);
+      const providerRequestIds = providerRequestIdsFromToolResult(result);
+      await Promise.all(
+        reservations.map((reservation) =>
+          reservation.status === "reserved"
+            ? reservation.settle({
+                success: toolResultConsumesMeter(request.name, reservation.meterType, result),
+                providerRequestIds,
+              })
+            : Promise.resolve(),
+        ),
+      );
+      return result;
+    } catch (error) {
+      await Promise.all(
+        reservations.map((reservation) =>
+          reservation.status === "reserved" ? reservation.release() : Promise.resolve(),
+        ),
+      );
+      throw error;
+    }
+  };
+}
+
+function meterTypesForTool(toolName: string): PaidDecisionMeterType[] {
+  switch (toolName) {
+    case "get_weather_forecast":
+    case "get_marine_conditions":
+    case "get_tide_forecast":
+    case "get_condition_judgment":
+      return ["live_refresh", "weather_refresh"];
+    case "research_web":
+    case "search_nightlife_events":
+    case "search_places":
+    case "get_place_details":
+      return ["live_refresh", "heavy_recommendation"];
+    case "plan_local_itinerary":
+      return ["route_lookup"];
+    default:
+      return [];
+  }
+}
+
+function toolResultConsumesMeter(
+  toolName: string,
+  meterType: PaidDecisionMeterType,
+  result: AgentToolResult,
+) {
+  if (result.status !== "success") {
+    return false;
+  }
+  if (meterType === "route_lookup") {
+    return toolName === "plan_local_itinerary";
+  }
+
+  const sourceLabels = new Set(result.sources.map((source) => source.label));
+  if (meterType === "weather_refresh") {
+    return (
+      sourceLabels.has("weather_checked") ||
+      sourceLabels.has("marine_checked") ||
+      sourceLabels.has("tide_forecast_checked")
+    );
+  }
+  if (meterType === "heavy_recommendation") {
+    return sourceLabels.has("live_checked") || toolName === "research_web";
+  }
+  return (
+    sourceLabels.has("live_checked") ||
+    sourceLabels.has("weather_checked") ||
+    sourceLabels.has("marine_checked") ||
+    sourceLabels.has("tide_forecast_checked")
+  );
+}
+
+function liveAccessRequiredToolResult(
+  request: AgentToolExecutionRequest,
+  meterType: PaidDecisionMeterType,
+): AgentToolResult {
+  return {
+    name: request.name,
+    toolCallId: request.toolCallId,
+    status: "error",
+    errorCode: "live_access_required",
+    text: "Live Trip Pass allowance is exhausted for this category. Use cached or local evidence only, and label the limitation clearly.",
+    sources: [
+      {
+        label: "not_verified",
+        sourceName: "Trip Pass live allowance",
+        fetchedAt: new Date().toISOString(),
+        confidence: "low",
+        checked: [],
+        notChecked: [`${meterType} allowance exhausted`],
+      },
+    ],
+    data: {
+      meterType,
+      reason: "live_access_required",
+    },
+  };
+}
+
+function providerRequestIdsFromToolResult(result: AgentToolResult) {
+  const upstream = result.logData?.upstreamRequestId ?? result.logData?.upstreamRequestIds;
+  if (typeof upstream === "string") {
+    return [upstream];
+  }
+  if (Array.isArray(upstream)) {
+    return upstream.filter((value): value is string => typeof value === "string");
+  }
+  return [];
 }
 
 async function createBudgetedModelResponse({
