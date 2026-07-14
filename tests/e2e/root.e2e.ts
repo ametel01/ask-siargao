@@ -19,6 +19,14 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
   await expect(page.getByText("Can check forecasts when asked")).toBeVisible();
   await expect(page.getByText("Can check places when asked")).toBeVisible();
   await expect(page.getByText("Checked on request")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "One clear Siargao travel pass" })).toBeVisible();
+  await expect(page.getByText("₱499")).toBeVisible();
+  await expect(page.getByText("150 chat answers")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Read terms" })).toHaveAttribute(
+    "href",
+    "/legal/trip-pass",
+  );
+  await expect(page.getByText(/\bExplorer\b|\bExtended\b|\bunlimited\b/i)).toHaveCount(0);
   await expect(page.locator("svg.lucide-check")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Choose the right base" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Make the weather call" })).toBeVisible();
@@ -59,6 +67,10 @@ test("exposes real desktop navigation in keyboard reading order", async ({ page 
     },
     {
       link: navigation.getByRole("link", { name: "Plan smarter" }),
+      rgb: [142, 230, 216],
+    },
+    {
+      link: navigation.getByRole("link", { name: "Trip Pass" }),
       rgb: [142, 230, 216],
     },
     { link: page.getByRole("link", { name: "Ask in chat" }), rgb: [142, 230, 216] },
@@ -177,6 +189,9 @@ for (const viewport of [
       page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
     ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Plan smarter in Siargao" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "One clear Siargao travel pass" }),
+    ).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Landing page" })).toBeVisible({
       visible: viewport.width >= 1024,
     });
@@ -203,6 +218,7 @@ for (const viewport of [
             .getByRole("link", { name: "Ask Siargao" }),
         },
         { name: "planning inputs panel", locator: page.locator("#planning-inputs") },
+        { name: "trip pass pricing", locator: page.locator("#trip-pass") },
       ];
 
       for (const { locator, name } of criticalElements) {
@@ -231,6 +247,51 @@ for (const viewport of [
     }
   });
 }
+
+test("renders Trip Pass pricing and legal copy without unsupported promises", async ({ page }) => {
+  for (const viewport of [
+    { name: "mobile-390", width: 390, height: 844 },
+    { name: "desktop-1440", width: 1440, height: 1000 },
+  ] as const) {
+    await page.setViewportSize(viewport);
+    await page.goto("/#trip-pass");
+    const pricing = page.locator("#trip-pass");
+    await expect(pricing).toContainText("Free trial to Trip Pass");
+    await expect(pricing).toContainText(
+      "10 chat answers, 3 live checks, and 1 deep-planning trial",
+    );
+    await expect(pricing).toContainText("₱499");
+    await expect(pricing).toContainText("150 chat answers, 40 live decisions");
+    await expect(pricing).toContainText("Stripe remains authoritative for the final charge.");
+    await expect(pricing.getByRole("link", { name: "Manage pass in settings" })).toHaveAttribute(
+      "href",
+      "/settings#pass",
+    );
+    await expect(
+      pricing.getByRole("link", { name: "Terms, privacy, and refunds" }),
+    ).toHaveAttribute("href", "/legal/trip-pass");
+    await expect(
+      pricing.getByText(/\bExplorer\b|\bExtended\b|\bunlimited\b|\bguaranteed\b/i),
+    ).toHaveCount(0);
+    await page.screenshot({
+      fullPage: true,
+      path: `test-results/trip-pass-landing-${viewport.name}.png`,
+    });
+  }
+
+  await page.goto("/legal/trip-pass");
+  await expect(page.getByRole("heading", { name: "Siargao Trip Pass" })).toBeVisible();
+  await expect(page.getByText("verified Stripe payment event")).toBeVisible();
+  await expect(page.getByText("Full refunds revoke remaining pass access.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Provider availability" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Manage in settings" })).toHaveAttribute(
+    "href",
+    "/settings#pass",
+  );
+  await expect(
+    page.getByText(/\bExplorer\b|\bExtended\b|\bunlimited\b|\bguaranteed\b/i),
+  ).toHaveCount(0);
+});
 
 test("landing remains usable at a 200 percent zoom equivalent with reduced motion", async ({
   page,

@@ -21,7 +21,7 @@ describe("Trip Pass catalog", () => {
       freeWindowDays: 7,
       presentation: {
         priceAuthority: "stripe_price",
-        launchPriceLabel: "Configured in Stripe",
+        launchPriceLabel: "₱499",
       },
     });
     expect(tripPassMeterTypes).toEqual([

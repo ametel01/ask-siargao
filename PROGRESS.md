@@ -660,15 +660,51 @@ commit.
 
 ## Step 12 - Ship Differentiated Pricing and Trust Copy
 
-- Status: `TODO`
-- Started: pending
-- Completed: pending
-- Implementing commit SHA: pending
-- Files and behavior changed: pending.
-- Acceptance criteria checked: pending.
-- Exact validation commands and results: pending.
-- Changelog decision and entry location: pending.
-- Risks, follow-ups, or blocker: pending.
+- Status: `DONE`
+- Started: `2026-07-14T03:51:30Z`
+- Completed: `2026-07-14T04:02:25Z`
+- Implementing commit SHA: this Step 12 commit.
+- Files and behavior changed: added shared public Trip Pass offer copy backed by the server product
+  catalog presentation; changed the launch display price to `₱499` while keeping Stripe Price as
+  checkout authority; added a landing pricing section that contrasts the free seven-day trial with
+  the 14-day Trip Pass, explains Siargao-specific advantages, and links chat, settings, and legal
+  surfaces consistently; added a public `/legal/trip-pass` route covering activation, expiry,
+  usage limits, refunds, disputes, provider availability, privacy, support, and release-approval
+  boundaries; added public-copy and Playwright coverage for truthful pricing, links, unsupported
+  promise exclusions, responsive layout, and legal copy.
+- Acceptance criteria checked: visitors can see the exact free 10 chat / 3 live / 1 heavy
+  seven-day trial and the `₱499` 14-day Trip Pass with 150 chat / 40 live / 8 heavy / 20 weather /
+  25 route limits before checkout; public copy avoids unlimited, guaranteed availability, Explorer,
+  Extended, and unsupported superiority promises; the landing section explains local trip context,
+  governed knowledge, current checks, map-ready recommendations, source/freshness boundaries, and
+  practical fallbacks; checkout remains described as available only from signed-in settings when
+  configuration and approvals are complete; final production price, legal wording, refund policy,
+  privacy wording, and checkout enablement remain explicit release approvals.
+- Exact validation commands and results:
+  - `bun run format`: passed, no fixes on final run.
+  - `git diff --check`: passed.
+  - `bun run lint`: passed, 381 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test src/features/trip-pass/public-copy.test.ts src/server/trip-pass/catalog.test.ts`:
+    passed, 8 tests, 0 failures, 34 assertions.
+  - `bunx playwright test tests/e2e/root.e2e.ts -g "Trip Pass pricing and legal copy"`: passed,
+    1 test, captured `test-results/trip-pass-landing-mobile-390.png` and
+    `test-results/trip-pass-landing-desktop-1440.png`.
+  - `bun test`: passed, 1099 tests, 0 failures, 5914 assertions.
+  - `bun run db:migrate:test`: passed, 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed, 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed and generated the static `/legal/trip-pass` route.
+  - `bun run test:e2e`: first full run had one CPU-throttled decision-strip motion long-task
+    variance failure at 54ms while the new Trip Pass pricing/legal test passed; unchanged full rerun
+    passed, 94 tests, 0 failures.
+  - `bun run doctor -- --verbose --scope changed`: passed, React Doctor reported no issues and
+    score `100 / 100`.
+- Changelog decision and entry location: added a `Changed` entry under `[Unreleased]` for
+  catalog-backed Trip Pass launch pricing, free and paid limits, Siargao-specific advantages, and
+  legal/support boundaries before checkout.
+- Risks, follow-ups, or blocker: no Step 12 code blocker; final production price/currency,
+  legal/refund/privacy wording, support policy, and checkout enablement still require the release
+  approvals tracked in the baseline before enabling paid checkout.
 
 ## Step 13 - Send Privacy-Safe Monetisation Analytics
 

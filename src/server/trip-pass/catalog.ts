@@ -81,7 +81,7 @@ export const tripPassProductCatalog = {
   presentation: {
     headline: "14-day Siargao Trip Pass",
     priceAuthority: "stripe_price",
-    launchPriceLabel: "Configured in Stripe",
+    launchPriceLabel: "₱499",
   },
 } as const;
 

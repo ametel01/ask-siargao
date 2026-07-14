@@ -2,12 +2,14 @@ import {
   ArrowRight,
   CloudRain,
   Compass,
+  CreditCard,
   Home,
   Info,
   type LucideIcon,
   MapPin,
   MessageCircle,
   Send,
+  ShieldCheck,
   Utensils,
   Waves,
 } from "lucide-react";
@@ -16,6 +18,7 @@ import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { projectCapabilityEvidencePresentation } from "@/features/chat/evidence-presentation-state";
+import { tripPassDifferentiators, tripPassPublicOffer } from "@/features/trip-pass/public-copy";
 import { cn } from "@/lib/utils";
 import { appSurfaceInsetClass, appSurfacePanelClass } from "@/ui/components/ask-siargao";
 
@@ -25,6 +28,7 @@ const navigationItems = [
   { label: "Start a question", href: "#start-a-question" },
   { label: "Planning inputs", href: "#planning-inputs" },
   { label: "Plan smarter", href: "#plan-smarter" },
+  { label: "Trip Pass", href: "#trip-pass" },
 ] as const;
 
 const quickChips = [
@@ -116,6 +120,7 @@ export function LandingPage() {
             <CoastalFrame />
           </div>
           <PlanningPanel />
+          <TripPassPricingSection />
         </div>
       </section>
     </main>
@@ -396,6 +401,140 @@ function PlanningPanel() {
         ))}
       </div>
     </section>
+  );
+}
+
+function TripPassPricingSection() {
+  return (
+    <section
+      aria-labelledby="trip-pass-title"
+      className="grid min-w-0 gap-6 border-border-on-dark border-t px-0 pt-8 pb-10 md:gap-8 md:pt-10 lg:grid-cols-[minmax(18rem,0.62fr)_minmax(0,1.38fr)] lg:items-start lg:pb-14"
+      id="trip-pass"
+    >
+      <div className="grid min-w-0 gap-4 lg:sticky lg:top-6">
+        <p className="m-0 text-xs font-semibold tracking-[0.18em] text-brand-sunset-gold uppercase">
+          Free trial to Trip Pass
+        </p>
+        <h2
+          className="m-0 max-w-[12ch] font-heading text-[clamp(2.35rem,8vw,4.1rem)] leading-[0.98] font-semibold text-text-on-dark"
+          id="trip-pass-title"
+        >
+          One clear Siargao travel pass
+        </h2>
+        <p className="m-0 max-w-[39ch] text-base leading-[1.44] font-semibold text-text-on-dark-muted">
+          Start with a useful free allowance. Upgrade only when you need more current checks,
+          planning depth, and map-ready decisions for this trip.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <Button
+            asChild
+            className="min-h-11 rounded-lg bg-[image:var(--gradient-cta)] px-4 text-sm font-semibold text-text-on-dark shadow-cta landing-focus-ring landing-focus-ring-strong focus-visible:outline-offset-3"
+          >
+            <Link href={tripPassPublicOffer.links.chat}>
+              <MessageCircle aria-hidden="true" size={18} />
+              Start free
+            </Link>
+          </Button>
+          <Button
+            asChild
+            className="min-h-11 rounded-lg border-border-on-dark bg-surface-night-card px-4 text-sm font-semibold text-text-on-dark shadow-none hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3"
+            variant="outline"
+          >
+            <Link href={tripPassPublicOffer.links.legal}>Read terms</Link>
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid min-w-0 gap-4 lg:gap-5">
+        <div className="grid min-w-0 gap-4 md:grid-cols-2">
+          <OfferCard
+            body={`${tripPassPublicOffer.freeLimits.chat} chat answers, ${tripPassPublicOffer.freeLimits.live} live checks, and ${tripPassPublicOffer.freeLimits.heavy} deep-planning trial over ${tripPassPublicOffer.freeWindowDays} days.`}
+            icon={ShieldCheck}
+            label="Free"
+            title="Try the decision desk"
+          />
+          <OfferCard
+            body={`${tripPassPublicOffer.paidLimits.chat} chat answers, ${tripPassPublicOffer.paidLimits.live} live decisions, ${tripPassPublicOffer.paidLimits.heavy} heavy-research decisions, ${tripPassPublicOffer.paidLimits.weather} weather checks, and ${tripPassPublicOffer.paidLimits.route} route checks for ${tripPassPublicOffer.durationDays} days.`}
+            icon={CreditCard}
+            label={tripPassPublicOffer.priceLabel}
+            title={tripPassPublicOffer.headline}
+          />
+        </div>
+
+        <section
+          aria-labelledby="trip-pass-why-title"
+          className="grid min-w-0 gap-3 rounded-2xl border border-border-on-dark bg-surface-night-card p-5 shadow-none backdrop-blur-md md:p-6"
+        >
+          <h3
+            className="m-0 font-heading text-[1.55rem] leading-tight font-semibold text-text-on-dark"
+            id="trip-pass-why-title"
+          >
+            Built for Siargao decisions, not generic destination prose
+          </h3>
+          <ul className="m-0 grid list-none gap-3 p-0 md:grid-cols-2">
+            {tripPassDifferentiators.map((item) => (
+              <li className="grid grid-cols-[auto_minmax(0,1fr)] gap-3" key={item}>
+                <span className="mt-1 size-2 rounded-full bg-brand-sunset-gold" />
+                <span className="text-sm leading-[1.45] font-semibold text-text-on-dark-muted">
+                  {item}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="m-0 text-xs leading-[1.45] font-bold text-text-on-dark-muted">
+            Checkout is available from signed-in settings only when launch configuration and
+            approvals are complete. Stripe remains authoritative for the final charge.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Link
+              className="inline-flex min-h-10 items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-300 no-underline landing-focus-ring focus-visible:outline-offset-3"
+              href={tripPassPublicOffer.links.settings}
+            >
+              Manage pass in settings
+              <ArrowRight aria-hidden="true" size={18} />
+            </Link>
+            <Link
+              className="inline-flex min-h-10 items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-300 no-underline landing-focus-ring focus-visible:outline-offset-3"
+              href={tripPassPublicOffer.links.legal}
+            >
+              Terms, privacy, and refunds
+              <ArrowRight aria-hidden="true" size={18} />
+            </Link>
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function OfferCard({
+  body,
+  icon: Icon,
+  label,
+  title,
+}: {
+  body: string;
+  icon: LucideIcon;
+  label: string;
+  title: string;
+}) {
+  return (
+    <article className="grid min-w-0 content-start gap-4 rounded-2xl border border-border-on-dark bg-surface-night-card p-5 shadow-none backdrop-blur-md md:p-6">
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <span className="inline-flex size-11 items-center justify-center rounded-full bg-brand-lagoon-100 text-brand-lagoon-700">
+          <Icon aria-hidden="true" size={24} strokeWidth={2} />
+        </span>
+        <span className="rounded-md border border-brand-sunset-gold/55 bg-brand-sunset-gold/15 px-3 py-1 text-sm font-extrabold text-brand-sunset-gold">
+          {label}
+        </span>
+      </div>
+      <div className="grid min-w-0 gap-2">
+        <h3 className="m-0 font-heading text-[1.7rem] leading-tight font-semibold text-text-on-dark">
+          {title}
+        </h3>
+        <p className="m-0 text-sm leading-[1.45] font-semibold text-text-on-dark-muted">{body}</p>
+      </div>
+    </article>
   );
 }
 

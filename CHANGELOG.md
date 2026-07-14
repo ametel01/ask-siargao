@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed public Ask Siargao positioning to show the catalog-backed Trip Pass launch price, free and
+  paid limits, Siargao-specific advantages, and legal/support boundaries before checkout.
 - Changed authenticated paid chat live-tool execution to meter Trip Pass live, heavy, weather, and
   route decisions once per request category, release failed or cache-only provider attempts, and
   return typed `live_access_required` tool outcomes for governed cached/local fallback.
