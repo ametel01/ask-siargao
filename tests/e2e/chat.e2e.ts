@@ -4306,6 +4306,31 @@ test("keeps the delayed assistant wait state stable, accessible, and indetermina
   await expect(waitState).toHaveCount(0);
 });
 
+test("ends a stalled assistant request with a visible retryable timeout", async ({ page }) => {
+  const chat = await mockDeferredChatApi(page);
+
+  await page.goto("/chat");
+  await page.clock.install();
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("Will this request ever finish?");
+  await composerInput.press("Enter");
+
+  await expect.poll(() => chat.requests.length).toBe(1);
+  await page.clock.fastForward(10_001);
+
+  try {
+    await expect(
+      page.getByText("Ask Siargao took too long to answer. Please retry your question."),
+    ).toBeVisible();
+    await expect(page.getByTestId("assistant-wait-state")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Retry last question" })).toBeVisible();
+    await expect(composerInput).toBeEnabled();
+  } finally {
+    chat.release(0, { message: "Late timed-out answer should not render." });
+  }
+});
+
 test("stops local waiting, ignores the late response, and retries the original question", async ({
   page,
 }) => {

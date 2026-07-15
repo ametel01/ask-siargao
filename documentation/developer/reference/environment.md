@@ -33,7 +33,7 @@ The app reads these environment variables.
 | `DEEPSEEK_API_KEY` | Server only | Primary Ask Siargao chat model | Required for DeepSeek primary chat generation. When unset, chat can still run with `OPENAI_API_KEY` as the fallback provider. |
 | `DEEPSEEK_BASE_URL` | Server only | DeepSeek OpenAI-compatible client | Optional. Defaults to `https://api.deepseek.com`. |
 | `DEEPSEEK_MODEL` | Server only | Primary Ask Siargao chat model override | Optional. Defaults to `deepseek-v4-flash`, DeepSeek's basic/lower-cost current model. |
-| `DEEPSEEK_COST_POLICY_ENABLED` | Server only | DeepSeek cost-policy rollout | Optional boolean. Defaults to `false`; candidate mode must pass the fixed cost/quality corpus before promotion. |
+| `DEEPSEEK_COST_POLICY_ENABLED` | Server only | Deprecated compatibility flag | The bounded non-thinking chat policy is now always active to preserve the 10-second response ceiling. Existing values are ignored. |
 | `DEEPSEEK_DAILY_USD_LIMIT` | Server only | DeepSeek cost circuit | Optional non-negative number for provider-level daily budget checks. |
 | `MODEL_COST_RESERVATION_MICRO_USD` | Server only | Model cost circuit reservation size | Optional positive integer reservation in micro-USD per model call. Defaults to `1`; use a conservative value in production so provider/global circuits stop before budget exhaustion. |
 | `OPENAI_API_KEY` | Server only | OpenAI fallback and OpenAI Responses API services | Required for chat fallback, real report generation, reviewer calls, hosted web search, hosted agent-memory file search, and `bun run agent-memory:sync` when not using `--dry-run`. |
@@ -74,8 +74,8 @@ See [Database authorization reference](database-authorization.md) for the role a
 ## Production Rate-Limit Storage
 
 Production rate limiting fails closed when the active `RateLimitStore` has `scope: "process"`.
-Development and test can use the default process-local memory store. Production should set
-`REDIS_URL` so the bundled Redis quota store provides atomic increments, rolling-window
+Development and test use the default process-local memory store even when `REDIS_URL` is present.
+Production should set `REDIS_URL` so the bundled Node-compatible Redis quota store provides atomic increments, rolling-window
 reservations, concurrency leases, idempotency records, and budget reservations across all runtime
 instances. There is no environment override for process-local production rate limits.
 

@@ -229,6 +229,9 @@ const chatSignedOutActions = (
 );
 
 const chatErrorMessage = "Ask Siargao could not answer right now. Please try again.";
+const chatResponseTimeoutMessage =
+  "Ask Siargao took too long to answer. Please retry your question.";
+const chatResponseTimeoutMs = 10_000;
 const shareErrorMessage = "Share link could not be created. Your saved items are still here.";
 const maxChatRequestMessageLength = 2_000;
 const maxPriorChatRequestMessages = 6;
@@ -1427,6 +1430,12 @@ function useChatWorkspaceController({
         dispatchLocationState({ type: "consume_request" });
       }
 
+      const responseTimeout = window.setTimeout(() => {
+        responseRequest.controller.abort(
+          new DOMException(chatResponseTimeoutMessage, "TimeoutError"),
+        );
+      }, chatResponseTimeoutMs);
+
       try {
         const response = await fetch("/api/chat", {
           method: "POST",
@@ -1520,6 +1529,7 @@ function useChatWorkspaceController({
           ),
         );
       } finally {
+        window.clearTimeout(responseTimeout);
         if (
           isCurrentResponseWaitRequest(activeResponseRequestRef.current, responseRequest.requestId)
         ) {

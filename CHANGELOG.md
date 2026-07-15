@@ -9,6 +9,10 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed shared quota-store runtime wiring to use the Node-compatible Redis client in deployed
+  Next.js handlers while keeping process-local quota stores in development and test.
+- Changed stalled chat submissions to leave the pending state after 10 seconds with visible retry
+  guidance instead of waiting indefinitely.
 - Changed public Ask Siargao positioning to show the catalog-backed Trip Pass launch price, free and
   paid limits, Siargao-specific advantages, and legal/support boundaries before checkout.
 - Changed authenticated paid chat live-tool execution to meter Trip Pass live, heavy, weather, and
@@ -17,9 +21,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Changed authenticated paid chat to reserve and settle Trip Pass `chat_message` usage
   server-side, returning typed `usage_limit_reached` exhaustion before model execution and
   preserving exactly-once settlement for idempotent successful requests.
-- Changed DeepSeek chat runtime behavior behind `DEEPSEEK_COST_POLICY_ENABLED` so routine free and
-  paid turns use bounded non-thinking requests, paid heavy turns retain thinking-high, and OpenAI
-  fallback is disabled for free traffic.
+- Changed DeepSeek chat runtime behavior so the bounded non-thinking policy is always active,
+  including heavy turns.
 
 ### Security
 
@@ -37,6 +40,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added a real Node-hosted `/api/chat` runtime smoke against an isolated Redis database and a
+  deterministic local model endpoint to the release gate, requiring a complete `200` answer so
+  mocked browser tests cannot hide route boot or response-path failures.
 - Added an executable Trip Pass launch-proof artifact and release-candidate runbook covering
   free-to-paid lifecycle evidence, approval blockers, external smoke lanes, and flag-based rollback.
 - Added redacted Trip Pass reconciliation and support diagnostics for paid-order, pass, grant,
