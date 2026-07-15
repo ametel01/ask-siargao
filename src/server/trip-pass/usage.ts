@@ -3,11 +3,7 @@ import { createHash } from "node:crypto";
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { trackServerEvent } from "@/server/observability/events";
 import type { TripPassUsageMeter } from "@/server/payments/trip-pass";
-import {
-  createMemoryQuotaStore,
-  createRedisQuotaStore,
-  type QuotaStore,
-} from "@/server/security/rate-limit";
+import { createRuntimeQuotaStore, type QuotaStore } from "@/server/security/rate-limit";
 import { type TripPassMeterType, tripPassRateLimits } from "@/server/trip-pass/catalog";
 import { getEffectiveTripPass } from "@/server/trip-pass/entitlement";
 
@@ -131,7 +127,7 @@ export async function openChatUsageSession(
   const nowMs = now.getTime();
   const db = input.db ?? getDefaultDatabaseQueryClient();
 
-  if (!input.store && isProductionEnvironment(input.env) && !input.env?.REDIS_URL) {
+  if (!input.store && isProductionEnvironment(input.env) && !(input.env ?? process.env).REDIS_URL) {
     return { status: "unavailable", reason: "paid_usage_store_unavailable" };
   }
 
@@ -888,8 +884,7 @@ function parseTripPassMeterType(value: string): TripPassMeterType {
 
 function getDefaultPaidUsageStore(env: Record<string, string | undefined> = process.env) {
   if (!defaultStore) {
-    defaultStore =
-      env.REDIS_URL && env.NODE_ENV !== "test" ? createRedisQuotaStore() : createMemoryQuotaStore();
+    defaultStore = createRuntimeQuotaStore(env);
   }
   return defaultStore;
 }

@@ -1,8 +1,4 @@
-import {
-  createMemoryQuotaStore,
-  createRedisQuotaStore,
-  type QuotaStore,
-} from "@/server/security/rate-limit";
+import { createRuntimeQuotaStore, type QuotaStore } from "@/server/security/rate-limit";
 import { readTripPassEnvironment } from "@/server/trip-pass/catalog";
 
 export type ModelCostCircuitProvider = "deepseek" | "openai";
@@ -114,8 +110,7 @@ function providerForModel(model: string): ModelCostCircuitProvider {
 
 function defaultCostCircuitStore(env: Record<string, string | undefined> = process.env) {
   if (!defaultStore) {
-    defaultStore =
-      env.REDIS_URL && env.NODE_ENV !== "test" ? createRedisQuotaStore() : createMemoryQuotaStore();
+    defaultStore = createRuntimeQuotaStore(env);
   }
   return defaultStore;
 }

@@ -33,7 +33,7 @@ const actions = {
     step: "compose.up.app",
   },
   "up-db": {
-    command: ["docker", "compose", "up", "-d", "db"],
+    command: ["docker", "compose", "up", "-d", "db", "redis"],
     step: "compose.up.db",
   },
 } as const;

@@ -1,3 +1,5 @@
+import { createClient } from "redis";
+
 export type RateLimitPolicy =
   | "intake"
   | "chat"
@@ -110,6 +112,7 @@ export type RateLimiterOptions = {
 };
 
 type MemoryQuotaStore = QuotaStore & {
+  reset(): void;
   size(): number;
 };
 
@@ -357,9 +360,9 @@ export function createMemoryQuotaStore(): MemoryQuotaStore {
 }
 
 export function createRedisQuotaStore(
-  input: { client?: RedisCommandClient; keyPrefix?: string } = {},
+  input: { client?: RedisCommandClient; keyPrefix?: string; url?: string } = {},
 ): QuotaStore {
-  const client = input.client ?? (Bun.redis as RedisCommandClient);
+  const client = input.client ?? createNodeRedisCommandClient(input.url ?? process.env.REDIS_URL);
   const keyPrefix = input.keyPrefix ?? "ask-siargao";
 
   return {
@@ -458,6 +461,15 @@ export function createRedisQuotaStore(
   };
 }
 
+export function createRuntimeQuotaStore(
+  env: Record<string, string | undefined> = process.env,
+): QuotaStore {
+  const isProduction = env.NODE_ENV === "production" || env.APP_ENV === "production";
+  return isProduction && env.REDIS_URL
+    ? createRedisQuotaStore({ url: env.REDIS_URL })
+    : createMemoryQuotaStore();
+}
+
 export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter {
   const store = options.store ?? defaultMemoryStore;
   const trustProxyHeaders = options.trustProxyHeaders ?? process.env.TRUST_PROXY_HEADERS === "true";
@@ -468,7 +480,7 @@ export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter
     const nowMs = now.getTime();
     const resetAt = new Date(nowMs + policy.windowMs).toISOString();
 
-    if (store.scope !== "shared" && (options.env ?? process.env.NODE_ENV) === "production") {
+    if (store.scope !== "shared" && isProductionRateLimitEnvironment(options.env)) {
       return failClosedRateLimit(policy, resetAt, "production_store_required");
     }
 
@@ -510,7 +522,7 @@ export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter
 }
 
 const defaultMemoryStore = createMemoryQuotaStore();
-let defaultRateLimiter = createRateLimiter({ store: defaultMemoryStore });
+let defaultRateLimiter = createRateLimiter({ store: createRuntimeQuotaStore() });
 
 export function configureRateLimitStore(
   store: QuotaStore,
@@ -541,8 +553,8 @@ export function rateLimitedJson(result: RateLimitResult) {
   );
 }
 
-export async function resetRateLimitStoreForTests() {
-  await defaultMemoryStore.reset?.();
+export function resetRateLimitStoreForTests() {
+  defaultMemoryStore.reset();
   defaultRateLimiter = createRateLimiter({ store: defaultMemoryStore });
 }
 
@@ -558,6 +570,70 @@ function failClosedRateLimit(
     remaining: 0,
     resetAt,
     headers: rateLimitHeaders(policy.limit, 0, resetAt),
+  };
+}
+
+function isProductionRateLimitEnvironment(env: string | undefined) {
+  return (
+    env === "production" ||
+    (env === undefined &&
+      (process.env.NODE_ENV === "production" || process.env.APP_ENV === "production"))
+  );
+}
+
+function createNodeRedisCommandClient(url: string | undefined): RedisCommandClient {
+  if (!url) {
+    throw new Error("REDIS_URL is required to create the shared quota store.");
+  }
+
+  const client = createClient({
+    url,
+    socket: {
+      connectTimeout: 2_000,
+      reconnectStrategy: false,
+    },
+  });
+  client.on("error", () => {
+    // Quota consumers convert command failures into fail-closed results.
+  });
+  let connection: Promise<unknown> | undefined;
+
+  async function command<T>(args: string[]) {
+    if (!client.isReady) {
+      connection ??= client.connect().finally(() => {
+        connection = undefined;
+      });
+      await connection;
+      client.unref();
+    }
+    return client.sendCommand<T>(args);
+  }
+
+  return {
+    async decrby(key, amount) {
+      return Number(await command(["DECRBY", key, String(amount)]));
+    },
+    async get(key) {
+      return command<string | null>(["GET", key]);
+    },
+    async incr(key) {
+      return Number(await command(["INCR", key]));
+    },
+    async incrby(key, amount) {
+      return Number(await command(["INCRBY", key, String(amount)]));
+    },
+    async pexpire(key, milliseconds) {
+      return command(["PEXPIRE", key, String(milliseconds)]);
+    },
+    async pttl(key) {
+      return Number(await command(["PTTL", key]));
+    },
+    async send(redisCommand, args) {
+      return command([redisCommand, ...args]);
+    },
+    async set(key, value, condition) {
+      return command(["SET", key, value, ...(condition ? [condition] : [])]);
+    },
   };
 }
 

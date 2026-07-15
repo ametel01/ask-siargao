@@ -16,6 +16,16 @@ concurrency:
 jobs:
   release-gate:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v5
 
@@ -49,6 +59,9 @@ jobs:
 
       - name: End-to-end tests
         run: bun run test:e2e
+
+      - name: Node runtime smoke
+        run: bun run test:runtime
 
       - name: Upload mobile trip context screenshots
         if: ${{ !cancelled() }}

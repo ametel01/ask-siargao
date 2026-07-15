@@ -39,4 +39,8 @@ bun run verify
 bun run verify:ci
 ```
 
-`bun run verify` is the fast non-mutating local check. `bun run verify:ci` mirrors the full CI release gate, including test database validation, build, and Playwright. Run `bun run format` only when you want Biome to write formatting fixes.
+`bun run verify` is the fast non-mutating local check. `bun run verify:ci` mirrors the full CI release
+gate, including test database validation, build, mocked Playwright coverage, and a real Next.js
+chat-route smoke against an isolated local Redis database and deterministic model fixture. Start
+the local stack with `bun run stack:up` before the full gate. Run `bun run format` only when you want
+Biome to write formatting fixes.

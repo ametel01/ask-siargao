@@ -8,6 +8,7 @@ import {
   configureRateLimitStore,
   createMemoryRateLimitStore,
   createRateLimiter,
+  createRuntimeQuotaStore,
   type QuotaStore,
   resetRateLimitStoreForTests,
 } from "@/server/security/rate-limit";
@@ -82,6 +83,24 @@ describe("rate limiting", () => {
     expect(store.size()).toBe(1);
   });
 
+  test("uses process-local memory in development even when REDIS_URL is present", () => {
+    const store = createRuntimeQuotaStore({
+      NODE_ENV: "development",
+      REDIS_URL: "redis://127.0.0.1:6379",
+    });
+
+    expect(store.scope).toBe("process");
+  });
+
+  test("selects a Node-compatible shared store for configured production runtimes", () => {
+    const store = createRuntimeQuotaStore({
+      NODE_ENV: "production",
+      REDIS_URL: "redis://127.0.0.1:6379",
+    });
+
+    expect(store.scope).toBe("shared");
+  });
+
   test("fails closed before using process-local memory in production", async () => {
     const store = createMemoryRateLimitStore();
     const limiter = createRateLimiter({ store, env: "production" });
@@ -95,6 +114,27 @@ describe("rate limiting", () => {
     expect(result.allowed).toBe(false);
     expect(result.blockedReason).toBe("production_store_required");
     expect(store.size()).toBe(0);
+  });
+
+  test("treats APP_ENV production as fail-closed when Redis is absent", async () => {
+    const originalAppEnv = process.env.APP_ENV;
+    setEnvValue("APP_ENV", "production");
+
+    try {
+      const store = createMemoryRateLimitStore();
+      const limiter = createRateLimiter({ store });
+      const result = await limiter.checkRateLimit({
+        key: "traveler",
+        policy: "checkout",
+        now: new Date("2026-06-23T08:00:00.000Z"),
+      });
+
+      expect(result.allowed).toBe(false);
+      expect(result.blockedReason).toBe("production_store_required");
+      expect(store.size()).toBe(0);
+    } finally {
+      setEnvValue("APP_ENV", originalAppEnv);
+    }
   });
 
   test("default process-local limiter fails closed in production", async () => {

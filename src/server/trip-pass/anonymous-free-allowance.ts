@@ -1,11 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import net from "node:net";
 
-import {
-  createMemoryQuotaStore,
-  createRedisQuotaStore,
-  type QuotaStore,
-} from "@/server/security/rate-limit";
+import { createRuntimeQuotaStore, type QuotaStore } from "@/server/security/rate-limit";
 import { tripPassFreeMeterLimits, tripPassRateLimits } from "@/server/trip-pass/catalog";
 import type {
   PaidDecisionMeterReservation,
@@ -110,7 +106,11 @@ export async function beginAuthenticatedFreeChat(
   if (config.status === "unavailable") {
     return denied("unavailable", headers, "anonymous_identity_unavailable", null);
   }
-  if (!options.store && isProductionEnvironment(options.env) && !options.env?.REDIS_URL) {
+  if (
+    !options.store &&
+    isProductionEnvironment(options.env) &&
+    !(options.env ?? process.env).REDIS_URL
+  ) {
     return denied("unavailable", headers, "anonymous_quota_store_unavailable", null);
   }
 
@@ -287,7 +287,11 @@ export async function beginAnonymousFreeUsage(
   if (config.status === "unavailable") {
     return denied("unavailable", headers, "anonymous_identity_unavailable", null);
   }
-  if (!options.store && isProductionEnvironment(options.env) && !options.env?.REDIS_URL) {
+  if (
+    !options.store &&
+    isProductionEnvironment(options.env) &&
+    !(options.env ?? process.env).REDIS_URL
+  ) {
     return denied("unavailable", headers, "anonymous_quota_store_unavailable", null);
   }
 
@@ -854,8 +858,7 @@ function getDefaultAnonymousFreeAllowanceStore(
   env: Record<string, string | undefined> = process.env,
 ) {
   if (!defaultStore) {
-    defaultStore =
-      env.REDIS_URL && env.NODE_ENV !== "test" ? createRedisQuotaStore() : createMemoryQuotaStore();
+    defaultStore = createRuntimeQuotaStore(env);
   }
   return defaultStore;
 }
