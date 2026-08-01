@@ -207,7 +207,7 @@ export async function chatResponse(
   > | null = null;
   let paidChatUsage: Extract<PaidChatUsageSessionResult, { status: "allowed" }> | null = null;
   let paidChatSettlement: PaidChatUsageSettlement | null = null;
-  const now = new Date(startedAt);
+  const now = dependencies.now?.() ?? new Date(startedAt);
   const normalizedClientContext = normalizeTripContextClientContext(
     parsed.data.clientContext as TripContextClientContextInput | undefined,
     now,

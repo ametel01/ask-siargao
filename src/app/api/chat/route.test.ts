@@ -278,6 +278,7 @@ describe("chat route", () => {
       sources: [genericSourceSummary],
     });
     dependencies.db = db;
+    dependencies.now = tripPassTestNow;
     dependencies.auth = async () => ({
       userId: "user_paid_chat",
       sessionClaims: { email: "paid-chat@example.com" },
@@ -315,6 +316,7 @@ describe("chat route", () => {
       sources: [genericSourceSummary],
     });
     dependencies.db = db;
+    dependencies.now = tripPassTestNow;
     dependencies.auth = async () => ({
       userId: "user_paid_replay",
       sessionClaims: { email: "paid-replay@example.com" },
@@ -344,6 +346,7 @@ describe("chat route", () => {
       sources: [genericSourceSummary],
     });
     dependencies.db = db;
+    dependencies.now = tripPassTestNow;
     dependencies.auth = async () => ({
       userId: "user_paid_exhausted",
       sessionClaims: { email: "paid-exhausted@example.com" },
@@ -372,6 +375,7 @@ describe("chat route", () => {
     await seedActiveTripPass(db, "user_paid_failure", "trip_pass_paid_failure");
     const dependencies = chatDependencies();
     dependencies.db = db;
+    dependencies.now = tripPassTestNow;
     dependencies.auth = async () => ({
       userId: "user_paid_failure",
       sessionClaims: { email: "paid-failure@example.com" },
@@ -2696,6 +2700,10 @@ async function seedActiveTripPass(db: PGlite, userId: string, tripPassId: string
     },
     db,
   );
+}
+
+function tripPassTestNow() {
+  return new Date("2026-07-14T00:00:00.000Z");
 }
 
 async function setChatMeterUsed(db: PGlite, tripPassId: string, used: number) {
