@@ -1031,6 +1031,18 @@ function useChatWorkspaceController({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ title: trimmedTitle }),
         });
+        if (!response.ok) {
+          if (threadMutationGenerationRef.current !== mutationGeneration) {
+            return;
+          }
+          setThreadActionState({
+            dialog: "rename",
+            error: threadMutationErrorMessage(response.status),
+            pendingAction: null,
+            status: "error",
+          });
+          return;
+        }
         const body = (await response.json().catch(() => null)) as {
           thread?: ChatThreadSummary;
         } | null;
@@ -1200,6 +1212,9 @@ function useChatWorkspaceController({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ messageId, rating }),
         });
+        if (!response.ok) {
+          throw new Error("rating_failed");
+        }
         const body = (await response.json()) as { rating?: ChatMessageRating };
         if (!response.ok || !body.rating) {
           throw new Error("rating_failed");
@@ -1365,13 +1380,26 @@ function useChatWorkspaceController({
       chatSubmissionGenerationRef.current = submission.generation;
       pendingChatSubmissionRef.current = submission;
       setIsSending(true);
-      let requestLocationState = locationState;
+      try {
+        let requestLocationState = locationState;
 
-      if (shouldRequestAutomaticLocationForPrompt(trimmedPrompt, locationState)) {
-        const capturedLocationState = await captureLocation(
-          "single_request",
-          submission.controller.signal,
-        );
+        if (shouldRequestAutomaticLocationForPrompt(trimmedPrompt, locationState)) {
+          const capturedLocationState = await captureLocation(
+            "single_request",
+            submission.controller.signal,
+          );
+          if (
+            !mountedRef.current ||
+            submission.controller.signal.aborted ||
+            pendingChatSubmissionRef.current?.generation !== submission.generation
+          ) {
+            return;
+          }
+          if (capturedLocationState) {
+            requestLocationState = capturedLocationState;
+          }
+        }
+
         if (
           !mountedRef.current ||
           submission.controller.signal.aborted ||
@@ -1379,161 +1407,162 @@ function useChatWorkspaceController({
         ) {
           return;
         }
-        if (capturedLocationState) {
-          requestLocationState = capturedLocationState;
-        }
-      }
 
-      if (
-        !mountedRef.current ||
-        submission.controller.signal.aborted ||
-        pendingChatSubmissionRef.current?.generation !== submission.generation
-      ) {
-        return;
-      }
-
-      const timestamp = formatTimestamp();
-      const userMessage: InteractiveChatMessage = {
-        id: createMessageId("user"),
-        role: "user",
-        text: trimmedPrompt,
-        timestamp,
-        status: "complete",
-      };
-      const pendingAssistantId = createMessageId("assistant");
-      const responseRequest = createResponseWaitRequest({
-        assistantMessageId: pendingAssistantId,
-        prompt: trimmedPrompt,
-      });
-      const pendingAssistant: InteractiveChatMessage = {
-        id: pendingAssistantId,
-        role: "assistant",
-        text: responseWaitStatusText,
-        timestamp,
-        status: "pending",
-      };
-      const requestMessages = buildChatRequestMessages(messages, trimmedPrompt);
-      const requestBody = buildChatRequestBody(
-        requestMessages,
-        requestLocationState,
-        selectedThreadId,
-        tripDataSource,
-      );
-
-      activeResponseRequestRef.current = responseRequest;
-      setInputValue("");
-      setMessages((currentMessages) => [...currentMessages, userMessage, pendingAssistant]);
-      if (requestBody.clientContext?.geolocation?.consentScope === "single_request") {
-        dispatchLocationState({ type: "consume_request" });
-      }
-
-      try {
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(requestBody),
-          signal: responseRequest.controller.signal,
-        });
-        const body = (await response.json()) as {
-          message?: string;
-          cards?: RecommendationCardArtifact[];
-          actions?: ChatActionArtifact[];
-          itineraries?: ItineraryPlanArtifact[];
-          decisionSummaries?: DecisionSummaryArtifact[];
-          sources?: ChatSourceArtifact[];
-          threadId?: string;
-          assistantMessageId?: string;
-          error?: string;
-          reason?: string;
+        const timestamp = formatTimestamp();
+        const userMessage: InteractiveChatMessage = {
+          id: createMessageId("user"),
+          role: "user",
+          text: trimmedPrompt,
+          timestamp,
+          status: "complete",
         };
-
-        const responseMessage = body.message;
-
-        if (
-          !mountedRef.current ||
-          !isCurrentResponseWaitRequest(activeResponseRequestRef.current, responseRequest.requestId)
-        ) {
-          return;
-        }
-
-        if (!response.ok || !responseMessage) {
-          throw new Error(chatResponseErrorMessage(response.status, body));
-        }
-
-        if (body.threadId) {
-          setSelectedThreadId(body.threadId);
-          setSelectedThreadTitle(chatThreadTitleFromPrompt(trimmedPrompt));
-          setSelectedSavedItemId(null);
-          setSelectedSavedItemStatus("idle");
-          writeChatResourceQuery({ threadId: body.threadId }, "replace");
-          void refreshChatThreads();
-        }
-
-        setMessages((currentMessages) =>
-          currentMessages.map((message) =>
-            message.id === pendingAssistantId
-              ? {
-                  ...message,
-                  answerArrivalMotion: createAnswerArrivalMotionActivation({
-                    messageId: pendingAssistantId,
-                    previousStatus: message.status,
-                    nextStatus: "complete",
-                    hasDecisionStrip: Boolean(projectDecisionStrip(body.decisionSummaries)),
-                  }),
-                  messageId: body.assistantMessageId ?? message.messageId,
-                  text: responseMessage,
-                  timestamp: formatTimestamp(),
-                  status: "complete",
-                  cards: body.cards,
-                  actions: body.actions,
-                  itineraries: body.itineraries,
-                  decisionSummaries: body.decisionSummaries,
-                  sources: body.sources,
-                }
-              : message,
-          ),
+        const pendingAssistantId = createMessageId("assistant");
+        const responseRequest = createResponseWaitRequest({
+          assistantMessageId: pendingAssistantId,
+          prompt: trimmedPrompt,
+        });
+        const pendingAssistant: InteractiveChatMessage = {
+          id: pendingAssistantId,
+          role: "assistant",
+          text: responseWaitStatusText,
+          timestamp,
+          status: "pending",
+        };
+        const requestMessages = buildChatRequestMessages(messages, trimmedPrompt);
+        const requestBody = buildChatRequestBody(
+          requestMessages,
+          requestLocationState,
+          selectedThreadId,
+          tripDataSource,
         );
-      } catch (error) {
-        if (
-          !mountedRef.current ||
-          !isCurrentResponseWaitRequest(
-            activeResponseRequestRef.current,
-            responseRequest.requestId,
-          ) ||
-          isResponseWaitAbort(error)
-        ) {
-          return;
+
+        activeResponseRequestRef.current = responseRequest;
+        setInputValue("");
+        setMessages((currentMessages) => [...currentMessages, userMessage, pendingAssistant]);
+        if (requestBody.clientContext?.geolocation?.consentScope === "single_request") {
+          dispatchLocationState({ type: "consume_request" });
         }
 
-        setMessages((currentMessages) =>
-          currentMessages.map((message) =>
-            message.id === pendingAssistantId
-              ? {
-                  ...message,
-                  answerArrivalMotion: undefined,
-                  text: error instanceof Error ? error.message : chatErrorMessage,
-                  timestamp: formatTimestamp(),
-                  status: "error",
-                  retryPrompt: trimmedPrompt,
-                }
-              : message,
-          ),
-        );
-      } finally {
-        if (
-          isCurrentResponseWaitRequest(activeResponseRequestRef.current, responseRequest.requestId)
-        ) {
-          activeResponseRequestRef.current = settleResponseWaitRequest(
-            activeResponseRequestRef.current,
-            responseRequest.requestId,
+        try {
+          const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(requestBody),
+            signal: responseRequest.controller.signal,
+          });
+          if (!response.ok) {
+            const body = (await response.json().catch(() => null)) as {
+              error?: string;
+              reason?: string;
+            } | null;
+            throw new Error(chatResponseErrorMessage(response.status, body ?? {}));
+          }
+          const body = (await response.json()) as {
+            message?: string;
+            cards?: RecommendationCardArtifact[];
+            actions?: ChatActionArtifact[];
+            itineraries?: ItineraryPlanArtifact[];
+            decisionSummaries?: DecisionSummaryArtifact[];
+            sources?: ChatSourceArtifact[];
+            threadId?: string;
+            assistantMessageId?: string;
+            error?: string;
+            reason?: string;
+          };
+
+          const responseMessage = body.message;
+
+          if (
+            !mountedRef.current ||
+            !isCurrentResponseWaitRequest(
+              activeResponseRequestRef.current,
+              responseRequest.requestId,
+            )
+          ) {
+            return;
+          }
+
+          if (!responseMessage) {
+            throw new Error(chatResponseErrorMessage(response.status, body));
+          }
+
+          if (body.threadId) {
+            setSelectedThreadId(body.threadId);
+            setSelectedThreadTitle(chatThreadTitleFromPrompt(trimmedPrompt));
+            setSelectedSavedItemId(null);
+            setSelectedSavedItemStatus("idle");
+            writeChatResourceQuery({ threadId: body.threadId }, "replace");
+            void refreshChatThreads();
+          }
+
+          setMessages((currentMessages) =>
+            currentMessages.map((message) =>
+              message.id === pendingAssistantId
+                ? {
+                    ...message,
+                    answerArrivalMotion: createAnswerArrivalMotionActivation({
+                      messageId: pendingAssistantId,
+                      previousStatus: message.status,
+                      nextStatus: "complete",
+                      hasDecisionStrip: Boolean(projectDecisionStrip(body.decisionSummaries)),
+                    }),
+                    messageId: body.assistantMessageId ?? message.messageId,
+                    text: responseMessage,
+                    timestamp: formatTimestamp(),
+                    status: "complete",
+                    cards: body.cards,
+                    actions: body.actions,
+                    itineraries: body.itineraries,
+                    decisionSummaries: body.decisionSummaries,
+                    sources: body.sources,
+                  }
+                : message,
+            ),
           );
-          if (mountedRef.current) {
-            setIsSending(false);
+        } catch (error) {
+          if (
+            !mountedRef.current ||
+            !isCurrentResponseWaitRequest(
+              activeResponseRequestRef.current,
+              responseRequest.requestId,
+            ) ||
+            isResponseWaitAbort(error)
+          ) {
+            return;
+          }
+
+          setMessages((currentMessages) =>
+            currentMessages.map((message) =>
+              message.id === pendingAssistantId
+                ? {
+                    ...message,
+                    answerArrivalMotion: undefined,
+                    text: error instanceof Error ? error.message : chatErrorMessage,
+                    timestamp: formatTimestamp(),
+                    status: "error",
+                    retryPrompt: trimmedPrompt,
+                  }
+                : message,
+            ),
+          );
+        } finally {
+          if (
+            isCurrentResponseWaitRequest(
+              activeResponseRequestRef.current,
+              responseRequest.requestId,
+            )
+          ) {
+            activeResponseRequestRef.current = settleResponseWaitRequest(
+              activeResponseRequestRef.current,
+              responseRequest.requestId,
+            );
           }
         }
+      } finally {
         if (pendingChatSubmissionRef.current?.generation === submission.generation) {
           pendingChatSubmissionRef.current = null;
         }
+        setIsSending(false);
       }
     },
     [

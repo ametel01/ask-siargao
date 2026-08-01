@@ -242,8 +242,10 @@ export async function lookupTripPassSupportReference(
   }
 
   const db = options.db ?? getDefaultDatabaseQueryClient();
-  const orders = await loadSupportOrders(input, db);
-  const passes = await loadSupportPasses(input, db);
+  const [orders, passes] = await Promise.all([
+    loadSupportOrders(input, db),
+    loadSupportPasses(input, db),
+  ]);
   const userRefs = new Set<string>();
   for (const order of orders) {
     if (order.user_id) {
@@ -414,27 +416,23 @@ async function buildRepairActions(input: {
   mutate: boolean;
   now: Date;
 }): Promise<TripPassRepairAction[]> {
-  const actions: TripPassRepairAction[] = [];
-  for (const issue of input.issues) {
-    if (!issue.repairable) {
-      continue;
-    }
-    if (issue.code === "paid_without_pass") {
-      actions.push(await grantMissingTripPass(input.db, issue.localRef, input.mutate, input.now));
-    }
-    if (issue.code === "missing_usage_meters") {
-      actions.push(
-        await initializeMissingMeters(input.db, issue.localRef, input.mutate, input.now),
-      );
-    }
-    if (issue.code === "stale_usage_reservation") {
-      actions.push(
-        await releaseStaleReservation(input.db, issue.localRef, input.mutate, input.now),
-      );
-    }
-  }
-
-  return actions;
+  return Promise.all(
+    input.issues.flatMap((issue) => {
+      if (!issue.repairable) {
+        return [];
+      }
+      if (issue.code === "paid_without_pass") {
+        return [grantMissingTripPass(input.db, issue.localRef, input.mutate, input.now)];
+      }
+      if (issue.code === "missing_usage_meters") {
+        return [initializeMissingMeters(input.db, issue.localRef, input.mutate, input.now)];
+      }
+      if (issue.code === "stale_usage_reservation") {
+        return [releaseStaleReservation(input.db, issue.localRef, input.mutate, input.now)];
+      }
+      return [];
+    }),
+  );
 }
 
 async function grantMissingTripPass(

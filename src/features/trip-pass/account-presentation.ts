@@ -183,13 +183,16 @@ function tripPassWarnings(
   presentation: TripPassAccountPresentation,
   allowances: TripPassAllowanceView[],
 ) {
-  const warnings = allowances
-    .filter(shouldWarnAllowance)
-    .map((allowance) =>
-      allowance.remaining === 0
-        ? `${allowance.label} allowance is exhausted.`
-        : `${allowance.label} are near the limit: ${allowance.remaining} left.`,
-    );
+  const warnings = allowances.reduce<string[]>((warnings, allowance) => {
+    if (shouldWarnAllowance(allowance)) {
+      warnings.push(
+        allowance.remaining === 0
+          ? `${allowance.label} allowance is exhausted.`
+          : `${allowance.label} are near the limit: ${allowance.remaining} left.`,
+      );
+    }
+    return warnings;
+  }, []);
 
   if (presentation.attention.expiresSoon && presentation.validity.expiresAt) {
     warnings.push(`Pass expires soon: ${formatTripPassDate(presentation.validity.expiresAt)}.`);

@@ -140,10 +140,10 @@ function resolveCostPolicyTier(
 }
 
 function isHeavyTurn(request: AgentRuntimeRequest) {
-  const text = request.messages
-    .filter((message) => message.role === "user")
-    .map((message) => message.content)
-    .join(" ");
+  const text = request.messages.reduce(
+    (text, message) => (message.role === "user" ? `${text} ${message.content}` : text),
+    "",
+  );
   return /\b(compare|current|latest|open now|restaurant|nightlife|event|events|research|best)\b/i.test(
     text,
   );

@@ -188,6 +188,10 @@ if (import.meta.main) {
     throw new Error("DATABASE_URL is required to seed the database.");
   }
 
+  await runSeed(databaseUrl, seedLogger);
+}
+
+async function runSeed(databaseUrl: string, seedLogger: ReturnType<typeof createComponentLogger>) {
   const sql = postgres(databaseUrl, createPostgresConnectionOptions("cli"));
   const startedAt = performance.now();
 

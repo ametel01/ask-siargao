@@ -556,15 +556,6 @@ async function reserveFreeDecisionMeterHandle(input: {
   };
 }
 
-export function getAnonymousFreeAllowanceResponseHeaders(
-  result: AnonymousFreeAllowanceBeginResult | null,
-) {
-  if (!result) {
-    return undefined;
-  }
-  return result.headers;
-}
-
 export function mergeHeaders(first?: HeadersInit, second?: HeadersInit) {
   const headers = new Headers(first);
   if (!second) {

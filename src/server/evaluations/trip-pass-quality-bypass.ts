@@ -113,10 +113,12 @@ export function buildTripPassQualityBypassArtifact(
       cacheMissReductionPercent: candidate.comparison.cacheMissReductionPercent,
       modeledCostReductionPercent: candidate.comparison.modeledCostReductionPercent,
       passesTwentyPercentTarget: candidate.comparison.passesTwentyPercentTarget,
-      maxNormalModelCalls: Math.max(
-        ...candidate.corpus.cases
-          .filter((qualityCase) => qualityCase.policyTier === "free_or_paid_routine")
-          .map((qualityCase) => qualityCase.callCount),
+      maxNormalModelCalls: candidate.corpus.cases.reduce(
+        (maximum, qualityCase) =>
+          qualityCase.policyTier === "free_or_paid_routine"
+            ? Math.max(maximum, qualityCase.callCount)
+            : maximum,
+        0,
       ),
     },
     bypassMatrix: {

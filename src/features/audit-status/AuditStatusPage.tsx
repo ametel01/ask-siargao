@@ -3,7 +3,7 @@ import { CheckCircle2, Clock3, FileSearch, TriangleAlert } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { type AuditJobState, auditJobStates } from "@/server/audit/enums";
+import type { AuditJobState } from "@/server/audit/enums";
 import {
   AppBackdrop,
   appPanelClass,
@@ -125,12 +125,6 @@ export function AuditStatusPage({
       </section>
     </AppBackdrop>
   );
-}
-
-export function parseAuditStatusState(value: string | undefined): AuditJobState {
-  return auditJobStates.includes(value as AuditJobState)
-    ? (value as AuditJobState)
-    : "awaiting_payment";
 }
 
 function auditProgressValue(state: AuditJobState) {
