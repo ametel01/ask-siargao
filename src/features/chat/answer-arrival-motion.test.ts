@@ -53,20 +53,19 @@ describe("answer arrival motion eligibility", () => {
       nextStatus: "complete",
       hasDecisionStrip: true,
     },
-  ] as const)("keeps $label motion-ineligible", ({
-    previousStatus,
-    nextStatus,
-    hasDecisionStrip,
-  }) => {
-    expect(
-      createAnswerArrivalMotionActivation({
-        messageId: "assistant_static",
-        previousStatus,
-        nextStatus,
-        hasDecisionStrip,
-      }),
-    ).toBeUndefined();
-  });
+  ] as const)(
+    "keeps $label motion-ineligible",
+    ({ previousStatus, nextStatus, hasDecisionStrip }) => {
+      expect(
+        createAnswerArrivalMotionActivation({
+          messageId: "assistant_static",
+          previousStatus,
+          nextStatus,
+          hasDecisionStrip,
+        }),
+      ).toBeUndefined();
+    },
+  );
 
   test("gives each distinct live answer one independent activation", () => {
     const first = createAnswerArrivalMotionActivation({

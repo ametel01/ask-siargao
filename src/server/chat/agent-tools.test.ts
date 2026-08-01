@@ -1389,7 +1389,7 @@ not-json
     );
 
     expect(result.status).toBe("success");
-    expect((requests[0]?.headers as Record<string, string>)["X-Goog-FieldMask"]).toBe(
+    expect((requests[0]?.headers as Record<string, string> | undefined)?.["X-Goog-FieldMask"]).toBe(
       googlePlacesChatSearchFieldMask,
     );
     expect(JSON.parse(String(requests[0]?.body))).toMatchObject({ openNow: true });
@@ -1955,7 +1955,7 @@ not-json
     );
 
     expect(result.status).toBe("success");
-    expect((requests[0]?.headers as Record<string, string>)["X-Goog-FieldMask"]).toBe(
+    expect((requests[0]?.headers as Record<string, string> | undefined)?.["X-Goog-FieldMask"]).toBe(
       googlePlacesDetailsFieldMask,
     );
     expect(result.sources[0]?.label).toBe("live_checked");

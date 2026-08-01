@@ -95,28 +95,28 @@ describe("decision strip presentation", () => {
     ).toEqual({ label: "Unavailable", value: "Weather forecast" });
   });
 
-  test.each([
-    "insufficient_web_evidence",
-    "no_current_event_facts",
-  ] as const)("rejects unsupported checked scope for %s and uses plain source labels", (label) => {
-    const sourceStatus = projectDecisionStrip([
-      {
-        ...completeSummary,
-        sources: [
-          {
-            label,
-            sourceName: "Open-Meteo weather API",
-            checked: ["unsupported current facts"],
-            notChecked: ["current request evidence"],
-          },
-        ],
-      },
-    ])?.sourceStatus;
+  test.each(["insufficient_web_evidence", "no_current_event_facts"] as const)(
+    "rejects unsupported checked scope for %s and uses plain source labels",
+    (label) => {
+      const sourceStatus = projectDecisionStrip([
+        {
+          ...completeSummary,
+          sources: [
+            {
+              label,
+              sourceName: "Open-Meteo weather API",
+              checked: ["unsupported current facts"],
+              notChecked: ["current request evidence"],
+            },
+          ],
+        },
+      ])?.sourceStatus;
 
-    expect(sourceStatus).toEqual({ label: "Not verified", value: "Weather forecast" });
-    expect(sourceStatus?.value).not.toContain("Open-Meteo");
-    expect(sourceStatus?.value).not.toContain("unsupported current facts");
-  });
+      expect(sourceStatus).toEqual({ label: "Not verified", value: "Weather forecast" });
+      expect(sourceStatus?.value).not.toContain("Open-Meteo");
+      expect(sourceStatus?.value).not.toContain("unsupported current facts");
+    },
+  );
 
   test("does not leak provider labels when checked evidence is supported", () => {
     const sourceStatus = projectDecisionStrip([
