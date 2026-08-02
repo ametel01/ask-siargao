@@ -104,7 +104,7 @@ export function resolveChatCostPolicy(
     deepSeekThinkingMode: "disabled",
     maxOutputTokens: tripPassProductCatalog.costPolicy.free.maxOutputTokens,
     maxToolCalls: tripPassProductCatalog.costPolicy.free.maxToolCalls,
-    maxTurns: 3,
+    maxTurns: 5,
     normalMaxModelCalls: tripPassProductCatalog.costPolicy.free.maxModelCalls,
     absoluteMaxModelCalls: tripPassProductCatalog.costPolicy.absoluteModelCallBound,
     openAiFallback: { enabled: false, reason: "free_disallowed" },

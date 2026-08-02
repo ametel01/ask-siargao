@@ -92,7 +92,10 @@ type Environment = Record<string, string | undefined>;
 export function readTripPassEnvironment(env: Environment = process.env) {
   const checkoutEnabled = parseBooleanFlag(env.TRIP_PASS_CHECKOUT_ENABLED);
   const extensionEnabled = parseBooleanFlag(env.TRIP_PASS_EXTENSION_ENABLED);
-  const deepSeekCostPolicyEnabled = parseBooleanFlag(env.DEEPSEEK_COST_POLICY_ENABLED);
+  const deepSeekCostPolicyEnabled =
+    env.DEEPSEEK_COST_POLICY_ENABLED === undefined
+      ? true
+      : parseBooleanFlag(env.DEEPSEEK_COST_POLICY_ENABLED);
   const stripePriceId = optionalServerSecret("STRIPE_TRIP_PASS_PRICE_ID", env);
 
   return {
@@ -115,7 +118,7 @@ export function readTripPassEnvironment(env: Environment = process.env) {
     },
     deepSeekCostPolicy: {
       enabled: deepSeekCostPolicyEnabled,
-      status: deepSeekCostPolicyEnabled ? "candidate" : "disabled",
+      status: deepSeekCostPolicyEnabled ? "active" : "disabled",
     },
     anonymousIdentity: {
       hmacKeyConfigured: Boolean(optionalServerSecret("TRIP_PASS_ANON_HMAC_KEY", env)),

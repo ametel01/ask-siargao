@@ -7,10 +7,10 @@ import {
 } from "@/server/chat/cost-policy";
 
 describe("chat cost policy", () => {
-  test("keeps baseline high-thinking and OpenAI fallback when the candidate flag is disabled", () => {
+  test("keeps baseline high-thinking as an explicit rollback mode", () => {
     const policy = resolveChatCostPolicy(
       { messages: [{ role: "user", content: "Plan a first day." }] },
-      { env: {} },
+      { env: { DEEPSEEK_COST_POLICY_ENABLED: "false" } },
     );
 
     expect(policy).toMatchObject({
@@ -20,6 +20,24 @@ describe("chat cost policy", () => {
       maxOutputTokens: 3000,
       maxToolCalls: 8,
       openAiFallback: { enabled: true, reason: "baseline" },
+    });
+  });
+
+  test("uses the promoted non-thinking free policy by default", () => {
+    const policy = resolveChatCostPolicy(
+      { messages: [{ role: "user", content: "Plan a first day." }] },
+      { env: {} },
+    );
+
+    expect(policy).toMatchObject({
+      enabled: true,
+      tier: "free",
+      deepSeekThinkingMode: "disabled",
+      maxOutputTokens: 1500,
+      maxToolCalls: 4,
+      maxTurns: 5,
+      normalMaxModelCalls: 3,
+      openAiFallback: { enabled: false, reason: "free_disallowed" },
     });
   });
 
@@ -35,6 +53,7 @@ describe("chat cost policy", () => {
       deepSeekThinkingMode: "disabled",
       maxOutputTokens: 1500,
       maxToolCalls: 4,
+      maxTurns: 5,
       normalMaxModelCalls: 3,
       absoluteMaxModelCalls: 7,
       openAiFallback: { enabled: false, reason: "free_disallowed" },

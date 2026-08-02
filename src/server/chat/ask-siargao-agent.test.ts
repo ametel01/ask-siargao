@@ -94,7 +94,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       "Return final answers as normal traveler-facing Markdown/plain text",
     );
     expect(String(client.requests[0]?.instructions)).not.toContain("Return final answers as JSON");
-    expect(client.requests[0]?.max_output_tokens).toBe(3_000);
+    expect(client.requests[0]?.max_output_tokens).toBe(1_500);
     const firstInput = parseFirstInput(client.requests[0]?.input);
     expect(firstInput.agentMemory?.versionId).toBe(result.memory?.versionId);
     expect(firstInput.agentMemory?.files?.[0]).toEqual({
@@ -139,7 +139,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.message).not.toContain('"answer"');
     expect(result.upstreamRequestIds).toEqual(["req_malformed_json", "req_repaired_markdown"]);
     expect(client.requests).toHaveLength(2);
-    expect(client.requests[1]?.max_output_tokens).toBe(3_000);
+    expect(client.requests[1]?.max_output_tokens).toBe(1_500);
     expect(parseLastUserInputMessage(client.requests[1]?.input)?.instruction).toContain(
       "Return only normal traveler-facing Markdown/plain text",
     );

@@ -82,7 +82,7 @@ describe("Trip Pass catalog", () => {
     });
   });
 
-  test("keeps feature flags disabled and unavailable when configuration is missing", () => {
+  test("defaults the promoted cost policy on while other feature flags remain disabled", () => {
     const environment = readTripPassEnvironment({});
 
     expect(environment.checkout).toEqual({
@@ -96,7 +96,7 @@ describe("Trip Pass catalog", () => {
       status: "disabled",
       unavailableReason: null,
     });
-    expect(environment.deepSeekCostPolicy).toEqual({ enabled: false, status: "disabled" });
+    expect(environment.deepSeekCostPolicy).toEqual({ enabled: true, status: "active" });
     expect(environment.anonymousIdentity).toMatchObject({
       hmacKeyConfigured: false,
       keyVersion: 1,
@@ -144,7 +144,7 @@ describe("Trip Pass catalog", () => {
       status: "available",
       unavailableReason: null,
     });
-    expect(environment.deepSeekCostPolicy).toEqual({ enabled: true, status: "candidate" });
+    expect(environment.deepSeekCostPolicy).toEqual({ enabled: true, status: "active" });
     expect(environment.anonymousIdentity).toEqual({
       hmacKeyConfigured: true,
       keyVersion: 2,
