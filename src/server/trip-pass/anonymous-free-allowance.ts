@@ -7,7 +7,10 @@ import {
   type QuotaStore,
   shouldUseRedisQuotaStore,
 } from "@/server/security/rate-limit";
-import { tripPassFreeMeterLimits, tripPassRateLimits } from "@/server/trip-pass/catalog";
+import {
+  tripPassLegacyFreeMeterLimits as tripPassFreeMeterLimits,
+  tripPassRateLimits,
+} from "@/server/trip-pass/catalog";
 import type {
   PaidDecisionMeterReservation,
   PaidDecisionMeterSettlement,

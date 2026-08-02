@@ -1,4 +1,8 @@
-import { tripPassProductCatalog } from "@/server/trip-pass/catalog";
+import {
+  tripPassLegacyFreeMeterLimits,
+  tripPassLegacyPaidMeterLimits,
+  tripPassProductCatalog,
+} from "@/server/trip-pass/catalog";
 
 export const tripPassPublicOffer = {
   label: tripPassProductCatalog.label,
@@ -9,15 +13,15 @@ export const tripPassPublicOffer = {
   freeWindowDays: tripPassProductCatalog.freeWindowDays,
   freeLimits: {
     chat: tripPassProductCatalog.freeMeterLimits.chat_message,
-    live: tripPassProductCatalog.freeMeterLimits.live_refresh,
-    heavy: tripPassProductCatalog.freeMeterLimits.heavy_recommendation,
+    live: tripPassLegacyFreeMeterLimits.live_refresh,
+    heavy: tripPassLegacyFreeMeterLimits.heavy_recommendation,
   },
   paidLimits: {
     chat: tripPassProductCatalog.paidMeterLimits.chat_message,
-    live: tripPassProductCatalog.paidMeterLimits.live_refresh,
-    heavy: tripPassProductCatalog.paidMeterLimits.heavy_recommendation,
-    weather: tripPassProductCatalog.paidMeterLimits.weather_refresh,
-    route: tripPassProductCatalog.paidMeterLimits.route_lookup,
+    live: tripPassLegacyPaidMeterLimits.live_refresh,
+    heavy: tripPassLegacyPaidMeterLimits.heavy_recommendation,
+    weather: tripPassLegacyPaidMeterLimits.weather_refresh,
+    route: tripPassLegacyPaidMeterLimits.route_lookup,
   },
   links: {
     chat: "/chat",

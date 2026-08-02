@@ -1,7 +1,7 @@
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import {
   type TripPassMeterType,
-  tripPassPaidMeterLimits as tripPassMeterLimits,
+  tripPassLegacyPaidMeterLimits as tripPassMeterLimits,
   tripPassMeterTypes,
 } from "@/server/trip-pass/catalog";
 

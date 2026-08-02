@@ -4,6 +4,8 @@ import {
   readTripPassEnvironment,
   tripPassCostPolicy,
   tripPassFreeMeterLimits,
+  tripPassLegacyFreeMeterLimits,
+  tripPassLegacyPaidMeterLimits,
   tripPassMeterTypes,
   tripPassPaidMeterLimits,
   tripPassProductCatalog,
@@ -14,14 +16,15 @@ import {
 describe("Trip Pass catalog", () => {
   test("defines the launch product contract in one versioned catalog", () => {
     expect(tripPassProductCatalog).toMatchObject({
-      code: "siargao_trip_pass_14d_v1",
-      version: 1,
+      code: "siargao_trip_pass_14d_v2",
+      version: 2,
       label: "Siargao Trip Pass",
       durationDays: 14,
       freeWindowDays: 7,
       presentation: {
         priceAuthority: "stripe_price",
-        launchPriceLabel: "₱499",
+        launchPriceLabel: "$9.99",
+        launchCurrencyCode: "usd",
       },
     });
     expect(tripPassMeterTypes).toEqual([
@@ -33,12 +36,18 @@ describe("Trip Pass catalog", () => {
     ]);
     expect(tripPassPaidMeterLimits).toEqual({
       chat_message: 150,
+    });
+    expect(tripPassFreeMeterLimits).toEqual({
+      chat_message: 10,
+    });
+    expect(tripPassLegacyPaidMeterLimits).toEqual({
+      chat_message: 150,
       live_refresh: 40,
       heavy_recommendation: 8,
       weather_refresh: 20,
       route_lookup: 25,
     });
-    expect(tripPassFreeMeterLimits).toEqual({
+    expect(tripPassLegacyFreeMeterLimits).toEqual({
       chat_message: 10,
       live_refresh: 3,
       heavy_recommendation: 1,

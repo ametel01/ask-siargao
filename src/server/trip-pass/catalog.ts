@@ -1,7 +1,7 @@
 import { getServerSecret } from "@/server/security/privacy";
 
-export const tripPassProductCode = "siargao_trip_pass_14d_v1";
-export const tripPassProductVersion = 1;
+export const tripPassProductCode = "siargao_trip_pass_14d_v2";
+export const tripPassProductVersion = 2;
 
 export const tripPassMeterTypes = [
   "chat_message",
@@ -15,6 +15,10 @@ export type TripPassMeterType = (typeof tripPassMeterTypes)[number];
 
 export const tripPassPaidMeterLimits = {
   chat_message: 150,
+} as const satisfies Partial<Record<TripPassMeterType, number>>;
+
+export const tripPassLegacyPaidMeterLimits = {
+  chat_message: 150,
   live_refresh: 40,
   heavy_recommendation: 8,
   weather_refresh: 20,
@@ -22,6 +26,10 @@ export const tripPassPaidMeterLimits = {
 } as const satisfies Record<TripPassMeterType, number>;
 
 export const tripPassFreeMeterLimits = {
+  chat_message: 10,
+} as const satisfies Partial<Record<TripPassMeterType, number>>;
+
+export const tripPassLegacyFreeMeterLimits = {
   chat_message: 10,
   live_refresh: 3,
   heavy_recommendation: 1,
@@ -81,7 +89,8 @@ export const tripPassProductCatalog = {
   presentation: {
     headline: "14-day Siargao Trip Pass",
     priceAuthority: "stripe_price",
-    launchPriceLabel: "₱499",
+    launchPriceLabel: "$9.99",
+    launchCurrencyCode: "usd",
   },
 } as const;
 
