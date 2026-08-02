@@ -27,6 +27,7 @@ import {
   createAgentTurnResult,
   resolveAgentRuntimeRequest,
 } from "@/server/chat/agent-runtime";
+import { selectAgentResponseTools } from "@/server/chat/agent-tool-selection";
 import {
   type AgentToolDependencies,
   buildAgentResponseTools,
@@ -172,11 +173,15 @@ export async function runAskSiargaoAgentTurn(
   });
   const chatEvidencePolicy = buildChatEvidencePolicy(resolved);
   const { requiredEvidencePlan } = chatEvidencePolicy;
-  const tools = buildAgentResponseTools(memorySnapshot, {
-    vectorStoreId: agentMemoryVectorStoreId,
-    forceMemoryFallback: dependencies.forceAgentMemorySearchFallback,
-    includeMemoryFallbackWithFileSearch: dependencies.includeAgentMemoryFallbackWithFileSearch,
-  });
+  const tools = selectAgentResponseTools(
+    buildAgentResponseTools(memorySnapshot, {
+      vectorStoreId: agentMemoryVectorStoreId,
+      forceMemoryFallback: dependencies.forceAgentMemorySearchFallback,
+      includeMemoryFallbackWithFileSearch: dependencies.includeAgentMemoryFallbackWithFileSearch,
+    }),
+    resolved,
+    requiredEvidencePlan,
+  );
   const responseInclude = agentMemoryVectorStoreId ? ["file_search_call.results"] : undefined;
 
   logger.info(
