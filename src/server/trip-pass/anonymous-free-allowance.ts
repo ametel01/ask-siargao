@@ -5,6 +5,7 @@ import {
   createMemoryQuotaStore,
   createRedisQuotaStore,
   type QuotaStore,
+  shouldUseRedisQuotaStore,
 } from "@/server/security/rate-limit";
 import { tripPassFreeMeterLimits, tripPassRateLimits } from "@/server/trip-pass/catalog";
 import type {
@@ -845,8 +846,9 @@ function getDefaultAnonymousFreeAllowanceStore(
   env: Record<string, string | undefined> = process.env,
 ) {
   if (!defaultStore) {
-    defaultStore =
-      env.REDIS_URL && env.NODE_ENV !== "test" ? createRedisQuotaStore() : createMemoryQuotaStore();
+    defaultStore = shouldUseRedisQuotaStore(env)
+      ? createRedisQuotaStore({ redisUrl: env.REDIS_URL })
+      : createMemoryQuotaStore();
   }
   return defaultStore;
 }

@@ -1,0 +1,118 @@
+import { describe, expect, test } from "bun:test";
+
+import { createRedisCommandClient } from "@/server/security/redis-command-client";
+
+describe("Node Redis quota command adapter", () => {
+  test("connects lazily once and translates quota commands to the Node client API", async () => {
+    const fake = createFakeNodeRedisClient();
+    const client = createRedisCommandClient({
+      url: "redis://redis.example.test:6379",
+      createClient(url) {
+        expect(url).toBe("redis://redis.example.test:6379");
+        return fake.client;
+      },
+    });
+
+    expect(fake.connectCalls).toBe(0);
+    expect(await client.incr("quota:fixed-window")).toBe(1);
+    expect(await client.incrby("quota:budget", 3)).toBe(3);
+    expect(await client.decrby("quota:budget", 2)).toBe(1);
+    expect(await client.set("quota:idempotency", "hash", "NX")).toBe("OK");
+    expect(await client.send("EVAL", ["return ARGV[1]", "0", "ready"])).toEqual([
+      "reserved",
+      1,
+      60_000,
+    ]);
+
+    expect(fake.connectCalls).toBe(1);
+    expect(fake.commands).toEqual([
+      ["incr", "quota:fixed-window"],
+      ["incrBy", "quota:budget", 3],
+      ["decrBy", "quota:budget", 2],
+      ["set", "quota:idempotency", "hash", { NX: true }],
+      ["sendCommand", ["EVAL", "return ARGV[1]", "0", "ready"]],
+    ]);
+    expect(fake.errorListenerRegistered).toBe(true);
+  });
+
+  test("retries a later command after an initial connection failure", async () => {
+    const fake = createFakeNodeRedisClient({ failedConnects: 1 });
+    const client = createRedisCommandClient({
+      url: "redis://redis.example.test:6379",
+      createClient: () => fake.client,
+    });
+
+    await expect(client.incr("quota:first-attempt")).rejects.toThrow("Redis unavailable");
+    expect(await client.incr("quota:retry")).toBe(1);
+    expect(fake.connectCalls).toBe(2);
+  });
+});
+
+function createFakeNodeRedisClient(input: { failedConnects?: number } = {}) {
+  const state = {
+    commands: [] as unknown[][],
+    connectCalls: 0,
+    errorListenerRegistered: false,
+    isOpen: false,
+  };
+
+  const client = {
+    async connect() {
+      state.connectCalls += 1;
+      if (state.connectCalls <= (input.failedConnects ?? 0)) {
+        throw new Error("Redis unavailable");
+      }
+      state.isOpen = true;
+      return client;
+    },
+    async decrBy(key: string, amount: number) {
+      state.commands.push(["decrBy", key, amount]);
+      return 1;
+    },
+    async get() {
+      return null;
+    },
+    async incr(key: string) {
+      state.commands.push(["incr", key]);
+      return 1;
+    },
+    async incrBy(key: string, amount: number) {
+      state.commands.push(["incrBy", key, amount]);
+      return amount;
+    },
+    get isOpen() {
+      return state.isOpen;
+    },
+    on(event: string) {
+      state.errorListenerRegistered ||= event === "error";
+      return client;
+    },
+    async pExpire() {
+      return 1;
+    },
+    async pTTL() {
+      return 60_000;
+    },
+    async sendCommand(command: readonly string[]) {
+      state.commands.push(["sendCommand", command]);
+      return ["reserved", 1, 60_000];
+    },
+    async set(key: string, value: string, options?: { NX: true }) {
+      state.commands.push(["set", key, value, ...(options ? [options] : [])]);
+      return "OK";
+    },
+  };
+
+  return {
+    client,
+    get commands() {
+      return state.commands;
+    },
+    get connectCalls() {
+      return state.connectCalls;
+    },
+    get errorListenerRegistered() {
+      return state.errorListenerRegistered;
+    },
+  };
+}

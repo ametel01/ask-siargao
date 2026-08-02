@@ -10,9 +10,26 @@ import {
   createRateLimiter,
   type QuotaStore,
   resetRateLimitStoreForTests,
+  shouldUseRedisQuotaStore,
 } from "@/server/security/rate-limit";
 
 describe("rate limiting", () => {
+  test("uses Redis only for production defaults", () => {
+    const redisUrl = "redis://redis.example.test:6379";
+
+    expect(shouldUseRedisQuotaStore({ NODE_ENV: "development", REDIS_URL: redisUrl })).toBe(false);
+    expect(shouldUseRedisQuotaStore({ NODE_ENV: "test", REDIS_URL: redisUrl })).toBe(false);
+    expect(shouldUseRedisQuotaStore({ NODE_ENV: "production", REDIS_URL: redisUrl })).toBe(true);
+    expect(
+      shouldUseRedisQuotaStore({
+        APP_ENV: "production",
+        NODE_ENV: "development",
+        REDIS_URL: redisUrl,
+      }),
+    ).toBe(true);
+    expect(shouldUseRedisQuotaStore({ NODE_ENV: "production" })).toBe(false);
+  });
+
   test("blocks requests after the policy threshold", async () => {
     resetRateLimitStoreForTests();
     const now = new Date("2026-06-23T08:00:00.000Z");

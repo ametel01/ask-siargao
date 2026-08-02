@@ -4,6 +4,7 @@ import {
   createMemoryQuotaStore,
   createRedisQuotaStore,
   type QuotaStore,
+  shouldUseRedisQuotaStore,
 } from "@/server/security/rate-limit";
 
 export type RequestIdempotencyResult =
@@ -95,8 +96,9 @@ function idempotencyKey(env: Record<string, string | undefined> = process.env) {
 
 function defaultRequestIdempotencyStore(env: Record<string, string | undefined> = process.env) {
   if (!defaultStore) {
-    defaultStore =
-      env.REDIS_URL && env.NODE_ENV !== "test" ? createRedisQuotaStore() : createMemoryQuotaStore();
+    defaultStore = shouldUseRedisQuotaStore(env)
+      ? createRedisQuotaStore({ redisUrl: env.REDIS_URL })
+      : createMemoryQuotaStore();
   }
   return defaultStore;
 }

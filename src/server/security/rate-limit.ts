@@ -1,3 +1,8 @@
+import {
+  getRedisCommandClient,
+  type RedisCommandClient,
+} from "@/server/security/redis-command-client";
+
 export type RateLimitPolicy =
   | "intake"
   | "chat"
@@ -128,17 +133,6 @@ type MemoryIdempotencyRecord = {
 };
 
 type MemoryRollingWindow = Map<string, number>;
-
-type RedisCommandClient = {
-  decrby(key: string, amount: number): Promise<number>;
-  get(key: string): Promise<string | null>;
-  incr(key: string): Promise<number>;
-  incrby(key: string, amount: number): Promise<number>;
-  pexpire(key: string, milliseconds: number): Promise<unknown>;
-  pttl(key: string): Promise<number>;
-  send(command: string, args: string[]): Promise<unknown>;
-  set(key: string, value: string, condition?: "NX"): Promise<unknown>;
-};
 
 const policies: Record<RateLimitPolicy, { limit: number; windowMs: number }> = {
   intake: { limit: 8, windowMs: 60_000 },
@@ -357,9 +351,9 @@ export function createMemoryQuotaStore(): MemoryQuotaStore {
 }
 
 export function createRedisQuotaStore(
-  input: { client?: RedisCommandClient; keyPrefix?: string } = {},
+  input: { client?: RedisCommandClient; keyPrefix?: string; redisUrl?: string } = {},
 ): QuotaStore {
-  const client = input.client ?? (Bun.redis as RedisCommandClient);
+  const client = input.client ?? getRedisCommandClient(input.redisUrl ?? process.env.REDIS_URL);
   const keyPrefix = input.keyPrefix ?? "ask-siargao";
 
   return {
@@ -456,6 +450,13 @@ export function createRedisQuotaStore(
       return { status: "rejected", count, expiresAt };
     },
   };
+}
+
+export function shouldUseRedisQuotaStore(env: Record<string, string | undefined> = process.env) {
+  return (
+    Boolean(env.REDIS_URL?.trim()) &&
+    (env.NODE_ENV === "production" || env.APP_ENV === "production")
+  );
 }
 
 export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter {

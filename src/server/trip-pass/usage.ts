@@ -7,6 +7,7 @@ import {
   createMemoryQuotaStore,
   createRedisQuotaStore,
   type QuotaStore,
+  shouldUseRedisQuotaStore,
 } from "@/server/security/rate-limit";
 import { type TripPassMeterType, tripPassRateLimits } from "@/server/trip-pass/catalog";
 import { getEffectiveTripPass } from "@/server/trip-pass/entitlement";
@@ -888,8 +889,9 @@ function parseTripPassMeterType(value: string): TripPassMeterType {
 
 function getDefaultPaidUsageStore(env: Record<string, string | undefined> = process.env) {
   if (!defaultStore) {
-    defaultStore =
-      env.REDIS_URL && env.NODE_ENV !== "test" ? createRedisQuotaStore() : createMemoryQuotaStore();
+    defaultStore = shouldUseRedisQuotaStore(env)
+      ? createRedisQuotaStore({ redisUrl: env.REDIS_URL })
+      : createMemoryQuotaStore();
   }
   return defaultStore;
 }
