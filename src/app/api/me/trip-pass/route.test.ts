@@ -9,6 +9,7 @@ import {
 import type { CurrentUserAuthSnapshot } from "@/server/auth/clerk-users";
 import { runInitialMigration } from "@/server/db/test-database";
 import { createActiveTripPassWithMeters } from "@/server/payments/trip-pass";
+import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/catalog";
 
 const now = new Date("2026-07-04T08:00:00.000Z");
 const availableEnv = {
@@ -112,8 +113,8 @@ describe("Trip Pass account API routes", () => {
           name: "trip_pass_checkout_started",
           payload: {
             checkoutAvailable: true,
-            productCode: "siargao_trip_pass_14d_v1",
-            productVersion: 1,
+            productCode: tripPassProductCode,
+            productVersion: tripPassProductVersion,
             reason: undefined,
             status: "started",
             surface: "settings",

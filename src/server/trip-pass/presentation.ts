@@ -124,18 +124,19 @@ function createPresentation(input: {
   expiresAt: Date | null;
   now: Date;
 }): TripPassAccountPresentation {
-  const allowances = input.meters
-    .filter((meter) => meter.meterType === "chat_message")
-    .map((meter) => {
+  const allowances: TripPassAllowancePresentation[] = [];
+  for (const meter of input.meters) {
+    if (meter.meterType === "chat_message") {
       const remaining = Math.max(meter.limit - meter.used, 0);
-      return {
+      allowances.push({
         meterType: meter.meterType,
         used: meter.used,
         limit: meter.limit,
         remaining,
         warning: isMeterWarning(meter.meterType, remaining),
-      };
-    });
+      });
+    }
+  }
 
   return {
     status: input.status,

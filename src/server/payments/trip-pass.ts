@@ -180,9 +180,28 @@ export async function initializeDefaultTripPassMeters(
   },
   db: DatabaseQueryClient = getDefaultDatabaseQueryClient(),
 ) {
+  return initializeTripPassMeters(
+    {
+      ...input,
+      meterLimits: tripPassMeterLimits,
+    },
+    db,
+  );
+}
+
+export async function initializeTripPassMeters(
+  input: {
+    tripPassId: string;
+    meterLimits: Partial<Record<TripPassMeterType, number>>;
+    resetAt?: Date | null;
+    now?: Date;
+  },
+  db: DatabaseQueryClient = getDefaultDatabaseQueryClient(),
+) {
   const now = input.now ?? new Date();
   const meterRows = createTripPassMeterRows({
     tripPassId: input.tripPassId,
+    meterLimits: input.meterLimits,
     resetAt: input.resetAt ?? null,
     updatedAt: now,
   });

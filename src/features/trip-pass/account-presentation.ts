@@ -78,9 +78,12 @@ export function projectTripPassAccountView(
     };
   }
 
-  const allowances = presentation.allowances
-    .filter((allowance) => allowance.meterType === "chat_message")
-    .map(projectAllowanceView);
+  const allowances: TripPassAllowanceView[] = [];
+  for (const allowance of presentation.allowances) {
+    if (allowance.meterType === "chat_message") {
+      allowances.push(projectAllowanceView(allowance));
+    }
+  }
   const warnings = tripPassWarnings(presentation, allowances);
   const statusCopy = statusCopyFor(presentation.status);
   const checkoutDisabledReason = checkoutDisabledCopy(presentation);

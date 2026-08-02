@@ -9,6 +9,7 @@ import {
   runInitialMigration,
 } from "@/server/db/test-database";
 import { createActiveTripPassWithMeters } from "@/server/payments/trip-pass";
+import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/catalog";
 import {
   buildTripPassReconciliationSnapshot,
   lookupTripPassSupportReference,
@@ -99,6 +100,52 @@ describe("Trip Pass reconciliation", () => {
     });
   });
 
+  test("reconciles legacy version 1 meters from the recorded grant contract", async () => {
+    await withTestDb(async (db) => {
+      await insertPaidOrder(db, "order_legacy", "user_legacy", "legacy");
+      await reconcileTripPassState({ confirmMutation: true, db, env, mode: "repair", now });
+      const grants = await db.query<{ trip_pass_id: string }>(
+        "select trip_pass_id from trip_pass_grants where order_id = $1",
+        ["order_legacy"],
+      );
+      const passId = grants.rows[0]?.trip_pass_id;
+      expect(passId).toBeDefined();
+      await db.query(
+        "delete from trip_usage_meters where trip_pass_id = $1 and meter_type = 'route_lookup'",
+        [passId],
+      );
+
+      const snapshot = await buildTripPassReconciliationSnapshot({ db, env, now });
+      expect(snapshot.issues).toContainEqual(
+        expect.objectContaining({
+          code: "missing_usage_meters",
+          localRef: passId,
+          details: expect.objectContaining({ meterCount: 4, expectedMeters: 5 }),
+        }),
+      );
+
+      const repaired = await reconcileTripPassState({
+        confirmMutation: true,
+        db,
+        env,
+        mode: "repair",
+        now,
+      });
+      expect(repaired.actions).toContainEqual(
+        expect.objectContaining({
+          action: "initialize_missing_meters",
+          localRef: passId,
+          status: "applied",
+        }),
+      );
+      const meters = await db.query<{ count: string }>(
+        "select count(*)::text as count from trip_usage_meters where trip_pass_id = $1",
+        [passId],
+      );
+      expect(meters.rows[0]?.count).toBe("5");
+    });
+  });
+
   test("protects support lookup across users and flags ambiguous mixed references", async () => {
     await withTestDb(async (db) => {
       await insertPaidOrder(db, "order_owner", "user_owner");
@@ -172,8 +219,8 @@ describe("Trip Pass reconciliation", () => {
             openai: "unconfigured",
           },
           priceCatalog: {
-            productCode: "siargao_trip_pass_14d_v1",
-            productVersion: 1,
+            productCode: tripPassProductCode,
+            productVersion: tripPassProductVersion,
             stripePriceConfigured: true,
           },
           sharedQuotaStore: "available",
@@ -243,7 +290,21 @@ async function insertUser(db: DatabaseQueryClient, userId: string) {
   ]);
 }
 
-async function insertPaidOrder(db: DatabaseQueryClient, orderId: string, userId: string) {
+async function insertPaidOrder(
+  db: DatabaseQueryClient,
+  orderId: string,
+  userId: string,
+  contract: "current" | "legacy" = "current",
+) {
+  const product =
+    contract === "legacy"
+      ? { code: "siargao_trip_pass_14d_v1", version: 1, amount: 49_900, currency: "php" }
+      : {
+          code: tripPassProductCode,
+          version: tripPassProductVersion,
+          amount: 999,
+          currency: "usd",
+        };
   await insertUser(db, userId);
   await db.query(
     `
@@ -265,8 +326,8 @@ async function insertPaidOrder(db: DatabaseQueryClient, orderId: string, userId:
         updated_at,
         completed_at
       )
-      values ($1, $2, $3, 'paid', 'siargao_trip_pass_14d_v1', 1, 'price_trip_pass',
-        49900, 'php', $4, $5, $6, '{}'::jsonb, $7, $7, $7)
+      values ($1, $2, $3, 'paid', $8, $9, 'price_trip_pass',
+        $10, $11, $4, $5, $6, '{}'::jsonb, $7, $7, $7)
     `,
     [
       orderId,
@@ -276,6 +337,10 @@ async function insertPaidOrder(db: DatabaseQueryClient, orderId: string, userId:
       `cs_${orderId}`,
       `pi_${orderId}`,
       now,
+      product.code,
+      product.version,
+      product.amount,
+      product.currency,
     ],
   );
 }
@@ -312,9 +377,9 @@ async function insertPassWithStaleReservation(
         occurred_at,
         created_at
       )
-      select $1, $2, id, $3, 'reserved', 'live_refresh', 1, $4, $5, $6, '[]'::jsonb, $7, $7
+      select $1, $2, id, $3, 'reserved', 'chat_message', 1, $4, $5, $6, '[]'::jsonb, $7, $7
       from trip_usage_meters
-      where trip_pass_id = $2 and meter_type = 'live_refresh'
+      where trip_pass_id = $2 and meter_type = 'chat_message'
       limit 1
     `,
     [

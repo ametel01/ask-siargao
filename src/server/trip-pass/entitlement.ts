@@ -14,6 +14,8 @@ import {
   tripPassProductCatalog,
 } from "@/server/trip-pass/catalog";
 
+const tripPassLedgerMeterTypeSet = new Set<string>(tripPassLedgerMeterTypes);
+
 export const tripPassGrantSourceTypes = [
   "stripe_checkout",
   "manual_operator",
@@ -644,7 +646,7 @@ function parseGrantSourceType(value: string): TripPassGrantSourceType {
 }
 
 function parseTripPassMeterType(value: string): TripPassMeterType {
-  if (tripPassLedgerMeterTypes.includes(value as TripPassMeterType)) {
+  if (tripPassLedgerMeterTypeSet.has(value)) {
     return value as TripPassMeterType;
   }
 
@@ -665,9 +667,7 @@ function parseMeterLimits(
   const parsed = typeof value === "string" ? JSON.parse(value) : value;
   return Object.fromEntries(
     Object.entries(parsed).flatMap(([meterType, limit]) =>
-      tripPassLedgerMeterTypes.includes(meterType as TripPassMeterType)
-        ? [[meterType, Number(limit)]]
-        : [],
+      tripPassLedgerMeterTypeSet.has(meterType) ? [[meterType, Number(limit)]] : [],
     ),
   ) as Partial<Record<TripPassMeterType, number>>;
 }
