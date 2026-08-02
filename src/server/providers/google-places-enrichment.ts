@@ -4,6 +4,7 @@ import {
   googlePlacesDetailsFieldMask,
   googlePlacesEnterpriseDetailsFieldMask,
 } from "@/server/providers/google-places-policy";
+import { fetchWithProviderTimeout } from "@/server/providers/provider-fetch";
 
 export { googlePlacesAtmosphereDetailsFieldMask, googlePlacesDetailsFieldMask };
 
@@ -213,7 +214,8 @@ export async function enrichGooglePlacesCaptureDetails({
 
   return Promise.all(
     [...new Set(placeIds)].map(async (placeId): Promise<GooglePlacesCaptureDetails> => {
-      const response = await fetcher(
+      const response = await fetchWithProviderTimeout(
+        fetcher,
         `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}?languageCode=en`,
         {
           headers: {

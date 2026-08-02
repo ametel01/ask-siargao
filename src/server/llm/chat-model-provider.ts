@@ -32,6 +32,7 @@ type ChatModelProviderOptions = {
   openAiClient?: ResponsesClientLike;
   openAiFallbackModel?: string;
   timeoutMs?: number;
+  maxRetries?: number;
 };
 
 type ChatCompletionsClientLike = {
@@ -45,6 +46,8 @@ type ChatCompletionsClientLike = {
 const defaultDeepSeekBaseUrl = "https://api.deepseek.com";
 export const defaultDeepSeekChatModel = "deepseek-v4-flash";
 const defaultOpenAiFallbackChatModel = "gpt-5.4-mini";
+export const defaultChatProviderTimeoutMs = 15_000;
+export const defaultChatProviderMaxRetries = 1;
 
 export function resolvePrimaryChatModel(model?: string) {
   return model ?? process.env.DEEPSEEK_MODEL ?? defaultDeepSeekChatModel;
@@ -53,7 +56,8 @@ export function resolvePrimaryChatModel(model?: string) {
 export function createConfiguredChatResponsesClient(
   options: ChatModelProviderOptions = {},
 ): ResponsesClientLike {
-  const timeout = options.timeoutMs ?? 30_000;
+  const timeout = options.timeoutMs ?? defaultChatProviderTimeoutMs;
+  const maxRetries = options.maxRetries ?? defaultChatProviderMaxRetries;
   const deepSeekApiKey = options.deepSeekApiKey ?? process.env.DEEPSEEK_API_KEY;
   const openAiFallbackEnabled = options.openAiFallbackEnabled ?? true;
   const openAiApiKey = openAiFallbackEnabled
@@ -71,6 +75,7 @@ export function createConfiguredChatResponsesClient(
             options.deepSeekBaseUrl ?? process.env.DEEPSEEK_BASE_URL ?? defaultDeepSeekBaseUrl,
           client: options.deepSeekClient,
           model: deepSeekModel,
+          maxRetries,
           timeout,
         })
       : undefined;
@@ -82,6 +87,7 @@ export function createConfiguredChatResponsesClient(
       ? createOpenAIResponsesFallbackClient({
           apiKey: openAiApiKey,
           model: openAiFallbackModel,
+          maxRetries,
           timeout,
         })
       : undefined);
@@ -143,13 +149,15 @@ function withOpenAIResponseModel(client: ResponsesClientLike, model: string): Re
 function createOpenAIResponsesFallbackClient({
   apiKey,
   model,
+  maxRetries,
   timeout,
 }: {
   apiKey: string;
   model: string;
+  maxRetries: number;
   timeout: number;
 }): ResponsesClientLike {
-  const client = new OpenAI({ apiKey, timeout }) as ResponsesClientLike;
+  const client = new OpenAI({ apiKey, maxRetries, timeout }) as ResponsesClientLike;
 
   return {
     responses: {
@@ -178,12 +186,14 @@ function createDeepSeekResponsesCompatibilityClient({
   baseURL,
   client: injectedClient,
   model,
+  maxRetries,
   timeout,
 }: {
   apiKey?: string;
   baseURL: string;
   client?: ChatCompletionsClientLike;
   model: string;
+  maxRetries: number;
   timeout: number;
 }): ResponsesClientLike {
   const client: ChatCompletionsClientLike =
@@ -191,6 +201,7 @@ function createDeepSeekResponsesCompatibilityClient({
     (new OpenAI({
       apiKey: apiKey as string,
       baseURL,
+      maxRetries,
       timeout,
     }) as unknown as ChatCompletionsClientLike);
 

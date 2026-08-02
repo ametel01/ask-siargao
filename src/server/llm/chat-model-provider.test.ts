@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createConfiguredChatResponsesClient,
+  defaultChatProviderMaxRetries,
+  defaultChatProviderTimeoutMs,
   defaultDeepSeekChatModel,
   type ResponsesClientLike,
   type ResponsesCreateResult,
@@ -18,6 +20,11 @@ describe("chat model provider", () => {
     } finally {
       restoreEnv("DEEPSEEK_MODEL", originalModel);
     }
+  });
+
+  test("uses bounded provider timeout and retry defaults", () => {
+    expect(defaultChatProviderTimeoutMs).toBe(15_000);
+    expect(defaultChatProviderMaxRetries).toBe(1);
   });
 
   test("adapts Responses-style prompts and tools to DeepSeek chat completions", async () => {

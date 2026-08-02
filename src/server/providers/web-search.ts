@@ -32,11 +32,15 @@ export type OpenAIWebResearchProviderOptions = {
   enabled?: boolean;
   maxResults?: number;
   model?: string;
+  maxRetries?: number;
+  timeoutMs?: number;
 };
 
 const openAiWebSearchToolType = "web_search";
 const defaultMaxResults = 8;
 const defaultOpenAiWebSearchModel = "gpt-5.4-mini";
+export const defaultWebResearchTimeoutMs = 25_000;
+export const defaultWebResearchMaxRetries = 1;
 
 export function createConfiguredWebResearchProvider(
   options: OpenAIWebResearchProviderOptions = {},
@@ -50,7 +54,13 @@ export function createConfiguredWebResearchProvider(
   const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY;
   const client: ResponsesClientLike | undefined =
     options.client ??
-    (apiKey ? (new OpenAI({ apiKey }) as unknown as ResponsesClientLike) : undefined);
+    (apiKey
+      ? (new OpenAI({
+          apiKey,
+          maxRetries: options.maxRetries ?? defaultWebResearchMaxRetries,
+          timeout: options.timeoutMs ?? defaultWebResearchTimeoutMs,
+        }) as unknown as ResponsesClientLike)
+      : undefined);
   if (!client) {
     return undefined;
   }

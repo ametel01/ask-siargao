@@ -60,6 +60,11 @@ The app reads these environment variables.
 
 Server-only secrets must not use the `NEXT_PUBLIC_` prefix. `getServerSecret` rejects public-prefixed names so sensitive provider keys do not move into client-facing bundles.
 
+Chat model calls use a 15-second per-attempt deadline with one retry before fallback. Hosted web
+research uses a 25-second per-attempt deadline with one retry. Live weather, marine, tide, and
+Google Places HTTP calls use a 15-second deadline so a stalled provider returns a caveated result
+instead of holding the chat request indefinitely.
+
 ## Database Credentials
 
 Production should use separate database credentials for runtime and migration work:

@@ -1,6 +1,7 @@
 import { createComponentLogger } from "@/server/observability/logger";
 import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
 import { googlePlacesChatSearchFieldMask } from "@/server/providers/google-places-policy";
+import { fetchWithProviderTimeout } from "@/server/providers/provider-fetch";
 
 export { googlePlacesChatSearchFieldMask };
 
@@ -197,15 +198,19 @@ export async function getGooglePlacesChatContext({
   );
 
   try {
-    const response = await fetcher("https://places.googleapis.com/v1/places:searchText", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": googlePlacesChatSearchFieldMask,
+    const response = await fetchWithProviderTimeout(
+      fetcher,
+      "https://places.googleapis.com/v1/places:searchText",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": apiKey,
+          "X-Goog-FieldMask": googlePlacesChatSearchFieldMask,
+        },
+        body: JSON.stringify(buildGooglePlacesChatSearchBody(search)),
       },
-      body: JSON.stringify(buildGooglePlacesChatSearchBody(search)),
-    });
+    );
     const payload = await parseGooglePlacesChatSearchResponse(response);
     const places = filterGooglePlacesChatPlacesForSearch(
       parseGooglePlacesChatPlaces(payload),
