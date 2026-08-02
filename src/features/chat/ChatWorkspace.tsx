@@ -3035,7 +3035,7 @@ function MobileTripPassStateCard({
           ? "Trip Pass status is temporarily unavailable. Your pass was not changed."
           : projection.status === "visible"
             ? projection.text
-            : "No Trip Pass warning right now.";
+            : "Trip Pass status is available in settings.";
   const tone =
     tripPassStatus === "unavailable"
       ? "warning"
@@ -3052,7 +3052,7 @@ function MobileTripPassStateCard({
       <p className="m-0 text-sm font-bold text-text-muted">{statusText}</p>
       {tripDataSource === "authenticated" ? (
         <p className="m-0 text-xs font-bold text-text-muted">
-          Status comes from your account. This sheet cannot activate a pass or change allowance.
+          Status comes from your account. Manage checkout and billing in settings.
         </p>
       ) : null}
     </section>
@@ -3681,7 +3681,7 @@ async function fetchSurfPanel(url: string): Promise<SurfPanelResponse> {
 function chatResponseErrorMessage(status: number, body: ChatResponseErrorBody) {
   if (body.error === "usage_limit_reached") {
     if (body.reason?.includes("chat_meter_exhausted")) {
-      return "Your Trip Pass chat allowance is exhausted. Use saved planning context or wait until the allowance resets.";
+      return "Your Trip Pass travel answers are used. You can still use saved trip details.";
     }
     if (body.reason?.includes("concurrency")) {
       return "Another answer is still running. Wait for it to finish before starting another request.";
@@ -3689,7 +3689,7 @@ function chatResponseErrorMessage(status: number, body: ChatResponseErrorBody) {
     if (body.reason?.includes("start_limit") || body.reason?.includes("daily_limit")) {
       return "Chat is temporarily rate-limited. Try again after the current window resets.";
     }
-    return "This Trip Pass allowance is exhausted for now.";
+    return "Your travel answer limit is reached for now.";
   }
 
   if (body.error === "sign_in_required") {
@@ -3697,7 +3697,7 @@ function chatResponseErrorMessage(status: number, body: ChatResponseErrorBody) {
       return "Another free answer is still running. Wait for it to finish before trying again.";
     }
     if (body.reason?.includes("free_allowance_exhausted")) {
-      return "The free seven-day allowance is used. Sign in to manage Trip Pass options.";
+      return "Your free travel answers are used. Sign in to manage Trip Pass options.";
     }
     return "Sign in to continue after the free allowance window.";
   }

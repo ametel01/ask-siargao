@@ -715,7 +715,7 @@ const mobileTripContextStateCases = [
     triggerAction: "View trip details",
     triggerDetail: "Dapa · Aug 1 - 6",
     dialogText: "A very long Pilar homestay name that must wrap without widening the sheet",
-    passText: "Live refreshes are low: 2 of 40 left.",
+    passText: "Travel answers are low: 20 of 150 left.",
   },
   {
     state: "loading",
@@ -4987,12 +4987,10 @@ function mobileTripPassWarning() {
       expiresAt: "2026-07-18T08:00:00.000Z",
     },
     allowances: [
-      { meterType: "chat_message", used: 10, limit: 150, remaining: 140, warning: false },
-      { meterType: "live_refresh", used: 38, limit: 40, remaining: 2, warning: true },
+      { meterType: "chat_message", used: 130, limit: 150, remaining: 20, warning: true },
     ],
     attention: {
-      lowChatMessages: false,
-      lowLiveRefreshes: true,
+      lowChatMessages: true,
       expiresSoon: false,
     },
     checkout: {

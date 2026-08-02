@@ -11,12 +11,12 @@ describe("Trip Pass public copy contract", () => {
   test("renders the launch offer from the catalog-backed presentation", () => {
     expect(tripPassPublicOffer).toMatchObject({
       label: "Siargao Trip Pass",
-      priceLabel: "₱499",
+      priceLabel: "$9.99",
       priceAuthority: "stripe_price",
       durationDays: 14,
       freeWindowDays: 7,
-      freeLimits: { chat: 10, live: 3, heavy: 1 },
-      paidLimits: { chat: 150, live: 40, heavy: 8, weather: 20, route: 25 },
+      freeAnswerLimit: 10,
+      paidAnswerLimit: 150,
     });
     expect(tripPassPublicOffer.priceLabel).toBe(
       tripPassProductCatalog.presentation.launchPriceLabel,
@@ -33,6 +33,7 @@ describe("Trip Pass public copy contract", () => {
     expect(copy).not.toMatch(/\bunlimited\b/i);
     expect(copy).not.toMatch(/\bguarantee(?:d)?\b/i);
     expect(copy).not.toMatch(/\bExplorer\b|\bExtended\b/);
+    expect(copy).not.toMatch(/live decisions|heavy research|route checks|weather allowance/i);
     expect(copy).toContain("source, freshness, and not-checked boundaries");
     expect(copy).toContain("verified Stripe payment event");
   });

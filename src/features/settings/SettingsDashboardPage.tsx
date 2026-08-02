@@ -1120,7 +1120,7 @@ function PassPanel() {
       <div className="flex flex-wrap items-center gap-2">
         {view.actionLabel ? (
           <Button
-            className="h-auto rounded-md bg-brand-lagoon-600 px-3 py-2 text-sm font-extrabold text-white hover:bg-brand-lagoon-700 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20 disabled:opacity-60"
+            className="h-auto min-h-11 w-full rounded-md bg-brand-lagoon-600 px-3 py-2 text-sm font-extrabold text-white hover:bg-brand-lagoon-700 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20 disabled:opacity-60 sm:w-auto"
             disabled={!canStartCheckout}
             onClick={() => {
               void startCheckout();

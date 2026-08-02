@@ -32,7 +32,6 @@ export type TripPassAccountPresentation = {
   allowances: TripPassAllowancePresentation[];
   attention: {
     lowChatMessages: boolean;
-    lowLiveRefreshes: boolean;
     expiresSoon: boolean;
   };
   checkout: {
@@ -125,16 +124,18 @@ function createPresentation(input: {
   expiresAt: Date | null;
   now: Date;
 }): TripPassAccountPresentation {
-  const allowances = input.meters.map((meter) => {
-    const remaining = Math.max(meter.limit - meter.used, 0);
-    return {
-      meterType: meter.meterType,
-      used: meter.used,
-      limit: meter.limit,
-      remaining,
-      warning: isMeterWarning(meter.meterType, remaining),
-    };
-  });
+  const allowances = input.meters
+    .filter((meter) => meter.meterType === "chat_message")
+    .map((meter) => {
+      const remaining = Math.max(meter.limit - meter.used, 0);
+      return {
+        meterType: meter.meterType,
+        used: meter.used,
+        limit: meter.limit,
+        remaining,
+        warning: isMeterWarning(meter.meterType, remaining),
+      };
+    });
 
   return {
     status: input.status,
@@ -149,7 +150,6 @@ function createPresentation(input: {
     allowances,
     attention: {
       lowChatMessages: allowanceWarning(allowances, "chat_message"),
-      lowLiveRefreshes: allowanceWarning(allowances, "live_refresh"),
       expiresSoon: expiresSoon(input.expiresAt, input.now),
     },
     checkout: input.checkout,
@@ -190,9 +190,6 @@ function readCheckoutPresentation(env: Record<string, string | undefined> | unde
 function isMeterWarning(meterType: TripPassMeterType, remaining: number) {
   if (meterType === "chat_message") {
     return remaining <= tripPassWarningThresholds.chatRemaining;
-  }
-  if (meterType === "live_refresh") {
-    return remaining <= tripPassWarningThresholds.liveRemaining;
   }
   return false;
 }

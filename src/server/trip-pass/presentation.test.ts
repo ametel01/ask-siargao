@@ -57,7 +57,7 @@ describe("Trip Pass account presentation", () => {
     });
   });
 
-  test("presents active paid access with live warning thresholds", async () => {
+  test("presents active paid access with answer and expiry warnings", async () => {
     await withPresentationDb(async (db) => {
       await insertUser(db, "user_active");
       await createActiveTripPassWithMeters(
@@ -75,7 +75,6 @@ describe("Trip Pass account presentation", () => {
           update trip_usage_meters
           set used = case
             when meter_type = 'chat_message' then "limit" - 20
-            when meter_type = 'live_refresh' then "limit" - 5
             else used
           end
           where trip_pass_id = 'pass_active'
@@ -90,11 +89,10 @@ describe("Trip Pass account presentation", () => {
       expect(presentation.status).toBe("active");
       expect(presentation.attention).toEqual({
         lowChatMessages: true,
-        lowLiveRefreshes: true,
         expiresSoon: true,
       });
       expect(allowance(presentation, "chat_message")?.remaining).toBe(20);
-      expect(allowance(presentation, "live_refresh")?.remaining).toBe(5);
+      expect(presentation.allowances).toHaveLength(1);
       expect(JSON.stringify(presentation)).not.toContain("pass_active");
       expect(JSON.stringify(presentation)).not.toContain("user_active");
     });

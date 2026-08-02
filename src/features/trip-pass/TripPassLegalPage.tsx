@@ -38,11 +38,11 @@ export function TripPassLegalPage() {
           <div className="grid gap-3 rounded-lg border border-border-default bg-white p-4 md:grid-cols-2">
             <SummaryItem
               label="Free trial"
-              value={`${tripPassPublicOffer.freeLimits.chat} chat / ${tripPassPublicOffer.freeLimits.live} live / ${tripPassPublicOffer.freeLimits.heavy} heavy over ${tripPassPublicOffer.freeWindowDays} days`}
+              value={`${tripPassPublicOffer.freeAnswerLimit} travel answers over ${tripPassPublicOffer.freeWindowDays} days`}
             />
             <SummaryItem
               label={`${tripPassPublicOffer.durationDays}-day Trip Pass`}
-              value={`${tripPassPublicOffer.priceLabel}: ${tripPassPublicOffer.paidLimits.chat} chat / ${tripPassPublicOffer.paidLimits.live} live / ${tripPassPublicOffer.paidLimits.heavy} heavy / ${tripPassPublicOffer.paidLimits.weather} weather / ${tripPassPublicOffer.paidLimits.route} route`}
+              value={`${tripPassPublicOffer.priceLabel} USD: ${tripPassPublicOffer.paidAnswerLimit} travel answers`}
             />
           </div>
 

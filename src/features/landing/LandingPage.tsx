@@ -424,8 +424,7 @@ function TripPassPricingSection() {
           One clear Siargao travel pass
         </h2>
         <p className="m-0 max-w-[39ch] text-base leading-[1.44] font-semibold text-text-on-dark-muted">
-          Start with a useful free allowance. Upgrade only when you need more current checks,
-          planning depth, and map-ready decisions for this trip.
+          Start with 10 free travel answers. Upgrade when you want more help throughout your trip.
         </p>
         <div className="flex flex-wrap gap-3">
           <Button
@@ -450,13 +449,13 @@ function TripPassPricingSection() {
       <div className="grid min-w-0 gap-4 lg:gap-5">
         <div className="grid min-w-0 gap-4 md:grid-cols-2">
           <OfferCard
-            body={`${tripPassPublicOffer.freeLimits.chat} chat answers, ${tripPassPublicOffer.freeLimits.live} live checks, and ${tripPassPublicOffer.freeLimits.heavy} deep-planning trial over ${tripPassPublicOffer.freeWindowDays} days.`}
+            body={`${tripPassPublicOffer.freeAnswerLimit} Siargao travel answers over ${tripPassPublicOffer.freeWindowDays} days.`}
             icon={ShieldCheck}
             label="Free"
             title="Try the decision desk"
           />
           <OfferCard
-            body={`${tripPassPublicOffer.paidLimits.chat} chat answers, ${tripPassPublicOffer.paidLimits.live} live decisions, ${tripPassPublicOffer.paidLimits.heavy} heavy-research decisions, ${tripPassPublicOffer.paidLimits.weather} weather checks, and ${tripPassPublicOffer.paidLimits.route} route checks for ${tripPassPublicOffer.durationDays} days.`}
+            body={`${tripPassPublicOffer.paidAnswerLimit} Siargao travel answers for ${tripPassPublicOffer.durationDays} days.`}
             icon={CreditCard}
             label={tripPassPublicOffer.priceLabel}
             title={tripPassPublicOffer.headline}
