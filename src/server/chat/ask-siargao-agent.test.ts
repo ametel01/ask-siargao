@@ -137,6 +137,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
     expect(result.message).not.toContain("```json");
     expect(result.message).not.toContain('"answer"');
+    expect(result.repairCount).toBe(1);
     expect(result.upstreamRequestIds).toEqual(["req_malformed_json", "req_repaired_markdown"]);
     expect(client.requests).toHaveLength(2);
     expect(client.requests[1]?.max_output_tokens).toBe(1_500);

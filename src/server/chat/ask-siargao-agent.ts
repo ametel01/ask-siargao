@@ -148,6 +148,7 @@ export async function runAskSiargaoAgentTurn(
   const upstreamRequestIds: string[] = [];
   const toolCalls: AgentToolCallAudit[] = [];
   const toolResults: AgentToolResult[] = [];
+  let repairCount = 0;
   const hostedMemoryFileNames = new Set<string>();
   const maxToolCalls = dependencies.maxToolCalls ?? costPolicy.maxToolCalls;
   const maxTurns = dependencies.maxTurns ?? costPolicy.maxTurns;
@@ -307,6 +308,7 @@ export async function runAskSiargaoAgentTurn(
           ),
       });
       if (repairResult.repaired) {
+        repairCount += 1;
         await emitAgentProgress(dependencies.onProgress, {
           stage: "checking",
           message: "Checking the answer against the available evidence.",
@@ -324,6 +326,7 @@ export async function runAskSiargaoAgentTurn(
         toolResults,
       });
       if (!parsedFinalPayload && shouldRepairMalformedFinalAnswer(finalText)) {
+        repairCount += 1;
         responseInput = [
           ...responseInput,
           ...responseOutputItems(response.output),
@@ -407,6 +410,7 @@ export async function runAskSiargaoAgentTurn(
         allowedCardKinds: requiredEvidencePlan.allowedCardKinds,
         allowedCardIds: requiredEvidenceAllowedCardIds(chatEvidencePolicy, toolResults),
         artifactSelectionMode: requireStructuredFinalOutput ? "strict" : "compatibility",
+        repairCount,
       });
     }
 

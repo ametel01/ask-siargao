@@ -118,6 +118,20 @@ type PublicAgentMemoryMetadata = {
   }>;
 };
 
+type ChatLatencyMetrics = {
+  preflightMs: number;
+  firstByteMs?: number;
+  agentMs?: number;
+  modelMs?: number;
+  settlementMs?: number;
+  persistenceMs?: number;
+  modelCallCount?: number;
+  toolCallCount?: number;
+  repairCount?: number;
+  modelCalls?: Array<Record<string, unknown>>;
+  tools?: Array<Record<string, unknown>>;
+};
+
 const maxChatRequestBodyBytes = 32_768;
 
 const chatLogger = createComponentLogger("api.chat");
@@ -140,6 +154,7 @@ export async function chatResponse(
 ) {
   const startedAt = Date.now();
   const requestId = randomUUID();
+  const latency: ChatLatencyMetrics = { preflightMs: 0 };
   const logger = (dependencies.logger ?? chatLogger).child({
     route: "/api/chat",
     requestId,
@@ -349,6 +364,7 @@ export async function chatResponse(
     },
     "Chat request scope interpreted.",
   );
+  latency.preflightMs = Date.now() - startedAt;
 
   const executeChat = async (
     onProgress?: (update: AgentProgressUpdate) => void | Promise<void>,
@@ -358,6 +374,7 @@ export async function chatResponse(
       const freeDecisionMeterSession = anonymousFreeAllowance?.reserveDecisionMeter
         ? { reserveDecisionMeter: anonymousFreeAllowance.reserveDecisionMeter }
         : null;
+      const agentStartedAt = Date.now();
       const result = await runAgent(
         {
           messages,
@@ -385,15 +402,34 @@ export async function chatResponse(
           usageSession: paidChatUsage,
         },
       );
+      latency.agentMs = Date.now() - agentStartedAt;
+      latency.modelMs = result.modelCost?.totalLatencyMs ?? 0;
+      latency.modelCallCount = result.modelCost?.callCount ?? 0;
+      latency.toolCallCount = result.toolCalls.length;
+      latency.repairCount = result.repairCount ?? 0;
+      latency.modelCalls = result.modelCost?.calls.map((call) => ({
+        callIndex: call.callIndex,
+        provider: call.provider,
+        mode: call.mode,
+        latencyMs: call.latencyMs,
+        fallback: call.fallback,
+      }));
+      latency.tools = result.toolCalls.map((toolCall) => ({
+        name: toolCall.name,
+        status: toolCall.status,
+        durationMs: toolCall.durationMs,
+      }));
       await onProgress?.({
         stage: "checking",
         message: "Finalizing the answer and its source details.",
       });
+      const settlementStartedAt = Date.now();
       paidChatSettlement =
         (await paidChatUsage?.settle({
           success: true,
           providerRequestIds: result.upstreamRequestIds ?? [],
         })) ?? null;
+      latency.settlementMs = Date.now() - settlementStartedAt;
       if (paidChatSettlement?.status === "settled" && request.signal.aborted) {
         trackServerEvent({
           name: "trip_pass_paid_chat_delivery_cancelled",
@@ -420,6 +456,7 @@ export async function chatResponse(
 
       let assistantMessageId: string | undefined;
       if (authenticatedPersistence?.status === "ready") {
+        const persistenceStartedAt = Date.now();
         assistantMessageId = createChatRouteId(dependencies, "chat_message");
         const completedAt = new Date();
         await appendChatHistoryMessage(authenticatedPersistence.db, {
@@ -443,6 +480,7 @@ export async function chatResponse(
           threadId: authenticatedPersistence.thread.id,
           lastMessageAt: completedAt,
         });
+        latency.persistenceMs = Date.now() - persistenceStartedAt;
       }
 
       logger.info(
@@ -565,17 +603,31 @@ export async function chatResponse(
   };
 
   if (request.headers.get("accept")?.includes("application/x-ndjson")) {
-    return createStreamingChatResponse({ executeChat, headers: responseHeaders });
+    return createStreamingChatResponse({
+      executeChat,
+      headers: responseHeaders,
+      onComplete: (response) => recordChatLatency(response, latency, startedAt, true),
+      onFirstByte: () => {
+        latency.firstByteMs ??= Date.now() - startedAt;
+      },
+    });
   }
-  return executeChat();
+  const response = await executeChat();
+  latency.firstByteMs = Date.now() - startedAt;
+  recordChatLatency(response, latency, startedAt, false);
+  return response;
 }
 
 function createStreamingChatResponse({
   executeChat,
   headers,
+  onComplete,
+  onFirstByte,
 }: {
   executeChat: (onProgress: (update: AgentProgressUpdate) => Promise<void>) => Promise<Response>;
   headers: Headers;
+  onComplete: (response: Response) => void;
+  onFirstByte: () => void;
 }) {
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
@@ -590,12 +642,14 @@ function createStreamingChatResponse({
         stage: "accepted",
         message: "Starting your Ask Siargao answer.",
       });
+      onFirstByte();
       const response = await executeChat((update) => writeEvent({ type: "progress", ...update }));
       const body = (await response.json().catch(() => ({
         error: "chat_stream_invalid_result",
         message: "Ask Siargao returned an invalid final response.",
       }))) as Record<string, unknown>;
       await writeEvent({ type: "result", status: response.status, body });
+      onComplete(response);
     } catch {
       await writeEvent({
         type: "result",
@@ -615,6 +669,33 @@ function createStreamingChatResponse({
   responseHeaders.set("content-type", "application/x-ndjson; charset=utf-8");
   responseHeaders.set("x-accel-buffering", "no");
   return new Response(readable, { headers: responseHeaders });
+}
+
+function recordChatLatency(
+  response: Response,
+  latency: ChatLatencyMetrics,
+  startedAt: number,
+  streamed: boolean,
+) {
+  trackServerEvent({
+    name: "chat_latency_recorded",
+    payload: {
+      status: response.ok ? "success" : "error",
+      streamed,
+      totalMs: Date.now() - startedAt,
+      firstByteMs: latency.firstByteMs ?? Date.now() - startedAt,
+      preflightMs: latency.preflightMs,
+      agentMs: latency.agentMs ?? 0,
+      modelMs: latency.modelMs ?? 0,
+      settlementMs: latency.settlementMs ?? 0,
+      persistenceMs: latency.persistenceMs ?? 0,
+      modelCallCount: latency.modelCallCount ?? 0,
+      toolCallCount: latency.toolCallCount ?? 0,
+      repairCount: latency.repairCount ?? 0,
+      modelCalls: latency.modelCalls ?? [],
+      tools: latency.tools ?? [],
+    },
+  });
 }
 
 async function cloneJsonResponseWithHeaders(response: Response, headers: HeadersInit) {

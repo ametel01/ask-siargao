@@ -221,6 +221,7 @@ export type AgentTurnResult = {
   itineraries?: readonly ItineraryPlan[];
   decisionSummaries?: readonly DecisionSummary[];
   artifactSelection?: AgentArtifactSelectionSummary;
+  repairCount?: number;
 };
 
 export type ChatClientGeolocationConsentScope = "single_request" | "trip_session";
@@ -429,6 +430,7 @@ export function createAgentTurnResult({
   toolResults,
   upstreamRequestIds,
   modelCost,
+  repairCount,
 }: {
   message: string;
   requestId: string;
@@ -447,6 +449,7 @@ export function createAgentTurnResult({
   decisionSummaries?: readonly DecisionSummary[];
   finalPayload?: AgentFinalPayload;
   artifactSelectionMode?: AgentArtifactSelectionMode;
+  repairCount?: number;
 }): AgentTurnResult {
   const sourceCarriers = toolResults ?? toolCalls;
   const artifactCarriers = toolResults ?? [];
@@ -495,6 +498,7 @@ export function createAgentTurnResult({
     ...(upstreamRequestIds?.length ? { upstreamRequestIds: unique(upstreamRequestIds) } : {}),
     model,
     ...(modelCost && modelCost.callCount > 0 ? { modelCost } : {}),
+    ...(repairCount ? { repairCount } : {}),
     toolCalls,
     sources: reconciledSources,
     publicSources,
