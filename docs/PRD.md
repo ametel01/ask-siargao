@@ -29,13 +29,14 @@ Ask Siargao anything about your trip.
 
 The first paid product should be a one-time trip pass for a typical two-week stay, not a recurring SaaS subscription.
 
-Suggested first offer:
+Launch offer:
 
-- Free preview with limited live data.
-- USD 14.99 Siargao Trip Pass, valid for 14 days.
-- Optional USD 7.99 extension for 7 more days.
+- 10 free Siargao travel answers over seven days.
+- USD 9.99 Siargao Trip Pass with 150 travel answers, valid for 14 days.
 
-The paid pass unlocks live local evidence refreshes, full chat context, recommendation ranking, and trip-specific answers.
+The product has one interaction mode: ask a Siargao travel question. The system automatically checks
+weather, surf, Places, events, or public sources when the answer needs current evidence; travelers do
+not choose or purchase a separate deep-search mode.
 
 ## Core User Stories
 
@@ -46,7 +47,7 @@ The paid pass unlocks live local evidence refreshes, full chat context, recommen
 5. As a traveler, I want today's weather and forecast to affect recommendations, so that the answer reflects current conditions.
 6. As a traveler, I want the assistant to explain freshness and confidence, so that I know when a recommendation is strong or uncertain.
 7. As a traveler, I want a useful free preview, so that I can judge the product before paying.
-8. As a paid traveler, I want enough live refreshes for a two-week stay, so that I can ask questions during the trip without worrying about every message.
+8. As a paid traveler, I want enough travel answers for a two-week stay, so that I can keep asking contextual questions throughout the trip.
 9. As a traveler, I want redirects to relevant businesses, maps, booking pages, or contact methods, so that I can act on recommendations.
 10. As an operator, I want live provider results normalized into reusable facts, so that the product improves from real user demand.
 11. As an operator, I want rate limits on expensive provider calls, so that a paid pass stays profitable.
@@ -58,27 +59,21 @@ Free mode should:
 
 - Parse a trip prompt.
 - Detect accommodation or area when possible.
-- Show today's weather.
-- Give a short partial answer.
-- Show what live data would improve the answer.
-- Trigger the paywall when a request needs live evidence, ranking, reviews, or multiple provider calls.
+- Give the same evidence-aware answer experience for up to 10 answers over seven days.
+- Trigger the paywall after the free travel-answer allowance is used.
 
 Paid mode should:
 
 - Persist trip memory for the pass duration.
 - Allow contextual follow-up chat.
-- Use live evidence refreshes when internal facts are missing or stale.
+- Include 150 travel answers over 14 days.
+- Use current evidence when internal facts are missing or stale and policy allows it.
 - Normalize useful observations into the fact database.
 - Provide local recommendations with confidence and freshness.
 - Explain when an answer is based on cached facts versus newly fetched data.
 
-Suggested first paid limits:
-
-- 100 chat messages.
-- 30 live evidence refreshes.
-- 10 heavy recommendation searches.
-- Daily weather-aware answers included.
-- Cached follow-up answers do not consume live refresh budget.
+Weather, Places, surf, events, public research, and route reasoning do not have separate
+customer-facing allowances.
 
 ## MVP Question Scope
 
@@ -112,7 +107,8 @@ user starts chat
   -> usage meters are updated
 ```
 
-The LLM can classify intent and draft answers, but deterministic code owns provider policy, rate limits, freshness rules, live refresh budgets, and storage decisions.
+The LLM can classify intent and draft answers, but deterministic code owns provider policy, rate
+limits, freshness rules, cost circuits, travel-answer settlement, and storage decisions.
 
 ## Data Policy
 

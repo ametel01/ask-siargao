@@ -54,7 +54,6 @@ describe("Trip Pass catalog", () => {
     });
     expect(tripPassWarningThresholds).toEqual({
       chatRemaining: 20,
-      liveRemaining: 5,
       expiresWithinHours: 48,
     });
     expect(tripPassRateLimits).toEqual({

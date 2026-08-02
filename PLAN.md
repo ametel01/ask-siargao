@@ -39,15 +39,27 @@ Planned against repository revision `1deb02c` on 2026-07-14. Before executing a 
 current revision and touched paths with this baseline and adapt the step without overwriting
 unrelated work.
 
+## Current Product Contract
+
+The version 2 launch contract supersedes the version 1 meter mix elsewhere in this historical plan:
+
+- 10 free Siargao travel answers over seven days.
+- One `$9.99` USD Siargao Trip Pass with 150 travel answers for 14 days.
+- Weather, surf, Places, events, and public-evidence checks are selected automatically when an
+  answer needs them. Travelers do not choose a deep-search mode or spend separate live, research,
+  weather, or route allowances.
+- Version 1 grants and their specialized meters remain readable for payment-ledger and webhook
+  compatibility, but the current chat path enforces only the travel-answer meter.
+
 ## Goals
 
-- Launch one understandable monetisation loop: a useful anonymous free allowance, a 14-day paid
-  Trip Pass, Stripe Checkout, verified webhook activation, and metered chat/live decisions.
+- Launch one understandable monetisation loop: 10 free travel answers, a `$9.99` 14-day paid Trip
+  Pass with 150 travel answers, Stripe Checkout, and verified webhook activation.
 - Make entitlement, usage, payment, and failure behavior server-authoritative, concurrency-safe,
   request-idempotent, and observable.
 - Let a traveler see plan state, remaining allowances, warnings, expiry, checkout status, and safe
   fallback behavior in settings and chat.
-- Keep stable local knowledge useful after a live allowance is exhausted, while clearly labeling
+- Keep stable local knowledge useful when current providers are unavailable, while clearly labeling
   stale, cached, unavailable, and not-checked evidence.
 - Turn Ask Siargao's launch differentiation into shipped behavior: Siargao-specific trip context,
   governed local knowledge, current provider evidence, recommendation cards, and decision-ready
@@ -88,9 +100,8 @@ unrelated work.
 
 The launch monetisation work is done only when all of the following are true:
 
-- Anonymous travelers can use up to 10 successfully completed chat questions and 3 successfully
-  completed live decisions, including at most 1 heavy-research trial, in a rolling seven-day window
-  without creating an account or supplying a card.
+- Anonymous travelers can use up to 10 successfully completed travel answers in a rolling
+  seven-day window without creating an account or supplying a card.
 - Free-limit identity uses a random opaque browser trip identifier plus a server-side HMAC abuse
   key; raw IP and precise location are not persisted as quota identifiers. Clearing the cookie alone
   does not immediately produce another full allowance from the same abuse cohort.
@@ -98,20 +109,20 @@ The launch monetisation work is done only when all of the following are true:
   submissions cannot create duplicate effective orders.
 - A Trip Pass becomes active only after a verified, relevant Stripe event is idempotently applied to
   the matching local order. Redirects and client state cannot activate it.
-- The launch product grants 14 days and the configured meter limits: 150 chat messages, 40 live
-  decisions, 8 heavy-research decisions, 20 weather decisions, and 25 route decisions. Specialized
-  meters are sub-limits within the live allowance, not additive live entitlements.
+- The version 2 launch product grants 14 days and 150 travel answers. Required evidence tools run
+  automatically and do not consume separate customer-facing allowances.
 - One effective pass is selected deterministically for each Clerk user; expiry is derived from
   `expiresAt`; repeated webhooks, retries, concurrent requests, and provider failures cannot
   double-grant or double-consume allowances.
-- A request consumes one chat unit and at most one unit from each applicable live meter regardless
-  of how many supporting provider tools run. Provider/model work that fails before producing a
-  billable successful result releases reservations; a client disconnect after successful server-side
-  model/provider work does not create a free replay.
-- Exhausted live meters degrade to governed cached/local evidence with truthful caveats; exhausted
-  chat returns the typed `usage_limit_reached` response and an appropriate Trip Pass action.
-- Remaining allowances and warning states are visible through owner-scoped APIs and coherent
-  settings/chat UI. Near-limit thresholds are live <= 5, chat <= 20, and expiry <= 48 hours.
+- A successful request consumes one travel-answer unit regardless of how many supporting evidence
+  tools run. Provider/model work that fails before producing a billable successful result releases
+  the reservation; a client disconnect after successful server-side work does not create a free
+  replay.
+- Unavailable provider evidence degrades to governed cached/local evidence with truthful caveats;
+  exhausted travel answers return the typed `usage_limit_reached` response and an appropriate Trip
+  Pass action.
+- Remaining travel answers and warning states are visible through owner-scoped APIs and coherent
+  settings/chat UI. Near-limit thresholds are answers <= 20 and expiry <= 48 hours.
 - Free traffic is bounded at 3 chat starts per minute, 10 successful chats per day, and 2 concurrent
   chat requests per actor; paid traffic is bounded at 10 chat starts per minute, 30 successful chats
   per day, and 2 concurrent chat requests per actor, independently of remaining plan allowance.
@@ -155,12 +166,12 @@ The launch monetisation work is done only when all of the following are true:
 Implementation should proceed with the conservative defaults below. Items marked **release
 approval** do not block code behind a disabled feature flag, but they block enabling checkout.
 
-- **Product identity:** use a versioned internal product code such as
-  `siargao_trip_pass_14d_v1`. A server-owned catalog defines duration and meter grants; Stripe is
+- **Product identity:** use the versioned internal product code
+  `siargao_trip_pass_14d_v2`. A server-owned catalog defines duration and meter grants; Stripe is
   authoritative for the amount and currency of the configured Price.
-- **Price:** the brief's ₱499 is launch positioning, not a value to hard-code into entitlement or
-  checkout logic. `STRIPE_TRIP_PASS_PRICE_ID` must resolve to the approved live amount/currency
-  before launch. **Release approval:** confirm the final production price and currency.
+- **Price:** `$9.99` USD is the version 2 launch positioning. Checkout still resolves the configured
+  `STRIPE_TRIP_PASS_PRICE_ID`, whose live amount and currency must be verified before launch.
+  **Release approval:** confirm the production Stripe Price is USD 9.99.
 - **Cost baseline:** the supplied export contains one API key/user aggregate over three active days,
   not a mapping from model calls to traveler questions. Use its token prices and $0.001462052 average
   API-call cost as a reference only; Step 1A must capture a fixed-corpus, per-answer baseline before
@@ -370,18 +381,15 @@ terminal/no-op/retryable result so Stripe retries are safe and operators can dia
 
 Make the shared rate-limit contract asynchronous and migrate every caller to `await` it. Production
 uses atomic Redis operations and fails closed if no shared store is configured. Tests inject an
-in-memory clock/store. Product limits are 10 chat/3 live/1 heavy per anonymous rolling seven days
-and 150 chat/40 live/8 heavy/20 weather/25 route per 14-day Trip Pass, with the burst, daily, and
-concurrency controls in the Definition of Done. Keys contain only versioned HMAC-derived actor
-identifiers, policy versions, and meter names.
+in-memory clock/store. Product limits are 10 travel answers per anonymous rolling seven days and
+150 travel answers per 14-day Trip Pass, with the burst, daily, and concurrency controls in the
+Definition of Done. Keys contain only versioned HMAC-derived actor identifiers, policy versions,
+and meter names.
 
-`openChatUsageSession` provides request-scoped authorization and settlement to the chat route and
-agent tools. Tools remain cache-first. Before a live provider call, the session reserves the
-appropriate live meter; a successful call consumes it, failure releases it, and another supporting
-tool in the same request reuses the reservation decision. When live access is exhausted, tools
-return a typed `live_access_required` result and the model may answer from approved stable/cache
-evidence with explicit caveats. If the chat allowance is exhausted, the route returns
-`usage_limit_reached` before model execution.
+`openChatUsageSession` provides request-scoped answer authorization and settlement to the chat
+route. Evidence tools remain policy-governed and cache-first but do not receive customer allowance
+sessions. If the answer allowance is exhausted, the route returns `usage_limit_reached` before
+model execution.
 
 Add provider and global daily cost circuits after quota authorization but before provider calls.
 Circuits use normalized usage/cost records and conservative reservations. Exhaustion returns cached
@@ -967,9 +975,9 @@ storing raw IP/location or treating a shared hotel network as one person.
   rotation, expiry, tamper handling, and local-development behavior.
 - Normalize trusted Vercel ingress IPs (including configurable IPv6 `/64` cohorting), HMAC the trip
   and network identifiers separately, and never log/store the source values.
-- Implement primary trip windows for 10 successful chat, 3 live, and 1 heavy use over seven days,
-  plus configurable challenge thresholds of four fresh trip IDs/cohort/day and forty successful
-  free chats/cohort/seven days.
+- Implement a primary trip window for 10 successful travel answers over seven days, plus
+  configurable challenge thresholds of four fresh trip IDs/cohort/day and forty successful free
+  chats/cohort/seven days.
 - Implement free burst/daily/concurrency policy: 3 starts/minute, 10 successes/day, and 2 concurrent
   requests per actor; keep availability limits separate from successful-use settlement.
 - Add challenge/sign-in-required outcomes for suspicious cohort velocity instead of applying the
@@ -1154,9 +1162,10 @@ requests with the same success/failure semantics as paid use.
 
 - Select free or paid authorization from the server-resolved actor; an active pass uses its ledger,
   while an anonymous/no-pass actor uses rolling Redis windows.
-- Consume anonymous chat/live counts only on the same successful settlement points as paid counts.
-- Enforce 1 heavy trial, 3 starts/minute, 10 successes/day, 2 concurrent requests, reset-velocity
-  challenge, and free no-OpenAI-fallback policy.
+- Consume anonymous travel-answer counts only on the same successful settlement points as paid
+  counts.
+- Enforce 3 starts/minute, 10 successes/day, 2 concurrent requests, reset-velocity challenge, and
+  the free no-OpenAI-fallback policy.
 - On sign-in, merge anonymous consumption into the user's current free window before selecting a
   free/paid decision; do not duplicate free allowance or transfer a paid pass.
 - Return safe remaining/attention projections and Trip Pass actions without forcing sign-up before
@@ -1166,8 +1175,8 @@ requests with the same success/failure semantics as paid use.
 
 **Acceptance criteria:**
 
-- Anonymous users receive 10 chat, 3 live, and 1 heavy trial over seven days with no card or account
-  requirement and with the documented burst/concurrency controls.
+- Anonymous users receive 10 travel answers over seven days with no card or account requirement and
+  with the documented burst/concurrency controls.
 - Failed work and cache-only decisions follow the documented non-consumption rules.
 - Active paid users are not also decremented from anonymous allowance, and signing in cannot bind an
   anonymous pass to the wrong account.
@@ -1245,9 +1254,8 @@ provides.
 
 - Add a concise free-versus-Trip-Pass pricing section to `src/features/landing/LandingPage.tsx`, with
   price rendered from safe catalog presentation/configuration rather than a disconnected constant.
-- State the launch offer exactly: free 10 chat/3 live/1 heavy trial over seven days and one ₱499
-  14-day Trip Pass with 150 chat/40 live/8 heavy/20 weather/25 route sub-limits; do not show the
-  Explorer or Extended experiments.
+- State the launch offer exactly: 10 free travel answers over seven days and one `$9.99` USD,
+  14-day Trip Pass with 150 travel answers; do not show the Explorer or Extended experiments.
 - Explain Siargao-specific advantages: local trip context, governed knowledge, current evidence
   checks, map-ready recommendations, transparent source/freshness boundaries, and practical
   fallbacks.

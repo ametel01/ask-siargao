@@ -9,6 +9,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Simplified the 14-day Siargao Trip Pass to a `$9.99` USD, 150-travel-answer product, with 10 free
+  answers over seven days and automatic evidence tools instead of customer-facing live, research,
+  weather, or route allowances. Existing version 1 grants remain readable for ledger continuity.
 - Changed public Ask Siargao positioning to show the catalog-backed Trip Pass launch price, free and
   paid limits, Siargao-specific advantages, and legal/support boundaries before checkout.
 - Changed authenticated paid chat live-tool execution to meter Trip Pass live, heavy, weather, and

@@ -36,7 +36,9 @@ user message
   -> answer with source freshness and confidence
 ```
 
-The LLM should not decide that a provider call is needed by itself. It can propose a retrieval plan, but deterministic code should decide whether cached facts satisfy the request, whether a provider call is allowed, and which live refresh budget is consumed.
+The LLM should not decide that a provider call is needed by itself. It can propose a retrieval plan,
+but deterministic code should decide whether cached facts satisfy the request and whether a provider
+call is allowed by source policy and cost controls. The traveler does not choose a deep-search mode.
 
 ## Storage Layers
 
@@ -71,12 +73,13 @@ chat_requests
   user_message_id
   intent
   required_freshness
-  live_refreshes_used
+  evidence_tools_used_json
   estimated_cost_cents
   created_at
 ```
 
-This layer answers: who asked, what trip context applies, what the assistant already knows about the traveler, and how much live data budget this trip has consumed.
+This layer answers: who asked, what trip context applies, what the assistant already knows about the
+traveler, and which evidence tools supported each answer.
 
 ### Normalized Destination Facts
 
@@ -309,15 +312,8 @@ or retain it indefinitely unless the project's Google agreement explicitly allow
 
 ## Rate Limits And Profit Protection
 
-The paid trip pass should meter expensive live refreshes separately from ordinary chat messages.
-
-Suggested first limits for a two-week trip pass:
-
-- 100 chat messages
-- 30 live evidence refreshes
-- 10 heavy recommendation searches
-- daily weather-aware answers included
-- cached follow-up questions do not consume live refresh budget
+The version 2 paid pass has one customer-facing limit: 150 travel answers over 14 days. The free
+experience includes 10 travel answers over seven days.
 
 Model these as trip-level meters:
 
@@ -331,27 +327,25 @@ trip_usage_meters
   updated_at
 ```
 
-Meter types can include:
+The current grant initializes only `chat_message`. Legacy `live_refresh`,
+`heavy_recommendation`, `weather_refresh`, and `route_lookup` rows remain readable for version 1
+orders and reconciliation, but the current chat runtime does not enforce them.
 
-- `chat_message`
-- `live_refresh`
-- `heavy_recommendation`
-- `weather_refresh`
-- `route_lookup`
-
-The assistant can still answer after the live refresh limit is reached, but it should answer from existing data and clearly say when it cannot refresh live evidence without an extension.
+Weather, Places, surf, events, public evidence, and route reasoning run automatically when needed
+and allowed. Provider rate limits and cost circuits protect unit economics independently of the
+traveler's answer balance.
 
 ## Paywall Logic
 
-Free mode should be useful but incomplete:
+Free mode should demonstrate the real product:
 
 - parse the user's trip prompt
 - detect accommodation or area when possible
-- show today's weather
-- give a short partial answer with uncertainty
-- identify what live evidence would improve the answer
+- run appropriate evidence checks automatically
+- give an evidence-aware answer with truthful availability boundaries
 
-The paywall should trigger when the request needs live evidence, review-derived signals, ranking, itinerary optimization, or multiple provider calls.
+The paywall should trigger after the 10 free travel answers are used, not because a request needs a
+particular tool or research depth.
 
 The paywall copy should frame the unlock as live local operating help:
 

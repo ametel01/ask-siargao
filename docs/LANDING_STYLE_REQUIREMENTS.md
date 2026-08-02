@@ -493,10 +493,10 @@ Top bar:
 Trip context pill below top bar:
 
 ```text
-Cloud 9 area  ·  Jun 24–Jul 7  ·  24 live refreshes left
+Cloud 9 area  ·  Jun 24–Jul 7  ·  140 travel answers left
 ```
 
-The pill includes a location icon and dropdown chevron. `24 live refreshes left` is green.
+The pill includes a location icon and dropdown chevron. `140 travel answers left` is green.
 
 Conversation:
 

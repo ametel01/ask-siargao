@@ -41,7 +41,6 @@ export const tripPassLegacyFreeMeterLimits = {
 
 export const tripPassWarningThresholds = {
   chatRemaining: 20,
-  liveRemaining: 5,
   expiresWithinHours: 48,
 } as const;
 
