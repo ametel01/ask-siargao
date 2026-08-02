@@ -731,6 +731,8 @@ function useChatWorkspaceController({
   }, [invalidatePendingChatSubmission]);
 
   useEffect(() => {
+    mountedRef.current = true;
+
     return () => {
       mountedRef.current = false;
       chatSubmissionGenerationRef.current += 1;
