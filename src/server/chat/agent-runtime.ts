@@ -308,6 +308,12 @@ export type AgentToolExecutionRequest = {
 
 export type AgentToolExecutor = (request: AgentToolExecutionRequest) => Promise<AgentToolResult>;
 
+export type AgentProgressUpdate = {
+  stage: "model" | "tools" | "synthesis" | "checking";
+  message: string;
+  toolCount?: number;
+};
+
 export type AgentArtifactCarrier = {
   sources: readonly AnswerSourceSummary[];
   cards?: readonly RecommendationCard[];
@@ -333,6 +339,7 @@ export type AgentRuntimeDependencies = {
   model?: string;
   maxToolCalls?: number;
   maxTurns?: number;
+  onProgress?: (update: AgentProgressUpdate) => void | Promise<void>;
 };
 
 export function resolveAgentRuntimeRequest(

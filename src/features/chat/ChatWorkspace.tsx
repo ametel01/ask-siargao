@@ -74,6 +74,7 @@ import {
   parseAssistantMarkdownBlocks,
   projectAssistantTableToMobileCards,
 } from "@/features/chat/assistant-message-presentation";
+import { isChatStreamResponse, readChatStreamResponse } from "@/features/chat/chat-stream";
 import {
   type DecisionStripSummary,
   projectDecisionStrip,
@@ -1446,20 +1447,7 @@ function useChatWorkspaceController({
         }
 
         try {
-          const response = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(requestBody),
-            signal: responseRequest.controller.signal,
-          });
-          if (!response.ok) {
-            const body = (await response.json().catch(() => null)) as {
-              error?: string;
-              reason?: string;
-            } | null;
-            throw new Error(chatResponseErrorMessage(response.status, body ?? {}));
-          }
-          const body = (await response.json()) as {
+          type ChatResponseBody = {
             message?: string;
             cards?: RecommendationCardArtifact[];
             actions?: ChatActionArtifact[];
@@ -1471,6 +1459,43 @@ function useChatWorkspaceController({
             error?: string;
             reason?: string;
           };
+          const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: {
+              accept: "application/x-ndjson",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify(requestBody),
+            signal: responseRequest.controller.signal,
+          });
+          if (!response.ok) {
+            const errorBody = (await response.json().catch(() => ({}))) as ChatResponseBody;
+            throw new Error(chatResponseErrorMessage(response.status, errorBody));
+          }
+          let responseStatus = response.status;
+          let body: ChatResponseBody;
+          const streamedResponse = isChatStreamResponse(response);
+          if (streamedResponse) {
+            const result = await readChatStreamResponse<ChatResponseBody>(response, (event) => {
+              if (!mountedRef.current) {
+                return;
+              }
+              setMessages((currentMessages) =>
+                currentMessages.map((message) =>
+                  message.id === pendingAssistantId && message.status === "pending"
+                    ? { ...message, text: event.message }
+                    : message,
+                ),
+              );
+            });
+            responseStatus = result.status;
+            body = result.body;
+          } else {
+            body = (await response.json().catch(() => ({}))) as ChatResponseBody;
+          }
+          if (responseStatus < 200 || responseStatus >= 300) {
+            throw new Error(chatResponseErrorMessage(responseStatus, body));
+          }
 
           const responseMessage = body.message;
 
@@ -1485,7 +1510,7 @@ function useChatWorkspaceController({
           }
 
           if (!responseMessage) {
-            throw new Error(chatResponseErrorMessage(response.status, body));
+            throw new Error(chatResponseErrorMessage(responseStatus, body));
           }
 
           if (body.threadId) {

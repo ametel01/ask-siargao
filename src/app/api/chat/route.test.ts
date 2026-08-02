@@ -110,6 +110,30 @@ describe("chat route", () => {
     expect(dependencies.requests[0]?.metadata?.route).toBe("/api/chat");
   });
 
+  test("streams progress events before the final chat result", async () => {
+    const dependencies = chatDependencies({ message: "Streamed Cloud 9 answer." });
+    const response = await chatResponse(
+      jsonRequest(
+        { messages: [{ role: "user", content: "What should I do near Cloud 9?" }] },
+        { headers: { accept: "application/x-ndjson" } },
+      ),
+      dependencies,
+    );
+    const events = (await response.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    expect(response.headers.get("content-type")).toContain("application/x-ndjson");
+    expect(events[0]).toMatchObject({ type: "progress", stage: "accepted" });
+    expect(events).toContainEqual(expect.objectContaining({ type: "progress", stage: "model" }));
+    expect(events.at(-1)).toMatchObject({
+      type: "result",
+      status: 200,
+      body: { message: "Streamed Cloud 9 answer." },
+    });
+  });
+
   test("settles anonymous free chat allowance after a successful answer", async () => {
     const dependencies = chatDependencies({
       message: "Free chat answer.",
@@ -2648,6 +2672,10 @@ function chatDependencies(
     runAskSiargaoAgentTurn: async (request, runtimeDependencies) => {
       requests.push(request);
       agentDependencies.push(runtimeDependencies);
+      await runtimeDependencies?.onProgress?.({
+        stage: "model",
+        message: "Understanding the request.",
+      });
       return {
         message: result.message ?? "Agent response.",
         requestId: request.requestId ?? "route_request_test",

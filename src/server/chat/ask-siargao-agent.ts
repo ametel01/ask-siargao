@@ -13,6 +13,7 @@ import {
 import {
   type AgentFinalPayload,
   type AgentMemoryMetadata,
+  type AgentProgressUpdate,
   type AgentResponsesClient,
   type AgentRuntimeDependencies,
   type AgentRuntimeRequest,
@@ -190,6 +191,11 @@ export async function runAskSiargaoAgentTurn(
     "Ask Siargao agent turn started.",
   );
 
+  await emitAgentProgress(dependencies.onProgress, {
+    stage: "model",
+    message: "Understanding your question and choosing the right checks.",
+  });
+
   const initialMemoryLoadCall = initialNightlifeMemoryLoadCall(resolved);
   const initialMemoryOutputs = initialMemoryLoadCall
     ? [
@@ -296,6 +302,10 @@ export async function runAskSiargaoAgentTurn(
           ),
       });
       if (repairResult.repaired) {
+        await emitAgentProgress(dependencies.onProgress, {
+          stage: "checking",
+          message: "Checking the answer against the available evidence.",
+        });
         response = repairResult.response;
         activeModel = response.model ?? activeModel;
         responseInput = repairResult.responseInput;
@@ -447,6 +457,14 @@ export async function runAskSiargaoAgentTurn(
       throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
     }
 
+    await emitAgentProgress(dependencies.onProgress, {
+      stage: "tools",
+      message:
+        functionCalls.length === 1
+          ? "Checking one relevant source."
+          : `Checking ${functionCalls.length} relevant sources.`,
+      toolCount: functionCalls.length,
+    });
     const toolOutputs = await executeAndAuditToolBatch({
       executeTool,
       functionCalls,
@@ -488,6 +506,10 @@ export async function runAskSiargaoAgentTurn(
         }),
       ];
     }
+    await emitAgentProgress(dependencies.onProgress, {
+      stage: "synthesis",
+      message: "Turning the checked results into a useful answer.",
+    });
     response = await createBudgetedModelResponse({
       client,
       costAccumulator,
@@ -512,6 +534,13 @@ export async function runAskSiargaoAgentTurn(
   }
 
   throw new Error("Ask Siargao agent exceeded the maximum turn count.");
+}
+
+async function emitAgentProgress(
+  onProgress: AskSiargaoAgentDependencies["onProgress"],
+  update: AgentProgressUpdate,
+) {
+  await onProgress?.(update);
 }
 
 function createBudgetedModelClient({
