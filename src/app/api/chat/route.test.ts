@@ -174,7 +174,7 @@ describe("chat route", () => {
     expect(settled).toEqual([true]);
   });
 
-  test("passes anonymous free decision metering into the agent runtime", async () => {
+  test("keeps provider tools outside anonymous customer entitlement metering", async () => {
     const dependencies = chatDependencies({
       message: "Free live answer.",
       sources: [genericSourceSummary],
@@ -199,15 +199,7 @@ describe("chat route", () => {
       release: async () => {},
       reserveDecisionMeter: async ({ meterType }) => {
         reservedMeters.push(meterType);
-        return {
-          status: "reserved",
-          meterType,
-          release: async () => {},
-          settle: async () => ({
-            status: "settled",
-            allowance: { meterType, used: 1, remaining: 2, limit: 3 },
-          }),
-        };
+        throw new Error("provider tools must not use customer entitlement meters");
       },
       settle: async () => {},
     });
@@ -218,13 +210,10 @@ describe("chat route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(dependencies.agentDependencies[0]?.decisionMeterPlan).toBe("free");
-    await expect(
-      dependencies.agentDependencies[0]?.decisionMeterSession?.reserveDecisionMeter({
-        meterType: "live_refresh",
-      }),
-    ).resolves.toMatchObject({ status: "reserved", meterType: "live_refresh" });
-    expect(reservedMeters).toEqual(["live_refresh"]);
+    expect(dependencies.agentDependencies[0]?.decisionMeterPlan).toBeUndefined();
+    expect(dependencies.agentDependencies[0]?.decisionMeterSession).toBeUndefined();
+    expect(dependencies.agentDependencies[0]?.usageSession).toBeUndefined();
+    expect(reservedMeters).toEqual([]);
   });
 
   test("returns anonymous free allowance challenges before calling the agent", async () => {

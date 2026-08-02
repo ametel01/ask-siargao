@@ -372,9 +372,6 @@ export async function chatResponse(
   ) => {
     try {
       const runAgent = dependencies.runAskSiargaoAgentTurn ?? defaultRunAskSiargaoAgentTurn;
-      const freeDecisionMeterSession = anonymousFreeAllowance?.reserveDecisionMeter
-        ? { reserveDecisionMeter: anonymousFreeAllowance.reserveDecisionMeter }
-        : null;
       const agentStartedAt = Date.now();
       const result = await runAgent(
         {
@@ -396,11 +393,8 @@ export async function chatResponse(
         },
         {
           ...dependencies,
-          decisionMeterPlan: paidChatUsage ? "paid" : freeDecisionMeterSession ? "free" : undefined,
-          decisionMeterSession: paidChatUsage ?? freeDecisionMeterSession,
           logger,
           onProgress,
-          usageSession: paidChatUsage,
         },
       );
       latency.agentMs = Date.now() - agentStartedAt;

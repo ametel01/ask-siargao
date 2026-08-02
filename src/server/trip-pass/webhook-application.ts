@@ -2,6 +2,7 @@ import type Stripe from "stripe";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import {
+  getTripPassProductContract,
   readTripPassEnvironment,
   tripPassProductCode,
   tripPassProductVersion,
@@ -79,11 +80,12 @@ async function applyCheckoutSessionEvent(
   now: Date,
 ): Promise<TripPassStripeApplicationResult> {
   const session = event.data.object as Stripe.Checkout.Session;
-  if (session.metadata?.productCode !== tripPassProductCode) {
+  const metadataVersion = Number(session.metadata?.productVersion);
+  if (!getTripPassProductContract(session.metadata?.productCode ?? "", metadataVersion)) {
     return { status: "ignored", reason: "not_trip_pass_event" };
   }
 
-  const orderId = session.metadata.tripPassOrderId ?? session.client_reference_id ?? undefined;
+  const orderId = session.metadata?.tripPassOrderId ?? session.client_reference_id ?? undefined;
   if (!orderId) {
     return { status: "rejected", reason: "missing_trip_pass_order_id", stripeEventId: event.id };
   }
@@ -292,7 +294,10 @@ function validateCheckoutSessionOrder(input: {
       stripeEventId: input.event.id,
     };
   }
-  if (input.session.metadata?.productVersion !== String(tripPassProductVersion)) {
+  if (
+    input.session.metadata?.productCode !== input.order.product_code ||
+    input.session.metadata?.productVersion !== String(input.order.product_version)
+  ) {
     return {
       status: "rejected",
       reason: "trip_pass_product_version_mismatch",
@@ -303,6 +308,8 @@ function validateCheckoutSessionOrder(input: {
 
   const environment = readTripPassEnvironment(input.env);
   if (
+    input.order.product_code === tripPassProductCode &&
+    input.order.product_version === tripPassProductVersion &&
     environment.checkout.priceId &&
     environment.checkout.priceId !== input.order.stripe_price_id
   ) {

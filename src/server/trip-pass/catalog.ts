@@ -13,6 +13,10 @@ export const tripPassMeterTypes = [
 
 export type TripPassMeterType = (typeof tripPassMeterTypes)[number];
 
+export const tripPassEntitlementMeterTypes = [
+  "chat_message",
+] as const satisfies readonly TripPassMeterType[];
+
 export const tripPassPaidMeterLimits = {
   chat_message: 150,
 } as const satisfies Partial<Record<TripPassMeterType, number>>;
@@ -93,6 +97,29 @@ export const tripPassProductCatalog = {
     launchCurrencyCode: "usd",
   },
 } as const;
+
+export const tripPassLegacyProductCatalog = {
+  code: "siargao_trip_pass_14d_v1",
+  version: 1,
+  durationDays: 14,
+  paidMeterLimits: tripPassLegacyPaidMeterLimits,
+} as const;
+
+export function getTripPassProductContract(productCode: string, productVersion: number) {
+  if (
+    productCode === tripPassProductCatalog.code &&
+    productVersion === tripPassProductCatalog.version
+  ) {
+    return tripPassProductCatalog;
+  }
+  if (
+    productCode === tripPassLegacyProductCatalog.code &&
+    productVersion === tripPassLegacyProductCatalog.version
+  ) {
+    return tripPassLegacyProductCatalog;
+  }
+  return null;
+}
 
 export type TripPassEnvironment = ReturnType<typeof readTripPassEnvironment>;
 

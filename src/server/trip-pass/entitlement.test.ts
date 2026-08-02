@@ -53,8 +53,8 @@ describe("Trip Pass entitlement grants", () => {
         userId: "user_grant",
         sourceType: "stripe_checkout",
         sourceEventId: "evt_grant",
-        productCode: "siargao_trip_pass_14d_v1",
-        productVersion: 1,
+        productCode: "siargao_trip_pass_14d_v2",
+        productVersion: 2,
         quantity: 1,
         durationDays: 14,
         startsAt: now,
@@ -62,17 +62,9 @@ describe("Trip Pass entitlement grants", () => {
       });
       expect(result.grant.meterLimits).toEqual({
         chat_message: 150,
-        live_refresh: 40,
-        heavy_recommendation: 8,
-        weather_refresh: 20,
-        route_lookup: 25,
       });
       expect(result.meters.map((meter) => [meter.meterType, meter.used, meter.limit])).toEqual([
         ["chat_message", 0, 150],
-        ["live_refresh", 0, 40],
-        ["heavy_recommendation", 0, 8],
-        ["weather_refresh", 0, 20],
-        ["route_lookup", 0, 25],
       ]);
     });
   });
@@ -105,7 +97,7 @@ describe("Trip Pass entitlement grants", () => {
       expect(first.status).toBe("granted");
       expect(duplicate.status).toBe("duplicate");
       expect(duplicate.pass.id).toBe(first.pass.id);
-      await expectCounts(db, { passes: "1", grants: "1", meters: "5" });
+      await expectCounts(db, { passes: "1", grants: "1", meters: "1" });
     });
   });
 
@@ -144,7 +136,7 @@ describe("Trip Pass entitlement grants", () => {
 
       expect([first.status, second.status].toSorted()).toEqual(["duplicate", "granted"]);
       expect(first.pass.id).toBe(second.pass.id);
-      await expectCounts(firstClient, { passes: "1", grants: "1", meters: "5" });
+      await expectCounts(firstClient, { passes: "1", grants: "1", meters: "1" });
     } finally {
       await firstDb.close();
       await secondDb.close();
@@ -196,7 +188,7 @@ describe("Trip Pass entitlement grants", () => {
           db,
         ),
       ).rejects.toThrow(TripPassGrantOwnerMismatchError);
-      await expectCounts(db, { passes: "1", grants: "1", meters: "5" });
+      await expectCounts(db, { passes: "1", grants: "1", meters: "1" });
     });
   });
 });
@@ -361,7 +353,7 @@ async function insertTripPassOrder(
         stripe_checkout_session_id,
         stripe_payment_intent_id
       )
-      values ($1, $2, $3, 'paid', 'siargao_trip_pass_14d_v1', 1, $4, 900, 'usd', $5, $6, $7)
+      values ($1, $2, $3, 'paid', 'siargao_trip_pass_14d_v2', 2, $4, 999, 'usd', $5, $6, $7)
     `,
     [
       input.id,
