@@ -88,6 +88,7 @@ export type ChatRouteDependencies = AskSiargaoAgentDependencies & {
   auth?: EnsureCurrentUserDependencies["auth"] | null;
   createId?: (prefix: string) => string;
   db?: DatabaseQueryClient;
+  deferPersistence?: (task: () => Promise<void>) => void;
   beginAuthenticatedFreeChat?: typeof defaultBeginAuthenticatedFreeChat | null;
   beginAnonymousFreeChat?: typeof defaultBeginAnonymousFreeChat | null;
   openChatUsageSession?: typeof defaultOpenChatUsageSession | null;
@@ -456,31 +457,38 @@ export async function chatResponse(
 
       let assistantMessageId: string | undefined;
       if (authenticatedPersistence?.status === "ready") {
-        const persistenceStartedAt = Date.now();
-        assistantMessageId = createChatRouteId(dependencies, "chat_message");
+        const generatedAssistantMessageId = createChatRouteId(dependencies, "chat_message");
+        assistantMessageId = generatedAssistantMessageId;
         const completedAt = new Date();
-        await appendChatHistoryMessage(authenticatedPersistence.db, {
-          id: assistantMessageId,
-          threadId: authenticatedPersistence.thread.id,
-          userId: authenticatedPersistence.userId,
-          role: "assistant",
-          content: publicTurn.storage.message,
-          requestId: result.requestId,
-          model: result.model,
-          sources: publicTurn.storage.sources,
-          cards: publicTurn.storage.cards,
-          actions: publicTurn.storage.actions,
-          itineraries: publicTurn.storage.itineraries,
-          decisionSummaries: publicTurn.storage.decisionSummaries,
-          toolCalls: publicTurn.storage.toolCalls,
-          contextSummary: summarizeTripContextForStoredHistory(intent),
-          createdAt: completedAt,
-        });
-        await touchChatThread(authenticatedPersistence.db, {
-          threadId: authenticatedPersistence.thread.id,
-          lastMessageAt: completedAt,
-        });
-        latency.persistenceMs = Date.now() - persistenceStartedAt;
+        const persistAssistantMessage = (deferred: boolean) =>
+          persistAssistantChatHistory({
+            assistantMessageId: generatedAssistantMessageId,
+            authenticatedPersistence,
+            completedAt,
+            contextSummary: summarizeTripContextForStoredHistory(intent),
+            deferred,
+            logger,
+            model: result.model,
+            publicTurn,
+            requestId: result.requestId,
+          });
+
+        if (dependencies.deferPersistence) {
+          try {
+            dependencies.deferPersistence(async () => {
+              await persistAssistantMessage(true);
+            });
+            latency.persistenceMs = 0;
+          } catch (error) {
+            logger.warn(
+              { error },
+              "Deferred chat history scheduling failed; persisting before delivery.",
+            );
+            latency.persistenceMs = await persistAssistantMessage(false);
+          }
+        } else {
+          latency.persistenceMs = await persistAssistantMessage(false);
+        }
       }
 
       logger.info(
@@ -669,6 +677,63 @@ function createStreamingChatResponse({
   responseHeaders.set("content-type", "application/x-ndjson; charset=utf-8");
   responseHeaders.set("x-accel-buffering", "no");
   return new Response(readable, { headers: responseHeaders });
+}
+
+async function persistAssistantChatHistory({
+  assistantMessageId,
+  authenticatedPersistence,
+  completedAt,
+  contextSummary,
+  deferred,
+  logger,
+  model,
+  publicTurn,
+  requestId,
+}: {
+  assistantMessageId: string;
+  authenticatedPersistence: AuthenticatedChatPersistence;
+  completedAt: Date;
+  contextSummary: ReturnType<typeof summarizeTripContextForStoredHistory>;
+  deferred: boolean;
+  logger: Logger;
+  model: string;
+  publicTurn: ReturnType<typeof assemblePublicChatTurn>;
+  requestId: string;
+}) {
+  const persistenceStartedAt = Date.now();
+
+  try {
+    await appendChatHistoryMessage(authenticatedPersistence.db, {
+      id: assistantMessageId,
+      threadId: authenticatedPersistence.thread.id,
+      userId: authenticatedPersistence.userId,
+      role: "assistant",
+      content: publicTurn.storage.message,
+      requestId,
+      model,
+      sources: publicTurn.storage.sources,
+      cards: publicTurn.storage.cards,
+      actions: publicTurn.storage.actions,
+      itineraries: publicTurn.storage.itineraries,
+      decisionSummaries: publicTurn.storage.decisionSummaries,
+      toolCalls: publicTurn.storage.toolCalls,
+      contextSummary,
+      createdAt: completedAt,
+    });
+    await touchChatThread(authenticatedPersistence.db, {
+      threadId: authenticatedPersistence.thread.id,
+      lastMessageAt: completedAt,
+    });
+    const durationMs = Date.now() - persistenceStartedAt;
+    logger.info({ deferred, durationMs }, "Assistant chat history persisted.");
+    return durationMs;
+  } catch (error) {
+    logger.error(
+      { error, deferred, durationMs: Date.now() - persistenceStartedAt },
+      "Assistant chat history persistence failed.",
+    );
+    throw error;
+  }
 }
 
 function recordChatLatency(

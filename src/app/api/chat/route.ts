@@ -1,4 +1,6 @@
-import { chatResponse } from "@/app/api/chat/chat-route";
+import { after } from "next/server";
+
+import { chatResponse, createDefaultChatRouteDependencies } from "@/app/api/chat/chat-route";
 import { rateLimitedJson, rateLimitRequest } from "@/server/security/rate-limit";
 
 export async function POST(request: Request) {
@@ -7,5 +9,12 @@ export async function POST(request: Request) {
     return rateLimitedJson(rateLimit);
   }
 
-  return chatResponse(request, undefined, rateLimit.headers);
+  return chatResponse(
+    request,
+    {
+      ...createDefaultChatRouteDependencies(),
+      deferPersistence: (task) => after(task),
+    },
+    rateLimit.headers,
+  );
 }

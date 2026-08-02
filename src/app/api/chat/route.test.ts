@@ -549,6 +549,51 @@ describe("chat route", () => {
     await db.close();
   });
 
+  test("defers assistant history persistence when a scheduler is configured", async () => {
+    const db = await openChatRouteTestDatabase();
+    const deferredTasks: Array<() => Promise<void>> = [];
+    const dependencies = chatDependencies({
+      message: "This answer should persist after delivery.",
+      sources: [genericSourceSummary],
+    });
+    dependencies.db = db;
+    dependencies.auth = async () => ({
+      userId: "user_deferred_history",
+      sessionClaims: { email: "deferred@example.com" },
+    });
+    dependencies.createId = deterministicIds();
+    dependencies.deferPersistence = (task) => deferredTasks.push(task);
+
+    const response = await chatResponse(
+      jsonRequest({ messages: [{ role: "user", content: "Where should I have lunch?" }] }),
+      dependencies,
+    );
+    const body = await response.json();
+    const messagesBeforeDeferredTask = await db.query<{ role: string }>(
+      "select role from chat_messages order by created_at, id",
+    );
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      threadId: "chat_thread_1",
+      userMessageId: "chat_message_2",
+      assistantMessageId: "chat_message_3",
+    });
+    expect(deferredTasks).toHaveLength(1);
+    expect(messagesBeforeDeferredTask.rows.map((message) => message.role)).toEqual(["user"]);
+
+    await deferredTasks[0]?.();
+    const messagesAfterDeferredTask = await db.query<{ role: string; content: string }>(
+      "select role, content from chat_messages order by created_at, id",
+    );
+    expect(messagesAfterDeferredTask.rows).toEqual([
+      { role: "user", content: "Where should I have lunch?" },
+      { role: "assistant", content: "This answer should persist after delivery." },
+    ]);
+
+    await db.close();
+  });
+
   test("appends authenticated chat to an owned thread", async () => {
     const db = await openChatRouteTestDatabase();
     const dependencies = chatDependencies({
