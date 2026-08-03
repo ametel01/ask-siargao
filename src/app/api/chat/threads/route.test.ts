@@ -285,6 +285,9 @@ describe("chat thread API routes", () => {
     expect(body.messages[1].decisionSummaries).toEqual([
       {
         id: "condition_decision:swimming:cloud_9:today",
+        kind: "immediate_plan",
+        verdict: "needs_confirmation",
+        subject: "Cloud 9 swimming today",
         bestAction: "Keep swimming flexible.",
         basis: "Weather is usable, but surf reports are not checked.",
         timing: "today",
@@ -658,6 +661,9 @@ async function createThreadWithMessage(
         ? [
             {
               id: "condition_decision:swimming:cloud_9:today",
+              kind: "immediate_plan",
+              verdict: "needs_confirmation",
+              subject: "Cloud 9 swimming today",
               bestAction: "Keep swimming flexible.",
               basis: "Weather is usable, but surf reports are not checked.",
               timing: "today",

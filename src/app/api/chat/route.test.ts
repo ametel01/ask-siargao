@@ -108,6 +108,7 @@ describe("chat route", () => {
       "Where should we eat near Cloud 9?",
     );
     expect(dependencies.requests[0]?.metadata?.route).toBe("/api/chat");
+    expect(dependencies.agentDependencies[0]?.requireStructuredFinalOutput).toBe(true);
   });
 
   test("streams progress events before the final chat result", async () => {
@@ -3012,6 +3013,9 @@ const weatherSourceSummary: AnswerSourceSummary = {
 
 const swimmingDecisionSummary: DecisionSummary = {
   id: "condition_decision:swimming:cloud_9:today",
+  kind: "immediate_plan",
+  verdict: "needs_confirmation",
+  subject: "Cloud 9 swimming today",
   bestAction: "Keep swimming flexible.",
   basis: "Weather is usable, but surf reports are not checked.",
   fallback: "Use a nearby covered stop if conditions worsen.",

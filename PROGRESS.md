@@ -23,7 +23,7 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
 
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Baseline and Reality-Check Domain Contract
-- [ ] Step 2: Server-Validated Structured Verdicts
+- [x] Step 2: Server-Validated Structured Verdicts
 - [ ] Step 3: Accommodation Reality Check Vertical Slice
 - [ ] Step 4: Itinerary Feasibility Vertical Slice
 - [ ] Step 5: Today/Tomorrow and Surf Decision Vertical Slices
@@ -33,7 +33,7 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
 
 ### Current status
 
-- Status: Step 1 complete; Step 2 is next.
+- Status: Step 2 complete; Step 3 is next.
 - Definition of Done: not yet satisfied.
 - Baseline gate: passed at `88b998f` before Step 1 production changes.
 - Current blocker: none.
@@ -92,8 +92,51 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
   functional traveler behavior.
 - Residual risk: the existing full-suite motion benchmark is load-sensitive. Re-run it with the UI
   step and final release proof; do not weaken or skip its threshold.
-- Commit: this Step 1 commit.
+- Commit: `2f44c5c` (`Define on-demand reality check contract`).
 - Next step: build server-validated structured verdicts and sanitized observability.
+
+#### Step 2 - Server-Validated Structured Verdicts
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: extended the structured final payload with an optional bounded Reality Check
+  proposal; validated kind, verdict, subject, completed evidence IDs, used-call inclusion, call/result
+  agreement, source sufficiency, and current-condition support; built the public decision summary
+  server-side with stable opaque IDs and sources derived only from validated tool results; added one
+  bounded repair, safe clarification, and supported provider-failure downgrade behavior; registered
+  trusted summaries with strict artifact selection; added allowlisted coarse outcome telemetry; and
+  extended route/history fixtures for the optional metadata.
+- Acceptance criteria checked:
+  - The model cannot provide source objects or choose the server-generated summary ID.
+  - Explicit mixed decision-summary selection is replaced by the one server-owned summary; existing
+    mixed-card filtering remains covered for omitted/auto-selected and adversarial explicit paths.
+  - Unknown, unused, mismatched, incomplete, source-insufficient, and non-current evidence fails
+    closed; a positive verdict after a terminal provider failure is repaired once and then downgraded
+    only when provider-unavailable evidence supports `needs_confirmation`.
+  - Missing essential input produces a focused clarification, and ordinary Siargao questions retain
+    the existing chat behavior.
+  - Reality Check metadata and governed sources survive public projection and authenticated history
+    hydration without exposing raw prompts, subjects, tool IDs, or provider payloads to analytics.
+- Validation:
+  - Focused agent/runtime/public-turn/route/history/observability suite after forcing structured
+    output at `/api/chat`: 283 tests passed, 0 failed, 1,717 assertions.
+  - `bun run lint`: passed; 405 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed; 1,160 tests, 0 failed, 6,101 assertions.
+  - `bun run db:migrate:test`: passed; 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed; 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - Full `bun run test:e2e`: 93 passed and the existing throttled motion benchmark failed its
+    zero-long-task threshold once under full eight-worker load (one 84 ms task); Step 2 changed no
+    UI, motion, or browser code. The exact test then passed 3/3 with `--repeat-each=3`, with zero
+    motion long tasks and zero layout shift in every repeat.
+  - `git diff --check`: passed.
+- Changelog decision: added an `[Unreleased]` / `Added` entry because validated on-demand Reality
+  Check verdicts are now observable through the existing chat response path.
+- Residual risk: the existing full-suite motion benchmark remains load-sensitive. Re-run it during
+  the UI step and final release proof without weakening or skipping its threshold.
+- Commit: this Step 2 commit.
+- Next step: implement the Accommodation Reality Check vertical slice.
 
 ## Baseline
 

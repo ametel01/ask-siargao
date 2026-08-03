@@ -40,6 +40,10 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added on-demand Siargao Reality Check verdicts with server-validated evidence references,
+  source-derived decision summaries, bounded repair and provider-failure downgrade behavior,
+  authenticated history compatibility, strict artifact selection, and privacy-safe outcome
+  telemetry.
 - Added an executable Trip Pass launch-proof artifact and release-candidate runbook covering
   free-to-paid lifecycle evidence, approval blockers, external smoke lanes, and flag-based rollback.
 - Added redacted Trip Pass reconciliation and support diagnostics for paid-order, pass, grant,

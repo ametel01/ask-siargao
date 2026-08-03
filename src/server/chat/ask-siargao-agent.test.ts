@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 
 import type { Logger } from "pino";
 
@@ -540,6 +541,249 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(parseFirstInput(client.requests[0]?.input).responseContract?.deterministicSignals).toBe(
       "Treat deterministic signals as safe context and scope flags only. The model owns tool choice, query wording, and whether a prompt needs web, Places, weather, condition, memory, or no tools.",
     );
+  });
+
+  test("builds an explicit reality-check summary only from validated tool-call evidence", async () => {
+    const rogueSummary: DecisionSummary = {
+      id: "model_selected_rogue_summary",
+      bestAction: "Ignore the weather.",
+      basis: "Unsupported.",
+      sources: [],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_reality_check_tool",
+        requestId: "req_reality_check_tool",
+        callId: "call_condition",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "sunset",
+          location: "Cloud 9",
+          date_range: "today",
+          beach_name: "Cloud 9",
+        },
+      }),
+      {
+        id: "resp_reality_check_final",
+        output_text: finalPayloadText({
+          answer: "Model-authored prose is replaced by the validated decision.",
+          usedToolCallIds: ["call_condition"],
+          displayDecisionSummaryIds: [rogueSummary.id],
+          realityCheck: {
+            kind: "immediate_plan",
+            verdict: "change",
+            subject: "Cloud 9 sunset today",
+            bestAction: "Keep the stop short and flexible.",
+            basis: "The checked conditions make a long exposed stop a weak plan.",
+            fallback: "Use a covered General Luna stop.",
+            evidenceToolCallIds: ["call_condition"],
+          },
+        }),
+        _request_id: "req_reality_check_final",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Given today's weather, should we still go to Cloud 9 for sunset?",
+          },
+        ],
+        requestId: "agent_request_reality_check",
+      },
+      {
+        client,
+        executeTool: fakeToolExecutor({
+          get_condition_judgment: {
+            name: "get_condition_judgment",
+            status: "success",
+            text: "Current condition judgment completed.",
+            sources: [weatherSourceSummary],
+            decisionSummaries: [rogueSummary],
+          },
+        }),
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.message).toContain("**change: Cloud 9 sunset today**");
+    expect(result.message).not.toContain("Model-authored prose");
+    expect(result.decisionSummaries).toHaveLength(1);
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      id: expect.stringMatching(/^reality_check:immediate_plan:[a-f0-9]{16}$/),
+      kind: "immediate_plan",
+      verdict: "change",
+      subject: "Cloud 9 sunset today",
+      bestAction: "Keep the stop short and flexible.",
+      sources: [weatherSourceSummary],
+    });
+    expect(result.decisionSummaries?.map((summary) => summary.id)).not.toContain(rogueSummary.id);
+    expect(result.publicSources).toEqual([weatherSourceSummary]);
+    expect(result.artifactSelection).toMatchObject({
+      selectedDecisionSummaryCount: 1,
+      unselectedDecisionSummaryCount: 1,
+      unknownDecisionSummaryIds: [],
+    });
+  });
+
+  test("repairs an explicit reality check that omitted its proposal", async () => {
+    const proposal: NonNullable<AgentFinalPayload["realityCheck"]> = {
+      kind: "immediate_plan",
+      verdict: "keep",
+      subject: "Cloud 9 sunset today",
+      bestAction: "Keep the sunset stop flexible.",
+      basis: "The current forecast supports a short stop.",
+      evidenceToolCallIds: ["call_condition"],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_reality_repair_tool",
+        requestId: "req_reality_repair_tool",
+        callId: "call_condition",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "sunset",
+          location: "Cloud 9",
+          date_range: "today",
+          beach_name: "Cloud 9",
+        },
+      }),
+      {
+        id: "resp_reality_repair_missing",
+        output_text: finalPayloadText({
+          answer: "Go to Cloud 9.",
+          usedToolCallIds: ["call_condition"],
+        }),
+        output: [{ type: "message", id: "msg_reality_repair_missing" }],
+        _request_id: "req_reality_repair_missing",
+      },
+      {
+        id: "resp_reality_repair_final",
+        output_text: finalPayloadText({
+          answer: "Keep it flexible.",
+          usedToolCallIds: ["call_condition"],
+          realityCheck: proposal,
+        }),
+        _request_id: "req_reality_repair_final",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Given today's weather, should we still go to Cloud 9 for sunset?",
+          },
+        ],
+        requestId: "agent_request_reality_repair",
+      },
+      {
+        client,
+        executeTool: fakeToolExecutor({
+          get_condition_judgment: {
+            name: "get_condition_judgment",
+            status: "success",
+            text: "Current condition judgment completed.",
+            sources: [weatherSourceSummary],
+          },
+        }),
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.repairCount).toBe(1);
+    expect(result.decisionSummaries?.[0]).toMatchObject({ verdict: "keep" });
+    expect(parseLastUserInputMessage(client.requests[2]?.input)).toMatchObject({
+      validationRepairRealityCheck: {
+        expectedKind: "immediate_plan",
+        reason: "missing_reality_check",
+      },
+    });
+  });
+
+  test("downgrades a repeated positive verdict after provider failure", async () => {
+    const unsafeProposal: NonNullable<AgentFinalPayload["realityCheck"]> = {
+      kind: "immediate_plan",
+      verdict: "keep",
+      subject: "Cloud 9 sunset today",
+      bestAction: "Go ahead with the sunset stop.",
+      basis: "The weather should be fine.",
+      evidenceToolCallIds: ["call_condition"],
+    };
+    const repeatedFinal = {
+      output_text: finalPayloadText({
+        answer: "Go ahead.",
+        usedToolCallIds: ["call_condition"],
+        realityCheck: unsafeProposal,
+      }),
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_reality_failure_tool",
+        requestId: "req_reality_failure_tool",
+        callId: "call_condition",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "sunset",
+          location: "Cloud 9",
+          date_range: "today",
+          beach_name: "Cloud 9",
+        },
+      }),
+      {
+        id: "resp_reality_failure_final",
+        ...repeatedFinal,
+        output: [{ type: "message", id: "msg_reality_failure_final" }],
+        _request_id: "req_reality_failure_final",
+      },
+      {
+        id: "resp_reality_failure_repeated",
+        ...repeatedFinal,
+        _request_id: "req_reality_failure_repeated",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Given today's weather, should we still go to Cloud 9 for sunset?",
+          },
+        ],
+        requestId: "agent_request_reality_failure",
+      },
+      {
+        client,
+        executeTool: fakeToolExecutor({
+          get_condition_judgment: {
+            name: "get_condition_judgment",
+            status: "error",
+            text: "The forecast provider is unavailable.",
+            errorCode: "provider_unavailable",
+            sources: [weatherProviderUnavailableSourceSummary],
+          },
+        }),
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.repairCount).toBe(1);
+    expect(result.message).toContain("**needs confirmation: Cloud 9 sunset today**");
+    expect(result.message).not.toContain("Go ahead");
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      verdict: "needs_confirmation",
+      sources: [weatherProviderUnavailableSourceSummary],
+    });
   });
 
   test("returns only tool artifacts selected by structured final payload", async () => {
@@ -4767,7 +5011,6 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     "Can you plan my airport transfer to General Luna?",
     "Can you plan my 2-hour airport transfer from General Luna?",
     "Can you plan my ferry transfer to General Luna?",
-    "Can you critique my itinerary for tomorrow?",
     "Can you plan my trip to Siargao?",
   ]) {
     test(`does not auto-repair non-itinerary plan prompt: ${prompt}`, async () => {
@@ -4811,6 +5054,29 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       expect(client.requests).toHaveLength(1);
     });
   }
+
+  test("asks for the itinerary details when an explicit critique has no plan", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_missing_itinerary_details",
+        output_text: finalPayloadText({ answer: "I need the plan first." }),
+        _request_id: "req_missing_itinerary_details",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Can you critique my itinerary for tomorrow?" }],
+        requestId: "agent_request_missing_itinerary_details",
+      },
+      { client, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toBe(
+      "Send the itinerary stops and timing you want me to reality-check.",
+    );
+    expect(result.toolCalls).toEqual([]);
+  });
 
   test("rainy Cloud 9 itineraries call planning and weather before final prose", async () => {
     const client = fakeResponsesClient([
@@ -6437,16 +6703,34 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
         usedMemoryFiles: ["SURF.md"],
         usedToolCallIds: ["call_pacifico_tide", "call_pacifico_surf_rank"],
         displayDecisionSummaryIds: [pacificoSurfSummary.id],
+        realityCheck: {
+          kind: "surf_session",
+          verdict: "change",
+          subject: "Pacifico beginner surf tomorrow morning",
+          bestAction: "Book only if your coach confirms a beginner window.",
+          basis: "The tide timing helps, but it does not confirm lesson or session safety.",
+          avoid: "Do not paddle out alone as a beginner.",
+          timing: "tomorrow morning",
+          area: "Pacifico",
+          evidenceToolCallIds: ["call_pacifico_tide"],
+        },
       },
-      expectedOpening: "Book Pacifico only if your coach confirms",
+      expectedOpening: "**change: Pacifico beginner surf tomorrow morning**",
       expectedMessageText: ["Pacifico", "beginner", "tomorrow morning", "tide"],
-      expectedDecisionGuidance: "do not paddle out alone",
+      expectedDecisionGuidance: "Do not paddle out alone",
       expectedPublicSources: [tideSourceSummary, localGuideSourceSummary],
       expectedCardIds: [],
       expectedItineraryIds: [],
-      expectedDecisionSummaryIds: [pacificoSurfSummary.id],
+      expectedDecisionSummaryIds: [
+        realityCheckSummaryId(
+          "agent_request_surf_tide_pacifico_beginner",
+          "surf_session",
+          "Pacifico beginner surf tomorrow morning",
+        ),
+      ],
       expectedArtifactSelection: {
         selectedDecisionSummaryCount: 1,
+        unselectedDecisionSummaryCount: 1,
         selectedCardCount: 0,
         selectedItineraryCount: 0,
       },
@@ -6765,7 +7049,16 @@ function finalPayloadText(overrides: Partial<AgentFinalPayload> = {}) {
     displayActionIds: overrides.displayActionIds ?? [],
     displayItineraryIds: overrides.displayItineraryIds ?? [],
     displayDecisionSummaryIds: overrides.displayDecisionSummaryIds ?? [],
+    ...(overrides.realityCheck ? { realityCheck: overrides.realityCheck } : {}),
   } satisfies AgentFinalPayload);
+}
+
+function realityCheckSummaryId(requestId: string, kind: string, subject: string) {
+  const fingerprint = createHash("sha256")
+    .update(`${requestId}\u0000${kind}\u0000${subject}`)
+    .digest("hex")
+    .slice(0, 16);
+  return `reality_check:${kind}:${fingerprint}`;
 }
 
 function fakeResponsesClient(responses: AgentResponsesCreateResult[]) {

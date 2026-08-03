@@ -4,7 +4,11 @@ import type { Logger } from "pino";
 
 import type { AgentMemorySnapshot } from "@/server/chat/agent-memory";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
-import type { RealityCheckKind, RealityCheckVerdict } from "@/server/chat/reality-check";
+import type {
+  RealityCheckKind,
+  RealityCheckProposal,
+  RealityCheckVerdict,
+} from "@/server/chat/reality-check";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 import { resolvePrimaryChatModel } from "@/server/llm/chat-model-provider";
 import type { ModelCostSummary, NormalizedModelUsage } from "@/server/llm/model-cost";
@@ -162,6 +166,7 @@ export type AgentFinalPayload = {
   displayActionIds: readonly string[];
   displayItineraryIds: readonly string[];
   displayDecisionSummaryIds: readonly string[];
+  realityCheck?: RealityCheckProposal;
 };
 
 export type AgentArtifactRegistry = {
@@ -457,7 +462,7 @@ export function createAgentTurnResult({
 }): AgentTurnResult {
   const sourceCarriers = toolResults ?? toolCalls;
   const artifactCarriers = toolResults ?? [];
-  const artifactRegistry = buildAgentArtifactRegistry(artifactCarriers);
+  const artifactRegistry = buildAgentArtifactRegistry(artifactCarriers, decisionSummaries);
   const mergedSources = sources ?? aggregateAgentSourceSummaries(sourceCarriers);
   const sourceReconciliation = itinerarySourceReconciliation(artifactCarriers, toolCalls);
   const reconciledSources = reconcileSourceSummaries(mergedSources, sourceReconciliation);
@@ -519,6 +524,7 @@ export function createAgentTurnResult({
 
 function buildAgentArtifactRegistry(
   toolResults: readonly AgentToolResultArtifactCarrier[],
+  trustedDecisionSummaries: readonly DecisionSummary[] = [],
 ): AgentArtifactRegistry {
   const cardsById = new Map<string, RecommendationCard>();
   const actionsById = new Map<string, ChatAction>();
@@ -556,6 +562,12 @@ function buildAgentArtifactRegistry(
       if (!decisionSummariesById.has(summary.id)) {
         decisionSummariesById.set(summary.id, summary);
       }
+    }
+  }
+
+  for (const summary of trustedDecisionSummaries) {
+    if (!decisionSummariesById.has(summary.id)) {
+      decisionSummariesById.set(summary.id, summary);
     }
   }
 

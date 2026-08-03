@@ -6,7 +6,31 @@ import {
   realityCheckKinds,
   realityCheckVerdicts,
   recognizeRealityCheckRequest,
+  validateRealityCheckProposal,
 } from "@/server/chat/reality-check";
+
+const checkedSource = {
+  label: "weather_checked" as const,
+  sourceName: "Open-Meteo weather API",
+  checked: ["forecast"],
+  notChecked: [],
+};
+
+const unavailableSource = {
+  label: "provider_unavailable" as const,
+  sourceName: "Open-Meteo weather API",
+  checked: [],
+  notChecked: ["forecast"],
+};
+
+const baseProposal = {
+  kind: "immediate_plan" as const,
+  verdict: "keep" as const,
+  subject: "Cloud 9 sunset today",
+  bestAction: "Keep the stop flexible.",
+  basis: "The checked forecast supports the planned window.",
+  evidenceToolCallIds: ["call_weather"],
+};
 
 describe("reality check contract", () => {
   test("defines only on-demand execution and the bounded product vocabulary", () => {
@@ -152,5 +176,169 @@ describe("reality check contract", () => {
     },
   ])("rejects unsupported or unbounded proposal fields", (proposal) => {
     expect(parseRealityCheckProposal(proposal)).toBeUndefined();
+  });
+
+  test("accepts a source-backed current verdict and derives sources from completed calls", () => {
+    expect(
+      validateRealityCheckProposal({
+        expectedKind: "immediate_plan",
+        proposal: baseProposal,
+        usedToolCallIds: ["call_weather"],
+        toolCalls: [
+          {
+            toolCallId: "call_weather",
+            name: "get_weather_forecast",
+            status: "success",
+            sources: [],
+          },
+        ],
+        toolResults: [
+          {
+            toolCallId: "call_weather",
+            name: "get_weather_forecast",
+            status: "success",
+            sources: [checkedSource],
+          },
+        ],
+      }),
+    ).toEqual({
+      status: "valid",
+      value: {
+        proposal: baseProposal,
+        sources: [checkedSource],
+        sourceState: "checked",
+      },
+    });
+  });
+
+  test.each([
+    {
+      name: "a mismatched kind",
+      expectedKind: "surf_session" as const,
+      proposal: baseProposal,
+      usedToolCallIds: ["call_weather"],
+      reason: "kind_mismatch",
+    },
+    {
+      name: "an evidence call omitted from used calls",
+      expectedKind: "immediate_plan" as const,
+      proposal: baseProposal,
+      usedToolCallIds: [],
+      reason: "unused_evidence_tool_call",
+    },
+    {
+      name: "an unknown evidence call",
+      expectedKind: "immediate_plan" as const,
+      proposal: { ...baseProposal, evidenceToolCallIds: ["call_unknown"] },
+      usedToolCallIds: ["call_unknown"],
+      reason: "unknown_evidence_tool_call",
+    },
+  ])("rejects $name", ({ expectedKind, proposal, usedToolCallIds, reason }) => {
+    expect(
+      validateRealityCheckProposal({
+        expectedKind,
+        proposal,
+        usedToolCallIds,
+        toolCalls: [
+          {
+            toolCallId: "call_weather",
+            name: "get_weather_forecast",
+            status: "success",
+            sources: [],
+          },
+        ],
+        toolResults: [
+          {
+            toolCallId: "call_weather",
+            name: "get_weather_forecast",
+            status: "success",
+            sources: [checkedSource],
+          },
+        ],
+      }),
+    ).toEqual({ status: "invalid", reason });
+  });
+
+  test("rejects a current verdict backed only by non-current local guidance", () => {
+    const result = validateRealityCheckProposal({
+      expectedKind: "immediate_plan",
+      proposal: baseProposal,
+      usedToolCallIds: ["call_weather"],
+      toolCalls: [
+        {
+          toolCallId: "call_weather",
+          name: "search_local_guide",
+          status: "success",
+          sources: [],
+        },
+      ],
+      toolResults: [
+        {
+          toolCallId: "call_weather",
+          name: "search_local_guide",
+          status: "success",
+          sources: [{ ...checkedSource, label: "curated_local_guide" }],
+        },
+      ],
+    });
+
+    expect(result).toEqual({ status: "invalid", reason: "missing_current_evidence" });
+  });
+
+  test("does not publish an evidence-free needs-confirmation summary", () => {
+    expect(
+      validateRealityCheckProposal({
+        expectedKind: "accommodation",
+        proposal: {
+          kind: "accommodation",
+          verdict: "needs_confirmation",
+          subject: "Unnamed hotel",
+          bestAction: "Confirm the listing.",
+          basis: "No checks were completed.",
+          evidenceToolCallIds: [],
+        },
+        usedToolCallIds: [],
+        toolCalls: [],
+        toolResults: [],
+      }),
+    ).toEqual({ status: "invalid", reason: "missing_evidence" });
+  });
+
+  test("downgrades a decisive verdict only when failed-provider evidence supports uncertainty", () => {
+    const result = validateRealityCheckProposal({
+      expectedKind: "immediate_plan",
+      proposal: baseProposal,
+      usedToolCallIds: ["call_weather"],
+      toolCalls: [
+        {
+          toolCallId: "call_weather",
+          name: "get_weather_forecast",
+          status: "error",
+          sources: [unavailableSource],
+        },
+      ],
+      toolResults: [
+        {
+          toolCallId: "call_weather",
+          name: "get_weather_forecast",
+          status: "error",
+          sources: [unavailableSource],
+        },
+      ],
+    });
+
+    expect(result.status).toBe("invalid");
+    expect(result).toMatchObject({
+      reason: "insufficient_source_evidence",
+      fallback: {
+        proposal: {
+          kind: "immediate_plan",
+          verdict: "needs_confirmation",
+          subject: "Cloud 9 sunset today",
+        },
+        sources: [unavailableSource],
+        sourceState: "unavailable",
+      },
+    });
   });
 });

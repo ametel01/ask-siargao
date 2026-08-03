@@ -395,6 +395,7 @@ export async function chatResponse(
           ...dependencies,
           logger,
           onProgress,
+          requireStructuredFinalOutput: true,
         },
       );
       latency.agentMs = Date.now() - agentStartedAt;

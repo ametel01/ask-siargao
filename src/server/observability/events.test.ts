@@ -144,6 +144,50 @@ describe("privacy-safe analytics events", () => {
     expect(JSON.stringify(captured[0])).not.toContain("private");
   });
 
+  test("keeps only coarse reality-check outcome metrics", async () => {
+    const captured: AnalyticsCaptureEvent[] = [];
+    const event = trackServerEvent({
+      name: "reality_check_completed",
+      payload: {
+        status: "completed",
+        kind: "immediate_plan",
+        verdict: "change",
+        sourceState: "checked",
+        sourceCount: 2,
+        toolCallCount: 1,
+        durationMs: 240,
+        cardCount: 0,
+        itineraryCount: 0,
+        decisionSummaryCount: 1,
+        subject: "Private hotel or itinerary text",
+        prompt: "Private traveler request",
+        evidenceToolCallIds: ["call_private"],
+      },
+      sink: {
+        name: "test-sink",
+        async send(delivered) {
+          captured.push(delivered);
+        },
+      },
+    });
+
+    await event.delivery;
+
+    expect(captured[0]?.properties).toMatchObject({
+      status: "completed",
+      kind: "immediate_plan",
+      verdict: "change",
+      sourceState: "checked",
+      sourceCount: 2,
+      toolCallCount: 1,
+      durationMs: 240,
+      decisionSummaryCount: 1,
+    });
+    const delivered = JSON.stringify(captured[0]);
+    expect(delivered).not.toContain("Private");
+    expect(delivered).not.toContain("call_private");
+  });
+
   test("does not throw when analytics is unconfigured or the sink times out", async () => {
     const disabled = trackServerEvent({
       env: {},

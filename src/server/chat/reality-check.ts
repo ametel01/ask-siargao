@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
+
 export const realityCheckExecutionMode = "on_demand" as const;
 
 export const realityCheckKinds = [
@@ -42,6 +44,38 @@ export type RealityCheckProposal = {
   evidenceToolCallIds: readonly string[];
 };
 
+export type RealityCheckEvidenceCall = {
+  toolCallId?: string;
+  name: string;
+  status: "success" | "error";
+  sources: readonly AnswerSourceSummary[];
+};
+
+export type RealityCheckSourceState = "checked" | "partial" | "unavailable";
+
+export type ValidatedRealityCheck = {
+  proposal: RealityCheckProposal;
+  sources: readonly AnswerSourceSummary[];
+  sourceState: RealityCheckSourceState;
+};
+
+export type RealityCheckValidationReason =
+  | "kind_mismatch"
+  | "missing_evidence"
+  | "unknown_evidence_tool_call"
+  | "unused_evidence_tool_call"
+  | "incomplete_evidence_tool_call"
+  | "insufficient_source_evidence"
+  | "missing_current_evidence";
+
+export type RealityCheckValidationResult =
+  | { status: "valid"; value: ValidatedRealityCheck }
+  | {
+      status: "invalid";
+      reason: RealityCheckValidationReason;
+      fallback?: ValidatedRealityCheck;
+    };
+
 const optionalNullableText = (maxLength: number) =>
   z.preprocess(
     (value) => (value === null ? undefined : value),
@@ -70,6 +104,177 @@ export function parseRealityCheckProposal(value: unknown): RealityCheckProposal 
     ...result.data,
     evidenceToolCallIds: uniqueText(result.data.evidenceToolCallIds),
   };
+}
+
+export function validateRealityCheckProposal(input: {
+  expectedKind: RealityCheckKind;
+  proposal: RealityCheckProposal;
+  usedToolCallIds: readonly string[];
+  toolCalls: readonly RealityCheckEvidenceCall[];
+  toolResults: readonly RealityCheckEvidenceCall[];
+}): RealityCheckValidationResult {
+  if (input.proposal.kind !== input.expectedKind) {
+    return { status: "invalid", reason: "kind_mismatch" };
+  }
+
+  const evidenceIds = input.proposal.evidenceToolCallIds;
+  if (evidenceIds.length === 0) {
+    return { status: "invalid", reason: "missing_evidence" };
+  }
+
+  const usedToolCallIds = new Set(input.usedToolCallIds);
+  if (evidenceIds.some((id) => !usedToolCallIds.has(id))) {
+    return { status: "invalid", reason: "unused_evidence_tool_call" };
+  }
+
+  const callsById = evidenceByToolCallId(input.toolCalls);
+  const resultsById = evidenceByToolCallId(input.toolResults);
+  if (evidenceIds.some((id) => !callsById.has(id) || !resultsById.has(id))) {
+    return { status: "invalid", reason: "unknown_evidence_tool_call" };
+  }
+
+  const evidenceCalls = evidenceIds.flatMap((id) => {
+    const call = callsById.get(id);
+    const result = resultsById.get(id);
+    return call && result ? [{ call, result }] : [];
+  });
+  if (
+    evidenceCalls.some(
+      ({ call, result }) => call.status !== result.status || call.name !== result.name,
+    )
+  ) {
+    return { status: "invalid", reason: "incomplete_evidence_tool_call" };
+  }
+
+  const successfulResults = evidenceCalls
+    .map(({ result }) => result)
+    .filter((result) => result.status === "success");
+  const failedResults = evidenceCalls
+    .map(({ result }) => result)
+    .filter((result) => result.status === "error");
+  const sources = dedupeSources(evidenceCalls.flatMap(({ result }) => result.sources));
+  const sourceState = realityCheckSourceState(successfulResults, failedResults);
+
+  if (input.proposal.verdict === "needs_confirmation") {
+    return {
+      status: "valid",
+      value: { proposal: input.proposal, sources, sourceState },
+    };
+  }
+
+  const successfulSources = dedupeSources(
+    successfulResults
+      .flatMap((result) => result.sources)
+      .filter((source) => verifyingSourceLabels.has(source.label)),
+  );
+  if (successfulSources.length === 0) {
+    return invalidWithUnavailableFallback({
+      proposal: input.proposal,
+      sources,
+      sourceState,
+      reason: "insufficient_source_evidence",
+    });
+  }
+
+  if (
+    requiresCurrentEvidence(input.expectedKind) &&
+    !successfulResults.some((result) => currentEvidenceToolNames.has(result.name))
+  ) {
+    return invalidWithUnavailableFallback({
+      proposal: input.proposal,
+      sources,
+      sourceState,
+      reason: "missing_current_evidence",
+    });
+  }
+
+  return {
+    status: "valid",
+    value: { proposal: input.proposal, sources, sourceState },
+  };
+}
+
+const currentEvidenceToolNames = new Set([
+  "get_condition_judgment",
+  "get_weather_forecast",
+  "get_marine_conditions",
+  "get_tide_forecast",
+]);
+
+const verifyingSourceLabels = new Set([
+  "live_checked",
+  "fresh_cache",
+  "event_checked",
+  "venue_checked",
+  "curated_local_guide",
+  "weather_checked",
+  "marine_checked",
+  "tide_forecast_checked",
+  "community_signal",
+  "web_researched",
+  "official_checked",
+  "directory_checked",
+]);
+
+function requiresCurrentEvidence(kind: RealityCheckKind) {
+  return kind === "immediate_plan" || kind === "surf_session";
+}
+
+function evidenceByToolCallId(calls: readonly RealityCheckEvidenceCall[]) {
+  return new Map(
+    calls.flatMap((call) => (call.toolCallId ? [[call.toolCallId, call] as const] : [])),
+  );
+}
+
+function realityCheckSourceState(
+  successfulResults: readonly RealityCheckEvidenceCall[],
+  failedResults: readonly RealityCheckEvidenceCall[],
+): RealityCheckSourceState {
+  if (successfulResults.length > 0 && failedResults.length > 0) {
+    return "partial";
+  }
+  return successfulResults.length > 0 ? "checked" : "unavailable";
+}
+
+function invalidWithUnavailableFallback(input: {
+  proposal: RealityCheckProposal;
+  sources: readonly AnswerSourceSummary[];
+  sourceState: RealityCheckSourceState;
+  reason: Extract<
+    RealityCheckValidationReason,
+    "insufficient_source_evidence" | "missing_current_evidence"
+  >;
+}): RealityCheckValidationResult {
+  if (input.sourceState !== "unavailable" || input.sources.length === 0) {
+    return { status: "invalid", reason: input.reason };
+  }
+  return {
+    status: "invalid",
+    reason: input.reason,
+    fallback: {
+      proposal: {
+        ...input.proposal,
+        verdict: "needs_confirmation",
+        bestAction: `Confirm ${input.proposal.subject} before committing.`,
+        basis:
+          "The required current check was unavailable, so a reliable keep, change, or avoid verdict is not supported yet.",
+      },
+      sources: input.sources,
+      sourceState: "unavailable",
+    },
+  };
+}
+
+function dedupeSources(sources: readonly AnswerSourceSummary[]) {
+  const seen = new Set<string>();
+  return sources.filter((source) => {
+    const key = JSON.stringify(source);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 export function recognizeRealityCheckRequest(
@@ -123,7 +328,7 @@ function isDisruptionRecoveryRequest(value: string) {
 function isSurfSessionCheck(value: string) {
   return (
     /\b(?:surf|surfing|paddle\s+out|break)\b/i.test(value) &&
-    /\b(?:reality[-\s]?check|worth\s+(?:booking|going)|should\s+(?:i|we)|good\s+(?:idea|fit)|safe\s+to)\b/i.test(
+    /\b(?:reality[-\s]?check|worth\s+(?:booking|going)|should\s+(?:i|we)\s+(?:surf|go\s+surfing|paddle\s+out|book)|good\s+(?:idea|fit)|safe\s+to)\b/i.test(
       value,
     )
   );
@@ -157,9 +362,7 @@ function isImmediatePlanCheck(value: string) {
     (/\b(?:today|tonight|tomorrow|right\s+now|this\s+(?:morning|afternoon|evening))\b/i.test(
       value,
     ) &&
-      /\b(?:should\s+(?:i|we)|worth\s+(?:going|doing|booking)|keep|change|avoid|still\s+go)\b/i.test(
-        value,
-      ))
+      /\b(?:worth\s+(?:going|doing|booking)|keep|change|avoid|still\s+go)\b/i.test(value))
   );
 }
 

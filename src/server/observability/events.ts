@@ -36,6 +36,7 @@ export type ObservabilityEventName =
   | "chat_latency_recorded"
   | "provider_error_recorded"
   | "llm_cost_recorded"
+  | "reality_check_completed"
   | "reviewer_rejection_recorded"
   | "report_confidence_recorded"
   | "public_page_generation_failed"
@@ -250,6 +251,18 @@ const eventPayloadAllowlist = {
   provider_error_recorded: ["diagnostics", "provider", "reason", "source", "status"],
   public_api_used: ["evidenceIds", "family", "slug"],
   public_page_generation_failed: ["family", "reason", "slug", "status"],
+  reality_check_completed: [
+    "status",
+    "kind",
+    "verdict",
+    "sourceState",
+    "sourceCount",
+    "toolCallCount",
+    "durationMs",
+    "cardCount",
+    "itineraryCount",
+    "decisionSummaryCount",
+  ],
   report_confidence_recorded: ["confidence", "riskCount", "status"],
   reviewer_rejection_recorded: ["reason", "status"],
   top_cited_public_page_recorded: ["family", "slug", "count"],
