@@ -23,6 +23,13 @@ const unavailableSource = {
   notChecked: ["forecast"],
 };
 
+const marineSource = {
+  label: "marine_checked" as const,
+  sourceName: "Open-Meteo Marine API",
+  checked: ["modelled waves and swell"],
+  notChecked: ["exact-break safety"],
+};
+
 const baseProposal = {
   kind: "immediate_plan" as const,
   verdict: "keep" as const,
@@ -111,6 +118,24 @@ describe("reality check contract", () => {
       explicit: true,
       kind: "disruption_recovery",
       missingContext: ["disruption"],
+    });
+    expect(
+      recognizeRealityCheckRequest({
+        latestUserTurn: "Should we surf tomorrow?",
+      }),
+    ).toEqual({
+      explicit: true,
+      kind: "surf_session",
+      missingContext: ["skill_level", "location"],
+    });
+    expect(
+      recognizeRealityCheckRequest({
+        latestUserTurn: "As an intermediate surfer, should I paddle out at Cloud 9?",
+      }),
+    ).toEqual({
+      explicit: true,
+      kind: "surf_session",
+      missingContext: ["timing"],
     });
   });
 
@@ -291,6 +316,107 @@ describe("reality check contract", () => {
     });
 
     expect(result).toEqual({ status: "invalid", reason: "missing_current_evidence" });
+  });
+
+  test("requires a governed condition judgment and marine or tide evidence for surf verdicts", () => {
+    const surfProposal = {
+      kind: "surf_session" as const,
+      verdict: "change" as const,
+      subject: "Pacifico beginner surf tomorrow morning",
+      bestAction: "Use a coach-confirmed beginner window.",
+      basis: "The modelled sea conditions support keeping the session conditional.",
+      evidenceToolCallIds: ["call_condition"],
+    };
+    const call = {
+      toolCallId: "call_condition",
+      name: "get_condition_judgment",
+      status: "success" as const,
+      sources: [],
+    };
+
+    expect(
+      validateRealityCheckProposal({
+        expectedKind: "surf_session",
+        proposal: surfProposal,
+        usedToolCallIds: ["call_condition"],
+        toolCalls: [call],
+        toolResults: [{ ...call, sources: [checkedSource] }],
+      }),
+    ).toEqual({ status: "invalid", reason: "missing_surf_evidence" });
+
+    expect(
+      validateRealityCheckProposal({
+        expectedKind: "surf_session",
+        proposal: surfProposal,
+        usedToolCallIds: ["call_condition"],
+        toolCalls: [call],
+        toolResults: [{ ...call, sources: [checkedSource, marineSource] }],
+      }),
+    ).toMatchObject({
+      status: "valid",
+      value: {
+        sourceState: "checked",
+        sources: [checkedSource, marineSource],
+      },
+    });
+
+    expect(
+      validateRealityCheckProposal({
+        expectedKind: "surf_session",
+        proposal: { ...surfProposal, evidenceToolCallIds: ["call_tide"] },
+        usedToolCallIds: ["call_tide"],
+        toolCalls: [{ ...call, toolCallId: "call_tide", name: "get_tide_forecast" }],
+        toolResults: [
+          {
+            ...call,
+            toolCallId: "call_tide",
+            name: "get_tide_forecast",
+            sources: [marineSource],
+          },
+        ],
+      }),
+    ).toEqual({ status: "invalid", reason: "missing_condition_judgment" });
+  });
+
+  test("rejects a surf safety guarantee and preserves partial current source state", () => {
+    const surfProposal = {
+      kind: "surf_session" as const,
+      verdict: "keep" as const,
+      subject: "Cloud 9 intermediate surf today",
+      bestAction: "It is safe to surf at Cloud 9 today.",
+      basis: "The modelled sea conditions are favorable.",
+      evidenceToolCallIds: ["call_condition"],
+    };
+    const call = {
+      toolCallId: "call_condition",
+      name: "get_condition_judgment",
+      status: "success" as const,
+      sources: [],
+    };
+    const partialSources = [checkedSource, marineSource, unavailableSource];
+
+    expect(
+      validateRealityCheckProposal({
+        expectedKind: "surf_session",
+        proposal: surfProposal,
+        usedToolCallIds: ["call_condition"],
+        toolCalls: [call],
+        toolResults: [{ ...call, sources: partialSources }],
+      }),
+    ).toMatchObject({ status: "invalid", reason: "unsupported_surf_safety_claim" });
+
+    expect(
+      validateRealityCheckProposal({
+        expectedKind: "surf_session",
+        proposal: {
+          ...surfProposal,
+          bestAction: "Surf only with local-coach confirmation; this does not guarantee safety.",
+        },
+        usedToolCallIds: ["call_condition"],
+        toolCalls: [call],
+        toolResults: [{ ...call, sources: partialSources }],
+      }),
+    ).toMatchObject({ status: "valid", value: { sourceState: "partial" } });
   });
 
   test("does not publish an evidence-free needs-confirmation summary", () => {

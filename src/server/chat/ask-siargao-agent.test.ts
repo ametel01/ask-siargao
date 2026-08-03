@@ -1230,6 +1230,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.cards?.map((card) => card.id)).toEqual([breakfastCard.id]);
     expect(JSON.stringify(result.cards)).not.toContain(beachCard.title);
     expect(result.artifactSelection).toMatchObject({
+      totalCardCount: 2,
       selectedCardCount: 1,
       unselectedCardCount: 1,
     });
@@ -3722,6 +3723,364 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(JSON.stringify(result.toolCalls)).not.toContain("126.088");
     expect(JSON.stringify(client.requests)).not.toContain("9.952");
     expect(JSON.stringify(client.requests)).not.toContain("126.088");
+  });
+
+  test("waits for current surf conditions before dependent rankings and filters mixed cards", async () => {
+    const rankedCard: RecommendationCard = recommendationCard({
+      id: "card_ranked_intermediate_surf",
+      title: "Ranked intermediate surf option",
+      fitReasons: ["Matches the supplied intermediate level and shared-location ranking."],
+      caveats: ["Exact-break safety needs local-coach confirmation."],
+      kind: "beach",
+      sourceLabel: "Ask Siargao surf reference",
+      sources: [localGuideSourceSummary],
+    });
+    const unrelatedCard: RecommendationCard = recommendationCard({
+      id: "card_unrelated_beginner_lesson",
+      title: "Unrelated beginner lesson",
+      fitReasons: ["A beginner option unrelated to the supplied level."],
+      caveats: ["Not selected for this session."],
+      kind: "beach",
+      sourceLabel: "Ask Siargao surf reference",
+      sources: [localGuideSourceSummary],
+    });
+    const client = fakeResponsesClient([
+      {
+        id: "resp_ordered_surf_calls",
+        _request_id: "req_ordered_surf_calls",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_surf_memory",
+            name: "load_agent_memory_file",
+            arguments: JSON.stringify({ documents: ["SURF.md"] }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_surf_condition",
+            name: "get_condition_judgment",
+            arguments: JSON.stringify({
+              activity: "surfing",
+              location: "Siargao Island",
+              date_range: "today",
+              beach_name: null,
+              include_local_caveats: null,
+              constraints: ["intermediate"],
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_surf_ranking",
+            name: "rank_surf_spots_nearby",
+            arguments: JSON.stringify({
+              skill_level: "intermediate",
+              max_results: 3,
+              include_boat_access: false,
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_unrelated_surf_guide",
+            name: "search_local_guide",
+            arguments: JSON.stringify({ query: "beginner beach lesson", filters: null }),
+          },
+        ],
+      },
+      {
+        id: "resp_ordered_surf_final",
+        _request_id: "req_ordered_surf_final",
+        output_text: finalPayloadText({
+          answer:
+            "Change the session: Ranked intermediate surf option is about 0.4 km from your shared location, but use it only after local-coach confirmation.",
+          usedMemoryFiles: ["SURF.md"],
+          usedToolCallIds: ["call_surf_condition", "call_surf_ranking"],
+          displayCardIds: [rankedCard.id, unrelatedCard.id],
+          realityCheck: {
+            kind: "surf_session",
+            verdict: "change",
+            subject: "Intermediate surf near my location today",
+            bestAction: "Use the ranked option only after local-coach confirmation.",
+            basis: "The current modelled sea conditions support a conditional session.",
+            fallback: "Skip the session if the exact break looks unsuitable on arrival.",
+            avoid: "Do not treat modelled conditions as a safe-to-surf guarantee.",
+            timing: "today",
+            area: "near the shared location",
+            evidenceToolCallIds: ["call_surf_condition"],
+          },
+        }),
+      },
+    ]);
+    let conditionStartedResolve: (() => void) | undefined;
+    let conditionResultResolve: ((result: AgentToolResult) => void) | undefined;
+    const conditionStarted = new Promise<void>((resolve) => {
+      conditionStartedResolve = resolve;
+    });
+    const conditionResult = new Promise<AgentToolResult>((resolve) => {
+      conditionResultResolve = resolve;
+    });
+    let rankingStarted = false;
+    let localGuideStarted = false;
+    const memoryExecutor = memoryLoadExecutor();
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "get_condition_judgment") {
+        conditionStartedResolve?.();
+        return conditionResult;
+      }
+      if (request.name === "rank_surf_spots_nearby") {
+        rankingStarted = true;
+        return {
+          name: request.name,
+          status: "success",
+          text: "Ranked current intermediate surf options.",
+          data: {
+            centerSource: "browser_geolocation",
+            spots: [
+              {
+                name: rankedCard.title,
+                distanceLabel: "About 0.4 km straight-line from your shared location.",
+              },
+            ],
+          },
+          sources: [localGuideSourceSummary],
+          cards: [rankedCard],
+        };
+      }
+      if (request.name === "search_local_guide") {
+        localGuideStarted = true;
+        return {
+          name: request.name,
+          status: "success",
+          text: "Returned an unrelated beginner option.",
+          sources: [localGuideSourceSummary],
+          cards: [unrelatedCard],
+        };
+      }
+      if (request.name === "load_agent_memory_file") {
+        return memoryExecutor(request);
+      }
+      return {
+        name: request.name,
+        status: "error",
+        text: `Unexpected tool ${request.name}.`,
+        errorCode: "unexpected_tool",
+        sources: [],
+      };
+    };
+    const turnPromise = runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "As an intermediate surfer, should I surf near me today?",
+          },
+        ],
+        requestId: "agent_request_ordered_surf_reality_check",
+        clientContext: {
+          geolocation: {
+            status: "available",
+            source: "browser_geolocation",
+            consentScope: "single_request",
+            latitude: 9.952,
+            longitude: 126.088,
+            capturedAt: "2026-08-03T08:00:00.000Z",
+          },
+        },
+      },
+      {
+        client,
+        executeTool,
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    await conditionStarted;
+    await Promise.resolve();
+    expect(rankingStarted).toBe(false);
+    expect(localGuideStarted).toBe(false);
+    conditionResultResolve?.({
+      name: "get_condition_judgment",
+      status: "success",
+      text: "Current weather, modelled waves, and swell were checked.",
+      sources: [weatherSourceSummary, marineCheckedSourceSummary],
+    });
+
+    const result = await turnPromise;
+
+    expect(rankingStarted).toBe(true);
+    expect(localGuideStarted).toBe(true);
+    expect(result.cards?.map((card) => card.id)).toEqual([rankedCard.id]);
+    expect(JSON.stringify(result)).not.toContain(unrelatedCard.title);
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      kind: "surf_session",
+      verdict: "change",
+      subject: "Intermediate surf near my location today",
+    });
+    expect(result.artifactSelection).toMatchObject({
+      totalCardCount: 1,
+      selectedCardCount: 1,
+      unselectedCardCount: 0,
+    });
+  });
+
+  test.each([
+    {
+      prompt: "Should we surf in Pacifico tomorrow morning?",
+      answer: "What is the surfer's level: beginner, intermediate, or advanced?",
+    },
+    {
+      prompt: "As an intermediate surfer, should I paddle out at Cloud 9?",
+      answer: "When do you want to surf: today or tomorrow, and roughly what time?",
+    },
+  ])("asks for missing surf-session context before running tools: $prompt", async (scenario) => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_missing_surf_context",
+        _request_id: "req_missing_surf_context",
+        output_text: finalPayloadText({ answer: "I need one detail first." }),
+      },
+    ]);
+    let toolCallCount = 0;
+    const executeTool: AgentToolExecutor = async (request) => {
+      toolCallCount += 1;
+      return {
+        name: request.name,
+        status: "error",
+        text: "Unexpected tool call.",
+        errorCode: "unexpected_tool",
+        sources: [],
+      };
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: scenario.prompt }],
+        requestId: "agent_request_missing_surf_context",
+      },
+      {
+        client,
+        executeTool,
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.message).toBe(scenario.answer);
+    expect(result.toolCalls).toEqual([]);
+    expect(toolCallCount).toBe(0);
+  });
+
+  test("returns needs-confirmation when surf condition providers are unavailable", async () => {
+    const marineUnavailable: AnswerSourceSummary = {
+      label: "provider_unavailable",
+      sourceName: "Open-Meteo Marine API",
+      sourceProfileId: "source_open_meteo_marine",
+      confidence: "low",
+      checked: [],
+      notChecked: ["modelled waves and swell"],
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_unavailable_surf_calls",
+        _request_id: "req_unavailable_surf_calls",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_unavailable_surf_memory",
+            name: "load_agent_memory_file",
+            arguments: JSON.stringify({ documents: ["SURF.md"] }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_unavailable_surf_condition",
+            name: "get_condition_judgment",
+            arguments: JSON.stringify({
+              activity: "surfing",
+              location: "Siargao Island",
+              date_range: "next_7_days",
+              beach_name: "Pacifico Beach",
+              include_local_caveats: true,
+              constraints: ["beginner"],
+            }),
+          },
+        ],
+      },
+      {
+        id: "resp_unavailable_surf_final",
+        _request_id: "req_unavailable_surf_final",
+        output_text: finalPayloadText({
+          answer: "Confirm the beginner window with a local coach before booking.",
+          usedMemoryFiles: ["SURF.md"],
+          usedToolCallIds: ["call_unavailable_surf_condition"],
+          displayCardIds: ["card_unsupported_surf"],
+          realityCheck: {
+            kind: "surf_session",
+            verdict: "needs_confirmation",
+            subject: "Pacifico beginner surf tomorrow morning",
+            bestAction: "Confirm the beginner window with a local coach before booking.",
+            basis: "The current modelled sea conditions could not be established.",
+            fallback: "Use a land-based activity if no coach can confirm the session.",
+            avoid: "Do not paddle out without local confirmation.",
+            timing: "tomorrow morning",
+            area: "Pacifico",
+            evidenceToolCallIds: ["call_unavailable_surf_condition"],
+          },
+        }),
+      },
+    ]);
+    const memoryExecutor = memoryLoadExecutor();
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Beginner surf in Pacifico tomorrow morning: is it worth booking?",
+          },
+        ],
+        requestId: "agent_request_unavailable_surf_reality_check",
+      },
+      {
+        client,
+        executeTool: async (request) => {
+          if (request.name === "load_agent_memory_file") {
+            return memoryExecutor(request);
+          }
+          return {
+            name: request.name,
+            status: "success",
+            text: "Current surf condition providers were unavailable.",
+            sources: [weatherProviderUnavailableSourceSummary, marineUnavailable],
+            cards: [
+              recommendationCard({
+                id: "card_unsupported_surf",
+                title: "Unsupported surf recommendation",
+                kind: "beach",
+                fitReasons: ["No current provider support."],
+                caveats: ["Current conditions unavailable."],
+                sourceLabel: "Provider unavailable",
+                sources: [marineUnavailable],
+              }),
+            ],
+          };
+        },
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      kind: "surf_session",
+      verdict: "needs_confirmation",
+      subject: "Pacifico beginner surf tomorrow morning",
+    });
+    expect(result.cards).toBeUndefined();
+    expect(result.publicSources).toEqual([
+      weatherProviderUnavailableSourceSummary,
+      marineUnavailable,
+    ]);
   });
 
   test("repairs structured surf-near-me answers that omit ranked spots from the public payload", async () => {
@@ -6954,7 +7313,7 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
     sources: [weatherProviderUnavailableSourceSummary],
   };
   const tideSourceSummary: AnswerSourceSummary = {
-    label: "weather_checked",
+    label: "tide_forecast_checked",
     sourceName: "Tide-Forecast tide table",
     sourceProfileId: "source_tide_forecast",
     fetchedAt: "2026-06-26T00:00:00.000Z",
@@ -6970,7 +7329,7 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
     avoid: "Avoid paddling out alone as a beginner.",
     timing: "tomorrow morning",
     area: "Pacifico",
-    sources: [tideSourceSummary, localGuideSourceSummary],
+    sources: [weatherSourceSummary, tideSourceSummary, marineCheckedSourceSummary],
   };
   const malinaoSwimSummary: DecisionSummary = {
     id: "decision:malinao:kids_swim",
@@ -7166,7 +7525,7 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
     },
     {
       name: "weather_go_no_go_cloud9_unavailable",
-      prompt: "Is Cloud 9 sunset still worth it today if rain is coming?",
+      prompt: "Given today's weather and tide, should we still go to Cloud 9 for sunset?",
       toolCalls: [
         {
           callId: "call_cloud9_weather_unavailable",
@@ -7194,17 +7553,35 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
           "Do not make Cloud 9 sunset the whole plan yet; keep a covered General Luna stop ready until you can confirm the sky locally.",
         usedToolCallIds: ["call_cloud9_weather_unavailable"],
         displayDecisionSummaryIds: [weatherUnavailableSummary.id],
+        realityCheck: {
+          kind: "immediate_plan",
+          verdict: "needs_confirmation",
+          subject: "Cloud 9 sunset today",
+          bestAction: "Do not make Cloud 9 sunset the whole plan yet.",
+          basis: "The current weather and tide picture could not be established.",
+          fallback: "Keep a covered General Luna stop ready until the sky is locally clear.",
+          avoid: "Avoid committing to a long exposed stop before confirming conditions.",
+          timing: "today at sunset",
+          area: "Cloud 9",
+          evidenceToolCallIds: ["call_cloud9_weather_unavailable"],
+        },
       },
-      expectedOpening: "Do not make Cloud 9 sunset the whole plan yet",
-      expectedMessageText: ["Cloud 9", "covered General Luna", "confirm the sky locally"],
-      expectedDecisionGuidance: "keep a covered General Luna stop ready",
+      expectedOpening: "**needs confirmation: Cloud 9 sunset today**",
+      expectedMessageText: ["Cloud 9", "covered General Luna", "current weather and tide"],
+      expectedDecisionGuidance: "Keep a covered General Luna stop ready",
       expectedPublicSources: [weatherProviderUnavailableSourceSummary],
       expectedCardIds: [],
       expectedItineraryIds: [],
-      expectedDecisionSummaryIds: [weatherUnavailableSummary.id],
+      expectedDecisionSummaryIds: [
+        realityCheckSummaryId(
+          "agent_request_weather_go_no_go_cloud9_unavailable",
+          "immediate_plan",
+          "Cloud 9 sunset today",
+        ),
+      ],
       expectedArtifactSelection: {
         selectedDecisionSummaryCount: 1,
-        unselectedDecisionSummaryCount: 0,
+        unselectedDecisionSummaryCount: 1,
         selectedCardCount: 0,
         selectedItineraryCount: 0,
       },
@@ -7215,14 +7592,21 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
       prompt: "Beginner surf in Pacifico tomorrow morning: does the tide make it worth booking?",
       toolCalls: [
         {
+          callId: "call_pacifico_condition",
+          name: "get_condition_judgment",
+          arguments: {
+            activity: "surfing",
+            location: "Siargao Island",
+            date_range: "next_7_days",
+            beach_name: "Pacifico Beach",
+            include_local_caveats: true,
+            constraints: ["beginner"],
+          },
+        },
+        {
           callId: "call_surf_memory",
           name: "load_agent_memory_file",
           arguments: { documents: ["SURF.md"] },
-        },
-        {
-          callId: "call_pacifico_tide",
-          name: "get_tide_forecast",
-          arguments: { location: "Pacifico", date_range: "next_7_days" },
         },
         {
           callId: "call_pacifico_surf_rank",
@@ -7241,11 +7625,11 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
           },
           sources: [],
         },
-        get_tide_forecast: {
-          name: "get_tide_forecast",
+        get_condition_judgment: {
+          name: "get_condition_judgment",
           status: "success",
-          text: "Tide timing loaded for Pacifico tomorrow morning.",
-          sources: [tideSourceSummary],
+          text: "Weather, tide, and modelled marine conditions loaded for Pacifico.",
+          sources: [weatherSourceSummary, tideSourceSummary, marineCheckedSourceSummary],
           decisionSummaries: [pacificoSurfSummary],
         },
         rank_surf_spots_nearby: {
@@ -7259,7 +7643,7 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
         answer:
           "Book Pacifico only if your coach confirms a beginner window tomorrow morning; the tide timing helps, but do not paddle out alone.",
         usedMemoryFiles: ["SURF.md"],
-        usedToolCallIds: ["call_pacifico_tide", "call_pacifico_surf_rank"],
+        usedToolCallIds: ["call_pacifico_condition", "call_pacifico_surf_rank"],
         displayDecisionSummaryIds: [pacificoSurfSummary.id],
         realityCheck: {
           kind: "surf_session",
@@ -7270,13 +7654,18 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
           avoid: "Do not paddle out alone as a beginner.",
           timing: "tomorrow morning",
           area: "Pacifico",
-          evidenceToolCallIds: ["call_pacifico_tide"],
+          evidenceToolCallIds: ["call_pacifico_condition"],
         },
       },
       expectedOpening: "**change: Pacifico beginner surf tomorrow morning**",
       expectedMessageText: ["Pacifico", "beginner", "tomorrow morning", "tide"],
       expectedDecisionGuidance: "Do not paddle out alone",
-      expectedPublicSources: [tideSourceSummary, localGuideSourceSummary],
+      expectedPublicSources: [
+        weatherSourceSummary,
+        tideSourceSummary,
+        marineCheckedSourceSummary,
+        localGuideSourceSummary,
+      ],
       expectedCardIds: [],
       expectedItineraryIds: [],
       expectedDecisionSummaryIds: [
@@ -8066,6 +8455,16 @@ const conditionMarineSourceSummary: AnswerSourceSummary = {
   confidence: "medium",
   checked: [],
   notChecked: ["tide", "surf", "swell", "currents", "lifeguard or swimming safety"],
+};
+
+const marineCheckedSourceSummary: AnswerSourceSummary = {
+  label: "marine_checked",
+  sourceName: "Open-Meteo Marine API",
+  sourceProfileId: "source_open_meteo_marine",
+  fetchedAt: "2026-06-26T00:00:00.000Z",
+  confidence: "medium",
+  checked: ["modelled wave height", "modelled swell height", "modelled current velocity"],
+  notChecked: ["exact-break conditions", "rip currents", "lifeguard status", "surf safety"],
 };
 
 const placesSourceSummary: AnswerSourceSummary = {

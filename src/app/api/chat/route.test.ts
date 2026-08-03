@@ -1852,6 +1852,88 @@ describe("chat route", () => {
     expect(JSON.stringify(body)).not.toContain("Unrelated Resort");
   });
 
+  test("returns a bounded surf-session verdict with only its selected option", async () => {
+    const marineSource: AnswerSourceSummary = {
+      label: "marine_checked",
+      sourceName: "Open-Meteo Marine API",
+      sourceProfileId: "source_open_meteo_marine",
+      fetchedAt: "2026-08-03T08:00:00.000Z",
+      confidence: "medium",
+      checked: ["modelled wave height", "modelled swell height"],
+      notChecked: ["exact-break conditions", "rip currents", "lifeguard status"],
+    };
+    const surfCard = {
+      ...placeRecommendationCard,
+      id: "surf_pacifico_coached_window",
+      kind: "beach" as const,
+      title: "Pacifico coached beginner window",
+      subtitle: "Pacifico",
+      fitReasons: ["Matches the supplied beginner level and tomorrow-morning request."],
+      caveats: ["A local coach must confirm the exact break and session."],
+      sourceLabel: "Ask Siargao surf reference",
+      sources: [localGuideSourceSummary],
+    };
+    const surfSummary = {
+      id: "reality_check:surf_session:pacifico_beginner",
+      kind: "surf_session" as const,
+      verdict: "change" as const,
+      subject: "Pacifico beginner surf tomorrow morning",
+      bestAction: "Use only a coach-confirmed beginner window.",
+      basis: "The request-time modelled sea conditions support keeping the session conditional.",
+      fallback: "Use a land-based morning if no coach confirms the exact break.",
+      avoid: "Do not paddle out alone or treat modelled conditions as a safety guarantee.",
+      timing: "tomorrow morning",
+      area: "Pacifico",
+      sources: [weatherSourceSummary, marineSource],
+    };
+    const dependencies = chatDependencies({
+      message:
+        "**change: Pacifico beginner surf tomorrow morning**\n\nUse only a coach-confirmed beginner window.",
+      toolCalls: [
+        toolCall({
+          name: "get_condition_judgment",
+          status: "success",
+          sources: [weatherSourceSummary, marineSource],
+        }),
+        toolCall({
+          name: "rank_surf_spots_nearby",
+          status: "success",
+          sources: [localGuideSourceSummary],
+        }),
+      ],
+      sources: [weatherSourceSummary, marineSource, localGuideSourceSummary],
+      publicSources: [weatherSourceSummary, marineSource, localGuideSourceSummary],
+      cards: [surfCard],
+      decisionSummaries: [surfSummary],
+      artifactSelection: routeArtifactSelection({
+        totalCardCount: 1,
+        selectedCardCount: 1,
+        unselectedCardCount: 1,
+        totalDecisionSummaryCount: 1,
+        selectedDecisionSummaryCount: 1,
+      }),
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "Beginner surf in Pacifico tomorrow morning: is it worth booking?",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.cards?.map((card: { id: string }) => card.id)).toEqual([surfCard.id]);
+    expect(body.decisionSummaries).toEqual([displayDecisionSummaryFixture(surfSummary)]);
+    expect(body.sources).toEqual([weatherSourceSummary, marineSource, localGuideSourceSummary]);
+    expect(body.artifactSelection).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("Unrelated advanced break");
+  });
+
   test("returns cross-request public artifacts without internal selection diagnostics", async () => {
     for (const scenario of routeAnswerQualityScenarios()) {
       const dependencies = chatDependencies(scenario.agentResult);

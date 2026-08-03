@@ -440,7 +440,14 @@ export async function runAskSiargaoAgentTurn(
           : {}),
         ...(sanitizedFinalPayload ? { finalPayload: sanitizedFinalPayload } : {}),
         allowedCardKinds: requiredEvidencePlan.allowedCardKinds,
-        allowedCardIds: requiredEvidenceAllowedCardIds(chatEvidencePolicy, toolResults),
+        allowedCardIds: combinedAllowedCardIds(
+          requiredEvidenceAllowedCardIds(chatEvidencePolicy, toolResults),
+          realityCheckAllowedCardIds({
+            finalPayload: sanitizedFinalPayload,
+            recognition: realityCheckRecognition,
+            toolResults,
+          }),
+        ),
         artifactSelectionMode: requireStructuredFinalOutput ? "strict" : "compatibility",
         repairCount,
       });
@@ -1050,6 +1057,49 @@ type RuntimeRealityCheckOutcome = {
   validated?: ValidatedRealityCheck;
 };
 
+function realityCheckAllowedCardIds(input: {
+  finalPayload: AgentFinalPayload | undefined;
+  recognition: RealityCheckRecognition;
+  toolResults: readonly AgentToolResult[];
+}) {
+  if (
+    !input.finalPayload ||
+    (input.recognition.kind !== "immediate_plan" && input.recognition.kind !== "surf_session") ||
+    input.recognition.missingContext.length > 0
+  ) {
+    return undefined;
+  }
+
+  const usedToolCallIds = new Set(input.finalPayload.usedToolCallIds);
+  return uniqueText(
+    input.toolResults.flatMap((result) => {
+      if (
+        result.status !== "success" ||
+        !result.toolCallId ||
+        !usedToolCallIds.has(result.toolCallId) ||
+        !currentConditionDependentToolNames.has(result.name)
+      ) {
+        return [];
+      }
+      return result.cards?.map((card) => card.id) ?? [];
+    }),
+  );
+}
+
+function combinedAllowedCardIds(
+  requiredEvidenceIds: readonly string[] | undefined,
+  realityCheckIds: readonly string[] | undefined,
+) {
+  if (!requiredEvidenceIds) {
+    return realityCheckIds;
+  }
+  if (!realityCheckIds) {
+    return requiredEvidenceIds;
+  }
+  const realityCheckIdSet = new Set(realityCheckIds);
+  return requiredEvidenceIds.filter((id) => realityCheckIdSet.has(id));
+}
+
 function recognizeRuntimeRealityCheck(request: AgentRuntimeRequest) {
   const userTurns = request.messages
     .filter((message) => message.role === "user")
@@ -1162,6 +1212,15 @@ function realityCheckClarification(recognition: RealityCheckRecognition) {
   }
   if (missing === "activity") {
     return "What activity or trip should I reality-check for today or tomorrow?";
+  }
+  if (missing === "skill_level") {
+    return "What is the surfer's level: beginner, intermediate, or advanced?";
+  }
+  if (missing === "location") {
+    return "Which Siargao surf spot or area should I reality-check?";
+  }
+  if (missing === "timing") {
+    return "When do you want to surf: today or tomorrow, and roughly what time?";
   }
   if (missing === "disruption") {
     return "What was cancelled or became unavailable, and when did you plan to do it?";
@@ -1410,6 +1469,9 @@ function buildAgentRepairAdapters({
     {
       name: "condition-judgment",
       createRepair: ({ toolCalls, toolResults }) => {
+        if (realityCheckRequiresClarification(realityCheckRecognition)) {
+          return undefined;
+        }
         const repairCall = missingConditionJudgmentRepairCall(request, toolCalls, toolResults);
         if (!repairCall) {
           return undefined;
@@ -1447,6 +1509,9 @@ function buildAgentRepairAdapters({
     {
       name: "browser-location-surf-ranking",
       createRepair: ({ toolCalls, toolResults }) => {
+        if (realityCheckRequiresClarification(realityCheckRecognition)) {
+          return undefined;
+        }
         const repairCall = missingSurfSpotRankingRepairCall(request, toolCalls, toolResults);
         if (!repairCall) {
           return undefined;
@@ -1482,6 +1547,9 @@ function buildAgentRepairAdapters({
     {
       name: "memory-load",
       createRepair: ({ finalText, toolCalls, toolResults }) => {
+        if (realityCheckRequiresClarification(realityCheckRecognition)) {
+          return undefined;
+        }
         const repairCall = missingClearMemoryLoadRepairCall(
           finalText,
           request,
@@ -1506,6 +1574,9 @@ function buildAgentRepairAdapters({
     {
       name: "surf-final-payload",
       createRepair: ({ finalText, responseInput, toolCalls, toolResults }) => {
+        if (realityCheckRequiresClarification(realityCheckRecognition)) {
+          return undefined;
+        }
         const repair = missingSurfSpotRankingPayloadRepair(
           finalText,
           request,
@@ -1658,6 +1729,10 @@ function buildAgentRepairAdapters({
       },
     },
   ];
+}
+
+function realityCheckRequiresClarification(recognition: RealityCheckRecognition) {
+  return recognition.explicit && recognition.missingContext.length > 0;
 }
 
 function repairToolOutputPayload(output: AgentRepairToolOutput) {
@@ -3147,6 +3222,37 @@ async function executeAndAuditToolBatch({
     return [dependencyOutput, ...remainingOutputs];
   }
 
+  const conditionDependencyPlan = currentConditionDependencyPlan({
+    functionCalls,
+    runtimeRequest,
+    toolResults,
+  });
+  if (conditionDependencyPlan) {
+    const conditionOutputs = await Promise.all(
+      conditionDependencyPlan.upstreamCalls.map((functionCall) =>
+        executeAndAuditTool({
+          executeTool,
+          functionCall,
+          logger,
+          now,
+          runtimeRequest,
+          requestId,
+        }),
+      ),
+    );
+    const remainingOutputs = await executeAndAuditToolBatch({
+      executeTool,
+      functionCalls: conditionDependencyPlan.downstreamCalls,
+      logger,
+      now,
+      requiredEvidencePlan,
+      runtimeRequest,
+      requestId,
+      toolResults: [...toolResults, ...conditionOutputs.map((output) => output.result)],
+    });
+    return [...conditionOutputs, ...remainingOutputs];
+  }
+
   const researchIndex = functionCalls.findIndex(
     (functionCall) => functionCall.name === "research_web",
   );
@@ -3255,6 +3361,59 @@ async function executeAndAuditToolBatch({
       }),
     ),
   );
+}
+
+const currentConditionUpstreamToolNames = new Set([
+  "get_condition_judgment",
+  "get_weather_forecast",
+  "get_marine_conditions",
+  "get_tide_forecast",
+]);
+
+const currentConditionDependentToolNames = new Set([
+  "rank_surf_spots_nearby",
+  "search_local_guide",
+  "search_places",
+  "get_place_details",
+]);
+
+function currentConditionDependencyPlan(input: {
+  functionCalls: readonly ParsedFunctionCall[];
+  runtimeRequest: AgentRuntimeRequest;
+  toolResults: readonly AgentToolResult[];
+}) {
+  const recognition = recognizeRuntimeRealityCheck(input.runtimeRequest);
+  if (
+    (recognition.kind !== "immediate_plan" && recognition.kind !== "surf_session") ||
+    recognition.missingContext.length > 0 ||
+    input.toolResults.some((result) => {
+      if (result.status !== "success") {
+        return false;
+      }
+      return recognition.kind === "surf_session"
+        ? result.name === "get_condition_judgment"
+        : currentConditionUpstreamToolNames.has(result.name);
+    })
+  ) {
+    return undefined;
+  }
+
+  const upstreamCalls = input.functionCalls.filter((functionCall) =>
+    currentConditionUpstreamToolNames.has(functionCall.name),
+  );
+  const hasDependentCall = input.functionCalls.some((functionCall) =>
+    currentConditionDependentToolNames.has(functionCall.name),
+  );
+  if (upstreamCalls.length === 0 || !hasDependentCall) {
+    return undefined;
+  }
+
+  return {
+    upstreamCalls,
+    downstreamCalls: input.functionCalls.filter(
+      (functionCall) => !currentConditionUpstreamToolNames.has(functionCall.name),
+    ),
+  };
 }
 
 function firstRequiredDependencyIndex(
@@ -4201,6 +4360,8 @@ function buildAskSiargaoBaseInstructions({
     "Separate accommodation conclusions into checked property facts, governed area fit, traveler-supplied constraints, and unknown property qualities. Ratings, generic reviews, area stereotypes, and absence of complaints do not prove recurring noise, flooding, internet or power reliability, room condition, availability, or safety. State those as unknown and advise direct confirmation; use needs_confirmation when an unknown is material to the verdict.",
     "For an itinerary feasibility check, call plan_local_itinerary with theme itinerary_review and a bounded transcription of at most seven traveler-supplied stops. Preserve the original order, day labels, explicit times, areas, transport mode, and constraints. Use its conflict analysis and revised action; do not silently invent missing days, times, reservations, opening hours, or availability.",
     "Treat itinerary travel times as non-live estimates unless a governed route source explicitly supports them. Complete required local route/area and weather checks before dependent Places enrichment. Return one concrete keep/change/avoid decision, the specific conflict, and a workable revised action or fallback.",
+    "For an immediate today/tomorrow Reality Check, use the governed condition judgment or other current weather, marine, and tide evidence relevant to the named activity before a decisive verdict. Include when, where, and one practical fallback. Provider failures must remain unavailable or partial rather than checked.",
+    "For a surf-session Reality Check, require the surfer's beginner/intermediate/advanced level plus a Siargao spot or area and today/tomorrow timing. Use get_condition_judgment with marine or tide evidence before any dependent surf ranking or place recommendation. Treat SURF.md and local guidance as planning context, not live safety evidence. Never guarantee safe-to-surf conditions; preserve local-coach, rip-current, lifeguard, and exact-break boundaries.",
     "For any answer based on tool results, return a structured result rather than a thin paragraph. Use a compact markdown table or tight option list for multiple places, providers, events, routes, beaches, activities, weather windows, or other comparable results. Include practical checked details only when tool output supports them, then state the best first move.",
     "If one provider fails but another provider succeeds, use the successful evidence and caveat only the missing check when it matters.",
     "If deterministic signals say browser geolocation is the proximity anchor, do not say the traveler is near a named area unless user text or a tool result supports that named area.",

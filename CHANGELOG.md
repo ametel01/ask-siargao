@@ -40,6 +40,10 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added on-demand current-condition and surf Reality Checks that require request-time condition and
+  marine or tide evidence, account for surfer ability, location, and timing, preserve surf-safety
+  boundaries, order upstream evidence before dependent recommendations, and suppress unrelated or
+  provider-failed recommendation cards.
 - Added on-demand itinerary feasibility Reality Checks that review bounded traveler-supplied plans,
   identify timing, geography, transport, and weather-exposure conflicts, label non-live travel
   estimates, require upstream route and weather evidence before dependent place enrichment, and

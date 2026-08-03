@@ -18,7 +18,14 @@ export const realityCheckVerdicts = ["keep", "change", "avoid", "needs_confirmat
 
 export type RealityCheckVerdict = (typeof realityCheckVerdicts)[number];
 
-export type RealityCheckMissingContext = "subject" | "plan" | "activity" | "disruption";
+export type RealityCheckMissingContext =
+  | "subject"
+  | "plan"
+  | "activity"
+  | "disruption"
+  | "skill_level"
+  | "location"
+  | "timing";
 
 export type RealityCheckRecognition = {
   explicit: boolean;
@@ -67,8 +74,11 @@ export type RealityCheckValidationReason =
   | "incomplete_evidence_tool_call"
   | "insufficient_source_evidence"
   | "missing_current_evidence"
+  | "missing_condition_judgment"
+  | "missing_surf_evidence"
   | "missing_property_evidence"
-  | "unsupported_accommodation_claim";
+  | "unsupported_accommodation_claim"
+  | "unsupported_surf_safety_claim";
 
 export type RealityCheckValidationResult =
   | { status: "valid"; value: ValidatedRealityCheck }
@@ -169,6 +179,15 @@ export function validateRealityCheckProposal(input: {
     });
   }
 
+  if (input.expectedKind === "surf_session" && hasUnsupportedSurfSafetyClaim(input.proposal)) {
+    return invalidWithUnavailableFallback({
+      proposal: input.proposal,
+      sources,
+      sourceState,
+      reason: "unsupported_surf_safety_claim",
+    });
+  }
+
   if (input.proposal.verdict === "needs_confirmation") {
     if (sources.length === 0) {
       return { status: "invalid", reason: "missing_evidence" };
@@ -202,6 +221,32 @@ export function validateRealityCheckProposal(input: {
       sources,
       sourceState,
       reason: "missing_current_evidence",
+    });
+  }
+
+  if (
+    input.expectedKind === "surf_session" &&
+    !successfulResults.some((result) => result.name === "get_condition_judgment")
+  ) {
+    return invalidWithUnavailableFallback({
+      proposal: input.proposal,
+      sources,
+      sourceState,
+      reason: "missing_condition_judgment",
+    });
+  }
+
+  if (
+    input.expectedKind === "surf_session" &&
+    !successfulSources.some(
+      (source) => source.label === "marine_checked" || source.label === "tide_forecast_checked",
+    )
+  ) {
+    return invalidWithUnavailableFallback({
+      proposal: input.proposal,
+      sources,
+      sourceState,
+      reason: "missing_surf_evidence",
     });
   }
 
@@ -262,10 +307,16 @@ function realityCheckSourceState(
   successfulResults: readonly RealityCheckEvidenceCall[],
   failedResults: readonly RealityCheckEvidenceCall[],
 ): RealityCheckSourceState {
-  if (successfulResults.length > 0 && failedResults.length > 0) {
+  const sources = [...successfulResults, ...failedResults].flatMap((result) => result.sources);
+  const hasUnavailableSource = hasTerminalUnavailableSource(sources);
+  const hasVerifiedSource = sources.some((source) => verifyingSourceLabels.has(source.label));
+  if ((successfulResults.length > 0 && failedResults.length > 0) || hasUnavailableSource) {
+    if (!hasVerifiedSource) {
+      return "unavailable";
+    }
     return "partial";
   }
-  return successfulResults.length > 0 ? "checked" : "unavailable";
+  return successfulResults.length > 0 && hasVerifiedSource ? "checked" : "unavailable";
 }
 
 function invalidWithUnavailableFallback(input: {
@@ -276,8 +327,11 @@ function invalidWithUnavailableFallback(input: {
     RealityCheckValidationReason,
     | "insufficient_source_evidence"
     | "missing_current_evidence"
+    | "missing_condition_judgment"
+    | "missing_surf_evidence"
     | "missing_property_evidence"
     | "unsupported_accommodation_claim"
+    | "unsupported_surf_safety_claim"
   >;
 }): RealityCheckValidationResult {
   if (!hasTerminalUnavailableSource(input.sources)) {
@@ -353,6 +407,24 @@ function hasUnsupportedAccommodationQualityClaim(
         !/\b(?:unknown|not\s+checked|not\s+confirmed|unverified|cannot\s+(?:confirm|verify)|could\s+not\s+(?:confirm|verify)|confirm\s+(?:directly|before)|ask\s+the\s+(?:hotel|property)|do\s+not\s+assume|no\s+reliable\s+evidence)\b/iu.test(
           sentence,
         ),
+    );
+  });
+}
+
+function hasUnsupportedSurfSafetyClaim(proposal: RealityCheckProposal) {
+  const proposalText = [proposal.bestAction, proposal.basis, proposal.fallback, proposal.avoid]
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
+  return proposalText.split(/(?<=[.!?])\s+/u).some((sentence) => {
+    if (
+      !/\b(?:safe\s+to\s+(?:surf|paddle\s+out)|conditions?\s+(?:are|look)\s+safe|risk[-\s]?free)\b/iu.test(
+        sentence,
+      )
+    ) {
+      return false;
+    }
+    return !/\b(?:not|isn['’]?t|aren['’]?t|cannot|can['’]?t|could\s+not|not\s+confirmed|no\s+guarantee|does\s+not\s+(?:confirm|guarantee))\b/iu.test(
+      sentence,
     );
   });
 }
@@ -474,10 +546,30 @@ function missingRealityCheckContext(
     case "immediate_plan":
       return hasDecisionActivityContext(context) ? [] : ["activity"];
     case "surf_session":
-      return [];
+      return missingSurfSessionContext(context);
     case "disruption_recovery":
       return hasNamedDisruption(latestUserTurn) ? [] : ["disruption"];
   }
+}
+
+function missingSurfSessionContext(context: string): RealityCheckMissingContext[] {
+  return [
+    ...(/\b(?:beginner|learning|first[-\s]?timer|intermediate|advanced|expert|longboard(?:er|ing)?|shortboard(?:er|ing)?)\b/iu.test(
+      context,
+    )
+      ? []
+      : (["skill_level"] as const)),
+    ...(/\b(?:cloud\s*9|pacifico|alegria|guyam|daku|general\s+luna|siargao|near\s+me|closest|nearby)\b/iu.test(
+      context,
+    )
+      ? []
+      : (["location"] as const)),
+    ...(/\b(?:today|tomorrow|right\s+now|this\s+(?:morning|afternoon|evening)|morning|afternoon|evening|\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/iu.test(
+      context,
+    )
+      ? []
+      : (["timing"] as const)),
+  ];
 }
 
 function referencesUnresolvedAccommodation(latestUserTurn: string, recentUserContext: string) {

@@ -26,14 +26,14 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
 - [x] Step 2: Server-Validated Structured Verdicts
 - [x] Step 3: Accommodation Reality Check Vertical Slice
 - [x] Step 4: Itinerary Feasibility Vertical Slice
-- [ ] Step 5: Today/Tomorrow and Surf Decision Vertical Slices
+- [x] Step 5: Today/Tomorrow and Surf Decision Vertical Slices
 - [ ] Step 6: Disruption Recovery Vertical Slice
 - [ ] Step 7: Reality-Check Presentation and Product Entry Points
 - [ ] Step 8: Documentation, Evaluation, and Release Proof
 
 ### Current status
 
-- Status: Step 4 complete; Step 5 is next.
+- Status: Step 5 complete; Step 6 is next.
 - Definition of Done: not yet satisfied.
 - Baseline gate: passed at `88b998f` before Step 1 production changes.
 - Current blocker: none.
@@ -234,8 +234,48 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
   predictions; ferry schedules, reservations, venue opening hours, and availability require
   matching request-time evidence. The existing motion benchmark remains load-sensitive and its
   threshold is unchanged.
-- Commit: this Step 4 commit.
+- Commit: `ff69ba6` (`Add itinerary feasibility checks`).
 - Next step: implement the Today/Tomorrow and Surf Decision vertical slices.
+
+#### Step 5 - Today/Tomorrow and Surf Decision Vertical Slices
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: extended explicit immediate and surf Reality Checks with focused skill-level,
+  location, and timing clarification; required current condition plus marine or tide evidence for
+  decisive surf verdicts; rejected safe-to-surf guarantees; distinguished partial from unavailable
+  evidence; ordered condition and tide work before dependent surf/place recommendations; and
+  restricted returned cards to successful, selected dependent evidence calls.
+- Acceptance criteria checked:
+  - Immediate decisions use request-time evidence and can return a bounded fallback or
+    `needs_confirmation` when providers fail.
+  - Surf matching requires the supplied ability, location, and timing context and remains planning
+    support rather than an exact-break safety assessment.
+  - Current condition and tide/marine calls complete before dependent ranking, local-guide, or
+    Places work starts for explicit complete requests.
+  - Terminal provider failures cannot become checked/current evidence or positive cards; mixed
+    verified and unavailable evidence is labeled partial.
+  - Explicit adversarial mixed card selection exposes only the supported selected option.
+- Validation:
+  - Focused Reality Check and agent suites: 139 tests passed, 0 failed, 821 assertions.
+  - Focused route, source-consistency, runtime, condition, tool-selection, and agent-tool suites:
+    272 tests passed, 0 failed, 1,567 assertions.
+  - Full post-step runs passed lint (405 files), clean typecheck, 1,188 Bun tests with 6,218
+    assertions, database migrate/seed, and production build.
+  - Full Playwright runs passed 93 of 94 tests; only the pre-existing eight-worker throttled motion
+    benchmark reported two host long tasks. The unchanged benchmark passed 3/3 in isolation with
+    zero motion long tasks and zero layout shift in every repeat. This step changes server policy
+    and tests only, not UI or motion code.
+  - `git diff --check`: passed.
+- Changelog decision: added an `[Unreleased]` / `Added` entry because request-time current-condition
+  and surf Reality Checks are available through chat.
+- Residual risks: provider evidence can still be partial or unavailable at request time, so the
+  result deliberately downgrades to `needs_confirmation`; surf output does not replace a local
+  coach, lifeguard, or break-specific rip-current assessment. The existing full-suite motion
+  benchmark remains load-sensitive, with its threshold unchanged for the UI and release-proof
+  steps.
+- Commit: this Step 5 commit.
+- Next step: implement the Disruption Recovery vertical slice.
 
 ## Baseline
 
