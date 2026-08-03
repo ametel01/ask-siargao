@@ -6,6 +6,9 @@ import type { ChatSourceArtifact } from "@/features/chat/saved-trip-client";
 
 export type DecisionStripSummary = {
   id: string;
+  kind?: "accommodation" | "itinerary" | "immediate_plan" | "surf_session" | "disruption_recovery";
+  verdict?: "keep" | "change" | "avoid" | "needs_confirmation";
+  subject?: string;
   bestAction: string;
   basis: string;
   fallback?: string;
@@ -17,6 +20,10 @@ export type DecisionStripSummary = {
 
 export type DecisionStripPresentation = {
   summary: DecisionStripSummary;
+  verdict?: {
+    label: "Keep" | "Change" | "Avoid" | "Needs confirmation";
+    tone: "positive" | "caution" | "negative" | "uncertain";
+  };
   context: Array<{
     label: "Where" | "When";
     value: string;
@@ -42,6 +49,7 @@ export function projectDecisionStrip(
 
   return {
     summary,
+    ...(summary.verdict ? { verdict: realityCheckVerdictPresentation(summary.verdict) } : {}),
     context: [
       ...(summary.area ? [{ label: "Where" as const, value: summary.area }] : []),
       ...(summary.timing ? [{ label: "When" as const, value: summary.timing }] : []),
@@ -52,6 +60,21 @@ export function projectDecisionStrip(
     ],
     ...(sourceStatus ? { sourceStatus } : {}),
   };
+}
+
+function realityCheckVerdictPresentation(
+  verdict: NonNullable<DecisionStripSummary["verdict"]>,
+): NonNullable<DecisionStripPresentation["verdict"]> {
+  switch (verdict) {
+    case "keep":
+      return { label: "Keep", tone: "positive" };
+    case "change":
+      return { label: "Change", tone: "caution" };
+    case "avoid":
+      return { label: "Avoid", tone: "negative" };
+    case "needs_confirmation":
+      return { label: "Needs confirmation", tone: "uncertain" };
+  }
 }
 
 function projectSourceStatus(

@@ -28,12 +28,12 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
 - [x] Step 4: Itinerary Feasibility Vertical Slice
 - [x] Step 5: Today/Tomorrow and Surf Decision Vertical Slices
 - [x] Step 6: Disruption Recovery Vertical Slice
-- [ ] Step 7: Reality-Check Presentation and Product Entry Points
+- [x] Step 7: Reality-Check Presentation and Product Entry Points
 - [ ] Step 8: Documentation, Evaluation, and Release Proof
 
 ### Current status
 
-- Status: Step 6 complete; Step 7 is next.
+- Status: Step 7 complete; Step 8 is next.
 - Definition of Done: not yet satisfied.
 - Baseline gate: passed at `88b998f` before Step 1 production changes.
 - Current blocker: none.
@@ -314,8 +314,55 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
   availability cannot be established; the product deliberately performs no monitoring, outreach,
   booking, or availability guarantee. The existing full-suite motion benchmark remains
   load-sensitive and must be exercised during the UI and release-proof steps.
-- Commit: this Step 6 commit.
+- Commit: `d0b89d0` (`Add disruption recovery checks`).
 - Next step: implement Reality Check presentation and product entry points.
+
+#### Step 7 - Reality-Check Presentation and Product Entry Points
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: extended decision-strip presentation with optional Reality Check subject and
+  keep/change/avoid/needs-confirmation text verdicts; retained the legacy best-move presentation;
+  prioritized concise accommodation, itinerary, immediate, surf, and disruption prompts; and
+  repositioned landing, site promise, and Trip Pass differentiators around synchronous on-demand
+  checks.
+- Acceptance criteria checked:
+  - Landing and chat explain the product in one scan and link to representative Reality Check
+    prompts without automatically submitting them.
+  - Verdicts use explicit text labels plus distinct visual treatments, so meaning is not color-only.
+  - Legacy summaries still render without an invented verdict or subject.
+  - Saved planning, source receipt/status, mobile layout, reduced motion, focus order, and
+    responsive overflow constraints remain intact.
+  - Loading `/chat`, including a prompt deep link, starts no `/api/chat` work until explicit
+    submission.
+  - Traveler-facing positioning promises no monitoring, notifications, human confirmation,
+    booking, or guaranteed current data.
+- Validation:
+  - Focused presentation, suggested-prompt, and site-copy suites: 19 tests passed, 0 failed.
+  - Focused landing/chat browser suite: 15 tests passed, including desktop/mobile screenshots,
+    keyboard order, reduced motion, source state, legacy summaries, new verdicts, and idle loading.
+  - `bun run doctor`: 96/100 with six pre-existing repository performance advisories and no errors;
+    `npx react-doctor@latest --verbose --scope changed`: 100/100 with no changed-surface issues.
+  - Full post-step runs passed lint (405 files), clean typecheck, 1,201 Bun tests with 6,246
+    assertions, database migrate/seed, and production build.
+  - Full Playwright passed 94 of 95 tests. The only variance was the pre-existing eight-worker,
+    CPU-throttled decision-strip motion benchmark reporting one host long task. The exact unchanged
+    benchmark passed 3/3 in isolation after the UI changes, with zero motion long tasks and zero
+    layout shift in every repeat; its threshold remains unchanged.
+  - `git diff --check`: passed.
+- Screenshot evidence:
+  - `test-results/issue-120-landing-mobile-390.png`
+  - `test-results/issue-120-landing-desktop-1440.png`
+  - `test-results/chat.e2e.ts-shows-an-acces-8246a-sktop-only-after-submission-chromium/reality-check-strip-mobile-390.png`
+  - `test-results/chat.e2e.ts-shows-an-acces-8246a-sktop-only-after-submission-chromium/reality-check-strip-desktop-1180.png`
+  - `test-results/chat.e2e.ts-renders-the-fi-0ea15-oss-desktop-visual-fixtures-chromium/field-desk-active-saved-long-1180.png`
+- Changelog decision: added an `[Unreleased]` / `Changed` entry because the primary positioning,
+  entry prompts, and structured decision presentation changed visibly.
+- Residual risks: request-time sources can still be partial or unavailable; long subjects and
+  fallbacks are bounded server-side and covered at mobile widths. The existing full-suite motion
+  benchmark remains sensitive to parallel host load despite clean isolated evidence.
+- Commit: this Step 7 commit.
+- Next step: finish documentation, deterministic evaluation, and release proof.
 
 ## Baseline
 

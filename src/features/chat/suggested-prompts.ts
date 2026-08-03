@@ -10,9 +10,10 @@ export type SuggestedPromptInput = {
 const maxSuggestedPromptCount = 4;
 
 const onboardingPrompts = [
-  "Help me choose a Siargao area to stay.",
-  "What trip details should I share first?",
-  "Plan my Siargao day around my accommodation.",
+  "Reality-check a hotel before I book.",
+  "Review my four-day itinerary for feasibility.",
+  "Should we still go to Cloud 9 today?",
+  "Island tour cancelled—give us a replacement.",
 ] as const;
 
 export function buildSuggestedPrompts({
@@ -24,6 +25,7 @@ export function buildSuggestedPrompts({
   const area = context.nearbyArea === "Siargao Island" ? "" : context.nearbyArea;
   const areaScope = area ? `around ${area}` : "around Siargao";
   const areaPlanSuffix = area ? `around ${area}` : "around Siargao";
+  const areaPlan = area ? `${area} plan` : "Siargao plan";
   const hasContext = Boolean(
     area || context.accommodation || context.dateRange || context.travelerType,
   );
@@ -45,41 +47,47 @@ export function buildSuggestedPrompts({
   const isRainSensitive = /\b(?:rain|rainy|wet|storm|covered|indoor|inside)\b/i.test(contextText);
 
   if (needsNoScooterPlan) {
-    prompts.push(`Plan a day ${areaPlanSuffix} without relying on a scooter.`);
+    prompts.push(`Reality-check our day ${areaPlanSuffix}: we have no scooter.`);
   }
   if (hasKids) {
-    prompts.push(`What kid-friendly plan works ${areaScope} with easy fallback stops?`);
+    prompts.push(`What is wrong with our ${areaPlan} if we have kids?`);
   }
   if (needsQuietSleep) {
-    prompts.push(`How can we keep quiet sleep in mind ${areaScope}?`);
+    prompts.push(
+      context.accommodation
+        ? `Reality-check ${context.accommodation} for quiet sleep before we commit.`
+        : `Reality-check where we should stay ${areaScope} for quiet sleep.`,
+    );
   }
   if (isRainSensitive) {
-    prompts.push(`What should we do ${areaScope} if rain changes the plan?`);
+    prompts.push(`Given today's weather, should we keep our plan ${areaScope}?`);
   }
 
   if (prompts.length < maxSuggestedPromptCount && area) {
-    prompts.push(`What should I plan ${areaScope} with checks before I go?`);
+    prompts.push(`Reality-check today's plan ${areaScope} before we go.`);
   }
   if (prompts.length < maxSuggestedPromptCount && context.accommodation) {
-    prompts.push(`What is practical to do from ${context.accommodation}?`);
+    prompts.push(`Reality-check ${context.accommodation} before we book.`);
   }
   if (prompts.length < maxSuggestedPromptCount && context.dateRange) {
-    prompts.push(`Help me plan around my ${context.dateRange} dates.`);
+    prompts.push(`Is our ${context.dateRange} Siargao itinerary actually feasible?`);
   }
   if (prompts.length < maxSuggestedPromptCount && context.travelerType) {
     prompts.push(`What should I prioritize for ${context.travelerType} in Siargao?`);
   }
   if (prompts.length < maxSuggestedPromptCount && hasConditionSignals(weatherDecision)) {
-    prompts.push(`How should the checked forecast affect my plan ${areaPlanSuffix}?`);
+    prompts.push(`Given today's conditions, should we keep our plan ${areaPlanSuffix}?`);
   }
   if (prompts.length < maxSuggestedPromptCount && surfDecision.state === "partial") {
-    prompts.push(`What surf plan makes sense ${areaScope} if some condition signals are missing?`);
+    prompts.push(`Reality-check a beginner surf session ${areaScope} for tomorrow morning.`);
   }
   if (prompts.length < maxSuggestedPromptCount && hasConditionSignals(surfDecision)) {
-    prompts.push(`What should I check before a surf plan ${areaScope}?`);
+    prompts.push(`Should an intermediate surfer paddle out ${areaScope} today?`);
   }
   if (prompts.length < maxSuggestedPromptCount) {
-    prompts.push(`Help me make a flexible plan ${areaScope}.`);
+    prompts.push(
+      area ? `Reality-check our Siargao plan ${areaScope}.` : "Reality-check our Siargao plan.",
+    );
   }
 
   return dedupeBoundedPrompts(prompts);

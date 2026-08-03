@@ -62,6 +62,34 @@ describe("decision strip presentation", () => {
     ).toBeUndefined();
   });
 
+  test.each([
+    ["keep", "Keep", "positive"],
+    ["change", "Change", "caution"],
+    ["avoid", "Avoid", "negative"],
+    ["needs_confirmation", "Needs confirmation", "uncertain"],
+  ] as const)("projects the %s verdict as a text label", (verdict, label, tone) => {
+    expect(
+      projectDecisionStrip([
+        {
+          ...completeSummary,
+          kind: "immediate_plan",
+          verdict,
+          subject: "Cloud 9 sunset today",
+        },
+      ]),
+    ).toMatchObject({
+      summary: { subject: "Cloud 9 sunset today", verdict },
+      verdict: { label, tone },
+    });
+  });
+
+  test("preserves the legacy summary presentation without inventing a verdict", () => {
+    const presentation = projectDecisionStrip([completeSummary]);
+
+    expect(presentation?.summary).toBe(completeSummary);
+    expect(presentation?.verdict).toBeUndefined();
+  });
+
   test("does not promote unchecked or unavailable sources to checked", () => {
     expect(
       projectDecisionStrip([

@@ -5,5 +5,5 @@ export const siteConfig = {
     priceAuthority: "stripe_price",
   },
   promise:
-    "Ask practical Siargao trip questions and get local answers with freshness and confidence shown.",
+    "Reality-check Siargao plans on demand with current conditions, local operating knowledge, and clear evidence limits.",
 } as const;

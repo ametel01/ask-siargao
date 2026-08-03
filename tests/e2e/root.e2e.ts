@@ -4,11 +4,11 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: /plan the island around your real constraints/i }),
+    page.getByRole("heading", { name: /reality-check the island around your real constraints/i }),
   ).toBeVisible();
   await expect(page.getByRole("link", { name: "Ask in chat" })).toHaveAttribute("href", "/chat");
   await expect(page.getByLabel("Example Ask Siargao prompt")).toContainText(
-    "What should we do today if rain hits Cloud 9?",
+    "Given today's weather and tide, should we still go to Cloud 9?",
   );
   await expect(
     page.getByRole("heading", { name: "Planning inputs available in chat" }),
@@ -28,14 +28,14 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
   );
   await expect(page.getByText(/\bExplorer\b|\bExtended\b|\bunlimited\b/i)).toHaveCount(0);
   await expect(page.locator("svg.lucide-check")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Choose the right base" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Make the weather call" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Match a surf session" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Replace a disrupted plan" })).toBeVisible();
   await expect(
     page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
   ).toHaveAttribute("href", /\/chat\?prompt=/);
-  await expect(page.getByRole("link", { name: "Quiet base" })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Check a stay" })).toHaveAttribute(
     "href",
-    /\/chat\?prompt=Where%20should%20we%20stay/,
+    /\/chat\?prompt=Reality-check/,
   );
 });
 
@@ -80,14 +80,14 @@ test("exposes real desktop navigation in keyboard reading order", async ({ page 
         .getByRole("link", { name: "Ask Siargao" }),
       rgb: [10, 111, 103],
     },
-    { link: page.getByRole("link", { name: "Quiet base" }), rgb: [142, 230, 216] },
-    { link: page.getByRole("link", { name: "Food route" }), rgb: [142, 230, 216] },
+    { link: page.getByRole("link", { name: "Check a stay" }), rgb: [142, 230, 216] },
+    { link: page.getByRole("link", { name: "Review a route" }), rgb: [142, 230, 216] },
     {
-      link: page.getByRole("link", { name: "Ask about this" }).nth(0),
+      link: page.getByRole("link", { name: "Run this check" }).nth(0),
       rgb: [10, 111, 103],
     },
     {
-      link: page.getByRole("link", { name: "Ask about this" }).nth(1),
+      link: page.getByRole("link", { name: "Run this check" }).nth(1),
       rgb: [10, 111, 103],
     },
   ];
@@ -130,20 +130,20 @@ test("landing prompt actions preserve exact chat handoff without submitting", as
     {
       link: () =>
         page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
-      prompt: "What should we do today if rain hits Cloud 9?",
+      prompt: "Given today's weather and tide, should we still go to Cloud 9?",
     },
     {
-      link: () => page.getByRole("link", { name: "Quiet base" }),
+      link: () => page.getByRole("link", { name: "Check a stay" }),
       prompt:
-        "Where should we stay in Siargao if we want quiet sleep, surf access, and easy dinner options?",
+        "Reality-check this Siargao hotel before I book: is it a good fit for quiet sleep and no scooter?",
     },
     {
       link: () =>
         page
           .getByRole("article")
-          .filter({ has: page.getByRole("heading", { name: "Make the weather call" }) })
-          .getByRole("link", { name: "Ask about this" }),
-      prompt: "Build a Siargao plan for today that adapts if rain gets heavy around Cloud 9.",
+          .filter({ has: page.getByRole("heading", { name: "Replace a disrupted plan" }) })
+          .getByRole("link", { name: "Run this check" }),
+      prompt: "Our island tour was cancelled. Give us a workable replacement in General Luna.",
     },
   ];
   let chatSubmissions = 0;
@@ -175,7 +175,7 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(
-      page.getByRole("heading", { name: /plan the island around your real constraints/i }),
+      page.getByRole("heading", { name: /reality-check the island around your real constraints/i }),
     ).toBeVisible();
     await page.evaluate(async () => {
       await document.fonts.ready;
@@ -188,7 +188,7 @@ for (const viewport of [
     await expect(
       page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
     ).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Plan smarter in Siargao" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Reality-check a Siargao plan" })).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "One clear Siargao travel pass" }),
     ).toBeVisible();
@@ -307,8 +307,8 @@ test("landing remains usable at a 200 percent zoom equivalent with reduced motio
   for (const link of [
     page.getByRole("link", { name: "Ask in chat" }),
     page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
-    page.getByRole("link", { name: "Quiet base" }),
-    page.getByRole("link", { name: "Food route" }),
+    page.getByRole("link", { name: "Check a stay" }),
+    page.getByRole("link", { name: "Review a route" }),
   ]) {
     await expect(link).toBeVisible();
     const box = await link.boundingBox();
@@ -1621,7 +1621,7 @@ for (const width of [390, 768, 1024, 1366]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(
-      page.getByRole("heading", { name: /plan the island around your real constraints/i }),
+      page.getByRole("heading", { name: /reality-check the island around your real constraints/i }),
     ).toBeVisible();
 
     const overflow = await page.evaluate(

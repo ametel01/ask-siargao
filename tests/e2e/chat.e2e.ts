@@ -90,6 +90,9 @@ type MockItineraryPlan = {
 };
 type MockDecisionSummary = {
   id: string;
+  kind?: "accommodation" | "itinerary" | "immediate_plan" | "surf_session" | "disruption_recovery";
+  verdict?: "keep" | "change" | "avoid" | "needs_confirmation";
+  subject?: string;
   bestAction: string;
   basis: string;
   fallback?: string;
@@ -264,7 +267,7 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect(composerInput).toBeDisabled();
   await expect(sendButton).toBeDisabled();
   await expect(
-    page.getByRole("button", { name: "Plan my Siargao day around my accommodation." }),
+    page.getByRole("button", { name: "Reality-check a hotel before I book." }),
   ).toBeDisabled();
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(lastSubmittedContent(mockChat.requests[0])).toBe(
@@ -569,6 +572,9 @@ test("renders the field desk workspace across desktop visual fixtures", async ({
     decisionSummaries: [
       {
         id: "field_desk_decision",
+        kind: "immediate_plan",
+        verdict: "change",
+        subject: "Cloud 9 field plan today",
         bestAction: "Start close to Cloud 9, then keep the covered fallback ready.",
         basis: "Weather evidence is checked, while surf safety still needs local confirmation.",
         fallback: "Use the covered cafe stop if rain arrives early.",
@@ -2664,20 +2670,16 @@ test("sends a mobile suggested prompt through the same chat API path", async ({ 
   await expect(page.getByText("24 live refreshes left")).toHaveCount(0);
   await expect(page.getByText(/Will my place be quiet/i)).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Plan my Siargao day around my accommodation." }).click();
+  await page.getByRole("button", { name: "Reality-check a hotel before I book." }).click();
 
   await expect(
-    page
-      .getByLabel("Conversation messages")
-      .getByText("Plan my Siargao day around my accommodation."),
+    page.getByLabel("Conversation messages").getByText("Reality-check a hotel before I book."),
   ).toBeVisible();
   await expect(
     page.getByText("Mocked mobile answer: keep the day slow around Cloud 9 and Catangnan."),
   ).toBeVisible();
   await expect.poll(() => mockChat.requests.length).toBe(1);
-  expect(lastSubmittedContent(mockChat.requests[0])).toBe(
-    "Plan my Siargao day around my accommodation.",
-  );
+  expect(lastSubmittedContent(mockChat.requests[0])).toBe("Reality-check a hotel before I book.");
   expect(mockChat.requests[0]?.clientContext?.geolocation).toBeUndefined();
   await expect
     .poll(() =>
@@ -2727,26 +2729,26 @@ test("personalizes suggested prompts and submits the exact visible prompt with c
   await expect(suggestedPromptBar.getByRole("button")).toHaveCount(4);
   await expect(
     suggestedPromptBar.getByRole("button", {
-      name: "Plan a day around Dapa without relying on a scooter.",
+      name: "Reality-check our day around Dapa: we have no scooter.",
     }),
   ).toBeVisible();
   await expect(
     suggestedPromptBar.getByRole("button", {
-      name: "What kid-friendly plan works around Dapa with easy fallback stops?",
+      name: "What is wrong with our Dapa plan if we have kids?",
     }),
   ).toBeVisible();
   await expect(
     suggestedPromptBar.getByRole("button", {
-      name: "How can we keep quiet sleep in mind around Dapa?",
+      name: "Reality-check Dapa family stay for quiet sleep before we commit.",
     }),
   ).toBeVisible();
   await expect(
     suggestedPromptBar.getByRole("button", {
-      name: "What should we do around Dapa if rain changes the plan?",
+      name: "Given today's weather, should we keep our plan around Dapa?",
     }),
   ).toBeVisible();
   await expect(
-    suggestedPromptBar.getByRole("button", { name: "Help me choose a Siargao area to stay." }),
+    suggestedPromptBar.getByRole("button", { name: "Reality-check a hotel before I book." }),
   ).toHaveCount(0);
   expect(mockChat.requests).toHaveLength(0);
 
@@ -2755,7 +2757,7 @@ test("personalizes suggested prompts and submits the exact visible prompt with c
   await expect(page.getByText("Context answer.")).toBeVisible();
   await expect.poll(() => mockChat.requests.length).toBe(1);
 
-  const visiblePrompt = "What should we do around Dapa if rain changes the plan?";
+  const visiblePrompt = "Given today's weather, should we keep our plan around Dapa?";
   await suggestedPromptBar.getByRole("button", { name: visiblePrompt }).click();
 
   await expect(page.getByLabel("Conversation messages").getByText(visiblePrompt)).toBeVisible();
@@ -3007,6 +3009,8 @@ test("leads live grounded answers with one responsive decision strip", async ({ 
     "none",
   );
   await expect(strip).toContainText("Best move");
+  await expect(strip.getByTestId("decision-strip-verdict")).toHaveCount(0);
+  await expect(strip.getByTestId("decision-strip-subject")).toHaveCount(0);
   await expect(strip).toContainText("Keep swimming flexible until the long Cloud 9");
   await expect(strip).toContainText("Where");
   await expect(strip).toContainText("When");
@@ -3027,6 +3031,68 @@ test("leads live grounded answers with one responsive decision strip", async ({ 
   expect(await answer.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await expect(page.getByText("Avoid a long scooter ride for now.")).toHaveCount(0);
   await expect.poll(() => mockChat.requests.length).toBe(1);
+});
+
+test("shows an accessible reality-check verdict on mobile and desktop only after submission", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const mockChat = await mockChatApi(page, {
+    message: "Change the plan and use the covered General Luna replacement.",
+    sources: [mockWeatherSource],
+    decisionSummaries: [
+      {
+        id: "reality_check:disruption_recovery:cancelled_tour",
+        kind: "disruption_recovery",
+        verdict: "change",
+        subject: "Traveler-reported cancelled island tour",
+        bestAction: "Use the covered General Luna replacement.",
+        basis: "Request-time weather supports staying on land for this half day.",
+        fallback: "Confirm current opening before leaving.",
+        avoid: "Avoid relying on another boat departure today.",
+        timing: "today",
+        area: "General Luna",
+        sources: [mockWeatherSource],
+      },
+    ],
+  });
+
+  await page.goto("/chat");
+  await expect.poll(() => mockChat.requests.length).toBe(0);
+  await expect(page.getByTestId("decision-strip")).toHaveCount(0);
+
+  const composer = page.getByLabel("Ask anything about Siargao");
+  await composer.fill("Our island tour was cancelled. Give us a workable replacement.");
+  await page.getByRole("button", { name: "Send question" }).click();
+  await expect.poll(() => mockChat.requests.length).toBe(1);
+
+  const strip = page.getByTestId("decision-strip");
+  await expect(strip).toContainText("Reality check");
+  await expect(strip.getByTestId("decision-strip-verdict")).toHaveText("Verdict: Change");
+  await expect(strip.getByTestId("decision-strip-subject")).toHaveText(
+    "Traveler-reported cancelled island tour",
+  );
+  await expect(strip).toContainText("Best move: Use the covered General Luna replacement.");
+  await expect(strip.getByTestId("decision-strip-source-status")).toContainText("Checked:");
+  await expect(strip.locator("a, button, input, select, textarea")).toHaveCount(0);
+  expect(await strip.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await strip.screenshot({ path: testInfo.outputPath("reality-check-strip-mobile-390.png") });
+  await page.screenshot({
+    fullPage: true,
+    path: testInfo.outputPath("reality-check-verdict-mobile-390.png"),
+  });
+
+  await page.setViewportSize({ width: 1180, height: 900 });
+  await expect(strip.getByTestId("decision-strip-verdict")).toBeVisible();
+  expect(await strip.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await strip.screenshot({ path: testInfo.outputPath("reality-check-strip-desktop-1180.png") });
+  await composer.focus();
+  await expect(composer).toBeFocused();
+  await page.screenshot({
+    fullPage: true,
+    path: testInfo.outputPath("reality-check-verdict-desktop-1180.png"),
+  });
 });
 
 test("runs the decision strip arrival sequence once without shifting layout", async ({

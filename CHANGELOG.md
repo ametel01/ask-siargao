@@ -9,6 +9,10 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Repositioned the landing page, Trip Pass copy, and contextual chat prompts around on-demand
+  Siargao Reality Checks, and upgraded decision strips with accessible text verdicts and subjects
+  for keep/change/avoid/needs-confirmation while preserving legacy summaries, sources, saved plans,
+  responsive layouts, reduced motion, and idle-on-load behavior.
 - Simplified the 14-day Siargao Trip Pass to a `$9.99` USD, 150-travel-answer product, with 10 free
   answers over seven days and automatic evidence tools instead of customer-facing live, research,
   weather, or route allowances. Existing version 1 grants remain readable for ledger continuity.

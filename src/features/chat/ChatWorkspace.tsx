@@ -76,6 +76,7 @@ import {
 } from "@/features/chat/assistant-message-presentation";
 import { isChatStreamResponse, readChatStreamResponse } from "@/features/chat/chat-stream";
 import {
+  type DecisionStripPresentation,
   type DecisionStripSummary,
   projectDecisionStrip,
 } from "@/features/chat/decision-strip-presentation";
@@ -4401,13 +4402,43 @@ function DecisionStrip({
       />
       <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
         <div className="grid min-w-0 gap-1">
-          <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.68rem] leading-tight font-semibold text-brand-lagoon-700 uppercase">
-            <Navigation aria-hidden="true" className="shrink-0" size={13} />
-            Best move
-          </span>
-          <h3 className="m-0 text-base leading-tight font-semibold break-words text-text-strong">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.68rem] leading-tight font-semibold text-brand-lagoon-700 uppercase">
+              <Navigation aria-hidden="true" className="shrink-0" size={13} />
+              {presentation.verdict ? "Reality check" : "Best move"}
+            </span>
+            {presentation.verdict ? (
+              <span
+                className={cn(
+                  "inline-flex min-h-6 items-center rounded-full border px-2.5 py-1 text-[0.68rem] leading-none font-extrabold tracking-[0.04em] uppercase",
+                  decisionVerdictToneClass(presentation.verdict.tone),
+                )}
+                data-testid="decision-strip-verdict"
+              >
+                <span className="sr-only">Verdict: </span>
+                {presentation.verdict.label}
+              </span>
+            ) : null}
+          </div>
+          {presentation.summary.subject ? (
+            <h3
+              className="m-0 text-base leading-tight font-semibold break-words text-text-strong"
+              data-testid="decision-strip-subject"
+            >
+              {presentation.summary.subject}
+            </h3>
+          ) : null}
+          <p
+            className={cn(
+              "m-0 leading-[1.4] font-semibold break-words text-text-strong",
+              presentation.summary.subject ? "text-sm" : "text-base leading-tight",
+            )}
+          >
+            {presentation.summary.subject ? (
+              <span className="text-text-muted">Best move: </span>
+            ) : null}
             {presentation.summary.bestAction}
-          </h3>
+          </p>
         </div>
         {presentation.context.length ? (
           <dl className="m-0 grid min-w-0 gap-1.5 sm:grid-cols-2">
@@ -4456,6 +4487,19 @@ function DecisionStrip({
       ) : null}
     </section>
   );
+}
+
+function decisionVerdictToneClass(tone: NonNullable<DecisionStripPresentation["verdict"]>["tone"]) {
+  switch (tone) {
+    case "positive":
+      return "border-confidence-high/35 bg-confidence-high-soft text-confidence-high";
+    case "caution":
+      return "border-confidence-medium/35 bg-confidence-medium-soft text-confidence-medium";
+    case "negative":
+      return "border-brand-sunset-coral/40 bg-brand-sunset-coral/10 text-brand-sunset-coral";
+    case "uncertain":
+      return "border-text-muted/25 bg-surface-default text-text-muted";
+  }
 }
 
 function prefersReducedMotion() {

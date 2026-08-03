@@ -10,7 +10,6 @@ import {
   MessageCircle,
   Send,
   ShieldCheck,
-  Utensils,
   Waves,
 } from "lucide-react";
 import Image from "next/image";
@@ -23,7 +22,7 @@ import { TripPassPricingTelemetry } from "@/features/trip-pass/TripPassPricingTe
 import { cn } from "@/lib/utils";
 import { appSurfaceInsetClass, appSurfacePanelClass } from "@/ui/components/ask-siargao";
 
-const heroPrompt = "What should we do today if rain hits Cloud 9?";
+const heroPrompt = "Given today's weather and tide, should we still go to Cloud 9?";
 
 const navigationItems = [
   { label: "Start a question", href: "#start-a-question" },
@@ -34,17 +33,16 @@ const navigationItems = [
 
 const quickChips = [
   {
-    label: "Quiet base",
+    label: "Check a stay",
     prompt:
-      "Where should we stay in Siargao if we want quiet sleep, surf access, and easy dinner options?",
-    icon: Waves,
+      "Reality-check this Siargao hotel before I book: is it a good fit for quiet sleep and no scooter?",
+    icon: Home,
     tone: "lagoon",
   },
   {
-    label: "Food route",
-    prompt:
-      "Plan coffee, dinner, and a low-key drink around General Luna without a long scooter loop.",
-    icon: Utensils,
+    label: "Review a route",
+    prompt: "Is this four-day Siargao itinerary actually feasible for a family without a scooter?",
+    icon: Compass,
     tone: "coral",
   },
 ] as const;
@@ -78,17 +76,16 @@ const planningCards: {
   tone: "lagoon" | "gold";
 }[] = [
   {
-    title: "Choose the right base",
-    body: "Compare sleep, surf access, dinner radius, and airport transfer ease.",
-    prompt:
-      "Where should we stay in Siargao if we want quiet sleep, surf access, and easy dinner options?",
-    icon: Home,
+    title: "Match a surf session",
+    body: "Match ability, place, timing, tide, and modelled conditions while keeping exact-break safety with local eyes.",
+    prompt: "I am a beginner near Pacifico. Reality-check a surf session for tomorrow morning.",
+    icon: Waves,
     tone: "lagoon",
   },
   {
-    title: "Make the weather call",
-    body: "Turn forecast into a smarter plan with indoor fallbacks and timing advice.",
-    prompt: "Build a Siargao plan for today that adapts if rain gets heavy around Cloud 9.",
+    title: "Replace a disrupted plan",
+    body: "Turn a cancellation, closure, downpour, or lost ride into one workable request-time alternative.",
+    prompt: "Our island tour was cancelled. Give us a workable replacement in General Luna.",
     icon: CloudRain,
     tone: "gold",
   },
@@ -197,15 +194,15 @@ function Hero() {
     >
       <div className="grid min-w-0 gap-3">
         <p className="m-0 text-xs font-semibold tracking-[0.18em] text-brand-sunset-gold uppercase md:text-sm">
-          Your island decision desk
+          On-demand Siargao reality checks
         </p>
         <h1 className="m-0 max-w-[12ch] min-w-0 font-heading text-[clamp(3rem,12.6vw,5.3rem)] leading-[0.92] font-semibold text-text-on-dark tracking-[-0.02em] [overflow-wrap:anywhere] md:max-w-[13ch] md:text-[clamp(5.3rem,10.5vw,7.8rem)] lg:text-[clamp(4.6rem,6.1vw,7.25rem)] 2xl:text-[7.6rem]">
-          Plan the island around your{" "}
+          Reality-check the island around your{" "}
           <span className="text-brand-lagoon-300">real constraints</span>
         </h1>
         <p className="m-0 max-w-[38ch] text-base leading-[1.42] font-semibold text-text-on-dark-muted md:text-xl lg:max-w-[40ch] lg:text-lg xl:text-xl">
-          Ask about surf, sleep, food, transport, or weather. Get local, caveated answers that
-          explain what still needs checking.
+          Bring a hotel, itinerary, surf session, immediate plan, or disruption. Ask Siargao checks
+          it when you ask and returns a clear keep, change, avoid, or needs-confirmation call.
         </p>
       </div>
       <PromptComposer />
@@ -330,7 +327,7 @@ function CoastalFrame() {
           Siargao, in context
         </p>
         <p className="mt-2 mb-0 max-w-[31ch] font-heading text-2xl leading-tight font-semibold text-text-on-dark xl:text-3xl">
-          One route, one weather window, one honest trade-off at a time.
+          One request, one evidence-backed call, one workable fallback at a time.
         </p>
       </div>
     </aside>
@@ -356,11 +353,11 @@ function PlanningPanel() {
             className="m-0 min-w-0 font-heading text-[clamp(1.55rem,6vw,2.2rem)] leading-[1.04] font-semibold text-text-strong lg:text-[2.65rem]"
             id="plan-smarter-title"
           >
-            Plan smarter in Siargao
+            Reality-check a Siargao plan
           </h2>
           <p className="m-0 max-w-[38ch] text-[0.94rem] leading-[1.42] font-medium text-text-muted lg:text-base">
-            Bring your real constraints. Ask Siargao can consult available tools and tell you what
-            remains uncertain.
+            Ask when a choice matters. You get request-time evidence, local operating context, and
+            an honest boundary around what remains uncertain.
           </p>
         </div>
       </div>
@@ -395,7 +392,7 @@ function PlanningPanel() {
               className="inline-flex min-h-11 w-fit items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-700 no-underline hover:text-brand-lagoon-600 landing-focus-ring landing-focus-ring-strong focus-visible:outline-offset-3"
               href={chatPromptHref(prompt)}
             >
-              Ask about this
+              Run this check
               <ArrowRight aria-hidden="true" size={20} strokeWidth={2.1} />
             </Link>
           </article>
@@ -424,7 +421,8 @@ function TripPassPricingSection() {
           One clear Siargao travel pass
         </h2>
         <p className="m-0 max-w-[39ch] text-base leading-[1.44] font-semibold text-text-on-dark-muted">
-          Start with 10 free travel answers. Upgrade when you want more help throughout your trip.
+          Start with 10 free on-demand travel answers. Upgrade when you want more reality checks
+          throughout your trip.
         </p>
         <div className="flex flex-wrap gap-3">
           <Button

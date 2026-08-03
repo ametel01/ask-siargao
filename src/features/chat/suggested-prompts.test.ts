@@ -13,11 +13,12 @@ describe("suggested prompt generation", () => {
     });
 
     expect(prompts).toEqual([
-      "Help me choose a Siargao area to stay.",
-      "What trip details should I share first?",
-      "Plan my Siargao day around my accommodation.",
+      "Reality-check a hotel before I book.",
+      "Review my four-day itinerary for feasibility.",
+      "Should we still go to Cloud 9 today?",
+      "Island tour cancelled—give us a replacement.",
     ]);
-    expect(prompts).toHaveLength(3);
+    expect(prompts).toHaveLength(4);
   });
 
   test("uses partial context without inventing dates, area, or live facts", () => {
@@ -28,8 +29,8 @@ describe("suggested prompt generation", () => {
     });
 
     expect(prompts).toEqual([
-      "What is practical to do from Pilar homestay?",
-      "Help me make a flexible plan around Siargao.",
+      "Reality-check Pilar homestay before we book.",
+      "Reality-check our Siargao plan.",
     ]);
     expect(JSON.stringify(prompts)).not.toContain("Cloud 9");
     expect(JSON.stringify(prompts)).not.toContain("open now");
@@ -44,10 +45,10 @@ describe("suggested prompt generation", () => {
     });
 
     expect(prompts).toEqual([
-      "What should I plan around Dapa with checks before I go?",
-      "How should the checked forecast affect my plan around Dapa?",
-      "What surf plan makes sense around Dapa if some condition signals are missing?",
-      "What should I check before a surf plan around Dapa?",
+      "Reality-check today's plan around Dapa before we go.",
+      "Given today's conditions, should we keep our plan around Dapa?",
+      "Reality-check a beginner surf session around Dapa for tomorrow morning.",
+      "Should an intermediate surfer paddle out around Dapa today?",
     ]);
     expect(prompts.every((prompt) => prompt.includes("Dapa"))).toBe(true);
     expect(prompts.join(" ")).not.toMatch(/\b(?:open now|safe today|raining now|good now)\b/i);
@@ -64,10 +65,10 @@ describe("suggested prompt generation", () => {
     });
 
     expect(prompts).toEqual([
-      "Plan a day around General Luna without relying on a scooter.",
-      "What kid-friendly plan works around General Luna with easy fallback stops?",
-      "How can we keep quiet sleep in mind around General Luna?",
-      "What should we do around General Luna if rain changes the plan?",
+      "Reality-check our day around General Luna: we have no scooter.",
+      "What is wrong with our General Luna plan if we have kids?",
+      "Reality-check where we should stay around General Luna for quiet sleep.",
+      "Given today's weather, should we keep our plan around General Luna?",
     ]);
     expect(prompts).toHaveLength(4);
     expect(new Set(prompts.map((prompt) => prompt.toLocaleLowerCase())).size).toBe(prompts.length);
@@ -81,8 +82,8 @@ describe("suggested prompt generation", () => {
     });
 
     expect(prompts).toEqual([
-      "Help me plan around my Aug 1 - 6 dates.",
-      "Help me make a flexible plan around Siargao.",
+      "Is our Aug 1 - 6 Siargao itinerary actually feasible?",
+      "Reality-check our Siargao plan.",
     ]);
     expect(prompts.length).toBeGreaterThanOrEqual(2);
     expect(prompts.length).toBeLessThanOrEqual(4);
@@ -102,11 +103,11 @@ describe("suggested prompt generation", () => {
 
     expect(soloPrompts).toEqual([
       "What should I prioritize for Solo traveler in Siargao?",
-      "Help me make a flexible plan around Siargao.",
+      "Reality-check our Siargao plan.",
     ]);
     expect(unclassifiedPrompts).toEqual([
       "What should I prioritize for Another traveler in Siargao?",
-      "Help me make a flexible plan around Siargao.",
+      "Reality-check our Siargao plan.",
     ]);
     expect(soloPrompts).toHaveLength(2);
     expect(unclassifiedPrompts).toHaveLength(2);

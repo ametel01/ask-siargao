@@ -18,9 +18,10 @@ export const tripPassPublicOffer = {
 } as const;
 
 export const tripPassDifferentiators = [
+  "On-demand hotel, itinerary, immediate-plan, surf-session, and disruption reality checks.",
   "Local trip context for where you stay, how you move, and what kind of day you are planning.",
   "Governed Siargao knowledge with source, freshness, and not-checked boundaries shown.",
-  "Automatic current evidence checks when weather, surf, Places, events, or public facts matter.",
+  "Request-time condition, surf, Places, event, and public-fact evidence when it matters.",
   "Practical recommendations and truthful fallbacks when current evidence is unavailable.",
 ] as const;
 
