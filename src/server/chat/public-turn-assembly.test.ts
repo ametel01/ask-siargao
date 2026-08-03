@@ -137,6 +137,9 @@ describe("public chat turn assembly", () => {
         decisionSummaries: [
           {
             id: "decision_shaka",
+            kind: "accommodation",
+            verdict: "needs_confirmation",
+            subject: "Shaka-area stay",
             bestAction: "Go now.",
             basis: "Google Places returned a checked cafe.",
             sources: [placesSource, providerUnavailableSource],
@@ -160,6 +163,11 @@ describe("public chat turn assembly", () => {
       placesSource,
       providerUnavailableSource,
     ]);
+    expect(turn.display.decisionSummaries[0]).toMatchObject({
+      kind: "accommodation",
+      verdict: "needs_confirmation",
+      subject: "Shaka-area stay",
+    });
     expect(turn.storage.message).toBe(turn.display.message);
     expect(turn.storage.sources).toEqual([placesSource, providerUnavailableSource]);
     expect(turn.storage.cards).toEqual([]);
@@ -185,6 +193,11 @@ describe("public chat turn assembly", () => {
       placesSource,
       providerUnavailableSource,
     ]);
+    expect(turn.storage.decisionSummaries[0]).toMatchObject({
+      kind: "accommodation",
+      verdict: "needs_confirmation",
+      subject: "Shaka-area stay",
+    });
     expect(JSON.stringify(turn)).not.toContain("PRIVATE_TRACE_47");
   });
 

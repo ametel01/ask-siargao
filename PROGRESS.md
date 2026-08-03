@@ -22,7 +22,7 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
 ### Step checklist
 
 - [x] Step 0: Progress and Changelog Tracking Setup
-- [ ] Step 1: Baseline and Reality-Check Domain Contract
+- [x] Step 1: Baseline and Reality-Check Domain Contract
 - [ ] Step 2: Server-Validated Structured Verdicts
 - [ ] Step 3: Accommodation Reality Check Vertical Slice
 - [ ] Step 4: Itinerary Feasibility Vertical Slice
@@ -33,9 +33,9 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
 
 ### Current status
 
-- Status: Step 0 complete; Step 1 is next.
+- Status: Step 1 complete; Step 2 is next.
 - Definition of Done: not yet satisfied.
-- Baseline gate: pending in Step 1.
+- Baseline gate: passed at `88b998f` before Step 1 production changes.
 - Current blocker: none.
 
 ### Update log
@@ -53,8 +53,47 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
     `## [Unreleased]`.
   - `git diff --check`: passed.
 - Changelog decision: no entry; this step contains planning and tracking changes only.
-- Commit: this Step 0 commit.
+- Commit: `88b998f` (`Set up reality check progress tracking`).
 - Next step: run the full baseline and implement the Reality Check domain contract.
+
+#### Step 1 - Baseline and Reality-Check Domain Contract
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: added `src/server/chat/reality-check.ts` and focused tests for the on-demand
+  execution mode, five check kinds, four verdicts, explicit-request recognition, focused missing
+  context, strict bounded proposal parsing, and unsupported-field rejection; added optional
+  reality-check metadata to the existing `DecisionSummary` contract with runtime/public-turn
+  compatibility coverage for both enriched and legacy summaries.
+- Acceptance criteria checked:
+  - Recognition is pure and does not select or execute tools.
+  - Ordinary Siargao questions remain outside the Reality Check contract.
+  - Unsupported/background kinds, unknown fields, invalid verdicts, oversized text, and excessive
+    evidence IDs fail closed.
+  - Existing summaries without `kind`, `verdict`, or `subject` continue through runtime and public
+    assembly.
+- Validation:
+  - Baseline `bun run verify:ci`: passed before Step 1 changes; 1,130 Bun tests, 53 tables, 9
+    migrations, seed, production build, and 94 Playwright tests passed.
+  - Focused Reality Check/runtime/public-turn suite: 65 tests passed, 0 failed.
+  - `bun run format`: passed and formatted the two new Reality Check files.
+  - `bun run lint`: passed.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed; 1,149 tests, 0 failed, 6,079 assertions.
+  - `bun run db:migrate:test`: passed; 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed; 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - Full `bun run test:e2e`: 93 passed and the pre-existing throttled motion benchmark failed its
+    zero-long-task threshold under full eight-worker load in two runs; Step 1 changed no UI, motion,
+    or browser code. The exact test passed once in isolation and then 3/3 with `--repeat-each=3`,
+    with zero motion long tasks and zero layout shift in every repeat.
+  - `git diff --check`: passed.
+- Changelog decision: no entry; the new domain types and optional fields are not yet exposed as
+  functional traveler behavior.
+- Residual risk: the existing full-suite motion benchmark is load-sensitive. Re-run it with the UI
+  step and final release proof; do not weaken or skip its threshold.
+- Commit: this Step 1 commit.
+- Next step: build server-validated structured verdicts and sanitized observability.
 
 ## Baseline
 

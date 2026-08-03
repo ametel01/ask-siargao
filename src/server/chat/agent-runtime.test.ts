@@ -711,6 +711,11 @@ describe("agent runtime contracts", () => {
     });
 
     expect(turn.decisionSummaries).toEqual([swimmingDecisionSummary]);
+    expect(turn.decisionSummaries?.[0]).toMatchObject({
+      kind: "immediate_plan",
+      verdict: "change",
+      subject: "Swimming at Cloud 9",
+    });
     expect(turn.publicSources).toEqual([weatherSourceSummary]);
     expect(turn.artifactSelection).toMatchObject({
       structuredFinalPayload: true,
@@ -1651,6 +1656,9 @@ const localGuideSourceSummary: AnswerSourceSummary = {
 
 const swimmingDecisionSummary: DecisionSummary = {
   id: "condition_decision:swimming:cloud_9:today",
+  kind: "immediate_plan",
+  verdict: "change",
+  subject: "Swimming at Cloud 9",
   bestAction: "Keep swimming flexible.",
   basis: "Weather is usable, but surf reports are not checked.",
   fallback: "Use a nearby covered stop if conditions worsen.",

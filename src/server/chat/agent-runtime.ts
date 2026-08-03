@@ -4,6 +4,7 @@ import type { Logger } from "pino";
 
 import type { AgentMemorySnapshot } from "@/server/chat/agent-memory";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
+import type { RealityCheckKind, RealityCheckVerdict } from "@/server/chat/reality-check";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 import { resolvePrimaryChatModel } from "@/server/llm/chat-model-provider";
 import type { ModelCostSummary, NormalizedModelUsage } from "@/server/llm/model-cost";
@@ -141,6 +142,9 @@ export type ItineraryPlan = {
 
 export type DecisionSummary = {
   id: string;
+  kind?: RealityCheckKind;
+  verdict?: RealityCheckVerdict;
+  subject?: string;
   bestAction: string;
   basis: string;
   fallback?: string;
