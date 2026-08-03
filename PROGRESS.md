@@ -4,6 +4,58 @@ This ledger tracks execution of `PLAN.md` from repository revision `f4e850a`.
 Preserve prior entries, append validation evidence, and keep each step aligned with its focused
 commit.
 
+## On-Demand Siargao Reality Check
+
+This section tracks execution of the on-demand Reality Check plan in the current root `PLAN.md`.
+The historical Trip Pass execution ledger below is preserved as prior project history.
+
+### Plan and source
+
+- Plan: `PLAN.md`
+- Primary source: `.stow-notes.md`
+- Execution start revision: `8011a6b`
+- Started: `2026-08-03`
+- Scope boundary: synchronous traveler-requested checks only; no continuous agent, background
+  monitoring, scheduled checks, proactive notifications, guaranteed human/operator work, or
+  booking actions.
+
+### Step checklist
+
+- [x] Step 0: Progress and Changelog Tracking Setup
+- [ ] Step 1: Baseline and Reality-Check Domain Contract
+- [ ] Step 2: Server-Validated Structured Verdicts
+- [ ] Step 3: Accommodation Reality Check Vertical Slice
+- [ ] Step 4: Itinerary Feasibility Vertical Slice
+- [ ] Step 5: Today/Tomorrow and Surf Decision Vertical Slices
+- [ ] Step 6: Disruption Recovery Vertical Slice
+- [ ] Step 7: Reality-Check Presentation and Product Entry Points
+- [ ] Step 8: Documentation, Evaluation, and Release Proof
+
+### Current status
+
+- Status: Step 0 complete; Step 1 is next.
+- Definition of Done: not yet satisfied.
+- Baseline gate: pending in Step 1.
+- Current blocker: none.
+
+### Update log
+
+#### Step 0 - Progress and Changelog Tracking Setup
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: replaced the root implementation plan with the on-demand Reality Check plan,
+  updated the private ignored product brief, added this progress section, and preserved the existing
+  changelog and historical progress ledger.
+- Validation:
+  - Confirmed `PROGRESS.md` contains the Step 0-8 checklist, current status, and next step.
+  - Confirmed `CHANGELOG.md` retains `# Changelog`, the Keep a Changelog preamble, and
+    `## [Unreleased]`.
+  - `git diff --check`: passed.
+- Changelog decision: no entry; this step contains planning and tracking changes only.
+- Commit: this Step 0 commit.
+- Next step: run the full baseline and implement the Reality Check domain contract.
+
 ## Baseline
 
 - Plan baseline revision: `1deb02c`.

@@ -23,3 +23,6 @@ test-results/
 
 # logs
 *.log
+
+# private agent session notes
+.stow-notes.md
