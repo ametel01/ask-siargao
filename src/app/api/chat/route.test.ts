@@ -1710,6 +1710,67 @@ describe("chat route", () => {
     });
   });
 
+  test("returns only the checked accommodation card and its validated verdict", async () => {
+    const bravoCard = {
+      ...placeRecommendationCard,
+      id: "place_bravo_beach_resort",
+      title: "Bravo Beach Resort",
+      subtitle: "General Luna",
+      fitReasons: ["Matches the named property."],
+      caveats: ["Room noise and Wi-Fi reliability were not checked."],
+    };
+    const accommodationSummary = {
+      id: "reality_check:accommodation:bravo",
+      kind: "accommodation" as const,
+      verdict: "keep" as const,
+      subject: "Bravo Beach Resort",
+      bestAction: "Keep it on the shortlist for its General Luna location.",
+      basis: "The property identity and governed area fit were checked separately.",
+      avoid: "Room noise and Wi-Fi reliability are not confirmed.",
+      area: "General Luna",
+      sources: [placesSourceSummary],
+    };
+    const dependencies = chatDependencies({
+      message:
+        "**keep: Bravo Beach Resort**\n\nKeep it on the shortlist for its General Luna location.",
+      toolCalls: [
+        toolCall({ name: "search_places", status: "success", sources: [placesSourceSummary] }),
+      ],
+      sources: [placesSourceSummary],
+      publicSources: [placesSourceSummary],
+      cards: [bravoCard],
+      decisionSummaries: [accommodationSummary],
+      artifactSelection: routeArtifactSelection({
+        totalCardCount: 1,
+        selectedCardCount: 1,
+        unselectedCardCount: 1,
+        totalDecisionSummaryCount: 1,
+        selectedDecisionSummaryCount: 1,
+      }),
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "Reality-check Bravo Beach Resort in General Luna before I book.",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.cards?.map((card: { id: string }) => card.id)).toEqual([bravoCard.id]);
+    expect(body.decisionSummaries).toEqual([displayDecisionSummaryFixture(accommodationSummary)]);
+    expect(body.artifactSelection).toBeUndefined();
+    expect(dependencies.agentDependencies[0]).toMatchObject({
+      requireStructuredFinalOutput: true,
+    });
+    expect(JSON.stringify(body)).not.toContain("Unrelated Resort");
+  });
+
   test("returns cross-request public artifacts without internal selection diagnostics", async () => {
     for (const scenario of routeAnswerQualityScenarios()) {
       const dependencies = chatDependencies(scenario.agentResult);

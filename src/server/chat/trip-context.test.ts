@@ -132,6 +132,46 @@ describe("Trip Context module", () => {
     expect(context.durableConstraints).toContain("rain_avoidance");
   });
 
+  test("carries accommodation-check constraints while keeping the property name private", () => {
+    const intent = interpretChatRequestIntent({
+      messages: [
+        {
+          role: "user",
+          content: "Reality-check this hotel for our family before we book.",
+        },
+      ],
+      profileContext: {
+        budgetLevel: "budget",
+        quietSleepPreference: true,
+        tripContext: {
+          accommodation: "Secret Family Villa room 7",
+          transportMode: "tricycle",
+        },
+      },
+      allowClientTripDraft: true,
+      clientContext: normalizeTripContextClientContext(
+        { tripContext: { travelerType: "Family with kids" } },
+        new Date("2026-07-10T00:00:00.000Z"),
+      ),
+    });
+    const summary = summarizeTripContextForAgent(intent);
+    const serialized = JSON.stringify(summary);
+
+    expect(summary).toMatchObject({
+      tripContext: {
+        durableConstraints: ["budget_cheap", "quiet_sleep", "with_kids"],
+        transportMode: "tricycle",
+        travelerProfile: {
+          budget: "cheap",
+          prefersQuietSleep: true,
+          withKids: true,
+        },
+      },
+    });
+    expect(serialized).not.toContain("Secret Family Villa");
+    expect(serialized).not.toContain("room 7");
+  });
+
   test("does not leak structured food needs into agent or log context", () => {
     const intent = interpretChatRequestIntent({
       messages: [{ role: "user", content: "Help me choose dinner." }],

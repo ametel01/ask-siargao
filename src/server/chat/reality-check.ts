@@ -66,7 +66,9 @@ export type RealityCheckValidationReason =
   | "unused_evidence_tool_call"
   | "incomplete_evidence_tool_call"
   | "insufficient_source_evidence"
-  | "missing_current_evidence";
+  | "missing_current_evidence"
+  | "missing_property_evidence"
+  | "unsupported_accommodation_claim";
 
 export type RealityCheckValidationResult =
   | { status: "valid"; value: ValidatedRealityCheck }
@@ -155,7 +157,22 @@ export function validateRealityCheckProposal(input: {
   const sources = dedupeSources(evidenceCalls.flatMap(({ result }) => result.sources));
   const sourceState = realityCheckSourceState(successfulResults, failedResults);
 
+  if (
+    input.expectedKind === "accommodation" &&
+    hasUnsupportedAccommodationQualityClaim(input.proposal, sources)
+  ) {
+    return invalidWithUnavailableFallback({
+      proposal: input.proposal,
+      sources,
+      sourceState,
+      reason: "unsupported_accommodation_claim",
+    });
+  }
+
   if (input.proposal.verdict === "needs_confirmation") {
+    if (sources.length === 0) {
+      return { status: "invalid", reason: "missing_evidence" };
+    }
     return {
       status: "valid",
       value: { proposal: input.proposal, sources, sourceState },
@@ -185,6 +202,21 @@ export function validateRealityCheckProposal(input: {
       sources,
       sourceState,
       reason: "missing_current_evidence",
+    });
+  }
+
+  if (
+    input.expectedKind === "accommodation" &&
+    !accommodationSubjectIsAreaOnly(input.proposal.subject) &&
+    !successfulResults.some(
+      (result) => result.name === "search_places" || result.name === "get_place_details",
+    )
+  ) {
+    return invalidWithUnavailableFallback({
+      proposal: input.proposal,
+      sources,
+      sourceState,
+      reason: "missing_property_evidence",
     });
   }
 
@@ -242,10 +274,13 @@ function invalidWithUnavailableFallback(input: {
   sourceState: RealityCheckSourceState;
   reason: Extract<
     RealityCheckValidationReason,
-    "insufficient_source_evidence" | "missing_current_evidence"
+    | "insufficient_source_evidence"
+    | "missing_current_evidence"
+    | "missing_property_evidence"
+    | "unsupported_accommodation_claim"
   >;
 }): RealityCheckValidationResult {
-  if (input.sourceState !== "unavailable" || input.sources.length === 0) {
+  if (!hasTerminalUnavailableSource(input.sources)) {
     return { status: "invalid", reason: input.reason };
   }
   return {
@@ -257,12 +292,69 @@ function invalidWithUnavailableFallback(input: {
         verdict: "needs_confirmation",
         bestAction: `Confirm ${input.proposal.subject} before committing.`,
         basis:
-          "The required current check was unavailable, so a reliable keep, change, or avoid verdict is not supported yet.",
+          "A required check was unavailable, so a reliable keep, change, or avoid verdict is not supported yet.",
       },
       sources: input.sources,
-      sourceState: "unavailable",
+      sourceState: input.sourceState,
     },
   };
+}
+
+function hasTerminalUnavailableSource(sources: readonly AnswerSourceSummary[]) {
+  return sources.some(
+    (source) =>
+      source.label === "provider_unavailable" || source.label === "insufficient_web_evidence",
+  );
+}
+
+const accommodationAreaNames = new Set([
+  "general luna",
+  "cloud 9",
+  "malinao",
+  "pacifico",
+  "dapa",
+  "del carmen",
+  "alegria",
+]);
+
+function accommodationSubjectIsAreaOnly(subject: string) {
+  const parts = subject
+    .toLowerCase()
+    .split(/\s+(?:vs\.?|versus|or)\s+|\s*\/\s*/u)
+    .map((part) => part.trim());
+  return parts.length > 0 && parts.every((part) => accommodationAreaNames.has(part));
+}
+
+const unsupportedAccommodationQualities = [
+  /\bquiet(?:ness)?\b|\bnoise|noisy\b/iu,
+  /\bflood(?:ing|ed)?\b/iu,
+  /\b(?:wi[-\s]?fi|internet|signal)\b/iu,
+  /\b(?:power|electricity|brownouts?|generator)\b/iu,
+  /\b(?:room\s+condition|clean(?:liness)?|mold|maintenance)\b/iu,
+  /\b(?:available|availability|vacancy|vacancies)\b/iu,
+] as const;
+
+function hasUnsupportedAccommodationQualityClaim(
+  proposal: RealityCheckProposal,
+  sources: readonly AnswerSourceSummary[],
+) {
+  const checkedText = sources.flatMap((source) => source.checked).join(" ");
+  const proposalText = [proposal.bestAction, proposal.basis, proposal.fallback, proposal.avoid]
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
+  return unsupportedAccommodationQualities.some((qualityPattern) => {
+    if (!qualityPattern.test(proposalText) || qualityPattern.test(checkedText)) {
+      return false;
+    }
+    const sentences = proposalText.split(/(?<=[.!?])\s+/u);
+    return sentences.some(
+      (sentence) =>
+        qualityPattern.test(sentence) &&
+        !/\b(?:unknown|not\s+checked|not\s+confirmed|unverified|cannot\s+(?:confirm|verify)|could\s+not\s+(?:confirm|verify)|confirm\s+(?:directly|before)|ask\s+the\s+(?:hotel|property)|do\s+not\s+assume|no\s+reliable\s+evidence)\b/iu.test(
+          sentence,
+        ),
+    );
+  });
 }
 
 function dedupeSources(sources: readonly AnswerSourceSummary[]) {
@@ -336,7 +428,7 @@ function isSurfSessionCheck(value: string) {
 
 function isAccommodationCheck(value: string) {
   return (
-    /\b(?:hotel|hostel|resort|homestay|villa|accommodation|place\s+to\s+stay|stay\s+at)\b/i.test(
+    /\b(?:hotel|hostel|resort|homestay|villa|accommodation|place\s+to\s+stay|stay\s+(?:at|in))\b/i.test(
       value,
     ) &&
     /\b(?:reality[-\s]?check|before\s+(?:i|we)\s+book|should\s+(?:i|we)\s+(?:book|stay)|is\s+.+\s+(?:a\s+)?good\s+(?:fit|choice))\b/i.test(

@@ -786,6 +786,255 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     });
   });
 
+  test("reality-checks an exact accommodation and filters mixed place cards", async () => {
+    const bravoCard: RecommendationCard = {
+      id: "card_bravo_beach_resort",
+      kind: "place",
+      title: "Bravo Beach Resort",
+      subtitle: "General Luna",
+      fitReasons: ["The checked listing matches the named property."],
+      caveats: ["Room noise and Wi-Fi reliability were not checked."],
+      sourceLabel: "Google Places - live checked",
+    };
+    const unrelatedCard: RecommendationCard = {
+      ...bravoCard,
+      id: "card_unrelated_resort",
+      title: "Unrelated Resort",
+    };
+    const areaSource: AnswerSourceSummary = {
+      label: "curated_local_guide",
+      sourceName: "Ask Siargao governed area facts",
+      confidence: "medium",
+      checked: ["General Luna area fit", "transport access"],
+      notChecked: ["property room noise", "property Wi-Fi reliability"],
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_accommodation_evidence",
+        _request_id: "req_accommodation_evidence",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_bravo_places",
+            name: "search_places",
+            arguments: JSON.stringify({
+              query: "Bravo Beach Resort accommodation Siargao",
+              center: { latitude: 9.784, longitude: 126.158 },
+              radius_meters: 12000,
+              constraints: { included_type: "lodging", open_now: null, page_size: 5 },
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_general_luna_facts",
+            name: "query_local_facts",
+            arguments: JSON.stringify({
+              entityTypes: ["area", "route"],
+              area: "general luna",
+              text: "General Luna",
+              limit: 5,
+            }),
+          },
+        ],
+      },
+      {
+        id: "resp_accommodation_final",
+        _request_id: "req_accommodation_final",
+        output_text: finalPayloadText({
+          answer: "The named property and General Luna fit were checked separately.",
+          usedToolCallIds: ["call_bravo_places", "call_general_luna_facts"],
+          displayCardIds: [bravoCard.id, unrelatedCard.id],
+          realityCheck: {
+            kind: "accommodation",
+            verdict: "keep",
+            subject: "Bravo Beach Resort",
+            bestAction: "Keep it on the shortlist for its General Luna location.",
+            basis:
+              "Places confirms the property identity, and governed area facts fit a family without a scooter.",
+            avoid: "Room noise and Wi-Fi reliability are not confirmed; ask the property directly.",
+            area: "General Luna",
+            evidenceToolCallIds: ["call_bravo_places", "call_general_luna_facts"],
+          },
+        }),
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content:
+              "Reality-check Bravo Beach Resort in General Luna for kids, quiet sleep, and no scooter before I book.",
+          },
+        ],
+        requestId: "agent_request_accommodation_exact",
+      },
+      {
+        client,
+        executeTool: fakeToolExecutor({
+          search_places: {
+            name: "search_places",
+            status: "success",
+            text: "Google Places matched the named property.",
+            sources: [placesSourceSummary],
+            cards: [bravoCard, unrelatedCard],
+          },
+          query_local_facts: {
+            name: "query_local_facts",
+            status: "success",
+            text: "Governed General Luna area-fit facts returned.",
+            sources: [areaSource],
+          },
+        }),
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.message).toContain("**keep: Bravo Beach Resort**");
+    expect(result.message).toContain("Room noise and Wi-Fi reliability are not confirmed");
+    expect(result.cards?.map((card) => card.id)).toEqual([bravoCard.id]);
+    expect(JSON.stringify(result.cards)).not.toContain(unrelatedCard.title);
+    expect(result.publicSources).toEqual([placesSourceSummary, areaSource]);
+    expect(result.artifactSelection).toMatchObject({
+      selectedCardCount: 1,
+      totalCardCount: 1,
+      unknownCardIds: [],
+    });
+  });
+
+  test("downgrades a property verdict when Places is unavailable", async () => {
+    const areaSource: AnswerSourceSummary = {
+      label: "curated_local_guide",
+      sourceName: "Ask Siargao governed area facts",
+      confidence: "medium",
+      checked: ["General Luna area fit"],
+      notChecked: ["property identity"],
+    };
+    const unsafeProposal: NonNullable<AgentFinalPayload["realityCheck"]> = {
+      kind: "accommodation",
+      verdict: "keep",
+      subject: "Bravo Beach Resort",
+      bestAction: "Book the property.",
+      basis: "General Luna fits the trip constraints.",
+      evidenceToolCallIds: ["call_bravo_places_failed", "call_general_luna_facts"],
+    };
+    const repeatedFinal = {
+      output_text: finalPayloadText({
+        answer: "Keep the property on the shortlist without a checked Places claim.",
+        usedToolCallIds: ["call_bravo_places_failed", "call_general_luna_facts"],
+        realityCheck: unsafeProposal,
+      }),
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_accommodation_failure_evidence",
+        _request_id: "req_accommodation_failure_evidence",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_bravo_places_failed",
+            name: "search_places",
+            arguments: JSON.stringify({
+              query: "Bravo Beach Resort accommodation Siargao",
+              center: { latitude: 9.784, longitude: 126.158 },
+              radius_meters: 12000,
+              constraints: { included_type: "lodging", open_now: null, page_size: 5 },
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_general_luna_facts",
+            name: "query_local_facts",
+            arguments: JSON.stringify({
+              entityTypes: ["area", "route"],
+              area: "general luna",
+              text: "General Luna",
+              limit: 5,
+            }),
+          },
+        ],
+      },
+      {
+        id: "resp_accommodation_failure_final",
+        _request_id: "req_accommodation_failure_final",
+        output: [{ type: "message", id: "msg_accommodation_failure_final" }],
+        ...repeatedFinal,
+      },
+      {
+        id: "resp_accommodation_failure_repeated",
+        _request_id: "req_accommodation_failure_repeated",
+        ...repeatedFinal,
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Reality-check Bravo Beach Resort in General Luna before I book.",
+          },
+        ],
+        requestId: "agent_request_accommodation_provider_failure",
+      },
+      {
+        client,
+        executeTool: fakeToolExecutor({
+          search_places: {
+            name: "search_places",
+            status: "error",
+            text: "Google Places was unavailable.",
+            errorCode: "provider_unavailable",
+            sources: [providerUnavailableSourceSummary],
+          },
+          query_local_facts: {
+            name: "query_local_facts",
+            status: "success",
+            text: "Governed General Luna area facts returned.",
+            sources: [areaSource],
+          },
+        }),
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.repairCount).toBe(1);
+    expect(result.message).toContain("**needs confirmation: Bravo Beach Resort**");
+    expect(result.message).not.toContain("Book the property");
+    expect(result.cards).toBeUndefined();
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      verdict: "needs_confirmation",
+      sources: [providerUnavailableSourceSummary, areaSource],
+    });
+  });
+
+  test("asks for the accommodation instead of inventing one", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_accommodation_clarification",
+        _request_id: "req_accommodation_clarification",
+        output_text: finalPayloadText({ answer: "I can check it." }),
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Reality-check this hotel before I book." }],
+        requestId: "agent_request_accommodation_clarification",
+      },
+      { client, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toBe(
+      "Which accommodation should I reality-check? Send its name or listing link.",
+    );
+    expect(result.toolCalls).toEqual([]);
+    expect(result.decisionSummaries).toBeUndefined();
+  });
+
   test("returns only tool artifacts selected by structured final payload", async () => {
     const card = {
       id: "card_doot",
@@ -6831,17 +7080,29 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
       prompt: "Should we stay in General Luna or Malinao with kids, quiet sleep, and a budget?",
       toolCalls: [
         {
-          callId: "call_area_choice",
-          name: "search_local_guide",
+          callId: "call_general_luna_area",
+          name: "query_local_facts",
           arguments: {
-            query: "General Luna versus Malinao quiet family budget stay",
-            filters: { area_choice: true },
+            entityTypes: ["area", "route"],
+            area: "general luna",
+            text: "General Luna",
+            limit: 5,
+          },
+        },
+        {
+          callId: "call_malinao_area",
+          name: "query_local_facts",
+          arguments: {
+            entityTypes: ["area", "route"],
+            area: "malinao",
+            text: "Malinao",
+            limit: 5,
           },
         },
       ],
       toolResults: {
-        search_local_guide: {
-          name: "search_local_guide",
+        query_local_facts: {
+          name: "query_local_facts",
           status: "success",
           text: "Curated local guide returned area-fit tradeoffs.",
           sources: [localGuideSourceSummary],
@@ -6851,18 +7112,37 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
       finalPayload: {
         answer:
           "Choose Malinao for quiet sleep with kids on a budget; keep General Luna as the meal and errand area by tricycle.",
-        usedToolCallIds: ["call_area_choice"],
+        usedToolCallIds: ["call_general_luna_area", "call_malinao_area"],
         displayDecisionSummaryIds: [areaChoiceSummary.id],
+        realityCheck: {
+          kind: "accommodation",
+          verdict: "change",
+          subject: "General Luna or Malinao",
+          bestAction: "Choose Malinao for the area fit. Room noise is not confirmed.",
+          basis:
+            "The governed area comparison favors Malinao for this family budget and transport profile.",
+          fallback:
+            "Use General Luna if meal and errand access matters more than the area tradeoff.",
+          area: "Malinao",
+          evidenceToolCallIds: ["call_general_luna_area", "call_malinao_area"],
+        },
       },
-      expectedOpening: "Choose Malinao for quiet sleep",
-      expectedMessageText: ["Malinao", "General Luna", "kids", "budget"],
-      expectedDecisionGuidance: "keep General Luna as the meal and errand area",
+      expectedOpening: "**change: General Luna or Malinao**",
+      expectedMessageText: ["Malinao", "General Luna", "family", "budget"],
+      expectedDecisionGuidance: "Choose Malinao for the area fit",
       expectedPublicSources: [localGuideSourceSummary],
       expectedCardIds: [],
       expectedItineraryIds: [],
-      expectedDecisionSummaryIds: [areaChoiceSummary.id],
+      expectedDecisionSummaryIds: [
+        realityCheckSummaryId(
+          "agent_request_accommodation_area_choice_malinao",
+          "accommodation",
+          "General Luna or Malinao",
+        ),
+      ],
       expectedArtifactSelection: {
         selectedDecisionSummaryCount: 1,
+        unselectedDecisionSummaryCount: 1,
         selectedCardCount: 0,
         selectedItineraryCount: 0,
       },

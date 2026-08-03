@@ -40,6 +40,10 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added on-demand accommodation Reality Checks that verify named-property identity, compare
+  governed area fit against traveler constraints, bound unverified property qualities, request
+  focused missing context, and suppress unrelated place cards or positive verdicts after provider
+  failure.
 - Added on-demand Siargao Reality Check verdicts with server-validated evidence references,
   source-derived decision summaries, bounded repair and provider-failure downgrade behavior,
   authenticated history compatibility, strict artifact selection, and privacy-safe outcome

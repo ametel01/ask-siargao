@@ -302,6 +302,129 @@ describe("reality check contract", () => {
         toolResults: [],
       }),
     ).toEqual({ status: "invalid", reason: "missing_evidence" });
+
+    expect(
+      validateRealityCheckProposal({
+        expectedKind: "accommodation",
+        proposal: {
+          kind: "accommodation",
+          verdict: "needs_confirmation",
+          subject: "Unnamed hotel",
+          bestAction: "Confirm the listing.",
+          basis: "The local query returned no governed evidence.",
+          evidenceToolCallIds: ["call_empty"],
+        },
+        usedToolCallIds: ["call_empty"],
+        toolCalls: [
+          {
+            toolCallId: "call_empty",
+            name: "query_local_facts",
+            status: "success",
+            sources: [],
+          },
+        ],
+        toolResults: [
+          {
+            toolCallId: "call_empty",
+            name: "query_local_facts",
+            status: "success",
+            sources: [],
+          },
+        ],
+      }),
+    ).toEqual({ status: "invalid", reason: "missing_evidence" });
+  });
+
+  test("requires property evidence for a decisive named-accommodation verdict", () => {
+    const localAreaSource = {
+      label: "curated_local_guide" as const,
+      sourceName: "Ask Siargao local facts",
+      checked: ["General Luna area fit"],
+      notChecked: ["property identity", "room noise"],
+    };
+    const proposal = {
+      kind: "accommodation" as const,
+      verdict: "keep" as const,
+      subject: "Bravo Beach Resort",
+      bestAction: "Keep Bravo Beach Resort on the shortlist.",
+      basis: "The checked General Luna area fit matches the trip constraints.",
+      evidenceToolCallIds: ["call_area"],
+    };
+
+    expect(
+      validateRealityCheckProposal({
+        expectedKind: "accommodation",
+        proposal,
+        usedToolCallIds: ["call_area"],
+        toolCalls: [
+          {
+            toolCallId: "call_area",
+            name: "query_local_facts",
+            status: "success",
+            sources: [],
+          },
+        ],
+        toolResults: [
+          {
+            toolCallId: "call_area",
+            name: "query_local_facts",
+            status: "success",
+            sources: [localAreaSource],
+          },
+        ],
+      }),
+    ).toEqual({ status: "invalid", reason: "missing_property_evidence" });
+  });
+
+  test("rejects unsupported accommodation qualities and accepts explicit uncertainty", () => {
+    const propertySource = {
+      label: "live_checked" as const,
+      sourceName: "Google Places",
+      checked: ["property identity", "map link"],
+      notChecked: ["room noise", "Wi-Fi reliability"],
+    };
+    const proposal = {
+      kind: "accommodation" as const,
+      verdict: "keep" as const,
+      subject: "Bravo Beach Resort",
+      bestAction: "Book it for quiet rooms and reliable Wi-Fi.",
+      basis: "The checked listing confirms the property identity.",
+      evidenceToolCallIds: ["call_places"],
+    };
+    const validationInput = {
+      expectedKind: "accommodation" as const,
+      usedToolCallIds: ["call_places"],
+      toolCalls: [
+        {
+          toolCallId: "call_places",
+          name: "search_places",
+          status: "success" as const,
+          sources: [],
+        },
+      ],
+      toolResults: [
+        {
+          toolCallId: "call_places",
+          name: "search_places",
+          status: "success" as const,
+          sources: [propertySource],
+        },
+      ],
+    };
+
+    expect(validateRealityCheckProposal({ ...validationInput, proposal })).toEqual({
+      status: "invalid",
+      reason: "unsupported_accommodation_claim",
+    });
+    expect(
+      validateRealityCheckProposal({
+        ...validationInput,
+        proposal: {
+          ...proposal,
+          bestAction: "Keep it on the shortlist. Room noise and Wi-Fi are not confirmed.",
+        },
+      }),
+    ).toMatchObject({ status: "valid", value: { sourceState: "checked" } });
   });
 
   test("downgrades a decisive verdict only when failed-provider evidence supports uncertainty", () => {

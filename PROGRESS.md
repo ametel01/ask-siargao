@@ -24,7 +24,7 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
 - [x] Step 0: Progress and Changelog Tracking Setup
 - [x] Step 1: Baseline and Reality-Check Domain Contract
 - [x] Step 2: Server-Validated Structured Verdicts
-- [ ] Step 3: Accommodation Reality Check Vertical Slice
+- [x] Step 3: Accommodation Reality Check Vertical Slice
 - [ ] Step 4: Itinerary Feasibility Vertical Slice
 - [ ] Step 5: Today/Tomorrow and Surf Decision Vertical Slices
 - [ ] Step 6: Disruption Recovery Vertical Slice
@@ -33,7 +33,7 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
 
 ### Current status
 
-- Status: Step 2 complete; Step 3 is next.
+- Status: Step 3 complete; Step 4 is next.
 - Definition of Done: not yet satisfied.
 - Baseline gate: passed at `88b998f` before Step 1 production changes.
 - Current blocker: none.
@@ -135,8 +135,56 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
   Check verdicts are now observable through the existing chat response path.
 - Residual risk: the existing full-suite motion benchmark remains load-sensitive. Re-run it during
   the UI step and final release proof without weakening or skipping its threshold.
-- Commit: this Step 2 commit.
+- Commit: `a01eaf9` (`Return validated reality check verdicts`).
 - Next step: implement the Accommodation Reality Check vertical slice.
+
+#### Step 3 - Accommodation Reality Check Vertical Slice
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: added an accommodation-specific required-evidence plan for exact named-property
+  Places identity, governed area/route facts, and explicit current price or availability web
+  claims; constrained place cards to the named property; added agent instructions that separate
+  checked property facts, area fit, traveler constraints, and unknown property qualities; and
+  added server validation for missing property evidence and unsupported noise, flooding,
+  internet, power, room-condition, and availability claims.
+- Acceptance criteria checked:
+  - Named accommodation checks use exact property and area evidence and return one server-built
+    keep/change/avoid/needs-confirmation summary.
+  - Area comparisons evaluate each named area independently and use family, budget, transport, and
+    quiet-sleep context without exposing raw stored accommodation names.
+  - Missing referenced accommodation produces a focused name-or-listing clarification.
+  - Failed Places evidence cannot support a positive property verdict or public place card; a
+    repeated positive proposal is downgraded to evidence-backed `needs_confirmation`.
+  - Explicit mixed selection containing the allowed property and an unrelated property exposes
+    only the exact named accommodation.
+  - Unsupported recurring noise, flooding, Wi-Fi, power, room-condition, and availability claims
+    must be source-checked or stated as bounded uncertainty.
+- Validation:
+  - Focused accommodation policy, validator, agent, trip-context, and route suites passed after
+    implementation.
+  - `bun run verify:ci`: passed on the first full post-step run; the final rerun passed through
+    lint, typecheck, Bun tests, database migrate/seed, and build before the browser-only variance
+    described below.
+  - `bun run lint`: passed; 405 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed; 1,173 tests, 0 failed, 6,139 assertions.
+  - `bun run db:migrate:test`: passed; 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed; 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - Full `bun run test:e2e`: passed once with 94 tests and 0 failures. On the final full-gate rerun,
+    93 tests passed and the existing load-sensitive throttled motion benchmark reported two long
+    tasks; the exact benchmark then passed 3/3 in isolation with zero motion long tasks and zero
+    layout shift in every repeat. No UI or motion implementation changed in this step.
+  - `git diff --check`: passed.
+- Changelog decision: added an `[Unreleased]` / `Added` entry because accommodation Reality Checks
+  are now traveler-visible through the existing on-demand chat path.
+- Residual risks: raw stored accommodation names remain deliberately excluded from model, log, and
+  history summaries, so a traveler must name the property in the current or bounded recent chat
+  context for an exact-property check. The existing full-suite motion benchmark remains
+  load-sensitive; keep its threshold unchanged and re-run it during the UI and release-proof steps.
+- Commit: this Step 3 commit.
+- Next step: implement the Itinerary Feasibility vertical slice.
 
 ## Baseline
 

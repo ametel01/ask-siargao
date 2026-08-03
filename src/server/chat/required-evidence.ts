@@ -6,10 +6,12 @@ import type {
   RecommendationCard,
   RecommendationCardKind,
 } from "@/server/chat/agent-runtime";
+import { recognizeRealityCheckRequest } from "@/server/chat/reality-check";
 
 export type RequiredEvidencePlan = {
   requiredToolCalls: readonly RequiredEvidenceToolCall[];
   allowedCardKinds?: readonly RecommendationCardKind[];
+  allowedPlaceNames?: readonly string[];
 };
 
 export type RequiredEvidenceRepair = {
@@ -37,7 +39,8 @@ export type RequiredEvidenceToolCall =
   | RequiredWebResearchEvidenceToolCall
   | RequiredPlaceEvidenceToolCall
   | RequiredWeatherEvidenceToolCall
-  | RequiredNightlifeEventEvidenceToolCall;
+  | RequiredNightlifeEventEvidenceToolCall
+  | RequiredLocalFactsEvidenceToolCall;
 
 export type RequiredWebResearchEvidenceToolCall = RequiredEvidenceToolCallBase & {
   name: "research_web";
@@ -56,8 +59,16 @@ export type RequiredNightlifeEventEvidenceToolCall = RequiredEvidenceToolCallBas
   name: "search_nightlife_events";
 };
 
+export type RequiredLocalFactsEvidenceToolCall = RequiredEvidenceToolCallBase & {
+  name: "query_local_facts";
+};
+
 export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): RequiredEvidencePlan {
   const latestContent = latestUserContent(request);
+  const accommodationContext = accommodationRealityCheckContext(request);
+  if (accommodationContext) {
+    return buildAccommodationRealityCheckEvidencePlan(accommodationContext);
+  }
   if (isCurrentGeneralLunaDinnerLookup(latestContent)) {
     return buildCurrentGeneralLunaDinnerEvidencePlan();
   }
@@ -66,6 +77,109 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
   }
 
   return { requiredToolCalls: [] };
+}
+
+type AccommodationRealityCheckContext = {
+  areas: readonly string[];
+  content: string;
+  propertyName?: string;
+};
+
+function accommodationRealityCheckContext(
+  request: AgentRuntimeRequest,
+): AccommodationRealityCheckContext | undefined {
+  const userTurns = request.messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.content);
+  const latestUserTurn = userTurns.at(-1) ?? "";
+  const recentUserContext = userTurns.slice(0, -1).slice(-3).join(" ");
+  const recognition = recognizeRealityCheckRequest({ latestUserTurn, recentUserContext });
+  if (
+    !recognition.explicit ||
+    recognition.kind !== "accommodation" ||
+    recognition.missingContext.length > 0
+  ) {
+    return undefined;
+  }
+
+  const content = [recentUserContext, latestUserTurn].filter(Boolean).join(" ");
+  const storedAccommodation = readNestedString(request.deterministicSignals, [
+    "context",
+    "tripContext",
+    "accommodation",
+  ]);
+  const propertyName = storedAccommodation ?? extractNamedAccommodation(content);
+  const areas = extractAccommodationAreas(content);
+  if (!propertyName && areas.length === 0) {
+    return undefined;
+  }
+  return {
+    areas,
+    content,
+    ...(propertyName ? { propertyName } : {}),
+  };
+}
+
+function buildAccommodationRealityCheckEvidencePlan(
+  context: AccommodationRealityCheckContext,
+): RequiredEvidencePlan {
+  const requiredToolCalls: RequiredEvidenceToolCall[] = [];
+  if (context.propertyName) {
+    const location = inferPlacesRepairLocation(context.content);
+    requiredToolCalls.push({
+      name: "search_places",
+      purpose: "accommodation_property_identity",
+      arguments: {
+        query: `${context.propertyName} accommodation Siargao`,
+        center: location.center,
+        radius_meters: Math.max(location.radiusMeters, 12_000),
+        constraints: { included_type: "lodging", open_now: null, page_size: 5 },
+      },
+      acceptedSourceLabels: ["live_checked", "fresh_cache"],
+      terminalSourceLabels: ["not_verified", "provider_unavailable"],
+      requiresOpenNow: false,
+    });
+  }
+
+  for (const area of context.areas) {
+    requiredToolCalls.push({
+      name: "query_local_facts",
+      purpose: "accommodation_area_fit",
+      arguments: {
+        entityTypes: ["area", "route"],
+        area: area.toLowerCase(),
+        text: area,
+        limit: 5,
+      },
+      acceptedSourceLabels: ["curated_local_guide", "fresh_cache", "live_checked"],
+      terminalSourceLabels: ["not_verified", "provider_unavailable"],
+    });
+  }
+
+  if (needsCurrentAccommodationWebEvidence(context.content)) {
+    requiredToolCalls.push({
+      name: "research_web",
+      purpose: "accommodation_current_public_claims",
+      arguments: {
+        query: `${context.propertyName ?? context.areas.join(" versus ")} Siargao current availability price booking details`,
+        intent: "availability",
+        location: context.areas[0] ?? "Siargao",
+        dateContext: "none",
+        sourceTypes: ["official", "local_directory", "maps"],
+        requiredFreshness: "same_day",
+        maxSources: 6,
+      },
+      acceptedSourceLabels: ["official_checked", "directory_checked", "web_researched"],
+      terminalSourceLabels: ["insufficient_web_evidence", "provider_unavailable"],
+    });
+  }
+
+  return {
+    requiredToolCalls,
+    ...(context.propertyName
+      ? { allowedCardKinds: ["place"], allowedPlaceNames: [context.propertyName] }
+      : {}),
+  };
 }
 
 export function missingRequiredEvidenceToolCalls(
@@ -450,6 +564,52 @@ function inferPlacesRepairLocation(content: string): {
   };
 }
 
+const accommodationAreaNames = [
+  "General Luna",
+  "Cloud 9",
+  "Malinao",
+  "Pacifico",
+  "Dapa",
+  "Del Carmen",
+  "Alegria",
+] as const;
+
+function extractAccommodationAreas(content: string) {
+  const normalized = normalizeLookupKey(content);
+  return accommodationAreaNames.filter((area) => normalized.includes(normalizeLookupKey(area)));
+}
+
+function extractNamedAccommodation(content: string) {
+  const matches = content.matchAll(
+    /\b([A-Z][\p{L}\d&'’.-]*(?:\s+[A-Z][\p{L}\d&'’.-]*){0,6}\s+(?:Hotel|Hostel|Resort|Homestay|Villa|Lodge|Inn|Suites?))\b/gu,
+  );
+  return [...matches]
+    .map((match) =>
+      match[1]
+        ?.replaceAll(/\s+/g, " ")
+        .replace(/^(?:reality[- ]check|check|review|please)\s+/iu, "")
+        .trim(),
+    )
+    .find((value): value is string => Boolean(value && value.length <= 120));
+}
+
+function needsCurrentAccommodationWebEvidence(content: string) {
+  return /\b(?:availability|available\s+(?:for|on)|current\s+(?:price|rate)|prices?|rates?|book(?:ing)?\s+(?:for|on)|vacancy|vacancies)\b/iu.test(
+    content,
+  );
+}
+
+function readNestedString(value: unknown, path: readonly string[]) {
+  let current = value;
+  for (const segment of path) {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    current = current[segment];
+  }
+  return typeof current === "string" && current.trim() ? current.trim().slice(0, 120) : undefined;
+}
+
 function finalPayloadUsesResearchToolCall(
   finalPayload: AgentFinalPayload | undefined,
   toolResults: readonly Pick<AgentToolResult, "name" | "toolCallId">[],
@@ -508,6 +668,9 @@ function hasCheckedEvidenceOverclaim(
     if (requiredCall.name === "research_web") {
       return hasWebResearchCheckedClaim(normalizedAnswer);
     }
+    if (requiredCall.name === "query_local_facts") {
+      return hasLocalFactsCheckedClaim(normalizedAnswer);
+    }
     return hasWeatherCheckedClaim(normalizedAnswer);
   });
 }
@@ -543,6 +706,12 @@ function hasWebResearchCheckedClaim(value: string) {
   );
 }
 
+function hasLocalFactsCheckedClaim(value: string) {
+  return /\b(?:local[-\s]?(?:guide|facts?)\s+(?:was|were)?\s*(?:checked|verified|confirmed)|checked\s+(?:local|area|route)\s+(?:guide|facts?|fit)|according\s+to\s+(?:the\s+)?(?:local|area)\s+(?:guide|facts?))\b/iu.test(
+    value,
+  );
+}
+
 function hasSatisfyingToolCall(
   requiredCall: RequiredEvidenceToolCall,
   toolCalls: readonly AgentToolCallAudit[],
@@ -573,10 +742,11 @@ function hasCompletedToolCall(
     (toolCall) =>
       toolCall.name === requiredCall.name &&
       requiredEvidenceArgumentsMatch(requiredCall, toolCall.arguments) &&
-      toolCall.sources.some(
+      (toolCall.sources.some(
         (source) =>
           acceptedSourceLabelSet.has(source.label) || terminalSourceLabelSet.has(source.label),
-      ),
+      ) ||
+        (requiredCall.name === "query_local_facts" && toolCall.status === "success")),
   );
 }
 
@@ -599,6 +769,19 @@ function requiredEvidenceArgumentsMatch(
 ) {
   if (requiredCall.name === "research_web") {
     return requiredWebEvidenceArgumentsMatch(requiredCall, actualArguments);
+  }
+  if (requiredCall.name === "query_local_facts") {
+    const expectedArea =
+      typeof requiredCall.arguments.area === "string" ? requiredCall.arguments.area : undefined;
+    const actualArea = typeof actualArguments.area === "string" ? actualArguments.area : undefined;
+    const entityTypes = Array.isArray(actualArguments.entityTypes)
+      ? actualArguments.entityTypes
+      : [];
+    return (
+      (!expectedArea ||
+        normalizeLookupKey(actualArea ?? "") === normalizeLookupKey(expectedArea)) &&
+      entityTypes.includes("area")
+    );
   }
   if (
     requiredCall.name !== "search_places" ||
@@ -713,6 +896,9 @@ function requiredEvidenceAcceptsPlaceCard(
   nightlifeVenueNames: readonly string[],
   researchEntityNames: readonly string[],
 ) {
+  if (plan.allowedPlaceNames?.length) {
+    return plan.allowedPlaceNames.some((placeName) => placeCardMatchesVenue(card, placeName));
+  }
   const requiresResearchSelectedEntities = plan.requiredToolCalls.some(
     (requiredCall) =>
       requiredCall.name === "search_places" &&

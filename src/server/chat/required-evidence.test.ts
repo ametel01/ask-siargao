@@ -27,6 +27,150 @@ describe("required evidence planning", () => {
     expect(missingRequiredEvidenceToolCalls(plan, [])).toEqual([]);
   });
 
+  test("requires exact-property Places evidence and area-fit facts for accommodation checks", () => {
+    const plan = buildRequiredEvidencePlan({
+      requestId: "request_accommodation_reality_check",
+      messages: [
+        {
+          role: "user",
+          content:
+            "Reality-check Bravo Beach Resort in General Luna before I book. We have kids, no scooter, and need quiet sleep.",
+        },
+      ],
+    });
+
+    expect(plan.requiredToolCalls.map((call) => [call.name, call.purpose])).toEqual([
+      ["search_places", "accommodation_property_identity"],
+      ["query_local_facts", "accommodation_area_fit"],
+    ]);
+    expect(plan.requiredToolCalls[0]?.arguments).toMatchObject({
+      query: "Bravo Beach Resort accommodation Siargao",
+      constraints: { included_type: "lodging", open_now: null, page_size: 5 },
+    });
+    expect(plan.requiredToolCalls[1]?.arguments).toEqual({
+      entityTypes: ["area", "route"],
+      area: "general luna",
+      text: "General Luna",
+      limit: 5,
+    });
+    expect(plan.allowedPlaceNames).toEqual(["Bravo Beach Resort"]);
+  });
+
+  test("uses bounded recent context to resolve a referenced accommodation", () => {
+    const plan = buildRequiredEvidencePlan({
+      requestId: "request_referenced_accommodation",
+      messages: [
+        {
+          role: "user",
+          content: "We are considering Bravo Beach Resort in General Luna.",
+        },
+        { role: "assistant", content: "What would you like checked?" },
+        { role: "user", content: "Reality-check this hotel before I book." },
+      ],
+    });
+
+    expect(plan.requiredToolCalls[0]).toMatchObject({
+      name: "search_places",
+      purpose: "accommodation_property_identity",
+      arguments: { query: "Bravo Beach Resort accommodation Siargao" },
+    });
+  });
+
+  test("checks each compared stay area without manufacturing a property lookup", () => {
+    const plan = buildRequiredEvidencePlan({
+      requestId: "request_area_reality_check",
+      messages: [
+        {
+          role: "user",
+          content:
+            "Should we stay in General Luna or Malinao with kids, no scooter, quiet sleep, and a budget?",
+        },
+      ],
+    });
+
+    expect(plan.requiredToolCalls.map((call) => [call.name, call.arguments.area])).toEqual([
+      ["query_local_facts", "general luna"],
+      ["query_local_facts", "malinao"],
+    ]);
+    expect(plan.allowedPlaceNames).toBeUndefined();
+  });
+
+  test("adds current web evidence only for explicit accommodation price or availability claims", () => {
+    const plan = buildRequiredEvidencePlan({
+      requestId: "request_current_accommodation",
+      messages: [
+        {
+          role: "user",
+          content:
+            "Reality-check Bravo Beach Resort in General Luna and its current price and availability before I book.",
+        },
+      ],
+    });
+
+    expect(plan.requiredToolCalls.map((call) => call.purpose)).toEqual([
+      "accommodation_property_identity",
+      "accommodation_area_fit",
+      "accommodation_current_public_claims",
+    ]);
+  });
+
+  test("does not create accommodation evidence calls while the property is missing", () => {
+    const plan = buildRequiredEvidencePlan({
+      requestId: "request_missing_accommodation",
+      messages: [{ role: "user", content: "Reality-check this hotel before I book." }],
+    });
+
+    expect(plan.requiredToolCalls).toEqual([]);
+  });
+
+  test("allows only the named accommodation card from mixed Places results", () => {
+    const plan = buildRequiredEvidencePlan({
+      requestId: "request_accommodation_cards",
+      messages: [
+        {
+          role: "user",
+          content: "Reality-check Bravo Beach Resort in General Luna before I book.",
+        },
+      ],
+    });
+    const placesSource = {
+      label: "live_checked" as const,
+      sourceName: "Google Places",
+      checked: ["place identity"],
+      notChecked: ["room condition"],
+    };
+
+    expect(
+      requiredEvidencePlaceCardIds(plan, [
+        {
+          name: "search_places",
+          toolCallId: "call_places",
+          status: "success",
+          text: "Two lodging results returned.",
+          sources: [placesSource],
+          cards: [
+            {
+              id: "place_bravo",
+              kind: "place",
+              title: "Bravo Beach Resort",
+              fitReasons: [],
+              caveats: [],
+              sourceLabel: "Google Places - live checked",
+            },
+            {
+              id: "place_unrelated",
+              kind: "place",
+              title: "Unrelated Siargao Hotel",
+              fitReasons: [],
+              caveats: [],
+              sourceLabel: "Google Places - live checked",
+            },
+          ],
+        },
+      ]),
+    ).toEqual(["place_bravo"]);
+  });
+
   test("plans vehicle rental evidence as Places first with web fallback after terminal failure", () => {
     const plan = buildRequiredEvidencePlan({
       requestId: "request_required_evidence_vehicle_rental",
