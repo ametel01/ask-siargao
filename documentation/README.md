@@ -9,3 +9,6 @@ This documentation set is for people maintaining, operating, or releasing the co
 - [Environment reference](developer/reference/environment.md)
 - [Clerk auth and chat persistence requirements](developer/reference/clerk-auth-session-chat-history-requirements.md)
 - [Architecture and boundaries](developer/explanation/audit-lifecycle-and-boundaries.md)
+- [Reality Check contract](developer/reference/reality-check-contract.md)
+- [On-demand Reality Check lifecycle](developer/explanation/on-demand-reality-check-lifecycle.md)
+- [Extend a Reality Check kind](developer/how-to-guides/extend-a-reality-check-kind.md)

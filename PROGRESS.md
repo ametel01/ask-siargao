@@ -29,14 +29,39 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
 - [x] Step 5: Today/Tomorrow and Surf Decision Vertical Slices
 - [x] Step 6: Disruption Recovery Vertical Slice
 - [x] Step 7: Reality-Check Presentation and Product Entry Points
-- [ ] Step 8: Documentation, Evaluation, and Release Proof
+- [x] Step 8: Documentation, Evaluation, and Release Proof
 
 ### Current status
 
-- Status: Step 7 complete; Step 8 is next.
-- Definition of Done: not yet satisfied.
+- Status: Steps 0-8 complete; the on-demand Reality Check plan is complete.
+- Definition of Done: satisfied.
 - Baseline gate: passed at `88b998f` before Step 1 production changes.
 - Current blocker: none.
+
+### Definition of Done
+
+- [x] `/chat` and `/api/chat` support accommodation, itinerary, today/tomorrow, surf-session, and
+  disruption-recovery Reality Checks through explicit traveler submissions.
+- [x] Qualifying responses contain one normalized server-validated summary; ordinary Siargao
+  questions retain their existing answer path without a forced verdict.
+- [x] Missing input produces focused clarification, and unavailable required evidence cannot become
+  a checked/live or decisive claim.
+- [x] Accommodation checks separate named-property identity, governed area fit, traveler
+  constraints, and unverified recurring qualities.
+- [x] Itinerary checks identify supported sequence, geography, transport, timing, reservation,
+  weather, and traveler-constraint conflicts while labeling estimates.
+- [x] Immediate and surf decisions require successful current evidence, and deferred-promise tests
+  prove upstream evidence completes before dependent work starts.
+- [x] Disruption recovery returns a request-time replacement or bounded `needs_confirmation`
+  without promising monitoring, intervention, operator contact, or booking.
+- [x] Strict selection covers omitted/auto-selected and adversarial explicit mixed card, itinerary,
+  and decision-summary paths.
+- [x] Public-turn sanitization, source consistency, authenticated history, legacy summaries, and
+  privacy/raw-provider boundaries are covered.
+- [x] `/chat` remains idle until explicit submission; no Reality Check scheduler, recurring job,
+  notification transport, or background agent was added.
+- [x] Landing and chat positioning describe on-demand request-time judgment without unsupported
+  currency, accuracy, availability, human-confirmation, or booking promises.
 
 ### Update log
 
@@ -361,8 +386,60 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
 - Residual risks: request-time sources can still be partial or unavailable; long subjects and
   fallbacks are bounded server-side and covered at mobile widths. The existing full-suite motion
   benchmark remains sensitive to parallel host load despite clean isolated evidence.
-- Commit: this Step 7 commit.
+- Commit: `b044d8f` (`Present Ask Siargao reality checks`).
 - Next step: finish documentation, deterministic evaluation, and release proof.
+
+#### Step 8 - Documentation, Evaluation, and Release Proof
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: added a developer lifecycle explanation, a neutral contract reference, and an
+  extension how-to; updated README, documentation indexes, route/response reference, scripts, and
+  data-pipeline product direction; added an executable deterministic Reality Check evaluation
+  module, runner, focused tests, and checked-in JSON artifact.
+- Acceptance criteria checked:
+  - New maintainers have separate explanation, reference, and task-oriented extension guidance for
+    kinds, verdicts, structured validation, source sufficiency, provider failure, semantic ordering,
+    artifact selection, persistence, compatibility, privacy, and the synchronous request lifecycle.
+  - The matrix executes six representative prompts spanning all five Reality Check kinds, including
+    the kids/no-scooter constraint, plus missing input, provider failure, partial evidence, legacy
+    response, and adversarial mixed-artifact cases.
+  - The final changed-file inventory contains documentation, the deterministic evaluation surface,
+    its package script, and this progress ledger only. It adds no production route, scheduler,
+    notification transport, background worker, operator workflow, booking action, schema change, or
+    provider ingestion path.
+  - Scope-copy inspection found operational, booking, guarantee, privacy, coordinate, and raw-
+    provider terms only in explicit exclusion/boundary statements; no unsupported capability or
+    marketing promise was introduced.
+  - All Definition of Done items above are checked.
+- Validation:
+  - `bun run eval:reality-check -- --write`: passed; generated schema version 1 with six passing
+    product scenarios, five passing fail-closed contracts, and covered semantic-ordering and public-
+    boundary evidence.
+  - Focused evaluation suite: 3 tests passed, 0 failed, 15 assertions.
+  - Final `bun run format`: passed; 408 files formatted after generated-artifact normalization.
+  - Authoritative final `bun run verify:ci`: passed.
+  - `bun run lint`: passed; 409 files checked with no fixes.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed; 1,204 tests, 0 failed, 6,262 assertions across 118 files.
+  - `bun run db:migrate:test`: passed; 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed; 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed with 29 static pages generated and the production route inventory.
+  - `bun run test:e2e`: passed; 95 tests, 0 failed. The CPU-throttled decision-strip benchmark
+    recorded one pre-motion host long task, zero motion long tasks over 50 ms, and zero layout shift.
+  - The first release-gate attempts caught generated JSON/import formatting and one union-narrowing
+    type error; both were corrected before the authoritative full pass above.
+- Changelog decision: no new Step 8 entry because documentation, evaluation, and validation do not
+  change traveler behavior. Reconciled the existing `[Unreleased]` entries for structured verdicts,
+  all five vertical slices, and presentation/positioning; no qualifying functional entry is missing.
+- Residual risks: request-time provider evidence can remain partial or unavailable by design, which
+  yields bounded uncertainty or `needs_confirmation`. The motion benchmark passed the final full
+  suite and retained its strict threshold; its previously observed host-load sensitivity remains a
+  reason for future checker/maintainer runs to preserve isolated benchmark evidence if CI variance
+  returns.
+- Commits: `88b998f`, `2f44c5c`, `a01eaf9`, `3be7bc3`, `ff69ba6`, `45fe10b`, `d0b89d0`,
+  `b044d8f`, and this Step 8 commit (`Document on-demand reality checks`).
+- Final repository target: clean worktree after the Step 8 commit; no current blocker.
 
 ## Baseline
 

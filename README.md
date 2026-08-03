@@ -1,8 +1,15 @@
 # Ask Siargao
 
-Ask Siargao is a Next.js App Router application for a chat-first Siargao tour-operator assistant. Travelers paste a trip plan or ask practical Siargao questions, and the app answers with fresh local data, normalized facts, confidence, and source-aware constraints. The chat scope guard politely declines clearly unrelated non-Siargao topics.
+Ask Siargao is a Next.js App Router application for on-demand Siargao Reality Checks. Travelers
+submit an accommodation, itinerary, immediate plan, surf session, or disrupted plan, and the app
+returns a structured keep/change/avoid/needs-confirmation decision using request-time evidence,
+governed local knowledge, and explicit source limits. Ordinary Siargao travel questions remain
+supported, while the chat scope guard politely declines clearly unrelated topics.
 
-The root experience now presents the Ask Siargao landing page and links into a static assistant workspace at `/chat`. The codebase still includes earlier audit/report surfaces while the broader product direction shifts toward a free preview chat plus a paid Siargao Trip Pass with bounded live data refreshes.
+The root experience presents the Ask Siargao landing page and links into the interactive assistant at
+`/chat`. Reality Checks run only after explicit message submission; opening the app does not start
+agent work. The codebase still includes earlier audit/report surfaces and a free-to-paid Trip Pass
+allowance around the same request-driven chat product.
 
 ## Documentation
 
@@ -10,6 +17,8 @@ The root experience now presents the Ask Siargao landing page and links into a s
 - [Release-candidate QA checklist](documentation/developer/how-to-guides/run-release-candidate-qa.md)
 - [Environment reference](documentation/developer/reference/environment.md)
 - [Routes and surfaces reference](documentation/developer/reference/routes-and-surfaces.md)
+- [Reality Check contract](documentation/developer/reference/reality-check-contract.md)
+- [On-demand Reality Check lifecycle](documentation/developer/explanation/on-demand-reality-check-lifecycle.md)
 
 ## Local Entry Points
 
@@ -28,7 +37,7 @@ bun run dev
 Primary browser surfaces:
 
 - `/`: Ask Siargao landing page.
-- `/chat`: Ask Siargao assistant workspace mockup.
+- `/chat`: interactive Ask Siargao assistant and on-demand Reality Check workspace.
 - `/audits/demo/report`: legacy synthetic audit report fixture.
 - `/admin/diagnostics`: local operator diagnostics.
 

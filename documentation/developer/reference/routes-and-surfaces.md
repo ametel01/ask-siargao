@@ -5,7 +5,7 @@
 | Route | Purpose | Indexing |
 | --- | --- | --- |
 | `/` | Ask Siargao chat-first landing page | Public |
-| `/chat` | Ask Siargao assistant workspace with anonymous chat and signed-in chat history | Public |
+| `/chat` | Ask Siargao assistant workspace with anonymous chat, signed-in chat history, and on-demand accommodation, itinerary, immediate-plan, surf-session, and disruption Reality Checks | Public |
 | `/trips/shared/[token]` | Public shared saved-trip plan with selected cards/itineraries only | `noindex, nofollow` metadata |
 | `/settings` | Signed-in traveler trip brief with structured current-trip and durable-preference controls, including removable interests/areas and bounded travel, food, surf, quiet-sleep, and weather choices; it also includes private chat and saved-planning summaries plus privacy controls for marketing consent, stored location context, chat-history deletion, and saved-planning deletion | Private authenticated surface |
 | `/profile` | Compatibility alias that renders the signed-in traveler trip brief | Private authenticated surface |
@@ -34,7 +34,7 @@
 
 | Route | Method | Purpose | Protection |
 | --- | --- | --- | --- |
-| `/api/chat` | `POST` | Validate chat turns, run the Ask Siargao agent, and persist owner-scoped thread/messages when a Clerk session is present | Public for anonymous stateless chat; Clerk-authenticated requests persist owned turns |
+| `/api/chat` | `POST` | Validate an explicitly submitted chat turn, run the Ask Siargao agent, return selected public artifacts and optional server-validated Reality Check summaries, and persist owner-scoped thread/messages when a Clerk session is present | Public for anonymous stateless chat; Clerk-authenticated requests persist owned turns |
 | `/api/chat/threads` | `GET`, `POST` | List the current user's non-deleted chat threads newest first or create an empty owned thread | Clerk-authenticated user only |
 | `/api/chat/threads/[threadId]` | `GET`, `PATCH`, `DELETE` | Hydrate an owned chat thread with messages, rename or archive it, or soft-delete it | Clerk-authenticated owner only; cross-user access returns `404` |
 | `/api/chat/ratings` | `PUT` | Create or update the current user's rating for an owned assistant message | Clerk-authenticated owner only; cross-user access returns `404` and user-message targets return `400` |
@@ -42,6 +42,13 @@
 Authenticated chat persistence stores user and assistant-visible message content, public sources,
 selected public artifacts, redacted tool-call summaries without raw arguments, and browser-location
 context summaries without exact coordinates.
+
+Qualifying explicit requests can return one entry in `decisionSummaries` with `kind`, `verdict`,
+`subject`, `bestAction`, `basis`, optional fallback/avoid/timing/area fields, and server-derived
+public sources. Its ID and sources are server-owned; model-referenced evidence call IDs are not
+public. Older summaries without `kind`, `verdict`, or `subject` remain valid. Selected cards and
+itineraries stay in their existing response arrays and are filtered independently. Loading `/chat`
+or a prompt deep link does not submit `POST /api/chat`.
 
 `POST /api/me/privacy` with `delete_chat_history` physically removes the authenticated user's
 ratings, messages, and threads from active chat tables, including archived and soft-deleted threads.
