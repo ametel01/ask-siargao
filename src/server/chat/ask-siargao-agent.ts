@@ -2926,6 +2926,54 @@ function missingRequiredItineraryChecks(
 
   for (const result of toolResults) {
     const requiredToolChecks = readRequiredToolChecks(result.data);
+    if (!requiredToolChecks?.localFacts || requiredToolChecks.localFacts.length === 0) {
+      continue;
+    }
+    for (const localFactsCheck of requiredToolChecks.localFacts) {
+      const argumentsForLocalFacts = {
+        entityTypes: localFactsCheck.entityTypes,
+        text: localFactsCheck.text,
+        limit: localFactsCheck.limit,
+      };
+      const key = requiredCheckKey("query_local_facts", argumentsForLocalFacts);
+      if (
+        !seen.has(key) &&
+        !hasMatchingToolCall(toolCalls, "query_local_facts", argumentsForLocalFacts)
+      ) {
+        missing.push({
+          callId: `auto_required_local_facts_${missing.length + 1}`,
+          name: "query_local_facts",
+          arguments: argumentsForLocalFacts,
+        });
+        seen.add(key);
+      }
+    }
+    if (requiredToolChecks.weather) {
+      const argumentsForWeather = {
+        location: requiredToolChecks.weather.location,
+        date_range: requiredToolChecks.weather.date_range,
+      };
+      const key = requiredCheckKey("get_weather_forecast", argumentsForWeather);
+      if (
+        !seen.has(key) &&
+        !hasMatchingToolCall(toolCalls, "get_weather_forecast", argumentsForWeather)
+      ) {
+        missing.push({
+          callId: `auto_required_weather_${missing.length + 1}`,
+          name: "get_weather_forecast",
+          arguments: argumentsForWeather,
+        });
+        seen.add(key);
+      }
+    }
+  }
+
+  if (missing.length > 0) {
+    return missing;
+  }
+
+  for (const result of toolResults) {
+    const requiredToolChecks = readRequiredToolChecks(result.data);
     if (!requiredToolChecks) {
       continue;
     }
@@ -2988,6 +3036,22 @@ function isRequiredToolChecks(value: unknown): value is ItineraryRequiredToolChe
       value.weather.tool !== "get_weather_forecast" ||
       typeof value.weather.location !== "string" ||
       typeof value.weather.date_range !== "string")
+  ) {
+    return false;
+  }
+  if (
+    value.localFacts !== undefined &&
+    (!Array.isArray(value.localFacts) ||
+      !value.localFacts.every(
+        (check) =>
+          isRecord(check) &&
+          check.tool === "query_local_facts" &&
+          Array.isArray(check.entityTypes) &&
+          check.entityTypes.includes("area") &&
+          check.entityTypes.includes("route") &&
+          typeof check.text === "string" &&
+          typeof check.limit === "number",
+      ))
   ) {
     return false;
   }
@@ -3661,7 +3725,8 @@ function isLocalItineraryTheme(value: string): value is LocalItineraryRequest["t
     value === "sunset_plus_dinner" ||
     value === "sandy_beach_half_day" ||
     value === "food_crawl" ||
-    value === "non_surfer_half_day"
+    value === "non_surfer_half_day" ||
+    value === "itinerary_review"
   );
 }
 
@@ -4134,6 +4199,8 @@ function buildAskSiargaoBaseInstructions({
     "For local service lookups such as scooter or motorbike rental in General Luna, call search_places with a natural-language service query; add research_web when public operator or directory evidence is useful. Do not substitute web research alone for map/card recommendations unless Google Places is unavailable.",
     "For an accommodation reality check, use Google Places search/details for the named property's identity and returned public details, governed local facts for area and route fit, and current web research only for current public claims such as price or availability. Apply the traveler's kids, budget, transport, quiet-sleep, accommodation, area, and date constraints from conversation and safe trip context.",
     "Separate accommodation conclusions into checked property facts, governed area fit, traveler-supplied constraints, and unknown property qualities. Ratings, generic reviews, area stereotypes, and absence of complaints do not prove recurring noise, flooding, internet or power reliability, room condition, availability, or safety. State those as unknown and advise direct confirmation; use needs_confirmation when an unknown is material to the verdict.",
+    "For an itinerary feasibility check, call plan_local_itinerary with theme itinerary_review and a bounded transcription of at most seven traveler-supplied stops. Preserve the original order, day labels, explicit times, areas, transport mode, and constraints. Use its conflict analysis and revised action; do not silently invent missing days, times, reservations, opening hours, or availability.",
+    "Treat itinerary travel times as non-live estimates unless a governed route source explicitly supports them. Complete required local route/area and weather checks before dependent Places enrichment. Return one concrete keep/change/avoid decision, the specific conflict, and a workable revised action or fallback.",
     "For any answer based on tool results, return a structured result rather than a thin paragraph. Use a compact markdown table or tight option list for multiple places, providers, events, routes, beaches, activities, weather windows, or other comparable results. Include practical checked details only when tool output supports them, then state the best first move.",
     "If one provider fails but another provider succeeds, use the successful evidence and caveat only the missing check when it matters.",
     "If deterministic signals say browser geolocation is the proximity anchor, do not say the traveler is near a named area unless user text or a tool result supports that named area.",

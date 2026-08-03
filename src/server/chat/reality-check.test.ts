@@ -78,6 +78,14 @@ describe("reality check contract", () => {
     ).toEqual({ explicit: true, kind: "itinerary", missingContext: [] });
   });
 
+  test("recognizes an inline itinerary with explicit timing as reviewable context", () => {
+    expect(
+      recognizeRealityCheckRequest({
+        latestUserTurn: "Review my plan: Day 1 Cloud 9, then an 8 AM Dapa ferry.",
+      }),
+    ).toEqual({ explicit: true, kind: "itinerary", missingContext: [] });
+  });
+
   test.each([
     "Where should we eat near Cloud 9?",
     "What is Siargao known for?",

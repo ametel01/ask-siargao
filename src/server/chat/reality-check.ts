@@ -439,7 +439,7 @@ function isAccommodationCheck(value: string) {
 
 function isItineraryCheck(value: string) {
   return (
-    /\b(?:itinerary|day[-\s]?by[-\s]?day|\d+[-\s]?day\s+plan|four[-\s]?day\s+plan|this\s+plan)\b/i.test(
+    /\b(?:itinerary|day[-\s]?by[-\s]?day|\d+[-\s]?day\s+plan|four[-\s]?day\s+plan|(?:this|my|our)\s+plan)\b/i.test(
       value,
     ) &&
     /\b(?:reality[-\s]?check|feasible|workable|realistic|review|critique|what(?:'s|\s+is)\s+wrong|does\s+(?:it|this)\s+work)\b/i.test(
@@ -498,11 +498,11 @@ function referencesUnresolvedItinerary(latestUserTurn: string, recentUserContext
   const usesReference = /\b(?:this|my|our)\s+(?:\w+[-\s]day\s+)?(?:itinerary|plan)\b/i.test(
     latestUserTurn,
   );
-  return usesReference && !hasItineraryDetails(recentUserContext);
+  return usesReference && !hasItineraryDetails(`${recentUserContext} ${latestUserTurn}`);
 }
 
 function hasItineraryDetails(value: string) {
-  return /\b(?:day\s*(?:one|two|three|four|five|six|seven|\d+)|then|morning|afternoon|evening|ferry|airport)\b/i.test(
+  return /\b(?:day\s*(?:one|two|three|four|five|six|seven|\d+)|then|morning|afternoon|evening|ferry|airport|\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.test(
     value,
   );
 }

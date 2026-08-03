@@ -40,6 +40,10 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added on-demand itinerary feasibility Reality Checks that review bounded traveler-supplied plans,
+  identify timing, geography, transport, and weather-exposure conflicts, label non-live travel
+  estimates, require upstream route and weather evidence before dependent place enrichment, and
+  return a concrete revision with tightly selected itinerary and fallback artifacts.
 - Added on-demand accommodation Reality Checks that verify named-property identity, compare
   governed area fit against traveler constraints, bound unverified property qualities, request
   focused missing context, and suppress unrelated place cards or positive verdicts after provider

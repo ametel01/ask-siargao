@@ -5327,6 +5327,315 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.toolCalls).toEqual([]);
   });
 
+  test("reviews an itinerary and waits for upstream checks before Places enrichment", async () => {
+    const routeSource: AnswerSourceSummary = {
+      label: "curated_local_guide",
+      sourceName: "Ask Siargao governed route facts",
+      confidence: "medium",
+      checked: ["Cloud 9, Pacifico, and Dapa area relationship"],
+      notChecked: ["live traffic", "vehicle availability"],
+    };
+    const reviewPlan: ItineraryPlan = {
+      id: "itinerary_feasibility_review",
+      title: "Itinerary Feasibility Review",
+      durationLabel: "2 days, 3 stops",
+      decision: {
+        label: "avoid_today",
+        bestAction: "Move the final north-island night to General Luna or Dapa.",
+      },
+      stops: [
+        {
+          title: "Cloud 9 sunset",
+          kind: "activity",
+          sequence: 1,
+          area: "Cloud 9",
+          rationale: "Day 1 at 16:00.",
+          caveats: ["Current weather needs a separate check."],
+        },
+        {
+          title: "Pacifico dinner",
+          kind: "meal",
+          sequence: 2,
+          area: "Pacifico",
+          travelTimeFromPreviousMinutes: 83,
+          rationale: "Day 1 at 19:00.",
+          caveats: ["Transfer time is a non-live estimate, not live traffic."],
+        },
+        {
+          title: "Dapa ferry",
+          kind: "transfer",
+          sequence: 3,
+          area: "Dapa",
+          rationale: "Day 2 at 08:00.",
+          caveats: ["Ferry schedule changes were not inferred."],
+        },
+      ],
+      fallbackStops: [
+        {
+          title: "Travel south before dark",
+          kind: "transfer",
+          sequence: 1,
+          rationale: "Use if the overnight base cannot change.",
+          caveats: ["Vehicle availability needs confirmation."],
+        },
+      ],
+      skip: ["Pacifico dinner before an early Dapa departure"],
+      sources: [genericSourceSummary],
+    };
+    const dinnerCard: RecommendationCard = {
+      id: "card_pacifico_dinner",
+      kind: "place",
+      title: "Pacifico Dinner House",
+      subtitle: "Pacifico",
+      fitReasons: ["Current Places match for the submitted dinner stop."],
+      caveats: ["Reservations were not checked."],
+      sourceLabel: "Google Places - live checked",
+    };
+    const unselectedCard: RecommendationCard = {
+      ...dinnerCard,
+      id: "card_unselected_pacifico",
+      title: "Unselected Pacifico Venue",
+    };
+    const requiredPlacesArguments = {
+      query: "Pacifico dinner Pacifico Siargao",
+      center: { latitude: 9.954, longitude: 126.088 },
+      radius_meters: 5000,
+      constraints: { included_type: "restaurant", open_now: true, page_size: 5 },
+    };
+    const finalReviewPayload: Partial<AgentFinalPayload> = {
+      answer:
+        "Change the plan: Pacifico dinner leaves a weak overnight position for the 8 AM Dapa ferry. Move south after Cloud 9, especially with kids and no scooter; keep Pacifico Dinner House only if the schedule changes.",
+      usedToolCallIds: [
+        "call_itinerary_review_plan",
+        "auto_required_local_facts_1",
+        "auto_required_weather_2",
+        "auto_required_places_1",
+      ],
+      displayCardIds: [dinnerCard.id],
+      displayItineraryIds: [reviewPlan.id ?? ""],
+      realityCheck: {
+        kind: "itinerary",
+        verdict: "change",
+        subject: "Cloud 9, Pacifico, and early Dapa ferry plan",
+        bestAction: "Move the final north-island night to General Luna or Dapa.",
+        basis:
+          "The governed route context and submitted timing make Pacifico a weak position for the 8 AM Dapa ferry.",
+        fallback: "Drop Pacifico dinner and travel south before dark.",
+        avoid: "Do not rely on the non-live transfer estimate as a ferry guarantee.",
+        timing: "Day 1 evening before the Day 2 8 AM ferry",
+        area: "Pacifico to Dapa",
+        evidenceToolCallIds: [
+          "call_itinerary_review_plan",
+          "auto_required_local_facts_1",
+          "auto_required_weather_2",
+          "auto_required_places_1",
+        ],
+      },
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_itinerary_review_plan",
+        requestId: "req_itinerary_review_plan",
+        callId: "call_itinerary_review_plan",
+        name: "plan_local_itinerary",
+        arguments: {
+          theme: "itinerary_review",
+          transport_mode: "tricycle",
+          needs_weather_check: true,
+          needs_open_now: true,
+          constraints: ["with kids", "no scooter"],
+          review_days: [
+            {
+              day_label: "Day 1",
+              stops: [
+                {
+                  title: "Cloud 9 sunset",
+                  area: "Cloud 9",
+                  kind: "activity",
+                  time: "16:00",
+                  duration_minutes: 90,
+                  weather_sensitive: true,
+                },
+                {
+                  title: "Pacifico dinner",
+                  area: "Pacifico",
+                  kind: "meal",
+                  time: "19:00",
+                  duration_minutes: 90,
+                },
+              ],
+            },
+            {
+              day_label: "Day 2",
+              stops: [
+                {
+                  title: "Dapa ferry",
+                  area: "Dapa",
+                  kind: "transfer",
+                  time: "08:00",
+                  duration_minutes: 30,
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      {
+        id: "resp_itinerary_review_before_upstream",
+        _request_id: "req_itinerary_review_before_upstream",
+        output_text: finalPayloadText({
+          answer: "The plan needs route and weather checks first.",
+          usedToolCallIds: ["call_itinerary_review_plan"],
+        }),
+      },
+      {
+        id: "resp_itinerary_review_before_places",
+        _request_id: "req_itinerary_review_before_places",
+        output_text: finalPayloadText({
+          answer: "The upstream route and weather checks are complete.",
+          usedToolCallIds: [
+            "call_itinerary_review_plan",
+            "auto_required_local_facts_1",
+            "auto_required_weather_2",
+          ],
+        }),
+      },
+      {
+        id: "resp_itinerary_review_final",
+        _request_id: "req_itinerary_review_final",
+        output_text: finalPayloadText(finalReviewPayload),
+      },
+    ]);
+
+    let placesStarted = false;
+    let resolveLocalFacts: ((result: AgentToolResult) => void) | undefined;
+    let markLocalFactsStarted: (() => void) | undefined;
+    const localFactsStarted = new Promise<void>((resolve) => {
+      markLocalFactsStarted = resolve;
+    });
+    const localFactsResult = new Promise<AgentToolResult>((resolve) => {
+      resolveLocalFacts = resolve;
+    });
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "plan_local_itinerary") {
+        return {
+          name: "plan_local_itinerary",
+          status: "success",
+          text: "Reviewed the submitted itinerary and found an early-departure conflict.",
+          data: {
+            plan: reviewPlan,
+            requiredToolChecks: {
+              localFacts: [
+                {
+                  required: true,
+                  tool: "query_local_facts",
+                  entityTypes: ["area", "route"],
+                  text: "Cloud 9 to Pacifico to Dapa",
+                  limit: 10,
+                  reason: "route context must precede place enrichment",
+                },
+              ],
+              weather: {
+                required: true,
+                tool: "get_weather_forecast",
+                location: "General Luna",
+                date_range: "next_7_days",
+                reason: "outdoor sequencing depends on weather",
+              },
+              places: [
+                {
+                  required: true,
+                  tool: "search_places",
+                  ...requiredPlacesArguments,
+                  reason: "the dinner stop needs current identity and opening-hour evidence",
+                },
+              ],
+            },
+          },
+          sources: [genericSourceSummary],
+          itineraries: [reviewPlan],
+        };
+      }
+      if (request.name === "query_local_facts") {
+        markLocalFactsStarted?.();
+        return localFactsResult;
+      }
+      if (request.name === "get_weather_forecast") {
+        return {
+          name: "get_weather_forecast",
+          status: "success",
+          text: "The next-seven-days forecast was checked for the outdoor stop.",
+          sources: [weatherSourceSummary],
+        };
+      }
+      if (request.name === "search_places") {
+        placesStarted = true;
+        return {
+          name: "search_places",
+          status: "success",
+          text: "Current Pacifico dinner Places results returned.",
+          sources: [openNowPlacesSourceSummary],
+          cards: [dinnerCard, unselectedCard],
+        };
+      }
+      return {
+        name: request.name,
+        status: "error",
+        text: `Unexpected tool ${request.name}.`,
+        errorCode: "unexpected_tool",
+        sources: [],
+      };
+    };
+
+    const resultPromise = runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content:
+              "Review my plan: Day 1 Cloud 9 sunset at 4 PM, Pacifico dinner at 7 PM; Day 2 Dapa ferry at 8 AM. We have kids, no scooter, and need current weather and dinner opening hours.",
+          },
+        ],
+        requestId: "agent_request_itinerary_feasibility",
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    await localFactsStarted;
+    expect(placesStarted).toBe(false);
+    resolveLocalFacts?.({
+      name: "query_local_facts",
+      status: "success",
+      text: "Governed route and area facts returned.",
+      sources: [routeSource],
+    });
+    const result = await resultPromise;
+
+    expect(placesStarted).toBe(true);
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "plan_local_itinerary",
+      "query_local_facts",
+      "get_weather_forecast",
+      "search_places",
+    ]);
+    expect(result.message).toContain("**change: Cloud 9, Pacifico, and early Dapa ferry plan**");
+    expect(result.message).toContain("Move the final north-island night to General Luna or Dapa");
+    expect(result.itineraries?.map((itinerary) => itinerary.id)).toEqual([reviewPlan.id]);
+    expect(result.cards?.map((card) => card.id)).toEqual([dinnerCard.id]);
+    expect(JSON.stringify(result.cards)).not.toContain(unselectedCard.title);
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      kind: "itinerary",
+      verdict: "change",
+      sources: [
+        genericSourceSummary,
+        routeSource,
+        weatherSourceSummary,
+        openNowPlacesSourceSummary,
+      ],
+    });
+    expect(client.requests).toHaveLength(4);
+  });
+
   test("rainy Cloud 9 itineraries call planning and weather before final prose", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
@@ -7159,7 +7468,39 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
           arguments: {
             theme: "itinerary_review",
             origin: "Cloud 9",
-            destination: "Dapa ferry terminal",
+            review_days: [
+              {
+                day_label: "Day 1",
+                stops: [
+                  {
+                    title: "Cloud 9 sunset",
+                    area: "Cloud 9",
+                    kind: "activity",
+                    time: "17:00",
+                    duration_minutes: 60,
+                  },
+                  {
+                    title: "Pacifico dinner",
+                    area: "Pacifico",
+                    kind: "meal",
+                    time: "19:30",
+                    duration_minutes: 90,
+                  },
+                ],
+              },
+              {
+                day_label: "Day 2",
+                stops: [
+                  {
+                    title: "Dapa ferry",
+                    area: "Dapa",
+                    kind: "transfer",
+                    time: "08:00",
+                    duration_minutes: 30,
+                  },
+                ],
+              },
+            ],
           },
         },
       ],
@@ -7178,16 +7519,35 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
           "Keep Cloud 9 sunset, but move dinner back toward General Luna or Dapa before the 8 AM ferry.",
         usedToolCallIds: ["call_itinerary_review"],
         displayDecisionSummaryIds: [itineraryReviewSummary.id],
+        realityCheck: {
+          kind: "itinerary",
+          verdict: "change",
+          subject: "Cloud 9, Pacifico, and early Dapa ferry plan",
+          bestAction: "Keep Cloud 9 sunset, but move dinner toward General Luna or Dapa.",
+          basis:
+            "The submitted sequence leaves a weak overnight position before the 8 AM Dapa ferry.",
+          fallback: "Drop Pacifico dinner and travel south before dark.",
+          timing: "the evening before the 8 AM ferry",
+          area: "Pacifico to Dapa",
+          evidenceToolCallIds: ["call_itinerary_review"],
+        },
       },
-      expectedOpening: "Keep Cloud 9 sunset",
+      expectedOpening: "**change: Cloud 9, Pacifico, and early Dapa ferry plan**",
       expectedMessageText: ["General Luna", "Dapa", "8 AM ferry"],
-      expectedDecisionGuidance: "move dinner back",
+      expectedDecisionGuidance: "move dinner toward General Luna or Dapa",
       expectedPublicSources: [localGuideSourceSummary],
       expectedCardIds: [],
       expectedItineraryIds: [],
-      expectedDecisionSummaryIds: [itineraryReviewSummary.id],
+      expectedDecisionSummaryIds: [
+        realityCheckSummaryId(
+          "agent_request_itinerary_review_dapa_ferry",
+          "itinerary",
+          "Cloud 9, Pacifico, and early Dapa ferry plan",
+        ),
+      ],
       expectedArtifactSelection: {
         selectedDecisionSummaryCount: 1,
+        unselectedDecisionSummaryCount: 1,
         selectedItineraryCount: 0,
         unselectedItineraryCount: 1,
       },

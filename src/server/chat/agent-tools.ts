@@ -694,6 +694,7 @@ function planLocalItineraryToolResult(args: LocalItineraryRequest): AgentToolRes
       plan: result.plan,
       requiredToolChecks: result.requiredToolChecks,
       caveats: result.caveats,
+      ...(result.review ? { review: result.review } : {}),
     },
     sources: result.plan.sources,
     itineraries: [result.plan],

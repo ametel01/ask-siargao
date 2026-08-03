@@ -25,7 +25,7 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
 - [x] Step 1: Baseline and Reality-Check Domain Contract
 - [x] Step 2: Server-Validated Structured Verdicts
 - [x] Step 3: Accommodation Reality Check Vertical Slice
-- [ ] Step 4: Itinerary Feasibility Vertical Slice
+- [x] Step 4: Itinerary Feasibility Vertical Slice
 - [ ] Step 5: Today/Tomorrow and Surf Decision Vertical Slices
 - [ ] Step 6: Disruption Recovery Vertical Slice
 - [ ] Step 7: Reality-Check Presentation and Product Entry Points
@@ -33,7 +33,7 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
 
 ### Current status
 
-- Status: Step 3 complete; Step 4 is next.
+- Status: Step 4 complete; Step 5 is next.
 - Definition of Done: not yet satisfied.
 - Baseline gate: passed at `88b998f` before Step 1 production changes.
 - Current blocker: none.
@@ -183,8 +183,59 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
   history summaries, so a traveler must name the property in the current or bounded recent chat
   context for an exact-property check. The existing full-suite motion benchmark remains
   load-sensitive; keep its threshold unchanged and re-run it during the UI and release-proof steps.
-- Commit: this Step 3 commit.
+- Commit: `3be7bc3` (`Add accommodation reality checks`).
 - Next step: implement the Itinerary Feasibility vertical slice.
+
+#### Step 4 - Itinerary Feasibility Vertical Slice
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: added the strict `itinerary_review` planner theme and a bounded seven-day,
+  seven-stop traveler-plan input; deterministic timing, geography, transport, family, and
+  early-departure conflict analysis; transparently estimated transfer ranges; a concrete revised
+  action and fallback; required route/local-fact, weather, and relevant open-now Places checks; and
+  inline itinerary recognition for explicit review requests.
+- Acceptance criteria checked:
+  - A supplied multi-day plan can return one specific keep/change/avoid/needs-confirmation Reality
+    Check with its original submitted stops retained in the reviewed itinerary artifact.
+  - The Cloud 9 to Pacifico dinner leg before an 8 AM Dapa ferry is identified as a material
+    sequencing conflict, with a southbound dinner/overnight revision rather than an invented exact
+    route time or reservation.
+  - Kids and no-scooter constraints produce a separate transport-strain conflict and practical
+    fallback guidance.
+  - Missing day/time detail is surfaced as a focused conflict or clarification rather than silently
+    treated as feasible.
+  - Non-live travel ranges are labeled as estimates, while opening hours, schedules,
+    reservations, and availability remain explicitly unchecked unless a matching request-time
+    evidence call succeeds.
+  - A deferred local-facts promise proves upstream route and weather checks complete before
+    dependent Places enrichment starts.
+  - Explicit mixed selection containing allowed and unrelated itineraries/cards returns only the
+    selected revision and relevant place artifact through both runtime and route boundaries.
+- Validation:
+  - Focused reality-check, itinerary tool, agent-tool, agent-loop, runtime, and route suites passed:
+    353 tests, 0 failed, 2,257 assertions.
+  - Final `bun run verify:ci`: passed.
+  - `bun run lint`: passed; 405 files checked with no warnings.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed; 1,181 tests, 0 failed, 6,188 assertions.
+  - `bun run db:migrate:test`: passed; 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed; 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed; 94 tests, 0 failed.
+  - The first full-gate run reached 93/94 browser tests before the existing load-sensitive motion
+    benchmark reported two long tasks. The exact unchanged benchmark then passed 3/3 in isolation
+    with zero motion long tasks and zero layout shift, and the clean full-gate rerun passed it with
+    zero motion long tasks and all 94 browser tests green.
+  - `git diff --check`: passed.
+- Changelog decision: added an `[Unreleased]` / `Added` entry because itinerary feasibility Reality
+  Checks are now available through the existing on-demand chat path.
+- Residual risks: route times remain intentionally bounded, non-live estimates rather than traffic
+  predictions; ferry schedules, reservations, venue opening hours, and availability require
+  matching request-time evidence. The existing motion benchmark remains load-sensitive and its
+  threshold is unchanged.
+- Commit: this Step 4 commit.
+- Next step: implement the Today/Tomorrow and Surf Decision vertical slices.
 
 ## Baseline
 

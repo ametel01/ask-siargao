@@ -1771,6 +1771,87 @@ describe("chat route", () => {
     expect(JSON.stringify(body)).not.toContain("Unrelated Resort");
   });
 
+  test("returns a selected itinerary revision and its relevant fallback place", async () => {
+    const reviewedItinerary: ItineraryPlan = {
+      ...sunsetDinnerItinerary,
+      title: "Reviewed Cloud 9 to Dapa plan",
+      decision: {
+        label: "fallback",
+        bestAction: "Keep Cloud 9, move dinner south, and stay near Dapa before the early ferry.",
+      },
+      skip: ["Pacifico dinner before an 8 AM Dapa ferry"],
+      sources: [localGuideSourceSummary, placesSourceSummary],
+    };
+    const dapaFallbackCard = {
+      ...placeRecommendationCard,
+      id: "place_dapa_fallback",
+      title: "Dapa fallback dinner",
+      subtitle: "Dapa",
+      sources: [placesSourceSummary],
+    };
+    const itinerarySummary = {
+      id: "reality_check:itinerary:dapa_ferry",
+      kind: "itinerary" as const,
+      verdict: "change" as const,
+      subject: "Cloud 9, Pacifico dinner, then an 8 AM Dapa ferry",
+      bestAction: "Move dinner south and finish near Dapa.",
+      basis: "The northbound dinner leg conflicts with the early southbound departure.",
+      fallback: "Use the selected Dapa dinner option.",
+      timing: "the night before the ferry",
+      area: "Cloud 9 / Dapa",
+      sources: [localGuideSourceSummary, placesSourceSummary],
+    };
+    const dependencies = chatDependencies({
+      message: "Change the Pacifico dinner leg and finish near Dapa before the early ferry.",
+      toolCalls: [
+        toolCall({
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [localGuideSourceSummary],
+        }),
+        toolCall({ name: "search_places", status: "success", sources: [placesSourceSummary] }),
+      ],
+      sources: [localGuideSourceSummary, placesSourceSummary],
+      publicSources: [localGuideSourceSummary, placesSourceSummary],
+      cards: [dapaFallbackCard],
+      itineraries: [reviewedItinerary],
+      decisionSummaries: [itinerarySummary],
+      artifactSelection: routeArtifactSelection({
+        totalCardCount: 2,
+        selectedCardCount: 1,
+        unselectedCardCount: 1,
+        totalItineraryCount: 2,
+        selectedItineraryCount: 1,
+        unselectedItineraryCount: 1,
+        totalDecisionSummaryCount: 1,
+        selectedDecisionSummaryCount: 1,
+      }),
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "Review my plan: Cloud 9 sunset, Pacifico dinner, then an 8 AM Dapa ferry.",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.cards?.map((card: { id: string }) => card.id)).toEqual([dapaFallbackCard.id]);
+    expect(body.itineraries?.map((plan: { title: string }) => plan.title)).toEqual([
+      reviewedItinerary.title,
+    ]);
+    expect(body.decisionSummaries?.map((summary: { id: string }) => summary.id)).toEqual([
+      itinerarySummary.id,
+    ]);
+    expect(body.artifactSelection).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("Unrelated Resort");
+  });
+
   test("returns cross-request public artifacts without internal selection diagnostics", async () => {
     for (const scenario of routeAnswerQualityScenarios()) {
       const dependencies = chatDependencies(scenario.agentResult);
