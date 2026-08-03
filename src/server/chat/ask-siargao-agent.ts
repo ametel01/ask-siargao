@@ -24,6 +24,7 @@ import {
   type AgentToolExecutionRequest,
   type AgentToolResult,
   type AgentTurnResult,
+  agentItineraryArtifactId,
   type ChatClientGeolocationContext,
   createAgentToolCallAudit,
   createAgentTurnResult,
@@ -418,6 +419,25 @@ export async function runAskSiargaoAgentTurn(
               : finalPayload.displayDecisionSummaryIds,
           }
         : finalPayload;
+      const realityCheckAllowedArtifacts = allowedRealityCheckArtifacts({
+        finalPayload: sanitizedFinalPayload,
+        recognition: realityCheckRecognition,
+        toolResults,
+      });
+      const artifactFilteredFinalPayload =
+        sanitizedFinalPayload && realityCheckAllowedArtifacts
+          ? {
+              ...sanitizedFinalPayload,
+              displayCardIds: filterAllowedArtifactIds(
+                sanitizedFinalPayload.displayCardIds,
+                realityCheckAllowedArtifacts.cardIds,
+              ),
+              displayItineraryIds: filterAllowedArtifactIds(
+                sanitizedFinalPayload.displayItineraryIds,
+                realityCheckAllowedArtifacts.itineraryIds,
+              ),
+            }
+          : sanitizedFinalPayload;
       const modelCost = costAccumulator.summary();
       if (modelCost.callCount > 0) {
         trackServerEvent({
@@ -438,16 +458,13 @@ export async function runAskSiargaoAgentTurn(
         ...(realityCheckOutcome.summary
           ? { decisionSummaries: [realityCheckOutcome.summary] }
           : {}),
-        ...(sanitizedFinalPayload ? { finalPayload: sanitizedFinalPayload } : {}),
+        ...(artifactFilteredFinalPayload ? { finalPayload: artifactFilteredFinalPayload } : {}),
         allowedCardKinds: requiredEvidencePlan.allowedCardKinds,
         allowedCardIds: combinedAllowedCardIds(
           requiredEvidenceAllowedCardIds(chatEvidencePolicy, toolResults),
-          realityCheckAllowedCardIds({
-            finalPayload: sanitizedFinalPayload,
-            recognition: realityCheckRecognition,
-            toolResults,
-          }),
+          realityCheckAllowedArtifacts?.cardIds,
         ),
+        allowedItineraryIds: realityCheckAllowedArtifacts?.itineraryIds,
         artifactSelectionMode: requireStructuredFinalOutput ? "strict" : "compatibility",
         repairCount,
       });
@@ -1057,33 +1074,40 @@ type RuntimeRealityCheckOutcome = {
   validated?: ValidatedRealityCheck;
 };
 
-function realityCheckAllowedCardIds(input: {
+function allowedRealityCheckArtifacts(input: {
   finalPayload: AgentFinalPayload | undefined;
   recognition: RealityCheckRecognition;
   toolResults: readonly AgentToolResult[];
 }) {
   if (
     !input.finalPayload ||
-    (input.recognition.kind !== "immediate_plan" && input.recognition.kind !== "surf_session") ||
+    (input.recognition.kind !== "immediate_plan" &&
+      input.recognition.kind !== "surf_session" &&
+      input.recognition.kind !== "disruption_recovery") ||
     input.recognition.missingContext.length > 0
   ) {
     return undefined;
   }
 
   const usedToolCallIds = new Set(input.finalPayload.usedToolCallIds);
-  return uniqueText(
-    input.toolResults.flatMap((result) => {
-      if (
-        result.status !== "success" ||
-        !result.toolCallId ||
-        !usedToolCallIds.has(result.toolCallId) ||
-        !currentConditionDependentToolNames.has(result.name)
-      ) {
-        return [];
-      }
-      return result.cards?.map((card) => card.id) ?? [];
-    }),
+  const allowedToolNames =
+    input.recognition.kind === "disruption_recovery"
+      ? disruptionReplacementToolNames
+      : currentConditionDependentToolNames;
+  const allowedResults = input.toolResults.filter(
+    (result) =>
+      result.status === "success" &&
+      Boolean(result.toolCallId && usedToolCallIds.has(result.toolCallId)) &&
+      allowedToolNames.has(result.name),
   );
+  return {
+    cardIds: uniqueText(
+      allowedResults.flatMap((result) => result.cards?.map((card) => card.id) ?? []),
+    ),
+    itineraryIds: uniqueText(
+      allowedResults.flatMap((result) => result.itineraries?.map(agentItineraryArtifactId) ?? []),
+    ),
+  };
 }
 
 function combinedAllowedCardIds(
@@ -1098,6 +1122,11 @@ function combinedAllowedCardIds(
   }
   const realityCheckIdSet = new Set(realityCheckIds);
   return requiredEvidenceIds.filter((id) => realityCheckIdSet.has(id));
+}
+
+function filterAllowedArtifactIds(ids: readonly string[], allowedIds: readonly string[]) {
+  const allowedIdSet = new Set(allowedIds);
+  return ids.filter((id) => allowedIdSet.has(id));
 }
 
 function recognizeRuntimeRealityCheck(request: AgentRuntimeRequest) {
@@ -3377,12 +3406,43 @@ const currentConditionDependentToolNames = new Set([
   "get_place_details",
 ]);
 
+const disruptionReplacementToolNames = new Set([
+  "plan_local_itinerary",
+  "search_local_guide",
+  "search_places",
+  "get_place_details",
+  "query_local_facts",
+]);
+
+const disruptionUpstreamToolNames = new Set([
+  ...currentConditionUpstreamToolNames,
+  "query_local_facts",
+]);
+
 function currentConditionDependencyPlan(input: {
   functionCalls: readonly ParsedFunctionCall[];
   runtimeRequest: AgentRuntimeRequest;
   toolResults: readonly AgentToolResult[];
 }) {
   const recognition = recognizeRuntimeRealityCheck(input.runtimeRequest);
+  if (recognition.kind === "disruption_recovery" && recognition.missingContext.length === 0) {
+    const upstreamCalls = input.functionCalls.filter((functionCall) =>
+      disruptionUpstreamToolNames.has(functionCall.name),
+    );
+    const hasDependentCall = input.functionCalls.some(
+      (functionCall) =>
+        disruptionReplacementToolNames.has(functionCall.name) &&
+        !disruptionUpstreamToolNames.has(functionCall.name),
+    );
+    if (upstreamCalls.length > 0 && hasDependentCall) {
+      return {
+        upstreamCalls,
+        downstreamCalls: input.functionCalls.filter(
+          (functionCall) => !disruptionUpstreamToolNames.has(functionCall.name),
+        ),
+      };
+    }
+  }
   if (
     (recognition.kind !== "immediate_plan" && recognition.kind !== "surf_session") ||
     recognition.missingContext.length > 0 ||
@@ -4362,6 +4422,8 @@ function buildAskSiargaoBaseInstructions({
     "Treat itinerary travel times as non-live estimates unless a governed route source explicitly supports them. Complete required local route/area and weather checks before dependent Places enrichment. Return one concrete keep/change/avoid decision, the specific conflict, and a workable revised action or fallback.",
     "For an immediate today/tomorrow Reality Check, use the governed condition judgment or other current weather, marine, and tide evidence relevant to the named activity before a decisive verdict. Include when, where, and one practical fallback. Provider failures must remain unavailable or partial rather than checked.",
     "For a surf-session Reality Check, require the surfer's beginner/intermediate/advanced level plus a Siargao spot or area and today/tomorrow timing. Use get_condition_judgment with marine or tide evidence before any dependent surf ranking or place recommendation. Treat SURF.md and local guidance as planning context, not live safety evidence. Never guarantee safe-to-surf conditions; preserve local-coach, rip-current, lifeguard, and exact-break boundaries.",
+    "For a disruption-recovery Reality Check, treat cancellation, closure, bad weather, illness, or lost transport only as traveler-reported conversation state. Check the proposed replacement at request time with the relevant condition, local itinerary, local guide, Places, or governed local-fact tools. Complete condition and local-fact checks before dependent replacement recommendations. Return one best replacement plus one bounded fallback or avoid instruction, and use needs_confirmation when current availability or conditions cannot be established.",
+    "Never imply that Ask Siargao independently detected, monitored, tracked, or will notify about a disruption. Never claim operator contact, booking, reservation, or guaranteed availability.",
     "For any answer based on tool results, return a structured result rather than a thin paragraph. Use a compact markdown table or tight option list for multiple places, providers, events, routes, beaches, activities, weather windows, or other comparable results. Include practical checked details only when tool output supports them, then state the best first move.",
     "If one provider fails but another provider succeeds, use the successful evidence and caveat only the missing check when it matters.",
     "If deterministic signals say browser geolocation is the proximity anchor, do not say the traveler is near a named area unless user text or a tool result supports that named area.",

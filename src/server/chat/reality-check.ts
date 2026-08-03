@@ -78,7 +78,8 @@ export type RealityCheckValidationReason =
   | "missing_surf_evidence"
   | "missing_property_evidence"
   | "unsupported_accommodation_claim"
-  | "unsupported_surf_safety_claim";
+  | "unsupported_surf_safety_claim"
+  | "unsupported_disruption_claim";
 
 export type RealityCheckValidationResult =
   | { status: "valid"; value: ValidatedRealityCheck }
@@ -185,6 +186,18 @@ export function validateRealityCheckProposal(input: {
       sources,
       sourceState,
       reason: "unsupported_surf_safety_claim",
+    });
+  }
+
+  if (
+    input.expectedKind === "disruption_recovery" &&
+    hasUnsupportedDisruptionClaim(input.proposal)
+  ) {
+    return invalidWithUnavailableFallback({
+      proposal: input.proposal,
+      sources,
+      sourceState,
+      reason: "unsupported_disruption_claim",
     });
   }
 
@@ -332,6 +345,7 @@ function invalidWithUnavailableFallback(input: {
     | "missing_property_evidence"
     | "unsupported_accommodation_claim"
     | "unsupported_surf_safety_claim"
+    | "unsupported_disruption_claim"
   >;
 }): RealityCheckValidationResult {
   if (!hasTerminalUnavailableSource(input.sources)) {
@@ -429,6 +443,20 @@ function hasUnsupportedSurfSafetyClaim(proposal: RealityCheckProposal) {
   });
 }
 
+function hasUnsupportedDisruptionClaim(proposal: RealityCheckProposal) {
+  const proposalText = [proposal.bestAction, proposal.basis, proposal.fallback, proposal.avoid]
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
+  return (
+    /\b(?:(?:we|ask\s+siargao|the\s+app)\s+(?:detected|noticed|monitored|tracked|alerted|notified|contacted|called|booked|reserved)|(?:we|ask\s+siargao|the\s+app)\s+will\s+(?:monitor|track|alert|notify|contact|call|book|reserve))\b/iu.test(
+      proposalText,
+    ) ||
+    /\bguarante(?:e|ed|es|eing)\s+(?:availability|a\s+place|a\s+seat|a\s+table|a\s+booking|that\s+.+\s+(?:is|will\s+be)\s+(?:open|available|running))\b/iu.test(
+      proposalText,
+    )
+  );
+}
+
 function dedupeSources(sources: readonly AnswerSourceSummary[]) {
   const seen = new Set<string>();
   return sources.filter((source) => {
@@ -480,7 +508,7 @@ function recognizeRealityCheckKind(latestUserTurn: string): RealityCheckKind | u
 
 function isDisruptionRecoveryRequest(value: string) {
   return (
-    /\b(?:cancelled|canceled|closed|stranded|called\s+off|not\s+running|unavailable)\b/i.test(
+    /\b(?:cancelled|canceled|closed|stranded|called\s+off|not\s+running|unavailable|rained\s+out|heavy\s+rain|too\s+sick|ill|broke\s+down|missed\s+(?:the\s+)?(?:ferry|boat|flight|transfer)|lost\s+(?:our\s+)?(?:ride|transport)|no\s+scooter)\b/i.test(
       value,
     ) &&
     /\b(?:replacement|alternative|instead|what\s+now|what\s+should\s+we\s+do|new\s+plan|backup)\b/i.test(
@@ -606,7 +634,7 @@ function hasDecisionActivityContext(value: string) {
 }
 
 function hasNamedDisruption(value: string) {
-  return /\b(?:island\s+tour|boat|ferry|flight|lesson|surf|restaurant|venue|transfer|ride|reservation|booking|activity)\b/i.test(
+  return /\b(?:island\s+tour|boat|ferry|flight|lesson|surf|restaurant|venue|transfer|ride|reservation|booking|activity|scooter|motorbike|rain|illness|sick|transport)\b/i.test(
     value,
   );
 }

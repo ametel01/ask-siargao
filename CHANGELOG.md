@@ -40,6 +40,10 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
+- Added on-demand disruption-recovery Reality Checks that treat cancellations, closures, weather,
+  illness, and lost transport as traveler-reported state, order request-time evidence before one
+  practical replacement, downgrade unavailable checks, and exclude failed or unrelated cards and
+  itineraries without promising monitoring, operator contact, booking, or availability.
 - Added on-demand current-condition and surf Reality Checks that require request-time condition and
   marine or tide evidence, account for surfer ability, location, and timing, preserve surf-safety
   boundaries, order upstream evidence before dependent recommendations, and suppress unrelated or

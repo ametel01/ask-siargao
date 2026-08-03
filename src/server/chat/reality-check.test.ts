@@ -85,6 +85,19 @@ describe("reality check contract", () => {
     ).toEqual({ explicit: true, kind: "itinerary", missingContext: [] });
   });
 
+  test.each([
+    "Heavy rain ruined our island day. Give us an alternative instead.",
+    "I am too sick for our surf lesson. What should we do instead?",
+    "We lost our ride to Pacifico. Give us a backup activity.",
+    "We have no scooter now. What should we do instead in General Luna?",
+  ])("recognizes traveler-reported disruption state: %s", (latestUserTurn) => {
+    expect(recognizeRealityCheckRequest({ latestUserTurn })).toEqual({
+      explicit: true,
+      kind: "disruption_recovery",
+      missingContext: [],
+    });
+  });
+
   test("recognizes an inline itinerary with explicit timing as reviewable context", () => {
     expect(
       recognizeRealityCheckRequest({
@@ -417,6 +430,57 @@ describe("reality check contract", () => {
         toolResults: [{ ...call, sources: partialSources }],
       }),
     ).toMatchObject({ status: "valid", value: { sourceState: "partial" } });
+  });
+
+  test("rejects monitoring, operator-action, and availability guarantees in disruption recovery", () => {
+    const disruptionCall = {
+      toolCallId: "call_replacement",
+      name: "search_local_guide",
+      status: "success" as const,
+      sources: [],
+    };
+    const disruptionProposal = {
+      kind: "disruption_recovery" as const,
+      verdict: "change" as const,
+      subject: "Traveler-reported cancelled island tour",
+      bestAction: "Use the covered General Luna replacement.",
+      basis: "The curated local guide supports a land-based fallback.",
+      fallback: "Ask Siargao will monitor the operator and notify you.",
+      evidenceToolCallIds: ["call_replacement"],
+    };
+
+    expect(
+      validateRealityCheckProposal({
+        expectedKind: "disruption_recovery",
+        proposal: disruptionProposal,
+        usedToolCallIds: ["call_replacement"],
+        toolCalls: [disruptionCall],
+        toolResults: [
+          {
+            ...disruptionCall,
+            sources: [{ ...checkedSource, label: "curated_local_guide" }],
+          },
+        ],
+      }),
+    ).toEqual({ status: "invalid", reason: "unsupported_disruption_claim" });
+
+    expect(
+      validateRealityCheckProposal({
+        expectedKind: "disruption_recovery",
+        proposal: {
+          ...disruptionProposal,
+          fallback: "Confirm current opening and availability directly before leaving.",
+        },
+        usedToolCallIds: ["call_replacement"],
+        toolCalls: [disruptionCall],
+        toolResults: [
+          {
+            ...disruptionCall,
+            sources: [{ ...checkedSource, label: "curated_local_guide" }],
+          },
+        ],
+      }),
+    ).toMatchObject({ status: "valid" });
   });
 
   test("does not publish an evidence-free needs-confirmation summary", () => {

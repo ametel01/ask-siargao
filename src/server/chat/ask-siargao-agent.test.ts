@@ -4083,6 +4083,298 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     ]);
   });
 
+  test("orders disruption evidence before replacements and filters adversarial mixed artifacts", async () => {
+    const replacementCard = recommendationCard({
+      id: "card_cancelled_tour_replacement",
+      title: "Covered General Luna stop",
+      fitReasons: ["Works as a land-based replacement for the traveler-reported cancellation."],
+      caveats: ["Confirm current space before leaving."],
+    });
+    const unrelatedCard = recommendationCard({
+      id: "card_cancelled_tour_unrelated",
+      title: "Unrelated island-hopping operator",
+      fitReasons: ["Not selected as the replacement."],
+      caveats: ["The original island plan was cancelled."],
+    });
+    const replacementPlan: ItineraryPlan = {
+      id: "itinerary:cancelled_tour:covered_general_luna",
+      title: "Covered General Luna Replacement",
+      durationLabel: "half day",
+      stops: [
+        {
+          title: "Covered General Luna stop",
+          kind: "activity",
+          sequence: 1,
+          area: "General Luna",
+          rationale: "Keeps the replacement on land and close to services.",
+          caveats: ["Confirm current opening before leaving."],
+        },
+      ],
+      fallbackStops: [],
+      skip: ["Do not chase another exposed boat departure in poor conditions."],
+      sources: [localGuideSourceSummary, weatherSourceSummary],
+    };
+    const unrelatedPlan: ItineraryPlan = {
+      ...replacementPlan,
+      id: "itinerary:cancelled_tour:unrelated_boat",
+      title: "Unrelated Boat Replacement",
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_disruption_ordered_calls",
+        _request_id: "req_disruption_ordered_calls",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_disruption_condition",
+            name: "get_condition_judgment",
+            arguments: JSON.stringify({
+              activity: "boat_trip",
+              location: "Siargao Island",
+              date_range: "today",
+              beach_name: null,
+              include_local_caveats: true,
+              constraints: ["cancelled island tour"],
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_disruption_plan",
+            name: "plan_local_itinerary",
+            arguments: JSON.stringify({
+              theme: "rainy_cloud_9_afternoon",
+              origin: "General Luna",
+              duration_hours: 4,
+              needs_weather_check: true,
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_disruption_places",
+            name: "search_places",
+            arguments: JSON.stringify({
+              query: "covered activities General Luna Siargao",
+              center: { latitude: 9.784, longitude: 126.158 },
+              radius_meters: 4000,
+              constraints: { included_type: null, open_now: true, page_size: 5 },
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_disruption_unrelated",
+            name: "search_local_guide",
+            arguments: JSON.stringify({ query: "another island tour", filters: null }),
+          },
+        ],
+      },
+      {
+        id: "resp_disruption_ordered_final",
+        _request_id: "req_disruption_ordered_final",
+        output_text: finalPayloadText({
+          answer: "Use the covered General Luna replacement and keep the boat plan off today.",
+          usedToolCallIds: [
+            "call_disruption_condition",
+            "call_disruption_plan",
+            "call_disruption_places",
+          ],
+          displayCardIds: [replacementCard.id, unrelatedCard.id],
+          displayItineraryIds: [replacementPlan.id ?? "", unrelatedPlan.id ?? ""],
+          realityCheck: {
+            kind: "disruption_recovery",
+            verdict: "change",
+            subject: "Traveler-reported cancelled island tour",
+            bestAction: "Use the covered General Luna replacement today.",
+            basis: "Current conditions and governed local options support a land-based half day.",
+            fallback: "Stay near General Luna and confirm current opening before leaving.",
+            avoid: "Avoid relying on another boat departure today.",
+            timing: "today",
+            area: "General Luna",
+            evidenceToolCallIds: [
+              "call_disruption_condition",
+              "call_disruption_plan",
+              "call_disruption_places",
+            ],
+          },
+        }),
+      },
+    ]);
+    let conditionResolve: ((result: AgentToolResult) => void) | undefined;
+    let conditionStartedResolve: (() => void) | undefined;
+    const conditionStarted = new Promise<void>((resolve) => {
+      conditionStartedResolve = resolve;
+    });
+    const conditionResult = new Promise<AgentToolResult>((resolve) => {
+      conditionResolve = resolve;
+    });
+    let replacementStarted = false;
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "get_condition_judgment") {
+        conditionStartedResolve?.();
+        return conditionResult;
+      }
+      replacementStarted = true;
+      if (request.name === "plan_local_itinerary") {
+        return {
+          name: request.name,
+          status: "success",
+          text: "Prepared the land-based replacement.",
+          sources: [localGuideSourceSummary],
+          itineraries: [replacementPlan],
+        };
+      }
+      if (request.name === "search_places") {
+        return {
+          name: request.name,
+          status: "success",
+          text: "Returned a current covered option.",
+          sources: [placesSourceSummary],
+          cards: [replacementCard],
+        };
+      }
+      if (request.name === "search_local_guide") {
+        return {
+          name: request.name,
+          status: "success",
+          text: "Returned an unrelated boat option.",
+          sources: [localGuideSourceSummary],
+          cards: [unrelatedCard],
+          itineraries: [unrelatedPlan],
+        };
+      }
+      throw new Error(`Unexpected tool ${request.name}`);
+    };
+    const turnPromise = runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Our island tour was cancelled. Give us a workable replacement.",
+          },
+        ],
+        requestId: "agent_request_disruption_ordering",
+      },
+      {
+        client,
+        executeTool,
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    await conditionStarted;
+    await Promise.resolve();
+    expect(replacementStarted).toBe(false);
+    conditionResolve?.({
+      name: "get_condition_judgment",
+      status: "success",
+      text: "Current boat-trip conditions checked.",
+      sources: [weatherSourceSummary, conditionMarineSourceSummary],
+    });
+    const result = await turnPromise;
+
+    expect(replacementStarted).toBe(true);
+    expect(result.cards?.map((card) => card.id)).toEqual([replacementCard.id]);
+    expect(result.itineraries?.map((itinerary) => itinerary.id)).toEqual([replacementPlan.id]);
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      kind: "disruption_recovery",
+      verdict: "change",
+      subject: "Traveler-reported cancelled island tour",
+    });
+    expect(JSON.stringify(result)).not.toContain(unrelatedCard.title);
+    expect(JSON.stringify(result)).not.toContain(unrelatedPlan.title);
+  });
+
+  test("returns needs-confirmation without failed replacement artifacts", async () => {
+    const failedCard = recommendationCard({
+      id: "card_closed_venue_failed_replacement",
+      title: "Unverified replacement venue",
+      fitReasons: ["Returned only with the failed provider result."],
+      caveats: ["Availability could not be established."],
+    });
+    const failedPlan: ItineraryPlan = {
+      id: "itinerary:closed_venue:failed_replacement",
+      title: "Unverified Venue Replacement",
+      durationLabel: "evening",
+      stops: [],
+      fallbackStops: [],
+      skip: [],
+      sources: [providerUnavailableSourceSummary],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_failed_disruption_places",
+        requestId: "req_failed_disruption_places",
+        callId: "call_failed_disruption_places",
+        name: "search_places",
+        arguments: {
+          query: "open dinner alternatives General Luna Siargao",
+          center: { latitude: 9.784, longitude: 126.158 },
+          radius_meters: 4000,
+          constraints: { included_type: "restaurant", open_now: true, page_size: 5 },
+        },
+      }),
+      {
+        id: "resp_failed_disruption_final",
+        _request_id: "req_failed_disruption_final",
+        output_text: finalPayloadText({
+          answer: "Confirm a replacement directly before leaving.",
+          usedToolCallIds: ["call_failed_disruption_places"],
+          displayCardIds: [failedCard.id],
+          displayItineraryIds: [failedPlan.id ?? ""],
+          realityCheck: {
+            kind: "disruption_recovery",
+            verdict: "needs_confirmation",
+            subject: "Traveler-reported closed dinner venue",
+            bestAction: "Confirm a replacement directly before leaving.",
+            basis: "Current opening and availability could not be established.",
+            fallback: "Use a nearby walk-in option only after local confirmation.",
+            avoid: "Avoid travelling across the island for an unconfirmed venue.",
+            timing: "tonight",
+            area: "General Luna",
+            evidenceToolCallIds: ["call_failed_disruption_places"],
+          },
+        }),
+      },
+    ]);
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Our dinner venue closed. Give us an alternative instead.",
+          },
+        ],
+        requestId: "agent_request_failed_disruption_replacement",
+      },
+      {
+        client,
+        executeTool: fakeToolExecutor({
+          search_places: {
+            name: "search_places",
+            status: "error",
+            text: "Google Places was unavailable.",
+            errorCode: "provider_unavailable",
+            sources: [providerUnavailableSourceSummary],
+            cards: [failedCard],
+            itineraries: [failedPlan],
+          },
+        }),
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      kind: "disruption_recovery",
+      verdict: "needs_confirmation",
+    });
+    expect(result.cards).toBeUndefined();
+    expect(result.itineraries).toBeUndefined();
+    expect(result.publicSources).toEqual([providerUnavailableSourceSummary]);
+  });
+
   test("repairs structured surf-near-me answers that omit ranked spots from the public payload", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({

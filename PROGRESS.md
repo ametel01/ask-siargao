@@ -27,13 +27,13 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
 - [x] Step 3: Accommodation Reality Check Vertical Slice
 - [x] Step 4: Itinerary Feasibility Vertical Slice
 - [x] Step 5: Today/Tomorrow and Surf Decision Vertical Slices
-- [ ] Step 6: Disruption Recovery Vertical Slice
+- [x] Step 6: Disruption Recovery Vertical Slice
 - [ ] Step 7: Reality-Check Presentation and Product Entry Points
 - [ ] Step 8: Documentation, Evaluation, and Release Proof
 
 ### Current status
 
-- Status: Step 5 complete; Step 6 is next.
+- Status: Step 6 complete; Step 7 is next.
 - Definition of Done: not yet satisfied.
 - Baseline gate: passed at `88b998f` before Step 1 production changes.
 - Current blocker: none.
@@ -274,8 +274,48 @@ The historical Trip Pass execution ledger below is preserved as prior project hi
   coach, lifeguard, or break-specific rip-current assessment. The existing full-suite motion
   benchmark remains load-sensitive, with its threshold unchanged for the UI and release-proof
   steps.
-- Commit: this Step 5 commit.
+- Commit: `45fe10b` (`Add current condition reality checks`).
 - Next step: implement the Disruption Recovery vertical slice.
+
+#### Step 6 - Disruption Recovery Vertical Slice
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: expanded explicit disruption recognition across traveler-reported cancellation,
+  closure, heavy rain, illness, lost transport, and no-scooter scenarios; added disruption-specific
+  operational-claim validation; serialized current-condition and governed local-fact evidence
+  before dependent replacement tools; added itinerary allowlisting alongside card allowlisting;
+  and filtered failed, unused, or unrelated mixed selections before strict runtime assembly.
+- Acceptance criteria checked:
+  - A traveler-reported cancelled island tour returns one synchronous land-based replacement with a
+    bounded fallback and avoid instruction.
+  - The runtime treats the disruption as traveler-supplied state and rejects claims of independent
+    detection, monitoring, notifications, operator contact, booking, reservation, or guaranteed
+    availability.
+  - Condition and governed local-fact lookups complete before dependent itinerary, local-guide, or
+    Places replacement work when proposed in the same tool batch.
+  - Complete provider failure produces an evidence-backed `needs_confirmation` verdict without
+    exposing failed cards or itineraries.
+  - Adversarial mixed `displayCardIds` and `displayItineraryIds` expose only successful artifacts
+    from used replacement calls.
+- Validation:
+  - Focused recognition, validation, agent, runtime, source-consistency, public-turn, and route
+    suites: 332 tests passed, 0 failed, 1,814 assertions.
+  - Full post-step run passed lint (405 files), clean typecheck, 1,196 Bun tests with 6,240
+    assertions, database migrate/seed, and production build.
+  - Full Playwright passed 93 of 94 tests; only the pre-existing eight-worker throttled motion
+    benchmark reported two host long tasks. The unchanged benchmark then passed 3/3 in isolation
+    with zero motion long tasks and zero layout shift in every repeat. This step changes server
+    behavior and tests only, not UI or motion code.
+  - `git diff --check`: passed.
+- Changelog decision: added an `[Unreleased]` / `Added` entry because travelers can now request a
+  grounded replacement after reporting a disrupted plan.
+- Residual risks: a replacement remains `needs_confirmation` when current conditions or
+  availability cannot be established; the product deliberately performs no monitoring, outreach,
+  booking, or availability guarantee. The existing full-suite motion benchmark remains
+  load-sensitive and must be exercised during the UI and release-proof steps.
+- Commit: this Step 6 commit.
+- Next step: implement Reality Check presentation and product entry points.
 
 ## Baseline
 

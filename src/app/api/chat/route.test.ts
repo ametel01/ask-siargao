@@ -1934,6 +1934,79 @@ describe("chat route", () => {
     expect(JSON.stringify(body)).not.toContain("Unrelated advanced break");
   });
 
+  test("returns a traveler-reported disruption replacement without operational promises", async () => {
+    const replacementItinerary: ItineraryPlan = {
+      ...sunsetDinnerItinerary,
+      id: "itinerary:cancelled_tour:general_luna",
+      title: "Covered General Luna Replacement",
+      decision: {
+        label: "fallback",
+        bestAction: "Use the nearby land-based plan after the reported cancellation.",
+      },
+      sources: [localGuideSourceSummary, weatherSourceSummary],
+    };
+    const disruptionSummary = {
+      id: "reality_check:disruption_recovery:cancelled_tour",
+      kind: "disruption_recovery" as const,
+      verdict: "change" as const,
+      subject: "Traveler-reported cancelled island tour",
+      bestAction: "Use the covered General Luna replacement.",
+      basis: "Request-time conditions and local options support staying on land.",
+      fallback: "Confirm current opening before leaving.",
+      avoid: "Avoid relying on another boat departure today.",
+      timing: "today",
+      area: "General Luna",
+      sources: [weatherSourceSummary, localGuideSourceSummary],
+    };
+    const dependencies = chatDependencies({
+      message:
+        "**change: Traveler-reported cancelled island tour**\n\nUse the covered General Luna replacement.",
+      toolCalls: [
+        toolCall({
+          name: "get_condition_judgment",
+          status: "success",
+          sources: [weatherSourceSummary],
+        }),
+        toolCall({
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [localGuideSourceSummary],
+        }),
+      ],
+      sources: [weatherSourceSummary, localGuideSourceSummary],
+      publicSources: [weatherSourceSummary, localGuideSourceSummary],
+      itineraries: [replacementItinerary],
+      decisionSummaries: [disruptionSummary],
+      artifactSelection: routeArtifactSelection({
+        totalItineraryCount: 2,
+        selectedItineraryCount: 1,
+        unselectedItineraryCount: 1,
+        totalDecisionSummaryCount: 1,
+        selectedDecisionSummaryCount: 1,
+      }),
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "Our island tour was cancelled. Give us a workable replacement.",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.itineraries?.map((plan: { id: string }) => plan.id)).toEqual([
+      replacementItinerary.id,
+    ]);
+    expect(body.decisionSummaries).toEqual([displayDecisionSummaryFixture(disruptionSummary)]);
+    expect(JSON.stringify(body)).not.toMatch(/monitor|notify|operator contact|booked/iu);
+    expect(body.artifactSelection).toBeUndefined();
+  });
+
   test("returns cross-request public artifacts without internal selection diagnostics", async () => {
     for (const scenario of routeAnswerQualityScenarios()) {
       const dependencies = chatDependencies(scenario.agentResult);
