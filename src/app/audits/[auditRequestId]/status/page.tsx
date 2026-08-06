@@ -1,4 +1,5 @@
-import { AuditStatusPage, parseAuditStatusState } from "@/features/audit-status/AuditStatusPage";
+import { AuditStatusPage } from "@/features/audit-status/AuditStatusPage";
+import { parseAuditStatusState } from "@/features/audit-status/audit-status-state";
 
 export default async function AuditStatusRoute({
   params,

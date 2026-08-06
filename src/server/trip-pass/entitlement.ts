@@ -6,14 +6,15 @@ import {
   type TripPassMeterRow,
   type TripPassRecord,
   type TripPassUsageMeter,
-  tripPassMeterTypes,
 } from "@/server/payments/trip-pass";
 import {
+  getTripPassProductContract,
   type TripPassMeterType,
+  tripPassMeterTypes as tripPassLedgerMeterTypes,
   tripPassProductCatalog,
-  tripPassProductCode,
-  tripPassProductVersion,
 } from "@/server/trip-pass/catalog";
+
+const tripPassLedgerMeterTypeSet = new Set<string>(tripPassLedgerMeterTypes);
 
 export const tripPassGrantSourceTypes = [
   "stripe_checkout",
@@ -35,7 +36,7 @@ export type TripPassGrantRecord = {
   productVersion: number;
   quantity: number;
   durationDays: number;
-  meterLimits: Record<TripPassMeterType, number>;
+  meterLimits: Partial<Record<TripPassMeterType, number>>;
   startsAt: Date;
   expiresAt: Date;
   createdAt: Date;
@@ -99,6 +100,8 @@ type TripPassOrderRow = {
   id: string;
   user_id: string | null;
   email: string | null;
+  product_code: string;
+  product_version: number;
   stripe_checkout_session_id: string | null;
   stripe_payment_intent_id: string | null;
 };
@@ -146,12 +149,19 @@ export async function grantTripPass(
         assertOrderOwner(order, input.userId);
       }
 
+      const product = order
+        ? getTripPassProductContract(order.product_code, order.product_version)
+        : tripPassProductCatalog;
+      if (!product) {
+        throw new Error("Trip Pass order references an unsupported product contract.");
+      }
       const startsAt = now;
-      const expiresAt = addDays(startsAt, tripPassProductCatalog.durationDays);
+      const expiresAt = addDays(startsAt, product.durationDays);
       const passId = input.passId ?? tripPassIdForSource(input.sourceType, input.sourceEventId);
       const grantId = tripPassGrantIdForSource(input.sourceType, input.sourceEventId);
       const meterRows = createTripPassMeterRows({
         tripPassId: passId,
+        meterLimits: product.paidMeterLimits,
         resetAt: expiresAt,
         updatedAt: now,
       });
@@ -181,6 +191,7 @@ export async function grantTripPass(
           startsAt,
           expiresAt,
           createdAt: now,
+          product,
         },
         transaction,
       );
@@ -285,6 +296,8 @@ async function loadOrder(orderId: string, db: DatabaseQueryClient) {
         id,
         user_id,
         email,
+        product_code,
+        product_version,
         stripe_checkout_session_id,
         stripe_payment_intent_id
       from trip_pass_orders
@@ -353,6 +366,12 @@ async function insertTripPassGrant(
     startsAt: Date;
     expiresAt: Date;
     createdAt: Date;
+    product: {
+      code: string;
+      version: number;
+      durationDays: number;
+      paidMeterLimits: Partial<Record<TripPassMeterType, number>>;
+    };
   },
   db: DatabaseQueryClient,
 ) {
@@ -398,10 +417,10 @@ async function insertTripPassGrant(
       input.userId,
       input.sourceType,
       input.sourceEventId,
-      tripPassProductCode,
-      tripPassProductVersion,
-      tripPassProductCatalog.durationDays,
-      JSON.stringify(tripPassProductCatalog.paidMeterLimits),
+      input.product.code,
+      input.product.version,
+      input.product.durationDays,
+      JSON.stringify(input.product.paidMeterLimits),
       input.startsAt,
       input.expiresAt,
       input.createdAt,
@@ -412,6 +431,12 @@ async function insertTripPassGrant(
 }
 
 async function insertTripPassMeters(meterRows: TripPassMeterRow[], db: DatabaseQueryClient) {
+  const values = meterRows
+    .map((_, index) => {
+      const offset = index * 6;
+      return `($${offset + 1}, $${offset + 2}, $${offset + 3}, 0, $${offset + 4}::integer, $${offset + 5}, $${offset + 6})`;
+    })
+    .join(", ");
   await db.query(
     `
       insert into trip_usage_meters (
@@ -423,22 +448,16 @@ async function insertTripPassMeters(meterRows: TripPassMeterRow[], db: DatabaseQ
         reset_at,
         updated_at
       )
-      values
-        ($1, $2, $3, 0, $4::integer, $5, $6),
-        ($7, $2, $8, 0, $9::integer, $5, $6),
-        ($10, $2, $11, 0, $12::integer, $5, $6),
-        ($13, $2, $14, 0, $15::integer, $5, $6),
-        ($16, $2, $17, 0, $18::integer, $5, $6)
+      values ${values}
     `,
-    [
-      meterRows[0].id,
-      meterRows[0].tripPassId,
-      meterRows[0].meterType,
-      meterRows[0].limit,
-      meterRows[0].resetAt,
-      meterRows[0].updatedAt,
-      ...meterRows.slice(1).flatMap((row) => [row.id, row.meterType, row.limit]),
-    ],
+    meterRows.flatMap((row) => [
+      row.id,
+      row.tripPassId,
+      row.meterType,
+      row.limit,
+      row.resetAt,
+      row.updatedAt,
+    ]),
   );
 }
 
@@ -627,7 +646,7 @@ function parseGrantSourceType(value: string): TripPassGrantSourceType {
 }
 
 function parseTripPassMeterType(value: string): TripPassMeterType {
-  if (tripPassMeterTypes.includes(value as TripPassMeterType)) {
+  if (tripPassLedgerMeterTypeSet.has(value)) {
     return value as TripPassMeterType;
   }
 
@@ -644,11 +663,13 @@ function parseTripPassStatus(value: string): TripPassRecord["status"] {
 
 function parseMeterLimits(
   value: Record<string, number> | string,
-): Record<TripPassMeterType, number> {
+): Partial<Record<TripPassMeterType, number>> {
   const parsed = typeof value === "string" ? JSON.parse(value) : value;
   return Object.fromEntries(
-    tripPassMeterTypes.map((meterType) => [meterType, Number(parsed[meterType])]),
-  ) as Record<TripPassMeterType, number>;
+    Object.entries(parsed).flatMap(([meterType, limit]) =>
+      tripPassLedgerMeterTypeSet.has(meterType) ? [[meterType, Number(limit)]] : [],
+    ),
+  ) as Partial<Record<TripPassMeterType, number>>;
 }
 
 function meterTypeOrderCaseExpression(columnName: string) {

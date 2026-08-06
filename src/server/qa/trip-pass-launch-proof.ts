@@ -94,11 +94,12 @@ const deterministicFlowChecks: TripPassLaunchProofCheck[] = [
     evidence: ["Stripe webhook route tests", "Trip Pass webhook application tests"],
   },
   {
-    id: "multi_tool_consumes_once_per_category",
+    id: "multi_tool_consumes_one_answer",
     surface: "quota",
     status: "pass",
-    expected: "A successful multi-tool request consumes chat and each applicable live meter once.",
-    evidence: ["paid Trip Pass chat usage tests", "10-case quality corpus"],
+    expected:
+      "A successful request consumes one travel answer while required evidence tools run automatically.",
+    evidence: ["paid Trip Pass answer-meter tests", "chat route tool-planning tests"],
   },
   {
     id: "failure_release_and_post_success_disconnect",
@@ -164,7 +165,7 @@ const approvalChecks: TripPassApprovalCheck[] = [
     owner: "finance",
     requiredBeforeCheckout: true,
     status: "blocked",
-    blocker: "Confirm live Stripe Price amount and currency for the 14-day Trip Pass.",
+    blocker: "Confirm the live Stripe Price is USD 9.99 for the 14-day Trip Pass.",
   },
   {
     id: "legal_refund_policy",

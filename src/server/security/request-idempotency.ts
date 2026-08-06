@@ -1,6 +1,11 @@
 import { createHash, createHmac } from "node:crypto";
 
-import { createRuntimeQuotaStore, type QuotaStore } from "@/server/security/rate-limit";
+import {
+  createMemoryQuotaStore,
+  createRedisQuotaStore,
+  type QuotaStore,
+  shouldUseRedisQuotaStore,
+} from "@/server/security/rate-limit";
 
 export type RequestIdempotencyResult =
   | { status: "not_requested" }
@@ -91,7 +96,9 @@ function idempotencyKey(env: Record<string, string | undefined> = process.env) {
 
 function defaultRequestIdempotencyStore(env: Record<string, string | undefined> = process.env) {
   if (!defaultStore) {
-    defaultStore = createRuntimeQuotaStore(env);
+    defaultStore = shouldUseRedisQuotaStore(env)
+      ? createRedisQuotaStore({ redisUrl: env.REDIS_URL })
+      : createMemoryQuotaStore();
   }
   return defaultStore;
 }

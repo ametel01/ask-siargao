@@ -4,6 +4,11 @@ import type { Logger } from "pino";
 
 import type { AgentMemorySnapshot } from "@/server/chat/agent-memory";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
+import type {
+  RealityCheckKind,
+  RealityCheckProposal,
+  RealityCheckVerdict,
+} from "@/server/chat/reality-check";
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 import { resolvePrimaryChatModel } from "@/server/llm/chat-model-provider";
 import type { ModelCostSummary, NormalizedModelUsage } from "@/server/llm/model-cost";
@@ -141,6 +146,9 @@ export type ItineraryPlan = {
 
 export type DecisionSummary = {
   id: string;
+  kind?: RealityCheckKind;
+  verdict?: RealityCheckVerdict;
+  subject?: string;
   bestAction: string;
   basis: string;
   fallback?: string;
@@ -158,6 +166,7 @@ export type AgentFinalPayload = {
   displayActionIds: readonly string[];
   displayItineraryIds: readonly string[];
   displayDecisionSummaryIds: readonly string[];
+  realityCheck?: RealityCheckProposal;
 };
 
 export type AgentArtifactRegistry = {
@@ -221,6 +230,7 @@ export type AgentTurnResult = {
   itineraries?: readonly ItineraryPlan[];
   decisionSummaries?: readonly DecisionSummary[];
   artifactSelection?: AgentArtifactSelectionSummary;
+  repairCount?: number;
 };
 
 export type ChatClientGeolocationConsentScope = "single_request" | "trip_session";
@@ -308,6 +318,12 @@ export type AgentToolExecutionRequest = {
 
 export type AgentToolExecutor = (request: AgentToolExecutionRequest) => Promise<AgentToolResult>;
 
+export type AgentProgressUpdate = {
+  stage: "model" | "tools" | "synthesis" | "checking";
+  message: string;
+  toolCount?: number;
+};
+
 export type AgentArtifactCarrier = {
   sources: readonly AnswerSourceSummary[];
   cards?: readonly RecommendationCard[];
@@ -333,6 +349,7 @@ export type AgentRuntimeDependencies = {
   model?: string;
   maxToolCalls?: number;
   maxTurns?: number;
+  onProgress?: (update: AgentProgressUpdate) => void | Promise<void>;
 };
 
 export function resolveAgentRuntimeRequest(
@@ -408,6 +425,7 @@ export function createAgentTurnResult({
   actions,
   allowedCardKinds,
   allowedCardIds,
+  allowedItineraryIds,
   cards,
   decisionSummaries,
   artifactSelectionMode = "compatibility",
@@ -422,6 +440,7 @@ export function createAgentTurnResult({
   toolResults,
   upstreamRequestIds,
   modelCost,
+  repairCount,
 }: {
   message: string;
   requestId: string;
@@ -436,14 +455,16 @@ export function createAgentTurnResult({
   actions?: readonly ChatAction[];
   allowedCardKinds?: readonly RecommendationCardKind[];
   allowedCardIds?: readonly string[];
+  allowedItineraryIds?: readonly string[];
   itineraries?: readonly ItineraryPlan[];
   decisionSummaries?: readonly DecisionSummary[];
   finalPayload?: AgentFinalPayload;
   artifactSelectionMode?: AgentArtifactSelectionMode;
+  repairCount?: number;
 }): AgentTurnResult {
   const sourceCarriers = toolResults ?? toolCalls;
   const artifactCarriers = toolResults ?? [];
-  const artifactRegistry = buildAgentArtifactRegistry(artifactCarriers);
+  const artifactRegistry = buildAgentArtifactRegistry(artifactCarriers, decisionSummaries);
   const mergedSources = sources ?? aggregateAgentSourceSummaries(sourceCarriers);
   const sourceReconciliation = itinerarySourceReconciliation(artifactCarriers, toolCalls);
   const reconciledSources = reconcileSourceSummaries(mergedSources, sourceReconciliation);
@@ -452,6 +473,7 @@ export function createAgentTurnResult({
     actions,
     allowedCardKinds,
     allowedCardIds,
+    allowedItineraryIds,
     cards,
     decisionSummaries,
     finalPayload,
@@ -488,6 +510,7 @@ export function createAgentTurnResult({
     ...(upstreamRequestIds?.length ? { upstreamRequestIds: unique(upstreamRequestIds) } : {}),
     model,
     ...(modelCost && modelCost.callCount > 0 ? { modelCost } : {}),
+    ...(repairCount ? { repairCount } : {}),
     toolCalls,
     sources: reconciledSources,
     publicSources,
@@ -504,6 +527,7 @@ export function createAgentTurnResult({
 
 function buildAgentArtifactRegistry(
   toolResults: readonly AgentToolResultArtifactCarrier[],
+  trustedDecisionSummaries: readonly DecisionSummary[] = [],
 ): AgentArtifactRegistry {
   const cardsById = new Map<string, RecommendationCard>();
   const actionsById = new Map<string, ChatAction>();
@@ -544,6 +568,12 @@ function buildAgentArtifactRegistry(
     }
   }
 
+  for (const summary of trustedDecisionSummaries) {
+    if (!decisionSummariesById.has(summary.id)) {
+      decisionSummariesById.set(summary.id, summary);
+    }
+  }
+
   return {
     cardsById,
     actionsById,
@@ -565,6 +595,7 @@ function selectAgentArtifacts({
   actions,
   allowedCardKinds,
   allowedCardIds,
+  allowedItineraryIds,
   cards,
   decisionSummaries,
   finalPayload,
@@ -577,6 +608,7 @@ function selectAgentArtifacts({
   actions?: readonly ChatAction[];
   allowedCardKinds?: readonly RecommendationCardKind[];
   allowedCardIds?: readonly string[];
+  allowedItineraryIds?: readonly string[];
   itineraries?: readonly ItineraryPlan[];
   decisionSummaries?: readonly DecisionSummary[];
   finalPayload?: AgentFinalPayload;
@@ -610,6 +642,12 @@ function selectAgentArtifacts({
         ),
       }
     : kindFilteredCardRegistry;
+  const allowedItineraryIdSet = allowedItineraryIds ? new Set(allowedItineraryIds) : undefined;
+  const itineraryRegistry = allowedItineraryIdSet
+    ? new Map(
+        [...registry.itinerariesById.entries()].filter(([id]) => allowedItineraryIdSet.has(id)),
+      )
+    : registry.itinerariesById;
 
   if (!finalPayload) {
     const explicitlyProvidedCards = dedupeCardsById(cards ?? []).filter(
@@ -627,7 +665,10 @@ function selectAgentArtifacts({
     });
     const compatibilityCards = [...explicitlyProvidedCards, ...referencedCards];
     const compatibilityActions = dedupeById(actions ?? []);
-    const compatibilityItineraries = dedupeItineraries(itineraries ?? []);
+    const compatibilityItineraries = dedupeItineraries(itineraries ?? []).filter(
+      (itinerary) =>
+        !allowedItineraryIdSet || allowedItineraryIdSet.has(agentItineraryArtifactId(itinerary)),
+    );
     const compatibilityDecisionSummaries = dedupeById(decisionSummaries ?? []);
     return {
       cards: compatibilityCards,
@@ -707,7 +748,7 @@ function selectAgentArtifacts({
     return action ? [action] : [];
   });
   const selectedItineraries = selectedItineraryIds.resolvedIds.flatMap((id) => {
-    const itinerary = registry.itinerariesById.get(id);
+    const itinerary = itineraryRegistry.get(id);
     return itinerary ? [itinerary] : [];
   });
   const selectedDecisionSummaries = selectedDecisionSummaryIds.resolvedIds.flatMap((id) => {

@@ -74,7 +74,9 @@ import {
   parseAssistantMarkdownBlocks,
   projectAssistantTableToMobileCards,
 } from "@/features/chat/assistant-message-presentation";
+import { isChatStreamResponse, readChatStreamResponse } from "@/features/chat/chat-stream";
 import {
+  type DecisionStripPresentation,
   type DecisionStripSummary,
   projectDecisionStrip,
 } from "@/features/chat/decision-strip-presentation";
@@ -229,9 +231,6 @@ const chatSignedOutActions = (
 );
 
 const chatErrorMessage = "Ask Siargao could not answer right now. Please try again.";
-const chatResponseTimeoutMessage =
-  "Ask Siargao took too long to answer. Please retry your question.";
-const chatResponseTimeoutMs = 10_000;
 const shareErrorMessage = "Share link could not be created. Your saved items are still here.";
 const maxChatRequestMessageLength = 2_000;
 const maxPriorChatRequestMessages = 6;
@@ -734,6 +733,8 @@ function useChatWorkspaceController({
   }, [invalidatePendingChatSubmission]);
 
   useEffect(() => {
+    mountedRef.current = true;
+
     return () => {
       mountedRef.current = false;
       chatSubmissionGenerationRef.current += 1;
@@ -1034,6 +1035,18 @@ function useChatWorkspaceController({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ title: trimmedTitle }),
         });
+        if (!response.ok) {
+          if (threadMutationGenerationRef.current !== mutationGeneration) {
+            return;
+          }
+          setThreadActionState({
+            dialog: "rename",
+            error: threadMutationErrorMessage(response.status),
+            pendingAction: null,
+            status: "error",
+          });
+          return;
+        }
         const body = (await response.json().catch(() => null)) as {
           thread?: ChatThreadSummary;
         } | null;
@@ -1203,6 +1216,9 @@ function useChatWorkspaceController({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ messageId, rating }),
         });
+        if (!response.ok) {
+          throw new Error("rating_failed");
+        }
         const body = (await response.json()) as { rating?: ChatMessageRating };
         if (!response.ok || !body.rating) {
           throw new Error("rating_failed");
@@ -1368,13 +1384,26 @@ function useChatWorkspaceController({
       chatSubmissionGenerationRef.current = submission.generation;
       pendingChatSubmissionRef.current = submission;
       setIsSending(true);
-      let requestLocationState = locationState;
+      try {
+        let requestLocationState = locationState;
 
-      if (shouldRequestAutomaticLocationForPrompt(trimmedPrompt, locationState)) {
-        const capturedLocationState = await captureLocation(
-          "single_request",
-          submission.controller.signal,
-        );
+        if (shouldRequestAutomaticLocationForPrompt(trimmedPrompt, locationState)) {
+          const capturedLocationState = await captureLocation(
+            "single_request",
+            submission.controller.signal,
+          );
+          if (
+            !mountedRef.current ||
+            submission.controller.signal.aborted ||
+            pendingChatSubmissionRef.current?.generation !== submission.generation
+          ) {
+            return;
+          }
+          if (capturedLocationState) {
+            requestLocationState = capturedLocationState;
+          }
+        }
+
         if (
           !mountedRef.current ||
           submission.controller.signal.aborted ||
@@ -1382,168 +1411,186 @@ function useChatWorkspaceController({
         ) {
           return;
         }
-        if (capturedLocationState) {
-          requestLocationState = capturedLocationState;
-        }
-      }
 
-      if (
-        !mountedRef.current ||
-        submission.controller.signal.aborted ||
-        pendingChatSubmissionRef.current?.generation !== submission.generation
-      ) {
-        return;
-      }
-
-      const timestamp = formatTimestamp();
-      const userMessage: InteractiveChatMessage = {
-        id: createMessageId("user"),
-        role: "user",
-        text: trimmedPrompt,
-        timestamp,
-        status: "complete",
-      };
-      const pendingAssistantId = createMessageId("assistant");
-      const responseRequest = createResponseWaitRequest({
-        assistantMessageId: pendingAssistantId,
-        prompt: trimmedPrompt,
-      });
-      const pendingAssistant: InteractiveChatMessage = {
-        id: pendingAssistantId,
-        role: "assistant",
-        text: responseWaitStatusText,
-        timestamp,
-        status: "pending",
-      };
-      const requestMessages = buildChatRequestMessages(messages, trimmedPrompt);
-      const requestBody = buildChatRequestBody(
-        requestMessages,
-        requestLocationState,
-        selectedThreadId,
-        tripDataSource,
-      );
-
-      activeResponseRequestRef.current = responseRequest;
-      setInputValue("");
-      setMessages((currentMessages) => [...currentMessages, userMessage, pendingAssistant]);
-      if (requestBody.clientContext?.geolocation?.consentScope === "single_request") {
-        dispatchLocationState({ type: "consume_request" });
-      }
-
-      const responseTimeout = window.setTimeout(() => {
-        responseRequest.controller.abort(
-          new DOMException(chatResponseTimeoutMessage, "TimeoutError"),
-        );
-      }, chatResponseTimeoutMs);
-
-      try {
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(requestBody),
-          signal: responseRequest.controller.signal,
-        });
-        const body = (await response.json()) as {
-          message?: string;
-          cards?: RecommendationCardArtifact[];
-          actions?: ChatActionArtifact[];
-          itineraries?: ItineraryPlanArtifact[];
-          decisionSummaries?: DecisionSummaryArtifact[];
-          sources?: ChatSourceArtifact[];
-          threadId?: string;
-          assistantMessageId?: string;
-          error?: string;
-          reason?: string;
+        const timestamp = formatTimestamp();
+        const userMessage: InteractiveChatMessage = {
+          id: createMessageId("user"),
+          role: "user",
+          text: trimmedPrompt,
+          timestamp,
+          status: "complete",
         };
-
-        const responseMessage = body.message;
-
-        if (
-          !mountedRef.current ||
-          !isCurrentResponseWaitRequest(activeResponseRequestRef.current, responseRequest.requestId)
-        ) {
-          return;
-        }
-
-        if (!response.ok || !responseMessage) {
-          throw new Error(chatResponseErrorMessage(response.status, body));
-        }
-
-        if (body.threadId) {
-          setSelectedThreadId(body.threadId);
-          setSelectedThreadTitle(chatThreadTitleFromPrompt(trimmedPrompt));
-          setSelectedSavedItemId(null);
-          setSelectedSavedItemStatus("idle");
-          writeChatResourceQuery({ threadId: body.threadId }, "replace");
-          void refreshChatThreads();
-        }
-
-        setMessages((currentMessages) =>
-          currentMessages.map((message) =>
-            message.id === pendingAssistantId
-              ? {
-                  ...message,
-                  answerArrivalMotion: createAnswerArrivalMotionActivation({
-                    messageId: pendingAssistantId,
-                    previousStatus: message.status,
-                    nextStatus: "complete",
-                    hasDecisionStrip: Boolean(projectDecisionStrip(body.decisionSummaries)),
-                  }),
-                  messageId: body.assistantMessageId ?? message.messageId,
-                  text: responseMessage,
-                  timestamp: formatTimestamp(),
-                  status: "complete",
-                  cards: body.cards,
-                  actions: body.actions,
-                  itineraries: body.itineraries,
-                  decisionSummaries: body.decisionSummaries,
-                  sources: body.sources,
-                }
-              : message,
-          ),
+        const pendingAssistantId = createMessageId("assistant");
+        const responseRequest = createResponseWaitRequest({
+          assistantMessageId: pendingAssistantId,
+          prompt: trimmedPrompt,
+        });
+        const pendingAssistant: InteractiveChatMessage = {
+          id: pendingAssistantId,
+          role: "assistant",
+          text: responseWaitStatusText,
+          timestamp,
+          status: "pending",
+        };
+        const requestMessages = buildChatRequestMessages(messages, trimmedPrompt);
+        const requestBody = buildChatRequestBody(
+          requestMessages,
+          requestLocationState,
+          selectedThreadId,
+          tripDataSource,
         );
-      } catch (error) {
-        if (
-          !mountedRef.current ||
-          !isCurrentResponseWaitRequest(
-            activeResponseRequestRef.current,
-            responseRequest.requestId,
-          ) ||
-          isResponseWaitAbort(error)
-        ) {
-          return;
+
+        activeResponseRequestRef.current = responseRequest;
+        setInputValue("");
+        setMessages((currentMessages) => [...currentMessages, userMessage, pendingAssistant]);
+        if (requestBody.clientContext?.geolocation?.consentScope === "single_request") {
+          dispatchLocationState({ type: "consume_request" });
         }
 
-        setMessages((currentMessages) =>
-          currentMessages.map((message) =>
-            message.id === pendingAssistantId
-              ? {
-                  ...message,
-                  answerArrivalMotion: undefined,
-                  text: error instanceof Error ? error.message : chatErrorMessage,
-                  timestamp: formatTimestamp(),
-                  status: "error",
-                  retryPrompt: trimmedPrompt,
-                }
-              : message,
-          ),
-        );
-      } finally {
-        window.clearTimeout(responseTimeout);
-        if (
-          isCurrentResponseWaitRequest(activeResponseRequestRef.current, responseRequest.requestId)
-        ) {
-          activeResponseRequestRef.current = settleResponseWaitRequest(
-            activeResponseRequestRef.current,
-            responseRequest.requestId,
+        try {
+          type ChatResponseBody = {
+            message?: string;
+            cards?: RecommendationCardArtifact[];
+            actions?: ChatActionArtifact[];
+            itineraries?: ItineraryPlanArtifact[];
+            decisionSummaries?: DecisionSummaryArtifact[];
+            sources?: ChatSourceArtifact[];
+            threadId?: string;
+            assistantMessageId?: string;
+            error?: string;
+            reason?: string;
+          };
+          const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: {
+              accept: "application/x-ndjson",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify(requestBody),
+            signal: responseRequest.controller.signal,
+          });
+          if (!response.ok) {
+            const errorBody = (await response.json().catch(() => ({}))) as ChatResponseBody;
+            throw new Error(chatResponseErrorMessage(response.status, errorBody));
+          }
+          let responseStatus = response.status;
+          let body: ChatResponseBody;
+          const streamedResponse = isChatStreamResponse(response);
+          if (streamedResponse) {
+            const result = await readChatStreamResponse<ChatResponseBody>(response, (event) => {
+              if (!mountedRef.current) {
+                return;
+              }
+              setMessages((currentMessages) =>
+                currentMessages.map((message) =>
+                  message.id === pendingAssistantId && message.status === "pending"
+                    ? { ...message, text: event.message }
+                    : message,
+                ),
+              );
+            });
+            responseStatus = result.status;
+            body = result.body;
+          } else {
+            body = (await response.json().catch(() => ({}))) as ChatResponseBody;
+          }
+          if (responseStatus < 200 || responseStatus >= 300) {
+            throw new Error(chatResponseErrorMessage(responseStatus, body));
+          }
+
+          const responseMessage = body.message;
+
+          if (
+            !mountedRef.current ||
+            !isCurrentResponseWaitRequest(
+              activeResponseRequestRef.current,
+              responseRequest.requestId,
+            )
+          ) {
+            return;
+          }
+
+          if (!responseMessage) {
+            throw new Error(chatResponseErrorMessage(responseStatus, body));
+          }
+
+          if (body.threadId) {
+            setSelectedThreadId(body.threadId);
+            setSelectedThreadTitle(chatThreadTitleFromPrompt(trimmedPrompt));
+            setSelectedSavedItemId(null);
+            setSelectedSavedItemStatus("idle");
+            writeChatResourceQuery({ threadId: body.threadId }, "replace");
+            void refreshChatThreads();
+          }
+
+          setMessages((currentMessages) =>
+            currentMessages.map((message) =>
+              message.id === pendingAssistantId
+                ? {
+                    ...message,
+                    answerArrivalMotion: createAnswerArrivalMotionActivation({
+                      messageId: pendingAssistantId,
+                      previousStatus: message.status,
+                      nextStatus: "complete",
+                      hasDecisionStrip: Boolean(projectDecisionStrip(body.decisionSummaries)),
+                    }),
+                    messageId: body.assistantMessageId ?? message.messageId,
+                    text: responseMessage,
+                    timestamp: formatTimestamp(),
+                    status: "complete",
+                    cards: body.cards,
+                    actions: body.actions,
+                    itineraries: body.itineraries,
+                    decisionSummaries: body.decisionSummaries,
+                    sources: body.sources,
+                  }
+                : message,
+            ),
           );
-          if (mountedRef.current) {
-            setIsSending(false);
+        } catch (error) {
+          if (
+            !mountedRef.current ||
+            !isCurrentResponseWaitRequest(
+              activeResponseRequestRef.current,
+              responseRequest.requestId,
+            ) ||
+            isResponseWaitAbort(error)
+          ) {
+            return;
+          }
+
+          setMessages((currentMessages) =>
+            currentMessages.map((message) =>
+              message.id === pendingAssistantId
+                ? {
+                    ...message,
+                    answerArrivalMotion: undefined,
+                    text: error instanceof Error ? error.message : chatErrorMessage,
+                    timestamp: formatTimestamp(),
+                    status: "error",
+                    retryPrompt: trimmedPrompt,
+                  }
+                : message,
+            ),
+          );
+        } finally {
+          if (
+            isCurrentResponseWaitRequest(
+              activeResponseRequestRef.current,
+              responseRequest.requestId,
+            )
+          ) {
+            activeResponseRequestRef.current = settleResponseWaitRequest(
+              activeResponseRequestRef.current,
+              responseRequest.requestId,
+            );
           }
         }
+      } finally {
         if (pendingChatSubmissionRef.current?.generation === submission.generation) {
           pendingChatSubmissionRef.current = null;
         }
+        setIsSending(false);
       }
     },
     [
@@ -2989,7 +3036,7 @@ function MobileTripPassStateCard({
           ? "Trip Pass status is temporarily unavailable. Your pass was not changed."
           : projection.status === "visible"
             ? projection.text
-            : "No Trip Pass warning right now.";
+            : "Trip Pass status is available in settings.";
   const tone =
     tripPassStatus === "unavailable"
       ? "warning"
@@ -3006,7 +3053,7 @@ function MobileTripPassStateCard({
       <p className="m-0 text-sm font-bold text-text-muted">{statusText}</p>
       {tripDataSource === "authenticated" ? (
         <p className="m-0 text-xs font-bold text-text-muted">
-          Status comes from your account. This sheet cannot activate a pass or change allowance.
+          Status comes from your account. Manage checkout and billing in settings.
         </p>
       ) : null}
     </section>
@@ -3635,7 +3682,7 @@ async function fetchSurfPanel(url: string): Promise<SurfPanelResponse> {
 function chatResponseErrorMessage(status: number, body: ChatResponseErrorBody) {
   if (body.error === "usage_limit_reached") {
     if (body.reason?.includes("chat_meter_exhausted")) {
-      return "Your Trip Pass chat allowance is exhausted. Use saved planning context or wait until the allowance resets.";
+      return "Your Trip Pass travel answers are used. You can still use saved trip details.";
     }
     if (body.reason?.includes("concurrency")) {
       return "Another answer is still running. Wait for it to finish before starting another request.";
@@ -3643,7 +3690,7 @@ function chatResponseErrorMessage(status: number, body: ChatResponseErrorBody) {
     if (body.reason?.includes("start_limit") || body.reason?.includes("daily_limit")) {
       return "Chat is temporarily rate-limited. Try again after the current window resets.";
     }
-    return "This Trip Pass allowance is exhausted for now.";
+    return "Your travel answer limit is reached for now.";
   }
 
   if (body.error === "sign_in_required") {
@@ -3651,7 +3698,7 @@ function chatResponseErrorMessage(status: number, body: ChatResponseErrorBody) {
       return "Another free answer is still running. Wait for it to finish before trying again.";
     }
     if (body.reason?.includes("free_allowance_exhausted")) {
-      return "The free seven-day allowance is used. Sign in to manage Trip Pass options.";
+      return "Your free travel answers are used. Sign in to manage Trip Pass options.";
     }
     return "Sign in to continue after the free allowance window.";
   }
@@ -4355,13 +4402,43 @@ function DecisionStrip({
       />
       <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
         <div className="grid min-w-0 gap-1">
-          <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.68rem] leading-tight font-semibold text-brand-lagoon-700 uppercase">
-            <Navigation aria-hidden="true" className="shrink-0" size={13} />
-            Best move
-          </span>
-          <h3 className="m-0 text-base leading-tight font-semibold break-words text-text-strong">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.68rem] leading-tight font-semibold text-brand-lagoon-700 uppercase">
+              <Navigation aria-hidden="true" className="shrink-0" size={13} />
+              {presentation.verdict ? "Reality check" : "Best move"}
+            </span>
+            {presentation.verdict ? (
+              <span
+                className={cn(
+                  "inline-flex min-h-6 items-center rounded-full border px-2.5 py-1 text-[0.68rem] leading-none font-extrabold tracking-[0.04em] uppercase",
+                  decisionVerdictToneClass(presentation.verdict.tone),
+                )}
+                data-testid="decision-strip-verdict"
+              >
+                <span className="sr-only">Verdict: </span>
+                {presentation.verdict.label}
+              </span>
+            ) : null}
+          </div>
+          {presentation.summary.subject ? (
+            <h3
+              className="m-0 text-base leading-tight font-semibold break-words text-text-strong"
+              data-testid="decision-strip-subject"
+            >
+              {presentation.summary.subject}
+            </h3>
+          ) : null}
+          <p
+            className={cn(
+              "m-0 leading-[1.4] font-semibold break-words text-text-strong",
+              presentation.summary.subject ? "text-sm" : "text-base leading-tight",
+            )}
+          >
+            {presentation.summary.subject ? (
+              <span className="text-text-muted">Best move: </span>
+            ) : null}
             {presentation.summary.bestAction}
-          </h3>
+          </p>
         </div>
         {presentation.context.length ? (
           <dl className="m-0 grid min-w-0 gap-1.5 sm:grid-cols-2">
@@ -4410,6 +4487,19 @@ function DecisionStrip({
       ) : null}
     </section>
   );
+}
+
+function decisionVerdictToneClass(tone: NonNullable<DecisionStripPresentation["verdict"]>["tone"]) {
+  switch (tone) {
+    case "positive":
+      return "border-confidence-high/35 bg-confidence-high-soft text-confidence-high";
+    case "caution":
+      return "border-confidence-medium/35 bg-confidence-medium-soft text-confidence-medium";
+    case "negative":
+      return "border-brand-sunset-coral/40 bg-brand-sunset-coral/10 text-brand-sunset-coral";
+    case "uncertain":
+      return "border-text-muted/25 bg-surface-default text-text-muted";
+  }
 }
 
 function prefersReducedMotion() {

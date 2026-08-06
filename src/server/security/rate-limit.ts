@@ -1,4 +1,7 @@
-import { createClient } from "redis";
+import {
+  getRedisCommandClient,
+  type RedisCommandClient,
+} from "@/server/security/redis-command-client";
 
 export type RateLimitPolicy =
   | "intake"
@@ -112,7 +115,6 @@ export type RateLimiterOptions = {
 };
 
 type MemoryQuotaStore = QuotaStore & {
-  reset(): void;
   size(): number;
 };
 
@@ -131,17 +133,6 @@ type MemoryIdempotencyRecord = {
 };
 
 type MemoryRollingWindow = Map<string, number>;
-
-type RedisCommandClient = {
-  decrby(key: string, amount: number): Promise<number>;
-  get(key: string): Promise<string | null>;
-  incr(key: string): Promise<number>;
-  incrby(key: string, amount: number): Promise<number>;
-  pexpire(key: string, milliseconds: number): Promise<unknown>;
-  pttl(key: string): Promise<number>;
-  send(command: string, args: string[]): Promise<unknown>;
-  set(key: string, value: string, condition?: "NX"): Promise<unknown>;
-};
 
 const policies: Record<RateLimitPolicy, { limit: number; windowMs: number }> = {
   intake: { limit: 8, windowMs: 60_000 },
@@ -360,9 +351,9 @@ export function createMemoryQuotaStore(): MemoryQuotaStore {
 }
 
 export function createRedisQuotaStore(
-  input: { client?: RedisCommandClient; keyPrefix?: string; url?: string } = {},
+  input: { client?: RedisCommandClient; keyPrefix?: string; redisUrl?: string } = {},
 ): QuotaStore {
-  const client = input.client ?? createNodeRedisCommandClient(input.url ?? process.env.REDIS_URL);
+  const client = input.client ?? getRedisCommandClient(input.redisUrl ?? process.env.REDIS_URL);
   const keyPrefix = input.keyPrefix ?? "ask-siargao";
 
   return {
@@ -461,13 +452,11 @@ export function createRedisQuotaStore(
   };
 }
 
-export function createRuntimeQuotaStore(
-  env: Record<string, string | undefined> = process.env,
-): QuotaStore {
-  const isProduction = env.NODE_ENV === "production" || env.APP_ENV === "production";
-  return isProduction && env.REDIS_URL
-    ? createRedisQuotaStore({ url: env.REDIS_URL })
-    : createMemoryQuotaStore();
+export function shouldUseRedisQuotaStore(env: Record<string, string | undefined> = process.env) {
+  return (
+    Boolean(env.REDIS_URL?.trim()) &&
+    (env.NODE_ENV === "production" || env.APP_ENV === "production")
+  );
 }
 
 export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter {
@@ -480,7 +469,7 @@ export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter
     const nowMs = now.getTime();
     const resetAt = new Date(nowMs + policy.windowMs).toISOString();
 
-    if (store.scope !== "shared" && isProductionRateLimitEnvironment(options.env)) {
+    if (store.scope !== "shared" && (options.env ?? process.env.NODE_ENV) === "production") {
       return failClosedRateLimit(policy, resetAt, "production_store_required");
     }
 
@@ -522,7 +511,7 @@ export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter
 }
 
 const defaultMemoryStore = createMemoryQuotaStore();
-let defaultRateLimiter = createRateLimiter({ store: createRuntimeQuotaStore() });
+let defaultRateLimiter = createRateLimiter({ store: defaultMemoryStore });
 
 export function configureRateLimitStore(
   store: QuotaStore,
@@ -553,8 +542,8 @@ export function rateLimitedJson(result: RateLimitResult) {
   );
 }
 
-export function resetRateLimitStoreForTests() {
-  defaultMemoryStore.reset();
+export async function resetRateLimitStoreForTests() {
+  await defaultMemoryStore.reset?.();
   defaultRateLimiter = createRateLimiter({ store: defaultMemoryStore });
 }
 
@@ -570,70 +559,6 @@ function failClosedRateLimit(
     remaining: 0,
     resetAt,
     headers: rateLimitHeaders(policy.limit, 0, resetAt),
-  };
-}
-
-function isProductionRateLimitEnvironment(env: string | undefined) {
-  return (
-    env === "production" ||
-    (env === undefined &&
-      (process.env.NODE_ENV === "production" || process.env.APP_ENV === "production"))
-  );
-}
-
-function createNodeRedisCommandClient(url: string | undefined): RedisCommandClient {
-  if (!url) {
-    throw new Error("REDIS_URL is required to create the shared quota store.");
-  }
-
-  const client = createClient({
-    url,
-    socket: {
-      connectTimeout: 2_000,
-      reconnectStrategy: false,
-    },
-  });
-  client.on("error", () => {
-    // Quota consumers convert command failures into fail-closed results.
-  });
-  let connection: Promise<unknown> | undefined;
-
-  async function command<T>(args: string[]) {
-    if (!client.isReady) {
-      connection ??= client.connect().finally(() => {
-        connection = undefined;
-      });
-      await connection;
-      client.unref();
-    }
-    return client.sendCommand<T>(args);
-  }
-
-  return {
-    async decrby(key, amount) {
-      return Number(await command(["DECRBY", key, String(amount)]));
-    },
-    async get(key) {
-      return command<string | null>(["GET", key]);
-    },
-    async incr(key) {
-      return Number(await command(["INCR", key]));
-    },
-    async incrby(key, amount) {
-      return Number(await command(["INCRBY", key, String(amount)]));
-    },
-    async pexpire(key, milliseconds) {
-      return command(["PEXPIRE", key, String(milliseconds)]);
-    },
-    async pttl(key) {
-      return Number(await command(["PTTL", key]));
-    },
-    async send(redisCommand, args) {
-      return command([redisCommand, ...args]);
-    },
-    async set(key, value, condition) {
-      return command(["SET", key, value, ...(condition ? [condition] : [])]);
-    },
   };
 }
 

@@ -27,17 +27,15 @@ Use the local Docker Compose stack as the first shared integration target. PGlit
 The local stack is defined in `docker-compose.yml`:
 
 - `db`: Postgres 16 with the same local credentials as `.env.example`.
-- `app`: an opt-in Bun/Next.js app container behind the Compose `app` profile. The default local
-  workflow runs Next.js on the host and uses Docker for Postgres and Redis.
+- `app`: an opt-in Bun/Next.js app container behind the Compose `app` profile. The default local workflow runs Next.js on the host and uses Docker only for Postgres.
 
-Start local Postgres and Redis:
+Start local Postgres:
 
 ```sh
 bun run stack:up
 ```
 
-For the normal local chatbot workflow, start Postgres and Redis, migrate/seed Postgres, and run the
-host dev server with one command:
+For the normal local chatbot workflow, start Postgres, migrate/seed it, and run the host dev server with one command:
 
 ```sh
 bun run dev:up
@@ -61,8 +59,7 @@ Shut the local stack down:
 bun run stack:down
 ```
 
-Expected result: with `bun run dev:up`, the app is available at `http://localhost:3000`, Postgres is
-available on host port `5432`, and Redis is available on host port `6379`.
+Expected result: with `bun run dev:up`, the app is available at `http://localhost:3000`, and Postgres is available on host port `5432` with `DATABASE_URL=postgres://user:password@localhost:5432/siargao_portal`.
 
 Only use the full app container when you specifically need to test the containerized Next.js process:
 

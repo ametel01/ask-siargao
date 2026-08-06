@@ -8,7 +8,7 @@ import type { TripPassAccountPresentation } from "@/server/trip-pass/presentatio
 
 describe("Trip Pass account presentation UI projection", () => {
   test.each([
-    ["free", "Free launch allowance", "Start checkout"],
+    ["free", "Free travel answers", "Start checkout"],
     ["pending", "Checkout is waiting for confirmation", "Start checkout"],
     ["active", "Trip Pass is active", null],
     ["expired", "Trip Pass has expired", "Start checkout"],
@@ -38,8 +38,8 @@ describe("Trip Pass account presentation UI projection", () => {
       "ready",
     );
 
-    expect(free.resetLabel).toBe("Free launch allowances reset every seven days.");
-    expect(active.resetLabel).toBe("Paid allowances last until the pass expires.");
+    expect(free.resetLabel).toBe("Free travel answers reset every seven days.");
+    expect(active.resetLabel).toBe("Travel answers are available until the pass expires.");
     expect(active.validityLabel).toBe("Expires 18 Jul");
   });
 
@@ -54,7 +54,6 @@ describe("Trip Pass account presentation UI projection", () => {
         ],
         attention: {
           lowChatMessages: true,
-          lowLiveRefreshes: true,
           expiresSoon: true,
         },
       }),
@@ -62,22 +61,24 @@ describe("Trip Pass account presentation UI projection", () => {
     );
 
     expect(view.warnings).toEqual([
-      "Chat answers are near the limit: 20 left.",
-      "Live refreshes allowance is exhausted.",
+      "Travel answers are near the limit: 20 left.",
       "Pass expires soon: 6 Jul.",
     ]);
   });
 
-  test("mobile projection hides healthy states and shows only actionable warnings", () => {
-    expect(projectMobileTripPass(account({ status: "active" }))).toEqual({ status: "hidden" });
+  test("mobile projection summarizes healthy state and shows actionable warnings", () => {
+    expect(projectMobileTripPass(account({ status: "active" }))).toEqual({
+      status: "visible",
+      tone: "neutral",
+      text: "Trip Pass · 150 travel answers left",
+    });
     expect(
       projectMobileTripPass(
         account({
           status: "active",
-          allowances: [allowance("live_refresh", 40, 40, 0, true)],
+          allowances: [allowance("chat_message", 150, 150, 0, true)],
           attention: {
-            lowChatMessages: false,
-            lowLiveRefreshes: true,
+            lowChatMessages: true,
             expiresSoon: false,
           },
         }),
@@ -85,11 +86,26 @@ describe("Trip Pass account presentation UI projection", () => {
     ).toEqual({
       status: "visible",
       tone: "critical",
-      text: "Live refreshes allowance is exhausted. Use cached/local evidence or wait for the next allowance window.",
+      text: "Travel answers are used. Manage your Trip Pass in settings.",
     });
     expect(projectMobileTripPass(account({ status: "pending" }))).toMatchObject({
       status: "visible",
       tone: "neutral",
+    });
+    expect(
+      projectMobileTripPass(
+        account({
+          status: "active",
+          allowances: [
+            allowance("chat_message", 10, 150, 140, false),
+            allowance("live_refresh", 40, 40, 0, true),
+          ],
+        }),
+      ),
+    ).toEqual({
+      status: "visible",
+      tone: "neutral",
+      text: "Trip Pass · 140 travel answers left",
     });
   });
 });
@@ -106,13 +122,6 @@ function account(
       0,
       overrides.status === "active" ? 150 : 10,
       overrides.status === "active" ? 150 : 10,
-      false,
-    ),
-    allowance(
-      "live_refresh",
-      0,
-      overrides.status === "active" ? 40 : 3,
-      overrides.status === "active" ? 40 : 3,
       false,
     ),
   ];
@@ -132,7 +141,6 @@ function account(
     allowances,
     attention: overrides.attention ?? {
       lowChatMessages: false,
-      lowLiveRefreshes: false,
       expiresSoon: false,
     },
     checkout: overrides.checkout ?? {

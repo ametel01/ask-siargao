@@ -1,7 +1,7 @@
 import { getServerSecret } from "@/server/security/privacy";
 
-export const tripPassProductCode = "siargao_trip_pass_14d_v1";
-export const tripPassProductVersion = 1;
+export const tripPassProductCode = "siargao_trip_pass_14d_v2";
+export const tripPassProductVersion = 2;
 
 export const tripPassMeterTypes = [
   "chat_message",
@@ -13,7 +13,15 @@ export const tripPassMeterTypes = [
 
 export type TripPassMeterType = (typeof tripPassMeterTypes)[number];
 
+export const tripPassEntitlementMeterTypes = [
+  "chat_message",
+] as const satisfies readonly TripPassMeterType[];
+
 export const tripPassPaidMeterLimits = {
+  chat_message: 150,
+} as const satisfies Partial<Record<TripPassMeterType, number>>;
+
+export const tripPassLegacyPaidMeterLimits = {
   chat_message: 150,
   live_refresh: 40,
   heavy_recommendation: 8,
@@ -23,13 +31,16 @@ export const tripPassPaidMeterLimits = {
 
 export const tripPassFreeMeterLimits = {
   chat_message: 10,
+} as const satisfies Partial<Record<TripPassMeterType, number>>;
+
+export const tripPassLegacyFreeMeterLimits = {
+  chat_message: 10,
   live_refresh: 3,
   heavy_recommendation: 1,
 } as const satisfies Partial<Record<TripPassMeterType, number>>;
 
 export const tripPassWarningThresholds = {
   chatRemaining: 20,
-  liveRemaining: 5,
   expiresWithinHours: 48,
 } as const;
 
@@ -81,9 +92,33 @@ export const tripPassProductCatalog = {
   presentation: {
     headline: "14-day Siargao Trip Pass",
     priceAuthority: "stripe_price",
-    launchPriceLabel: "₱499",
+    launchPriceLabel: "$9.99",
+    launchCurrencyCode: "usd",
   },
 } as const;
+
+export const tripPassLegacyProductCatalog = {
+  code: "siargao_trip_pass_14d_v1",
+  version: 1,
+  durationDays: 14,
+  paidMeterLimits: tripPassLegacyPaidMeterLimits,
+} as const;
+
+export function getTripPassProductContract(productCode: string, productVersion: number) {
+  if (
+    productCode === tripPassProductCatalog.code &&
+    productVersion === tripPassProductCatalog.version
+  ) {
+    return tripPassProductCatalog;
+  }
+  if (
+    productCode === tripPassLegacyProductCatalog.code &&
+    productVersion === tripPassLegacyProductCatalog.version
+  ) {
+    return tripPassLegacyProductCatalog;
+  }
+  return null;
+}
 
 export type TripPassEnvironment = ReturnType<typeof readTripPassEnvironment>;
 
@@ -92,6 +127,10 @@ type Environment = Record<string, string | undefined>;
 export function readTripPassEnvironment(env: Environment = process.env) {
   const checkoutEnabled = parseBooleanFlag(env.TRIP_PASS_CHECKOUT_ENABLED);
   const extensionEnabled = parseBooleanFlag(env.TRIP_PASS_EXTENSION_ENABLED);
+  const deepSeekCostPolicyEnabled =
+    env.DEEPSEEK_COST_POLICY_ENABLED === undefined
+      ? true
+      : parseBooleanFlag(env.DEEPSEEK_COST_POLICY_ENABLED);
   const stripePriceId = optionalServerSecret("STRIPE_TRIP_PASS_PRICE_ID", env);
 
   return {
@@ -113,8 +152,8 @@ export function readTripPassEnvironment(env: Environment = process.env) {
       unavailableReason: extensionEnabled ? "extension_launch_approval_required" : null,
     },
     deepSeekCostPolicy: {
-      enabled: true,
-      status: "active",
+      enabled: deepSeekCostPolicyEnabled,
+      status: deepSeekCostPolicyEnabled ? "active" : "disabled",
     },
     anonymousIdentity: {
       hmacKeyConfigured: Boolean(optionalServerSecret("TRIP_PASS_ANON_HMAC_KEY", env)),

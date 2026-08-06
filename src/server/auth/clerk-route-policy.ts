@@ -1,12 +1,3 @@
-export const clerkProtectedRoutePatterns = [
-  "/settings(.*)",
-  "/profile(.*)",
-  "/chat/history(.*)",
-  "/api/me(.*)",
-  "/api/chat/threads(.*)",
-  "/api/chat/ratings(.*)",
-] as const;
-
 export type ClerkRouteClassification =
   | "protected"
   | "public"

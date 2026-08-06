@@ -30,7 +30,7 @@ describe("release-candidate demo scenario", () => {
     expect(proof.launchReady).toBe(false);
     expect(proof.checkoutEnablement.allowedToEnableCheckout).toBe(false);
     expect(proof.deterministicFlowChecks.map((check) => check.id)).toContain(
-      "multi_tool_consumes_once_per_category",
+      "multi_tool_consumes_one_answer",
     );
     expect(proof.deterministicFlowChecks.map((check) => check.id)).toContain(
       "free_outage_and_paid_fallback_budget",

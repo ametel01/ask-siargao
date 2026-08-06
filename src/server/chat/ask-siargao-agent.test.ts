@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 
 import type { Logger } from "pino";
 
@@ -137,6 +138,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
     expect(result.message).not.toContain("```json");
     expect(result.message).not.toContain('"answer"');
+    expect(result.repairCount).toBe(1);
     expect(result.upstreamRequestIds).toEqual(["req_malformed_json", "req_repaired_markdown"]);
     expect(client.requests).toHaveLength(2);
     expect(client.requests[1]?.max_output_tokens).toBe(1_500);
@@ -145,7 +147,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
   });
 
-  test("applies the active free cost policy", async () => {
+  test("applies the free cost policy when the candidate flag is enabled", async () => {
     const client = fakeResponsesClient([
       {
         id: "resp_free_policy",
@@ -541,6 +543,498 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
   });
 
+  test("builds an explicit reality-check summary only from validated tool-call evidence", async () => {
+    const rogueSummary: DecisionSummary = {
+      id: "model_selected_rogue_summary",
+      bestAction: "Ignore the weather.",
+      basis: "Unsupported.",
+      sources: [],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_reality_check_tool",
+        requestId: "req_reality_check_tool",
+        callId: "call_condition",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "sunset",
+          location: "Cloud 9",
+          date_range: "today",
+          beach_name: "Cloud 9",
+        },
+      }),
+      {
+        id: "resp_reality_check_final",
+        output_text: finalPayloadText({
+          answer: "Model-authored prose is replaced by the validated decision.",
+          usedToolCallIds: ["call_condition"],
+          displayDecisionSummaryIds: [rogueSummary.id],
+          realityCheck: {
+            kind: "immediate_plan",
+            verdict: "change",
+            subject: "Cloud 9 sunset today",
+            bestAction: "Keep the stop short and flexible.",
+            basis: "The checked conditions make a long exposed stop a weak plan.",
+            fallback: "Use a covered General Luna stop.",
+            evidenceToolCallIds: ["call_condition"],
+          },
+        }),
+        _request_id: "req_reality_check_final",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Given today's weather, should we still go to Cloud 9 for sunset?",
+          },
+        ],
+        requestId: "agent_request_reality_check",
+      },
+      {
+        client,
+        executeTool: fakeToolExecutor({
+          get_condition_judgment: {
+            name: "get_condition_judgment",
+            status: "success",
+            text: "Current condition judgment completed.",
+            sources: [weatherSourceSummary],
+            decisionSummaries: [rogueSummary],
+          },
+        }),
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.message).toContain("**change: Cloud 9 sunset today**");
+    expect(result.message).not.toContain("Model-authored prose");
+    expect(result.decisionSummaries).toHaveLength(1);
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      id: expect.stringMatching(/^reality_check:immediate_plan:[a-f0-9]{16}$/),
+      kind: "immediate_plan",
+      verdict: "change",
+      subject: "Cloud 9 sunset today",
+      bestAction: "Keep the stop short and flexible.",
+      sources: [weatherSourceSummary],
+    });
+    expect(result.decisionSummaries?.map((summary) => summary.id)).not.toContain(rogueSummary.id);
+    expect(result.publicSources).toEqual([weatherSourceSummary]);
+    expect(result.artifactSelection).toMatchObject({
+      selectedDecisionSummaryCount: 1,
+      unselectedDecisionSummaryCount: 1,
+      unknownDecisionSummaryIds: [],
+    });
+  });
+
+  test("repairs an explicit reality check that omitted its proposal", async () => {
+    const proposal: NonNullable<AgentFinalPayload["realityCheck"]> = {
+      kind: "immediate_plan",
+      verdict: "keep",
+      subject: "Cloud 9 sunset today",
+      bestAction: "Keep the sunset stop flexible.",
+      basis: "The current forecast supports a short stop.",
+      evidenceToolCallIds: ["call_condition"],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_reality_repair_tool",
+        requestId: "req_reality_repair_tool",
+        callId: "call_condition",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "sunset",
+          location: "Cloud 9",
+          date_range: "today",
+          beach_name: "Cloud 9",
+        },
+      }),
+      {
+        id: "resp_reality_repair_missing",
+        output_text: finalPayloadText({
+          answer: "Go to Cloud 9.",
+          usedToolCallIds: ["call_condition"],
+        }),
+        output: [{ type: "message", id: "msg_reality_repair_missing" }],
+        _request_id: "req_reality_repair_missing",
+      },
+      {
+        id: "resp_reality_repair_final",
+        output_text: finalPayloadText({
+          answer: "Keep it flexible.",
+          usedToolCallIds: ["call_condition"],
+          realityCheck: proposal,
+        }),
+        _request_id: "req_reality_repair_final",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Given today's weather, should we still go to Cloud 9 for sunset?",
+          },
+        ],
+        requestId: "agent_request_reality_repair",
+      },
+      {
+        client,
+        executeTool: fakeToolExecutor({
+          get_condition_judgment: {
+            name: "get_condition_judgment",
+            status: "success",
+            text: "Current condition judgment completed.",
+            sources: [weatherSourceSummary],
+          },
+        }),
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.repairCount).toBe(1);
+    expect(result.decisionSummaries?.[0]).toMatchObject({ verdict: "keep" });
+    expect(parseLastUserInputMessage(client.requests[2]?.input)).toMatchObject({
+      validationRepairRealityCheck: {
+        expectedKind: "immediate_plan",
+        reason: "missing_reality_check",
+      },
+    });
+  });
+
+  test("downgrades a repeated positive verdict after provider failure", async () => {
+    const unsafeProposal: NonNullable<AgentFinalPayload["realityCheck"]> = {
+      kind: "immediate_plan",
+      verdict: "keep",
+      subject: "Cloud 9 sunset today",
+      bestAction: "Go ahead with the sunset stop.",
+      basis: "The weather should be fine.",
+      evidenceToolCallIds: ["call_condition"],
+    };
+    const repeatedFinal = {
+      output_text: finalPayloadText({
+        answer: "Go ahead.",
+        usedToolCallIds: ["call_condition"],
+        realityCheck: unsafeProposal,
+      }),
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_reality_failure_tool",
+        requestId: "req_reality_failure_tool",
+        callId: "call_condition",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "sunset",
+          location: "Cloud 9",
+          date_range: "today",
+          beach_name: "Cloud 9",
+        },
+      }),
+      {
+        id: "resp_reality_failure_final",
+        ...repeatedFinal,
+        output: [{ type: "message", id: "msg_reality_failure_final" }],
+        _request_id: "req_reality_failure_final",
+      },
+      {
+        id: "resp_reality_failure_repeated",
+        ...repeatedFinal,
+        _request_id: "req_reality_failure_repeated",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Given today's weather, should we still go to Cloud 9 for sunset?",
+          },
+        ],
+        requestId: "agent_request_reality_failure",
+      },
+      {
+        client,
+        executeTool: fakeToolExecutor({
+          get_condition_judgment: {
+            name: "get_condition_judgment",
+            status: "error",
+            text: "The forecast provider is unavailable.",
+            errorCode: "provider_unavailable",
+            sources: [weatherProviderUnavailableSourceSummary],
+          },
+        }),
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.repairCount).toBe(1);
+    expect(result.message).toContain("**needs confirmation: Cloud 9 sunset today**");
+    expect(result.message).not.toContain("Go ahead");
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      verdict: "needs_confirmation",
+      sources: [weatherProviderUnavailableSourceSummary],
+    });
+  });
+
+  test("reality-checks an exact accommodation and filters mixed place cards", async () => {
+    const bravoCard: RecommendationCard = {
+      id: "card_bravo_beach_resort",
+      kind: "place",
+      title: "Bravo Beach Resort",
+      subtitle: "General Luna",
+      fitReasons: ["The checked listing matches the named property."],
+      caveats: ["Room noise and Wi-Fi reliability were not checked."],
+      sourceLabel: "Google Places - live checked",
+    };
+    const unrelatedCard: RecommendationCard = {
+      ...bravoCard,
+      id: "card_unrelated_resort",
+      title: "Unrelated Resort",
+    };
+    const areaSource: AnswerSourceSummary = {
+      label: "curated_local_guide",
+      sourceName: "Ask Siargao governed area facts",
+      confidence: "medium",
+      checked: ["General Luna area fit", "transport access"],
+      notChecked: ["property room noise", "property Wi-Fi reliability"],
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_accommodation_evidence",
+        _request_id: "req_accommodation_evidence",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_bravo_places",
+            name: "search_places",
+            arguments: JSON.stringify({
+              query: "Bravo Beach Resort accommodation Siargao",
+              center: { latitude: 9.784, longitude: 126.158 },
+              radius_meters: 12000,
+              constraints: { included_type: "lodging", open_now: null, page_size: 5 },
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_general_luna_facts",
+            name: "query_local_facts",
+            arguments: JSON.stringify({
+              entityTypes: ["area", "route"],
+              area: "general luna",
+              text: "General Luna",
+              limit: 5,
+            }),
+          },
+        ],
+      },
+      {
+        id: "resp_accommodation_final",
+        _request_id: "req_accommodation_final",
+        output_text: finalPayloadText({
+          answer: "The named property and General Luna fit were checked separately.",
+          usedToolCallIds: ["call_bravo_places", "call_general_luna_facts"],
+          displayCardIds: [bravoCard.id, unrelatedCard.id],
+          realityCheck: {
+            kind: "accommodation",
+            verdict: "keep",
+            subject: "Bravo Beach Resort",
+            bestAction: "Keep it on the shortlist for its General Luna location.",
+            basis:
+              "Places confirms the property identity, and governed area facts fit a family without a scooter.",
+            avoid: "Room noise and Wi-Fi reliability are not confirmed; ask the property directly.",
+            area: "General Luna",
+            evidenceToolCallIds: ["call_bravo_places", "call_general_luna_facts"],
+          },
+        }),
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content:
+              "Reality-check Bravo Beach Resort in General Luna for kids, quiet sleep, and no scooter before I book.",
+          },
+        ],
+        requestId: "agent_request_accommodation_exact",
+      },
+      {
+        client,
+        executeTool: fakeToolExecutor({
+          search_places: {
+            name: "search_places",
+            status: "success",
+            text: "Google Places matched the named property.",
+            sources: [placesSourceSummary],
+            cards: [bravoCard, unrelatedCard],
+          },
+          query_local_facts: {
+            name: "query_local_facts",
+            status: "success",
+            text: "Governed General Luna area-fit facts returned.",
+            sources: [areaSource],
+          },
+        }),
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.message).toContain("**keep: Bravo Beach Resort**");
+    expect(result.message).toContain("Room noise and Wi-Fi reliability are not confirmed");
+    expect(result.cards?.map((card) => card.id)).toEqual([bravoCard.id]);
+    expect(JSON.stringify(result.cards)).not.toContain(unrelatedCard.title);
+    expect(result.publicSources).toEqual([placesSourceSummary, areaSource]);
+    expect(result.artifactSelection).toMatchObject({
+      selectedCardCount: 1,
+      totalCardCount: 1,
+      unknownCardIds: [],
+    });
+  });
+
+  test("downgrades a property verdict when Places is unavailable", async () => {
+    const areaSource: AnswerSourceSummary = {
+      label: "curated_local_guide",
+      sourceName: "Ask Siargao governed area facts",
+      confidence: "medium",
+      checked: ["General Luna area fit"],
+      notChecked: ["property identity"],
+    };
+    const unsafeProposal: NonNullable<AgentFinalPayload["realityCheck"]> = {
+      kind: "accommodation",
+      verdict: "keep",
+      subject: "Bravo Beach Resort",
+      bestAction: "Book the property.",
+      basis: "General Luna fits the trip constraints.",
+      evidenceToolCallIds: ["call_bravo_places_failed", "call_general_luna_facts"],
+    };
+    const repeatedFinal = {
+      output_text: finalPayloadText({
+        answer: "Keep the property on the shortlist without a checked Places claim.",
+        usedToolCallIds: ["call_bravo_places_failed", "call_general_luna_facts"],
+        realityCheck: unsafeProposal,
+      }),
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_accommodation_failure_evidence",
+        _request_id: "req_accommodation_failure_evidence",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_bravo_places_failed",
+            name: "search_places",
+            arguments: JSON.stringify({
+              query: "Bravo Beach Resort accommodation Siargao",
+              center: { latitude: 9.784, longitude: 126.158 },
+              radius_meters: 12000,
+              constraints: { included_type: "lodging", open_now: null, page_size: 5 },
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_general_luna_facts",
+            name: "query_local_facts",
+            arguments: JSON.stringify({
+              entityTypes: ["area", "route"],
+              area: "general luna",
+              text: "General Luna",
+              limit: 5,
+            }),
+          },
+        ],
+      },
+      {
+        id: "resp_accommodation_failure_final",
+        _request_id: "req_accommodation_failure_final",
+        output: [{ type: "message", id: "msg_accommodation_failure_final" }],
+        ...repeatedFinal,
+      },
+      {
+        id: "resp_accommodation_failure_repeated",
+        _request_id: "req_accommodation_failure_repeated",
+        ...repeatedFinal,
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Reality-check Bravo Beach Resort in General Luna before I book.",
+          },
+        ],
+        requestId: "agent_request_accommodation_provider_failure",
+      },
+      {
+        client,
+        executeTool: fakeToolExecutor({
+          search_places: {
+            name: "search_places",
+            status: "error",
+            text: "Google Places was unavailable.",
+            errorCode: "provider_unavailable",
+            sources: [providerUnavailableSourceSummary],
+          },
+          query_local_facts: {
+            name: "query_local_facts",
+            status: "success",
+            text: "Governed General Luna area facts returned.",
+            sources: [areaSource],
+          },
+        }),
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.repairCount).toBe(1);
+    expect(result.message).toContain("**needs confirmation: Bravo Beach Resort**");
+    expect(result.message).not.toContain("Book the property");
+    expect(result.cards).toBeUndefined();
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      verdict: "needs_confirmation",
+      sources: [providerUnavailableSourceSummary, areaSource],
+    });
+  });
+
+  test("asks for the accommodation instead of inventing one", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_accommodation_clarification",
+        _request_id: "req_accommodation_clarification",
+        output_text: finalPayloadText({ answer: "I can check it." }),
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Reality-check this hotel before I book." }],
+        requestId: "agent_request_accommodation_clarification",
+      },
+      { client, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toBe(
+      "Which accommodation should I reality-check? Send its name or listing link.",
+    );
+    expect(result.toolCalls).toEqual([]);
+    expect(result.decisionSummaries).toBeUndefined();
+  });
+
   test("returns only tool artifacts selected by structured final payload", async () => {
     const card = {
       id: "card_doot",
@@ -736,6 +1230,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.cards?.map((card) => card.id)).toEqual([breakfastCard.id]);
     expect(JSON.stringify(result.cards)).not.toContain(beachCard.title);
     expect(result.artifactSelection).toMatchObject({
+      totalCardCount: 2,
       selectedCardCount: 1,
       unselectedCardCount: 1,
     });
@@ -3230,6 +3725,656 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(JSON.stringify(client.requests)).not.toContain("126.088");
   });
 
+  test("waits for current surf conditions before dependent rankings and filters mixed cards", async () => {
+    const rankedCard: RecommendationCard = recommendationCard({
+      id: "card_ranked_intermediate_surf",
+      title: "Ranked intermediate surf option",
+      fitReasons: ["Matches the supplied intermediate level and shared-location ranking."],
+      caveats: ["Exact-break safety needs local-coach confirmation."],
+      kind: "beach",
+      sourceLabel: "Ask Siargao surf reference",
+      sources: [localGuideSourceSummary],
+    });
+    const unrelatedCard: RecommendationCard = recommendationCard({
+      id: "card_unrelated_beginner_lesson",
+      title: "Unrelated beginner lesson",
+      fitReasons: ["A beginner option unrelated to the supplied level."],
+      caveats: ["Not selected for this session."],
+      kind: "beach",
+      sourceLabel: "Ask Siargao surf reference",
+      sources: [localGuideSourceSummary],
+    });
+    const client = fakeResponsesClient([
+      {
+        id: "resp_ordered_surf_calls",
+        _request_id: "req_ordered_surf_calls",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_surf_memory",
+            name: "load_agent_memory_file",
+            arguments: JSON.stringify({ documents: ["SURF.md"] }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_surf_condition",
+            name: "get_condition_judgment",
+            arguments: JSON.stringify({
+              activity: "surfing",
+              location: "Siargao Island",
+              date_range: "today",
+              beach_name: null,
+              include_local_caveats: null,
+              constraints: ["intermediate"],
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_surf_ranking",
+            name: "rank_surf_spots_nearby",
+            arguments: JSON.stringify({
+              skill_level: "intermediate",
+              max_results: 3,
+              include_boat_access: false,
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_unrelated_surf_guide",
+            name: "search_local_guide",
+            arguments: JSON.stringify({ query: "beginner beach lesson", filters: null }),
+          },
+        ],
+      },
+      {
+        id: "resp_ordered_surf_final",
+        _request_id: "req_ordered_surf_final",
+        output_text: finalPayloadText({
+          answer:
+            "Change the session: Ranked intermediate surf option is about 0.4 km from your shared location, but use it only after local-coach confirmation.",
+          usedMemoryFiles: ["SURF.md"],
+          usedToolCallIds: ["call_surf_condition", "call_surf_ranking"],
+          displayCardIds: [rankedCard.id, unrelatedCard.id],
+          realityCheck: {
+            kind: "surf_session",
+            verdict: "change",
+            subject: "Intermediate surf near my location today",
+            bestAction: "Use the ranked option only after local-coach confirmation.",
+            basis: "The current modelled sea conditions support a conditional session.",
+            fallback: "Skip the session if the exact break looks unsuitable on arrival.",
+            avoid: "Do not treat modelled conditions as a safe-to-surf guarantee.",
+            timing: "today",
+            area: "near the shared location",
+            evidenceToolCallIds: ["call_surf_condition"],
+          },
+        }),
+      },
+    ]);
+    let conditionStartedResolve: (() => void) | undefined;
+    let conditionResultResolve: ((result: AgentToolResult) => void) | undefined;
+    const conditionStarted = new Promise<void>((resolve) => {
+      conditionStartedResolve = resolve;
+    });
+    const conditionResult = new Promise<AgentToolResult>((resolve) => {
+      conditionResultResolve = resolve;
+    });
+    let rankingStarted = false;
+    let localGuideStarted = false;
+    const memoryExecutor = memoryLoadExecutor();
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "get_condition_judgment") {
+        conditionStartedResolve?.();
+        return conditionResult;
+      }
+      if (request.name === "rank_surf_spots_nearby") {
+        rankingStarted = true;
+        return {
+          name: request.name,
+          status: "success",
+          text: "Ranked current intermediate surf options.",
+          data: {
+            centerSource: "browser_geolocation",
+            spots: [
+              {
+                name: rankedCard.title,
+                distanceLabel: "About 0.4 km straight-line from your shared location.",
+              },
+            ],
+          },
+          sources: [localGuideSourceSummary],
+          cards: [rankedCard],
+        };
+      }
+      if (request.name === "search_local_guide") {
+        localGuideStarted = true;
+        return {
+          name: request.name,
+          status: "success",
+          text: "Returned an unrelated beginner option.",
+          sources: [localGuideSourceSummary],
+          cards: [unrelatedCard],
+        };
+      }
+      if (request.name === "load_agent_memory_file") {
+        return memoryExecutor(request);
+      }
+      return {
+        name: request.name,
+        status: "error",
+        text: `Unexpected tool ${request.name}.`,
+        errorCode: "unexpected_tool",
+        sources: [],
+      };
+    };
+    const turnPromise = runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "As an intermediate surfer, should I surf near me today?",
+          },
+        ],
+        requestId: "agent_request_ordered_surf_reality_check",
+        clientContext: {
+          geolocation: {
+            status: "available",
+            source: "browser_geolocation",
+            consentScope: "single_request",
+            latitude: 9.952,
+            longitude: 126.088,
+            capturedAt: "2026-08-03T08:00:00.000Z",
+          },
+        },
+      },
+      {
+        client,
+        executeTool,
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    await conditionStarted;
+    await Promise.resolve();
+    expect(rankingStarted).toBe(false);
+    expect(localGuideStarted).toBe(false);
+    conditionResultResolve?.({
+      name: "get_condition_judgment",
+      status: "success",
+      text: "Current weather, modelled waves, and swell were checked.",
+      sources: [weatherSourceSummary, marineCheckedSourceSummary],
+    });
+
+    const result = await turnPromise;
+
+    expect(rankingStarted).toBe(true);
+    expect(localGuideStarted).toBe(true);
+    expect(result.cards?.map((card) => card.id)).toEqual([rankedCard.id]);
+    expect(JSON.stringify(result)).not.toContain(unrelatedCard.title);
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      kind: "surf_session",
+      verdict: "change",
+      subject: "Intermediate surf near my location today",
+    });
+    expect(result.artifactSelection).toMatchObject({
+      totalCardCount: 1,
+      selectedCardCount: 1,
+      unselectedCardCount: 0,
+    });
+  });
+
+  test.each([
+    {
+      prompt: "Should we surf in Pacifico tomorrow morning?",
+      answer: "What is the surfer's level: beginner, intermediate, or advanced?",
+    },
+    {
+      prompt: "As an intermediate surfer, should I paddle out at Cloud 9?",
+      answer: "When do you want to surf: today or tomorrow, and roughly what time?",
+    },
+  ])("asks for missing surf-session context before running tools: $prompt", async (scenario) => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_missing_surf_context",
+        _request_id: "req_missing_surf_context",
+        output_text: finalPayloadText({ answer: "I need one detail first." }),
+      },
+    ]);
+    let toolCallCount = 0;
+    const executeTool: AgentToolExecutor = async (request) => {
+      toolCallCount += 1;
+      return {
+        name: request.name,
+        status: "error",
+        text: "Unexpected tool call.",
+        errorCode: "unexpected_tool",
+        sources: [],
+      };
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: scenario.prompt }],
+        requestId: "agent_request_missing_surf_context",
+      },
+      {
+        client,
+        executeTool,
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.message).toBe(scenario.answer);
+    expect(result.toolCalls).toEqual([]);
+    expect(toolCallCount).toBe(0);
+  });
+
+  test("returns needs-confirmation when surf condition providers are unavailable", async () => {
+    const marineUnavailable: AnswerSourceSummary = {
+      label: "provider_unavailable",
+      sourceName: "Open-Meteo Marine API",
+      sourceProfileId: "source_open_meteo_marine",
+      confidence: "low",
+      checked: [],
+      notChecked: ["modelled waves and swell"],
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_unavailable_surf_calls",
+        _request_id: "req_unavailable_surf_calls",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_unavailable_surf_memory",
+            name: "load_agent_memory_file",
+            arguments: JSON.stringify({ documents: ["SURF.md"] }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_unavailable_surf_condition",
+            name: "get_condition_judgment",
+            arguments: JSON.stringify({
+              activity: "surfing",
+              location: "Siargao Island",
+              date_range: "next_7_days",
+              beach_name: "Pacifico Beach",
+              include_local_caveats: true,
+              constraints: ["beginner"],
+            }),
+          },
+        ],
+      },
+      {
+        id: "resp_unavailable_surf_final",
+        _request_id: "req_unavailable_surf_final",
+        output_text: finalPayloadText({
+          answer: "Confirm the beginner window with a local coach before booking.",
+          usedMemoryFiles: ["SURF.md"],
+          usedToolCallIds: ["call_unavailable_surf_condition"],
+          displayCardIds: ["card_unsupported_surf"],
+          realityCheck: {
+            kind: "surf_session",
+            verdict: "needs_confirmation",
+            subject: "Pacifico beginner surf tomorrow morning",
+            bestAction: "Confirm the beginner window with a local coach before booking.",
+            basis: "The current modelled sea conditions could not be established.",
+            fallback: "Use a land-based activity if no coach can confirm the session.",
+            avoid: "Do not paddle out without local confirmation.",
+            timing: "tomorrow morning",
+            area: "Pacifico",
+            evidenceToolCallIds: ["call_unavailable_surf_condition"],
+          },
+        }),
+      },
+    ]);
+    const memoryExecutor = memoryLoadExecutor();
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Beginner surf in Pacifico tomorrow morning: is it worth booking?",
+          },
+        ],
+        requestId: "agent_request_unavailable_surf_reality_check",
+      },
+      {
+        client,
+        executeTool: async (request) => {
+          if (request.name === "load_agent_memory_file") {
+            return memoryExecutor(request);
+          }
+          return {
+            name: request.name,
+            status: "success",
+            text: "Current surf condition providers were unavailable.",
+            sources: [weatherProviderUnavailableSourceSummary, marineUnavailable],
+            cards: [
+              recommendationCard({
+                id: "card_unsupported_surf",
+                title: "Unsupported surf recommendation",
+                kind: "beach",
+                fitReasons: ["No current provider support."],
+                caveats: ["Current conditions unavailable."],
+                sourceLabel: "Provider unavailable",
+                sources: [marineUnavailable],
+              }),
+            ],
+          };
+        },
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      kind: "surf_session",
+      verdict: "needs_confirmation",
+      subject: "Pacifico beginner surf tomorrow morning",
+    });
+    expect(result.cards).toBeUndefined();
+    expect(result.publicSources).toEqual([
+      weatherProviderUnavailableSourceSummary,
+      marineUnavailable,
+    ]);
+  });
+
+  test("orders disruption evidence before replacements and filters adversarial mixed artifacts", async () => {
+    const replacementCard = recommendationCard({
+      id: "card_cancelled_tour_replacement",
+      title: "Covered General Luna stop",
+      fitReasons: ["Works as a land-based replacement for the traveler-reported cancellation."],
+      caveats: ["Confirm current space before leaving."],
+    });
+    const unrelatedCard = recommendationCard({
+      id: "card_cancelled_tour_unrelated",
+      title: "Unrelated island-hopping operator",
+      fitReasons: ["Not selected as the replacement."],
+      caveats: ["The original island plan was cancelled."],
+    });
+    const replacementPlan: ItineraryPlan = {
+      id: "itinerary:cancelled_tour:covered_general_luna",
+      title: "Covered General Luna Replacement",
+      durationLabel: "half day",
+      stops: [
+        {
+          title: "Covered General Luna stop",
+          kind: "activity",
+          sequence: 1,
+          area: "General Luna",
+          rationale: "Keeps the replacement on land and close to services.",
+          caveats: ["Confirm current opening before leaving."],
+        },
+      ],
+      fallbackStops: [],
+      skip: ["Do not chase another exposed boat departure in poor conditions."],
+      sources: [localGuideSourceSummary, weatherSourceSummary],
+    };
+    const unrelatedPlan: ItineraryPlan = {
+      ...replacementPlan,
+      id: "itinerary:cancelled_tour:unrelated_boat",
+      title: "Unrelated Boat Replacement",
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_disruption_ordered_calls",
+        _request_id: "req_disruption_ordered_calls",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_disruption_condition",
+            name: "get_condition_judgment",
+            arguments: JSON.stringify({
+              activity: "boat_trip",
+              location: "Siargao Island",
+              date_range: "today",
+              beach_name: null,
+              include_local_caveats: true,
+              constraints: ["cancelled island tour"],
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_disruption_plan",
+            name: "plan_local_itinerary",
+            arguments: JSON.stringify({
+              theme: "rainy_cloud_9_afternoon",
+              origin: "General Luna",
+              duration_hours: 4,
+              needs_weather_check: true,
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_disruption_places",
+            name: "search_places",
+            arguments: JSON.stringify({
+              query: "covered activities General Luna Siargao",
+              center: { latitude: 9.784, longitude: 126.158 },
+              radius_meters: 4000,
+              constraints: { included_type: null, open_now: true, page_size: 5 },
+            }),
+          },
+          {
+            type: "function_call",
+            call_id: "call_disruption_unrelated",
+            name: "search_local_guide",
+            arguments: JSON.stringify({ query: "another island tour", filters: null }),
+          },
+        ],
+      },
+      {
+        id: "resp_disruption_ordered_final",
+        _request_id: "req_disruption_ordered_final",
+        output_text: finalPayloadText({
+          answer: "Use the covered General Luna replacement and keep the boat plan off today.",
+          usedToolCallIds: [
+            "call_disruption_condition",
+            "call_disruption_plan",
+            "call_disruption_places",
+          ],
+          displayCardIds: [replacementCard.id, unrelatedCard.id],
+          displayItineraryIds: [replacementPlan.id ?? "", unrelatedPlan.id ?? ""],
+          realityCheck: {
+            kind: "disruption_recovery",
+            verdict: "change",
+            subject: "Traveler-reported cancelled island tour",
+            bestAction: "Use the covered General Luna replacement today.",
+            basis: "Current conditions and governed local options support a land-based half day.",
+            fallback: "Stay near General Luna and confirm current opening before leaving.",
+            avoid: "Avoid relying on another boat departure today.",
+            timing: "today",
+            area: "General Luna",
+            evidenceToolCallIds: [
+              "call_disruption_condition",
+              "call_disruption_plan",
+              "call_disruption_places",
+            ],
+          },
+        }),
+      },
+    ]);
+    let conditionResolve: ((result: AgentToolResult) => void) | undefined;
+    let conditionStartedResolve: (() => void) | undefined;
+    const conditionStarted = new Promise<void>((resolve) => {
+      conditionStartedResolve = resolve;
+    });
+    const conditionResult = new Promise<AgentToolResult>((resolve) => {
+      conditionResolve = resolve;
+    });
+    let replacementStarted = false;
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "get_condition_judgment") {
+        conditionStartedResolve?.();
+        return conditionResult;
+      }
+      replacementStarted = true;
+      if (request.name === "plan_local_itinerary") {
+        return {
+          name: request.name,
+          status: "success",
+          text: "Prepared the land-based replacement.",
+          sources: [localGuideSourceSummary],
+          itineraries: [replacementPlan],
+        };
+      }
+      if (request.name === "search_places") {
+        return {
+          name: request.name,
+          status: "success",
+          text: "Returned a current covered option.",
+          sources: [placesSourceSummary],
+          cards: [replacementCard],
+        };
+      }
+      if (request.name === "search_local_guide") {
+        return {
+          name: request.name,
+          status: "success",
+          text: "Returned an unrelated boat option.",
+          sources: [localGuideSourceSummary],
+          cards: [unrelatedCard],
+          itineraries: [unrelatedPlan],
+        };
+      }
+      throw new Error(`Unexpected tool ${request.name}`);
+    };
+    const turnPromise = runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Our island tour was cancelled. Give us a workable replacement.",
+          },
+        ],
+        requestId: "agent_request_disruption_ordering",
+      },
+      {
+        client,
+        executeTool,
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    await conditionStarted;
+    await Promise.resolve();
+    expect(replacementStarted).toBe(false);
+    conditionResolve?.({
+      name: "get_condition_judgment",
+      status: "success",
+      text: "Current boat-trip conditions checked.",
+      sources: [weatherSourceSummary, conditionMarineSourceSummary],
+    });
+    const result = await turnPromise;
+
+    expect(replacementStarted).toBe(true);
+    expect(result.cards?.map((card) => card.id)).toEqual([replacementCard.id]);
+    expect(result.itineraries?.map((itinerary) => itinerary.id)).toEqual([replacementPlan.id]);
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      kind: "disruption_recovery",
+      verdict: "change",
+      subject: "Traveler-reported cancelled island tour",
+    });
+    expect(JSON.stringify(result)).not.toContain(unrelatedCard.title);
+    expect(JSON.stringify(result)).not.toContain(unrelatedPlan.title);
+  });
+
+  test("returns needs-confirmation without failed replacement artifacts", async () => {
+    const failedCard = recommendationCard({
+      id: "card_closed_venue_failed_replacement",
+      title: "Unverified replacement venue",
+      fitReasons: ["Returned only with the failed provider result."],
+      caveats: ["Availability could not be established."],
+    });
+    const failedPlan: ItineraryPlan = {
+      id: "itinerary:closed_venue:failed_replacement",
+      title: "Unverified Venue Replacement",
+      durationLabel: "evening",
+      stops: [],
+      fallbackStops: [],
+      skip: [],
+      sources: [providerUnavailableSourceSummary],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_failed_disruption_places",
+        requestId: "req_failed_disruption_places",
+        callId: "call_failed_disruption_places",
+        name: "search_places",
+        arguments: {
+          query: "open dinner alternatives General Luna Siargao",
+          center: { latitude: 9.784, longitude: 126.158 },
+          radius_meters: 4000,
+          constraints: { included_type: "restaurant", open_now: true, page_size: 5 },
+        },
+      }),
+      {
+        id: "resp_failed_disruption_final",
+        _request_id: "req_failed_disruption_final",
+        output_text: finalPayloadText({
+          answer: "Confirm a replacement directly before leaving.",
+          usedToolCallIds: ["call_failed_disruption_places"],
+          displayCardIds: [failedCard.id],
+          displayItineraryIds: [failedPlan.id ?? ""],
+          realityCheck: {
+            kind: "disruption_recovery",
+            verdict: "needs_confirmation",
+            subject: "Traveler-reported closed dinner venue",
+            bestAction: "Confirm a replacement directly before leaving.",
+            basis: "Current opening and availability could not be established.",
+            fallback: "Use a nearby walk-in option only after local confirmation.",
+            avoid: "Avoid travelling across the island for an unconfirmed venue.",
+            timing: "tonight",
+            area: "General Luna",
+            evidenceToolCallIds: ["call_failed_disruption_places"],
+          },
+        }),
+      },
+    ]);
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content: "Our dinner venue closed. Give us an alternative instead.",
+          },
+        ],
+        requestId: "agent_request_failed_disruption_replacement",
+      },
+      {
+        client,
+        executeTool: fakeToolExecutor({
+          search_places: {
+            name: "search_places",
+            status: "error",
+            text: "Google Places was unavailable.",
+            errorCode: "provider_unavailable",
+            sources: [providerUnavailableSourceSummary],
+            cards: [failedCard],
+            itineraries: [failedPlan],
+          },
+        }),
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      kind: "disruption_recovery",
+      verdict: "needs_confirmation",
+    });
+    expect(result.cards).toBeUndefined();
+    expect(result.itineraries).toBeUndefined();
+    expect(result.publicSources).toEqual([providerUnavailableSourceSummary]);
+  });
+
   test("repairs structured surf-near-me answers that omit ranked spots from the public payload", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
@@ -4766,7 +5911,6 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     "Can you plan my airport transfer to General Luna?",
     "Can you plan my 2-hour airport transfer from General Luna?",
     "Can you plan my ferry transfer to General Luna?",
-    "Can you critique my itinerary for tomorrow?",
     "Can you plan my trip to Siargao?",
   ]) {
     test(`does not auto-repair non-itinerary plan prompt: ${prompt}`, async () => {
@@ -4810,6 +5954,338 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       expect(client.requests).toHaveLength(1);
     });
   }
+
+  test("asks for the itinerary details when an explicit critique has no plan", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_missing_itinerary_details",
+        output_text: finalPayloadText({ answer: "I need the plan first." }),
+        _request_id: "req_missing_itinerary_details",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Can you critique my itinerary for tomorrow?" }],
+        requestId: "agent_request_missing_itinerary_details",
+      },
+      { client, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toBe(
+      "Send the itinerary stops and timing you want me to reality-check.",
+    );
+    expect(result.toolCalls).toEqual([]);
+  });
+
+  test("reviews an itinerary and waits for upstream checks before Places enrichment", async () => {
+    const routeSource: AnswerSourceSummary = {
+      label: "curated_local_guide",
+      sourceName: "Ask Siargao governed route facts",
+      confidence: "medium",
+      checked: ["Cloud 9, Pacifico, and Dapa area relationship"],
+      notChecked: ["live traffic", "vehicle availability"],
+    };
+    const reviewPlan: ItineraryPlan = {
+      id: "itinerary_feasibility_review",
+      title: "Itinerary Feasibility Review",
+      durationLabel: "2 days, 3 stops",
+      decision: {
+        label: "avoid_today",
+        bestAction: "Move the final north-island night to General Luna or Dapa.",
+      },
+      stops: [
+        {
+          title: "Cloud 9 sunset",
+          kind: "activity",
+          sequence: 1,
+          area: "Cloud 9",
+          rationale: "Day 1 at 16:00.",
+          caveats: ["Current weather needs a separate check."],
+        },
+        {
+          title: "Pacifico dinner",
+          kind: "meal",
+          sequence: 2,
+          area: "Pacifico",
+          travelTimeFromPreviousMinutes: 83,
+          rationale: "Day 1 at 19:00.",
+          caveats: ["Transfer time is a non-live estimate, not live traffic."],
+        },
+        {
+          title: "Dapa ferry",
+          kind: "transfer",
+          sequence: 3,
+          area: "Dapa",
+          rationale: "Day 2 at 08:00.",
+          caveats: ["Ferry schedule changes were not inferred."],
+        },
+      ],
+      fallbackStops: [
+        {
+          title: "Travel south before dark",
+          kind: "transfer",
+          sequence: 1,
+          rationale: "Use if the overnight base cannot change.",
+          caveats: ["Vehicle availability needs confirmation."],
+        },
+      ],
+      skip: ["Pacifico dinner before an early Dapa departure"],
+      sources: [genericSourceSummary],
+    };
+    const dinnerCard: RecommendationCard = {
+      id: "card_pacifico_dinner",
+      kind: "place",
+      title: "Pacifico Dinner House",
+      subtitle: "Pacifico",
+      fitReasons: ["Current Places match for the submitted dinner stop."],
+      caveats: ["Reservations were not checked."],
+      sourceLabel: "Google Places - live checked",
+    };
+    const unselectedCard: RecommendationCard = {
+      ...dinnerCard,
+      id: "card_unselected_pacifico",
+      title: "Unselected Pacifico Venue",
+    };
+    const requiredPlacesArguments = {
+      query: "Pacifico dinner Pacifico Siargao",
+      center: { latitude: 9.954, longitude: 126.088 },
+      radius_meters: 5000,
+      constraints: { included_type: "restaurant", open_now: true, page_size: 5 },
+    };
+    const finalReviewPayload: Partial<AgentFinalPayload> = {
+      answer:
+        "Change the plan: Pacifico dinner leaves a weak overnight position for the 8 AM Dapa ferry. Move south after Cloud 9, especially with kids and no scooter; keep Pacifico Dinner House only if the schedule changes.",
+      usedToolCallIds: [
+        "call_itinerary_review_plan",
+        "auto_required_local_facts_1",
+        "auto_required_weather_2",
+        "auto_required_places_1",
+      ],
+      displayCardIds: [dinnerCard.id],
+      displayItineraryIds: [reviewPlan.id ?? ""],
+      realityCheck: {
+        kind: "itinerary",
+        verdict: "change",
+        subject: "Cloud 9, Pacifico, and early Dapa ferry plan",
+        bestAction: "Move the final north-island night to General Luna or Dapa.",
+        basis:
+          "The governed route context and submitted timing make Pacifico a weak position for the 8 AM Dapa ferry.",
+        fallback: "Drop Pacifico dinner and travel south before dark.",
+        avoid: "Do not rely on the non-live transfer estimate as a ferry guarantee.",
+        timing: "Day 1 evening before the Day 2 8 AM ferry",
+        area: "Pacifico to Dapa",
+        evidenceToolCallIds: [
+          "call_itinerary_review_plan",
+          "auto_required_local_facts_1",
+          "auto_required_weather_2",
+          "auto_required_places_1",
+        ],
+      },
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_itinerary_review_plan",
+        requestId: "req_itinerary_review_plan",
+        callId: "call_itinerary_review_plan",
+        name: "plan_local_itinerary",
+        arguments: {
+          theme: "itinerary_review",
+          transport_mode: "tricycle",
+          needs_weather_check: true,
+          needs_open_now: true,
+          constraints: ["with kids", "no scooter"],
+          review_days: [
+            {
+              day_label: "Day 1",
+              stops: [
+                {
+                  title: "Cloud 9 sunset",
+                  area: "Cloud 9",
+                  kind: "activity",
+                  time: "16:00",
+                  duration_minutes: 90,
+                  weather_sensitive: true,
+                },
+                {
+                  title: "Pacifico dinner",
+                  area: "Pacifico",
+                  kind: "meal",
+                  time: "19:00",
+                  duration_minutes: 90,
+                },
+              ],
+            },
+            {
+              day_label: "Day 2",
+              stops: [
+                {
+                  title: "Dapa ferry",
+                  area: "Dapa",
+                  kind: "transfer",
+                  time: "08:00",
+                  duration_minutes: 30,
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      {
+        id: "resp_itinerary_review_before_upstream",
+        _request_id: "req_itinerary_review_before_upstream",
+        output_text: finalPayloadText({
+          answer: "The plan needs route and weather checks first.",
+          usedToolCallIds: ["call_itinerary_review_plan"],
+        }),
+      },
+      {
+        id: "resp_itinerary_review_before_places",
+        _request_id: "req_itinerary_review_before_places",
+        output_text: finalPayloadText({
+          answer: "The upstream route and weather checks are complete.",
+          usedToolCallIds: [
+            "call_itinerary_review_plan",
+            "auto_required_local_facts_1",
+            "auto_required_weather_2",
+          ],
+        }),
+      },
+      {
+        id: "resp_itinerary_review_final",
+        _request_id: "req_itinerary_review_final",
+        output_text: finalPayloadText(finalReviewPayload),
+      },
+    ]);
+
+    let placesStarted = false;
+    let resolveLocalFacts: ((result: AgentToolResult) => void) | undefined;
+    let markLocalFactsStarted: (() => void) | undefined;
+    const localFactsStarted = new Promise<void>((resolve) => {
+      markLocalFactsStarted = resolve;
+    });
+    const localFactsResult = new Promise<AgentToolResult>((resolve) => {
+      resolveLocalFacts = resolve;
+    });
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.name === "plan_local_itinerary") {
+        return {
+          name: "plan_local_itinerary",
+          status: "success",
+          text: "Reviewed the submitted itinerary and found an early-departure conflict.",
+          data: {
+            plan: reviewPlan,
+            requiredToolChecks: {
+              localFacts: [
+                {
+                  required: true,
+                  tool: "query_local_facts",
+                  entityTypes: ["area", "route"],
+                  text: "Cloud 9 to Pacifico to Dapa",
+                  limit: 10,
+                  reason: "route context must precede place enrichment",
+                },
+              ],
+              weather: {
+                required: true,
+                tool: "get_weather_forecast",
+                location: "General Luna",
+                date_range: "next_7_days",
+                reason: "outdoor sequencing depends on weather",
+              },
+              places: [
+                {
+                  required: true,
+                  tool: "search_places",
+                  ...requiredPlacesArguments,
+                  reason: "the dinner stop needs current identity and opening-hour evidence",
+                },
+              ],
+            },
+          },
+          sources: [genericSourceSummary],
+          itineraries: [reviewPlan],
+        };
+      }
+      if (request.name === "query_local_facts") {
+        markLocalFactsStarted?.();
+        return localFactsResult;
+      }
+      if (request.name === "get_weather_forecast") {
+        return {
+          name: "get_weather_forecast",
+          status: "success",
+          text: "The next-seven-days forecast was checked for the outdoor stop.",
+          sources: [weatherSourceSummary],
+        };
+      }
+      if (request.name === "search_places") {
+        placesStarted = true;
+        return {
+          name: "search_places",
+          status: "success",
+          text: "Current Pacifico dinner Places results returned.",
+          sources: [openNowPlacesSourceSummary],
+          cards: [dinnerCard, unselectedCard],
+        };
+      }
+      return {
+        name: request.name,
+        status: "error",
+        text: `Unexpected tool ${request.name}.`,
+        errorCode: "unexpected_tool",
+        sources: [],
+      };
+    };
+
+    const resultPromise = runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content:
+              "Review my plan: Day 1 Cloud 9 sunset at 4 PM, Pacifico dinner at 7 PM; Day 2 Dapa ferry at 8 AM. We have kids, no scooter, and need current weather and dinner opening hours.",
+          },
+        ],
+        requestId: "agent_request_itinerary_feasibility",
+      },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    await localFactsStarted;
+    expect(placesStarted).toBe(false);
+    resolveLocalFacts?.({
+      name: "query_local_facts",
+      status: "success",
+      text: "Governed route and area facts returned.",
+      sources: [routeSource],
+    });
+    const result = await resultPromise;
+
+    expect(placesStarted).toBe(true);
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "plan_local_itinerary",
+      "query_local_facts",
+      "get_weather_forecast",
+      "search_places",
+    ]);
+    expect(result.message).toContain("**change: Cloud 9, Pacifico, and early Dapa ferry plan**");
+    expect(result.message).toContain("Move the final north-island night to General Luna or Dapa");
+    expect(result.itineraries?.map((itinerary) => itinerary.id)).toEqual([reviewPlan.id]);
+    expect(result.cards?.map((card) => card.id)).toEqual([dinnerCard.id]);
+    expect(JSON.stringify(result.cards)).not.toContain(unselectedCard.title);
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      kind: "itinerary",
+      verdict: "change",
+      sources: [
+        genericSourceSummary,
+        routeSource,
+        weatherSourceSummary,
+        openNowPlacesSourceSummary,
+      ],
+    });
+    expect(client.requests).toHaveLength(4);
+  });
 
   test("rainy Cloud 9 itineraries call planning and weather before final prose", async () => {
     const client = fakeResponsesClient([
@@ -6129,7 +7605,7 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
     sources: [weatherProviderUnavailableSourceSummary],
   };
   const tideSourceSummary: AnswerSourceSummary = {
-    label: "weather_checked",
+    label: "tide_forecast_checked",
     sourceName: "Tide-Forecast tide table",
     sourceProfileId: "source_tide_forecast",
     fetchedAt: "2026-06-26T00:00:00.000Z",
@@ -6145,7 +7621,7 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
     avoid: "Avoid paddling out alone as a beginner.",
     timing: "tomorrow morning",
     area: "Pacifico",
-    sources: [tideSourceSummary, localGuideSourceSummary],
+    sources: [weatherSourceSummary, tideSourceSummary, marineCheckedSourceSummary],
   };
   const malinaoSwimSummary: DecisionSummary = {
     id: "decision:malinao:kids_swim",
@@ -6341,7 +7817,7 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
     },
     {
       name: "weather_go_no_go_cloud9_unavailable",
-      prompt: "Is Cloud 9 sunset still worth it today if rain is coming?",
+      prompt: "Given today's weather and tide, should we still go to Cloud 9 for sunset?",
       toolCalls: [
         {
           callId: "call_cloud9_weather_unavailable",
@@ -6369,17 +7845,35 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
           "Do not make Cloud 9 sunset the whole plan yet; keep a covered General Luna stop ready until you can confirm the sky locally.",
         usedToolCallIds: ["call_cloud9_weather_unavailable"],
         displayDecisionSummaryIds: [weatherUnavailableSummary.id],
+        realityCheck: {
+          kind: "immediate_plan",
+          verdict: "needs_confirmation",
+          subject: "Cloud 9 sunset today",
+          bestAction: "Do not make Cloud 9 sunset the whole plan yet.",
+          basis: "The current weather and tide picture could not be established.",
+          fallback: "Keep a covered General Luna stop ready until the sky is locally clear.",
+          avoid: "Avoid committing to a long exposed stop before confirming conditions.",
+          timing: "today at sunset",
+          area: "Cloud 9",
+          evidenceToolCallIds: ["call_cloud9_weather_unavailable"],
+        },
       },
-      expectedOpening: "Do not make Cloud 9 sunset the whole plan yet",
-      expectedMessageText: ["Cloud 9", "covered General Luna", "confirm the sky locally"],
-      expectedDecisionGuidance: "keep a covered General Luna stop ready",
+      expectedOpening: "**needs confirmation: Cloud 9 sunset today**",
+      expectedMessageText: ["Cloud 9", "covered General Luna", "current weather and tide"],
+      expectedDecisionGuidance: "Keep a covered General Luna stop ready",
       expectedPublicSources: [weatherProviderUnavailableSourceSummary],
       expectedCardIds: [],
       expectedItineraryIds: [],
-      expectedDecisionSummaryIds: [weatherUnavailableSummary.id],
+      expectedDecisionSummaryIds: [
+        realityCheckSummaryId(
+          "agent_request_weather_go_no_go_cloud9_unavailable",
+          "immediate_plan",
+          "Cloud 9 sunset today",
+        ),
+      ],
       expectedArtifactSelection: {
         selectedDecisionSummaryCount: 1,
-        unselectedDecisionSummaryCount: 0,
+        unselectedDecisionSummaryCount: 1,
         selectedCardCount: 0,
         selectedItineraryCount: 0,
       },
@@ -6390,14 +7884,21 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
       prompt: "Beginner surf in Pacifico tomorrow morning: does the tide make it worth booking?",
       toolCalls: [
         {
+          callId: "call_pacifico_condition",
+          name: "get_condition_judgment",
+          arguments: {
+            activity: "surfing",
+            location: "Siargao Island",
+            date_range: "next_7_days",
+            beach_name: "Pacifico Beach",
+            include_local_caveats: true,
+            constraints: ["beginner"],
+          },
+        },
+        {
           callId: "call_surf_memory",
           name: "load_agent_memory_file",
           arguments: { documents: ["SURF.md"] },
-        },
-        {
-          callId: "call_pacifico_tide",
-          name: "get_tide_forecast",
-          arguments: { location: "Pacifico", date_range: "next_7_days" },
         },
         {
           callId: "call_pacifico_surf_rank",
@@ -6416,11 +7917,11 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
           },
           sources: [],
         },
-        get_tide_forecast: {
-          name: "get_tide_forecast",
+        get_condition_judgment: {
+          name: "get_condition_judgment",
           status: "success",
-          text: "Tide timing loaded for Pacifico tomorrow morning.",
-          sources: [tideSourceSummary],
+          text: "Weather, tide, and modelled marine conditions loaded for Pacifico.",
+          sources: [weatherSourceSummary, tideSourceSummary, marineCheckedSourceSummary],
           decisionSummaries: [pacificoSurfSummary],
         },
         rank_surf_spots_nearby: {
@@ -6434,18 +7935,41 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
         answer:
           "Book Pacifico only if your coach confirms a beginner window tomorrow morning; the tide timing helps, but do not paddle out alone.",
         usedMemoryFiles: ["SURF.md"],
-        usedToolCallIds: ["call_pacifico_tide", "call_pacifico_surf_rank"],
+        usedToolCallIds: ["call_pacifico_condition", "call_pacifico_surf_rank"],
         displayDecisionSummaryIds: [pacificoSurfSummary.id],
+        realityCheck: {
+          kind: "surf_session",
+          verdict: "change",
+          subject: "Pacifico beginner surf tomorrow morning",
+          bestAction: "Book only if your coach confirms a beginner window.",
+          basis: "The tide timing helps, but it does not confirm lesson or session safety.",
+          avoid: "Do not paddle out alone as a beginner.",
+          timing: "tomorrow morning",
+          area: "Pacifico",
+          evidenceToolCallIds: ["call_pacifico_condition"],
+        },
       },
-      expectedOpening: "Book Pacifico only if your coach confirms",
+      expectedOpening: "**change: Pacifico beginner surf tomorrow morning**",
       expectedMessageText: ["Pacifico", "beginner", "tomorrow morning", "tide"],
-      expectedDecisionGuidance: "do not paddle out alone",
-      expectedPublicSources: [tideSourceSummary, localGuideSourceSummary],
+      expectedDecisionGuidance: "Do not paddle out alone",
+      expectedPublicSources: [
+        weatherSourceSummary,
+        tideSourceSummary,
+        marineCheckedSourceSummary,
+        localGuideSourceSummary,
+      ],
       expectedCardIds: [],
       expectedItineraryIds: [],
-      expectedDecisionSummaryIds: [pacificoSurfSummary.id],
+      expectedDecisionSummaryIds: [
+        realityCheckSummaryId(
+          "agent_request_surf_tide_pacifico_beginner",
+          "surf_session",
+          "Pacifico beginner surf tomorrow morning",
+        ),
+      ],
       expectedArtifactSelection: {
         selectedDecisionSummaryCount: 1,
+        unselectedDecisionSummaryCount: 1,
         selectedCardCount: 0,
         selectedItineraryCount: 0,
       },
@@ -6546,17 +8070,29 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
       prompt: "Should we stay in General Luna or Malinao with kids, quiet sleep, and a budget?",
       toolCalls: [
         {
-          callId: "call_area_choice",
-          name: "search_local_guide",
+          callId: "call_general_luna_area",
+          name: "query_local_facts",
           arguments: {
-            query: "General Luna versus Malinao quiet family budget stay",
-            filters: { area_choice: true },
+            entityTypes: ["area", "route"],
+            area: "general luna",
+            text: "General Luna",
+            limit: 5,
+          },
+        },
+        {
+          callId: "call_malinao_area",
+          name: "query_local_facts",
+          arguments: {
+            entityTypes: ["area", "route"],
+            area: "malinao",
+            text: "Malinao",
+            limit: 5,
           },
         },
       ],
       toolResults: {
-        search_local_guide: {
-          name: "search_local_guide",
+        query_local_facts: {
+          name: "query_local_facts",
           status: "success",
           text: "Curated local guide returned area-fit tradeoffs.",
           sources: [localGuideSourceSummary],
@@ -6566,18 +8102,37 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
       finalPayload: {
         answer:
           "Choose Malinao for quiet sleep with kids on a budget; keep General Luna as the meal and errand area by tricycle.",
-        usedToolCallIds: ["call_area_choice"],
+        usedToolCallIds: ["call_general_luna_area", "call_malinao_area"],
         displayDecisionSummaryIds: [areaChoiceSummary.id],
+        realityCheck: {
+          kind: "accommodation",
+          verdict: "change",
+          subject: "General Luna or Malinao",
+          bestAction: "Choose Malinao for the area fit. Room noise is not confirmed.",
+          basis:
+            "The governed area comparison favors Malinao for this family budget and transport profile.",
+          fallback:
+            "Use General Luna if meal and errand access matters more than the area tradeoff.",
+          area: "Malinao",
+          evidenceToolCallIds: ["call_general_luna_area", "call_malinao_area"],
+        },
       },
-      expectedOpening: "Choose Malinao for quiet sleep",
-      expectedMessageText: ["Malinao", "General Luna", "kids", "budget"],
-      expectedDecisionGuidance: "keep General Luna as the meal and errand area",
+      expectedOpening: "**change: General Luna or Malinao**",
+      expectedMessageText: ["Malinao", "General Luna", "family", "budget"],
+      expectedDecisionGuidance: "Choose Malinao for the area fit",
       expectedPublicSources: [localGuideSourceSummary],
       expectedCardIds: [],
       expectedItineraryIds: [],
-      expectedDecisionSummaryIds: [areaChoiceSummary.id],
+      expectedDecisionSummaryIds: [
+        realityCheckSummaryId(
+          "agent_request_accommodation_area_choice_malinao",
+          "accommodation",
+          "General Luna or Malinao",
+        ),
+      ],
       expectedArtifactSelection: {
         selectedDecisionSummaryCount: 1,
+        unselectedDecisionSummaryCount: 1,
         selectedCardCount: 0,
         selectedItineraryCount: 0,
       },
@@ -6594,7 +8149,39 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
           arguments: {
             theme: "itinerary_review",
             origin: "Cloud 9",
-            destination: "Dapa ferry terminal",
+            review_days: [
+              {
+                day_label: "Day 1",
+                stops: [
+                  {
+                    title: "Cloud 9 sunset",
+                    area: "Cloud 9",
+                    kind: "activity",
+                    time: "17:00",
+                    duration_minutes: 60,
+                  },
+                  {
+                    title: "Pacifico dinner",
+                    area: "Pacifico",
+                    kind: "meal",
+                    time: "19:30",
+                    duration_minutes: 90,
+                  },
+                ],
+              },
+              {
+                day_label: "Day 2",
+                stops: [
+                  {
+                    title: "Dapa ferry",
+                    area: "Dapa",
+                    kind: "transfer",
+                    time: "08:00",
+                    duration_minutes: 30,
+                  },
+                ],
+              },
+            ],
           },
         },
       ],
@@ -6613,16 +8200,35 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
           "Keep Cloud 9 sunset, but move dinner back toward General Luna or Dapa before the 8 AM ferry.",
         usedToolCallIds: ["call_itinerary_review"],
         displayDecisionSummaryIds: [itineraryReviewSummary.id],
+        realityCheck: {
+          kind: "itinerary",
+          verdict: "change",
+          subject: "Cloud 9, Pacifico, and early Dapa ferry plan",
+          bestAction: "Keep Cloud 9 sunset, but move dinner toward General Luna or Dapa.",
+          basis:
+            "The submitted sequence leaves a weak overnight position before the 8 AM Dapa ferry.",
+          fallback: "Drop Pacifico dinner and travel south before dark.",
+          timing: "the evening before the 8 AM ferry",
+          area: "Pacifico to Dapa",
+          evidenceToolCallIds: ["call_itinerary_review"],
+        },
       },
-      expectedOpening: "Keep Cloud 9 sunset",
+      expectedOpening: "**change: Cloud 9, Pacifico, and early Dapa ferry plan**",
       expectedMessageText: ["General Luna", "Dapa", "8 AM ferry"],
-      expectedDecisionGuidance: "move dinner back",
+      expectedDecisionGuidance: "move dinner toward General Luna or Dapa",
       expectedPublicSources: [localGuideSourceSummary],
       expectedCardIds: [],
       expectedItineraryIds: [],
-      expectedDecisionSummaryIds: [itineraryReviewSummary.id],
+      expectedDecisionSummaryIds: [
+        realityCheckSummaryId(
+          "agent_request_itinerary_review_dapa_ferry",
+          "itinerary",
+          "Cloud 9, Pacifico, and early Dapa ferry plan",
+        ),
+      ],
       expectedArtifactSelection: {
         selectedDecisionSummaryCount: 1,
+        unselectedDecisionSummaryCount: 1,
         selectedItineraryCount: 0,
         unselectedItineraryCount: 1,
       },
@@ -6764,7 +8370,16 @@ function finalPayloadText(overrides: Partial<AgentFinalPayload> = {}) {
     displayActionIds: overrides.displayActionIds ?? [],
     displayItineraryIds: overrides.displayItineraryIds ?? [],
     displayDecisionSummaryIds: overrides.displayDecisionSummaryIds ?? [],
+    ...(overrides.realityCheck ? { realityCheck: overrides.realityCheck } : {}),
   } satisfies AgentFinalPayload);
+}
+
+function realityCheckSummaryId(requestId: string, kind: string, subject: string) {
+  const fingerprint = createHash("sha256")
+    .update(`${requestId}\u0000${kind}\u0000${subject}`)
+    .digest("hex")
+    .slice(0, 16);
+  return `reality_check:${kind}:${fingerprint}`;
 }
 
 function fakeResponsesClient(responses: AgentResponsesCreateResult[]) {
@@ -7132,6 +8747,16 @@ const conditionMarineSourceSummary: AnswerSourceSummary = {
   confidence: "medium",
   checked: [],
   notChecked: ["tide", "surf", "swell", "currents", "lifeguard or swimming safety"],
+};
+
+const marineCheckedSourceSummary: AnswerSourceSummary = {
+  label: "marine_checked",
+  sourceName: "Open-Meteo Marine API",
+  sourceProfileId: "source_open_meteo_marine",
+  fetchedAt: "2026-06-26T00:00:00.000Z",
+  confidence: "medium",
+  checked: ["modelled wave height", "modelled swell height", "modelled current velocity"],
+  notChecked: ["exact-break conditions", "rip currents", "lifeguard status", "surf safety"],
 };
 
 const placesSourceSummary: AnswerSourceSummary = {

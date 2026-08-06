@@ -1,8 +1,132 @@
 import { describe, expect, test } from "bun:test";
 
-import { planLocalItinerary } from "@/server/chat/itinerary-tools";
+import { localItineraryRequestSchema, planLocalItinerary } from "@/server/chat/itinerary-tools";
 
 describe("local itinerary planning tools", () => {
+  test("accepts only bounded itinerary-review days and stops", () => {
+    expect(localItineraryRequestSchema.safeParse({ theme: "itinerary_review" }).success).toBe(
+      false,
+    );
+    expect(
+      localItineraryRequestSchema.safeParse({
+        theme: "itinerary_review",
+        review_days: [
+          {
+            day_label: "Day 1",
+            stops: Array.from({ length: 7 }, (_, index) => ({
+              title: `Stop ${index + 1}`,
+              area: "General Luna",
+              kind: "activity",
+            })),
+          },
+          {
+            day_label: "Day 2",
+            stops: [{ title: "Stop 8", area: "Dapa", kind: "transfer" }],
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  test("finds the Pacifico-to-early-Dapa conflict and returns a concrete revision", () => {
+    const result = planLocalItinerary({
+      theme: "itinerary_review",
+      transport_mode: "tricycle",
+      constraints: ["with kids", "no scooter"],
+      review_days: [
+        {
+          day_label: "Day 1",
+          stops: [
+            {
+              title: "Cloud 9 sunset",
+              area: "Cloud 9",
+              kind: "activity",
+              time: "16:00",
+              duration_minutes: 90,
+              weather_sensitive: true,
+            },
+            {
+              title: "Pacifico dinner",
+              area: "Pacifico",
+              kind: "meal",
+              time: "19:00",
+              duration_minutes: 90,
+            },
+          ],
+        },
+        {
+          day_label: "Day 2",
+          stops: [
+            {
+              title: "Dapa ferry",
+              area: "Dapa",
+              kind: "transfer",
+              time: "08:00",
+              duration_minutes: 30,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.review?.conflicts.map((conflict) => conflict.code)).toEqual(
+      expect.arrayContaining(["early_departure_positioning", "transport_strain"]),
+    );
+    expect(result.review?.revisedAction).toContain("General Luna or Dapa");
+    expect(result.review?.fallback).toContain("Drop the Pacifico dinner");
+    expect(result.plan.stops.map((stop) => stop.title)).toEqual([
+      "Cloud 9 sunset",
+      "Pacifico dinner",
+      "Dapa ferry",
+    ]);
+    expect(result.plan.stops[1]).toMatchObject({
+      area: "Pacifico",
+      travelTimeFromPreviousMinutes: 83,
+    });
+    expect(result.plan.stops[1]?.caveats).toContain(
+      "Transfer time is a non-live estimate, not live traffic.",
+    );
+    expect(result.requiredToolChecks.localFacts?.[0]).toMatchObject({
+      tool: "query_local_facts",
+      entityTypes: ["area", "route"],
+      text: "Cloud 9 to Pacifico to Dapa",
+    });
+    expect(result.requiredToolChecks.weather).toMatchObject({
+      tool: "get_weather_forecast",
+      date_range: "next_7_days",
+    });
+    expect(result.plan.sources.map((source) => source.label)).toEqual(["not_verified"]);
+    expect(result.plan.sources[0]?.notChecked).toEqual(
+      expect.arrayContaining([
+        "live traffic and exact route duration",
+        "ferry or operator schedule changes",
+        "reservations and vehicle availability",
+      ]),
+    );
+  });
+
+  test("flags missing review timing instead of inventing a feasible sequence", () => {
+    const result = planLocalItinerary({
+      theme: "itinerary_review",
+      review_days: [
+        {
+          day_label: "Day 1",
+          stops: [
+            { title: "Cloud 9", area: "Cloud 9", kind: "activity" },
+            { title: "Pacifico", area: "Pacifico", kind: "activity" },
+          ],
+        },
+      ],
+    });
+
+    expect(result.review?.conflicts).toContainEqual(
+      expect.objectContaining({ code: "missing_time", severity: "medium" }),
+    );
+    expect(result.plan.stops.every((stop) => stop.rationale.includes("timing still needed"))).toBe(
+      true,
+    );
+  });
+
   test("rainy Cloud 9 afternoon includes weather-needed caveats, fallbacks, and skip guidance", () => {
     const result = planLocalItinerary({
       theme: "rainy_cloud_9_afternoon",

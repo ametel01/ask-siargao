@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { Logger } from "pino";
 
 import {
@@ -13,6 +15,7 @@ import {
 import {
   type AgentFinalPayload,
   type AgentMemoryMetadata,
+  type AgentProgressUpdate,
   type AgentResponsesClient,
   type AgentRuntimeDependencies,
   type AgentRuntimeRequest,
@@ -21,11 +24,14 @@ import {
   type AgentToolExecutionRequest,
   type AgentToolResult,
   type AgentTurnResult,
+  agentItineraryArtifactId,
   type ChatClientGeolocationContext,
   createAgentToolCallAudit,
   createAgentTurnResult,
+  type DecisionSummary,
   resolveAgentRuntimeRequest,
 } from "@/server/chat/agent-runtime";
+import { selectAgentResponseTools } from "@/server/chat/agent-tool-selection";
 import {
   type AgentToolDependencies,
   buildAgentResponseTools,
@@ -50,6 +56,14 @@ import type {
   ItineraryRequiredToolChecks,
   LocalItineraryRequest,
 } from "@/server/chat/itinerary-tools";
+import {
+  parseRealityCheckProposal,
+  type RealityCheckRecognition,
+  type RealityCheckValidationResult,
+  recognizeRealityCheckRequest,
+  type ValidatedRealityCheck,
+  validateRealityCheckProposal,
+} from "@/server/chat/reality-check";
 import {
   nightlifePlacesEnrichmentIsUnavailable,
   type RequiredEvidencePlan,
@@ -146,6 +160,7 @@ export async function runAskSiargaoAgentTurn(
   const upstreamRequestIds: string[] = [];
   const toolCalls: AgentToolCallAudit[] = [];
   const toolResults: AgentToolResult[] = [];
+  let repairCount = 0;
   const hostedMemoryFileNames = new Set<string>();
   const maxToolCalls = dependencies.maxToolCalls ?? costPolicy.maxToolCalls;
   const maxTurns = dependencies.maxTurns ?? costPolicy.maxTurns;
@@ -170,12 +185,19 @@ export async function runAskSiargaoAgentTurn(
     requireStructuredFinalOutput,
   });
   const chatEvidencePolicy = buildChatEvidencePolicy(resolved);
+  const realityCheckRecognition = requireStructuredFinalOutput
+    ? recognizeRuntimeRealityCheck(resolved)
+    : { explicit: false, missingContext: [] };
   const { requiredEvidencePlan } = chatEvidencePolicy;
-  const tools = buildAgentResponseTools(memorySnapshot, {
-    vectorStoreId: agentMemoryVectorStoreId,
-    forceMemoryFallback: dependencies.forceAgentMemorySearchFallback,
-    includeMemoryFallbackWithFileSearch: dependencies.includeAgentMemoryFallbackWithFileSearch,
-  });
+  const tools = selectAgentResponseTools(
+    buildAgentResponseTools(memorySnapshot, {
+      vectorStoreId: agentMemoryVectorStoreId,
+      forceMemoryFallback: dependencies.forceAgentMemorySearchFallback,
+      includeMemoryFallbackWithFileSearch: dependencies.includeAgentMemoryFallbackWithFileSearch,
+    }),
+    resolved,
+    requiredEvidencePlan,
+  );
   const responseInclude = agentMemoryVectorStoreId ? ["file_search_call.results"] : undefined;
 
   logger.info(
@@ -189,6 +211,11 @@ export async function runAskSiargaoAgentTurn(
     },
     "Ask Siargao agent turn started.",
   );
+
+  await emitAgentProgress(dependencies.onProgress, {
+    stage: "model",
+    message: "Understanding your question and choosing the right checks.",
+  });
 
   const initialMemoryLoadCall = initialNightlifeMemoryLoadCall(resolved);
   const initialMemoryOutputs = initialMemoryLoadCall
@@ -258,6 +285,7 @@ export async function runAskSiargaoAgentTurn(
           chatEvidencePolicy,
           hostedMemoryFileNames,
           logger,
+          realityCheckRecognition,
           request: resolved,
           requireStructuredFinalOutput,
         }),
@@ -296,6 +324,11 @@ export async function runAskSiargaoAgentTurn(
           ),
       });
       if (repairResult.repaired) {
+        repairCount += 1;
+        await emitAgentProgress(dependencies.onProgress, {
+          stage: "checking",
+          message: "Checking the answer against the available evidence.",
+        });
         response = repairResult.response;
         activeModel = response.model ?? activeModel;
         responseInput = repairResult.responseInput;
@@ -309,6 +342,7 @@ export async function runAskSiargaoAgentTurn(
         toolResults,
       });
       if (!parsedFinalPayload && shouldRepairMalformedFinalAnswer(finalText)) {
+        repairCount += 1;
         responseInput = [
           ...responseInput,
           ...responseOutputItems(response.output),
@@ -352,6 +386,13 @@ export async function runAskSiargaoAgentTurn(
         toolCalls,
         toolResults,
       });
+      const realityCheckOutcome = resolveRealityCheckOutcome({
+        finalPayload,
+        recognition: realityCheckRecognition,
+        requestId: resolved.requestId,
+        toolCalls,
+        toolResults,
+      });
       logger.info(
         {
           durationMs: sumDurations(toolCalls),
@@ -363,14 +404,40 @@ export async function runAskSiargaoAgentTurn(
         "Ask Siargao agent turn completed.",
       );
       const sanitizedAnswer = sanitizeFinalAnswer(
-        finalPayload?.answer ?? finalText,
+        realityCheckOutcome.answer ?? finalPayload?.answer ?? finalText,
         resolved,
         toolCalls,
       );
-      const sanitizedFinalPayload =
-        finalPayload && sanitizedAnswer !== finalPayload.answer
-          ? { ...finalPayload, answer: sanitizedAnswer }
-          : finalPayload;
+      const sanitizedFinalPayload = finalPayload
+        ? {
+            ...finalPayload,
+            answer: sanitizedAnswer,
+            displayDecisionSummaryIds: realityCheckOutcome.explicit
+              ? realityCheckOutcome.summary
+                ? [realityCheckOutcome.summary.id]
+                : []
+              : finalPayload.displayDecisionSummaryIds,
+          }
+        : finalPayload;
+      const realityCheckAllowedArtifacts = allowedRealityCheckArtifacts({
+        finalPayload: sanitizedFinalPayload,
+        recognition: realityCheckRecognition,
+        toolResults,
+      });
+      const artifactFilteredFinalPayload =
+        sanitizedFinalPayload && realityCheckAllowedArtifacts
+          ? {
+              ...sanitizedFinalPayload,
+              displayCardIds: filterAllowedArtifactIds(
+                sanitizedFinalPayload.displayCardIds,
+                realityCheckAllowedArtifacts.cardIds,
+              ),
+              displayItineraryIds: filterAllowedArtifactIds(
+                sanitizedFinalPayload.displayItineraryIds,
+                realityCheckAllowedArtifacts.itineraryIds,
+              ),
+            }
+          : sanitizedFinalPayload;
       const modelCost = costAccumulator.summary();
       if (modelCost.callCount > 0) {
         trackServerEvent({
@@ -379,7 +446,7 @@ export async function runAskSiargaoAgentTurn(
           now: dependencies.now?.(),
         });
       }
-      return createAgentTurnResult({
+      const result = createAgentTurnResult({
         message: sanitizedAnswer,
         requestId: resolved.requestId,
         model: activeModel,
@@ -388,11 +455,38 @@ export async function runAskSiargaoAgentTurn(
         upstreamRequestIds,
         toolCalls,
         toolResults,
-        ...(sanitizedFinalPayload ? { finalPayload: sanitizedFinalPayload } : {}),
+        ...(realityCheckOutcome.summary
+          ? { decisionSummaries: [realityCheckOutcome.summary] }
+          : {}),
+        ...(artifactFilteredFinalPayload ? { finalPayload: artifactFilteredFinalPayload } : {}),
         allowedCardKinds: requiredEvidencePlan.allowedCardKinds,
-        allowedCardIds: requiredEvidenceAllowedCardIds(chatEvidencePolicy, toolResults),
+        allowedCardIds: combinedAllowedCardIds(
+          requiredEvidenceAllowedCardIds(chatEvidencePolicy, toolResults),
+          realityCheckAllowedArtifacts?.cardIds,
+        ),
+        allowedItineraryIds: realityCheckAllowedArtifacts?.itineraryIds,
         artifactSelectionMode: requireStructuredFinalOutput ? "strict" : "compatibility",
+        repairCount,
       });
+      if (realityCheckOutcome.validated && realityCheckOutcome.summary) {
+        trackServerEvent({
+          name: "reality_check_completed",
+          payload: {
+            status: "completed",
+            kind: realityCheckOutcome.validated.proposal.kind,
+            verdict: realityCheckOutcome.validated.proposal.verdict,
+            sourceState: realityCheckOutcome.validated.sourceState,
+            sourceCount: realityCheckOutcome.validated.sources.length,
+            toolCallCount: toolCalls.length,
+            durationMs: sumDurations(toolCalls),
+            cardCount: result.cards?.length ?? 0,
+            itineraryCount: result.itineraries?.length ?? 0,
+            decisionSummaryCount: result.decisionSummaries?.length ?? 0,
+          },
+          now: dependencies.now?.(),
+        });
+      }
+      return result;
     }
 
     const functionCalls = extractFunctionCalls(response.output);
@@ -447,6 +541,14 @@ export async function runAskSiargaoAgentTurn(
       throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
     }
 
+    await emitAgentProgress(dependencies.onProgress, {
+      stage: "tools",
+      message:
+        functionCalls.length === 1
+          ? "Checking one relevant source."
+          : `Checking ${functionCalls.length} relevant sources.`,
+      toolCount: functionCalls.length,
+    });
     const toolOutputs = await executeAndAuditToolBatch({
       executeTool,
       functionCalls,
@@ -488,6 +590,10 @@ export async function runAskSiargaoAgentTurn(
         }),
       ];
     }
+    await emitAgentProgress(dependencies.onProgress, {
+      stage: "synthesis",
+      message: "Turning the checked results into a useful answer.",
+    });
     response = await createBudgetedModelResponse({
       client,
       costAccumulator,
@@ -512,6 +618,13 @@ export async function runAskSiargaoAgentTurn(
   }
 
   throw new Error("Ask Siargao agent exceeded the maximum turn count.");
+}
+
+async function emitAgentProgress(
+  onProgress: AskSiargaoAgentDependencies["onProgress"],
+  update: AgentProgressUpdate,
+) {
+  await onProgress?.(update);
 }
 
 function createBudgetedModelClient({
@@ -940,6 +1053,8 @@ function parseAgentFinalPayload(finalText: string): AgentFinalPayload | undefine
     return undefined;
   }
 
+  const realityCheck =
+    parsed.realityCheck === undefined ? undefined : parseRealityCheckProposal(parsed.realityCheck);
   return {
     answer,
     usedMemoryFiles,
@@ -948,7 +1063,198 @@ function parseAgentFinalPayload(finalText: string): AgentFinalPayload | undefine
     displayActionIds,
     displayItineraryIds,
     displayDecisionSummaryIds,
+    ...(realityCheck ? { realityCheck } : {}),
   };
+}
+
+type RuntimeRealityCheckOutcome = {
+  explicit: boolean;
+  answer?: string;
+  summary?: DecisionSummary;
+  validated?: ValidatedRealityCheck;
+};
+
+function allowedRealityCheckArtifacts(input: {
+  finalPayload: AgentFinalPayload | undefined;
+  recognition: RealityCheckRecognition;
+  toolResults: readonly AgentToolResult[];
+}) {
+  if (
+    !input.finalPayload ||
+    (input.recognition.kind !== "immediate_plan" &&
+      input.recognition.kind !== "surf_session" &&
+      input.recognition.kind !== "disruption_recovery") ||
+    input.recognition.missingContext.length > 0
+  ) {
+    return undefined;
+  }
+
+  const usedToolCallIds = new Set(input.finalPayload.usedToolCallIds);
+  const allowedToolNames =
+    input.recognition.kind === "disruption_recovery"
+      ? disruptionReplacementToolNames
+      : currentConditionDependentToolNames;
+  const allowedResults = input.toolResults.filter(
+    (result) =>
+      result.status === "success" &&
+      Boolean(result.toolCallId && usedToolCallIds.has(result.toolCallId)) &&
+      allowedToolNames.has(result.name),
+  );
+  return {
+    cardIds: uniqueText(
+      allowedResults.flatMap((result) => result.cards?.map((card) => card.id) ?? []),
+    ),
+    itineraryIds: uniqueText(
+      allowedResults.flatMap((result) => result.itineraries?.map(agentItineraryArtifactId) ?? []),
+    ),
+  };
+}
+
+function combinedAllowedCardIds(
+  requiredEvidenceIds: readonly string[] | undefined,
+  realityCheckIds: readonly string[] | undefined,
+) {
+  if (!requiredEvidenceIds) {
+    return realityCheckIds;
+  }
+  if (!realityCheckIds) {
+    return requiredEvidenceIds;
+  }
+  const realityCheckIdSet = new Set(realityCheckIds);
+  return requiredEvidenceIds.filter((id) => realityCheckIdSet.has(id));
+}
+
+function filterAllowedArtifactIds(ids: readonly string[], allowedIds: readonly string[]) {
+  const allowedIdSet = new Set(allowedIds);
+  return ids.filter((id) => allowedIdSet.has(id));
+}
+
+function recognizeRuntimeRealityCheck(request: AgentRuntimeRequest) {
+  const userTurns = request.messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.content);
+  return recognizeRealityCheckRequest({
+    latestUserTurn: userTurns.at(-1) ?? "",
+    recentUserContext: userTurns.slice(0, -1).slice(-3).join("\n"),
+  });
+}
+
+function resolveRealityCheckOutcome(input: {
+  finalPayload: AgentFinalPayload | undefined;
+  recognition: RealityCheckRecognition;
+  requestId: string;
+  toolCalls: readonly AgentToolCallAudit[];
+  toolResults: readonly AgentToolResult[];
+}): RuntimeRealityCheckOutcome {
+  if (!input.recognition.explicit) {
+    return { explicit: false };
+  }
+  if (!input.recognition.kind || input.recognition.missingContext.length > 0) {
+    return {
+      explicit: true,
+      answer: realityCheckClarification(input.recognition),
+    };
+  }
+  if (!input.finalPayload?.realityCheck) {
+    return {
+      explicit: true,
+      answer:
+        "I could not support a reliable verdict from the checks completed. Please retry the reality check so I can return a sourced keep, change, avoid, or needs-confirmation decision.",
+    };
+  }
+
+  const validation = validateRealityCheckProposal({
+    expectedKind: input.recognition.kind,
+    proposal: input.finalPayload.realityCheck,
+    usedToolCallIds: input.finalPayload.usedToolCallIds,
+    toolCalls: input.toolCalls,
+    toolResults: input.toolResults,
+  });
+  const validated = acceptedRealityCheck(validation);
+  if (!validated) {
+    return {
+      explicit: true,
+      answer:
+        "I could not tie this verdict to the completed checks, so I will not present it as reliable. Please retry the reality check.",
+    };
+  }
+
+  const summary = buildRealityCheckDecisionSummary(validated, input.requestId);
+  return {
+    explicit: true,
+    answer: renderRealityCheckAnswer(validated.proposal),
+    summary,
+    validated,
+  };
+}
+
+function acceptedRealityCheck(
+  validation: RealityCheckValidationResult,
+): ValidatedRealityCheck | undefined {
+  return validation.status === "valid" ? validation.value : validation.fallback;
+}
+
+function buildRealityCheckDecisionSummary(
+  validated: ValidatedRealityCheck,
+  requestId: string,
+): DecisionSummary {
+  const proposal = validated.proposal;
+  const fingerprint = createHash("sha256")
+    .update(`${requestId}\u0000${proposal.kind}\u0000${proposal.subject}`)
+    .digest("hex")
+    .slice(0, 16);
+  return {
+    id: `reality_check:${proposal.kind}:${fingerprint}`,
+    kind: proposal.kind,
+    verdict: proposal.verdict,
+    subject: proposal.subject,
+    bestAction: proposal.bestAction,
+    basis: proposal.basis,
+    ...(proposal.fallback ? { fallback: proposal.fallback } : {}),
+    ...(proposal.avoid ? { avoid: proposal.avoid } : {}),
+    ...(proposal.timing ? { timing: proposal.timing } : {}),
+    ...(proposal.area ? { area: proposal.area } : {}),
+    sources: validated.sources,
+  };
+}
+
+function renderRealityCheckAnswer(proposal: ValidatedRealityCheck["proposal"]) {
+  const verdictLabel = proposal.verdict.replaceAll("_", " ");
+  return [
+    `**${verdictLabel}: ${proposal.subject}**`,
+    proposal.bestAction,
+    proposal.basis,
+    ...(proposal.fallback ? [`Fallback: ${proposal.fallback}`] : []),
+    ...(proposal.avoid ? [`Avoid: ${proposal.avoid}`] : []),
+    ...(proposal.timing ? [`Timing: ${proposal.timing}`] : []),
+    ...(proposal.area ? [`Area: ${proposal.area}`] : []),
+  ].join("\n\n");
+}
+
+function realityCheckClarification(recognition: RealityCheckRecognition) {
+  const missing = recognition.missingContext[0];
+  if (missing === "subject") {
+    return "Which accommodation should I reality-check? Send its name or listing link.";
+  }
+  if (missing === "plan") {
+    return "Send the itinerary stops and timing you want me to reality-check.";
+  }
+  if (missing === "activity") {
+    return "What activity or trip should I reality-check for today or tomorrow?";
+  }
+  if (missing === "skill_level") {
+    return "What is the surfer's level: beginner, intermediate, or advanced?";
+  }
+  if (missing === "location") {
+    return "Which Siargao surf spot or area should I reality-check?";
+  }
+  if (missing === "timing") {
+    return "When do you want to surf: today or tomorrow, and roughly what time?";
+  }
+  if (missing === "disruption") {
+    return "What was cancelled or became unavailable, and when did you plan to do it?";
+  }
+  return "Please add the specific plan you want me to reality-check.";
 }
 
 function shouldRepairMalformedFinalAnswer(finalText: string) {
@@ -1140,12 +1446,14 @@ function buildAgentRepairAdapters({
   chatEvidencePolicy,
   hostedMemoryFileNames,
   logger,
+  realityCheckRecognition,
   request,
   requireStructuredFinalOutput,
 }: {
   chatEvidencePolicy: ReturnType<typeof buildChatEvidencePolicy>;
   hostedMemoryFileNames: ReadonlySet<string>;
   logger: ReturnType<typeof createComponentLogger>;
+  realityCheckRecognition: RealityCheckRecognition;
   request: AgentRuntimeRequest;
   requireStructuredFinalOutput: boolean;
 }): AgentRepairAdapter[] {
@@ -1190,6 +1498,9 @@ function buildAgentRepairAdapters({
     {
       name: "condition-judgment",
       createRepair: ({ toolCalls, toolResults }) => {
+        if (realityCheckRequiresClarification(realityCheckRecognition)) {
+          return undefined;
+        }
         const repairCall = missingConditionJudgmentRepairCall(request, toolCalls, toolResults);
         if (!repairCall) {
           return undefined;
@@ -1227,6 +1538,9 @@ function buildAgentRepairAdapters({
     {
       name: "browser-location-surf-ranking",
       createRepair: ({ toolCalls, toolResults }) => {
+        if (realityCheckRequiresClarification(realityCheckRecognition)) {
+          return undefined;
+        }
         const repairCall = missingSurfSpotRankingRepairCall(request, toolCalls, toolResults);
         if (!repairCall) {
           return undefined;
@@ -1262,6 +1576,9 @@ function buildAgentRepairAdapters({
     {
       name: "memory-load",
       createRepair: ({ finalText, toolCalls, toolResults }) => {
+        if (realityCheckRequiresClarification(realityCheckRecognition)) {
+          return undefined;
+        }
         const repairCall = missingClearMemoryLoadRepairCall(
           finalText,
           request,
@@ -1286,6 +1603,9 @@ function buildAgentRepairAdapters({
     {
       name: "surf-final-payload",
       createRepair: ({ finalText, responseInput, toolCalls, toolResults }) => {
+        if (realityCheckRequiresClarification(realityCheckRecognition)) {
+          return undefined;
+        }
         const repair = missingSurfSpotRankingPayloadRepair(
           finalText,
           request,
@@ -1377,6 +1697,43 @@ function buildAgentRepairAdapters({
       },
     },
     {
+      name: "reality-check-final-payload",
+      createRepair: ({ finalText, responseInput, toolCalls, toolResults }) => {
+        if (
+          !realityCheckRecognition.explicit ||
+          !realityCheckRecognition.kind ||
+          realityCheckRecognition.missingContext.length > 0 ||
+          hasValidationRepairInput(responseInput, "validationRepairRealityCheck")
+        ) {
+          return undefined;
+        }
+        const finalPayload = parsePolicyFinalPayload(finalText, toolCalls, toolResults);
+        const validation = finalPayload?.realityCheck
+          ? validateRealityCheckProposal({
+              expectedKind: realityCheckRecognition.kind,
+              proposal: finalPayload.realityCheck,
+              usedToolCallIds: finalPayload.usedToolCallIds,
+              toolCalls,
+              toolResults,
+            })
+          : undefined;
+        if (validation?.status === "valid") {
+          return undefined;
+        }
+
+        return {
+          type: "retry",
+          payloadKey: "validationRepairRealityCheck",
+          payload: {
+            expectedKind: realityCheckRecognition.kind,
+            reason: validation?.reason ?? "missing_reality_check",
+          },
+          instruction:
+            "Validation repair: this is an explicit on-demand reality check, but the final payload omitted or could not support its realityCheck proposal. Return final JSON with a realityCheck object matching the response contract. Reference only completed toolCallIds that also appear in usedToolCallIds. A keep, change, or avoid verdict needs successful source-backed evidence; current plan and surf verdicts need successful current-condition evidence. If the required provider check failed, use needs_confirmation and a concrete safe next action. Do not invent source objects or artifact IDs.",
+        };
+      },
+    },
+    {
       name: "structured-answer-quality",
       createRepair: ({ finalText, responseInput, toolCalls, toolResults }) => {
         const finalPayload = parsePolicyFinalPayload(finalText, toolCalls, toolResults);
@@ -1401,6 +1758,10 @@ function buildAgentRepairAdapters({
       },
     },
   ];
+}
+
+function realityCheckRequiresClarification(recognition: RealityCheckRecognition) {
+  return recognition.explicit && recognition.missingContext.length > 0;
 }
 
 function repairToolOutputPayload(output: AgentRepairToolOutput) {
@@ -1974,6 +2335,7 @@ function hasValidationRepairInput(
   responseInput: readonly ResponseInputItem[],
   key:
     | "validationRepairNightlifeMemoryBaseline"
+    | "validationRepairRealityCheck"
     | "validationRepairStructuredAnswerQuality"
     | "validationRepairSurfSpotFinalPayload",
 ) {
@@ -2668,6 +3030,54 @@ function missingRequiredItineraryChecks(
 
   for (const result of toolResults) {
     const requiredToolChecks = readRequiredToolChecks(result.data);
+    if (!requiredToolChecks?.localFacts || requiredToolChecks.localFacts.length === 0) {
+      continue;
+    }
+    for (const localFactsCheck of requiredToolChecks.localFacts) {
+      const argumentsForLocalFacts = {
+        entityTypes: localFactsCheck.entityTypes,
+        text: localFactsCheck.text,
+        limit: localFactsCheck.limit,
+      };
+      const key = requiredCheckKey("query_local_facts", argumentsForLocalFacts);
+      if (
+        !seen.has(key) &&
+        !hasMatchingToolCall(toolCalls, "query_local_facts", argumentsForLocalFacts)
+      ) {
+        missing.push({
+          callId: `auto_required_local_facts_${missing.length + 1}`,
+          name: "query_local_facts",
+          arguments: argumentsForLocalFacts,
+        });
+        seen.add(key);
+      }
+    }
+    if (requiredToolChecks.weather) {
+      const argumentsForWeather = {
+        location: requiredToolChecks.weather.location,
+        date_range: requiredToolChecks.weather.date_range,
+      };
+      const key = requiredCheckKey("get_weather_forecast", argumentsForWeather);
+      if (
+        !seen.has(key) &&
+        !hasMatchingToolCall(toolCalls, "get_weather_forecast", argumentsForWeather)
+      ) {
+        missing.push({
+          callId: `auto_required_weather_${missing.length + 1}`,
+          name: "get_weather_forecast",
+          arguments: argumentsForWeather,
+        });
+        seen.add(key);
+      }
+    }
+  }
+
+  if (missing.length > 0) {
+    return missing;
+  }
+
+  for (const result of toolResults) {
+    const requiredToolChecks = readRequiredToolChecks(result.data);
     if (!requiredToolChecks) {
       continue;
     }
@@ -2730,6 +3140,22 @@ function isRequiredToolChecks(value: unknown): value is ItineraryRequiredToolChe
       value.weather.tool !== "get_weather_forecast" ||
       typeof value.weather.location !== "string" ||
       typeof value.weather.date_range !== "string")
+  ) {
+    return false;
+  }
+  if (
+    value.localFacts !== undefined &&
+    (!Array.isArray(value.localFacts) ||
+      !value.localFacts.every(
+        (check) =>
+          isRecord(check) &&
+          check.tool === "query_local_facts" &&
+          Array.isArray(check.entityTypes) &&
+          check.entityTypes.includes("area") &&
+          check.entityTypes.includes("route") &&
+          typeof check.text === "string" &&
+          typeof check.limit === "number",
+      ))
   ) {
     return false;
   }
@@ -2823,6 +3249,37 @@ async function executeAndAuditToolBatch({
       toolResults: [...toolResults, dependencyOutput.result],
     });
     return [dependencyOutput, ...remainingOutputs];
+  }
+
+  const conditionDependencyPlan = currentConditionDependencyPlan({
+    functionCalls,
+    runtimeRequest,
+    toolResults,
+  });
+  if (conditionDependencyPlan) {
+    const conditionOutputs = await Promise.all(
+      conditionDependencyPlan.upstreamCalls.map((functionCall) =>
+        executeAndAuditTool({
+          executeTool,
+          functionCall,
+          logger,
+          now,
+          runtimeRequest,
+          requestId,
+        }),
+      ),
+    );
+    const remainingOutputs = await executeAndAuditToolBatch({
+      executeTool,
+      functionCalls: conditionDependencyPlan.downstreamCalls,
+      logger,
+      now,
+      requiredEvidencePlan,
+      runtimeRequest,
+      requestId,
+      toolResults: [...toolResults, ...conditionOutputs.map((output) => output.result)],
+    });
+    return [...conditionOutputs, ...remainingOutputs];
   }
 
   const researchIndex = functionCalls.findIndex(
@@ -2933,6 +3390,90 @@ async function executeAndAuditToolBatch({
       }),
     ),
   );
+}
+
+const currentConditionUpstreamToolNames = new Set([
+  "get_condition_judgment",
+  "get_weather_forecast",
+  "get_marine_conditions",
+  "get_tide_forecast",
+]);
+
+const currentConditionDependentToolNames = new Set([
+  "rank_surf_spots_nearby",
+  "search_local_guide",
+  "search_places",
+  "get_place_details",
+]);
+
+const disruptionReplacementToolNames = new Set([
+  "plan_local_itinerary",
+  "search_local_guide",
+  "search_places",
+  "get_place_details",
+  "query_local_facts",
+]);
+
+const disruptionUpstreamToolNames = new Set([
+  ...currentConditionUpstreamToolNames,
+  "query_local_facts",
+]);
+
+function currentConditionDependencyPlan(input: {
+  functionCalls: readonly ParsedFunctionCall[];
+  runtimeRequest: AgentRuntimeRequest;
+  toolResults: readonly AgentToolResult[];
+}) {
+  const recognition = recognizeRuntimeRealityCheck(input.runtimeRequest);
+  if (recognition.kind === "disruption_recovery" && recognition.missingContext.length === 0) {
+    const upstreamCalls = input.functionCalls.filter((functionCall) =>
+      disruptionUpstreamToolNames.has(functionCall.name),
+    );
+    const hasDependentCall = input.functionCalls.some(
+      (functionCall) =>
+        disruptionReplacementToolNames.has(functionCall.name) &&
+        !disruptionUpstreamToolNames.has(functionCall.name),
+    );
+    if (upstreamCalls.length > 0 && hasDependentCall) {
+      return {
+        upstreamCalls,
+        downstreamCalls: input.functionCalls.filter(
+          (functionCall) => !disruptionUpstreamToolNames.has(functionCall.name),
+        ),
+      };
+    }
+  }
+  if (
+    (recognition.kind !== "immediate_plan" && recognition.kind !== "surf_session") ||
+    recognition.missingContext.length > 0 ||
+    input.toolResults.some((result) => {
+      if (result.status !== "success") {
+        return false;
+      }
+      return recognition.kind === "surf_session"
+        ? result.name === "get_condition_judgment"
+        : currentConditionUpstreamToolNames.has(result.name);
+    })
+  ) {
+    return undefined;
+  }
+
+  const upstreamCalls = input.functionCalls.filter((functionCall) =>
+    currentConditionUpstreamToolNames.has(functionCall.name),
+  );
+  const hasDependentCall = input.functionCalls.some((functionCall) =>
+    currentConditionDependentToolNames.has(functionCall.name),
+  );
+  if (upstreamCalls.length === 0 || !hasDependentCall) {
+    return undefined;
+  }
+
+  return {
+    upstreamCalls,
+    downstreamCalls: input.functionCalls.filter(
+      (functionCall) => !currentConditionUpstreamToolNames.has(functionCall.name),
+    ),
+  };
 }
 
 function firstRequiredDependencyIndex(
@@ -3403,7 +3944,8 @@ function isLocalItineraryTheme(value: string): value is LocalItineraryRequest["t
     value === "sunset_plus_dinner" ||
     value === "sandy_beach_half_day" ||
     value === "food_crawl" ||
-    value === "non_surfer_half_day"
+    value === "non_surfer_half_day" ||
+    value === "itinerary_review"
   );
 }
 
@@ -3840,7 +4382,7 @@ function buildResponseContract({
   return {
     ...baseResponseContract,
     finalOutput: requireStructuredFinalOutput
-      ? "Return the final response as a JSON object with answer, usedMemoryFiles, usedToolCallIds, displayCardIds, displayActionIds, displayItineraryIds, and displayDecisionSummaryIds. The answer field is the only traveler-facing prose. Display artifact ID arrays must include only cards, actions, itineraries, or decision summaries that should be shown publicly."
+      ? "Return the final response as a JSON object with answer, usedMemoryFiles, usedToolCallIds, displayCardIds, displayActionIds, displayItineraryIds, displayDecisionSummaryIds, and optional realityCheck. For an explicit reality-check request with enough context, realityCheck is required and must contain kind, verdict, subject, bestAction, basis, optional fallback/avoid/timing/area, and evidenceToolCallIds. Evidence IDs must be completed calls also listed in usedToolCallIds. Never provide source objects or invent artifact IDs in realityCheck. The answer field is the only traveler-facing prose. Display artifact ID arrays must include only cards, actions, itineraries, or decision summaries that should be shown publicly."
       : "Return the final response as normal traveler-facing Markdown/plain text. Do not wrap the answer in JSON or a code fence. Do not include artifact IDs or internal metadata in the traveler-facing answer.",
   };
 }
@@ -3874,6 +4416,14 @@ function buildAskSiargaoBaseInstructions({
     "Use the loaded INDEX.md to choose the smallest relevant memory files, then call load_agent_memory_file, file_search, or search_agent_memory before answering from Ask Siargao domain knowledge.",
     "You own tool choice and query formulation from the traveler's natural-language prompt. Do not wait for deterministic routing hints.",
     "For local service lookups such as scooter or motorbike rental in General Luna, call search_places with a natural-language service query; add research_web when public operator or directory evidence is useful. Do not substitute web research alone for map/card recommendations unless Google Places is unavailable.",
+    "For an accommodation reality check, use Google Places search/details for the named property's identity and returned public details, governed local facts for area and route fit, and current web research only for current public claims such as price or availability. Apply the traveler's kids, budget, transport, quiet-sleep, accommodation, area, and date constraints from conversation and safe trip context.",
+    "Separate accommodation conclusions into checked property facts, governed area fit, traveler-supplied constraints, and unknown property qualities. Ratings, generic reviews, area stereotypes, and absence of complaints do not prove recurring noise, flooding, internet or power reliability, room condition, availability, or safety. State those as unknown and advise direct confirmation; use needs_confirmation when an unknown is material to the verdict.",
+    "For an itinerary feasibility check, call plan_local_itinerary with theme itinerary_review and a bounded transcription of at most seven traveler-supplied stops. Preserve the original order, day labels, explicit times, areas, transport mode, and constraints. Use its conflict analysis and revised action; do not silently invent missing days, times, reservations, opening hours, or availability.",
+    "Treat itinerary travel times as non-live estimates unless a governed route source explicitly supports them. Complete required local route/area and weather checks before dependent Places enrichment. Return one concrete keep/change/avoid decision, the specific conflict, and a workable revised action or fallback.",
+    "For an immediate today/tomorrow Reality Check, use the governed condition judgment or other current weather, marine, and tide evidence relevant to the named activity before a decisive verdict. Include when, where, and one practical fallback. Provider failures must remain unavailable or partial rather than checked.",
+    "For a surf-session Reality Check, require the surfer's beginner/intermediate/advanced level plus a Siargao spot or area and today/tomorrow timing. Use get_condition_judgment with marine or tide evidence before any dependent surf ranking or place recommendation. Treat SURF.md and local guidance as planning context, not live safety evidence. Never guarantee safe-to-surf conditions; preserve local-coach, rip-current, lifeguard, and exact-break boundaries.",
+    "For a disruption-recovery Reality Check, treat cancellation, closure, bad weather, illness, or lost transport only as traveler-reported conversation state. Check the proposed replacement at request time with the relevant condition, local itinerary, local guide, Places, or governed local-fact tools. Complete condition and local-fact checks before dependent replacement recommendations. Return one best replacement plus one bounded fallback or avoid instruction, and use needs_confirmation when current availability or conditions cannot be established.",
+    "Never imply that Ask Siargao independently detected, monitored, tracked, or will notify about a disruption. Never claim operator contact, booking, reservation, or guaranteed availability.",
     "For any answer based on tool results, return a structured result rather than a thin paragraph. Use a compact markdown table or tight option list for multiple places, providers, events, routes, beaches, activities, weather windows, or other comparable results. Include practical checked details only when tool output supports them, then state the best first move.",
     "If one provider fails but another provider succeeds, use the successful evidence and caveat only the missing check when it matters.",
     "If deterministic signals say browser geolocation is the proximity anchor, do not say the traveler is near a named area unless user text or a tool result supports that named area.",
@@ -3881,7 +4431,7 @@ function buildAskSiargaoBaseInstructions({
     "Use backend tools whenever the answer needs current weather, tide timing, modelled marine conditions, Google Places facts, curated guide facts, safe local database facts, source evidence, or source-label policy.",
     "Every final answer must be written by the AI from loaded memory and tool output; do not copy raw tool output as final prose.",
     requireStructuredFinalOutput
-      ? "Return final answers as JSON with keys answer, usedMemoryFiles, usedToolCallIds, displayCardIds, displayActionIds, displayItineraryIds, and displayDecisionSummaryIds. Include only artifact IDs that should be displayed to the traveler."
+      ? "Return final answers as JSON with keys answer, usedMemoryFiles, usedToolCallIds, displayCardIds, displayActionIds, displayItineraryIds, displayDecisionSummaryIds, and optional realityCheck. For an explicit reality-check request with enough context, include realityCheck with kind, verdict, subject, bestAction, basis, optional fallback/avoid/timing/area, and evidenceToolCallIds. Use only completed toolCallIds also listed in usedToolCallIds; never invent sources or artifact IDs. Include only artifact IDs that should be displayed to the traveler."
       : "Return final answers as normal traveler-facing Markdown/plain text. Do not wrap the final answer in JSON or a code fence, and do not include artifact IDs or internal metadata.",
     "Do not invent live, provider-backed, or curated local facts. Memory retrieval is policy/reference context only, not live evidence.",
     "Do not write standalone source footer lines beginning with 'Checked:' or 'Not checked:'. Do not tell the traveler what was not checked or which internal tool should be used. Let the backend/cards display compact source labels.",

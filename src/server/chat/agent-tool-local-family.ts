@@ -176,7 +176,7 @@ export function createLocalToolFamily(handlers: LocalToolHandlers): AgentToolFam
           type: "function",
           name: "plan_local_itinerary",
           description:
-            "Build a governed structured 2-4 hour Siargao itinerary artifact from curated local guide evidence and explicit unchecked caveats. The AI must use the returned plan as evidence and write the final answer itself.",
+            "Build a governed structured Siargao itinerary artifact or review a traveler-supplied itinerary for practical conflicts. Reviews accept at most seven days and seven total stops, preserve non-live estimate caveats, and return a concrete revision. The AI must use the returned plan as evidence and write the final answer itself.",
           parameters: {
             type: "object",
             properties: {
@@ -224,6 +224,58 @@ export function createLocalToolFamily(handlers: LocalToolHandlers): AgentToolFam
                 items: { type: "string" },
                 description: "Other user constraints to preserve as caveats.",
               },
+              review_days: {
+                type: ["array", "null"],
+                maxItems: 7,
+                items: {
+                  type: "object",
+                  properties: {
+                    day_label: {
+                      type: "string",
+                      description: "Short traveler-supplied day label, such as Day 1.",
+                    },
+                    stops: {
+                      type: "array",
+                      minItems: 1,
+                      maxItems: 7,
+                      items: {
+                        type: "object",
+                        properties: {
+                          title: { type: "string" },
+                          area: { type: "string" },
+                          kind: {
+                            type: "string",
+                            enum: ["place", "beach", "activity", "meal", "transfer"],
+                          },
+                          time: {
+                            type: ["string", "null"],
+                            pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+                          },
+                          duration_minutes: {
+                            type: ["integer", "null"],
+                            minimum: 15,
+                            maximum: 720,
+                          },
+                          weather_sensitive: { type: ["boolean", "null"] },
+                        },
+                        required: [
+                          "title",
+                          "area",
+                          "kind",
+                          "time",
+                          "duration_minutes",
+                          "weather_sensitive",
+                        ],
+                        additionalProperties: false,
+                      },
+                    },
+                  },
+                  required: ["day_label", "stops"],
+                  additionalProperties: false,
+                },
+                description:
+                  "Traveler-supplied days and stops for itinerary_review; null for theme planning.",
+              },
             },
             required: [
               "theme",
@@ -235,6 +287,7 @@ export function createLocalToolFamily(handlers: LocalToolHandlers): AgentToolFam
               "needs_open_now",
               "meal_preference",
               "constraints",
+              "review_days",
             ],
             additionalProperties: false,
           },

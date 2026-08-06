@@ -441,8 +441,10 @@ Instead, win by combining the market's scattered inputs into evidence-backed cha
 ## Implications For PRD And Product
 
 - Make chat the primary product surface.
-- Replace the one-off USD 9.99 audit with a USD 14.99 two-week Siargao Trip Pass.
-- Use free preview answers as the hook, then paywall live evidence refreshes and heavier recommendations.
+- Replace the one-off audit with a USD 9.99 two-week Siargao Trip Pass containing 150 travel
+  answers.
+- Use 10 free travel answers as the hook, then paywall further answers rather than individual
+  evidence tools.
 - Treat risk as one answer type, not the product frame.
 - Add source credibility, freshness, and confidence as first-class answer concepts.
 - Add official-source precedence for policy, fees, accreditation, and transport.

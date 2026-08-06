@@ -80,9 +80,10 @@ addresses, emails, precise coordinates, or provider responses.
 4. Delayed return: visit the checkout return URL before webhook delivery; verify the UI remains
    pending and no pass is activated.
 5. Verified activation: deliver the test-mode Stripe checkout completion through the signed webhook
-   path; verify one active 14-day pass, 150 chat, 40 live, 8 heavy, 20 weather, and 25 route meters.
-6. Multi-tool consumption: run a current/live paid answer that uses more than one support tool;
-   verify chat and applicable live sub-meters settle once for the request.
+   path; verify one active 14-day pass with one `chat_message` meter limited to 150 answers.
+6. Multi-tool consumption: run a paid answer that needs more than one support tool; verify one
+   answer settles for the request and weather, Places, surf, and public-evidence checks do not spend
+   separate customer allowances.
 7. Failure release: force a provider failure before billable success; verify reservations release
    and the response labels unavailable or cached evidence truthfully.
 8. Expiry boundary: move the fixture clock or use an expired fixture; verify the effective pass is
@@ -116,7 +117,7 @@ updated with redacted evidence.
 
 | Item | Required evidence |
 | --- | --- |
-| Price/currency | Approved live Stripe Price ID, amount, currency, fees, and tax treatment. |
+| Price/currency | Live Stripe Price ID is USD 9.99; fees and tax treatment are approved. |
 | Legal/refund policy | Approved Trip Pass Terms, Privacy, support, full-refund, partial-refund, and dispute handling. |
 | Redis | Provider URL configured, TLS/retention/eviction documented, and integration smoke passed. |
 | Analytics | Sink host/key/retention/consent approved and sanitized smoke events observed. |

@@ -62,6 +62,34 @@ describe("decision strip presentation", () => {
     ).toBeUndefined();
   });
 
+  test.each([
+    ["keep", "Keep", "positive"],
+    ["change", "Change", "caution"],
+    ["avoid", "Avoid", "negative"],
+    ["needs_confirmation", "Needs confirmation", "uncertain"],
+  ] as const)("projects the %s verdict as a text label", (verdict, label, tone) => {
+    expect(
+      projectDecisionStrip([
+        {
+          ...completeSummary,
+          kind: "immediate_plan",
+          verdict,
+          subject: "Cloud 9 sunset today",
+        },
+      ]),
+    ).toMatchObject({
+      summary: { subject: "Cloud 9 sunset today", verdict },
+      verdict: { label, tone },
+    });
+  });
+
+  test("preserves the legacy summary presentation without inventing a verdict", () => {
+    const presentation = projectDecisionStrip([completeSummary]);
+
+    expect(presentation?.summary).toBe(completeSummary);
+    expect(presentation?.verdict).toBeUndefined();
+  });
+
   test("does not promote unchecked or unavailable sources to checked", () => {
     expect(
       projectDecisionStrip([
@@ -95,28 +123,28 @@ describe("decision strip presentation", () => {
     ).toEqual({ label: "Unavailable", value: "Weather forecast" });
   });
 
-  test.each([
-    "insufficient_web_evidence",
-    "no_current_event_facts",
-  ] as const)("rejects unsupported checked scope for %s and uses plain source labels", (label) => {
-    const sourceStatus = projectDecisionStrip([
-      {
-        ...completeSummary,
-        sources: [
-          {
-            label,
-            sourceName: "Open-Meteo weather API",
-            checked: ["unsupported current facts"],
-            notChecked: ["current request evidence"],
-          },
-        ],
-      },
-    ])?.sourceStatus;
+  test.each(["insufficient_web_evidence", "no_current_event_facts"] as const)(
+    "rejects unsupported checked scope for %s and uses plain source labels",
+    (label) => {
+      const sourceStatus = projectDecisionStrip([
+        {
+          ...completeSummary,
+          sources: [
+            {
+              label,
+              sourceName: "Open-Meteo weather API",
+              checked: ["unsupported current facts"],
+              notChecked: ["current request evidence"],
+            },
+          ],
+        },
+      ])?.sourceStatus;
 
-    expect(sourceStatus).toEqual({ label: "Not verified", value: "Weather forecast" });
-    expect(sourceStatus?.value).not.toContain("Open-Meteo");
-    expect(sourceStatus?.value).not.toContain("unsupported current facts");
-  });
+      expect(sourceStatus).toEqual({ label: "Not verified", value: "Weather forecast" });
+      expect(sourceStatus?.value).not.toContain("Open-Meteo");
+      expect(sourceStatus?.value).not.toContain("unsupported current facts");
+    },
+  );
 
   test("does not leak provider labels when checked evidence is supported", () => {
     const sourceStatus = projectDecisionStrip([

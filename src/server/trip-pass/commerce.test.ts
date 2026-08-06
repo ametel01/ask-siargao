@@ -103,8 +103,8 @@ describe("Trip Pass checkout commerce", () => {
           "https://siargao.test/settings?trip_pass_checkout=cancelled&order=order_checkout",
         metadata: {
           tripPassOrderId: "order_checkout",
-          productCode: "siargao_trip_pass_14d_v1",
-          productVersion: "1",
+          productCode: "siargao_trip_pass_14d_v2",
+          productVersion: "2",
         },
         line_items: [{ price: "price_trip_pass", quantity: 1 }],
       });
@@ -114,8 +114,8 @@ describe("Trip Pass checkout commerce", () => {
       await expectOrder(db, "order_checkout", {
         status: "checkout_created",
         stripeCheckoutSessionId: "cs_order_checkout",
-        amountTotalMinor: 49900,
-        currency: "php",
+        amountTotalMinor: 999,
+        currency: "usd",
       });
       await expectNoAccessGrant(db);
     });
@@ -339,8 +339,8 @@ function createFakeCheckoutClient(
         url: `https://checkout.stripe.test/${orderId}`,
         clientReferenceId: orderId,
         metadata: stringMetadata(params.metadata),
-        amountTotalMinor: 49900,
-        currency: "php",
+        amountTotalMinor: 999,
+        currency: "usd",
         priceId:
           options.priceId ??
           String((params.line_items?.[0] as Stripe.Checkout.SessionCreateParams.LineItem)?.price),
@@ -419,7 +419,7 @@ async function insertPendingOrder(
         created_at,
         updated_at
       )
-      values ($1, $2, $3, 'pending', 'siargao_trip_pass_14d_v1', 1, 'price_trip_pass', $4, '{}'::jsonb, $5, $5)
+      values ($1, $2, $3, 'pending', 'siargao_trip_pass_14d_v2', 2, 'price_trip_pass', $4, '{}'::jsonb, $5, $5)
     `,
     [
       input.id,

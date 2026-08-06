@@ -108,6 +108,31 @@ describe("chat route", () => {
       "Where should we eat near Cloud 9?",
     );
     expect(dependencies.requests[0]?.metadata?.route).toBe("/api/chat");
+    expect(dependencies.agentDependencies[0]?.requireStructuredFinalOutput).toBe(true);
+  });
+
+  test("streams progress events before the final chat result", async () => {
+    const dependencies = chatDependencies({ message: "Streamed Cloud 9 answer." });
+    const response = await chatResponse(
+      jsonRequest(
+        { messages: [{ role: "user", content: "What should I do near Cloud 9?" }] },
+        { headers: { accept: "application/x-ndjson" } },
+      ),
+      dependencies,
+    );
+    const events = (await response.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    expect(response.headers.get("content-type")).toContain("application/x-ndjson");
+    expect(events[0]).toMatchObject({ type: "progress", stage: "accepted" });
+    expect(events).toContainEqual(expect.objectContaining({ type: "progress", stage: "model" }));
+    expect(events.at(-1)).toMatchObject({
+      type: "result",
+      status: 200,
+      body: { message: "Streamed Cloud 9 answer." },
+    });
   });
 
   test("settles anonymous free chat allowance after a successful answer", async () => {
@@ -150,7 +175,7 @@ describe("chat route", () => {
     expect(settled).toEqual([true]);
   });
 
-  test("passes anonymous free decision metering into the agent runtime", async () => {
+  test("keeps provider tools outside anonymous customer entitlement metering", async () => {
     const dependencies = chatDependencies({
       message: "Free live answer.",
       sources: [genericSourceSummary],
@@ -175,15 +200,7 @@ describe("chat route", () => {
       release: async () => {},
       reserveDecisionMeter: async ({ meterType }) => {
         reservedMeters.push(meterType);
-        return {
-          status: "reserved",
-          meterType,
-          release: async () => {},
-          settle: async () => ({
-            status: "settled",
-            allowance: { meterType, used: 1, remaining: 2, limit: 3 },
-          }),
-        };
+        throw new Error("provider tools must not use customer entitlement meters");
       },
       settle: async () => {},
     });
@@ -194,13 +211,10 @@ describe("chat route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(dependencies.agentDependencies[0]?.decisionMeterPlan).toBe("free");
-    await expect(
-      dependencies.agentDependencies[0]?.decisionMeterSession?.reserveDecisionMeter({
-        meterType: "live_refresh",
-      }),
-    ).resolves.toMatchObject({ status: "reserved", meterType: "live_refresh" });
-    expect(reservedMeters).toEqual(["live_refresh"]);
+    expect(dependencies.agentDependencies[0]?.decisionMeterPlan).toBeUndefined();
+    expect(dependencies.agentDependencies[0]?.decisionMeterSession).toBeUndefined();
+    expect(dependencies.agentDependencies[0]?.usageSession).toBeUndefined();
+    expect(reservedMeters).toEqual([]);
   });
 
   test("returns anonymous free allowance challenges before calling the agent", async () => {
@@ -278,6 +292,7 @@ describe("chat route", () => {
       sources: [genericSourceSummary],
     });
     dependencies.db = db;
+    dependencies.now = tripPassTestNow;
     dependencies.auth = async () => ({
       userId: "user_paid_chat",
       sessionClaims: { email: "paid-chat@example.com" },
@@ -315,6 +330,7 @@ describe("chat route", () => {
       sources: [genericSourceSummary],
     });
     dependencies.db = db;
+    dependencies.now = tripPassTestNow;
     dependencies.auth = async () => ({
       userId: "user_paid_replay",
       sessionClaims: { email: "paid-replay@example.com" },
@@ -344,6 +360,7 @@ describe("chat route", () => {
       sources: [genericSourceSummary],
     });
     dependencies.db = db;
+    dependencies.now = tripPassTestNow;
     dependencies.auth = async () => ({
       userId: "user_paid_exhausted",
       sessionClaims: { email: "paid-exhausted@example.com" },
@@ -372,6 +389,7 @@ describe("chat route", () => {
     await seedActiveTripPass(db, "user_paid_failure", "trip_pass_paid_failure");
     const dependencies = chatDependencies();
     dependencies.db = db;
+    dependencies.now = tripPassTestNow;
     dependencies.auth = async () => ({
       userId: "user_paid_failure",
       sessionClaims: { email: "paid-failure@example.com" },
@@ -517,6 +535,51 @@ describe("chat route", () => {
     expect(serializedMessages).not.toContain(rawProviderPhrase);
     expect(JSON.stringify(body)).not.toContain("distinctive raw cafes near me papaya 4815");
     expect(JSON.stringify(body)).not.toContain(rawProviderPhrase);
+
+    await db.close();
+  });
+
+  test("defers assistant history persistence when a scheduler is configured", async () => {
+    const db = await openChatRouteTestDatabase();
+    const deferredTasks: Array<() => Promise<void>> = [];
+    const dependencies = chatDependencies({
+      message: "This answer should persist after delivery.",
+      sources: [genericSourceSummary],
+    });
+    dependencies.db = db;
+    dependencies.auth = async () => ({
+      userId: "user_deferred_history",
+      sessionClaims: { email: "deferred@example.com" },
+    });
+    dependencies.createId = deterministicIds();
+    dependencies.deferPersistence = (task) => deferredTasks.push(task);
+
+    const response = await chatResponse(
+      jsonRequest({ messages: [{ role: "user", content: "Where should I have lunch?" }] }),
+      dependencies,
+    );
+    const body = await response.json();
+    const messagesBeforeDeferredTask = await db.query<{ role: string }>(
+      "select role from chat_messages order by created_at, id",
+    );
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      threadId: "chat_thread_1",
+      userMessageId: "chat_message_2",
+      assistantMessageId: "chat_message_3",
+    });
+    expect(deferredTasks).toHaveLength(1);
+    expect(messagesBeforeDeferredTask.rows.map((message) => message.role)).toEqual(["user"]);
+
+    await deferredTasks[0]?.();
+    const messagesAfterDeferredTask = await db.query<{ role: string; content: string }>(
+      "select role, content from chat_messages order by created_at, id",
+    );
+    expect(messagesAfterDeferredTask.rows).toEqual([
+      { role: "user", content: "Where should I have lunch?" },
+      { role: "assistant", content: "This answer should persist after delivery." },
+    ]);
 
     await db.close();
   });
@@ -1647,6 +1710,303 @@ describe("chat route", () => {
     });
   });
 
+  test("returns only the checked accommodation card and its validated verdict", async () => {
+    const bravoCard = {
+      ...placeRecommendationCard,
+      id: "place_bravo_beach_resort",
+      title: "Bravo Beach Resort",
+      subtitle: "General Luna",
+      fitReasons: ["Matches the named property."],
+      caveats: ["Room noise and Wi-Fi reliability were not checked."],
+    };
+    const accommodationSummary = {
+      id: "reality_check:accommodation:bravo",
+      kind: "accommodation" as const,
+      verdict: "keep" as const,
+      subject: "Bravo Beach Resort",
+      bestAction: "Keep it on the shortlist for its General Luna location.",
+      basis: "The property identity and governed area fit were checked separately.",
+      avoid: "Room noise and Wi-Fi reliability are not confirmed.",
+      area: "General Luna",
+      sources: [placesSourceSummary],
+    };
+    const dependencies = chatDependencies({
+      message:
+        "**keep: Bravo Beach Resort**\n\nKeep it on the shortlist for its General Luna location.",
+      toolCalls: [
+        toolCall({ name: "search_places", status: "success", sources: [placesSourceSummary] }),
+      ],
+      sources: [placesSourceSummary],
+      publicSources: [placesSourceSummary],
+      cards: [bravoCard],
+      decisionSummaries: [accommodationSummary],
+      artifactSelection: routeArtifactSelection({
+        totalCardCount: 1,
+        selectedCardCount: 1,
+        unselectedCardCount: 1,
+        totalDecisionSummaryCount: 1,
+        selectedDecisionSummaryCount: 1,
+      }),
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "Reality-check Bravo Beach Resort in General Luna before I book.",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.cards?.map((card: { id: string }) => card.id)).toEqual([bravoCard.id]);
+    expect(body.decisionSummaries).toEqual([displayDecisionSummaryFixture(accommodationSummary)]);
+    expect(body.artifactSelection).toBeUndefined();
+    expect(dependencies.agentDependencies[0]).toMatchObject({
+      requireStructuredFinalOutput: true,
+    });
+    expect(JSON.stringify(body)).not.toContain("Unrelated Resort");
+  });
+
+  test("returns a selected itinerary revision and its relevant fallback place", async () => {
+    const reviewedItinerary: ItineraryPlan = {
+      ...sunsetDinnerItinerary,
+      title: "Reviewed Cloud 9 to Dapa plan",
+      decision: {
+        label: "fallback",
+        bestAction: "Keep Cloud 9, move dinner south, and stay near Dapa before the early ferry.",
+      },
+      skip: ["Pacifico dinner before an 8 AM Dapa ferry"],
+      sources: [localGuideSourceSummary, placesSourceSummary],
+    };
+    const dapaFallbackCard = {
+      ...placeRecommendationCard,
+      id: "place_dapa_fallback",
+      title: "Dapa fallback dinner",
+      subtitle: "Dapa",
+      sources: [placesSourceSummary],
+    };
+    const itinerarySummary = {
+      id: "reality_check:itinerary:dapa_ferry",
+      kind: "itinerary" as const,
+      verdict: "change" as const,
+      subject: "Cloud 9, Pacifico dinner, then an 8 AM Dapa ferry",
+      bestAction: "Move dinner south and finish near Dapa.",
+      basis: "The northbound dinner leg conflicts with the early southbound departure.",
+      fallback: "Use the selected Dapa dinner option.",
+      timing: "the night before the ferry",
+      area: "Cloud 9 / Dapa",
+      sources: [localGuideSourceSummary, placesSourceSummary],
+    };
+    const dependencies = chatDependencies({
+      message: "Change the Pacifico dinner leg and finish near Dapa before the early ferry.",
+      toolCalls: [
+        toolCall({
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [localGuideSourceSummary],
+        }),
+        toolCall({ name: "search_places", status: "success", sources: [placesSourceSummary] }),
+      ],
+      sources: [localGuideSourceSummary, placesSourceSummary],
+      publicSources: [localGuideSourceSummary, placesSourceSummary],
+      cards: [dapaFallbackCard],
+      itineraries: [reviewedItinerary],
+      decisionSummaries: [itinerarySummary],
+      artifactSelection: routeArtifactSelection({
+        totalCardCount: 2,
+        selectedCardCount: 1,
+        unselectedCardCount: 1,
+        totalItineraryCount: 2,
+        selectedItineraryCount: 1,
+        unselectedItineraryCount: 1,
+        totalDecisionSummaryCount: 1,
+        selectedDecisionSummaryCount: 1,
+      }),
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "Review my plan: Cloud 9 sunset, Pacifico dinner, then an 8 AM Dapa ferry.",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.cards?.map((card: { id: string }) => card.id)).toEqual([dapaFallbackCard.id]);
+    expect(body.itineraries?.map((plan: { title: string }) => plan.title)).toEqual([
+      reviewedItinerary.title,
+    ]);
+    expect(body.decisionSummaries?.map((summary: { id: string }) => summary.id)).toEqual([
+      itinerarySummary.id,
+    ]);
+    expect(body.artifactSelection).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("Unrelated Resort");
+  });
+
+  test("returns a bounded surf-session verdict with only its selected option", async () => {
+    const marineSource: AnswerSourceSummary = {
+      label: "marine_checked",
+      sourceName: "Open-Meteo Marine API",
+      sourceProfileId: "source_open_meteo_marine",
+      fetchedAt: "2026-08-03T08:00:00.000Z",
+      confidence: "medium",
+      checked: ["modelled wave height", "modelled swell height"],
+      notChecked: ["exact-break conditions", "rip currents", "lifeguard status"],
+    };
+    const surfCard = {
+      ...placeRecommendationCard,
+      id: "surf_pacifico_coached_window",
+      kind: "beach" as const,
+      title: "Pacifico coached beginner window",
+      subtitle: "Pacifico",
+      fitReasons: ["Matches the supplied beginner level and tomorrow-morning request."],
+      caveats: ["A local coach must confirm the exact break and session."],
+      sourceLabel: "Ask Siargao surf reference",
+      sources: [localGuideSourceSummary],
+    };
+    const surfSummary = {
+      id: "reality_check:surf_session:pacifico_beginner",
+      kind: "surf_session" as const,
+      verdict: "change" as const,
+      subject: "Pacifico beginner surf tomorrow morning",
+      bestAction: "Use only a coach-confirmed beginner window.",
+      basis: "The request-time modelled sea conditions support keeping the session conditional.",
+      fallback: "Use a land-based morning if no coach confirms the exact break.",
+      avoid: "Do not paddle out alone or treat modelled conditions as a safety guarantee.",
+      timing: "tomorrow morning",
+      area: "Pacifico",
+      sources: [weatherSourceSummary, marineSource],
+    };
+    const dependencies = chatDependencies({
+      message:
+        "**change: Pacifico beginner surf tomorrow morning**\n\nUse only a coach-confirmed beginner window.",
+      toolCalls: [
+        toolCall({
+          name: "get_condition_judgment",
+          status: "success",
+          sources: [weatherSourceSummary, marineSource],
+        }),
+        toolCall({
+          name: "rank_surf_spots_nearby",
+          status: "success",
+          sources: [localGuideSourceSummary],
+        }),
+      ],
+      sources: [weatherSourceSummary, marineSource, localGuideSourceSummary],
+      publicSources: [weatherSourceSummary, marineSource, localGuideSourceSummary],
+      cards: [surfCard],
+      decisionSummaries: [surfSummary],
+      artifactSelection: routeArtifactSelection({
+        totalCardCount: 1,
+        selectedCardCount: 1,
+        unselectedCardCount: 1,
+        totalDecisionSummaryCount: 1,
+        selectedDecisionSummaryCount: 1,
+      }),
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "Beginner surf in Pacifico tomorrow morning: is it worth booking?",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.cards?.map((card: { id: string }) => card.id)).toEqual([surfCard.id]);
+    expect(body.decisionSummaries).toEqual([displayDecisionSummaryFixture(surfSummary)]);
+    expect(body.sources).toEqual([weatherSourceSummary, marineSource, localGuideSourceSummary]);
+    expect(body.artifactSelection).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("Unrelated advanced break");
+  });
+
+  test("returns a traveler-reported disruption replacement without operational promises", async () => {
+    const replacementItinerary: ItineraryPlan = {
+      ...sunsetDinnerItinerary,
+      id: "itinerary:cancelled_tour:general_luna",
+      title: "Covered General Luna Replacement",
+      decision: {
+        label: "fallback",
+        bestAction: "Use the nearby land-based plan after the reported cancellation.",
+      },
+      sources: [localGuideSourceSummary, weatherSourceSummary],
+    };
+    const disruptionSummary = {
+      id: "reality_check:disruption_recovery:cancelled_tour",
+      kind: "disruption_recovery" as const,
+      verdict: "change" as const,
+      subject: "Traveler-reported cancelled island tour",
+      bestAction: "Use the covered General Luna replacement.",
+      basis: "Request-time conditions and local options support staying on land.",
+      fallback: "Confirm current opening before leaving.",
+      avoid: "Avoid relying on another boat departure today.",
+      timing: "today",
+      area: "General Luna",
+      sources: [weatherSourceSummary, localGuideSourceSummary],
+    };
+    const dependencies = chatDependencies({
+      message:
+        "**change: Traveler-reported cancelled island tour**\n\nUse the covered General Luna replacement.",
+      toolCalls: [
+        toolCall({
+          name: "get_condition_judgment",
+          status: "success",
+          sources: [weatherSourceSummary],
+        }),
+        toolCall({
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [localGuideSourceSummary],
+        }),
+      ],
+      sources: [weatherSourceSummary, localGuideSourceSummary],
+      publicSources: [weatherSourceSummary, localGuideSourceSummary],
+      itineraries: [replacementItinerary],
+      decisionSummaries: [disruptionSummary],
+      artifactSelection: routeArtifactSelection({
+        totalItineraryCount: 2,
+        selectedItineraryCount: 1,
+        unselectedItineraryCount: 1,
+        totalDecisionSummaryCount: 1,
+        selectedDecisionSummaryCount: 1,
+      }),
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content: "Our island tour was cancelled. Give us a workable replacement.",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.itineraries?.map((plan: { id: string }) => plan.id)).toEqual([
+      replacementItinerary.id,
+    ]);
+    expect(body.decisionSummaries).toEqual([displayDecisionSummaryFixture(disruptionSummary)]);
+    expect(JSON.stringify(body)).not.toMatch(/monitor|notify|operator contact|booked/iu);
+    expect(body.artifactSelection).toBeUndefined();
+  });
+
   test("returns cross-request public artifacts without internal selection diagnostics", async () => {
     for (const scenario of routeAnswerQualityScenarios()) {
       const dependencies = chatDependencies(scenario.agentResult);
@@ -2644,6 +3004,10 @@ function chatDependencies(
     runAskSiargaoAgentTurn: async (request, runtimeDependencies) => {
       requests.push(request);
       agentDependencies.push(runtimeDependencies);
+      await runtimeDependencies?.onProgress?.({
+        stage: "model",
+        message: "Understanding the request.",
+      });
       return {
         message: result.message ?? "Agent response.",
         requestId: request.requestId ?? "route_request_test",
@@ -2696,6 +3060,10 @@ async function seedActiveTripPass(db: PGlite, userId: string, tripPassId: string
     },
     db,
   );
+}
+
+function tripPassTestNow() {
+  return new Date("2026-07-14T00:00:00.000Z");
 }
 
 async function setChatMeterUsed(db: PGlite, tripPassId: string, used: number) {
@@ -2942,6 +3310,9 @@ const weatherSourceSummary: AnswerSourceSummary = {
 
 const swimmingDecisionSummary: DecisionSummary = {
   id: "condition_decision:swimming:cloud_9:today",
+  kind: "immediate_plan",
+  verdict: "needs_confirmation",
+  subject: "Cloud 9 swimming today",
   bestAction: "Keep swimming flexible.",
   basis: "Weather is usable, but surf reports are not checked.",
   fallback: "Use a nearby covered stop if conditions worsen.",

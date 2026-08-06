@@ -1,8 +1,9 @@
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import {
   type TripPassMeterType,
+  tripPassMeterTypes as tripPassLedgerMeterTypes,
   tripPassPaidMeterLimits as tripPassMeterLimits,
-  tripPassMeterTypes,
+  tripPassEntitlementMeterTypes as tripPassMeterTypes,
 } from "@/server/trip-pass/catalog";
 
 export { type TripPassMeterType, tripPassMeterLimits, tripPassMeterTypes };
@@ -87,18 +88,20 @@ type TripPassUsageMeterRow = {
 
 export function createTripPassMeterRows(input: {
   tripPassId: string;
+  meterLimits?: Partial<Record<TripPassMeterType, number>>;
   resetAt?: Date | null;
   updatedAt?: Date;
 }): TripPassMeterRow[] {
   const resetAt = input.resetAt ?? null;
   const updatedAt = input.updatedAt ?? new Date();
 
-  return tripPassMeterTypes.map((meterType) => ({
-    id: tripPassMeterId(input.tripPassId, meterType),
+  const meterLimits = input.meterLimits ?? tripPassMeterLimits;
+  return Object.entries(meterLimits).map(([meterType, limit]) => ({
+    id: tripPassMeterId(input.tripPassId, meterType as TripPassMeterType),
     tripPassId: input.tripPassId,
-    meterType,
+    meterType: meterType as TripPassMeterType,
     used: 0,
-    limit: tripPassMeterLimits[meterType],
+    limit,
     resetAt,
     updatedAt,
   }));
@@ -130,9 +133,9 @@ export async function createActiveTripPassWithMeters(
     updatedAt: now,
   });
 
-  await db.query(
-    `
-      with inserted_pass as (
+  await withDatabaseTransaction(db, async (transaction) => {
+    await transaction.query(
+      `
         insert into trip_passes (
           id,
           user_id,
@@ -147,36 +150,21 @@ export async function createActiveTripPassWithMeters(
           updated_at
         )
         values ($1, $2, $3, 'active', $4, $5, $6, $7, $8, $9, $9)
-        returning id
-      )
-      insert into trip_usage_meters (
-        id,
-        trip_pass_id,
-        meter_type,
-        used,
-        "limit",
-        reset_at,
-        updated_at
-      )
-      select $10, id, $11, 0, $12::integer, $8, $9 from inserted_pass
-      union all select $13, id, $14, 0, $15::integer, $8, $9 from inserted_pass
-      union all select $16, id, $17, 0, $18::integer, $8, $9 from inserted_pass
-      union all select $19, id, $20, 0, $21::integer, $8, $9 from inserted_pass
-      union all select $22, id, $23, 0, $24::integer, $8, $9 from inserted_pass
-    `,
-    [
-      input.id,
-      input.userId ?? null,
-      input.email ?? null,
-      input.stripeCheckoutSessionId ?? null,
-      input.stripePaymentIntentId ?? null,
-      input.stripeEventId ?? null,
-      input.startsAt,
-      input.expiresAt,
-      now,
-      ...meterRows.flatMap((row) => [row.id, row.meterType, row.limit]),
-    ],
-  );
+      `,
+      [
+        input.id,
+        input.userId ?? null,
+        input.email ?? null,
+        input.stripeCheckoutSessionId ?? null,
+        input.stripePaymentIntentId ?? null,
+        input.stripeEventId ?? null,
+        input.startsAt,
+        input.expiresAt,
+        now,
+      ],
+    );
+    await insertMeterRows(meterRows, transaction);
+  });
 
   return {
     pass: (await getTripPass(input.id, db)) ?? missingCreatedPass(input.id),
@@ -192,42 +180,33 @@ export async function initializeDefaultTripPassMeters(
   },
   db: DatabaseQueryClient = getDefaultDatabaseQueryClient(),
 ) {
+  return initializeTripPassMeters(
+    {
+      ...input,
+      meterLimits: tripPassMeterLimits,
+    },
+    db,
+  );
+}
+
+export async function initializeTripPassMeters(
+  input: {
+    tripPassId: string;
+    meterLimits: Partial<Record<TripPassMeterType, number>>;
+    resetAt?: Date | null;
+    now?: Date;
+  },
+  db: DatabaseQueryClient = getDefaultDatabaseQueryClient(),
+) {
   const now = input.now ?? new Date();
   const meterRows = createTripPassMeterRows({
     tripPassId: input.tripPassId,
+    meterLimits: input.meterLimits,
     resetAt: input.resetAt ?? null,
     updatedAt: now,
   });
 
-  await db.query(
-    `
-      insert into trip_usage_meters (
-        id,
-        trip_pass_id,
-        meter_type,
-        used,
-        "limit",
-        reset_at,
-        updated_at
-      )
-      values
-        ($1, $2, $3, 0, $4::integer, $5, $6),
-        ($7, $2, $8, 0, $9::integer, $5, $6),
-        ($10, $2, $11, 0, $12::integer, $5, $6),
-        ($13, $2, $14, 0, $15::integer, $5, $6),
-        ($16, $2, $17, 0, $18::integer, $5, $6)
-      on conflict (trip_pass_id, meter_type) do nothing
-    `,
-    [
-      meterRows[0].id,
-      input.tripPassId,
-      meterRows[0].meterType,
-      meterRows[0].limit,
-      input.resetAt ?? null,
-      now,
-      ...meterRows.slice(1).flatMap((row) => [row.id, row.meterType, row.limit]),
-    ],
-  );
+  await insertMeterRows(meterRows, db, true);
 
   return getTripPassUsage(input.tripPassId, db);
 }
@@ -391,11 +370,68 @@ function mapMeterRow(row: TripPassUsageMeterRow): TripPassUsageMeter {
 }
 
 function parseTripPassMeterType(value: string): TripPassMeterType {
-  if (tripPassMeterTypes.includes(value as TripPassMeterType)) {
+  if (tripPassLedgerMeterTypes.includes(value as TripPassMeterType)) {
     return value as TripPassMeterType;
   }
 
   throw new Error(`Unknown trip pass meter type: ${value}`);
+}
+
+async function insertMeterRows(
+  meterRows: TripPassMeterRow[],
+  db: DatabaseQueryClient,
+  ignoreConflicts = false,
+) {
+  if (meterRows.length === 0) {
+    return;
+  }
+  const values = meterRows
+    .map((_, index) => {
+      const offset = index * 6;
+      return `($${offset + 1}, $${offset + 2}, $${offset + 3}, 0, $${offset + 4}::integer, $${offset + 5}, $${offset + 6})`;
+    })
+    .join(", ");
+  await db.query(
+    `
+      insert into trip_usage_meters (
+        id,
+        trip_pass_id,
+        meter_type,
+        used,
+        "limit",
+        reset_at,
+        updated_at
+      )
+      values ${values}
+      ${ignoreConflicts ? "on conflict (trip_pass_id, meter_type) do nothing" : ""}
+    `,
+    meterRows.flatMap((row) => [
+      row.id,
+      row.tripPassId,
+      row.meterType,
+      row.limit,
+      row.resetAt,
+      row.updatedAt,
+    ]),
+  );
+}
+
+async function withDatabaseTransaction<T>(
+  db: DatabaseQueryClient,
+  callback: (transaction: DatabaseQueryClient) => Promise<T>,
+) {
+  if (db.transaction) {
+    return db.transaction(callback);
+  }
+  await db.query("begin");
+  try {
+    const result = await callback(db);
+    await db.query("commit");
+    return result;
+  } catch (error) {
+    await db.query("rollback").catch(() => undefined);
+    throw error;
+  }
 }
 
 function parseTripPassStatus(value: string): TripPassStatus {

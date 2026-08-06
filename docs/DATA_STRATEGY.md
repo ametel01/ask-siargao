@@ -168,7 +168,8 @@ This is especially important for Google Places reviews and other licensed provid
 | beach, area, and geography facts | 90+ days |
 | manually verified local fact | until review date |
 
-The request planner should compare fact freshness with the user's intent before spending a live refresh.
+The request planner should compare fact freshness with the user's intent before making a provider
+call. This decision is automatic and independent of the traveler's answer balance.
 
 ## Provider Priority
 
@@ -282,7 +283,7 @@ For each request:
 3. map intent to required fact types
 4. query facts by entity, area, freshness, confidence, and reuse scope
 5. if facts are enough, answer from DB
-6. if not enough, check paid status and live refresh budget
+6. if not enough, check source policy and provider cost controls
 7. call provider adapters only when permitted
 8. normalize observations into facts
 9. store evidence and attribution
@@ -293,7 +294,7 @@ The system should avoid provider calls when the cached answer is fresh enough. I
 
 ## Cost And Rate-Limit Strategy
 
-Track every live operation:
+Track every answer and evidence operation for internal cost analysis:
 
 - chat messages
 - live evidence refreshes
@@ -303,14 +304,10 @@ Track every live operation:
 - estimated provider cost
 - estimated LLM cost
 
-The base trip pass should include a generous but bounded allowance:
-
-- 100 chat messages.
-- 30 live evidence refreshes.
-- 10 heavy recommendation searches.
-- daily weather-aware answers.
-
-When a limit is reached, the assistant should continue answering from existing facts and explain that live refreshes require an extension.
+The customer-facing allowance is 10 free travel answers over seven days or 150 travel answers in a
+`$9.99` USD, 14-day Trip Pass. Evidence operations remain observable for unit economics but do not
+consume separate traveler allowances. Provider failures should fall back to governed cached facts
+with truthful freshness and availability boundaries.
 
 ## Public Data
 

@@ -4,11 +4,11 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: /plan the island around your real constraints/i }),
+    page.getByRole("heading", { name: /reality-check the island around your real constraints/i }),
   ).toBeVisible();
   await expect(page.getByRole("link", { name: "Ask in chat" })).toHaveAttribute("href", "/chat");
   await expect(page.getByLabel("Example Ask Siargao prompt")).toContainText(
-    "What should we do today if rain hits Cloud 9?",
+    "Given today's weather and tide, should we still go to Cloud 9?",
   );
   await expect(
     page.getByRole("heading", { name: "Planning inputs available in chat" }),
@@ -20,22 +20,22 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
   await expect(page.getByText("Can check places when asked")).toBeVisible();
   await expect(page.getByText("Checked on request")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "One clear Siargao travel pass" })).toBeVisible();
-  await expect(page.getByText("₱499")).toBeVisible();
-  await expect(page.getByText("150 chat answers")).toBeVisible();
+  await expect(page.getByText("$9.99")).toBeVisible();
+  await expect(page.getByText("150 Siargao travel answers for 14 days")).toBeVisible();
   await expect(page.getByRole("link", { name: "Read terms" })).toHaveAttribute(
     "href",
     "/legal/trip-pass",
   );
   await expect(page.getByText(/\bExplorer\b|\bExtended\b|\bunlimited\b/i)).toHaveCount(0);
   await expect(page.locator("svg.lucide-check")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Choose the right base" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Make the weather call" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Match a surf session" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Replace a disrupted plan" })).toBeVisible();
   await expect(
     page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
   ).toHaveAttribute("href", /\/chat\?prompt=/);
-  await expect(page.getByRole("link", { name: "Quiet base" })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Check a stay" })).toHaveAttribute(
     "href",
-    /\/chat\?prompt=Where%20should%20we%20stay/,
+    /\/chat\?prompt=Reality-check/,
   );
 });
 
@@ -80,14 +80,14 @@ test("exposes real desktop navigation in keyboard reading order", async ({ page 
         .getByRole("link", { name: "Ask Siargao" }),
       rgb: [10, 111, 103],
     },
-    { link: page.getByRole("link", { name: "Quiet base" }), rgb: [142, 230, 216] },
-    { link: page.getByRole("link", { name: "Food route" }), rgb: [142, 230, 216] },
+    { link: page.getByRole("link", { name: "Check a stay" }), rgb: [142, 230, 216] },
+    { link: page.getByRole("link", { name: "Review a route" }), rgb: [142, 230, 216] },
     {
-      link: page.getByRole("link", { name: "Ask about this" }).nth(0),
+      link: page.getByRole("link", { name: "Run this check" }).nth(0),
       rgb: [10, 111, 103],
     },
     {
-      link: page.getByRole("link", { name: "Ask about this" }).nth(1),
+      link: page.getByRole("link", { name: "Run this check" }).nth(1),
       rgb: [10, 111, 103],
     },
   ];
@@ -130,20 +130,20 @@ test("landing prompt actions preserve exact chat handoff without submitting", as
     {
       link: () =>
         page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
-      prompt: "What should we do today if rain hits Cloud 9?",
+      prompt: "Given today's weather and tide, should we still go to Cloud 9?",
     },
     {
-      link: () => page.getByRole("link", { name: "Quiet base" }),
+      link: () => page.getByRole("link", { name: "Check a stay" }),
       prompt:
-        "Where should we stay in Siargao if we want quiet sleep, surf access, and easy dinner options?",
+        "Reality-check this Siargao hotel before I book: is it a good fit for quiet sleep and no scooter?",
     },
     {
       link: () =>
         page
           .getByRole("article")
-          .filter({ has: page.getByRole("heading", { name: "Make the weather call" }) })
-          .getByRole("link", { name: "Ask about this" }),
-      prompt: "Build a Siargao plan for today that adapts if rain gets heavy around Cloud 9.",
+          .filter({ has: page.getByRole("heading", { name: "Replace a disrupted plan" }) })
+          .getByRole("link", { name: "Run this check" }),
+      prompt: "Our island tour was cancelled. Give us a workable replacement in General Luna.",
     },
   ];
   let chatSubmissions = 0;
@@ -175,7 +175,7 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(
-      page.getByRole("heading", { name: /plan the island around your real constraints/i }),
+      page.getByRole("heading", { name: /reality-check the island around your real constraints/i }),
     ).toBeVisible();
     await page.evaluate(async () => {
       await document.fonts.ready;
@@ -188,7 +188,7 @@ for (const viewport of [
     await expect(
       page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
     ).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Plan smarter in Siargao" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Reality-check a Siargao plan" })).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "One clear Siargao travel pass" }),
     ).toBeVisible();
@@ -257,11 +257,9 @@ test("renders Trip Pass pricing and legal copy without unsupported promises", as
     await page.goto("/#trip-pass");
     const pricing = page.locator("#trip-pass");
     await expect(pricing).toContainText("Free trial to Trip Pass");
-    await expect(pricing).toContainText(
-      "10 chat answers, 3 live checks, and 1 deep-planning trial",
-    );
-    await expect(pricing).toContainText("₱499");
-    await expect(pricing).toContainText("150 chat answers, 40 live decisions");
+    await expect(pricing).toContainText("10 Siargao travel answers over 7 days");
+    await expect(pricing).toContainText("$9.99");
+    await expect(pricing).toContainText("150 Siargao travel answers for 14 days");
     await expect(pricing).toContainText("Stripe remains authoritative for the final charge.");
     await expect(pricing.getByRole("link", { name: "Manage pass in settings" })).toHaveAttribute(
       "href",
@@ -272,6 +270,9 @@ test("renders Trip Pass pricing and legal copy without unsupported promises", as
     ).toHaveAttribute("href", "/legal/trip-pass");
     await expect(
       pricing.getByText(/\bExplorer\b|\bExtended\b|\bunlimited\b|\bguaranteed\b/i),
+    ).toHaveCount(0);
+    await expect(
+      pricing.getByText(/live decisions|deep-planning|weather checks|route checks/i),
     ).toHaveCount(0);
     await page.screenshot({
       fullPage: true,
@@ -306,8 +307,8 @@ test("landing remains usable at a 200 percent zoom equivalent with reduced motio
   for (const link of [
     page.getByRole("link", { name: "Ask in chat" }),
     page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
-    page.getByRole("link", { name: "Quiet base" }),
-    page.getByRole("link", { name: "Food route" }),
+    page.getByRole("link", { name: "Check a stay" }),
+    page.getByRole("link", { name: "Review a route" }),
   ]) {
     await expect(link).toBeVisible();
     const box = await link.boundingBox();
@@ -1450,8 +1451,8 @@ test("renders Trip Pass account states and checkout return handling", async ({ p
   const refreshPassPanel = async () => {
     await passPanel.getByRole("button", { name: "Refresh" }).click();
   };
-  await expect(passPanel).toContainText("Free launch allowance");
-  await expect(passPanel).toContainText("Free launch allowances reset every seven days.");
+  await expect(passPanel).toContainText("Free travel answers");
+  await expect(passPanel).toContainText("Free travel answers reset every seven days.");
   const checkoutButton = passPanel.getByRole("button", { name: /Start checkout|Starting/ });
   await checkoutButton.click();
   await expect(checkoutButton).toBeDisabled();
@@ -1466,8 +1467,9 @@ test("renders Trip Pass account states and checkout return handling", async ({ p
   await page.goto("/settings#pass");
   await expect(passPanel).toContainText("Trip Pass is active");
   await expect(passPanel).toContainText("Expires 18 Jul");
-  await expect(passPanel).toContainText("Chat answers are near the limit: 20 left.");
-  await expect(passPanel).toContainText("Live refreshes allowance is exhausted.");
+  await expect(passPanel).toContainText("Travel answers are near the limit: 20 left.");
+  await expect(passPanel).not.toContainText("Live refreshes");
+  await expect(passPanel).not.toContainText("Route lookups");
   await expect(passPanel.getByRole("button", { name: "Start checkout" })).toHaveCount(0);
   await page.screenshot({
     path: "test-results/trip-pass-settings-desktop-active.png",
@@ -1535,16 +1537,8 @@ function settingsTripPass(status: "free" | "pending" | "active" | "expired" | "u
   const isPaidState = status === "active" || status === "expired";
   const allowances =
     status === "active"
-      ? [
-          { meterType: "chat_message", used: 130, limit: 150, remaining: 20, warning: true },
-          { meterType: "live_refresh", used: 40, limit: 40, remaining: 0, warning: true },
-          { meterType: "route_lookup", used: 1, limit: 25, remaining: 24, warning: false },
-        ]
-      : [
-          { meterType: "chat_message", used: 0, limit: 10, remaining: 10, warning: true },
-          { meterType: "live_refresh", used: 0, limit: 3, remaining: 3, warning: true },
-          { meterType: "heavy_recommendation", used: 0, limit: 1, remaining: 1, warning: false },
-        ];
+      ? [{ meterType: "chat_message", used: 130, limit: 150, remaining: 20, warning: true }]
+      : [{ meterType: "chat_message", used: 0, limit: 10, remaining: 10, warning: true }];
 
   return {
     status,
@@ -1564,7 +1558,6 @@ function settingsTripPass(status: "free" | "pending" | "active" | "expired" | "u
     allowances,
     attention: {
       lowChatMessages: status === "active",
-      lowLiveRefreshes: status === "active",
       expiresSoon: false,
     },
     checkout: {
@@ -1628,7 +1621,7 @@ for (const width of [390, 768, 1024, 1366]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(
-      page.getByRole("heading", { name: /plan the island around your real constraints/i }),
+      page.getByRole("heading", { name: /reality-check the island around your real constraints/i }),
     ).toBeVisible();
 
     const overflow = await page.evaluate(

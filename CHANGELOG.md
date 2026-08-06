@@ -9,10 +9,13 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
-- Changed shared quota-store runtime wiring to use the Node-compatible Redis client in deployed
-  Next.js handlers while keeping process-local quota stores in development and test.
-- Changed stalled chat submissions to leave the pending state after 10 seconds with visible retry
-  guidance instead of waiting indefinitely.
+- Repositioned the landing page, Trip Pass copy, and contextual chat prompts around on-demand
+  Siargao Reality Checks, and upgraded decision strips with accessible text verdicts and subjects
+  for keep/change/avoid/needs-confirmation while preserving legacy summaries, sources, saved plans,
+  responsive layouts, reduced motion, and idle-on-load behavior.
+- Simplified the 14-day Siargao Trip Pass to a `$9.99` USD, 150-travel-answer product, with 10 free
+  answers over seven days and automatic evidence tools instead of customer-facing live, research,
+  weather, or route allowances. Existing version 1 grants remain readable for ledger continuity.
 - Changed public Ask Siargao positioning to show the catalog-backed Trip Pass launch price, free and
   paid limits, Siargao-specific advantages, and legal/support boundaries before checkout.
 - Changed authenticated paid chat live-tool execution to meter Trip Pass live, heavy, weather, and
@@ -21,8 +24,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 - Changed authenticated paid chat to reserve and settle Trip Pass `chat_message` usage
   server-side, returning typed `usage_limit_reached` exhaustion before model execution and
   preserving exactly-once settlement for idempotent successful requests.
-- Changed DeepSeek chat runtime behavior so the bounded non-thinking policy is always active,
-  including heavy turns.
+- Changed DeepSeek chat runtime behavior behind `DEEPSEEK_COST_POLICY_ENABLED` so routine free and
+  paid turns use bounded non-thinking requests, paid heavy turns retain thinking-high, and OpenAI
+  fallback is disabled for free traffic.
 
 ### Security
 
@@ -40,9 +44,26 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Added
 
-- Added a real Node-hosted `/api/chat` runtime smoke against an isolated Redis database and a
-  deterministic local model endpoint to the release gate, requiring a complete `200` answer so
-  mocked browser tests cannot hide route boot or response-path failures.
+- Added on-demand disruption-recovery Reality Checks that treat cancellations, closures, weather,
+  illness, and lost transport as traveler-reported state, order request-time evidence before one
+  practical replacement, downgrade unavailable checks, and exclude failed or unrelated cards and
+  itineraries without promising monitoring, operator contact, booking, or availability.
+- Added on-demand current-condition and surf Reality Checks that require request-time condition and
+  marine or tide evidence, account for surfer ability, location, and timing, preserve surf-safety
+  boundaries, order upstream evidence before dependent recommendations, and suppress unrelated or
+  provider-failed recommendation cards.
+- Added on-demand itinerary feasibility Reality Checks that review bounded traveler-supplied plans,
+  identify timing, geography, transport, and weather-exposure conflicts, label non-live travel
+  estimates, require upstream route and weather evidence before dependent place enrichment, and
+  return a concrete revision with tightly selected itinerary and fallback artifacts.
+- Added on-demand accommodation Reality Checks that verify named-property identity, compare
+  governed area fit against traveler constraints, bound unverified property qualities, request
+  focused missing context, and suppress unrelated place cards or positive verdicts after provider
+  failure.
+- Added on-demand Siargao Reality Check verdicts with server-validated evidence references,
+  source-derived decision summaries, bounded repair and provider-failure downgrade behavior,
+  authenticated history compatibility, strict artifact selection, and privacy-safe outcome
+  telemetry.
 - Added an executable Trip Pass launch-proof artifact and release-candidate runbook covering
   free-to-paid lifecycle evidence, approval blockers, external smoke lanes, and flag-based rollback.
 - Added redacted Trip Pass reconciliation and support diagnostics for paid-order, pass, grant,

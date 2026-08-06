@@ -670,6 +670,53 @@ describe("agent runtime contracts", () => {
     });
   });
 
+  test("filters mixed itinerary-review artifacts to the explicitly selected revision and place", () => {
+    const reviewedPlan: ItineraryPlan = {
+      ...sunsetDinnerPlan,
+      title: "Reviewed Cloud 9 to Dapa plan",
+      decision: {
+        label: "fallback",
+        bestAction: "Keep Cloud 9, move dinner south, and stay near Dapa before the early ferry.",
+      },
+      skip: ["Pacifico dinner before an 8 AM Dapa ferry"],
+    };
+    const unrelatedCard = {
+      ...dootBeachCard,
+      id: "card_unrelated_resort",
+      title: "Unrelated Resort",
+    };
+    const turn = createAgentTurnResult({
+      message: "Change the northbound dinner leg and use the selected Dapa option.",
+      requestId: "agent_request_mixed_itinerary_review",
+      model: "gpt-test",
+      finalPayload: finalPayloadFixture({
+        displayItineraryIds: [agentItineraryArtifactId(reviewedPlan)],
+        displayCardIds: [cloud9CafeCard.id],
+      }),
+      toolResults: [
+        {
+          sources: [localGuideSourceSummary],
+          itineraries: [reviewedPlan, rainyCloud9Plan],
+        },
+        {
+          sources: [placesSourceSummary],
+          cards: [cloud9CafeCard, unrelatedCard],
+        },
+      ],
+    });
+
+    expect(turn.itineraries?.map((plan) => plan.title)).toEqual(["Reviewed Cloud 9 to Dapa plan"]);
+    expect(turn.cards?.map((card) => card.id)).toEqual([cloud9CafeCard.id]);
+    expect(turn.publicSources).toEqual([placesSourceSummary, localGuideSourceSummary]);
+    expect(JSON.stringify(turn)).not.toContain("Unrelated Resort");
+    expect(turn.artifactSelection).toMatchObject({
+      selectedItineraryCount: 1,
+      unselectedItineraryCount: 1,
+      selectedCardCount: 1,
+      unselectedCardCount: 1,
+    });
+  });
+
   test("resolves model-facing itinerary aliases selected by final payload", () => {
     const turn = createAgentTurnResult({
       message: "Here is the selected Cloud 9 sunset sequence.",
@@ -711,6 +758,11 @@ describe("agent runtime contracts", () => {
     });
 
     expect(turn.decisionSummaries).toEqual([swimmingDecisionSummary]);
+    expect(turn.decisionSummaries?.[0]).toMatchObject({
+      kind: "immediate_plan",
+      verdict: "change",
+      subject: "Swimming at Cloud 9",
+    });
     expect(turn.publicSources).toEqual([weatherSourceSummary]);
     expect(turn.artifactSelection).toMatchObject({
       structuredFinalPayload: true,
@@ -1651,6 +1703,9 @@ const localGuideSourceSummary: AnswerSourceSummary = {
 
 const swimmingDecisionSummary: DecisionSummary = {
   id: "condition_decision:swimming:cloud_9:today",
+  kind: "immediate_plan",
+  verdict: "change",
+  subject: "Swimming at Cloud 9",
   bestAction: "Keep swimming flexible.",
   basis: "Weather is usable, but surf reports are not checked.",
   fallback: "Use a nearby covered stop if conditions worsen.",

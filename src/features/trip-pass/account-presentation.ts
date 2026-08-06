@@ -31,11 +31,7 @@ export type MobileTripPassProjection =
   | { status: "visible"; tone: "neutral" | "warning" | "critical"; text: string };
 
 const meterLabels: Record<string, string> = {
-  chat_message: "Chat answers",
-  live_refresh: "Live refreshes",
-  heavy_recommendation: "Deep planning",
-  weather_refresh: "Weather refreshes",
-  route_lookup: "Route lookups",
+  chat_message: "Travel answers",
 };
 
 const dateFormatter = new Intl.DateTimeFormat("en", {
@@ -58,7 +54,7 @@ export function projectTripPassAccountView(
       checkoutDisabledReason: null,
       supportGuidance: null,
       validityLabel: null,
-      resetLabel: "Free launch allowances reset every seven days.",
+      resetLabel: "Free travel answers reset every seven days.",
       announcement: "Trip Pass status is loading.",
       warnings: [],
       allowances: [],
@@ -75,14 +71,19 @@ export function projectTripPassAccountView(
       checkoutDisabledReason: "Status is unavailable.",
       supportGuidance: "If this keeps happening, contact support with the time of the attempt.",
       validityLabel: null,
-      resetLabel: "Free launch allowances reset every seven days.",
+      resetLabel: "Free travel answers reset every seven days.",
       announcement: "Trip Pass status is temporarily unavailable.",
       warnings: ["Status could not be refreshed."],
       allowances: [],
     };
   }
 
-  const allowances = presentation.allowances.map(projectAllowanceView);
+  const allowances: TripPassAllowanceView[] = [];
+  for (const allowance of presentation.allowances) {
+    if (allowance.meterType === "chat_message") {
+      allowances.push(projectAllowanceView(allowance));
+    }
+  }
   const warnings = tripPassWarnings(presentation, allowances);
   const statusCopy = statusCopyFor(presentation.status);
   const checkoutDisabledReason = checkoutDisabledCopy(presentation);
@@ -99,8 +100,8 @@ export function projectTripPassAccountView(
     validityLabel,
     resetLabel:
       presentation.status === "active"
-        ? "Paid allowances last until the pass expires."
-        : "Free launch allowances reset every seven days.",
+        ? "Travel answers are available until the pass expires."
+        : "Free travel answers reset every seven days.",
     announcement: [statusCopy.headline, validityLabel, warnings[0]].filter(Boolean).join(" "),
     warnings,
     allowances,
@@ -134,16 +135,18 @@ export function projectMobileTripPass(
     return {
       status: "visible",
       tone: "critical",
-      text: "Trip Pass expired. Free launch limits apply until checkout is available again.",
+      text: "Trip Pass expired. Free travel answers apply until checkout is available again.",
     };
   }
 
-  const exhausted = presentation.allowances.find((allowance) => allowance.remaining === 0);
+  const exhausted = presentation.allowances.find(
+    (allowance) => allowance.meterType === "chat_message" && allowance.remaining === 0,
+  );
   if (exhausted) {
     return {
       status: "visible",
       tone: "critical",
-      text: `${meterLabel(exhausted.meterType)} allowance is exhausted. Use cached/local evidence or wait for the next allowance window.`,
+      text: "Travel answers are used. Manage your Trip Pass in settings.",
     };
   }
 
@@ -155,12 +158,28 @@ export function projectMobileTripPass(
     };
   }
 
-  const warning = presentation.allowances.find((allowance) => shouldWarnAllowance(allowance));
+  const warning = presentation.allowances.find(
+    (allowance) => allowance.meterType === "chat_message" && shouldWarnAllowance(allowance),
+  );
   if (warning) {
     return {
       status: "visible",
       tone: "warning",
       text: `${meterLabel(warning.meterType)} are low: ${warning.remaining} of ${warning.limit} left.`,
+    };
+  }
+
+  const answers = presentation.allowances.find(
+    (allowance) => allowance.meterType === "chat_message",
+  );
+  if (presentation.status === "active" && answers) {
+    const expiry = presentation.validity.expiresAt
+      ? ` · expires ${formatTripPassDate(presentation.validity.expiresAt)}`
+      : "";
+    return {
+      status: "visible",
+      tone: "neutral",
+      text: `Trip Pass · ${answers.remaining} travel answers left${expiry}`,
     };
   }
 
@@ -183,13 +202,16 @@ function tripPassWarnings(
   presentation: TripPassAccountPresentation,
   allowances: TripPassAllowanceView[],
 ) {
-  const warnings = allowances
-    .filter(shouldWarnAllowance)
-    .map((allowance) =>
-      allowance.remaining === 0
-        ? `${allowance.label} allowance is exhausted.`
-        : `${allowance.label} are near the limit: ${allowance.remaining} left.`,
-    );
+  const warnings = allowances.reduce<string[]>((warnings, allowance) => {
+    if (shouldWarnAllowance(allowance)) {
+      warnings.push(
+        allowance.remaining === 0
+          ? `${allowance.label} are used.`
+          : `${allowance.label} are near the limit: ${allowance.remaining} left.`,
+      );
+    }
+    return warnings;
+  }, []);
 
   if (presentation.attention.expiresSoon && presentation.validity.expiresAt) {
     warnings.push(`Pass expires soon: ${formatTripPassDate(presentation.validity.expiresAt)}.`);
@@ -204,7 +226,7 @@ function statusCopyFor(status: TripPassAccountState) {
       return {
         badge: "Active",
         headline: "Trip Pass is active",
-        detail: "Paid chat and live-planning allowances are available for this account.",
+        detail: "Your paid travel answers are available for this account.",
       };
     case "pending":
       return {
@@ -216,20 +238,20 @@ function statusCopyFor(status: TripPassAccountState) {
       return {
         badge: "Expired",
         headline: "Trip Pass has expired",
-        detail: "Free launch allowances apply until another checkout is completed.",
+        detail: "Free travel answers apply until another checkout is completed.",
       };
     case "unavailable":
       return {
         badge: "Unavailable",
         headline: "Trip Pass checkout is unavailable",
-        detail: "Free launch allowances still apply. No pass has been activated locally.",
+        detail: "Free travel answers still apply. No pass has been activated locally.",
       };
     case "free":
       return {
         badge: "Free",
-        headline: "Free launch allowance",
+        headline: "Free travel answers",
         detail:
-          "Use the free weekly allowance, then sign in and start checkout when you need more.",
+          "Use 10 free travel answers over seven days, then start checkout when you need more.",
       };
   }
 }

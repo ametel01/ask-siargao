@@ -7,7 +7,23 @@ import {
 } from "@/server/chat/cost-policy";
 
 describe("chat cost policy", () => {
-  test("uses bounded non-thinking chat policy by default", () => {
+  test("keeps baseline high-thinking as an explicit rollback mode", () => {
+    const policy = resolveChatCostPolicy(
+      { messages: [{ role: "user", content: "Plan a first day." }] },
+      { env: { DEEPSEEK_COST_POLICY_ENABLED: "false" } },
+    );
+
+    expect(policy).toMatchObject({
+      enabled: false,
+      tier: "baseline",
+      deepSeekThinkingMode: "baseline_high",
+      maxOutputTokens: 3000,
+      maxToolCalls: 8,
+      openAiFallback: { enabled: true, reason: "baseline" },
+    });
+  });
+
+  test("uses the promoted non-thinking free policy by default", () => {
     const policy = resolveChatCostPolicy(
       { messages: [{ role: "user", content: "Plan a first day." }] },
       { env: {} },
@@ -19,6 +35,8 @@ describe("chat cost policy", () => {
       deepSeekThinkingMode: "disabled",
       maxOutputTokens: 1500,
       maxToolCalls: 4,
+      maxTurns: 5,
+      normalMaxModelCalls: 3,
       openAiFallback: { enabled: false, reason: "free_disallowed" },
     });
   });
@@ -35,6 +53,7 @@ describe("chat cost policy", () => {
       deepSeekThinkingMode: "disabled",
       maxOutputTokens: 1500,
       maxToolCalls: 4,
+      maxTurns: 5,
       normalMaxModelCalls: 3,
       absoluteMaxModelCalls: 7,
       openAiFallback: { enabled: false, reason: "free_disallowed" },
@@ -66,7 +85,7 @@ describe("chat cost policy", () => {
     });
   });
 
-  test("keeps paid heavy turns non-thinking under the response-time ceiling", () => {
+  test("reserves thinking-high for paid heavy turns", () => {
     const policy = resolveChatCostPolicy(
       {
         messages: [{ role: "user", content: "Compare current restaurant options open now." }],
@@ -77,7 +96,7 @@ describe("chat cost policy", () => {
 
     expect(policy).toMatchObject({
       tier: "paid_heavy",
-      deepSeekThinkingMode: "disabled",
+      deepSeekThinkingMode: "high",
       maxOutputTokens: 3000,
       maxToolCalls: 8,
       normalMaxModelCalls: 6,

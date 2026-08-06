@@ -1005,10 +1005,15 @@ function PassPanel() {
       const response = await fetch("/api/me/trip-pass/checkout", {
         method: "POST",
       });
+      if (!response.ok) {
+        setCheckoutState("error");
+        void refreshTripPass();
+        return;
+      }
       const body = (await response.json().catch(() => null)) as {
         checkoutUrl?: string;
       } | null;
-      if (!response.ok || !body?.checkoutUrl) {
+      if (!body?.checkoutUrl) {
         setCheckoutState("error");
         void refreshTripPass();
         return;
@@ -1115,7 +1120,7 @@ function PassPanel() {
       <div className="flex flex-wrap items-center gap-2">
         {view.actionLabel ? (
           <Button
-            className="h-auto rounded-md bg-brand-lagoon-600 px-3 py-2 text-sm font-extrabold text-white hover:bg-brand-lagoon-700 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20 disabled:opacity-60"
+            className="h-auto min-h-11 w-full rounded-md bg-brand-lagoon-600 px-3 py-2 text-sm font-extrabold text-white hover:bg-brand-lagoon-700 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20 disabled:opacity-60 sm:w-auto"
             disabled={!canStartCheckout}
             onClick={() => {
               void startCheckout();
@@ -1201,11 +1206,6 @@ function PrivacyControlsPanel({
     message: string;
   } | null>(null);
   const [pendingAction, setPendingAction] = useState<PrivacyActionResponse["action"] | null>(null);
-  const [marketingValue, setMarketingValue] = useState(profile.profile.marketingConsent);
-  const [marketingStatus, setMarketingStatus] = useState<
-    "idle" | "saving" | "saved" | "auth" | "error"
-  >("idle");
-  const [marketingError, setMarketingError] = useState<string | null>(null);
   const chatTriggerRef = useRef<HTMLButtonElement>(null);
   const savedTriggerRef = useRef<HTMLButtonElement>(null);
   const locationTriggerRef = useRef<HTMLButtonElement>(null);
@@ -1226,11 +1226,6 @@ function PrivacyControlsPanel({
     }
     previousDialogActionRef.current = dialogAction?.action ?? null;
   }, [dialogAction]);
-
-  useEffect(() => {
-    setMarketingValue(profile.profile.marketingConsent);
-    setMarketingError(null);
-  }, [profile.profile.marketingConsent]);
 
   function openDialog(action: PrivacyDialogAction) {
     setDialogAction(() => action);
@@ -1262,7 +1257,6 @@ function PrivacyControlsPanel({
           confirmation: action.confirmation,
         }),
       });
-      const body = (await response.json().catch(() => null)) as PrivacyActionResponse | null;
       if (response.status === 401) {
         setActionStatus({
           action: action.action,
@@ -1279,7 +1273,19 @@ function PrivacyControlsPanel({
         });
         return;
       }
-      if (!response.ok || !body) {
+      if (!response.ok) {
+        setActionStatus({
+          action: action.action,
+          kind: response.status === 400 ? "validation" : "error",
+          message:
+            response.status === 400
+              ? "The confirmation did not match this privacy action. Try again."
+              : "The privacy action did not finish. No local data was cleared.",
+        });
+        return;
+      }
+      const body = (await response.json().catch(() => null)) as PrivacyActionResponse | null;
+      if (!body) {
         setActionStatus({
           action: action.action,
           kind: "error",
@@ -1313,34 +1319,6 @@ function PrivacyControlsPanel({
       });
     } finally {
       setPendingAction(null);
-    }
-  }
-
-  async function saveMarketingConsent() {
-    setMarketingStatus("saving");
-    setMarketingError(null);
-    try {
-      const response = await fetch("/api/me/profile", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ marketingConsent: marketingValue }),
-      });
-      if (response.status === 401) {
-        setMarketingStatus("auth");
-        setMarketingError("Your session expired. Sign in again before saving consent.");
-        return;
-      }
-      if (!response.ok) {
-        setMarketingStatus("error");
-        setMarketingError("Marketing consent was not saved. Your choice is still selected.");
-        return;
-      }
-      const nextProfile = (await response.json()) as UserProfileResponse;
-      onProfileUpdated(nextProfile);
-      setMarketingStatus("saved");
-    } catch {
-      setMarketingStatus("error");
-      setMarketingError("Network error. Your choice is still selected and can be retried.");
     }
   }
 
@@ -1386,44 +1364,7 @@ function PrivacyControlsPanel({
         </Button>
       </div>
 
-      <div className="grid min-w-0 gap-3 rounded-md border border-border-default p-3">
-        <h3 className="m-0 text-sm font-semibold">Marketing consent</h3>
-        <label className="flex min-w-0 items-start gap-3 text-sm font-bold text-text-default">
-          <input
-            checked={marketingValue}
-            className="mt-1 size-4 accent-brand-lagoon-600"
-            type="checkbox"
-            onChange={(event) => {
-              setMarketingValue(event.target.checked);
-              setMarketingStatus("idle");
-              setMarketingError(null);
-            }}
-          />
-          Send occasional Ask Siargao product updates
-        </label>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            className="h-auto rounded-md px-3 py-2 whitespace-nowrap"
-            disabled={
-              marketingStatus === "saving" || marketingValue === profile.profile.marketingConsent
-            }
-            type="button"
-            onClick={saveMarketingConsent}
-          >
-            <Save className="size-4" />
-            {marketingStatus === "saving" ? "Saving consent" : "Save consent"}
-          </Button>
-          <output className="min-h-5 text-sm font-bold text-text-muted">
-            {marketingStatus === "saved"
-              ? "Marketing consent saved"
-              : marketingStatus === "auth" || marketingStatus === "error"
-                ? marketingError
-                : marketingValue !== profile.profile.marketingConsent
-                  ? "Consent change not saved yet"
-                  : ""}
-          </output>
-        </div>
-      </div>
+      <MarketingConsentControl onProfileUpdated={onProfileUpdated} profile={profile} />
 
       <div className="grid min-w-0 gap-3 rounded-md border border-red-200 bg-red-50 p-3">
         <h3 className="m-0 text-sm font-semibold text-red-950">Delete active product data</h3>
@@ -1481,6 +1422,90 @@ function PrivacyControlsPanel({
         />
       ) : null}
     </section>
+  );
+}
+
+function MarketingConsentControl({
+  onProfileUpdated,
+  profile,
+}: {
+  onProfileUpdated: (profile: UserProfileResponse) => void;
+  profile: UserProfileResponse;
+}) {
+  const [marketingValueOverride, setMarketingValueOverride] = useState<boolean | undefined>();
+  const marketingValue = marketingValueOverride ?? profile.profile.marketingConsent;
+  const [marketingStatus, setMarketingStatus] = useState<
+    "idle" | "saving" | "saved" | "auth" | "error"
+  >("idle");
+  const [marketingError, setMarketingError] = useState<string | null>(null);
+
+  async function saveMarketingConsent() {
+    setMarketingStatus("saving");
+    setMarketingError(null);
+    try {
+      const response = await fetch("/api/me/profile", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ marketingConsent: marketingValue }),
+      });
+      if (response.status === 401) {
+        setMarketingStatus("auth");
+        setMarketingError("Your session expired. Sign in again before saving consent.");
+        return;
+      }
+      if (!response.ok) {
+        setMarketingStatus("error");
+        setMarketingError("Marketing consent was not saved. Your choice is still selected.");
+        return;
+      }
+      const nextProfile = (await response.json()) as UserProfileResponse;
+      onProfileUpdated(nextProfile);
+      setMarketingStatus("saved");
+    } catch {
+      setMarketingStatus("error");
+      setMarketingError("Network error. Your choice is still selected and can be retried.");
+    }
+  }
+
+  return (
+    <div className="grid min-w-0 gap-3 rounded-md border border-border-default p-3">
+      <h3 className="m-0 text-sm font-semibold">Marketing consent</h3>
+      <label className="flex min-w-0 items-start gap-3 text-sm font-bold text-text-default">
+        <input
+          checked={marketingValue}
+          className="mt-1 size-4 accent-brand-lagoon-600"
+          type="checkbox"
+          onChange={(event) => {
+            setMarketingValueOverride(event.target.checked);
+            setMarketingStatus("idle");
+            setMarketingError(null);
+          }}
+        />
+        Send occasional Ask Siargao product updates
+      </label>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          className="h-auto rounded-md px-3 py-2 whitespace-nowrap"
+          disabled={
+            marketingStatus === "saving" || marketingValue === profile.profile.marketingConsent
+          }
+          type="button"
+          onClick={saveMarketingConsent}
+        >
+          <Save className="size-4" />
+          {marketingStatus === "saving" ? "Saving consent" : "Save consent"}
+        </Button>
+        <output className="min-h-5 text-sm font-bold text-text-muted">
+          {marketingStatus === "saved"
+            ? "Marketing consent saved"
+            : marketingStatus === "auth" || marketingStatus === "error"
+              ? marketingError
+              : marketingValue !== profile.profile.marketingConsent
+                ? "Consent change not saved yet"
+                : ""}
+        </output>
+      </div>
+    </div>
   );
 }
 

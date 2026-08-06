@@ -19,6 +19,7 @@ import type {
 } from "@/server/facts/types";
 import { createDefaultSourceRegistry } from "@/server/providers/adapters";
 import type { FetchLike } from "@/server/providers/open-meteo";
+import { fetchWithProviderTimeout } from "@/server/providers/provider-fetch";
 import type { SourceRegistry } from "@/server/providers/source-registry";
 
 const openMeteoMarineEndpoint = "https://marine-api.open-meteo.com/v1/marine";
@@ -177,7 +178,7 @@ async function fetchOpenMeteoMarine(
   location = defaultSiargaoMarineLocation,
 ): Promise<{ requestUrl: string; payload: OpenMeteoMarineResponse }> {
   const requestUrl = buildOpenMeteoMarineUrl(location);
-  const response = await fetcher(requestUrl, {
+  const response = await fetchWithProviderTimeout(fetcher, requestUrl, {
     headers: {
       accept: "application/json",
     },

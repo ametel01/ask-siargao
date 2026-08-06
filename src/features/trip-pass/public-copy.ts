@@ -7,18 +7,8 @@ export const tripPassPublicOffer = {
   priceAuthority: tripPassProductCatalog.presentation.priceAuthority,
   durationDays: tripPassProductCatalog.durationDays,
   freeWindowDays: tripPassProductCatalog.freeWindowDays,
-  freeLimits: {
-    chat: tripPassProductCatalog.freeMeterLimits.chat_message,
-    live: tripPassProductCatalog.freeMeterLimits.live_refresh,
-    heavy: tripPassProductCatalog.freeMeterLimits.heavy_recommendation,
-  },
-  paidLimits: {
-    chat: tripPassProductCatalog.paidMeterLimits.chat_message,
-    live: tripPassProductCatalog.paidMeterLimits.live_refresh,
-    heavy: tripPassProductCatalog.paidMeterLimits.heavy_recommendation,
-    weather: tripPassProductCatalog.paidMeterLimits.weather_refresh,
-    route: tripPassProductCatalog.paidMeterLimits.route_lookup,
-  },
+  freeAnswerLimit: tripPassProductCatalog.freeMeterLimits.chat_message,
+  paidAnswerLimit: tripPassProductCatalog.paidMeterLimits.chat_message,
   links: {
     chat: "/chat",
     legal: "/legal/trip-pass",
@@ -28,10 +18,11 @@ export const tripPassPublicOffer = {
 } as const;
 
 export const tripPassDifferentiators = [
+  "On-demand hotel, itinerary, immediate-plan, surf-session, and disruption reality checks.",
   "Local trip context for where you stay, how you move, and what kind of day you are planning.",
   "Governed Siargao knowledge with source, freshness, and not-checked boundaries shown.",
-  "Current evidence checks when weather, surf, Places, events, or routes matter.",
-  "Map-ready recommendations and practical fallbacks when live evidence is unavailable.",
+  "Request-time condition, surf, Places, event, and public-fact evidence when it matters.",
+  "Practical recommendations and truthful fallbacks when current evidence is unavailable.",
 ] as const;
 
 export const tripPassPolicyPoints = [
@@ -40,8 +31,8 @@ export const tripPassPolicyPoints = [
     body: "A Trip Pass starts only after a verified Stripe payment event is matched to your signed-in account. Redirects do not activate access. The pass lasts 14 days from activation.",
   },
   {
-    title: "Limits and reset windows",
-    body: "The free trial runs for seven days. Paid chat and live-decision limits last until the pass expires; burst and concurrency limits can still ask you to wait temporarily.",
+    title: "Answers and reset windows",
+    body: "The free trial includes 10 travel answers over seven days. The paid pass includes 150 travel answers until it expires; temporary rate limits can still ask you to wait.",
   },
   {
     title: "Refunds and disputes",
@@ -49,7 +40,7 @@ export const tripPassPolicyPoints = [
   },
   {
     title: "Provider availability",
-    body: "Weather, surf, Places, web research, and route evidence can be unavailable or stale. Ask Siargao labels those limits and may use cached or local evidence instead.",
+    body: "Weather, surf, Places, and public web evidence can be unavailable or stale. Ask Siargao labels those limits and may use cached or local evidence instead.",
   },
   {
     title: "Privacy and support",

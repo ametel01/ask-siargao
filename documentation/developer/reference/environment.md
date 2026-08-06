@@ -8,6 +8,7 @@ The app reads these environment variables.
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Public/client-safe | Clerk frontend SDK | Required by `ClerkProvider`, `SignIn`, `SignUp`, and chat auth UI. |
 | `CLERK_SECRET_KEY` | Server only | Clerk `auth()`, route protection, and backend API calls | Must not use the `NEXT_PUBLIC_` prefix. |
 | `CLERK_WEBHOOK_SIGNING_SECRET` | Server only | Clerk webhook verification | Required by `/api/clerk/webhooks`. |
+| `NEXT_PUBLIC_CLERK_TELEMETRY_DISABLED` | Public/client-safe | Clerk SDK telemetry | Defaults to `1` in `next.config.ts`; set to `0` only when intentionally opting in to development telemetry. |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | Public/client-safe | Clerk sign-in routing | Set to `/sign-in` for the local prebuilt auth page. |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL` | Public/client-safe | Clerk post-sign-in redirects | Recommended default: `/chat`. |
 | `NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL` | Public/client-safe | Clerk post-sign-up redirects | Recommended default: `/chat`. |
@@ -33,7 +34,7 @@ The app reads these environment variables.
 | `DEEPSEEK_API_KEY` | Server only | Primary Ask Siargao chat model | Required for DeepSeek primary chat generation. When unset, chat can still run with `OPENAI_API_KEY` as the fallback provider. |
 | `DEEPSEEK_BASE_URL` | Server only | DeepSeek OpenAI-compatible client | Optional. Defaults to `https://api.deepseek.com`. |
 | `DEEPSEEK_MODEL` | Server only | Primary Ask Siargao chat model override | Optional. Defaults to `deepseek-v4-flash`, DeepSeek's basic/lower-cost current model. |
-| `DEEPSEEK_COST_POLICY_ENABLED` | Server only | Deprecated compatibility flag | The bounded non-thinking chat policy is now always active to preserve the 10-second response ceiling. Existing values are ignored. |
+| `DEEPSEEK_COST_POLICY_ENABLED` | Server only | DeepSeek cost-policy rollback switch | Optional boolean. Defaults to `true`, using non-thinking calls for free and routine turns after the fixed cost/quality corpus passed. Free turns retain bounded repair-loop headroom so required evidence ordering and artifact filtering can complete. Set to `false` only to roll back to the high-thinking baseline policy. |
 | `DEEPSEEK_DAILY_USD_LIMIT` | Server only | DeepSeek cost circuit | Optional non-negative number for provider-level daily budget checks. |
 | `MODEL_COST_RESERVATION_MICRO_USD` | Server only | Model cost circuit reservation size | Optional positive integer reservation in micro-USD per model call. Defaults to `1`; use a conservative value in production so provider/global circuits stop before budget exhaustion. |
 | `OPENAI_API_KEY` | Server only | OpenAI fallback and OpenAI Responses API services | Required for chat fallback, real report generation, reviewer calls, hosted web search, hosted agent-memory file search, and `bun run agent-memory:sync` when not using `--dry-run`. |
@@ -59,6 +60,11 @@ The app reads these environment variables.
 
 Server-only secrets must not use the `NEXT_PUBLIC_` prefix. `getServerSecret` rejects public-prefixed names so sensitive provider keys do not move into client-facing bundles.
 
+Chat model calls use a 15-second per-attempt deadline with one retry before fallback. Hosted web
+research uses a 25-second per-attempt deadline with one retry. Live weather, marine, tide, and
+Google Places HTTP calls use a 15-second deadline so a stalled provider returns a caveated result
+instead of holding the chat request indefinitely.
+
 ## Database Credentials
 
 Production should use separate database credentials for runtime and migration work:
@@ -74,8 +80,8 @@ See [Database authorization reference](database-authorization.md) for the role a
 ## Production Rate-Limit Storage
 
 Production rate limiting fails closed when the active `RateLimitStore` has `scope: "process"`.
-Development and test use the default process-local memory store even when `REDIS_URL` is present.
-Production should set `REDIS_URL` so the bundled Node-compatible Redis quota store provides atomic increments, rolling-window
+Development and test can use the default process-local memory store. Production should set
+`REDIS_URL` so the bundled Redis quota store provides atomic increments, rolling-window
 reservations, concurrency leases, idempotency records, and budget reservations across all runtime
 instances. There is no environment override for process-local production rate limits.
 

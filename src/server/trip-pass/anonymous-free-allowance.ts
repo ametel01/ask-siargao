@@ -1,8 +1,16 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import net from "node:net";
 
-import { createRuntimeQuotaStore, type QuotaStore } from "@/server/security/rate-limit";
-import { tripPassFreeMeterLimits, tripPassRateLimits } from "@/server/trip-pass/catalog";
+import {
+  createMemoryQuotaStore,
+  createRedisQuotaStore,
+  type QuotaStore,
+  shouldUseRedisQuotaStore,
+} from "@/server/security/rate-limit";
+import {
+  tripPassLegacyFreeMeterLimits as tripPassFreeMeterLimits,
+  tripPassRateLimits,
+} from "@/server/trip-pass/catalog";
 import type {
   PaidDecisionMeterReservation,
   PaidDecisionMeterSettlement,
@@ -106,11 +114,7 @@ export async function beginAuthenticatedFreeChat(
   if (config.status === "unavailable") {
     return denied("unavailable", headers, "anonymous_identity_unavailable", null);
   }
-  if (
-    !options.store &&
-    isProductionEnvironment(options.env) &&
-    !(options.env ?? process.env).REDIS_URL
-  ) {
+  if (!options.store && isProductionEnvironment(options.env) && !options.env?.REDIS_URL) {
     return denied("unavailable", headers, "anonymous_quota_store_unavailable", null);
   }
 
@@ -287,11 +291,7 @@ export async function beginAnonymousFreeUsage(
   if (config.status === "unavailable") {
     return denied("unavailable", headers, "anonymous_identity_unavailable", null);
   }
-  if (
-    !options.store &&
-    isProductionEnvironment(options.env) &&
-    !(options.env ?? process.env).REDIS_URL
-  ) {
+  if (!options.store && isProductionEnvironment(options.env) && !options.env?.REDIS_URL) {
     return denied("unavailable", headers, "anonymous_quota_store_unavailable", null);
   }
 
@@ -558,15 +558,6 @@ async function reserveFreeDecisionMeterHandle(input: {
       return finalSettlement;
     },
   };
-}
-
-export function getAnonymousFreeAllowanceResponseHeaders(
-  result: AnonymousFreeAllowanceBeginResult | null,
-) {
-  if (!result) {
-    return undefined;
-  }
-  return result.headers;
 }
 
 export function mergeHeaders(first?: HeadersInit, second?: HeadersInit) {
@@ -858,7 +849,9 @@ function getDefaultAnonymousFreeAllowanceStore(
   env: Record<string, string | undefined> = process.env,
 ) {
   if (!defaultStore) {
-    defaultStore = createRuntimeQuotaStore(env);
+    defaultStore = shouldUseRedisQuotaStore(env)
+      ? createRedisQuotaStore({ redisUrl: env.REDIS_URL })
+      : createMemoryQuotaStore();
   }
   return defaultStore;
 }

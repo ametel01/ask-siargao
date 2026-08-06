@@ -7,6 +7,7 @@ import { isClerkServerConfigured } from "@/features/auth/clerk-config";
 import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/auth/clerk-users";
 import type {
   AgentMemoryMetadata,
+  AgentProgressUpdate,
   AgentTurnResult,
   PublicAgentToolCall,
 } from "@/server/chat/agent-runtime";
@@ -87,6 +88,7 @@ export type ChatRouteDependencies = AskSiargaoAgentDependencies & {
   auth?: EnsureCurrentUserDependencies["auth"] | null;
   createId?: (prefix: string) => string;
   db?: DatabaseQueryClient;
+  deferPersistence?: (task: () => Promise<void>) => void;
   beginAuthenticatedFreeChat?: typeof defaultBeginAuthenticatedFreeChat | null;
   beginAnonymousFreeChat?: typeof defaultBeginAnonymousFreeChat | null;
   openChatUsageSession?: typeof defaultOpenChatUsageSession | null;
@@ -117,6 +119,20 @@ type PublicAgentMemoryMetadata = {
   }>;
 };
 
+type ChatLatencyMetrics = {
+  preflightMs: number;
+  firstByteMs?: number;
+  agentMs?: number;
+  modelMs?: number;
+  settlementMs?: number;
+  persistenceMs?: number;
+  modelCallCount?: number;
+  toolCallCount?: number;
+  repairCount?: number;
+  modelCalls?: Array<Record<string, unknown>>;
+  tools?: Array<Record<string, unknown>>;
+};
+
 const maxChatRequestBodyBytes = 32_768;
 
 const chatLogger = createComponentLogger("api.chat");
@@ -139,6 +155,7 @@ export async function chatResponse(
 ) {
   const startedAt = Date.now();
   const requestId = randomUUID();
+  const latency: ChatLatencyMetrics = { preflightMs: 0 };
   const logger = (dependencies.logger ?? chatLogger).child({
     route: "/api/chat",
     requestId,
@@ -207,7 +224,7 @@ export async function chatResponse(
   > | null = null;
   let paidChatUsage: Extract<PaidChatUsageSessionResult, { status: "allowed" }> | null = null;
   let paidChatSettlement: PaidChatUsageSettlement | null = null;
-  const now = new Date(startedAt);
+  const now = dependencies.now?.() ?? new Date(startedAt);
   const normalizedClientContext = normalizeTripContextClientContext(
     parsed.data.clientContext as TripContextClientContextInput | undefined,
     now,
@@ -348,209 +365,397 @@ export async function chatResponse(
     },
     "Chat request scope interpreted.",
   );
+  latency.preflightMs = Date.now() - startedAt;
 
-  try {
-    const runAgent = dependencies.runAskSiargaoAgentTurn ?? defaultRunAskSiargaoAgentTurn;
-    const freeDecisionMeterSession = anonymousFreeAllowance?.reserveDecisionMeter
-      ? { reserveDecisionMeter: anonymousFreeAllowance.reserveDecisionMeter }
-      : null;
-    const result = await runAgent(
-      {
-        messages,
-        requestId,
-        clientContext,
-        metadata: {
-          route: "/api/chat",
-          clientContext: summarizeClientContextForMetadata(clientContext),
-          tripContext: summarizeTripContextForLogs(intent).tripContext,
-        },
-        deterministicSignals: {
-          clientContext: summarizeClientContextForAgent(clientContext),
-          context: summarizeTripContextForAgent(intent),
-          scope: {
-            shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
+  const executeChat = async (
+    onProgress?: (update: AgentProgressUpdate) => void | Promise<void>,
+  ) => {
+    try {
+      const runAgent = dependencies.runAskSiargaoAgentTurn ?? defaultRunAskSiargaoAgentTurn;
+      const agentStartedAt = Date.now();
+      const result = await runAgent(
+        {
+          messages,
+          requestId,
+          clientContext,
+          metadata: {
+            route: "/api/chat",
+            clientContext: summarizeClientContextForMetadata(clientContext),
+            tripContext: summarizeTripContextForLogs(intent).tripContext,
+          },
+          deterministicSignals: {
+            clientContext: summarizeClientContextForAgent(clientContext),
+            context: summarizeTripContextForAgent(intent),
+            scope: {
+              shouldDeclineNonSiargaoTopic: intent.shouldDeclineNonSiargaoTopic,
+            },
           },
         },
-      },
-      {
-        ...dependencies,
-        decisionMeterPlan: paidChatUsage ? "paid" : freeDecisionMeterSession ? "free" : undefined,
-        decisionMeterSession: paidChatUsage ?? freeDecisionMeterSession,
-        logger,
-        usageSession: paidChatUsage,
-      },
-    );
-    paidChatSettlement =
-      (await paidChatUsage?.settle({
-        success: true,
-        providerRequestIds: result.upstreamRequestIds ?? [],
-      })) ?? null;
-    if (paidChatSettlement?.status === "settled" && request.signal.aborted) {
-      trackServerEvent({
-        name: "trip_pass_paid_chat_delivery_cancelled",
-        now,
-        payload: {
-          requestId: result.requestId,
-          settlementStatus: paidChatSettlement.status,
-        },
-      });
-    }
-    const publicTurn = assemblePublicChatTurn({
-      result,
-      browserGeolocation: clientContext.geolocation,
-    });
-    if (publicTurn.repair) {
-      logger.warn(
         {
-          issueCount: publicTurn.repair.issueCount,
-          repairedLineCount: publicTurn.repair.repairedLineCount,
+          ...dependencies,
+          logger,
+          onProgress,
+          requireStructuredFinalOutput: true,
         },
-        "Chat answer repaired by removing malformed rendered source lines.",
+      );
+      latency.agentMs = Date.now() - agentStartedAt;
+      latency.modelMs = result.modelCost?.totalLatencyMs ?? 0;
+      latency.modelCallCount = result.modelCost?.callCount ?? 0;
+      latency.toolCallCount = result.toolCalls.length;
+      latency.repairCount = result.repairCount ?? 0;
+      latency.modelCalls = result.modelCost?.calls.map((call) => ({
+        callIndex: call.callIndex,
+        provider: call.provider,
+        mode: call.mode,
+        latencyMs: call.latencyMs,
+        fallback: call.fallback,
+      }));
+      latency.tools = result.toolCalls.map((toolCall) => ({
+        name: toolCall.name,
+        status: toolCall.status,
+        durationMs: toolCall.durationMs,
+      }));
+      await onProgress?.({
+        stage: "checking",
+        message: "Finalizing the answer and its source details.",
+      });
+      const settlementStartedAt = Date.now();
+      paidChatSettlement =
+        (await paidChatUsage?.settle({
+          success: true,
+          providerRequestIds: result.upstreamRequestIds ?? [],
+        })) ?? null;
+      latency.settlementMs = Date.now() - settlementStartedAt;
+      if (paidChatSettlement?.status === "settled" && request.signal.aborted) {
+        trackServerEvent({
+          name: "trip_pass_paid_chat_delivery_cancelled",
+          now,
+          payload: {
+            requestId: result.requestId,
+            settlementStatus: paidChatSettlement.status,
+          },
+        });
+      }
+      const publicTurn = assemblePublicChatTurn({
+        result,
+        browserGeolocation: clientContext.geolocation,
+      });
+      if (publicTurn.repair) {
+        logger.warn(
+          {
+            issueCount: publicTurn.repair.issueCount,
+            repairedLineCount: publicTurn.repair.repairedLineCount,
+          },
+          "Chat answer repaired by removing malformed rendered source lines.",
+        );
+      }
+
+      let assistantMessageId: string | undefined;
+      if (authenticatedPersistence?.status === "ready") {
+        const generatedAssistantMessageId = createChatRouteId(dependencies, "chat_message");
+        assistantMessageId = generatedAssistantMessageId;
+        const completedAt = new Date();
+        const persistAssistantMessage = (deferred: boolean) =>
+          persistAssistantChatHistory({
+            assistantMessageId: generatedAssistantMessageId,
+            authenticatedPersistence,
+            completedAt,
+            contextSummary: summarizeTripContextForStoredHistory(intent),
+            deferred,
+            logger,
+            model: result.model,
+            publicTurn,
+            requestId: result.requestId,
+          });
+
+        if (dependencies.deferPersistence) {
+          try {
+            dependencies.deferPersistence(async () => {
+              await persistAssistantMessage(true);
+            });
+            latency.persistenceMs = 0;
+          } catch (error) {
+            logger.warn(
+              { error },
+              "Deferred chat history scheduling failed; persisting before delivery.",
+            );
+            latency.persistenceMs = await persistAssistantMessage(false);
+          }
+        } else {
+          latency.persistenceMs = await persistAssistantMessage(false);
+        }
+      }
+
+      logger.info(
+        {
+          branch: "agent_runtime",
+          model: result.model,
+          providerFailure: publicTurn.display.toolCalls.some(isProviderFailureToolCall),
+          sourceLabels: [...new Set(result.sources.map((source) => source.label))],
+          publicSourceLabels: [
+            ...new Set(publicTurn.display.sources.map((source) => source.label)),
+          ],
+          toolCallCount: publicTurn.display.toolCalls.length,
+          toolCalls: publicTurn.display.toolCalls.map(summarizeToolCallForLogs),
+          sourceCount: result.sources.length,
+          publicSourceCount: publicTurn.display.sources.length,
+          cardCount: publicTurn.display.cards.length,
+          actionCount: publicTurn.display.actions.length,
+          itineraryCount: publicTurn.display.itineraries.length,
+          decisionSummaryCount: publicTurn.display.decisionSummaries.length,
+          modelCost: result.modelCost
+            ? {
+                callCount: result.modelCost.callCount,
+                fallbackUsed: result.modelCost.fallbackUsed,
+                totalModeledCostUsd: result.modelCost.totalModeledCostUsd,
+                priceVersion: result.modelCost.priceVersion,
+                totals: result.modelCost.totals,
+              }
+            : undefined,
+          ...(result.artifactSelection
+            ? { artifactSelection: summarizeArtifactSelectionForLogs(result.artifactSelection) }
+            : {}),
+          upstreamRequestIds: result.upstreamRequestIds,
+          agentMemoryVersionId: result.memory?.versionId,
+          geolocation: intent.tripContext.browserGeolocation,
+          durationMs: Date.now() - startedAt,
+        },
+        "Chat request answered.",
+      );
+
+      await anonymousFreeAllowance?.settle({ success: true, meters: ["chat_message"] });
+
+      return Response.json(
+        {
+          message: publicTurn.display.message,
+          requestId: result.requestId,
+          model: result.model,
+          ...(result.upstreamRequestIds?.length
+            ? { upstreamRequestIds: result.upstreamRequestIds }
+            : {}),
+          toolCalls: publicTurn.display.toolCalls,
+          sources: publicTurn.display.sources,
+          ...(result.memory ? { memory: summarizeMemoryForResponse(result.memory) } : {}),
+          ...(paidChatSettlement?.allowance ? { tripPassUsage: paidChatSettlement.allowance } : {}),
+          ...(publicTurn.display.cards.length ? { cards: publicTurn.display.cards } : {}),
+          ...(publicTurn.display.actions.length ? { actions: publicTurn.display.actions } : {}),
+          ...(publicTurn.display.itineraries.length
+            ? { itineraries: publicTurn.display.itineraries }
+            : {}),
+          ...(publicTurn.display.decisionSummaries.length
+            ? { decisionSummaries: publicTurn.display.decisionSummaries }
+            : {}),
+          ...(authenticatedPersistence?.status === "ready"
+            ? {
+                threadId: authenticatedPersistence.thread.id,
+                userMessageId: authenticatedPersistence.userMessageId,
+                assistantMessageId,
+              }
+            : {}),
+        },
+        { headers: responseHeaders },
+      );
+    } catch (error) {
+      await anonymousFreeAllowance?.settle({ success: false });
+      if (!paidChatSettlement) {
+        await paidChatUsage?.settle({ success: false });
+      }
+      const message = error instanceof Error ? error.message : "Chat response failed.";
+      const missingConfiguration =
+        message.includes("OPENAI_API_KEY") ||
+        message.includes("DEEPSEEK_API_KEY") ||
+        message.includes("GOOGLE_API_KEY") ||
+        message.includes("GOOGLE_PLACES_API_KEY");
+      const sourceConsistencyFailure = error instanceof SourceConsistencyError;
+      const modelBudgetFailure =
+        error instanceof ChatCostPolicyBudgetError || error instanceof ModelCostCircuitError;
+      const status =
+        missingConfiguration || modelBudgetFailure ? 503 : sourceConsistencyFailure ? 502 : 502;
+      const errorCode = missingConfiguration
+        ? "chat_not_configured"
+        : modelBudgetFailure
+          ? "model_budget_exhausted"
+          : sourceConsistencyFailure
+            ? "source_consistency_failed"
+            : "chat_generation_failed";
+
+      logger.error(
+        {
+          error,
+          durationMs: Date.now() - startedAt,
+          errorCode,
+          status,
+        },
+        "Chat request failed.",
+      );
+
+      return Response.json(
+        {
+          error: errorCode,
+          message: missingConfiguration
+            ? "Ask Siargao is missing required provider configuration."
+            : modelBudgetFailure
+              ? "Ask Siargao hit a model budget limit before finishing."
+              : sourceConsistencyFailure
+                ? "Ask Siargao could not verify the answer sources."
+                : "Ask Siargao could not generate a response right now.",
+        },
+        { status, headers: responseHeaders },
       );
     }
+  };
 
-    let assistantMessageId: string | undefined;
-    if (authenticatedPersistence?.status === "ready") {
-      assistantMessageId = createChatRouteId(dependencies, "chat_message");
-      const completedAt = new Date();
-      await appendChatHistoryMessage(authenticatedPersistence.db, {
-        id: assistantMessageId,
-        threadId: authenticatedPersistence.thread.id,
-        userId: authenticatedPersistence.userId,
-        role: "assistant",
-        content: publicTurn.storage.message,
-        requestId: result.requestId,
-        model: result.model,
-        sources: publicTurn.storage.sources,
-        cards: publicTurn.storage.cards,
-        actions: publicTurn.storage.actions,
-        itineraries: publicTurn.storage.itineraries,
-        decisionSummaries: publicTurn.storage.decisionSummaries,
-        toolCalls: publicTurn.storage.toolCalls,
-        contextSummary: summarizeTripContextForStoredHistory(intent),
-        createdAt: completedAt,
-      });
-      await touchChatThread(authenticatedPersistence.db, {
-        threadId: authenticatedPersistence.thread.id,
-        lastMessageAt: completedAt,
-      });
-    }
-
-    logger.info(
-      {
-        branch: "agent_runtime",
-        model: result.model,
-        providerFailure: publicTurn.display.toolCalls.some(isProviderFailureToolCall),
-        sourceLabels: [...new Set(result.sources.map((source) => source.label))],
-        publicSourceLabels: [...new Set(publicTurn.display.sources.map((source) => source.label))],
-        toolCallCount: publicTurn.display.toolCalls.length,
-        toolCalls: publicTurn.display.toolCalls.map(summarizeToolCallForLogs),
-        sourceCount: result.sources.length,
-        publicSourceCount: publicTurn.display.sources.length,
-        cardCount: publicTurn.display.cards.length,
-        actionCount: publicTurn.display.actions.length,
-        itineraryCount: publicTurn.display.itineraries.length,
-        decisionSummaryCount: publicTurn.display.decisionSummaries.length,
-        modelCost: result.modelCost
-          ? {
-              callCount: result.modelCost.callCount,
-              fallbackUsed: result.modelCost.fallbackUsed,
-              totalModeledCostUsd: result.modelCost.totalModeledCostUsd,
-              priceVersion: result.modelCost.priceVersion,
-              totals: result.modelCost.totals,
-            }
-          : undefined,
-        ...(result.artifactSelection
-          ? { artifactSelection: summarizeArtifactSelectionForLogs(result.artifactSelection) }
-          : {}),
-        upstreamRequestIds: result.upstreamRequestIds,
-        agentMemoryVersionId: result.memory?.versionId,
-        geolocation: intent.tripContext.browserGeolocation,
-        durationMs: Date.now() - startedAt,
+  if (request.headers.get("accept")?.includes("application/x-ndjson")) {
+    return createStreamingChatResponse({
+      executeChat,
+      headers: responseHeaders,
+      onComplete: (response) => recordChatLatency(response, latency, startedAt, true),
+      onFirstByte: () => {
+        latency.firstByteMs ??= Date.now() - startedAt;
       },
-      "Chat request answered.",
-    );
-
-    await anonymousFreeAllowance?.settle({ success: true, meters: ["chat_message"] });
-
-    return Response.json(
-      {
-        message: publicTurn.display.message,
-        requestId: result.requestId,
-        model: result.model,
-        ...(result.upstreamRequestIds?.length
-          ? { upstreamRequestIds: result.upstreamRequestIds }
-          : {}),
-        toolCalls: publicTurn.display.toolCalls,
-        sources: publicTurn.display.sources,
-        ...(result.memory ? { memory: summarizeMemoryForResponse(result.memory) } : {}),
-        ...(paidChatSettlement?.allowance ? { tripPassUsage: paidChatSettlement.allowance } : {}),
-        ...(publicTurn.display.cards.length ? { cards: publicTurn.display.cards } : {}),
-        ...(publicTurn.display.actions.length ? { actions: publicTurn.display.actions } : {}),
-        ...(publicTurn.display.itineraries.length
-          ? { itineraries: publicTurn.display.itineraries }
-          : {}),
-        ...(publicTurn.display.decisionSummaries.length
-          ? { decisionSummaries: publicTurn.display.decisionSummaries }
-          : {}),
-        ...(authenticatedPersistence?.status === "ready"
-          ? {
-              threadId: authenticatedPersistence.thread.id,
-              userMessageId: authenticatedPersistence.userMessageId,
-              assistantMessageId,
-            }
-          : {}),
-      },
-      { headers: responseHeaders },
-    );
-  } catch (error) {
-    await anonymousFreeAllowance?.settle({ success: false });
-    if (!paidChatSettlement) {
-      await paidChatUsage?.settle({ success: false });
-    }
-    const message = error instanceof Error ? error.message : "Chat response failed.";
-    const missingConfiguration =
-      message.includes("OPENAI_API_KEY") ||
-      message.includes("DEEPSEEK_API_KEY") ||
-      message.includes("GOOGLE_API_KEY") ||
-      message.includes("GOOGLE_PLACES_API_KEY");
-    const sourceConsistencyFailure = error instanceof SourceConsistencyError;
-    const modelBudgetFailure =
-      error instanceof ChatCostPolicyBudgetError || error instanceof ModelCostCircuitError;
-    const status =
-      missingConfiguration || modelBudgetFailure ? 503 : sourceConsistencyFailure ? 502 : 502;
-    const errorCode = missingConfiguration
-      ? "chat_not_configured"
-      : modelBudgetFailure
-        ? "model_budget_exhausted"
-        : sourceConsistencyFailure
-          ? "source_consistency_failed"
-          : "chat_generation_failed";
-
-    logger.error(
-      {
-        error,
-        durationMs: Date.now() - startedAt,
-        errorCode,
-        status,
-      },
-      "Chat request failed.",
-    );
-
-    return Response.json(
-      {
-        error: errorCode,
-        message: missingConfiguration
-          ? "Ask Siargao is missing required provider configuration."
-          : modelBudgetFailure
-            ? "Ask Siargao hit a model budget limit before finishing."
-            : sourceConsistencyFailure
-              ? "Ask Siargao could not verify the answer sources."
-              : "Ask Siargao could not generate a response right now.",
-      },
-      { status, headers: responseHeaders },
-    );
+    });
   }
+  const response = await executeChat();
+  latency.firstByteMs = Date.now() - startedAt;
+  recordChatLatency(response, latency, startedAt, false);
+  return response;
+}
+
+function createStreamingChatResponse({
+  executeChat,
+  headers,
+  onComplete,
+  onFirstByte,
+}: {
+  executeChat: (onProgress: (update: AgentProgressUpdate) => Promise<void>) => Promise<Response>;
+  headers: Headers;
+  onComplete: (response: Response) => void;
+  onFirstByte: () => void;
+}) {
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+  const writeEvent = (event: Record<string, unknown>) =>
+    writer.write(encoder.encode(`${JSON.stringify(event)}\n`));
+
+  void (async () => {
+    try {
+      await writeEvent({
+        type: "progress",
+        stage: "accepted",
+        message: "Starting your Ask Siargao answer.",
+      });
+      onFirstByte();
+      const response = await executeChat((update) => writeEvent({ type: "progress", ...update }));
+      const body = (await response.json().catch(() => ({
+        error: "chat_stream_invalid_result",
+        message: "Ask Siargao returned an invalid final response.",
+      }))) as Record<string, unknown>;
+      await writeEvent({ type: "result", status: response.status, body });
+      onComplete(response);
+    } catch {
+      await writeEvent({
+        type: "result",
+        status: 502,
+        body: {
+          error: "chat_stream_failed",
+          message: "Ask Siargao could not finish the streamed response.",
+        },
+      }).catch(() => {});
+    } finally {
+      await writer.close().catch(() => {});
+    }
+  })();
+
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set("cache-control", "no-cache, no-store");
+  responseHeaders.set("content-type", "application/x-ndjson; charset=utf-8");
+  responseHeaders.set("x-accel-buffering", "no");
+  return new Response(readable, { headers: responseHeaders });
+}
+
+async function persistAssistantChatHistory({
+  assistantMessageId,
+  authenticatedPersistence,
+  completedAt,
+  contextSummary,
+  deferred,
+  logger,
+  model,
+  publicTurn,
+  requestId,
+}: {
+  assistantMessageId: string;
+  authenticatedPersistence: AuthenticatedChatPersistence;
+  completedAt: Date;
+  contextSummary: ReturnType<typeof summarizeTripContextForStoredHistory>;
+  deferred: boolean;
+  logger: Logger;
+  model: string;
+  publicTurn: ReturnType<typeof assemblePublicChatTurn>;
+  requestId: string;
+}) {
+  const persistenceStartedAt = Date.now();
+
+  try {
+    await appendChatHistoryMessage(authenticatedPersistence.db, {
+      id: assistantMessageId,
+      threadId: authenticatedPersistence.thread.id,
+      userId: authenticatedPersistence.userId,
+      role: "assistant",
+      content: publicTurn.storage.message,
+      requestId,
+      model,
+      sources: publicTurn.storage.sources,
+      cards: publicTurn.storage.cards,
+      actions: publicTurn.storage.actions,
+      itineraries: publicTurn.storage.itineraries,
+      decisionSummaries: publicTurn.storage.decisionSummaries,
+      toolCalls: publicTurn.storage.toolCalls,
+      contextSummary,
+      createdAt: completedAt,
+    });
+    await touchChatThread(authenticatedPersistence.db, {
+      threadId: authenticatedPersistence.thread.id,
+      lastMessageAt: completedAt,
+    });
+    const durationMs = Date.now() - persistenceStartedAt;
+    logger.info({ deferred, durationMs }, "Assistant chat history persisted.");
+    return durationMs;
+  } catch (error) {
+    logger.error(
+      { error, deferred, durationMs: Date.now() - persistenceStartedAt },
+      "Assistant chat history persistence failed.",
+    );
+    throw error;
+  }
+}
+
+function recordChatLatency(
+  response: Response,
+  latency: ChatLatencyMetrics,
+  startedAt: number,
+  streamed: boolean,
+) {
+  trackServerEvent({
+    name: "chat_latency_recorded",
+    payload: {
+      status: response.ok ? "success" : "error",
+      streamed,
+      totalMs: Date.now() - startedAt,
+      firstByteMs: latency.firstByteMs ?? Date.now() - startedAt,
+      preflightMs: latency.preflightMs,
+      agentMs: latency.agentMs ?? 0,
+      modelMs: latency.modelMs ?? 0,
+      settlementMs: latency.settlementMs ?? 0,
+      persistenceMs: latency.persistenceMs ?? 0,
+      modelCallCount: latency.modelCallCount ?? 0,
+      toolCallCount: latency.toolCallCount ?? 0,
+      repairCount: latency.repairCount ?? 0,
+      modelCalls: latency.modelCalls ?? [],
+      tools: latency.tools ?? [],
+    },
+  });
 }
 
 async function cloneJsonResponseWithHeaders(response: Response, headers: HeadersInit) {

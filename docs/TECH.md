@@ -20,7 +20,9 @@ chat UI
   -> usage meters and cost logging
 ```
 
-The LLM should not have direct unrestricted provider access. It may propose retrieval needs, but deterministic code decides whether existing facts are fresh enough, whether a provider call is allowed, and whether the user's pass has live refresh budget.
+The LLM should not have direct unrestricted provider access. It may propose retrieval needs, but
+deterministic code decides whether existing facts are fresh enough and whether a provider call is
+allowed by source policy and cost controls. Provider selection is not a user-facing product mode.
 
 ## Stack
 
@@ -44,7 +46,7 @@ Primary surfaces:
 - Trip context panel.
 - Weather widget.
 - Recommendation cards with map, source freshness, and confidence.
-- Usage state for live refreshes when near limit.
+- Remaining travel-answer and Trip Pass expiry state.
 
 Secondary surfaces:
 
@@ -64,7 +66,7 @@ The first screen should let users paste a plan or ask a question. It should not 
    produce event requirements before generic place requirements.
 5. Query internal facts.
 6. If facts are sufficient, build answer context from DB.
-7. If facts are stale or missing, check usage meters and source policy.
+7. If facts are stale or missing, check source policy and provider cost controls.
 8. Call provider adapters when allowed.
 9. Normalize observations into entities, facts, and source observations.
 10. Build bounded answer context.
@@ -117,7 +119,8 @@ Key modules:
 - `ChatRequestPlanner`: maps a message to intents, fact requirements, and freshness needs.
 - `FactStore`: hides Postgres lookup, freshness checks, provider calls, normalization, and answer-context construction behind a small interface.
 - `ProviderRegistry`: enforces source profiles, allowed use, field masks, raw-storage rules, and rate limits.
-- `UsageMeter`: tracks chat messages, live refreshes, heavy recommendation searches, weather refreshes, and route lookups.
+- `UsageMeter`: tracks the current product's travel answers. Legacy specialized meter rows remain
+  readable for version 1 grant reconciliation but are not enforced by the current chat path.
 - `AnswerGenerator`: calls the LLM with bounded facts and returns structured answer content.
 - `NightlifeEventAdapter`: checks approved event sources, normalizes recurring and dated nightlife
   occurrences, and returns event facts for route-style answers.
@@ -233,7 +236,7 @@ nightlife prompt
 
 ## Usage Meters
 
-The base paid pass should meter expensive operations separately from ordinary chat.
+The version 2 pass has one customer-facing entitlement meter: travel answers.
 
 ```text
 trip_usage_meters
@@ -245,25 +248,23 @@ trip_usage_meters
   updated_at
 ```
 
-Initial meters:
+The current meter is `chat_message`: 10 successful free answers over seven days or 150 successful
+paid answers over the 14-day pass. Weather, Places, surf, event, public-evidence, and route tools run
+automatically when source policy and cost circuits allow. They do not consume separate traveler
+allowances.
 
-- `chat_message`
-- `live_refresh`
-- `heavy_recommendation`
-- `weather_refresh`
-- `route_lookup`
-
-When the live refresh limit is reached, the assistant can still answer from existing facts, but it should not fetch new expensive provider data without an extension or upgrade.
+The ledger still accepts version 1 `live_refresh`, `heavy_recommendation`, `weather_refresh`, and
+`route_lookup` rows so existing orders and webhook retries remain reconcilable.
 
 ## Payment Flow
 
-1. User gets a free preview chat.
-2. A request needs live evidence, recommendation ranking, reviews, or multiple provider calls.
-3. App shows the Siargao Trip Pass paywall.
+1. User gets 10 free travel answers over seven days.
+2. The free answer allowance is used.
+3. App shows the `$9.99` USD Siargao Trip Pass with 150 answers for 14 days.
 4. User pays through Stripe Checkout.
 5. Verified Stripe webhook activates the trip pass.
-6. Usage meters are initialized for the pass duration.
-7. Paid chat can use live refreshes until limits are reached.
+6. One 150-answer meter is initialized for the pass duration.
+7. Paid chat automatically uses appropriate evidence tools while answers remain.
 
 Stripe webhook verification remains the source of truth for pass activation.
 
@@ -296,8 +297,8 @@ Test the request lifecycle at the highest practical seam:
 - missing fresh facts trigger allowed provider calls
 - fresh facts avoid provider calls
 - provider results normalize into facts
-- usage meters increment correctly
-- live refresh limits block expensive calls
+- successful answers settle exactly one answer meter unit
+- provider policy and cost circuits bound expensive calls without exposing a deep-search switch
 - paid pass activates only from verified Stripe webhooks
 - source policies prevent restricted raw data from public surfaces
 - answer context includes freshness and confidence
@@ -311,8 +312,8 @@ Track:
 - chat starts
 - free-to-paid conversion
 - paid questions per trip
-- live refreshes per trip
-- heavy searches per trip
+- travel answers per trip
+- evidence-tool and provider calls per trip
 - cost per provider call
 - cost per paid trip
 - cached-answer rate

@@ -18,6 +18,7 @@ import type {
   RawSnapshotReference,
 } from "@/server/facts/types";
 import { createDefaultSourceRegistry } from "@/server/providers/adapters";
+import { fetchWithProviderTimeout } from "@/server/providers/provider-fetch";
 import type { SourceRegistry } from "@/server/providers/source-registry";
 
 const openMeteoForecastEndpoint = "https://api.open-meteo.com/v1/forecast";
@@ -147,7 +148,7 @@ async function fetchOpenMeteoForecast(
   location = defaultSiargaoForecastLocation,
 ): Promise<{ requestUrl: string; payload: OpenMeteoForecastResponse }> {
   const requestUrl = buildOpenMeteoForecastUrl(location);
-  const response = await fetcher(requestUrl, {
+  const response = await fetchWithProviderTimeout(fetcher, requestUrl, {
     headers: {
       accept: "application/json",
     },

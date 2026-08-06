@@ -4,6 +4,443 @@ This ledger tracks execution of `PLAN.md` from repository revision `f4e850a`.
 Preserve prior entries, append validation evidence, and keep each step aligned with its focused
 commit.
 
+## On-Demand Siargao Reality Check
+
+This section tracks execution of the on-demand Reality Check plan in the current root `PLAN.md`.
+The historical Trip Pass execution ledger below is preserved as prior project history.
+
+### Plan and source
+
+- Plan: `PLAN.md`
+- Primary source: `.stow-notes.md`
+- Execution start revision: `8011a6b`
+- Started: `2026-08-03`
+- Scope boundary: synchronous traveler-requested checks only; no continuous agent, background
+  monitoring, scheduled checks, proactive notifications, guaranteed human/operator work, or
+  booking actions.
+
+### Step checklist
+
+- [x] Step 0: Progress and Changelog Tracking Setup
+- [x] Step 1: Baseline and Reality-Check Domain Contract
+- [x] Step 2: Server-Validated Structured Verdicts
+- [x] Step 3: Accommodation Reality Check Vertical Slice
+- [x] Step 4: Itinerary Feasibility Vertical Slice
+- [x] Step 5: Today/Tomorrow and Surf Decision Vertical Slices
+- [x] Step 6: Disruption Recovery Vertical Slice
+- [x] Step 7: Reality-Check Presentation and Product Entry Points
+- [x] Step 8: Documentation, Evaluation, and Release Proof
+
+### Current status
+
+- Status: Steps 0-8 complete; the on-demand Reality Check plan is complete.
+- Definition of Done: satisfied.
+- Baseline gate: passed at `88b998f` before Step 1 production changes.
+- Current blocker: none.
+
+### Definition of Done
+
+- [x] `/chat` and `/api/chat` support accommodation, itinerary, today/tomorrow, surf-session, and
+  disruption-recovery Reality Checks through explicit traveler submissions.
+- [x] Qualifying responses contain one normalized server-validated summary; ordinary Siargao
+  questions retain their existing answer path without a forced verdict.
+- [x] Missing input produces focused clarification, and unavailable required evidence cannot become
+  a checked/live or decisive claim.
+- [x] Accommodation checks separate named-property identity, governed area fit, traveler
+  constraints, and unverified recurring qualities.
+- [x] Itinerary checks identify supported sequence, geography, transport, timing, reservation,
+  weather, and traveler-constraint conflicts while labeling estimates.
+- [x] Immediate and surf decisions require successful current evidence, and deferred-promise tests
+  prove upstream evidence completes before dependent work starts.
+- [x] Disruption recovery returns a request-time replacement or bounded `needs_confirmation`
+  without promising monitoring, intervention, operator contact, or booking.
+- [x] Strict selection covers omitted/auto-selected and adversarial explicit mixed card, itinerary,
+  and decision-summary paths.
+- [x] Public-turn sanitization, source consistency, authenticated history, legacy summaries, and
+  privacy/raw-provider boundaries are covered.
+- [x] `/chat` remains idle until explicit submission; no Reality Check scheduler, recurring job,
+  notification transport, or background agent was added.
+- [x] Landing and chat positioning describe on-demand request-time judgment without unsupported
+  currency, accuracy, availability, human-confirmation, or booking promises.
+
+### Update log
+
+#### Step 0 - Progress and Changelog Tracking Setup
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: replaced the root implementation plan with the on-demand Reality Check plan,
+  updated the private ignored product brief, added this progress section, and preserved the existing
+  changelog and historical progress ledger.
+- Validation:
+  - Confirmed `PROGRESS.md` contains the Step 0-8 checklist, current status, and next step.
+  - Confirmed `CHANGELOG.md` retains `# Changelog`, the Keep a Changelog preamble, and
+    `## [Unreleased]`.
+  - `git diff --check`: passed.
+- Changelog decision: no entry; this step contains planning and tracking changes only.
+- Commit: `88b998f` (`Set up reality check progress tracking`).
+- Next step: run the full baseline and implement the Reality Check domain contract.
+
+#### Step 1 - Baseline and Reality-Check Domain Contract
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: added `src/server/chat/reality-check.ts` and focused tests for the on-demand
+  execution mode, five check kinds, four verdicts, explicit-request recognition, focused missing
+  context, strict bounded proposal parsing, and unsupported-field rejection; added optional
+  reality-check metadata to the existing `DecisionSummary` contract with runtime/public-turn
+  compatibility coverage for both enriched and legacy summaries.
+- Acceptance criteria checked:
+  - Recognition is pure and does not select or execute tools.
+  - Ordinary Siargao questions remain outside the Reality Check contract.
+  - Unsupported/background kinds, unknown fields, invalid verdicts, oversized text, and excessive
+    evidence IDs fail closed.
+  - Existing summaries without `kind`, `verdict`, or `subject` continue through runtime and public
+    assembly.
+- Validation:
+  - Baseline `bun run verify:ci`: passed before Step 1 changes; 1,130 Bun tests, 53 tables, 9
+    migrations, seed, production build, and 94 Playwright tests passed.
+  - Focused Reality Check/runtime/public-turn suite: 65 tests passed, 0 failed.
+  - `bun run format`: passed and formatted the two new Reality Check files.
+  - `bun run lint`: passed.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed; 1,149 tests, 0 failed, 6,079 assertions.
+  - `bun run db:migrate:test`: passed; 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed; 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - Full `bun run test:e2e`: 93 passed and the pre-existing throttled motion benchmark failed its
+    zero-long-task threshold under full eight-worker load in two runs; Step 1 changed no UI, motion,
+    or browser code. The exact test passed once in isolation and then 3/3 with `--repeat-each=3`,
+    with zero motion long tasks and zero layout shift in every repeat.
+  - `git diff --check`: passed.
+- Changelog decision: no entry; the new domain types and optional fields are not yet exposed as
+  functional traveler behavior.
+- Residual risk: the existing full-suite motion benchmark is load-sensitive. Re-run it with the UI
+  step and final release proof; do not weaken or skip its threshold.
+- Commit: `2f44c5c` (`Define on-demand reality check contract`).
+- Next step: build server-validated structured verdicts and sanitized observability.
+
+#### Step 2 - Server-Validated Structured Verdicts
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: extended the structured final payload with an optional bounded Reality Check
+  proposal; validated kind, verdict, subject, completed evidence IDs, used-call inclusion, call/result
+  agreement, source sufficiency, and current-condition support; built the public decision summary
+  server-side with stable opaque IDs and sources derived only from validated tool results; added one
+  bounded repair, safe clarification, and supported provider-failure downgrade behavior; registered
+  trusted summaries with strict artifact selection; added allowlisted coarse outcome telemetry; and
+  extended route/history fixtures for the optional metadata.
+- Acceptance criteria checked:
+  - The model cannot provide source objects or choose the server-generated summary ID.
+  - Explicit mixed decision-summary selection is replaced by the one server-owned summary; existing
+    mixed-card filtering remains covered for omitted/auto-selected and adversarial explicit paths.
+  - Unknown, unused, mismatched, incomplete, source-insufficient, and non-current evidence fails
+    closed; a positive verdict after a terminal provider failure is repaired once and then downgraded
+    only when provider-unavailable evidence supports `needs_confirmation`.
+  - Missing essential input produces a focused clarification, and ordinary Siargao questions retain
+    the existing chat behavior.
+  - Reality Check metadata and governed sources survive public projection and authenticated history
+    hydration without exposing raw prompts, subjects, tool IDs, or provider payloads to analytics.
+- Validation:
+  - Focused agent/runtime/public-turn/route/history/observability suite after forcing structured
+    output at `/api/chat`: 283 tests passed, 0 failed, 1,717 assertions.
+  - `bun run lint`: passed; 405 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed; 1,160 tests, 0 failed, 6,101 assertions.
+  - `bun run db:migrate:test`: passed; 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed; 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - Full `bun run test:e2e`: 93 passed and the existing throttled motion benchmark failed its
+    zero-long-task threshold once under full eight-worker load (one 84 ms task); Step 2 changed no
+    UI, motion, or browser code. The exact test then passed 3/3 with `--repeat-each=3`, with zero
+    motion long tasks and zero layout shift in every repeat.
+  - `git diff --check`: passed.
+- Changelog decision: added an `[Unreleased]` / `Added` entry because validated on-demand Reality
+  Check verdicts are now observable through the existing chat response path.
+- Residual risk: the existing full-suite motion benchmark remains load-sensitive. Re-run it during
+  the UI step and final release proof without weakening or skipping its threshold.
+- Commit: `a01eaf9` (`Return validated reality check verdicts`).
+- Next step: implement the Accommodation Reality Check vertical slice.
+
+#### Step 3 - Accommodation Reality Check Vertical Slice
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: added an accommodation-specific required-evidence plan for exact named-property
+  Places identity, governed area/route facts, and explicit current price or availability web
+  claims; constrained place cards to the named property; added agent instructions that separate
+  checked property facts, area fit, traveler constraints, and unknown property qualities; and
+  added server validation for missing property evidence and unsupported noise, flooding,
+  internet, power, room-condition, and availability claims.
+- Acceptance criteria checked:
+  - Named accommodation checks use exact property and area evidence and return one server-built
+    keep/change/avoid/needs-confirmation summary.
+  - Area comparisons evaluate each named area independently and use family, budget, transport, and
+    quiet-sleep context without exposing raw stored accommodation names.
+  - Missing referenced accommodation produces a focused name-or-listing clarification.
+  - Failed Places evidence cannot support a positive property verdict or public place card; a
+    repeated positive proposal is downgraded to evidence-backed `needs_confirmation`.
+  - Explicit mixed selection containing the allowed property and an unrelated property exposes
+    only the exact named accommodation.
+  - Unsupported recurring noise, flooding, Wi-Fi, power, room-condition, and availability claims
+    must be source-checked or stated as bounded uncertainty.
+- Validation:
+  - Focused accommodation policy, validator, agent, trip-context, and route suites passed after
+    implementation.
+  - `bun run verify:ci`: passed on the first full post-step run; the final rerun passed through
+    lint, typecheck, Bun tests, database migrate/seed, and build before the browser-only variance
+    described below.
+  - `bun run lint`: passed; 405 files checked.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed; 1,173 tests, 0 failed, 6,139 assertions.
+  - `bun run db:migrate:test`: passed; 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed; 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - Full `bun run test:e2e`: passed once with 94 tests and 0 failures. On the final full-gate rerun,
+    93 tests passed and the existing load-sensitive throttled motion benchmark reported two long
+    tasks; the exact benchmark then passed 3/3 in isolation with zero motion long tasks and zero
+    layout shift in every repeat. No UI or motion implementation changed in this step.
+  - `git diff --check`: passed.
+- Changelog decision: added an `[Unreleased]` / `Added` entry because accommodation Reality Checks
+  are now traveler-visible through the existing on-demand chat path.
+- Residual risks: raw stored accommodation names remain deliberately excluded from model, log, and
+  history summaries, so a traveler must name the property in the current or bounded recent chat
+  context for an exact-property check. The existing full-suite motion benchmark remains
+  load-sensitive; keep its threshold unchanged and re-run it during the UI and release-proof steps.
+- Commit: `3be7bc3` (`Add accommodation reality checks`).
+- Next step: implement the Itinerary Feasibility vertical slice.
+
+#### Step 4 - Itinerary Feasibility Vertical Slice
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: added the strict `itinerary_review` planner theme and a bounded seven-day,
+  seven-stop traveler-plan input; deterministic timing, geography, transport, family, and
+  early-departure conflict analysis; transparently estimated transfer ranges; a concrete revised
+  action and fallback; required route/local-fact, weather, and relevant open-now Places checks; and
+  inline itinerary recognition for explicit review requests.
+- Acceptance criteria checked:
+  - A supplied multi-day plan can return one specific keep/change/avoid/needs-confirmation Reality
+    Check with its original submitted stops retained in the reviewed itinerary artifact.
+  - The Cloud 9 to Pacifico dinner leg before an 8 AM Dapa ferry is identified as a material
+    sequencing conflict, with a southbound dinner/overnight revision rather than an invented exact
+    route time or reservation.
+  - Kids and no-scooter constraints produce a separate transport-strain conflict and practical
+    fallback guidance.
+  - Missing day/time detail is surfaced as a focused conflict or clarification rather than silently
+    treated as feasible.
+  - Non-live travel ranges are labeled as estimates, while opening hours, schedules,
+    reservations, and availability remain explicitly unchecked unless a matching request-time
+    evidence call succeeds.
+  - A deferred local-facts promise proves upstream route and weather checks complete before
+    dependent Places enrichment starts.
+  - Explicit mixed selection containing allowed and unrelated itineraries/cards returns only the
+    selected revision and relevant place artifact through both runtime and route boundaries.
+- Validation:
+  - Focused reality-check, itinerary tool, agent-tool, agent-loop, runtime, and route suites passed:
+    353 tests, 0 failed, 2,257 assertions.
+  - Final `bun run verify:ci`: passed.
+  - `bun run lint`: passed; 405 files checked with no warnings.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed; 1,181 tests, 0 failed, 6,188 assertions.
+  - `bun run db:migrate:test`: passed; 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed; 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed.
+  - `bun run test:e2e`: passed; 94 tests, 0 failed.
+  - The first full-gate run reached 93/94 browser tests before the existing load-sensitive motion
+    benchmark reported two long tasks. The exact unchanged benchmark then passed 3/3 in isolation
+    with zero motion long tasks and zero layout shift, and the clean full-gate rerun passed it with
+    zero motion long tasks and all 94 browser tests green.
+  - `git diff --check`: passed.
+- Changelog decision: added an `[Unreleased]` / `Added` entry because itinerary feasibility Reality
+  Checks are now available through the existing on-demand chat path.
+- Residual risks: route times remain intentionally bounded, non-live estimates rather than traffic
+  predictions; ferry schedules, reservations, venue opening hours, and availability require
+  matching request-time evidence. The existing motion benchmark remains load-sensitive and its
+  threshold is unchanged.
+- Commit: `ff69ba6` (`Add itinerary feasibility checks`).
+- Next step: implement the Today/Tomorrow and Surf Decision vertical slices.
+
+#### Step 5 - Today/Tomorrow and Surf Decision Vertical Slices
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: extended explicit immediate and surf Reality Checks with focused skill-level,
+  location, and timing clarification; required current condition plus marine or tide evidence for
+  decisive surf verdicts; rejected safe-to-surf guarantees; distinguished partial from unavailable
+  evidence; ordered condition and tide work before dependent surf/place recommendations; and
+  restricted returned cards to successful, selected dependent evidence calls.
+- Acceptance criteria checked:
+  - Immediate decisions use request-time evidence and can return a bounded fallback or
+    `needs_confirmation` when providers fail.
+  - Surf matching requires the supplied ability, location, and timing context and remains planning
+    support rather than an exact-break safety assessment.
+  - Current condition and tide/marine calls complete before dependent ranking, local-guide, or
+    Places work starts for explicit complete requests.
+  - Terminal provider failures cannot become checked/current evidence or positive cards; mixed
+    verified and unavailable evidence is labeled partial.
+  - Explicit adversarial mixed card selection exposes only the supported selected option.
+- Validation:
+  - Focused Reality Check and agent suites: 139 tests passed, 0 failed, 821 assertions.
+  - Focused route, source-consistency, runtime, condition, tool-selection, and agent-tool suites:
+    272 tests passed, 0 failed, 1,567 assertions.
+  - Full post-step runs passed lint (405 files), clean typecheck, 1,188 Bun tests with 6,218
+    assertions, database migrate/seed, and production build.
+  - Full Playwright runs passed 93 of 94 tests; only the pre-existing eight-worker throttled motion
+    benchmark reported two host long tasks. The unchanged benchmark passed 3/3 in isolation with
+    zero motion long tasks and zero layout shift in every repeat. This step changes server policy
+    and tests only, not UI or motion code.
+  - `git diff --check`: passed.
+- Changelog decision: added an `[Unreleased]` / `Added` entry because request-time current-condition
+  and surf Reality Checks are available through chat.
+- Residual risks: provider evidence can still be partial or unavailable at request time, so the
+  result deliberately downgrades to `needs_confirmation`; surf output does not replace a local
+  coach, lifeguard, or break-specific rip-current assessment. The existing full-suite motion
+  benchmark remains load-sensitive, with its threshold unchanged for the UI and release-proof
+  steps.
+- Commit: `45fe10b` (`Add current condition reality checks`).
+- Next step: implement the Disruption Recovery vertical slice.
+
+#### Step 6 - Disruption Recovery Vertical Slice
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: expanded explicit disruption recognition across traveler-reported cancellation,
+  closure, heavy rain, illness, lost transport, and no-scooter scenarios; added disruption-specific
+  operational-claim validation; serialized current-condition and governed local-fact evidence
+  before dependent replacement tools; added itinerary allowlisting alongside card allowlisting;
+  and filtered failed, unused, or unrelated mixed selections before strict runtime assembly.
+- Acceptance criteria checked:
+  - A traveler-reported cancelled island tour returns one synchronous land-based replacement with a
+    bounded fallback and avoid instruction.
+  - The runtime treats the disruption as traveler-supplied state and rejects claims of independent
+    detection, monitoring, notifications, operator contact, booking, reservation, or guaranteed
+    availability.
+  - Condition and governed local-fact lookups complete before dependent itinerary, local-guide, or
+    Places replacement work when proposed in the same tool batch.
+  - Complete provider failure produces an evidence-backed `needs_confirmation` verdict without
+    exposing failed cards or itineraries.
+  - Adversarial mixed `displayCardIds` and `displayItineraryIds` expose only successful artifacts
+    from used replacement calls.
+- Validation:
+  - Focused recognition, validation, agent, runtime, source-consistency, public-turn, and route
+    suites: 332 tests passed, 0 failed, 1,814 assertions.
+  - Full post-step run passed lint (405 files), clean typecheck, 1,196 Bun tests with 6,240
+    assertions, database migrate/seed, and production build.
+  - Full Playwright passed 93 of 94 tests; only the pre-existing eight-worker throttled motion
+    benchmark reported two host long tasks. The unchanged benchmark then passed 3/3 in isolation
+    with zero motion long tasks and zero layout shift in every repeat. This step changes server
+    behavior and tests only, not UI or motion code.
+  - `git diff --check`: passed.
+- Changelog decision: added an `[Unreleased]` / `Added` entry because travelers can now request a
+  grounded replacement after reporting a disrupted plan.
+- Residual risks: a replacement remains `needs_confirmation` when current conditions or
+  availability cannot be established; the product deliberately performs no monitoring, outreach,
+  booking, or availability guarantee. The existing full-suite motion benchmark remains
+  load-sensitive and must be exercised during the UI and release-proof steps.
+- Commit: `d0b89d0` (`Add disruption recovery checks`).
+- Next step: implement Reality Check presentation and product entry points.
+
+#### Step 7 - Reality-Check Presentation and Product Entry Points
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: extended decision-strip presentation with optional Reality Check subject and
+  keep/change/avoid/needs-confirmation text verdicts; retained the legacy best-move presentation;
+  prioritized concise accommodation, itinerary, immediate, surf, and disruption prompts; and
+  repositioned landing, site promise, and Trip Pass differentiators around synchronous on-demand
+  checks.
+- Acceptance criteria checked:
+  - Landing and chat explain the product in one scan and link to representative Reality Check
+    prompts without automatically submitting them.
+  - Verdicts use explicit text labels plus distinct visual treatments, so meaning is not color-only.
+  - Legacy summaries still render without an invented verdict or subject.
+  - Saved planning, source receipt/status, mobile layout, reduced motion, focus order, and
+    responsive overflow constraints remain intact.
+  - Loading `/chat`, including a prompt deep link, starts no `/api/chat` work until explicit
+    submission.
+  - Traveler-facing positioning promises no monitoring, notifications, human confirmation,
+    booking, or guaranteed current data.
+- Validation:
+  - Focused presentation, suggested-prompt, and site-copy suites: 19 tests passed, 0 failed.
+  - Focused landing/chat browser suite: 15 tests passed, including desktop/mobile screenshots,
+    keyboard order, reduced motion, source state, legacy summaries, new verdicts, and idle loading.
+  - `bun run doctor`: 96/100 with six pre-existing repository performance advisories and no errors;
+    `npx react-doctor@latest --verbose --scope changed`: 100/100 with no changed-surface issues.
+  - Full post-step runs passed lint (405 files), clean typecheck, 1,201 Bun tests with 6,246
+    assertions, database migrate/seed, and production build.
+  - Full Playwright passed 94 of 95 tests. The only variance was the pre-existing eight-worker,
+    CPU-throttled decision-strip motion benchmark reporting one host long task. The exact unchanged
+    benchmark passed 3/3 in isolation after the UI changes, with zero motion long tasks and zero
+    layout shift in every repeat; its threshold remains unchanged.
+  - `git diff --check`: passed.
+- Screenshot evidence:
+  - `test-results/issue-120-landing-mobile-390.png`
+  - `test-results/issue-120-landing-desktop-1440.png`
+  - `test-results/chat.e2e.ts-shows-an-acces-8246a-sktop-only-after-submission-chromium/reality-check-strip-mobile-390.png`
+  - `test-results/chat.e2e.ts-shows-an-acces-8246a-sktop-only-after-submission-chromium/reality-check-strip-desktop-1180.png`
+  - `test-results/chat.e2e.ts-renders-the-fi-0ea15-oss-desktop-visual-fixtures-chromium/field-desk-active-saved-long-1180.png`
+- Changelog decision: added an `[Unreleased]` / `Changed` entry because the primary positioning,
+  entry prompts, and structured decision presentation changed visibly.
+- Residual risks: request-time sources can still be partial or unavailable; long subjects and
+  fallbacks are bounded server-side and covered at mobile widths. The existing full-suite motion
+  benchmark remains sensitive to parallel host load despite clean isolated evidence.
+- Commit: `b044d8f` (`Present Ask Siargao reality checks`).
+- Next step: finish documentation, deterministic evaluation, and release proof.
+
+#### Step 8 - Documentation, Evaluation, and Release Proof
+
+- Status: `DONE`
+- Completed: `2026-08-03`
+- Files changed: added a developer lifecycle explanation, a neutral contract reference, and an
+  extension how-to; updated README, documentation indexes, route/response reference, scripts, and
+  data-pipeline product direction; added an executable deterministic Reality Check evaluation
+  module, runner, focused tests, and checked-in JSON artifact.
+- Acceptance criteria checked:
+  - New maintainers have separate explanation, reference, and task-oriented extension guidance for
+    kinds, verdicts, structured validation, source sufficiency, provider failure, semantic ordering,
+    artifact selection, persistence, compatibility, privacy, and the synchronous request lifecycle.
+  - The matrix executes six representative prompts spanning all five Reality Check kinds, including
+    the kids/no-scooter constraint, plus missing input, provider failure, partial evidence, legacy
+    response, and adversarial mixed-artifact cases.
+  - The final changed-file inventory contains documentation, the deterministic evaluation surface,
+    its package script, and this progress ledger only. It adds no production route, scheduler,
+    notification transport, background worker, operator workflow, booking action, schema change, or
+    provider ingestion path.
+  - Scope-copy inspection found operational, booking, guarantee, privacy, coordinate, and raw-
+    provider terms only in explicit exclusion/boundary statements; no unsupported capability or
+    marketing promise was introduced.
+  - All Definition of Done items above are checked.
+- Validation:
+  - `bun run eval:reality-check -- --write`: passed; generated schema version 1 with six passing
+    product scenarios, five passing fail-closed contracts, and covered semantic-ordering and public-
+    boundary evidence.
+  - Focused evaluation suite: 3 tests passed, 0 failed, 15 assertions.
+  - Final `bun run format`: passed; 408 files formatted after generated-artifact normalization.
+  - Authoritative final `bun run verify:ci`: passed.
+  - `bun run lint`: passed; 409 files checked with no fixes.
+  - `bun run typecheck --incremental false`: passed.
+  - `bun test`: passed; 1,204 tests, 0 failed, 6,262 assertions across 118 files.
+  - `bun run db:migrate:test`: passed; 53 tables and 9 migrations.
+  - `bun run db:seed:test`: passed; 5 areas, 3 routes, and 6 source profiles.
+  - `bun run build`: passed with 29 static pages generated and the production route inventory.
+  - `bun run test:e2e`: passed; 95 tests, 0 failed. The CPU-throttled decision-strip benchmark
+    recorded one pre-motion host long task, zero motion long tasks over 50 ms, and zero layout shift.
+  - The first release-gate attempts caught generated JSON/import formatting and one union-narrowing
+    type error; both were corrected before the authoritative full pass above.
+- Changelog decision: no new Step 8 entry because documentation, evaluation, and validation do not
+  change traveler behavior. Reconciled the existing `[Unreleased]` entries for structured verdicts,
+  all five vertical slices, and presentation/positioning; no qualifying functional entry is missing.
+- Residual risks: request-time provider evidence can remain partial or unavailable by design, which
+  yields bounded uncertainty or `needs_confirmation`. The motion benchmark passed the final full
+  suite and retained its strict threshold; its previously observed host-load sensitivity remains a
+  reason for future checker/maintainer runs to preserve isolated benchmark evidence if CI variance
+  returns.
+- Commits: `88b998f`, `2f44c5c`, `a01eaf9`, `3be7bc3`, `ff69ba6`, `45fe10b`, `d0b89d0`,
+  `b044d8f`, and this Step 8 commit (`Document on-demand reality checks`).
+- Final repository target: clean worktree after the Step 8 commit; no current blocker.
+
 ## Baseline
 
 - Plan baseline revision: `1deb02c`.

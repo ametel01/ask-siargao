@@ -10,9 +10,10 @@ describe("traveler identity helpers", () => {
     ["deleted+user_123@clerk.ask-siargao.local", null],
     ["", null],
     [null, null],
-  ] satisfies Array<
-    [string | null, string | null]
-  >)("filters stored email value %p", (storedEmail, expected) => {
-    expect(travelerEmailFromStoredEmail(storedEmail)).toBe(expected);
-  });
+  ] satisfies Array<[string | null, string | null]>)(
+    "filters stored email value %p",
+    (storedEmail, expected) => {
+      expect(travelerEmailFromStoredEmail(storedEmail)).toBe(expected);
+    },
+  );
 });

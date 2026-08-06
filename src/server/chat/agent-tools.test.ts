@@ -416,7 +416,7 @@ describe("agent tools", () => {
         type: "function",
         name: "plan_local_itinerary",
         description:
-          "Build a governed structured 2-4 hour Siargao itinerary artifact from curated local guide evidence and explicit unchecked caveats. The AI must use the returned plan as evidence and write the final answer itself.",
+          "Build a governed structured Siargao itinerary artifact or review a traveler-supplied itinerary for practical conflicts. Reviews accept at most seven days and seven total stops, preserve non-live estimate caveats, and return a concrete revision. The AI must use the returned plan as evidence and write the final answer itself.",
         parameters: {
           type: "object",
           properties: {
@@ -428,6 +428,7 @@ describe("agent tools", () => {
                 "sandy_beach_half_day",
                 "non_surfer_half_day",
                 "food_crawl",
+                "itinerary_review",
               ],
               description: "Initial supported local itinerary theme.",
             },
@@ -470,6 +471,58 @@ describe("agent tools", () => {
               items: { type: "string" },
               description: "Other user constraints to preserve as caveats.",
             },
+            review_days: {
+              type: ["array", "null"],
+              maxItems: 7,
+              items: {
+                type: "object",
+                properties: {
+                  day_label: {
+                    type: "string",
+                    description: "Short traveler-supplied day label, such as Day 1.",
+                  },
+                  stops: {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: 7,
+                    items: {
+                      type: "object",
+                      properties: {
+                        title: { type: "string" },
+                        area: { type: "string" },
+                        kind: {
+                          type: "string",
+                          enum: ["place", "beach", "activity", "meal", "transfer"],
+                        },
+                        time: {
+                          type: ["string", "null"],
+                          pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+                        },
+                        duration_minutes: {
+                          type: ["integer", "null"],
+                          minimum: 15,
+                          maximum: 720,
+                        },
+                        weather_sensitive: { type: ["boolean", "null"] },
+                      },
+                      required: [
+                        "title",
+                        "area",
+                        "kind",
+                        "time",
+                        "duration_minutes",
+                        "weather_sensitive",
+                      ],
+                      additionalProperties: false,
+                    },
+                  },
+                },
+                required: ["day_label", "stops"],
+                additionalProperties: false,
+              },
+              description:
+                "Traveler-supplied days and stops for itinerary_review; null for theme planning.",
+            },
           },
           required: [
             "theme",
@@ -481,6 +534,7 @@ describe("agent tools", () => {
             "needs_open_now",
             "meal_preference",
             "constraints",
+            "review_days",
           ],
           additionalProperties: false,
         },
@@ -697,7 +751,7 @@ describe("agent tools", () => {
       {
         name: "plan_local_itinerary",
         description:
-          "Build a governed structured 2-4 hour Siargao itinerary artifact from curated local guide evidence and explicit unchecked caveats. The AI must use the returned plan as evidence and write the final answer itself.",
+          "Build a governed structured Siargao itinerary artifact or review a traveler-supplied itinerary for practical conflicts. Reviews accept at most seven days and seven total stops, preserve non-live estimate caveats, and return a concrete revision. The AI must use the returned plan as evidence and write the final answer itself.",
       },
       {
         name: "describe_database_schema",
@@ -1389,7 +1443,7 @@ not-json
     );
 
     expect(result.status).toBe("success");
-    expect((requests[0]?.headers as Record<string, string>)["X-Goog-FieldMask"]).toBe(
+    expect((requests[0]?.headers as Record<string, string> | undefined)?.["X-Goog-FieldMask"]).toBe(
       googlePlacesChatSearchFieldMask,
     );
     expect(JSON.parse(String(requests[0]?.body))).toMatchObject({ openNow: true });
@@ -1955,7 +2009,7 @@ not-json
     );
 
     expect(result.status).toBe("success");
-    expect((requests[0]?.headers as Record<string, string>)["X-Goog-FieldMask"]).toBe(
+    expect((requests[0]?.headers as Record<string, string> | undefined)?.["X-Goog-FieldMask"]).toBe(
       googlePlacesDetailsFieldMask,
     );
     expect(result.sources[0]?.label).toBe("live_checked");
@@ -2303,6 +2357,61 @@ not-json
       "Check weather",
       "Find live places",
     ]);
+  });
+
+  test("returns bounded itinerary-review conflicts and required upstream checks", async () => {
+    const result = await executeAgentTool({
+      requestId: "agent_request_itinerary_review",
+      name: "plan_local_itinerary",
+      arguments: {
+        theme: "itinerary_review",
+        transport_mode: "tricycle",
+        constraints: ["with kids", "no scooter"],
+        review_days: [
+          {
+            day_label: "Day 1",
+            stops: [
+              {
+                title: "Pacifico dinner",
+                area: "Pacifico",
+                kind: "meal",
+                time: "19:00",
+                duration_minutes: 90,
+              },
+            ],
+          },
+          {
+            day_label: "Day 2",
+            stops: [
+              {
+                title: "Dapa ferry",
+                area: "Dapa",
+                kind: "transfer",
+                time: "08:00",
+                duration_minutes: 30,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("early Dapa departure");
+    expect(result.text).toContain("Travel times are curated non-live estimates");
+    expect(result.itineraries?.[0]?.stops.map((stop) => stop.title)).toEqual([
+      "Pacifico dinner",
+      "Dapa ferry",
+    ]);
+    expect(result.data).toMatchObject({
+      review: {
+        conflicts: [expect.objectContaining({ code: "early_departure_positioning" })],
+        travelTimeBasis: "curated_estimate",
+      },
+      requiredToolChecks: {
+        localFacts: [expect.objectContaining({ tool: "query_local_facts" })],
+      },
+    });
   });
 
   test("rejects invalid itinerary planning arguments before execution", async () => {

@@ -33,8 +33,10 @@ export type ObservabilityEventName =
   | "trip_pass_refund_transition"
   | "trip_pass_reset_velocity_suspected"
   | "generation_latency_recorded"
+  | "chat_latency_recorded"
   | "provider_error_recorded"
   | "llm_cost_recorded"
+  | "reality_check_completed"
   | "reviewer_rejection_recorded"
   | "report_confidence_recorded"
   | "public_page_generation_failed"
@@ -216,6 +218,22 @@ const eventPayloadAllowlist = {
   agent_snapshot_freshness_recorded: ["status", "ageSeconds", "source"],
   ai_search_referral_recorded: ["family", "surface", "source"],
   completeness_gate_completed: ["auditRequestStatus", "blockingReasons", "optionalModuleCount"],
+  chat_latency_recorded: [
+    "status",
+    "streamed",
+    "totalMs",
+    "firstByteMs",
+    "preflightMs",
+    "agentMs",
+    "modelMs",
+    "settlementMs",
+    "persistenceMs",
+    "modelCallCount",
+    "toolCallCount",
+    "repairCount",
+    "modelCalls",
+    "tools",
+  ],
   generation_latency_recorded: ["durationMs", "status", "source"],
   indexation_crawl_recorded: ["family", "surface", "status"],
   intake_completed: ["auditRequestStatus", "completenessReasons", "intake"],
@@ -233,6 +251,18 @@ const eventPayloadAllowlist = {
   provider_error_recorded: ["diagnostics", "provider", "reason", "source", "status"],
   public_api_used: ["evidenceIds", "family", "slug"],
   public_page_generation_failed: ["family", "reason", "slug", "status"],
+  reality_check_completed: [
+    "status",
+    "kind",
+    "verdict",
+    "sourceState",
+    "sourceCount",
+    "toolCallCount",
+    "durationMs",
+    "cardCount",
+    "itineraryCount",
+    "decisionSummaryCount",
+  ],
   report_confidence_recorded: ["confidence", "riskCount", "status"],
   reviewer_rejection_recorded: ["reason", "status"],
   top_cited_public_page_recorded: ["family", "slug", "count"],

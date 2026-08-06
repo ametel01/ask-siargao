@@ -1,4 +1,5 @@
 import type { FetchLike } from "@/server/providers/open-meteo";
+import { fetchWithProviderTimeout } from "@/server/providers/provider-fetch";
 
 const tideForecastBaseUrl = "https://www.tide-forecast.com";
 const timezone = "Asia/Manila";
@@ -128,7 +129,7 @@ export async function buildTideForecastSnapshot(input: {
 }) {
   const fetchedAt = input.fetchedAt ?? new Date();
   const location = input.location ?? tideForecastLocations.dapa;
-  const response = await (input.fetcher ?? fetch)(location.stationUrl, {
+  const response = await fetchWithProviderTimeout(input.fetcher ?? fetch, location.stationUrl, {
     headers: {
       accept: "text/html,application/xhtml+xml",
       "user-agent": "AskSiargaoDevBot/0.1 (+https://ask-siargao.local)",

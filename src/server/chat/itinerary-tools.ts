@@ -14,22 +14,56 @@ export const localItineraryThemes = [
   "sandy_beach_half_day",
   "non_surfer_half_day",
   "food_crawl",
+  "itinerary_review",
 ] as const;
 
 const optionalNullable = <Schema extends z.ZodTypeAny>(schema: Schema) =>
   z.preprocess((value) => (value === null ? undefined : value), schema.optional());
 
-export const localItineraryRequestSchema = z.strictObject({
-  theme: z.enum(localItineraryThemes),
-  origin: optionalNullable(z.string().trim().min(2).max(120)),
-  duration_hours: optionalNullable(z.number().min(2).max(4)),
-  transport_mode: optionalNullable(z.enum(["walk", "scooter", "tricycle", "van"])),
-  max_ride_minutes: optionalNullable(z.number().int().min(5).max(180)),
-  needs_weather_check: optionalNullable(z.boolean()),
-  needs_open_now: optionalNullable(z.boolean()),
-  meal_preference: optionalNullable(z.string().trim().min(2).max(120)),
-  constraints: optionalNullable(z.array(z.string().trim().min(1).max(120)).max(12)),
+const itineraryReviewStopSchema = z.strictObject({
+  title: z.string().trim().min(2).max(120),
+  area: z.string().trim().min(2).max(80),
+  kind: z.enum(["place", "beach", "activity", "meal", "transfer"]),
+  time: optionalNullable(z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)),
+  duration_minutes: optionalNullable(z.number().int().min(15).max(720)),
+  weather_sensitive: optionalNullable(z.boolean()),
 });
+
+const itineraryReviewDaySchema = z.strictObject({
+  day_label: z.string().trim().min(1).max(40),
+  stops: z.array(itineraryReviewStopSchema).min(1).max(7),
+});
+
+export const localItineraryRequestSchema = z
+  .strictObject({
+    theme: z.enum(localItineraryThemes),
+    origin: optionalNullable(z.string().trim().min(2).max(120)),
+    duration_hours: optionalNullable(z.number().min(2).max(4)),
+    transport_mode: optionalNullable(z.enum(["walk", "scooter", "tricycle", "van"])),
+    max_ride_minutes: optionalNullable(z.number().int().min(5).max(180)),
+    needs_weather_check: optionalNullable(z.boolean()),
+    needs_open_now: optionalNullable(z.boolean()),
+    meal_preference: optionalNullable(z.string().trim().min(2).max(120)),
+    constraints: optionalNullable(z.array(z.string().trim().min(1).max(120)).max(12)),
+    review_days: optionalNullable(z.array(itineraryReviewDaySchema).min(1).max(7)),
+  })
+  .superRefine((value, context) => {
+    if (value.theme === "itinerary_review" && !value.review_days) {
+      context.addIssue({
+        code: "custom",
+        path: ["review_days"],
+        message: "review_days are required for itinerary_review",
+      });
+    }
+    const totalStops = value.review_days?.reduce((total, day) => total + day.stops.length, 0) ?? 0;
+    if (totalStops > 7) {
+      context.addIssue({
+        code: "custom",
+        path: ["review_days"],
+        message: "itinerary review accepts at most seven total stops",
+      });
+    }
+  });
 
 export type LocalItineraryRequest = z.infer<typeof localItineraryRequestSchema>;
 
@@ -41,6 +75,22 @@ export type LocalItineraryResult = {
   plan: ItineraryPlan;
   requiredToolChecks: ItineraryRequiredToolChecks;
   caveats: readonly string[];
+  review?: ItineraryReviewAnalysis;
+};
+
+export type ItineraryReviewConflict = {
+  code: "tight_transfer" | "early_departure_positioning" | "transport_strain" | "missing_time";
+  severity: "high" | "medium";
+  message: string;
+  dayLabel: string;
+  stopTitles: readonly string[];
+};
+
+export type ItineraryReviewAnalysis = {
+  conflicts: readonly ItineraryReviewConflict[];
+  revisedAction: string;
+  fallback: string;
+  travelTimeBasis: "curated_estimate";
 };
 
 export type ItineraryRequiredToolChecks = {
@@ -62,6 +112,14 @@ export type ItineraryRequiredToolChecks = {
       open_now?: boolean;
       page_size: number;
     };
+    reason: string;
+  }[];
+  localFacts?: readonly {
+    required: true;
+    tool: "query_local_facts";
+    entityTypes: readonly ["area", "route"];
+    text: string;
+    limit: number;
     reason: string;
   }[];
 };
@@ -95,13 +153,20 @@ const siargaoGenericUnchecked = [
 export function planLocalItinerary(input: LocalItineraryRequest): LocalItineraryResult {
   const request = normalizeRequest(input);
   const constraints = summarizeItineraryConstraints(request);
-  const localGuide = searchSiargaoLocalGuide(localGuideQuery(request, constraints));
+  const localGuide =
+    request.theme === "itinerary_review"
+      ? emptyReviewLocalGuideResult()
+      : searchSiargaoLocalGuide(localGuideQuery(request, constraints));
   const uncheckedSource = itineraryUncheckedSourceSummary(request, constraints);
   const sources = itinerarySourceSummaries(request, localGuide.sourceSummary, uncheckedSource);
-  const plan = applyOriginGuidance(
-    applyConstraintGuidance(buildPlan(request, localGuide, sources), constraints),
-    request,
-  );
+  const review =
+    request.theme === "itinerary_review" ? analyzeItineraryReview(request, constraints) : undefined;
+  const plan = review
+    ? buildItineraryReviewPlan(request, review, sources)
+    : applyOriginGuidance(
+        applyConstraintGuidance(buildPlan(request, localGuide, sources), constraints),
+        request,
+      );
   const requiredToolChecks = buildRequiredToolChecks(request);
   const caveats = uniqueText([
     ...plan.stops.flatMap((stop) => stop.caveats),
@@ -117,6 +182,7 @@ export function planLocalItinerary(input: LocalItineraryRequest): LocalItinerary
     plan,
     requiredToolChecks,
     caveats,
+    ...(review ? { review } : {}),
   };
 }
 
@@ -145,6 +211,18 @@ export function renderLocalItineraryToolText(result: LocalItineraryResult) {
         ]
       : []),
     ...(result.plan.skip.length ? [`Skip: ${result.plan.skip.join("; ")}.`] : []),
+    ...(result.review
+      ? [
+          `Feasibility conflicts: ${
+            result.review.conflicts.length > 0
+              ? result.review.conflicts.map((conflict) => conflict.message).join("; ")
+              : "no deterministic conflict found"
+          }.`,
+          `Revised action: ${result.review.revisedAction}`,
+          `Fallback: ${result.review.fallback}`,
+          "Travel times are curated non-live estimates; live traffic, schedules, opening hours, reservations, and availability were not inferred.",
+        ]
+      : []),
     ...renderRequiredToolChecksText(result.requiredToolChecks),
   ].join("\n");
 }
@@ -154,6 +232,11 @@ function renderRequiredToolChecksText(requiredToolChecks: ItineraryRequiredToolC
   if (requiredToolChecks.weather) {
     lines.push(
       `Required weather check: call ${requiredToolChecks.weather.tool} for ${requiredToolChecks.weather.location} (${requiredToolChecks.weather.date_range}) because ${requiredToolChecks.weather.reason}.`,
+    );
+  }
+  for (const localFactsCheck of requiredToolChecks.localFacts ?? []) {
+    lines.push(
+      `Required local facts check: call ${localFactsCheck.tool} for "${localFactsCheck.text}" before dependent place enrichment because ${localFactsCheck.reason}.`,
     );
   }
   for (const placesCheck of requiredToolChecks.places) {
@@ -235,6 +318,8 @@ function localGuideQuery(
           withKids: constraints.withKids,
         },
       };
+    case "itinerary_review":
+      return { query: "itinerary review", filters: {} };
   }
 }
 
@@ -273,6 +358,8 @@ function buildPlan(
       return nonSurferPlan(request, localGuide, sources);
     case "food_crawl":
       return foodCrawlPlan(request, sources);
+    case "itinerary_review":
+      throw new Error("itinerary_review is built by the focused review analyzer");
   }
 }
 
@@ -528,12 +615,19 @@ function buildRequiredToolChecks(
   return {
     ...(requiresWeatherCheck(request) ? { weather: weatherCheckForRequest(request) } : {}),
     places: placesChecksForRequest(request),
+    ...(request.theme === "itinerary_review"
+      ? { localFacts: localFactChecksForReview(request) }
+      : {}),
   };
 }
 
 function requiresWeatherCheck(request: LocalItineraryResult["request"]) {
   return (
     request.needs_weather_check === true ||
+    (request.theme === "itinerary_review" &&
+      request.review_days?.some((day) =>
+        day.stops.some((stop) => stop.weather_sensitive === true),
+      )) ||
     request.theme === "rainy_cloud_9_afternoon" ||
     request.theme === "sunset_plus_dinner"
   );
@@ -614,11 +708,13 @@ function weatherCheckForRequest(
     required: true,
     tool: "get_weather_forecast",
     location,
-    date_range: "today",
+    date_range: request.theme === "itinerary_review" ? "next_7_days" : "today",
     reason:
       request.theme === "rainy_cloud_9_afternoon"
         ? "rain materially changes the sequence and fallback choice"
-        : "cloud cover and rain materially affect the outdoor itinerary window",
+        : request.theme === "itinerary_review"
+          ? "weather materially affects one or more outdoor stops in the reviewed sequence"
+          : "cloud cover and rain materially affect the outdoor itinerary window",
   };
 }
 
@@ -677,7 +773,58 @@ function placesChecksForRequest(
             }),
           ]
         : [];
+    case "itinerary_review":
+      return request.needs_open_now
+        ? (request.review_days ?? [])
+            .flatMap((day) => day.stops)
+            .filter((stop) => stop.kind === "meal" || stop.kind === "place")
+            .slice(0, 3)
+            .map((stop) => {
+              const area = reviewAreaCenter(stop.area);
+              return placesCheck({
+                center: area.center,
+                includedType: stop.kind === "meal" ? "restaurant" : "tourist_attraction",
+                query: `${stop.title} ${stop.area} Siargao`,
+                radiusMeters: area.radiusMeters,
+                reason: "the reviewed stop needs current identity and opening-hour evidence",
+              });
+            })
+        : [];
   }
+}
+
+function localFactChecksForReview(
+  request: LocalItineraryResult["request"],
+): NonNullable<ItineraryRequiredToolChecks["localFacts"]> {
+  const areas = uniqueText(
+    (request.review_days ?? []).flatMap((day) => day.stops.map((stop) => stop.area)),
+  );
+  if (areas.length < 2) {
+    return [];
+  }
+  return [
+    {
+      required: true,
+      tool: "query_local_facts",
+      entityTypes: ["area", "route"],
+      text: areas.join(" to "),
+      limit: 10,
+      reason: "the review needs governed area and route context before downstream place checks",
+    },
+  ];
+}
+
+function reviewAreaCenter(area: string) {
+  if (/\bpacifico\b/iu.test(area)) {
+    return { center: { latitude: 9.954, longitude: 126.088 }, radiusMeters: 5_000 };
+  }
+  if (/\bdapa\b/iu.test(area)) {
+    return { center: { latitude: 9.759, longitude: 126.052 }, radiusMeters: 5_000 };
+  }
+  if (/\bcloud\s*9|catangnan\b/iu.test(area)) {
+    return { center: cloud9Center, radiusMeters: 4_000 };
+  }
+  return { center: generalLunaCenter, radiusMeters: 6_000 };
 }
 
 function placesCheck({
@@ -706,6 +853,237 @@ function placesCheck({
     },
     reason,
   };
+}
+
+function emptyReviewLocalGuideResult(): LocalGuideSearchResult {
+  return {
+    query: "itinerary review",
+    filters: {},
+    candidates: [],
+    excluded: [],
+    caveats: [],
+    sourceSummary: {
+      label: "not_verified",
+      sourceName: "Itinerary review local-guide boundary",
+      confidence: "low",
+      checked: [],
+      notChecked: ["route timing", "opening hours", "availability"],
+    },
+  };
+}
+
+function analyzeItineraryReview(
+  request: LocalItineraryResult["request"],
+  constraints: ItineraryConstraintSummary,
+): ItineraryReviewAnalysis {
+  const days = request.review_days ?? [];
+  const conflicts: ItineraryReviewConflict[] = [];
+
+  for (const day of days) {
+    if (day.stops.length > 1 && day.stops.some((stop) => !stop.time)) {
+      conflicts.push({
+        code: "missing_time",
+        severity: "medium",
+        message: `${day.day_label} has multiple stops without enough timing detail to verify the sequence.`,
+        dayLabel: day.day_label,
+        stopTitles: day.stops.map((stop) => stop.title),
+      });
+    }
+
+    for (let index = 1; index < day.stops.length; index += 1) {
+      const previous = day.stops[index - 1];
+      const current = day.stops[index];
+      if (!previous || !current || !previous.time || !current.time) {
+        continue;
+      }
+      const estimate = estimatedTransferRange(previous.area, current.area);
+      if (!estimate) {
+        continue;
+      }
+      const availableMinutes =
+        timeToMinutes(current.time) -
+        timeToMinutes(previous.time) -
+        (previous.duration_minutes ?? 60);
+      if (availableMinutes < estimate.min) {
+        conflicts.push({
+          code: "tight_transfer",
+          severity: "high",
+          message: `${day.day_label} leaves ${Math.max(availableMinutes, 0)} minutes between ${previous.title} and ${current.title}, below the ${estimate.min}-${estimate.max} minute non-live transfer estimate.`,
+          dayLabel: day.day_label,
+          stopTitles: [previous.title, current.title],
+        });
+      }
+    }
+
+    const distinctAreas = uniqueText(day.stops.map((stop) => normalizedReviewArea(stop.area)));
+    const hasLongNorthTransfer = day.stops.some((stop, index) => {
+      const previous = day.stops[index - 1];
+      return previous ? (estimatedTransferRange(previous.area, stop.area)?.min ?? 0) >= 60 : false;
+    });
+    if (
+      (constraints.withKids || constraints.noScooter) &&
+      (distinctAreas.length >= 3 || hasLongNorthTransfer)
+    ) {
+      conflicts.push({
+        code: "transport_strain",
+        severity: "medium",
+        message: `${day.day_label} is transport-heavy for ${constraints.withKids ? "travel with kids" : "a no-scooter trip"}; keep one area as the day's base.`,
+        dayLabel: day.day_label,
+        stopTitles: day.stops.map((stop) => stop.title),
+      });
+    }
+  }
+
+  for (let dayIndex = 1; dayIndex < days.length; dayIndex += 1) {
+    const previousDay = days[dayIndex - 1];
+    const day = days[dayIndex];
+    const previousStop = previousDay?.stops.at(-1);
+    const firstStop = day?.stops[0];
+    if (
+      previousDay &&
+      day &&
+      previousStop &&
+      firstStop?.time &&
+      timeToMinutes(firstStop.time) <= 9 * 60 &&
+      /\bdapa\b/iu.test(firstStop.area) &&
+      /\b(?:pacifico|alegria|burgos)\b/iu.test(previousStop.area)
+    ) {
+      conflicts.push({
+        code: "early_departure_positioning",
+        severity: "high",
+        message: `${day.day_label}'s early Dapa departure is a weak follow-on from ${previousStop.area}; the non-live transfer estimate does not protect against road or pickup delays.`,
+        dayLabel: day.day_label,
+        stopTitles: [previousStop.title, firstStop.title],
+      });
+    }
+  }
+
+  const earlyDepartureConflict = conflicts.find(
+    (conflict) => conflict.code === "early_departure_positioning",
+  );
+  const tightTransferConflict = conflicts.find((conflict) => conflict.code === "tight_transfer");
+  const transportConflict = conflicts.find((conflict) => conflict.code === "transport_strain");
+  if (earlyDepartureConflict) {
+    return {
+      conflicts,
+      revisedAction:
+        "Move the final north-island night to General Luna or Dapa before the early ferry.",
+      fallback:
+        "Drop the Pacifico dinner and travel south before dark if the overnight base cannot change.",
+      travelTimeBasis: "curated_estimate",
+    };
+  }
+  if (tightTransferConflict) {
+    return {
+      conflicts,
+      revisedAction: `Add transfer buffer or remove one of: ${tightTransferConflict.stopTitles.join(" / ")}.`,
+      fallback: "Keep the fixed-time stop and drop the flexible stop if the transfer starts late.",
+      travelTimeBasis: "curated_estimate",
+    };
+  }
+  if (transportConflict) {
+    return {
+      conflicts,
+      revisedAction:
+        "Group each day around one base area and pre-arrange tricycle or van transport.",
+      fallback: "Drop the farthest flexible stop if transport is not confirmed.",
+      travelTimeBasis: "curated_estimate",
+    };
+  }
+  return {
+    conflicts,
+    revisedAction:
+      "Keep the sequence, but add explicit start times and transport buffers before committing.",
+    fallback: "Drop the farthest flexible stop if a transfer or opening-time check fails.",
+    travelTimeBasis: "curated_estimate",
+  };
+}
+
+function buildItineraryReviewPlan(
+  request: LocalItineraryResult["request"],
+  review: ItineraryReviewAnalysis,
+  sources: readonly AnswerSourceSummary[],
+): ItineraryPlan {
+  const days = request.review_days ?? [];
+  let sequence = 0;
+  const stops = days.flatMap((day) =>
+    day.stops.map((stop, index) => {
+      sequence += 1;
+      const previous = day.stops[index - 1];
+      const estimate = previous ? estimatedTransferRange(previous.area, stop.area) : undefined;
+      return {
+        title: stop.title,
+        kind: stop.kind,
+        sequence,
+        area: stop.area,
+        ...(estimate
+          ? { travelTimeFromPreviousMinutes: Math.round((estimate.min + estimate.max) / 2) }
+          : {}),
+        rationale: `${day.day_label}${stop.time ? ` at ${stop.time}` : " with timing still needed"}.`,
+        caveats: uniqueText([
+          ...(estimate ? ["Transfer time is a non-live estimate, not live traffic."] : []),
+          ...(stop.weather_sensitive ? ["Current weather still needs a separate check."] : []),
+        ]),
+      } satisfies ItineraryStop;
+    }),
+  );
+  return {
+    title: "Itinerary Feasibility Review",
+    durationLabel: `${days.length} day${days.length === 1 ? "" : "s"}, ${stops.length} stops`,
+    decision: {
+      label: review.conflicts.some((conflict) => conflict.severity === "high")
+        ? "avoid_today"
+        : review.conflicts.length > 0
+          ? "needs_confirmation"
+          : "best_fit",
+      bestAction: review.revisedAction,
+    },
+    stops,
+    fallbackStops: [
+      {
+        title: review.fallback,
+        kind: "transfer",
+        sequence: 1,
+        rationale: "Use this fallback when the main feasibility conflict cannot be resolved.",
+        caveats: ["Reservations, vehicle availability, and live road conditions were not checked."],
+      },
+    ],
+    skip: review.conflicts.map((conflict) => conflict.message),
+    sources,
+  };
+}
+
+function estimatedTransferRange(fromArea: string, toArea: string) {
+  const from = normalizedReviewArea(fromArea);
+  const to = normalizedReviewArea(toArea);
+  if (from === to) {
+    return undefined;
+  }
+  const key = [from, to].sort().join("|");
+  return reviewTransferEstimates[key];
+}
+
+const reviewTransferEstimates: Record<string, { min: number; max: number }> = {
+  "cloud 9|general luna": { min: 10, max: 20 },
+  "cloud 9|pacifico": { min: 70, max: 95 },
+  "dapa|general luna": { min: 35, max: 55 },
+  "dapa|pacifico": { min: 80, max: 110 },
+  "general luna|pacifico": { min: 75, max: 100 },
+  "general luna|malinao": { min: 15, max: 25 },
+};
+
+function normalizedReviewArea(value: string) {
+  if (/\bcloud\s*9|catangnan\b/iu.test(value)) return "cloud 9";
+  if (/\bgeneral\s+luna\b|\bgl\b/iu.test(value)) return "general luna";
+  if (/\bpacifico\b/iu.test(value)) return "pacifico";
+  if (/\bdapa\b/iu.test(value)) return "dapa";
+  if (/\bmalinao\b/iu.test(value)) return "malinao";
+  return normalizeText(value);
+}
+
+function timeToMinutes(value: string) {
+  const [hours = "0", minutes = "0"] = value.split(":");
+  return Number(hours) * 60 + Number(minutes);
 }
 
 function candidateStop(
@@ -756,6 +1134,13 @@ function itineraryUncheckedSourceSummary(
     notChecked: uniqueText([
       ...(request.needs_weather_check ? ["weather forecast for the itinerary window"] : []),
       ...(request.needs_open_now ? ["live open-now status for meal, cafe, or venue stops"] : []),
+      ...(request.theme === "itinerary_review"
+        ? [
+            "live traffic and exact route duration",
+            "ferry or operator schedule changes",
+            "reservations and vehicle availability",
+          ]
+        : []),
       ...constraintNotCheckedItems(constraints),
       ...siargaoGenericUnchecked,
     ]),
@@ -808,7 +1193,7 @@ function itinerarySourceSummaries(
 }
 
 function usesCuratedLocalGuideSource(request: LocalItineraryResult["request"]) {
-  return request.theme !== "food_crawl";
+  return request.theme !== "food_crawl" && request.theme !== "itinerary_review";
 }
 
 function uniqueText(values: readonly string[]) {

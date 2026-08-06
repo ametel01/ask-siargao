@@ -9,6 +9,7 @@ describe("siteConfig", () => {
       label: "Siargao Trip Pass",
       priceAuthority: "stripe_price",
     });
-    expect(siteConfig.promise).toContain("freshness and confidence");
+    expect(siteConfig.promise).toContain("Reality-check Siargao plans on demand");
+    expect(siteConfig.promise).toContain("clear evidence limits");
   });
 });

@@ -53,25 +53,20 @@ Example prompts:
 
 Use a trip pass, not a subscription.
 
-First pricing:
+Launch pricing:
 
-- Free preview.
-- USD 14.99 Siargao Trip Pass, valid for 14 days.
-- USD 7.99 extension for 7 more days.
+- 10 free travel answers over seven days.
+- USD 9.99 Siargao Trip Pass with 150 travel answers, valid for 14 days.
 
 Why this is plausible:
 
 - The average traveler stay is closer to a trip window than a recurring subscription.
 - The user pays once for help during the stay.
-- The price can absorb Stripe fees, LLM costs, and a bounded number of Google-backed live refreshes.
-- Usage meters protect margin.
+- The price can absorb Stripe fees and bounded LLM/provider costs.
+- Answer metering and internal provider cost circuits protect margin.
 
-Suggested paid limits:
-
-- 100 chat messages.
-- 30 live evidence refreshes.
-- 10 heavy recommendation searches.
-- daily weather-aware answers.
+Weather, surf, Places, events, public evidence, and route reasoning are selected automatically and
+do not have separate customer-facing limits.
 
 ## Free Hook
 
@@ -80,13 +75,13 @@ Free mode should provide enough value to prove competence:
 - parse the trip prompt
 - identify accommodation or area when possible
 - show today's weather
-- answer one simple question partially
-- show what live evidence would improve the answer
+- answer with the same evidence-aware behavior used by the paid product
+- explain truthful freshness or provider-availability boundaries
 
-Paywall trigger:
+Paywall trigger after the free answer allowance is used:
 
 ```text
-I need live local data to answer this well.
+You have used your free travel answers. Get 150 answers for your trip.
 ```
 
 Do not frame the paywall as buying a static risk report. Frame it as unlocking a live local trip assistant.

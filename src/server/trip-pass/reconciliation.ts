@@ -1,9 +1,14 @@
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { trackServerEvent } from "@/server/observability/events";
-import { initializeDefaultTripPassMeters, tripPassMeterTypes } from "@/server/payments/trip-pass";
+import {
+  initializeTripPassMeters,
+  tripPassMeterLimits,
+  tripPassMeterTypes,
+} from "@/server/payments/trip-pass";
 import {
   readTripPassEnvironment,
   type TripPassMeterType,
+  tripPassMeterTypes as tripPassLedgerMeterTypes,
   tripPassProductCode,
   tripPassProductVersion,
 } from "@/server/trip-pass/catalog";
@@ -11,6 +16,7 @@ import { grantTripPass } from "@/server/trip-pass/entitlement";
 
 const defaultStaleOrderMs = 30 * 60 * 1000;
 const defaultStaleReservationMs = 10 * 60 * 1000;
+const tripPassLedgerMeterTypeSet = new Set<string>(tripPassLedgerMeterTypes);
 
 export type TripPassReconciliationMode = "dry_run" | "repair";
 
@@ -147,6 +153,12 @@ type PassRow = {
 
 type MissingMeterRow = PassRow & {
   meter_count: string | number;
+  expected_meter_count: string | number;
+};
+
+type PassMeterContractRow = {
+  expires_at: Date | string;
+  meter_limits_json: Record<string, number> | string | null;
 };
 
 type MeterAggregateRow = {
@@ -242,8 +254,10 @@ export async function lookupTripPassSupportReference(
   }
 
   const db = options.db ?? getDefaultDatabaseQueryClient();
-  const orders = await loadSupportOrders(input, db);
-  const passes = await loadSupportPasses(input, db);
+  const [orders, passes] = await Promise.all([
+    loadSupportOrders(input, db),
+    loadSupportPasses(input, db),
+  ]);
   const userRefs = new Set<string>();
   for (const order of orders) {
     if (order.user_id) {
@@ -382,7 +396,7 @@ async function collectTripPassIssues(input: {
       repairable: true,
       details: {
         meterCount: toNumber(pass.meter_count),
-        expectedMeters: tripPassMeterTypes.length,
+        expectedMeters: toNumber(pass.expected_meter_count),
       },
     });
   }
@@ -414,27 +428,23 @@ async function buildRepairActions(input: {
   mutate: boolean;
   now: Date;
 }): Promise<TripPassRepairAction[]> {
-  const actions: TripPassRepairAction[] = [];
-  for (const issue of input.issues) {
-    if (!issue.repairable) {
-      continue;
-    }
-    if (issue.code === "paid_without_pass") {
-      actions.push(await grantMissingTripPass(input.db, issue.localRef, input.mutate, input.now));
-    }
-    if (issue.code === "missing_usage_meters") {
-      actions.push(
-        await initializeMissingMeters(input.db, issue.localRef, input.mutate, input.now),
-      );
-    }
-    if (issue.code === "stale_usage_reservation") {
-      actions.push(
-        await releaseStaleReservation(input.db, issue.localRef, input.mutate, input.now),
-      );
-    }
-  }
-
-  return actions;
+  return Promise.all(
+    input.issues.flatMap((issue) => {
+      if (!issue.repairable) {
+        return [];
+      }
+      if (issue.code === "paid_without_pass") {
+        return [grantMissingTripPass(input.db, issue.localRef, input.mutate, input.now)];
+      }
+      if (issue.code === "missing_usage_meters") {
+        return [initializeMissingMeters(input.db, issue.localRef, input.mutate, input.now)];
+      }
+      if (issue.code === "stale_usage_reservation") {
+        return [releaseStaleReservation(input.db, issue.localRef, input.mutate, input.now)];
+      }
+      return [];
+    }),
+  );
 }
 
 async function grantMissingTripPass(
@@ -504,7 +514,16 @@ async function initializeMissingMeters(
     };
   }
 
-  await initializeDefaultTripPassMeters({ tripPassId: passId, now }, db);
+  const contract = await loadPassMeterContract(db, passId);
+  await initializeTripPassMeters(
+    {
+      tripPassId: passId,
+      meterLimits: contract.meterLimits,
+      resetAt: contract.expiresAt,
+      now,
+    },
+    db,
+  );
   return {
     action: "initialize_missing_meters",
     localRef: passId,
@@ -787,21 +806,88 @@ async function loadPassesMissingMeters(
   scope: TripPassReconciliationScope,
 ) {
   const { clause, params } = scopeWhere(scope, "p", 1);
+  const expectedCurrentMetersParameter = params.length + 1;
   const result = await db.query<MissingMeterRow>(
     `
-      select p.id, p.user_id, p.status, p.starts_at, p.expires_at, count(m.id)::text as meter_count
-      from trip_passes p
-      left join trip_usage_meters m on m.trip_pass_id = p.id
-      where p.status = 'active'
-        ${clause}
-      group by p.id, p.user_id, p.status, p.starts_at, p.expires_at
-      having count(m.id) <> $${params.length + 1}
-      order by p.created_at desc
+      with pass_meter_counts as (
+        select
+          p.id,
+          p.user_id,
+          p.status,
+          p.starts_at,
+          p.expires_at,
+          p.created_at,
+          count(m.id) as meter_count,
+          coalesce(
+            nullif((
+              select count(distinct meter_keys.meter_type)
+              from trip_pass_grants g
+              cross join lateral jsonb_object_keys(g.meter_limits_json)
+                as meter_keys(meter_type)
+              where g.trip_pass_id = p.id
+            ), 0),
+            $${expectedCurrentMetersParameter}::bigint
+          ) as expected_meter_count
+        from trip_passes p
+        left join trip_usage_meters m on m.trip_pass_id = p.id
+        where p.status = 'active'
+          ${clause}
+        group by p.id, p.user_id, p.status, p.starts_at, p.expires_at, p.created_at
+      )
+      select
+        id,
+        user_id,
+        status,
+        starts_at,
+        expires_at,
+        meter_count::text,
+        expected_meter_count::text
+      from pass_meter_counts
+      where meter_count <> expected_meter_count
+      order by created_at desc
       limit 50
     `,
     [...params, tripPassMeterTypes.length],
   );
   return result.rows;
+}
+
+async function loadPassMeterContract(db: DatabaseQueryClient, passId: string) {
+  const result = await db.query<PassMeterContractRow>(
+    `
+      select p.expires_at, g.meter_limits_json
+      from trip_passes p
+      left join trip_pass_grants g on g.trip_pass_id = p.id
+      where p.id = $1
+      order by g.created_at desc nulls last
+      limit 1
+    `,
+    [passId],
+  );
+  const row = result.rows[0];
+  const rawMeterLimits: unknown = row?.meter_limits_json
+    ? typeof row.meter_limits_json === "string"
+      ? JSON.parse(row.meter_limits_json)
+      : row.meter_limits_json
+    : null;
+  const parsed =
+    rawMeterLimits && typeof rawMeterLimits === "object" && !Array.isArray(rawMeterLimits)
+      ? (rawMeterLimits as Record<string, unknown>)
+      : null;
+  const meterLimits = Object.fromEntries(
+    Object.entries(parsed ?? {}).filter(
+      ([meterType, limit]) =>
+        tripPassLedgerMeterTypeSet.has(meterType) &&
+        typeof limit === "number" &&
+        Number.isInteger(limit) &&
+        limit > 0,
+    ),
+  ) as Partial<Record<TripPassMeterType, number>>;
+
+  return {
+    expiresAt: row ? new Date(row.expires_at) : null,
+    meterLimits: Object.keys(meterLimits).length > 0 ? meterLimits : tripPassMeterLimits,
+  };
 }
 
 async function loadMeterAggregateMismatches(

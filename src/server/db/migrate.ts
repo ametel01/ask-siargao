@@ -15,65 +15,70 @@ if (!databaseUrl) {
   migrationLogger.error("DATABASE_URL is required to run database migrations.");
   throw new Error("DATABASE_URL is required to run database migrations.");
 }
+const configuredDatabaseUrl = databaseUrl;
 
-const sql = postgres(databaseUrl, createPostgresConnectionOptions("cli"));
-const startedAt = performance.now();
+async function runMigrations() {
+  const sql = postgres(configuredDatabaseUrl, createPostgresConnectionOptions("cli"));
+  const startedAt = performance.now();
 
-try {
-  const migrationFiles = await loadMigrationFiles();
-  const migrationNames = migrationFiles.map((migrationFile) => migrationFile.name);
-
-  migrationLogger.info(
-    {
-      databaseUrl: databaseUrlForLog(databaseUrl),
-      migrationNames,
-    },
-    "Database migration started.",
-  );
-
-  await acquireMigrationLock(sql);
-  lockAcquired = true;
-
-  const migrationResult = await runLedgerBackedMigrations(
-    createPostgresMigrationDatabase(sql),
-    migrationFiles,
-  );
-
-  const tables = await sql<
-    { table_name: string }[]
-  >`select table_name from information_schema.tables where table_schema = 'public' order by table_name`;
-
-  migrationLogger.info(
-    {
-      databaseUrl: databaseUrlForLog(databaseUrl),
-      appliedMigrations: migrationResult.applied,
-      durationMs: Math.round(performance.now() - startedAt),
-      skippedMigrations: migrationResult.skipped,
-      tableCount: tables.length,
-      tables: tables.map((table) => table.table_name),
-    },
-    "Database migration completed.",
-  );
-} catch (error) {
-  migrationLogger.error(
-    {
-      databaseUrl: databaseUrlForLog(databaseUrl),
-      durationMs: Math.round(performance.now() - startedAt),
-      err: error,
-    },
-    "Database migration failed.",
-  );
-  throw error;
-} finally {
   try {
-    if (lockAcquired) {
-      await releaseMigrationLock(sql);
-    }
+    const migrationFiles = await loadMigrationFiles();
+    const migrationNames = migrationFiles.map((migrationFile) => migrationFile.name);
+
+    migrationLogger.info(
+      {
+        databaseUrl: databaseUrlForLog(configuredDatabaseUrl),
+        migrationNames,
+      },
+      "Database migration started.",
+    );
+
+    await acquireMigrationLock(sql);
+    lockAcquired = true;
+
+    const migrationResult = await runLedgerBackedMigrations(
+      createPostgresMigrationDatabase(sql),
+      migrationFiles,
+    );
+
+    const tables = await sql<
+      { table_name: string }[]
+    >`select table_name from information_schema.tables where table_schema = 'public' order by table_name`;
+
+    migrationLogger.info(
+      {
+        databaseUrl: databaseUrlForLog(configuredDatabaseUrl),
+        appliedMigrations: migrationResult.applied,
+        durationMs: Math.round(performance.now() - startedAt),
+        skippedMigrations: migrationResult.skipped,
+        tableCount: tables.length,
+        tables: tables.map((table) => table.table_name),
+      },
+      "Database migration completed.",
+    );
+  } catch (error) {
+    migrationLogger.error(
+      {
+        databaseUrl: databaseUrlForLog(configuredDatabaseUrl),
+        durationMs: Math.round(performance.now() - startedAt),
+        err: error,
+      },
+      "Database migration failed.",
+    );
+    throw error;
   } finally {
-    await sql.end();
-    migrationLogger.debug("Database migration connection closed.");
+    try {
+      if (lockAcquired) {
+        await releaseMigrationLock(sql);
+      }
+    } finally {
+      await sql.end();
+      migrationLogger.debug("Database migration connection closed.");
+    }
   }
 }
+
+await runMigrations();
 
 function databaseUrlForLog(url: string) {
   return url.replace(/:\/\/([^:]+):([^@]+)@/, "://$1:***@");

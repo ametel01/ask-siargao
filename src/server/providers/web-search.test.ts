@@ -3,9 +3,16 @@ import { describe, expect, test } from "bun:test";
 import {
   createConfiguredWebResearchProvider,
   createOpenAIWebResearchProvider,
+  defaultWebResearchMaxRetries,
+  defaultWebResearchTimeoutMs,
 } from "@/server/providers/web-search";
 
 describe("web research provider", () => {
+  test("uses a bounded hosted-search timeout and retry count", () => {
+    expect(defaultWebResearchTimeoutMs).toBe(25_000);
+    expect(defaultWebResearchMaxRetries).toBe(1);
+  });
+
   test("is disabled unless explicitly configured", () => {
     const originalProvider = process.env.WEB_RESEARCH_PROVIDER;
     const originalKey = process.env.OPENAI_API_KEY;

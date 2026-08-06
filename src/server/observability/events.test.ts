@@ -102,6 +102,92 @@ describe("privacy-safe analytics events", () => {
     expect(delivered).not.toContain("latitude");
   });
 
+  test("keeps chat stage timings while removing identifiers and payload content", async () => {
+    const captured: AnalyticsCaptureEvent[] = [];
+    const event = trackServerEvent({
+      name: "chat_latency_recorded",
+      payload: {
+        status: "success",
+        streamed: true,
+        totalMs: 1200,
+        firstByteMs: 15,
+        preflightMs: 25,
+        agentMs: 1100,
+        modelMs: 900,
+        settlementMs: 20,
+        persistenceMs: 40,
+        modelCallCount: 2,
+        toolCallCount: 1,
+        repairCount: 0,
+        modelCalls: [{ callIndex: 1, latencyMs: 450, upstreamRequestId: "req_private" }],
+        tools: [{ name: "search_places", durationMs: 120, rawPayload: "private" }],
+        requestId: "chat_private",
+      },
+      sink: {
+        name: "test-sink",
+        async send(delivered) {
+          captured.push(delivered);
+        },
+      },
+    });
+
+    await event.delivery;
+
+    expect(captured[0]?.properties).toMatchObject({
+      status: "success",
+      streamed: true,
+      firstByteMs: 15,
+      modelCalls: [{ callIndex: 1, latencyMs: 450 }],
+      tools: [{ name: "search_places", durationMs: 120 }],
+    });
+    expect(JSON.stringify(captured[0])).not.toContain("req_private");
+    expect(JSON.stringify(captured[0])).not.toContain("private");
+  });
+
+  test("keeps only coarse reality-check outcome metrics", async () => {
+    const captured: AnalyticsCaptureEvent[] = [];
+    const event = trackServerEvent({
+      name: "reality_check_completed",
+      payload: {
+        status: "completed",
+        kind: "immediate_plan",
+        verdict: "change",
+        sourceState: "checked",
+        sourceCount: 2,
+        toolCallCount: 1,
+        durationMs: 240,
+        cardCount: 0,
+        itineraryCount: 0,
+        decisionSummaryCount: 1,
+        subject: "Private hotel or itinerary text",
+        prompt: "Private traveler request",
+        evidenceToolCallIds: ["call_private"],
+      },
+      sink: {
+        name: "test-sink",
+        async send(delivered) {
+          captured.push(delivered);
+        },
+      },
+    });
+
+    await event.delivery;
+
+    expect(captured[0]?.properties).toMatchObject({
+      status: "completed",
+      kind: "immediate_plan",
+      verdict: "change",
+      sourceState: "checked",
+      sourceCount: 2,
+      toolCallCount: 1,
+      durationMs: 240,
+      decisionSummaryCount: 1,
+    });
+    const delivered = JSON.stringify(captured[0]);
+    expect(delivered).not.toContain("Private");
+    expect(delivered).not.toContain("call_private");
+  });
+
   test("does not throw when analytics is unconfigured or the sink times out", async () => {
     const disabled = trackServerEvent({
       env: {},
