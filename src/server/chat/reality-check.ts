@@ -159,12 +159,15 @@ export function validateRealityCheckProposal(input: {
     return { status: "invalid", reason: "incomplete_evidence_tool_call" };
   }
 
-  const successfulResults = evidenceCalls
-    .map(({ result }) => result)
-    .filter((result) => result.status === "success");
-  const failedResults = evidenceCalls
-    .map(({ result }) => result)
-    .filter((result) => result.status === "error");
+  const successfulResults: RealityCheckEvidenceCall[] = [];
+  const failedResults: RealityCheckEvidenceCall[] = [];
+  for (const { result } of evidenceCalls) {
+    if (result.status === "success") {
+      successfulResults.push(result);
+    } else {
+      failedResults.push(result);
+    }
+  }
   const sources = dedupeSources(evidenceCalls.flatMap(({ result }) => result.sources));
   const sourceState = realityCheckSourceState(successfulResults, failedResults);
 
@@ -211,11 +214,7 @@ export function validateRealityCheckProposal(input: {
     };
   }
 
-  const successfulSources = dedupeSources(
-    successfulResults
-      .flatMap((result) => result.sources)
-      .filter((source) => verifyingSourceLabels.has(source.label)),
-  );
+  const successfulSources = verifyingSources(successfulResults);
   if (successfulSources.length === 0) {
     return invalidWithUnavailableFallback({
       proposal: input.proposal,
@@ -467,6 +466,25 @@ function dedupeSources(sources: readonly AnswerSourceSummary[]) {
     seen.add(key);
     return true;
   });
+}
+
+function verifyingSources(results: readonly RealityCheckEvidenceCall[]) {
+  const sources: AnswerSourceSummary[] = [];
+  const seen = new Set<string>();
+  for (const result of results) {
+    for (const source of result.sources) {
+      if (!verifyingSourceLabels.has(source.label)) {
+        continue;
+      }
+      const key = JSON.stringify(source);
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      sources.push(source);
+    }
+  }
+  return sources;
 }
 
 export function recognizeRealityCheckRequest(

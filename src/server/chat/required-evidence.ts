@@ -88,9 +88,12 @@ type AccommodationRealityCheckContext = {
 function accommodationRealityCheckContext(
   request: AgentRuntimeRequest,
 ): AccommodationRealityCheckContext | undefined {
-  const userTurns = request.messages
-    .filter((message) => message.role === "user")
-    .map((message) => message.content);
+  const userTurns: string[] = [];
+  for (const message of request.messages) {
+    if (message.role === "user") {
+      userTurns.push(message.content);
+    }
+  }
   const latestUserTurn = userTurns.at(-1) ?? "";
   const recentUserContext = userTurns.slice(0, -1).slice(-3).join(" ");
   const recognition = recognizeRealityCheckRequest({ latestUserTurn, recentUserContext });

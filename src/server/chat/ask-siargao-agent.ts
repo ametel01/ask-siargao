@@ -1130,9 +1130,12 @@ function filterAllowedArtifactIds(ids: readonly string[], allowedIds: readonly s
 }
 
 function recognizeRuntimeRealityCheck(request: AgentRuntimeRequest) {
-  const userTurns = request.messages
-    .filter((message) => message.role === "user")
-    .map((message) => message.content);
+  const userTurns: string[] = [];
+  for (const message of request.messages) {
+    if (message.role === "user") {
+      userTurns.push(message.content);
+    }
+  }
   return recognizeRealityCheckRequest({
     latestUserTurn: userTurns.at(-1) ?? "",
     recentUserContext: userTurns.slice(0, -1).slice(-3).join("\n"),

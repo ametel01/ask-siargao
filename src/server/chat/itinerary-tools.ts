@@ -773,23 +773,33 @@ function placesChecksForRequest(
             }),
           ]
         : [];
-    case "itinerary_review":
-      return request.needs_open_now
-        ? (request.review_days ?? [])
-            .flatMap((day) => day.stops)
-            .filter((stop) => stop.kind === "meal" || stop.kind === "place")
-            .slice(0, 3)
-            .map((stop) => {
-              const area = reviewAreaCenter(stop.area);
-              return placesCheck({
-                center: area.center,
-                includedType: stop.kind === "meal" ? "restaurant" : "tourist_attraction",
-                query: `${stop.title} ${stop.area} Siargao`,
-                radiusMeters: area.radiusMeters,
-                reason: "the reviewed stop needs current identity and opening-hour evidence",
-              });
-            })
-        : [];
+    case "itinerary_review": {
+      if (!request.needs_open_now) {
+        return [];
+      }
+      const checks: ItineraryRequiredToolChecks["places"][number][] = [];
+      for (const day of request.review_days ?? []) {
+        for (const stop of day.stops) {
+          if (stop.kind !== "meal" && stop.kind !== "place") {
+            continue;
+          }
+          const area = reviewAreaCenter(stop.area);
+          checks.push(
+            placesCheck({
+              center: area.center,
+              includedType: stop.kind === "meal" ? "restaurant" : "tourist_attraction",
+              query: `${stop.title} ${stop.area} Siargao`,
+              radiusMeters: area.radiusMeters,
+              reason: "the reviewed stop needs current identity and opening-hour evidence",
+            }),
+          );
+          if (checks.length === 3) {
+            return checks;
+          }
+        }
+      }
+      return checks;
+    }
   }
 }
 
