@@ -13,12 +13,19 @@ import {
 } from "@/server/trip-pass/catalog";
 import { grantTripPass } from "@/server/trip-pass/entitlement";
 import {
+  type AuthoritativeDisputeFact,
+  type AuthoritativeRefundFact,
   applyAuthoritativeDisputeFact,
   applyAuthoritativeRefundFact,
   lockTripPassAccountFamily,
   lockTripPassAccountWrites,
   type RefundProviderStatus,
 } from "@/server/trip-pass/payment-lifecycle";
+
+export type PreparedTripPassStripeEvent =
+  | { event: Stripe.Event; kind: "direct" }
+  | { event: Stripe.Event; fact: AuthoritativeRefundFact | null; kind: "refund" }
+  | { event: Stripe.Event; fact: AuthoritativeDisputeFact | null; kind: "dispute" };
 
 export type TripPassStripeApplicationResult =
   | { status: "ignored"; reason: "not_trip_pass_event" | "not_relevant_event" }
@@ -64,9 +71,51 @@ export async function applyTripPassStripeEvent(
     db?: DatabaseQueryClient;
     env?: Record<string, string | undefined>;
     now?: Date;
+    preparedEvent?: PreparedTripPassStripeEvent;
     stripeObjects?: StripeLifecycleObjectRetriever;
   } = {},
 ): Promise<TripPassStripeApplicationResult> {
+  const prepared =
+    options.preparedEvent ?? (await prepareTripPassStripeEvent(event, options.stripeObjects));
+  return applyPreparedTripPassStripeEvent(prepared, options);
+}
+
+export async function prepareTripPassStripeEvent(
+  event: Stripe.Event,
+  retriever?: StripeLifecycleObjectRetriever,
+): Promise<PreparedTripPassStripeEvent> {
+  if (isRefundEvent(event)) {
+    return {
+      event,
+      fact: await retrieveAuthoritativeRefundFact(
+        event,
+        retriever ?? createStripeLifecycleObjectRetriever(),
+      ),
+      kind: "refund",
+    };
+  }
+  if (isDisputeEvent(event)) {
+    return {
+      event,
+      fact: await retrieveAuthoritativeDisputeFact(
+        event,
+        retriever ?? createStripeLifecycleObjectRetriever(),
+      ),
+      kind: "dispute",
+    };
+  }
+  return { event, kind: "direct" };
+}
+
+async function applyPreparedTripPassStripeEvent(
+  prepared: PreparedTripPassStripeEvent,
+  options: {
+    db?: DatabaseQueryClient;
+    env?: Record<string, string | undefined>;
+    now?: Date;
+  },
+): Promise<TripPassStripeApplicationResult> {
+  const { event } = prepared;
   const now = options.now ?? new Date();
 
   if (isCheckoutSessionEvent(event)) {
@@ -81,10 +130,7 @@ export async function applyTripPassStripeEvent(
     );
   }
   if (isRefundEvent(event)) {
-    const fact = await retrieveAuthoritativeRefundFact(
-      event,
-      options.stripeObjects ?? createStripeLifecycleObjectRetriever(),
-    );
+    const fact = prepared.kind === "refund" ? prepared.fact : null;
     if (!fact) {
       return {
         status: "rejected",
@@ -106,10 +152,7 @@ export async function applyTripPassStripeEvent(
       : { ...result, stripeEventId: event.id };
   }
   if (isDisputeEvent(event)) {
-    const fact = await retrieveAuthoritativeDisputeFact(
-      event,
-      options.stripeObjects ?? createStripeLifecycleObjectRetriever(),
-    );
+    const fact = prepared.kind === "dispute" ? prepared.fact : null;
     if (!fact) {
       return {
         status: "rejected",
@@ -643,7 +686,12 @@ function isTripPassCheckoutSession(session: Stripe.Checkout.Session) {
 }
 
 function isRefundEvent(event: Stripe.Event) {
-  return event.type === "charge.refunded" || event.type === "refund.created";
+  return (
+    event.type === "charge.refunded" ||
+    event.type === "refund.created" ||
+    event.type === "refund.updated" ||
+    event.type === "refund.failed"
+  );
 }
 
 function isDisputeEvent(event: Stripe.Event) {
@@ -671,7 +719,11 @@ async function retrieveAuthoritativeRefundFact(
   retriever: StripeLifecycleObjectRetriever,
 ) {
   const object = event.data.object as Stripe.Charge | Stripe.Refund;
-  if (event.type === "refund.created") {
+  if (
+    event.type === "refund.created" ||
+    event.type === "refund.updated" ||
+    event.type === "refund.failed"
+  ) {
     const refund = await retriever.retrieveRefund(object.id);
     const chargeId = stripeObjectId(refund.charge);
     if (!chargeId) return null;

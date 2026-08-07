@@ -181,6 +181,34 @@ describe("Paid After Closure refund worker", () => {
     });
   });
 
+  test("reclaims a crashed running obligation only after its lease expires", async () => {
+    await withTestDb(async (db) => {
+      await insertObligation(db, "crashed");
+      await db.query(
+        `update account_closure_refund_obligations
+         set status = 'running', attempts = 1, lease_token = 'crashed_lease',
+           lease_expires_at = clock_timestamp() - interval '1 second'
+         where id = 'refund_crashed'`,
+      );
+
+      await expect(
+        runPaidAfterClosureRefundBatch({
+          db,
+          stripe: {
+            createFullRefund: async () => ({ id: "re_recovered", status: "succeeded" }),
+            retrieveRefund: async (id) => ({ id, status: "succeeded" }),
+          },
+          createLeaseToken: () => "recovery_lease",
+        }),
+      ).resolves.toEqual({ claimed: 1, confirmed: 1, retrying: 0, stale: 0 });
+      await expectObligation(db, "crashed", {
+        attempts: 2,
+        status: "succeeded",
+        stripe_refund_id: "re_recovered",
+      });
+    });
+  });
+
   test("bounds exponential retry delay and deterministic jitter", () => {
     expect(refundRetryDelayMs(1, 0.5)).toBe(60_000);
     expect(refundRetryDelayMs(2, 0)).toBe(90_000);

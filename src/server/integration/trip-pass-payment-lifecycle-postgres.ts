@@ -2,7 +2,12 @@ import type Stripe from "stripe";
 
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import type { RealPostgresHarness } from "@/server/integration/postgres-harness";
-import type { StripeRefundClient } from "@/server/payments/stripe";
+import type { StripeLifecycleObjectRetriever, StripeRefundClient } from "@/server/payments/stripe";
+import {
+  applyStripeInboxEvent,
+  receiveStripeWebhookEvent,
+  STRIPE_API_VERSION,
+} from "@/server/payments/stripe-event-inbox";
 import { beginAccountClosure } from "@/server/privacy/account-closure";
 import { runPaidAfterClosureRefundBatch } from "@/server/trip-pass/paid-after-closure-refund";
 import {
@@ -10,7 +15,10 @@ import {
   applyAuthoritativeRefundFact,
 } from "@/server/trip-pass/payment-lifecycle";
 import { tripPassCheckoutProductSnapshot } from "@/server/trip-pass/stripe-adapter";
-import { applyTripPassStripeEvent } from "@/server/trip-pass/webhook-application";
+import {
+  applyTripPassStripeEvent,
+  prepareTripPassStripeEvent,
+} from "@/server/trip-pass/webhook-application";
 
 const amountMinor = tripPassCheckoutProductSnapshot.amountTotalMinor;
 
@@ -27,6 +35,7 @@ export async function runTripPassPaymentLifecyclePostgresRegression(harness: Rea
   try {
     await installPaidAnswerReservationContract(client);
     await proveDatabaseTimeActivation(client);
+    await proveDurableRefundResolutionOutsideTransaction(harness);
     await proveAuthoritativeRefundMatrix(client);
     await proveAuthoritativeDisputeMatrix(client);
     await proveNativeRollbackAndReplay(client);
@@ -38,6 +47,7 @@ export async function runTripPassPaymentLifecyclePostgresRegression(harness: Rea
         checked: "trip-pass-payment-lifecycle-postgres",
         proofs: [
           "database-time-activation",
+          "durable-provider-resolution-before-transaction",
           "refund-matrix",
           "dispute-matrix",
           "rollback-replay",
@@ -72,6 +82,172 @@ async function proveDatabaseTimeActivation(db: DatabaseQueryClient) {
     336 * 60 * 60_000,
     "Trip Pass term was not exactly 336 elapsed hours",
   );
+}
+
+async function proveDurableRefundResolutionOutsideTransaction(harness: RealPostgresHarness) {
+  const application = harness.createQueryClient({ max: 1 });
+  const observer = harness.createQueryClient({ max: 1 });
+  const providerStarted = deferred<void>();
+  const providerRelease = deferred<void>();
+  try {
+    const target = await activatePass(application, "durable_refund_resolution");
+    await insertOpenReservation(application, target, "durable_refund_resolution");
+    const backend = await application.query<{ pid: number }>("select pg_backend_pid() as pid");
+    const event = refundWebhookEvent(
+      "evt_durable_refund_pending",
+      "refund.created",
+      "re_durable_refund",
+    );
+    const retriever = refundStatusRetriever(target, "pending", 0, {
+      async beforeRefund() {
+        providerStarted.resolve();
+        await providerRelease.promise;
+      },
+    });
+    const pendingApplication = receiveStripeWebhookEvent(event, {
+      db: application,
+      prepareEvent: (received) => prepareTripPassStripeEvent(received, retriever),
+      applyEvent: (prepared, options) =>
+        applyTripPassStripeEvent(prepared.event, {
+          db: options.db,
+          now: options.now,
+          preparedEvent: prepared,
+        }),
+    });
+    await providerStarted.promise;
+
+    const backendState = await observer.query<{ state: string }>(
+      "select state from pg_stat_activity where pid = $1",
+      [backend.rows[0]?.pid],
+    );
+    assertEqual(
+      backendState.rows[0]?.state,
+      "idle",
+      "Stripe retrieval left the durable inbox connection inside a transaction",
+    );
+    await observer.query(
+      "select id from trip_pass_stripe_events where stripe_event_id = $1 for update nowait",
+      [event.id],
+    );
+    await observer.query(
+      `update trip_pass_stripe_events
+       set claim_token = 'replacement_during_lookup',
+         claim_expires_at = clock_timestamp() + interval '1 minute'
+       where stripe_event_id = $1`,
+      [event.id],
+    );
+    providerRelease.resolve();
+    const stale = await pendingApplication;
+    assert(
+      stale.status === "pending" && stale.reason === "stripe_inbox_claim_not_owned",
+      "provider result crossed a replaced durable inbox claim",
+    );
+    const staleFacts = await observer.query<{ count: string }>(
+      "select count(*)::text as count from trip_pass_refund_facts where order_id = $1",
+      [target.orderId],
+    );
+    assertEqual(staleFacts.rows[0]?.count, "0", "stale provider resolution applied a refund fact");
+
+    await observer.query(
+      `update trip_pass_stripe_events set claim_expires_at = clock_timestamp() - interval '1 second'
+       where stripe_event_id = $1`,
+      [event.id],
+    );
+    await applyDurableRefundEvent(application, event, refundStatusRetriever(target, "pending", 0));
+    await assertLifecycle(application, target, {
+      disputeState: "none",
+      orderStatus: "paid",
+      passStatus: "active",
+      refundState: "review",
+      refundedMinor: 0,
+      reservationStatus: "open",
+    });
+
+    await applyDurableRefundEvent(
+      application,
+      refundWebhookEvent("evt_durable_refund_failed", "refund.failed", "re_durable_refund"),
+      refundStatusRetriever(target, "failed", 0),
+    );
+    await assertLifecycle(application, target, {
+      disputeState: "none",
+      orderStatus: "paid",
+      passStatus: "active",
+      refundState: "none",
+      refundedMinor: 0,
+      reservationStatus: "open",
+    });
+
+    await applyDurableRefundEvent(
+      application,
+      refundWebhookEvent(
+        "evt_durable_refund_updated_pending",
+        "refund.updated",
+        "re_durable_refund",
+      ),
+      refundStatusRetriever(target, "pending", 0),
+    );
+    await applyDurableRefundEvent(
+      application,
+      refundWebhookEvent(
+        "evt_durable_refund_updated_cancelled",
+        "refund.updated",
+        "re_durable_refund",
+      ),
+      refundStatusRetriever(target, "canceled", 0),
+    );
+    await assertLifecycle(application, target, {
+      disputeState: "none",
+      orderStatus: "paid",
+      passStatus: "active",
+      refundState: "none",
+      refundedMinor: 0,
+      reservationStatus: "open",
+    });
+
+    const inboxRows = await observer.query<{ count: string }>(
+      `select count(*)::text as count from trip_pass_stripe_events
+       where stripe_event_id = any($1::text[]) and status = 'applied'`,
+      [
+        [
+          "evt_durable_refund_pending",
+          "evt_durable_refund_failed",
+          "evt_durable_refund_updated_pending",
+          "evt_durable_refund_updated_cancelled",
+        ],
+      ],
+    );
+    assertEqual(
+      inboxRows.rows[0]?.count,
+      "4",
+      "durable refund transition inboxes were not applied",
+    );
+  } finally {
+    providerRelease.resolve();
+    await Promise.allSettled([application.end(), observer.end()]);
+  }
+}
+
+async function applyDurableRefundEvent(
+  db: DatabaseQueryClient,
+  event: Stripe.Event,
+  retriever: StripeLifecycleObjectRetriever,
+) {
+  const receipt = await receiveStripeWebhookEvent(event, { db });
+  assert(
+    receipt.status === "received" || receipt.status === "duplicate",
+    `durable refund receipt was unavailable: ${event.id}`,
+  );
+  const result = await applyStripeInboxEvent(`stripe_event_${event.id}`, {
+    db,
+    prepareEvent: (received) => prepareTripPassStripeEvent(received, retriever),
+    applyEvent: (prepared, options) =>
+      applyTripPassStripeEvent(prepared.event, {
+        db: options.db,
+        now: options.now,
+        preparedEvent: prepared,
+      }),
+  });
+  assert(result.status === "applied", `durable refund event did not apply: ${event.id}`);
 }
 
 async function proveAuthoritativeRefundMatrix(db: DatabaseQueryClient) {
@@ -355,7 +531,37 @@ async function provePaidAfterClosureWorker(harness: RealPostgresHarness) {
   const observer = harness.createQueryClient({ max: 1 });
   const providerStarted = deferred<void>();
   const providerRelease = deferred<void>();
+  const slowStarted = deferred<void>();
+  const slowRelease = deferred<void>();
   try {
+    const recovered = await createPaidAfterClosureObligation(db, "worker_recovered");
+    await observer.query(
+      `update account_closure_refund_obligations
+       set status = 'running', attempts = 2, lease_token = 'crashed_native_lease',
+         lease_expires_at = clock_timestamp() - interval '1 second'
+       where id = $1`,
+      [recovered],
+    );
+    const recoveredBatch = await runPaidAfterClosureRefundBatch({
+      db,
+      stripe: {
+        createFullRefund: async () => ({ id: "re_recovered_native", status: "succeeded" }),
+        retrieveRefund: async (id) => ({ id, status: "succeeded" }),
+      },
+      limit: 1,
+      createLeaseToken: () => "recovery_native_lease",
+    });
+    assertEqual(recoveredBatch.confirmed, 1, "expired running refund obligation was not reclaimed");
+    const recoveredRow = await observer.query<{ attempts: number; status: string }>(
+      "select attempts, status from account_closure_refund_obligations where id = $1",
+      [recovered],
+    );
+    assertDeepEqual(
+      recoveredRow.rows[0],
+      { attempts: 3, status: "succeeded" },
+      "crashed refund obligation recovery was not durable",
+    );
+
     const first = await createPaidAfterClosureObligation(db, "worker_one");
     const second = await createPaidAfterClosureObligation(db, "worker_two");
     await observer.query(
@@ -469,8 +675,64 @@ async function provePaidAfterClosureWorker(harness: RealPostgresHarness) {
       calls.some((call) => call.startsWith("retrieve:")),
       "worker recreated instead of retrieving the durable pending refund",
     );
+
+    const slow = await createPaidAfterClosureObligation(db, "worker_slow_page");
+    const expiringBehind = await createPaidAfterClosureObligation(db, "worker_expiring_page");
+    await observer.query(
+      `update account_closure_refund_obligations
+       set status = 'running', attempts = 1, lease_token = 'crashed_page_lease',
+         lease_expires_at = clock_timestamp() + interval '1 day'
+       where id = $1`,
+      [expiringBehind],
+    );
+    let pageCalls = 0;
+    const pageRun = runPaidAfterClosureRefundBatch({
+      db,
+      stripe: {
+        async createFullRefund(input) {
+          pageCalls += 1;
+          if (pageCalls === 1) {
+            slowStarted.resolve();
+            await slowRelease.promise;
+          }
+          return { id: `re_${input.paymentIntentId}`, status: "succeeded" };
+        },
+        retrieveRefund: async (id) => ({ id, status: "succeeded" }),
+      },
+      limit: 2,
+      createLeaseToken: () => `page_native_lease_${pageCalls + 1}`,
+    });
+    await slowStarted.promise;
+    const behindBeforeExpiry = await observer.query<{ lease_token: string; status: string }>(
+      "select lease_token, status from account_closure_refund_obligations where id = $1",
+      [expiringBehind],
+    );
+    assertDeepEqual(
+      behindBeforeExpiry.rows[0],
+      { lease_token: "crashed_page_lease", status: "running" },
+      "later page row was claimed before the earlier provider call completed",
+    );
+    await observer.query(
+      `update account_closure_refund_obligations
+       set lease_expires_at = clock_timestamp() - interval '1 second' where id = $1`,
+      [expiringBehind],
+    );
+    slowRelease.resolve();
+    const paged = await pageRun;
+    assertDeepEqual(
+      paged,
+      { claimed: 2, confirmed: 2, retrying: 0, stale: 0 },
+      "just-in-time paging did not recover a row that expired behind a slow provider call",
+    );
+    const pagedRows = await observer.query<{ count: string }>(
+      `select count(*)::text as count from account_closure_refund_obligations
+       where id = any($1::text[]) and status = 'succeeded'`,
+      [[slow, expiringBehind]],
+    );
+    assertEqual(pagedRows.rows[0]?.count, "2", "worker page recovery left rows incomplete");
   } finally {
     providerRelease.resolve();
+    slowRelease.resolve();
     await Promise.allSettled([db.end(), observer.end()]);
   }
 }
@@ -749,6 +1011,65 @@ function disputeFact(target: ActivatedPass, suffix: string, status: "open" | "wo
   } as const;
 }
 
+function refundStatusRetriever(
+  target: ActivatedPass,
+  status: "pending" | "failed" | "canceled",
+  successfulAmountMinor: number,
+  hooks: { beforeRefund?: () => Promise<void> } = {},
+): StripeLifecycleObjectRetriever {
+  return {
+    async retrieveRefund(refundId) {
+      await hooks.beforeRefund?.();
+      return {
+        id: refundId,
+        object: "refund",
+        amount: 100,
+        charge: `ch_${target.orderId}`,
+        created: 1_786_080_000,
+        status,
+      } as Stripe.Refund;
+    },
+    async retrieveCharge(chargeId) {
+      return {
+        id: chargeId,
+        object: "charge",
+        amount: amountMinor,
+        amount_refunded: successfulAmountMinor,
+        created: 1_786_080_000,
+        payment_intent: target.paymentIntentId,
+      } as Stripe.Charge;
+    },
+    async retrieveDispute() {
+      throw new Error("unexpected dispute lookup for refund lifecycle proof");
+    },
+  };
+}
+
+function refundWebhookEvent(
+  eventId: string,
+  type: "refund.created" | "refund.updated" | "refund.failed",
+  refundId: string,
+) {
+  return {
+    id: eventId,
+    object: "event",
+    api_version: STRIPE_API_VERSION,
+    created: 1_786_080_000,
+    data: {
+      object: {
+        amount: 100,
+        currency: tripPassCheckoutProductSnapshot.currency,
+        id: refundId,
+        object: "refund",
+      },
+    },
+    livemode: false,
+    pending_webhooks: 1,
+    request: null,
+    type,
+  } as Stripe.Event;
+}
+
 function checkoutEvent(orderId: string) {
   return {
     id: `evt_${orderId}`,
@@ -862,6 +1183,14 @@ function assert(condition: unknown, message: string): asserts condition {
 
 function assertEqual<T>(actual: T, expected: T, message: string) {
   if (actual !== expected) throw new Error(`${message}: expected ${expected}, received ${actual}`);
+}
+
+function assertDeepEqual(actual: unknown, expected: unknown, message: string) {
+  const actualJson = JSON.stringify(actual);
+  const expectedJson = JSON.stringify(expected);
+  if (actualJson !== expectedJson) {
+    throw new Error(`${message}: expected ${expectedJson}, received ${actualJson}`);
+  }
 }
 
 function deferred<T>() {

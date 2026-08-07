@@ -32,20 +32,20 @@ export async function runPaidAfterClosureRefundBatch(
 ): Promise<PaidAfterClosureRefundBatchResult> {
   const db = input.db ?? getDefaultDatabaseQueryClient();
   const stripe = input.stripe ?? createStripeRefundClient();
-  const claims = await claimRefundObligations(
-    db,
-    input.limit ?? 10,
-    input.leaseMs ?? 60_000,
-    input.createLeaseToken ?? randomUUID,
-  );
   const result: PaidAfterClosureRefundBatchResult = {
-    claimed: claims.length,
+    claimed: 0,
     confirmed: 0,
     retrying: 0,
     stale: 0,
   };
 
-  for (const claim of claims) {
+  const limit = input.limit ?? 10;
+  const leaseMs = input.leaseMs ?? 60_000;
+  const createLeaseToken = input.createLeaseToken ?? randomUUID;
+  for (let index = 0; index < limit; index += 1) {
+    const claim = await claimRefundObligation(db, leaseMs, createLeaseToken());
+    if (!claim) break;
+    result.claimed += 1;
     try {
       const refund = claim.stripe_refund_id
         ? await stripe.retrieveRefund(claim.stripe_refund_id)
@@ -81,25 +81,21 @@ export async function runPaidAfterClosureRefundBatch(
   return result;
 }
 
-async function claimRefundObligations(
-  db: DatabaseQueryClient,
-  limit: number,
-  leaseMs: number,
-  createLeaseToken: () => string,
-) {
-  const claims: RefundObligationClaim[] = [];
-  for (let index = 0; index < limit; index += 1) {
-    const leaseToken = createLeaseToken();
-    const result = await withTransaction(db, (transaction) =>
-      transaction.query<RefundObligationClaim>(
-        `
+async function claimRefundObligation(db: DatabaseQueryClient, leaseMs: number, leaseToken: string) {
+  const result = await withTransaction(db, (transaction) =>
+    transaction.query<RefundObligationClaim>(
+      `
           with candidate as (
             select id from account_closure_refund_obligations
-            where status = 'pending'
-              and stripe_payment_intent_id is not null
+            where stripe_payment_intent_id is not null
               and expected_amount_minor is not null
-              and (next_attempt_at is null or next_attempt_at <= clock_timestamp())
-            order by coalesce(next_attempt_at, created_at), id
+              and (
+                (status = 'pending'
+                  and (next_attempt_at is null or next_attempt_at <= clock_timestamp()))
+                or (status = 'running' and lease_expires_at <= clock_timestamp())
+              )
+            order by case when status = 'running' then lease_expires_at
+              else coalesce(next_attempt_at, created_at) end, id
             for update skip locked
             limit 1
           )
@@ -110,15 +106,11 @@ async function claimRefundObligations(
           from candidate where r.id = candidate.id
           returning r.id, r.stripe_payment_intent_id, r.stripe_refund_id,
             r.expected_amount_minor, r.attempts, r.lease_token
-        `,
-        [leaseToken, leaseMs],
-      ),
-    );
-    const claim = result.rows[0];
-    if (!claim) break;
-    claims.push(claim);
-  }
-  return claims;
+      `,
+      [leaseToken, leaseMs],
+    ),
+  );
+  return result.rows[0] ?? null;
 }
 
 async function markRefundConfirmed(
