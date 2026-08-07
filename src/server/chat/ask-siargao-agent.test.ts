@@ -194,7 +194,11 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     const executeTool: AgentToolExecutor = async () => {
       throw new Error("provider should not run after live allowance exhaustion");
     };
-    const meteredExecuteTool = createMeteredToolExecutor({ executeTool, usageSession: session });
+    const meteredExecuteTool = createMeteredToolExecutor({
+      executeTool,
+      plan: "free",
+      usageSession: session,
+    });
 
     const result = await meteredExecuteTool({
       arguments: { query: "breakfast in Dapa" },
@@ -229,7 +233,11 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       errorCode: "provider_unavailable",
       sources: [providerUnavailableSourceSummary],
     });
-    const meteredExecuteTool = createMeteredToolExecutor({ executeTool, usageSession: session });
+    const meteredExecuteTool = createMeteredToolExecutor({
+      executeTool,
+      plan: "free",
+      usageSession: session,
+    });
 
     const result = await meteredExecuteTool({
       arguments: { query: "breakfast in Dapa" },
@@ -281,6 +289,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         logData: { upstreamRequestId: `${request.toolCallId}_upstream` },
         sources: [placesSourceSummary],
       }),
+      plan: "free",
       usageSession: session,
     });
 
@@ -327,6 +336,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
           },
         ],
       }),
+      plan: "free",
       usageSession: session,
     });
 
@@ -383,7 +393,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     ]);
   });
 
-  test("paid route decisions consume the live umbrella meter and the route sublimit", async () => {
+  test("paid tools do not reserve legacy commercial decision meters", async () => {
     const settlements: Array<{ meterType: PaidDecisionMeterType; success: boolean }> = [];
     const session = fakePaidUsageSession({
       reserveDecisionMeter: async (meterType) =>
@@ -410,10 +420,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       toolCallId: "call_paid_route",
     });
 
-    expect(settlements).toEqual([
-      { meterType: "live_refresh", success: true },
-      { meterType: "route_lookup", success: true },
-    ]);
+    expect(settlements).toEqual([]);
   });
 
   test("repairs leaked DSML tool-call markup before returning a default chat answer", async () => {
