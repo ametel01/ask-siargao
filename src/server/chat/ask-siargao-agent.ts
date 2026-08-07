@@ -546,7 +546,52 @@ export async function runAskSiargaoAgentTurn(
         );
         continue;
       }
-      throw new Error("Ask Siargao agent exceeded the maximum tool-call count.");
+      logger.warn(
+        {
+          model: activeModel,
+          toolCallCount: toolCalls.length,
+          proposedToolCallCount: functionCalls.length,
+          maxToolCalls,
+        },
+        "Ask Siargao agent forcing final answer because another tool call would exceed the budget.",
+      );
+      responseInput = [
+        ...responseInput,
+        userInputMessage({
+          instruction: toolBudgetExhaustedFinalAnswerInstruction(),
+          validationRepairToolBudgetExhausted: {
+            existingToolCallCount: toolCalls.length,
+            maxToolCalls,
+            requestedToolNames: functionCalls.map((functionCall) => functionCall.name),
+          },
+          responseContract,
+        }),
+      ];
+      response = await createBudgetedModelResponse({
+        client,
+        costAccumulator,
+        costPolicy,
+        costPolicyEnv: dependencies.costPolicyEnv,
+        costCircuitStore: dependencies.costCircuitStore,
+        now: dependencies.now,
+        params: {
+          model: activeModel,
+          store: false,
+          max_output_tokens: maxOutputTokens,
+          instructions,
+          modelCostPolicy,
+          ...(responseText ? { text: responseText } : {}),
+          input: responseInput,
+        },
+      });
+      activeModel = response.model ?? activeModel;
+      collectUpstreamRequestId(response._request_id, upstreamRequestIds);
+      collectHostedFileSearchMemoryFileNames(
+        response.output,
+        memorySnapshot,
+        hostedMemoryFileNames,
+      );
+      continue;
     }
 
     await emitAgentProgress(dependencies.onProgress, {
@@ -1371,13 +1416,18 @@ function expandFinalPayloadToolCallIds(
       if (knownToolCallIds.has(normalizedValue)) {
         return [normalizedValue];
       }
-      const toolName = modelFacingToolNameReference(normalizedValue, calledToolNames);
-      if (!toolName) {
+      const toolReference = modelFacingToolNameReference(normalizedValue, calledToolNames);
+      if (!toolReference) {
         return [value];
       }
       const matchingToolCallIds = toolCalls.flatMap((toolCall) =>
-        toolCall.name === toolName && toolCall.toolCallId ? [toolCall.toolCallId] : [],
+        toolCall.name === toolReference.name && toolCall.toolCallId ? [toolCall.toolCallId] : [],
       );
+      if (toolReference.index !== undefined) {
+        return matchingToolCallIds[toolReference.index]
+          ? [matchingToolCallIds[toolReference.index]]
+          : [value];
+      }
       return matchingToolCallIds.length ? matchingToolCallIds : [value];
     }),
   );
@@ -1385,9 +1435,20 @@ function expandFinalPayloadToolCallIds(
 
 function modelFacingToolNameReference(value: string, calledToolNames: ReadonlySet<string>) {
   const normalizedValue = value.trim();
-  const match = /^functions\.([A-Za-z0-9_]+)$/u.exec(normalizedValue);
-  const candidate = match?.[1] ?? normalizedValue;
-  return calledToolNames.has(candidate) ? candidate : undefined;
+  const functionsMatch = /^functions\.([A-Za-z0-9_]+)$/u.exec(normalizedValue);
+  const candidate = functionsMatch?.[1] ?? normalizedValue;
+  if (calledToolNames.has(candidate)) {
+    return { name: candidate };
+  }
+
+  for (const toolName of calledToolNames) {
+    const indexedAliasMatch = new RegExp(`^${toolName}_(\\d+)$`, "u").exec(candidate);
+    if (indexedAliasMatch?.[1] !== undefined) {
+      return { name: toolName, index: Number(indexedAliasMatch[1]) };
+    }
+  }
+
+  return undefined;
 }
 
 function normalizeFinalPayloadCardIds(values: readonly string[]) {
@@ -1395,9 +1456,13 @@ function normalizeFinalPayloadCardIds(values: readonly string[]) {
 }
 
 function normalizeFinalPayloadCardId(value: string) {
-  const placeResourceMatch = /^places\/(.+)$/u.exec(value.trim());
+  const normalizedValue = value.trim();
+  const placeResourceMatch = /^places\/(.+)$/u.exec(normalizedValue);
   if (placeResourceMatch?.[1]) {
     return `place_${slugPart(placeResourceMatch[1]).toLowerCase()}`;
+  }
+  if (/^ChIJ[A-Za-z0-9_-]+$/u.test(normalizedValue)) {
+    return `place_${slugPart(normalizedValue).toLowerCase()}`;
   }
   return value;
 }
@@ -4270,6 +4335,14 @@ function invalidToolArgumentsFinalAnswerInstruction(toolNames: readonly string[]
     `Repeated invalid tool arguments were detected for: ${toolList}.`,
     "Do not call any more tools. Write the final traveler-facing answer now from successful checked tool evidence already in the conversation, loaded Ask Siargao memory, and explicit caveats for anything not checked.",
     "Do not claim public web research succeeded for tools that returned invalid_tool_arguments. If current web evidence is missing, say what was not checked instead of retrying.",
+  ].join(" ");
+}
+
+function toolBudgetExhaustedFinalAnswerInstruction() {
+  return [
+    "The tool-call budget is exhausted, so do not call any more tools.",
+    "Return the best final traveler-facing answer now using only successful checked evidence already present in the conversation.",
+    "Omit claims and public artifacts that require a missing or failed check, and state practical uncertainty only when it matters to the traveler.",
   ].join(" ");
 }
 

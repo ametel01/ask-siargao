@@ -66,11 +66,7 @@ type AssistantMarkdownListItems = Extract<AssistantMarkdownBlock, { type: "list"
 type AssistantMarkdownTableBlock = Extract<AssistantMarkdownBlock, { type: "table" }>;
 
 export function parseAssistantMarkdownBlocks(text: string): AssistantMarkdownBlock[] {
-  const normalizedText = text
-    .replace(/\r\n?/g, "\n")
-    .replace(/\s+-\s+(\*\*[^*]+?\*\*:)/g, "\n- $1")
-    .replace(/(?<![A-Za-z])\s+(\d+\.\s+[A-Z][^:\n]{0,120})/g, "\n$1")
-    .replace(/\s+(Weather signal:|Checked:|Not checked:)/g, "\n$1");
+  const normalizedText = normalizeAssistantMarkdownText(text);
   const blocks: AssistantMarkdownBlock[] = [];
   let paragraphLines: string[] = [];
   let listItems: AssistantMarkdownListItems = [];
@@ -368,6 +364,23 @@ function parseAssistantLinkTokens(value: string, keyPrefix: string): AssistantIn
 
 function isMarkdownTableLine(line: string) {
   return /^\|.+\|$/.test(line) && line.split("|").length >= 3;
+}
+
+function normalizeAssistantMarkdownText(text: string) {
+  return text
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => {
+      if (isMarkdownTableLine(line.trim())) {
+        return line;
+      }
+
+      return line
+        .replace(/\s+-\s+(\*\*[^*]+?\*\*:)/g, "\n- $1")
+        .replace(/(?<![A-Za-z])\s+(\d+\.\s+[A-Z][^:\n]{0,120})/g, "\n$1")
+        .replace(/\s+(Weather signal:|Checked:|Not checked:)/g, "\n$1");
+    })
+    .join("\n");
 }
 
 function parseMarkdownTableCells(line: string) {

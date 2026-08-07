@@ -295,6 +295,241 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect.poll(() => composerFitsViewport(page)).toBe(true);
 });
 
+test("renders the compact mobile chat layout with copy and try-again actions", async ({
+  context,
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 400, height: 839 });
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await mockMobileTripContextProfile(page, "anonymous");
+  await mockUnavailableMobileConditions(page);
+  const responseText = [
+    "For lunch in General Luna today, keep the plan simple and close together.",
+    "Start with a place near Tourism Road so you are not committing to a long ride before you know how the weather is moving.",
+    "If the first choice is full, use a nearby covered cafe as the fallback instead of crossing the island for one meal.",
+    "Check the latest opening information before leaving, especially if heavy rain has affected the road.",
+    "Keep the return route short if the sky darkens, and avoid turning lunch into a long transport commitment.",
+    "A good plan here is the place you can reach, verify, and leave easily if conditions change.",
+    "If you want, I can narrow this to budget, vegetarian, beachfront, or the closest option to your stay.",
+  ].join("\n\n");
+  const chat = await mockChatApi(page, { message: responseText });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Best lunch in General Luna today?");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  await expect(page.getByText("For lunch in General Luna today")).toBeVisible();
+  const conversation = page.getByTestId("conversation-region");
+  const header = conversation.locator("header").first();
+  const userBubble = page.getByTestId("user-message-bubble").last();
+  const assistantBubble = page.getByTestId("assistant-message-bubble").last();
+  const composer = page.getByRole("form", { name: "Ask Siargao composer" });
+  const copyButton = assistantBubble.getByRole("button", { name: "Copy response" });
+  const retryButton = assistantBubble.getByRole("button", { name: "Try again" });
+
+  await expect(page.getByTestId("mobile-chat-navigation-trigger")).toBeVisible();
+  const mobileNavigation = await openMobileChatNavigation(page);
+  await expect(mobileNavigation.getByTestId("mobile-trip-context-trigger")).toBeVisible();
+  await mobileNavigation.getByRole("button", { name: "Close navigation menu" }).click();
+  await expect(page.getByRole("button", { name: "Start a new chat" })).toBeVisible();
+  await expect(copyButton).toBeVisible();
+  await expect(retryButton).toBeVisible();
+  await expect(
+    assistantBubble.getByRole("button", { name: "Rate assistant response helpful" }),
+  ).toBeHidden();
+  await expect(page.getByText("Try another Reality Check")).toBeHidden();
+  await expect
+    .poll(async () => {
+      const [headerBox, userBox, assistantBox, composerBox] = await Promise.all([
+        header.boundingBox(),
+        userBubble.boundingBox(),
+        assistantBubble.boundingBox(),
+        composer.boundingBox(),
+      ]);
+      if (!headerBox || !userBox || !assistantBox || !composerBox) {
+        return null;
+      }
+      const assistantStyle = await assistantBubble.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          background: style.backgroundColor,
+          borderWidth: style.borderWidth,
+          shadow: style.boxShadow,
+        };
+      });
+      const composerStyle = await composer.evaluate((element) => {
+        const surface = element.querySelector<HTMLElement>("[data-slot='input-group']");
+        if (!surface) {
+          return null;
+        }
+        const style = getComputedStyle(surface);
+        return { background: style.backgroundColor, opacity: style.opacity };
+      });
+      return {
+        assistantIsFlat:
+          assistantStyle.background === "rgba(0, 0, 0, 0)" &&
+          assistantStyle.borderWidth === "0px" &&
+          (assistantStyle.shadow === "none" ||
+            !assistantStyle.shadow.match(/rgba\((?!0, 0, 0, 0\))/)),
+        assistantUsesTranscriptGutter: assistantBox.x <= 18,
+        composerFloats:
+          composerBox.x >= 12 &&
+          composerBox.x + composerBox.width <= 388 &&
+          composerBox.y + composerBox.height < 839,
+        composerIsOpaque:
+          composerStyle?.background === "rgb(255, 255, 255)" && composerStyle.opacity === "1",
+        headerIsCompact: headerBox.height <= 66,
+        userIsRightAligned: userBox.x > assistantBox.x + 80,
+      };
+    })
+    .toEqual({
+      assistantIsFlat: true,
+      assistantUsesTranscriptGutter: true,
+      composerFloats: true,
+      composerIsOpaque: true,
+      headerIsCompact: true,
+      userIsRightAligned: true,
+    });
+
+  const screenshotPath = process.env.ASK_SIARGAO_MOBILE_SCREENSHOT_PATH;
+  const scrollArea = page.getByTestId("chat-message-scroll-area");
+  await scrollArea.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await expect(page.getByRole("button", { name: "Jump to latest message" })).toBeVisible();
+  expect(
+    await scrollArea.evaluate((element) => {
+      element.scrollTop = 0;
+      return element.scrollTop;
+    }),
+  ).toBe(0);
+  await page.screenshot({
+    animations: "disabled",
+    path: screenshotPath ?? testInfo.outputPath("ask-siargao-mobile-chat.png"),
+  });
+
+  await copyButton.click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(responseText);
+
+  await retryButton.click();
+  await expect.poll(() => chat.requests.length).toBe(2);
+  expect(lastSubmittedContent(chat.requests[1])).toBe("Best lunch in General Luna today?");
+});
+
+test("opens mobile navigation with home, profile, trip details, and recent chats", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const thread = {
+    id: "thread_mobile_navigation",
+    title: "Cloud 9 breakfast plan",
+    status: "active",
+    createdAt: "2026-08-06T01:00:00.000Z",
+    updatedAt: "2026-08-06T01:05:00.000Z",
+    lastMessageAt: "2026-08-06T01:05:00.000Z",
+  };
+  const messages: E2EThreadMessage[] = [
+    {
+      id: "message_mobile_navigation_user",
+      role: "user",
+      content: "Where should I get breakfast near Cloud 9?",
+      status: "complete",
+      sources: [],
+      cards: [],
+      actions: [],
+      itineraries: [],
+      decisionSummaries: [],
+      createdAt: "2026-08-06T01:00:00.000Z",
+    },
+    {
+      id: "message_mobile_navigation_assistant",
+      role: "assistant",
+      content: "Start close to Cloud 9 and keep a covered cafe as your weather fallback.",
+      status: "complete",
+      sources: [],
+      cards: [],
+      actions: [],
+      itineraries: [],
+      decisionSummaries: [],
+      rating: null,
+      createdAt: "2026-08-06T01:05:00.000Z",
+    },
+  ];
+
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        tripContext: {
+          accommodation: "General Luna",
+          dateRange: "Aug 7 - 12",
+          travelerType: "Solo traveler",
+        },
+      }),
+    });
+  });
+  await page.route("**/api/chat/threads**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === "GET" && url.pathname === "/api/chat/threads") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ threads: [thread] }),
+      });
+      return;
+    }
+    if (
+      request.method() === "GET" &&
+      url.pathname === "/api/chat/threads/thread_mobile_navigation"
+    ) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ thread, messages }),
+      });
+      return;
+    }
+    await route.fulfill({ status: 404, body: JSON.stringify({ error: "not_found" }) });
+  });
+  await page.route("**/api/trips/saved", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tripId: "trip_mobile_navigation", items: [] }),
+    });
+  });
+  await mockUnavailableMobileConditions(page);
+  await page.goto("/chat");
+
+  const navigation = await openMobileChatNavigation(page);
+  await expect(navigation.getByRole("link", { name: "Home", exact: true })).toHaveAttribute(
+    "href",
+    "/",
+  );
+  await expect(navigation.getByRole("link", { name: "Profile" })).toHaveAttribute(
+    "href",
+    "/profile",
+  );
+  await expect(navigation.getByRole("button", { name: "New chat" })).toBeVisible();
+  await expect(navigation.getByTestId("mobile-trip-context-trigger")).toContainText("Aug 7 - 12");
+  const previousChats = navigation.getByRole("navigation", { name: "Previous chats" });
+  await expect(previousChats.getByRole("button", { name: /Cloud 9 breakfast plan/ })).toBeVisible();
+
+  const screenshotPath = process.env.ASK_SIARGAO_MOBILE_NAV_SCREENSHOT_PATH;
+  await page.screenshot({
+    animations: "disabled",
+    path: screenshotPath ?? testInfo.outputPath("ask-siargao-mobile-navigation.png"),
+  });
+
+  await previousChats.getByRole("button", { name: /Cloud 9 breakfast plan/ }).click();
+  await expect(navigation).toHaveCount(0);
+  await expect(
+    page.getByText("Start close to Cloud 9 and keep a covered cafe as your weather fallback."),
+  ).toBeVisible();
+});
+
 test("shows checking condition decisions before routes resolve", async ({ page }) => {
   let releaseRoutes: (() => void) | undefined;
   const routeGate = new Promise<void>((resolve) => {
@@ -779,7 +1014,8 @@ for (const viewport of [
       await mockUnavailableMobileConditions(page);
       await page.goto("/chat");
 
-      const trigger = page.getByTestId("mobile-trip-context-trigger");
+      const mobileNavigation = await openMobileChatNavigation(page);
+      const trigger = mobileNavigation.getByTestId("mobile-trip-context-trigger");
       await expect(trigger).toBeVisible();
       await expect(trigger).toContainText(stateCase.triggerAction);
       await expect(trigger).toContainText(stateCase.triggerDetail);
@@ -850,7 +1086,8 @@ test("keeps mobile modal interaction, anonymous edits, and location scope in the
 
   const composer = page.getByLabel("Ask anything about Siargao");
   await composer.fill("Keep this draft while I check my trip details");
-  const trigger = page.getByTestId("mobile-trip-context-trigger");
+  const mobileNavigation = await openMobileChatNavigation(page);
+  const trigger = mobileNavigation.getByTestId("mobile-trip-context-trigger");
   await trigger.click();
   const dialog = page.getByTestId("mobile-trip-context-dialog");
   await expect(dialog).toHaveAttribute("role", "dialog");
@@ -900,6 +1137,7 @@ test("keeps mobile modal interaction, anonymous edits, and location scope in the
   await trigger.click();
   await expect(dialog.getByLabel("Accommodation")).toHaveValue("Pilar homestay");
   await dialog.getByRole("button", { name: "Close trip details" }).click();
+  await mobileNavigation.getByRole("button", { name: "Close navigation menu" }).click();
 
   await page.getByTestId("location-sharing-trigger").click();
   await page
@@ -915,7 +1153,8 @@ test("keeps mobile modal interaction, anonymous edits, and location scope in the
       ),
     )
     .toBe(1);
-  await trigger.click();
+  const reopenedNavigation = await openMobileChatNavigation(page);
+  await reopenedNavigation.getByTestId("mobile-trip-context-trigger").click();
   await expect(dialog.getByTestId("mobile-location-state")).toContainText(
     "Browser location is on for this in-memory trip session",
   );
@@ -960,7 +1199,8 @@ test("suppresses duplicate authenticated saves and preserves newer edits across 
   await mockUnavailableMobileConditions(page);
   await page.goto("/chat");
 
-  await page.getByTestId("mobile-trip-context-trigger").click();
+  const mobileNavigation = await openMobileChatNavigation(page);
+  await mobileNavigation.getByTestId("mobile-trip-context-trigger").click();
   const dialog = page.getByTestId("mobile-trip-context-dialog");
   await dialog.getByLabel("Accommodation").fill("First save");
   await dialog.getByRole("button", { name: "Save trip details" }).click();
@@ -1020,7 +1260,8 @@ test("keeps authenticated edits through validation and network save failures", a
   await mockUnavailableMobileConditions(page);
   await page.goto("/chat");
 
-  await page.getByTestId("mobile-trip-context-trigger").click();
+  const mobileNavigation = await openMobileChatNavigation(page);
+  await mobileNavigation.getByTestId("mobile-trip-context-trigger").click();
   const dialog = page.getByTestId("mobile-trip-context-dialog");
   const accommodation = dialog.getByLabel("Accommodation");
   await accommodation.fill("Retry-safe stay");
@@ -1097,7 +1338,8 @@ test("shares one typed live-condition projection between mobile and desktop with
   const requestCounts = await mockMobileConditionDecisions(page);
   await page.goto("/chat");
 
-  await page.getByTestId("mobile-trip-context-trigger").click();
+  const mobileNavigation = await openMobileChatNavigation(page);
+  await mobileNavigation.getByTestId("mobile-trip-context-trigger").click();
   const dialog = page.getByTestId("mobile-trip-context-dialog");
   const mobileWeather = dialog.getByTestId("mobile-weather-condition");
   const mobileSurf = dialog.getByTestId("mobile-surf-condition");
@@ -1117,6 +1359,8 @@ test("shares one typed live-condition projection between mobile and desktop with
   expect(requestCounts()).toEqual({ surf: 1, weather: 1 });
 
   const mobileSemantics = await conditionDecisionText(dialog, "mobile-");
+  await dialog.getByRole("button", { name: "Close trip details" }).click();
+  await mobileNavigation.getByRole("button", { name: "Close navigation menu" }).click();
   await page.setViewportSize({ width: 1280, height: 900 });
   const desktopRail = page.getByTestId("context-rail");
   await expect(desktopRail).toBeVisible();
@@ -1399,9 +1643,9 @@ test("renders assistant markdown tables as real tables", async ({ page }) => {
       "",
       "| Rental shop | Area | Price signal | Contact / notes |",
       "| --- | --- | ---: | --- |",
-      "| **Golden Bell Siargao** | Tourism Road, General Luna | From **₱350/day** | Message first for availability, helmet, deposit, and delivery. |",
-      "| **Siargao Motorbike Rentals** | Purok 5, General Luna | Honda Beat **₱350/day** | Ask about pickup, surf rack, and current deposit rules. |",
-      "| **Lola's Rentals** | Tourism Road, Catangnan | About **₱465/day** | Good backup if you are near Cloud 9. |",
+      "| 1. **Golden Bell Siargao** | Tourism Road, General Luna | From **₱350/day** | Message first for availability, helmet, deposit, and delivery. |",
+      "| 2. **Siargao Motorbike Rentals** | Purok 5, General Luna | Honda Beat **₱350/day** | Ask about pickup, surf rack, and current deposit rules. |",
+      "| 3. **Lola's Rentals** | Tourism Road, Catangnan | About **₱465/day** | Good backup if you are near Cloud 9. |",
       "",
       "My pick: message **Golden Bell Siargao** first, then use Siargao Motorbike Rentals as backup.",
     ].join("\n"),
@@ -4353,7 +4597,7 @@ test("shows safe error copy and lets the user keep asking after a failed request
 
   await expect(page.getByText("Will the power be reliable?")).toBeVisible();
   await expect(
-    page.getByText("Ask Siargao could not finish this Reality Check. Your question is still here."),
+    page.getByText("Ask Siargao could not finish this answer. Your question is still here."),
   ).toBeVisible();
   await expect(page.getByTestId("decision-strip")).toHaveCount(0);
   await expect(page.getByText("At a Glance")).toHaveCount(0);
@@ -4743,7 +4987,7 @@ test("renders bounded failure recovery paths without stop controls or leaked det
   });
 
   await expect(
-    page.getByText("Ask Siargao could not finish this Reality Check. Your question is still here."),
+    page.getByText("Ask Siargao could not finish this answer. Your question is still here."),
   ).toBeVisible();
   await expect(page.getByText("Internal provider timeout")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Retry last question" })).toBeVisible();
@@ -4763,7 +5007,7 @@ test("renders bounded failure recovery paths without stop controls or leaked det
     page.getByText("Ferry retry answer: check the port notice before leaving."),
   ).toBeVisible();
   await expect(
-    page.getByText("Ask Siargao could not finish this Reality Check. Your question is still here."),
+    page.getByText("Ask Siargao could not finish this answer. Your question is still here."),
   ).toHaveCount(1);
 });
 
@@ -4788,7 +5032,7 @@ test("offers checked planning cues and a bounded available-evidence fallback", a
   const cues = page.getByRole("region", { name: "Available planning cues" });
   await expect(cues).toContainText("Weather");
   await expect(cues).toContainText("Surf");
-  await expect(cues).toContainText("These do not complete the Reality Check");
+  await expect(cues).toContainText("These do not complete the answer");
 
   await page.getByRole("button", { name: "Use available evidence" }).click();
   await expect.poll(() => chat.requests.length).toBe(2);
@@ -5242,6 +5486,13 @@ async function mockMobileConditionDecisions(page: Page) {
     });
   });
   return () => ({ surf, weather });
+}
+
+async function openMobileChatNavigation(page: Page) {
+  await page.getByTestId("mobile-chat-navigation-trigger").click();
+  const navigation = page.getByTestId("mobile-chat-navigation");
+  await expect(navigation).toBeVisible();
+  return navigation;
 }
 
 async function mobileTripContextGeometry(page: Page) {

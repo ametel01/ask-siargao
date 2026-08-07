@@ -1313,7 +1313,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     });
   });
 
-  test("lets the model choose web and Places tools for scooter rental lookup", async () => {
+  test("normalizes indexed web and Places tool aliases in final payloads", async () => {
     const scooterWebSource: AnswerSourceSummary = {
       label: "directory_checked",
       sourceName: "Public scooter rental directory",
@@ -1369,7 +1369,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         output_text: finalPayloadText({
           answer:
             "For scooter rental in General Luna, start with Island Scooter Rental and confirm deposit, helmet, and current daily rate before paying.",
-          usedToolCallIds: ["call_scooter_web", "call_scooter_places"],
+          usedToolCallIds: ["research_web_0", "search_places_0"],
           displayCardIds: [scooterPlaceCard.id],
         }),
         _request_id: "req_scooter_rental_final",
@@ -5215,7 +5215,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
           answer:
             "Start with Lost In Siargao tonight. I checked Google Places for live open-now status and map links.",
           usedToolCallIds: ["functions.search_places", "search_places"],
-          displayCardIds: ["places/ChIJ_dOTfAD3AzMRpmZv_yvfBHA"],
+          displayCardIds: ["places/ChIJ_dOTfAD3AzMRpmZv_yvfBHA", "ChIJ_dOTfAD3AzMRpmZv_yvfBHA"],
         }),
         _request_id: "req_food_final",
       },
@@ -7365,7 +7365,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(JSON.stringify(logs.events)).not.toContain("RAW_MEMORY_BODY_SECRET");
   });
 
-  test("protects the loop from excessive tool calls", async () => {
+  test("forces a final answer when another tool call would exceed the budget", async () => {
     const client = fakeResponsesClient([
       responseWithToolCall({
         id: "resp_loop_first",
@@ -7381,29 +7381,44 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         name: "get_weather_forecast",
         arguments: { location: "Siargao Island", date_range: "today" },
       }),
+      {
+        id: "resp_loop_budget_final",
+        output_text: finalPayloadText({
+          answer: "Use the checked forecast and keep the plan flexible.",
+          usedToolCallIds: ["call_weather_1"],
+        }),
+        _request_id: "req_loop_budget_final",
+      },
     ]);
 
-    await expect(
-      runAskSiargaoAgentTurn(
-        {
-          messages: [{ role: "user", content: "Check weather until certain." }],
-          requestId: "agent_request_loop",
-        },
-        {
-          client,
-          executeTool: fakeToolExecutor({
-            get_weather_forecast: {
-              name: "get_weather_forecast",
-              status: "success",
-              text: "Weather loaded.",
-              sources: [weatherSourceSummary],
-            },
-          }),
-          maxToolCalls: 1,
-          model: "gpt-test",
-        },
-      ),
-    ).rejects.toThrow("maximum tool-call count");
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Check weather until certain." }],
+        requestId: "agent_request_loop",
+      },
+      {
+        client,
+        executeTool: fakeToolExecutor({
+          get_weather_forecast: {
+            name: "get_weather_forecast",
+            status: "success",
+            text: "Weather loaded.",
+            sources: [weatherSourceSummary],
+          },
+        }),
+        maxToolCalls: 1,
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.message).toBe("Use the checked forecast and keep the plan flexible.");
+    expect(result.toolCalls).toHaveLength(1);
+    expect(client.requests).toHaveLength(3);
+    expect(client.requests[2]?.tools).toBeUndefined();
+    expect(JSON.stringify(parseFirstInput(client.requests[2]?.input))).toContain(
+      "tool-call budget is exhausted",
+    );
   });
 
   test("accepts minimal model-style web research calls without entering an invalid-argument loop", async () => {

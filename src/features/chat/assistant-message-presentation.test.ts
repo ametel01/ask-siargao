@@ -75,6 +75,35 @@ describe("assistant message presentation parsing", () => {
     ]);
   });
 
+  test("preserves numbered priority labels inside markdown table rows", () => {
+    const blocks = parseAssistantMarkdownBlocks(
+      [
+        "| Priority | Pick | Area | Why it fits | Access | Ride from GL |",
+        "| --- | --- | --- | --- | --- | --- |",
+        "| 1. Best island day | Daku Island | Off General Luna | Calm swim | Boat | Half-day |",
+        "| 2. Quiet beach | Malinao Beach | Malinao | Peaceful shore | Scooter | 15–20 min |",
+      ].join("\n"),
+    );
+
+    expect(blocks).toEqual([
+      expect.objectContaining({
+        type: "table",
+        headers: ["Priority", "Pick", "Area", "Why it fits", "Access", "Ride from GL"],
+        rows: [
+          [
+            "1. Best island day",
+            "Daku Island",
+            "Off General Luna",
+            "Calm swim",
+            "Boat",
+            "Half-day",
+          ],
+          ["2. Quiet beach", "Malinao Beach", "Malinao", "Peaceful shore", "Scooter", "15–20 min"],
+        ],
+      }),
+    ]);
+  });
+
   test("detects compact assistant source lines for every supported source label", () => {
     const blocks = parseAssistantMarkdownBlocks(
       "Checked: Google Places. Weather signal: Thunderstorm. Not checked: bookings.",

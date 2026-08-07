@@ -7,6 +7,7 @@
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import {
   Archive,
+  ArrowDown,
   BedDouble,
   Bookmark,
   BookmarkCheck,
@@ -18,9 +19,11 @@ import {
   Copy,
   Ellipsis,
   ExternalLink,
+  House,
   Info,
   LoaderCircle,
   MapPin,
+  Menu,
   Navigation,
   Pencil,
   Plus,
@@ -34,9 +37,11 @@ import {
   ThumbsDown,
   ThumbsUp,
   Trash2,
+  UserRound,
   Users,
   Utensils,
   WavesHorizontal,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { Dialog } from "radix-ui";
@@ -209,8 +214,7 @@ type ChatResponseErrorBody = {
   message?: string;
 };
 
-const chatErrorMessage =
-  "Ask Siargao could not finish this Reality Check. Your question is still here.";
+const chatErrorMessage = "Ask Siargao could not finish this answer. Your question is still here.";
 const shareErrorMessage = "Share link could not be created. Your saved items are still here.";
 const maxChatRequestMessageLength = 2_000;
 const maxPriorChatRequestMessages = 6;
@@ -869,7 +873,7 @@ function useChatWorkspaceController({
         if (loadedThread) {
           setChatThreads((currentThreads) => upsertThreadSummary(currentThreads, loadedThread));
         }
-        setMessages((body.messages ?? []).map(interactiveMessageFromThreadMessage));
+        setMessages(interactiveMessagesFromThreadMessages(body.messages ?? []));
         setHistoryStatus("idle");
       } catch (error) {
         if (!isCurrentThreadLoad() || isResponseWaitAbort(error)) {
@@ -1518,6 +1522,7 @@ function useChatWorkspaceController({
                     text: responseMessage,
                     timestamp: formatTimestamp(),
                     status: "complete",
+                    retryPrompt: trimmedPrompt,
                     cards: body.cards,
                     actions: body.actions,
                     itineraries: body.itineraries,
@@ -1768,6 +1773,7 @@ function ChatWorkspaceView({
   const hasMessages = messages.length > 0;
   const useCompactHeader = useCompactChatHeaderViewport();
   const showMobileTripContext = useMobileTripContextViewport();
+  const usePhoneNavigation = usePhoneChatNavigationViewport();
   const liveConditions = useLiveConditions(locationState, tripContext);
   const suggestedPrompts = useMemo(
     () =>
@@ -1779,6 +1785,7 @@ function ChatWorkspaceView({
     [liveConditions.surfDecision, liveConditions.weatherDecision, tripContext],
   );
   const chatScrollAreaRef = useRef<HTMLDivElement | null>(null);
+  const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const lastMessage = messages.at(-1);
   const scrollAnchorVersion = `${messages.length}:${
     lastMessage?.id ?? "empty"
@@ -1799,12 +1806,32 @@ function ChatWorkspaceView({
         return;
       }
       chatScrollArea.scrollTop = chatScrollArea.scrollHeight;
+      setShowScrollToLatest(false);
     });
 
     return () => {
       window.cancelAnimationFrame(animationFrame);
     };
   }, [scrollAnchorVersion]);
+
+  const updateScrollToLatestVisibility = useCallback(() => {
+    const chatScrollArea = chatScrollAreaRef.current;
+    if (!chatScrollArea) {
+      return;
+    }
+    const remainingScroll =
+      chatScrollArea.scrollHeight - chatScrollArea.scrollTop - chatScrollArea.clientHeight;
+    setShowScrollToLatest(remainingScroll > 96);
+  }, []);
+
+  const scrollToLatest = useCallback(() => {
+    const chatScrollArea = chatScrollAreaRef.current;
+    if (!chatScrollArea) {
+      return;
+    }
+    chatScrollArea.scrollTo({ behavior: "smooth", top: chatScrollArea.scrollHeight });
+    setShowScrollToLatest(false);
+  }, []);
 
   const editQuestion = useCallback(
     (prompt: string) => {
@@ -1837,7 +1864,7 @@ function ChatWorkspaceView({
         />
 
         <section
-          className="relative grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-border-strong border-x bg-brand-paper-50 shadow-surface-panel"
+          className="relative grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-brand-paper-50 md:border-border-strong md:border-x md:shadow-surface-panel"
           data-testid="conversation-region"
         >
           <span
@@ -1849,9 +1876,11 @@ function ChatWorkspaceView({
             canSharePlan={savedPlanSharing.selectedShareItems.length > 0}
             closeThreadActionDialog={closeThreadActionDialog}
             deleteSelectedThread={deleteSelectedThread}
+            historyStatus={historyStatus}
             mobileTripContext={
               showMobileTripContext ? (
                 <MobileTripContextDisclosure
+                  expanded={usePhoneNavigation}
                   liveConditions={liveConditions}
                   locationState={locationState}
                   onUpdateTripContext={updateTripContext}
@@ -1862,6 +1891,9 @@ function ChatWorkspaceView({
                 />
               ) : null
             }
+            onOpenThread={(threadId) => {
+              void openChatThread(threadId);
+            }}
             onSharePlan={() => {
               void savedPlanSharing.createShareLink();
             }}
@@ -1871,16 +1903,19 @@ function ChatWorkspaceView({
             selectedThreadId={selectedThreadId}
             selectedThreadTitle={selectedThreadTitle}
             threadActionState={threadActionState}
+            threads={chatThreads}
             useCompactHeader={useCompactHeader}
+            usePhoneNavigation={usePhoneNavigation}
           />
 
           <section
             aria-label="Chat message scroll area"
-            className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain bg-[linear-gradient(180deg,rgba(255,253,247,0.96),rgba(251,246,232,0.9))] px-4 py-4 sm:px-6 lg:px-8"
+            className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain bg-[linear-gradient(180deg,rgba(255,253,247,0.96),rgba(251,246,232,0.9))] px-4 pt-5 pb-36 sm:px-6 md:py-4 lg:px-8"
             data-testid="chat-message-scroll-area"
+            onScroll={updateScrollToLatestVisibility}
             ref={chatScrollAreaRef}
           >
-            <div className="mx-auto grid min-h-full max-w-5xl content-start gap-4 pb-6">
+            <div className="mx-auto grid min-h-full max-w-3xl content-start gap-6 pb-6 md:max-w-5xl md:gap-4">
               {savedTripStatus === "loading" ? (
                 <p
                   className="m-0 text-sm font-bold text-text-muted"
@@ -1933,7 +1968,14 @@ function ChatWorkspaceView({
               ) : null}
               {hasMessages ? (
                 <>
-                  <div className="grid gap-4" role="log" aria-label="Conversation messages">
+                  <p className="m-0 text-center text-sm font-semibold text-text-muted md:hidden">
+                    Today
+                  </p>
+                  <div
+                    className="grid gap-8 md:gap-4"
+                    role="log"
+                    aria-label="Conversation messages"
+                  >
                     {messages.map((message) => (
                       <ChatMessage
                         disabled={isSending}
@@ -1970,6 +2012,19 @@ function ChatWorkspaceView({
               )}
             </div>
           </section>
+
+          {showScrollToLatest ? (
+            <Button
+              aria-label="Jump to latest message"
+              className="absolute bottom-[7.15rem] left-1/2 z-30 size-11 -translate-x-1/2 rounded-full border-border-default bg-white text-text-strong shadow-overlay hover:bg-brand-paper-100 md:hidden"
+              onClick={scrollToLatest}
+              size="icon"
+              type="button"
+              variant="outline"
+            >
+              <ArrowDown aria-hidden="true" size={21} />
+            </Button>
+          ) : null}
 
           <ChatComposer
             inputValue={inputValue}
@@ -2156,7 +2211,9 @@ function ChatTopBar({
   canSharePlan,
   closeThreadActionDialog,
   deleteSelectedThread,
+  historyStatus,
   mobileTripContext,
+  onOpenThread,
   onSharePlan,
   onStartNewChat,
   openThreadActionDialog,
@@ -2164,13 +2221,17 @@ function ChatTopBar({
   selectedThreadId,
   selectedThreadTitle,
   threadActionState,
+  threads,
   useCompactHeader,
+  usePhoneNavigation,
 }: {
   archiveSelectedThread: () => Promise<void>;
   canSharePlan: boolean;
   closeThreadActionDialog: () => void;
   deleteSelectedThread: () => Promise<void>;
+  historyStatus: "idle" | "loading" | "error";
   mobileTripContext: ReactNode;
+  onOpenThread: (threadId: string) => void;
   onSharePlan: () => void;
   onStartNewChat: () => void;
   openThreadActionDialog: (dialog: Exclude<ThreadActionDialog, null>) => void;
@@ -2178,7 +2239,9 @@ function ChatTopBar({
   selectedThreadId: string | null;
   selectedThreadTitle: string | null;
   threadActionState: ThreadActionState;
+  threads: ChatThreadSummary[];
   useCompactHeader: boolean;
+  usePhoneNavigation: boolean;
 }) {
   const hasSelectedThread = Boolean(selectedThreadId);
   const hasMobileIdentity = Boolean(mobileTripContext);
@@ -2193,14 +2256,28 @@ function ChatTopBar({
   };
 
   return (
-    <header className="flex min-h-16 flex-wrap items-center justify-between gap-2 border-border-default/80 border-b bg-brand-paper-50/95 px-3 py-2 backdrop-blur-md sm:px-6 lg:min-h-[76px] lg:px-8 lg:py-3">
-      <div className="flex min-w-0 items-center gap-2.5">
-        {hasMobileIdentity ? <PalmMark className="size-8" /> : null}
+    <header className="relative flex min-h-16 items-center justify-between gap-2 border-border-default/80 border-b bg-brand-paper-50/95 px-3 py-2 md:flex-wrap md:px-6 md:backdrop-blur-md lg:min-h-[76px] lg:px-8 lg:py-3">
+      {usePhoneNavigation ? (
+        <MobileChatNavigation
+          historyStatus={historyStatus}
+          onOpenThread={onOpenThread}
+          onStartNewChat={onStartNewChat}
+          selectedThreadId={selectedThreadId}
+          threads={threads}
+          tripContextControl={mobileTripContext}
+        />
+      ) : mobileTripContext ? (
+        <div className="shrink-0 md:order-3 md:basis-full md:min-w-0">{mobileTripContext}</div>
+      ) : null}
+      <div className="pointer-events-none absolute left-1/2 flex min-w-0 -translate-x-1/2 items-center gap-2 md:pointer-events-auto md:static md:translate-x-0 md:gap-2.5">
+        {hasMobileIdentity ? <PalmMark className="size-7 md:size-8" /> : null}
         <div className="grid min-w-0 gap-1">
           <h1
             className={cn(
               "m-0 min-w-0 truncate font-semibold text-text-strong",
-              hasMobileIdentity ? "font-heading text-2xl leading-none" : "text-xl sm:text-2xl",
+              hasMobileIdentity
+                ? "font-heading text-xl leading-none md:text-2xl"
+                : "text-xl sm:text-2xl",
             )}
           >
             Ask Siargao
@@ -2217,7 +2294,19 @@ function ChatTopBar({
       </div>
       {useCompactHeader ? (
         <div className="flex shrink-0 items-center gap-2">
-          <ChatAuthActions compact />
+          <div className="hidden md:flex">
+            <ChatAuthActions compact />
+          </div>
+          <Button
+            aria-label="Start a new chat"
+            className="size-11 rounded-md border-0 bg-transparent text-text-strong hover:bg-brand-lavender-50 md:hidden"
+            onClick={onStartNewChat}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <Pencil aria-hidden="true" size={20} />
+          </Button>
           <CompactChatActionsMenu
             canSharePlan={canSharePlan}
             disabled={isMutatingThread}
@@ -2269,7 +2358,6 @@ function ChatTopBar({
           {threadActionState.error}
         </p>
       ) : null}
-      {mobileTripContext ? <div className="basis-full min-w-0">{mobileTripContext}</div> : null}
       {threadActionState.dialog === "rename" ? (
         <ThreadRenameDialog
           error={threadActionState.error}
@@ -2298,6 +2386,175 @@ function ChatTopBar({
         />
       ) : null}
     </header>
+  );
+}
+
+function MobileChatNavigation({
+  historyStatus,
+  onOpenThread,
+  onStartNewChat,
+  selectedThreadId,
+  threads,
+  tripContextControl,
+}: {
+  historyStatus: "idle" | "loading" | "error";
+  onOpenThread: (threadId: string) => void;
+  onStartNewChat: () => void;
+  selectedThreadId: string | null;
+  threads: ChatThreadSummary[];
+  tripContextControl: ReactNode;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const runAction = (action: () => void) => {
+    setIsOpen(false);
+    window.setTimeout(action, 0);
+  };
+
+  return (
+    <Dialog.Root onOpenChange={setIsOpen} open={isOpen}>
+      <Dialog.Trigger asChild>
+        <Button
+          aria-label="Open navigation menu"
+          className="size-11 shrink-0 rounded-md border-0 bg-transparent text-text-strong hover:bg-brand-lavender-50 md:hidden"
+          data-testid="mobile-chat-navigation-trigger"
+          size="icon"
+          type="button"
+          variant="ghost"
+        >
+          <Menu aria-hidden="true" size={22} />
+        </Button>
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Overlay
+          className="fixed inset-0 z-50 bg-brand-navy-980/55 md:hidden"
+          data-testid="mobile-chat-navigation-overlay"
+        />
+        <Dialog.Content
+          className="fixed inset-y-0 left-0 z-50 grid w-[min(22rem,calc(100vw-3rem))] grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-4 border-border-default border-r bg-brand-paper-50 px-3 [color:var(--text-strong)] shadow-overlay focus:outline-none md:hidden"
+          data-testid="mobile-chat-navigation"
+          style={{
+            paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+            paddingTop: "max(0.75rem, env(safe-area-inset-top))",
+          }}
+        >
+          <header className="flex min-h-12 items-center justify-between gap-3 px-1">
+            <Dialog.Title className="m-0">
+              <Link
+                aria-label="Ask Siargao home"
+                className="inline-flex items-center gap-2 font-heading text-xl text-text-strong no-underline"
+                href="/"
+              >
+                <PalmMark className="size-8" />
+                Ask Siargao
+              </Link>
+            </Dialog.Title>
+            <Dialog.Description className="sr-only">
+              Navigate Ask Siargao and open recent chats.
+            </Dialog.Description>
+            <Dialog.Close asChild>
+              <Button
+                aria-label="Close navigation menu"
+                className="size-11 rounded-md border-0 bg-transparent text-text-strong hover:bg-brand-lavender-50"
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <X aria-hidden="true" size={21} />
+              </Button>
+            </Dialog.Close>
+          </header>
+
+          <nav aria-label="Primary navigation" className="grid gap-1">
+            <Dialog.Close asChild>
+              <Link
+                className="flex min-h-12 items-center gap-3 rounded-lg px-3 font-extrabold text-text-strong no-underline hover:bg-brand-lavender-50"
+                href="/"
+              >
+                <House aria-hidden="true" className="text-brand-violet-650" size={20} />
+                Home
+              </Link>
+            </Dialog.Close>
+            <button
+              className="flex min-h-12 w-full items-center gap-3 rounded-lg bg-brand-lagoon-700 px-3 text-left font-extrabold text-white hover:bg-brand-lagoon-800"
+              onClick={() => runAction(onStartNewChat)}
+              type="button"
+            >
+              <Pencil aria-hidden="true" size={20} />
+              New chat
+            </button>
+            {tripContextControl}
+          </nav>
+
+          <section className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2 border-border-default border-t pt-4">
+            <h2 className="m-0 px-3 text-xs font-extrabold tracking-[0.08em] text-text-muted uppercase">
+              Recent chats
+            </h2>
+            <nav aria-label="Previous chats" className="min-h-0 overflow-y-auto overscroll-contain">
+              <div className="grid gap-1 pb-3">
+                {historyStatus === "loading" ? (
+                  <p className="m-0 px-3 py-2 text-sm font-bold text-text-muted">
+                    Loading your chats
+                  </p>
+                ) : null}
+                {historyStatus === "error" ? (
+                  <p className="m-0 px-3 py-2 text-sm font-bold text-text-alert">
+                    Chat history is unavailable
+                  </p>
+                ) : null}
+                {historyStatus !== "loading" && threads.length === 0 ? (
+                  <p className="m-0 px-3 py-2 text-sm font-bold text-text-muted">
+                    Your recent questions will appear here.
+                  </p>
+                ) : null}
+                {threads.slice(0, 20).map((thread) => (
+                  <button
+                    aria-current={thread.id === selectedThreadId ? "page" : undefined}
+                    className={cn(
+                      "grid min-h-12 min-w-0 w-full content-center gap-0.5 rounded-lg px-3 text-left hover:bg-brand-lavender-50",
+                      thread.id === selectedThreadId
+                        ? "bg-brand-lavender-100 text-brand-violet-650"
+                        : "text-text-strong",
+                    )}
+                    key={thread.id}
+                    onClick={() => runAction(() => onOpenThread(thread.id))}
+                    type="button"
+                  >
+                    <span className="min-w-0 truncate text-sm font-extrabold">{thread.title}</span>
+                    <span className="text-xs font-bold text-text-muted">
+                      {formatThreadRecency(thread)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </nav>
+          </section>
+
+          <nav
+            aria-label="Account navigation"
+            className="grid gap-1 border-border-default border-t pt-3"
+          >
+            <Dialog.Close asChild>
+              <Link
+                className="flex min-h-12 items-center gap-3 rounded-lg px-3 font-extrabold text-text-strong no-underline hover:bg-brand-lavender-50"
+                href="/profile"
+              >
+                <UserRound aria-hidden="true" className="text-brand-violet-650" size={20} />
+                Profile
+              </Link>
+            </Dialog.Close>
+            <Dialog.Close asChild>
+              <Link
+                className="flex min-h-12 items-center gap-3 rounded-lg px-3 font-extrabold text-text-strong no-underline hover:bg-brand-lavender-50"
+                href="/settings"
+              >
+                <SettingsIcon aria-hidden="true" className="text-brand-violet-650" size={20} />
+                Settings
+              </Link>
+            </Dialog.Close>
+          </nav>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
@@ -2331,7 +2588,7 @@ function CompactChatActionsMenu({
       <Dialog.Trigger asChild>
         <Button
           aria-label="Open chat actions"
-          className="size-11 rounded-md border-border-default bg-white text-text-strong hover:bg-brand-lavender-50"
+          className="size-11 rounded-md border-0 bg-transparent text-text-strong hover:bg-brand-lavender-50 md:border md:border-border-default md:bg-white"
           size="icon"
           type="button"
           variant="outline"
@@ -2353,6 +2610,9 @@ function CompactChatActionsMenu({
             <Dialog.Description className="m-0 text-sm font-bold text-text-muted">
               Manage this question or open account settings.
             </Dialog.Description>
+          </div>
+          <div className="md:hidden">
+            <ChatAuthActions compact />
           </div>
           <div className="grid gap-2">
             <Button
@@ -2804,6 +3064,7 @@ function mobileTripContextEditReducer(
 }
 
 function MobileTripContextDisclosure({
+  expanded = false,
   liveConditions,
   locationState,
   onUpdateTripContext,
@@ -2812,6 +3073,7 @@ function MobileTripContextDisclosure({
   tripContext,
   tripDataSource,
 }: {
+  expanded?: boolean;
   liveConditions: LiveConditionsController;
   locationState: LocationSharingState;
   onUpdateTripContext: (context: TripContextDraft) => Promise<void>;
@@ -2907,13 +3169,23 @@ function MobileTripContextDisclosure({
       <Dialog.Trigger asChild>
         <Button
           aria-label={triggerLabel}
-          className="min-h-11 w-full min-w-0 justify-start gap-2 rounded-lg border-brand-violet-400/30 bg-brand-lavender-50 px-3 text-left text-text-strong hover:bg-brand-lavender-100 focus-visible:ring-2 focus-visible:ring-brand-violet-650"
+          className={cn(
+            "text-text-strong hover:bg-brand-lavender-100 focus-visible:ring-2 focus-visible:ring-brand-violet-650",
+            expanded
+              ? "min-h-12 w-full min-w-0 justify-start gap-3 rounded-lg border-0 bg-transparent px-3 text-left"
+              : "size-11 min-w-11 justify-center rounded-md border-0 bg-transparent p-0 md:min-h-11 md:w-full md:min-w-0 md:justify-start md:gap-2 md:rounded-lg md:border md:border-brand-violet-400/30 md:bg-brand-lavender-50 md:px-3 md:text-left",
+          )}
           data-testid="mobile-trip-context-trigger"
           type="button"
           variant="outline"
         >
-          <MapPin aria-hidden="true" className="shrink-0 text-brand-violet-650" size={17} />
-          <span className="grid min-w-0 flex-1 gap-0.5">
+          <MapPin aria-hidden="true" className="shrink-0 text-brand-violet-650" size={20} />
+          <span
+            className={cn(
+              "min-w-0 flex-1 gap-0.5",
+              expanded ? "grid" : "sr-only md:not-sr-only md:grid",
+            )}
+          >
             <span className="text-xs leading-tight font-extrabold">{summary.actionLabel}</span>
             <span className="break-words text-xs leading-tight font-bold text-text-muted">
               {summary.facts.length
@@ -2925,13 +3197,17 @@ function MobileTripContextDisclosure({
                     : "No details yet"}
             </span>
           </span>
-          <ChevronDown aria-hidden="true" className="shrink-0" size={16} />
+          <ChevronDown
+            aria-hidden="true"
+            className={cn("shrink-0", expanded ? "block" : "hidden md:block")}
+            size={16}
+          />
         </Button>
       </Dialog.Trigger>
 
       <Dialog.Portal>
         <Dialog.Overlay
-          className="fixed inset-0 z-50 bg-brand-navy-980/60"
+          className="fixed inset-0 z-[60] bg-brand-navy-980/60"
           data-testid="mobile-trip-context-overlay"
         />
         <MobileTripContextSheet
@@ -2993,7 +3269,7 @@ function MobileTripContextSheet({
     <Dialog.Content
       className={cn(
         appSurfaceOverlayClass,
-        "fixed inset-x-0 bottom-0 z-50 m-0 max-h-[min(92dvh,52rem)] w-full max-w-none overflow-hidden rounded-t-2xl p-0 text-text-strong focus:outline-none",
+        "fixed inset-x-0 bottom-0 z-[60] m-0 max-h-[min(92dvh,52rem)] w-full max-w-none overflow-hidden rounded-t-2xl p-0 text-text-strong focus:outline-none",
       )}
       data-testid="mobile-trip-context-dialog"
       onOpenAutoFocus={(event) => {
@@ -3313,6 +3589,20 @@ function useCompactChatHeaderViewport() {
       };
     },
     () => window.matchMedia("(max-width: 1279px)").matches,
+    () => false,
+  );
+}
+
+function usePhoneChatNavigationViewport() {
+  return useSyncExternalStore(
+    (notify) => {
+      const mediaQuery = window.matchMedia("(max-width: 767px)");
+      mediaQuery.addEventListener("change", notify);
+      return () => {
+        mediaQuery.removeEventListener("change", notify);
+      };
+    },
+    () => window.matchMedia("(max-width: 767px)").matches,
     () => false,
   );
 }
@@ -4083,13 +4373,13 @@ function ChatMessage({
   if (isUser) {
     return (
       <article
-        className="min-w-0 max-w-[min(88%,42rem)] justify-self-end overflow-hidden rounded-lg border border-brand-lagoon-300/25 bg-brand-lagoon-700 px-5 py-4 text-white shadow-none"
+        className="min-w-0 max-w-[82%] justify-self-end overflow-hidden rounded-[1.65rem] border border-brand-lagoon-300/25 bg-brand-lagoon-700 px-4 py-3 text-white shadow-none md:max-w-[min(88%,42rem)] md:rounded-lg md:px-5 md:py-4"
         data-testid="user-message-bubble"
       >
-        <p className="m-0 whitespace-pre-wrap break-words text-sm leading-[1.55] font-extrabold [overflow-wrap:anywhere] sm:text-base">
+        <p className="m-0 whitespace-pre-wrap break-words text-base leading-[1.5] font-medium [overflow-wrap:anywhere] md:text-sm md:leading-[1.55] md:font-extrabold lg:text-base">
           {message.text}
         </p>
-        <time className="mt-2 block text-right text-xs font-semibold text-white/75">
+        <time className="mt-2 hidden text-right text-xs font-semibold text-white/75 md:block">
           {message.timestamp}
         </time>
       </article>
@@ -4097,24 +4387,24 @@ function ChatMessage({
   }
 
   return (
-    <article className="grid max-w-[min(96%,56rem)] grid-cols-[36px_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[44px_minmax(0,1fr)] sm:gap-4">
-      <PalmMark className="mt-1 size-8 sm:size-10" />
+    <article className="min-w-0 max-w-none md:grid md:max-w-[min(96%,56rem)] md:grid-cols-[36px_minmax(0,1fr)] md:items-start md:gap-3 lg:grid-cols-[44px_minmax(0,1fr)] lg:gap-4">
+      <PalmMark className="mt-1 hidden size-8 md:block lg:size-10" />
       <div
         data-testid="assistant-message-bubble"
         className={
           isError
             ? cn(
                 appSurfacePanelClass,
-                "min-w-0 overflow-hidden rounded-lg border-brand-sunset-coral/55 bg-brand-paper-50 px-5 py-4 text-text-strong",
+                "min-w-0 overflow-visible rounded-none !border-0 !bg-transparent px-0 py-0 text-text-strong !shadow-none md:overflow-hidden md:rounded-lg md:!border md:!border-brand-sunset-coral/55 md:!bg-brand-paper-50 md:px-5 md:py-4 md:!shadow-surface-panel",
               )
             : isStopped
               ? cn(
                   appSurfaceInsetClass,
-                  "min-w-0 overflow-hidden rounded-lg bg-brand-lavender-50 px-5 py-4 text-text-strong",
+                  "min-w-0 overflow-visible rounded-none !border-0 !bg-transparent px-0 py-0 text-text-strong md:overflow-hidden md:rounded-lg md:!border md:!bg-brand-lavender-50 md:px-5 md:py-4",
                 )
               : cn(
                   appSurfacePanelClass,
-                  "min-w-0 overflow-hidden rounded-xl px-4 py-4 text-text-strong sm:px-5",
+                  "min-w-0 overflow-visible rounded-none !border-0 !bg-transparent px-0 py-0 text-text-strong !shadow-none md:overflow-hidden md:rounded-xl md:!border md:!bg-surface-default md:px-4 md:py-4 md:!shadow-surface-panel lg:px-5",
                 )
         }
       >
@@ -4126,7 +4416,9 @@ function ChatMessage({
                 summaries={message.decisionSummaries}
               />
             ) : !isError && !isPending && !isStopped ? (
-              <AssistantGlance message={message} />
+              <div className="hidden md:block">
+                <AssistantGlance message={message} />
+              </div>
             ) : null}
             {isPending ? (
               <PendingAssistantWaitState
@@ -4167,7 +4459,7 @@ function ChatMessage({
             ) : null}
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-extrabold">
+        <div className="mt-3 hidden flex-wrap items-center gap-2 text-xs font-extrabold md:flex">
           <time className="text-text-muted">{message.timestamp}</time>
           {!isError && !isPending && !isStopped && message.messageId ? (
             <AssistantRatingControls
@@ -4190,7 +4482,7 @@ function ChatMessage({
         ) : null}
         {isStopped && message.retryPrompt ? (
           <Button
-            className="mt-4 min-h-11 rounded-md border-border-default bg-white px-3 text-sm font-extrabold text-text-strong hover:bg-brand-lavender-50"
+            className="mt-4 hidden min-h-11 rounded-md border-border-default bg-white px-3 text-sm font-extrabold text-text-strong hover:bg-brand-lavender-50 md:inline-flex"
             disabled={disabled}
             onClick={() => onRetryPrompt(message.retryPrompt ?? "")}
             type="button"
@@ -4200,8 +4492,82 @@ function ChatMessage({
             Retry question
           </Button>
         ) : null}
+        {!isPending ? (
+          <AssistantMessageActions
+            disabled={disabled}
+            onRetryPrompt={onRetryPrompt}
+            retryPrompt={message.retryPrompt}
+            text={message.text}
+          />
+        ) : null}
       </div>
     </article>
+  );
+}
+
+function AssistantMessageActions({
+  disabled,
+  onRetryPrompt,
+  retryPrompt,
+  text,
+}: {
+  disabled: boolean;
+  onRetryPrompt: (prompt: string) => void;
+  retryPrompt?: string;
+  text: string;
+}) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+
+  async function copyResponse() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+  }
+
+  return (
+    <fieldset className="m-0 mt-2 flex min-h-11 items-center gap-1 border-0 p-0 md:hidden">
+      <legend className="sr-only">Assistant message actions</legend>
+      <Button
+        aria-label="Copy response"
+        className="size-11 rounded-md text-text-muted hover:bg-brand-lavender-50 hover:text-text-strong"
+        disabled={disabled}
+        onClick={() => {
+          void copyResponse();
+        }}
+        size="icon"
+        type="button"
+        variant="ghost"
+      >
+        {copyState === "copied" ? (
+          <Check aria-hidden="true" size={18} />
+        ) : (
+          <Copy aria-hidden="true" size={18} />
+        )}
+      </Button>
+      {retryPrompt ? (
+        <Button
+          aria-label="Try again"
+          className="size-11 rounded-md text-text-muted hover:bg-brand-lavender-50 hover:text-text-strong"
+          disabled={disabled}
+          onClick={() => onRetryPrompt(retryPrompt)}
+          size="icon"
+          type="button"
+          variant="ghost"
+        >
+          <RefreshCw aria-hidden="true" size={18} />
+        </Button>
+      ) : null}
+      <span aria-live="polite" className="sr-only">
+        {copyState === "copied"
+          ? "Response copied"
+          : copyState === "error"
+            ? "Response could not be copied"
+            : ""}
+      </span>
+    </fieldset>
   );
 }
 
@@ -4222,7 +4588,7 @@ function FailureEvidenceFallback({ liveConditions }: { liveConditions: LiveCondi
       <div className="grid gap-0.5">
         <h3 className="m-0 text-sm font-semibold text-text-strong">Available planning cues</h3>
         <p className="m-0 text-xs font-bold text-text-muted">
-          These do not complete the Reality Check, but they can support a safer fallback.
+          These do not complete the answer, but they can support a safer fallback.
         </p>
       </div>
       <ul className="m-0 grid list-none gap-2 p-0">
@@ -4256,7 +4622,7 @@ function FailureRecoveryActions({
   const boundedFallbackPrompt = `${prompt}\n\nIf current evidence is unavailable, give me a bounded needs-confirmation answer and the safest practical fallback using only evidence you can verify now.`;
 
   return (
-    <div className="mt-4 flex flex-wrap gap-2" data-testid="failure-recovery-actions">
+    <div className="mt-4 hidden flex-wrap gap-2 md:flex" data-testid="failure-recovery-actions">
       <Button
         className="min-h-11 rounded-md bg-brand-lagoon-700 px-3 text-sm font-extrabold text-white hover:bg-brand-lagoon-600"
         disabled={disabled}
@@ -5677,14 +6043,14 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
 
   return (
     <div
-      className="grid min-w-0 max-w-full flex-1 gap-3 overflow-hidden [overflow-wrap:anywhere]"
+      className="grid min-w-0 max-w-full flex-1 gap-4 overflow-hidden [overflow-wrap:anywhere] md:gap-3"
       data-testid="assistant-markdown"
     >
       {blocks.map((block) => {
         if (block.type === "heading") {
           return (
             <h3
-              className={`m-0 max-w-full text-sm leading-[1.35] font-semibold break-words sm:text-base ${strongClass}`}
+              className={`m-0 max-w-full text-base leading-[1.35] font-semibold break-words ${strongClass}`}
               key={block.key}
             >
               {block.text}
@@ -5693,7 +6059,7 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
         }
 
         if (block.type === "list") {
-          const listClass = `m-0 max-w-full space-y-1.5 pl-6 text-sm leading-[1.6] break-words sm:text-base ${textClass}`;
+          const listClass = `m-0 max-w-full space-y-2 pl-6 text-base leading-[1.65] break-words md:space-y-1.5 md:leading-[1.6] ${textClass}`;
           const items = block.items.map((item) => (
             <li className="min-w-0 whitespace-pre-line break-words" key={item.key}>
               <InlineMarkdown linkClass={linkClass} strongClass={strongClass} value={item.text} />
@@ -5742,7 +6108,7 @@ function AssistantMarkdownText({ text, tone }: { text: string; tone: "default" |
 
         return (
           <p
-            className={`m-0 max-w-full text-sm leading-[1.6] break-words sm:text-base ${textClass}`}
+            className={`m-0 max-w-full text-base leading-[1.7] break-words md:leading-[1.6] ${textClass}`}
             key={block.key}
           >
             <InlineMarkdown linkClass={linkClass} strongClass={strongClass} value={block.text} />
@@ -5938,17 +6304,17 @@ function ChatComposer({
   }
 
   return (
-    <footer className="border-border-default border-t bg-white px-4 py-2 sm:px-6 lg:px-8">
+    <footer className="absolute inset-x-0 bottom-0 z-20 bg-transparent px-3 pt-8 pb-[max(0.75rem,env(safe-area-inset-bottom))] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:-z-10 before:h-full before:bg-[linear-gradient(180deg,rgba(255,253,247,0),rgba(255,253,247,0.94)_38%)] md:static md:border-border-default md:border-t md:bg-white md:px-6 md:py-2 md:before:hidden lg:px-8">
       <form
         aria-label="Ask Siargao composer"
-        className="mx-auto w-full max-w-5xl min-w-0"
+        className="mx-auto w-full max-w-3xl min-w-0 md:max-w-5xl"
         onSubmit={handleSubmit}
       >
-        <InputGroup className="min-h-14 items-start rounded-lg border-border-default bg-white p-1.5 text-text-strong shadow-none ring-1 ring-border-default">
+        <InputGroup className="min-h-16 flex-wrap items-start rounded-[1.75rem] border-border-default bg-white p-1.5 text-text-strong shadow-overlay ring-0 has-disabled:!bg-white has-disabled:!opacity-100 md:min-h-14 md:flex-nowrap md:rounded-lg md:shadow-none md:ring-1 md:ring-border-default">
           <textarea
             data-slot="input-group-control"
             aria-label="Ask anything about Siargao"
-            className="min-w-0 max-h-32 min-h-11 flex-1 resize-none overflow-hidden rounded-none border-0 bg-transparent px-3 py-2.5 text-base leading-6 whitespace-pre-wrap text-text-strong caret-brand-lagoon-700 shadow-none outline-none [field-sizing:content] [overflow-wrap:anywhere] placeholder:text-text-soft focus-visible:ring-0 disabled:bg-transparent disabled:text-text-muted"
+            className="min-w-0 max-h-32 min-h-10 basis-full resize-none overflow-hidden rounded-none border-0 bg-transparent px-3 py-2 text-base leading-6 whitespace-pre-wrap text-text-strong caret-brand-lagoon-700 shadow-none outline-none [field-sizing:content] [overflow-wrap:anywhere] placeholder:text-text-muted focus-visible:ring-0 disabled:bg-transparent disabled:text-text-muted md:min-h-11 md:flex-1 md:basis-auto md:py-2.5 md:placeholder:text-text-soft"
             data-testid="chat-composer-input"
             disabled={isSending}
             onChange={(event) => {
@@ -5965,7 +6331,10 @@ function ChatComposer({
             rows={1}
             value={inputValue}
           />
-          <InputGroupAddon align="inline-end" className="shrink-0 gap-1 pt-0">
+          <InputGroupAddon
+            align="inline-end"
+            className="w-full shrink-0 justify-between gap-1 px-1 pt-0 pb-0 md:w-auto md:justify-center md:px-0"
+          >
             <LocationSharingControl
               disabled={isSending}
               locationState={locationState}
@@ -5974,7 +6343,7 @@ function ChatComposer({
             />
             <InputGroupButton
               aria-label="Send question"
-              className="size-11 rounded-md bg-brand-lagoon-700 text-white hover:bg-brand-lagoon-600 disabled:opacity-50"
+              className="size-11 rounded-full bg-brand-lagoon-700 text-white hover:bg-brand-lagoon-600 disabled:opacity-50 md:rounded-md"
               disabled={
                 isSending || locationState.status === "requesting" || inputValue.trim().length === 0
               }
@@ -6022,7 +6391,7 @@ function LocationSharingControl({
         <Dialog.Trigger asChild>
           <Button
             aria-label={`Location sharing: ${label}. ${summary}`}
-            className="relative size-11 rounded-md border-border-default bg-brand-lavender-50 p-0 text-text-strong hover:bg-brand-lavender-100 focus-visible:ring-2 focus-visible:ring-brand-violet-650"
+            className="relative size-11 rounded-full border-border-default bg-brand-lavender-50 p-0 text-text-strong hover:bg-brand-lavender-100 focus-visible:ring-2 focus-visible:ring-brand-violet-650 md:rounded-md"
             data-testid="location-sharing-trigger"
             size="icon"
             type="button"
@@ -6201,7 +6570,7 @@ function FollowUpPromptDisclosure({
   prompts: readonly string[];
 }) {
   return (
-    <details className="group grid gap-3 rounded-lg border border-border-default bg-brand-paper-100 px-3">
+    <details className="group hidden gap-3 rounded-lg border border-border-default bg-brand-paper-100 px-3 md:grid">
       <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm font-extrabold text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-violet-650">
         Try another Reality Check
         <ChevronDown
@@ -6317,8 +6686,22 @@ function chatThreadTitleFromPrompt(prompt: string) {
   return normalizedPrompt.length <= 80 ? normalizedPrompt : `${normalizedPrompt.slice(0, 77)}...`;
 }
 
+function interactiveMessagesFromThreadMessages(
+  messages: readonly ChatThreadDetailMessage[],
+): InteractiveChatMessage[] {
+  let latestUserPrompt: string | undefined;
+
+  return messages.map((message) => {
+    if (message.role === "user") {
+      latestUserPrompt = message.content;
+    }
+    return interactiveMessageFromThreadMessage(message, latestUserPrompt);
+  });
+}
+
 function interactiveMessageFromThreadMessage(
   message: ChatThreadDetailMessage,
+  retryPrompt: string | undefined,
 ): InteractiveChatMessage {
   return {
     id: message.id,
@@ -6327,6 +6710,7 @@ function interactiveMessageFromThreadMessage(
     text: message.content,
     timestamp: chatTimeFormatter.format(new Date(message.createdAt)),
     status: message.status === "error" ? "error" : "complete",
+    retryPrompt: message.role === "assistant" ? retryPrompt : undefined,
     rating: message.rating?.rating ?? null,
     cards: message.cards,
     actions: message.actions,
