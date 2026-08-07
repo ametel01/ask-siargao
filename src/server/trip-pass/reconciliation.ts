@@ -37,6 +37,7 @@ export type TripPassDiagnosticIssue = {
     | "missing_usage_meters"
     | "usage_meter_aggregate_mismatch"
     | "stale_usage_reservation"
+    | "paid_answer_usage_event_missing"
     | "provider_usage_missing_request_id"
     | "provider_usage_duplicate_request_id"
     | "price_catalog_mismatch"
@@ -186,6 +187,14 @@ type UsageEventRow = {
   paid_answer_details_purged_at: Date | string | null;
 };
 
+type SettledPaidAnswerIntegrityRow = {
+  id: string;
+  trip_pass_id: string;
+  usage_meter_id: string;
+  exact_event_id: string | null;
+  candidate_event_ids_json: string[] | string;
+};
+
 type MeterSummaryRow = {
   meter_type: string;
   used: number;
@@ -324,6 +333,7 @@ async function collectTripPassIssues(input: {
     missingMeters,
     aggregateMismatches,
     usageEvents,
+    settledPaidAnswers,
     priceMismatches,
   ] = await Promise.all([
     loadStuckPendingOrders(input.db, input.scope, staleOrderCutoff),
@@ -333,6 +343,7 @@ async function collectTripPassIssues(input: {
     loadPassesMissingMeters(input.db, input.scope),
     loadMeterAggregateMismatches(input.db, input.scope),
     loadUsageEvents(input.db, input.scope),
+    loadSettledPaidAnswerIntegrity(input.db, input.scope),
     loadPriceCatalogMismatches(input.db, input.scope, input.env),
   ]);
 
@@ -419,7 +430,11 @@ async function collectTripPassIssues(input: {
     });
   }
 
-  issues.push(...usageEventIssues(usageEvents, staleReservationCutoff));
+  const paidAnswerIntegrity = paidAnswerUsageEventIssues(settledPaidAnswers);
+  issues.push(...paidAnswerIntegrity.issues);
+  issues.push(
+    ...usageEventIssues(usageEvents, staleReservationCutoff, paidAnswerIntegrity.coveredEventRefs),
+  );
   issues.push(...priceMismatches);
   issues.push(...infrastructureIssues(input.env));
 
@@ -609,6 +624,7 @@ function createSnapshot(input: {
 function usageEventIssues(
   events: UsageEventRow[],
   staleReservationCutoff: Date,
+  paidAnswerIntegrityCoveredEventRefs: ReadonlySet<string> = new Set(),
 ): TripPassDiagnosticIssue[] {
   const issues: TripPassDiagnosticIssue[] = [];
   const providerEventRefs = new Map<string, string[]>();
@@ -634,6 +650,7 @@ function usageEventIssues(
     if (
       event.event_type === "settled" &&
       providerRequestIds.length === 0 &&
+      !paidAnswerIntegrityCoveredEventRefs.has(event.id) &&
       !isPurgedPaidAnswerAggregate(event)
     ) {
       issues.push({
@@ -672,6 +689,35 @@ function usageEventIssues(
   }
 
   return issues;
+}
+
+function paidAnswerUsageEventIssues(reservations: SettledPaidAnswerIntegrityRow[]): {
+  issues: TripPassDiagnosticIssue[];
+  coveredEventRefs: Set<string>;
+} {
+  const issues: TripPassDiagnosticIssue[] = [];
+  const coveredEventRefs = new Set<string>();
+
+  for (const reservation of reservations) {
+    if (reservation.exact_event_id !== null) continue;
+
+    for (const eventId of parseProviderRequestIds(reservation.candidate_event_ids_json)) {
+      coveredEventRefs.add(eventId);
+    }
+    issues.push({
+      code: "paid_answer_usage_event_missing",
+      severity: "warning",
+      localRef: reservation.id,
+      reason: "settled paid answer has no exactly linked settled chat-message usage event",
+      repairable: false,
+      details: {
+        passRef: reservation.trip_pass_id,
+        meterRef: reservation.usage_meter_id,
+      },
+    });
+  }
+
+  return { coveredEventRefs, issues };
 }
 
 function isPurgedPaidAnswerAggregate(event: UsageEventRow) {
@@ -955,9 +1001,49 @@ async function loadUsageEvents(db: DatabaseQueryClient, scope: TripPassReconcili
         and e.trip_pass_id = r.trip_pass_id
         and e.usage_meter_id = r.usage_meter_id
         and e.user_id = r.account_id
+        and e.event_type = 'settled'
+        and e.meter_type = 'chat_message'
       where true
         ${clause}
       order by e.created_at desc
+      limit 500
+    `,
+    params,
+  );
+  return result.rows;
+}
+
+async function loadSettledPaidAnswerIntegrity(
+  db: DatabaseQueryClient,
+  scope: TripPassReconciliationScope,
+) {
+  const { clause, params } = scopeWhere(scope, "p", 1);
+  const result = await db.query<SettledPaidAnswerIntegrityRow>(
+    `
+      select
+        r.id,
+        r.trip_pass_id,
+        r.usage_meter_id,
+        e.id as exact_event_id,
+        coalesce((
+          select jsonb_agg(candidate.id order by candidate.id)
+          from trip_usage_events candidate
+          where candidate.id = 'trip_usage_event_' || r.id
+            or candidate.idempotency_key = 'paid-answer:' || r.id
+        ), '[]'::jsonb) as candidate_event_ids_json
+      from paid_answer_reservations r
+      join trip_passes p on p.id = r.trip_pass_id
+      left join trip_usage_events e
+        on e.id = 'trip_usage_event_' || r.id
+        and e.idempotency_key = 'paid-answer:' || r.id
+        and e.trip_pass_id = r.trip_pass_id
+        and e.usage_meter_id = r.usage_meter_id
+        and e.user_id = r.account_id
+        and e.event_type = 'settled'
+        and e.meter_type = 'chat_message'
+      where r.status = 'settled'
+        ${clause}
+      order by r.finalized_at desc, r.id
       limit 500
     `,
     params,

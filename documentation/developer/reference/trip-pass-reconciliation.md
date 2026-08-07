@@ -54,6 +54,15 @@ Durable usage events are reconciled against settled meter counts and stored
 provider request references. Missing and duplicate provider request references
 are reported without reconstructing prompts or repricing historic usage.
 
+`paid_answer_usage_event_missing` is emitted when a settled Paid Answer Reservation has no exact
+aggregate event matching its deterministic event ID, paid-answer idempotency key, pass, meter,
+account, `settled` event type, and `chat_message` meter type. The check starts from the reservation,
+so it also detects a missing event, a linkage mismatch, or a finalize conflict that prevented the
+event insert. A correctly linked event whose per-request fields were policy-purged remains valid
+because its quantity and ledger identity survive. This issue is audit-only in both dry-run and
+repair modes: reconciliation does not fabricate a usage event, and the warning remains until the
+exact durable event is restored through an audited ledger correction.
+
 Operational concurrency leases and budget reservation state are held in the shared quota store.
 The quota store expires stale entries internally but does not expose a read API for operator
 diagnostics, so reconciliation reports shared-store and provider/global circuit configuration.

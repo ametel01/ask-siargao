@@ -74,6 +74,13 @@ async function runCorruptPurgeCandidateProgress(harness: PostgresHarness) {
       `trip_usage_event_${missing.reservationId}`,
     ]);
 
+    await assertPaidAnswerIntegrityMatrix(db, [
+      { reservationId: mismatch.reservationId, target: mismatchTarget, warning: true },
+      { reservationId: missing.reservationId, target: missingTarget, warning: true },
+      { reservationId: conflicted.reservationId, target: conflictTarget, warning: true },
+      { reservationId: valid.reservationId, target: validTarget, warning: false },
+    ]);
+
     const firstFailure = await captureNativePurgeFailure(db);
     assertEqual(firstFailure.purgedCount, 1, "valid later candidate must purge after corrupt rows");
     assertJsonEqual(
@@ -125,20 +132,12 @@ async function runCorruptPurgeCandidateProgress(harness: PostgresHarness) {
       `unrelated_request_${conflictTarget.suffix}_only`,
       "finalize-conflict event details must remain when its candidate rolls back",
     );
-    const snapshot = await reconcileTripPassState({
-      db,
-      mode: "dry_run",
-      scope: { passId: mismatchTarget.passId },
-    });
-    assertEqual(
-      snapshot.issues.some(
-        (issue) =>
-          issue.code === "provider_usage_missing_request_id" &&
-          issue.localRef === `trip_usage_event_${mismatch.reservationId}`,
-      ),
-      true,
-      "unpurged linkage corruption must remain a reconciliation warning",
-    );
+    await assertPaidAnswerIntegrityMatrix(db, [
+      { reservationId: mismatch.reservationId, target: mismatchTarget, warning: true },
+      { reservationId: missing.reservationId, target: missingTarget, warning: true },
+      { reservationId: conflicted.reservationId, target: conflictTarget, warning: true },
+      { reservationId: valid.reservationId, target: validTarget, warning: false },
+    ]);
     const retryFailure = await captureNativePurgeFailure(db);
     assertEqual(retryFailure.purgedCount, 0, "retry must not recount the already purged answer");
     assertJsonEqual(
@@ -164,8 +163,51 @@ async function runCorruptPurgeCandidateProgress(harness: PostgresHarness) {
     await assertPurgedSettledAnswer(db, missingTarget, missing, 1);
     await assertPurgedSettledAnswer(db, conflictTarget, conflicted, 1);
     await assertPurgedSettledAnswer(db, validTarget, valid, 1);
+    await assertPaidAnswerIntegrityMatrix(db, [
+      { reservationId: mismatch.reservationId, target: mismatchTarget, warning: false },
+      { reservationId: missing.reservationId, target: missingTarget, warning: false },
+      { reservationId: conflicted.reservationId, target: conflictTarget, warning: false },
+      { reservationId: valid.reservationId, target: validTarget, warning: false },
+    ]);
   } finally {
     await db.end();
+  }
+}
+
+async function assertPaidAnswerIntegrityMatrix(
+  db: DatabaseQueryClient,
+  cases: Array<{ reservationId: string; target: RaceTarget; warning: boolean }>,
+) {
+  for (const mode of ["dry_run", "repair"] as const) {
+    for (const entry of cases) {
+      const snapshot = await reconcileTripPassState({
+        confirmMutation: mode === "repair",
+        db,
+        mode,
+        scope: { passId: entry.target.passId },
+      });
+      assertEqual(
+        snapshot.issues.some(
+          (issue) =>
+            issue.code === "paid_answer_usage_event_missing" &&
+            issue.localRef === entry.reservationId,
+        ),
+        entry.warning,
+        `${mode} reconciliation paid-answer integrity warning for ${entry.reservationId}`,
+      );
+      if (entry.warning) {
+        assertEqual(
+          snapshot.issues.some(
+            (issue) =>
+              issue.code === "provider_usage_missing_request_id" &&
+              (issue.localRef === `trip_usage_event_${entry.reservationId}` ||
+                issue.localRef === `unrelated_usage_event_${entry.target.suffix}_only`),
+          ),
+          false,
+          `${mode} reconciliation must not duplicate the paid-answer integrity warning`,
+        );
+      }
+    }
   }
 }
 
