@@ -64,9 +64,10 @@ SET
   status = CASE WHEN status = 'failed' THEN 'pending' ELSE status END
 WHERE phase_one_committed_at IS NULL OR status = 'failed';
 
--- This is transient, retry-owned encrypted provider state. It is removed as
--- soon as Clerk deletion and final identity erasure succeed. Key material is
--- server-only and is never stored beside the ciphertext.
+-- This is retry-owned encrypted provider state. It remains until the closure
+-- tombstone and operation are purged because late checkout/provider facts can
+-- reopen commerce cleanup after identity erasure. Key material is server-only
+-- and is never stored beside the ciphertext.
 CREATE TABLE IF NOT EXISTS account_closure_provider_subjects (
   operation_id text PRIMARY KEY REFERENCES account_closure_operations(id) ON DELETE CASCADE,
   ciphertext text NOT NULL,

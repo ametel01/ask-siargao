@@ -249,6 +249,42 @@ describe("Trip Pass checkout commerce", () => {
         commerce_step_status: "pending",
         operation_status: "pending",
       });
+      await runClosureCleanupBatch({
+        db,
+        now: new Date(now.getTime() + 1_000),
+        policy: closurePolicy,
+        providers: {
+          deleteClerkUser: async () => undefined,
+          expireCheckoutSession: async () => undefined,
+        },
+      });
+      const converged = await db.query<{
+        commerce_step_status: string;
+        operation_status: string;
+        provider_subjects: string;
+        status: string;
+        step_status: string;
+      }>(
+        `select s.status, expiry.status as step_status,
+           commerce.status as commerce_step_status, operation.status as operation_status,
+           (select count(*)::text from account_closure_provider_subjects subject
+             where subject.operation_id = s.operation_id) as provider_subjects
+         from account_closure_checkout_sessions s
+         join account_closure_steps expiry on expiry.operation_id = s.operation_id
+           and expiry.step_type = 'checkout_expiry'
+         join account_closure_steps commerce on commerce.operation_id = s.operation_id
+           and commerce.step_type = 'commerce_minimization'
+         join account_closure_operations operation on operation.id = s.operation_id
+         where s.stripe_checkout_session_id = $1`,
+        ["cs_order_checkout_closed_during_provider_call"],
+      );
+      expect(converged.rows[0]).toEqual({
+        status: "succeeded",
+        step_status: "succeeded",
+        commerce_step_status: "succeeded",
+        operation_status: "succeeded",
+        provider_subjects: "1",
+      });
     });
   });
 

@@ -118,7 +118,7 @@ export async function beginAccountClosure(
     if (!user.rows[0]) {
       await transaction.query(
         `insert into users (id, deleted_at, created_at, updated_at)
-         values ($1, $2, $2, $2) on conflict (id) do nothing`,
+         values ($1, null, $2, $2) on conflict (id) do nothing`,
         [input.userId, phaseOneAt],
       );
     }
@@ -264,26 +264,92 @@ export async function beginAccountClosure(
       `,
       [input.userId, tombstoneRef, phaseOneAt],
     );
-    await transaction.query(
-      `update users set
-        email = case when $3 then null else email end,
-        first_name = case when $3 then null else first_name end,
-        last_name = case when $3 then null else last_name end,
-        image_url = case when $3 then null else image_url end,
-        clerk_updated_at = case when $3 then null else clerk_updated_at end,
-        last_seen_at = case when $3 then null else last_seen_at end,
-        deleted_at = $2,
-        updated_at = $2
-       where id = $1 and deleted_at is null`,
-      [input.userId, phaseOneAt, input.clerkDeletionConfirmed ?? false],
-    );
-
     await dependencies.beforeCommit?.();
+    await linearizeNewClosurePhaseOne({
+      clerkDeletionConfirmed: input.clerkDeletionConfirmed ?? false,
+      closureRetentionMs: dependencies.policy.closureRetentionMs,
+      operationRef,
+      tombstoneRef,
+      transaction,
+      userId: input.userId,
+    });
     return { status: "closed" as const, operationRef, tombstoneRef };
   });
 
   await dependencies.afterCommit?.(result);
   return result;
+}
+
+async function linearizeNewClosurePhaseOne(input: {
+  clerkDeletionConfirmed: boolean;
+  closureRetentionMs: number;
+  operationRef: string;
+  tombstoneRef: string;
+  transaction: DatabaseQueryClient;
+  userId: string;
+}) {
+  const result = await input.transaction.query<{ phase_one_at: Date | string }>(
+    `with boundary as materialized (
+       select clock_timestamp() as phase_one_at
+     ), tombstone_update as (
+       update account_closure_tombstones
+       set closed_at = boundary.phase_one_at,
+         purge_after = boundary.phase_one_at + ($4 * interval '1 millisecond'),
+         created_at = boundary.phase_one_at, updated_at = boundary.phase_one_at
+       from boundary where id = $1 returning id
+     ), barrier_update as (
+       update account_closure_write_barriers
+       set opened_at = boundary.phase_one_at,
+         created_at = boundary.phase_one_at, updated_at = boundary.phase_one_at
+       from boundary where tombstone_id = $1 returning id
+     ), operation_update as (
+       update account_closure_operations
+       set phase_one_committed_at = boundary.phase_one_at,
+         created_at = boundary.phase_one_at, updated_at = boundary.phase_one_at
+       from boundary where id = $2 returning id
+     ), subject_update as (
+       update account_closure_provider_subjects
+       set created_at = boundary.phase_one_at
+       from boundary where operation_id = $2 returning operation_id
+     ), usage_update as (
+       update trip_usage_events
+       set occurred_at = boundary.phase_one_at,
+         created_at = least(created_at, boundary.phase_one_at)
+       from boundary where user_id = $3 and event_type = 'released' returning id
+     ), pass_update as (
+       update trip_passes
+       set updated_at = boundary.phase_one_at
+       from boundary where user_id = $3 and status = 'cancelled' returning id
+     ), order_update as (
+       update trip_pass_orders
+       set updated_at = boundary.phase_one_at
+       from boundary where closure_tombstone_id = $1 returning id
+     ), user_update as (
+       update users
+       set email = case when $5 then null else email end,
+         first_name = case when $5 then null else first_name end,
+         last_name = case when $5 then null else last_name end,
+         image_url = case when $5 then null else image_url end,
+         clerk_updated_at = case when $5 then null else clerk_updated_at end,
+         last_seen_at = case when $5 then null else last_seen_at end,
+         deleted_at = boundary.phase_one_at, updated_at = boundary.phase_one_at
+       from boundary
+       where id = $3
+         and (select count(*) from usage_update) >= 0
+         and (select count(*) from pass_update) >= 0
+         and (select count(*) from order_update) >= 0
+       returning id
+     )
+     select phase_one_at from boundary`,
+    [
+      input.tombstoneRef,
+      input.operationRef,
+      input.userId,
+      input.closureRetentionMs,
+      input.clerkDeletionConfirmed,
+    ],
+  );
+  if (!result.rows[0]?.phase_one_at) throw new Error("database_clock_unavailable");
 }
 
 async function convergeExistingClosure(
@@ -567,17 +633,6 @@ async function executeClosureStep(
   if (step.step_type === "clerk_deletion") {
     const userId = await decryptOperationSubject(step.operation_id, input.db, input.policy);
     await input.providers.deleteClerkUser(userId);
-    const identity = await input.db.query<{ status: string }>(
-      `select status from account_closure_steps
-       where operation_id = $1 and step_type = 'identity_erasure'`,
-      [step.operation_id],
-    );
-    if (identity.rows[0]?.status === "succeeded") {
-      await input.db.query(
-        "delete from account_closure_provider_subjects where operation_id = $1",
-        [step.operation_id],
-      );
-    }
     return;
   }
   if (step.step_type === "checkout_expiry") {
@@ -636,17 +691,6 @@ async function executeClosureStep(
   await withDatabaseTransaction(input.db, async (transaction) => {
     await configureCleanupBypass(transaction, step.lease_token);
     await transaction.query("delete from users where id = $1", [userId]);
-    const clerk = await transaction.query<{ status: string }>(
-      `select status from account_closure_steps
-       where operation_id = $1 and step_type = 'clerk_deletion'`,
-      [step.operation_id],
-    );
-    if (clerk.rows[0]?.status === "succeeded") {
-      await transaction.query(
-        "delete from account_closure_provider_subjects where operation_id = $1",
-        [step.operation_id],
-      );
-    }
   });
 }
 
@@ -936,6 +980,7 @@ async function minimizeCommerceData(
       `delete from trip_pass_orders o
        where o.closure_tombstone_id = $1
          and o.closure_refund_obligation_id is null
+         and o.stripe_checkout_session_id is null
          and not (
            o.status in ('pending', 'checkout_created')
            and o.stripe_checkout_session_id is null

@@ -531,6 +531,7 @@ async function loadOrderById(orderId: string, db: DatabaseQueryClient) {
       from trip_pass_orders
       where id = $1
       limit 1
+      for update
     `,
     [orderId],
   );
@@ -556,6 +557,7 @@ async function loadOrderByPaymentIntent(paymentIntentId: string, db: DatabaseQue
       from trip_pass_orders
       where stripe_payment_intent_id = $1
       limit 1
+      for update
     `,
     [paymentIntentId],
   );

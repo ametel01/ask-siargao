@@ -43,6 +43,8 @@ export async function runAccountClosurePostgresIntegration(harness: RealPostgres
   console.log(JSON.stringify({ checked: "account-closure-postgres", race: "worker-lease-fence" }));
   await runCheckoutProviderOverlapRegression(harness);
   console.log(JSON.stringify({ checked: "account-closure-postgres", race: "checkout-provider" }));
+  await runPrecommitStripeEventRegression(harness);
+  console.log(JSON.stringify({ checked: "account-closure-postgres", race: "precommit-stripe" }));
   await runStripeInboxClosureRegression(harness);
   console.log(JSON.stringify({ checked: "account-closure-postgres", race: "stripe-inbox" }));
   await runRetainedCommerceEvidenceRegression(harness);
@@ -114,7 +116,16 @@ async function runCheckoutProviderOverlapRegression(harness: RealPostgresHarness
       },
     );
     await providerStarted.promise;
-    await beginAccountClosure({ now: raceNow, userId }, { db: closureClient, policy: racePolicy });
+    const closure = await beginAccountClosure(
+      { now: raceNow, userId },
+      { db: closureClient, policy: racePolicy },
+    );
+    await runClosureCleanupBatch({
+      db: closureClient,
+      now: raceNow,
+      policy: racePolicy,
+      providers: successfulProviders,
+    });
     releaseProvider.resolve();
     const checkoutResult = await checkout;
     assertEqual(
@@ -157,9 +168,125 @@ async function runCheckoutProviderOverlapRegression(harness: RealPostgresHarness
       "cs_closure_checkout_provider_order",
       "late Session must reach durable expiry cleanup",
     );
+    const converged = await closureClient.query<{
+      operation_status: string;
+      provider_subjects: string;
+      session_status: string;
+    }>(
+      `select o.status as operation_status,
+         (select status from account_closure_checkout_sessions
+           where operation_id = o.id
+             and stripe_checkout_session_id = 'cs_closure_checkout_provider_order') as session_status,
+         (select count(*)::text from account_closure_provider_subjects s
+           where s.operation_id = o.id) as provider_subjects
+       from account_closure_operations o where o.id = $1`,
+      [closure.operationRef],
+    );
+    assertEqual(
+      converged.rows[0]?.operation_status,
+      "succeeded",
+      "late Session cleanup must reconverge the operation",
+    );
+    assertEqual(
+      converged.rows[0]?.session_status,
+      "succeeded",
+      "late Session expiry must converge",
+    );
+    assertEqual(
+      converged.rows[0]?.provider_subjects,
+      "1",
+      "reopenable closure must retain its encrypted provider subject",
+    );
   } finally {
     releaseProvider.resolve();
     await Promise.all([checkoutClient.end(), closureClient.end()]);
+  }
+}
+
+async function runPrecommitStripeEventRegression(harness: RealPostgresHarness) {
+  const closureClient = harness.createQueryClient();
+  const inboxClient = harness.createQueryClient();
+  const observer = harness.createQueryClient();
+  const precommitReached = deferred<void>();
+  const releaseClosure = deferred<void>();
+  const userId = "closure_precommit_stripe";
+  const orderId = "closure_precommit_stripe_order";
+  try {
+    await seedUser(closureClient, userId);
+    await closureClient.query(
+      `insert into trip_pass_orders (
+         id, user_id, status, product_code, product_family, product_version,
+         stripe_price_id, amount_total_minor, currency, checkout_idempotency_key,
+         stripe_checkout_session_id, checkout_session_status, metadata_json, created_at, updated_at
+       ) values ($1, $2, 'checkout_created', $3, $4, $5, 'price_trip_pass',
+         $6, $7, $8, $9, 'open', '{}'::jsonb, $10, $10)`,
+      [
+        orderId,
+        userId,
+        tripPassCheckoutProductSnapshot.productCode,
+        tripPassCheckoutProductSnapshot.productFamily,
+        tripPassCheckoutProductSnapshot.productVersion,
+        tripPassCheckoutProductSnapshot.amountTotalMinor,
+        tripPassCheckoutProductSnapshot.currency,
+        `trip_pass_checkout:${orderId}`,
+        `cs_${orderId}`,
+        new Date(raceNow.getTime() - 120_000),
+      ],
+    );
+    const closure = beginAccountClosure(
+      { now: raceNow, userId },
+      {
+        beforeCommit: async () => {
+          precommitReached.resolve();
+          await releaseClosure.promise;
+        },
+        db: closureClient,
+        policy: racePolicy,
+      },
+    );
+    await precommitReached.promise;
+    const providerClock = await observer.query<{ now: Date }>("select clock_timestamp() as now");
+    const eventCreatedAt = providerClock.rows[0]?.now;
+    if (!eventCreatedAt) throw new Error("provider event clock was unavailable");
+    const eventSecond = Math.floor(eventCreatedAt.getTime() / 1_000);
+    const inboxPid = await backendPid(inboxClient);
+    const inbox = receiveStripeWebhookEvent(
+      closureCheckoutSessionEvent("evt_closure_precommit_stripe", orderId, eventCreatedAt),
+      {
+        db: inboxClient,
+        applyEvent: (event, options) =>
+          applyTripPassStripeEvent(event, { db: options.db, now: options.now }),
+      },
+    );
+    await observeBlockedBackend(observer, inboxPid);
+    await waitUntil(async () => {
+      const clock = await observer.query<{ now: Date }>("select clock_timestamp() as now");
+      return Math.floor((clock.rows[0]?.now.getTime() ?? 0) / 1_000) > eventSecond;
+    }, "database clock did not advance beyond the held provider event second");
+    releaseClosure.resolve();
+    await closure;
+    const inboxResult = await inbox;
+    assertEqual(
+      inboxResult.status,
+      "applied",
+      `held precommit Stripe event must apply: ${JSON.stringify(inboxResult)}`,
+    );
+    const state = await observer.query<{ outcome: string; refunds: string }>(
+      `select closure_outcome as outcome,
+         (select count(*)::text from account_closure_refund_obligations
+           where order_id = $1) as refunds
+       from trip_pass_orders where id = $1`,
+      [orderId],
+    );
+    assertEqual(
+      state.rows[0]?.outcome,
+      "blocked_at_closure",
+      "provider event created during the precommit hold must be Before Closure",
+    );
+    assertEqual(state.rows[0]?.refunds, "0", "Before Closure event must not create a refund");
+  } finally {
+    releaseClosure.resolve();
+    await Promise.all([closureClient.end(), inboxClient.end(), observer.end()]);
   }
 }
 
@@ -173,6 +300,15 @@ async function runStripeInboxClosureRegression(harness: RealPostgresHarness) {
       expectedRefunds: "1",
       orderId: "closure_inbox_order_after",
       userId: "closure_inbox_after",
+    });
+    await runStripeInboxClosureCase(client, {
+      eventOffsetSeconds: 60,
+      eventId: "evt_closure_inbox_delayed_after_expiry_failure",
+      expectedOutcome: "paid_after_closure",
+      expectedRefunds: "1",
+      expiryFailureBeforeEvent: true,
+      orderId: "closure_inbox_order_delayed_after_expiry_failure",
+      userId: "closure_inbox_delayed_after_expiry_failure",
     });
     await runStripeInboxClosureCase(client, {
       eventOffsetSeconds: -60,
@@ -202,6 +338,7 @@ async function runStripeInboxClosureCase(
     eventId: string;
     expectedOutcome: string;
     expectedRefunds: string;
+    expiryFailureBeforeEvent?: boolean;
     orderId: string;
     userId: string;
   },
@@ -242,6 +379,19 @@ async function runStripeInboxClosureCase(
   if (!closedAt) throw new Error("closure timestamp was unavailable for Stripe classification");
   const closedSecond = Math.floor(closedAt.getTime() / 1_000) * 1_000;
   const eventCreatedAt = new Date(closedSecond + input.eventOffsetSeconds * 1_000);
+  if (input.expiryFailureBeforeEvent) {
+    await runClosureCleanupBatch({
+      db: client,
+      now: raceNow,
+      policy: racePolicy,
+      providers: {
+        async deleteClerkUser() {},
+        async expireCheckoutSession() {
+          throw new Error("controlled expiry failure before delayed payment");
+        },
+      },
+    });
+  }
   const result = await receiveStripeWebhookEvent(
     closureCheckoutSessionEvent(input.eventId, input.orderId, eventCreatedAt),
     {
@@ -661,7 +811,6 @@ async function runRetainedCommerceEvidenceRegression(harness: RealPostgresHarnes
     if (closedAt.getTime() === raceNow.getTime()) {
       throw new Error("phase one used the application clock instead of PostgreSQL");
     }
-    const closureJsonTimestamp = closedAt.toISOString().replace("Z", "+00:00");
     await runClosureCleanupBatch({
       db: client,
       now: raceNow,
@@ -715,7 +864,7 @@ async function runRetainedCommerceEvidenceRegression(harness: RealPostgresHarnes
           checkoutSessionExpiresAt: "2026-08-07T02:00:00+00:00",
           completedAt: "2026-08-07T02:00:00+00:00",
           createdAt: "2026-08-07T01:00:00+00:00",
-          updatedAt: closureJsonTimestamp,
+          updatedAt: order?.lifecycle_timestamps.updatedAt,
         },
         product_code: "siargao_trip_pass_14d_v2",
         product_family: "siargao_trip_pass",
@@ -746,7 +895,7 @@ async function runRetainedCommerceEvidenceRegression(harness: RealPostgresHarnes
           createdAt: "2026-08-07T01:00:00+00:00",
           expiresAt: "2026-08-21T01:00:00+00:00",
           startsAt: "2026-08-07T01:00:00+00:00",
-          updatedAt: closureJsonTimestamp,
+          updatedAt: pass?.lifecycle_timestamps.updatedAt,
         },
         product_code: "siargao_trip_pass_14d_v2",
         product_family: "siargao_trip_pass",
@@ -760,6 +909,16 @@ async function runRetainedCommerceEvidenceRegression(harness: RealPostgresHarnes
         stripe_payment_intent_id: "pi_retained_real",
       },
       "pass retention must contain the exact allowlist and aggregate service facts",
+    );
+    assertEqual(
+      new Date(String(order?.lifecycle_timestamps.updatedAt)).getTime(),
+      closedAt.getTime(),
+      "order evidence must use the database closure boundary",
+    );
+    assertEqual(
+      new Date(String(pass?.lifecycle_timestamps.updatedAt)).getTime(),
+      closedAt.getTime(),
+      "pass evidence must use the database closure boundary",
     );
 
     const retainedText = JSON.stringify(retained.rows);
@@ -780,12 +939,17 @@ async function runRetainedCommerceEvidenceRegression(harness: RealPostgresHarnes
     const sourceRows = await client.query<{
       grants: string;
       meters: string;
+      order_minimized: boolean;
       orders: string;
       passes: string;
       usage_events: string;
     }>(
       `select
          (select count(*)::text from trip_pass_orders where id = 'order_retained_real') as orders,
+         (select user_id is null and email is null and stripe_customer_id is null
+            and metadata_json = '{}'::jsonb
+            and checkout_idempotency_key = 'closed:order_retained_real'
+          from trip_pass_orders where id = 'order_retained_real') as order_minimized,
          (select count(*)::text from trip_passes where id = 'pass_retained_real') as passes,
          (select count(*)::text from trip_pass_grants where id = 'grant_retained_real') as grants,
          (select count(*)::text from trip_usage_meters where id = 'meter_retained_real') as meters,
@@ -794,7 +958,14 @@ async function runRetainedCommerceEvidenceRegression(harness: RealPostgresHarnes
     );
     assertJsonEqual(
       sourceRows.rows[0],
-      { grants: "0", meters: "0", orders: "0", passes: "0", usage_events: "0" },
+      {
+        grants: "0",
+        meters: "0",
+        order_minimized: true,
+        orders: "1",
+        passes: "0",
+        usage_events: "0",
+      },
       "retained evidence must replace the traveler-bearing commerce source graph",
     );
   } finally {
@@ -875,7 +1046,7 @@ async function runStaleWorkerLeaseRegression(harness: RealPostgresHarness) {
     );
     const firstWorker = runClosureCleanupBatch({
       db: first,
-      leaseMs: 10,
+      leaseMs: 1_000,
       limit: 1,
       now: raceNow,
       policy: racePolicy,
@@ -883,13 +1054,36 @@ async function runStaleWorkerLeaseRegression(harness: RealPostgresHarness) {
         async deleteClerkUser() {
           firstStarted.resolve();
           await releaseFirst.promise;
-          throw new Error("stale real worker failure");
         },
         async expireCheckoutSession() {},
       },
     });
     await firstStarted.promise;
-    await Bun.sleep(30);
+    await runClosureCleanupBatch({
+      db: setup,
+      now: raceNow,
+      policy: racePolicy,
+      providers: successfulProviders,
+    });
+    const identity = await setup.query<{ status: string }>(
+      `select status from account_closure_steps
+       where operation_id = $1 and step_type = 'identity_erasure'`,
+      [closure.operationRef],
+    );
+    assertEqual(
+      identity.rows[0]?.status,
+      "succeeded",
+      "identity cleanup must finish while the first Clerk lease is held",
+    );
+    await waitUntil(async () => {
+      const lease = await setup.query<{ expired: boolean }>(
+        `select lease_expires_at <= clock_timestamp() as expired
+         from account_closure_steps
+         where operation_id = $1 and step_type = 'clerk_deletion'`,
+        [closure.operationRef],
+      );
+      return lease.rows[0]?.expired === true;
+    }, "first Clerk worker lease did not expire");
     const secondWorker = runClosureCleanupBatch({
       db: second,
       leaseMs: 1_000,
@@ -928,6 +1122,16 @@ async function runStaleWorkerLeaseRegression(harness: RealPostgresHarness) {
       "stale retry must preserve the current worker token",
     );
     assertEqual(fenced.rows[0]?.last_error_category, null, "stale retry must not record an error");
+    const subject = await setup.query<{ count: string }>(
+      `select count(*)::text as count from account_closure_provider_subjects
+       where operation_id = $1`,
+      [closure.operationRef],
+    );
+    assertEqual(
+      subject.rows[0]?.count,
+      "1",
+      "expired successful Clerk worker must not delete the reopenable provider subject",
+    );
     releaseSecond.resolve();
     await secondWorker;
     const completed = await setup.query<{

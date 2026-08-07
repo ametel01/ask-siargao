@@ -341,6 +341,12 @@ describe("terminal Account Closure", () => {
         [closure.operationRef],
       ),
     ).toEqual([{ status: "succeeded" }]);
+    expect(
+      await query<{ operation_id: string }>(
+        "select operation_id from account_closure_provider_subjects where operation_id = $1",
+        [closure.operationRef],
+      ),
+    ).toEqual([{ operation_id: closure.operationRef }]);
     expect(await query("select id from users where id = 'user_retry'")).toEqual([]);
     await db.close();
   });
@@ -466,10 +472,20 @@ describe("terminal Account Closure", () => {
     }
     expect(
       await query(
-        `select user_id, email, stripe_customer_id, metadata_json
+        `select user_id, email, stripe_customer_id, metadata_json,
+           checkout_idempotency_key, stripe_checkout_session_id
          from trip_pass_orders where id = 'order_retained_boundary'`,
       ),
-    ).toEqual([]);
+    ).toEqual([
+      {
+        user_id: null,
+        email: null,
+        stripe_customer_id: null,
+        metadata_json: {},
+        checkout_idempotency_key: "closed:order_retained_boundary",
+        stripe_checkout_session_id: "cs_retained_allowed",
+      },
+    ]);
     expect(
       await query(
         `select user_id, idempotency_key, request_id, request_hash, provider_request_ids_json
