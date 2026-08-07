@@ -7,7 +7,11 @@ import {
   runInitialMigration,
 } from "@/server/db/test-database";
 import { createActiveTripPassWithMeters } from "@/server/payments/trip-pass";
-import { createMemoryQuotaStore } from "@/server/security/rate-limit";
+import {
+  createMemoryQuotaStore,
+  type QuotaStore,
+  type RollingWindowReservationResult,
+} from "@/server/security/rate-limit";
 import { openChatUsageSession } from "@/server/trip-pass/usage";
 
 const startsAt = new Date("2026-07-01T00:00:00.000Z");
@@ -161,6 +165,37 @@ describe("paid Trip Pass chat usage", () => {
       expect(results.find((result) => result.status === "usage_limit_reached")).toMatchObject({
         reason: "paid_chat_concurrency_exceeded",
       });
+    });
+  });
+
+  test("fails closed and compensates earlier Redis reservations when shared storage breaks", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_store_down", "trip_pass_paid_store_down");
+      const store = createFailingSharedQuotaStore();
+
+      const result = await openChatUsageSession({
+        bodyHash: "body_hash_store_down",
+        db,
+        env: {
+          NODE_ENV: "production",
+          REDIS_URL: "redis://redis.test.local:6379/0",
+        },
+        idempotencyKey: "token_hash_store_down",
+        now,
+        requestId: "request_paid_store_down",
+        store,
+        userId: "user_paid_store_down",
+      });
+
+      expect(result).toEqual({
+        status: "unavailable",
+        reason: "paid_usage_store_unavailable",
+      });
+      expect(store.releasedRollingReservations).toEqual([
+        "paid:trip_pass_paid_store_down:chat-starts:1m:request_paid_store_down",
+      ]);
+      await expectMeterUsed(db, "trip_pass_paid_store_down", 0);
+      await expectUsageEventCount(db, "body_hash_store_down", 0);
     });
   });
 
@@ -338,4 +373,60 @@ async function expectUsageEvents(
         : row?.provider_request_ids_json;
     expect(providerRequestIds).toEqual([...expected.providerRequestIds]);
   }
+}
+
+async function expectUsageEventCount(db: DatabaseQueryClient, requestHash: string, count: number) {
+  const result = await db.query<{ count: string }>(
+    `
+      select count(*)::text as count
+      from trip_usage_events
+      where request_hash = $1
+    `,
+    [requestHash],
+  );
+
+  expect(Number(result.rows[0]?.count ?? 0)).toBe(count);
+}
+
+function createFailingSharedQuotaStore() {
+  const releasedRollingReservations: string[] = [];
+  let rollingAttempts = 0;
+  const store: QuotaStore & { releasedRollingReservations: string[] } = {
+    scope: "shared",
+    releasedRollingReservations,
+    async consumeBudget() {
+      throw new Error("not used");
+    },
+    async incrementFixedWindow() {
+      throw new Error("not used");
+    },
+    async recordIdempotency() {
+      throw new Error("not used");
+    },
+    async releaseBudget() {
+      throw new Error("not used");
+    },
+    async releaseConcurrency() {
+      throw new Error("not used");
+    },
+    async releaseRollingWindow(input) {
+      releasedRollingReservations.push(`${input.key}:${input.reservationId}`);
+    },
+    async reserveConcurrency() {
+      throw new Error("configured Redis unavailable");
+    },
+    async reserveRollingWindow(input): Promise<RollingWindowReservationResult> {
+      rollingAttempts += 1;
+      if (rollingAttempts > 1) {
+        throw new Error("not used");
+      }
+      return {
+        status: "reserved",
+        count: 1,
+        reservationId: input.reservationId,
+        resetAt: input.nowMs + input.windowMs,
+      };
+    },
+  };
+  return store;
 }

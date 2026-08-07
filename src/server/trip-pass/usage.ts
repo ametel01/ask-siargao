@@ -164,50 +164,68 @@ export async function openChatUsageSession(
     return { status: "usage_limit_reached", reason: "paid_chat_meter_exhausted", allowance };
   }
 
-  const start = await store.reserveRollingWindow({
+  const startReservation = {
     key: `paid:${passId}:chat-starts:1m`,
     reservationId: input.requestId,
-    limit: tripPassRateLimits.paid.chatStartsPerMinute,
-    nowMs,
-    windowMs: oneMinuteMs,
-  });
-  if (start.status === "rejected") {
-    return { status: "usage_limit_reached", reason: "paid_chat_start_limit_exceeded", allowance };
-  }
-
+  } satisfies Reservation;
   const concurrencyKey = `paid:${passId}:chat-concurrency`;
-  const lease = await store.reserveConcurrency({
-    key: concurrencyKey,
-    leaseId: input.requestId,
-    limit: tripPassRateLimits.paid.concurrentChatRequests,
-    nowMs,
-    ttlMs: 2 * oneMinuteMs,
-  });
-  if (lease.status === "rejected") {
-    return {
-      status: "usage_limit_reached",
-      reason: "paid_chat_concurrency_exceeded",
-      allowance,
-    };
-  }
-
   const successReservation = {
     key: `paid:${passId}:chat-success:1d`,
     reservationId: input.requestId,
   } satisfies Reservation;
-  const daily = await store.reserveRollingWindow({
-    ...successReservation,
-    limit: tripPassRateLimits.paid.successfulChatsPerDay,
-    nowMs,
-    windowMs: oneDayMs,
-  });
-  if (daily.status === "rejected") {
-    await store.releaseConcurrency({ key: concurrencyKey, leaseId: input.requestId });
-    return {
-      status: "usage_limit_reached",
-      reason: "paid_chat_daily_limit_exceeded",
-      allowance,
-    };
+  const acquiredRollingReservations: Reservation[] = [];
+  let acquiredConcurrency = false;
+
+  try {
+    const start = await store.reserveRollingWindow({
+      ...startReservation,
+      limit: tripPassRateLimits.paid.chatStartsPerMinute,
+      nowMs,
+      windowMs: oneMinuteMs,
+    });
+    if (start.status === "rejected") {
+      return { status: "usage_limit_reached", reason: "paid_chat_start_limit_exceeded", allowance };
+    }
+    acquiredRollingReservations.push(startReservation);
+
+    const lease = await store.reserveConcurrency({
+      key: concurrencyKey,
+      leaseId: input.requestId,
+      limit: tripPassRateLimits.paid.concurrentChatRequests,
+      nowMs,
+      ttlMs: 2 * oneMinuteMs,
+    });
+    if (lease.status === "rejected") {
+      return {
+        status: "usage_limit_reached",
+        reason: "paid_chat_concurrency_exceeded",
+        allowance,
+      };
+    }
+    acquiredConcurrency = true;
+
+    const daily = await store.reserveRollingWindow({
+      ...successReservation,
+      limit: tripPassRateLimits.paid.successfulChatsPerDay,
+      nowMs,
+      windowMs: oneDayMs,
+    });
+    if (daily.status === "rejected") {
+      await safeReleaseConcurrency(store, concurrencyKey, input.requestId);
+      acquiredConcurrency = false;
+      return {
+        status: "usage_limit_reached",
+        reason: "paid_chat_daily_limit_exceeded",
+        allowance,
+      };
+    }
+    acquiredRollingReservations.push(successReservation);
+  } catch {
+    await safeReleaseReservations(store, acquiredRollingReservations);
+    if (acquiredConcurrency) {
+      await safeReleaseConcurrency(store, concurrencyKey, input.requestId);
+    }
+    return { status: "unavailable", reason: "paid_usage_store_unavailable" };
   }
 
   const idempotencyKey = `paid-chat:${passId}:${input.idempotencyKey ?? input.requestId}`;
@@ -224,8 +242,8 @@ export async function openChatUsageSession(
     db,
   );
   if (reservation.status === "limit_reached") {
-    await releaseReservations(store, [successReservation]);
-    await store.releaseConcurrency({ key: concurrencyKey, leaseId: input.requestId });
+    await safeReleaseReservations(store, [successReservation]);
+    await safeReleaseConcurrency(store, concurrencyKey, input.requestId);
     trackMeterTelemetry("trip_pass_meter_exhausted", "chat_message", reservation.allowance, now, {
       reason: "paid_chat_meter_exhausted",
     });
@@ -236,8 +254,8 @@ export async function openChatUsageSession(
     };
   }
   if (reservation.status === "unavailable") {
-    await releaseReservations(store, [successReservation]);
-    await store.releaseConcurrency({ key: concurrencyKey, leaseId: input.requestId });
+    await safeReleaseReservations(store, [successReservation]);
+    await safeReleaseConcurrency(store, concurrencyKey, input.requestId);
     return { status: "unavailable", reason: "paid_usage_database_unavailable" };
   }
 
@@ -840,6 +858,16 @@ async function withDatabaseTransaction<T>(
 
 async function releaseReservations(store: QuotaStore, reservations: readonly Reservation[]) {
   await Promise.all(reservations.map((reservation) => store.releaseRollingWindow(reservation)));
+}
+
+async function safeReleaseReservations(store: QuotaStore, reservations: readonly Reservation[]) {
+  await Promise.allSettled(
+    reservations.map((reservation) => store.releaseRollingWindow(reservation)),
+  );
+}
+
+async function safeReleaseConcurrency(store: QuotaStore, key: string, leaseId: string) {
+  await store.releaseConcurrency({ key, leaseId }).catch(() => undefined);
 }
 
 function projectChatAllowance(meter: Pick<TripPassUsageMeter, "limit" | "used">) {

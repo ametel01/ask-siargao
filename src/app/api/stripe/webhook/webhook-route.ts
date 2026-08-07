@@ -23,8 +23,27 @@ const defaultDependencies: StripeWebhookRouteDependencies = {
   verifyStripeWebhookPayload,
 };
 
+let testDependencies: StripeWebhookRouteDependencies | undefined;
+
 type VerifiedWebhookEvent =
   ReturnType<typeof verifyStripeWebhookPayload> extends Promise<infer T> ? T : never;
+
+export function stripeWebhookRouteDependenciesForRequest() {
+  return testDependencies ?? defaultDependencies;
+}
+
+export async function withStripeWebhookRouteDependenciesForTest<T>(
+  dependencies: StripeWebhookRouteDependencies,
+  work: () => Promise<T>,
+) {
+  const previous = testDependencies;
+  testDependencies = dependencies;
+  try {
+    return await work();
+  } finally {
+    testDependencies = previous;
+  }
+}
 
 export async function stripeWebhookResponseFromEvent(
   event: VerifiedWebhookEvent,
