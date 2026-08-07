@@ -49,6 +49,68 @@ describe("Clerk webhook route", () => {
     expect(appliedEvents).toEqual(["user.updated"]);
   });
 
+  test("does not start lifecycle application until webhook verification succeeds", async () => {
+    const events: string[] = [];
+    const verifiedEvent = deferred<WebhookEvent>();
+    const verificationStarted = deferred<void>();
+    const responsePromise = clerkWebhookResponse(clerkWebhookRequest(), {
+      applyClerkUserWebhookEvent: async (event) => {
+        events.push(`apply:${event.type}`);
+        return { status: "upserted", userId: event.data.id ?? "missing" };
+      },
+      verifyWebhook: async () => {
+        events.push("verify:start");
+        verificationStarted.resolve();
+        return verifiedEvent.promise;
+      },
+    });
+
+    await verificationStarted.promise;
+    expect(events).toEqual(["verify:start"]);
+
+    verifiedEvent.resolve(userEvent("user.updated", "user_pending_verification"));
+    const response = await responsePromise;
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      received: true,
+      status: "upserted",
+      userId: "user_pending_verification",
+    });
+    expect(events).toEqual(["verify:start", "apply:user.updated"]);
+  });
+
+  test("never starts lifecycle application when webhook verification is rejected", async () => {
+    const events: string[] = [];
+    const verifiedEvent = deferred<WebhookEvent>();
+    const verificationStarted = deferred<void>();
+    const responsePromise = clerkWebhookResponse(clerkWebhookRequest(), {
+      applyClerkUserWebhookEvent: async (event) => {
+        events.push(`apply:${event.type}`);
+        return { status: "upserted", userId: event.data.id ?? "missing" };
+      },
+      verifyWebhook: async () => {
+        events.push("verify:start");
+        verificationStarted.resolve();
+        return verifiedEvent.promise;
+      },
+    });
+
+    await verificationStarted.promise;
+    expect(events).toEqual(["verify:start"]);
+
+    verifiedEvent.reject(new Error("pending verification rejected"));
+    const response = await responsePromise;
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "invalid_clerk_webhook",
+      message: "Webhook verification failed.",
+    });
+    expect(events).toEqual(["verify:start"]);
+  });
+
   test("does not return 2xx when local Clerk user sync fails", async () => {
     const internalPhrase = "fixture_should_not_render_clerk_sync";
     const response = await clerkWebhookResponse(clerkWebhookRequest(), {
@@ -128,4 +190,15 @@ function userEvent(type: "user.created" | "user.updated" | "user.deleted", userI
       http_request: { client_ip: "127.0.0.1", user_agent: "bun-test" },
     },
   } as unknown as UserWebhookEvent;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return { promise, resolve, reject };
 }

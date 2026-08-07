@@ -170,7 +170,7 @@ export async function grantTripPass(
         {
           id: passId,
           userId: input.userId,
-          email: input.email ?? order?.email ?? null,
+          email: null,
           stripeCheckoutSessionId: order?.stripe_checkout_session_id ?? null,
           stripePaymentIntentId: order?.stripe_payment_intent_id ?? null,
           stripeEventId: input.sourceEventId,
