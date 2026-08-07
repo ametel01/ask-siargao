@@ -5,6 +5,7 @@ import {
   assertCanStartCheckout,
   type VerifiedCheckoutPayment,
 } from "@/server/audit/lifecycle";
+import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 
 export const AUDIT_PRICE_CENTS = 999;
 
@@ -15,7 +16,7 @@ export type StripeCheckoutClient = {
 };
 
 function createStripeClient(apiKey = stripeApiKeyFromEnv()) {
-  return new Stripe(apiKey);
+  return new Stripe(apiKey, { apiVersion: STRIPE_API_VERSION });
 }
 
 function createStripeCheckoutClient(stripe = createStripeClient()): StripeCheckoutClient {
@@ -132,7 +133,12 @@ export function buildVerifiedPaymentEventRecord(input: {
     stripePaymentIntentId: input.payment.stripePaymentIntentId,
     eventType: input.payment.eventType,
     verifiedAt: input.verifiedAt.toISOString(),
-    rawEvent: input.rawEvent as unknown as Record<string, unknown>,
+    rawEvent: {
+      stripeEventId: input.rawEvent.id,
+      eventType: input.rawEvent.type,
+      stripeApiVersion: input.rawEvent.api_version ?? null,
+      objectType: (input.rawEvent.data.object as { object?: unknown }).object ?? null,
+    },
   };
 }
 

@@ -10,12 +10,12 @@ import {
 } from "@/server/audit/lifecycle";
 import type { QueuedAuditJob } from "@/server/jobs/audit-jobs";
 import { verifyStripeWebhookPayload } from "@/server/payments/stripe";
+import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 import {
   applyVerifiedCheckoutPayment,
   type PaymentApplicationStore,
   type VerifiedPaymentEventRecord,
 } from "@/server/payments/webhook-application";
-import { resetRateLimitStoreForTests } from "@/server/security/rate-limit";
 
 const now = new Date("2026-06-23T08:00:00.000Z");
 const webhookSecret = "whsec_test_fixture_secret";
@@ -25,56 +25,87 @@ const originalStripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
 describe("Stripe webhook route", () => {
   beforeEach(() => {
-    resetRateLimitStoreForTests();
     process.env.STRIPE_RESTRICTED_KEY = "rk_test_fixture";
     process.env.STRIPE_WEBHOOK_SECRET = webhookSecret;
   });
 
   afterEach(() => {
-    resetRateLimitStoreForTests();
     restoreEnvValue("DATABASE_URL", originalDatabaseUrl);
     restoreEnvValue("STRIPE_RESTRICTED_KEY", originalStripeRestrictedKey);
     restoreEnvValue("STRIPE_WEBHOOK_SECRET", originalStripeWebhookSecret);
   });
 
-  test("does not let unsigned requests exhaust the verified webhook rate limit", async () => {
+  test("rejects unsigned requests before durable receipt", async () => {
     for (let index = 0; index < 41; index += 1) {
       const response = await POST(unsignedRequest());
 
       expect(response.status).toBe(400);
       expect(response.headers.get("x-ratelimit-limit")).toBeNull();
     }
-
-    const signedResponse = await POST(await signedRequest(ignoredEventPayload()));
-    const signedBody = await signedResponse.json();
-
-    expect(signedResponse.status).toBe(200);
-    expect(signedBody).toEqual({ received: true, ignored: true });
   });
 
-  test("rate limits verified webhook events", async () => {
-    let response = await POST(await signedRequest(ignoredEventPayload()));
+  test("does not rate limit verified webhook events before durable receipt", async () => {
+    const dependencies = routeDependencies(createMemoryPaymentStore(pendingPaymentAudit()).store);
+    let response = await stripeWebhookResponse(await signedRequest(ignoredEventPayload()), {
+      ...dependencies,
+      receiveStripeWebhookEvent: async (event, options) => ({
+        status: "applied",
+        inboxId: `stripe_event_${event.id}`,
+        stripeEventId: event.id,
+        applicationResult: await options?.applyEvent?.(event, {
+          db: undefined as never,
+          now,
+        }),
+      }),
+    });
 
-    for (let index = 1; index < 41; index += 1) {
-      response = await POST(
+    for (let index = 1; index < 45; index += 1) {
+      response = await stripeWebhookResponse(
         await signedRequest(ignoredEventPayload({ eventId: `evt_ignored_${index}` })),
+        {
+          ...dependencies,
+          receiveStripeWebhookEvent: async (event, options) => ({
+            status: "applied",
+            inboxId: `stripe_event_${event.id}`,
+            stripeEventId: event.id,
+            applicationResult: await options?.applyEvent?.(event, {
+              db: undefined as never,
+              now,
+            }),
+          }),
+        },
       );
     }
 
-    expect(response.status).toBe(429);
-    expect(await response.json()).toMatchObject({ error: "rate_limited" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ received: true, ignored: true });
   });
 
-  test("ignores verified irrelevant events without initializing the default database", async () => {
+  test("verified events acknowledge only after the inbox dependency reports durable receipt", async () => {
     delete process.env.DATABASE_URL;
 
-    const response = await POST(
-      await signedRequest(ignoredEventPayload({ eventId: "evt_ignored_without_database" })),
+    const response = await stripeWebhookResponse(
+      await signedRequest(ignoredEventPayload({ eventId: "evt_durable_pending" })),
+      {
+        ...routeDependencies(createMemoryPaymentStore(pendingPaymentAudit()).store),
+        receiveStripeWebhookEvent: async (event) => ({
+          status: "blocked",
+          inboxId: `stripe_event_${event.id}`,
+          stripeEventId: event.id,
+          reason: "unsupported_stripe_event_type",
+        }),
+      },
     );
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ received: true, ignored: true });
+    expect(body).toEqual({
+      received: true,
+      inboxStatus: "blocked",
+      stripeEventId: "evt_durable_pending",
+      inboxId: "stripe_event_evt_durable_pending",
+      reason: "unsupported_stripe_event_type",
+    });
   });
 
   test("dispatches handled Trip Pass events before audit payment application", async () => {
@@ -167,6 +198,14 @@ describe("Stripe webhook route", () => {
     expect(store.jobs).toHaveLength(1);
     expect(store.jobs[0]?.kind).toBe("generate_audit");
     expect(store.paymentEvents).toHaveLength(1);
+    expect(store.paymentEvents[0]?.rawEvent).toEqual({
+      stripeEventId: "evt_test_checkout_completed",
+      eventType: "checkout.session.completed",
+      stripeApiVersion: STRIPE_API_VERSION,
+      objectType: "checkout.session",
+    });
+    expect(JSON.stringify(store.paymentEvents[0]?.rawEvent)).not.toContain("data");
+    expect(JSON.stringify(store.paymentEvents[0]?.rawEvent)).not.toContain("metadata");
   });
 
   test("treats duplicate Stripe events as idempotent", async () => {
@@ -369,6 +408,15 @@ function routeDependencies(store: PaymentApplicationStore) {
         ...input,
         stripe: new Stripe("rk_test_fixture"),
       }),
+    receiveStripeWebhookEvent: async (event, options) => ({
+      status: "applied",
+      inboxId: `stripe_event_${event.id}`,
+      stripeEventId: event.id,
+      applicationResult: await options?.applyEvent?.(event, {
+        db: undefined as never,
+        now,
+      }),
+    }),
   } satisfies Parameters<typeof stripeWebhookResponse>[1];
 }
 
@@ -438,7 +486,7 @@ function checkoutSessionPayload(
   return JSON.stringify({
     id: input.eventId ?? "evt_test_checkout_completed",
     object: "event",
-    api_version: "2026-05-27.dahlia",
+    api_version: STRIPE_API_VERSION,
     created: 1_782_194_400,
     data: {
       object: {
@@ -462,7 +510,7 @@ function ignoredEventPayload(input: { eventId?: string } = {}) {
   return JSON.stringify({
     id: input.eventId ?? "evt_test_ignored",
     object: "event",
-    api_version: "2026-05-27.dahlia",
+    api_version: STRIPE_API_VERSION,
     created: 1_782_194_400,
     data: {
       object: {

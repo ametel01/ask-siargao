@@ -60,6 +60,11 @@ The app reads these environment variables.
 
 Server-only secrets must not use the `NEXT_PUBLIC_` prefix. `getServerSecret` rejects public-prefixed names so sensitive provider keys do not move into client-facing bundles.
 
+Stripe clients and webhook normalization pin Stripe API version `2026-07-29.dahlia` and local
+normalized event schema version `1` in code. These are not runtime environment switches. A Stripe
+webhook delivered with another API version is durably recorded as blocked after signature
+verification rather than guessed from an unsupported shape.
+
 Chat model calls use a 15-second per-attempt deadline with one retry before fallback. Hosted web
 research uses a 25-second per-attempt deadline with one retry. Live weather, marine, tide, and
 Google Places HTTP calls use a 15-second deadline so a stalled provider returns a caveated result
@@ -124,6 +129,8 @@ values, Clerk IDs, prompts, or precise coordinates as a replacement for HMAC coh
 Operators should alert on:
 
 - Stripe webhook verification or application failures above zero after deployment.
+- Blocked or retrying rows in `trip_pass_stripe_events`, especially unsupported API versions,
+  immutable duplicate fact mismatches, and rows whose alert state reaches `watch` or `page`.
 - Checkout start failures, duplicate-order conflicts, or pending orders that do not receive a
   terminal webhook.
 - Trip Pass meter warning/exhaustion spikes by meter type.
@@ -149,8 +156,8 @@ Rollback is flag-based and forward-repair only:
    is challenged incorrectly.
 5. Run dry-run reconciliation and repair only idempotent local omissions with explicit operator
    confirmation.
-6. Preserve order, pass, grant, meter, usage-event, analytics, and cost records. Do not drop launch
-   data to roll back.
+6. Preserve order, pass, grant, meter, usage-event, Stripe inbox, analytics, and cost records. Do
+   not drop launch data to roll back.
 
 Database rollback uses backups and forward repair. Before enabling checkout, confirm production
 backup restore has been tested for the database provider and that migration credentials are separate
