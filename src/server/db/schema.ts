@@ -18,7 +18,7 @@ export const users = pgTable(
   "users",
   {
     id: text("id").primaryKey(),
-    email: text("email").notNull().unique(),
+    email: text("email"),
     firstName: text("first_name"),
     lastName: text("last_name"),
     imageUrl: text("image_url"),
@@ -31,6 +31,116 @@ export const users = pgTable(
   (table) => [
     index("users_deleted_at_idx").on(table.deletedAt),
     index("users_last_seen_at_idx").on(table.lastSeenAt),
+  ],
+);
+
+export const accountClosureTombstones = pgTable(
+  "account_closure_tombstones",
+  {
+    id: text("id").primaryKey(),
+    subjectHash: text("subject_hash").notNull().unique(),
+    subjectHashVersion: integer("subject_hash_version").notNull(),
+    subjectType: text("subject_type").notNull(),
+    closurePolicyVersion: text("closure_policy_version").notNull(),
+    closedAt: timestamp("closed_at", { withTimezone: true }).notNull().defaultNow(),
+    purgeAfter: timestamp("purge_after", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("account_closure_tombstones_subject_idx").on(
+      table.subjectType,
+      table.subjectHashVersion,
+      table.subjectHash,
+    ),
+    index("account_closure_tombstones_purge_after_idx").on(table.purgeAfter),
+    check(
+      "account_closure_tombstones_subject_hash_version_check",
+      sql`${table.subjectHashVersion} > 0`,
+    ),
+    check(
+      "account_closure_tombstones_subject_type_check",
+      sql`${table.subjectType} in ('clerk_user_id')`,
+    ),
+    check(
+      "account_closure_tombstones_purge_after_check",
+      sql`${table.purgeAfter} is null or ${table.purgeAfter} >= ${table.closedAt}`,
+    ),
+  ],
+);
+
+export const accountClosureOperations = pgTable(
+  "account_closure_operations",
+  {
+    id: text("id").primaryKey(),
+    tombstoneId: text("tombstone_id")
+      .notNull()
+      .references(() => accountClosureTombstones.id),
+    operationType: text("operation_type").notNull(),
+    status: text("status").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    lastErrorCode: text("last_error_code"),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("account_closure_operations_tombstone_id_idx").on(table.tombstoneId),
+    index("account_closure_operations_status_next_attempt_idx").on(
+      table.status,
+      table.nextAttemptAt,
+    ),
+    check(
+      "account_closure_operations_operation_type_check",
+      sql`${table.operationType} in ('traveler_requested_closure', 'clerk_deletion_identity_sync')`,
+    ),
+    check(
+      "account_closure_operations_status_check",
+      sql`${table.status} in ('pending', 'running', 'succeeded', 'failed')`,
+    ),
+    check("account_closure_operations_attempts_check", sql`${table.attempts} >= 0`),
+    check(
+      "account_closure_operations_completed_at_check",
+      sql`${table.completedAt} is null or ${table.completedAt} >= ${table.createdAt}`,
+    ),
+  ],
+);
+
+export const accountClosureWriteBarriers = pgTable(
+  "account_closure_write_barriers",
+  {
+    id: text("id").primaryKey(),
+    tombstoneId: text("tombstone_id")
+      .notNull()
+      .references(() => accountClosureTombstones.id),
+    subjectHash: text("subject_hash").notNull().unique(),
+    subjectHashVersion: integer("subject_hash_version").notNull(),
+    subjectType: text("subject_type").notNull(),
+    status: text("status").notNull(),
+    openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("account_closure_write_barriers_tombstone_id_idx").on(table.tombstoneId),
+    index("account_closure_write_barriers_subject_idx").on(
+      table.subjectType,
+      table.subjectHashVersion,
+      table.subjectHash,
+    ),
+    check(
+      "account_closure_write_barriers_subject_hash_version_check",
+      sql`${table.subjectHashVersion} > 0`,
+    ),
+    check(
+      "account_closure_write_barriers_subject_type_check",
+      sql`${table.subjectType} in ('clerk_user_id')`,
+    ),
+    check(
+      "account_closure_write_barriers_status_check",
+      sql`${table.status} in ('active', 'released')`,
+    ),
   ],
 );
 
@@ -319,14 +429,25 @@ export const tripPassOrders = pgTable(
     email: text("email"),
     status: text("status").notNull(),
     productCode: text("product_code").notNull(),
+    productFamily: text("product_family").notNull().default("siargao_trip_pass"),
     productVersion: integer("product_version").notNull(),
     stripePriceId: text("stripe_price_id").notNull(),
     amountTotalMinor: integer("amount_total_minor"),
     currency: text("currency"),
     checkoutIdempotencyKey: text("checkout_idempotency_key").notNull().unique(),
     stripeCheckoutSessionId: text("stripe_checkout_session_id").unique(),
+    checkoutSessionExpiresAt: timestamp("checkout_session_expires_at", { withTimezone: true }),
+    checkoutSessionStatus: text("checkout_session_status"),
+    checkoutCancellationConfirmedAt: timestamp("checkout_cancellation_confirmed_at", {
+      withTimezone: true,
+    }),
     stripePaymentIntentId: text("stripe_payment_intent_id").unique(),
     stripeCustomerId: text("stripe_customer_id"),
+    termsPolicyVersion: text("terms_policy_version"),
+    refundPolicyVersion: text("refund_policy_version"),
+    privacyPolicyVersion: text("privacy_policy_version"),
+    retentionPolicyVersion: text("retention_policy_version"),
+    termsConsentPresentedAt: timestamp("terms_consent_presented_at", { withTimezone: true }),
     metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -340,9 +461,18 @@ export const tripPassOrders = pgTable(
     ),
     index("trip_pass_orders_status_created_at_idx").on(table.status, table.createdAt),
     index("trip_pass_orders_product_code_idx").on(table.productCode),
+    index("trip_pass_orders_product_family_idx").on(table.productFamily),
+    index("trip_pass_orders_user_family_effective_pending_idx")
+      .on(table.userId, table.productFamily, table.status, table.createdAt)
+      .where(sql`${table.status} in ('pending', 'checkout_created')`),
     check(
       "trip_pass_orders_status_check",
       sql`${table.status} in ('pending', 'checkout_created', 'paid', 'cancelled', 'expired', 'refunded', 'disputed', 'failed')`,
+    ),
+    check("trip_pass_orders_product_family_check", sql`${table.productFamily} <> ''`),
+    check(
+      "trip_pass_orders_checkout_session_status_check",
+      sql`${table.checkoutSessionStatus} is null or ${table.checkoutSessionStatus} in ('open', 'complete', 'expired')`,
     ),
     check("trip_pass_orders_product_version_check", sql`${table.productVersion} > 0`),
     check(

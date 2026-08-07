@@ -1,9 +1,15 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const serverEnv = "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY=";
+const baseServerEnv =
+  "CLERK_AUTH_MODE=disabled NEXT_PUBLIC_CLERK_AUTH_MODE=disabled CLERK_DEPLOYMENT_CONTEXT=local NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY=";
+const protectedUiHarnessEnv =
+  "PLAYWRIGHT_PROTECTED_UI_HARNESS=1 PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN=ask-siargao-playwright-protected-ui-harness-token-2026";
 const isProductionPerformanceRun = process.env.PLAYWRIGHT_PRODUCTION_PERF === "1";
+const serverEnv = isProductionPerformanceRun
+  ? baseServerEnv
+  : `${baseServerEnv} ${protectedUiHarnessEnv}`;
 const serverCommand = isProductionPerformanceRun
-  ? `${serverEnv} ./node_modules/.bin/next start --hostname 127.0.0.1 --port 3100`
+  ? `${serverEnv} bun run start -- --hostname 127.0.0.1 --port 3100`
   : `${serverEnv} bun run dev -- --hostname 127.0.0.1 --port 3100`;
 
 export default defineConfig({

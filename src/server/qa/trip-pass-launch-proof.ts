@@ -282,7 +282,8 @@ const externalSmokeChecks: TripPassExternalSmokeCheck[] = [
 export function buildTripPassLaunchProof(
   env: Record<string, string | undefined> = process.env,
 ): TripPassLaunchProof {
-  const productionCheckoutEnabled = env.TRIP_PASS_CHECKOUT_ENABLED === "true";
+  const productionCheckoutEnabled =
+    env.TRIP_PASS_CHECKOUT_MODE === "canary" || env.TRIP_PASS_CHECKOUT_MODE === "on";
   const extensionEnabled = env.TRIP_PASS_EXTENSION_ENABLED === "true";
 
   return {
@@ -302,7 +303,7 @@ export function buildTripPassLaunchProof(
     rollback: {
       strategy: "flag_disable_and_forward_repair",
       steps: [
-        "Set TRIP_PASS_CHECKOUT_ENABLED=false and redeploy.",
+        "Set TRIP_PASS_CHECKOUT_MODE=off and redeploy.",
         "Keep TRIP_PASS_EXTENSION_ENABLED=false.",
         "Disable paid OpenAI fallback by setting OPENAI_FALLBACK_ENABLED=false if cost circuits misfire.",
         "Set TRIP_PASS_WAF_MODE=log or disable promoted WAF rules if shared-network users are challenged incorrectly.",

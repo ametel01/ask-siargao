@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 
 import {
+  deleteTripPassCheckoutResponse,
   getTripPassAccountResponse,
   postTripPassCheckoutResponse,
   type TripPassAccountRouteDependencies,
@@ -13,7 +14,7 @@ import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/
 
 const now = new Date("2026-07-04T08:00:00.000Z");
 const availableEnv = {
-  TRIP_PASS_CHECKOUT_ENABLED: "true",
+  TRIP_PASS_CHECKOUT_MODE: "on",
   STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass",
 };
 
@@ -24,11 +25,14 @@ describe("Trip Pass account API routes", () => {
 
       const getResponse = await getTripPassAccountResponse(dependencies);
       const postResponse = await postTripPassCheckoutResponse(checkoutRequest(), dependencies);
+      const deleteResponse = await deleteTripPassCheckoutResponse(checkoutRequest(), dependencies);
 
       expect(getResponse.status).toBe(401);
       expect(postResponse.status).toBe(401);
+      expect(deleteResponse.status).toBe(401);
       expect(await getResponse.json()).toEqual({ error: "unauthenticated" });
       expect(await postResponse.json()).toEqual({ error: "unauthenticated" });
+      expect(await deleteResponse.json()).toEqual({ error: "unauthenticated" });
       expect(getResponse.headers.get("cache-control")).toBe("private, no-store");
     });
   });
@@ -105,6 +109,7 @@ describe("Trip Pass account API routes", () => {
       expect(dependencies.checkoutCalls).toEqual([
         {
           userId: "user_checkout",
+          email: undefined,
           appUrl: "https://siargao.test",
         },
       ]);
@@ -188,22 +193,66 @@ describe("Trip Pass account API routes", () => {
       expect(JSON.stringify(throwing.events)).not.toContain("pi_should_not_render");
     });
   });
+
+  test("cancels the authenticated owner's effective pending checkout without exposing order ids", async () => {
+    await withRouteDb(async (db) => {
+      const dependencies = routeDependencies(db, {
+        userId: "user_cancel",
+        cancelResult: { status: "cancelled", orderId: "order_cancel_secret" },
+      });
+      const response = await deleteTripPassCheckoutResponse(checkoutRequest(), dependencies);
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body).toEqual({ status: "cancelled" });
+      expect(dependencies.cancelCalls).toEqual([{ userId: "user_cancel" }]);
+      expect(JSON.stringify(body)).not.toContain("order_cancel_secret");
+      expect(dependencies.events).toEqual([
+        {
+          name: "trip_pass_checkout_cancelled",
+          payload: {
+            status: "cancelled",
+            surface: "settings",
+          },
+        },
+      ]);
+      expect(JSON.stringify(dependencies.events)).not.toContain("order_cancel_secret");
+    });
+  });
+
+  test("rejects cross-origin cancellation before reaching commerce", async () => {
+    await withRouteDb(async (db) => {
+      const dependencies = routeDependencies(db, { userId: "user_cancel_origin" });
+      const response = await deleteTripPassCheckoutResponse(
+        checkoutRequest({ origin: "https://evil.example", secFetchSite: "cross-site" }),
+        dependencies,
+      );
+
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: "invalid_request_origin" });
+      expect(dependencies.cancelCalls).toHaveLength(0);
+    });
+  });
 });
 
 type TestRouteDependencies = TripPassAccountRouteDependencies & {
-  checkoutCalls: Array<{ userId: string; appUrl: string }>;
+  cancelCalls: Array<{ userId: string }>;
+  checkoutCalls: Array<{ userId: string; email: string | null | undefined; appUrl: string }>;
   events: Array<{ name: string; payload: Record<string, unknown> }>;
 };
 
 function routeDependencies(
   db: PGlite,
   input: {
+    cancelError?: Error;
+    cancelResult?: Awaited<ReturnType<TripPassAccountRouteDependencies["cancelTripPassCheckout"]>>;
     checkoutError?: Error;
     checkoutResult?: Awaited<ReturnType<TripPassAccountRouteDependencies["startTripPassCheckout"]>>;
     userId: string | null;
   },
 ): TestRouteDependencies {
   const checkoutCalls: TestRouteDependencies["checkoutCalls"] = [];
+  const cancelCalls: TestRouteDependencies["cancelCalls"] = [];
   const events: TestRouteDependencies["events"] = [];
 
   return {
@@ -215,13 +264,25 @@ function routeDependencies(
           }
         : null,
     }),
+    cancelCalls,
     checkoutCalls,
     db,
     env: availableEnv,
     events,
     now: () => now,
+    cancelTripPassCheckout: async (cancelInput) => {
+      cancelCalls.push({ userId: cancelInput.userId });
+      if (input.cancelError) {
+        throw input.cancelError;
+      }
+      return input.cancelResult ?? { status: "not_found", reason: "no_effective_pending_order" };
+    },
     startTripPassCheckout: async (checkoutInput) => {
-      checkoutCalls.push({ userId: checkoutInput.userId, appUrl: checkoutInput.appUrl });
+      checkoutCalls.push({
+        userId: checkoutInput.userId,
+        email: checkoutInput.email,
+        appUrl: checkoutInput.appUrl,
+      });
       if (input.checkoutError) {
         throw input.checkoutError;
       }

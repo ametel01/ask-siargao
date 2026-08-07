@@ -238,7 +238,10 @@ export async function claimPendingStripeInboxEvents(input: {
       set claim_token = $1,
           claim_expires_at = $2,
           updated_at = $3
-      where id in (
+      where status = 'pending'
+        and (next_attempt_at is null or next_attempt_at <= $3)
+        and (claim_expires_at is null or claim_expires_at <= $3)
+        and id in (
         select id
         from trip_pass_stripe_events
         where status = 'pending'

@@ -20,6 +20,8 @@ import {
 const now = new Date("2026-06-23T08:00:00.000Z");
 const webhookSecret = "whsec_test_fixture_secret";
 const originalDatabaseUrl = process.env.DATABASE_URL;
+const originalNodeEnv = process.env.NODE_ENV;
+const originalRedisUrl = process.env.REDIS_URL;
 const originalStripeRestrictedKey = process.env.STRIPE_RESTRICTED_KEY;
 const originalStripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -31,6 +33,8 @@ describe("Stripe webhook route", () => {
 
   afterEach(() => {
     restoreEnvValue("DATABASE_URL", originalDatabaseUrl);
+    restoreEnvValue("NODE_ENV", originalNodeEnv);
+    restoreEnvValue("REDIS_URL", originalRedisUrl);
     restoreEnvValue("STRIPE_RESTRICTED_KEY", originalStripeRestrictedKey);
     restoreEnvValue("STRIPE_WEBHOOK_SECRET", originalStripeWebhookSecret);
   });
@@ -81,6 +85,24 @@ describe("Stripe webhook route", () => {
     expect(await response.json()).toEqual({ received: true, ignored: true });
   });
 
+  test("does not require Redis-backed throttling after webhook verification", async () => {
+    Object.assign(process.env, { NODE_ENV: "production" });
+    process.env.REDIS_URL = "redis://127.0.0.1:1/0";
+    const store = createMemoryPaymentStore(pendingPaymentAudit());
+
+    const response = await stripeWebhookResponse(
+      await signedRequest(checkoutSessionPayload({ eventId: "evt_checkout_redis_down" })),
+      routeDependencies(store.store),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.applicationStatus).toBe("applied");
+    expect(body.stripeEventId).toBe("evt_checkout_redis_down");
+    expect(store.paymentEvents).toHaveLength(1);
+    expect(response.headers.get("x-ratelimit-limit")).toBeNull();
+  });
+
   test("verified events acknowledge only after the inbox dependency reports durable receipt", async () => {
     delete process.env.DATABASE_URL;
 
@@ -106,6 +128,79 @@ describe("Stripe webhook route", () => {
       inboxId: "stripe_event_evt_durable_pending",
       reason: "unsupported_stripe_event_type",
     });
+  });
+
+  test("does not start durable receipt until signature verification succeeds", async () => {
+    const events: string[] = [];
+    const verification = deferred<Stripe.Event>();
+    const verificationStarted = deferred<void>();
+    const responsePromise = stripeWebhookResponse(
+      await signedRequest(ignoredEventPayload({ eventId: "evt_ordered_signature" })),
+      {
+        ...routeDependencies(createMemoryPaymentStore(pendingPaymentAudit()).store),
+        verifyStripeWebhookPayload: async () => {
+          events.push("verify:start");
+          verificationStarted.resolve();
+          return verification.promise;
+        },
+        receiveStripeWebhookEvent: async (event) => {
+          events.push(`receive:${event.id}`);
+          return {
+            status: "blocked",
+            inboxId: `stripe_event_${event.id}`,
+            stripeEventId: event.id,
+            reason: "unsupported_stripe_event_type",
+          };
+        },
+      },
+    );
+
+    await verificationStarted.promise;
+    expect(events).toEqual(["verify:start"]);
+
+    verification.resolve(JSON.parse(ignoredEventPayload({ eventId: "evt_ordered_signature" })));
+    const response = await responsePromise;
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual(["verify:start", "receive:evt_ordered_signature"]);
+  });
+
+  test("rejects oversized bodies before signature verification or durable receipt", async () => {
+    const events: string[] = [];
+    const response = await stripeWebhookResponse(
+      new Request("https://siargao.test/api/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "content-length": "262145",
+          "stripe-signature": "t=1,v1=not-real",
+        },
+        body: "{}",
+      }),
+      {
+        ...routeDependencies(createMemoryPaymentStore(pendingPaymentAudit()).store),
+        verifyStripeWebhookPayload: async () => {
+          events.push("verify");
+          throw new Error("verification should not start for oversized payloads");
+        },
+        receiveStripeWebhookEvent: async (event) => {
+          events.push(`receive:${event.id}`);
+          return {
+            status: "received",
+            inboxId: `stripe_event_${event.id}`,
+            stripeEventId: event.id,
+            normalized: JSON.parse("{}"),
+          };
+        },
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(413);
+    expect(body).toEqual({
+      error: "stripe_webhook_body_too_large",
+      message: "Webhook payload exceeds the configured size limit.",
+    });
+    expect(events).toEqual([]);
   });
 
   test("dispatches handled Trip Pass events before audit payment application", async () => {
@@ -523,4 +618,14 @@ function ignoredEventPayload(input: { eventId?: string } = {}) {
     request: null,
     type: "customer.created",
   });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, reject, resolve };
 }

@@ -11,6 +11,9 @@ import type { MigrationDatabase } from "@/server/db/migration-runner";
 import { runLedgerBackedMigrations } from "@/server/db/migration-runner";
 import {
   accommodations,
+  accountClosureOperations,
+  accountClosureTombstones,
+  accountClosureWriteBarriers,
   agentReadableSnapshots,
   areas,
   auditCompletenessChecks,
@@ -86,6 +89,7 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toContain("0006_traveler_preferences.sql");
     expect(migrationNames).toContain("0007_structured_profile_food_needs.sql");
     expect(migrationNames).toContain("0008_trip_pass_commerce_ledger.sql");
+    expect(migrationNames).toContain("0009_clerk_identity_closure_state.sql");
   });
 
   test("creates required core tables and accepts taxonomy seed rows", async () => {
@@ -95,6 +99,9 @@ describe("Step 3 database migration", () => {
 
     const requiredTables = [
       "users",
+      "account_closure_tombstones",
+      "account_closure_operations",
+      "account_closure_write_barriers",
       "user_profiles",
       "chat_threads",
       "chat_messages",
@@ -354,6 +361,9 @@ describe("Step 3 database migration", () => {
 
     const schemaTables = [
       users,
+      accountClosureTombstones,
+      accountClosureOperations,
+      accountClosureWriteBarriers,
       userProfiles,
       chatThreads,
       chatMessages,
@@ -444,13 +454,68 @@ describe("Step 3 database migration", () => {
       ]),
     ).toEqual([
       ["id", "text", "NO", null],
-      ["email", "text", "NO", null],
+      ["email", "text", "YES", null],
       ["first_name", "text", "YES", null],
       ["last_name", "text", "YES", null],
       ["image_url", "text", "YES", null],
       ["clerk_updated_at", "timestamp with time zone", "YES", null],
       ["last_seen_at", "timestamp with time zone", "YES", null],
       ["deleted_at", "timestamp with time zone", "YES", null],
+      ["created_at", "timestamp with time zone", "NO", "now()"],
+      ["updated_at", "timestamp with time zone", "NO", "now()"],
+    ]);
+    expect(
+      columnsByTable.account_closure_tombstones?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+        column.column_default,
+      ]),
+    ).toEqual([
+      ["id", "text", "NO", null],
+      ["subject_hash", "text", "NO", null],
+      ["subject_hash_version", "integer", "NO", null],
+      ["subject_type", "text", "NO", null],
+      ["closure_policy_version", "text", "NO", null],
+      ["closed_at", "timestamp with time zone", "NO", "now()"],
+      ["purge_after", "timestamp with time zone", "YES", null],
+      ["created_at", "timestamp with time zone", "NO", "now()"],
+      ["updated_at", "timestamp with time zone", "NO", "now()"],
+    ]);
+    expect(
+      columnsByTable.account_closure_operations?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+        column.column_default,
+      ]),
+    ).toEqual([
+      ["id", "text", "NO", null],
+      ["tombstone_id", "text", "NO", null],
+      ["operation_type", "text", "NO", null],
+      ["status", "text", "NO", null],
+      ["attempts", "integer", "NO", "0"],
+      ["last_error_code", "text", "YES", null],
+      ["next_attempt_at", "timestamp with time zone", "YES", null],
+      ["created_at", "timestamp with time zone", "NO", "now()"],
+      ["updated_at", "timestamp with time zone", "NO", "now()"],
+      ["completed_at", "timestamp with time zone", "YES", null],
+    ]);
+    expect(
+      columnsByTable.account_closure_write_barriers?.map((column) => [
+        column.column_name,
+        column.data_type,
+        column.is_nullable,
+        column.column_default,
+      ]),
+    ).toEqual([
+      ["id", "text", "NO", null],
+      ["tombstone_id", "text", "NO", null],
+      ["subject_hash", "text", "NO", null],
+      ["subject_hash_version", "integer", "NO", null],
+      ["subject_type", "text", "NO", null],
+      ["status", "text", "NO", null],
+      ["opened_at", "timestamp with time zone", "NO", "now()"],
       ["created_at", "timestamp with time zone", "NO", "now()"],
       ["updated_at", "timestamp with time zone", "NO", "now()"],
     ]);
@@ -565,6 +630,9 @@ describe("Step 3 database migration", () => {
       [authTableNames],
     );
     expect(groupColumnNames(primaryKeys.rows)).toEqual({
+      account_closure_operations: ["id"],
+      account_closure_tombstones: ["id"],
+      account_closure_write_barriers: ["id"],
       chat_messages: ["id"],
       chat_response_ratings: ["id"],
       chat_threads: ["id"],
@@ -606,6 +674,8 @@ describe("Step 3 database migration", () => {
         row.foreign_column_name,
       ]),
     ).toEqual([
+      ["account_closure_operations", "tombstone_id", "account_closure_tombstones", "id"],
+      ["account_closure_write_barriers", "tombstone_id", "account_closure_tombstones", "id"],
       ["chat_messages", "thread_id", "chat_threads", "id"],
       ["chat_messages", "user_id", "users", "id"],
       ["chat_response_ratings", "message_id", "chat_messages", "id"],
@@ -630,6 +700,28 @@ describe("Step 3 database migration", () => {
         indexes.rows.map((row) => [`${row.tablename}.${row.indexname}`, row.indexdef]),
       ),
     ).toMatchObject({
+      "account_closure_operations.account_closure_operations_pkey":
+        "CREATE UNIQUE INDEX account_closure_operations_pkey ON public.account_closure_operations USING btree (id)",
+      "account_closure_operations.account_closure_operations_status_next_attempt_idx":
+        "CREATE INDEX account_closure_operations_status_next_attempt_idx ON public.account_closure_operations USING btree (status, next_attempt_at)",
+      "account_closure_operations.account_closure_operations_tombstone_id_idx":
+        "CREATE INDEX account_closure_operations_tombstone_id_idx ON public.account_closure_operations USING btree (tombstone_id)",
+      "account_closure_tombstones.account_closure_tombstones_pkey":
+        "CREATE UNIQUE INDEX account_closure_tombstones_pkey ON public.account_closure_tombstones USING btree (id)",
+      "account_closure_tombstones.account_closure_tombstones_purge_after_idx":
+        "CREATE INDEX account_closure_tombstones_purge_after_idx ON public.account_closure_tombstones USING btree (purge_after)",
+      "account_closure_tombstones.account_closure_tombstones_subject_hash_key":
+        "CREATE UNIQUE INDEX account_closure_tombstones_subject_hash_key ON public.account_closure_tombstones USING btree (subject_hash)",
+      "account_closure_tombstones.account_closure_tombstones_subject_idx":
+        "CREATE INDEX account_closure_tombstones_subject_idx ON public.account_closure_tombstones USING btree (subject_type, subject_hash_version, subject_hash)",
+      "account_closure_write_barriers.account_closure_write_barriers_pkey":
+        "CREATE UNIQUE INDEX account_closure_write_barriers_pkey ON public.account_closure_write_barriers USING btree (id)",
+      "account_closure_write_barriers.account_closure_write_barriers_subject_hash_key":
+        "CREATE UNIQUE INDEX account_closure_write_barriers_subject_hash_key ON public.account_closure_write_barriers USING btree (subject_hash)",
+      "account_closure_write_barriers.account_closure_write_barriers_subject_idx":
+        "CREATE INDEX account_closure_write_barriers_subject_idx ON public.account_closure_write_barriers USING btree (subject_type, subject_hash_version, subject_hash)",
+      "account_closure_write_barriers.account_closure_write_barriers_tombstone_id_idx":
+        "CREATE INDEX account_closure_write_barriers_tombstone_id_idx ON public.account_closure_write_barriers USING btree (tombstone_id)",
       "chat_messages.chat_messages_request_id_idx":
         "CREATE INDEX chat_messages_request_id_idx ON public.chat_messages USING btree (request_id)",
       "chat_messages.chat_messages_thread_id_created_at_idx":
@@ -653,6 +745,236 @@ describe("Step 3 database migration", () => {
       "users.users_last_seen_at_idx":
         "CREATE INDEX users_last_seen_at_idx ON public.users USING btree (last_seen_at)",
     });
+
+    await db.close();
+  });
+
+  test("allows nullable and duplicate webhook-managed user email caches", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    await runInitialMigration(db);
+
+    await db.query("insert into users (id, email) values ($1, $2), ($3, $4), ($5, $6)", [
+      "user_without_email",
+      null,
+      "user_same_email_a",
+      "same@example.com",
+      "user_same_email_b",
+      "same@example.com",
+    ]);
+
+    const rows = await db.query<{ id: string; email: string | null }>(
+      "select id, email from users order by id",
+    );
+
+    expect(rows.rows).toEqual([
+      { id: "user_same_email_a", email: "same@example.com" },
+      { id: "user_same_email_b", email: "same@example.com" },
+      { id: "user_without_email", email: null },
+    ]);
+
+    await db.close();
+  });
+
+  test("scrubs pre-existing terminal user caches before installing resurrection trigger", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const migrationFiles = await loadMigrationFiles();
+    const preClosureMigrations = migrationFiles.filter(
+      (migrationFile) => migrationFile.name < "0009_clerk_identity_closure_state.sql",
+    );
+    const throughClosureMigrations = migrationFiles.filter(
+      (migrationFile) => migrationFile.name <= "0009_clerk_identity_closure_state.sql",
+    );
+    const closureMigration = migrationFiles.find(
+      (migrationFile) => migrationFile.name === "0009_clerk_identity_closure_state.sql",
+    );
+
+    if (!closureMigration) {
+      throw new Error("Missing 0009_clerk_identity_closure_state.sql migration.");
+    }
+
+    const database = createPgliteMigrationDatabase(db);
+    await runLedgerBackedMigrations(database, preClosureMigrations);
+    await db.query(
+      `
+        insert into users (
+          id,
+          email,
+          first_name,
+          last_name,
+          image_url,
+          clerk_updated_at,
+          last_seen_at,
+          deleted_at
+        )
+        values ($1, $2, $3, $4, $5, $6, $6, $7)
+      `,
+      [
+        "user_terminal_before_migration",
+        "preexisting@example.com",
+        "Pre",
+        "Existing",
+        "https://img.clerk.test/preexisting",
+        "2026-06-29T01:00:00.000Z",
+        "2026-06-29T02:00:00.000Z",
+      ],
+    );
+
+    const closureRun = await runLedgerBackedMigrations(database, throughClosureMigrations);
+
+    expect(closureRun.applied).toEqual([closureMigration.name]);
+    expect(closureRun.skipped).toEqual(
+      preClosureMigrations.map((migrationFile) => migrationFile.name),
+    );
+
+    const row = await db.query<{
+      email: string | null;
+      first_name: string | null;
+      last_name: string | null;
+      image_url: string | null;
+      clerk_updated_at: Date | string | null;
+      last_seen_at: Date | string | null;
+      deleted_at: Date | string | null;
+    }>(
+      `
+        select email, first_name, last_name, image_url, clerk_updated_at, last_seen_at, deleted_at
+        from users
+        where id = $1
+      `,
+      ["user_terminal_before_migration"],
+    );
+
+    expect(row.rows[0]).toMatchObject({
+      email: null,
+      first_name: null,
+      last_name: null,
+      image_url: null,
+      clerk_updated_at: null,
+      last_seen_at: null,
+    });
+    expect(row.rows[0]?.deleted_at).not.toBeNull();
+
+    await db.close();
+  });
+
+  test("keeps terminal users non-resurrectable for previous-release identity SQL", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    await runInitialMigration(db);
+
+    const triggers = await db.query<{ tgname: string }>(
+      `
+        select tgname
+        from pg_trigger
+        where tgrelid = 'users'::regclass
+          and not tgisinternal
+        order by tgname
+      `,
+    );
+    expect(triggers.rows.map((row) => row.tgname)).toContain(
+      "users_prevent_terminal_identity_resurrection",
+    );
+
+    await db.query(
+      `
+        insert into users (
+          id,
+          email,
+          first_name,
+          last_name,
+          image_url,
+          clerk_updated_at,
+          last_seen_at,
+          deleted_at
+        )
+        values ($1, null, null, null, null, null, null, $2)
+      `,
+      ["user_terminal_migration", "2026-06-29T01:00:00.000Z"],
+    );
+    await expect(
+      db.query(
+        `
+          insert into users (
+            id,
+            email,
+            first_name,
+            last_name,
+            image_url,
+            clerk_updated_at,
+            last_seen_at,
+            deleted_at,
+            created_at,
+            updated_at
+          )
+          values (
+            $1,
+            'legacy@example.com',
+            'Legacy',
+            'Traveler',
+            'https://img.clerk.test/legacy',
+            $2,
+            $2,
+            null,
+            now(),
+            now()
+          )
+          on conflict (id) do update set
+            email = excluded.email,
+            first_name = excluded.first_name,
+            last_name = excluded.last_name,
+            image_url = excluded.image_url,
+            clerk_updated_at = excluded.clerk_updated_at,
+            last_seen_at = excluded.last_seen_at,
+            deleted_at = null,
+            updated_at = now()
+        `,
+        ["user_terminal_migration", "2026-06-29T05:00:00.000Z"],
+      ),
+    ).rejects.toThrow(/terminal user row cannot be resurrected/);
+
+    await db.query(
+      `
+        update users
+        set email = null,
+            first_name = null,
+            last_name = null,
+            image_url = null,
+            clerk_updated_at = null,
+            last_seen_at = null,
+            deleted_at = coalesce(deleted_at, $2),
+            updated_at = $2
+        where id = $1
+      `,
+      ["user_terminal_migration", "2026-06-29T06:00:00.000Z"],
+    );
+
+    const row = await db.query<{
+      email: string | null;
+      first_name: string | null;
+      last_name: string | null;
+      image_url: string | null;
+      clerk_updated_at: Date | string | null;
+      last_seen_at: Date | string | null;
+      deleted_at: Date | string | null;
+    }>(
+      `
+        select email, first_name, last_name, image_url, clerk_updated_at, last_seen_at, deleted_at
+        from users
+        where id = $1
+      `,
+      ["user_terminal_migration"],
+    );
+
+    expect(row.rows[0]).toMatchObject({
+      email: null,
+      first_name: null,
+      last_name: null,
+      image_url: null,
+      clerk_updated_at: null,
+      last_seen_at: null,
+    });
+    expect(row.rows[0]?.deleted_at).not.toBeNull();
 
     await db.close();
   });
@@ -793,6 +1115,15 @@ describe("Step 3 database migration", () => {
       ["created_at", "timestamp with time zone", "NO", "now()"],
       ["updated_at", "timestamp with time zone", "NO", "now()"],
       ["completed_at", "timestamp with time zone", "YES", null],
+      ["product_family", "text", "NO", "'siargao_trip_pass'::text"],
+      ["checkout_session_expires_at", "timestamp with time zone", "YES", null],
+      ["checkout_session_status", "text", "YES", null],
+      ["checkout_cancellation_confirmed_at", "timestamp with time zone", "YES", null],
+      ["terms_policy_version", "text", "YES", null],
+      ["refund_policy_version", "text", "YES", null],
+      ["privacy_policy_version", "text", "YES", null],
+      ["retention_policy_version", "text", "YES", null],
+      ["terms_consent_presented_at", "timestamp with time zone", "YES", null],
     ]);
     expect(
       columnsByTable.trip_pass_grants?.map((column) => [
@@ -1909,6 +2240,9 @@ describe("Step 3 database migration", () => {
 
 const authTableNames = [
   "users",
+  "account_closure_tombstones",
+  "account_closure_operations",
+  "account_closure_write_barriers",
   "user_profiles",
   "chat_threads",
   "chat_messages",
@@ -1976,6 +2310,8 @@ const hardeningSupportingIndexNames = [
   "trip_pass_grants_order_id_idx",
   "trip_pass_grants_trip_pass_id_idx",
   "trip_pass_grants_user_expires_at_idx",
+  "trip_pass_orders_product_family_idx",
+  "trip_pass_orders_user_family_effective_pending_idx",
   "trip_pass_orders_user_status_created_at_idx",
   "trip_usage_events_trip_pass_meter_created_at_idx",
   "trip_usage_events_usage_meter_id_idx",
@@ -2089,6 +2425,8 @@ const hardeningCheckConstraintNames = [
   "trip_pass_orders_amount_total_minor_check",
   "trip_pass_orders_completed_at_check",
   "trip_pass_orders_currency_check",
+  "trip_pass_orders_checkout_session_status_check",
+  "trip_pass_orders_product_family_check",
   "trip_pass_orders_product_version_check",
   "trip_pass_orders_status_check",
   "trip_usage_events_event_type_check",

@@ -5,13 +5,25 @@ The app reads these environment variables.
 | Variable | Surface | Required For | Notes |
 | --- | --- | --- | --- |
 | `NEXT_PUBLIC_APP_URL` | Public/client-safe | Checkout URLs and canonical public URLs | Defaults exist in some local code paths, but set this in deployed environments. |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Public/client-safe | Clerk frontend SDK | Required by `ClerkProvider`, `SignIn`, `SignUp`, and chat auth UI. |
-| `CLERK_SECRET_KEY` | Server only | Clerk `auth()`, route protection, and backend API calls | Must not use the `NEXT_PUBLIC_` prefix. |
-| `CLERK_WEBHOOK_SIGNING_SECRET` | Server only | Clerk webhook verification | Required by `/api/clerk/webhooks`. |
+| `CLERK_AUTH_MODE` | Server only | Clerk perimeter mode | Explicit enum: `enabled` or `disabled`. Production and `protected-staging` require `enabled`; untrusted previews must be `disabled` and must not receive Clerk keys. Enablement is never inferred from key presence. |
+| `NEXT_PUBLIC_CLERK_AUTH_MODE` | Public/client-safe | Clerk UI mode | Explicit enum: `enabled` or `disabled`. Enabled deployments require this to match `CLERK_AUTH_MODE` so client Clerk UI cannot drift from the server perimeter. |
+| `CLERK_DEPLOYMENT_CONTEXT` | Server only | Clerk deployment matrix | Optional explicit enum: `local`, `test`, `build`, `preview`, `production`, or `protected-staging`. When omitted, the app uses `NODE_ENV` and `VERCEL_ENV` only to choose the context, not to infer auth enablement. |
+| `CLERK_AUTHORIZED_PARTIES` | Server only | Clerk middleware token-origin validation | Comma-separated exact URL origins passed to Clerk `authorizedParties`. Production and protected staging must exactly match `CLERK_PRODUCTION_ORIGIN` plus `CLERK_PROTECTED_STAGING_ORIGIN`; wildcard hosts, paths, credentials, query strings, fragments, and trailing slashes are rejected. |
+| `CLERK_PRODUCTION_ORIGIN` | Server only | Protected Clerk deployments | Exact production HTTPS origin. Required in production and protected staging so `authorizedParties` can include the production origin without trusting preview wildcards. |
+| `CLERK_PROTECTED_STAGING_ORIGIN` | Server only | Protected Clerk deployments | Exact stable protected-staging HTTPS origin. Required in production and protected staging. |
+| `CLERK_PROTECTED_STAGING_GIT_COMMIT_REF` | Server only | Protected staging platform binding | Optional exact Git branch identity for protected staging. When set, `VERCEL_GIT_COMMIT_REF` must match. Use with or instead of `CLERK_PROTECTED_STAGING_VERCEL_TARGET_ENV`. |
+| `CLERK_PROTECTED_STAGING_VERCEL_TARGET_ENV` | Server only | Protected staging platform binding | Optional exact Vercel target environment for protected staging. When set, `VERCEL_TARGET_ENV` must match. Use with or instead of `CLERK_PROTECTED_STAGING_GIT_COMMIT_REF`. |
+| `CLERK_VERCEL_PROJECT_ID` | Server only | Protected Clerk deployments | Exact stable Vercel project ID. Production and protected staging require this to match the platform-provided `VERCEL_PROJECT_ID`; generated `VERCEL_URL` values are not trusted because they change on redeploy. |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Public/client-safe | Clerk frontend SDK | Required only when `CLERK_AUTH_MODE=enabled`. |
+| `CLERK_SECRET_KEY` | Server only | Clerk `auth()`, route protection, and backend API calls | Required only when `CLERK_AUTH_MODE=enabled`. Must not use the `NEXT_PUBLIC_` prefix. |
+| `CLERK_WEBHOOK_SIGNING_SECRET` | Server only | Clerk webhook verification | Required only when `CLERK_AUTH_MODE=enabled`; `/api/clerk/webhooks` remains public at the proxy layer and verifies this signature in the handler. |
+| `ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY` | Server only | Closure Tombstone matching | Required in production so Clerk IDs are matched to hashed closure tombstones without storing readable IDs. Local development uses a deterministic fallback. |
 | `NEXT_PUBLIC_CLERK_TELEMETRY_DISABLED` | Public/client-safe | Clerk SDK telemetry | Defaults to `1` in `next.config.ts`; set to `0` only when intentionally opting in to development telemetry. |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | Public/client-safe | Clerk sign-in routing | Set to `/sign-in` for the local prebuilt auth page. |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL` | Public/client-safe | Clerk post-sign-in redirects | Recommended default: `/chat`. |
 | `NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL` | Public/client-safe | Clerk post-sign-up redirects | Recommended default: `/chat`. |
+| `PLAYWRIGHT_PROTECTED_UI_HARNESS` | Server only | Local E2E protected-page UI harness | Test-only. When set to `1` with explicit local/test disabled Clerk mode and a long `PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN`, Playwright can exercise protected page UI by sending both harness headers. Validation rejects this flag in production runtime or when any Vercel deployment signal is present. Never set in deployed environments. |
+| `PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN` | Server only | Local E2E protected-page UI harness | Test-only token required by the harness request header `x-ask-siargao-protected-ui-harness-token`. Must be at least 32 characters and is ignored unless `PLAYWRIGHT_PROTECTED_UI_HARNESS=1`. |
 | `DATABASE_URL` | Server only | Production database client | Required by app database clients and Postgres-backed CLI/job scripts. In deployed app runtimes, use a credential mapped to the `ask_siargao_runtime` role from the database authorization reference. Test migration and seed commands use PGlite. |
 | `DATABASE_POOL_SIZE` | Server only | App/shared Postgres clients | Optional. Positive integer. Defaults to `10` for long-lived app clients. |
 | `DATABASE_CLI_POOL_SIZE` | Server only | CLI/job Postgres clients | Optional. Positive integer. Defaults to `1` so one-off scripts do not fan out database connections. |
@@ -23,9 +35,10 @@ The app reads these environment variables.
 | `STRIPE_RESTRICTED_KEY` | Server only | Stripe Checkout API calls | Preferred server key for Checkout permissions. |
 | `STRIPE_SECRET_KEY` | Server only | Stripe Checkout API calls | Fallback when `STRIPE_RESTRICTED_KEY` is not set. |
 | `STRIPE_WEBHOOK_SECRET` | Server only | Stripe webhook verification | Required by `/api/stripe/webhook`. |
-| `STRIPE_TRIP_PASS_PRICE_ID` | Server only | Trip Pass Checkout | Required before `TRIP_PASS_CHECKOUT_ENABLED=true` can create Trip Pass Checkout sessions. This Price is the amount/currency authority for the Trip Pass. Do not expose it as `NEXT_PUBLIC_*`. |
+| `STRIPE_TRIP_PASS_PRICE_ID` | Server only | Trip Pass Checkout | Required before `TRIP_PASS_CHECKOUT_MODE=canary` or `TRIP_PASS_CHECKOUT_MODE=on` can create Trip Pass Checkout sessions. This Price is the amount/currency authority for the Trip Pass. Do not expose it as `NEXT_PUBLIC_*`. |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Public/client-safe | Client-side Stripe surfaces | Present in `.env.example`; current Checkout flow is server initiated. |
-| `TRIP_PASS_CHECKOUT_ENABLED` | Server only | Trip Pass rollout | Optional boolean. Defaults to `false`; when `true` without `STRIPE_TRIP_PASS_PRICE_ID`, the Trip Pass catalog reports checkout as unavailable instead of enabled. |
+| `TRIP_PASS_CHECKOUT_MODE` | Server only | Trip Pass rollout | Optional enum: `off`, `canary`, or `on`. Defaults safely to `off`, including malformed values. `canary` and `on` require `STRIPE_TRIP_PASS_PRICE_ID`; otherwise the catalog reports checkout as unavailable. |
+| `TRIP_PASS_CHECKOUT_CANARY_ACCOUNT_IDS` | Server only | Trip Pass rollout | Optional comma-separated immutable account/user IDs allowed to use checkout when `TRIP_PASS_CHECKOUT_MODE=canary`. Empty canary allowlists keep checkout unavailable. |
 | `TRIP_PASS_EXTENSION_ENABLED` | Server only | Future Trip Pass extensions | Optional boolean. Defaults to `false`; extensions remain unavailable until launch approval. |
 | `TRIP_PASS_ANON_HMAC_KEY` | Server only | Anonymous Trip Pass identity signing and HMAC cohorts | Required in production for anonymous reset resistance. Local development uses a fallback key for cookie behavior but does not enforce cohort reset-resistance unless this key is set. |
 | `TRIP_PASS_ANON_HMAC_KEY_VERSION` | Server only | Anonymous Trip Pass identity key version | Optional positive integer. Defaults to `1`; increment during HMAC key rotation. |
@@ -51,6 +64,8 @@ The app reads these environment variables.
 | `INNGEST_EVENT_KEY` | Server only | Future job worker integration | Placeholder until the production worker backend is wired. |
 | `INNGEST_SIGNING_KEY` | Server only | Future job worker integration | Placeholder until the production worker backend is wired. |
 | `REDIS_URL` | Server only | Shared quota infrastructure | Enables the bundled Redis quota store for production rate limits, anonymous free allowance, request idempotency, and model cost circuits. Production traffic fails closed for quota-backed controls when a shared store is required but unavailable. |
+| `INTEGRATION_TEST_NAMESPACE` | Local/CI test only | Real PostgreSQL and Redis integration lanes | Optional lowercase namespace for `bun run test:integration:postgres` and `bun run test:integration:redis`. Defaults to `ask_siargao_issue150_local`; CI sets a run-specific value. Harnesses add UUID-suffixed database names and Redis prefixes under this namespace. |
+| `INTEGRATION_TEST_ALLOW_REMOTE` | Local/CI test only | Real PostgreSQL and Redis integration lanes | Optional escape hatch. Set to `1` only for an explicitly disposable remote test service whose URL visibly contains a test marker such as `test`, `integration`, `issue`, `local`, or `ci`; Redis `/0` alone is not sufficient. Otherwise integration harnesses require localhost service URLs and refuse production-looking targets. |
 | `TRUST_PROXY_HEADERS` | Server only | Rate-limit request identity | Defaults to `false`. Set to `true` only when a trusted edge/proxy owns `x-forwarded-for` or `x-real-ip`; otherwise requests share the local fallback identity. |
 | `TRIP_PASS_IDEMPOTENCY_HMAC_KEY` | Server only | Request idempotency token hashing | Required in production for privacy-safe request idempotency tokens. Local development uses a fallback key. |
 | `ADMIN_ACCESS_TOKEN` | Server only | Production admin diagnostics access | Send the same value in the `x-admin-token` request header. |
@@ -64,6 +79,11 @@ Stripe clients and webhook normalization pin Stripe API version `2026-07-29.dahl
 normalized event schema version `1` in code. These are not runtime environment switches. A Stripe
 webhook delivered with another API version is durably recorded as blocked after signature
 verification rather than guessed from an unsupported shape.
+
+Clerk instance settings are part of the deployment contract and are encoded in
+`src/server/auth/clerk-instance-policy.ts`: verified email is required, sign-in methods are email
+code and Google OAuth only, maximum session age is seven days, Operator MFA is required, and
+multiple simultaneous sessions are disabled.
 
 Chat model calls use a 15-second per-attempt deadline with one retry before fallback. Hosted web
 research uses a 25-second per-attempt deadline with one retry. Live weather, marine, tide, and
@@ -95,7 +115,7 @@ instances. There is no environment override for process-local production rate li
 Production checkout must remain disabled until the release owner records the final approval state in
 the release-candidate QA run. Code completion is not launch approval.
 
-| Area | Owner | Required action before `TRIP_PASS_CHECKOUT_ENABLED=true` |
+| Area | Owner | Required action before `TRIP_PASS_CHECKOUT_MODE=canary` or `on` |
 | --- | --- | --- |
 | Stripe Price | Finance/operator | Confirm live Price ID, amount, currency, fees, tax treatment, and Stripe-account eligibility. |
 | Stripe webhook | Engineering | Confirm endpoint URL, signing secret, and subscribed Checkout, refund, dispute, and expiry events. |
@@ -105,7 +125,7 @@ the release-candidate QA run. Code completion is not launch approval.
 | DeepSeek cost policy | Operator | Confirm price catalog version, `DEEPSEEK_COST_POLICY_ENABLED`, and daily provider budget. |
 | Paid fallback | Operator | Confirm whether `OPENAI_FALLBACK_ENABLED` is allowed, plus the daily fallback budget. |
 | WAF | Security/operator | Run Vercel WAF in log mode first and record evidence before challenge promotion. |
-| Identity keys | Security | Record `TRIP_PASS_ANON_HMAC_KEY` and `TRIP_PASS_IDEMPOTENCY_HMAC_KEY` owners, rotation date, and rollback plan. |
+| Identity keys | Security | Record `ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY`, `TRIP_PASS_ANON_HMAC_KEY`, and `TRIP_PASS_IDEMPOTENCY_HMAC_KEY` owners, rotation date, and rollback plan. |
 | Monitoring | Operator | Confirm alerts for checkout failures, webhook failures, cost-circuit exhaustion, analytics sink failures, and reconciliation issues. |
 | Review | Operator | Record non-author release review before checkout enablement. |
 
@@ -149,7 +169,7 @@ cookies, provider payloads, or upstream request IDs.
 
 Rollback is flag-based and forward-repair only:
 
-1. Set `TRIP_PASS_CHECKOUT_ENABLED=false` and redeploy.
+1. Set `TRIP_PASS_CHECKOUT_MODE=off` and redeploy.
 2. Keep `TRIP_PASS_EXTENSION_ENABLED=false`.
 3. Set `OPENAI_FALLBACK_ENABLED=false` if fallback cost or quality behavior is suspect.
 4. Set `TRIP_PASS_WAF_MODE=log` or disable promoted WAF rules if legitimate shared-network traffic
