@@ -154,7 +154,7 @@ export async function createActiveTripPassWithMeters(
       [
         input.id,
         input.userId ?? null,
-        input.email ?? null,
+        null,
         input.stripeCheckoutSessionId ?? null,
         input.stripePaymentIntentId ?? null,
         input.stripeEventId ?? null,

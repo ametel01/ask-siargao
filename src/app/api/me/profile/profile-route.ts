@@ -1,6 +1,4 @@
 import { z } from "zod";
-
-import { isClerkServerConfigured } from "@/features/auth/clerk-config";
 import {
   budgetLevelOptions,
   foodNeedOptions,
@@ -9,6 +7,7 @@ import {
   surfAbilityOptions,
   weatherPreferenceOptions,
 } from "@/features/settings/profile-options";
+import { isClerkServerConfigured } from "@/server/auth/clerk-deployment-config";
 import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/auth/clerk-users";
 import { parseUserProfileTripContextPatch } from "@/server/chat/trip-context";
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";

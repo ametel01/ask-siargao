@@ -106,7 +106,6 @@ export async function startTripPassCheckout(
   const order = await ensurePendingCheckoutOrder(
     {
       userId: input.userId,
-      email: input.email ?? null,
       stripePriceId: environment.checkout.priceId,
       createId: options.createId ?? defaultCreateId,
     },
@@ -181,7 +180,6 @@ export async function cancelTripPassCheckout(
 async function ensurePendingCheckoutOrder(
   input: {
     userId: string;
-    email: string | null;
     stripePriceId: string;
     createId: (prefix: string) => string;
   },
@@ -207,7 +205,7 @@ async function ensurePendingCheckoutOrder(
     );
     if (reusableOrder) {
       return orderSnapshotFromRow(reusableOrder, {
-        customerEmail: input.email ?? reusableOrder.email,
+        customerEmail: null,
         createdForRequest: false,
       });
     }
@@ -262,7 +260,7 @@ async function ensurePendingCheckoutOrder(
       [
         orderId,
         input.userId,
-        input.email,
+        null,
         tripPassCheckoutProductSnapshot.productCode,
         tripPassCheckoutProductSnapshot.productFamily,
         tripPassCheckoutProductSnapshot.productVersion,
@@ -287,7 +285,7 @@ async function ensurePendingCheckoutOrder(
       id: orderId,
       userId: input.userId,
       productFamily: tripPassCheckoutProductSnapshot.productFamily,
-      customerEmail: input.email,
+      customerEmail: null,
       checkoutIdempotencyKey,
       stripePriceId: input.stripePriceId,
       createdForRequest: true,

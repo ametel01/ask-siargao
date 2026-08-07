@@ -100,6 +100,39 @@ describe("Trip Pass reconciliation", () => {
     });
   });
 
+  test("does not persist legacy paid order email during missing-pass repair", async () => {
+    await withTestDb(async (db) => {
+      await insertPaidOrder(db, "order_repair_email", "user_repair_email");
+
+      const repaired = await reconcileTripPassState({
+        confirmMutation: true,
+        db,
+        env,
+        mode: "repair",
+        now,
+      });
+
+      expect(repaired.actions).toContainEqual(
+        expect.objectContaining({
+          action: "grant_missing_trip_pass",
+          localRef: "order_repair_email",
+          status: "applied",
+        }),
+      );
+      const pass = await db.query<{ email: string | null }>(
+        `
+          select p.email
+          from trip_passes p
+          join trip_pass_grants g on g.trip_pass_id = p.id
+          where g.order_id = $1
+          limit 1
+        `,
+        ["order_repair_email"],
+      );
+      expect(pass.rows[0]?.email).toBeNull();
+    });
+  });
+
   test("reconciles legacy version 1 meters from the recorded grant contract", async () => {
     await withTestDb(async (db) => {
       await insertPaidOrder(db, "order_legacy", "user_legacy", "legacy");

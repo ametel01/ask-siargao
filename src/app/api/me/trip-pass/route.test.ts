@@ -109,6 +109,7 @@ describe("Trip Pass account API routes", () => {
       expect(dependencies.checkoutCalls).toEqual([
         {
           userId: "user_checkout",
+          email: undefined,
           appUrl: "https://siargao.test",
         },
       ]);
@@ -236,7 +237,7 @@ describe("Trip Pass account API routes", () => {
 
 type TestRouteDependencies = TripPassAccountRouteDependencies & {
   cancelCalls: Array<{ userId: string }>;
-  checkoutCalls: Array<{ userId: string; appUrl: string }>;
+  checkoutCalls: Array<{ userId: string; email: string | null | undefined; appUrl: string }>;
   events: Array<{ name: string; payload: Record<string, unknown> }>;
 };
 
@@ -277,7 +278,11 @@ function routeDependencies(
       return input.cancelResult ?? { status: "not_found", reason: "no_effective_pending_order" };
     },
     startTripPassCheckout: async (checkoutInput) => {
-      checkoutCalls.push({ userId: checkoutInput.userId, appUrl: checkoutInput.appUrl });
+      checkoutCalls.push({
+        userId: checkoutInput.userId,
+        email: checkoutInput.email,
+        appUrl: checkoutInput.appUrl,
+      });
       if (input.checkoutError) {
         throw input.checkoutError;
       }

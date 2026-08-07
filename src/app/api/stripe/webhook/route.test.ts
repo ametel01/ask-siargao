@@ -20,6 +20,8 @@ import { resetRateLimitStoreForTests } from "@/server/security/rate-limit";
 const now = new Date("2026-06-23T08:00:00.000Z");
 const webhookSecret = "whsec_test_fixture_secret";
 const originalDatabaseUrl = process.env.DATABASE_URL;
+const originalNodeEnv = process.env.NODE_ENV;
+const originalRedisUrl = process.env.REDIS_URL;
 const originalStripeRestrictedKey = process.env.STRIPE_RESTRICTED_KEY;
 const originalStripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -33,6 +35,8 @@ describe("Stripe webhook route", () => {
   afterEach(() => {
     resetRateLimitStoreForTests();
     restoreEnvValue("DATABASE_URL", originalDatabaseUrl);
+    restoreEnvValue("NODE_ENV", originalNodeEnv);
+    restoreEnvValue("REDIS_URL", originalRedisUrl);
     restoreEnvValue("STRIPE_RESTRICTED_KEY", originalStripeRestrictedKey);
     restoreEnvValue("STRIPE_WEBHOOK_SECRET", originalStripeWebhookSecret);
   });
@@ -52,17 +56,22 @@ describe("Stripe webhook route", () => {
     expect(signedBody).toEqual({ received: true, ignored: true });
   });
 
-  test("rate limits verified webhook events", async () => {
-    let response = await POST(await signedRequest(ignoredEventPayload()));
+  test("does not require Redis-backed throttling after webhook verification", async () => {
+    Object.assign(process.env, { NODE_ENV: "production" });
+    process.env.REDIS_URL = "redis://127.0.0.1:1/0";
+    const store = createMemoryPaymentStore(pendingPaymentAudit());
 
-    for (let index = 1; index < 41; index += 1) {
-      response = await POST(
-        await signedRequest(ignoredEventPayload({ eventId: `evt_ignored_${index}` })),
-      );
-    }
+    const response = await stripeWebhookResponse(
+      await signedRequest(checkoutSessionPayload({ eventId: "evt_checkout_redis_down" })),
+      routeDependencies(store.store),
+    );
+    const body = await response.json();
 
-    expect(response.status).toBe(429);
-    expect(await response.json()).toMatchObject({ error: "rate_limited" });
+    expect(response.status).toBe(200);
+    expect(body.applicationStatus).toBe("applied");
+    expect(body.stripeEventId).toBe("evt_checkout_redis_down");
+    expect(store.paymentEvents).toHaveLength(1);
+    expect(response.headers.get("x-ratelimit-limit")).toBeNull();
   });
 
   test("ignores verified irrelevant events without initializing the default database", async () => {

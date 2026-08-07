@@ -26,8 +26,8 @@ Scripts are defined in `package.json`.
 | `bun run qa:trip-pass-launch` | `bun run src/server/qa/run-trip-pass-launch-proof.ts` | Emit the redacted Trip Pass launch manifest for the checked-out commit SHA. Add `-- --write` to write the SHA-qualified JSON artifact under `.tmp/trip-pass-launch/`; the command never writes `docs/evaluations/**` or authorizes checkout. |
 | `bun run db:migrate:test` | `bun run src/server/db/migrate-test.ts` | Apply unapplied SQL migrations to a PGlite test database through the same ledger runner. |
 | `bun run db:seed:test` | `bun run src/server/db/seed-test.ts` | Seed Siargao taxonomy and source profiles into a PGlite test database. |
-| `bun run test:integration:postgres` | `bun run src/server/integration/postgres-entrypoint.ts --dry-run` | Validate the repository-native PostgreSQL integration lane against a real local test service. The dry run requires `DATABASE_URL`, creates and drops an isolated schema namespace, and fails instead of falling back to PGlite when the service is absent. Deep PostgreSQL locking and concurrency assertions remain issue #150. |
-| `bun run test:integration:redis` | `bun run src/server/integration/redis-entrypoint.ts --dry-run` | Validate the repository-native Redis integration lane against a real local test service. The dry run requires `REDIS_URL`, writes and deletes an isolated key namespace, and fails instead of falling back to process-local behavior when the service is absent. Redis atomic and shared-instance semantic assertions remain issue #150. |
+| `bun run test:integration:postgres` | `bun run src/server/integration/postgres-entrypoint.ts` | Run the repository-native PostgreSQL integration lane against a real disposable test service. Requires `DATABASE_URL`, creates a unique database for the run, applies the full migration ledger, proves rollback, database-time, uniqueness, transaction recovery, and advisory-lock semantics across independent connections, then drops only that database. It fails instead of falling back to PGlite when the service is absent or production-looking. |
+| `bun run test:integration:redis` | `bun run src/server/integration/redis-entrypoint.ts` | Run the repository-native Redis integration lane against a real disposable test service. Requires `REDIS_URL`, uses a unique per-run key prefix, proves shared atomic windows, budget consume/release, idempotency, concurrency leases, rolling reservations, expiry recovery, paid-path fail-closed behavior, and verified Stripe webhook Redis independence, then deletes only that prefix. It fails instead of falling back to process-local behavior when the service is absent or production-looking. |
 | `bun run format` | `biome format --write .` | Write Biome formatting fixes. |
 | `bun run lint` | `biome check .` | Run the non-mutating Biome check used by CI. |
 | `bun run typecheck` | `tsc --noEmit` | Run TypeScript type checking. |
@@ -46,6 +46,72 @@ bun run verify:ci
 
 `bun run format` is a fix command, not a verification gate. `bun run verify` and `bun run
 verify:ci` are non-mutating verification commands.
+
+## Real Service Integration Lanes
+
+The PostgreSQL and Redis integration lanes require disposable local or explicitly marked remote test
+services. They do not use production credentials, provider credentials, PGlite, process-local Redis
+fallbacks, or broad cleanup commands such as `FLUSHALL`.
+
+Start the pinned local PostgreSQL service:
+
+```sh
+docker run --rm -d \
+  --name ask-siargao-issue150-postgres \
+  -e POSTGRES_USER=ask_siargao_issue150 \
+  -e POSTGRES_PASSWORD=ask_siargao_issue150_password \
+  -e POSTGRES_DB=ask_siargao_issue150 \
+  -p 127.0.0.1::5432 \
+  --tmpfs /var/lib/postgresql/data:rw,noexec,nosuid,size=512m \
+  postgres:17.6-alpine3.22
+```
+
+Use the assigned host port from `docker ps`:
+
+```sh
+export PGPORT="$(docker port ask-siargao-issue150-postgres 5432/tcp | sed 's/.*://')"
+DATABASE_URL="postgres://ask_siargao_issue150:ask_siargao_issue150_password@127.0.0.1:${PGPORT}/ask_siargao_issue150" \
+  INTEGRATION_TEST_NAMESPACE=ask_siargao_issue150_local \
+  bun run test:integration:postgres
+```
+
+Start the pinned local Redis service:
+
+```sh
+docker run --rm -d \
+  --name ask-siargao-issue150-redis \
+  -p 127.0.0.1::6379 \
+  redis:8.2.1-alpine3.22
+```
+
+Use the assigned host port from `docker ps`:
+
+```sh
+export REDISPORT="$(docker port ask-siargao-issue150-redis 6379/tcp | sed 's/.*://')"
+REDIS_URL="redis://127.0.0.1:${REDISPORT}/0" \
+  INTEGRATION_TEST_NAMESPACE=ask_siargao_issue150_local \
+  bun run test:integration:redis
+```
+
+Stop the local services when finished:
+
+```sh
+docker stop ask-siargao-issue150-postgres ask-siargao-issue150-redis
+```
+
+The PostgreSQL harness creates a UUID-suffixed database, records ownership only after `create
+database` succeeds, and drops only that database during normal completion or SIGINT/SIGTERM
+cleanup. A failed create attempt does not drop a pre-existing database. The Redis harness claims a
+UUID-suffixed key prefix with an owner marker and deletes only keys under that prefix during normal
+completion or SIGINT/SIGTERM cleanup.
+
+For disposable remote test services, set `INTEGRATION_TEST_ALLOW_REMOTE=1` and make the hostname,
+username, database name, or query string visibly contain a test marker such as `test`,
+`integration`, `issue`, `local`, or `ci`. Redis database `/0` alone is not a test marker. If a lane
+fails before tests run, check that Docker is running, the image tag matches the pinned command, the
+published port is the one in the URL, and the URL points at a disposable test service. If a lane
+fails during cleanup, rerun the lane with the same service after confirming the reported
+UUID-suffixed database or key prefix is the only scoped resource involved.
 
 ## Migration Ledger Behavior
 

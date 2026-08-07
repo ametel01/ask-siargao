@@ -163,7 +163,6 @@ async function applyCheckoutSessionEvent(
   const grant = await grantTripPass(
     {
       userId: order.user_id,
-      email: order.email,
       orderId: order.id,
       sourceType: "stripe_checkout",
       sourceEventId: event.id,

@@ -98,7 +98,7 @@ describe("Trip Pass checkout commerce", () => {
       expect(checkoutClient.calls[0]?.params).toMatchObject({
         mode: "payment",
         client_reference_id: "order_checkout",
-        customer_email: "checkout@example.com",
+        customer_email: undefined,
         payment_method_types: ["card"],
         consent_collection: {
           terms_of_service: "required",
@@ -126,6 +126,7 @@ describe("Trip Pass checkout commerce", () => {
       );
       await expectOrder(db, "order_checkout", {
         status: "checkout_created",
+        email: null,
         stripeCheckoutSessionId: "cs_order_checkout",
         amountTotalMinor: 999,
         currency: "usd",
@@ -185,6 +186,32 @@ describe("Trip Pass checkout commerce", () => {
       ]);
       await expectOrderCount(db, "1");
       await expectNoAccessGrant(db);
+    });
+  });
+
+  test("does not persist supplied provider email into new checkout orders", async () => {
+    await withTestDb(async (db) => {
+      await insertUser(db, "user_transient_email");
+
+      await startTripPassCheckout(
+        {
+          userId: "user_transient_email",
+          email: "transient-provider@example.com",
+          appUrl: "https://siargao.test",
+        },
+        {
+          db,
+          checkoutClient: createFakeCheckoutClient(),
+          createId: () => "order_transient_email",
+          env: enabledEnv,
+          now,
+        },
+      );
+
+      await expectOrder(db, "order_transient_email", {
+        status: "checkout_created",
+        email: null,
+      });
     });
   });
 
@@ -685,6 +712,7 @@ async function expectOrder(
   orderId: string,
   expected: Partial<{
     status: string;
+    email: string | null;
     stripeCheckoutSessionId: string | null;
     amountTotalMinor: number | null;
     checkoutSessionStatus: string | null;
@@ -693,13 +721,14 @@ async function expectOrder(
 ) {
   const result = await db.query<{
     status: string;
+    email: string | null;
     stripe_checkout_session_id: string | null;
     amount_total_minor: number | null;
     checkout_session_status: string | null;
     currency: string | null;
   }>(
     `
-      select status, stripe_checkout_session_id, amount_total_minor, checkout_session_status, currency
+      select status, email, stripe_checkout_session_id, amount_total_minor, checkout_session_status, currency
       from trip_pass_orders
       where id = $1
     `,
@@ -713,6 +742,9 @@ async function expectOrder(
   }
   if (expected.status !== undefined) {
     expect(row.status).toBe(expected.status);
+  }
+  if (expected.email !== undefined) {
+    expect(row.email).toBe(expected.email);
   }
   if (expected.stripeCheckoutSessionId !== undefined) {
     expect(row.stripe_checkout_session_id).toBe(expected.stripeCheckoutSessionId);

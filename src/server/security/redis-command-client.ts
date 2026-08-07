@@ -1,6 +1,7 @@
 import { createClient } from "redis";
 
 export type RedisCommandClient = {
+  close(): Promise<void>;
   decrby(key: string, amount: number): Promise<number>;
   get(key: string): Promise<string | null>;
   incr(key: string): Promise<number>;
@@ -23,6 +24,7 @@ type NodeRedisCommandClient = {
   pTTL(key: string): Promise<number>;
   sendCommand(command: readonly string[]): Promise<unknown>;
   set(key: string, value: string, options?: { NX: true }): Promise<unknown>;
+  quit(): Promise<unknown>;
 };
 
 type RedisClientFactory = (url: string) => NodeRedisCommandClient;
@@ -68,6 +70,11 @@ export function createRedisCommandClient(input: {
   }
 
   return {
+    async close() {
+      if (redisClient.isOpen) {
+        await redisClient.quit();
+      }
+    },
     async decrby(key, amount) {
       return (await connectedClient()).decrBy(key, amount);
     },

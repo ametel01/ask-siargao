@@ -1,4 +1,14 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
+
+const protectedUiHarnessHeader = {
+  "x-ask-siargao-protected-ui-harness": "1",
+  "x-ask-siargao-protected-ui-harness-token":
+    "ask-siargao-playwright-protected-ui-harness-token-2026",
+};
+
+async function enableProtectedUiHarness(page: Page, headers: Record<string, string> = {}) {
+  await page.setExtraHTTPHeaders({ ...protectedUiHarnessHeader, ...headers });
+}
 
 test("renders the Ask Siargao landing shell", async ({ page }) => {
   await page.goto("/");
@@ -412,7 +422,21 @@ test("landing remains usable at a 200 percent zoom equivalent with reduced motio
   }
 });
 
+test("denies protected surfaces when Clerk is disabled", async ({ page }) => {
+  for (const pathname of [
+    "/settings",
+    "/profile",
+    "/admin/diagnostics",
+    "/audits/audit_123/status?state=awaiting_payment",
+  ]) {
+    const response = await page.goto(pathname);
+    expect(response?.status(), pathname).toBe(404);
+    await expect(page.getByText("clerk_disabled_protected_route")).toBeVisible();
+  }
+});
+
 test("shows processing state after checkout return", async ({ page }) => {
+  await enableProtectedUiHarness(page);
   await page.goto("/audits/audit_123/status?state=awaiting_payment");
 
   await expect(
@@ -433,7 +457,7 @@ test("renders final report with evidence and limitations", async ({ page }) => {
 });
 
 test("renders local admin diagnostics without leaking sample secrets", async ({ page }) => {
-  await page.setExtraHTTPHeaders({
+  await enableProtectedUiHarness(page, {
     "x-admin-token": process.env.ADMIN_ACCESS_TOKEN ?? "replace-me",
   });
   await page.goto("/admin/diagnostics");
@@ -447,6 +471,7 @@ test("renders local admin diagnostics without leaking sample secrets", async ({ 
 });
 
 test("edits profile details and reloads the persisted values", async ({ page }) => {
+  await enableProtectedUiHarness(page);
   let patchPayload: Record<string, unknown> | null = null;
   const patchPayloads: Record<string, unknown>[] = [];
   let profileSaveMode:
@@ -876,6 +901,7 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
 test("manages privacy controls with deliberate confirmation and local cleanup after success", async ({
   page,
 }) => {
+  await enableProtectedUiHarness(page);
   const savedTripStorageKey = "ask-siargao:saved-trip:v1";
   const tripContextStorageKey = "ask-siargao:trip-context:v1";
   let privacyMode: "success" | "server" | "auth" = "success";
@@ -1141,6 +1167,7 @@ test("manages privacy controls with deliberate confirmation and local cleanup af
 test("keeps privacy confirmations modal and preserves deterministic failure states", async ({
   page,
 }) => {
+  await enableProtectedUiHarness(page);
   let privacyMode: "auth" | "validation" | "network" | "pending" | "success" = "auth";
   let releasePending = () => {};
   const profile = {
@@ -1314,6 +1341,7 @@ test("keeps privacy confirmations modal and preserves deterministic failure stat
 test("preserves untouched legacy multi-value tokens byte-for-byte on an unrelated save", async ({
   page,
 }) => {
+  await enableProtectedUiHarness(page);
   let patchPayload: Record<string, unknown> | null = null;
   let profile = {
     identity: {
@@ -1382,6 +1410,7 @@ test("preserves untouched legacy multi-value tokens byte-for-byte on an unrelate
 test("renders safe account identity across settings states and narrow layouts", async ({
   page,
 }) => {
+  await enableProtectedUiHarness(page);
   const longName = "María-Luisa Ngọc Nguyễn surf planning ".repeat(5).trim();
   let profileMode: "long" | "partial" | "server" | "anonymous" = "long";
 
@@ -1493,6 +1522,7 @@ test("renders safe account identity across settings states and narrow layouts", 
 });
 
 test("renders Trip Pass account states and checkout return handling", async ({ page }) => {
+  await enableProtectedUiHarness(page);
   let passMode: "free" | "pending" | "active" | "expired" | "unavailable" | "fetch_error" = "free";
   let checkoutCalls = 0;
   let releaseCheckout: (() => void) | undefined;

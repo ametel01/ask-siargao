@@ -474,7 +474,6 @@ async function grantMissingTripPass(
   try {
     const result = await grantTripPass(
       {
-        email: order.email,
         orderId: order.id,
         sourceEventId: `trip_pass_reconcile:${order.id}`,
         sourceType: "manual_operator",
