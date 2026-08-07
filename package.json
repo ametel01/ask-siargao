@@ -31,6 +31,8 @@
     "qa:trip-pass-launch": "bun run src/server/qa/run-trip-pass-launch-proof.ts",
     "db:migrate:test": "bun run src/server/db/migrate-test.ts",
     "db:seed:test": "bun run src/server/db/seed-test.ts",
+    "test:integration:postgres": "bun run src/server/integration/postgres-entrypoint.ts --dry-run",
+    "test:integration:redis": "bun run src/server/integration/redis-entrypoint.ts --dry-run",
     "format": "biome format --write .",
     "lint": "biome check .",
     "typecheck": "tsc --noEmit",
