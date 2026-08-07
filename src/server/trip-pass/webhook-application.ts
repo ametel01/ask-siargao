@@ -261,7 +261,12 @@ async function applyClosedAccountPayment(input: {
   }
   const completedAt = new Date(input.event.created * 1_000);
   const closedAt = new Date(closure.closed_at);
-  const isPaidAfterClosure = completedAt.getTime() > closedAt.getTime();
+  // Stripe signs event.created at whole-second precision while PostgreSQL records
+  // closure with sub-second precision. The ambiguous closure second is treated
+  // conservatively as Paid After Closure: no access is granted and refund work
+  // is durable. Only an event from an earlier whole second is pre-closure.
+  const closureSecond = Math.floor(closedAt.getTime() / 1_000) * 1_000;
+  const isPaidAfterClosure = completedAt.getTime() >= closureSecond;
   const paymentIntentId = paymentIntentIdFromCheckoutSession(input.session);
   if (!isPaidAfterClosure) {
     await input.db.query(
@@ -313,6 +318,27 @@ async function applyClosedAccountPayment(input: {
       `,
       [input.order.id, input.session.id, paymentIntentId, obligationId, completedAt, input.now],
     );
+    const closureOperation = await transaction.query<{ id: string }>(
+      `select id from account_closure_operations
+       where tombstone_id = $1 order by created_at asc limit 1 for update`,
+      [input.order.closure_tombstone_id],
+    );
+    const operationId = closureOperation.rows[0]?.id;
+    if (operationId) {
+      await transaction.query(
+        `update account_closure_steps
+         set status = 'pending', next_attempt_at = $2, lease_token = null,
+           lease_expires_at = null, completed_at = null, updated_at = $2
+         where operation_id = $1 and step_type = 'commerce_minimization'`,
+        [operationId, input.now],
+      );
+      await transaction.query(
+        `update account_closure_operations
+         set status = 'pending', completed_at = null, updated_at = $2
+         where id = $1`,
+        [operationId, input.now],
+      );
+    }
   });
   return {
     status: "applied",

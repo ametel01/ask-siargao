@@ -457,14 +457,23 @@ async function markOrderCheckoutCreated(
       `insert into account_closure_checkout_sessions
          (operation_id, stripe_checkout_session_id, status, created_at, updated_at)
        values ($1, $2, 'pending', $3, $3)
-       on conflict (operation_id, stripe_checkout_session_id) do nothing`,
+       on conflict (operation_id, stripe_checkout_session_id) do update set
+         status = 'pending', completed_at = null, last_error_category = null,
+         updated_at = excluded.updated_at`,
       [operationId, input.session.id, now],
     );
     await transaction.query(
       `update account_closure_steps
        set status = 'pending', next_attempt_at = $2, lease_token = null,
          lease_expires_at = null, completed_at = null, updated_at = $2
-       where operation_id = $1 and step_type = 'checkout_expiry'`,
+       where operation_id = $1
+         and step_type in ('checkout_expiry', 'commerce_minimization')`,
+      [operationId, now],
+    );
+    await transaction.query(
+      `update account_closure_operations
+       set status = 'pending', completed_at = null, updated_at = $2
+       where id = $1`,
       [operationId, now],
     );
     return "closed" as const;

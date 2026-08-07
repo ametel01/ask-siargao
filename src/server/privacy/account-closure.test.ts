@@ -62,7 +62,23 @@ describe("terminal Account Closure", () => {
       tombstoneRef: "closure_tombstone_fixed",
     });
     expect(dispatchSnapshots).toHaveLength(1);
-    expect(new Date(dispatchSnapshots[0]?.deletedAt ?? 0).toISOString()).toBe(now.toISOString());
+    const databaseTimes = await query<{
+      closed_at: string;
+      phase_one_committed_at: string;
+    }>(
+      `select t.closed_at::text, o.phase_one_committed_at::text
+       from account_closure_tombstones t
+       join account_closure_operations o on o.tombstone_id = t.id
+       where t.id = $1`,
+      [result.tombstoneRef],
+    );
+    expect(new Date(dispatchSnapshots[0]?.deletedAt ?? 0).toISOString()).toBe(
+      new Date(databaseTimes[0]?.closed_at ?? 0).toISOString(),
+    );
+    expect(new Date(databaseTimes[0]?.phase_one_committed_at ?? 0).toISOString()).toBe(
+      new Date(databaseTimes[0]?.closed_at ?? 0).toISOString(),
+    );
+    expect(new Date(databaseTimes[0]?.closed_at ?? 0).toISOString()).not.toBe(now.toISOString());
     expect(dispatchSnapshots[0]?.shares).toBe(0);
     expect(
       await query("select subject_hash from account_closure_tombstones where id = $1", [
@@ -152,6 +168,28 @@ describe("terminal Account Closure", () => {
         "insert into trip_usage_meters (id, trip_pass_id, meter_type, used, \"limit\") values ('late_meter', 'pass_close', 'route_lookup', 0, 1)",
       ),
     ).rejects.toThrow("account is terminally closed");
+    await expect(
+      db.query("update user_profiles set user_id = null where user_id = 'user_barrier'"),
+    ).rejects.toThrow("account is terminally closed");
+    await db.query("insert into users (id, email) values ('user_open_target', 'open@example.com')");
+    await expect(
+      db.query(
+        "update user_profiles set user_id = 'user_open_target' where user_id = 'user_barrier'",
+      ),
+    ).rejects.toThrow("account is terminally closed");
+    await expect(
+      db.query("update trip_passes set user_id = null where id = 'pass_close'"),
+    ).rejects.toThrow("account is terminally closed");
+    await db.query(
+      `insert into trip_passes (id, user_id, email, status, starts_at, expires_at)
+       values ('pass_open_target', 'user_open_target', 'open@example.com', 'active', $1, $2)`,
+      [now, new Date(now.getTime() + 86_400_000)],
+    );
+    await expect(
+      db.query(
+        "update trip_usage_meters set trip_pass_id = 'pass_open_target' where id = 'meter_close'",
+      ),
+    ).rejects.toThrow("account is terminally closed");
 
     await db.query("insert into users (id, email) values ('user_new_same_email', $1)", [
       "user_barrier@example.com",
@@ -211,7 +249,7 @@ describe("terminal Account Closure", () => {
     const rollingUser = await query<{ deleted_at: Date | null }>(
       "select deleted_at from users where id = 'user_rolling'",
     );
-    expect(new Date(rollingUser[0]?.deleted_at ?? 0).toISOString()).toBe(now.toISOString());
+    expect(new Date(rollingUser[0]?.deleted_at ?? 0).getTime()).toBeGreaterThan(now.getTime());
     await db.close();
   });
 
@@ -371,13 +409,15 @@ describe("terminal Account Closure", () => {
       },
       aggregate_service_facts: {},
     });
-    expect(order?.lifecycle_timestamps).toEqual({
+    expect(order?.lifecycle_timestamps).toMatchObject({
       checkoutCancellationConfirmedAt: "2026-08-07T03:00:00+00:00",
       checkoutSessionExpiresAt: "2026-08-07T02:00:00+00:00",
       completedAt: "2026-08-07T02:00:00+00:00",
       createdAt: "2026-08-07T01:00:00+00:00",
-      updatedAt: "2026-08-07T04:00:00+00:00",
     });
+    expect(new Date(String(order?.lifecycle_timestamps.updatedAt ?? 0)).getTime()).toBeGreaterThan(
+      now.getTime(),
+    );
     expect(pass).toMatchObject({
       amount_minor: 999,
       currency: "usd",
@@ -395,12 +435,14 @@ describe("terminal Account Closure", () => {
         quantity: 1,
       },
     });
-    expect(pass?.lifecycle_timestamps).toEqual({
+    expect(pass?.lifecycle_timestamps).toMatchObject({
       createdAt: "2026-08-07T01:00:00+00:00",
       expiresAt: "2026-08-21T01:00:00+00:00",
       startsAt: "2026-08-07T01:00:00+00:00",
-      updatedAt: "2026-08-07T04:00:00+00:00",
     });
+    expect(new Date(String(pass?.lifecycle_timestamps.updatedAt ?? 0)).getTime()).toBeGreaterThan(
+      now.getTime(),
+    );
     expect(new Date(order?.occurred_at ?? 0).toISOString()).toBe("2026-08-07T02:00:00.000Z");
     expect(new Date(pass?.occurred_at ?? 0).toISOString()).toBe("2026-08-07T01:00:00.000Z");
     const expectedExpiry = new Date(now.getTime() + policy.commerceRetentionMs).toISOString();
@@ -427,21 +469,22 @@ describe("terminal Account Closure", () => {
         `select user_id, email, stripe_customer_id, metadata_json
          from trip_pass_orders where id = 'order_retained_boundary'`,
       ),
-    ).toEqual([{ user_id: null, email: null, stripe_customer_id: null, metadata_json: {} }]);
+    ).toEqual([]);
     expect(
       await query(
         `select user_id, idempotency_key, request_id, request_hash, provider_request_ids_json
          from trip_usage_events where id = 'usage_retained_boundary'`,
       ),
-    ).toEqual([
-      {
-        user_id: null,
-        idempotency_key: null,
-        request_id: null,
-        request_hash: null,
-        provider_request_ids_json: [],
-      },
-    ]);
+    ).toEqual([]);
+    expect(
+      await query<{ count: string }>(
+        `select (
+           (select count(*) from trip_passes where id = 'pass_retained_boundary')
+           + (select count(*) from trip_pass_grants where id = 'grant_retained_boundary')
+           + (select count(*) from trip_usage_meters where id = 'meter_retained_boundary')
+         )::text as count`,
+      ),
+    ).toEqual([{ count: "0" }]);
     await db.close();
   });
 
@@ -526,6 +569,82 @@ describe("terminal Account Closure", () => {
     await failing.db.close();
   });
 
+  test("fences stale worker retry and success transitions with the current unexpired lease", async () => {
+    const { db, client, query } = await openClosureDatabase();
+    await seedUser(db, "user_lease_fence");
+    const closure = await beginAccountClosure(
+      { now, userId: "user_lease_fence" },
+      { createId: (prefix) => `${prefix}_lease_fence`, db: client, policy },
+    );
+    const firstStarted = deferred<void>();
+    const releaseFirst = deferred<void>();
+    const secondStarted = deferred<void>();
+    const releaseSecond = deferred<void>();
+    const firstWorker = runClosureCleanupBatch({
+      db: client,
+      leaseMs: 10,
+      limit: 1,
+      now,
+      policy,
+      providers: {
+        deleteClerkUser: async () => {
+          firstStarted.resolve();
+          await releaseFirst.promise;
+          throw new Error("stale worker failure");
+        },
+        expireCheckoutSession: async () => undefined,
+      },
+    });
+    await firstStarted.promise;
+    await Bun.sleep(20);
+    const secondWorker = runClosureCleanupBatch({
+      db: client,
+      leaseMs: 1_000,
+      limit: 1,
+      now,
+      policy,
+      providers: {
+        deleteClerkUser: async () => {
+          secondStarted.resolve();
+          await releaseSecond.promise;
+        },
+        expireCheckoutSession: async () => undefined,
+      },
+    });
+    await secondStarted.promise;
+    const currentLease = await query<{ lease_token: string }>(
+      `select lease_token from account_closure_steps
+       where operation_id = $1 and step_type = 'clerk_deletion'`,
+      [closure.operationRef],
+    );
+    releaseFirst.resolve();
+    await firstWorker;
+    expect(
+      await query(
+        `select status, lease_token, last_error_category from account_closure_steps
+         where operation_id = $1 and step_type = 'clerk_deletion'`,
+        [closure.operationRef],
+      ),
+    ).toEqual([
+      {
+        status: "running",
+        lease_token: currentLease[0]?.lease_token,
+        last_error_category: null,
+      },
+    ]);
+    releaseSecond.resolve();
+    await secondWorker;
+    expect(
+      await query(
+        `select status, attempts, lease_token, last_error_category
+         from account_closure_steps
+         where operation_id = $1 and step_type = 'clerk_deletion'`,
+        [closure.operationRef],
+      ),
+    ).toEqual([{ status: "succeeded", attempts: 2, lease_token: null, last_error_category: null }]);
+    await db.close();
+  });
+
   test("purges only expired completed tombstones and remains idempotent", async () => {
     const { db, client, query } = await openClosureDatabase();
     await seedUser(db, "user_purge");
@@ -544,7 +663,11 @@ describe("terminal Account Closure", () => {
     });
 
     expect(await purgeEligibleClosureTombstones(client, now)).toEqual({ purged: 0 });
-    const afterRetention = new Date(now.getTime() + policy.closureRetentionMs + 1);
+    const purgeBoundary = await query<{ purge_after: string }>(
+      "select purge_after::text from account_closure_tombstones where id = $1",
+      [closure.tombstoneRef],
+    );
+    const afterRetention = new Date(new Date(purgeBoundary[0]?.purge_after ?? 0).getTime() + 1);
     expect(await purgeEligibleClosureTombstones(client, afterRetention)).toEqual({ purged: 1 });
     expect(await purgeEligibleClosureTombstones(client, afterRetention)).toEqual({ purged: 0 });
     expect(
@@ -552,6 +675,81 @@ describe("terminal Account Closure", () => {
         closure.tombstoneRef,
       ]),
     ).toEqual([]);
+    await db.close();
+  });
+
+  test("keeps legal evidence before expiry then purges completed refunds and minimized Order blockers", async () => {
+    const { db, client, query } = await openClosureDatabase();
+    await seedRetainedCommerceData(db, "user_purge_commerce");
+    const closure = await beginAccountClosure(
+      { now, userId: "user_purge_commerce" },
+      { createId: (prefix) => `${prefix}_purge_commerce`, db: client, policy },
+    );
+    await runClosureCleanupBatch({
+      db: client,
+      now,
+      policy,
+      providers: {
+        deleteClerkUser: async () => undefined,
+        expireCheckoutSession: async () => undefined,
+      },
+    });
+    await db.query(
+      `insert into account_closure_refund_obligations (
+         id, tombstone_id, order_id, stripe_event_id, reason, status, attempts,
+         policy_version, created_at, updated_at, completed_at
+       ) values (
+         'refund_purge_commerce', $1, 'order_purge_commerce', 'evt_purge_commerce',
+         'paid_after_closure', 'succeeded', 1, 'commerce-test-v1', $2, $2, $2
+       )`,
+      [closure.tombstoneRef, now],
+    );
+    await db.query(
+      `insert into trip_pass_orders (
+         id, user_id, email, status, product_code, product_version, stripe_price_id,
+         amount_total_minor, currency, checkout_idempotency_key, closure_tombstone_id,
+         closure_outcome, closure_refund_obligation_id, created_at, updated_at
+       ) values (
+         'order_purge_commerce', null, null, 'paid', 'siargao_trip_pass_14d_v2', 2,
+         'price_purge', 999, 'usd', 'closed:order_purge_commerce', $1,
+         'paid_after_closure', 'refund_purge_commerce', $2, $2
+       )`,
+      [closure.tombstoneRef, now],
+    );
+    const boundaries = await query<{ evidence_expiry: string; tombstone_expiry: string }>(
+      `select min(e.retention_expires_at)::text as evidence_expiry,
+         t.purge_after::text as tombstone_expiry
+       from account_closure_tombstones t
+       join retained_commerce_evidence e on e.tombstone_id = t.id
+       where t.id = $1 group by t.purge_after`,
+      [closure.tombstoneRef],
+    );
+    const afterTombstoneExpiry = new Date(
+      new Date(boundaries[0]?.tombstone_expiry ?? 0).getTime() + 1,
+    );
+    expect(await purgeEligibleClosureTombstones(client, afterTombstoneExpiry)).toEqual({
+      purged: 0,
+    });
+    expect(
+      await query("select id from trip_pass_orders where id = 'order_purge_commerce'"),
+    ).toEqual([{ id: "order_purge_commerce" }]);
+
+    const afterEvidenceExpiry = new Date(
+      new Date(boundaries[0]?.evidence_expiry ?? 0).getTime() + 1,
+    );
+    expect(await purgeEligibleClosureTombstones(client, afterEvidenceExpiry)).toEqual({
+      purged: 1,
+    });
+    expect(
+      await query(
+        `select
+           (select count(*) from trip_pass_orders where id = 'order_purge_commerce')::text as orders,
+           (select count(*) from account_closure_refund_obligations
+             where id = 'refund_purge_commerce')::text as refunds,
+           (select count(*) from account_closure_tombstones where id = $1)::text as tombstones`,
+        [closure.tombstoneRef],
+      ),
+    ).toEqual([{ orders: "0", refunds: "0", tombstones: "0" }]);
     await db.close();
   });
 });
@@ -688,4 +886,14 @@ function createHashForTest(userId: string) {
   return createHmac("sha256", policy.tombstoneHashKey)
     .update(`clerk_user_id:${policy.tombstoneHashVersion}:${userId}`)
     .digest("base64url");
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, reject, resolve };
 }

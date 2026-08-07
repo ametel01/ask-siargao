@@ -174,6 +174,49 @@ describe("Clerk user sync helpers", () => {
     await db.close();
   });
 
+  test("honors the configured HMAC rotation grace after identity erasure across session and webhook writes", async () => {
+    const db = await openClerkUserTestDatabase();
+    const userId = "user_rotated_erased";
+    const previousPolicy = {
+      tombstoneHashKey: "previous-closure-key",
+      tombstoneHashVersion: 7,
+    };
+    const rotatedPolicy = {
+      tombstoneHashKey: "current-closure-key",
+      tombstoneHashVersion: 8,
+      tombstonePreviousHashKeys: [{ key: previousPolicy.tombstoneHashKey, version: 7 }],
+    };
+    await upsertClerkUser(normalizeClerkUser(clerkUser({ id: userId })), db, previousPolicy);
+    await recordClosureTombstoneForClerkUser({ userId, hashPolicy: previousPolicy }, db);
+    await db.query("delete from users where id = $1", [userId]);
+
+    await expect(
+      ensureCurrentUser({
+        auth: async () => ({ userId }),
+        closureSubjectHashPolicy: rotatedPolicy,
+        db,
+        now: () => new Date("2026-06-29T05:00:00.000Z"),
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      applyClerkUserWebhookEvent(
+        userEvent(
+          "user.updated",
+          clerkUser({
+            id: userId,
+            email: "must-not-resurrect@example.com",
+            updatedAt: Date.parse("2026-06-29T06:00:00.000Z"),
+          }),
+        ),
+        db,
+        rotatedPolicy,
+      ),
+    ).resolves.toEqual({ status: "closed", userId });
+    expect(await loadUser(db, userId)).toBeNull();
+
+    await db.close();
+  });
+
   test("previous-release lifecycle SQL cannot resurrect an existing terminal row", async () => {
     const db = await openClerkUserTestDatabase();
     await upsertClerkUser(normalizeClerkUser(clerkUser({ id: "user_legacy_resurrection" })), db);

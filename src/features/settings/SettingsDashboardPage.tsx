@@ -41,7 +41,10 @@ import { isClerkConfigured } from "@/features/auth/clerk-config";
 import { clearSavedTripState } from "@/features/chat/saved-trip-client";
 import { clearStoredTripLocationContext } from "@/features/chat/trip-context-draft";
 import {
+  type AccountClosureClientStatus,
   accountClosureConfirmation,
+  accountClosureFailureStatus,
+  accountClosureStatusMessages,
   accountClosureWarnings,
 } from "@/features/settings/account-closure-copy";
 import { accountIdentityFromProfile } from "@/features/settings/account-identity";
@@ -1435,7 +1438,7 @@ function AccountClosureControl() {
   const { signOut } = useClerk();
   const [isOpen, setIsOpen] = useState(false);
   const [confirmation, setConfirmation] = useState("");
-  const [status, setStatus] = useState<"idle" | "submitting" | "error">("idle");
+  const [status, setStatus] = useState<AccountClosureClientStatus>("idle");
   const closeAccount = useReverification(async () =>
     fetch("/api/me/account-closure", {
       method: "POST",
@@ -1447,17 +1450,31 @@ function AccountClosureControl() {
   async function submitClosure() {
     if (status === "submitting" || confirmation !== accountClosureConfirmation) return;
     setStatus("submitting");
+    let serverCommitted = false;
     try {
       const response = await closeAccount();
       if (!response?.ok) {
-        setStatus("error");
+        setStatus("request_failed");
         return;
       }
-      clearSavedTripState();
-      clearStoredTripLocationContext();
-      await signOut({ redirectUrl: "/" });
+      serverCommitted = true;
+      setStatus("committed");
+      let localFailure = false;
+      for (const clearLocalState of [clearSavedTripState, clearStoredTripLocationContext]) {
+        try {
+          clearLocalState();
+        } catch {
+          localFailure = true;
+        }
+      }
+      try {
+        await signOut({ redirectUrl: "/" });
+      } catch {
+        localFailure = true;
+      }
+      if (localFailure) setStatus("committed_cleanup_failed");
     } catch {
-      setStatus("error");
+      setStatus(accountClosureFailureStatus(serverCommitted));
     }
   }
 
@@ -1503,20 +1520,33 @@ function AccountClosureControl() {
             value={confirmation}
             onChange={(event) => setConfirmation(event.target.value)}
           />
-          {status === "error" ? (
+          {status === "request_failed" ? (
             <p className="m-0 text-sm font-bold text-red-800" role="alert">
-              Account Closure did not commit. Your account remains available; retry after checking
-              your connection.
+              {accountClosureStatusMessages.request_failed}
+            </p>
+          ) : null}
+          {status === "committed" || status === "committed_cleanup_failed" ? (
+            <p className="m-0 text-sm font-bold text-red-800" role="status">
+              {accountClosureStatusMessages[status]}
             </p>
           ) : null}
           <div className="flex flex-wrap gap-2">
             <Button
               className="bg-red-700 text-white hover:bg-red-800"
-              disabled={confirmation !== accountClosureConfirmation || status === "submitting"}
+              disabled={
+                confirmation !== accountClosureConfirmation ||
+                status === "submitting" ||
+                status === "committed" ||
+                status === "committed_cleanup_failed"
+              }
               type="button"
               onClick={() => void submitClosure()}
             >
-              {status === "submitting" ? "Closing Account" : "Close Account permanently"}
+              {status === "submitting"
+                ? "Closing Account"
+                : status === "committed" || status === "committed_cleanup_failed"
+                  ? "Account closed"
+                  : "Close Account permanently"}
             </Button>
             <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
               Cancel

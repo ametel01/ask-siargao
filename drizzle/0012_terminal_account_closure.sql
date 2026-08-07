@@ -190,24 +190,61 @@ ALTER TABLE trip_usage_events ALTER COLUMN request_id DROP NOT NULL;
 -- Every Account-owned mutation participates in one transaction-scoped Account
 -- lock. A transaction that acquired the lock before closure either commits and
 -- is erased/revoked by phase one, or closure commits first and this trigger
--- denies it. Deletes remain available to the cleanup worker.
+-- denies it. Cleanup deletes require the transaction-local token of the
+-- currently running, unexpired cleanup step that owns the transaction.
+CREATE OR REPLACE FUNCTION account_closure_cleanup_bypass_active()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM account_closure_steps s
+    WHERE s.status = 'running'
+      AND s.step_type IN ('local_erasure', 'commerce_minimization', 'identity_erasure')
+      AND s.lease_token = current_setting('ask_siargao.account_closure_cleanup_lease', true)
+      AND s.lease_expires_at > clock_timestamp()
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION enforce_open_account_owner(owner_id text, lock_trip_pass_family boolean)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  owner_deleted_at timestamptz;
+BEGIN
+  IF owner_id IS NULL OR account_closure_cleanup_bypass_active() THEN
+    RETURN;
+  END IF;
+  IF lock_trip_pass_family THEN
+    PERFORM pg_advisory_xact_lock(hashtext(owner_id), hashtext('siargao_trip_pass'));
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('ask-siargao-account-write'), hashtext(owner_id));
+  SELECT deleted_at INTO owner_deleted_at FROM users WHERE id = owner_id;
+  IF owner_deleted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'account is terminally closed' USING ERRCODE = '23514';
+  END IF;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION enforce_open_account_direct_write()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  owner_id text;
-  owner_deleted_at timestamptz;
+  old_owner_id text;
+  new_owner_id text;
+  family_lock boolean;
 BEGIN
-  owner_id := to_jsonb(NEW)->>'user_id';
-  IF owner_id IS NULL THEN
-    RETURN NEW;
+  new_owner_id := to_jsonb(NEW)->>'user_id';
+  IF TG_OP = 'UPDATE' THEN
+    old_owner_id := to_jsonb(OLD)->>'user_id';
   END IF;
-
-  PERFORM pg_advisory_xact_lock(hashtext('ask-siargao-account-write'), hashtext(owner_id));
-  SELECT deleted_at INTO owner_deleted_at FROM users WHERE id = owner_id;
-  IF owner_deleted_at IS NOT NULL THEN
-    RAISE EXCEPTION 'account is terminally closed' USING ERRCODE = '23514';
+  family_lock := TG_TABLE_NAME IN ('trip_passes', 'trip_pass_orders', 'trip_pass_grants', 'trip_usage_events');
+  PERFORM enforce_open_account_owner(old_owner_id, family_lock);
+  IF new_owner_id IS DISTINCT FROM old_owner_id THEN
+    PERFORM enforce_open_account_owner(new_owner_id, family_lock);
   END IF;
   RETURN NEW;
 END;
@@ -218,17 +255,16 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  owner_id text;
-  owner_deleted_at timestamptz;
+  old_owner_id text;
+  new_owner_id text;
 BEGIN
-  SELECT user_id INTO owner_id FROM saved_trips WHERE id = NEW.trip_id;
-  IF owner_id IS NULL THEN
-    RETURN NEW;
+  SELECT user_id INTO new_owner_id FROM saved_trips WHERE id = NEW.trip_id;
+  IF TG_OP = 'UPDATE' THEN
+    SELECT user_id INTO old_owner_id FROM saved_trips WHERE id = OLD.trip_id;
   END IF;
-  PERFORM pg_advisory_xact_lock(hashtext('ask-siargao-account-write'), hashtext(owner_id));
-  SELECT deleted_at INTO owner_deleted_at FROM users WHERE id = owner_id;
-  IF owner_deleted_at IS NOT NULL THEN
-    RAISE EXCEPTION 'account is terminally closed' USING ERRCODE = '23514';
+  PERFORM enforce_open_account_owner(old_owner_id, false);
+  IF new_owner_id IS DISTINCT FROM old_owner_id THEN
+    PERFORM enforce_open_account_owner(new_owner_id, false);
   END IF;
   RETURN NEW;
 END;
@@ -239,20 +275,22 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  owner_id text;
-  owner_deleted_at timestamptz;
+  old_owner_id text;
+  new_owner_id text;
 BEGIN
-  owner_id := to_jsonb(NEW)->>'user_id';
-  IF owner_id IS NULL THEN
-    SELECT user_id INTO owner_id FROM chat_threads WHERE id = NEW.thread_id;
+  new_owner_id := to_jsonb(NEW)->>'user_id';
+  IF new_owner_id IS NULL THEN
+    SELECT user_id INTO new_owner_id FROM chat_threads WHERE id = NEW.thread_id;
   END IF;
-  IF owner_id IS NULL THEN
-    RETURN NEW;
+  IF TG_OP = 'UPDATE' THEN
+    old_owner_id := to_jsonb(OLD)->>'user_id';
+    IF old_owner_id IS NULL THEN
+      SELECT user_id INTO old_owner_id FROM chat_threads WHERE id = OLD.thread_id;
+    END IF;
   END IF;
-  PERFORM pg_advisory_xact_lock(hashtext('ask-siargao-account-write'), hashtext(owner_id));
-  SELECT deleted_at INTO owner_deleted_at FROM users WHERE id = owner_id;
-  IF owner_deleted_at IS NOT NULL THEN
-    RAISE EXCEPTION 'account is terminally closed' USING ERRCODE = '23514';
+  PERFORM enforce_open_account_owner(old_owner_id, false);
+  IF new_owner_id IS DISTINCT FROM old_owner_id THEN
+    PERFORM enforce_open_account_owner(new_owner_id, false);
   END IF;
   RETURN NEW;
 END;
@@ -263,17 +301,16 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  owner_id text;
-  owner_deleted_at timestamptz;
+  old_owner_id text;
+  new_owner_id text;
 BEGIN
-  SELECT user_id INTO owner_id FROM audit_requests WHERE id = NEW.audit_request_id;
-  IF owner_id IS NULL THEN
-    RETURN NEW;
+  SELECT user_id INTO new_owner_id FROM audit_requests WHERE id = NEW.audit_request_id;
+  IF TG_OP = 'UPDATE' THEN
+    SELECT user_id INTO old_owner_id FROM audit_requests WHERE id = OLD.audit_request_id;
   END IF;
-  PERFORM pg_advisory_xact_lock(hashtext('ask-siargao-account-write'), hashtext(owner_id));
-  SELECT deleted_at INTO owner_deleted_at FROM users WHERE id = owner_id;
-  IF owner_deleted_at IS NOT NULL THEN
-    RAISE EXCEPTION 'account is terminally closed' USING ERRCODE = '23514';
+  PERFORM enforce_open_account_owner(old_owner_id, false);
+  IF new_owner_id IS DISTINCT FROM old_owner_id THEN
+    PERFORM enforce_open_account_owner(new_owner_id, false);
   END IF;
   RETURN NEW;
 END;
@@ -284,30 +321,42 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  owner_id text;
-  requested_audit_run_id text;
-  requested_llm_run_id text;
-  owner_deleted_at timestamptz;
+  old_owner_id text;
+  new_owner_id text;
+  old_audit_run_id text;
+  old_llm_run_id text;
+  new_audit_run_id text;
+  new_llm_run_id text;
 BEGIN
-  requested_audit_run_id := to_jsonb(NEW)->>'audit_run_id';
-  requested_llm_run_id := to_jsonb(NEW)->>'llm_run_id';
-  IF requested_audit_run_id IS NOT NULL THEN
-    SELECT a.user_id INTO owner_id FROM audit_runs r
+  new_audit_run_id := to_jsonb(NEW)->>'audit_run_id';
+  new_llm_run_id := to_jsonb(NEW)->>'llm_run_id';
+  IF new_audit_run_id IS NOT NULL THEN
+    SELECT a.user_id INTO new_owner_id FROM audit_runs r
       JOIN audit_requests a ON a.id = r.audit_request_id
-      WHERE r.id = requested_audit_run_id;
-  ELSIF requested_llm_run_id IS NOT NULL THEN
-    SELECT a.user_id INTO owner_id FROM llm_runs l
+      WHERE r.id = new_audit_run_id;
+  ELSIF new_llm_run_id IS NOT NULL THEN
+    SELECT a.user_id INTO new_owner_id FROM llm_runs l
       JOIN audit_runs r ON r.id = l.audit_run_id
       JOIN audit_requests a ON a.id = r.audit_request_id
-      WHERE l.id = requested_llm_run_id;
+      WHERE l.id = new_llm_run_id;
   END IF;
-  IF owner_id IS NULL THEN
-    RETURN NEW;
+  IF TG_OP = 'UPDATE' THEN
+    old_audit_run_id := to_jsonb(OLD)->>'audit_run_id';
+    old_llm_run_id := to_jsonb(OLD)->>'llm_run_id';
+    IF old_audit_run_id IS NOT NULL THEN
+      SELECT a.user_id INTO old_owner_id FROM audit_runs r
+        JOIN audit_requests a ON a.id = r.audit_request_id
+        WHERE r.id = old_audit_run_id;
+    ELSIF old_llm_run_id IS NOT NULL THEN
+      SELECT a.user_id INTO old_owner_id FROM llm_runs l
+        JOIN audit_runs r ON r.id = l.audit_run_id
+        JOIN audit_requests a ON a.id = r.audit_request_id
+        WHERE l.id = old_llm_run_id;
+    END IF;
   END IF;
-  PERFORM pg_advisory_xact_lock(hashtext('ask-siargao-account-write'), hashtext(owner_id));
-  SELECT deleted_at INTO owner_deleted_at FROM users WHERE id = owner_id;
-  IF owner_deleted_at IS NOT NULL THEN
-    RAISE EXCEPTION 'account is terminally closed' USING ERRCODE = '23514';
+  PERFORM enforce_open_account_owner(old_owner_id, false);
+  IF new_owner_id IS DISTINCT FROM old_owner_id THEN
+    PERFORM enforce_open_account_owner(new_owner_id, false);
   END IF;
   RETURN NEW;
 END;
@@ -318,18 +367,16 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  owner_id text;
-  owner_deleted_at timestamptz;
+  old_owner_id text;
+  new_owner_id text;
 BEGIN
-  SELECT user_id INTO owner_id FROM trip_passes WHERE id = NEW.trip_pass_id;
-  IF owner_id IS NULL THEN
-    RETURN NEW;
+  SELECT user_id INTO new_owner_id FROM trip_passes WHERE id = NEW.trip_pass_id;
+  IF TG_OP = 'UPDATE' THEN
+    SELECT user_id INTO old_owner_id FROM trip_passes WHERE id = OLD.trip_pass_id;
   END IF;
-  PERFORM pg_advisory_xact_lock(hashtext(owner_id), hashtext('siargao_trip_pass'));
-  PERFORM pg_advisory_xact_lock(hashtext('ask-siargao-account-write'), hashtext(owner_id));
-  SELECT deleted_at INTO owner_deleted_at FROM users WHERE id = owner_id;
-  IF owner_deleted_at IS NOT NULL THEN
-    RAISE EXCEPTION 'account is terminally closed' USING ERRCODE = '23514';
+  PERFORM enforce_open_account_owner(old_owner_id, true);
+  IF new_owner_id IS DISTINCT FROM old_owner_id THEN
+    PERFORM enforce_open_account_owner(new_owner_id, true);
   END IF;
   RETURN NEW;
 END;

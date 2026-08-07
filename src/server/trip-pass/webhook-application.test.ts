@@ -134,8 +134,12 @@ describe("Trip Pass Stripe webhook application", () => {
           createId: (prefix) => `${prefix}_webhook`,
         },
       );
+      const closure = await db.query<{ closed_at: Date | string }>(
+        "select closed_at from account_closure_tombstones where id = 'closure_tombstone_webhook'",
+      );
+      const closedSecond = Math.floor(new Date(closure.rows[0]?.closed_at ?? 0).getTime() / 1_000);
       const event = checkoutSessionEvent("evt_closed_paid", "order_closed", {
-        created: Math.floor(now.getTime() / 1_000) + 60,
+        created: closedSecond + 60,
       });
 
       await expect(applyTripPassStripeEvent(event, { db, env, now })).resolves.toMatchObject({
@@ -153,6 +157,34 @@ describe("Trip Pass Stripe webhook application", () => {
           )
         ).rows[0]?.count,
       ).toBe("1");
+    });
+  });
+
+  test("treats Stripe payment in the database-recorded closure second as Paid After Closure", async () => {
+    await withTestDb(async (db) => {
+      await insertCheckoutCreatedOrder(db, "order_closed_same_second", "user_closed_same_second");
+      await beginAccountClosure(
+        { userId: "user_closed_same_second", now },
+        {
+          db,
+          policy: closurePolicy,
+          createId: (prefix) => `${prefix}_same_second`,
+        },
+      );
+      const closure = await db.query<{ closed_at: Date | string }>(
+        "select closed_at from account_closure_tombstones where id = 'closure_tombstone_same_second'",
+      );
+      const signedSecond = Math.floor(new Date(closure.rows[0]?.closed_at ?? 0).getTime() / 1_000);
+
+      await expect(
+        applyTripPassStripeEvent(
+          checkoutSessionEvent("evt_closed_same_second", "order_closed_same_second", {
+            created: signedSecond,
+          }),
+          { db, env, now },
+        ),
+      ).resolves.toMatchObject({ status: "applied", action: "paid_after_closure" });
+      await expectCounts(db, { passes: "0", grants: "0", meters: "0" });
     });
   });
 
