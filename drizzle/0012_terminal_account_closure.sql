@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS retained_commerce_evidence (
   product_version integer,
   product_family text,
   lifecycle_status text NOT NULL,
+  lifecycle_timestamps jsonb NOT NULL DEFAULT '{}'::jsonb,
   stripe_checkout_session_id text,
   stripe_payment_intent_id text,
   stripe_event_id text,

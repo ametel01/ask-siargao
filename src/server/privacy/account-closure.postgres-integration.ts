@@ -43,6 +43,8 @@ export async function runAccountClosurePostgresIntegration(harness: RealPostgres
   console.log(JSON.stringify({ checked: "account-closure-postgres", race: "checkout-provider" }));
   await runStripeInboxClosureRegression(harness);
   console.log(JSON.stringify({ checked: "account-closure-postgres", race: "stripe-inbox" }));
+  await runRetainedCommerceEvidenceRegression(harness);
+  console.log(JSON.stringify({ checked: "account-closure-postgres", race: "retained-commerce" }));
 }
 
 async function runCheckoutProviderOverlapRegression(harness: RealPostgresHarness) {
@@ -536,6 +538,210 @@ async function runRollbackAndDuplicateRegression(harness: RealPostgresHarness) {
   }
 }
 
+async function runRetainedCommerceEvidenceRegression(harness: RealPostgresHarness) {
+  const client = harness.createQueryClient();
+  const userId = "closure_retained_commerce";
+  try {
+    await seedUser(client, userId);
+    await client.query(
+      `insert into trip_pass_orders (
+         id, user_id, email, status, product_code, product_family, product_version,
+         stripe_price_id, amount_total_minor, currency, checkout_idempotency_key,
+         stripe_checkout_session_id, checkout_session_expires_at, checkout_session_status,
+         checkout_cancellation_confirmed_at, stripe_payment_intent_id, stripe_customer_id,
+         terms_policy_version, refund_policy_version, privacy_policy_version,
+         retention_policy_version, terms_consent_presented_at, metadata_json,
+         created_at, updated_at, completed_at
+       ) values (
+         'order_retained_real', $1, 'traveler-real@example.com', 'paid',
+         'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 'price_retained_real', 999,
+         'usd', 'idempotency_prohibited_real', 'cs_retained_real', $2, 'complete', $3,
+         'pi_retained_real', 'cus_prohibited_real', 'terms-v1', 'refund-v1', 'privacy-v1',
+         'retention-v1', $4, '{"notes":"traveler content prohibited real"}'::jsonb,
+         $4, $3, $2
+       )`,
+      [
+        userId,
+        new Date("2026-08-07T02:00:00.000Z"),
+        new Date("2026-08-07T03:00:00.000Z"),
+        new Date("2026-08-07T01:00:00.000Z"),
+      ],
+    );
+    await client.query(
+      `insert into trip_passes (
+         id, user_id, email, status, stripe_checkout_session_id, stripe_payment_intent_id,
+         stripe_event_id, starts_at, expires_at, created_at, updated_at
+       ) values (
+         'pass_retained_real', $1, 'traveler-real@example.com', 'active',
+         'cs_retained_real', 'pi_retained_real', 'evt_retained_real', $2, $3, $2, $2
+       )`,
+      [userId, new Date("2026-08-07T01:00:00.000Z"), new Date("2026-08-21T01:00:00.000Z")],
+    );
+    await client.query(
+      `insert into trip_pass_grants (
+         id, order_id, trip_pass_id, user_id, source_type, source_event_id,
+         product_code, product_version, quantity, duration_days, meter_limits_json,
+         starts_at, expires_at, created_at
+       ) values (
+         'grant_retained_real', 'order_retained_real', 'pass_retained_real', $1,
+         'stripe_checkout', 'evt_retained_real', 'siargao_trip_pass_14d_v2', 2, 1, 14,
+         '{"chat_message":150}'::jsonb, $2, $3, $2
+       )`,
+      [userId, new Date("2026-08-07T01:00:00.000Z"), new Date("2026-08-21T01:00:00.000Z")],
+    );
+    await client.query(
+      `insert into trip_usage_meters (id, trip_pass_id, meter_type, used, "limit")
+       values ('meter_retained_real', 'pass_retained_real', 'chat_message', 37, 150)`,
+    );
+    await client.query(
+      `insert into trip_usage_events (
+         id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+         idempotency_key, request_id, request_hash, provider_request_ids_json,
+         occurred_at, created_at
+       ) values (
+         'usage_retained_real', 'pass_retained_real', 'meter_retained_real', $1,
+         'settled', 'chat_message', 1, 'usage_idempotency_prohibited_real',
+         'request_prohibited_real', 'request_hash_prohibited_real',
+         '["provider_request_prohibited_real"]'::jsonb, $2, $2
+       )`,
+      [userId, raceNow],
+    );
+
+    await beginAccountClosure({ now: raceNow, userId }, { db: client, policy: racePolicy });
+    await runClosureCleanupBatch({
+      db: client,
+      now: raceNow,
+      policy: racePolicy,
+      providers: successfulProviders,
+    });
+
+    const retained = await client.query<{
+      aggregate_service_facts: Record<string, unknown>;
+      amount_minor: number | null;
+      consent_policy_versions: Record<string, unknown>;
+      currency: string | null;
+      lifecycle_status: string;
+      lifecycle_timestamps: Record<string, unknown>;
+      product_code: string | null;
+      product_family: string | null;
+      product_version: number | null;
+      retention_expires_at: Date;
+      source_type: string;
+      stripe_checkout_session_id: string | null;
+      stripe_event_id: string | null;
+      stripe_payment_intent_id: string | null;
+    }>(
+      `select source_type, amount_minor, currency, product_code, product_version,
+         product_family, lifecycle_status, lifecycle_timestamps, stripe_checkout_session_id,
+         stripe_payment_intent_id, stripe_event_id, consent_policy_versions,
+         aggregate_service_facts, retention_expires_at
+       from retained_commerce_evidence
+       where source_ref in ('order_retained_real', 'pass_retained_real')
+       order by source_type`,
+    );
+    assertEqual(retained.rows.length, 2, "both commerce records must be retained");
+    const order = retained.rows.find((row) => row.source_type === "trip_pass_order");
+    const pass = retained.rows.find((row) => row.source_type === "trip_pass");
+    assertJsonEqual(
+      order,
+      {
+        aggregate_service_facts: {},
+        amount_minor: 999,
+        consent_policy_versions: {
+          privacyPolicyVersion: "privacy-v1",
+          refundPolicyVersion: "refund-v1",
+          retentionPolicyVersion: "retention-v1",
+          termsConsentPresentedAt: "2026-08-07T01:00:00+00:00",
+          termsPolicyVersion: "terms-v1",
+        },
+        currency: "usd",
+        lifecycle_status: "paid",
+        lifecycle_timestamps: {
+          checkoutCancellationConfirmedAt: "2026-08-07T03:00:00+00:00",
+          checkoutSessionExpiresAt: "2026-08-07T02:00:00+00:00",
+          completedAt: "2026-08-07T02:00:00+00:00",
+          createdAt: "2026-08-07T01:00:00+00:00",
+          updatedAt: "2026-08-07T06:00:00+00:00",
+        },
+        product_code: "siargao_trip_pass_14d_v2",
+        product_family: "siargao_trip_pass",
+        product_version: 2,
+        retention_expires_at: new Date(
+          raceNow.getTime() + racePolicy.commerceRetentionMs,
+        ).toISOString(),
+        source_type: "trip_pass_order",
+        stripe_checkout_session_id: "cs_retained_real",
+        stripe_event_id: null,
+        stripe_payment_intent_id: "pi_retained_real",
+      },
+      "order retention must contain the exact allowlist",
+    );
+    assertJsonEqual(
+      pass,
+      {
+        aggregate_service_facts: {
+          durationDays: 14,
+          meterTotals: { chat_message: { limit: 150, used: 37 } },
+          quantity: 1,
+        },
+        amount_minor: 999,
+        consent_policy_versions: order?.consent_policy_versions,
+        currency: "usd",
+        lifecycle_status: "cancelled",
+        lifecycle_timestamps: {
+          createdAt: "2026-08-07T01:00:00+00:00",
+          expiresAt: "2026-08-21T01:00:00+00:00",
+          startsAt: "2026-08-07T01:00:00+00:00",
+          updatedAt: "2026-08-07T06:00:00+00:00",
+        },
+        product_code: "siargao_trip_pass_14d_v2",
+        product_family: "siargao_trip_pass",
+        product_version: 2,
+        retention_expires_at: new Date(
+          raceNow.getTime() + racePolicy.commerceRetentionMs,
+        ).toISOString(),
+        source_type: "trip_pass",
+        stripe_checkout_session_id: "cs_retained_real",
+        stripe_event_id: "evt_retained_real",
+        stripe_payment_intent_id: "pi_retained_real",
+      },
+      "pass retention must contain the exact allowlist and aggregate service facts",
+    );
+
+    const retainedText = JSON.stringify(retained.rows);
+    for (const prohibited of [
+      userId,
+      "traveler-real@example.com",
+      "cus_prohibited_real",
+      "traveler content prohibited real",
+      "idempotency_prohibited_real",
+      "request_prohibited_real",
+      "request_hash_prohibited_real",
+      "provider_request_prohibited_real",
+    ]) {
+      if (retainedText.includes(prohibited)) {
+        throw new Error(`retained evidence leaked prohibited value: ${prohibited}`);
+      }
+    }
+    const scrubbed = await client.query<{ scrubbed: boolean }>(
+      `select
+         o.user_id is null and o.email is null and o.stripe_customer_id is null
+           and o.metadata_json = '{}'::jsonb
+           and u.user_id is null and u.idempotency_key is null and u.request_id is null
+           and u.request_hash is null and u.provider_request_ids_json = '[]'::jsonb as scrubbed
+       from trip_pass_orders o cross join trip_usage_events u
+       where o.id = 'order_retained_real' and u.id = 'usage_retained_real'`,
+    );
+    assertEqual(
+      scrubbed.rows[0]?.scrubbed,
+      true,
+      "source identity and diagnostics must be scrubbed",
+    );
+  } finally {
+    await client.end();
+  }
+}
+
 async function runConcurrentWorkerRegression(harness: RealPostgresHarness) {
   const setup = harness.createQueryClient();
   const first = harness.createQueryClient();
@@ -658,6 +864,26 @@ async function expectRejects(promise: Promise<unknown>, message: string) {
 function assertEqual<T>(actual: T, expected: T, message: string) {
   if (actual !== expected) {
     throw new Error(`${message}. Expected ${String(expected)}, received ${String(actual)}.`);
+  }
+}
+
+function assertJsonEqual(actual: unknown, expected: unknown, message: string) {
+  const normalize = (value: unknown): unknown => {
+    if (value instanceof Date) return value.toISOString();
+    if (Array.isArray(value)) return value.map(normalize);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, nested]) => [key, normalize(nested)]),
+      );
+    }
+    return value;
+  };
+  const normalizedActual = JSON.stringify(normalize(actual));
+  const normalizedExpected = JSON.stringify(normalize(expected));
+  if (normalizedActual !== normalizedExpected) {
+    throw new Error(`${message}. Expected ${normalizedExpected}, received ${normalizedActual}.`);
   }
 }
 

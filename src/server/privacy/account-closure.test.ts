@@ -307,6 +307,144 @@ describe("terminal Account Closure", () => {
     await db.close();
   });
 
+  test("retains only policy-bounded commerce evidence with product, consent, and aggregate facts", async () => {
+    const { db, client, query } = await openClosureDatabase();
+    await seedRetainedCommerceData(db, "user_retained_boundary");
+    await beginAccountClosure(
+      { now, userId: "user_retained_boundary" },
+      { createId: (prefix) => `${prefix}_retained_boundary`, db: client, policy },
+    );
+
+    await runClosureCleanupBatch({
+      db: client,
+      now,
+      policy,
+      providers: {
+        deleteClerkUser: async () => undefined,
+        expireCheckoutSession: async () => undefined,
+      },
+    });
+
+    const retained = await query<{
+      aggregate_service_facts: Record<string, unknown>;
+      amount_minor: number | null;
+      consent_policy_versions: Record<string, unknown>;
+      currency: string | null;
+      lifecycle_status: string;
+      lifecycle_timestamps: Record<string, unknown>;
+      occurred_at: string | null;
+      product_code: string | null;
+      product_family: string | null;
+      product_version: number | null;
+      retention_expires_at: string;
+      source_type: string;
+      stripe_checkout_session_id: string | null;
+      stripe_event_id: string | null;
+      stripe_payment_intent_id: string | null;
+    }>(
+      `select source_type, amount_minor, currency, product_code, product_version,
+         product_family, lifecycle_status, lifecycle_timestamps, stripe_checkout_session_id,
+         stripe_payment_intent_id, stripe_event_id, consent_policy_versions,
+         aggregate_service_facts, occurred_at::text, retention_expires_at::text
+       from retained_commerce_evidence order by source_type`,
+    );
+
+    expect(retained).toHaveLength(2);
+    const order = retained.find((row) => row.source_type === "trip_pass_order");
+    const pass = retained.find((row) => row.source_type === "trip_pass");
+    expect(order).toMatchObject({
+      amount_minor: 999,
+      currency: "usd",
+      product_code: "siargao_trip_pass_14d_v2",
+      product_family: "siargao_trip_pass",
+      product_version: 2,
+      lifecycle_status: "paid",
+      stripe_checkout_session_id: "cs_retained_allowed",
+      stripe_payment_intent_id: "pi_retained_allowed",
+      stripe_event_id: null,
+      consent_policy_versions: {
+        privacyPolicyVersion: "privacy-v1",
+        refundPolicyVersion: "refund-v1",
+        retentionPolicyVersion: "retention-v1",
+        termsConsentPresentedAt: "2026-08-07T01:00:00+00:00",
+        termsPolicyVersion: "terms-v1",
+      },
+      aggregate_service_facts: {},
+    });
+    expect(order?.lifecycle_timestamps).toEqual({
+      checkoutCancellationConfirmedAt: "2026-08-07T03:00:00+00:00",
+      checkoutSessionExpiresAt: "2026-08-07T02:00:00+00:00",
+      completedAt: "2026-08-07T02:00:00+00:00",
+      createdAt: "2026-08-07T01:00:00+00:00",
+      updatedAt: "2026-08-07T04:00:00+00:00",
+    });
+    expect(pass).toMatchObject({
+      amount_minor: 999,
+      currency: "usd",
+      product_code: "siargao_trip_pass_14d_v2",
+      product_family: "siargao_trip_pass",
+      product_version: 2,
+      lifecycle_status: "cancelled",
+      stripe_checkout_session_id: "cs_retained_allowed",
+      stripe_payment_intent_id: "pi_retained_allowed",
+      stripe_event_id: "evt_retained_allowed",
+      consent_policy_versions: order?.consent_policy_versions,
+      aggregate_service_facts: {
+        durationDays: 14,
+        meterTotals: { chat_message: { limit: 150, used: 37 } },
+        quantity: 1,
+      },
+    });
+    expect(pass?.lifecycle_timestamps).toEqual({
+      createdAt: "2026-08-07T01:00:00+00:00",
+      expiresAt: "2026-08-21T01:00:00+00:00",
+      startsAt: "2026-08-07T01:00:00+00:00",
+      updatedAt: "2026-08-07T04:00:00+00:00",
+    });
+    expect(new Date(order?.occurred_at ?? 0).toISOString()).toBe("2026-08-07T02:00:00.000Z");
+    expect(new Date(pass?.occurred_at ?? 0).toISOString()).toBe("2026-08-07T01:00:00.000Z");
+    const expectedExpiry = new Date(now.getTime() + policy.commerceRetentionMs).toISOString();
+    expect(retained.map((row) => new Date(row.retention_expires_at).toISOString())).toEqual([
+      expectedExpiry,
+      expectedExpiry,
+    ]);
+
+    const retainedText = JSON.stringify(retained);
+    for (const prohibited of [
+      "traveler-retained@example.com",
+      "cus_prohibited",
+      "private trip notes",
+      "checkout-secret-key",
+      "request_prohibited",
+      "request_hash_prohibited",
+      "provider_request_prohibited",
+      "user_retained_boundary",
+    ]) {
+      expect(retainedText).not.toContain(prohibited);
+    }
+    expect(
+      await query(
+        `select user_id, email, stripe_customer_id, metadata_json
+         from trip_pass_orders where id = 'order_retained_boundary'`,
+      ),
+    ).toEqual([{ user_id: null, email: null, stripe_customer_id: null, metadata_json: {} }]);
+    expect(
+      await query(
+        `select user_id, idempotency_key, request_id, request_hash, provider_request_ids_json
+         from trip_usage_events where id = 'usage_retained_boundary'`,
+      ),
+    ).toEqual([
+      {
+        user_id: null,
+        idempotency_key: null,
+        request_id: null,
+        request_hash: null,
+        provider_request_ids_json: [],
+      },
+    ]);
+    await db.close();
+  });
+
   test("recovers expired leases and alerts without dead-lettering local cleanup", async () => {
     const { db, client, query } = await openClosureDatabase();
     await seedUser(db, "user_lease");
@@ -478,6 +616,71 @@ async function seedOwnedData(db: PGlite, userId: string) {
      values ('usage_close', 'pass_close', 'meter_close', $1, 'reserved', 'chat_message', 1,
        $2, $3, $4, $4)`,
     [userId, `idem_${userId}`, `request_${userId}`, now],
+  );
+}
+
+async function seedRetainedCommerceData(db: PGlite, userId: string) {
+  await seedUser(db, userId);
+  await db.query(
+    `insert into trip_pass_orders (
+       id, user_id, email, status, product_code, product_family, product_version,
+       stripe_price_id, amount_total_minor, currency, checkout_idempotency_key,
+       stripe_checkout_session_id, checkout_session_expires_at, checkout_session_status,
+       checkout_cancellation_confirmed_at, stripe_payment_intent_id, stripe_customer_id,
+       terms_policy_version, refund_policy_version, privacy_policy_version,
+       retention_policy_version, terms_consent_presented_at, metadata_json,
+       created_at, updated_at, completed_at
+     ) values (
+       'order_retained_boundary', $1, 'traveler-retained@example.com', 'paid',
+       'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 'price_retained', 999, 'usd',
+       'checkout-secret-key', 'cs_retained_allowed', $2, 'complete', $3,
+       'pi_retained_allowed', 'cus_prohibited', 'terms-v1', 'refund-v1', 'privacy-v1',
+       'retention-v1', $4, $5::jsonb, $4, $3, $2
+     )`,
+    [
+      userId,
+      new Date("2026-08-07T02:00:00.000Z"),
+      new Date("2026-08-07T03:00:00.000Z"),
+      new Date("2026-08-07T01:00:00.000Z"),
+      JSON.stringify({ notes: "private trip notes" }),
+    ],
+  );
+  await db.query(
+    `insert into trip_passes (
+       id, user_id, email, status, stripe_checkout_session_id, stripe_payment_intent_id,
+       stripe_event_id, starts_at, expires_at, created_at, updated_at
+     ) values (
+       'pass_retained_boundary', $1, 'traveler-retained@example.com', 'active',
+       'cs_retained_allowed', 'pi_retained_allowed', 'evt_retained_allowed', $2, $3, $2, $2
+     )`,
+    [userId, new Date("2026-08-07T01:00:00.000Z"), new Date("2026-08-21T01:00:00.000Z")],
+  );
+  await db.query(
+    `insert into trip_pass_grants (
+       id, order_id, trip_pass_id, user_id, source_type, source_event_id,
+       product_code, product_version, quantity, duration_days, meter_limits_json,
+       starts_at, expires_at, created_at
+     ) values (
+       'grant_retained_boundary', 'order_retained_boundary', 'pass_retained_boundary', $1,
+       'stripe_checkout', 'evt_retained_allowed', 'siargao_trip_pass_14d_v2', 2, 1, 14,
+       '{"chat_message":150}'::jsonb, $2, $3, $2
+     )`,
+    [userId, new Date("2026-08-07T01:00:00.000Z"), new Date("2026-08-21T01:00:00.000Z")],
+  );
+  await db.query(
+    `insert into trip_usage_meters (id, trip_pass_id, meter_type, used, "limit")
+     values ('meter_retained_boundary', 'pass_retained_boundary', 'chat_message', 37, 150)`,
+  );
+  await db.query(
+    `insert into trip_usage_events (
+       id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+       idempotency_key, request_id, request_hash, provider_request_ids_json, occurred_at, created_at
+     ) values (
+       'usage_retained_boundary', 'pass_retained_boundary', 'meter_retained_boundary', $1,
+       'settled', 'chat_message', 1, 'idem_prohibited', 'request_prohibited',
+       'request_hash_prohibited', '["provider_request_prohibited"]'::jsonb, $2, $2
+     )`,
+    [userId, now],
   );
 }
 

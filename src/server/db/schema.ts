@@ -196,6 +196,10 @@ export const retainedCommerceEvidence = pgTable(
     productVersion: integer("product_version"),
     productFamily: text("product_family"),
     lifecycleStatus: text("lifecycle_status").notNull(),
+    lifecycleTimestamps: jsonb("lifecycle_timestamps")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
     stripeCheckoutSessionId: text("stripe_checkout_session_id"),
     stripePaymentIntentId: text("stripe_payment_intent_id"),
     stripeEventId: text("stripe_event_id"),

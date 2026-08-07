@@ -735,29 +735,129 @@ async function minimizeCommerceData(
       `
         insert into retained_commerce_evidence (
           id, tombstone_id, source_type, source_ref, amount_minor, currency,
-          product_code, product_version, lifecycle_status, stripe_checkout_session_id,
-          stripe_payment_intent_id, policy_version, occurred_at, retention_expires_at, created_at
+          product_code, product_version, product_family, lifecycle_status, lifecycle_timestamps,
+          stripe_checkout_session_id, stripe_payment_intent_id, policy_version,
+          consent_policy_versions, aggregate_service_facts, occurred_at,
+          retention_expires_at, created_at
         )
-        select 'retained_trip_order_' || id, $2, 'trip_pass_order', id,
-          amount_total_minor, currency, product_code, product_version, status,
-          stripe_checkout_session_id, stripe_payment_intent_id, $3, created_at, $4, $5
-        from trip_pass_orders where user_id = $1
-        on conflict (source_type, source_ref) do nothing
+        select 'retained_trip_order_' || o.id, $2, 'trip_pass_order', o.id,
+          o.amount_total_minor, o.currency, o.product_code, o.product_version, o.product_family,
+          o.status,
+          jsonb_strip_nulls(jsonb_build_object(
+            'createdAt', o.created_at,
+            'updatedAt', o.updated_at,
+            'completedAt', o.completed_at,
+            'checkoutSessionExpiresAt', o.checkout_session_expires_at,
+            'checkoutCancellationConfirmedAt', o.checkout_cancellation_confirmed_at
+          )),
+          o.stripe_checkout_session_id, o.stripe_payment_intent_id, $3,
+          jsonb_strip_nulls(jsonb_build_object(
+            'termsPolicyVersion', o.terms_policy_version,
+            'refundPolicyVersion', o.refund_policy_version,
+            'privacyPolicyVersion', o.privacy_policy_version,
+            'retentionPolicyVersion', o.retention_policy_version,
+            'termsConsentPresentedAt', o.terms_consent_presented_at
+          )),
+          '{}'::jsonb, coalesce(o.completed_at, o.created_at), $4, $5
+        from trip_pass_orders o
+        where o.user_id = $1 or o.closure_tombstone_id = $2
+        on conflict (source_type, source_ref) do update set
+          tombstone_id = excluded.tombstone_id,
+          amount_minor = excluded.amount_minor,
+          currency = excluded.currency,
+          product_code = excluded.product_code,
+          product_version = excluded.product_version,
+          product_family = excluded.product_family,
+          lifecycle_status = excluded.lifecycle_status,
+          lifecycle_timestamps = excluded.lifecycle_timestamps,
+          stripe_checkout_session_id = excluded.stripe_checkout_session_id,
+          stripe_payment_intent_id = excluded.stripe_payment_intent_id,
+          policy_version = excluded.policy_version,
+          consent_policy_versions = excluded.consent_policy_versions,
+          aggregate_service_facts = excluded.aggregate_service_facts,
+          occurred_at = excluded.occurred_at,
+          retention_expires_at = least(
+            retained_commerce_evidence.retention_expires_at,
+            excluded.retention_expires_at
+          )
       `,
       [userId, tombstoneId, policy.commercePolicyVersion, retentionExpiresAt, now],
     );
     await transaction.query(
       `
         insert into retained_commerce_evidence (
-          id, tombstone_id, source_type, source_ref, lifecycle_status,
+          id, tombstone_id, source_type, source_ref, amount_minor, currency,
+          product_code, product_version, product_family, lifecycle_status, lifecycle_timestamps,
           stripe_checkout_session_id, stripe_payment_intent_id, stripe_event_id,
-          policy_version, occurred_at, retention_expires_at, created_at
+          policy_version, consent_policy_versions, aggregate_service_facts,
+          occurred_at, retention_expires_at, created_at
         )
-        select 'retained_trip_pass_' || id, $2, 'trip_pass', id, status,
-          stripe_checkout_session_id, stripe_payment_intent_id, stripe_event_id,
-          $3, starts_at, $4, $5
-        from trip_passes where user_id = $1
-        on conflict (source_type, source_ref) do nothing
+        select 'retained_trip_pass_' || p.id, $2, 'trip_pass', p.id,
+          contract.amount_total_minor, contract.currency, contract.product_code,
+          contract.product_version, contract.product_family, p.status,
+          jsonb_strip_nulls(jsonb_build_object(
+            'startsAt', p.starts_at,
+            'expiresAt', p.expires_at,
+            'createdAt', p.created_at,
+            'updatedAt', p.updated_at
+          )),
+          p.stripe_checkout_session_id, p.stripe_payment_intent_id, p.stripe_event_id, $3,
+          jsonb_strip_nulls(jsonb_build_object(
+            'termsPolicyVersion', contract.terms_policy_version,
+            'refundPolicyVersion', contract.refund_policy_version,
+            'privacyPolicyVersion', contract.privacy_policy_version,
+            'retentionPolicyVersion', contract.retention_policy_version,
+            'termsConsentPresentedAt', contract.terms_consent_presented_at
+          )),
+          jsonb_strip_nulls(jsonb_build_object(
+            'quantity', contract.quantity,
+            'durationDays', contract.duration_days,
+            'meterTotals', coalesce(meters.totals, '{}'::jsonb)
+          )),
+          p.starts_at, $4, $5
+        from trip_passes p
+        left join lateral (
+          select g.product_code, g.product_version, g.quantity, g.duration_days,
+            o.amount_total_minor, o.currency, o.product_family,
+            o.terms_policy_version, o.refund_policy_version, o.privacy_policy_version,
+            o.retention_policy_version, o.terms_consent_presented_at
+          from trip_pass_grants g
+          left join trip_pass_orders o on o.id = g.order_id
+          where g.trip_pass_id = p.id
+          order by g.created_at, g.id
+          limit 1
+        ) contract on true
+        left join lateral (
+          select jsonb_object_agg(meter_type, facts) as totals
+          from (
+            select m.meter_type,
+              jsonb_build_object('used', m.used, 'limit', m."limit") as facts
+            from trip_usage_meters m
+            where m.trip_pass_id = p.id
+            order by m.meter_type
+          ) meter_facts
+        ) meters on true
+        where p.user_id = $1
+        on conflict (source_type, source_ref) do update set
+          tombstone_id = excluded.tombstone_id,
+          amount_minor = excluded.amount_minor,
+          currency = excluded.currency,
+          product_code = excluded.product_code,
+          product_version = excluded.product_version,
+          product_family = excluded.product_family,
+          lifecycle_status = excluded.lifecycle_status,
+          lifecycle_timestamps = excluded.lifecycle_timestamps,
+          stripe_checkout_session_id = excluded.stripe_checkout_session_id,
+          stripe_payment_intent_id = excluded.stripe_payment_intent_id,
+          stripe_event_id = excluded.stripe_event_id,
+          policy_version = excluded.policy_version,
+          consent_policy_versions = excluded.consent_policy_versions,
+          aggregate_service_facts = excluded.aggregate_service_facts,
+          occurred_at = excluded.occurred_at,
+          retention_expires_at = least(
+            retained_commerce_evidence.retention_expires_at,
+            excluded.retention_expires_at
+          )
       `,
       [userId, tombstoneId, policy.commercePolicyVersion, retentionExpiresAt, now],
     );
