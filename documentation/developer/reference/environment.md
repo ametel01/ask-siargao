@@ -47,9 +47,10 @@ The app reads these environment variables.
 | `STRIPE_RESTRICTED_KEY` | Server only | Stripe Checkout API calls | Preferred server key for Checkout permissions. |
 | `STRIPE_SECRET_KEY` | Server only | Stripe Checkout API calls | Fallback when `STRIPE_RESTRICTED_KEY` is not set. |
 | `STRIPE_WEBHOOK_SECRET` | Server only | Stripe webhook verification | Required by `/api/stripe/webhook`. |
-| `STRIPE_TRIP_PASS_PRICE_ID` | Server only | Trip Pass Checkout | Required before `TRIP_PASS_CHECKOUT_ENABLED=true` can create Trip Pass Checkout sessions. This Price is the amount/currency authority for the Trip Pass. Do not expose it as `NEXT_PUBLIC_*`. |
+| `STRIPE_TRIP_PASS_PRICE_ID` | Server only | Trip Pass Checkout | Required before `TRIP_PASS_CHECKOUT_MODE=canary` or `TRIP_PASS_CHECKOUT_MODE=on` can create Trip Pass Checkout sessions. This Price is the amount/currency authority for the Trip Pass. Do not expose it as `NEXT_PUBLIC_*`. |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Public/client-safe | Client-side Stripe surfaces | Present in `.env.example`; current Checkout flow is server initiated. |
-| `TRIP_PASS_CHECKOUT_ENABLED` | Server only | Trip Pass rollout | Optional boolean. Defaults to `false`; when `true` without `STRIPE_TRIP_PASS_PRICE_ID`, the Trip Pass catalog reports checkout as unavailable instead of enabled. |
+| `TRIP_PASS_CHECKOUT_MODE` | Server only | Trip Pass rollout | Optional enum: `off`, `canary`, or `on`. Defaults safely to `off`, including malformed values. `canary` and `on` require `STRIPE_TRIP_PASS_PRICE_ID`; otherwise the catalog reports checkout as unavailable. |
+| `TRIP_PASS_CHECKOUT_CANARY_ACCOUNT_IDS` | Server only | Trip Pass rollout | Optional comma-separated immutable account/user IDs allowed to use checkout when `TRIP_PASS_CHECKOUT_MODE=canary`. Empty canary allowlists keep checkout unavailable. |
 | `TRIP_PASS_EXTENSION_ENABLED` | Server only | Future Trip Pass extensions | Optional boolean. Defaults to `false`; extensions remain unavailable until launch approval. |
 | `TRIP_PASS_ANON_HMAC_KEY` | Server only | Anonymous Trip Pass identity signing and HMAC cohorts | Required in production for anonymous reset resistance. Local development uses a fallback key for cookie behavior but does not enforce cohort reset-resistance unless this key is set. |
 | `TRIP_PASS_ANON_HMAC_KEY_VERSION` | Server only | Anonymous Trip Pass identity key version | Optional positive integer. Defaults to `1`; increment during HMAC key rotation. |
@@ -86,6 +87,12 @@ The app reads these environment variables.
 
 Server-only secrets must not use the `NEXT_PUBLIC_` prefix. `getServerSecret` rejects public-prefixed names so sensitive provider keys do not move into client-facing bundles.
 
+Stripe clients and webhook normalization pin Stripe API version `2026-07-29.dahlia` and local
+normalized event schema version `2` in code. These are not runtime environment switches. Version 2
+preserves Stripe's signed event creation timestamp for deterministic closure ordering. A Stripe
+webhook delivered with another API version is durably recorded as blocked after signature
+verification rather than guessed from an unsupported shape.
+
 Clerk instance settings are part of the deployment contract and are encoded in
 `src/server/auth/clerk-instance-policy.ts`: verified email is required, sign-in methods are email
 code and Google OAuth only, maximum session age is seven days, Operator MFA is required, and
@@ -121,7 +128,7 @@ instances. There is no environment override for process-local production rate li
 Production checkout must remain disabled until the release owner records the final approval state in
 the release-candidate QA run. Code completion is not launch approval.
 
-| Area | Owner | Required action before `TRIP_PASS_CHECKOUT_ENABLED=true` |
+| Area | Owner | Required action before `TRIP_PASS_CHECKOUT_MODE=canary` or `on` |
 | --- | --- | --- |
 | Stripe Price | Finance/operator | Confirm live Price ID, amount, currency, fees, tax treatment, and Stripe-account eligibility. |
 | Stripe webhook | Engineering | Confirm endpoint URL, signing secret, and subscribed Checkout, refund, dispute, and expiry events. |
@@ -155,6 +162,8 @@ values, Clerk IDs, prompts, or precise coordinates as a replacement for HMAC coh
 Operators should alert on:
 
 - Stripe webhook verification or application failures above zero after deployment.
+- Blocked or retrying rows in `trip_pass_stripe_events`, especially unsupported API versions,
+  immutable duplicate fact mismatches, and rows whose alert state reaches `watch` or `page`.
 - Checkout start failures, duplicate-order conflicts, or pending orders that do not receive a
   terminal webhook.
 - Trip Pass meter warning/exhaustion spikes by meter type.
@@ -173,15 +182,15 @@ cookies, provider payloads, or upstream request IDs.
 
 Rollback is flag-based and forward-repair only:
 
-1. Set `TRIP_PASS_CHECKOUT_ENABLED=false` and redeploy.
+1. Set `TRIP_PASS_CHECKOUT_MODE=off` and redeploy.
 2. Keep `TRIP_PASS_EXTENSION_ENABLED=false`.
 3. Set `OPENAI_FALLBACK_ENABLED=false` if fallback cost or quality behavior is suspect.
 4. Set `TRIP_PASS_WAF_MODE=log` or disable promoted WAF rules if legitimate shared-network traffic
    is challenged incorrectly.
 5. Run dry-run reconciliation and repair only idempotent local omissions with explicit operator
    confirmation.
-6. Preserve order, pass, grant, meter, usage-event, analytics, and cost records. Do not drop launch
-   data to roll back.
+6. Preserve order, pass, grant, meter, usage-event, Stripe inbox, analytics, and cost records. Do
+   not drop launch data to roll back.
 
 Database rollback uses backups and forward repair. Before enabling checkout, confirm production
 backup restore has been tested for the database provider and that migration credentials are separate

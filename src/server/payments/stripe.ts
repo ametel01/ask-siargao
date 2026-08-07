@@ -5,6 +5,7 @@ import {
   assertCanStartCheckout,
   type VerifiedCheckoutPayment,
 } from "@/server/audit/lifecycle";
+import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 
 export const AUDIT_PRICE_CENTS = 999;
 
@@ -14,13 +15,29 @@ export type StripeCheckoutClient = {
   ) => Promise<{ id: string; url: string | null }>;
 };
 
+export type StripeLifecycleObjectRetriever = {
+  retrieveCharge: (chargeId: string) => Promise<Stripe.Charge>;
+  retrieveDispute: (disputeId: string) => Promise<Stripe.Dispute>;
+  retrieveRefund: (refundId: string) => Promise<Stripe.Refund>;
+};
+
 function createStripeClient(apiKey = stripeApiKeyFromEnv()) {
-  return new Stripe(apiKey);
+  return new Stripe(apiKey, { apiVersion: STRIPE_API_VERSION });
 }
 
 function createStripeCheckoutClient(stripe = createStripeClient()): StripeCheckoutClient {
   return {
     createCheckoutSession: (params) => stripe.checkout.sessions.create(params),
+  };
+}
+
+export function createStripeLifecycleObjectRetriever(
+  stripe = createStripeClient(),
+): StripeLifecycleObjectRetriever {
+  return {
+    retrieveCharge: (chargeId) => stripe.charges.retrieve(chargeId),
+    retrieveDispute: (disputeId) => stripe.disputes.retrieve(disputeId),
+    retrieveRefund: (refundId) => stripe.refunds.retrieve(refundId),
   };
 }
 
@@ -132,7 +149,12 @@ export function buildVerifiedPaymentEventRecord(input: {
     stripePaymentIntentId: input.payment.stripePaymentIntentId,
     eventType: input.payment.eventType,
     verifiedAt: input.verifiedAt.toISOString(),
-    rawEvent: input.rawEvent as unknown as Record<string, unknown>,
+    rawEvent: {
+      stripeEventId: input.rawEvent.id,
+      eventType: input.rawEvent.type,
+      stripeApiVersion: input.rawEvent.api_version ?? null,
+      objectType: (input.rawEvent.data.object as { object?: unknown }).object ?? null,
+    },
   };
 }
 

@@ -14,6 +14,8 @@ export type ObservabilityEventName =
   | "trip_pass_activated"
   | "trip_pass_cached_fallback_used"
   | "trip_pass_checkout_completed"
+  | "trip_pass_checkout_cancel_failed"
+  | "trip_pass_checkout_cancelled"
   | "trip_pass_checkout_failed"
   | "trip_pass_checkout_started"
   | "trip_pass_dispute_transition"
@@ -283,6 +285,8 @@ const eventPayloadAllowlist = {
     "productVersion",
     "status",
   ],
+  trip_pass_checkout_cancel_failed: ["reason", "status"],
+  trip_pass_checkout_cancelled: ["status", "surface"],
   trip_pass_checkout_failed: ["applicationStatus", "eventType", "reason", "status"],
   trip_pass_checkout_started: [
     "checkoutAvailable",

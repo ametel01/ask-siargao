@@ -582,14 +582,25 @@ export const tripPassOrders = pgTable(
     email: text("email"),
     status: text("status").notNull(),
     productCode: text("product_code").notNull(),
+    productFamily: text("product_family").notNull().default("siargao_trip_pass"),
     productVersion: integer("product_version").notNull(),
     stripePriceId: text("stripe_price_id").notNull(),
     amountTotalMinor: integer("amount_total_minor"),
     currency: text("currency"),
     checkoutIdempotencyKey: text("checkout_idempotency_key").notNull().unique(),
     stripeCheckoutSessionId: text("stripe_checkout_session_id").unique(),
+    checkoutSessionExpiresAt: timestamp("checkout_session_expires_at", { withTimezone: true }),
+    checkoutSessionStatus: text("checkout_session_status"),
+    checkoutCancellationConfirmedAt: timestamp("checkout_cancellation_confirmed_at", {
+      withTimezone: true,
+    }),
     stripePaymentIntentId: text("stripe_payment_intent_id").unique(),
     stripeCustomerId: text("stripe_customer_id"),
+    termsPolicyVersion: text("terms_policy_version"),
+    refundPolicyVersion: text("refund_policy_version"),
+    privacyPolicyVersion: text("privacy_policy_version"),
+    retentionPolicyVersion: text("retention_policy_version"),
+    termsConsentPresentedAt: timestamp("terms_consent_presented_at", { withTimezone: true }),
     metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -608,11 +619,20 @@ export const tripPassOrders = pgTable(
     ),
     index("trip_pass_orders_status_created_at_idx").on(table.status, table.createdAt),
     index("trip_pass_orders_product_code_idx").on(table.productCode),
+    index("trip_pass_orders_product_family_idx").on(table.productFamily),
+    index("trip_pass_orders_user_family_effective_pending_idx")
+      .on(table.userId, table.productFamily, table.status, table.createdAt)
+      .where(sql`${table.status} in ('pending', 'checkout_created')`),
     index("trip_pass_orders_closure_tombstone_id_idx").on(table.closureTombstoneId),
     index("trip_pass_orders_closure_refund_obligation_id_idx").on(table.closureRefundObligationId),
     check(
       "trip_pass_orders_status_check",
       sql`${table.status} in ('pending', 'checkout_created', 'paid', 'cancelled', 'expired', 'refunded', 'disputed', 'failed')`,
+    ),
+    check("trip_pass_orders_product_family_check", sql`${table.productFamily} <> ''`),
+    check(
+      "trip_pass_orders_checkout_session_status_check",
+      sql`${table.checkoutSessionStatus} is null or ${table.checkoutSessionStatus} in ('open', 'complete', 'expired')`,
     ),
     check("trip_pass_orders_product_version_check", sql`${table.productVersion} > 0`),
     check(
@@ -713,6 +733,79 @@ export const tripUsageEvents = pgTable(
       sql`${table.meterType} in ('chat_message', 'live_refresh', 'heavy_recommendation', 'weather_refresh', 'route_lookup')`,
     ),
     check("trip_usage_events_quantity_check", sql`${table.quantity} > 0`),
+  ],
+);
+
+export const tripPassStripeEvents = pgTable(
+  "trip_pass_stripe_events",
+  {
+    id: text("id").primaryKey(),
+    stripeEventId: text("stripe_event_id").notNull().unique(),
+    stripeApiVersion: text("stripe_api_version").notNull(),
+    normalizedSchemaVersion: integer("normalized_schema_version").notNull(),
+    eventType: text("event_type").notNull(),
+    objectType: text("object_type").notNull(),
+    objectId: text("object_id").notNull(),
+    checkoutSessionId: text("checkout_session_id"),
+    paymentIntentId: text("payment_intent_id"),
+    orderId: text("order_id"),
+    productCode: text("product_code"),
+    productVersion: integer("product_version"),
+    stripePriceId: text("stripe_price_id"),
+    amountTotalMinor: integer("amount_total_minor"),
+    currency: text("currency"),
+    paymentStatus: text("payment_status"),
+    status: text("status").notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    claimToken: text("claim_token"),
+    claimExpiresAt: timestamp("claim_expires_at", { withTimezone: true }),
+    alertState: text("alert_state").notNull().default("none"),
+    sanitizedErrorClass: text("sanitized_error_class"),
+    normalizedFactsJson: jsonb("normalized_facts_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("trip_pass_stripe_events_status_next_attempt_idx").on(
+      table.status,
+      table.nextAttemptAt,
+      table.receivedAt,
+    ),
+    index("trip_pass_stripe_events_order_id_idx").on(table.orderId),
+    index("trip_pass_stripe_events_checkout_session_id_idx").on(table.checkoutSessionId),
+    index("trip_pass_stripe_events_payment_intent_id_idx").on(table.paymentIntentId),
+    index("trip_pass_stripe_events_claim_idx").on(table.claimToken, table.claimExpiresAt),
+    check(
+      "trip_pass_stripe_events_schema_version_check",
+      sql`${table.normalizedSchemaVersion} > 0`,
+    ),
+    check(
+      "trip_pass_stripe_events_status_check",
+      sql`${table.status} in ('pending', 'applied', 'blocked')`,
+    ),
+    check("trip_pass_stripe_events_attempt_count_check", sql`${table.attemptCount} >= 0`),
+    check(
+      "trip_pass_stripe_events_alert_state_check",
+      sql`${table.alertState} in ('none', 'watch', 'page')`,
+    ),
+    check(
+      "trip_pass_stripe_events_product_version_check",
+      sql`${table.productVersion} is null or ${table.productVersion} > 0`,
+    ),
+    check(
+      "trip_pass_stripe_events_amount_total_minor_check",
+      sql`${table.amountTotalMinor} is null or ${table.amountTotalMinor} >= 0`,
+    ),
+    check(
+      "trip_pass_stripe_events_currency_check",
+      sql`${table.currency} is null or ${table.currency} ~ '^[a-z]{3}$'`,
+    ),
   ],
 );
 

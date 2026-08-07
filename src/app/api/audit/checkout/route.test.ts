@@ -21,15 +21,18 @@ describe("audit checkout route", () => {
     expect(body.error).toBe("invalid_checkout_request");
   });
 
-  test("rejects checkout when the audit request is not found", async () => {
+  test("keeps legacy audit checkout closed even when the audit request is not found", async () => {
     const response = await checkoutResponse(
       jsonRequest({ auditRequestId: "audit_missing" }),
       checkoutDependencies({ audit: null }),
     );
     const body = await response.json();
 
-    expect(response.status).toBe(404);
-    expect(body.error).toBe("audit_not_found");
+    expect(response.status).toBe(410);
+    expect(body).toEqual({
+      error: "checkout_not_available",
+      message: "Legacy Trip Risk Audit checkout is not available.",
+    });
   });
 
   test("rejects checkout when persisted state needs user input", async () => {
@@ -42,7 +45,7 @@ describe("audit checkout route", () => {
     );
     const body = await response.json();
 
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(410);
     expect(body.error).toBe("checkout_not_available");
     expect(dependencies.checkoutCalls).toHaveLength(0);
   });
@@ -61,12 +64,12 @@ describe("audit checkout route", () => {
     );
     const body = await response.json();
 
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(410);
     expect(body.error).toBe("checkout_not_available");
     expect(dependencies.checkoutCalls).toHaveLength(0);
   });
 
-  test("creates Checkout only for persisted complete and eligible audits", async () => {
+  test("does not create Checkout for persisted complete and eligible audits", async () => {
     const dependencies = checkoutDependencies({
       audit: auditState("audit_ready", "complete_for_payment", true),
     });
@@ -79,19 +82,17 @@ describe("audit checkout route", () => {
     );
     const body = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(body.auditRequestId).toBe("audit_ready");
-    expect(body.state).toBe("awaiting_payment");
-    expect(body.checkoutUrl).toBe("https://checkout.stripe.test/session");
-    expect(dependencies.checkoutCalls).toHaveLength(1);
-    expect(dependencies.checkoutCalls[0]?.audit.state).toBe("complete_for_payment");
-    expect(dependencies.checkoutCalls[0]?.customerEmail).toBe("traveler@example.com");
-    expect(dependencies.persistedAudits[0]?.state).toBe("awaiting_payment");
-    expect(dependencies.persistedAudits[0]?.payment?.stripeCheckoutSessionId).toBe("cs_test_123");
-    expect(dependencies.events).toEqual(["preview_to_payment_started"]);
+    expect(response.status).toBe(410);
+    expect(body).toEqual({
+      error: "checkout_not_available",
+      message: "Legacy Trip Risk Audit checkout is not available.",
+    });
+    expect(dependencies.checkoutCalls).toHaveLength(0);
+    expect(dependencies.persistedAudits).toHaveLength(0);
+    expect(dependencies.events).toEqual([]);
   });
 
-  test("does not expose checkout lifecycle exception text", async () => {
+  test("does not call checkout lifecycle and cannot expose provider exception text", async () => {
     const internalPhrase = "fixture_should_not_render_checkout_lifecycle";
     const response = await checkoutResponse(jsonRequest({ auditRequestId: "audit_throws" }), {
       startAuditCheckoutPaymentLifecycle: async () => {
@@ -100,10 +101,10 @@ describe("audit checkout route", () => {
     });
     const body = await response.json();
 
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(410);
     expect(body).toEqual({
       error: "checkout_not_available",
-      message: "Checkout could not be started.",
+      message: "Legacy Trip Risk Audit checkout is not available.",
     });
     expect(JSON.stringify(body)).not.toContain(internalPhrase);
   });

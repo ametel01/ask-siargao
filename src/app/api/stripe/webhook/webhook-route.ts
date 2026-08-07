@@ -1,26 +1,28 @@
+import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { trackServerEvent } from "@/server/observability/events";
-import { applyVerifiedCheckoutPayment } from "@/server/payments/audit-payment-lifecycle";
+import { verifyStripeWebhookPayload } from "@/server/payments/stripe";
 import {
-  extractVerifiedCheckoutPayment,
-  verifyStripeWebhookPayload,
-} from "@/server/payments/stripe";
+  readBoundedStripeWebhookBody,
+  receiveStripeWebhookEvent,
+  StripeWebhookBodyTooLargeError,
+} from "@/server/payments/stripe-event-inbox";
 import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/catalog";
 import { applyTripPassStripeEvent } from "@/server/trip-pass/webhook-application";
 
 export type StripeWebhookRouteDependencies = {
-  applyVerifiedCheckoutPayment: typeof applyVerifiedCheckoutPayment;
   applyTripPassStripeEvent: typeof applyTripPassStripeEvent;
   stripeWebhookSecretFromEnv: typeof stripeWebhookSecretFromEnv;
   trackServerEvent: typeof trackServerEvent;
   verifyStripeWebhookPayload: typeof verifyStripeWebhookPayload;
+  receiveStripeWebhookEvent: typeof receiveStripeWebhookEvent;
 };
 
 const defaultDependencies: StripeWebhookRouteDependencies = {
-  applyVerifiedCheckoutPayment,
   applyTripPassStripeEvent,
   stripeWebhookSecretFromEnv,
   trackServerEvent,
   verifyStripeWebhookPayload,
+  receiveStripeWebhookEvent,
 };
 
 let testDependencies: StripeWebhookRouteDependencies | undefined;
@@ -48,8 +50,9 @@ export async function withStripeWebhookRouteDependenciesForTest<T>(
 export async function stripeWebhookResponseFromEvent(
   event: VerifiedWebhookEvent,
   dependencies: StripeWebhookRouteDependencies = defaultDependencies,
+  options: { db?: DatabaseQueryClient } = {},
 ) {
-  const tripPassResult = await dependencies.applyTripPassStripeEvent(event);
+  const tripPassResult = await dependencies.applyTripPassStripeEvent(event, { db: options.db });
   if (tripPassResult.status !== "ignored") {
     dependencies.trackServerEvent({
       name: "trip_pass_stripe_event_applied",
@@ -93,6 +96,7 @@ export async function stripeWebhookResponseFromEvent(
       {
         received: true,
         product: "trip_pass",
+        status: tripPassResult.status,
         applicationStatus: tripPassResult.status,
         action: "action" in tripPassResult ? tripPassResult.action : undefined,
         orderId: "orderId" in tripPassResult ? tripPassResult.orderId : undefined,
@@ -103,30 +107,13 @@ export async function stripeWebhookResponseFromEvent(
     );
   }
 
-  const payment = extractVerifiedCheckoutPayment(event);
-
-  if (!payment) {
-    return Response.json({ received: true, ignored: true });
-  }
-
-  const result = await dependencies.applyVerifiedCheckoutPayment(payment, event);
-
-  dependencies.trackServerEvent({
-    name: "payment_succeeded",
-    payload: {
-      auditRequestId: payment.auditRequestId,
-      stripeEventId: payment.stripeEventId,
-      eventType: payment.eventType,
-      applicationStatus: result.status,
-    },
-  });
-
   return Response.json({
     received: true,
-    applicationStatus: result.status,
-    auditRequestId: payment.auditRequestId,
-    stripeEventId: payment.stripeEventId,
-    generationJobId: result.status === "applied" ? result.job.id : undefined,
+    ignored: true,
+    status: "noop",
+    applicationStatus: "noop",
+    reason: "legacy_audit_checkout_closed",
+    stripeEventId: event.id,
   });
 }
 
@@ -162,14 +149,46 @@ export async function stripeWebhookResponse(
   }
 
   try {
-    const payload = await request.text();
+    const payload = await readBoundedStripeWebhookBody(request);
     const event = await dependencies.verifyStripeWebhookPayload({
       payload,
       signature,
       webhookSecret: dependencies.stripeWebhookSecretFromEnv(),
     });
-    return await stripeWebhookResponseFromEvent(event, dependencies);
-  } catch {
+    const inboxResult = await dependencies.receiveStripeWebhookEvent(event, {
+      applyEvent: async (receivedEvent, applicationOptions) => {
+        const response = await stripeWebhookResponseFromEvent(receivedEvent, dependencies, {
+          db: applicationOptions.db,
+        });
+        return response.json();
+      },
+    });
+
+    if (
+      inboxResult.status === "applied" &&
+      typeof inboxResult.applicationResult === "object" &&
+      inboxResult.applicationResult !== null
+    ) {
+      return Response.json(inboxResult.applicationResult);
+    }
+
+    return Response.json({
+      received: true,
+      inboxStatus: inboxResult.status,
+      stripeEventId: inboxResult.stripeEventId,
+      inboxId: inboxResult.inboxId,
+      reason: "reason" in inboxResult ? inboxResult.reason : undefined,
+    });
+  } catch (error) {
+    if (error instanceof StripeWebhookBodyTooLargeError) {
+      return Response.json(
+        {
+          error: "stripe_webhook_body_too_large",
+          message: "Webhook payload exceeds the configured size limit.",
+        },
+        { status: 413 },
+      );
+    }
     return Response.json(
       {
         error: "invalid_stripe_webhook",

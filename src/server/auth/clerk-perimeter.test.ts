@@ -183,9 +183,6 @@ describe("Clerk proxy perimeter", () => {
           reason: "not_trip_pass_event",
           status: "ignored",
         }),
-        applyVerifiedCheckoutPayment: async () => {
-          throw new Error("unreached");
-        },
         stripeWebhookSecretFromEnv: () => "whsec_test",
         trackServerEvent: () => ({
           at: "2026-08-07T00:00:00.000Z",
@@ -195,6 +192,9 @@ describe("Clerk proxy perimeter", () => {
         }),
         verifyStripeWebhookPayload: async () => {
           throw new Error("unsigned");
+        },
+        receiveStripeWebhookEvent: async () => {
+          throw new Error("unsigned Stripe requests must not reach durable receipt");
         },
       },
     );

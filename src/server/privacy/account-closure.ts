@@ -70,8 +70,8 @@ export async function beginAccountClosure(
 ): Promise<AccountClosureResult> {
   const createId = dependencies.createId ?? ((prefix: string) => `${prefix}_${randomUUID()}`);
   const result = await withDatabaseTransaction(dependencies.db, async (transaction) => {
-    await lockAccountWrites(input.userId, transaction);
     await lockTripPassFamily(input.userId, transaction);
+    await lockAccountWrites(input.userId, transaction);
 
     const subjectHash = closureSubjectHash(input.userId, dependencies.policy);
     let existingClosure: { tombstone_id: string; operation_id: string } | undefined;

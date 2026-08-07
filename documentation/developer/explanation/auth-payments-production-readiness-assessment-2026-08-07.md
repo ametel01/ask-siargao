@@ -77,7 +77,7 @@ monitoring, backup, reviewer, and sandbox lifecycle evidence still blocked:
 - [`trip-pass-launch-proof.ts`](../../../src/server/qa/trip-pass-launch-proof.ts)
 - [recorded launch evidence](../../../docs/evaluations/trip-pass-launch-proof-2026-07-14.json)
 
-`TRIP_PASS_CHECKOUT_ENABLED` should remain disabled until these checks are replaced with real
+`TRIP_PASS_CHECKOUT_MODE` should remain `off` until these checks are replaced with real
 evidence.
 
 ### P0 — The normal lint release gate is red
@@ -221,7 +221,7 @@ architectures doubles the failure and support surface.
 ## Recommended production-readiness sequence
 
 1. **Keep commerce disabled**
-   - Keep `TRIP_PASS_CHECKOUT_ENABLED=false`.
+   - Keep `TRIP_PASS_CHECKOUT_MODE=off`.
    - Decide that direct Stripe is the single launch payment authority.
    - Retire or isolate legacy audit checkout.
 2. **Fix authentication correctness**

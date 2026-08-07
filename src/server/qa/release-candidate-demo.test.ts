@@ -49,7 +49,7 @@ describe("release-candidate demo scenario", () => {
 
   test("blocks checkout or extensions while Trip Pass launch blockers remain", () => {
     const checkoutProof = buildTripPassLaunchProof({
-      TRIP_PASS_CHECKOUT_ENABLED: "true",
+      TRIP_PASS_CHECKOUT_MODE: "on",
       TRIP_PASS_EXTENSION_ENABLED: "true",
     });
     const validation = validateTripPassLaunchProof(checkoutProof);

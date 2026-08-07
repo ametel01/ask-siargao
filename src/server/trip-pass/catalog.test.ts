@@ -17,9 +17,19 @@ describe("Trip Pass catalog", () => {
   test("defines the launch product contract in one versioned catalog", () => {
     expect(tripPassProductCatalog).toMatchObject({
       code: "siargao_trip_pass_14d_v2",
+      family: "siargao_trip_pass",
       version: 2,
       label: "Siargao Trip Pass",
       durationDays: 14,
+      durationHours: 336,
+      amountTotalMinor: 999,
+      currency: "usd",
+      policyVersions: {
+        terms: "trip-pass-terms-2026-08-07",
+        refund: "trip-pass-refund-2026-08-07",
+        privacy: "privacy-2026-08-07",
+        retention: "commerce-retention-2026-08-07",
+      },
       freeWindowDays: 7,
       presentation: {
         priceAuthority: "stripe_price",
@@ -95,7 +105,9 @@ describe("Trip Pass catalog", () => {
 
     expect(environment.checkout).toEqual({
       enabled: false,
+      mode: "off",
       priceId: undefined,
+      canaryAccountIds: [],
       status: "disabled",
       unavailableReason: null,
     });
@@ -116,12 +128,14 @@ describe("Trip Pass catalog", () => {
 
   test("reports checkout unavailable when enabled without a Stripe Price", () => {
     const environment = readTripPassEnvironment({
-      TRIP_PASS_CHECKOUT_ENABLED: "true",
+      TRIP_PASS_CHECKOUT_MODE: "on",
     });
 
     expect(environment.checkout).toEqual({
-      enabled: true,
+      enabled: false,
+      mode: "on",
       priceId: undefined,
+      canaryAccountIds: [],
       status: "unavailable",
       unavailableReason: "missing_stripe_trip_pass_price_id",
     });
@@ -129,7 +143,8 @@ describe("Trip Pass catalog", () => {
 
   test("reports enabled server configuration without reading public names as secrets", () => {
     const environment = readTripPassEnvironment({
-      TRIP_PASS_CHECKOUT_ENABLED: "1",
+      TRIP_PASS_CHECKOUT_MODE: "canary",
+      TRIP_PASS_CHECKOUT_CANARY_ACCOUNT_IDS: "user_canary_2, user_canary_1, user_canary_1",
       TRIP_PASS_EXTENSION_ENABLED: "false",
       DEEPSEEK_COST_POLICY_ENABLED: "on",
       STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass_123",
@@ -148,7 +163,9 @@ describe("Trip Pass catalog", () => {
 
     expect(environment.checkout).toEqual({
       enabled: true,
+      mode: "canary",
       priceId: "price_trip_pass_123",
+      canaryAccountIds: ["user_canary_1", "user_canary_2"],
       status: "available",
       unavailableReason: null,
     });
@@ -174,7 +191,10 @@ describe("Trip Pass catalog", () => {
   });
 
   test("rejects malformed flag and budget configuration", () => {
-    expect(() => readTripPassEnvironment({ TRIP_PASS_CHECKOUT_ENABLED: "maybe" })).toThrow(
+    expect(() => readTripPassEnvironment({ TRIP_PASS_CHECKOUT_MODE: "maybe" })).toThrow(
+      "TRIP_PASS_CHECKOUT_MODE must be one of",
+    );
+    expect(() => readTripPassEnvironment({ TRIP_PASS_EXTENSION_ENABLED: "maybe" })).toThrow(
       "Invalid boolean feature flag",
     );
     expect(() => readTripPassEnvironment({ TRIP_PASS_ANON_HMAC_KEY_VERSION: "0" })).toThrow(
@@ -191,14 +211,32 @@ describe("Trip Pass catalog", () => {
   test("refuses public-prefixed names for server-only configuration paths", () => {
     const environment = readTripPassEnvironment({
       NEXT_PUBLIC_STRIPE_TRIP_PASS_PRICE_ID: "price_123",
-      TRIP_PASS_CHECKOUT_ENABLED: "true",
+      TRIP_PASS_CHECKOUT_MODE: "on",
     });
 
     expect(environment.checkout).toEqual({
-      enabled: true,
+      enabled: false,
+      mode: "on",
       priceId: undefined,
+      canaryAccountIds: [],
       status: "unavailable",
       unavailableReason: "missing_stripe_trip_pass_price_id",
+    });
+  });
+
+  test("does not let the legacy checkout boolean open Trip Pass checkout", () => {
+    const environment = readTripPassEnvironment({
+      TRIP_PASS_CHECKOUT_ENABLED: "true",
+      STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass_123",
+    });
+
+    expect(environment.checkout).toEqual({
+      enabled: false,
+      mode: "off",
+      priceId: "price_trip_pass_123",
+      canaryAccountIds: [],
+      status: "disabled",
+      unavailableReason: null,
     });
   });
 });

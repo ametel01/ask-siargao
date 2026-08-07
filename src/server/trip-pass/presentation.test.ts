@@ -7,7 +7,7 @@ import { buildTripPassAccountPresentation } from "@/server/trip-pass/presentatio
 
 const now = new Date("2026-07-04T08:00:00.000Z");
 const availableEnv = {
-  TRIP_PASS_CHECKOUT_ENABLED: "true",
+  TRIP_PASS_CHECKOUT_MODE: "on",
   STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass",
 };
 
@@ -18,7 +18,7 @@ describe("Trip Pass account presentation", () => {
 
       const presentation = await buildTripPassAccountPresentation(
         { userId: "user_free", now },
-        { db, env: { TRIP_PASS_CHECKOUT_ENABLED: "false" } },
+        { db, env: { TRIP_PASS_CHECKOUT_MODE: "off" } },
       );
 
       expect(presentation.status).toBe("free");
@@ -119,7 +119,7 @@ describe("Trip Pass account presentation", () => {
       );
       const unavailable = await buildTripPassAccountPresentation(
         { userId: "user_unavailable", now },
-        { db, env: { TRIP_PASS_CHECKOUT_ENABLED: "true" } },
+        { db, env: { TRIP_PASS_CHECKOUT_MODE: "on" } },
       );
 
       expect(expired.status).toBe("expired");

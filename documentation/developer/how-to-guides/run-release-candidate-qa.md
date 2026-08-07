@@ -34,7 +34,8 @@ bun run qa:trip-pass-launch -- --write
 The launch-proof artifact is written to
 `docs/evaluations/trip-pass-launch-proof-2026-07-14.json`. It is allowed to show
 `launchReady: false` while external approvals or smoke checks are unresolved. It must not show
-`TRIP_PASS_CHECKOUT_ENABLED=true` or `TRIP_PASS_EXTENSION_ENABLED=true` while blockers remain.
+`TRIP_PASS_CHECKOUT_MODE=canary`, `TRIP_PASS_CHECKOUT_MODE=on`, or
+`TRIP_PASS_EXTENSION_ENABLED=true` while blockers remain.
 
 ## Manual Product QA
 
@@ -66,7 +67,7 @@ The launch-proof artifact is written to
 
 ## Trip Pass End-to-End QA
 
-Run this sequence in a test-mode environment with `TRIP_PASS_CHECKOUT_ENABLED=false` until every
+Run this sequence in a test-mode environment with `TRIP_PASS_CHECKOUT_MODE=off` until every
 approval and smoke check is recorded. Use redacted identifiers such as `cs_test_...abcd` or
 `evt_test_...abcd` in notes; never paste full Stripe IDs, webhook payloads, cookies, prompts, IP
 addresses, emails, precise coordinates, or provider responses.
@@ -134,7 +135,7 @@ updated with redacted evidence.
 
 Rollback does not require destructive data changes:
 
-1. Set `TRIP_PASS_CHECKOUT_ENABLED=false` and redeploy.
+1. Set `TRIP_PASS_CHECKOUT_MODE=off` and redeploy.
 2. Keep `TRIP_PASS_EXTENSION_ENABLED=false`.
 3. Disable paid fallback with `OPENAI_FALLBACK_ENABLED=false` if provider cost or quality is
    suspect.

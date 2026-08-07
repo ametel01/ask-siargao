@@ -12,7 +12,7 @@ import { beginAccountClosure } from "@/server/privacy/account-closure";
 import { applyTripPassStripeEvent } from "@/server/trip-pass/webhook-application";
 
 const now = new Date("2026-07-03T08:00:00.000Z");
-const env = { TRIP_PASS_CHECKOUT_ENABLED: "true", STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass" };
+const env = { TRIP_PASS_CHECKOUT_MODE: "on", STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass" };
 
 describe("Trip Pass Stripe webhook application", () => {
   test("activates a matched paid checkout session through one grant and meter allocation", async () => {
@@ -172,7 +172,12 @@ describe("Trip Pass Stripe webhook application", () => {
       });
 
       await expect(
-        applyTripPassStripeEvent(refundEvent("evt_refund", "pi_order_refund"), { db, env, now }),
+        applyTripPassStripeEvent(refundEvent("evt_refund", "pi_order_refund"), {
+          db,
+          env,
+          now,
+          stripeObjects: stripeObjectRetriever({ paymentIntentId: "pi_order_refund" }),
+        }),
       ).resolves.toEqual({
         status: "applied",
         action: "refunded",
@@ -184,6 +189,7 @@ describe("Trip Pass Stripe webhook application", () => {
           db,
           env,
           now,
+          stripeObjects: stripeObjectRetriever({ paymentIntentId: "pi_order_dispute" }),
         }),
       ).resolves.toEqual({
         status: "applied",
@@ -196,6 +202,7 @@ describe("Trip Pass Stripe webhook application", () => {
           db,
           env,
           now,
+          stripeObjects: stripeObjectRetriever({ paymentIntentId: "pi_order_refund" }),
         }),
       ).resolves.toMatchObject({ status: "duplicate", orderId: "order_refund" });
 
@@ -206,6 +213,95 @@ describe("Trip Pass Stripe webhook application", () => {
     });
   });
 
+  test("replays reversed refund and dispute events after the payment intent link exists", async () => {
+    await withTestDb(async (db) => {
+      await insertCheckoutCreatedOrder(db, "order_reversed_refund", "user_reversed_refund");
+      await insertCheckoutCreatedOrder(db, "order_reversed_dispute", "user_reversed_dispute");
+      const refundRetriever = stripeObjectRetriever({
+        paymentIntentId: "pi_order_reversed_refund",
+      });
+      const disputeRetriever = stripeObjectRetriever({
+        paymentIntentId: "pi_order_reversed_dispute",
+      });
+
+      await expect(
+        applyTripPassStripeEvent(refundEvent("evt_reversed_refund", "pi_order_reversed_refund"), {
+          db,
+          env,
+          now,
+          stripeObjects: refundRetriever,
+        }),
+      ).resolves.toMatchObject({
+        status: "rejected",
+        reason: "trip_pass_payment_intent_not_found",
+      });
+      await expect(
+        applyTripPassStripeEvent(
+          disputeEvent("evt_reversed_dispute", "pi_order_reversed_dispute"),
+          {
+            db,
+            env,
+            now,
+            stripeObjects: disputeRetriever,
+          },
+        ),
+      ).resolves.toMatchObject({
+        status: "rejected",
+        reason: "trip_pass_payment_intent_not_found",
+      });
+
+      await applyTripPassStripeEvent(
+        checkoutSessionEvent("evt_reversed_refund_paid", "order_reversed_refund"),
+        { db, env, now },
+      );
+      await applyTripPassStripeEvent(
+        checkoutSessionEvent("evt_reversed_dispute_paid", "order_reversed_dispute"),
+        { db, env, now },
+      );
+
+      await expect(
+        applyTripPassStripeEvent(refundEvent("evt_reversed_refund", "pi_order_reversed_refund"), {
+          db,
+          env,
+          now,
+          stripeObjects: refundRetriever,
+        }),
+      ).resolves.toMatchObject({
+        status: "applied",
+        action: "refunded",
+        orderId: "order_reversed_refund",
+      });
+      await expect(
+        applyTripPassStripeEvent(
+          disputeEvent("evt_reversed_dispute", "pi_order_reversed_dispute"),
+          {
+            db,
+            env,
+            now,
+            stripeObjects: disputeRetriever,
+          },
+        ),
+      ).resolves.toMatchObject({
+        status: "applied",
+        action: "disputed",
+        orderId: "order_reversed_dispute",
+      });
+
+      expect(refundRetriever.calls).toEqual([
+        "charge:re_evt_reversed_refund",
+        "charge:re_evt_reversed_refund",
+      ]);
+      expect(disputeRetriever.calls).toEqual([
+        "dispute:du_evt_reversed_dispute",
+        "dispute:du_evt_reversed_dispute",
+      ]);
+      await expectOrderStatus(db, "order_reversed_refund", "refunded");
+      await expectPassStatus(db, "pi_order_reversed_refund", "refunded");
+      await expectOrderStatus(db, "order_reversed_dispute", "disputed");
+      await expectPassStatus(db, "pi_order_reversed_dispute", "cancelled");
+    });
+  });
+
   test("ignores unrelated refund or event payloads instead of mutating audit payment state", async () => {
     await withTestDb(async (db) => {
       await expect(
@@ -213,8 +309,12 @@ describe("Trip Pass Stripe webhook application", () => {
           db,
           env,
           now,
+          stripeObjects: stripeObjectRetriever({ paymentIntentId: "pi_audit_payment" }),
         }),
-      ).resolves.toEqual({ status: "ignored", reason: "not_trip_pass_event" });
+      ).resolves.toMatchObject({
+        status: "rejected",
+        reason: "trip_pass_payment_intent_not_found",
+      });
       await expect(
         applyTripPassStripeEvent(
           {
@@ -248,7 +348,7 @@ function createPgliteQueryClient(db: PGlite): DatabaseQueryClient {
     async transaction<T>(callback: (transactionClient: DatabaseQueryClient) => Promise<T>) {
       await db.exec("begin");
       try {
-        const result = await callback(client);
+        const result = await callback({ ...client, inTransaction: true });
         await db.exec("commit");
         return result;
       } catch (error) {
@@ -259,6 +359,37 @@ function createPgliteQueryClient(db: PGlite): DatabaseQueryClient {
   };
 
   return client;
+}
+
+function stripeObjectRetriever(input: { paymentIntentId: string | null }) {
+  const calls: string[] = [];
+  return {
+    calls,
+    retrieveCharge: async (chargeId: string) => {
+      calls.push(`charge:${chargeId}`);
+      return {
+        id: chargeId,
+        object: "charge",
+        payment_intent: input.paymentIntentId,
+      } as Stripe.Charge;
+    },
+    retrieveDispute: async (disputeId: string) => {
+      calls.push(`dispute:${disputeId}`);
+      return {
+        id: disputeId,
+        object: "dispute",
+        payment_intent: input.paymentIntentId,
+      } as Stripe.Dispute;
+    },
+    retrieveRefund: async (refundId: string) => {
+      calls.push(`refund:${refundId}`);
+      return {
+        id: refundId,
+        object: "refund",
+        payment_intent: input.paymentIntentId,
+      } as Stripe.Refund;
+    },
+  };
 }
 
 async function insertCheckoutCreatedOrder(

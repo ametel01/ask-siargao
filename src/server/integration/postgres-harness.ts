@@ -151,8 +151,9 @@ type HarnessSql = {
   unsafe(statement: string, params?: readonly unknown[]): Promise<unknown[]>;
 };
 
-function createHarnessQueryClient(sql: HarnessSql) {
+function createHarnessQueryClient(sql: HarnessSql, inTransaction = false) {
   return {
+    inTransaction,
     async query<T>(query: string, params: readonly unknown[] = []) {
       return { rows: (await sql.unsafe(query, [...params])) as T[] };
     },
@@ -165,7 +166,7 @@ function createHarnessQueryClient(sql: HarnessSql) {
         throw new Error("Nested harness transactions are not supported.");
       }
       return (await sql.begin(async (transactionSql) =>
-        callback(createHarnessQueryClient(transactionSql)),
+        callback(createHarnessQueryClient(transactionSql, true)),
       )) as T;
     },
   };

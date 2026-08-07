@@ -17,7 +17,7 @@ const defaultDependencies: CheckoutRouteDependencies = {
 
 export async function checkoutResponse(
   request: Request,
-  dependencies: CheckoutRouteDependencies = defaultDependencies,
+  _dependencies: CheckoutRouteDependencies = defaultDependencies,
   headers?: HeadersInit,
 ) {
   let body: unknown;
@@ -38,35 +38,13 @@ export async function checkoutResponse(
     );
   }
 
-  try {
-    const result = await dependencies.startAuditCheckoutPaymentLifecycle({
-      auditRequestId: parsed.data.auditRequestId,
-      appUrl: process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin,
-      customerEmail: parsed.data.customerEmail,
-    });
-
-    if (result.status === "not_found") {
-      return Response.json({ error: "audit_not_found" }, { status: 404 });
-    }
-
-    return Response.json(
-      {
-        auditRequestId: result.audit.id,
-        state: result.audit.state,
-        checkoutUrl: result.checkout.url,
-        stripeCheckoutSessionId: result.checkout.id,
-      },
-      { headers },
-    );
-  } catch {
-    return Response.json(
-      {
-        error: "checkout_not_available",
-        message: "Checkout could not be started.",
-      },
-      { status: 409 },
-    );
-  }
+  return Response.json(
+    {
+      error: "checkout_not_available",
+      message: "Legacy Trip Risk Audit checkout is not available.",
+    },
+    { status: 410, headers },
+  );
 }
 
 function invalidCheckoutRequest(issues: Array<{ path: string; message: string }>) {

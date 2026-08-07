@@ -1,9 +1,19 @@
+import type Stripe from "stripe";
+
 import type { RealPostgresHarness } from "@/server/integration/postgres-harness";
+import {
+  receiveStripeWebhookEvent,
+  STRIPE_API_VERSION,
+} from "@/server/payments/stripe-event-inbox";
 import {
   type AccountClosurePolicy,
   beginAccountClosure,
   runClosureCleanupBatch,
 } from "@/server/privacy/account-closure";
+import { startTripPassCheckout } from "@/server/trip-pass/commerce";
+import type { TripPassCheckoutClient } from "@/server/trip-pass/stripe-adapter";
+import { tripPassCheckoutProductSnapshot } from "@/server/trip-pass/stripe-adapter";
+import { applyTripPassStripeEvent } from "@/server/trip-pass/webhook-application";
 
 const raceNow = new Date("2026-08-07T06:00:00.000Z");
 const racePolicy: AccountClosurePolicy = {
@@ -29,6 +39,253 @@ export async function runAccountClosurePostgresIntegration(harness: RealPostgres
   console.log(JSON.stringify({ checked: "account-closure-postgres", race: "write-matrix" }));
   await runConcurrentWorkerRegression(harness);
   console.log(JSON.stringify({ checked: "account-closure-postgres", race: "worker-leases" }));
+  await runCheckoutProviderOverlapRegression(harness);
+  console.log(JSON.stringify({ checked: "account-closure-postgres", race: "checkout-provider" }));
+  await runStripeInboxClosureRegression(harness);
+  console.log(JSON.stringify({ checked: "account-closure-postgres", race: "stripe-inbox" }));
+}
+
+async function runCheckoutProviderOverlapRegression(harness: RealPostgresHarness) {
+  const checkoutClient = harness.createQueryClient();
+  const closureClient = harness.createQueryClient();
+  const providerStarted = deferred<void>();
+  const releaseProvider = deferred<void>();
+  let expiredSessionId: string | undefined;
+  const checkoutProvider: TripPassCheckoutClient = {
+    async createCheckoutSession(params) {
+      providerStarted.resolve();
+      await releaseProvider.promise;
+      const orderId = String(params.client_reference_id);
+      return {
+        id: `cs_${orderId}`,
+        url: `https://checkout.stripe.test/${orderId}`,
+        clientReferenceId: orderId,
+        metadata: Object.fromEntries(
+          Object.entries(params.metadata ?? {}).filter(
+            (entry): entry is [string, string] => typeof entry[1] === "string",
+          ),
+        ),
+        amountTotalMinor: tripPassCheckoutProductSnapshot.amountTotalMinor,
+        currency: tripPassCheckoutProductSnapshot.currency,
+        expiresAt: new Date(Number(params.expires_at) * 1_000),
+        mode: "payment",
+        paymentStatus: "unpaid",
+        priceId: "price_trip_pass",
+        status: "open",
+        termsConsentCollected: false,
+      };
+    },
+    async expireCheckoutSession(sessionId) {
+      expiredSessionId = sessionId;
+      return {
+        id: sessionId,
+        url: "",
+        clientReferenceId: null,
+        metadata: null,
+        amountTotalMinor: tripPassCheckoutProductSnapshot.amountTotalMinor,
+        currency: tripPassCheckoutProductSnapshot.currency,
+        expiresAt: raceNow,
+        mode: "payment",
+        paymentStatus: "unpaid",
+        priceId: "price_trip_pass",
+        status: "expired",
+        termsConsentCollected: false,
+      };
+    },
+  };
+  try {
+    const userId = "closure_checkout_provider_overlap";
+    await seedUser(checkoutClient, userId);
+    const checkout = startTripPassCheckout(
+      { appUrl: "https://siargao.test", userId },
+      {
+        checkoutClient: checkoutProvider,
+        createId: () => "closure_checkout_provider_order",
+        db: checkoutClient,
+        env: {
+          TRIP_PASS_CHECKOUT_MODE: "on",
+          STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass",
+        },
+        now: raceNow,
+      },
+    );
+    await providerStarted.promise;
+    await beginAccountClosure({ now: raceNow, userId }, { db: closureClient, policy: racePolicy });
+    releaseProvider.resolve();
+    const checkoutResult = await checkout;
+    assertEqual(
+      checkoutResult.status,
+      "blocked",
+      "a Session returned after closure must not be exposed",
+    );
+    const attached = await closureClient.query<{
+      closure_outcome: string | null;
+      stripe_checkout_session_id: string | null;
+      user_id: string | null;
+    }>(
+      `select user_id, stripe_checkout_session_id, closure_outcome
+       from trip_pass_orders where id = 'closure_checkout_provider_order'`,
+    );
+    assertEqual(attached.rows[0]?.user_id, null, "late Session order must detach identity");
+    assertEqual(
+      attached.rows[0]?.stripe_checkout_session_id,
+      "cs_closure_checkout_provider_order",
+      "late Session must be durable",
+    );
+    assertEqual(
+      attached.rows[0]?.closure_outcome,
+      "blocked_at_closure",
+      "late Session must preserve the closure decision",
+    );
+    await runClosureCleanupBatch({
+      db: closureClient,
+      now: raceNow,
+      policy: racePolicy,
+      providers: {
+        async deleteClerkUser() {},
+        async expireCheckoutSession(sessionId) {
+          await checkoutProvider.expireCheckoutSession(sessionId);
+        },
+      },
+    });
+    assertEqual(
+      expiredSessionId,
+      "cs_closure_checkout_provider_order",
+      "late Session must reach durable expiry cleanup",
+    );
+  } finally {
+    releaseProvider.resolve();
+    await Promise.all([checkoutClient.end(), closureClient.end()]);
+  }
+}
+
+async function runStripeInboxClosureRegression(harness: RealPostgresHarness) {
+  const client = harness.createQueryClient();
+  try {
+    await runStripeInboxClosureCase(client, {
+      eventCreatedAt: new Date(raceNow.getTime() + 60_000),
+      eventId: "evt_closure_inbox_after",
+      expectedOutcome: "paid_after_closure",
+      expectedRefunds: "1",
+      orderId: "closure_inbox_order_after",
+      userId: "closure_inbox_after",
+    });
+    await runStripeInboxClosureCase(client, {
+      eventCreatedAt: new Date(raceNow.getTime() - 60_000),
+      eventId: "evt_closure_inbox_before",
+      expectedOutcome: "blocked_at_closure",
+      expectedRefunds: "0",
+      orderId: "closure_inbox_order_before",
+      userId: "closure_inbox_before",
+    });
+  } finally {
+    await client.end();
+  }
+}
+
+async function runStripeInboxClosureCase(
+  client: ReturnType<RealPostgresHarness["createQueryClient"]>,
+  input: {
+    eventCreatedAt: Date;
+    eventId: string;
+    expectedOutcome: string;
+    expectedRefunds: string;
+    orderId: string;
+    userId: string;
+  },
+) {
+  await seedUser(client, input.userId);
+  await client.query(
+    `insert into trip_pass_orders (
+       id, user_id, status, product_code, product_family, product_version,
+       stripe_price_id, amount_total_minor, currency, checkout_idempotency_key,
+       stripe_checkout_session_id, checkout_session_status, metadata_json, created_at, updated_at
+     ) values ($1, $2, 'checkout_created', $3, $4, $5, 'price_trip_pass',
+       $6, $7, $8, $9, 'open', '{}'::jsonb, $10, $10)`,
+    [
+      input.orderId,
+      input.userId,
+      tripPassCheckoutProductSnapshot.productCode,
+      tripPassCheckoutProductSnapshot.productFamily,
+      tripPassCheckoutProductSnapshot.productVersion,
+      tripPassCheckoutProductSnapshot.amountTotalMinor,
+      tripPassCheckoutProductSnapshot.currency,
+      `trip_pass_checkout:${input.orderId}`,
+      `cs_${input.orderId}`,
+      new Date(raceNow.getTime() - 120_000),
+    ],
+  );
+  await beginAccountClosure(
+    { now: raceNow, userId: input.userId },
+    { db: client, policy: racePolicy },
+  );
+  const result = await receiveStripeWebhookEvent(
+    closureCheckoutSessionEvent(input.eventId, input.orderId, input.eventCreatedAt),
+    {
+      db: client,
+      applyEvent: (event, options) =>
+        applyTripPassStripeEvent(event, { db: options.db, now: options.now }),
+    },
+  );
+  assertEqual(
+    result.status,
+    "applied",
+    `closure Stripe inbox event must apply atomically: ${JSON.stringify(result)}`,
+  );
+  const state = await client.query<{
+    grants: string;
+    inbox_status: string;
+    meters: string;
+    outcome: string | null;
+    passes: string;
+    refunds: string;
+  }>(
+    `select
+       (select status from trip_pass_stripe_events where stripe_event_id = $1) as inbox_status,
+       (select closure_outcome from trip_pass_orders where id = $2) as outcome,
+       (select count(*)::text from account_closure_refund_obligations where order_id = $2) as refunds,
+       (select count(*)::text from trip_passes where stripe_event_id = $1) as passes,
+       (select count(*)::text from trip_pass_grants where source_event_id = $1) as grants,
+       (select count(*)::text from trip_usage_meters m join trip_passes p on p.id = m.trip_pass_id
+          where p.stripe_event_id = $1) as meters`,
+    [input.eventId, input.orderId],
+  );
+  assertEqual(state.rows[0]?.inbox_status, "applied", "inbox receipt must commit applied");
+  assertEqual(state.rows[0]?.outcome, input.expectedOutcome, "closure outcome must use event time");
+  assertEqual(state.rows[0]?.refunds, input.expectedRefunds, "refund handoff count must converge");
+  assertEqual(state.rows[0]?.passes, "0", "closure inbox event must not create a Pass");
+  assertEqual(state.rows[0]?.grants, "0", "closure inbox event must not create a Grant");
+  assertEqual(state.rows[0]?.meters, "0", "closure inbox event must not create a Meter");
+}
+
+function closureCheckoutSessionEvent(eventId: string, orderId: string, createdAt: Date) {
+  return {
+    id: eventId,
+    object: "event",
+    api_version: STRIPE_API_VERSION,
+    created: Math.floor(createdAt.getTime() / 1_000),
+    data: {
+      object: {
+        id: `cs_${orderId}`,
+        object: "checkout.session",
+        mode: "payment",
+        client_reference_id: orderId,
+        metadata: {
+          tripPassOrderId: orderId,
+          productCode: tripPassCheckoutProductSnapshot.productCode,
+          productVersion: String(tripPassCheckoutProductSnapshot.productVersion),
+        },
+        payment_intent: `pi_${orderId}`,
+        payment_status: "paid",
+        amount_total: tripPassCheckoutProductSnapshot.amountTotalMinor,
+        currency: tripPassCheckoutProductSnapshot.currency,
+      },
+    },
+    livemode: false,
+    pending_webhooks: 1,
+    request: null,
+    type: "checkout.session.completed",
+  } as unknown as Stripe.Event;
 }
 
 async function runPostClosureMutationMatrix(harness: RealPostgresHarness) {
