@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const serverEnv = "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY=";
+const serverEnv =
+  "CLERK_AUTH_MODE=disabled NEXT_PUBLIC_CLERK_AUTH_MODE=disabled CLERK_DEPLOYMENT_CONTEXT=local NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY=";
 const isProductionPerformanceRun = process.env.PLAYWRIGHT_PRODUCTION_PERF === "1";
 const serverCommand = isProductionPerformanceRun
   ? `${serverEnv} ./node_modules/.bin/next start --hostname 127.0.0.1 --port 3100`

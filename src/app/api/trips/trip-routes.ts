@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { isClerkServerConfigured } from "@/features/auth/clerk-config";
+import { isClerkServerConfigured } from "@/server/auth/clerk-deployment-config";
 import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/auth/clerk-users";
 import { getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import {

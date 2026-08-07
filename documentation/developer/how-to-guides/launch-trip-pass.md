@@ -117,15 +117,19 @@ are not acceptable.
 Use the Clerk production instance and dashboard. Do not copy secrets into the launch issue.
 
 - `CLERK_AUTH_MODE=enabled` is explicit.
+- `NEXT_PUBLIC_CLERK_AUTH_MODE=enabled` matches the server mode so Clerk client UI is not inferred
+  from key presence.
+- `CLERK_DEPLOYMENT_CONTEXT=production` for production and
+  `CLERK_DEPLOYMENT_CONTEXT=protected-staging` for the stable protected staging lane.
 - Publishable key, server secret, webhook signing secret, and canonical application origin are
   complete and belong to the production instance.
-- `authorizedParties` contains only the production origin and the stable protected-staging origin.
-  Localhost is absent from production; wildcard `*.vercel.app` is absent everywhere.
+- `CLERK_AUTHORIZED_PARTIES` contains only `CLERK_PRODUCTION_ORIGIN` and
+  `CLERK_PROTECTED_STAGING_ORIGIN`. Localhost is absent from production; wildcard `*.vercel.app`,
+  URL paths, credentials, query strings, and fragments are absent everywhere.
 - Ephemeral and untrusted preview deployments have authentication disabled and no Clerk secrets.
-- Email one-time code and Google OAuth are enabled; password and untested methods are disabled.
-- Verified email is required.
-- Traveler MFA is available but optional; Operator MFA is mandatory.
-- Session maximum is seven days; multi-session is disabled.
+- Clerk dashboard settings match `src/server/auth/clerk-instance-policy.ts`: email one-time code
+  and Google OAuth are enabled, password and untested methods are disabled, verified email is
+  required, Operator MFA is mandatory, session maximum is seven days, and multi-session is disabled.
 - Email delivery, OAuth credentials, production domain, and allowed redirects are proven.
 - Clerk lifecycle and deletion webhooks target the verified production endpoint.
 - Traveler closure requires verification no older than five minutes.

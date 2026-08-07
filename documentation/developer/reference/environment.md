@@ -5,9 +5,15 @@ The app reads these environment variables.
 | Variable | Surface | Required For | Notes |
 | --- | --- | --- | --- |
 | `NEXT_PUBLIC_APP_URL` | Public/client-safe | Checkout URLs and canonical public URLs | Defaults exist in some local code paths, but set this in deployed environments. |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Public/client-safe | Clerk frontend SDK | Required by `ClerkProvider`, `SignIn`, `SignUp`, and chat auth UI. |
-| `CLERK_SECRET_KEY` | Server only | Clerk `auth()`, route protection, and backend API calls | Must not use the `NEXT_PUBLIC_` prefix. |
-| `CLERK_WEBHOOK_SIGNING_SECRET` | Server only | Clerk webhook verification | Required by `/api/clerk/webhooks`. |
+| `CLERK_AUTH_MODE` | Server only | Clerk perimeter mode | Explicit enum: `enabled` or `disabled`. Production and `protected-staging` require `enabled`; untrusted previews must be `disabled` and must not receive Clerk keys. Enablement is never inferred from key presence. |
+| `NEXT_PUBLIC_CLERK_AUTH_MODE` | Public/client-safe | Clerk UI mode | Explicit enum: `enabled` or `disabled`. Enabled deployments require this to match `CLERK_AUTH_MODE` so client Clerk UI cannot drift from the server perimeter. |
+| `CLERK_DEPLOYMENT_CONTEXT` | Server only | Clerk deployment matrix | Optional explicit enum: `local`, `test`, `build`, `preview`, `production`, or `protected-staging`. When omitted, the app uses `NODE_ENV` and `VERCEL_ENV` only to choose the context, not to infer auth enablement. |
+| `CLERK_AUTHORIZED_PARTIES` | Server only | Clerk middleware token-origin validation | Comma-separated exact URL origins passed to Clerk `authorizedParties`. Production and protected staging must exactly match `CLERK_PRODUCTION_ORIGIN` plus `CLERK_PROTECTED_STAGING_ORIGIN`; wildcard hosts, paths, credentials, query strings, fragments, and trailing slashes are rejected. |
+| `CLERK_PRODUCTION_ORIGIN` | Server only | Protected Clerk deployments | Exact production HTTPS origin. Required in production and protected staging so `authorizedParties` can include the production origin without trusting preview wildcards. |
+| `CLERK_PROTECTED_STAGING_ORIGIN` | Server only | Protected Clerk deployments | Exact stable protected-staging HTTPS origin. Required in production and protected staging. |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Public/client-safe | Clerk frontend SDK | Required only when `CLERK_AUTH_MODE=enabled`. |
+| `CLERK_SECRET_KEY` | Server only | Clerk `auth()`, route protection, and backend API calls | Required only when `CLERK_AUTH_MODE=enabled`. Must not use the `NEXT_PUBLIC_` prefix. |
+| `CLERK_WEBHOOK_SIGNING_SECRET` | Server only | Clerk webhook verification | Required only when `CLERK_AUTH_MODE=enabled`; `/api/clerk/webhooks` remains public at the proxy layer and verifies this signature in the handler. |
 | `NEXT_PUBLIC_CLERK_TELEMETRY_DISABLED` | Public/client-safe | Clerk SDK telemetry | Defaults to `1` in `next.config.ts`; set to `0` only when intentionally opting in to development telemetry. |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | Public/client-safe | Clerk sign-in routing | Set to `/sign-in` for the local prebuilt auth page. |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL` | Public/client-safe | Clerk post-sign-in redirects | Recommended default: `/chat`. |
@@ -59,6 +65,11 @@ The app reads these environment variables.
 | `NEXT_PUBLIC_POSTHOG_HOST` | Public/client-safe | PostHog host | Defaults in `.env.example` to the US PostHog ingest host. |
 
 Server-only secrets must not use the `NEXT_PUBLIC_` prefix. `getServerSecret` rejects public-prefixed names so sensitive provider keys do not move into client-facing bundles.
+
+Clerk instance settings are part of the deployment contract and are encoded in
+`src/server/auth/clerk-instance-policy.ts`: verified email is required, sign-in methods are email
+code and Google OAuth only, maximum session age is seven days, Operator MFA is required, and
+multiple simultaneous sessions are disabled.
 
 Chat model calls use a 15-second per-attempt deadline with one retry before fallback. Hosted web
 research uses a 25-second per-attempt deadline with one retry. Live weather, marine, tide, and
