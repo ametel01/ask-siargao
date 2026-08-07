@@ -9,6 +9,17 @@ import {
   getClerkPerimeterDecision,
 } from "@/proxy";
 
+const vercelSignalEnvFields = [
+  "VERCEL",
+  "VERCEL_BRANCH_URL",
+  "VERCEL_ENV",
+  "VERCEL_GIT_COMMIT_REF",
+  "VERCEL_PROJECT_ID",
+  "VERCEL_PROJECT_PRODUCTION_URL",
+  "VERCEL_TARGET_ENV",
+  "VERCEL_URL",
+] as const;
+
 describe("Clerk proxy perimeter", () => {
   test("allows public routes without Clerk protection", async () => {
     const auth = protectRecorder();
@@ -59,25 +70,86 @@ describe("Clerk proxy perimeter", () => {
 
   test("allows protected UI harness only with the local test flag and request header", async () => {
     const originalHarness = process.env.PLAYWRIGHT_PROTECTED_UI_HARNESS;
+    const originalHarnessToken = process.env.PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN;
     const originalMode = process.env.CLERK_AUTH_MODE;
     const originalContext = process.env.CLERK_DEPLOYMENT_CONTEXT;
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalVercelSignals = snapshotEnvValues(vercelSignalEnvFields);
     try {
+      clearEnvValues(vercelSignalEnvFields);
       process.env.CLERK_AUTH_MODE = "disabled";
       process.env.CLERK_DEPLOYMENT_CONTEXT = "local";
+      setEnvValue("NODE_ENV", "development");
       process.env.PLAYWRIGHT_PROTECTED_UI_HARNESS = "1";
+      process.env.PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN = "local-test-harness-token-1234567890";
 
       const response = applyDisabledClerkRoutePolicy(
         new NextRequest("https://asksiargao.test/settings", {
-          headers: { "x-ask-siargao-protected-ui-harness": "1" },
+          headers: {
+            "x-ask-siargao-protected-ui-harness": "1",
+            "x-ask-siargao-protected-ui-harness-token": "local-test-harness-token-1234567890",
+          },
         }),
       );
 
       expect(response.status).toBe(200);
       expect(applyDisabledClerkRoutePolicy("/settings").status).toBe(404);
+      expect(
+        applyDisabledClerkRoutePolicy(
+          new NextRequest("https://asksiargao.test/settings", {
+            headers: { "x-ask-siargao-protected-ui-harness": "1" },
+          }),
+        ).status,
+      ).toBe(404);
     } finally {
       restoreEnvValue("PLAYWRIGHT_PROTECTED_UI_HARNESS", originalHarness);
+      restoreEnvValue("PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN", originalHarnessToken);
       restoreEnvValue("CLERK_AUTH_MODE", originalMode);
       restoreEnvValue("CLERK_DEPLOYMENT_CONTEXT", originalContext);
+      restoreEnvValue("NODE_ENV", originalNodeEnv);
+      restoreEnvValues(originalVercelSignals);
+    }
+  });
+
+  test("denies protected UI harness when Vercel deployment signals exist", async () => {
+    const originalHarness = process.env.PLAYWRIGHT_PROTECTED_UI_HARNESS;
+    const originalHarnessToken = process.env.PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN;
+    const originalMode = process.env.CLERK_AUTH_MODE;
+    const originalContext = process.env.CLERK_DEPLOYMENT_CONTEXT;
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalProjectId = process.env.VERCEL_PROJECT_ID;
+    const originalProjectProductionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+    const originalVercelUrl = process.env.VERCEL_URL;
+    try {
+      process.env.CLERK_AUTH_MODE = "disabled";
+      process.env.CLERK_DEPLOYMENT_CONTEXT = "local";
+      setEnvValue("NODE_ENV", "development");
+      process.env.PLAYWRIGHT_PROTECTED_UI_HARNESS = "1";
+      process.env.PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN = "local-test-harness-token-1234567890";
+      process.env.VERCEL_PROJECT_ID = "prj_askSiargaoStableProject";
+      process.env.VERCEL_PROJECT_PRODUCTION_URL = "asksiargao.com";
+      process.env.VERCEL_URL = "ask-siargao-production-a1b2c3.vercel.app";
+
+      const response = applyDisabledClerkRoutePolicy(
+        new NextRequest("https://asksiargao.test/settings", {
+          headers: {
+            "x-ask-siargao-protected-ui-harness": "1",
+            "x-ask-siargao-protected-ui-harness-token": "local-test-harness-token-1234567890",
+          },
+        }),
+      );
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toMatchObject({ reason: "clerk_disabled_protected_route" });
+    } finally {
+      restoreEnvValue("PLAYWRIGHT_PROTECTED_UI_HARNESS", originalHarness);
+      restoreEnvValue("PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN", originalHarnessToken);
+      restoreEnvValue("CLERK_AUTH_MODE", originalMode);
+      restoreEnvValue("CLERK_DEPLOYMENT_CONTEXT", originalContext);
+      restoreEnvValue("NODE_ENV", originalNodeEnv);
+      restoreEnvValue("VERCEL_PROJECT_ID", originalProjectId);
+      restoreEnvValue("VERCEL_PROJECT_PRODUCTION_URL", originalProjectProductionUrl);
+      restoreEnvValue("VERCEL_URL", originalVercelUrl);
     }
   });
 
@@ -150,4 +222,27 @@ function restoreEnvValue(name: string, value: string | undefined) {
   }
 
   process.env[name] = value;
+}
+
+function setEnvValue(name: string, value: string) {
+  process.env[name] = value;
+}
+
+function snapshotEnvValues(names: readonly string[]) {
+  return Object.fromEntries(names.map((name) => [name, process.env[name]])) as Record<
+    string,
+    string | undefined
+  >;
+}
+
+function restoreEnvValues(values: Record<string, string | undefined>) {
+  for (const [name, value] of Object.entries(values)) {
+    restoreEnvValue(name, value);
+  }
+}
+
+function clearEnvValues(names: readonly string[]) {
+  for (const name of names) {
+    delete process.env[name];
+  }
 }

@@ -14,16 +14,25 @@ export type ClerkDeploymentEnv = Partial<
     | "CLERK_AUTHORIZED_PARTIES"
     | "CLERK_DEPLOYMENT_CONTEXT"
     | "CLERK_PRODUCTION_ORIGIN"
-    | "CLERK_PRODUCTION_VERCEL_URL"
+    | "CLERK_PROTECTED_STAGING_GIT_COMMIT_REF"
     | "CLERK_PROTECTED_STAGING_ORIGIN"
-    | "CLERK_PROTECTED_STAGING_VERCEL_URL"
+    | "CLERK_PROTECTED_STAGING_VERCEL_TARGET_ENV"
     | "CLERK_SECRET_KEY"
+    | "CLERK_VERCEL_PROJECT_ID"
     | "CLERK_WEBHOOK_SIGNING_SECRET"
     | "NEXT_PUBLIC_APP_URL"
     | "NEXT_PUBLIC_CLERK_AUTH_MODE"
     | "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
     | "NODE_ENV"
+    | "PLAYWRIGHT_PROTECTED_UI_HARNESS"
+    | "PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN"
+    | "VERCEL"
+    | "VERCEL_BRANCH_URL"
     | "VERCEL_ENV"
+    | "VERCEL_GIT_COMMIT_REF"
+    | "VERCEL_PROJECT_ID"
+    | "VERCEL_PROJECT_PRODUCTION_URL"
+    | "VERCEL_TARGET_ENV"
     | "VERCEL_URL",
     string | undefined
   >
@@ -41,9 +50,10 @@ export type EnabledClerkDeploymentConfig = {
   context: ClerkDeploymentContext;
   mode: "enabled";
   productionOrigin?: string;
-  productionVercelUrl?: string;
+  protectedStagingGitCommitRef?: string;
   protectedStagingOrigin?: string;
-  protectedStagingVercelUrl?: string;
+  protectedStagingTargetEnv?: string;
+  vercelProjectId?: string;
 };
 
 export type DisabledClerkDeploymentConfig = {
@@ -79,6 +89,17 @@ const deploymentContexts = new Set<ClerkDeploymentContext>([
   "test",
 ]);
 
+const vercelDeploymentSignalFields = [
+  "VERCEL",
+  "VERCEL_BRANCH_URL",
+  "VERCEL_ENV",
+  "VERCEL_GIT_COMMIT_REF",
+  "VERCEL_PROJECT_ID",
+  "VERCEL_PROJECT_PRODUCTION_URL",
+  "VERCEL_TARGET_ENV",
+  "VERCEL_URL",
+] as const;
+
 export function readClerkDeploymentConfig(
   env: ClerkDeploymentEnv = process.env,
 ): ClerkDeploymentConfigResult {
@@ -93,6 +114,7 @@ export function readClerkDeploymentConfig(
   }
 
   validatePublicClerkMode(env, mode, errors);
+  validateProtectedUiHarnessConfig(env, context, errors);
 
   if (mode === "disabled") {
     validateDisabledMode(env, context, errors);
@@ -102,18 +124,23 @@ export function readClerkDeploymentConfig(
   const canonicalOrigin = readRequiredOrigin(env, "NEXT_PUBLIC_APP_URL", context, errors);
   const authorizedParties = readAuthorizedParties(env, context, errors);
   const productionOrigin = readOptionalOrigin(env, "CLERK_PRODUCTION_ORIGIN", context, errors);
-  const productionVercelUrl = readOptionalVercelUrl(env, "CLERK_PRODUCTION_VERCEL_URL", errors);
   const protectedStagingOrigin = readOptionalOrigin(
     env,
     "CLERK_PROTECTED_STAGING_ORIGIN",
     context,
     errors,
   );
-  const protectedStagingVercelUrl = readOptionalVercelUrl(
+  const protectedStagingGitCommitRef = readOptionalExactIdentifier(
     env,
-    "CLERK_PROTECTED_STAGING_VERCEL_URL",
+    "CLERK_PROTECTED_STAGING_GIT_COMMIT_REF",
     errors,
   );
+  const protectedStagingTargetEnv = readOptionalExactIdentifier(
+    env,
+    "CLERK_PROTECTED_STAGING_VERCEL_TARGET_ENV",
+    errors,
+  );
+  const vercelProjectId = readOptionalExactIdentifier(env, "CLERK_VERCEL_PROJECT_ID", errors);
 
   for (const field of enabledRequiredFields) {
     if (!hasEnvValue(env[field])) {
@@ -140,10 +167,14 @@ export function readClerkDeploymentConfig(
       context,
       errors,
       productionOrigin,
-      productionVercelUrl,
+      protectedStagingGitCommitRef,
       protectedStagingOrigin,
-      protectedStagingVercelUrl,
-      vercelUrl: env.VERCEL_URL,
+      protectedStagingTargetEnv,
+      vercelGitCommitRef: env.VERCEL_GIT_COMMIT_REF,
+      vercelProjectId,
+      vercelProjectProductionUrl: env.VERCEL_PROJECT_PRODUCTION_URL,
+      vercelRuntimeProjectId: env.VERCEL_PROJECT_ID,
+      vercelTargetEnv: env.VERCEL_TARGET_ENV,
     });
   }
 
@@ -159,9 +190,10 @@ export function readClerkDeploymentConfig(
       context,
       mode,
       productionOrigin,
-      productionVercelUrl,
+      protectedStagingGitCommitRef,
       protectedStagingOrigin,
-      protectedStagingVercelUrl,
+      protectedStagingTargetEnv,
+      vercelProjectId,
     },
   };
 }
@@ -351,6 +383,59 @@ function validateDisabledMode(
   }
 }
 
+function validateProtectedUiHarnessConfig(
+  env: ClerkDeploymentEnv,
+  context: ClerkDeploymentContext,
+  errors: ClerkConfigError[],
+) {
+  if (env.PLAYWRIGHT_PROTECTED_UI_HARNESS !== "1") {
+    return;
+  }
+
+  if (env.CLERK_DEPLOYMENT_CONTEXT !== "local" && env.CLERK_DEPLOYMENT_CONTEXT !== "test") {
+    errors.push({
+      code: "protected_ui_harness_context_mismatch",
+      field: "CLERK_DEPLOYMENT_CONTEXT",
+      message: "PLAYWRIGHT_PROTECTED_UI_HARNESS requires explicit local or test context.",
+    });
+  }
+
+  if (context !== "local" && context !== "test") {
+    errors.push({
+      code: "protected_ui_harness_context_mismatch",
+      field: "PLAYWRIGHT_PROTECTED_UI_HARNESS",
+      message: "PLAYWRIGHT_PROTECTED_UI_HARNESS is only allowed in local or test context.",
+    });
+  }
+
+  if (env.NODE_ENV === "production") {
+    errors.push({
+      code: "protected_ui_harness_production_runtime",
+      field: "NODE_ENV",
+      message: "PLAYWRIGHT_PROTECTED_UI_HARNESS is not allowed when NODE_ENV=production.",
+    });
+  }
+
+  const firstVercelSignal = firstVercelDeploymentSignal(env);
+  if (firstVercelSignal) {
+    errors.push({
+      code: "protected_ui_harness_platform_signal",
+      field: firstVercelSignal,
+      message: "PLAYWRIGHT_PROTECTED_UI_HARNESS is not allowed with Vercel deployment signals.",
+    });
+  }
+
+  const token = env.PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN?.trim();
+  if (!token || token.length < 32) {
+    errors.push({
+      code: "protected_ui_harness_token_required",
+      field: "PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN",
+      message:
+        "PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN must be a test-only token of at least 32 characters.",
+    });
+  }
+}
+
 function readAuthorizedParties(
   env: ClerkDeploymentEnv,
   context: ClerkDeploymentContext,
@@ -405,16 +490,19 @@ function readOptionalOrigin(
   return parseExactOrigin(env[field], field, context, errors) ?? undefined;
 }
 
-function readOptionalVercelUrl(
+function readOptionalExactIdentifier(
   env: ClerkDeploymentEnv,
-  field: "CLERK_PRODUCTION_VERCEL_URL" | "CLERK_PROTECTED_STAGING_VERCEL_URL",
+  field:
+    | "CLERK_PROTECTED_STAGING_GIT_COMMIT_REF"
+    | "CLERK_PROTECTED_STAGING_VERCEL_TARGET_ENV"
+    | "CLERK_VERCEL_PROJECT_ID",
   errors: ClerkConfigError[],
 ) {
   if (!hasEnvValue(env[field])) {
     return undefined;
   }
 
-  return parseExactVercelUrl(env[field], field, errors) ?? undefined;
+  return parseExactIdentifier(env[field], field, errors) ?? undefined;
 }
 
 function parseExactOrigin(
@@ -519,16 +607,42 @@ function parseExactVercelUrl(value: string | undefined, field: string, errors: C
   return url.host;
 }
 
+function parseExactIdentifier(
+  value: string | undefined,
+  field: string,
+  errors: ClerkConfigError[],
+) {
+  const rawValue = value?.trim() ?? "";
+  if (!rawValue) {
+    return null;
+  }
+
+  if (rawValue.includes("*") || rawValue.includes(",") || /\s/.test(rawValue)) {
+    errors.push({
+      code: "non_exact_identifier_rejected",
+      field,
+      message: `${field} must be one exact identifier without wildcards, commas, or whitespace.`,
+    });
+    return null;
+  }
+
+  return rawValue;
+}
+
 function validateProtectedDeploymentOrigins(input: {
   authorizedParties: string[];
   canonicalOrigin: string | null;
   context: ClerkDeploymentContext;
   errors: ClerkConfigError[];
   productionOrigin: string | undefined;
-  productionVercelUrl: string | undefined;
+  protectedStagingGitCommitRef: string | undefined;
   protectedStagingOrigin: string | undefined;
-  protectedStagingVercelUrl: string | undefined;
-  vercelUrl: string | undefined;
+  protectedStagingTargetEnv: string | undefined;
+  vercelGitCommitRef: string | undefined;
+  vercelProjectId: string | undefined;
+  vercelProjectProductionUrl: string | undefined;
+  vercelRuntimeProjectId: string | undefined;
+  vercelTargetEnv: string | undefined;
 }) {
   if (!input.productionOrigin) {
     input.errors.push({
@@ -546,19 +660,24 @@ function validateProtectedDeploymentOrigins(input: {
     });
   }
 
-  if (input.context === "production" && !input.productionVercelUrl) {
+  if (!input.vercelProjectId) {
     input.errors.push({
-      code: "missing_production_vercel_url",
-      field: "CLERK_PRODUCTION_VERCEL_URL",
-      message: "CLERK_PRODUCTION_VERCEL_URL is required for production deployments.",
+      code: "missing_clerk_vercel_project_id",
+      field: "CLERK_VERCEL_PROJECT_ID",
+      message: "CLERK_VERCEL_PROJECT_ID is required for protected Clerk deployments.",
     });
   }
 
-  if (input.context === "protected-staging" && !input.protectedStagingVercelUrl) {
+  if (
+    input.context === "protected-staging" &&
+    !input.protectedStagingTargetEnv &&
+    !input.protectedStagingGitCommitRef
+  ) {
     input.errors.push({
-      code: "missing_protected_staging_vercel_url",
-      field: "CLERK_PROTECTED_STAGING_VERCEL_URL",
-      message: "CLERK_PROTECTED_STAGING_VERCEL_URL is required for protected staging deployments.",
+      code: "missing_protected_staging_identity",
+      field: "CLERK_PROTECTED_STAGING_VERCEL_TARGET_ENV",
+      message:
+        "Protected staging requires CLERK_PROTECTED_STAGING_VERCEL_TARGET_ENV or CLERK_PROTECTED_STAGING_GIT_COMMIT_REF.",
     });
   }
 
@@ -594,37 +713,112 @@ function validateProtectedDeploymentOrigins(input: {
     });
   }
 
-  validateVercelDeploymentUrl(input);
+  validateVercelStableDeploymentIdentity(input);
 }
 
-function validateVercelDeploymentUrl(input: {
+function validateVercelStableDeploymentIdentity(input: {
   context: ClerkDeploymentContext;
   errors: ClerkConfigError[];
-  productionVercelUrl: string | undefined;
-  protectedStagingVercelUrl: string | undefined;
-  vercelUrl: string | undefined;
+  productionOrigin: string | undefined;
+  protectedStagingGitCommitRef: string | undefined;
+  protectedStagingTargetEnv: string | undefined;
+  vercelGitCommitRef: string | undefined;
+  vercelProjectId: string | undefined;
+  vercelProjectProductionUrl: string | undefined;
+  vercelRuntimeProjectId: string | undefined;
+  vercelTargetEnv: string | undefined;
 }) {
-  const vercelUrl = parseExactVercelUrl(input.vercelUrl, "VERCEL_URL", input.errors);
-  if (!vercelUrl) {
-    if (!hasEnvValue(input.vercelUrl)) {
+  if (!hasEnvValue(input.vercelRuntimeProjectId)) {
+    input.errors.push({
+      code: "missing_vercel_project_id",
+      field: "VERCEL_PROJECT_ID",
+      message: `${input.context} deployments require the platform-provided VERCEL_PROJECT_ID.`,
+    });
+  } else if (input.vercelProjectId && input.vercelRuntimeProjectId !== input.vercelProjectId) {
+    input.errors.push({
+      code: "vercel_project_id_mismatch",
+      field: "VERCEL_PROJECT_ID",
+      message: "VERCEL_PROJECT_ID must match CLERK_VERCEL_PROJECT_ID.",
+    });
+  }
+
+  if (input.context === "production") {
+    validateProductionProjectUrl(input);
+    return;
+  }
+
+  validateProtectedStagingTargetIdentity(input);
+}
+
+function validateProductionProjectUrl(input: {
+  errors: ClerkConfigError[];
+  productionOrigin: string | undefined;
+  vercelProjectProductionUrl: string | undefined;
+}) {
+  const productionHost = input.productionOrigin ? new URL(input.productionOrigin).host : undefined;
+  const projectProductionHost = parseExactVercelUrl(
+    input.vercelProjectProductionUrl,
+    "VERCEL_PROJECT_PRODUCTION_URL",
+    input.errors,
+  );
+
+  if (!projectProductionHost) {
+    if (!hasEnvValue(input.vercelProjectProductionUrl)) {
       input.errors.push({
-        code: "missing_vercel_deployment_url",
-        field: "VERCEL_URL",
-        message: `${input.context} deployments require the platform-provided VERCEL_URL.`,
+        code: "missing_vercel_project_production_url",
+        field: "VERCEL_PROJECT_PRODUCTION_URL",
+        message: "Production deployments require VERCEL_PROJECT_PRODUCTION_URL.",
       });
     }
     return;
   }
 
-  const expected =
-    input.context === "production" ? input.productionVercelUrl : input.protectedStagingVercelUrl;
-
-  if (expected && vercelUrl !== expected) {
+  if (productionHost && projectProductionHost !== productionHost) {
     input.errors.push({
-      code: "vercel_deployment_url_mismatch",
-      field: "VERCEL_URL",
-      message: "VERCEL_URL must match the exact configured protected deployment host.",
+      code: "vercel_project_production_url_mismatch",
+      field: "VERCEL_PROJECT_PRODUCTION_URL",
+      message: "VERCEL_PROJECT_PRODUCTION_URL must match CLERK_PRODUCTION_ORIGIN.",
     });
+  }
+}
+
+function validateProtectedStagingTargetIdentity(input: {
+  errors: ClerkConfigError[];
+  protectedStagingGitCommitRef: string | undefined;
+  protectedStagingTargetEnv: string | undefined;
+  vercelGitCommitRef: string | undefined;
+  vercelTargetEnv: string | undefined;
+}) {
+  if (input.protectedStagingTargetEnv) {
+    if (!hasEnvValue(input.vercelTargetEnv)) {
+      input.errors.push({
+        code: "missing_vercel_target_env",
+        field: "VERCEL_TARGET_ENV",
+        message: "Protected staging requires the platform-provided VERCEL_TARGET_ENV.",
+      });
+    } else if (input.vercelTargetEnv !== input.protectedStagingTargetEnv) {
+      input.errors.push({
+        code: "vercel_target_env_mismatch",
+        field: "VERCEL_TARGET_ENV",
+        message: "VERCEL_TARGET_ENV must match CLERK_PROTECTED_STAGING_VERCEL_TARGET_ENV.",
+      });
+    }
+  }
+
+  if (input.protectedStagingGitCommitRef) {
+    if (!hasEnvValue(input.vercelGitCommitRef)) {
+      input.errors.push({
+        code: "missing_vercel_git_commit_ref",
+        field: "VERCEL_GIT_COMMIT_REF",
+        message: "Protected staging requires the platform-provided VERCEL_GIT_COMMIT_REF.",
+      });
+    } else if (input.vercelGitCommitRef !== input.protectedStagingGitCommitRef) {
+      input.errors.push({
+        code: "vercel_git_commit_ref_mismatch",
+        field: "VERCEL_GIT_COMMIT_REF",
+        message: "VERCEL_GIT_COMMIT_REF must match CLERK_PROTECTED_STAGING_GIT_COMMIT_REF.",
+      });
+    }
   }
 }
 
@@ -637,6 +831,16 @@ function isAllowedLocalhostOrigin(url: URL, context: ClerkDeploymentContext) {
 
 function isProtectedDeploymentContext(context: ClerkDeploymentContext) {
   return context === "production" || context === "protected-staging";
+}
+
+export function hasVercelDeploymentSignals(
+  env: Partial<Record<string, string | undefined>> = process.env,
+) {
+  return Boolean(firstVercelDeploymentSignal(env));
+}
+
+function firstVercelDeploymentSignal(env: Partial<Record<string, string | undefined>>) {
+  return vercelDeploymentSignalFields.find((field) => hasEnvValue(env[field]));
 }
 
 function sameStringSet(left: string[], right: string[]) {

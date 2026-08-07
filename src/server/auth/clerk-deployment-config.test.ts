@@ -7,23 +7,30 @@ import {
 
 const productionOrigin = "https://asksiargao.com";
 const stagingOrigin = "https://staging.asksiargao.com";
-const productionVercelUrl = "ask-siargao-production.vercel.app";
-const stagingVercelUrl = "ask-siargao-staging.vercel.app";
+const productionProjectUrl = "asksiargao.com";
+const productionVercelUrl = "ask-siargao-production-a1b2c3.vercel.app";
+const stagingBranch = "protected-staging";
+const stagingTargetEnv = "staging";
+const stagingVercelUrl = "ask-siargao-staging-a1b2c3.vercel.app";
+const vercelProjectId = "prj_askSiargaoStableProject";
 
 const completeProductionEnv = {
   CLERK_AUTH_MODE: "enabled",
   CLERK_AUTHORIZED_PARTIES: `${productionOrigin},${stagingOrigin}`,
   CLERK_DEPLOYMENT_CONTEXT: "production",
   CLERK_PRODUCTION_ORIGIN: productionOrigin,
-  CLERK_PRODUCTION_VERCEL_URL: productionVercelUrl,
+  CLERK_PROTECTED_STAGING_GIT_COMMIT_REF: stagingBranch,
   CLERK_PROTECTED_STAGING_ORIGIN: stagingOrigin,
-  CLERK_PROTECTED_STAGING_VERCEL_URL: stagingVercelUrl,
+  CLERK_PROTECTED_STAGING_VERCEL_TARGET_ENV: stagingTargetEnv,
   CLERK_SECRET_KEY: "sk_live_secret",
+  CLERK_VERCEL_PROJECT_ID: vercelProjectId,
   CLERK_WEBHOOK_SIGNING_SECRET: "whsec_secret",
   NEXT_PUBLIC_APP_URL: productionOrigin,
   NEXT_PUBLIC_CLERK_AUTH_MODE: "enabled",
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_live_public",
   VERCEL_ENV: "production",
+  VERCEL_PROJECT_ID: vercelProjectId,
+  VERCEL_PROJECT_PRODUCTION_URL: productionProjectUrl,
   VERCEL_URL: productionVercelUrl,
 } as const;
 
@@ -49,9 +56,10 @@ describe("Clerk deployment configuration", () => {
         context: "production",
         mode: "enabled",
         productionOrigin,
-        productionVercelUrl,
+        protectedStagingGitCommitRef: stagingBranch,
         protectedStagingOrigin: stagingOrigin,
-        protectedStagingVercelUrl: stagingVercelUrl,
+        protectedStagingTargetEnv: stagingTargetEnv,
+        vercelProjectId,
       },
     });
 
@@ -60,7 +68,9 @@ describe("Clerk deployment configuration", () => {
         ...completeProductionEnv,
         CLERK_DEPLOYMENT_CONTEXT: "protected-staging",
         NEXT_PUBLIC_APP_URL: stagingOrigin,
+        VERCEL_GIT_COMMIT_REF: stagingBranch,
         VERCEL_ENV: "preview",
+        VERCEL_TARGET_ENV: stagingTargetEnv,
         VERCEL_URL: stagingVercelUrl,
       }),
     ).toMatchObject({
@@ -125,6 +135,7 @@ describe("Clerk deployment configuration", () => {
       "CLERK_WEBHOOK_SIGNING_SECRET",
       "NEXT_PUBLIC_APP_URL",
       "CLERK_AUTHORIZED_PARTIES",
+      "CLERK_VERCEL_PROJECT_ID",
     ] as const;
 
     for (const field of fields) {
@@ -172,6 +183,49 @@ describe("Clerk deployment configuration", () => {
     expect(errorCodes(result)).toContain("production_platform_context_mismatch");
   });
 
+  test("accepts protected deployments when generated Vercel deployment URLs change", () => {
+    expect(
+      readClerkDeploymentConfig({
+        ...completeProductionEnv,
+        VERCEL_URL: "ask-siargao-production-x9y8z7.vercel.app",
+      }).ok,
+    ).toBe(true);
+
+    expect(
+      readClerkDeploymentConfig({
+        ...completeProductionEnv,
+        CLERK_DEPLOYMENT_CONTEXT: "protected-staging",
+        NEXT_PUBLIC_APP_URL: stagingOrigin,
+        VERCEL_ENV: "preview",
+        VERCEL_GIT_COMMIT_REF: stagingBranch,
+        VERCEL_TARGET_ENV: stagingTargetEnv,
+        VERCEL_URL: "ask-siargao-staging-x9y8z7.vercel.app",
+      }).ok,
+    ).toBe(true);
+  });
+
+  test("rejects protected deployments with the wrong stable Vercel project identity", () => {
+    const result = readClerkDeploymentConfig({
+      ...completeProductionEnv,
+      VERCEL_PROJECT_ID: "prj_untrustedProject",
+      VERCEL_URL: "ask-siargao-production-x9y8z7.vercel.app",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(errorCodes(result)).toContain("vercel_project_id_mismatch");
+  });
+
+  test("rejects production deployments with the wrong stable Vercel production URL", () => {
+    const result = readClerkDeploymentConfig({
+      ...completeProductionEnv,
+      VERCEL_PROJECT_PRODUCTION_URL: "wrong.example.com",
+      VERCEL_URL: "ask-siargao-production-x9y8z7.vercel.app",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(errorCodes(result)).toContain("vercel_project_production_url_mismatch");
+  });
+
   test("rejects ordinary previews that claim protected staging with live secrets", () => {
     const result = readClerkDeploymentConfig({
       ...completeProductionEnv,
@@ -182,21 +236,66 @@ describe("Clerk deployment configuration", () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(errorCodes(result)).toContain("vercel_deployment_url_mismatch");
+    expect(errorCodes(result)).toContain("missing_vercel_target_env");
   });
 
-  test("rejects protected staging without the exact platform deployment identity", () => {
+  test("rejects protected staging without the configured stable target or branch identity", () => {
     const result = readClerkDeploymentConfig({
       ...completeProductionEnv,
       CLERK_DEPLOYMENT_CONTEXT: "protected-staging",
-      CLERK_PROTECTED_STAGING_VERCEL_URL: undefined,
+      CLERK_PROTECTED_STAGING_GIT_COMMIT_REF: undefined,
+      CLERK_PROTECTED_STAGING_VERCEL_TARGET_ENV: undefined,
       NEXT_PUBLIC_APP_URL: stagingOrigin,
       VERCEL_ENV: "preview",
+      VERCEL_GIT_COMMIT_REF: stagingBranch,
+      VERCEL_TARGET_ENV: stagingTargetEnv,
       VERCEL_URL: stagingVercelUrl,
     });
 
     expect(result.ok).toBe(false);
-    expect(errorCodes(result)).toContain("missing_protected_staging_vercel_url");
+    expect(errorCodes(result)).toContain("missing_protected_staging_identity");
+  });
+
+  test("rejects protected staging with the wrong target or branch identity", () => {
+    const wrongTarget = readClerkDeploymentConfig({
+      ...completeProductionEnv,
+      CLERK_DEPLOYMENT_CONTEXT: "protected-staging",
+      NEXT_PUBLIC_APP_URL: stagingOrigin,
+      VERCEL_ENV: "preview",
+      VERCEL_GIT_COMMIT_REF: stagingBranch,
+      VERCEL_TARGET_ENV: "preview",
+      VERCEL_URL: "random-preview.vercel.app",
+    });
+    const wrongBranch = readClerkDeploymentConfig({
+      ...completeProductionEnv,
+      CLERK_DEPLOYMENT_CONTEXT: "protected-staging",
+      NEXT_PUBLIC_APP_URL: stagingOrigin,
+      VERCEL_ENV: "preview",
+      VERCEL_GIT_COMMIT_REF: "feature-preview",
+      VERCEL_TARGET_ENV: stagingTargetEnv,
+      VERCEL_URL: "random-preview.vercel.app",
+    });
+
+    expect(errorCodes(wrongTarget)).toContain("vercel_target_env_mismatch");
+    expect(errorCodes(wrongBranch)).toContain("vercel_git_commit_ref_mismatch");
+  });
+
+  test("rejects local and test protected UI harness config with Vercel deployment signals", () => {
+    for (const context of ["local", "test"] as const) {
+      const result = readClerkDeploymentConfig({
+        CLERK_AUTH_MODE: "disabled",
+        CLERK_DEPLOYMENT_CONTEXT: context,
+        NEXT_PUBLIC_CLERK_AUTH_MODE: "disabled",
+        PLAYWRIGHT_PROTECTED_UI_HARNESS: "1",
+        PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN: "local-test-harness-token-1234567890",
+        VERCEL_PROJECT_ID: vercelProjectId,
+        VERCEL_PROJECT_PRODUCTION_URL: productionProjectUrl,
+        VERCEL_URL: productionVercelUrl,
+      });
+
+      expect(result.ok, context).toBe(false);
+      expect(errorCodes(result), context).toContain("protected_ui_harness_platform_signal");
+    }
   });
 
   test("rejects wildcard, path, credential, query, fragment, and insecure deployed origins", () => {

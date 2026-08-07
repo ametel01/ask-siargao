@@ -1,6 +1,10 @@
 import { expect, type Page, test } from "@playwright/test";
 
-const protectedUiHarnessHeader = { "x-ask-siargao-protected-ui-harness": "1" };
+const protectedUiHarnessHeader = {
+  "x-ask-siargao-protected-ui-harness": "1",
+  "x-ask-siargao-protected-ui-harness-token":
+    "ask-siargao-playwright-protected-ui-harness-token-2026",
+};
 
 async function enableProtectedUiHarness(page: Page, headers: Record<string, string> = {}) {
   await page.setExtraHTTPHeaders({ ...protectedUiHarnessHeader, ...headers });

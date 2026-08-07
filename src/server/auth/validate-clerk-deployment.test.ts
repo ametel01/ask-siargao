@@ -2,23 +2,29 @@ import { describe, expect, test } from "bun:test";
 
 const productionOrigin = "https://asksiargao.com";
 const stagingOrigin = "https://staging.asksiargao.com";
-const productionVercelUrl = "ask-siargao-production.vercel.app";
-const stagingVercelUrl = "ask-siargao-staging.vercel.app";
+const productionProjectUrl = "asksiargao.com";
+const productionVercelUrl = "ask-siargao-production-a1b2c3.vercel.app";
+const stagingBranch = "protected-staging";
+const stagingTargetEnv = "staging";
+const vercelProjectId = "prj_askSiargaoStableProject";
 
 const completeProductionEnv = {
   CLERK_AUTH_MODE: "enabled",
   CLERK_AUTHORIZED_PARTIES: `${productionOrigin},${stagingOrigin}`,
   CLERK_DEPLOYMENT_CONTEXT: "production",
   CLERK_PRODUCTION_ORIGIN: productionOrigin,
-  CLERK_PRODUCTION_VERCEL_URL: productionVercelUrl,
+  CLERK_PROTECTED_STAGING_GIT_COMMIT_REF: stagingBranch,
   CLERK_PROTECTED_STAGING_ORIGIN: stagingOrigin,
-  CLERK_PROTECTED_STAGING_VERCEL_URL: stagingVercelUrl,
+  CLERK_PROTECTED_STAGING_VERCEL_TARGET_ENV: stagingTargetEnv,
   CLERK_SECRET_KEY: "sk_live_never_print",
+  CLERK_VERCEL_PROJECT_ID: vercelProjectId,
   CLERK_WEBHOOK_SIGNING_SECRET: "whsec_never_print",
   NEXT_PUBLIC_APP_URL: productionOrigin,
   NEXT_PUBLIC_CLERK_AUTH_MODE: "enabled",
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_live_public",
   VERCEL_ENV: "production",
+  VERCEL_PROJECT_ID: vercelProjectId,
+  VERCEL_PROJECT_PRODUCTION_URL: productionProjectUrl,
   VERCEL_URL: productionVercelUrl,
 } as const;
 
@@ -30,6 +36,16 @@ describe("Clerk deployment validation command", () => {
     expect(result.stdout).toContain("production/enabled");
     expect(result.stderr).not.toContain("sk_live_never_print");
     expect(result.stderr).not.toContain("whsec_never_print");
+  });
+
+  test("passes production redeploys with changed generated Vercel URLs", async () => {
+    const result = await runValidationCommand({
+      ...completeProductionEnv,
+      VERCEL_URL: "ask-siargao-production-x9y8z7.vercel.app",
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("production/enabled");
   });
 
   test("fails missing production mode before a request can be served", async () => {
@@ -88,8 +104,24 @@ describe("Clerk deployment validation command", () => {
     });
 
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("vercel_deployment_url_mismatch");
+    expect(result.stderr).toContain("missing_vercel_target_env");
     expect(result.stderr).not.toContain("sk_live_never_print");
+  });
+
+  test("fails local protected UI harness config with Vercel deployment signals", async () => {
+    const result = await runValidationCommand({
+      CLERK_AUTH_MODE: "disabled",
+      CLERK_DEPLOYMENT_CONTEXT: "local",
+      NEXT_PUBLIC_CLERK_AUTH_MODE: "disabled",
+      PLAYWRIGHT_PROTECTED_UI_HARNESS: "1",
+      PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN: "local-test-harness-token-1234567890",
+      VERCEL_PROJECT_ID: vercelProjectId,
+      VERCEL_PROJECT_PRODUCTION_URL: productionProjectUrl,
+      VERCEL_URL: productionVercelUrl,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("protected_ui_harness_platform_signal");
   });
 });
 

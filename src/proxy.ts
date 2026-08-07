@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import {
   formatClerkConfigErrors,
+  hasVercelDeploymentSignals,
   readClerkDeploymentConfig,
 } from "@/server/auth/clerk-deployment-config";
 import { getClerkRoutePolicy } from "@/server/auth/clerk-route-policy";
@@ -113,10 +114,17 @@ function clerkConfigurationFailure(errors: Parameters<typeof formatClerkConfigEr
 }
 
 function isProtectedUiHarnessRequest(requestOrPathname: NextRequest | string) {
+  const token = process.env.PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN?.trim();
+
   if (
     typeof requestOrPathname === "string" ||
     process.env.PLAYWRIGHT_PROTECTED_UI_HARNESS !== "1" ||
-    requestOrPathname.headers.get("x-ask-siargao-protected-ui-harness") !== "1"
+    process.env.NODE_ENV === "production" ||
+    hasVercelDeploymentSignals() ||
+    !token ||
+    token.length < 32 ||
+    requestOrPathname.headers.get("x-ask-siargao-protected-ui-harness") !== "1" ||
+    requestOrPathname.headers.get("x-ask-siargao-protected-ui-harness-token") !== token
   ) {
     return false;
   }
