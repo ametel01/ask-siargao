@@ -21,6 +21,8 @@ export async function runPaidAnswerReservationPostgresIntegration(harness: Postg
         "final-unit-capacity",
         "durable-result-replay",
         "finalize-before-full-refund",
+        "finalize-before-dispute-loss",
+        "finalize-before-account-closure",
         "full-refund-before-finalize",
         "dispute-loss-before-finalize",
         "account-closure-before-finalize",
@@ -50,6 +52,24 @@ async function runFinalUnitRegression(harness: PostgresHarness) {
       `insert into trip_usage_meters (id, trip_pass_id, meter_type, used, "limit")
        values ('paid_answer_pg_meter', 'paid_answer_pg_pass', 'chat_message', 149, 150)`,
     );
+    const stale = await reservePaidAnswer({
+      accountId: "paid_answer_pg_user",
+      bodyHash: "paid_answer_pg_body_stale",
+      db: setup,
+      idempotencyKeyHash: "paid_answer_pg_key_stale",
+      requestId: "paid_answer_pg_request_stale",
+    });
+    assertEqual(stale.status, "reserved", "the stale-capacity setup must reserve the final unit");
+    if (stale.status !== "reserved") {
+      throw new Error("paid answer stale-capacity reservation was unavailable");
+    }
+    await setup.query(
+      `update paid_answer_reservations
+       set reserved_at = clock_timestamp() - interval '20 minutes',
+         lease_expires_at = clock_timestamp() - interval '10 minutes'
+       where id = $1`,
+      [stale.reservationId],
+    );
 
     const [left, right] = await Promise.all([
       reservePaidAnswer({
@@ -71,11 +91,46 @@ async function runFinalUnitRegression(harness: PostgresHarness) {
     const denied = [left, right].filter((result) => result.status === "limit_reached");
     assertEqual(reserved.length, 1, "exactly one final-unit reservation must open");
     assertEqual(denied.length, 1, "the competing final-unit reservation must fail closed");
+    const recovery = await setup.query<{ open_count: string; released_count: string }>(
+      `select
+         count(*) filter (where status = 'open')::text as open_count,
+         count(*) filter (
+           where status = 'released' and release_reason = 'stale_lease'
+         )::text as released_count
+       from paid_answer_reservations where trip_pass_id = 'paid_answer_pg_pass'`,
+    );
+    assertEqual(
+      recovery.rows[0]?.released_count,
+      "1",
+      "different-key recovery must durably release the expired reservation",
+    );
+    assertEqual(
+      recovery.rows[0]?.open_count,
+      "1",
+      "concurrent recovery must leave exactly one final-unit reservation open",
+    );
     const winner = reserved[0];
     if (winner?.status !== "reserved") {
       throw new Error("paid answer final-unit winner was not available");
     }
     const winningSuffix = left.status === "reserved" ? "left" : "right";
+
+    const staleFinalization = await finalizePaidAnswer({
+      accountId: "paid_answer_pg_user",
+      answerMessageId: "paid_answer_pg_stale_message",
+      db: setup,
+      leaseToken: stale.leaseToken,
+      providerRequestIds: [],
+      reservationId: stale.reservationId,
+      persistAnswer: async () => {
+        throw new Error("an expired reservation must not reach answer persistence");
+      },
+    });
+    assertEqual(
+      staleFinalization.status,
+      "released",
+      "the expired worker must remain fenced after different-key recovery",
+    );
 
     const finalized = await finalizePaidAnswer({
       accountId: "paid_answer_pg_user",
@@ -139,19 +194,23 @@ async function runFinalUnitRegression(harness: PostgresHarness) {
 }
 
 async function runTerminalLifecycleRaces(harness: PostgresHarness) {
-  await runFinalizeWinsFullRefundRace(harness);
+  await runFinalizeWinsTerminalRace(harness, "full_refund");
+  await runFinalizeWinsTerminalRace(harness, "dispute_lost");
   await runTerminalWinsRace(harness, "full_refund");
   await runTerminalWinsRace(harness, "dispute_lost");
 }
 
-async function runFinalizeWinsFullRefundRace(harness: PostgresHarness) {
+async function runFinalizeWinsTerminalRace(
+  harness: PostgresHarness,
+  terminal: "full_refund" | "dispute_lost",
+) {
   const setup = harness.createQueryClient();
   const finalizer = harness.createQueryClient();
   const lifecycle = harness.createQueryClient();
   const observer = harness.createQueryClient();
   const finalizerHasAccountLock = deferred<void>();
   const releaseFinalizer = deferred<void>();
-  const target = raceTarget("finalize_first_refund");
+  const target = raceTarget(`finalize_first_${terminal}`);
   try {
     await seedRaceTarget(setup, target);
     const reservation = await reserveRaceAnswer(setup, target);
@@ -163,13 +222,16 @@ async function runFinalizeWinsFullRefundRace(harness: PostgresHarness) {
     const lifecyclePid = await backendPid(lifecycle);
     const finalization = finalizeRaceAnswer(gatedFinalizer, target, reservation);
     await finalizerHasAccountLock.promise;
-    const refund = applyAuthoritativeRefundFact(fullRefundFact(target), lifecycle);
+    const terminalApplication =
+      terminal === "full_refund"
+        ? applyAuthoritativeRefundFact(fullRefundFact(target), lifecycle)
+        : applyAuthoritativeDisputeFact(lostDisputeFact(target), lifecycle);
     await waitForLockWait(observer, lifecyclePid);
     releaseFinalizer.resolve();
 
-    const [finalized, refunded] = await Promise.all([finalization, refund]);
+    const [finalized, applied] = await Promise.all([finalization, terminalApplication]);
     assertEqual(finalized.status, "settled", "finalization holding the account lock must settle");
-    assertEqual(refunded.status, "applied", "the queued full refund must apply after settlement");
+    assertEqual(applied.status, "applied", `the queued ${terminal} must apply after settlement`);
     await assertRaceState(setup, target, {
       messageCount: "1",
       meterUsed: 1,
@@ -230,6 +292,55 @@ async function runTerminalWinsRace(
 }
 
 async function runAccountClosureRace(harness: PostgresHarness) {
+  await runFinalizeWinsAccountClosureRace(harness);
+  await runAccountClosureWinsRace(harness);
+}
+
+async function runFinalizeWinsAccountClosureRace(harness: PostgresHarness) {
+  const setup = harness.createQueryClient();
+  const closureClient = harness.createQueryClient();
+  const finalizer = harness.createQueryClient();
+  const observer = harness.createQueryClient();
+  const finalizerHasAccountLock = deferred<void>();
+  const releaseFinalizer = deferred<void>();
+  const target = raceTarget("finalize_first_account_closure");
+  try {
+    await seedRaceTarget(setup, target);
+    const reservation = await reserveRaceAnswer(setup, target);
+    const gatedFinalizer = gateAfterAccountLock(
+      finalizer,
+      finalizerHasAccountLock,
+      releaseFinalizer,
+    );
+    const finalization = finalizeRaceAnswer(gatedFinalizer, target, reservation);
+    await finalizerHasAccountLock.promise;
+    const closurePid = await backendPid(closureClient);
+    const closure = beginAccountClosure(
+      { now: new Date("2026-08-08T00:00:00.000Z"), userId: target.accountId },
+      {
+        createId: (prefix) => `${prefix}_${target.suffix}`,
+        db: closureClient,
+        policy: closureRacePolicy,
+      },
+    );
+    await waitForLockWait(observer, closurePid);
+    releaseFinalizer.resolve();
+
+    const [finalized, closed] = await Promise.all([finalization, closure]);
+    assertEqual(finalized.status, "settled", "finalization must commit before queued closure");
+    assertEqual(closed.status, "closed", "queued account closure must apply after finalization");
+    await assertRaceState(setup, target, {
+      messageCount: "1",
+      meterUsed: 1,
+      reservationStatus: "settled",
+    });
+  } finally {
+    releaseFinalizer.resolve();
+    await Promise.all([setup.end(), closureClient.end(), finalizer.end(), observer.end()]);
+  }
+}
+
+async function runAccountClosureWinsRace(harness: PostgresHarness) {
   const setup = harness.createQueryClient();
   const closureClient = harness.createQueryClient();
   const finalizer = harness.createQueryClient();

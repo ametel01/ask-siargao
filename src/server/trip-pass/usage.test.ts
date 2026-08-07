@@ -446,6 +446,58 @@ describe("paid Trip Pass chat usage", () => {
     });
   });
 
+  test("recovers expired capacity when a different idempotency key reserves the final unit", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_stale_capacity", "trip_pass_paid_stale_capacity");
+      await setMeterUsed(db, "trip_pass_paid_stale_capacity", "chat_message", 149);
+      const store = createMemoryQuotaStore();
+      const stale = await openChatUsageSession({
+        bodyHash: "body_hash_stale_capacity_old",
+        db,
+        idempotencyKey: "token_hash_stale_capacity_old",
+        now,
+        requestId: "request_paid_stale_capacity_old",
+        store,
+        userId: "user_paid_stale_capacity",
+      });
+      expect(stale.status).toBe("allowed");
+      await db.query(
+        `update paid_answer_reservations
+         set reserved_at = clock_timestamp() - interval '20 minutes',
+           lease_expires_at = clock_timestamp() - interval '10 minutes'
+         where idempotency_key_hash = 'token_hash_stale_capacity_old'`,
+      );
+
+      const fresh = await openChatUsageSession({
+        bodyHash: "body_hash_stale_capacity_new",
+        db,
+        idempotencyKey: "token_hash_stale_capacity_new",
+        now,
+        requestId: "request_paid_stale_capacity_new",
+        store,
+        userId: "user_paid_stale_capacity",
+      });
+
+      expect(fresh.status).toBe("allowed");
+      await expectReservationStatus(db, "body_hash_stale_capacity_old", "released");
+      await expectReservationStatus(db, "body_hash_stale_capacity_new", "open");
+      if (stale.status === "allowed") {
+        await expect(
+          stale.settle({
+            answerMessageId: "answer_stale_capacity_old",
+            persistAnswer: paidAnswerPersistence(
+              db,
+              "user_paid_stale_capacity",
+              "answer_stale_capacity_old",
+            ),
+            success: true,
+          }),
+        ).resolves.toMatchObject({ status: "released" });
+      }
+      await expectMeterUsed(db, "trip_pass_paid_stale_capacity", 149);
+    });
+  });
+
   test("rolls answer persistence and meter settlement back together, then retries", async () => {
     await withTestDb(async (db) => {
       await seedActivePass(db, "user_paid_atomic", "trip_pass_paid_atomic");

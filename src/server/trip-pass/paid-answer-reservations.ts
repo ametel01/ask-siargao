@@ -124,6 +124,7 @@ export async function reservePaidAnswer(input: {
       return classifyUnavailablePass(input.accountId, transaction);
     }
 
+    await releaseExpiredOpenReservations(effective.trip_pass_id, databaseNow, transaction);
     const openCount = await countOpenReservations(effective.trip_pass_id, transaction);
     if (effective.used + openCount >= effective.limit) {
       return {
@@ -434,6 +435,20 @@ async function countOpenReservations(passId: string, db: DatabaseQueryClient) {
     [passId],
   );
   return Number(result.rows[0]?.count ?? 0);
+}
+
+async function releaseExpiredOpenReservations(
+  passId: string,
+  databaseNow: Date,
+  db: DatabaseQueryClient,
+) {
+  await db.query(
+    `update paid_answer_reservations
+     set status = 'released', release_reason = 'stale_lease', released_at = $2,
+       updated_at = $2
+     where trip_pass_id = $1 and status = 'open' and lease_expires_at <= $2`,
+    [passId, databaseNow],
+  );
 }
 
 async function acquireAccountProductFamilyLocks(accountId: string, db: DatabaseQueryClient) {
