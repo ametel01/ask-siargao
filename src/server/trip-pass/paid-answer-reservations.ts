@@ -59,6 +59,7 @@ type ReservationRow = {
   status: "open" | "settled" | "released" | "invalidated";
   result_json: unknown;
   lease_expires_at: Date | string;
+  details_purged_at: Date | string | null;
 };
 
 type MeterRow = {
@@ -72,6 +73,16 @@ type EffectiveMeterRow = MeterRow & {
   pass_status: string;
   starts_at: Date | string;
   expires_at: Date | string;
+};
+
+type PaidAnswerPurgeCandidateRow = {
+  id: string;
+  account_id: string;
+};
+
+type PaidAnswerPurgeRow = PaidAnswerPurgeCandidateRow & {
+  trip_pass_id: string;
+  usage_meter_id: string;
 };
 
 const reservationLeaseMinutes = 10;
@@ -88,13 +99,17 @@ export async function reservePaidAnswer(input: {
   return withTransaction(input.db, async (transaction) => {
     await acquireAccountProductFamilyLocks(input.accountId, transaction);
     const databaseNow = await readDatabaseClock(transaction);
-    const existing = await loadReservationForUpdate(
-      input.accountId,
-      input.idempotencyKeyHash,
-      transaction,
-    );
+    const reservationId = paidAnswerReservationId(input.accountId, input.idempotencyKeyHash);
+    const existing =
+      (await loadReservationForUpdate(input.accountId, input.idempotencyKeyHash, transaction)) ??
+      (await loadReservationByIdForUpdate(input.accountId, reservationId, transaction));
 
     if (existing) {
+      if (existing.details_purged_at) {
+        return existing.status === "invalidated"
+          ? { status: "not_applicable", reason: "revoked" }
+          : { status: "in_progress" };
+      }
       if (existing.request_body_hash !== input.bodyHash) {
         return { status: "conflict" };
       }
@@ -136,9 +151,6 @@ export async function reservePaidAnswer(input: {
     const leaseToken = randomUUID();
     const leaseExpiresAt = addMinutes(databaseNow, reservationLeaseMinutes);
     const detailsPurgeAt = addDays(databaseNow, detailRetentionDays(input.env));
-    const reservationId =
-      existing?.id ?? paidAnswerReservationId(input.accountId, input.idempotencyKeyHash);
-
     if (existing) {
       await transaction.query(
         `update paid_answer_reservations
@@ -351,36 +363,67 @@ export async function purgeExpiredPaidAnswerDetails(
   if (!Number.isInteger(limit) || limit < 1 || limit > 1_000) {
     throw new Error("paid answer purge limit must be between 1 and 1000");
   }
+  if (db.inTransaction) {
+    throw new Error("paid answer purge requires a database client outside a transaction");
+  }
+
+  const candidates = await db.query<PaidAnswerPurgeCandidateRow>(
+    `select id, account_id
+     from paid_answer_reservations
+     where details_purged_at is null and details_purge_at <= clock_timestamp()
+       and status <> 'open'
+     order by account_id, details_purge_at, id
+     limit $1`,
+    [limit],
+  );
+  let purged = 0;
+  for (const candidate of candidates.rows) {
+    purged += await purgePaidAnswerCandidate(candidate, db);
+  }
+  return purged;
+}
+
+async function purgePaidAnswerCandidate(
+  candidate: PaidAnswerPurgeCandidateRow,
+  db: DatabaseQueryClient,
+) {
   return withTransaction(db, async (transaction) => {
-    const result = await transaction.query<{ id: string }>(
-      `with candidates as materialized (
-       select id, trip_pass_id, usage_meter_id, account_id
+    await acquireAccountProductFamilyLocks(candidate.account_id, transaction);
+    const locked = await transaction.query<PaidAnswerPurgeRow>(
+      `select id, trip_pass_id, usage_meter_id, account_id
        from paid_answer_reservations
-       where details_purged_at is null and details_purge_at <= clock_timestamp()
-         and status <> 'open'
-       order by details_purge_at, id
-       limit $1
-       for update skip locked
-     ), scrubbed_events as (
-       update trip_usage_events e
+       where id = $1 and account_id = $2 and details_purged_at is null
+         and details_purge_at <= clock_timestamp() and status <> 'open'
+       for update`,
+      [candidate.id, candidate.account_id],
+    );
+    const reservation = locked.rows[0];
+    if (!reservation) return 0;
+
+    await transaction.query(
+      `update trip_usage_events
        set request_id = null, request_hash = null, provider_request_ids_json = '[]'::jsonb
-       from candidates c
-       where e.id = 'trip_usage_event_' || c.id
-         and e.trip_pass_id = c.trip_pass_id
-         and e.usage_meter_id = c.usage_meter_id
-         and e.user_id = c.account_id
-         and e.idempotency_key = 'paid-answer:' || c.id
-       returning e.id
-     )
-     update paid_answer_reservations r
-     set request_body_hash = 'purged:' || r.id, request_id = 'purged:' || r.id,
-       idempotency_key_hash = 'purged:' || r.id, answer_message_id = null, result_json = null,
-       provider_request_ids_json = '[]'::jsonb, details_purged_at = clock_timestamp(),
-       updated_at = clock_timestamp()
-     from candidates c
-     where r.id = c.id and (select count(*) from scrubbed_events) >= 0
-     returning r.id`,
-      [limit],
+       where id = 'trip_usage_event_' || $1
+         and trip_pass_id = $2
+         and usage_meter_id = $3
+         and user_id = $4
+         and idempotency_key = 'paid-answer:' || $1`,
+      [
+        reservation.id,
+        reservation.trip_pass_id,
+        reservation.usage_meter_id,
+        reservation.account_id,
+      ],
+    );
+    const result = await transaction.query<{ id: string }>(
+      `update paid_answer_reservations
+       set request_body_hash = 'purged:' || id, request_id = 'purged:' || id,
+         idempotency_key_hash = 'purged:' || id, answer_message_id = null, result_json = null,
+         provider_request_ids_json = '[]'::jsonb, details_purged_at = clock_timestamp(),
+         updated_at = clock_timestamp()
+       where id = $1 and account_id = $2 and details_purged_at is null
+       returning id`,
+      [reservation.id, reservation.account_id],
     );
     return result.rows.length;
   });
@@ -425,7 +468,8 @@ async function loadReservationForUpdate(
 ) {
   const result = await db.query<ReservationRow>(
     `select id, trip_pass_id, usage_meter_id, account_id, idempotency_key_hash,
-       request_body_hash, request_id, lease_token, status, result_json, lease_expires_at
+       request_body_hash, request_id, lease_token, status, result_json, lease_expires_at,
+       details_purged_at
      from paid_answer_reservations
      where account_id = $1 and idempotency_key_hash = $2
      limit 1 for update`,
@@ -441,7 +485,8 @@ async function loadReservationByIdForUpdate(
 ) {
   const result = await db.query<ReservationRow>(
     `select id, trip_pass_id, usage_meter_id, account_id, idempotency_key_hash,
-       request_body_hash, request_id, lease_token, status, result_json, lease_expires_at
+       request_body_hash, request_id, lease_token, status, result_json, lease_expires_at,
+       details_purged_at
      from paid_answer_reservations where id = $1 and account_id = $2 for update`,
     [id, accountId],
   );

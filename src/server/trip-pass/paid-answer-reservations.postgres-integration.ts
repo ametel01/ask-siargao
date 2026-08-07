@@ -17,6 +17,8 @@ type PostgresHarness = {
 
 export async function runPaidAnswerReservationPostgresIntegration(harness: PostgresHarness) {
   await runFinalUnitRegression(harness);
+  await runPurgeReplayAndFinalizeRaces(harness);
+  await runConcurrentPurgeWorkers(harness);
   await runTerminalLifecycleRaces(harness);
   await runAccountClosureRace(harness);
   console.log(
@@ -26,6 +28,9 @@ export async function runPaidAnswerReservationPostgresIntegration(harness: Postg
         "final-unit-capacity",
         "durable-result-replay",
         "purged-aggregate-reconciliation",
+        "purge-before-replay-and-finalize",
+        "replay-and-finalize-before-purge",
+        "concurrent-multi-account-purge-workers",
         "finalize-before-full-refund",
         "finalize-before-dispute-loss",
         "finalize-before-account-closure",
@@ -35,6 +40,156 @@ export async function runPaidAnswerReservationPostgresIntegration(harness: Postg
       ],
     }),
   );
+}
+
+async function runPurgeReplayAndFinalizeRaces(harness: PostgresHarness) {
+  await runPurgeOperationRace(harness, "purge_first", "replay");
+  await runPurgeOperationRace(harness, "operation_first", "replay");
+  await runPurgeOperationRace(harness, "purge_first", "finalize");
+  await runPurgeOperationRace(harness, "operation_first", "finalize");
+}
+
+async function runPurgeOperationRace(
+  harness: PostgresHarness,
+  ordering: "operation_first" | "purge_first",
+  operationKind: "finalize" | "replay",
+) {
+  const setup = harness.createQueryClient();
+  const purger = harness.createQueryClient();
+  const operationClient = harness.createQueryClient();
+  const observer = harness.createQueryClient();
+  const firstHasAccountLock = deferred<void>();
+  const releaseFirst = deferred<void>();
+  const target = raceTarget(`purge_${ordering}_${operationKind}`);
+  try {
+    await seedRaceTarget(setup, target);
+    const settled = await createExpiredSettledAnswer(setup, target, "primary");
+    const operation = (db: DatabaseQueryClient) =>
+      operationKind === "replay"
+        ? reservePaidAnswer({
+            accountId: target.accountId,
+            bodyHash: settled.bodyHash,
+            db,
+            idempotencyKeyHash: settled.idempotencyKeyHash,
+            requestId: `retry_${target.suffix}`,
+          })
+        : finalizeSettledAnswer(db, target, settled);
+
+    if (ordering === "purge_first") {
+      const gatedPurger = gateAfterAccountLock(purger, firstHasAccountLock, releaseFirst);
+      const purge = purgeExpiredPaidAnswerDetails(gatedPurger);
+      await firstHasAccountLock.promise;
+      const operationPid = await backendPid(operationClient);
+      const queuedOperation = operation(operationClient);
+      await waitForLockWait(observer, operationPid);
+      releaseFirst.resolve();
+      const [purged, operationResult] = await Promise.all([purge, queuedOperation]);
+      assertEqual(purged, 1, `${operationKind} race must purge exactly one answer`);
+      assertEqual(
+        operationResult.status,
+        operationKind === "replay" ? "in_progress" : "lease_lost",
+        `purge-first ${operationKind} must observe scrubbed settled details`,
+      );
+    } else {
+      const gatedOperation = gateAfterAccountLock(
+        operationClient,
+        firstHasAccountLock,
+        releaseFirst,
+      );
+      const firstOperation = operation(gatedOperation);
+      await firstHasAccountLock.promise;
+      const purgerPid = await backendPid(purger);
+      const queuedPurge = purgeExpiredPaidAnswerDetails(purger);
+      await waitForLockWait(observer, purgerPid);
+      releaseFirst.resolve();
+      const [operationResult, purged] = await Promise.all([firstOperation, queuedPurge]);
+      assertEqual(
+        operationResult.status,
+        operationKind === "replay" ? "replay" : "duplicate",
+        `${operationKind}-first must read the durable settled result`,
+      );
+      assertEqual(purged, 1, `${operationKind}-first race must later purge one answer`);
+    }
+    await assertPurgedSettledAnswer(setup, target, settled, 1);
+  } finally {
+    releaseFirst.resolve();
+    await Promise.all([setup.end(), purger.end(), operationClient.end(), observer.end()]);
+  }
+}
+
+async function runConcurrentPurgeWorkers(harness: PostgresHarness) {
+  const setup = harness.createQueryClient();
+  const first = harness.createQueryClient();
+  const second = harness.createQueryClient();
+  const firstRead = deferred<void>();
+  const secondRead = deferred<void>();
+  const releaseReads = deferred<void>();
+  const sameAccount = raceTarget("purge_workers_same_account");
+  const otherAccount = raceTarget("purge_workers_other_account");
+  try {
+    await seedRaceTarget(setup, sameAccount);
+    await seedRaceTarget(setup, otherAccount);
+    const sameFirst = await createExpiredSettledAnswer(setup, sameAccount, "first");
+    const sameSecond = await createExpiredSettledAnswer(setup, sameAccount, "second");
+    const other = await createExpiredSettledAnswer(setup, otherAccount, "only");
+    await setup.query(
+      `insert into trip_usage_events (
+         id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+         idempotency_key, request_id, request_hash, provider_request_ids_json,
+         occurred_at, created_at
+       ) values (
+         'unrelated_purge_worker_event', $1, $2, $3, 'adjusted', 'chat_message', 1,
+         'unrelated-purge-worker', 'unrelated-request', 'unrelated-hash',
+         '["unrelated-provider"]'::jsonb, clock_timestamp(), clock_timestamp()
+       )`,
+      [sameAccount.passId, sameAccount.meterId, sameAccount.accountId],
+    );
+
+    const firstWorker = purgeExpiredPaidAnswerDetails(
+      gateAfterCandidateRead(first, firstRead, releaseReads),
+    );
+    const secondWorker = purgeExpiredPaidAnswerDetails(
+      gateAfterCandidateRead(second, secondRead, releaseReads),
+    );
+    await Promise.all([firstRead.promise, secondRead.promise]);
+    releaseReads.resolve();
+    const counts = await Promise.all([firstWorker, secondWorker]);
+    const totalPurged = counts.reduce((total, count) => total + count, 0);
+    assertEqual(
+      totalPurged,
+      3,
+      "concurrent purge workers must count each eligible answer exactly once",
+    );
+    await assertPurgedSettledAnswer(setup, sameAccount, sameFirst, 2);
+    await assertPurgedSettledAnswer(setup, sameAccount, sameSecond, 2);
+    await assertPurgedSettledAnswer(setup, otherAccount, other, 1);
+    const unrelated = await setup.query<{
+      provider_request_ids_json: unknown;
+      request_hash: string | null;
+      request_id: string | null;
+    }>(
+      `select request_id, request_hash, provider_request_ids_json
+       from trip_usage_events where id = 'unrelated_purge_worker_event'`,
+    );
+    assertEqual(
+      unrelated.rows[0]?.request_id,
+      "unrelated-request",
+      "concurrent purge workers must not scrub an unrelated event",
+    );
+    assertEqual(
+      unrelated.rows[0]?.request_hash,
+      "unrelated-hash",
+      "unrelated request hash must remain",
+    );
+    assertEqual(
+      JSON.stringify(unrelated.rows[0]?.provider_request_ids_json),
+      '["unrelated-provider"]',
+      "unrelated provider evidence must remain",
+    );
+  } finally {
+    releaseReads.resolve();
+    await Promise.all([setup.end(), first.end(), second.end()]);
+  }
 }
 
 async function runFinalUnitRegression(harness: PostgresHarness) {
@@ -484,6 +639,13 @@ type ReservedRaceAnswer = Extract<
   Awaited<ReturnType<typeof reservePaidAnswer>>,
   { status: "reserved" }
 >;
+type SettledRaceAnswer = {
+  answerMessageId: string;
+  bodyHash: string;
+  idempotencyKeyHash: string;
+  leaseToken: string;
+  reservationId: string;
+};
 
 function raceTarget(suffix: string) {
   return {
@@ -539,6 +701,128 @@ async function reserveRaceAnswer(db: DatabaseQueryClient, target: RaceTarget) {
     throw new Error(`race reservation was unavailable: ${target.suffix}/${reservation.status}`);
   }
   return reservation;
+}
+
+async function createExpiredSettledAnswer(
+  db: DatabaseQueryClient,
+  target: RaceTarget,
+  variant: string,
+): Promise<SettledRaceAnswer> {
+  const bodyHash = `body_${target.suffix}_${variant}`;
+  const idempotencyKeyHash = `idempotency_${target.suffix}_${variant}`;
+  const answerMessageId = `answer_${target.suffix}_${variant}`;
+  const reservation = await reservePaidAnswer({
+    accountId: target.accountId,
+    bodyHash,
+    db,
+    idempotencyKeyHash,
+    requestId: `request_${target.suffix}_${variant}`,
+  });
+  if (reservation.status !== "reserved") {
+    throw new Error(
+      `settled purge race reservation unavailable: ${target.suffix}/${variant}/${reservation.status}`,
+    );
+  }
+  const finalized = await finalizePaidAnswer({
+    accountId: target.accountId,
+    answerMessageId,
+    db,
+    leaseToken: reservation.leaseToken,
+    providerRequestIds: [`provider_${target.suffix}_${variant}`],
+    reservationId: reservation.reservationId,
+    persistAnswer: async (transaction, allowance) => {
+      await transaction.query(
+        `insert into chat_threads (id, user_id, title) values ($1, $2, 'Purge race answer')`,
+        [`thread_${target.suffix}_${variant}`, target.accountId],
+      );
+      await transaction.query(
+        `insert into chat_messages (id, thread_id, user_id, role, content, request_id)
+         values ($1, $2, $3, 'assistant', 'Durable purge race answer.', $4)`,
+        [
+          answerMessageId,
+          `thread_${target.suffix}_${variant}`,
+          target.accountId,
+          `request_${target.suffix}_${variant}`,
+        ],
+      );
+      return { message: "Durable purge race answer.", tripPassUsage: allowance };
+    },
+  });
+  assertEqual(finalized.status, "settled", "purge race setup must settle the answer");
+  await db.query(
+    `update paid_answer_reservations
+     set reserved_at = clock_timestamp() - interval '40 days',
+       details_purge_at = clock_timestamp() - interval '1 second'
+     where id = $1`,
+    [reservation.reservationId],
+  );
+  return {
+    answerMessageId,
+    bodyHash,
+    idempotencyKeyHash,
+    leaseToken: reservation.leaseToken,
+    reservationId: reservation.reservationId,
+  };
+}
+
+function finalizeSettledAnswer(
+  db: DatabaseQueryClient,
+  target: RaceTarget,
+  settled: SettledRaceAnswer,
+) {
+  return finalizePaidAnswer({
+    accountId: target.accountId,
+    answerMessageId: settled.answerMessageId,
+    db,
+    leaseToken: settled.leaseToken,
+    providerRequestIds: [`duplicate_provider_${target.suffix}`],
+    reservationId: settled.reservationId,
+    persistAnswer: async () => {
+      throw new Error(`duplicate finalization persisted again: ${target.suffix}`);
+    },
+  });
+}
+
+async function assertPurgedSettledAnswer(
+  db: DatabaseQueryClient,
+  target: RaceTarget,
+  settled: SettledRaceAnswer,
+  expectedMeterUsed: number,
+) {
+  const result = await db.query<{
+    details_purged_at: Date | null;
+    event_provider_ids: unknown;
+    event_request_id: string | null;
+    meter_used: number;
+    reservation_status: string;
+  }>(
+    `select
+       r.status as reservation_status,
+       r.details_purged_at,
+       e.request_id as event_request_id,
+       e.provider_request_ids_json as event_provider_ids,
+       m.used as meter_used
+     from paid_answer_reservations r
+     join trip_usage_events e on e.id = 'trip_usage_event_' || r.id
+     join trip_usage_meters m on m.id = r.usage_meter_id
+     where r.id = $1 and r.account_id = $2`,
+    [settled.reservationId, target.accountId],
+  );
+  assertEqual(result.rows[0]?.reservation_status, "settled", "purge must retain settled status");
+  if (!result.rows[0]?.details_purged_at) {
+    throw new Error(`purge marker missing after controlled race: ${target.suffix}`);
+  }
+  assertEqual(result.rows[0]?.event_request_id, null, "paired event request must be scrubbed");
+  assertEqual(
+    JSON.stringify(result.rows[0]?.event_provider_ids),
+    "[]",
+    "paired event provider evidence must be scrubbed",
+  );
+  assertEqual(
+    result.rows[0]?.meter_used,
+    expectedMeterUsed,
+    "purge races must preserve aggregate meter usage",
+  );
 }
 
 function finalizeRaceAnswer(
@@ -670,6 +954,26 @@ function gateAfterAccountLock(
       if (!db.transaction) throw new Error("native PostgreSQL transaction support is required");
       return db.transaction((transaction) => callback(wrap(transaction)));
     },
+  } satisfies DatabaseQueryClient;
+}
+
+function gateAfterCandidateRead(
+  db: DatabaseQueryClient,
+  reached: ReturnType<typeof deferred<void>>,
+  release: ReturnType<typeof deferred<void>>,
+) {
+  let gated = false;
+  return {
+    async query<T>(query: string, params: unknown[] = []) {
+      const result = await db.query<T>(query, params);
+      if (!gated && /select id, account_id[\s\S]*paid_answer_reservations/i.test(query)) {
+        gated = true;
+        reached.resolve();
+        await release.promise;
+      }
+      return result;
+    },
+    transaction: db.transaction?.bind(db),
   } satisfies DatabaseQueryClient;
 }
 

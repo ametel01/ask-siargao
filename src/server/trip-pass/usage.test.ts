@@ -616,6 +616,15 @@ describe("paid Trip Pass chat usage", () => {
         request_id: null,
       });
       await expectMeterUsed(db, "trip_pass_paid_purge", 1);
+      await expect(
+        reservePaidAnswer({
+          accountId: "user_paid_purge",
+          bodyHash: "body_hash_purge",
+          db,
+          idempotencyKeyHash: "token_hash_purge",
+          requestId: "request_paid_purge_retry",
+        }),
+      ).resolves.toEqual({ status: "in_progress" });
     });
   });
 
