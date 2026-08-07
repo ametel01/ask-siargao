@@ -555,7 +555,9 @@ function responseFormatForDeepSeek(text: unknown) {
   if (!isRecord(text) || !isRecord(text.format)) {
     return undefined;
   }
-  return text.format.type === "json_schema" ? { type: "json_object" } : undefined;
+  return text.format.type === "json_schema" || text.format.type === "json_object"
+    ? { type: "json_object" }
+    : undefined;
 }
 
 function instructionText(instructions: unknown) {

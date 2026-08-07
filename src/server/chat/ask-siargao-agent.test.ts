@@ -535,6 +535,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(String(client.requests[0]?.instructions)).toContain(
       "scooter or motorbike rental in General Luna",
     );
+    expect(client.requests[0]?.text).toEqual({ format: { type: "json_object" } });
     expect(parseFirstInput(client.requests[0]?.input).responseContract?.finalOutput).toContain(
       "Return the final response as a JSON object",
     );
@@ -2631,12 +2632,55 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     });
   });
 
-  test("rejects legacy final text when structured final output is required", async () => {
+  test("repairs legacy final text when structured final output is required", async () => {
     const client = fakeResponsesClient([
       {
         id: "resp_required_structured_legacy",
-        output_text: "Legacy text should be rejected.",
+        output_text: "Legacy text should be repaired.",
         _request_id: "req_required_structured_legacy",
+      },
+      {
+        id: "resp_required_structured_repaired",
+        output_text: finalPayloadText({
+          answer: "Start your first afternoon with an easy General Luna orientation walk.",
+        }),
+        _request_id: "req_required_structured_repaired",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "How should I spend my first afternoon?" }],
+        requestId: "agent_request_required_structured_legacy",
+      },
+      { client, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toBe(
+      "Start your first afternoon with an easy General Luna orientation walk.",
+    );
+    expect(result.repairCount).toBe(1);
+    expect(client.requests).toHaveLength(2);
+    expect(client.requests.map((request) => request.text)).toEqual([
+      { format: { type: "json_object" } },
+      { format: { type: "json_object" } },
+    ]);
+    expect(JSON.stringify(parseFirstInput(client.requests[1]?.input))).toContain(
+      "validationRepairStructuredFinalOutput",
+    );
+  });
+
+  test("rejects repeated invalid final text after one structured-output repair", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_required_structured_legacy",
+        output_text: "Legacy text should be repaired.",
+        _request_id: "req_required_structured_legacy",
+      },
+      {
+        id: "resp_required_structured_still_legacy",
+        output_text: "The repair also returned legacy text.",
+        _request_id: "req_required_structured_still_legacy",
       },
     ]);
 
@@ -2644,11 +2688,12 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       runAskSiargaoAgentTurn(
         {
           messages: [{ role: "user", content: "How should I spend my first afternoon?" }],
-          requestId: "agent_request_required_structured_legacy",
+          requestId: "agent_request_required_structured_repeated_legacy",
         },
         { client, model: "gpt-test", requireStructuredFinalOutput: true },
       ),
     ).rejects.toThrow("legacy plain text");
+    expect(client.requests).toHaveLength(2);
   });
 
   test("rejects unknown used tool call IDs in strict structured final output", async () => {

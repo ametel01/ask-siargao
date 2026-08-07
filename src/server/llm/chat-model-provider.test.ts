@@ -79,6 +79,7 @@ describe("chat model provider", () => {
       model: "deepseek-v4-flash",
       instructions: "Return JSON final answers.",
       max_output_tokens: 300,
+      text: { format: { type: "json_object" } },
       tools: [
         {
           type: "function",
@@ -124,6 +125,7 @@ describe("chat model provider", () => {
     expect(requests[0]?.model).toBe("deepseek-v4-flash");
     expect(requests[0]?.max_tokens).toBe(300);
     expect(requests[0]?.thinking).toEqual({ type: "enabled" });
+    expect(requests[0]?.response_format).toEqual({ type: "json_object" });
     expect(requests[0]?.tools).toEqual([
       {
         type: "function",

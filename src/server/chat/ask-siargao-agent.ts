@@ -124,6 +124,9 @@ type ResponseInputItem = Record<string, unknown>;
 
 const maxConversationMessages = 10;
 const agentLogger = createComponentLogger("chat_agent");
+const structuredFinalOutputTextConfig = {
+  format: { type: "json_object" },
+} as const;
 
 export async function runAskSiargaoAgentTurn(
   request: AgentRuntimeRequest,
@@ -166,6 +169,8 @@ export async function runAskSiargaoAgentTurn(
   const maxTurns = dependencies.maxTurns ?? costPolicy.maxTurns;
   const maxOutputTokens = costPolicy.maxOutputTokens;
   const modelCostPolicy = responseModelCostPolicy(costPolicy);
+  const requireStructuredFinalOutput = dependencies.requireStructuredFinalOutput === true;
+  const responseText = requireStructuredFinalOutput ? structuredFinalOutputTextConfig : undefined;
   const budgetedClient = createBudgetedModelClient({
     client,
     costAccumulator,
@@ -175,11 +180,11 @@ export async function runAskSiargaoAgentTurn(
     maxOutputTokens,
     modelCostPolicy,
     now: dependencies.now,
+    responseText,
   });
   const agentMemoryVectorStoreId =
     dependencies.agentMemoryVectorStoreId ?? process.env.OPENAI_AGENT_MEMORY_VECTOR_STORE_ID;
   const memory = createAgentMemoryMetadata(memorySnapshot, agentMemoryVectorStoreId);
-  const requireStructuredFinalOutput = dependencies.requireStructuredFinalOutput === true;
   const responseContract = buildResponseContract({ requireStructuredFinalOutput });
   const instructions = buildAskSiargaoAgentInstructions(memorySnapshot, {
     requireStructuredFinalOutput,
@@ -269,6 +274,7 @@ export async function runAskSiargaoAgentTurn(
       instructions,
       modelCostPolicy,
       tools,
+      ...(responseText ? { text: responseText } : {}),
       ...(responseInclude ? { include: responseInclude } : {}),
       input: responseInput,
     },
@@ -366,6 +372,7 @@ export async function runAskSiargaoAgentTurn(
             instructions,
             modelCostPolicy,
             tools,
+            ...(responseText ? { text: responseText } : {}),
             ...(responseInclude ? { include: responseInclude } : {}),
             input: responseInput,
           },
@@ -526,6 +533,7 @@ export async function runAskSiargaoAgentTurn(
             max_output_tokens: maxOutputTokens,
             instructions,
             modelCostPolicy,
+            ...(responseText ? { text: responseText } : {}),
             input: responseInput,
           },
         });
@@ -607,6 +615,7 @@ export async function runAskSiargaoAgentTurn(
         max_output_tokens: maxOutputTokens,
         instructions,
         modelCostPolicy,
+        ...(responseText ? { text: responseText } : {}),
         ...(forceFinalAnswer ? {} : { tools }),
         ...(!forceFinalAnswer && responseInclude ? { include: responseInclude } : {}),
         input: responseInput,
@@ -636,6 +645,7 @@ function createBudgetedModelClient({
   maxOutputTokens,
   modelCostPolicy,
   now,
+  responseText,
 }: {
   client: AgentResponsesClient;
   costAccumulator: ReturnType<typeof createModelCostAccumulator>;
@@ -645,6 +655,7 @@ function createBudgetedModelClient({
   maxOutputTokens: number;
   modelCostPolicy: ReturnType<typeof responseModelCostPolicy>;
   now?: () => Date;
+  responseText?: Record<string, unknown>;
 }) {
   return {
     responses: {
@@ -660,6 +671,7 @@ function createBudgetedModelClient({
             ...params,
             max_output_tokens: boundedMaxOutputTokens(params.max_output_tokens, maxOutputTokens),
             modelCostPolicy: params.modelCostPolicy ?? modelCostPolicy,
+            ...(params.text === undefined && responseText ? { text: responseText } : {}),
           },
         }),
     },
@@ -1630,6 +1642,26 @@ function buildAgentRepairAdapters({
       },
     },
     {
+      name: "structured-final-output",
+      createRepair: ({ finalText, responseInput }) => {
+        if (
+          !requireStructuredFinalOutput ||
+          parseAgentFinalPayload(finalText) ||
+          hasValidationRepairInput(responseInput, "validationRepairStructuredFinalOutput")
+        ) {
+          return undefined;
+        }
+
+        return {
+          type: "retry",
+          payloadKey: "validationRepairStructuredFinalOutput",
+          payload: { issue: "invalid_or_legacy_final_output" },
+          instruction:
+            "Validation repair: the previous final answer did not match the required JSON response contract. Preserve its useful traveler-facing content and return one valid final JSON object now. Include answer and every required artifact-selection array, using only observed memory files and completed toolCallIds. Do not call another tool.",
+        };
+      },
+    },
+    {
       name: "legacy-structured-answer-quality",
       createRepair: ({ finalText, responseInput, toolCalls, toolResults }) => {
         const finalPayload = parsePolicyFinalPayload(finalText, toolCalls, toolResults);
@@ -2340,6 +2372,7 @@ function hasValidationRepairInput(
     | "validationRepairNightlifeMemoryBaseline"
     | "validationRepairRealityCheck"
     | "validationRepairStructuredAnswerQuality"
+    | "validationRepairStructuredFinalOutput"
     | "validationRepairSurfSpotFinalPayload",
 ) {
   return responseInput.some((item) => {
