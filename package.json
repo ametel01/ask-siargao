@@ -35,9 +35,10 @@
     "lint": "biome check .",
     "typecheck": "tsc --noEmit",
     "verify": "bun run lint && bun run typecheck --incremental false && bun test",
-    "verify:ci": "bun run verify && bun run db:migrate:test && bun run db:seed:test && bun run build && bun run test:e2e",
+    "verify:ci": "bun run verify && bun run db:migrate:test && bun run db:seed:test && bun run build && bun run test:e2e && bun run test:e2e:production-perf",
     "test": "bun test",
     "test:e2e": "playwright test",
+    "test:e2e:production-perf": "PLAYWRIGHT_PRODUCTION_PERF=1 playwright test",
     "doctor": "npx react-doctor@latest"
   },
   "dependencies": {

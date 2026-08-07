@@ -1,19 +1,27 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const serverEnv = "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY=";
+const isProductionPerformanceRun = process.env.PLAYWRIGHT_PRODUCTION_PERF === "1";
+const serverCommand = isProductionPerformanceRun
+  ? `${serverEnv} ./node_modules/.bin/next start --hostname 127.0.0.1 --port 3100`
+  : `${serverEnv} bun run dev -- --hostname 127.0.0.1 --port 3100`;
+
 export default defineConfig({
   testDir: "./tests/e2e",
   testMatch: "**/*.e2e.ts",
   fullyParallel: true,
+  grep: isProductionPerformanceRun ? /@production-perf/ : undefined,
+  grepInvert: process.env.CI && !isProductionPerformanceRun ? /@production-perf/ : undefined,
   reporter: "list",
+  workers: isProductionPerformanceRun ? 1 : undefined,
   use: {
     baseURL: "http://127.0.0.1:3100",
     trace: "on-first-retry",
   },
   webServer: {
-    command:
-      "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY= bun run dev -- --hostname 127.0.0.1 --port 3100",
+    command: serverCommand,
     url: "http://127.0.0.1:3100/robots.txt",
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: !process.env.CI && !isProductionPerformanceRun,
     timeout: 120_000,
   },
   projects: [
