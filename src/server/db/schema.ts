@@ -572,6 +572,79 @@ export const tripUsageEvents = pgTable(
   ],
 );
 
+export const tripPassStripeEvents = pgTable(
+  "trip_pass_stripe_events",
+  {
+    id: text("id").primaryKey(),
+    stripeEventId: text("stripe_event_id").notNull().unique(),
+    stripeApiVersion: text("stripe_api_version").notNull(),
+    normalizedSchemaVersion: integer("normalized_schema_version").notNull(),
+    eventType: text("event_type").notNull(),
+    objectType: text("object_type").notNull(),
+    objectId: text("object_id").notNull(),
+    checkoutSessionId: text("checkout_session_id"),
+    paymentIntentId: text("payment_intent_id"),
+    orderId: text("order_id"),
+    productCode: text("product_code"),
+    productVersion: integer("product_version"),
+    stripePriceId: text("stripe_price_id"),
+    amountTotalMinor: integer("amount_total_minor"),
+    currency: text("currency"),
+    paymentStatus: text("payment_status"),
+    status: text("status").notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    claimToken: text("claim_token"),
+    claimExpiresAt: timestamp("claim_expires_at", { withTimezone: true }),
+    alertState: text("alert_state").notNull().default("none"),
+    sanitizedErrorClass: text("sanitized_error_class"),
+    normalizedFactsJson: jsonb("normalized_facts_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("trip_pass_stripe_events_status_next_attempt_idx").on(
+      table.status,
+      table.nextAttemptAt,
+      table.receivedAt,
+    ),
+    index("trip_pass_stripe_events_order_id_idx").on(table.orderId),
+    index("trip_pass_stripe_events_checkout_session_id_idx").on(table.checkoutSessionId),
+    index("trip_pass_stripe_events_payment_intent_id_idx").on(table.paymentIntentId),
+    index("trip_pass_stripe_events_claim_idx").on(table.claimToken, table.claimExpiresAt),
+    check(
+      "trip_pass_stripe_events_schema_version_check",
+      sql`${table.normalizedSchemaVersion} > 0`,
+    ),
+    check(
+      "trip_pass_stripe_events_status_check",
+      sql`${table.status} in ('pending', 'applied', 'blocked')`,
+    ),
+    check("trip_pass_stripe_events_attempt_count_check", sql`${table.attemptCount} >= 0`),
+    check(
+      "trip_pass_stripe_events_alert_state_check",
+      sql`${table.alertState} in ('none', 'watch', 'page')`,
+    ),
+    check(
+      "trip_pass_stripe_events_product_version_check",
+      sql`${table.productVersion} is null or ${table.productVersion} > 0`,
+    ),
+    check(
+      "trip_pass_stripe_events_amount_total_minor_check",
+      sql`${table.amountTotalMinor} is null or ${table.amountTotalMinor} >= 0`,
+    ),
+    check(
+      "trip_pass_stripe_events_currency_check",
+      sql`${table.currency} is null or ${table.currency} ~ '^[a-z]{3}$'`,
+    ),
+  ],
+);
+
 export const areas = pgTable(
   "areas",
   {

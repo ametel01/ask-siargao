@@ -5,6 +5,7 @@ import { createPostgresConnectionOptions } from "@/server/db/connection-options"
 export type QueryResult<T> = { rows: T[] };
 
 export type DatabaseQueryClient = {
+  inTransaction?: boolean;
   query<T>(query: string, params?: unknown[]): Promise<QueryResult<T>>;
   transaction?<T>(callback: (transactionClient: DatabaseQueryClient) => Promise<T>): Promise<T>;
 };
@@ -25,20 +26,24 @@ function createDatabaseQueryClient(databaseUrl = process.env.DATABASE_URL) {
   return createPostgresQueryClient(sql);
 }
 
-export function createPostgresQueryClient(sql: PostgresTemplateExecutor) {
+export function createPostgresQueryClient(
+  sql: PostgresTemplateExecutor,
+  options: { inTransaction?: boolean } = {},
+) {
   const client: DatabaseQueryClient = {
+    inTransaction: options.inTransaction,
     async query<T>(query: string, params: unknown[] = []) {
       const preparedQuery = toTemplateQuery(query, params);
       const rows = await sql(preparedQuery.strings, ...(preparedQuery.params as never[]));
       return { rows: rows as unknown as T[] };
     },
   };
-  if (isPostgresSql(sql)) {
+  if (isPostgresSql(sql) && !options.inTransaction) {
     client.transaction = async <T>(
       callback: (transactionClient: DatabaseQueryClient) => Promise<T>,
     ) =>
       (await sql.begin(async (transactionSql) =>
-        callback(createPostgresQueryClient(transactionSql)),
+        callback(createPostgresQueryClient(transactionSql, { inTransaction: true })),
       )) as T;
   }
 

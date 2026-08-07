@@ -1,12 +1,21 @@
+import type Stripe from "stripe";
+
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { withTimeout } from "@/server/integration/entrypoint-shared";
 import { withRealPostgresHarness } from "@/server/integration/postgres-harness";
+import {
+  applyStripeInboxEvent,
+  claimPendingStripeInboxEvents,
+  receiveStripeWebhookEvent,
+  STRIPE_API_VERSION,
+} from "@/server/payments/stripe-event-inbox";
 import { startTripPassCheckout, type TripPassCheckoutResult } from "@/server/trip-pass/commerce";
 import type {
   TripPassCheckoutClient,
   TripPassCheckoutSessionSummary,
 } from "@/server/trip-pass/stripe-adapter";
 import { tripPassCheckoutProductSnapshot } from "@/server/trip-pass/stripe-adapter";
+import { applyTripPassStripeEvent } from "@/server/trip-pass/webhook-application";
 
 type PostgresHarness = Parameters<Parameters<typeof withRealPostgresHarness>[0]>[0];
 type CheckoutCreateParams = Parameters<TripPassCheckoutClient["createCheckoutSession"]>[0];
@@ -27,6 +36,7 @@ await withRealPostgresHarness(async (harness) => {
   await runFailedTransactionRecoveryRegression(harness);
   await runAdvisoryLockRegression(harness);
   await runTripPassCheckoutRaceRegression(harness);
+  await runStripeInboxRealPostgresRegression(harness);
 
   console.log(
     JSON.stringify(
@@ -623,6 +633,720 @@ async function runTripPassCheckoutRollbackRaceRegression(harness: PostgresHarnes
   }
 }
 
+async function runStripeInboxRealPostgresRegression(harness: PostgresHarness) {
+  await runStripeInboxReceiptConflictRegression(harness);
+  await runStripeInboxRollbackAndReplayRegression(harness);
+  await runStripeInboxTripPassCrashBoundaryRegression(harness);
+  await runStripeInboxClaimLeaseRegression(harness);
+}
+
+async function runStripeInboxReceiptConflictRegression(harness: PostgresHarness) {
+  const first = harness.createQueryClient();
+  const second = harness.createQueryClient();
+  const observer = harness.createQueryClient();
+  try {
+    const event = stripeInboxCheckoutSessionEvent("evt_inbox_concurrent_receipt", "order_inbox");
+    const [firstResult, secondResult] = await Promise.all([
+      receiveStripeWebhookEvent(event, {
+        db: first,
+        now: new Date("2026-08-07T01:00:00.000Z"),
+      }),
+      receiveStripeWebhookEvent(event, {
+        db: second,
+        now: new Date("2026-08-07T01:00:00.000Z"),
+      }),
+    ]);
+    assertDeepEqual(
+      [firstResult.status, secondResult.status].toSorted(),
+      ["duplicate", "received"],
+      "parallel receipt of the same Stripe event must commit once and replay once",
+    );
+
+    const rows = await observer.query<{ count: string }>(
+      "select count(*)::text as count from trip_pass_stripe_events where stripe_event_id = $1",
+      ["evt_inbox_concurrent_receipt"],
+    );
+    assertEqual(rows.rows[0]?.count, "1", "parallel receipt must leave one durable inbox row");
+    await observer.query(
+      "update trip_pass_stripe_events set status = 'applied' where stripe_event_id = $1",
+      ["evt_inbox_concurrent_receipt"],
+    );
+  } finally {
+    await Promise.allSettled([first.end(), second.end(), observer.end()]);
+  }
+}
+
+async function runStripeInboxRollbackAndReplayRegression(harness: PostgresHarness) {
+  const client = harness.createQueryClient();
+  try {
+    await client.query(`
+      create table integration_stripe_inbox_application_probe (
+        stripe_event_id text primary key,
+        note text not null
+      )
+    `);
+
+    const firstApplication = await receiveStripeWebhookEvent(
+      stripeInboxCheckoutSessionEvent("evt_inbox_rollback_replay", "order_inbox_replay"),
+      {
+        db: client,
+        now: new Date("2099-01-01T00:00:00.000Z"),
+        applyEvent: async (event, options) => {
+          assertEqual(
+            options.now.getUTCFullYear() < 2099,
+            true,
+            "application callback time must come from the database, not a skewed process clock",
+          );
+          const visibleReceipt = await options.db.query<{ status: string }>(
+            "select status from trip_pass_stripe_events where stripe_event_id = $1",
+            [event.id],
+          );
+          assertEqual(
+            visibleReceipt.rows[0]?.status,
+            "pending",
+            "application must start only after a committed pending inbox receipt is visible",
+          );
+          await options.db.query(
+            `
+              insert into integration_stripe_inbox_application_probe (stripe_event_id, note)
+              values ($1, 'rolled-back')
+            `,
+            [event.id],
+          );
+          throw new Error("force inbox application rollback");
+        },
+      },
+    );
+    assertEqual(
+      firstApplication.status,
+      "pending",
+      "application exception must keep the inbox row retryable",
+    );
+
+    const rolledBackProbe = await client.query<{ count: string }>(
+      "select count(*)::text as count from integration_stripe_inbox_application_probe",
+    );
+    assertEqual(
+      rolledBackProbe.rows[0]?.count,
+      "0",
+      "application writes inside the inbox transaction must roll back on failure",
+    );
+    const pendingRow = await client.query<{
+      attempt_count: number;
+      retry_uses_database_time: boolean;
+      sanitized_error_class: string | null;
+      status: string;
+    }>(
+      `
+        select status,
+               attempt_count,
+               sanitized_error_class,
+               next_attempt_at > now()
+                 and next_attempt_at <= now() + interval '3 seconds'
+                 and next_attempt_at < '2099-01-01T00:00:00.000Z'::timestamptz
+                 as retry_uses_database_time
+        from trip_pass_stripe_events
+        where stripe_event_id = $1
+      `,
+      ["evt_inbox_rollback_replay"],
+    );
+    assertEqual(
+      pendingRow.rows[0]?.status,
+      "pending",
+      "failed application must keep the inbox row pending",
+    );
+    assertEqual(
+      pendingRow.rows[0]?.attempt_count,
+      1,
+      "failed application must increment the retry attempt count",
+    );
+    assertEqual(
+      pendingRow.rows[0]?.sanitized_error_class,
+      "Error",
+      "failed application must store only a sanitized retry error class",
+    );
+    assertEqual(
+      pendingRow.rows[0]?.retry_uses_database_time,
+      true,
+      "retry backoff must be anchored to database time rather than skewed caller time",
+    );
+
+    const replay = await applyStripeInboxEvent("stripe_event_evt_inbox_rollback_replay", {
+      db: client,
+      now: new Date("2099-01-01T00:00:00.000Z"),
+      applyEvent: async (event, options) => {
+        assertEqual(
+          options.now.getUTCFullYear() < 2099,
+          true,
+          "replay application callback time must come from the database",
+        );
+        await options.db.query(
+          `
+            insert into integration_stripe_inbox_application_probe (stripe_event_id, note)
+            values ($1, 'replayed')
+          `,
+          [event.id],
+        );
+        return { status: "applied", action: "activated" };
+      },
+    });
+    assertEqual(replay.status, "applied", "retry replay must apply the pending inbox row");
+
+    const appliedRow = await client.query<{
+      applied_at: Date | string | null;
+      count: string;
+      status: string;
+    }>(
+      `
+        select e.status,
+               e.applied_at,
+               count(p.stripe_event_id)::text as count
+        from trip_pass_stripe_events e
+        left join integration_stripe_inbox_application_probe p
+          on p.stripe_event_id = e.stripe_event_id
+        where e.stripe_event_id = $1
+        group by e.status, e.applied_at
+      `,
+      ["evt_inbox_rollback_replay"],
+    );
+    assertEqual(appliedRow.rows[0]?.status, "applied", "replayed inbox row must be marked applied");
+    assertEqual(
+      Boolean(appliedRow.rows[0]?.applied_at),
+      true,
+      "replayed inbox row must record an applied timestamp",
+    );
+    assertEqual(
+      appliedRow.rows[0]?.count,
+      "1",
+      "replay must commit exactly one application side effect",
+    );
+  } finally {
+    await client.end();
+  }
+}
+
+async function runStripeInboxTripPassCrashBoundaryRegression(harness: PostgresHarness) {
+  const crashBoundaries = [
+    {
+      name: "order-provider-link",
+      pattern:
+        /update\s+trip_pass_orders[\s\S]*set\s+stripe_checkout_session_id\s*=\s*\$2,[\s\S]*stripe_payment_intent_id\s*=\s*\$3/i,
+    },
+    { name: "pass-insert", pattern: /insert\s+into\s+trip_passes\b/i },
+    { name: "grant-insert", pattern: /insert\s+into\s+trip_pass_grants\b/i },
+    { name: "meter-insert", pattern: /insert\s+into\s+trip_usage_meters\b/i },
+    {
+      name: "order-paid-update",
+      pattern: /update\s+trip_pass_orders[\s\S]*set\s+status\s*=\s*'paid'/i,
+    },
+    {
+      name: "inbox-applied-transition",
+      pattern: /update\s+trip_pass_stripe_events[\s\S]*set\s+status\s*=\s*'applied'/i,
+    },
+  ] as const;
+  const client = harness.createQueryClient();
+  try {
+    for (const boundary of crashBoundaries) {
+      const suffix = boundary.name.replaceAll("-", "_");
+      const userId = `user_inbox_crash_${suffix}`;
+      const orderId = `order_inbox_crash_${suffix}`;
+      const eventId = `evt_inbox_crash_${suffix}`;
+      await insertStripeInboxCheckoutOrder(client, { eventId, orderId, userId });
+
+      const failure = failAfterSuccessfulQuery(client, boundary.pattern);
+      const failedApplication = await receiveStripeWebhookEvent(
+        stripeInboxCheckoutSessionEvent(eventId, orderId),
+        {
+          db: failure.db,
+          applyEvent: (event, options) =>
+            applyTripPassStripeEvent(event, { db: options.db, now: options.now }),
+        },
+      );
+      assertEqual(
+        failure.wasInjected(),
+        true,
+        `${boundary.name} crash boundary must execute against the production SQL write (${JSON.stringify(failedApplication)})`,
+      );
+      assertEqual(
+        failedApplication.status,
+        "pending",
+        `${boundary.name} crash must leave the durable receipt pending`,
+      );
+      await assertStripeInboxTripPassTarget(client, {
+        eventId,
+        expectedInboxStatus: "pending",
+        expectedOrderStatus: "checkout_created",
+        expectedPaymentIntentId: null,
+        expectedTargetCount: "0",
+        orderId,
+      });
+
+      const replay = await applyStripeInboxEvent(`stripe_event_${eventId}`, {
+        db: client,
+        applyEvent: (event, options) =>
+          applyTripPassStripeEvent(event, { db: options.db, now: options.now }),
+      });
+      assertEqual(replay.status, "applied", `${boundary.name} replay must apply the actual target`);
+      await assertStripeInboxTripPassTarget(client, {
+        eventId,
+        expectedInboxStatus: "applied",
+        expectedOrderStatus: "paid",
+        expectedPaymentIntentId: `pi_${orderId}`,
+        expectedTargetCount: "1",
+        orderId,
+      });
+
+      const duplicateReplay = await applyStripeInboxEvent(`stripe_event_${eventId}`, {
+        db: client,
+        applyEvent: (event, options) =>
+          applyTripPassStripeEvent(event, { db: options.db, now: options.now }),
+      });
+      assertEqual(
+        duplicateReplay.status,
+        "applied",
+        `${boundary.name} applied replay must remain a side-effect-free success`,
+      );
+      await assertStripeInboxTripPassTarget(client, {
+        eventId,
+        expectedInboxStatus: "applied",
+        expectedOrderStatus: "paid",
+        expectedPaymentIntentId: `pi_${orderId}`,
+        expectedTargetCount: "1",
+        orderId,
+      });
+    }
+  } finally {
+    await client.end();
+  }
+}
+
+function failAfterSuccessfulQuery(db: DatabaseQueryClient, pattern: RegExp) {
+  let injected = false;
+  const wrap = (client: DatabaseQueryClient): DatabaseQueryClient => ({
+    inTransaction: client.inTransaction,
+    async query<T>(query: string, params: unknown[] = []) {
+      const result = await client.query<T>(query, params);
+      if (!injected && pattern.test(query)) {
+        injected = true;
+        throw new Error("injected production Trip Pass application crash");
+      }
+      return result;
+    },
+    ...(client.transaction
+      ? {
+          transaction: async <T>(callback: (transaction: DatabaseQueryClient) => Promise<T>) =>
+            client.transaction?.((transaction) => callback(wrap(transaction))) as Promise<T>,
+        }
+      : {}),
+  });
+
+  return { db: wrap(db), wasInjected: () => injected };
+}
+
+async function insertStripeInboxCheckoutOrder(
+  db: DatabaseQueryClient,
+  input: { eventId: string; orderId: string; userId: string },
+) {
+  await insertIntegrationUser(db, input.userId);
+  await db.query(
+    `
+      insert into trip_pass_orders (
+        id,
+        user_id,
+        email,
+        status,
+        product_code,
+        product_version,
+        stripe_price_id,
+        amount_total_minor,
+        currency,
+        checkout_idempotency_key,
+        stripe_checkout_session_id,
+        metadata_json
+      )
+      values ($1, $2, $3, 'checkout_created', $4, $5, 'price_trip_pass', $6, $7, $8, $9, '{}'::jsonb)
+    `,
+    [
+      input.orderId,
+      input.userId,
+      `${input.userId}@example.com`,
+      tripPassCheckoutProductSnapshot.productCode,
+      tripPassCheckoutProductSnapshot.productVersion,
+      tripPassCheckoutProductSnapshot.amountTotalMinor,
+      tripPassCheckoutProductSnapshot.currency,
+      `trip_pass_checkout:${input.eventId}`,
+      `cs_${input.orderId}`,
+    ],
+  );
+}
+
+async function assertStripeInboxTripPassTarget(
+  db: DatabaseQueryClient,
+  input: {
+    eventId: string;
+    expectedInboxStatus: "applied" | "pending";
+    expectedOrderStatus: "checkout_created" | "paid";
+    expectedPaymentIntentId: string | null;
+    expectedTargetCount: string;
+    orderId: string;
+  },
+) {
+  const order = await db.query<{ status: string; stripe_payment_intent_id: string | null }>(
+    `select status, stripe_payment_intent_id from trip_pass_orders where id = $1`,
+    [input.orderId],
+  );
+  assertEqual(
+    order.rows[0]?.status,
+    input.expectedOrderStatus,
+    `${input.eventId} Order status must match the atomic target`,
+  );
+  assertEqual(
+    order.rows[0]?.stripe_payment_intent_id ?? null,
+    input.expectedPaymentIntentId,
+    `${input.eventId} provider link must match the atomic target`,
+  );
+
+  const target = await db.query<{
+    grants: string;
+    meters: string;
+    passes: string;
+  }>(
+    `
+      select
+        (select count(*)::text from trip_passes where stripe_event_id = $1) as passes,
+        (select count(*)::text from trip_pass_grants where source_event_id = $1) as grants,
+        (
+          select count(*)::text
+          from trip_usage_meters meter
+          join trip_passes pass on pass.id = meter.trip_pass_id
+          where pass.stripe_event_id = $1 and meter.meter_type = 'chat_message'
+        ) as meters
+    `,
+    [input.eventId],
+  );
+  assertEqual(
+    target.rows[0]?.passes,
+    input.expectedTargetCount,
+    `${input.eventId} must have the expected Pass count`,
+  );
+  assertEqual(
+    target.rows[0]?.grants,
+    input.expectedTargetCount,
+    `${input.eventId} must have the expected Grant count`,
+  );
+  assertEqual(
+    target.rows[0]?.meters,
+    input.expectedTargetCount,
+    `${input.eventId} must have the expected primary Meter count`,
+  );
+
+  const inbox = await db.query<{ status: string }>(
+    "select status from trip_pass_stripe_events where stripe_event_id = $1",
+    [input.eventId],
+  );
+  assertEqual(
+    inbox.rows[0]?.status,
+    input.expectedInboxStatus,
+    `${input.eventId} inbox state must commit atomically with its target`,
+  );
+}
+
+async function runStripeInboxClaimLeaseRegression(harness: PostgresHarness) {
+  const holder = harness.createClient();
+  const setup = harness.createQueryClient();
+  const claimant = harness.createQueryClient();
+  const competingClaimant = harness.createQueryClient();
+  const leaseMs = 60_000;
+  const now = new Date("2026-08-07T01:03:00.000Z");
+  let releaseHolder!: () => void;
+  const holderRelease = new Promise<void>((resolve) => {
+    releaseHolder = resolve;
+  });
+  try {
+    await receiveStripeWebhookEvent(
+      stripeInboxCheckoutSessionEvent("evt_inbox_claim_locked", "order_inbox_claim_locked"),
+      { db: setup, now },
+    );
+    await receiveStripeWebhookEvent(
+      stripeInboxCheckoutSessionEvent("evt_inbox_claim_skip", "order_inbox_claim_skip"),
+      { db: setup, now },
+    );
+
+    const holderReady = deferred<void>();
+    const holderTransaction = holder.begin(async (transaction) => {
+      await transaction`
+        select id
+        from trip_pass_stripe_events
+        where stripe_event_id = 'evt_inbox_claim_locked'
+        for update
+      `;
+      holderReady.resolve();
+      await holderRelease;
+    });
+    await waitForBarrier(holderReady.promise, "Stripe inbox claim holder did not lock the due row");
+
+    const skipLockedClaim = await claimPendingStripeInboxEvents({
+      claimToken: "claim_skip_locked",
+      db: claimant,
+      leaseMs,
+      limit: 1,
+      now: new Date("2099-01-01T00:00:00.000Z"),
+    });
+    assertDeepEqual(
+      skipLockedClaim,
+      ["stripe_event_evt_inbox_claim_skip"],
+      "claim workers must skip a locked due row and claim another due row",
+    );
+    const skippedClaimTime = await setup.query<{
+      locked_claim_token: string | null;
+      skip_claim_uses_database_time: boolean;
+    }>(
+      `
+        select
+          max(case when stripe_event_id = 'evt_inbox_claim_locked' then claim_token end)
+            as locked_claim_token,
+          bool_or(
+            stripe_event_id = 'evt_inbox_claim_skip'
+            and claim_expires_at > now()
+            and claim_expires_at <= now() + interval '61 seconds'
+            and claim_expires_at < '2099-01-01T00:00:00.000Z'::timestamptz
+          ) as skip_claim_uses_database_time
+        from trip_pass_stripe_events
+        where stripe_event_id in ('evt_inbox_claim_locked', 'evt_inbox_claim_skip')
+      `,
+    );
+    assertEqual(
+      skippedClaimTime.rows[0]?.locked_claim_token,
+      null,
+      "SKIP LOCKED claim must not mutate the row held by another transaction",
+    );
+    assertEqual(
+      skippedClaimTime.rows[0]?.skip_claim_uses_database_time,
+      true,
+      "claim lease expiry must be anchored to database time rather than skewed caller time",
+    );
+
+    releaseHolder();
+    await holderTransaction;
+
+    const firstClaim = await claimPendingStripeInboxEvents({
+      claimToken: "claim_first",
+      db: claimant,
+      leaseMs,
+      limit: 1,
+      now: new Date("2099-01-01T00:00:00.000Z"),
+    });
+    assertDeepEqual(
+      firstClaim,
+      ["stripe_event_evt_inbox_claim_locked"],
+      "released locked row must be claimable after the holder transaction commits",
+    );
+
+    const immediateReclaim = await claimPendingStripeInboxEvents({
+      claimToken: "claim_locked_immediate_reclaim",
+      db: competingClaimant,
+      leaseMs,
+      limit: 1,
+      now: new Date("2099-01-01T00:00:00.000Z"),
+    });
+    assertDeepEqual(
+      immediateReclaim,
+      [],
+      "claimed inbox rows must not be reclaimed before the crash lease expires",
+    );
+
+    const afterCrashLease = await claimPendingStripeInboxEvents({
+      claimToken: "claim_locked_after_crash_lease",
+      db: competingClaimant,
+      leaseMs,
+      limit: 1,
+    });
+    assertDeepEqual(
+      afterCrashLease,
+      [],
+      "skewed caller time must not make a database-time crash lease expire early",
+    );
+    await setup.query(
+      `
+        update trip_pass_stripe_events
+        set claim_expires_at = now() - interval '1 millisecond'
+        where stripe_event_id = 'evt_inbox_claim_locked'
+      `,
+    );
+    const afterDatabaseLeaseExpiry = await claimPendingStripeInboxEvents({
+      claimToken: "claim_locked_after_database_lease",
+      db: competingClaimant,
+      leaseMs,
+      limit: 1,
+      now: new Date("2099-01-01T00:00:00.000Z"),
+    });
+    assertDeepEqual(
+      afterDatabaseLeaseExpiry,
+      ["stripe_event_evt_inbox_claim_locked"],
+      "database-expired crash leases must make pending inbox rows reclaimable",
+    );
+
+    await receiveStripeWebhookEvent(
+      stripeInboxCheckoutSessionEvent("evt_inbox_claim_rollback", "order_inbox_claim_rollback"),
+      { db: setup, now },
+    );
+    await expectRejects(
+      claimant.transaction(async (transaction) => {
+        const rolledBackClaim = await claimPendingStripeInboxEvents({
+          claimToken: "claim_rollback",
+          db: transaction,
+          leaseMs,
+          limit: 1,
+          now: new Date("2099-01-01T00:00:00.000Z"),
+        });
+        assertDeepEqual(
+          rolledBackClaim,
+          ["stripe_event_evt_inbox_claim_rollback"],
+          "claim rollback fixture must acquire its row before rollback",
+        );
+        throw new Error("force inbox claim rollback");
+      }),
+      "force inbox claim rollback",
+    );
+    const afterClaimRollback = await claimPendingStripeInboxEvents({
+      claimToken: "claim_after_rollback",
+      db: competingClaimant,
+      leaseMs,
+      limit: 1,
+      now: new Date("2099-01-01T00:00:00.000Z"),
+    });
+    assertDeepEqual(
+      afterClaimRollback,
+      ["stripe_event_evt_inbox_claim_rollback"],
+      "rolled-back claims must not leave a durable lease",
+    );
+
+    await setup.query(`
+      create table if not exists integration_stripe_inbox_claim_fence_probe (
+        stripe_event_id text primary key,
+        claim_token text not null
+      )
+    `);
+    await receiveStripeWebhookEvent(
+      stripeInboxCheckoutSessionEvent("evt_inbox_claim_takeover", "order_inbox_claim_takeover"),
+      { db: setup, now },
+    );
+    const oldClaim = await claimPendingStripeInboxEvents({
+      claimToken: "claim_takeover_old",
+      db: claimant,
+      leaseMs,
+      limit: 1,
+      now: new Date("2099-01-01T00:00:00.000Z"),
+    });
+    assertDeepEqual(
+      oldClaim,
+      ["stripe_event_evt_inbox_claim_takeover"],
+      "lease takeover fixture must start with an old claim",
+    );
+    await setup.query(
+      `
+        update trip_pass_stripe_events
+        set claim_expires_at = now() - interval '1 millisecond'
+        where stripe_event_id = 'evt_inbox_claim_takeover'
+      `,
+    );
+    const newClaim = await claimPendingStripeInboxEvents({
+      claimToken: "claim_takeover_new",
+      db: competingClaimant,
+      leaseMs,
+      limit: 1,
+      now: new Date("2099-01-01T00:00:00.000Z"),
+    });
+    assertDeepEqual(
+      newClaim,
+      ["stripe_event_evt_inbox_claim_takeover"],
+      "new claimant must take over only after database-time lease expiry",
+    );
+    const staleWorker = await applyStripeInboxEvent("stripe_event_evt_inbox_claim_takeover", {
+      claimToken: "claim_takeover_old",
+      db: claimant,
+      applyEvent: async () => {
+        throw new Error("stale claim token must not reach application");
+      },
+    });
+    assertEqual(
+      staleWorker.status,
+      "pending",
+      "expired old worker must not apply after another worker takes over its lease",
+    );
+    const newWorker = await applyStripeInboxEvent("stripe_event_evt_inbox_claim_takeover", {
+      claimToken: "claim_takeover_new",
+      db: competingClaimant,
+      applyEvent: async (event, options) => {
+        await options.db.query(
+          `
+            insert into integration_stripe_inbox_claim_fence_probe (stripe_event_id, claim_token)
+            values ($1, 'claim_takeover_new')
+          `,
+          [event.id],
+        );
+        return { status: "applied", action: "activated" };
+      },
+    });
+    assertEqual(
+      newWorker.status,
+      "applied",
+      "current claimant must be able to apply the takeover row",
+    );
+    const takeoverProbe = await setup.query<{ count: string; status: string }>(
+      `
+        select e.status, count(p.stripe_event_id)::text as count
+        from trip_pass_stripe_events e
+        left join integration_stripe_inbox_claim_fence_probe p
+          on p.stripe_event_id = e.stripe_event_id
+        where e.stripe_event_id = 'evt_inbox_claim_takeover'
+        group by e.status
+      `,
+    );
+    assertEqual(
+      takeoverProbe.rows[0]?.status,
+      "applied",
+      "takeover application must mark the inbox row applied",
+    );
+    assertEqual(
+      takeoverProbe.rows[0]?.count,
+      "1",
+      "only the current claim token may commit application side effects",
+    );
+
+    await receiveStripeWebhookEvent(
+      stripeInboxCheckoutSessionEvent("evt_inbox_claim_race", "order_inbox_claim_race"),
+      { db: setup, now },
+    );
+    const [firstRaceClaim, secondRaceClaim] = await Promise.all([
+      claimPendingStripeInboxEvents({
+        claimToken: "claim_race_first",
+        db: claimant,
+        leaseMs,
+        limit: 1,
+        now: new Date("2099-01-01T00:00:00.000Z"),
+      }),
+      claimPendingStripeInboxEvents({
+        claimToken: "claim_race_second",
+        db: competingClaimant,
+        leaseMs,
+        limit: 1,
+        now: new Date("2099-01-01T00:00:00.000Z"),
+      }),
+    ]);
+    assertEqual(
+      [...firstRaceClaim, ...secondRaceClaim].filter(
+        (id) => id === "stripe_event_evt_inbox_claim_race",
+      ).length,
+      1,
+      "parallel claimers must not both claim the same pending inbox row",
+    );
+  } finally {
+    releaseHolder();
+    await Promise.allSettled([holder.end(), setup.end(), claimant.end(), competingClaimant.end()]);
+  }
+}
+
 function createControlledCheckoutQueryClient(
   client: ReturnType<PostgresHarness["createQueryClient"]>,
   hooks: {
@@ -821,6 +1545,35 @@ function priceIdFromCheckoutParams(params: CheckoutCreateParams) {
 
 function dateFromDatabaseValue(value: Date | string) {
   return value instanceof Date ? value : new Date(String(value));
+}
+
+function stripeInboxCheckoutSessionEvent(eventId: string, orderId: string) {
+  return {
+    id: eventId,
+    object: "event",
+    api_version: STRIPE_API_VERSION,
+    created: 1_786_080_000,
+    data: {
+      object: {
+        id: `cs_${orderId}`,
+        object: "checkout.session",
+        mode: "payment",
+        client_reference_id: orderId,
+        metadata: {
+          tripPassOrderId: orderId,
+          productCode: tripPassCheckoutProductSnapshot.productCode,
+          productVersion: String(tripPassCheckoutProductSnapshot.productVersion),
+        },
+        payment_intent: `pi_${orderId}`,
+        payment_status: "paid",
+        customer_email: "integration-traveler@example.com",
+      },
+    },
+    livemode: false,
+    pending_webhooks: 1,
+    request: null,
+    type: "checkout.session.completed",
+  } as unknown as Stripe.Event;
 }
 
 async function waitUntil(check: () => Promise<boolean>, failureMessage: string) {

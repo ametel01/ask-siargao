@@ -7,6 +7,7 @@ import {
 } from "@/app/api/stripe/webhook/webhook-route";
 import { withRealRedisHarness } from "@/server/integration/redis-harness";
 import { verifyStripeWebhookPayload } from "@/server/payments/stripe";
+import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 import { createRedisQuotaStore, type QuotaStore } from "@/server/security/rate-limit";
 import { openChatUsageSession } from "@/server/trip-pass/usage";
 
@@ -408,10 +409,12 @@ async function runVerifiedStripeWebhookRedisIndependenceRegression() {
       body,
       {
         received: true,
+        product: "trip_pass",
+        status: "applied",
         applicationStatus: "applied",
-        auditRequestId: "audit_issue150_redis_independent",
+        action: "activated",
+        orderId: "order_issue150_redis_independent",
         stripeEventId: "evt_issue150_redis_independent",
-        generationJobId: "job_audit_issue150_redis_independent_generate",
       },
       "handled verified event must reach durable payment application with Redis unavailable",
     );
@@ -459,24 +462,11 @@ async function runVerifiedStripeWebhookRedisIndependenceRegression() {
 function redisOutageWebhookDependencies(mode: "applied" | "persistence_failure") {
   return {
     applyTripPassStripeEvent: async () => ({
-      status: "ignored" as const,
-      reason: "not_trip_pass_event" as const,
+      status: "applied" as const,
+      action: "activated" as const,
+      orderId: "order_issue150_redis_independent",
+      stripeEventId: "evt_issue150_redis_independent",
     }),
-    applyVerifiedCheckoutPayment: async (payment) => {
-      if (mode === "persistence_failure") {
-        throw new Error("issue150 simulated durable persistence failure");
-      }
-      return {
-        status: "applied" as const,
-        audit: { id: payment.auditRequestId } as never,
-        job: {
-          id: `job_${payment.auditRequestId}_generate`,
-          auditRequestId: payment.auditRequestId,
-          kind: "generate_audit" as const,
-        } as never,
-        paymentEvent: {} as never,
-      };
-    },
     stripeWebhookSecretFromEnv: () => "whsec_issue150_fixture",
     trackServerEvent: (event) => ({
       name: event.name,
@@ -496,6 +486,20 @@ function redisOutageWebhookDependencies(mode: "applied" | "persistence_failure")
         ...input,
         stripe: new Stripe("rk_test_issue150_fixture"),
       }),
+    receiveStripeWebhookEvent: async (event, options) => {
+      if (mode === "persistence_failure") {
+        throw new Error("issue149 simulated durable inbox persistence failure");
+      }
+      return {
+        status: "applied" as const,
+        inboxId: `stripe_event_${event.id}`,
+        stripeEventId: event.id,
+        applicationResult: await options?.applyEvent?.(event, {
+          db: redisOutageDurableBoundaryDb(),
+          now: new Date("2026-08-07T00:06:00.000Z"),
+        }),
+      };
+    },
   } satisfies Parameters<typeof stripeWebhookResponse>[1];
 }
 
@@ -507,7 +511,7 @@ function checkoutSessionEvent(eventId: string) {
   return {
     id: eventId,
     object: "event",
-    api_version: "2026-05-27.dahlia",
+    api_version: STRIPE_API_VERSION,
     created: 1_782_194_400,
     data: {
       object: {
@@ -538,6 +542,14 @@ async function signedStripeRequest(event: Record<string, unknown>) {
     headers: { "stripe-signature": signature },
     body: payload,
   });
+}
+
+function redisOutageDurableBoundaryDb() {
+  return {
+    async query<T>() {
+      return { rows: [] as T[] };
+    },
+  };
 }
 
 function restoreEnv(name: string, value: string | undefined) {

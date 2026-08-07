@@ -37,7 +37,7 @@ resource ownership remain handler-level authorities; they do not replace the bas
 | --- | --- | --- | --- |
 | `/api/audit/intake` | `POST` | Validate intake, resolve accommodation context, run completeness gate, and return preview risk when eligible | Intake rate limit |
 | `/api/audit/checkout` | `POST` | Create Stripe Checkout only for complete, eligible audits | Checkout rate limit |
-| `/api/stripe/webhook` | `POST` | Verify Stripe webhook signatures and record payment success | Provider-call rate limit and webhook secret |
+| `/api/stripe/webhook` | `POST` | Bound and verify Stripe webhook signatures, commit a normalized versioned event receipt, then apply or retry payment state | Webhook secret; verified processing is independent of Redis/provider-call rate limits |
 
 ## Auth APIs
 

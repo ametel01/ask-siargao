@@ -242,6 +242,9 @@ async function withDatabaseTransaction<T>(
   db: DatabaseQueryClient,
   callback: (transaction: DatabaseQueryClient) => Promise<T>,
 ) {
+  if (db.inTransaction) {
+    return callback(db);
+  }
   if (db.transaction) {
     return db.transaction(callback);
   }
