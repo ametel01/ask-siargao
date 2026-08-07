@@ -1,0 +1,518 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-06T23:30:04Z",
+  "title": "Design System: Ask Siargao",
+  "extensions": {
+    "colorMeta": {
+      "deep-island-night": {
+        "role": "primary",
+        "displayName": "Deep Island Night",
+        "canonical": "#05082a",
+        "tonalRamp": [
+          "#05082a",
+          "#090d3a",
+          "#10124a",
+          "#17105a",
+          "#20186b",
+          "#4c4f89",
+          "#8587ad",
+          "#c9cae0"
+        ]
+      },
+      "deep-reef": {
+        "role": "primary",
+        "displayName": "Deep Reef",
+        "canonical": "#062f35",
+        "tonalRamp": [
+          "#062f35",
+          "#0c4650",
+          "#12616b",
+          "#1f7982",
+          "#3b949a",
+          "#71b6b8",
+          "#b4d9d7",
+          "#e8f2ef"
+        ]
+      },
+      "lagoon-deep": {
+        "role": "primary",
+        "displayName": "Lagoon Deep",
+        "canonical": "#0a6f67",
+        "tonalRamp": [
+          "#062f35",
+          "#0a6f67",
+          "#0f8f81",
+          "#14b8a6",
+          "#46cbbb",
+          "#8ee6d8",
+          "#bff3e9",
+          "#ddfbf4"
+        ]
+      },
+      "lagoon-signal": {
+        "role": "primary",
+        "displayName": "Lagoon Signal",
+        "canonical": "#14b8a6",
+        "tonalRamp": [
+          "#062f35",
+          "#0a6f67",
+          "#0f8f81",
+          "#14b8a6",
+          "#46cbbb",
+          "#8ee6d8",
+          "#bff3e9",
+          "#ddfbf4"
+        ]
+      },
+      "lagoon-mist": {
+        "role": "secondary",
+        "displayName": "Lagoon Mist",
+        "canonical": "#ddfbf4",
+        "tonalRamp": [
+          "#062f35",
+          "#0a6f67",
+          "#0f8f81",
+          "#14b8a6",
+          "#46cbbb",
+          "#8ee6d8",
+          "#bff3e9",
+          "#ddfbf4"
+        ]
+      },
+      "compass-violet": {
+        "role": "secondary",
+        "displayName": "Compass Violet",
+        "canonical": "#5d3ed1",
+        "tonalRamp": [
+          "#24185c",
+          "#4c31b8",
+          "#5d3ed1",
+          "#6c46e8",
+          "#875cf6",
+          "#a486ff",
+          "#cbc3ec",
+          "#f5f3ff"
+        ]
+      },
+      "violet-mist": {
+        "role": "secondary",
+        "displayName": "Violet Mist",
+        "canonical": "#f5f3ff",
+        "tonalRamp": [
+          "#24185c",
+          "#4c31b8",
+          "#5d3ed1",
+          "#6c46e8",
+          "#875cf6",
+          "#a486ff",
+          "#cbc3ec",
+          "#f5f3ff"
+        ]
+      },
+      "shell-paper": {
+        "role": "neutral",
+        "displayName": "Shell Paper",
+        "canonical": "#fffdf7",
+        "tonalRamp": [
+          "#3e382e",
+          "#665e4f",
+          "#8f8573",
+          "#b8ad98",
+          "#d8cdb8",
+          "#eadfc9",
+          "#f5eddc",
+          "#fffdf7"
+        ]
+      },
+      "warm-paper": {
+        "role": "neutral",
+        "displayName": "Warm Paper",
+        "canonical": "#fbf6e8",
+        "tonalRamp": [
+          "#3e382e",
+          "#665e4f",
+          "#8f8573",
+          "#b8ad98",
+          "#d8cdb8",
+          "#eadfc9",
+          "#f5eddc",
+          "#fffdf7"
+        ]
+      },
+      "sand-paper": {
+        "role": "neutral",
+        "displayName": "Sand Paper",
+        "canonical": "#f5eddc",
+        "tonalRamp": [
+          "#3e382e",
+          "#665e4f",
+          "#8f8573",
+          "#b8ad98",
+          "#d8cdb8",
+          "#eadfc9",
+          "#f5eddc",
+          "#fffdf7"
+        ]
+      },
+      "sunline-gold": {
+        "role": "tertiary",
+        "displayName": "Sunline Gold",
+        "canonical": "#ffd65a",
+        "tonalRamp": [
+          "#4b3700",
+          "#735500",
+          "#9d7607",
+          "#c69a1d",
+          "#e6b932",
+          "#ffd65a",
+          "#ffe89b",
+          "#fff7d5"
+        ]
+      },
+      "sunset-coral": {
+        "role": "tertiary",
+        "displayName": "Sunset Coral",
+        "canonical": "#ff9b83",
+        "tonalRamp": [
+          "#531d18",
+          "#7c3028",
+          "#a9473a",
+          "#d16250",
+          "#ed7b65",
+          "#ff9b83",
+          "#ffc6b8",
+          "#fff0ea"
+        ]
+      },
+      "text-strong": {
+        "role": "neutral",
+        "displayName": "Strong Ink",
+        "canonical": "#0d104a",
+        "tonalRamp": [
+          "#0d104a",
+          "#24275d",
+          "#414474",
+          "#66688f",
+          "#8b8dab",
+          "#b0b1c8",
+          "#d7d7e3",
+          "#f4f4f8"
+        ]
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "Muted Ink",
+        "canonical": "#5f5f87",
+        "tonalRamp": [
+          "#1c1c3a",
+          "#36365a",
+          "#5f5f87",
+          "#77779b",
+          "#9696b2",
+          "#b7b7cb",
+          "#d9d9e5",
+          "#f3f3f8"
+        ]
+      },
+      "text-on-night": {
+        "role": "neutral",
+        "displayName": "Shell Light",
+        "canonical": "#fff9e9",
+        "tonalRamp": [
+          "#3f3b31",
+          "#686153",
+          "#928a78",
+          "#bbb29e",
+          "#d9d1bd",
+          "#ece4d1",
+          "#f7f0df",
+          "#fff9e9"
+        ]
+      },
+      "text-on-night-muted": {
+        "role": "neutral",
+        "displayName": "Dusk Lavender",
+        "canonical": "#d8d5f4",
+        "tonalRamp": [
+          "#262541",
+          "#444261",
+          "#64617f",
+          "#85829f",
+          "#a6a3be",
+          "#c2bfd8",
+          "#d8d5f4",
+          "#f1f0fb"
+        ]
+      },
+      "border-soft": {
+        "role": "neutral",
+        "displayName": "Soft Lavender Border",
+        "canonical": "#ddd8ef",
+        "tonalRamp": [
+          "#29263a",
+          "#49445d",
+          "#6b6680",
+          "#8f89a4",
+          "#b3adc7",
+          "#c8bee9",
+          "#ddd8ef",
+          "#f5f3fb"
+        ]
+      },
+      "risk-high": {
+        "role": "tertiary",
+        "displayName": "Risk High",
+        "canonical": "#d84b55",
+        "tonalRamp": [
+          "#4a1118",
+          "#711d27",
+          "#982c37",
+          "#bd3d48",
+          "#d84b55",
+          "#e87a81",
+          "#f2afb3",
+          "#fbe6e7"
+        ]
+      },
+      "confidence-high": {
+        "role": "tertiary",
+        "displayName": "Confidence High",
+        "canonical": "#1e9f63",
+        "tonalRamp": [
+          "#073a23",
+          "#0d5b37",
+          "#147b4c",
+          "#1e9f63",
+          "#4fbb84",
+          "#84d5aa",
+          "#bcebd2",
+          "#e6f8ee"
+        ]
+      },
+      "confidence-medium": {
+        "role": "tertiary",
+        "displayName": "Confidence Medium",
+        "canonical": "#d99b23",
+        "tonalRamp": [
+          "#493100",
+          "#704c00",
+          "#986a0b",
+          "#bd8618",
+          "#d99b23",
+          "#e9bb5c",
+          "#f5da99",
+          "#fff4cf"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Editorial Display",
+        "purpose": "Landing promises and rare surface-defining statements."
+      },
+      "headline": {
+        "displayName": "Editorial Headline",
+        "purpose": "Public page titles and major narrative section leads."
+      },
+      "operational-title": {
+        "displayName": "Operational Title",
+        "purpose": "Chat, settings, dialogs, and workbench headings."
+      },
+      "body": {
+        "displayName": "Operational Body",
+        "purpose": "Explanations, recommendations, and decision detail."
+      },
+      "label": {
+        "displayName": "Field Label",
+        "purpose": "Navigation, metadata, evidence states, and short orientation labels."
+      }
+    },
+    "shadows": [
+      {
+        "name": "flat",
+        "value": "none",
+        "purpose": "Default cards, line items, chips, and supporting groups."
+      },
+      {
+        "name": "panel",
+        "value": "0 1px 2px rgba(14, 12, 56, 0.08), 0 10px 28px rgba(14, 12, 56, 0.08)",
+        "purpose": "Bounded workspaces and major paper sections."
+      },
+      {
+        "name": "overlay",
+        "value": "0 1px 2px rgba(8, 8, 38, 0.12), 0 18px 48px rgba(8, 8, 38, 0.18)",
+        "purpose": "Dialogs, sheets, and transient UI above the workspace."
+      },
+      {
+        "name": "lagoon-action",
+        "value": "0 6px 18px rgba(20, 184, 166, 0.22)",
+        "purpose": "Primary call-to-action emphasis."
+      },
+      {
+        "name": "coastal-frame",
+        "value": "0 18px 56px rgba(0, 0, 0, 0.34)",
+        "purpose": "Rare large island imagery against the night shell."
+      }
+    ],
+    "motion": [
+      {
+        "name": "fast",
+        "value": "140ms",
+        "purpose": "Hover, focus, and compact control feedback."
+      },
+      {
+        "name": "normal",
+        "value": "220ms",
+        "purpose": "Standard component state transitions."
+      },
+      {
+        "name": "slow",
+        "value": "360ms",
+        "purpose": "Larger panel or answer-arrival transitions."
+      },
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.2, 0, 0, 1)",
+        "purpose": "Decisive, low-bounce motion across the product."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "field-desk", "value": "1180px" },
+      { "name": "xl", "value": "1280px" },
+      { "name": "2xl", "value": "1536px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Lagoon Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The main traveler action on public and operational surfaces.",
+      "html": "<button class=\"ds-btn-primary\">Start a Reality Check</button>",
+      "css": ".ds-btn-primary { min-height: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 8px; background: var(--gradient-lagoon-cta, linear-gradient(135deg, #14b8a6 0%, #0f8f81 58%, #0a6f67 100%)); color: var(--text-on-dark, #fff9e9); font: 800 14px/1.25 var(--font-body, 'Nunito Sans', sans-serif); box-shadow: var(--shadow-cta, 0 6px 18px rgba(20,184,166,.22)); transition: background-color 140ms cubic-bezier(.2,0,0,1), box-shadow 140ms cubic-bezier(.2,0,0,1), transform 140ms cubic-bezier(.2,0,0,1); cursor: pointer; } .ds-btn-primary:hover { box-shadow: 0 8px 22px rgba(20,184,166,.28); } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: 3px solid var(--brand-lagoon-300, #8ee6d8); outline-offset: 3px; }"
+    },
+    {
+      "name": "Compass Violet Button",
+      "kind": "button",
+      "refersTo": "button-violet",
+      "description": "Secondary product, account, edit, and save action.",
+      "html": "<button class=\"ds-btn-violet\">Save trip context</button>",
+      "css": ".ds-btn-violet { min-height: 44px; padding: 0 16px; border: 1px solid var(--brand-violet-650, #5d3ed1); border-radius: 8px; background: var(--brand-violet-650, #5d3ed1); color: #fff; font: 800 14px/1.25 var(--font-body, 'Nunito Sans', sans-serif); transition: background-color 140ms cubic-bezier(.2,0,0,1), transform 140ms cubic-bezier(.2,0,0,1); cursor: pointer; } .ds-btn-violet:hover { background: var(--brand-violet-600, #6c46e8); } .ds-btn-violet:active { transform: translateY(1px); } .ds-btn-violet:focus-visible { outline: 3px solid rgba(93,62,209,.25); outline-offset: 3px; }"
+    },
+    {
+      "name": "Paper Outline Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A quiet supporting action that remains visibly interactive.",
+      "html": "<button class=\"ds-btn-outline\">Read terms</button>",
+      "css": ".ds-btn-outline { min-height: 44px; padding: 0 16px; border: 1px solid var(--border-default, #ddd8ef); border-radius: 8px; background: var(--surface-default, #fffdf7); color: var(--text-strong, #0d104a); font: 800 14px/1.25 var(--font-body, 'Nunito Sans', sans-serif); transition: background-color 140ms cubic-bezier(.2,0,0,1), border-color 140ms cubic-bezier(.2,0,0,1); cursor: pointer; } .ds-btn-outline:hover { background: var(--brand-lagoon-100, #ddfbf4); border-color: var(--brand-lagoon-300, #8ee6d8); } .ds-btn-outline:focus-visible { outline: 3px solid rgba(20,184,166,.24); outline-offset: 3px; }"
+    },
+    {
+      "name": "Operational Input",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "The standard field for traveler context and settings.",
+      "html": "<label class=\"ds-field\"><span>Current area</span><input value=\"General Luna\" aria-label=\"Current area\"></label>",
+      "css": ".ds-field { display: grid; gap: 8px; color: var(--text-default, #17184f); font: 800 14px/1.25 var(--font-body, 'Nunito Sans', sans-serif); } .ds-field input { height: 44px; padding: 0 12px; border: 1px solid var(--border-default, #ddd8ef); border-radius: 8px; background: #fff; color: var(--text-strong, #0d104a); font: 600 14px/1.4 var(--font-body, 'Nunito Sans', sans-serif); outline: none; transition: border-color 140ms cubic-bezier(.2,0,0,1), box-shadow 140ms cubic-bezier(.2,0,0,1); } .ds-field input:focus-visible { border-color: var(--brand-lagoon-600, #0f8f81); box-shadow: 0 0 0 3px rgba(20,184,166,.2); }"
+    },
+    {
+      "name": "Action Chip",
+      "kind": "chip",
+      "refersTo": "chip-action",
+      "description": "A compact prompt or selected traveler constraint.",
+      "html": "<button class=\"ds-chip\">Check a stay</button>",
+      "css": ".ds-chip { min-height: 36px; padding: 8px 12px; border: 1px solid var(--border-default, #ddd8ef); border-radius: 999px; background: var(--brand-lagoon-100, #ddfbf4); color: var(--brand-lagoon-700, #0a6f67); font: 800 12px/1.25 var(--font-body, 'Nunito Sans', sans-serif); transition: background-color 140ms cubic-bezier(.2,0,0,1), border-color 140ms cubic-bezier(.2,0,0,1); cursor: pointer; } .ds-chip:hover { background: #bff3e9; border-color: var(--brand-lagoon-300, #8ee6d8); } .ds-chip:focus-visible { outline: 3px solid rgba(20,184,166,.24); outline-offset: 2px; }"
+    },
+    {
+      "name": "Operational Panel",
+      "kind": "card",
+      "refersTo": "panel-operational",
+      "description": "A bounded field-desk section with restrained ambient lift.",
+      "html": "<section class=\"ds-panel\"><p class=\"ds-panel-label\">CURRENT TRIP</p><h3>Trip context</h3><p>Where you stay, how you move, and what kind of day you are planning.</p></section>",
+      "css": ".ds-panel { display: grid; gap: 8px; padding: 20px; border: 1px solid var(--border-default, #ddd8ef); border-radius: 8px; background: var(--surface-default, #fffdf7); color: var(--text-default, #17184f); box-shadow: var(--shadow-panel, 0 1px 2px rgba(14,12,56,.08), 0 10px 28px rgba(14,12,56,.08)); font-family: var(--font-body, 'Nunito Sans', sans-serif); } .ds-panel-label { margin: 0; color: var(--brand-lagoon-700, #0a6f67); font-size: 12px; font-weight: 800; letter-spacing: .08em; } .ds-panel h3 { margin: 0; color: var(--text-strong, #0d104a); font-size: 18px; font-weight: 600; } .ds-panel p:last-child { margin: 0; color: var(--text-muted, #5f5f87); font-size: 14px; line-height: 1.6; }"
+    },
+    {
+      "name": "Public Navigation",
+      "kind": "nav",
+      "refersTo": "button-secondary",
+      "description": "A translucent night-surface pill for short landing-page orientation.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Preview navigation\"><a href=\"#question\">Start a question</a><a href=\"#planning\">Plan smarter</a><a href=\"#pass\">Trip Pass</a></nav>",
+      "css": ".ds-nav { display: inline-flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid rgba(255,249,233,.28); border-radius: 999px; background: rgba(255,249,233,.10); font-family: var(--font-body, 'Nunito Sans', sans-serif); } .ds-nav a { min-height: 40px; display: inline-flex; align-items: center; padding: 0 16px; border-radius: 999px; color: var(--text-on-dark-muted, #d8d5f4); font-size: 13px; font-weight: 800; text-decoration: none; transition: background-color 140ms cubic-bezier(.2,0,0,1), color 140ms cubic-bezier(.2,0,0,1); } .ds-nav a:hover { background: rgba(255,249,233,.16); color: var(--text-on-dark, #fff9e9); } .ds-nav a:focus-visible { outline: 3px solid var(--brand-lagoon-300, #8ee6d8); outline-offset: 2px; }"
+    },
+    {
+      "name": "Evidence Receipt",
+      "kind": "custom",
+      "refersTo": "panel-operational",
+      "description": "A compact signature row for checked conditions and practical fallback state.",
+      "html": "<section class=\"ds-evidence\"><div><span class=\"ds-evidence-mark\" aria-hidden=\"true\">≈</span><strong>Siargao Island Weather</strong></div><p>Checking current conditions.</p><small>Keep plans flexible until current signals are available.</small></section>",
+      "css": ".ds-evidence { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--border-default, #ddd8ef); border-radius: 8px; background: #fff; color: var(--text-strong, #0d104a); font-family: var(--font-body, 'Nunito Sans', sans-serif); } .ds-evidence div { display: flex; align-items: center; gap: 8px; } .ds-evidence-mark { color: var(--brand-lagoon-700, #0a6f67); font-size: 20px; font-weight: 800; } .ds-evidence strong { font-size: 14px; font-weight: 600; } .ds-evidence p { margin: 0; font-size: 13px; font-weight: 600; } .ds-evidence small { padding-top: 6px; border-top: 1px solid var(--border-default, #ddd8ef); color: var(--text-muted, #5f5f87); font-size: 11px; font-weight: 700; line-height: 1.4; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Island Field Desk",
+    "overview": "Ask Siargao feels like a capable local decision desk set inside the island rather than a generic travel brochure or software dashboard. Deep coastal night establishes place and confidence; warm paper surfaces bring the actual work into clear view. Editorial type and real island imagery create character, while operational screens remain compact, legible, and direct.\n\nThe system is grounded, reassuring, locally alert, editorial, and practical. It favors strong hierarchy, quiet containers, visible evidence states, and a few decisive signals over decorative abundance. It explicitly avoids generic tropical kitsch, glossy resort luxury, and interchangeable AI-dashboard styling.",
+    "keyCharacteristics": [
+      "Deep coastal frames around warm, paper-like working surfaces.",
+      "Editorial serif moments paired with highly legible operational sans serif.",
+      "Lagoon actions, compass-violet controls, and sparing sunset signals.",
+      "Restrained depth: borders and tonal layers first, ambient lift only when hierarchy needs it.",
+      "Field-tool practical components with editorial warmth and clear state changes."
+    ],
+    "rules": [
+      {
+        "name": "The Night-and-Paper Rule",
+        "body": "Deep Island Night frames the experience; Shell Paper carries the work. Do not flatten both into a single undifferentiated surface.",
+        "section": "colors"
+      },
+      {
+        "name": "The Signal Hierarchy Rule",
+        "body": "Lagoon communicates the main path, violet orients secondary tools, and sunset hues draw brief attention. Using them interchangeably breaks the decision hierarchy.",
+        "section": "colors"
+      },
+      {
+        "name": "The Semantic Color Rule",
+        "body": "Confidence and risk colors retain their meaning everywhere and are never borrowed as decorative accents.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two-Register Rule",
+        "body": "Cormorant Garamond carries brand and editorial moments; Nunito Sans carries operational screens, controls, evidence, and dense information.",
+        "section": "typography"
+      },
+      {
+        "name": "The Weight-Before-Size Rule",
+        "body": "Operational hierarchy usually changes weight and color before it adds another font size. Dense surfaces should not become a staircase of oversized headings.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-by-Default Rule",
+        "body": "Repeated content stays flat. A shadow must explain a panel boundary, transient layer, or singular focal point.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Border-before-Shadow Rule",
+        "body": "Reach for the Soft Lavender Border or a tonal change before adding elevation to an operational surface.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do frame public and navigation surfaces in Deep Island Night while keeping task content on warm paper.",
+      "Do use Lagoon Signal for the main path and Compass Violet for secondary orientation or account controls.",
+      "Do preserve the Two-Register Rule when moving between editorial and operational surfaces.",
+      "Do prefer one-pixel borders, tonal layers, and line items before adding shadow or another card.",
+      "Do keep controls visibly focused, at least 2.75rem tall when practical, and compatible with reduced motion.",
+      "Do use real island imagery as a contextual frame, with dark overlays strong enough to protect text contrast."
+    ],
+    "donts": [
+      "Don't turn the palette into generic turquoise-on-white tropical branding; the deep night and warm paper relationship is essential.",
+      "Don't use lagoon, violet, gold, coral, confidence, and risk colors interchangeably.",
+      "Don't set dense evidence, settings, or chat controls in the display serif.",
+      "Don't create glossy resort-luxury effects, ornamental tropical motifs, or generic AI gradient decoration.",
+      "Don't stack rounded elevated cards inside rounded elevated cards.",
+      "Don't add persistent decorative motion; animation should clarify state or sequence and then leave the field desk quiet."
+    ]
+  }
+}
