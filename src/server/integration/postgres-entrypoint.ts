@@ -15,6 +15,7 @@ import type {
   TripPassCheckoutSessionSummary,
 } from "@/server/trip-pass/stripe-adapter";
 import { tripPassCheckoutProductSnapshot } from "@/server/trip-pass/stripe-adapter";
+import { applyTripPassStripeEvent } from "@/server/trip-pass/webhook-application";
 
 type PostgresHarness = Parameters<Parameters<typeof withRealPostgresHarness>[0]>[0];
 type CheckoutCreateParams = Parameters<TripPassCheckoutClient["createCheckoutSession"]>[0];
@@ -635,6 +636,7 @@ async function runTripPassCheckoutRollbackRaceRegression(harness: PostgresHarnes
 async function runStripeInboxRealPostgresRegression(harness: PostgresHarness) {
   await runStripeInboxReceiptConflictRegression(harness);
   await runStripeInboxRollbackAndReplayRegression(harness);
+  await runStripeInboxTripPassCrashBoundaryRegression(harness);
   await runStripeInboxClaimLeaseRegression(harness);
 }
 
@@ -821,6 +823,232 @@ async function runStripeInboxRollbackAndReplayRegression(harness: PostgresHarnes
   } finally {
     await client.end();
   }
+}
+
+async function runStripeInboxTripPassCrashBoundaryRegression(harness: PostgresHarness) {
+  const crashBoundaries = [
+    {
+      name: "order-provider-link",
+      pattern:
+        /update\s+trip_pass_orders[\s\S]*set\s+stripe_checkout_session_id\s*=\s*\$2,[\s\S]*stripe_payment_intent_id\s*=\s*\$3/i,
+    },
+    { name: "pass-insert", pattern: /insert\s+into\s+trip_passes\b/i },
+    { name: "grant-insert", pattern: /insert\s+into\s+trip_pass_grants\b/i },
+    { name: "meter-insert", pattern: /insert\s+into\s+trip_usage_meters\b/i },
+    {
+      name: "order-paid-update",
+      pattern: /update\s+trip_pass_orders[\s\S]*set\s+status\s*=\s*'paid'/i,
+    },
+    {
+      name: "inbox-applied-transition",
+      pattern: /update\s+trip_pass_stripe_events[\s\S]*set\s+status\s*=\s*'applied'/i,
+    },
+  ] as const;
+  const client = harness.createQueryClient();
+  try {
+    for (const boundary of crashBoundaries) {
+      const suffix = boundary.name.replaceAll("-", "_");
+      const userId = `user_inbox_crash_${suffix}`;
+      const orderId = `order_inbox_crash_${suffix}`;
+      const eventId = `evt_inbox_crash_${suffix}`;
+      await insertStripeInboxCheckoutOrder(client, { eventId, orderId, userId });
+
+      const failure = failAfterSuccessfulQuery(client, boundary.pattern);
+      const failedApplication = await receiveStripeWebhookEvent(
+        stripeInboxCheckoutSessionEvent(eventId, orderId),
+        {
+          db: failure.db,
+          applyEvent: (event, options) =>
+            applyTripPassStripeEvent(event, { db: options.db, now: options.now }),
+        },
+      );
+      assertEqual(
+        failure.wasInjected(),
+        true,
+        `${boundary.name} crash boundary must execute against the production SQL write (${JSON.stringify(failedApplication)})`,
+      );
+      assertEqual(
+        failedApplication.status,
+        "pending",
+        `${boundary.name} crash must leave the durable receipt pending`,
+      );
+      await assertStripeInboxTripPassTarget(client, {
+        eventId,
+        expectedInboxStatus: "pending",
+        expectedOrderStatus: "checkout_created",
+        expectedPaymentIntentId: null,
+        expectedTargetCount: "0",
+        orderId,
+      });
+
+      const replay = await applyStripeInboxEvent(`stripe_event_${eventId}`, {
+        db: client,
+        applyEvent: (event, options) =>
+          applyTripPassStripeEvent(event, { db: options.db, now: options.now }),
+      });
+      assertEqual(replay.status, "applied", `${boundary.name} replay must apply the actual target`);
+      await assertStripeInboxTripPassTarget(client, {
+        eventId,
+        expectedInboxStatus: "applied",
+        expectedOrderStatus: "paid",
+        expectedPaymentIntentId: `pi_${orderId}`,
+        expectedTargetCount: "1",
+        orderId,
+      });
+
+      const duplicateReplay = await applyStripeInboxEvent(`stripe_event_${eventId}`, {
+        db: client,
+        applyEvent: (event, options) =>
+          applyTripPassStripeEvent(event, { db: options.db, now: options.now }),
+      });
+      assertEqual(
+        duplicateReplay.status,
+        "applied",
+        `${boundary.name} applied replay must remain a side-effect-free success`,
+      );
+      await assertStripeInboxTripPassTarget(client, {
+        eventId,
+        expectedInboxStatus: "applied",
+        expectedOrderStatus: "paid",
+        expectedPaymentIntentId: `pi_${orderId}`,
+        expectedTargetCount: "1",
+        orderId,
+      });
+    }
+  } finally {
+    await client.end();
+  }
+}
+
+function failAfterSuccessfulQuery(db: DatabaseQueryClient, pattern: RegExp) {
+  let injected = false;
+  const wrap = (client: DatabaseQueryClient): DatabaseQueryClient => ({
+    inTransaction: client.inTransaction,
+    async query<T>(query: string, params: unknown[] = []) {
+      const result = await client.query<T>(query, params);
+      if (!injected && pattern.test(query)) {
+        injected = true;
+        throw new Error("injected production Trip Pass application crash");
+      }
+      return result;
+    },
+    ...(client.transaction
+      ? {
+          transaction: async <T>(callback: (transaction: DatabaseQueryClient) => Promise<T>) =>
+            client.transaction?.((transaction) => callback(wrap(transaction))) as Promise<T>,
+        }
+      : {}),
+  });
+
+  return { db: wrap(db), wasInjected: () => injected };
+}
+
+async function insertStripeInboxCheckoutOrder(
+  db: DatabaseQueryClient,
+  input: { eventId: string; orderId: string; userId: string },
+) {
+  await insertIntegrationUser(db, input.userId);
+  await db.query(
+    `
+      insert into trip_pass_orders (
+        id,
+        user_id,
+        email,
+        status,
+        product_code,
+        product_version,
+        stripe_price_id,
+        amount_total_minor,
+        currency,
+        checkout_idempotency_key,
+        stripe_checkout_session_id,
+        metadata_json
+      )
+      values ($1, $2, $3, 'checkout_created', $4, $5, 'price_trip_pass', $6, $7, $8, $9, '{}'::jsonb)
+    `,
+    [
+      input.orderId,
+      input.userId,
+      `${input.userId}@example.com`,
+      tripPassCheckoutProductSnapshot.productCode,
+      tripPassCheckoutProductSnapshot.productVersion,
+      tripPassCheckoutProductSnapshot.amountTotalMinor,
+      tripPassCheckoutProductSnapshot.currency,
+      `trip_pass_checkout:${input.eventId}`,
+      `cs_${input.orderId}`,
+    ],
+  );
+}
+
+async function assertStripeInboxTripPassTarget(
+  db: DatabaseQueryClient,
+  input: {
+    eventId: string;
+    expectedInboxStatus: "applied" | "pending";
+    expectedOrderStatus: "checkout_created" | "paid";
+    expectedPaymentIntentId: string | null;
+    expectedTargetCount: string;
+    orderId: string;
+  },
+) {
+  const order = await db.query<{ status: string; stripe_payment_intent_id: string | null }>(
+    `select status, stripe_payment_intent_id from trip_pass_orders where id = $1`,
+    [input.orderId],
+  );
+  assertEqual(
+    order.rows[0]?.status,
+    input.expectedOrderStatus,
+    `${input.eventId} Order status must match the atomic target`,
+  );
+  assertEqual(
+    order.rows[0]?.stripe_payment_intent_id ?? null,
+    input.expectedPaymentIntentId,
+    `${input.eventId} provider link must match the atomic target`,
+  );
+
+  const target = await db.query<{
+    grants: string;
+    meters: string;
+    passes: string;
+  }>(
+    `
+      select
+        (select count(*)::text from trip_passes where stripe_event_id = $1) as passes,
+        (select count(*)::text from trip_pass_grants where source_event_id = $1) as grants,
+        (
+          select count(*)::text
+          from trip_usage_meters meter
+          join trip_passes pass on pass.id = meter.trip_pass_id
+          where pass.stripe_event_id = $1 and meter.meter_type = 'chat_message'
+        ) as meters
+    `,
+    [input.eventId],
+  );
+  assertEqual(
+    target.rows[0]?.passes,
+    input.expectedTargetCount,
+    `${input.eventId} must have the expected Pass count`,
+  );
+  assertEqual(
+    target.rows[0]?.grants,
+    input.expectedTargetCount,
+    `${input.eventId} must have the expected Grant count`,
+  );
+  assertEqual(
+    target.rows[0]?.meters,
+    input.expectedTargetCount,
+    `${input.eventId} must have the expected primary Meter count`,
+  );
+
+  const inbox = await db.query<{ status: string }>(
+    "select status from trip_pass_stripe_events where stripe_event_id = $1",
+    [input.eventId],
+  );
+  assertEqual(
+    inbox.rows[0]?.status,
+    input.expectedInboxStatus,
+    `${input.eventId} inbox state must commit atomically with its target`,
+  );
 }
 
 async function runStripeInboxClaimLeaseRegression(harness: PostgresHarness) {

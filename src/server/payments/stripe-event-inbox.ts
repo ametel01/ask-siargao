@@ -507,7 +507,7 @@ function factsFromEvent(event: Stripe.Event, object: Record<string, unknown> | u
 }
 
 function eventFromInboxRow(row: StripeInboxRow): Stripe.Event {
-  const normalizedFacts = recordValue(row.normalized_facts_json) ?? {};
+  const normalizedFacts = storedJsonRecordValue(row.normalized_facts_json) ?? {};
   const metadata =
     row.product_code || row.product_version || row.order_id
       ? {
@@ -790,6 +790,17 @@ function recordValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function storedJsonRecordValue(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "string") {
+    return recordValue(value);
+  }
+  try {
+    return recordValue(JSON.parse(value));
+  } catch {
+    return null;
+  }
 }
 
 type StripeInboxRow = {
