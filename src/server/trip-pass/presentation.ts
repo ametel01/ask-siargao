@@ -9,7 +9,16 @@ import {
 } from "@/server/trip-pass/catalog";
 import { getEffectiveTripPass } from "@/server/trip-pass/entitlement";
 
-export type TripPassAccountState = "free" | "pending" | "active" | "expired" | "unavailable";
+export type TripPassAccountState =
+  | "free"
+  | "pending"
+  | "active"
+  | "exhausted"
+  | "refund_review"
+  | "dispute_suspended"
+  | "expired"
+  | "revoked"
+  | "unavailable";
 
 export type TripPassAllowancePresentation = {
   meterType: TripPassMeterType;
@@ -60,10 +69,28 @@ export async function buildTripPassAccountPresentation(
   const checkout = readCheckoutPresentation(options.env);
   const decision = await getEffectiveTripPass({ userId: input.userId, now }, db);
   const activeOrLatestPass = decision.status === "none" ? null : decision.pass;
+  const lifecycle = await loadLatestLifecycleOrder(input.userId, db);
 
   if (decision.status === "active") {
+    const status =
+      lifecycle?.refund_state === "review"
+        ? "refund_review"
+        : isExhausted(decision.meters)
+          ? "exhausted"
+          : "active";
     return createPresentation({
-      status: "active",
+      status,
+      checkout,
+      meters: decision.meters,
+      startsAt: decision.pass.startsAt,
+      expiresAt: decision.pass.expiresAt,
+      now,
+    });
+  }
+
+  if (decision.status === "suspended") {
+    return createPresentation({
+      status: "dispute_suspended",
       checkout,
       meters: decision.meters,
       startsAt: decision.pass.startsAt,
@@ -86,7 +113,7 @@ export async function buildTripPassAccountPresentation(
 
   if (decision.status === "expired" || decision.status === "revoked") {
     return createPresentation({
-      status: "expired",
+      status: decision.status === "revoked" ? "revoked" : "expired",
       checkout,
       meters: decision.meters,
       startsAt: activeOrLatestPass?.startsAt ?? null,
@@ -155,7 +182,9 @@ function createPresentation(input: {
     },
     checkout: input.checkout,
     actions: {
-      startCheckout: input.checkout.status === "available",
+      startCheckout:
+        input.checkout.status === "available" &&
+        ["free", "exhausted", "expired", "revoked"].includes(input.status),
     },
   };
 }
@@ -228,4 +257,20 @@ async function loadLatestPendingOrder(userId: string, db: DatabaseQueryClient) {
   );
 
   return result.rows[0] ?? null;
+}
+
+async function loadLatestLifecycleOrder(userId: string, db: DatabaseQueryClient) {
+  const result = await db.query<{ refund_state: string; dispute_state: string }>(
+    `select refund_state, dispute_state from trip_pass_orders
+     where user_id = $1 and status in ('paid', 'disputed', 'refunded')
+     order by coalesce(lifecycle_updated_at, completed_at, updated_at) desc, id desc
+     limit 1`,
+    [userId],
+  );
+  return result.rows[0] ?? null;
+}
+
+function isExhausted(meters: TripPassUsageMeter[]) {
+  const chat = meters.find((meter) => meter.meterType === "chat_message");
+  return Boolean(chat && chat.used >= chat.limit);
 }

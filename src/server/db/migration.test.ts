@@ -64,9 +64,11 @@ import {
   sourcePermissions,
   sourceProfiles,
   sourceRecords,
+  tripPassDisputeFacts,
   tripPasses,
   tripPassGrants,
   tripPassOrders,
+  tripPassRefundFacts,
   tripPassStripeEvents,
   tripUsageEvents,
   tripUsageMeters,
@@ -97,6 +99,7 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toContain("0008_trip_pass_commerce_ledger.sql");
     expect(migrationNames).toContain("0009_clerk_identity_closure_state.sql");
     expect(migrationNames).toContain("0012_terminal_account_closure.sql");
+    expect(migrationNames).toContain("0013_trip_pass_payment_lifecycle.sql");
   });
 
   test("creates required core tables and accepts taxonomy seed rows", async () => {
@@ -127,6 +130,8 @@ describe("Step 3 database migration", () => {
       "trip_pass_orders",
       "trip_pass_grants",
       "trip_pass_stripe_events",
+      "trip_pass_refund_facts",
+      "trip_pass_dispute_facts",
       "trip_usage_events",
       "audit_requests",
       "audit_inputs",
@@ -393,6 +398,8 @@ describe("Step 3 database migration", () => {
       tripPasses,
       tripUsageMeters,
       tripPassOrders,
+      tripPassRefundFacts,
+      tripPassDisputeFacts,
       tripPassGrants,
       tripPassStripeEvents,
       tripUsageEvents,
@@ -1096,6 +1103,8 @@ describe("Step 3 database migration", () => {
       ["expires_at", "timestamp with time zone", "NO", null],
       ["created_at", "timestamp with time zone", "NO", "now()"],
       ["updated_at", "timestamp with time zone", "NO", "now()"],
+      ["terminal_revocation_reason", "text", "YES", null],
+      ["suspended_at", "timestamp with time zone", "YES", null],
     ]);
     expect(
       columnsByTable.trip_usage_meters?.map((column) => [
@@ -1150,6 +1159,12 @@ describe("Step 3 database migration", () => {
       ["closure_tombstone_id", "text", "YES", null],
       ["closure_outcome", "text", "YES", null],
       ["closure_refund_obligation_id", "text", "YES", null],
+      ["captured_amount_minor", "integer", "YES", null],
+      ["successful_refund_amount_minor", "integer", "NO", "0"],
+      ["refund_state", "text", "NO", "'none'::text"],
+      ["dispute_state", "text", "NO", "'none'::text"],
+      ["terminal_revocation_reason", "text", "YES", null],
+      ["lifecycle_updated_at", "timestamp with time zone", "YES", null],
     ]);
     expect(
       columnsByTable.trip_pass_grants?.map((column) => [

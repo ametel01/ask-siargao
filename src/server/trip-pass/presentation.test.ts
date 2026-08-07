@@ -50,7 +50,7 @@ describe("Trip Pass account presentation", () => {
       );
 
       expect(presentation.status).toBe("pending");
-      expect(presentation.actions.startCheckout).toBe(true);
+      expect(presentation.actions.startCheckout).toBe(false);
       expect(presentation.validity).toEqual({ startsAt: null, expiresAt: null });
       expect(JSON.stringify(presentation)).not.toContain("order_pending");
       expect(JSON.stringify(presentation)).not.toContain("order_other");

@@ -87,6 +87,15 @@ describe("Trip Pass Stripe webhook application", () => {
           { db, env, now },
         ),
       ).resolves.toEqual({ status: "ignored", reason: "not_trip_pass_event" });
+      await expect(
+        applyTripPassStripeEvent(
+          checkoutSessionEvent("evt_wrong_amount", "order_forged", { amountTotal: 1 }),
+          { db, env, now },
+        ),
+      ).resolves.toMatchObject({
+        status: "rejected",
+        reason: "trip_pass_payment_fact_mismatch",
+      });
 
       await expectOrderStatus(db, "order_forged", "checkout_created");
       await expectCounts(db, { passes: "0", grants: "0", meters: "0" });
@@ -451,6 +460,79 @@ describe("Trip Pass Stripe webhook application", () => {
       ).resolves.toEqual({ status: "ignored", reason: "not_relevant_event" });
     });
   });
+
+  test("completes authoritative provider lookup before any lifecycle database application", async () => {
+    const lookup = deferred<Stripe.Charge>();
+    const calls: string[] = [];
+    const db: DatabaseQueryClient = {
+      async query<T>() {
+        calls.push("database");
+        return { rows: [] as T[] };
+      },
+    };
+    const application = applyTripPassStripeEvent(
+      refundEvent("evt_ordered_lookup", "pi_ordered_lookup"),
+      {
+        db,
+        stripeObjects: {
+          retrieveCharge: async () => {
+            calls.push("lookup:start");
+            return lookup.promise;
+          },
+          retrieveDispute: async () => {
+            throw new Error("unexpected dispute lookup");
+          },
+          retrieveRefund: async () => {
+            throw new Error("unexpected refund lookup");
+          },
+        },
+      },
+    );
+    await Bun.sleep(0);
+    expect(calls).toEqual(["lookup:start"]);
+
+    lookup.resolve({
+      id: "re_evt_ordered_lookup",
+      object: "charge",
+      payment_intent: "pi_ordered_lookup",
+      amount: 49_900,
+      amount_refunded: 10_000,
+      created: 1_783_068_000,
+    } as Stripe.Charge);
+    await expect(application).resolves.toMatchObject({
+      status: "rejected",
+      reason: "trip_pass_payment_intent_not_found",
+    });
+    expect(calls[0]).toBe("lookup:start");
+    expect(calls.indexOf("database")).toBeGreaterThan(0);
+  });
+
+  test("provider lookup failure leaves lifecycle application completely unstarted", async () => {
+    let databaseStarted = false;
+    const db: DatabaseQueryClient = {
+      async query<T>() {
+        databaseStarted = true;
+        return { rows: [] as T[] };
+      },
+    };
+    await expect(
+      applyTripPassStripeEvent(refundEvent("evt_lookup_failure", "pi_lookup_failure"), {
+        db,
+        stripeObjects: {
+          retrieveCharge: async () => {
+            throw new TypeError("authoritative lookup unavailable");
+          },
+          retrieveDispute: async () => {
+            throw new Error("unexpected dispute lookup");
+          },
+          retrieveRefund: async () => {
+            throw new Error("unexpected refund lookup");
+          },
+        },
+      }),
+    ).rejects.toThrow("authoritative lookup unavailable");
+    expect(databaseStarted).toBe(false);
+  });
 });
 
 async function withTestDb(work: (db: DatabaseQueryClient) => Promise<void>) {
@@ -495,6 +577,9 @@ function stripeObjectRetriever(input: { paymentIntentId: string | null }) {
         id: chargeId,
         object: "charge",
         payment_intent: input.paymentIntentId,
+        amount: 49_900,
+        amount_refunded: 49_900,
+        created: 1_783_068_000,
       } as Stripe.Charge;
     },
     retrieveDispute: async (disputeId: string) => {
@@ -503,6 +588,10 @@ function stripeObjectRetriever(input: { paymentIntentId: string | null }) {
         id: disputeId,
         object: "dispute",
         payment_intent: input.paymentIntentId,
+        charge: `ch_${disputeId}`,
+        amount: 49_900,
+        created: 1_783_068_000,
+        status: "lost",
       } as Stripe.Dispute;
     },
     retrieveRefund: async (refundId: string) => {
@@ -511,6 +600,10 @@ function stripeObjectRetriever(input: { paymentIntentId: string | null }) {
         id: refundId,
         object: "refund",
         payment_intent: input.paymentIntentId,
+        charge: `ch_${refundId}`,
+        amount: 49_900,
+        created: 1_783_068_000,
+        status: "succeeded",
       } as Stripe.Refund;
     },
   };
@@ -565,6 +658,8 @@ function checkoutSessionEvent(
     sessionId?: string;
     type?: string;
     created?: number;
+    amountTotal?: number;
+    currency?: string;
   } = {},
 ) {
   const metadata = {
@@ -588,6 +683,8 @@ function checkoutSessionEvent(
         metadata,
         payment_intent: `pi_${orderId}`,
         payment_status: options.paymentStatus ?? "paid",
+        amount_total: options.amountTotal ?? 49_900,
+        currency: options.currency ?? "php",
       },
     },
   } as unknown as Stripe.Event;
@@ -670,4 +767,14 @@ async function expectPassStatus(db: DatabaseQueryClient, paymentIntentId: string
   );
 
   expect(result.rows[0]?.status).toBe(status);
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }

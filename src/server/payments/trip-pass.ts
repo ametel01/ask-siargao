@@ -8,7 +8,13 @@ import {
 
 export { type TripPassMeterType, tripPassMeterLimits, tripPassMeterTypes };
 
-export const tripPassStatuses = ["active", "expired", "cancelled", "refunded"] as const;
+export const tripPassStatuses = [
+  "active",
+  "suspended",
+  "expired",
+  "cancelled",
+  "refunded",
+] as const;
 
 export type TripPassStatus = (typeof tripPassStatuses)[number];
 
