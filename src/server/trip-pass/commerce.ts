@@ -131,7 +131,13 @@ export async function startTripPassCheckout(
   }
 
   validateTripPassCheckoutSession({ session, order });
-  await markOrderCheckoutCreated({ orderId: order.id, session, now: options.now }, db);
+  const checkoutDisposition = await markOrderCheckoutCreated(
+    { orderId: order.id, session, userId: input.userId, now: options.now },
+    db,
+  );
+  if (checkoutDisposition === "closed") {
+    return { status: "blocked", reason: "account_closed_during_checkout" };
+  }
 
   return {
     status: order.createdForRequest ? "started" : "reused",
@@ -376,31 +382,102 @@ async function hasBlockingTripPass(input: { userId: string; now: Date }, db: Dat
 }
 
 async function markOrderCheckoutCreated(
-  input: { orderId: string; session: TripPassCheckoutSessionSummary; now?: Date },
+  input: {
+    orderId: string;
+    session: TripPassCheckoutSessionSummary;
+    userId: string;
+    now?: Date;
+  },
   db: DatabaseQueryClient,
 ) {
-  const now = input.now ?? (await readDatabaseNow(db));
-  await db.query(
-    `
-      update trip_pass_orders
-      set status = 'checkout_created',
-          stripe_checkout_session_id = $2,
-          checkout_session_status = $3,
-          amount_total_minor = $4,
-          currency = $5,
-          updated_at = $6
-      where id = $1
-        and status in ('pending', 'checkout_created')
-    `,
-    [
+  return withDatabaseTransaction(db, async (transaction) => {
+    await acquireFamilyReservationLock(
+      { userId: input.userId, productFamily: tripPassProductFamily },
+      transaction,
+    );
+    const now = input.now ?? (await readDatabaseNow(transaction));
+    const order = await transaction.query<{
+      closure_tombstone_id: string | null;
+    }>("select closure_tombstone_id from trip_pass_orders where id = $1 for update", [
       input.orderId,
-      input.session.id,
-      input.session.status,
-      input.session.amountTotalMinor,
-      input.session.currency,
-      now,
-    ],
-  );
+    ]);
+    const closureTombstoneId = order.rows[0]?.closure_tombstone_id;
+
+    if (!closureTombstoneId) {
+      await transaction.query(
+        `
+          update trip_pass_orders
+          set status = 'checkout_created',
+              stripe_checkout_session_id = $2,
+              checkout_session_status = $3,
+              amount_total_minor = $4,
+              currency = $5,
+              updated_at = $6
+          where id = $1
+            and status in ('pending', 'checkout_created')
+        `,
+        [
+          input.orderId,
+          input.session.id,
+          input.session.status,
+          input.session.amountTotalMinor,
+          input.session.currency,
+          now,
+        ],
+      );
+      return "created" as const;
+    }
+
+    const operation = await transaction.query<{ id: string }>(
+      `select id from account_closure_operations
+       where tombstone_id = $1 order by created_at asc limit 1 for update`,
+      [closureTombstoneId],
+    );
+    const operationId = operation.rows[0]?.id;
+    if (!operationId) {
+      throw new Error("closure_operation_missing");
+    }
+    await transaction.query(
+      `update trip_pass_orders
+       set status = 'checkout_created', user_id = null, email = null,
+         stripe_customer_id = null, metadata_json = '{}'::jsonb,
+         stripe_checkout_session_id = $2, checkout_session_status = $3,
+         amount_total_minor = $4, currency = $5, updated_at = $6
+       where id = $1 and status in ('pending', 'checkout_created')`,
+      [
+        input.orderId,
+        input.session.id,
+        input.session.status,
+        input.session.amountTotalMinor,
+        input.session.currency,
+        now,
+      ],
+    );
+    await transaction.query(
+      `insert into account_closure_checkout_sessions
+         (operation_id, stripe_checkout_session_id, status, created_at, updated_at)
+       values ($1, $2, 'pending', $3, $3)
+       on conflict (operation_id, stripe_checkout_session_id) do update set
+         status = 'pending', completed_at = null, last_error_category = null,
+         updated_at = excluded.updated_at`,
+      [operationId, input.session.id, now],
+    );
+    await transaction.query(
+      `update account_closure_steps
+       set status = 'pending', next_attempt_at = $2, lease_token = null,
+         lease_expires_at = null, completed_at = null, updated_at = $2
+       where operation_id = $1
+         and step_type in ('checkout_expiry', 'commerce_minimization')`,
+      [operationId, now],
+    );
+    await transaction.query(
+      `update account_closure_operations
+       set status = 'pending', completed_at = null, updated_at = $2
+       where id = $1`,
+      [operationId, now],
+    );
+    return "closed" as const;
+  });
 }
 
 async function markOrderCheckoutCreationFailed(

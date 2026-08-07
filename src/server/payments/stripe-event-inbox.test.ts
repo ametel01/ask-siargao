@@ -69,6 +69,24 @@ describe("Stripe event inbox", () => {
     });
   });
 
+  test("replays the authoritative Stripe event timestamp instead of receipt time", async () => {
+    await withTestDb(async (db) => {
+      const event = checkoutSessionEvent("evt_authoritative_time", "order_authoritative_time");
+      event.created = 1_786_003_200;
+      let replayedCreated: number | undefined;
+
+      await receiveStripeWebhookEvent(event, {
+        db,
+        applyEvent: async (replayedEvent) => {
+          replayedCreated = replayedEvent.created;
+          return { status: "applied" };
+        },
+      });
+
+      expect(replayedCreated).toBe(1_786_003_200);
+    });
+  });
+
   test("keeps missing prerequisites pending and acknowledges durable receipt", async () => {
     await withTestDb(async (db) => {
       const result = await receiveStripeWebhookEvent(

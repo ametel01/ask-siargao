@@ -9,6 +9,11 @@ import {
   runInitialMigration,
 } from "@/server/db/test-database";
 import { createActiveTripPassWithMeters } from "@/server/payments/trip-pass";
+import {
+  type AccountClosurePolicy,
+  beginAccountClosure,
+  runClosureCleanupBatch,
+} from "@/server/privacy/account-closure";
 import { cancelTripPassCheckout, startTripPassCheckout } from "@/server/trip-pass/commerce";
 import type {
   TripPassCheckoutClient,
@@ -24,6 +29,17 @@ const enabledEnv = {
   TRIP_PASS_CHECKOUT_MODE: "on",
   STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass",
 } as const;
+const closurePolicy: AccountClosurePolicy = {
+  alertAfterAttempts: 3,
+  closurePolicyVersion: "commerce-test-closure-v1",
+  closureRetentionMs: 30 * 86_400_000,
+  commercePolicyVersion: "commerce-test-retention-v1",
+  commerceRetentionMs: 365 * 86_400_000,
+  providerSubjectEncryptionKey: Buffer.alloc(32, 31).toString("base64"),
+  providerSubjectEncryptionKeyVersion: 1,
+  tombstoneHashKey: "commerce-test-tombstone-key",
+  tombstoneHashVersion: 1,
+};
 
 describe("Trip Pass checkout commerce", () => {
   test("does not create orders or call Stripe when checkout is disabled or unavailable", async () => {
@@ -154,6 +170,121 @@ describe("Trip Pass checkout commerce", () => {
         checkoutSessionStatus: "open",
       });
       await expectNoAccessGrant(db);
+    });
+  });
+
+  test("hands a Session returned after Account Closure to durable expiry without exposing it", async () => {
+    await withTestDb(async (db) => {
+      await insertUser(db, "user_checkout_closed_during_provider_call");
+      const checkoutClient = createFakeCheckoutClient({
+        beforeCreate: async () => {
+          await beginAccountClosure(
+            { now, userId: "user_checkout_closed_during_provider_call" },
+            { db, policy: closurePolicy },
+          );
+          await runClosureCleanupBatch({
+            db,
+            now,
+            policy: closurePolicy,
+            providers: {
+              deleteClerkUser: async () => undefined,
+              expireCheckoutSession: async () => undefined,
+            },
+          });
+        },
+      });
+
+      const result = await startTripPassCheckout(
+        {
+          userId: "user_checkout_closed_during_provider_call",
+          appUrl: "https://siargao.test",
+        },
+        {
+          db,
+          checkoutClient,
+          createId: () => "order_checkout_closed_during_provider_call",
+          env: enabledEnv,
+          now,
+        },
+      );
+
+      expect(result).toEqual({
+        status: "blocked",
+        reason: "account_closed_during_checkout",
+      });
+      const order = await db.query<{
+        closure_outcome: string | null;
+        stripe_checkout_session_id: string | null;
+        user_id: string | null;
+      }>(
+        `select user_id, stripe_checkout_session_id, closure_outcome
+         from trip_pass_orders where id = $1`,
+        ["order_checkout_closed_during_provider_call"],
+      );
+      expect(order.rows[0]).toEqual({
+        user_id: null,
+        stripe_checkout_session_id: "cs_order_checkout_closed_during_provider_call",
+        closure_outcome: "blocked_at_closure",
+      });
+      const handoff = await db.query<{
+        commerce_step_status: string;
+        operation_status: string;
+        status: string;
+        step_status: string;
+      }>(
+        `select s.status, expiry.status as step_status,
+           commerce.status as commerce_step_status, operation.status as operation_status
+         from account_closure_checkout_sessions s
+         join account_closure_steps expiry on expiry.operation_id = s.operation_id
+           and expiry.step_type = 'checkout_expiry'
+         join account_closure_steps commerce on commerce.operation_id = s.operation_id
+           and commerce.step_type = 'commerce_minimization'
+         join account_closure_operations operation on operation.id = s.operation_id
+         where s.stripe_checkout_session_id = $1`,
+        ["cs_order_checkout_closed_during_provider_call"],
+      );
+      expect(handoff.rows[0]).toEqual({
+        status: "pending",
+        step_status: "pending",
+        commerce_step_status: "pending",
+        operation_status: "pending",
+      });
+      await runClosureCleanupBatch({
+        db,
+        now: new Date(now.getTime() + 1_000),
+        policy: closurePolicy,
+        providers: {
+          deleteClerkUser: async () => undefined,
+          expireCheckoutSession: async () => undefined,
+        },
+      });
+      const converged = await db.query<{
+        commerce_step_status: string;
+        operation_status: string;
+        provider_subjects: string;
+        status: string;
+        step_status: string;
+      }>(
+        `select s.status, expiry.status as step_status,
+           commerce.status as commerce_step_status, operation.status as operation_status,
+           (select count(*)::text from account_closure_provider_subjects subject
+             where subject.operation_id = s.operation_id) as provider_subjects
+         from account_closure_checkout_sessions s
+         join account_closure_steps expiry on expiry.operation_id = s.operation_id
+           and expiry.step_type = 'checkout_expiry'
+         join account_closure_steps commerce on commerce.operation_id = s.operation_id
+           and commerce.step_type = 'commerce_minimization'
+         join account_closure_operations operation on operation.id = s.operation_id
+         where s.stripe_checkout_session_id = $1`,
+        ["cs_order_checkout_closed_during_provider_call"],
+      );
+      expect(converged.rows[0]).toEqual({
+        status: "succeeded",
+        step_status: "succeeded",
+        commerce_step_status: "succeeded",
+        operation_status: "succeeded",
+        provider_subjects: "1",
+      });
     });
   });
 

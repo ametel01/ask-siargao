@@ -18,6 +18,18 @@ The app reads these environment variables.
 | `CLERK_SECRET_KEY` | Server only | Clerk `auth()`, route protection, and backend API calls | Required only when `CLERK_AUTH_MODE=enabled`. Must not use the `NEXT_PUBLIC_` prefix. |
 | `CLERK_WEBHOOK_SIGNING_SECRET` | Server only | Clerk webhook verification | Required only when `CLERK_AUTH_MODE=enabled`; `/api/clerk/webhooks` remains public at the proxy layer and verifies this signature in the handler. |
 | `ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY` | Server only | Closure Tombstone matching | Required in production so Clerk IDs are matched to hashed closure tombstones without storing readable IDs. Local development uses a deterministic fallback. |
+| `ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY_VERSION` | Server only | Closure Tombstone key rotation | Positive integer stored with closure hashes. Defaults to `1` locally; increment only under a privacy-reviewed rotation plan. |
+| `ACCOUNT_CLOSURE_TOMBSTONE_HMAC_PREVIOUS_KEYS_JSON` | Server only | Closure Tombstone rotation grace | Optional JSON object mapping still-supported positive key versions to old HMAC secrets, for example `{\"1\":\"old-secret\"}`. Keep only privacy-approved grace versions; this keyring is never persisted or logged and prevents rotation from creating a second closure for the same immutable Clerk ID. |
+| `ACCOUNT_CLOSURE_PROVIDER_SUBJECT_KEY` | Server only | Retry-owned Clerk deletion state | Required in production. Base64-encoded 32-byte AES-256-GCM key used only for the transient Clerk subject needed by retry workers. Never expose it as `NEXT_PUBLIC_*`. |
+| `ACCOUNT_CLOSURE_PROVIDER_SUBJECT_KEY_VERSION` | Server only | Provider subject key rotation | Positive integer identifying the configured transient-subject key. Defaults to `1` locally. Retain an old key until every operation encrypted with it has completed. |
+| `ACCOUNT_CLOSURE_POLICY_VERSION` | Server only | Terminal closure policy | Required in production and recorded on closure operations/tombstones so purge decisions remain attributable. |
+| `ACCOUNT_CLOSURE_RETENTION_DAYS` | Server only | Closure Tombstone retention | Required positive day count in production. Local development defaults to `30`; purge still requires every closure step and refund obligation to be complete. |
+| `ACCOUNT_CLOSURE_ALERT_AFTER_ATTEMPTS` | Server only | Closure worker alerting | Required positive attempt threshold in production. Local development defaults to `3`; reaching it alerts but does not dead-letter the retryable step. |
+| `ACCOUNT_CLOSURE_WORKER_BATCH_SIZE` | Server only | Closure cleanup worker | Optional positive integer limiting attempts per invocation. Defaults to `100`. The human-selected scheduler should invoke the worker repeatedly until due work is drained. |
+| `COMMERCE_RETENTION_POLICY_VERSION` | Server only | Minimized commerce evidence | Required in production and stored on retained commerce evidence/refund obligations. |
+| `COMMERCE_RETENTION_DAYS` | Server only | Minimized commerce retention | Required positive day count in production. Local development defaults to `365`; raw provider payloads and readable account identity are not retained as commerce evidence. |
+| `PRIVACY_RESTORE_SNAPSHOT_VERSION` | Server only | Restore traffic guard | Required by `bun run privacy:restore-guard`; must match the privacy reapplication snapshot recorded after restore. |
+| `PRIVACY_RESTORE_SOURCE_MAX_CLOSED_AT` | Server only | Restore traffic guard | Required ISO timestamp for the newest closure represented by the restored source. Traffic must remain disabled until the recorded reapplication watermark is at least this value. |
 | `NEXT_PUBLIC_CLERK_TELEMETRY_DISABLED` | Public/client-safe | Clerk SDK telemetry | Defaults to `1` in `next.config.ts`; set to `0` only when intentionally opting in to development telemetry. |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | Public/client-safe | Clerk sign-in routing | Set to `/sign-in` for the local prebuilt auth page. |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL` | Public/client-safe | Clerk post-sign-in redirects | Recommended default: `/chat`. |
@@ -76,7 +88,8 @@ The app reads these environment variables.
 Server-only secrets must not use the `NEXT_PUBLIC_` prefix. `getServerSecret` rejects public-prefixed names so sensitive provider keys do not move into client-facing bundles.
 
 Stripe clients and webhook normalization pin Stripe API version `2026-07-29.dahlia` and local
-normalized event schema version `1` in code. These are not runtime environment switches. A Stripe
+normalized event schema version `2` in code. These are not runtime environment switches. Version 2
+preserves Stripe's signed event creation timestamp for deterministic closure ordering. A Stripe
 webhook delivered with another API version is durably recorded as blocked after signature
 verification rather than guessed from an unsupported shape.
 

@@ -8,6 +8,7 @@ import {
   resetTestDatabase,
   runInitialMigration,
 } from "@/server/db/test-database";
+import { beginAccountClosure, runClosureCleanupBatch } from "@/server/privacy/account-closure";
 import { applyTripPassStripeEvent } from "@/server/trip-pass/webhook-application";
 
 const now = new Date("2026-07-03T08:00:00.000Z");
@@ -118,6 +119,163 @@ describe("Trip Pass Stripe webhook application", () => {
 
       await expectOrderStatus(db, "order_failed", "failed");
       await expectOrderStatus(db, "order_expired", "expired");
+      await expectCounts(db, { passes: "0", grants: "0", meters: "0" });
+    });
+  });
+
+  test("classifies authoritative payment after closure and creates one refund without access", async () => {
+    await withTestDb(async (db) => {
+      await insertCheckoutCreatedOrder(db, "order_closed", "user_closed");
+      await beginAccountClosure(
+        { userId: "user_closed", now },
+        {
+          db,
+          policy: closurePolicy,
+          createId: (prefix) => `${prefix}_webhook`,
+        },
+      );
+      const closure = await db.query<{ closed_at: Date | string }>(
+        "select closed_at from account_closure_tombstones where id = 'closure_tombstone_webhook'",
+      );
+      const closedSecond = Math.floor(new Date(closure.rows[0]?.closed_at ?? 0).getTime() / 1_000);
+      const event = checkoutSessionEvent("evt_closed_paid", "order_closed", {
+        created: closedSecond + 60,
+      });
+
+      await expect(applyTripPassStripeEvent(event, { db, env, now })).resolves.toMatchObject({
+        status: "applied",
+        action: "paid_after_closure",
+      });
+      await expect(applyTripPassStripeEvent(event, { db, env, now })).resolves.toMatchObject({
+        status: "duplicate",
+      });
+      await expectCounts(db, { passes: "0", grants: "0", meters: "0" });
+      expect(
+        (
+          await db.query<{ count: string }>(
+            "select count(*)::text as count from account_closure_refund_obligations where order_id = 'order_closed'",
+          )
+        ).rows[0]?.count,
+      ).toBe("1");
+    });
+  });
+
+  test("treats Stripe payment in the database-recorded closure second as Paid After Closure", async () => {
+    await withTestDb(async (db) => {
+      await insertCheckoutCreatedOrder(db, "order_closed_same_second", "user_closed_same_second");
+      await beginAccountClosure(
+        { userId: "user_closed_same_second", now },
+        {
+          db,
+          policy: closurePolicy,
+          createId: (prefix) => `${prefix}_same_second`,
+        },
+      );
+      const closure = await db.query<{ closed_at: Date | string }>(
+        "select closed_at from account_closure_tombstones where id = 'closure_tombstone_same_second'",
+      );
+      const signedSecond = Math.floor(new Date(closure.rows[0]?.closed_at ?? 0).getTime() / 1_000);
+
+      await expect(
+        applyTripPassStripeEvent(
+          checkoutSessionEvent("evt_closed_same_second", "order_closed_same_second", {
+            created: signedSecond,
+          }),
+          { db, env, now },
+        ),
+      ).resolves.toMatchObject({ status: "applied", action: "paid_after_closure" });
+      await expectCounts(db, { passes: "0", grants: "0", meters: "0" });
+    });
+  });
+
+  test("classifies a provider event created during the precommit hold as Before Closure", async () => {
+    await withTestDb(async (db) => {
+      await insertCheckoutCreatedOrder(db, "order_precommit_paid", "user_precommit_paid");
+      let providerEventSecond = 0;
+      await beginAccountClosure(
+        { userId: "user_precommit_paid", now },
+        {
+          db,
+          policy: closurePolicy,
+          createId: (prefix) => `${prefix}_precommit_paid`,
+          beforeCommit: async () => {
+            providerEventSecond = Math.floor(Date.now() / 1_000);
+            while (Math.floor(Date.now() / 1_000) <= providerEventSecond) {
+              await Bun.sleep(10);
+            }
+          },
+        },
+      );
+
+      await expect(
+        applyTripPassStripeEvent(
+          checkoutSessionEvent("evt_precommit_paid", "order_precommit_paid", {
+            created: providerEventSecond,
+          }),
+          { db, env, now },
+        ),
+      ).resolves.toMatchObject({
+        status: "noop",
+        reason: "activation_blocked_by_account_closure",
+      });
+      expect(
+        (
+          await db.query<{ count: string }>(
+            `select count(*)::text as count from account_closure_refund_obligations
+             where order_id = 'order_precommit_paid'`,
+          )
+        ).rows[0]?.count,
+      ).toBe("0");
+      await expectCounts(db, { passes: "0", grants: "0", meters: "0" });
+    });
+  });
+
+  test("retains a minimized Session reconciliation row after expiry failure for delayed payment", async () => {
+    await withTestDb(async (db) => {
+      await insertCheckoutCreatedOrder(db, "order_delayed_closed_paid", "user_delayed_closed_paid");
+      const closure = await beginAccountClosure(
+        { userId: "user_delayed_closed_paid", now },
+        {
+          db,
+          policy: closurePolicy,
+          createId: (prefix) => `${prefix}_delayed_closed_paid`,
+        },
+      );
+      await runClosureCleanupBatch({
+        db,
+        now,
+        policy: closurePolicy,
+        providers: {
+          deleteClerkUser: async () => undefined,
+          expireCheckoutSession: async () => {
+            throw new Error("controlled expiry failure");
+          },
+        },
+      });
+      const timestamp = await db.query<{ closed_at: Date | string }>(
+        "select closed_at from account_closure_tombstones where id = $1",
+        [closure.tombstoneRef],
+      );
+      const closedSecond = Math.floor(
+        new Date(timestamp.rows[0]?.closed_at ?? 0).getTime() / 1_000,
+      );
+
+      await expect(
+        applyTripPassStripeEvent(
+          checkoutSessionEvent("evt_delayed_closed_paid", "order_delayed_closed_paid", {
+            created: closedSecond + 60,
+          }),
+          { db, env, now: new Date(now.getTime() + 60_000) },
+        ),
+      ).resolves.toMatchObject({ status: "applied", action: "paid_after_closure" });
+      expect(
+        (
+          await db.query<{ count: string }>(
+            `select count(*)::text as count from account_closure_refund_obligations
+             where order_id = 'order_delayed_closed_paid'`,
+          )
+        ).rows[0]?.count,
+      ).toBe("1");
       await expectCounts(db, { passes: "0", grants: "0", meters: "0" });
     });
   });
@@ -406,6 +564,7 @@ function checkoutSessionEvent(
     paymentStatus?: Stripe.Checkout.Session.PaymentStatus;
     sessionId?: string;
     type?: string;
+    created?: number;
   } = {},
 ) {
   const metadata = {
@@ -417,6 +576,7 @@ function checkoutSessionEvent(
 
   return {
     id: eventId,
+    created: options.created,
     object: "event",
     type: options.type ?? "checkout.session.completed",
     data: {
@@ -432,6 +592,18 @@ function checkoutSessionEvent(
     },
   } as unknown as Stripe.Event;
 }
+
+const closurePolicy = {
+  alertAfterAttempts: 2,
+  closurePolicyVersion: "closure-test-v1",
+  closureRetentionMs: 86_400_000,
+  commercePolicyVersion: "commerce-test-v1",
+  commerceRetentionMs: 86_400_000,
+  providerSubjectEncryptionKey: Buffer.alloc(32, 9).toString("base64"),
+  providerSubjectEncryptionKeyVersion: 1,
+  tombstoneHashKey: "closure-test-key",
+  tombstoneHashVersion: 1,
+};
 
 function refundEvent(eventId: string, paymentIntentId: string) {
   return {

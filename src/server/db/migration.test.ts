@@ -11,7 +11,11 @@ import type { MigrationDatabase } from "@/server/db/migration-runner";
 import { runLedgerBackedMigrations } from "@/server/db/migration-runner";
 import {
   accommodations,
+  accountClosureCheckoutSessions,
   accountClosureOperations,
+  accountClosureProviderSubjects,
+  accountClosureRefundObligations,
+  accountClosureSteps,
   accountClosureTombstones,
   accountClosureWriteBarriers,
   agentReadableSnapshots,
@@ -39,6 +43,7 @@ import {
   llmToolCalls,
   paymentEvents,
   payments,
+  privacyRestoreGuardState,
   providerHealthChecks,
   providers,
   publicEvidenceBundleEvidence,
@@ -48,6 +53,7 @@ import {
   publicPages,
   rawSnapshots,
   refreshJobs,
+  retainedCommerceEvidence,
   reviewerResults,
   reviews,
   routes,
@@ -90,6 +96,7 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toContain("0007_structured_profile_food_needs.sql");
     expect(migrationNames).toContain("0008_trip_pass_commerce_ledger.sql");
     expect(migrationNames).toContain("0009_clerk_identity_closure_state.sql");
+    expect(migrationNames).toContain("0012_terminal_account_closure.sql");
   });
 
   test("creates required core tables and accepts taxonomy seed rows", async () => {
@@ -101,7 +108,13 @@ describe("Step 3 database migration", () => {
       "users",
       "account_closure_tombstones",
       "account_closure_operations",
+      "account_closure_steps",
+      "account_closure_provider_subjects",
+      "account_closure_checkout_sessions",
+      "account_closure_refund_obligations",
       "account_closure_write_barriers",
+      "retained_commerce_evidence",
+      "privacy_restore_guard_state",
       "user_profiles",
       "chat_threads",
       "chat_messages",
@@ -363,7 +376,13 @@ describe("Step 3 database migration", () => {
       users,
       accountClosureTombstones,
       accountClosureOperations,
+      accountClosureSteps,
+      accountClosureProviderSubjects,
+      accountClosureCheckoutSessions,
+      accountClosureRefundObligations,
       accountClosureWriteBarriers,
+      retainedCommerceEvidence,
+      privacyRestoreGuardState,
       userProfiles,
       chatThreads,
       chatMessages,
@@ -500,6 +519,10 @@ describe("Step 3 database migration", () => {
       ["created_at", "timestamp with time zone", "NO", "now()"],
       ["updated_at", "timestamp with time zone", "NO", "now()"],
       ["completed_at", "timestamp with time zone", "YES", null],
+      ["phase_one_committed_at", "timestamp with time zone", "YES", null],
+      ["closure_policy_version", "text", "YES", null],
+      ["commerce_policy_version", "text", "YES", null],
+      ["alert_after_attempts", "integer", "NO", "3"],
     ]);
     expect(
       columnsByTable.account_closure_write_barriers?.map((column) => [
@@ -1124,6 +1147,9 @@ describe("Step 3 database migration", () => {
       ["privacy_policy_version", "text", "YES", null],
       ["retention_policy_version", "text", "YES", null],
       ["terms_consent_presented_at", "timestamp with time zone", "YES", null],
+      ["closure_tombstone_id", "text", "YES", null],
+      ["closure_outcome", "text", "YES", null],
+      ["closure_refund_obligation_id", "text", "YES", null],
     ]);
     expect(
       columnsByTable.trip_pass_grants?.map((column) => [
@@ -1163,8 +1189,8 @@ describe("Step 3 database migration", () => {
       ["event_type", "text", "NO", null],
       ["meter_type", "text", "NO", null],
       ["quantity", "integer", "NO", null],
-      ["idempotency_key", "text", "NO", null],
-      ["request_id", "text", "NO", null],
+      ["idempotency_key", "text", "YES", null],
+      ["request_id", "text", "YES", null],
       ["request_hash", "text", "YES", null],
       ["provider_request_ids_json", "jsonb", "NO", "'[]'::jsonb"],
       ["occurred_at", "timestamp with time zone", "NO", "now()"],
@@ -1267,6 +1293,13 @@ describe("Step 3 database migration", () => {
       ["trip_pass_grants", "order_id", "trip_pass_orders", "id"],
       ["trip_pass_grants", "trip_pass_id", "trip_passes", "id"],
       ["trip_pass_grants", "user_id", "users", "id"],
+      [
+        "trip_pass_orders",
+        "closure_refund_obligation_id",
+        "account_closure_refund_obligations",
+        "id",
+      ],
+      ["trip_pass_orders", "closure_tombstone_id", "account_closure_tombstones", "id"],
       ["trip_pass_orders", "user_id", "users", "id"],
       ["trip_passes", "user_id", "users", "id"],
       ["trip_usage_events", "trip_pass_id", "trip_passes", "id"],

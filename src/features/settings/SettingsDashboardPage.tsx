@@ -4,7 +4,7 @@
  * Hallmark - pre-emit critique: P4 H4 E4 S5 R4 V4
  * genre: modern-minimal; macrostructure: account console; contrast/mobile: pass.
  */
-import { SignInButton, SignUpButton, useClerk, useUser } from "@clerk/nextjs";
+import { SignInButton, SignUpButton, useClerk, useReverification, useUser } from "@clerk/nextjs";
 import {
   ArrowRight,
   CheckCircle2,
@@ -40,6 +40,13 @@ import { Input } from "@/components/ui/input";
 import { isClerkConfigured } from "@/features/auth/clerk-config";
 import { clearSavedTripState } from "@/features/chat/saved-trip-client";
 import { clearStoredTripLocationContext } from "@/features/chat/trip-context-draft";
+import {
+  type AccountClosureClientStatus,
+  accountClosureConfirmation,
+  accountClosureFailureStatus,
+  accountClosureStatusMessages,
+  accountClosureWarnings,
+} from "@/features/settings/account-closure-copy";
 import { accountIdentityFromProfile } from "@/features/settings/account-identity";
 import { createAccountManagementAdapter } from "@/features/settings/account-management";
 import type { WeatherPreference } from "@/features/settings/profile-options";
@@ -1395,6 +1402,8 @@ function PrivacyControlsPanel({
         </div>
       </div>
 
+      {isClerkConfigured ? <AccountClosureControl /> : null}
+
       {actionStatus ? (
         <p
           className={`m-0 flex items-start gap-2 text-sm font-bold ${
@@ -1422,6 +1431,130 @@ function PrivacyControlsPanel({
         />
       ) : null}
     </section>
+  );
+}
+
+function AccountClosureControl() {
+  const { signOut } = useClerk();
+  const [isOpen, setIsOpen] = useState(false);
+  const [confirmation, setConfirmation] = useState("");
+  const [status, setStatus] = useState<AccountClosureClientStatus>("idle");
+  const closeAccount = useReverification(async () =>
+    fetch("/api/me/account-closure", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmation: accountClosureConfirmation }),
+    }),
+  );
+
+  async function submitClosure() {
+    if (status === "submitting" || confirmation !== accountClosureConfirmation) return;
+    setStatus("submitting");
+    let serverCommitted = false;
+    try {
+      const response = await closeAccount();
+      if (!response?.ok) {
+        setStatus("request_failed");
+        return;
+      }
+      serverCommitted = true;
+      setStatus("committed");
+      let localFailure = false;
+      for (const clearLocalState of [clearSavedTripState, clearStoredTripLocationContext]) {
+        try {
+          clearLocalState();
+        } catch {
+          localFailure = true;
+        }
+      }
+      try {
+        await signOut({ redirectUrl: "/" });
+      } catch {
+        localFailure = true;
+      }
+      if (localFailure) setStatus("committed_cleanup_failed");
+    } catch {
+      setStatus(accountClosureFailureStatus(serverCommitted));
+    }
+  }
+
+  return (
+    <div className="grid min-w-0 gap-3 rounded-md border border-red-300 bg-red-50 p-3">
+      <h3 className="m-0 text-sm font-semibold text-red-950">Close Account permanently</h3>
+      <ul className="m-0 grid gap-1 pl-5 text-sm font-bold leading-6 text-red-950">
+        {accountClosureWarnings.map((warning) => (
+          <li key={warning}>{warning}</li>
+        ))}
+      </ul>
+      <Button
+        className="h-auto w-fit rounded-md border-red-400 bg-white px-3 py-2 text-red-950 hover:bg-red-100"
+        type="button"
+        variant="outline"
+        onClick={() => {
+          setConfirmation("");
+          setStatus("idle");
+          setIsOpen(true);
+        }}
+      >
+        <Trash2 className="size-4" />
+        Close Account
+      </Button>
+      {isOpen ? (
+        <section
+          aria-labelledby="account-closure-confirmation-title"
+          className="grid gap-3 rounded-md border border-red-300 bg-white p-4"
+        >
+          <h4
+            className="m-0 text-base font-semibold text-red-950"
+            id="account-closure-confirmation-title"
+          >
+            Confirm terminal Account Closure
+          </h4>
+          <p className="m-0 text-sm leading-6 text-red-950">
+            Type <strong>{accountClosureConfirmation}</strong>. Clerk will ask you to verify your
+            credentials if your last verification is more than five minutes old.
+          </p>
+          <Input
+            aria-label="Account Closure confirmation"
+            autoComplete="off"
+            value={confirmation}
+            onChange={(event) => setConfirmation(event.target.value)}
+          />
+          {status === "request_failed" ? (
+            <p className="m-0 text-sm font-bold text-red-800" role="alert">
+              {accountClosureStatusMessages.request_failed}
+            </p>
+          ) : null}
+          {status === "committed" || status === "committed_cleanup_failed" ? (
+            <p className="m-0 text-sm font-bold text-red-800" role="status">
+              {accountClosureStatusMessages[status]}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              className="bg-red-700 text-white hover:bg-red-800"
+              disabled={
+                confirmation !== accountClosureConfirmation ||
+                status === "submitting" ||
+                status === "committed" ||
+                status === "committed_cleanup_failed"
+              }
+              type="button"
+              onClick={() => void submitClosure()}
+            >
+              {status === "submitting"
+                ? "Closing Account"
+                : status === "committed" || status === "committed_cleanup_failed"
+                  ? "Account closed"
+                  : "Close Account permanently"}
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
+              Cancel
+            </Button>
+          </div>
+        </section>
+      ) : null}
+    </div>
   );
 }
 

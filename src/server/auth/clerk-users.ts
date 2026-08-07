@@ -1,13 +1,16 @@
-import { createHmac } from "node:crypto";
-
 import type { UserJSON, UserWebhookEvent } from "@clerk/backend";
 import { auth } from "@clerk/nextjs/server";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
+import { beginAccountClosure, readAccountClosurePolicy } from "@/server/privacy/account-closure";
+import {
+  type ClosureSubjectHashPolicy,
+  closureSubjectHashCandidates,
+  currentClosureSubjectHash,
+  readClosureSubjectHashPolicy,
+} from "@/server/privacy/closure-subject";
 
-const accountClosureSubjectHashVersion = 1;
 const accountClosurePolicyVersion = "account-closure-v1";
-const localClosureTombstoneHashKey = "local-account-closure-tombstone-key";
 
 export type ClerkUserInput = {
   id: string;
@@ -27,6 +30,7 @@ export type CurrentUserAuthSnapshot = {
 export type EnsureCurrentUserDependencies = {
   auth: () => Promise<CurrentUserAuthSnapshot>;
   closureTombstoneHashKey?: string | null;
+  closureSubjectHashPolicy?: ClosureSubjectHashPolicy | null;
   db: DatabaseQueryClient;
   now: () => Date;
 };
@@ -48,12 +52,9 @@ export async function ensureCurrentUser(dependencies: Partial<EnsureCurrentUserD
 
   const db = dependencies.db ?? getDefaultDatabaseQueryClient();
   const lastSeenAt = (dependencies.now ?? (() => new Date()))();
-  const closureHashKey =
-    dependencies.closureTombstoneHashKey === null
-      ? null
-      : (dependencies.closureTombstoneHashKey ?? closureTombstoneHashKeyFromEnv());
-  const userIsClosed = closureHashKey
-    ? await hasClosureTombstoneForClerkUser(authSnapshot.userId, db, closureHashKey)
+  const closureHashPolicy = resolveClosureHashPolicy(dependencies);
+  const userIsClosed = closureHashPolicy
+    ? await hasClosureTombstoneForClerkUser(authSnapshot.userId, db, closureHashPolicy)
     : false;
 
   if (userIsClosed) {
@@ -64,7 +65,7 @@ export async function ensureCurrentUser(dependencies: Partial<EnsureCurrentUserD
     {
       id: authSnapshot.userId,
       lastSeenAt,
-      closureHashKey,
+      closureHashPolicy,
     },
     db,
   );
@@ -89,6 +90,7 @@ export async function getAuthenticatedClerkUserId(
 export async function applyClerkUserWebhookEvent(
   event: UserWebhookEvent,
   db: DatabaseQueryClient = getDefaultDatabaseQueryClient(),
+  hashPolicy: ClosureSubjectHashPolicy = readClosureSubjectHashPolicy(),
 ) {
   if (event.type === "user.deleted") {
     const userId = event.data.id;
@@ -96,16 +98,16 @@ export async function applyClerkUserWebhookEvent(
       throw new Error("Clerk user.deleted event did not include a user id.");
     }
 
-    await anonymizeDeletedClerkUser(userId, db);
+    await anonymizeDeletedClerkUser(userId, db, hashPolicy);
     return { status: "deleted" as const, userId };
   }
 
   const user = normalizeClerkUser(event.data);
-  if (await hasClosureTombstoneForClerkUser(user.id, db)) {
+  if (await hasClosureTombstoneForClerkUser(user.id, db, hashPolicy)) {
     return { status: "closed" as const, userId: user.id };
   }
 
-  const result = await upsertClerkUser(user, db);
+  const result = await upsertClerkUser(user, db, hashPolicy);
   return {
     status: result.status === "closed" ? ("closed" as const) : ("upserted" as const),
     userId: user.id,
@@ -124,10 +126,14 @@ export function normalizeClerkUser(user: UserJSON): ClerkUserInput {
   };
 }
 
-export async function upsertClerkUser(user: ClerkUserInput, db: DatabaseQueryClient) {
-  const closureHashKey = closureTombstoneHashKeyFromEnv();
+export async function upsertClerkUser(
+  user: ClerkUserInput,
+  db: DatabaseQueryClient,
+  hashPolicy: ClosureSubjectHashPolicy = readClosureSubjectHashPolicy(),
+) {
   return withDatabaseTransaction(db, async (transaction) => {
-    const subjectHash = await lockClerkUserClosureSubject(user.id, closureHashKey, transaction);
+    await lockClerkUserClosureSubject(user.id, transaction);
+    const subjectCandidates = JSON.stringify(closureSubjectHashCandidates(user.id, hashPolicy));
     const result = await transaction.query<{ id: string }>(
       `
         insert into users (
@@ -145,18 +151,17 @@ export async function upsertClerkUser(user: ClerkUserInput, db: DatabaseQueryCli
         select $1, $2, $3, $4, $5, $6, $7, null, now(), now()
         where not exists (
           select 1
-          from account_closure_tombstones
-          where subject_type = 'clerk_user_id'
-            and subject_hash_version = $8
-            and subject_hash = $9
+          from account_closure_tombstones t
+          join jsonb_to_recordset($8::jsonb) as c(version integer, hash text)
+            on c.version = t.subject_hash_version and c.hash = t.subject_hash
+          where t.subject_type = 'clerk_user_id'
         )
           and not exists (
             select 1
-            from account_closure_write_barriers
-            where subject_type = 'clerk_user_id'
-              and subject_hash_version = $8
-              and subject_hash = $9
-              and status = 'active'
+            from account_closure_write_barriers b
+            join jsonb_to_recordset($8::jsonb) as c(version integer, hash text)
+              on c.version = b.subject_hash_version and c.hash = b.subject_hash
+            where b.subject_type = 'clerk_user_id' and b.status = 'active'
           )
         on conflict (id) do update set
           email = excluded.email,
@@ -169,18 +174,17 @@ export async function upsertClerkUser(user: ClerkUserInput, db: DatabaseQueryCli
         where users.deleted_at is null
           and not exists (
             select 1
-            from account_closure_tombstones
-            where subject_type = 'clerk_user_id'
-              and subject_hash_version = $8
-              and subject_hash = $9
+            from account_closure_tombstones t
+            join jsonb_to_recordset($8::jsonb) as c(version integer, hash text)
+              on c.version = t.subject_hash_version and c.hash = t.subject_hash
+            where t.subject_type = 'clerk_user_id'
           )
           and not exists (
             select 1
-            from account_closure_write_barriers
-            where subject_type = 'clerk_user_id'
-              and subject_hash_version = $8
-              and subject_hash = $9
-              and status = 'active'
+            from account_closure_write_barriers b
+            join jsonb_to_recordset($8::jsonb) as c(version integer, hash text)
+              on c.version = b.subject_hash_version and c.hash = b.subject_hash
+            where b.subject_type = 'clerk_user_id' and b.status = 'active'
           )
           and excluded.clerk_updated_at is not null
           and (
@@ -197,15 +201,14 @@ export async function upsertClerkUser(user: ClerkUserInput, db: DatabaseQueryCli
         user.imageUrl,
         user.clerkUpdatedAt?.toISOString() ?? null,
         user.lastSeenAt?.toISOString() ?? null,
-        accountClosureSubjectHashVersion,
-        subjectHash,
+        subjectCandidates,
       ],
     );
 
     if (result.rows[0]) {
       return { status: "upserted" as const };
     }
-    if (await hasClosureTombstoneForClerkUser(user.id, transaction, closureHashKey)) {
+    if (await hasClosureTombstoneForClerkUser(user.id, transaction, hashPolicy)) {
       return { status: "closed" as const };
     }
 
@@ -213,66 +216,30 @@ export async function upsertClerkUser(user: ClerkUserInput, db: DatabaseQueryCli
   });
 }
 
-export async function anonymizeDeletedClerkUser(userId: string, db: DatabaseQueryClient) {
-  const now = new Date();
-  await withDatabaseTransaction(db, async (transaction) => {
-    const tombstone = await recordClosureTombstoneForClerkUserInTransaction(
-      {
-        userId,
-        now,
-      },
-      transaction,
-    );
-    await transaction.query(
-      `
-        insert into account_closure_operations (
-          id,
-          tombstone_id,
-          operation_type,
-          status,
-          attempts,
-          created_at,
-          updated_at
-        )
-        values ($1, $2, 'clerk_deletion_identity_sync', 'pending', 0, $3, $3)
-        on conflict (id) do update set
-          tombstone_id = excluded.tombstone_id,
-          updated_at = excluded.updated_at
-      `,
-      [`closure_operation_${tombstone.subjectHash.slice(0, 32)}`, tombstone.id, now],
-    );
-    await transaction.query(
-      `
-        insert into users (
-          id,
-          email,
-          first_name,
-          last_name,
-          image_url,
-          clerk_updated_at,
-          last_seen_at,
-          deleted_at,
-          created_at,
-          updated_at
-        )
-        values ($1, null, null, null, null, null, null, $2, $2, $2)
-        on conflict (id) do update set
-          email = null,
-          first_name = null,
-          last_name = null,
-          image_url = null,
-          clerk_updated_at = null,
-          last_seen_at = null,
-          deleted_at = coalesce(users.deleted_at, excluded.deleted_at),
-          updated_at = excluded.updated_at
-      `,
-      [userId, now],
-    );
-  });
+export async function anonymizeDeletedClerkUser(
+  userId: string,
+  db: DatabaseQueryClient,
+  hashPolicy: ClosureSubjectHashPolicy = readClosureSubjectHashPolicy(),
+) {
+  await beginAccountClosure(
+    {
+      allowMissingUser: true,
+      clerkDeletionConfirmed: true,
+      now: new Date(),
+      operationType: "clerk_deletion_identity_sync",
+      userId,
+    },
+    { db, policy: { ...readAccountClosurePolicy(), ...hashPolicy } },
+  );
 }
 
 export async function touchClerkUserSessionPresence(
-  input: { id: string; lastSeenAt: Date; closureHashKey?: string | null },
+  input: {
+    id: string;
+    lastSeenAt: Date;
+    closureHashKey?: string | null;
+    closureHashPolicy?: ClosureSubjectHashPolicy | null;
+  },
   db: DatabaseQueryClient,
 ) {
   if (input.closureHashKey === null) {
@@ -297,9 +264,16 @@ export async function touchClerkUserSessionPresence(
     return result.rows[0] ?? null;
   }
 
-  const closureHashKey = input.closureHashKey ?? closureTombstoneHashKeyFromEnv();
+  const closureHashPolicy =
+    input.closureHashPolicy ??
+    (input.closureHashKey
+      ? { tombstoneHashKey: input.closureHashKey, tombstoneHashVersion: 1 }
+      : readClosureSubjectHashPolicy());
   const result = await withDatabaseTransaction(db, async (transaction) => {
-    const subjectHash = await lockClerkUserClosureSubject(input.id, closureHashKey, transaction);
+    await lockClerkUserClosureSubject(input.id, transaction);
+    const subjectCandidates = JSON.stringify(
+      closureSubjectHashCandidates(input.id, closureHashPolicy),
+    );
     return transaction.query<{ id: string; last_seen_at: Date | string; deleted_at: null }>(
       `
         insert into users (
@@ -311,18 +285,17 @@ export async function touchClerkUserSessionPresence(
         select $1, $2, now(), now()
         where not exists (
           select 1
-          from account_closure_tombstones
-          where subject_type = 'clerk_user_id'
-            and subject_hash_version = $3
-            and subject_hash = $4
+          from account_closure_tombstones t
+          join jsonb_to_recordset($3::jsonb) as c(version integer, hash text)
+            on c.version = t.subject_hash_version and c.hash = t.subject_hash
+          where t.subject_type = 'clerk_user_id'
         )
           and not exists (
             select 1
-            from account_closure_write_barriers
-            where subject_type = 'clerk_user_id'
-              and subject_hash_version = $3
-              and subject_hash = $4
-              and status = 'active'
+            from account_closure_write_barriers b
+            join jsonb_to_recordset($3::jsonb) as c(version integer, hash text)
+              on c.version = b.subject_hash_version and c.hash = b.subject_hash
+            where b.subject_type = 'clerk_user_id' and b.status = 'active'
           )
         on conflict (id) do update set
           last_seen_at = greatest(coalesce(users.last_seen_at, excluded.last_seen_at), excluded.last_seen_at),
@@ -330,22 +303,21 @@ export async function touchClerkUserSessionPresence(
         where users.deleted_at is null
           and not exists (
             select 1
-            from account_closure_tombstones
-            where subject_type = 'clerk_user_id'
-              and subject_hash_version = $3
-              and subject_hash = $4
+            from account_closure_tombstones t
+            join jsonb_to_recordset($3::jsonb) as c(version integer, hash text)
+              on c.version = t.subject_hash_version and c.hash = t.subject_hash
+            where t.subject_type = 'clerk_user_id'
           )
           and not exists (
             select 1
-            from account_closure_write_barriers
-            where subject_type = 'clerk_user_id'
-              and subject_hash_version = $3
-              and subject_hash = $4
-              and status = 'active'
+            from account_closure_write_barriers b
+            join jsonb_to_recordset($3::jsonb) as c(version integer, hash text)
+              on c.version = b.subject_hash_version and c.hash = b.subject_hash
+            where b.subject_type = 'clerk_user_id' and b.status = 'active'
           )
         returning id, last_seen_at, deleted_at
       `,
-      [input.id, input.lastSeenAt.toISOString(), accountClosureSubjectHashVersion, subjectHash],
+      [input.id, input.lastSeenAt.toISOString(), subjectCandidates],
     );
   });
 
@@ -355,19 +327,23 @@ export async function touchClerkUserSessionPresence(
 export async function hasClosureTombstoneForClerkUser(
   userId: string,
   db: DatabaseQueryClient,
-  key = closureTombstoneHashKeyFromEnv(),
+  keyOrPolicy: string | ClosureSubjectHashPolicy = readClosureSubjectHashPolicy(),
 ) {
-  const subjectHash = accountClosureSubjectHash(userId, key);
+  const policy =
+    typeof keyOrPolicy === "string"
+      ? { tombstoneHashKey: keyOrPolicy, tombstoneHashVersion: 1 }
+      : keyOrPolicy;
+  const candidates = JSON.stringify(closureSubjectHashCandidates(userId, policy));
   const result = await db.query<{ id: string }>(
     `
       select id
-      from account_closure_tombstones
-      where subject_type = 'clerk_user_id'
-        and subject_hash_version = $1
-        and subject_hash = $2
+      from account_closure_tombstones t
+      join jsonb_to_recordset($1::jsonb) as c(version integer, hash text)
+        on c.version = t.subject_hash_version and c.hash = t.subject_hash
+      where t.subject_type = 'clerk_user_id'
       limit 1
     `,
-    [accountClosureSubjectHashVersion, subjectHash],
+    [candidates],
   );
 
   return Boolean(result.rows[0]);
@@ -379,6 +355,7 @@ export async function recordClosureTombstoneForClerkUser(
     now?: Date;
     purgeAfter?: Date | null;
     key?: string;
+    hashPolicy?: ClosureSubjectHashPolicy;
   },
   db: DatabaseQueryClient,
 ) {
@@ -393,20 +370,20 @@ async function recordClosureTombstoneForClerkUserInTransaction(
     now?: Date;
     purgeAfter?: Date | null;
     key?: string;
+    hashPolicy?: ClosureSubjectHashPolicy;
   },
   db: DatabaseQueryClient,
 ) {
-  const subjectHash = accountClosureSubjectHash(
-    input.userId,
-    input.key ?? closureTombstoneHashKeyFromEnv(),
-  );
+  const hashPolicy =
+    input.hashPolicy ??
+    (input.key
+      ? { tombstoneHashKey: input.key, tombstoneHashVersion: 1 }
+      : readClosureSubjectHashPolicy());
+  const currentSubject = currentClosureSubjectHash(input.userId, hashPolicy);
+  const subjectHash = currentSubject.hash;
   const now = input.now ?? new Date();
   const id = `closure_tombstone_${subjectHash.slice(0, 32)}`;
-  await lockClerkUserClosureSubject(
-    input.userId,
-    input.key ?? closureTombstoneHashKeyFromEnv(),
-    db,
-  );
+  await lockClerkUserClosureSubject(input.userId, db);
 
   await db.query(
     `
@@ -430,7 +407,7 @@ async function recordClosureTombstoneForClerkUserInTransaction(
     [
       id,
       subjectHash,
-      accountClosureSubjectHashVersion,
+      currentSubject.version,
       accountClosurePolicyVersion,
       now,
       input.purgeAfter ?? null,
@@ -455,34 +432,17 @@ async function recordClosureTombstoneForClerkUserInTransaction(
         opened_at = least(account_closure_write_barriers.opened_at, excluded.opened_at),
         updated_at = excluded.updated_at
     `,
-    [
-      `closure_barrier_${subjectHash.slice(0, 32)}`,
-      id,
-      subjectHash,
-      accountClosureSubjectHashVersion,
-      now,
-    ],
+    [`closure_barrier_${subjectHash.slice(0, 32)}`, id, subjectHash, currentSubject.version, now],
   );
 
   return { id, subjectHash };
 }
 
-export function accountClosureSubjectHash(userId: string, key = closureTombstoneHashKeyFromEnv()) {
-  return createHmac("sha256", key)
-    .update(`clerk_user_id:${accountClosureSubjectHashVersion}:${userId}`)
-    .digest("base64url");
-}
-
-function closureTombstoneHashKeyFromEnv(env: Record<string, string | undefined> = process.env) {
-  const key = env.ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY;
-  if (key?.trim()) {
-    return key;
-  }
-  if (env.NODE_ENV === "production") {
-    throw new Error("ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY is required in production.");
-  }
-
-  return localClosureTombstoneHashKey;
+export function accountClosureSubjectHash(userId: string, key?: string, version?: number) {
+  const policy = key
+    ? { tombstoneHashKey: key, tombstoneHashVersion: version ?? 1 }
+    : readClosureSubjectHashPolicy();
+  return currentClosureSubjectHash(userId, policy).hash;
 }
 
 function primaryEmailAddress(user: UserJSON) {
@@ -520,8 +480,28 @@ async function withDatabaseTransaction<T>(
   }
 }
 
-async function lockClerkUserClosureSubject(userId: string, key: string, db: DatabaseQueryClient) {
-  const subjectHash = accountClosureSubjectHash(userId, key);
-  await db.query("select pg_advisory_xact_lock(hashtext($1))", [subjectHash]);
-  return subjectHash;
+async function lockClerkUserClosureSubject(userId: string, db: DatabaseQueryClient) {
+  await db.query(
+    "select pg_advisory_xact_lock(hashtext('ask-siargao-account-write'), hashtext($1))",
+    [userId],
+  );
+}
+
+function resolveClosureHashPolicy(
+  dependencies: Partial<EnsureCurrentUserDependencies>,
+): ClosureSubjectHashPolicy | null {
+  if (
+    dependencies.closureSubjectHashPolicy === null ||
+    dependencies.closureTombstoneHashKey === null
+  ) {
+    return null;
+  }
+  if (dependencies.closureSubjectHashPolicy) return dependencies.closureSubjectHashPolicy;
+  if (dependencies.closureTombstoneHashKey) {
+    return {
+      tombstoneHashKey: dependencies.closureTombstoneHashKey,
+      tombstoneHashVersion: 1,
+    };
+  }
+  return readClosureSubjectHashPolicy();
 }

@@ -9,6 +9,7 @@ import {
   receiveStripeWebhookEvent,
   STRIPE_API_VERSION,
 } from "@/server/payments/stripe-event-inbox";
+import { runAccountClosurePostgresIntegration } from "@/server/privacy/account-closure.postgres-integration";
 import { startTripPassCheckout, type TripPassCheckoutResult } from "@/server/trip-pass/commerce";
 import type {
   TripPassCheckoutClient,
@@ -37,6 +38,7 @@ await withRealPostgresHarness(async (harness) => {
   await runAdvisoryLockRegression(harness);
   await runTripPassCheckoutRaceRegression(harness);
   await runStripeInboxRealPostgresRegression(harness);
+  await runAccountClosurePostgresIntegration(harness);
 
   console.log(
     JSON.stringify(

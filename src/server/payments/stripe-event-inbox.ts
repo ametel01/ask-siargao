@@ -3,7 +3,7 @@ import type Stripe from "stripe";
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 
 export const STRIPE_API_VERSION = "2026-07-29.dahlia";
-export const STRIPE_NORMALIZED_EVENT_SCHEMA_VERSION = 1;
+export const STRIPE_NORMALIZED_EVENT_SCHEMA_VERSION = 2;
 export const STRIPE_WEBHOOK_MAX_BODY_BYTES = 256 * 1024;
 
 const supportedEventTypes = new Set([
@@ -339,7 +339,10 @@ export function normalizeStripeEvent(event: Stripe.Event): NormalizedStripeEvent
     paymentStatus: facts.paymentStatus,
     status: unsupportedReason ? "blocked" : "pending",
     sanitizedErrorClass: unsupportedReason,
-    normalizedFacts: facts.normalizedFacts,
+    normalizedFacts: {
+      ...facts.normalizedFacts,
+      stripeEventCreated: Number.isFinite(event.created) ? event.created : null,
+    },
   };
 }
 
@@ -533,7 +536,9 @@ function eventFromInboxRow(row: StripeInboxRow): Stripe.Event {
     id: row.stripe_event_id,
     object: "event",
     api_version: row.stripe_api_version,
-    created: Math.floor(new Date(row.received_at).getTime() / 1000),
+    created:
+      numberValue(normalizedFacts.stripeEventCreated) ??
+      Math.floor(new Date(row.received_at).getTime() / 1000),
     data: { object },
     livemode: Boolean(normalizedFacts.livemode),
     pending_webhooks: 0,
