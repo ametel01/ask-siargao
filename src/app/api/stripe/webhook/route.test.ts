@@ -59,14 +59,18 @@ describe("Stripe webhook route", () => {
   test("does not require Redis-backed throttling after webhook verification", async () => {
     Object.assign(process.env, { NODE_ENV: "production" });
     process.env.REDIS_URL = "redis://127.0.0.1:1/0";
+    const store = createMemoryPaymentStore(pendingPaymentAudit());
 
-    const response = await POST(
-      await signedRequest(ignoredEventPayload({ eventId: "evt_ignored_redis_down" })),
+    const response = await stripeWebhookResponse(
+      await signedRequest(checkoutSessionPayload({ eventId: "evt_checkout_redis_down" })),
+      routeDependencies(store.store),
     );
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ received: true, ignored: true });
+    expect(body.applicationStatus).toBe("applied");
+    expect(body.stripeEventId).toBe("evt_checkout_redis_down");
+    expect(store.paymentEvents).toHaveLength(1);
     expect(response.headers.get("x-ratelimit-limit")).toBeNull();
   });
 

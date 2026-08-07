@@ -1,5 +1,7 @@
 import { withRealPostgresHarness } from "@/server/integration/postgres-harness";
 
+await runConcurrentHarnessIsolationRegression();
+
 await withRealPostgresHarness(async (harness) => {
   const migration = await harness.migrate();
   await runRollbackRegression(harness);
@@ -23,6 +25,67 @@ await withRealPostgresHarness(async (harness) => {
 });
 
 type PostgresHarness = Parameters<Parameters<typeof withRealPostgresHarness>[0]>[0];
+
+async function runConcurrentHarnessIsolationRegression() {
+  const firstReady = deferred<string>();
+  const secondCleaned = deferred<string>();
+
+  const first = withRealPostgresHarness(async (harness) => {
+    const client = harness.createQueryClient();
+    try {
+      await client.query("create table integration_owner_probe (id text primary key)");
+      await client.query("insert into integration_owner_probe (id) values ($1)", ["first-harness"]);
+      firstReady.resolve(harness.databaseName);
+      await secondCleaned.promise;
+      const rows = await client.query<{ id: string }>(
+        "select id from integration_owner_probe where id = $1",
+        ["first-harness"],
+      );
+      assertEqual(
+        rows.rows[0]?.id,
+        "first-harness",
+        "cleanup for a concurrent PostgreSQL harness must not drop another owned database",
+      );
+      return harness.databaseName;
+    } finally {
+      await client.end();
+    }
+  }).catch((error) => {
+    firstReady.reject(error);
+    secondCleaned.reject(error);
+    throw error;
+  });
+
+  const second = (async () => {
+    const firstDatabaseName = await firstReady.promise;
+    const secondDatabaseName = await withRealPostgresHarness(async (harness) => {
+      assertNotEqual(
+        harness.databaseName,
+        firstDatabaseName,
+        "concurrent PostgreSQL harnesses must use distinct database names",
+      );
+      const client = harness.createQueryClient();
+      try {
+        await client.query("create table integration_owner_probe (id text primary key)");
+        await client.query("insert into integration_owner_probe (id) values ($1)", [
+          "second-harness",
+        ]);
+      } finally {
+        await client.end();
+      }
+      return harness.databaseName;
+    });
+    secondCleaned.resolve(secondDatabaseName);
+    return secondDatabaseName;
+  })();
+
+  const [firstDatabaseName, secondDatabaseName] = await Promise.all([first, second]);
+  assertNotEqual(
+    firstDatabaseName,
+    secondDatabaseName,
+    "concurrent PostgreSQL harnesses must not collide on database ownership",
+  );
+}
 
 async function runRollbackRegression(harness: PostgresHarness) {
   const client = harness.createQueryClient();
@@ -228,6 +291,12 @@ function assertEqual<T>(actual: T, expected: T, message: string) {
   }
 }
 
+function assertNotEqual<T>(actual: T, expected: T, message: string) {
+  if (actual === expected) {
+    throw new Error(`${message}. Both values were ${String(actual)}.`);
+  }
+}
+
 function assertDeepEqual<T>(actual: T, expected: T, message: string) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(
@@ -238,4 +307,14 @@ function assertDeepEqual<T>(actual: T, expected: T, message: string) {
 
 function sleep(milliseconds: number) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
 }

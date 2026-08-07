@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createClient } from "redis";
 
 import {
@@ -5,6 +6,7 @@ import {
   parseIntegrationEntrypointOptions,
   redactUrl,
   requireServiceUrl,
+  runWithIntegrationLifecycle,
 } from "@/server/integration/entrypoint-shared";
 import {
   createRedisCommandClient,
@@ -30,13 +32,19 @@ export async function withRealRedisHarness<T>(
   work: (harness: RealRedisHarness) => Promise<T>,
   options = parseRedisHarnessOptions(),
 ) {
-  const harness = createRealRedisHarness(options);
-  try {
-    await pingRedis(options.redisUrl, options.timeoutMs);
+  return runWithIntegrationLifecycle(async (owner) => {
+    const harness = createRealRedisHarness(options);
+    let ownsPrefix = false;
+    owner.deferCleanup(async () => {
+      if (ownsPrefix) {
+        await harness.cleanup();
+      }
+    });
+
+    await claimRedisPrefix(harness.keyPrefix, options.redisUrl, options.timeoutMs);
+    ownsPrefix = true;
     return await work(harness);
-  } finally {
-    await harness.cleanup();
-  }
+  });
 }
 
 export function parseRedisHarnessOptions(
@@ -49,7 +57,7 @@ export function parseRedisHarnessOptions(
   assertSafeIntegrationServiceUrl({
     allowRemote,
     name: "REDIS_URL",
-    requiredText: ["0", "test", "integration", "issue", "local", "ci"],
+    requiredText: ["test", "integration", "issue", "local", "ci"],
     url: redisUrl,
   });
 
@@ -62,7 +70,7 @@ export function parseRedisHarnessOptions(
 }
 
 function createRealRedisHarness(input: HarnessOptions): RealRedisHarness {
-  const keyPrefix = `ask-siargao:${input.namespace}:${process.pid}:${Date.now()}`;
+  const keyPrefix = `ask-siargao:${input.namespace}:${randomUUID().replaceAll("-", "")}`;
   return {
     keyPrefix,
     namespace: input.namespace,
@@ -81,19 +89,22 @@ function createRealRedisHarness(input: HarnessOptions): RealRedisHarness {
       client.on("error", () => undefined);
       try {
         await client.connect();
-        const keys: string[] = [];
-        for await (const key of client.scanIterator({
-          MATCH: `${keyPrefix}:*`,
-          COUNT: 100,
-        })) {
-          keys.push(String(key));
-        }
-        for (let index = 0; index < keys.length; index += 100) {
-          const batch = keys.slice(index, index + 100);
-          if (batch.length > 0) {
-            await client.del(batch);
+        let cursor = "0";
+        do {
+          const result = await client.sendCommand([
+            "SCAN",
+            cursor,
+            "MATCH",
+            `${keyPrefix}:*`,
+            "COUNT",
+            "100",
+          ]);
+          const [nextCursor, keys] = parseScanResult(result);
+          cursor = nextCursor;
+          if (keys.length > 0) {
+            await client.sendCommand(["DEL", ...keys]);
           }
-        }
+        } while (cursor !== "0");
       } finally {
         if (client.isOpen) {
           await client.quit();
@@ -103,7 +114,7 @@ function createRealRedisHarness(input: HarnessOptions): RealRedisHarness {
   };
 }
 
-async function pingRedis(redisUrl: string, timeoutMs: number) {
+async function claimRedisPrefix(keyPrefix: string, redisUrl: string, timeoutMs: number) {
   const client = createClient({
     url: redisUrl,
     socket: {
@@ -115,9 +126,24 @@ async function pingRedis(redisUrl: string, timeoutMs: number) {
   try {
     await client.connect();
     await client.ping();
+    const claimed = await client.set(`${keyPrefix}:__owner`, randomUUID(), { NX: true });
+    if (!claimed) {
+      throw new Error("Redis integration key prefix already exists; refusing shared cleanup.");
+    }
   } finally {
     if (client.isOpen) {
       await client.quit();
     }
   }
+}
+
+function parseScanResult(result: unknown): [string, string[]] {
+  if (!Array.isArray(result) || result.length !== 2) {
+    throw new Error("Unexpected Redis SCAN cleanup response.");
+  }
+  const [cursor, keys] = result;
+  if (typeof cursor !== "string" || !Array.isArray(keys)) {
+    throw new Error("Unexpected Redis SCAN cleanup tuple.");
+  }
+  return [cursor, keys.map(String)];
 }

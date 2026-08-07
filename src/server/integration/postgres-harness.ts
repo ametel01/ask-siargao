@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import postgres, { type Sql } from "postgres";
 
 import { createPostgresConnectionOptions } from "@/server/db/connection-options";
@@ -9,6 +10,7 @@ import {
   parseIntegrationEntrypointOptions,
   redactUrl,
   requireServiceUrl,
+  runWithIntegrationLifecycle,
 } from "@/server/integration/entrypoint-shared";
 
 export type RealPostgresHarness = {
@@ -40,17 +42,34 @@ export async function withRealPostgresHarness<T>(
   work: (harness: RealPostgresHarness) => Promise<T>,
   options = parsePostgresHarnessOptions(),
 ) {
-  const admin = postgres(options.adminDatabaseUrl, {
-    ...createPostgresConnectionOptions("cli"),
-    connect_timeout: Math.ceil(options.timeoutMs / 1_000),
-    max: 1,
-  });
-  const databaseName = `${options.namespace}_pg_${process.pid}_${Date.now()}`;
-  const databaseUrl = databaseUrlForDatabase(options.adminDatabaseUrl, databaseName);
+  return runWithIntegrationLifecycle(async (owner) => {
+    const admin = postgres(options.adminDatabaseUrl, {
+      ...createPostgresConnectionOptions("cli"),
+      connect_timeout: Math.ceil(options.timeoutMs / 1_000),
+      max: 1,
+    });
+    let databaseCreated = false;
+    const databaseName = integrationResourceName(options.namespace, "pg");
+    const databaseUrl = databaseUrlForDatabase(options.adminDatabaseUrl, databaseName);
 
-  try {
+    owner.deferCleanup(async () => {
+      await admin.end();
+    });
+    owner.deferCleanup(async () => {
+      if (!databaseCreated) {
+        return;
+      }
+      await terminateDatabaseConnections(admin, databaseName).catch(() => undefined);
+      await admin
+        .unsafe(`drop database if exists ${quoteIdentifier(databaseName)} with (force)`)
+        .catch(async () => {
+          await admin.unsafe(`drop database if exists ${quoteIdentifier(databaseName)}`);
+        });
+    });
+
     await admin`select 1`;
     await admin.unsafe(`create database ${quoteIdentifier(databaseName)}`);
+    databaseCreated = true;
     const harness = createRealPostgresHarness({
       adminDatabaseUrl: options.adminDatabaseUrl,
       databaseName,
@@ -59,15 +78,7 @@ export async function withRealPostgresHarness<T>(
       timeoutMs: options.timeoutMs,
     });
     return await work(harness);
-  } finally {
-    await terminateDatabaseConnections(admin, databaseName).catch(() => undefined);
-    await admin
-      .unsafe(`drop database if exists ${quoteIdentifier(databaseName)} with (force)`)
-      .catch(async () => {
-        await admin.unsafe(`drop database if exists ${quoteIdentifier(databaseName)}`);
-      });
-    await admin.end();
-  }
+  });
 }
 
 export function parsePostgresHarnessOptions(
@@ -217,4 +228,10 @@ async function terminateDatabaseConnections(admin: Sql, databaseName: string) {
 
 function quoteIdentifier(value: string) {
   return `"${value.replaceAll('"', '""')}"`;
+}
+
+function integrationResourceName(namespace: string, kind: "pg") {
+  const nonce = randomUUID().replaceAll("-", "").slice(0, 18);
+  const maxNamespaceLength = 63 - kind.length - nonce.length - 2;
+  return `${namespace.slice(0, maxNamespaceLength)}_${kind}_${nonce}`;
 }

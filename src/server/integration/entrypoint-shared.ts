@@ -1,10 +1,24 @@
 const namespacePattern = /^[a-z][a-z0-9_]{0,62}$/;
 const localTestHosts = new Set(["127.0.0.1", "localhost", "::1"]);
+const integrationSignals = ["SIGINT", "SIGTERM"] as const;
+
+type IntegrationSignal = (typeof integrationSignals)[number];
+
+type IntegrationProcess = {
+  exit(code?: number): unknown;
+  off(event: IntegrationSignal, listener: (signal: IntegrationSignal) => void): unknown;
+  once(event: IntegrationSignal, listener: (signal: IntegrationSignal) => void): unknown;
+};
 
 export type IntegrationEntrypointOptions = {
   dryRun: boolean;
   namespace: string;
   timeoutMs: number;
+};
+
+export type IntegrationLifecycleOwner = {
+  cleanup(): Promise<void>;
+  deferCleanup(cleanup: () => Promise<void>): void;
 };
 
 export function parseIntegrationEntrypointOptions(
@@ -71,6 +85,75 @@ export async function withTimeout<T>(
   }
 }
 
+export async function runWithIntegrationLifecycle<T>(
+  work: (owner: IntegrationLifecycleOwner) => Promise<T>,
+  input: { process?: IntegrationProcess } = {},
+) {
+  const owner = createIntegrationLifecycleOwner();
+  const detachSignals = attachIntegrationSignalHandlers(owner, input.process);
+  try {
+    return await work(owner);
+  } finally {
+    detachSignals();
+    await owner.cleanup();
+  }
+}
+
+export function createIntegrationLifecycleOwner(): IntegrationLifecycleOwner {
+  const cleanups: Array<() => Promise<void>> = [];
+  let cleanupPromise: Promise<void> | null = null;
+
+  return {
+    cleanup() {
+      cleanupPromise ??= (async () => {
+        const errors: unknown[] = [];
+        for (const cleanup of cleanups.splice(0).reverse()) {
+          try {
+            await cleanup();
+          } catch (error) {
+            errors.push(error);
+          }
+        }
+        if (errors.length === 1) {
+          throw errors[0];
+        }
+        if (errors.length > 1) {
+          throw new AggregateError(errors, "Integration cleanup failed.");
+        }
+      })();
+      return cleanupPromise;
+    },
+    deferCleanup(cleanup) {
+      if (cleanupPromise) {
+        throw new Error("Cannot register integration cleanup after cleanup has started.");
+      }
+      cleanups.push(cleanup);
+    },
+  };
+}
+
+export function attachIntegrationSignalHandlers(
+  owner: IntegrationLifecycleOwner,
+  processLike: IntegrationProcess = process,
+) {
+  const handlers = new Map<IntegrationSignal, (signal: IntegrationSignal) => void>();
+  for (const signal of integrationSignals) {
+    const handler = (receivedSignal: IntegrationSignal) => {
+      void owner.cleanup().finally(() => {
+        processLike.exit(exitCodeForSignal(receivedSignal));
+      });
+    };
+    handlers.set(signal, handler);
+    processLike.once(signal, handler);
+  }
+
+  return () => {
+    for (const [signal, handler] of handlers) {
+      processLike.off(signal, handler);
+    }
+  };
+}
+
 export function requireServiceUrl(
   name: "DATABASE_URL" | "REDIS_URL",
   env: Record<string, string | undefined> = process.env,
@@ -113,10 +196,11 @@ export function assertSafeIntegrationServiceUrl(input: {
     );
   }
 
+  const requiresMarker = input.name === "DATABASE_URL" || !localTestHosts.has(parsed.hostname);
   const searchable = decodeURIComponent(
     [parsed.hostname, parsed.username, parsed.pathname, parsed.search].join(" "),
   ).toLowerCase();
-  if (!input.requiredText.some((marker) => searchable.includes(marker))) {
+  if (requiresMarker && !input.requiredText.some((marker) => searchable.includes(marker))) {
     throw new Error(
       `${input.name} must visibly target a disposable test service or namespace; refusing production-looking target.`,
     );
@@ -145,4 +229,8 @@ function parsePositiveIntegerOption(option: string, value: string) {
   }
 
   return parsed;
+}
+
+function exitCodeForSignal(signal: IntegrationSignal) {
+  return signal === "SIGINT" ? 130 : 143;
 }

@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 
 import {
   assertSafeIntegrationServiceUrl,
+  attachIntegrationSignalHandlers,
+  createIntegrationLifecycleOwner,
   parseIntegrationEntrypointOptions,
 } from "@/server/integration/entrypoint-shared";
 import { parsePostgresHarnessOptions } from "@/server/integration/postgres-harness";
@@ -91,6 +94,20 @@ describe("integration entry-point contracts", () => {
         REDIS_URL: "redis://127.0.0.1:6379/0",
       }),
     ).not.toThrow();
+    expect(() =>
+      parseRedisHarnessOptions([], {
+        INTEGRATION_TEST_ALLOW_REMOTE: "1",
+        INTEGRATION_TEST_NAMESPACE: "issue150",
+        REDIS_URL: "redis://production.example/0",
+      }),
+    ).toThrow("production-looking");
+    expect(() =>
+      parseRedisHarnessOptions([], {
+        INTEGRATION_TEST_ALLOW_REMOTE: "1",
+        INTEGRATION_TEST_NAMESPACE: "issue150",
+        REDIS_URL: "redis://redis.integration.example/0",
+      }),
+    ).not.toThrow();
   });
 
   test("real service suites expose reusable helpers and scoped cleanup", async () => {
@@ -110,13 +127,43 @@ describe("integration entry-point contracts", () => {
     expect(postgresEntrypoint).toContain("pg_stat_activity");
 
     expect(redisHarness).toContain("export async function withRealRedisHarness");
-    expect(redisHarness).toContain("scanIterator");
-    expect(redisHarness).toContain("MATCH:");
+    expect(redisHarness).toContain('"SCAN"');
+    expect(redisHarness).toContain('"DEL"');
+    expect(redisHarness).toContain('"MATCH"');
     expect(redisHarness).toContain("keyPrefix");
     expect(redisHarness).not.toContain("FLUSHALL");
     expect(redisHarness).not.toContain("flushAll");
     expect(redisEntrypoint).toContain("openChatUsageSession");
-    expect(redisEntrypoint).toContain("stripeWebhookPost");
+    expect(redisEntrypoint).toContain("stripeWebhookResponse");
+    expect(redisEntrypoint).toContain("checkout.session.completed");
+  });
+
+  test("integration lifecycle owner tears down scoped resources before signal exit", async () => {
+    const owner = createIntegrationLifecycleOwner();
+    const processLike = new EventEmitter() as EventEmitter & {
+      exitCode?: number;
+      exit(code?: number): void;
+    };
+    const events: string[] = [];
+    const exited = new Promise<void>((resolve) => {
+      processLike.exit = (code?: number) => {
+        processLike.exitCode = code;
+        events.push(`exit:${code}`);
+        resolve();
+      };
+    });
+    owner.deferCleanup(async () => {
+      events.push("cleanup");
+    });
+
+    const detach = attachIntegrationSignalHandlers(owner, processLike);
+    processLike.emit("SIGTERM", "SIGTERM");
+    await exited;
+    detach();
+
+    expect(events).toEqual(["cleanup", "exit:143"]);
+    await owner.cleanup();
+    expect(events).toEqual(["cleanup", "exit:143"]);
   });
 
   test("CI defines separate secret-free pinned service job boundaries", async () => {

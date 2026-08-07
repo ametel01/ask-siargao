@@ -1,9 +1,12 @@
 import Stripe from "stripe";
 
-import { POST as stripeWebhookPost } from "@/app/api/stripe/webhook/route";
+import { stripeWebhookResponse } from "@/app/api/stripe/webhook/webhook-route";
 import { withRealRedisHarness } from "@/server/integration/redis-harness";
+import { verifyStripeWebhookPayload } from "@/server/payments/stripe";
 import { createRedisQuotaStore, type QuotaStore } from "@/server/security/rate-limit";
 import { openChatUsageSession } from "@/server/trip-pass/usage";
+
+await runConcurrentHarnessIsolationRegression();
 
 await withRealRedisHarness(async (harness) => {
   const clients = [harness.createCommandClient(), harness.createCommandClient()];
@@ -34,6 +37,76 @@ await withRealRedisHarness(async (harness) => {
     await Promise.all(clients.map((client) => client.close()));
   }
 });
+
+async function runConcurrentHarnessIsolationRegression() {
+  const firstReady = deferred<{ key: string; prefix: string }>();
+  const secondCleaned = deferred<{ key: string; prefix: string }>();
+
+  const first = withRealRedisHarness(async (harness) => {
+    const client = harness.createCommandClient();
+    const firstKey = `${harness.keyPrefix}:owner-probe`;
+    try {
+      await client.set(firstKey, "first");
+      firstReady.resolve({ key: firstKey, prefix: harness.keyPrefix });
+      const secondProbe = await secondCleaned.promise;
+      assertNotEqual(
+        harness.keyPrefix,
+        secondProbe.prefix,
+        "concurrent Redis harnesses must use distinct key prefixes",
+      );
+      assertEqual(
+        await client.get(firstKey),
+        "first",
+        "cleanup for a concurrent Redis harness must not delete another owned prefix",
+      );
+      assertEqual(
+        await client.get(secondProbe.key),
+        null,
+        "concurrent Redis harness cleanup must delete only its own prefix",
+      );
+      return harness.keyPrefix;
+    } finally {
+      await client.close();
+    }
+  }).catch((error) => {
+    firstReady.reject(error);
+    secondCleaned.reject(error);
+    throw error;
+  });
+
+  const second = (async () => {
+    try {
+      const firstProbe = await firstReady.promise;
+      const secondProbe = await withRealRedisHarness(async (harness) => {
+        assertNotEqual(
+          harness.keyPrefix,
+          firstProbe.prefix,
+          "concurrent Redis harnesses must not collide on key-prefix ownership",
+        );
+        const client = harness.createCommandClient();
+        try {
+          const key = `${harness.keyPrefix}:owner-probe`;
+          await client.set(key, "second");
+          return { key, prefix: harness.keyPrefix };
+        } finally {
+          await client.close();
+        }
+      });
+      secondCleaned.resolve(secondProbe);
+      return secondProbe.prefix;
+    } catch (error) {
+      secondCleaned.reject(error);
+      throw error;
+    }
+  })();
+
+  const [firstPrefix, secondPrefix] = await Promise.all([first, second]);
+  assertNotEqual(
+    firstPrefix,
+    secondPrefix,
+    "concurrent Redis harnesses must not reuse cleanup prefixes",
+  );
+}
 
 async function runFixedWindowRegression(stores: readonly QuotaStore[]) {
   const nowMs = Date.parse("2026-08-07T00:00:00.000Z");
@@ -259,7 +332,7 @@ async function runRollingWindowRegression(stores: readonly QuotaStore[]) {
 }
 
 async function runProductionPaidFailClosedRegression() {
-  const result = await openChatUsageSession({
+  const missingUrlResult = await openChatUsageSession({
     db: {
       async query() {
         throw new Error("database must not be touched when shared quota storage is unavailable");
@@ -273,14 +346,35 @@ async function runProductionPaidFailClosedRegression() {
     userId: "user_paid_fail_closed",
   });
 
-  assertEqual(result.status, "unavailable", "paid paths must fail closed without shared Redis");
-  if (result.status === "unavailable") {
+  assertEqual(
+    missingUrlResult.status,
+    "unavailable",
+    "paid paths must fail closed without shared Redis",
+  );
+  if (missingUrlResult.status === "unavailable") {
     assertEqual(
-      result.reason,
+      missingUrlResult.reason,
       "paid_usage_store_unavailable",
       "paid fail-closed reason must be typed and redacted",
     );
   }
+
+  const outageResult = await openChatUsageSession({
+    db: createActivePaidEntitlementDb(),
+    env: {
+      NODE_ENV: "production",
+      REDIS_URL: "redis://127.0.0.1:1/0",
+    },
+    now: new Date("2026-08-07T00:05:00.000Z"),
+    requestId: "paid_fail_closed_redis_unreachable",
+    userId: "user_paid_redis_unreachable",
+  });
+
+  assertDeepEqual(
+    outageResult,
+    { status: "unavailable", reason: "paid_usage_store_unavailable" },
+    "configured but unreachable Redis must return a typed redacted paid-path outage",
+  );
 }
 
 async function runVerifiedStripeWebhookRedisIndependenceRegression() {
@@ -294,17 +388,9 @@ async function runVerifiedStripeWebhookRedisIndependenceRegression() {
     process.env.REDIS_URL = "redis://127.0.0.1:1/0";
     Object.assign(process.env, { NODE_ENV: "production" });
 
-    const response = await stripeWebhookPost(
-      await signedStripeRequest({
-        id: "evt_issue150_redis_independent",
-        type: "customer.created",
-        data: {
-          object: {
-            id: "cus_issue150_ignored",
-            object: "customer",
-          },
-        },
-      }),
+    const response = await stripeWebhookResponse(
+      await signedStripeRequest(checkoutSessionEvent("evt_issue150_redis_independent")),
+      redisOutageWebhookDependencies("applied"),
     );
     const body = await response.json();
 
@@ -315,13 +401,43 @@ async function runVerifiedStripeWebhookRedisIndependenceRegression() {
     );
     assertDeepEqual(
       body,
-      { received: true, ignored: true },
-      "irrelevant verified event must reach the application boundary",
+      {
+        received: true,
+        applicationStatus: "applied",
+        auditRequestId: "audit_issue150_redis_independent",
+        stripeEventId: "evt_issue150_redis_independent",
+        generationJobId: "job_audit_issue150_redis_independent_generate",
+      },
+      "handled verified event must reach durable payment application with Redis unavailable",
     );
     assertEqual(
       response.headers.get("x-ratelimit-limit"),
       null,
       "verified Stripe webhook response must not carry Redis/IP throttle headers",
+    );
+
+    const invalidSignatureResponse = await stripeWebhookResponse(
+      new Request("https://siargao.test/api/stripe/webhook", {
+        method: "POST",
+        headers: { "stripe-signature": "t=1,v1=not-real" },
+        body: JSON.stringify(checkoutSessionEvent("evt_issue150_invalid_signature")),
+      }),
+      redisOutageWebhookDependencies("applied"),
+    );
+    assertEqual(
+      invalidSignatureResponse.status,
+      400,
+      "Stripe webhook signature failures must still fail while Redis is unavailable",
+    );
+
+    const persistenceFailureResponse = await stripeWebhookResponse(
+      await signedStripeRequest(checkoutSessionEvent("evt_issue150_persistence_failure")),
+      redisOutageWebhookDependencies("persistence_failure"),
+    );
+    assertEqual(
+      persistenceFailureResponse.status,
+      400,
+      "Stripe webhook persistence failures must still fail while Redis is unavailable",
     );
   } finally {
     restoreEnv("STRIPE_RESTRICTED_KEY", originalStripeRestrictedKey);
@@ -329,6 +445,77 @@ async function runVerifiedStripeWebhookRedisIndependenceRegression() {
     restoreEnv("REDIS_URL", originalRedisUrl);
     restoreEnv("NODE_ENV", originalNodeEnv);
   }
+}
+
+function redisOutageWebhookDependencies(mode: "applied" | "persistence_failure") {
+  return {
+    applyTripPassStripeEvent: async () => ({
+      status: "ignored" as const,
+      reason: "not_trip_pass_event" as const,
+    }),
+    applyVerifiedCheckoutPayment: async (payment) => {
+      if (mode === "persistence_failure") {
+        throw new Error("issue150 simulated durable persistence failure");
+      }
+      return {
+        status: "applied" as const,
+        audit: { id: payment.auditRequestId } as never,
+        job: {
+          id: `job_${payment.auditRequestId}_generate`,
+          auditRequestId: payment.auditRequestId,
+          kind: "generate_audit" as const,
+        } as never,
+        paymentEvent: {} as never,
+      };
+    },
+    stripeWebhookSecretFromEnv: () => "whsec_issue150_fixture",
+    trackServerEvent: (event) => ({
+      name: event.name,
+      at: "2026-08-07T00:06:00.000Z",
+      payload: event.payload,
+      sinks: {
+        posthogConfigured: false,
+        sentryConfigured: false,
+      },
+    }),
+    verifyStripeWebhookPayload: (input: {
+      payload: string | Buffer;
+      signature: string;
+      webhookSecret: string;
+    }) =>
+      verifyStripeWebhookPayload({
+        ...input,
+        stripe: new Stripe("rk_test_issue150_fixture"),
+      }),
+  } satisfies Parameters<typeof stripeWebhookResponse>[1];
+}
+
+function checkoutSessionEvent(eventId: string) {
+  const auditRequestId =
+    eventId === "evt_issue150_persistence_failure"
+      ? "audit_issue150_missing"
+      : "audit_issue150_redis_independent";
+  return {
+    id: eventId,
+    object: "event",
+    api_version: "2026-05-27.dahlia",
+    created: 1_782_194_400,
+    data: {
+      object: {
+        id: "cs_issue150_redis_independent",
+        object: "checkout.session",
+        client_reference_id: auditRequestId,
+        metadata: { auditRequestId },
+        mode: "payment",
+        payment_intent: "pi_issue150_redis_independent",
+        payment_status: "paid",
+      },
+    },
+    livemode: false,
+    pending_webhooks: 1,
+    request: null,
+    type: "checkout.session.completed",
+  };
 }
 
 async function signedStripeRequest(event: Record<string, unknown>) {
@@ -352,9 +539,57 @@ function restoreEnv(name: string, value: string | undefined) {
   }
 }
 
+function createActivePaidEntitlementDb() {
+  return {
+    async query<T>(query: string) {
+      if (query.includes("from trip_passes") && query.includes("status = 'active'")) {
+        return {
+          rows: [
+            {
+              id: "trip_pass_paid_redis_unreachable",
+              user_id: "user_paid_redis_unreachable",
+              email: "paid-redis-unreachable@example.com",
+              status: "active",
+              stripe_checkout_session_id: "cs_paid_redis_unreachable",
+              stripe_payment_intent_id: "pi_paid_redis_unreachable",
+              stripe_event_id: "evt_paid_redis_unreachable",
+              starts_at: new Date("2026-08-01T00:00:00.000Z"),
+              expires_at: new Date("2026-08-30T00:00:00.000Z"),
+              created_at: new Date("2026-08-01T00:00:00.000Z"),
+              updated_at: new Date("2026-08-01T00:00:00.000Z"),
+            },
+          ] as T[],
+        };
+      }
+      if (query.includes("from trip_usage_meters")) {
+        return {
+          rows: [
+            {
+              id: "meter_paid_redis_unreachable_chat",
+              trip_pass_id: "trip_pass_paid_redis_unreachable",
+              meter_type: "chat_message",
+              used: 0,
+              limit: 150,
+              reset_at: new Date("2026-08-30T00:00:00.000Z"),
+              updated_at: new Date("2026-08-01T00:00:00.000Z"),
+            },
+          ] as T[],
+        };
+      }
+      return { rows: [] as T[] };
+    },
+  };
+}
+
 function assertEqual<T>(actual: T, expected: T, message: string) {
   if (actual !== expected) {
     throw new Error(`${message}. Expected ${String(expected)}, got ${String(actual)}.`);
+  }
+}
+
+function assertNotEqual<T>(actual: T, expected: T, message: string) {
+  if (actual === expected) {
+    throw new Error(`${message}. Both values were ${String(actual)}.`);
   }
 }
 
@@ -364,4 +599,14 @@ function assertDeepEqual<T>(actual: T, expected: T, message: string) {
       `${message}. Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}.`,
     );
   }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
 }
