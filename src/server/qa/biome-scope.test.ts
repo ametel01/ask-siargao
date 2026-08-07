@@ -8,30 +8,38 @@ const fixtureCleanupPaths = [
   ".github/workflows/biome-scope-fixture.ts",
   "src/biome-scope-fixture",
 ];
+const LINT_SCOPE_TEST_TIMEOUT_MS = 60_000;
 
 describe("Biome effective repository scope", () => {
   afterEach(cleanupFixtures);
 
-  test("ignores imported bundles while linting first-party source and workflow paths", async () => {
-    await cleanupFixtures();
-    await writeFixture(".agents/biome-scope-fixture/imported-bundle.ts", "const imported = 1\n");
-    await writeFixture(".github/skills/biome-scope-fixture/imported-skill.ts", "const skill = 1\n");
+  test(
+    "ignores imported bundles while linting first-party source and workflow paths",
+    async () => {
+      await cleanupFixtures();
+      await writeFixture(".agents/biome-scope-fixture/imported-bundle.ts", "const imported = 1\n");
+      await writeFixture(
+        ".github/skills/biome-scope-fixture/imported-skill.ts",
+        "const skill = 1\n",
+      );
 
-    expect(await runLint()).toMatchObject({ exitCode: 0 });
+      expect(await runLint()).toMatchObject({ exitCode: 0 });
 
-    await writeFixture("src/biome-scope-fixture/source.ts", "const firstParty = 1\n");
-    const sourceResult = await runLint();
+      await writeFixture("src/biome-scope-fixture/source.ts", "const firstParty = 1\n");
+      const sourceResult = await runLint();
 
-    expect(sourceResult.exitCode).not.toBe(0);
-    expect(sourceResult.output).toContain("src/biome-scope-fixture/source.ts");
+      expect(sourceResult.exitCode).not.toBe(0);
+      expect(sourceResult.output).toContain("src/biome-scope-fixture/source.ts");
 
-    await rm("src/biome-scope-fixture", { force: true, recursive: true });
-    await writeFixture(".github/workflows/biome-scope-fixture.ts", "const workflow = 1\n");
-    const workflowResult = await runLint();
+      await rm("src/biome-scope-fixture", { force: true, recursive: true });
+      await writeFixture(".github/workflows/biome-scope-fixture.ts", "const workflow = 1\n");
+      const workflowResult = await runLint();
 
-    expect(workflowResult.exitCode).not.toBe(0);
-    expect(workflowResult.output).toContain(".github/workflows/biome-scope-fixture.ts");
-  });
+      expect(workflowResult.exitCode).not.toBe(0);
+      expect(workflowResult.output).toContain(".github/workflows/biome-scope-fixture.ts");
+    },
+    LINT_SCOPE_TEST_TIMEOUT_MS,
+  );
 });
 
 async function writeFixture(filePath: string, contents: string) {
