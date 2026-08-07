@@ -96,6 +96,11 @@ describe("terminal Account Closure", () => {
       ),
     ).toEqual([{ event_type: "released" }]);
     expect(
+      await query<{ invalidation_reason: string; status: string }>(
+        "select status, invalidation_reason from paid_answer_reservations where id = 'paid_answer_close'",
+      ),
+    ).toEqual([{ status: "invalidated", invalidation_reason: "account_closed" }]);
+    expect(
       await query<{ count: string }>(
         "select count(*)::text from account_closure_steps where operation_id = $1",
         [result.operationRef],
@@ -830,6 +835,24 @@ async function seedOwnedData(db: PGlite, userId: string) {
      values ('usage_close', 'pass_close', 'meter_close', $1, 'reserved', 'chat_message', 1,
        $2, $3, $4, $4)`,
     [userId, `idem_${userId}`, `request_${userId}`, now],
+  );
+  await db.query(
+    `insert into paid_answer_reservations (
+       id, trip_pass_id, usage_meter_id, account_id, idempotency_key_hash,
+       request_body_hash, request_id, lease_token, status, lease_expires_at,
+       details_purge_at, reserved_at, updated_at
+     ) values (
+       'paid_answer_close', 'pass_close', 'meter_close', $1, $2, $3, $4, $5,
+       'open', clock_timestamp() + interval '10 minutes',
+       clock_timestamp() + interval '30 days', clock_timestamp(), clock_timestamp()
+     )`,
+    [
+      userId,
+      `paid_idem_${userId}`,
+      `paid_body_${userId}`,
+      `paid_request_${userId}`,
+      `lease_${userId}`,
+    ],
   );
 }
 

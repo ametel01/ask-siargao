@@ -74,7 +74,6 @@ describe("Trip Pass catalog", () => {
       },
       paid: {
         chatStartsPerMinute: 10,
-        successfulChatsPerDay: 30,
         concurrentChatRequests: 2,
       },
     });

@@ -27,6 +27,10 @@ The service only repairs idempotent local ledger omissions:
 - active passes missing usage meter rows receive any missing default meter rows.
 - stale reserved usage events are released.
 
+Paid Answer Reservations use their own durable database-time lease and are recovered by the paid
+chat reservation boundary. The `trip_usage_events` stale-reservation repair above remains for
+legacy and secondary-meter events; it is not the commercial `chat_message` reservation ledger.
+
 The service does not transfer ownership, create grants for ownerless paid
 orders, merge duplicate grants, change refunded or disputed state, reprice
 historic orders, or reconstruct prompts/provider payloads.
@@ -50,11 +54,11 @@ Durable usage events are reconciled against settled meter counts and stored
 provider request references. Missing and duplicate provider request references
 are reported without reconstructing prompts or repricing historic usage.
 
-Concurrency leases and budget reservation state are held in the shared quota
-store. The quota store expires stale entries internally but does not expose a
-read API for operator diagnostics, so reconciliation reports shared-store and
-provider/global circuit configuration rather than claiming a durable per-request
-lease or budget ledger.
+Operational concurrency leases and budget reservation state are held in the shared quota store.
+The quota store expires stale entries internally but does not expose a read API for operator
+diagnostics, so reconciliation reports shared-store and provider/global circuit configuration.
+Commercial Paid Answer Reservations are separate PostgreSQL state and retain only aggregate facts
+after their configured per-request detail deadline.
 
 ## Admin Surface
 

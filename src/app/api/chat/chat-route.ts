@@ -224,6 +224,7 @@ export async function chatResponse(
   > | null = null;
   let paidChatUsage: Extract<PaidChatUsageSessionResult, { status: "allowed" }> | null = null;
   let paidChatSettlement: PaidChatUsageSettlement | null = null;
+  let authenticatedIdempotency: Awaited<ReturnType<typeof checkRequestIdempotency>> | null = null;
   const now = dependencies.now?.() ?? new Date(startedAt);
   const normalizedClientContext = normalizeTripContextClientContext(
     parsed.data.clientContext as TripContextClientContextInput | undefined,
@@ -241,22 +242,6 @@ export async function chatResponse(
     messages,
     profileContext: authenticatedUserContext?.profileContext ?? null,
   });
-  const authenticatedPersistence = await prepareAuthenticatedChatPersistence({
-    authenticatedUserContext,
-    dependencies,
-    latestUserMessage,
-    threadId: parsed.data.threadId,
-    intent,
-    now,
-  });
-
-  if (authenticatedPersistence?.status === "not_found") {
-    return Response.json(
-      { error: "chat_thread_not_found" },
-      { status: 404, headers: responseHeaders },
-    );
-  }
-
   if (authenticatedUserContext) {
     const idempotency = await checkRequestIdempotency({
       actorId: authenticatedUserContext.userId,
@@ -265,11 +250,8 @@ export async function chatResponse(
         request.headers.get("idempotency-key") ?? request.headers.get("x-idempotency-key"),
       nowMs: now.getTime(),
     });
-    if (
-      idempotency.status === "duplicate" ||
-      idempotency.status === "conflict" ||
-      idempotency.status === "unavailable"
-    ) {
+    authenticatedIdempotency = idempotency;
+    if (idempotency.status === "conflict" || idempotency.status === "unavailable") {
       return cloneJsonResponseWithHeaders(idempotencyJson(idempotency), responseHeaders);
     }
 
@@ -277,20 +259,46 @@ export async function chatResponse(
       const openChatUsageSession = dependencies.openChatUsageSession ?? defaultOpenChatUsageSession;
       const usage = await openChatUsageSession({
         bodyHash:
-          idempotency.status === "stored"
+          idempotency.status === "stored" || idempotency.status === "duplicate"
             ? idempotency.bodyHash
             : hashChatRequestBody(rawBody.text),
         db: authenticatedUserContext.db,
-        idempotencyKey: idempotency.status === "stored" ? idempotency.tokenHash : undefined,
+        idempotencyKey:
+          idempotency.status === "stored" || idempotency.status === "duplicate"
+            ? idempotency.tokenHash
+            : undefined,
         now,
         requestId,
         userId: authenticatedUserContext.userId,
       });
       if (usage.status === "allowed") {
         paidChatUsage = usage;
+      } else if (usage.status === "replay") {
+        return Response.json(usage.responseBody, { headers: responseHeaders });
+      } else if (usage.status === "in_progress" || usage.status === "conflict") {
+        return Response.json(
+          {
+            error:
+              usage.status === "in_progress"
+                ? "paid_answer_in_progress"
+                : "idempotency_key_conflict",
+          },
+          { status: 409, headers: responseHeaders },
+        );
+      } else if (
+        usage.status === "usage_limit_reached" &&
+        usage.reason === "paid_chat_meter_exhausted"
+      ) {
+        paidChatUsage = null;
       } else if (usage.status === "usage_limit_reached" || usage.status === "unavailable") {
         return cloneJsonResponseWithHeaders(paidChatUsageJson(usage), responseHeaders);
       }
+    }
+    if (!paidChatUsage && authenticatedIdempotency.status === "duplicate") {
+      return cloneJsonResponseWithHeaders(
+        idempotencyJson(authenticatedIdempotency),
+        responseHeaders,
+      );
     }
   }
 
@@ -328,6 +336,24 @@ export async function chatResponse(
       return cloneJsonResponseWithHeaders(allowance.response, responseHeaders);
     }
     anonymousFreeAllowance = allowance;
+  }
+
+  const authenticatedPersistence = await prepareAuthenticatedChatPersistence({
+    authenticatedUserContext,
+    dependencies,
+    latestUserMessage,
+    threadId: parsed.data.threadId,
+    intent,
+    now,
+  });
+
+  if (authenticatedPersistence?.status === "not_found") {
+    await anonymousFreeAllowance?.settle({ success: false });
+    await paidChatUsage?.settle({ success: false, releaseReason: "internal_failure" });
+    return Response.json(
+      { error: "chat_thread_not_found" },
+      { status: 404, headers: responseHeaders },
+    );
   }
 
   if (!authenticatedUserContext) {
@@ -419,23 +445,6 @@ export async function chatResponse(
         stage: "checking",
         message: "Finalizing the answer and its source details.",
       });
-      const settlementStartedAt = Date.now();
-      paidChatSettlement =
-        (await paidChatUsage?.settle({
-          success: true,
-          providerRequestIds: result.upstreamRequestIds ?? [],
-        })) ?? null;
-      latency.settlementMs = Date.now() - settlementStartedAt;
-      if (paidChatSettlement?.status === "settled" && request.signal.aborted) {
-        trackServerEvent({
-          name: "trip_pass_paid_chat_delivery_cancelled",
-          now,
-          payload: {
-            requestId: result.requestId,
-            settlementStatus: paidChatSettlement.status,
-          },
-        });
-      }
       const publicTurn = assemblePublicChatTurn({
         result,
         browserGeolocation: clientContext.geolocation,
@@ -450,17 +459,30 @@ export async function chatResponse(
         );
       }
 
+      if (!publicTurn.storage.message.trim()) {
+        paidChatSettlement =
+          (await paidChatUsage?.settle({
+            success: false,
+            releaseReason: "empty_output",
+          })) ?? null;
+        throw new Error("Chat answer was empty after policy assembly.");
+      }
+
       let assistantMessageId: string | undefined;
       if (authenticatedPersistence?.status === "ready") {
         const generatedAssistantMessageId = createChatRouteId(dependencies, "chat_message");
         assistantMessageId = generatedAssistantMessageId;
         const completedAt = new Date();
-        const persistAssistantMessage = (deferred: boolean) =>
+        const persistAssistantMessage = (
+          deferred: boolean,
+          db: DatabaseQueryClient = authenticatedPersistence.db,
+        ) =>
           persistAssistantChatHistory({
             assistantMessageId: generatedAssistantMessageId,
             authenticatedPersistence,
             completedAt,
             contextSummary: summarizeTripContextForStoredHistory(intent),
+            db,
             deferred,
             logger,
             model: result.model,
@@ -468,7 +490,41 @@ export async function chatResponse(
             requestId: result.requestId,
           });
 
-        if (dependencies.deferPersistence) {
+        if (paidChatUsage) {
+          const settlementStartedAt = Date.now();
+          paidChatSettlement = await paidChatUsage.settle({
+            answerMessageId: generatedAssistantMessageId,
+            persistAnswer: async (transaction, allowance) => {
+              await persistAssistantMessage(false, transaction);
+              return buildChatResponseBody({
+                allowance,
+                assistantMessageId: generatedAssistantMessageId,
+                authenticatedPersistence,
+                publicTurn,
+                result,
+              });
+            },
+            providerRequestIds: result.upstreamRequestIds ?? [],
+            success: true,
+          });
+          latency.settlementMs = Date.now() - settlementStartedAt;
+          if (
+            paidChatSettlement.status !== "settled" &&
+            paidChatSettlement.status !== "duplicate"
+          ) {
+            throw new Error(`Paid answer could not finalize: ${paidChatSettlement.status}.`);
+          }
+          if (request.signal.aborted) {
+            trackServerEvent({
+              name: "trip_pass_paid_chat_delivery_cancelled",
+              now,
+              payload: {
+                requestId: result.requestId,
+                settlementStatus: paidChatSettlement.status,
+              },
+            });
+          }
+        } else if (dependencies.deferPersistence) {
           try {
             dependencies.deferPersistence(async () => {
               await persistAssistantMessage(true);
@@ -525,40 +581,28 @@ export async function chatResponse(
 
       await anonymousFreeAllowance?.settle({ success: true, meters: ["chat_message"] });
 
+      if (paidChatSettlement?.status === "settled" || paidChatSettlement?.status === "duplicate") {
+        if (!paidChatSettlement.responseBody) {
+          throw new Error("Paid answer finalization did not return a durable response.");
+        }
+        return Response.json(paidChatSettlement.responseBody, { headers: responseHeaders });
+      }
+
       return Response.json(
-        {
-          message: publicTurn.display.message,
-          requestId: result.requestId,
-          model: result.model,
-          ...(result.upstreamRequestIds?.length
-            ? { upstreamRequestIds: result.upstreamRequestIds }
-            : {}),
-          toolCalls: publicTurn.display.toolCalls,
-          sources: publicTurn.display.sources,
-          ...(result.memory ? { memory: summarizeMemoryForResponse(result.memory) } : {}),
-          ...(paidChatSettlement?.allowance ? { tripPassUsage: paidChatSettlement.allowance } : {}),
-          ...(publicTurn.display.cards.length ? { cards: publicTurn.display.cards } : {}),
-          ...(publicTurn.display.actions.length ? { actions: publicTurn.display.actions } : {}),
-          ...(publicTurn.display.itineraries.length
-            ? { itineraries: publicTurn.display.itineraries }
-            : {}),
-          ...(publicTurn.display.decisionSummaries.length
-            ? { decisionSummaries: publicTurn.display.decisionSummaries }
-            : {}),
-          ...(authenticatedPersistence?.status === "ready"
-            ? {
-                threadId: authenticatedPersistence.thread.id,
-                userMessageId: authenticatedPersistence.userMessageId,
-                assistantMessageId,
-              }
-            : {}),
-        },
+        buildChatResponseBody({
+          assistantMessageId,
+          authenticatedPersistence,
+          publicTurn,
+          result,
+        }),
         { headers: responseHeaders },
       );
     } catch (error) {
       await anonymousFreeAllowance?.settle({ success: false });
       if (!paidChatSettlement) {
-        await paidChatUsage?.settle({ success: false });
+        await paidChatUsage
+          ?.settle({ success: false, releaseReason: "internal_failure" })
+          .catch(() => undefined);
       }
       const message = error instanceof Error ? error.message : "Chat response failed.";
       const missingConfiguration =
@@ -679,6 +723,7 @@ async function persistAssistantChatHistory({
   authenticatedPersistence,
   completedAt,
   contextSummary,
+  db,
   deferred,
   logger,
   model,
@@ -689,6 +734,7 @@ async function persistAssistantChatHistory({
   authenticatedPersistence: AuthenticatedChatPersistence;
   completedAt: Date;
   contextSummary: ReturnType<typeof summarizeTripContextForStoredHistory>;
+  db: DatabaseQueryClient;
   deferred: boolean;
   logger: Logger;
   model: string;
@@ -698,7 +744,7 @@ async function persistAssistantChatHistory({
   const persistenceStartedAt = Date.now();
 
   try {
-    await appendChatHistoryMessage(authenticatedPersistence.db, {
+    await appendChatHistoryMessage(db, {
       id: assistantMessageId,
       threadId: authenticatedPersistence.thread.id,
       userId: authenticatedPersistence.userId,
@@ -715,7 +761,7 @@ async function persistAssistantChatHistory({
       contextSummary,
       createdAt: completedAt,
     });
-    await touchChatThread(authenticatedPersistence.db, {
+    await touchChatThread(db, {
       threadId: authenticatedPersistence.thread.id,
       lastMessageAt: completedAt,
     });
@@ -729,6 +775,49 @@ async function persistAssistantChatHistory({
     );
     throw error;
   }
+}
+
+function buildChatResponseBody({
+  allowance,
+  assistantMessageId,
+  authenticatedPersistence,
+  publicTurn,
+  result,
+}: {
+  allowance?: PaidChatUsageSettlement["allowance"];
+  assistantMessageId?: string;
+  authenticatedPersistence:
+    | (AuthenticatedChatPersistence & { status: "ready" })
+    | { status: "not_found" }
+    | null;
+  publicTurn: ReturnType<typeof assemblePublicChatTurn>;
+  result: AgentTurnResult;
+}) {
+  return {
+    message: publicTurn.display.message,
+    requestId: result.requestId,
+    model: result.model,
+    ...(result.upstreamRequestIds?.length ? { upstreamRequestIds: result.upstreamRequestIds } : {}),
+    toolCalls: publicTurn.display.toolCalls,
+    sources: publicTurn.display.sources,
+    ...(result.memory ? { memory: summarizeMemoryForResponse(result.memory) } : {}),
+    ...(allowance ? { tripPassUsage: allowance } : {}),
+    ...(publicTurn.display.cards.length ? { cards: publicTurn.display.cards } : {}),
+    ...(publicTurn.display.actions.length ? { actions: publicTurn.display.actions } : {}),
+    ...(publicTurn.display.itineraries.length
+      ? { itineraries: publicTurn.display.itineraries }
+      : {}),
+    ...(publicTurn.display.decisionSummaries.length
+      ? { decisionSummaries: publicTurn.display.decisionSummaries }
+      : {}),
+    ...(authenticatedPersistence?.status === "ready"
+      ? {
+          threadId: authenticatedPersistence.thread.id,
+          userMessageId: authenticatedPersistence.userMessageId,
+          assistantMessageId,
+        }
+      : {}),
+  };
 }
 
 function recordChatLatency(

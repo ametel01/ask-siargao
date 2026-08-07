@@ -11,6 +11,7 @@ import {
 } from "@/server/payments/stripe-event-inbox";
 import { runAccountClosurePostgresIntegration } from "@/server/privacy/account-closure.postgres-integration";
 import { startTripPassCheckout, type TripPassCheckoutResult } from "@/server/trip-pass/commerce";
+import { runPaidAnswerReservationPostgresIntegration } from "@/server/trip-pass/paid-answer-reservations.postgres-integration";
 import type {
   TripPassCheckoutClient,
   TripPassCheckoutSessionSummary,
@@ -39,6 +40,7 @@ await withRealPostgresHarness(async (harness) => {
   await runTripPassCheckoutRaceRegression(harness);
   await runStripeInboxRealPostgresRegression(harness);
   await runAccountClosurePostgresIntegration(harness);
+  await runPaidAnswerReservationPostgresIntegration(harness);
 
   console.log(
     JSON.stringify(

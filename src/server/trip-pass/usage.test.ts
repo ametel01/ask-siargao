@@ -12,10 +12,11 @@ import {
   type QuotaStore,
   type RollingWindowReservationResult,
 } from "@/server/security/rate-limit";
+import { purgeExpiredPaidAnswerDetails } from "@/server/trip-pass/paid-answer-reservations";
 import { openChatUsageSession } from "@/server/trip-pass/usage";
 
-const startsAt = new Date("2026-07-01T00:00:00.000Z");
-const expiresAt = new Date("2026-07-15T00:00:00.000Z");
+const startsAt = new Date("2020-07-01T00:00:00.000Z");
+const expiresAt = new Date("2099-07-15T00:00:00.000Z");
 const now = new Date("2026-07-14T04:00:00.000Z");
 
 describe("paid Trip Pass chat usage", () => {
@@ -37,10 +38,14 @@ describe("paid Trip Pass chat usage", () => {
       }
 
       const first = await session.settle({
+        answerMessageId: "answer_once",
+        persistAnswer: paidAnswerPersistence(db, "user_paid_once", "answer_once"),
         success: true,
         providerRequestIds: ["deepseek_request_once"],
       });
       const duplicate = await session.settle({
+        answerMessageId: "answer_once",
+        persistAnswer: paidAnswerPersistence(db, "user_paid_once", "answer_once"),
         success: true,
         providerRequestIds: ["deepseek_request_once_duplicate"],
       });
@@ -59,6 +64,43 @@ describe("paid Trip Pass chat usage", () => {
         providerRequestIds: ["deepseek_request_once"],
         requestHash: "body_hash_once",
       });
+    });
+  });
+
+  test("scopes durable idempotency reservations to the owning account", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_scope_a", "trip_pass_paid_scope_a");
+      await seedActivePass(db, "user_paid_scope_b", "trip_pass_paid_scope_b");
+      const store = createMemoryQuotaStore();
+
+      const [first, second] = await Promise.all([
+        openChatUsageSession({
+          bodyHash: "body_hash_scope_a",
+          db,
+          idempotencyKey: "shared_token_hash_after_redis_expiry",
+          now,
+          requestId: "request_paid_scope_a",
+          store,
+          userId: "user_paid_scope_a",
+        }),
+        openChatUsageSession({
+          bodyHash: "body_hash_scope_b",
+          db,
+          idempotencyKey: "shared_token_hash_after_redis_expiry",
+          now,
+          requestId: "request_paid_scope_b",
+          store,
+          userId: "user_paid_scope_b",
+        }),
+      ]);
+
+      expect(first.status).toBe("allowed");
+      expect(second.status).toBe("allowed");
+      const reservations = await db.query<{ count: string }>(
+        `select count(*)::text as count from paid_answer_reservations
+         where idempotency_key_hash = 'shared_token_hash_after_redis_expiry'`,
+      );
+      expect(reservations.rows[0]?.count).toBe("2");
     });
   });
 
@@ -84,7 +126,7 @@ describe("paid Trip Pass chat usage", () => {
         status: "released",
       });
       await expectMeterUsed(db, "trip_pass_paid_release", 0);
-      await expectUsageEvents(db, { eventType: "released", requestHash: "body_hash_release" });
+      await expectReservationStatus(db, "body_hash_release", "released");
 
       const retry = await openChatUsageSession({
         bodyHash: "body_hash_retry",
@@ -132,7 +174,12 @@ describe("paid Trip Pass chat usage", () => {
       ]);
       const allowed = results.find((result) => result.status === "allowed");
       if (allowed?.status === "allowed") {
-        await allowed.settle({ success: true, providerRequestIds: ["deepseek_final"] });
+        await allowed.settle({
+          answerMessageId: "answer_final",
+          persistAnswer: paidAnswerPersistence(db, "user_paid_final", "answer_final"),
+          success: true,
+          providerRequestIds: ["deepseek_final"],
+        });
       }
       await expectMeterUsed(db, "trip_pass_paid_final", 150);
     });
@@ -178,6 +225,7 @@ describe("paid Trip Pass chat usage", () => {
         db,
         env: {
           NODE_ENV: "production",
+          PAID_ANSWER_DETAIL_RETENTION_DAYS: "30",
           REDIS_URL: "redis://redis.test.local:6379/0",
         },
         idempotencyKey: "token_hash_store_down",
@@ -199,7 +247,65 @@ describe("paid Trip Pass chat usage", () => {
     });
   });
 
-  test("enforces the paid successful-chat daily burst without changing entitlement limit", async () => {
+  test("fails paid use closed before operational controls when PostgreSQL is unavailable", async () => {
+    const db: DatabaseQueryClient = {
+      async query() {
+        throw new Error("postgres unavailable");
+      },
+    };
+    const store = createCountingQuotaStore();
+
+    await expect(
+      openChatUsageSession({
+        bodyHash: "body_hash_database_down",
+        db,
+        idempotencyKey: "token_hash_database_down",
+        now,
+        requestId: "request_paid_database_down",
+        store,
+        userId: "user_paid_database_down",
+      }),
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "paid_usage_database_unavailable",
+    });
+    expect(store.calls).toBe(0);
+  });
+
+  test("keeps a durable settlement when Redis lease cleanup fails after generation", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_cleanup_down", "trip_pass_paid_cleanup_down");
+      const delegate = createMemoryQuotaStore();
+      const store: QuotaStore = {
+        ...delegate,
+        async releaseConcurrency() {
+          throw new Error("Redis failed after durable answer completion");
+        },
+      };
+      const session = await openChatUsageSession({
+        bodyHash: "body_hash_cleanup_down",
+        db,
+        idempotencyKey: "token_hash_cleanup_down",
+        now,
+        requestId: "request_paid_cleanup_down",
+        store,
+        userId: "user_paid_cleanup_down",
+      });
+      expect(session.status).toBe("allowed");
+      if (session.status !== "allowed") return;
+
+      await expect(
+        session.settle({
+          answerMessageId: "answer_cleanup_down",
+          persistAnswer: paidAnswerPersistence(db, "user_paid_cleanup_down", "answer_cleanup_down"),
+          success: true,
+        }),
+      ).resolves.toMatchObject({ status: "settled" });
+      await expectMeterUsed(db, "trip_pass_paid_cleanup_down", 1);
+    });
+  });
+
+  test("does not impose the removed paid successful-chat daily cap", async () => {
     await withTestDb(async (db) => {
       await seedActivePass(db, "user_paid_daily", "trip_pass_paid_daily");
       const store = createMemoryQuotaStore();
@@ -217,35 +323,170 @@ describe("paid Trip Pass chat usage", () => {
         });
         expect(session.status).toBe("allowed");
         if (session.status === "allowed") {
-          await expect(session.settle({ success: true })).resolves.toMatchObject({
+          await expect(
+            session.settle({
+              answerMessageId: `answer_daily_${index}`,
+              persistAnswer: paidAnswerPersistence(db, "user_paid_daily", `answer_daily_${index}`),
+              success: true,
+            }),
+          ).resolves.toMatchObject({
             status: "settled",
           });
         }
       }
 
-      const blocked = await openChatUsageSession({
-        bodyHash: "body_hash_daily_blocked",
+      const thirtyFirst = await openChatUsageSession({
+        bodyHash: "body_hash_daily_31",
         db,
-        idempotencyKey: "token_hash_daily_blocked",
+        idempotencyKey: "token_hash_daily_31",
         now: new Date(now.getTime() + 31 * 60_000),
-        requestId: "request_paid_daily_blocked",
+        requestId: "request_paid_daily_31",
         store,
         userId: "user_paid_daily",
       });
 
-      expect(blocked).toMatchObject({
-        status: "usage_limit_reached",
-        reason: "paid_chat_daily_limit_exceeded",
-        allowance: { chatMessages: { used: 30, remaining: 120, limit: 150 } },
-      });
+      expect(thirtyFirst).toMatchObject({ status: "allowed" });
       await expectMeterUsed(db, "trip_pass_paid_daily", 30);
+    });
+  });
+
+  test("fences a stale worker when database time recovers an expired reservation lease", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_stale", "trip_pass_paid_stale");
+      const store = createMemoryQuotaStore();
+      const first = await openChatUsageSession({
+        bodyHash: "body_hash_stale",
+        db,
+        idempotencyKey: "token_hash_stale",
+        now,
+        requestId: "request_paid_stale_first",
+        store,
+        userId: "user_paid_stale",
+      });
+      expect(first.status).toBe("allowed");
+      await db.query(
+        `update paid_answer_reservations
+         set reserved_at = clock_timestamp() - interval '20 minutes',
+           lease_expires_at = clock_timestamp() - interval '10 minutes'`,
+      );
+
+      const recovered = await openChatUsageSession({
+        bodyHash: "body_hash_stale",
+        db,
+        idempotencyKey: "token_hash_stale",
+        now: new Date(now.getTime() + 1_000),
+        requestId: "request_paid_stale_recovered",
+        store,
+        userId: "user_paid_stale",
+      });
+      expect(recovered.status).toBe("allowed");
+      if (first.status !== "allowed" || recovered.status !== "allowed") return;
+
+      await expect(
+        first.settle({
+          answerMessageId: "answer_stale_old",
+          persistAnswer: paidAnswerPersistence(db, "user_paid_stale", "answer_stale_old"),
+          success: true,
+        }),
+      ).resolves.toMatchObject({ status: "lease_lost" });
+      await expect(
+        recovered.settle({
+          answerMessageId: "answer_stale_current",
+          persistAnswer: paidAnswerPersistence(db, "user_paid_stale", "answer_stale_current"),
+          success: true,
+        }),
+      ).resolves.toMatchObject({ status: "settled" });
+      await expectMeterUsed(db, "trip_pass_paid_stale", 1);
+    });
+  });
+
+  test("rolls answer persistence and meter settlement back together, then retries", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_atomic", "trip_pass_paid_atomic");
+      const session = await openChatUsageSession({
+        bodyHash: "body_hash_atomic",
+        db,
+        idempotencyKey: "token_hash_atomic",
+        now,
+        requestId: "request_paid_atomic",
+        store: createMemoryQuotaStore(),
+        userId: "user_paid_atomic",
+      });
+      expect(session.status).toBe("allowed");
+      if (session.status !== "allowed") return;
+
+      await expect(
+        session.settle({
+          answerMessageId: "answer_atomic",
+          persistAnswer: async () => {
+            throw new Error("injected persistence failure");
+          },
+          success: true,
+        }),
+      ).rejects.toThrow("injected persistence failure");
+      await expectMeterUsed(db, "trip_pass_paid_atomic", 0);
+      await expectReservationStatus(db, "body_hash_atomic", "open");
+
+      await expect(
+        session.settle({
+          answerMessageId: "answer_atomic",
+          persistAnswer: paidAnswerPersistence(db, "user_paid_atomic", "answer_atomic"),
+          success: true,
+        }),
+      ).resolves.toMatchObject({ status: "settled" });
+      await expectMeterUsed(db, "trip_pass_paid_atomic", 1);
+    });
+  });
+
+  test("purges per-request reservation details after the database-time policy deadline", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_purge", "trip_pass_paid_purge");
+      const session = await openChatUsageSession({
+        bodyHash: "body_hash_purge",
+        db,
+        idempotencyKey: "token_hash_purge",
+        now,
+        requestId: "request_paid_purge",
+        store: createMemoryQuotaStore(),
+        userId: "user_paid_purge",
+      });
+      expect(session.status).toBe("allowed");
+      if (session.status !== "allowed") return;
+      await session.settle({ success: false, releaseReason: "safety_refusal" });
+      const refusal = await db.query<{ release_reason: string | null; status: string }>(
+        `select status, release_reason from paid_answer_reservations
+         where request_body_hash = 'body_hash_purge'`,
+      );
+      expect(refusal.rows[0]).toEqual({
+        status: "released",
+        release_reason: "safety_refusal",
+      });
+      await db.query(
+        `update paid_answer_reservations
+         set reserved_at = clock_timestamp() - interval '40 days',
+           details_purge_at = clock_timestamp() - interval '1 second'`,
+      );
+
+      await expect(purgeExpiredPaidAnswerDetails(db)).resolves.toBe(1);
+      const details = await db.query<{
+        details_purged_at: Date | null;
+        provider_request_ids_json: unknown;
+        result_json: unknown;
+      }>(
+        `select details_purged_at, provider_request_ids_json, result_json
+         from paid_answer_reservations`,
+      );
+      expect(details.rows[0]?.details_purged_at).not.toBeNull();
+      expect(details.rows[0]?.provider_request_ids_json).toEqual([]);
+      expect(details.rows[0]?.result_json).toBeNull();
+      await expectMeterUsed(db, "trip_pass_paid_purge", 0);
     });
   });
 
   test("treats expired and other-owner passes as not paid-applicable", async () => {
     await withTestDb(async (db) => {
       await seedActivePass(db, "user_paid_expired", "trip_pass_paid_expired", {
-        expiresAt: new Date("2026-07-10T00:00:00.000Z"),
+        expiresAt: new Date("2021-07-10T00:00:00.000Z"),
       });
       await seedActivePass(db, "user_paid_owner", "trip_pass_paid_owner");
 
@@ -320,6 +561,36 @@ async function setMeterUsed(
     `,
     [tripPassId, used, meterType],
   );
+}
+
+function paidAnswerPersistence(_db: DatabaseQueryClient, userId: string, answerMessageId: string) {
+  return async (transaction: DatabaseQueryClient) => {
+    const threadId = `thread_${userId}`;
+    await transaction.query(
+      `insert into chat_threads (id, user_id, title)
+       values ($1, $2, 'Paid answer test')
+       on conflict (id) do nothing`,
+      [threadId, userId],
+    );
+    await transaction.query(
+      `insert into chat_messages (id, thread_id, user_id, role, content)
+       values ($1, $2, $3, 'assistant', 'Durable paid answer')`,
+      [answerMessageId, threadId, userId],
+    );
+    return { message: "Durable paid answer", answerMessageId };
+  };
+}
+
+async function expectReservationStatus(
+  db: DatabaseQueryClient,
+  requestBodyHash: string,
+  status: string,
+) {
+  const result = await db.query<{ status: string }>(
+    `select status from paid_answer_reservations where request_body_hash = $1`,
+    [requestBodyHash],
+  );
+  expect(result.rows[0]?.status).toBe(status);
 }
 
 async function expectMeterUsed(
@@ -429,4 +700,23 @@ function createFailingSharedQuotaStore() {
     },
   };
   return store;
+}
+
+function createCountingQuotaStore() {
+  const delegate = createMemoryQuotaStore();
+  let calls = 0;
+  return {
+    ...delegate,
+    get calls() {
+      return calls;
+    },
+    async reserveConcurrency(input: Parameters<QuotaStore["reserveConcurrency"]>[0]) {
+      calls += 1;
+      return delegate.reserveConcurrency(input);
+    },
+    async reserveRollingWindow(input: Parameters<QuotaStore["reserveRollingWindow"]>[0]) {
+      calls += 1;
+      return delegate.reserveRollingWindow(input);
+    },
+  };
 }

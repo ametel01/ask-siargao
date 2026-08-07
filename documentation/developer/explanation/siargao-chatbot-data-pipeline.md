@@ -342,6 +342,14 @@ The current grant initializes only `chat_message`. Legacy `live_refresh`,
 `heavy_recommendation`, `weather_refresh`, and `route_lookup` rows remain readable for version 1
 orders and reconciliation, but the current chat runtime does not enforce them.
 
+Paid generation first opens a durable `paid_answer_reservations` row under the account and Trip
+Pass Product Family transaction lock. Open reservations reduce the displayed remaining allowance
+before model or tool work starts. The assistant message, one settled usage event, the incremented
+meter, and the exact public replay payload then commit in one PostgreSQL transaction. Failure,
+policy refusal, empty output, expiry, closure, refund, or dispute loss leaves the meter unchanged;
+database-time lease recovery fences stale workers. Redis continues to enforce burst and concurrency
+controls, but it is not the source of truth for the commercial answer balance.
+
 Weather, Places, surf, events, public evidence, and route reasoning run automatically when needed
 and allowed. Provider rate limits and cost circuits protect unit economics independently of the
 traveler's answer balance.

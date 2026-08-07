@@ -10,7 +10,12 @@ import {
   shouldUseRedisQuotaStore,
 } from "@/server/security/rate-limit";
 import { type TripPassMeterType, tripPassRateLimits } from "@/server/trip-pass/catalog";
-import { getEffectiveTripPass } from "@/server/trip-pass/entitlement";
+import {
+  finalizePaidAnswer,
+  type PaidAnswerReleaseReason,
+  releasePaidAnswer,
+  reservePaidAnswer,
+} from "@/server/trip-pass/paid-answer-reservations";
 
 export type PaidDecisionMeterType = Exclude<TripPassMeterType, "chat_message">;
 
@@ -32,7 +37,13 @@ export type PaidChatUsageSessionResult =
         meterType: PaidDecisionMeterType;
       }): Promise<PaidDecisionMeterReservation>;
       settle(input: {
+        answerMessageId?: string;
+        persistAnswer?: (
+          transaction: DatabaseQueryClient,
+          allowance: PaidChatUsageAllowance,
+        ) => Promise<Record<string, unknown>>;
         providerRequestIds?: readonly string[];
+        releaseReason?: PaidAnswerReleaseReason;
         success: boolean;
       }): Promise<PaidChatUsageSettlement>;
     }
@@ -40,12 +51,13 @@ export type PaidChatUsageSessionResult =
       status: "not_applicable";
       reason: "no_active_pass" | "expired" | "revoked";
     }
+  | { status: "replay"; responseBody: Record<string, unknown> }
+  | { status: "in_progress" | "conflict" }
   | {
       status: "usage_limit_reached";
       allowance: PaidChatUsageAllowance | null;
       reason:
         | "paid_chat_concurrency_exceeded"
-        | "paid_chat_daily_limit_exceeded"
         | "paid_chat_meter_exhausted"
         | "paid_chat_start_limit_exceeded";
     }
@@ -55,9 +67,18 @@ export type PaidChatUsageSessionResult =
     };
 
 export type PaidChatUsageSettlement =
-  | { status: "settled"; allowance: PaidChatUsageAllowance }
-  | { status: "duplicate"; allowance: PaidChatUsageAllowance | null }
+  | {
+      status: "settled";
+      allowance: PaidChatUsageAllowance;
+      responseBody?: Record<string, unknown>;
+    }
+  | {
+      status: "duplicate";
+      allowance: PaidChatUsageAllowance | null;
+      responseBody?: Record<string, unknown>;
+    }
   | { status: "released"; allowance: PaidChatUsageAllowance | null }
+  | { status: "invalidated" | "lease_lost"; allowance: PaidChatUsageAllowance | null }
   | { status: "usage_limit_reached"; allowance: PaidChatUsageAllowance | null };
 
 export type PaidMeterAllowance = {
@@ -121,7 +142,6 @@ type UsageEventRow = {
 };
 
 const oneMinuteMs = 60_000;
-const oneDayMs = 24 * 60 * 60 * 1_000;
 
 let defaultStore: QuotaStore | undefined;
 
@@ -136,43 +156,50 @@ export async function openChatUsageSession(
     return { status: "unavailable", reason: "paid_usage_store_unavailable" };
   }
 
-  const store = input.store ?? getDefaultPaidUsageStore(input.env);
-  let entitlement: Awaited<ReturnType<typeof getEffectiveTripPass>>;
+  const idempotencyKeyHash = input.idempotencyKey ?? hashText(`request:${input.requestId}`);
+  let reservation: Awaited<ReturnType<typeof reservePaidAnswer>>;
   try {
-    entitlement = await getEffectiveTripPass({ userId: input.userId, now }, db);
+    reservation = await reservePaidAnswer({
+      accountId: input.userId,
+      bodyHash: input.bodyHash ?? hashText(input.requestId),
+      db,
+      env: input.env,
+      idempotencyKeyHash,
+      requestId: input.requestId,
+    });
   } catch {
     return { status: "unavailable", reason: "paid_usage_database_unavailable" };
   }
-
-  if (entitlement.status === "none") {
-    return { status: "not_applicable", reason: "no_active_pass" };
-  }
-  if (entitlement.status === "expired") {
-    return { status: "not_applicable", reason: "expired" };
-  }
-  if (entitlement.status === "revoked") {
-    return { status: "not_applicable", reason: "revoked" };
-  }
-
-  const passId = entitlement.pass.id;
-  const chatMeter = entitlement.meters.find((meter) => meter.meterType === "chat_message") ?? null;
-  const allowance = chatMeter ? projectChatAllowance(chatMeter) : null;
-  if (!chatMeter || chatMeter.used >= chatMeter.limit) {
-    trackMeterTelemetry("trip_pass_meter_exhausted", "chat_message", allowance, now, {
+  if (reservation.status === "replay") return reservation;
+  if (reservation.status === "in_progress" || reservation.status === "conflict") return reservation;
+  if (reservation.status === "not_applicable") return reservation;
+  if (reservation.status === "limit_reached") {
+    trackMeterTelemetry("trip_pass_meter_exhausted", "chat_message", reservation.allowance, now, {
       reason: "paid_chat_meter_exhausted",
     });
-    return { status: "usage_limit_reached", reason: "paid_chat_meter_exhausted", allowance };
+    return {
+      status: "usage_limit_reached",
+      reason: "paid_chat_meter_exhausted",
+      allowance: reservation.allowance,
+    };
   }
 
+  const store = input.store ?? getDefaultPaidUsageStore(input.env);
+  const passId = reservation.passId;
+  const allowance = reservation.allowance;
+  const releaseDurableReservation = (reason: PaidAnswerReleaseReason) =>
+    releasePaidAnswer({
+      accountId: input.userId,
+      db,
+      leaseToken: reservation.leaseToken,
+      reason,
+      reservationId: reservation.reservationId,
+    });
   const startReservation = {
     key: `paid:${passId}:chat-starts:1m`,
     reservationId: input.requestId,
   } satisfies Reservation;
   const concurrencyKey = `paid:${passId}:chat-concurrency`;
-  const successReservation = {
-    key: `paid:${passId}:chat-success:1d`,
-    reservationId: input.requestId,
-  } satisfies Reservation;
   const acquiredRollingReservations: Reservation[] = [];
   let acquiredConcurrency = false;
 
@@ -184,6 +211,7 @@ export async function openChatUsageSession(
       windowMs: oneMinuteMs,
     });
     if (start.status === "rejected") {
+      await releaseDurableReservation("operational_limit");
       return { status: "usage_limit_reached", reason: "paid_chat_start_limit_exceeded", allowance };
     }
     acquiredRollingReservations.push(startReservation);
@@ -196,6 +224,7 @@ export async function openChatUsageSession(
       ttlMs: 2 * oneMinuteMs,
     });
     if (lease.status === "rejected") {
+      await releaseDurableReservation("operational_limit");
       return {
         status: "usage_limit_reached",
         reason: "paid_chat_concurrency_exceeded",
@@ -203,60 +232,13 @@ export async function openChatUsageSession(
       };
     }
     acquiredConcurrency = true;
-
-    const daily = await store.reserveRollingWindow({
-      ...successReservation,
-      limit: tripPassRateLimits.paid.successfulChatsPerDay,
-      nowMs,
-      windowMs: oneDayMs,
-    });
-    if (daily.status === "rejected") {
-      await safeReleaseConcurrency(store, concurrencyKey, input.requestId);
-      acquiredConcurrency = false;
-      return {
-        status: "usage_limit_reached",
-        reason: "paid_chat_daily_limit_exceeded",
-        allowance,
-      };
-    }
-    acquiredRollingReservations.push(successReservation);
   } catch {
     await safeReleaseReservations(store, acquiredRollingReservations);
     if (acquiredConcurrency) {
       await safeReleaseConcurrency(store, concurrencyKey, input.requestId);
     }
+    await releaseDurableReservation("redis_unavailable").catch(() => undefined);
     return { status: "unavailable", reason: "paid_usage_store_unavailable" };
-  }
-
-  const idempotencyKey = `paid-chat:${passId}:${input.idempotencyKey ?? input.requestId}`;
-  const requestHash = input.bodyHash ?? hashText(input.requestId);
-  const reservation = await reserveChatMeterEvent(
-    {
-      idempotencyKey,
-      passId,
-      requestHash,
-      requestId: input.requestId,
-      userId: input.userId,
-      now,
-    },
-    db,
-  );
-  if (reservation.status === "limit_reached") {
-    await safeReleaseReservations(store, [successReservation]);
-    await safeReleaseConcurrency(store, concurrencyKey, input.requestId);
-    trackMeterTelemetry("trip_pass_meter_exhausted", "chat_message", reservation.allowance, now, {
-      reason: "paid_chat_meter_exhausted",
-    });
-    return {
-      status: "usage_limit_reached",
-      reason: "paid_chat_meter_exhausted",
-      allowance: reservation.allowance,
-    };
-  }
-  if (reservation.status === "unavailable") {
-    await safeReleaseReservations(store, [successReservation]);
-    await safeReleaseConcurrency(store, concurrencyKey, input.requestId);
-    return { status: "unavailable", reason: "paid_usage_database_unavailable" };
   }
 
   let closed = false;
@@ -270,14 +252,20 @@ export async function openChatUsageSession(
       return;
     }
     closed = true;
-    await store.releaseConcurrency({ key: concurrencyKey, leaseId: input.requestId });
+    await safeReleaseConcurrency(store, concurrencyKey, input.requestId);
   }
 
   return {
     status: "allowed",
     allowance: reservation.allowance,
     passId,
-    release: closeConcurrency,
+    async release() {
+      try {
+        await releaseDurableReservation("internal_failure");
+      } finally {
+        await closeConcurrency();
+      }
+    },
     reserveDecisionMeter(decisionInput) {
       const existing = decisionReservations.get(decisionInput.meterType);
       if (existing) {
@@ -285,11 +273,11 @@ export async function openChatUsageSession(
       }
       const promise = reserveDecisionMeterEventHandle({
         db,
-        idempotencyKey: `${idempotencyKey}:${decisionInput.meterType}`,
+        idempotencyKey: `paid-chat:${passId}:${idempotencyKeyHash}:${decisionInput.meterType}`,
         meterType: decisionInput.meterType,
         now,
         passId,
-        requestHash,
+        requestHash: input.bodyHash ?? hashText(input.requestId),
         requestId: `${input.requestId}:${decisionInput.meterType}`,
         userId: input.userId,
       });
@@ -298,20 +286,42 @@ export async function openChatUsageSession(
     },
     async settle(settleInput) {
       if (!settleInput.success) {
-        await releaseChatMeterEvent(idempotencyKey, db);
-        await releaseReservations(store, [successReservation]);
-        await closeConcurrency();
+        try {
+          await releasePaidAnswer({
+            accountId: input.userId,
+            db,
+            leaseToken: reservation.leaseToken,
+            reason: settleInput.releaseReason ?? "provider_failure",
+            reservationId: reservation.reservationId,
+          });
+        } finally {
+          await closeConcurrency();
+        }
         return { status: "released", allowance: reservation.allowance };
       }
-
-      const settled = await settleChatMeterEvent(
-        {
-          idempotencyKey,
-          now,
-          providerRequestIds: settleInput.providerRequestIds ?? [],
-        },
+      if (!settleInput.answerMessageId || !settleInput.persistAnswer) {
+        try {
+          await releasePaidAnswer({
+            accountId: input.userId,
+            db,
+            leaseToken: reservation.leaseToken,
+            reason: "internal_failure",
+            reservationId: reservation.reservationId,
+          });
+        } finally {
+          await closeConcurrency();
+        }
+        return { status: "released", allowance: reservation.allowance };
+      }
+      const settled = await finalizePaidAnswer({
+        accountId: input.userId,
+        answerMessageId: settleInput.answerMessageId,
         db,
-      );
+        leaseToken: reservation.leaseToken,
+        persistAnswer: settleInput.persistAnswer,
+        providerRequestIds: settleInput.providerRequestIds ?? [],
+        reservationId: reservation.reservationId,
+      });
       await closeConcurrency();
       if (settled.status === "settled") {
         trackMeterTelemetry("trip_pass_meter_warning", "chat_message", settled.allowance, now);
@@ -342,81 +352,6 @@ export function paidChatUsageJson(
     },
     { status: 402 },
   );
-}
-
-async function reserveChatMeterEvent(
-  input: {
-    idempotencyKey: string;
-    now: Date;
-    passId: string;
-    requestHash: string;
-    requestId: string;
-    userId: string;
-  },
-  db: DatabaseQueryClient,
-): Promise<
-  | { status: "reserved"; allowance: PaidChatUsageAllowance }
-  | { status: "limit_reached"; allowance: PaidChatUsageAllowance | null }
-  | { status: "unavailable" }
-> {
-  try {
-    return await withDatabaseTransaction(db, async (transaction) => {
-      const existing = await loadUsageEvent(input.idempotencyKey, transaction);
-      if (existing) {
-        const meter = existing.usage_meter_id
-          ? await loadChatMeterById(existing.usage_meter_id, transaction)
-          : await loadChatMeter(input.passId, transaction);
-        return meter
-          ? { status: "reserved", allowance: projectChatAllowance(meter) }
-          : { status: "unavailable" };
-      }
-
-      const meter = await loadChatMeter(input.passId, transaction);
-      if (!meter) {
-        return { status: "limit_reached", allowance: null };
-      }
-
-      const pending = await countReservedChatEvents(input.passId, transaction);
-      if (meter.used + pending >= meter.limit) {
-        return { status: "limit_reached", allowance: projectChatAllowance(meter) };
-      }
-
-      await transaction.query(
-        `
-          insert into trip_usage_events (
-            id,
-            trip_pass_id,
-            usage_meter_id,
-            user_id,
-            event_type,
-            meter_type,
-            quantity,
-            idempotency_key,
-            request_id,
-            request_hash,
-            provider_request_ids_json,
-            occurred_at,
-            created_at
-          )
-          values ($1, $2, $3, $4, 'reserved', 'chat_message', 1, $5, $6, $7, '[]'::jsonb, $8, $8)
-        `,
-        [
-          usageEventId(input.idempotencyKey),
-          input.passId,
-          meter.id,
-          input.userId,
-          input.idempotencyKey,
-          input.requestId,
-          input.requestHash,
-          input.now,
-        ],
-      );
-
-      return { status: "reserved", allowance: projectChatAllowance(meter) };
-    });
-  } catch {
-    return { status: "unavailable" };
-  }
 }
 
 async function reserveDecisionMeterEventHandle(input: {
@@ -657,83 +592,6 @@ async function releaseGenericMeterEvent(idempotencyKey: string, db: DatabaseQuer
   );
 }
 
-async function settleChatMeterEvent(
-  input: {
-    idempotencyKey: string;
-    now: Date;
-    providerRequestIds: readonly string[];
-  },
-  db: DatabaseQueryClient,
-): Promise<PaidChatUsageSettlement> {
-  return withDatabaseTransaction(db, async (transaction) => {
-    const existing = await loadUsageEvent(input.idempotencyKey, transaction);
-    if (!existing?.usage_meter_id) {
-      return { status: "usage_limit_reached", allowance: null };
-    }
-    if (existing.event_type === "settled") {
-      const meter = await loadChatMeterById(existing.usage_meter_id, transaction);
-      return {
-        status: "duplicate",
-        allowance: meter ? projectChatAllowance(meter) : null,
-      };
-    }
-    if (existing.event_type === "released") {
-      const meter = await loadChatMeterById(existing.usage_meter_id, transaction);
-      return {
-        status: "released",
-        allowance: meter ? projectChatAllowance(meter) : null,
-      };
-    }
-
-    const consumed = await transaction.query<UsageMeterRow>(
-      `
-        update trip_usage_meters
-        set used = used + 1,
-            updated_at = $2
-        where id = $1
-          and used + 1 <= "limit"
-        returning id, trip_pass_id, meter_type, used, "limit", reset_at, updated_at
-      `,
-      [existing.usage_meter_id, input.now],
-    );
-    const meter = consumed.rows[0];
-    if (!meter) {
-      return {
-        status: "usage_limit_reached",
-        allowance: await loadChatMeterById(existing.usage_meter_id, transaction).then((row) =>
-          row ? projectChatAllowance(row) : null,
-        ),
-      };
-    }
-
-    await transaction.query(
-      `
-        update trip_usage_events
-        set event_type = 'settled',
-            provider_request_ids_json = $2::jsonb,
-            occurred_at = $3
-        where idempotency_key = $1
-          and event_type = 'reserved'
-      `,
-      [input.idempotencyKey, JSON.stringify([...input.providerRequestIds]), input.now],
-    );
-
-    return { status: "settled", allowance: projectChatAllowance(meter) };
-  });
-}
-
-async function releaseChatMeterEvent(idempotencyKey: string, db: DatabaseQueryClient) {
-  await db.query(
-    `
-      update trip_usage_events
-      set event_type = 'released'
-      where idempotency_key = $1
-        and event_type = 'reserved'
-    `,
-    [idempotencyKey],
-  );
-}
-
 async function loadUsageEvent(idempotencyKey: string, db: DatabaseQueryClient) {
   const result = await db.query<UsageEventRow>(
     `
@@ -745,33 +603,6 @@ async function loadUsageEvent(idempotencyKey: string, db: DatabaseQueryClient) {
     [idempotencyKey],
   );
   return result.rows[0] ?? null;
-}
-
-async function loadChatMeter(tripPassId: string, db: DatabaseQueryClient) {
-  const result = await db.query<UsageMeterRow>(
-    `
-      select id, trip_pass_id, meter_type, used, "limit", reset_at, updated_at
-      from trip_usage_meters
-      where trip_pass_id = $1
-        and meter_type = 'chat_message'
-      limit 1
-    `,
-    [tripPassId],
-  );
-  return result.rows[0] ? mapMeterRow(result.rows[0]) : null;
-}
-
-async function loadChatMeterById(meterId: string, db: DatabaseQueryClient) {
-  const result = await db.query<UsageMeterRow>(
-    `
-      select id, trip_pass_id, meter_type, used, "limit", reset_at, updated_at
-      from trip_usage_meters
-      where id = $1
-      limit 1
-    `,
-    [meterId],
-  );
-  return result.rows[0] ? mapMeterRow(result.rows[0]) : null;
 }
 
 async function loadMeter(
@@ -803,20 +634,6 @@ async function loadMeterById(meterId: string, db: DatabaseQueryClient) {
     [meterId],
   );
   return result.rows[0] ? mapMeterRow(result.rows[0]) : null;
-}
-
-async function countReservedChatEvents(tripPassId: string, db: DatabaseQueryClient) {
-  const result = await db.query<{ count: string }>(
-    `
-      select count(*)::text as count
-      from trip_usage_events
-      where trip_pass_id = $1
-        and meter_type = 'chat_message'
-        and event_type = 'reserved'
-    `,
-    [tripPassId],
-  );
-  return Number(result.rows[0]?.count ?? 0);
 }
 
 async function countReservedMeterEvents(
@@ -856,10 +673,6 @@ async function withDatabaseTransaction<T>(
   }
 }
 
-async function releaseReservations(store: QuotaStore, reservations: readonly Reservation[]) {
-  await Promise.all(reservations.map((reservation) => store.releaseRollingWindow(reservation)));
-}
-
 async function safeReleaseReservations(store: QuotaStore, reservations: readonly Reservation[]) {
   await Promise.allSettled(
     reservations.map((reservation) => store.releaseRollingWindow(reservation)),
@@ -868,16 +681,6 @@ async function safeReleaseReservations(store: QuotaStore, reservations: readonly
 
 async function safeReleaseConcurrency(store: QuotaStore, key: string, leaseId: string) {
   await store.releaseConcurrency({ key, leaseId }).catch(() => undefined);
-}
-
-function projectChatAllowance(meter: Pick<TripPassUsageMeter, "limit" | "used">) {
-  return {
-    chatMessages: {
-      limit: meter.limit,
-      remaining: Math.max(meter.limit - meter.used, 0),
-      used: meter.used,
-    },
-  } satisfies PaidChatUsageAllowance;
 }
 
 function projectMeterAllowance(meter: Pick<TripPassUsageMeter, "limit" | "meterType" | "used">) {

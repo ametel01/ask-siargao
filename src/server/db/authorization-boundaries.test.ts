@@ -44,6 +44,7 @@ describe("database authorization boundaries", () => {
   test("documents the current application, reporting, and user-owned table sets", () => {
     expect(applicationTables).toContain("chat_threads");
     expect(applicationTables).toContain("audit_reports");
+    expect(applicationTables).toContain("paid_answer_reservations");
     expect(applicationTables).toContain("provider_health_checks");
     expect(applicationTables).not.toContain("schema_migrations");
 
@@ -73,6 +74,7 @@ describe("database authorization boundaries", () => {
       "trip_pass_orders",
       "trip_pass_grants",
       "trip_usage_events",
+      "paid_answer_reservations",
     ]);
   });
 
