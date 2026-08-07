@@ -57,7 +57,7 @@ export type UserProfilePatch = Partial<{
 
 type UserProfileRow = {
   user_id: string;
-  email: string;
+  email: string | null;
   first_name: string | null;
   last_name: string | null;
   display_name: string | null;

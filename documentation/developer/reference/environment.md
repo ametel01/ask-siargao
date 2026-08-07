@@ -17,6 +17,7 @@ The app reads these environment variables.
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Public/client-safe | Clerk frontend SDK | Required only when `CLERK_AUTH_MODE=enabled`. |
 | `CLERK_SECRET_KEY` | Server only | Clerk `auth()`, route protection, and backend API calls | Required only when `CLERK_AUTH_MODE=enabled`. Must not use the `NEXT_PUBLIC_` prefix. |
 | `CLERK_WEBHOOK_SIGNING_SECRET` | Server only | Clerk webhook verification | Required only when `CLERK_AUTH_MODE=enabled`; `/api/clerk/webhooks` remains public at the proxy layer and verifies this signature in the handler. |
+| `ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY` | Server only | Closure Tombstone matching | Required in production so Clerk IDs are matched to hashed closure tombstones without storing readable IDs. Local development uses a deterministic fallback. |
 | `NEXT_PUBLIC_CLERK_TELEMETRY_DISABLED` | Public/client-safe | Clerk SDK telemetry | Defaults to `1` in `next.config.ts`; set to `0` only when intentionally opting in to development telemetry. |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | Public/client-safe | Clerk sign-in routing | Set to `/sign-in` for the local prebuilt auth page. |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL` | Public/client-safe | Clerk post-sign-in redirects | Recommended default: `/chat`. |
@@ -116,7 +117,7 @@ the release-candidate QA run. Code completion is not launch approval.
 | DeepSeek cost policy | Operator | Confirm price catalog version, `DEEPSEEK_COST_POLICY_ENABLED`, and daily provider budget. |
 | Paid fallback | Operator | Confirm whether `OPENAI_FALLBACK_ENABLED` is allowed, plus the daily fallback budget. |
 | WAF | Security/operator | Run Vercel WAF in log mode first and record evidence before challenge promotion. |
-| Identity keys | Security | Record `TRIP_PASS_ANON_HMAC_KEY` and `TRIP_PASS_IDEMPOTENCY_HMAC_KEY` owners, rotation date, and rollback plan. |
+| Identity keys | Security | Record `ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY`, `TRIP_PASS_ANON_HMAC_KEY`, and `TRIP_PASS_IDEMPOTENCY_HMAC_KEY` owners, rotation date, and rollback plan. |
 | Monitoring | Operator | Confirm alerts for checkout failures, webhook failures, cost-circuit exhaustion, analytics sink failures, and reconciliation issues. |
 | Review | Operator | Record non-author release review before checkout enablement. |
 
