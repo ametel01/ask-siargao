@@ -212,6 +212,7 @@ async function ensurePendingCheckoutOrder(
 
     const orderId = input.createId("trip_pass_order");
     const checkoutIdempotencyKey = `trip_pass_checkout:${orderId}`;
+    const checkoutSessionExpiresAt = checkoutExpiryFromReservationTime(databaseNow);
     await transaction.query(
       `
         insert into trip_pass_orders (
@@ -226,6 +227,7 @@ async function ensurePendingCheckoutOrder(
           amount_total_minor,
           currency,
           checkout_idempotency_key,
+          checkout_session_expires_at,
           terms_policy_version,
           refund_policy_version,
           privacy_policy_version,
@@ -252,9 +254,10 @@ async function ensurePendingCheckoutOrder(
           $13,
           $14,
           $15,
-          $16::jsonb,
-          $15,
-          $15
+          $16,
+          $17::jsonb,
+          $16,
+          $16
         )
       `,
       [
@@ -268,6 +271,7 @@ async function ensurePendingCheckoutOrder(
         tripPassCheckoutProductSnapshot.amountTotalMinor,
         tripPassCheckoutProductSnapshot.currency,
         checkoutIdempotencyKey,
+        checkoutSessionExpiresAt,
         tripPassCheckoutProductSnapshot.policyVersions.terms,
         tripPassCheckoutProductSnapshot.policyVersions.refund,
         tripPassCheckoutProductSnapshot.policyVersions.privacy,
@@ -287,6 +291,7 @@ async function ensurePendingCheckoutOrder(
       productFamily: tripPassCheckoutProductSnapshot.productFamily,
       customerEmail: null,
       checkoutIdempotencyKey,
+      checkoutSessionExpiresAt,
       stripePriceId: input.stripePriceId,
       createdForRequest: true,
     };
@@ -446,6 +451,9 @@ function orderSnapshotFromRow(
     productFamily: order.product_family,
     customerEmail: input.customerEmail,
     checkoutIdempotencyKey: order.checkout_idempotency_key,
+    checkoutSessionExpiresAt: order.checkout_session_expires_at
+      ? dateFromDatabaseValue(order.checkout_session_expires_at)
+      : checkoutExpiryFromReservationTime(dateFromDatabaseValue(order.created_at)),
     stripePriceId: order.stripe_price_id,
     createdForRequest: input.createdForRequest,
   };
@@ -472,4 +480,13 @@ function checkoutAvailabilityForAccount(
 
 function defaultCreateId(prefix: string) {
   return `${prefix}_${randomUUID()}`;
+}
+
+function checkoutExpiryFromReservationTime(reservationTime: Date) {
+  const reservationEpochSeconds = Math.floor(reservationTime.getTime() / 1_000);
+  return new Date((reservationEpochSeconds + 30 * 60) * 1_000);
+}
+
+function dateFromDatabaseValue(value: Date | string) {
+  return value instanceof Date ? value : new Date(String(value));
 }

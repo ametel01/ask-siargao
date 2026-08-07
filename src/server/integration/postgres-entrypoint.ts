@@ -1,4 +1,5 @@
 import type { DatabaseQueryClient } from "@/server/db/query-client";
+import { withTimeout } from "@/server/integration/entrypoint-shared";
 import { withRealPostgresHarness } from "@/server/integration/postgres-harness";
 import { startTripPassCheckout, type TripPassCheckoutResult } from "@/server/trip-pass/commerce";
 import type {
@@ -288,80 +289,129 @@ async function runTripPassCheckoutWinnerRegression(
   winner: "first" | "second",
 ) {
   const userId = `user_checkout_race_${winner}`;
-  const winnerOrderId = `order_checkout_race_${winner}_winner`;
-  const loserOrderId = `order_checkout_race_${winner}_loser`;
-  const holderRelease = deferred<void>();
-  const holderLocked = deferred<number>();
-  const followerLockStarted = deferred<number>();
+  const firstOrderId = `order_checkout_race_${winner}_first`;
+  const secondOrderId = `order_checkout_race_${winner}_second`;
+  const winnerOrderId = winner === "first" ? firstOrderId : secondOrderId;
+  const winnerRelease = deferred<void>();
+  const firstMayAttemptLock = deferred<void>();
+  const firstLocked = deferred<number>();
+  const secondLocked = deferred<number>();
+  const firstLockStarted = deferred<number>();
+  const secondLockStarted = deferred<number>();
   const observer = harness.createClient();
   const visibilityClient = harness.createQueryClient();
   const checkoutClient = createRaceCheckoutClient(visibilityClient);
-  const holderClient = createControlledCheckoutQueryClient(harness.createQueryClient(), {
+  const firstClient = createControlledCheckoutQueryClient(harness.createQueryClient(), {
     afterFamilyLock: async (pid) => {
-      holderLocked.resolve(pid);
-      await holderRelease.promise;
+      firstLocked.resolve(pid);
+      if (winner === "first") {
+        await winnerRelease.promise;
+      }
+    },
+    beforeFamilyLock: async (pid) => {
+      firstLockStarted.resolve(pid);
+      if (winner === "second") {
+        await firstMayAttemptLock.promise;
+      }
     },
   });
-  const followerClient = createControlledCheckoutQueryClient(harness.createQueryClient(), {
+  const secondClient = createControlledCheckoutQueryClient(harness.createQueryClient(), {
+    afterFamilyLock: async (pid) => {
+      secondLocked.resolve(pid);
+      if (winner === "second") {
+        await winnerRelease.promise;
+      }
+    },
     beforeFamilyLock: async (pid) => {
-      followerLockStarted.resolve(pid);
+      secondLockStarted.resolve(pid);
     },
   });
 
   try {
     await insertIntegrationUser(visibilityClient, userId);
 
-    const holderCheckout = startTripPassCheckout(
+    const firstCheckout = startTripPassCheckout(
       { appUrl: "https://siargao.test", email: `${userId}@example.com`, userId },
       {
         checkoutClient,
-        createId: () => winnerOrderId,
-        db: holderClient,
+        createId: () => firstOrderId,
+        db: firstClient,
         env: tripPassCheckoutRaceEnv,
       },
     ).catch((error: unknown) => {
-      holderLocked.reject(error);
+      firstLocked.reject(error);
+      firstLockStarted.reject(error);
       throw error;
     });
-    await holderLocked.promise;
 
-    const followerCheckout = startTripPassCheckout(
+    if (winner === "first") {
+      await waitForBarrier(
+        firstLocked.promise,
+        "Trip Pass checkout first request did not acquire the family reservation lock",
+      );
+    } else {
+      await waitForBarrier(
+        firstLockStarted.promise,
+        "Trip Pass checkout first request did not reach its pre-lock barrier",
+      );
+    }
+
+    const secondCheckout = startTripPassCheckout(
       { appUrl: "https://siargao.test", email: `${userId}@example.com`, userId },
       {
         checkoutClient,
-        createId: () => loserOrderId,
-        db: followerClient,
+        createId: () => secondOrderId,
+        db: secondClient,
         env: tripPassCheckoutRaceEnv,
       },
     ).catch((error: unknown) => {
-      followerLockStarted.reject(error);
+      secondLocked.reject(error);
+      secondLockStarted.reject(error);
       throw error;
     });
 
-    const followerPid = await followerLockStarted.promise;
-    await waitForBackendLock(
-      observer,
-      followerPid,
-      "Trip Pass checkout follower did not wait on the family reservation lock",
-    );
+    if (winner === "first") {
+      const secondPid = await waitForBarrier(
+        secondLockStarted.promise,
+        "Trip Pass checkout second request did not attempt the family reservation lock",
+      );
+      await waitForBackendLock(
+        observer,
+        secondPid,
+        "Trip Pass checkout second request did not wait on the first request family reservation lock",
+      );
+    } else {
+      await waitForBarrier(
+        secondLocked.promise,
+        "Trip Pass checkout second request did not acquire the family reservation lock",
+      );
+      firstMayAttemptLock.resolve();
+      const firstPid = await waitForBarrier(
+        firstLockStarted.promise,
+        "Trip Pass checkout first request did not attempt the family reservation lock",
+      );
+      await waitForBackendLock(
+        observer,
+        firstPid,
+        "Trip Pass checkout first request did not wait on the second request family reservation lock",
+      );
+    }
 
-    holderRelease.resolve();
-    const [holderResult, followerResult] = await Promise.all([holderCheckout, followerCheckout]);
+    winnerRelease.resolve();
+    const [firstResult, secondResult] = await Promise.all([firstCheckout, secondCheckout]);
 
-    assertCheckoutResultStatus(holderResult, "started");
-    assertCheckoutResultStatus(followerResult, "reused");
-    const firstResult = winner === "first" ? holderResult : followerResult;
-    const secondResult = winner === "first" ? followerResult : holderResult;
+    assertCheckoutResultStatus(firstResult, winner === "first" ? "started" : "reused");
+    assertCheckoutResultStatus(secondResult, winner === "second" ? "started" : "reused");
 
     assertEqual(
       firstResult.orderId,
       winnerOrderId,
-      "winner request must expose the committed reservation order",
+      "first checkout request must resolve to the actual lock winner order",
     );
     assertEqual(
       secondResult.orderId,
       winnerOrderId,
-      "follower request must reuse the winner reservation order",
+      "second checkout request must resolve to the actual lock winner order",
     );
     assertEqual(
       firstResult.checkoutUrl,
@@ -399,10 +449,11 @@ async function runTripPassCheckoutWinnerRegression(
       "Stripe adapter calls must be made only for the committed reusable order",
     );
   } finally {
-    holderRelease.resolve();
+    firstMayAttemptLock.resolve();
+    winnerRelease.resolve();
     await Promise.allSettled([
-      holderClient.end(),
-      followerClient.end(),
+      firstClient.end(),
+      secondClient.end(),
       observer.end(),
       visibilityClient.end(),
     ]);
@@ -454,7 +505,10 @@ async function runTripPassCheckoutRollbackRaceRegression(harness: PostgresHarnes
         return error;
       },
     );
-    await holderLocked.promise;
+    await waitForBarrier(
+      holderLocked.promise,
+      "Trip Pass rollback checkout did not acquire the family reservation lock",
+    );
 
     const winningCheckout = startTripPassCheckout(
       { appUrl: "https://siargao.test", userId },
@@ -469,7 +523,10 @@ async function runTripPassCheckoutRollbackRaceRegression(harness: PostgresHarnes
       throw error;
     });
 
-    const followerPid = await followerLockStarted.promise;
+    const followerPid = await waitForBarrier(
+      followerLockStarted.promise,
+      "Trip Pass rollback follower did not attempt the family reservation lock",
+    );
     await waitForBackendLock(
       observer,
       followerPid,
@@ -583,9 +640,13 @@ function createRaceCheckoutClient(
     calls,
     async createCheckoutSession(params, options) {
       const orderId = String(params.client_reference_id);
-      const visibleOrder = await visibilityClient.query<{ status: string }>(
+      const visibleOrder = await visibilityClient.query<{
+        checkout_session_expires_at: Date | string | null;
+        created_at: Date | string;
+        status: string;
+      }>(
         `
-          select status
+          select status, created_at, checkout_session_expires_at
           from trip_pass_orders
           where id = $1
             and product_family = 'siargao_trip_pass'
@@ -596,6 +657,23 @@ function createRaceCheckoutClient(
       if (!visibleOrder.rows[0]) {
         throw new Error("Stripe adapter started before the local checkout reservation committed.");
       }
+      if (!visibleOrder.rows[0].checkout_session_expires_at) {
+        throw new Error("Local checkout reservation committed without an expiry.");
+      }
+      const reservationEpochSeconds = Math.floor(
+        dateFromDatabaseValue(visibleOrder.rows[0].created_at).getTime() / 1_000,
+      );
+      const expectedExpiresAt = reservationEpochSeconds + 30 * 60;
+      assertEqual(
+        params.expires_at,
+        expectedExpiresAt,
+        "Stripe expires_at must derive from committed DB reservation time",
+      );
+      assertEqual(
+        dateFromDatabaseValue(visibleOrder.rows[0].checkout_session_expires_at).getTime(),
+        expectedExpiresAt * 1_000,
+        "Committed checkout reservation expiry must be exactly thirty minutes after DB time",
+      );
 
       calls.push({ idempotencyKey: options.idempotencyKey, orderId });
       const cached = sessionsByIdempotencyKey.get(options.idempotencyKey);
@@ -661,6 +739,10 @@ async function waitForBackendLock(
   }, failureMessage);
 }
 
+async function waitForBarrier<T>(promise: Promise<T>, failureMessage: string) {
+  return withTimeout(promise, 5_000, failureMessage);
+}
+
 function assertCheckoutResultStatus(
   result: TripPassCheckoutResult,
   status: SuccessfulTripPassCheckoutResult["status"],
@@ -684,6 +766,10 @@ function priceIdFromCheckoutParams(params: CheckoutCreateParams) {
   const firstLineItem = params.line_items?.[0];
   const price = firstLineItem?.price;
   return typeof price === "string" ? price : null;
+}
+
+function dateFromDatabaseValue(value: Date | string) {
+  return value instanceof Date ? value : new Date(String(value));
 }
 
 async function waitUntil(check: () => Promise<boolean>, failureMessage: string) {

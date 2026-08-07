@@ -10,6 +10,7 @@ import {
 export type TripPassCheckoutOrderSnapshot = {
   id: string;
   checkoutIdempotencyKey: string;
+  checkoutSessionExpiresAt: Date;
   userId: string;
   productFamily: string;
   customerEmail?: string | null;
@@ -68,7 +69,7 @@ export function buildTripPassCheckoutSessionParams(input: {
     client_reference_id: input.order.id,
     customer_email: input.order.customerEmail ?? undefined,
     payment_method_types: ["card"],
-    expires_at: Math.floor((Date.now() + 30 * 60 * 1000) / 1000),
+    expires_at: Math.floor(input.order.checkoutSessionExpiresAt.getTime() / 1000),
     consent_collection: {
       terms_of_service: "required",
     },

@@ -14,6 +14,7 @@ import type {
   TripPassCheckoutClient,
   TripPassCheckoutSessionSummary,
 } from "@/server/trip-pass/stripe-adapter";
+import { buildTripPassCheckoutSessionParams } from "@/server/trip-pass/stripe-adapter";
 
 const now = new Date("2026-07-03T08:00:00.000Z");
 const enabledEnv = {
@@ -62,15 +63,32 @@ describe("Trip Pass checkout commerce", () => {
       const events: string[] = [];
       const checkoutClient = createFakeCheckoutClient({
         beforeCreate: async (params) => {
-          const count = await db.query<{ count: string }>(
+          const orderRows = await db.query<{
+            checkout_session_expires_at: Date | string | null;
+            count: string;
+            created_at: Date | string;
+          }>(
             `
-              select count(*)::text as count
+              select count(*)::text as count, created_at, checkout_session_expires_at
               from trip_pass_orders
               where id = $1 and status = 'pending'
+              group by created_at, checkout_session_expires_at
             `,
             [String(params.client_reference_id)],
           );
-          events.push(`pending:${count.rows[0]?.count}`);
+          const order = orderRows.rows[0];
+          if (!order?.checkout_session_expires_at) {
+            throw new Error("Pending order did not persist a checkout expiry before Stripe.");
+          }
+          const reservationEpochSeconds = Math.floor(
+            dateFromDatabaseValue(order.created_at).getTime() / 1_000,
+          );
+          const expectedExpiresAt = reservationEpochSeconds + 30 * 60;
+          expect(params.expires_at).toBe(expectedExpiresAt);
+          expect(dateFromDatabaseValue(order.checkout_session_expires_at).getTime()).toBe(
+            expectedExpiresAt * 1_000,
+          );
+          events.push(`pending:${order.count}`);
         },
       });
 
@@ -134,6 +152,34 @@ describe("Trip Pass checkout commerce", () => {
       });
       await expectNoAccessGrant(db);
     });
+  });
+
+  test("builds Checkout expiry from reservation DB time instead of a skewed app clock", () => {
+    const originalDateNow = Date.now;
+    const reservationTime = new Date("2026-07-03T08:00:00.000Z");
+    const checkoutSessionExpiresAt = new Date(reservationTime.getTime() + 30 * 60 * 1_000);
+    const skewedAppNow = new Date("2036-01-01T00:00:00.000Z").getTime();
+
+    Date.now = () => skewedAppNow;
+    try {
+      const params = buildTripPassCheckoutSessionParams({
+        appUrl: "https://siargao.test",
+        order: {
+          id: "order_db_time",
+          userId: "user_db_time",
+          productFamily: "siargao_trip_pass",
+          customerEmail: null,
+          checkoutIdempotencyKey: "trip_pass_checkout:order_db_time",
+          checkoutSessionExpiresAt,
+          stripePriceId: "price_trip_pass",
+        },
+      });
+
+      expect(params.expires_at).toBe(Math.floor(reservationTime.getTime() / 1_000) + 30 * 60);
+      expect(params.expires_at).not.toBe(Math.floor((Date.now() + 30 * 60 * 1_000) / 1_000));
+    } finally {
+      Date.now = originalDateNow;
+    }
   });
 
   test("reuses a valid pending order and Stripe idempotency key for duplicate clicks", async () => {
@@ -778,4 +824,8 @@ async function expectNoAccessGrant(db: DatabaseQueryClient) {
 
   expect(passes.rows[0]?.count).toBe("0");
   expect(grants.rows[0]?.count).toBe("0");
+}
+
+function dateFromDatabaseValue(value: Date | string) {
+  return value instanceof Date ? value : new Date(String(value));
 }
