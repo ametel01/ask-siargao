@@ -10,6 +10,7 @@ import {
 } from "@/server/db/test-database";
 import { createActiveTripPassWithMeters } from "@/server/payments/trip-pass";
 import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/catalog";
+import { purgeExpiredPaidAnswerDetails } from "@/server/trip-pass/paid-answer-reservations";
 import {
   buildTripPassReconciliationSnapshot,
   lookupTripPassSupportReference,
@@ -282,7 +283,108 @@ describe("Trip Pass reconciliation", () => {
     expect(serialized).not.toContain("pi_test");
     expect(serialized).toContain("[redacted");
   });
+
+  test("accepts only an exactly linked, policy-purged paid-answer aggregate", async () => {
+    await withTestDb(async (db) => {
+      await insertSettledPaidAnswerWithoutProviderIds(db, "purged_clean");
+
+      const before = await buildTripPassReconciliationSnapshot({
+        db,
+        env,
+        now,
+        scope: { passId: "trip_pass_purged_clean" },
+      });
+      expect(missingProviderIssues(before)).toEqual(["trip_usage_event_reservation_purged_clean"]);
+
+      await expirePaidAnswerDetails(db, "reservation_purged_clean");
+      await expect(purgeExpiredPaidAnswerDetails(db)).resolves.toBe(1);
+
+      const dryRun = await buildTripPassReconciliationSnapshot({
+        db,
+        env,
+        now,
+        scope: { passId: "trip_pass_purged_clean" },
+      });
+      const repair = await reconcileTripPassState({
+        confirmMutation: true,
+        db,
+        env,
+        mode: "repair",
+        now,
+        scope: { passId: "trip_pass_purged_clean" },
+      });
+      expect(missingProviderIssues(dryRun)).toEqual([]);
+      expect(missingProviderIssues(repair)).toEqual([]);
+      expect(repair.actions).toEqual([]);
+      await expectMeterAggregate(db, "trip_pass_purged_clean", 1, 1);
+    });
+  });
+
+  test("keeps warning after purge rollback and for mismatched paid-answer identity", async () => {
+    await withTestDb(async (db) => {
+      await insertSettledPaidAnswerWithoutProviderIds(db, "purged_adversarial");
+      await expirePaidAnswerDetails(db, "reservation_purged_adversarial");
+      await db.query(`
+        create function fail_reconciliation_event_purge() returns trigger language plpgsql as $$
+        begin raise exception 'forced reconciliation purge failure'; end $$
+      `);
+      await db.query(`
+        create trigger fail_reconciliation_event_purge
+          before update of request_id on trip_usage_events
+          for each row execute function fail_reconciliation_event_purge()
+      `);
+
+      await expect(purgeExpiredPaidAnswerDetails(db)).rejects.toThrow(
+        "forced reconciliation purge failure",
+      );
+      const rolledBack = await buildTripPassReconciliationSnapshot({
+        db,
+        env,
+        now,
+        scope: { passId: "trip_pass_purged_adversarial" },
+      });
+      expect(missingProviderIssues(rolledBack)).toEqual([
+        "trip_usage_event_reservation_purged_adversarial",
+      ]);
+
+      await db.query("drop trigger fail_reconciliation_event_purge on trip_usage_events");
+      await db.query("drop function fail_reconciliation_event_purge()");
+      await expect(purgeExpiredPaidAnswerDetails(db)).resolves.toBe(1);
+      await db.query(`update trip_usage_events set idempotency_key = $2 where id = $1`, [
+        "trip_usage_event_reservation_purged_adversarial",
+        "paid-answer:unrelated_reservation",
+      ]);
+
+      const mismatchedDryRun = await buildTripPassReconciliationSnapshot({
+        db,
+        env,
+        now,
+        scope: { passId: "trip_pass_purged_adversarial" },
+      });
+      const mismatchedRepair = await reconcileTripPassState({
+        confirmMutation: true,
+        db,
+        env,
+        mode: "repair",
+        now,
+        scope: { passId: "trip_pass_purged_adversarial" },
+      });
+      expect(missingProviderIssues(mismatchedDryRun)).toEqual([
+        "trip_usage_event_reservation_purged_adversarial",
+      ]);
+      expect(missingProviderIssues(mismatchedRepair)).toEqual([
+        "trip_usage_event_reservation_purged_adversarial",
+      ]);
+      await expectMeterAggregate(db, "trip_pass_purged_adversarial", 1, 1);
+    });
+  });
 });
+
+function missingProviderIssues(snapshot: Awaited<ReturnType<typeof reconcileTripPassState>>) {
+  return snapshot.issues
+    .filter((issue) => issue.code === "provider_usage_missing_request_id")
+    .map((issue) => issue.localRef);
+}
 
 async function withTestDb(work: (db: DatabaseQueryClient) => Promise<void>) {
   await resetTestDatabase();
@@ -425,6 +527,105 @@ async function insertPassWithStaleReservation(
       new Date(now.getTime() - 60 * 60 * 1000),
     ],
   );
+}
+
+async function insertSettledPaidAnswerWithoutProviderIds(db: DatabaseQueryClient, suffix: string) {
+  const userId = `user_${suffix}`;
+  const tripPassId = `trip_pass_${suffix}`;
+  const meterId = `meter_${suffix}`;
+  const reservationId = `reservation_${suffix}`;
+  await insertUser(db, userId);
+  await createActiveTripPassWithMeters(
+    {
+      expiresAt: new Date("2026-08-28T08:00:00.000Z"),
+      id: tripPassId,
+      startsAt: new Date("2026-07-01T08:00:00.000Z"),
+      userId,
+    },
+    db,
+  );
+  const meter = await db.query<{ id: string }>(
+    `select id from trip_usage_meters where trip_pass_id = $1 and meter_type = 'chat_message'`,
+    [tripPassId],
+  );
+  const actualMeterId = meter.rows[0]?.id;
+  expect(actualMeterId).toBeDefined();
+  await db.query(`update trip_usage_meters set id = $2, used = 1 where id = $1`, [
+    actualMeterId,
+    meterId,
+  ]);
+  await db.query(
+    `insert into paid_answer_reservations (
+       id, trip_pass_id, usage_meter_id, account_id, idempotency_key_hash,
+       request_body_hash, request_id, lease_token, status, provider_request_ids_json,
+       lease_expires_at, details_purge_at, reserved_at, finalized_at, updated_at
+     ) values ($1, $2, $3, $4, $5, $6, $7, $8, 'settled', '[]'::jsonb,
+       $9, $10, $11, $12, $12)`,
+    [
+      reservationId,
+      tripPassId,
+      meterId,
+      userId,
+      `key_${suffix}`,
+      `body_${suffix}`,
+      `request_${suffix}`,
+      `lease_${suffix}`,
+      new Date("2026-07-14T07:10:00.000Z"),
+      new Date("2026-09-14T08:00:00.000Z"),
+      new Date("2026-07-14T07:00:00.000Z"),
+      new Date("2026-07-14T07:30:00.000Z"),
+    ],
+  );
+  await db.query(
+    `insert into trip_usage_events (
+       id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+       idempotency_key, request_id, request_hash, provider_request_ids_json,
+       occurred_at, created_at
+     ) values ($1, $2, $3, $4, 'settled', 'chat_message', 1, $5, $6, $7, '[]'::jsonb,
+       $8, $8)`,
+    [
+      `trip_usage_event_${reservationId}`,
+      tripPassId,
+      meterId,
+      userId,
+      `paid-answer:${reservationId}`,
+      `request_${suffix}`,
+      `body_${suffix}`,
+      new Date("2026-07-14T07:30:00.000Z"),
+    ],
+  );
+}
+
+async function expirePaidAnswerDetails(db: DatabaseQueryClient, reservationId: string) {
+  await db.query(
+    `update paid_answer_reservations
+     set reserved_at = clock_timestamp() - interval '40 days',
+       details_purge_at = clock_timestamp() - interval '1 second'
+     where id = $1`,
+    [reservationId],
+  );
+}
+
+async function expectMeterAggregate(
+  db: DatabaseQueryClient,
+  tripPassId: string,
+  expectedUsed: number,
+  expectedSettledQuantity: number,
+) {
+  const result = await db.query<{ settled_quantity: string; used: number }>(
+    `select m.used,
+       coalesce(sum(e.quantity) filter (where e.event_type = 'settled'), 0)::text
+         as settled_quantity
+     from trip_usage_meters m
+     left join trip_usage_events e on e.usage_meter_id = m.id
+     where m.trip_pass_id = $1 and m.meter_type = 'chat_message'
+     group by m.used`,
+    [tripPassId],
+  );
+  expect(result.rows[0]).toEqual({
+    settled_quantity: String(expectedSettledQuantity),
+    used: expectedUsed,
+  });
 }
 
 async function expectCounts(db: DatabaseQueryClient, expected: { grants: string; passes: string }) {

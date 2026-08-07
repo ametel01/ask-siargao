@@ -177,9 +177,13 @@ type UsageEventRow = {
   meter_type: string;
   quantity: number;
   idempotency_key: string;
-  request_id: string;
+  request_id: string | null;
+  request_hash: string | null;
   provider_request_ids_json: string[] | string;
   occurred_at: Date | string;
+  paid_answer_reservation_id: string | null;
+  paid_answer_reservation_status: string | null;
+  paid_answer_details_purged_at: Date | string | null;
 };
 
 type MeterSummaryRow = {
@@ -627,7 +631,11 @@ function usageEventIssues(
         },
       });
     }
-    if (event.event_type === "settled" && providerRequestIds.length === 0) {
+    if (
+      event.event_type === "settled" &&
+      providerRequestIds.length === 0 &&
+      !isPurgedPaidAnswerAggregate(event)
+    ) {
       issues.push({
         code: "provider_usage_missing_request_id",
         severity: "warning",
@@ -664,6 +672,17 @@ function usageEventIssues(
   }
 
   return issues;
+}
+
+function isPurgedPaidAnswerAggregate(event: UsageEventRow) {
+  return (
+    event.meter_type === "chat_message" &&
+    event.request_id === null &&
+    event.request_hash === null &&
+    event.paid_answer_reservation_id !== null &&
+    event.paid_answer_reservation_status === "settled" &&
+    event.paid_answer_details_purged_at !== null
+  );
 }
 
 function infrastructureIssues(
@@ -923,9 +942,19 @@ async function loadUsageEvents(db: DatabaseQueryClient, scope: TripPassReconcili
     `
       select
         e.id, e.trip_pass_id, e.usage_meter_id, e.user_id, e.event_type, e.meter_type,
-        e.quantity, e.idempotency_key, e.request_id, e.provider_request_ids_json, e.occurred_at
+        e.quantity, e.idempotency_key, e.request_id, e.request_hash,
+        e.provider_request_ids_json, e.occurred_at,
+        r.id as paid_answer_reservation_id,
+        r.status as paid_answer_reservation_status,
+        r.details_purged_at as paid_answer_details_purged_at
       from trip_usage_events e
       join trip_passes p on p.id = e.trip_pass_id
+      left join paid_answer_reservations r
+        on e.id = 'trip_usage_event_' || r.id
+        and e.idempotency_key = 'paid-answer:' || r.id
+        and e.trip_pass_id = r.trip_pass_id
+        and e.usage_meter_id = r.usage_meter_id
+        and e.user_id = r.account_id
       where true
         ${clause}
       order by e.created_at desc
