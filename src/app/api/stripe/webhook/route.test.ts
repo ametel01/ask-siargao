@@ -19,6 +19,7 @@ import { resetRateLimitStoreForTests } from "@/server/security/rate-limit";
 
 const now = new Date("2026-06-23T08:00:00.000Z");
 const webhookSecret = "whsec_test_fixture_secret";
+const originalDatabaseUrl = process.env.DATABASE_URL;
 const originalStripeRestrictedKey = process.env.STRIPE_RESTRICTED_KEY;
 const originalStripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -31,6 +32,7 @@ describe("Stripe webhook route", () => {
 
   afterEach(() => {
     resetRateLimitStoreForTests();
+    restoreEnvValue("DATABASE_URL", originalDatabaseUrl);
     restoreEnvValue("STRIPE_RESTRICTED_KEY", originalStripeRestrictedKey);
     restoreEnvValue("STRIPE_WEBHOOK_SECRET", originalStripeWebhookSecret);
   });
@@ -61,6 +63,18 @@ describe("Stripe webhook route", () => {
 
     expect(response.status).toBe(429);
     expect(await response.json()).toMatchObject({ error: "rate_limited" });
+  });
+
+  test("ignores verified irrelevant events without initializing the default database", async () => {
+    delete process.env.DATABASE_URL;
+
+    const response = await POST(
+      await signedRequest(ignoredEventPayload({ eventId: "evt_ignored_without_database" })),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ received: true, ignored: true });
   });
 
   test("dispatches handled Trip Pass events before audit payment application", async () => {
