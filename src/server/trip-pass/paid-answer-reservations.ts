@@ -203,7 +203,11 @@ export async function finalizePaidAnswer(input: {
 }): Promise<PaidAnswerFinalizationResult> {
   return withTransaction(input.db, async (transaction) => {
     await acquireAccountProductFamilyLocks(input.accountId, transaction);
-    const reservation = await loadReservationByIdForUpdate(input.reservationId, transaction);
+    const reservation = await loadReservationByIdForUpdate(
+      input.accountId,
+      input.reservationId,
+      transaction,
+    );
     if (!reservation) {
       return { status: "lease_lost", allowance: null };
     }
@@ -327,9 +331,9 @@ export async function releasePaidAnswer(input: {
     const result = await transaction.query<{ id: string }>(
       `update paid_answer_reservations
        set status = 'released', release_reason = $4, released_at = $3, updated_at = $3
-       where id = $1 and lease_token = $2 and status = 'open'
+       where id = $1 and lease_token = $2 and account_id = $5 and status = 'open'
        returning id`,
-      [input.reservationId, input.leaseToken, now, input.reason],
+      [input.reservationId, input.leaseToken, now, input.reason, input.accountId],
     );
     return result.rows[0] ? "released" : "unchanged";
   });
@@ -397,12 +401,16 @@ async function loadReservationForUpdate(
   return result.rows[0] ?? null;
 }
 
-async function loadReservationByIdForUpdate(id: string, db: DatabaseQueryClient) {
+async function loadReservationByIdForUpdate(
+  accountId: string,
+  id: string,
+  db: DatabaseQueryClient,
+) {
   const result = await db.query<ReservationRow>(
     `select id, trip_pass_id, usage_meter_id, account_id, idempotency_key_hash,
        request_body_hash, request_id, lease_token, status, result_json, lease_expires_at
-     from paid_answer_reservations where id = $1 for update`,
-    [id],
+     from paid_answer_reservations where id = $1 and account_id = $2 for update`,
+    [id, accountId],
   );
   return result.rows[0] ?? null;
 }

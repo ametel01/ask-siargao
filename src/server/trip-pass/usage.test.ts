@@ -12,7 +12,12 @@ import {
   type QuotaStore,
   type RollingWindowReservationResult,
 } from "@/server/security/rate-limit";
-import { purgeExpiredPaidAnswerDetails } from "@/server/trip-pass/paid-answer-reservations";
+import {
+  finalizePaidAnswer,
+  purgeExpiredPaidAnswerDetails,
+  releasePaidAnswer,
+  reservePaidAnswer,
+} from "@/server/trip-pass/paid-answer-reservations";
 import { openChatUsageSession } from "@/server/trip-pass/usage";
 
 const startsAt = new Date("2020-07-01T00:00:00.000Z");
@@ -101,6 +106,47 @@ describe("paid Trip Pass chat usage", () => {
          where idempotency_key_hash = 'shared_token_hash_after_redis_expiry'`,
       );
       expect(reservations.rows[0]?.count).toBe("2");
+    });
+  });
+
+  test("does not let another account finalize an owned reservation", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_owner", "trip_pass_paid_owner");
+      await seedActivePass(db, "user_paid_intruder", "trip_pass_paid_intruder");
+      const reservation = await reservePaidAnswer({
+        accountId: "user_paid_owner",
+        bodyHash: "body_hash_owner",
+        db,
+        idempotencyKeyHash: "token_hash_owner",
+        requestId: "request_paid_owner",
+      });
+      expect(reservation.status).toBe("reserved");
+      if (reservation.status !== "reserved") return;
+
+      const result = await finalizePaidAnswer({
+        accountId: "user_paid_intruder",
+        answerMessageId: "answer_paid_intruder",
+        db,
+        leaseToken: reservation.leaseToken,
+        providerRequestIds: [],
+        reservationId: reservation.reservationId,
+        persistAnswer: async () => {
+          throw new Error("an unowned reservation must not reach answer persistence");
+        },
+      });
+
+      expect(result).toEqual({ status: "lease_lost", allowance: null });
+      await expect(
+        releasePaidAnswer({
+          accountId: "user_paid_intruder",
+          db,
+          leaseToken: reservation.leaseToken,
+          reason: "internal_failure",
+          reservationId: reservation.reservationId,
+        }),
+      ).resolves.toBe("unchanged");
+      await expectMeterUsed(db, "trip_pass_paid_owner", 0);
+      await expectReservationStatus(db, "body_hash_owner", "open");
     });
   });
 
