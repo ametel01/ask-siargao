@@ -99,6 +99,21 @@ const productAndPolicyVersions: TripPassLaunchManifest["productAndPolicyVersions
   tripPassProductVersion: "trip-pass-direct-stripe-14d-150answers-v1",
 };
 
+const foundationGateIds = [
+  "bun_run_lint",
+  "bun_run_typecheck_incremental_false",
+  "bun_test",
+  "bun_run_db_migrate_test",
+  "bun_run_db_seed_test",
+  "bun_run_build",
+  "bun_run_test_e2e",
+  "bun_run_test_e2e_production_perf",
+  "bun_run_test_integration_postgres",
+  "bun_run_test_integration_redis",
+] as const;
+
+const foundationGateIdSet = new Set<string>(foundationGateIds);
+
 export function buildTripPassLaunchManifest(
   input: BuildTripPassLaunchManifestInput,
 ): TripPassLaunchManifest {
@@ -222,17 +237,7 @@ export function validateTripPassLaunchManifest(manifest: unknown) {
 export function createFoundationGateResults(
   status: GateStatus,
 ): TripPassLaunchManifestGateResult[] {
-  return [
-    "bun_run_lint",
-    "bun_run_typecheck_incremental_false",
-    "bun_test",
-    "bun_run_db_migrate_test",
-    "bun_run_db_seed_test",
-    "bun_run_build",
-    "bun_run_test_e2e",
-    "bun_run_test_integration_postgres",
-    "bun_run_test_integration_redis",
-  ].map((id) => ({
+  return foundationGateIds.map((id) => ({
     evidenceLinks: [`local-command://${id}`],
     id,
     status,
@@ -381,6 +386,8 @@ function validateGateResults(gateResults: unknown, errors: string[]) {
 
     if (typeof gate.id !== "string" || !/^[a-z0-9_:-]+$/.test(gate.id)) {
       errors.push(`gate_result_id_invalid:${String(gate.id)}`);
+    } else if (!foundationGateIdSet.has(gate.id)) {
+      errors.push(`gate_result_unknown:${gate.id}`);
     }
     if (!["pass", "fail", "blocked", "skipped"].includes(String(gate.status))) {
       errors.push(`gate_result_status_invalid:${String(gate.id)}`);
@@ -394,6 +401,12 @@ function validateGateResults(gateResults: unknown, errors: string[]) {
       errors.push(`gate_result_duplicate:${String(gate.id)}`);
     }
     seen.add(String(gate.id));
+  }
+
+  for (const gateId of foundationGateIds) {
+    if (!seen.has(gateId)) {
+      errors.push(`gate_result_missing:${gateId}`);
+    }
   }
 }
 

@@ -52,6 +52,18 @@ describe("Trip Pass launch manifest", () => {
     expect(manifest.configurationPresence.TRIP_PASS_CHECKOUT_MODE_OFF).toBe(true);
     expect(manifest.humanLaunchAuthorization.launchAuthorized).toBe(false);
     expect(manifest.humanLaunchAuthorization.checkoutModeMayBeEnabled).toBe(false);
+    expect(manifest.engineeringReadiness.gateResults.map((gate) => gate.id)).toEqual([
+      "bun_run_lint",
+      "bun_run_typecheck_incremental_false",
+      "bun_test",
+      "bun_run_db_migrate_test",
+      "bun_run_db_seed_test",
+      "bun_run_build",
+      "bun_run_test_e2e",
+      "bun_run_test_e2e_production_perf",
+      "bun_run_test_integration_postgres",
+      "bun_run_test_integration_redis",
+    ]);
   });
 
   test("rejects invalid source, migration, gate, blocker, and authorization shapes", () => {
@@ -223,5 +235,72 @@ describe("Trip Pass launch manifest", () => {
         },
       }).errors,
     ).toContain("engineering_readiness_inconsistent");
+  });
+
+  test("rejects single-gate manifests that omit required foundation gates", () => {
+    const manifest = buildTripPassLaunchManifest({
+      blockers: createFoundationBlockers(),
+      checkedOutCommitSha: sha,
+      env: { TRIP_PASS_CHECKOUT_MODE: "off" },
+      gateResults: createFoundationGateResults("pass"),
+      generatedAt: "2026-08-07T00:00:00.000Z",
+      migrations,
+    });
+
+    expect(
+      validateTripPassLaunchManifest({
+        ...manifest,
+        engineeringReadiness: {
+          ...manifest.engineeringReadiness,
+          gateResults: [
+            {
+              evidenceLinks: ["local-command://bun_run_lint"],
+              id: "bun_run_lint",
+              status: "pass",
+            },
+          ],
+        },
+      }).errors,
+    ).toEqual(
+      expect.arrayContaining([
+        "gate_result_missing:bun_run_typecheck_incremental_false",
+        "gate_result_missing:bun_test",
+        "gate_result_missing:bun_run_db_migrate_test",
+        "gate_result_missing:bun_run_db_seed_test",
+        "gate_result_missing:bun_run_build",
+        "gate_result_missing:bun_run_test_e2e",
+        "gate_result_missing:bun_run_test_e2e_production_perf",
+        "gate_result_missing:bun_run_test_integration_postgres",
+        "gate_result_missing:bun_run_test_integration_redis",
+      ]),
+    );
+  });
+
+  test("rejects unknown gate IDs even when all foundation gates are present", () => {
+    const manifest = buildTripPassLaunchManifest({
+      blockers: createFoundationBlockers(),
+      checkedOutCommitSha: sha,
+      env: { TRIP_PASS_CHECKOUT_MODE: "off" },
+      gateResults: createFoundationGateResults("pass"),
+      generatedAt: "2026-08-07T00:00:00.000Z",
+      migrations,
+    });
+
+    expect(
+      validateTripPassLaunchManifest({
+        ...manifest,
+        engineeringReadiness: {
+          ...manifest.engineeringReadiness,
+          gateResults: [
+            ...manifest.engineeringReadiness.gateResults,
+            {
+              evidenceLinks: ["local-command://adversarial_extra_gate"],
+              id: "adversarial_extra_gate",
+              status: "pass",
+            },
+          ],
+        },
+      }).errors,
+    ).toContain("gate_result_unknown:adversarial_extra_gate");
   });
 });
