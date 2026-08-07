@@ -89,6 +89,16 @@ export type BuildTripPassLaunchManifestInput = {
   migrations: readonly Pick<MigrationFile, "checksum" | "name">[];
 };
 
+const productAndPolicyVersions: TripPassLaunchManifest["productAndPolicyVersions"] = {
+  commerceRetentionPolicyVersion: "commerce-retention-policy-pending-human-approval",
+  manifestSchemaVersion: tripPassLaunchManifestSchemaVersion,
+  privacyPolicyVersion: "privacy-policy-pending-human-approval",
+  stripeEventSchemaVersion: "stripe-event-schema-v1",
+  termsVersion: "trip-pass-terms-pending-human-approval",
+  tripPassProductFamilyVersion: "trip-pass-direct-stripe-family-v1",
+  tripPassProductVersion: "trip-pass-direct-stripe-14d-150answers-v1",
+};
+
 export function buildTripPassLaunchManifest(
   input: BuildTripPassLaunchManifestInput,
 ): TripPassLaunchManifest {
@@ -119,15 +129,7 @@ export function buildTripPassLaunchManifest(
       checksum: migration.checksum,
       filename: migration.name,
     })),
-    productAndPolicyVersions: {
-      commerceRetentionPolicyVersion: "commerce-retention-policy-pending-human-approval",
-      manifestSchemaVersion: tripPassLaunchManifestSchemaVersion,
-      privacyPolicyVersion: "privacy-policy-pending-human-approval",
-      stripeEventSchemaVersion: "stripe-event-schema-v1",
-      termsVersion: "trip-pass-terms-pending-human-approval",
-      tripPassProductFamilyVersion: "trip-pass-direct-stripe-family-v1",
-      tripPassProductVersion: "trip-pass-direct-stripe-14d-150answers-v1",
-    },
+    productAndPolicyVersions: { ...productAndPolicyVersions },
     schemaVersion: tripPassLaunchManifestSchemaVersion,
     source: {
       checkedOutCommitSha: input.checkedOutCommitSha,
@@ -170,6 +172,12 @@ export function validateTripPassLaunchManifest(manifest: unknown) {
   if (!isSha(checkedOutCommitSha)) {
     errors.push("invalid_checked_out_commit_sha");
   }
+  if (source.repository !== "ametel01/ask-siargao") {
+    errors.push("invalid_source_repository");
+  }
+  if (!isIsoUtcTimestamp(manifest.generatedAt)) {
+    errors.push("generated_at_invalid");
+  }
   if (artifact.path !== tripPassLaunchManifestArtifactPath(String(checkedOutCommitSha))) {
     errors.push("artifact_path_not_sha_qualified_generated_output");
   }
@@ -179,8 +187,15 @@ export function validateTripPassLaunchManifest(manifest: unknown) {
 
   validateConfigurationPresence(manifest.configurationPresence, errors);
   validateMigrations(manifest.migrations, errors);
+  validateProductAndPolicyVersions(manifest.productAndPolicyVersions, errors);
   validateGateResults(engineeringReadiness.gateResults, errors);
   validateBlockers(manifest.blockers, errors);
+  validateEngineeringReadinessConsistency(
+    engineeringReadiness,
+    manifest.blockers,
+    engineeringReadiness.gateResults,
+    errors,
+  );
 
   if (humanLaunchAuthorization.launchAuthorized !== false) {
     errors.push("human_launch_authorization_must_be_false");
@@ -329,6 +344,28 @@ function validateMigrations(migrations: unknown, errors: string[]) {
   }
 }
 
+function validateProductAndPolicyVersions(
+  productAndPolicyVersionsValue: unknown,
+  errors: string[],
+) {
+  if (!isRecord(productAndPolicyVersionsValue)) {
+    errors.push("product_and_policy_versions_missing");
+    return;
+  }
+
+  for (const key of Object.keys(productAndPolicyVersionsValue)) {
+    if (!(key in productAndPolicyVersions)) {
+      errors.push(`product_and_policy_version_unknown_key:${key}`);
+    }
+  }
+
+  for (const [key, expectedValue] of Object.entries(productAndPolicyVersions)) {
+    if (productAndPolicyVersionsValue[key] !== expectedValue) {
+      errors.push(`product_and_policy_version_invalid:${key}`);
+    }
+  }
+}
+
 function validateGateResults(gateResults: unknown, errors: string[]) {
   if (!Array.isArray(gateResults) || gateResults.length === 0) {
     errors.push("gate_results_missing");
@@ -357,6 +394,29 @@ function validateGateResults(gateResults: unknown, errors: string[]) {
       errors.push(`gate_result_duplicate:${String(gate.id)}`);
     }
     seen.add(String(gate.id));
+  }
+}
+
+function validateEngineeringReadinessConsistency(
+  engineeringReadiness: Record<string, unknown>,
+  blockers: unknown,
+  gateResults: unknown,
+  errors: string[],
+) {
+  if (typeof engineeringReadiness.engineeringReady !== "boolean") {
+    errors.push("engineering_ready_not_boolean");
+    return;
+  }
+
+  const allGatesPassed =
+    Array.isArray(gateResults) &&
+    gateResults.length > 0 &&
+    gateResults.every((gate) => isRecord(gate) && gate.status === "pass");
+  const noBlockers = Array.isArray(blockers) && blockers.length === 0;
+  const expectedEngineeringReady = noBlockers && allGatesPassed;
+
+  if (engineeringReadiness.engineeringReady !== expectedEngineeringReady) {
+    errors.push("engineering_readiness_inconsistent");
   }
 }
 
@@ -403,6 +463,15 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function isSha(value: unknown) {
   return typeof value === "string" && /^[a-f0-9]{40}$/.test(value);
+}
+
+function isIsoUtcTimestamp(value: unknown) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
+    return false;
+  }
+
+  const timestamp = new Date(value);
+  return !Number.isNaN(timestamp.getTime()) && timestamp.toISOString() === value;
 }
 
 function safeSerialize(value: unknown) {

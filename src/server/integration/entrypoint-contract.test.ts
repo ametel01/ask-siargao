@@ -79,18 +79,35 @@ describe("integration entry-point contracts", () => {
     expect(workflow).not.toContain("pglite");
   });
 
-  test("CI preserves production performance before isolated artifact uploads", async () => {
+  test("CI preserves production performance before isolated release artifacts", async () => {
     const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+    const releaseGateJob = extractWorkflowJob(workflow, "release-gate");
 
-    const e2eIndex = workflow.indexOf("run: bun run test:e2e");
-    const productionPerfIndex = workflow.indexOf("run: bun run test:e2e:production-perf");
-    const manifestIndex = workflow.indexOf("run: bun run qa:trip-pass-launch");
-    const screenshotUploadIndex = workflow.indexOf("Upload mobile trip context screenshots");
+    const e2eIndex = releaseGateJob.indexOf("run: bun run test:e2e");
+    const productionPerfIndex = releaseGateJob.indexOf("run: bun run test:e2e:production-perf");
+    const screenshotUploadIndex = releaseGateJob.indexOf("Upload mobile trip context screenshots");
 
     expect(e2eIndex).toBeGreaterThan(0);
     expect(productionPerfIndex).toBeGreaterThan(e2eIndex);
-    expect(manifestIndex).toBeGreaterThan(productionPerfIndex);
-    expect(screenshotUploadIndex).toBeGreaterThan(manifestIndex);
+    expect(screenshotUploadIndex).toBeGreaterThan(productionPerfIndex);
+    expect(releaseGateJob).not.toContain("run: bun run qa:trip-pass-launch");
+  });
+
+  test("CI starts launch manifest evidence only after release and integration jobs pass", async () => {
+    const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+    const manifestJob = extractWorkflowJob(workflow, "trip-pass-launch-manifest");
+
+    const needsIndex = manifestJob.indexOf("needs:");
+    const releaseGateNeedIndex = manifestJob.indexOf("- release-gate");
+    const postgresNeedIndex = manifestJob.indexOf("- integration-postgres");
+    const redisNeedIndex = manifestJob.indexOf("- integration-redis");
+    const manifestGenerateIndex = manifestJob.indexOf("run: bun run qa:trip-pass-launch");
+
+    expect(needsIndex).toBeGreaterThan(0);
+    expect(releaseGateNeedIndex).toBeGreaterThan(needsIndex);
+    expect(postgresNeedIndex).toBeGreaterThan(needsIndex);
+    expect(redisNeedIndex).toBeGreaterThan(needsIndex);
+    expect(manifestGenerateIndex).toBeGreaterThan(redisNeedIndex);
   });
 
   test("Playwright routes only issue #124 production performance by tag and output directory", async () => {
@@ -127,3 +144,16 @@ describe("integration entry-point contracts", () => {
     );
   });
 });
+
+function extractWorkflowJob(workflow: string, jobName: string) {
+  const marker = `  ${jobName}:\n`;
+  const start = workflow.indexOf(marker);
+  expect(start).toBeGreaterThan(0);
+
+  const rest = workflow.slice(start + marker.length);
+  const nextJobMatch = /\n {2}[a-z0-9-]+:\n/.exec(rest);
+  return workflow.slice(
+    start,
+    nextJobMatch ? start + marker.length + nextJobMatch.index : undefined,
+  );
+}

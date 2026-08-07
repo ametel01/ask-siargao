@@ -154,4 +154,74 @@ describe("Trip Pass launch manifest", () => {
       }),
     ).toThrow("trip_pass_checkout_mode_not_off");
   });
+
+  test("rejects missing versions, wrong source, malformed time, and inconsistent readiness", () => {
+    const blockedManifest = buildTripPassLaunchManifest({
+      blockers: createFoundationBlockers(),
+      checkedOutCommitSha: sha,
+      env: { TRIP_PASS_CHECKOUT_MODE: "off" },
+      gateResults: createFoundationGateResults("pass"),
+      generatedAt: "2026-08-07T00:00:00.000Z",
+      migrations,
+    });
+    const readyManifest = buildTripPassLaunchManifest({
+      blockers: [],
+      checkedOutCommitSha: sha,
+      env: { TRIP_PASS_CHECKOUT_MODE: "off" },
+      gateResults: createFoundationGateResults("pass"),
+      generatedAt: "2026-08-07T00:00:00.000Z",
+      migrations,
+    });
+
+    const withoutVersions = { ...blockedManifest } as Record<string, unknown>;
+    delete withoutVersions.productAndPolicyVersions;
+
+    expect(validateTripPassLaunchManifest(withoutVersions).errors).toContain(
+      "product_and_policy_versions_missing",
+    );
+    expect(
+      validateTripPassLaunchManifest({
+        ...blockedManifest,
+        source: { ...blockedManifest.source, repository: "ametel01/not-ask-siargao" },
+      }).errors,
+    ).toContain("invalid_source_repository");
+    expect(
+      validateTripPassLaunchManifest({
+        ...blockedManifest,
+        generatedAt: "2026-08-07",
+      }).errors,
+    ).toContain("generated_at_invalid");
+    expect(
+      validateTripPassLaunchManifest({
+        ...blockedManifest,
+        engineeringReadiness: {
+          ...blockedManifest.engineeringReadiness,
+          engineeringReady: true,
+        },
+      }).errors,
+    ).toContain("engineering_readiness_inconsistent");
+    expect(
+      validateTripPassLaunchManifest({
+        ...readyManifest,
+        engineeringReadiness: {
+          ...readyManifest.engineeringReadiness,
+          engineeringReady: false,
+        },
+      }).errors,
+    ).toContain("engineering_readiness_inconsistent");
+    expect(
+      validateTripPassLaunchManifest({
+        ...readyManifest,
+        engineeringReadiness: {
+          engineeringReady: true,
+          gateResults: [
+            {
+              ...readyManifest.engineeringReadiness.gateResults[0],
+              status: "fail",
+            },
+          ],
+        },
+      }).errors,
+    ).toContain("engineering_readiness_inconsistent");
+  });
 });

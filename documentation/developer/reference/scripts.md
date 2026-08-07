@@ -32,9 +32,10 @@ Scripts are defined in `package.json`.
 | `bun run lint` | `biome check .` | Run the non-mutating Biome check used by CI. |
 | `bun run typecheck` | `tsc --noEmit` | Run TypeScript type checking. |
 | `bun run verify` | `bun run lint && bun run typecheck --incremental false && bun test` | Run the fast non-mutating local verification gate. |
-| `bun run verify:ci` | `bun run verify && bun run db:migrate:test && bun run db:seed:test && bun run build && bun run test:e2e` | Run the full CI-equivalent release gate locally. |
+| `bun run verify:ci` | `bun run verify && bun run db:migrate:test && bun run db:seed:test && bun run build && bun run test:e2e && bun run test:e2e:production-perf` | Run the full CI-equivalent release gate locally, including functional Playwright and the production-performance lane. |
 | `bun test` | `bun test` | Run Bun unit and integration tests. |
 | `bun run test:e2e` | `playwright test` | Run Playwright browser tests. |
+| `bun run test:e2e:production-perf` | `PLAYWRIGHT_PRODUCTION_PERF=1 playwright test` | Run the tagged production-performance Playwright lane against a built `next start` server. |
 | `bun run doctor` | `npx react-doctor@latest` | Run the advisory React Doctor scan locally. |
 
 The release-candidate gate is:
