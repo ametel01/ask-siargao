@@ -780,6 +780,9 @@ describe("Step 3 database migration", () => {
     const preClosureMigrations = migrationFiles.filter(
       (migrationFile) => migrationFile.name < "0009_clerk_identity_closure_state.sql",
     );
+    const throughClosureMigrations = migrationFiles.filter(
+      (migrationFile) => migrationFile.name <= "0009_clerk_identity_closure_state.sql",
+    );
     const closureMigration = migrationFiles.find(
       (migrationFile) => migrationFile.name === "0009_clerk_identity_closure_state.sql",
     );
@@ -815,7 +818,7 @@ describe("Step 3 database migration", () => {
       ],
     );
 
-    const closureRun = await runLedgerBackedMigrations(database, migrationFiles);
+    const closureRun = await runLedgerBackedMigrations(database, throughClosureMigrations);
 
     expect(closureRun.applied).toEqual([closureMigration.name]);
     expect(closureRun.skipped).toEqual(
