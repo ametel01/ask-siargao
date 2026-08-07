@@ -207,8 +207,7 @@ a {
 }
 
 button,
-input,
-summary {
+input {
   font: inherit;
 }
 
@@ -414,6 +413,16 @@ summary::-webkit-details-marker {
 
 .landing-focus-ring-strong {
   --landing-focus-ring-color: var(--brand-lagoon-700);
+}
+
+.landing-primary-action {
+  color: var(--text-on-dark);
+  background-color: var(--brand-lagoon-700);
+}
+
+.landing-primary-action:hover {
+  color: var(--text-strong);
+  background-color: var(--brand-lagoon-500);
 }
 
 .decision-strip-sequence-cue {

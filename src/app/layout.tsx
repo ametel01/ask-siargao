@@ -19,7 +19,7 @@ const bodyFont = Nunito_Sans({
 const displayFont = Cormorant_Garamond({
   display: "swap",
   subsets: ["latin"],
-  style: ["normal", "italic"],
+  style: "normal",
   variable: "--font-display",
   weight: ["500", "600", "700"],
 });

@@ -7,9 +7,12 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
     page.getByRole("heading", { name: /reality-check the island around your real constraints/i }),
   ).toBeVisible();
   await expect(page.getByRole("link", { name: "Ask in chat" })).toHaveAttribute("href", "/chat");
-  await expect(page.getByLabel("Example Ask Siargao prompt")).toContainText(
+  await expect(page.getByLabel("Example Reality Check")).toContainText(
     "Given today's weather and tide, should we still go to Cloud 9?",
   );
+  await expect(
+    page.getByText("Opens chat with this example ready to review before you send it."),
+  ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Planning inputs available in chat" }),
   ).toBeAttached();
@@ -31,12 +34,66 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Match a surf session" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Replace a disrupted plan" })).toBeVisible();
   await expect(
-    page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
+    page.getByLabel("Example Reality Check").getByRole("link", { name: "Try this example" }),
   ).toHaveAttribute("href", /\/chat\?prompt=/);
   await expect(page.getByRole("link", { name: "Check a stay" })).toHaveAttribute(
     "href",
     /\/chat\?prompt=Reality-check/,
   );
+});
+
+test("keeps every primary landing action on one contrast-stable color role", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+
+  const primaryActions = [
+    page.getByRole("link", { name: "Try this example" }),
+    page.getByRole("link", { name: "Start 10 free answers" }),
+    page.getByRole("link", { name: "Get Trip Pass in settings" }).first(),
+    page.getByRole("link", { name: "Get Trip Pass in settings" }).last(),
+  ];
+
+  for (const action of primaryActions) {
+    await expect(action).toHaveCSS("background-color", "rgb(10, 111, 103)");
+    await expect(action).toHaveCSS("color", "rgb(255, 249, 233)");
+    await action.hover();
+    await expect(action).toHaveCSS("background-color", "rgb(20, 184, 166)");
+    await expect(action).toHaveCSS("color", "rgb(13, 16, 74)");
+  }
+});
+
+test("applies the documented landing typography roles", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+
+  const heroHeading = page.getByRole("heading", {
+    name: /reality-check the island around your real constraints/i,
+  });
+  await expect(heroHeading).toHaveCSS("font-family", /Cormorant Garamond/);
+  await expect(page.getByText("Can check forecasts when asked")).toHaveCSS("font-size", "12px");
+
+  const planningIntroduction = page.getByText(
+    "Ask when a choice matters. You get current evidence, local context, a practical next move, and a clear note on what still needs checking.",
+  );
+  await expect(planningIntroduction).toHaveCSS("font-family", /Nunito Sans/);
+  await expect(planningIntroduction).toHaveCSS("font-size", "16px");
+  await expect(planningIntroduction).toHaveCSS("line-height", "24px");
+  await expect(planningIntroduction).toHaveCSS("font-weight", "400");
+
+  for (const title of [
+    page.getByRole("heading", { name: "Match a surf session" }),
+    page.getByRole("heading", { name: "Replace a disrupted plan" }),
+    page.getByRole("heading", { name: "Try the decision desk" }),
+    page.getByRole("heading", { name: "14-day Siargao Trip Pass" }),
+    page.getByRole("heading", { name: "From a real plan to one workable next move" }),
+  ]) {
+    await expect(title).toHaveCSS("font-size", "24px");
+    await expect(title).toHaveCSS("font-weight", "600");
+  }
+
+  const evidenceSummary = page.getByText("What may inform this check", { exact: true });
+  await expect(evidenceSummary).toHaveCSS("font-size", "14px");
+  await expect(evidenceSummary).toHaveCSS("font-weight", "800");
 });
 
 test("exposes real desktop navigation in keyboard reading order", async ({ page }) => {
@@ -46,7 +103,7 @@ test("exposes real desktop navigation in keyboard reading order", async ({ page 
   const navigation = page.getByRole("navigation", { name: "Landing page" });
   await expect(navigation).toBeVisible();
   for (const [label, target] of [
-    ["Start a question", "#start-a-question"],
+    ["Example", "#example-reality-check"],
     ["Planning inputs", "#planning-inputs"],
     ["Plan smarter", "#plan-smarter"],
   ] as const) {
@@ -58,7 +115,7 @@ test("exposes real desktop navigation in keyboard reading order", async ({ page 
   const expectedTabOrder = [
     { link: page.getByRole("link", { name: "Ask Siargao home" }), rgb: [142, 230, 216] },
     {
-      link: navigation.getByRole("link", { name: "Start a question" }),
+      link: navigation.getByRole("link", { name: "Example" }),
       rgb: [142, 230, 216],
     },
     {
@@ -76,8 +133,8 @@ test("exposes real desktop navigation in keyboard reading order", async ({ page 
     { link: page.getByRole("link", { name: "Ask in chat" }), rgb: [142, 230, 216] },
     {
       link: page
-        .getByLabel("Example Ask Siargao prompt")
-        .getByRole("link", { name: "Ask Siargao" }),
+        .getByLabel("Example Reality Check")
+        .getByRole("link", { name: "Try this example" }),
       rgb: [10, 111, 103],
     },
     { link: page.getByRole("link", { name: "Check a stay" }), rgb: [142, 230, 216] },
@@ -129,7 +186,7 @@ test("landing prompt actions preserve exact chat handoff without submitting", as
   const actions = [
     {
       link: () =>
-        page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
+        page.getByLabel("Example Reality Check").getByRole("link", { name: "Try this example" }),
       prompt: "Given today's weather and tide, should we still go to Cloud 9?",
     },
     {
@@ -186,7 +243,7 @@ for (const viewport of [
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
     ).toBe(true);
     await expect(
-      page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
+      page.getByLabel("Example Reality Check").getByRole("link", { name: "Try this example" }),
     ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Reality-check a Siargao plan" })).toBeVisible();
     await expect(
@@ -196,7 +253,7 @@ for (const viewport of [
       visible: viewport.width >= 1024,
     });
     const landingSurfaceChrome = await page
-      .getByLabel("Example Ask Siargao prompt")
+      .getByLabel("Example Reality Check")
       .evaluate((element) => {
         const style = getComputedStyle(element);
         return {
@@ -210,12 +267,12 @@ for (const viewport of [
       const rightMargin = 20;
       const criticalElements = [
         { name: "header chat CTA", locator: page.getByRole("link", { name: "Chat" }) },
-        { name: "example prompt card", locator: page.getByLabel("Example Ask Siargao prompt") },
+        { name: "example prompt card", locator: page.getByLabel("Example Reality Check") },
         {
           name: "example prompt CTA",
           locator: page
-            .getByLabel("Example Ask Siargao prompt")
-            .getByRole("link", { name: "Ask Siargao" }),
+            .getByLabel("Example Reality Check")
+            .getByRole("link", { name: "Try this example" }),
         },
         { name: "planning inputs panel", locator: page.locator("#planning-inputs") },
         { name: "trip pass pricing", locator: page.locator("#trip-pass") },
@@ -256,15 +313,46 @@ test("renders Trip Pass pricing and legal copy without unsupported promises", as
     await page.setViewportSize(viewport);
     await page.goto("/#trip-pass");
     const pricing = page.locator("#trip-pass");
-    await expect(pricing).toContainText("Free trial to Trip Pass");
     await expect(pricing).toContainText("10 Siargao travel answers over 7 days");
     await expect(pricing).toContainText("$9.99");
     await expect(pricing).toContainText("150 Siargao travel answers for 14 days");
-    await expect(pricing).toContainText("Stripe remains authoritative for the final charge.");
-    await expect(pricing.getByRole("link", { name: "Manage pass in settings" })).toHaveAttribute(
-      "href",
-      "/settings#pass",
+    await expect(
+      pricing.getByRole("heading", { name: "From a real plan to one workable next move" }),
+    ).toBeVisible();
+    const exampleFlow = pricing.getByRole("list", { name: "Four-step decision flow" });
+    await expect(exampleFlow.getByRole("listitem")).toHaveCount(4);
+    await expect(exampleFlow).toContainText(
+      "Cloud 9 today, with weather and tide in the decision.",
     );
+    await expect(exampleFlow).toContainText("Keep, change, avoid, or confirm locally.");
+    await expect(exampleFlow).toContainText("One practical action and what still needs checking.");
+    const evidenceDisclosure = pricing
+      .locator("details")
+      .filter({ hasText: "What may inform this check" });
+    expect(
+      await evidenceDisclosure.evaluate((details) => (details as HTMLDetailsElement).open),
+    ).toBe(false);
+    const disclosureSummary = evidenceDisclosure.getByText("What may inform this check", {
+      exact: true,
+    });
+    await disclosureSummary.click();
+    await expect(evidenceDisclosure).toContainText("request-time weather, surf, Places");
+    await expect(evidenceDisclosure).toContainText("does not guarantee exact surf-break safety");
+    await disclosureSummary.click();
+    expect(
+      await evidenceDisclosure.evaluate((details) => (details as HTMLDetailsElement).open),
+    ).toBe(false);
+    await expect(pricing).toContainText(
+      "Checkout opens in signed-in settings when available. Your 14-day pass starts after payment is confirmed.",
+    );
+    await expect(pricing.getByRole("link", { name: "Start 10 free answers" })).toHaveAttribute(
+      "href",
+      "/chat",
+    );
+    const paidActions = pricing.getByRole("link", { name: "Get Trip Pass in settings" });
+    await expect(paidActions).toHaveCount(2);
+    await expect(paidActions.first()).toHaveAttribute("href", "/settings#pass");
+    await expect(paidActions.last()).toHaveAttribute("href", "/settings#pass");
     await expect(
       pricing.getByRole("link", { name: "Terms, privacy, and refunds" }),
     ).toHaveAttribute("href", "/legal/trip-pass");
@@ -273,6 +361,11 @@ test("renders Trip Pass pricing and legal copy without unsupported promises", as
     ).toHaveCount(0);
     await expect(
       pricing.getByText(/live decisions|deep-planning|weather checks|route checks/i),
+    ).toHaveCount(0);
+    await expect(
+      pricing.getByRole("heading", {
+        name: "Built for Siargao decisions, not generic destination prose",
+      }),
     ).toHaveCount(0);
     await page.screenshot({
       fullPage: true,
@@ -306,7 +399,7 @@ test("landing remains usable at a 200 percent zoom equivalent with reduced motio
   ).toBe(true);
   for (const link of [
     page.getByRole("link", { name: "Ask in chat" }),
-    page.getByLabel("Example Ask Siargao prompt").getByRole("link", { name: "Ask Siargao" }),
+    page.getByLabel("Example Reality Check").getByRole("link", { name: "Try this example" }),
     page.getByRole("link", { name: "Check a stay" }),
     page.getByRole("link", { name: "Review a route" }),
   ]) {

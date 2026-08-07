@@ -1,5 +1,6 @@
 import {
   ArrowRight,
+  ChevronDown,
   CloudRain,
   Compass,
   CreditCard,
@@ -17,15 +18,17 @@ import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { projectCapabilityEvidencePresentation } from "@/features/chat/evidence-presentation-state";
-import { tripPassDifferentiators, tripPassPublicOffer } from "@/features/trip-pass/public-copy";
+import { tripPassPublicOffer } from "@/features/trip-pass/public-copy";
 import { TripPassPricingTelemetry } from "@/features/trip-pass/TripPassPricingTelemetry";
 import { cn } from "@/lib/utils";
 import { appSurfaceInsetClass, appSurfacePanelClass } from "@/ui/components/ask-siargao";
 
 const heroPrompt = "Given today's weather and tide, should we still go to Cloud 9?";
+const landingPrimaryActionClass =
+  "landing-primary-action min-h-11 rounded-lg px-4 text-sm font-semibold shadow-cta landing-focus-ring landing-focus-ring-strong focus-visible:outline-offset-3";
 
 const navigationItems = [
-  { label: "Start a question", href: "#start-a-question" },
+  { label: "Example", href: "#example-reality-check" },
   { label: "Planning inputs", href: "#planning-inputs" },
   { label: "Plan smarter", href: "#plan-smarter" },
   { label: "Trip Pass", href: "#trip-pass" },
@@ -77,19 +80,38 @@ const planningCards: {
 }[] = [
   {
     title: "Match a surf session",
-    body: "Match ability, place, timing, tide, and modelled conditions while keeping exact-break safety with local eyes.",
+    body: "Match ability, place, timing, tide, and modelled conditions while leaving exact-break safety to local confirmation.",
     prompt: "I am a beginner near Pacifico. Reality-check a surf session for tomorrow morning.",
     icon: Waves,
     tone: "lagoon",
   },
   {
     title: "Replace a disrupted plan",
-    body: "Turn a cancellation, closure, downpour, or lost ride into one workable request-time alternative.",
+    body: "Turn a cancellation, closure, downpour, or lost ride into one workable alternative for right now.",
     prompt: "Our island tour was cancelled. Give us a workable replacement in General Luna.",
     icon: CloudRain,
     tone: "gold",
   },
 ];
+
+const realityCheckExampleSteps = [
+  {
+    title: "Your plan",
+    body: "Cloud 9 today, with weather and tide in the decision.",
+  },
+  {
+    title: "What gets checked",
+    body: "Your trip details plus current conditions, when you ask.",
+  },
+  {
+    title: "The bounded call",
+    body: "Keep, change, avoid, or confirm locally.",
+  },
+  {
+    title: "Your next move",
+    body: "One practical action and what still needs checking.",
+  },
+] as const;
 
 export function LandingPage() {
   return (
@@ -179,7 +201,7 @@ function LandingBrand() {
           width={58}
         />
       </span>
-      <span className="min-w-0 font-heading text-[1.55rem] leading-none font-semibold whitespace-nowrap text-text-on-dark sm:text-[2rem] lg:text-[2.25rem]">
+      <span className="min-w-0 font-heading text-2xl leading-none font-semibold whitespace-nowrap text-text-on-dark sm:text-3xl lg:text-4xl">
         Ask Siargao
       </span>
     </span>
@@ -190,19 +212,17 @@ function Hero() {
   return (
     <section
       className="grid min-w-0 content-start gap-5 pt-3 md:gap-7 md:pt-10 lg:gap-6 lg:pt-10 xl:pt-16"
-      id="start-a-question"
+      id="example-reality-check"
     >
       <div className="grid min-w-0 gap-3">
-        <p className="m-0 text-xs font-semibold tracking-[0.18em] text-brand-sunset-gold uppercase md:text-sm">
-          On-demand Siargao reality checks
-        </p>
-        <h1 className="m-0 max-w-[12ch] min-w-0 font-heading text-[clamp(3rem,12.6vw,5.3rem)] leading-[0.92] font-semibold text-text-on-dark tracking-[-0.02em] [overflow-wrap:anywhere] md:max-w-[13ch] md:text-[clamp(5.3rem,10.5vw,7.8rem)] lg:text-[clamp(4.6rem,6.1vw,7.25rem)] 2xl:text-[7.6rem]">
+        <h1 className="m-0 max-w-[12ch] min-w-0 text-balance font-heading text-[clamp(3rem,12.6vw,5.3rem)] leading-[0.92] font-semibold text-text-on-dark tracking-[-0.02em] [overflow-wrap:anywhere] md:max-w-[13ch] md:text-[clamp(5.3rem,10.5vw,7.6rem)] lg:text-[clamp(4.6rem,6.1vw,7.25rem)] 2xl:text-[7.6rem]">
           Reality-check the island around your{" "}
           <span className="text-brand-lagoon-300">real constraints</span>
         </h1>
-        <p className="m-0 max-w-[38ch] text-base leading-[1.42] font-semibold text-text-on-dark-muted md:text-xl lg:max-w-[40ch] lg:text-lg xl:text-xl">
+        <p className="m-0 max-w-[38ch] text-base leading-normal font-semibold text-text-on-dark-muted md:text-xl lg:max-w-[40ch] lg:text-lg xl:text-xl">
           Bring a hotel, itinerary, surf session, immediate plan, or disruption. Ask Siargao checks
-          it when you ask and returns a clear keep, change, avoid, or needs-confirmation call.
+          the relevant details when you ask, then returns a clear keep, change, or avoid call—plus
+          what to confirm locally.
         </p>
       </div>
       <PromptComposer />
@@ -215,29 +235,39 @@ function Hero() {
 function PromptComposer() {
   return (
     <section
-      aria-label="Example Ask Siargao prompt"
+      aria-labelledby="example-reality-check-title"
       className={cn(
         appSurfacePanelClass,
-        "grid min-h-[7.15rem] grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-3 rounded-2xl px-5 py-4 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-x-6 sm:px-6 sm:py-6 lg:max-w-[48rem]",
+        "grid gap-4 rounded-2xl px-5 py-5 sm:px-6 sm:py-6 lg:max-w-[48rem]",
       )}
     >
-      <MessageCircle
-        aria-hidden="true"
-        className="shrink-0 text-brand-lagoon-700"
-        size={28}
-        strokeWidth={2}
-      />
-      <p className="m-0 min-w-0 text-[0.94rem] leading-[1.35] font-semibold text-text-muted sm:text-lg lg:text-base xl:text-lg">
-        {heroPrompt}
-      </p>
-      <div className="col-span-2 flex min-w-0 items-center border-border-default sm:col-span-1 sm:border-l sm:pl-6">
-        <Button
-          asChild
-          className="min-h-11 w-full rounded-lg bg-[image:var(--gradient-cta)] px-4 text-sm font-semibold text-text-on-dark shadow-cta hover:shadow-cta landing-focus-ring landing-focus-ring-strong focus-visible:outline-offset-3 sm:w-auto"
-        >
+      <div className="flex min-w-0 items-start gap-3">
+        <MessageCircle
+          aria-hidden="true"
+          className="mt-0.5 shrink-0 text-brand-lagoon-700"
+          size={26}
+          strokeWidth={2}
+        />
+        <div className="grid min-w-0 gap-1">
+          <h2
+            className="m-0 font-heading text-xl leading-tight font-semibold text-text-strong sm:text-2xl"
+            id="example-reality-check-title"
+          >
+            Example Reality Check
+          </h2>
+          <p className="m-0 text-sm leading-normal font-semibold text-text-muted">
+            Opens chat with this example ready to review before you send it.
+          </p>
+        </div>
+      </div>
+      <div className="grid min-w-0 gap-4 border-border-default border-t pt-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+        <p className="m-0 min-w-0 text-base leading-normal font-semibold text-text-muted sm:text-lg">
+          “{heroPrompt}”
+        </p>
+        <Button asChild className={cn(landingPrimaryActionClass, "w-full sm:w-auto")}>
           <Link href={chatPromptHref(heroPrompt)}>
             <Send aria-hidden="true" size={19} />
-            Ask Siargao
+            Try this example
           </Link>
         </Button>
       </div>
@@ -294,8 +324,7 @@ function PlanningInputs() {
             />
             <span className="grid min-w-0 gap-0.5">
               <strong className="text-sm leading-tight text-text-on-dark">{label}</strong>
-              <span className="text-[0.68rem] leading-tight font-semibold text-text-on-dark-muted">
-                <span className="sr-only">{evidence.label}. </span>
+              <span className="text-xs leading-tight font-semibold text-text-on-dark-muted">
                 {evidence.summary}
               </span>
             </span>
@@ -323,10 +352,7 @@ function CoastalFrame() {
       />
       <div className="absolute inset-0 bg-gradient-to-t from-brand-navy-980/90 via-transparent to-brand-navy-980/10" />
       <div className="absolute right-6 bottom-6 left-6 rounded-2xl border border-border-on-dark bg-surface-dark-glass p-5 shadow-surface-panel backdrop-blur-md xl:right-8 xl:bottom-8 xl:left-8 xl:p-6">
-        <p className="m-0 text-xs font-semibold tracking-[0.16em] text-brand-sunset-gold uppercase">
-          Siargao, in context
-        </p>
-        <p className="mt-2 mb-0 max-w-[31ch] font-heading text-2xl leading-tight font-semibold text-text-on-dark xl:text-3xl">
+        <p className="m-0 max-w-[31ch] text-balance font-heading text-2xl leading-tight font-semibold text-text-on-dark xl:text-3xl">
           One request, one evidence-backed call, one workable fallback at a time.
         </p>
       </div>
@@ -350,14 +376,14 @@ function PlanningPanel() {
         </div>
         <div className="grid min-w-0 gap-2">
           <h2
-            className="m-0 min-w-0 font-heading text-[clamp(1.55rem,6vw,2.2rem)] leading-[1.04] font-semibold text-text-strong lg:text-[2.65rem]"
+            className="m-0 min-w-0 text-balance font-heading text-2xl leading-none font-semibold text-text-strong sm:text-4xl lg:text-5xl"
             id="plan-smarter-title"
           >
             Reality-check a Siargao plan
           </h2>
-          <p className="m-0 max-w-[38ch] text-[0.94rem] leading-[1.42] font-medium text-text-muted lg:text-base">
-            Ask when a choice matters. You get request-time evidence, local operating context, and
-            an honest boundary around what remains uncertain.
+          <p className="m-0 max-w-[38ch] text-base leading-normal font-normal text-text-muted">
+            Ask when a choice matters. You get current evidence, local context, a practical next
+            move, and a clear note on what still needs checking.
           </p>
         </div>
       </div>
@@ -381,12 +407,10 @@ function PlanningPanel() {
               <Icon aria-hidden="true" size={27} strokeWidth={2} />
             </span>
             <div className="grid min-w-0 gap-2">
-              <h3 className="m-0 min-w-0 font-heading text-[1.45rem] leading-[1.06] font-semibold text-text-strong [overflow-wrap:anywhere] lg:text-[1.7rem]">
+              <h3 className="m-0 min-w-0 text-balance font-heading text-2xl leading-none font-semibold text-text-strong [overflow-wrap:anywhere]">
                 {title}
               </h3>
-              <p className="m-0 text-[0.96rem] leading-[1.44] font-medium text-text-muted">
-                {body}
-              </p>
+              <p className="m-0 text-base leading-normal font-normal text-text-muted">{body}</p>
             </div>
             <Link
               className="inline-flex min-h-11 w-fit items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-700 no-underline hover:text-brand-lagoon-600 landing-focus-ring landing-focus-ring-strong focus-visible:outline-offset-3"
@@ -411,27 +435,21 @@ function TripPassPricingSection() {
     >
       <TripPassPricingTelemetry />
       <div className="grid min-w-0 gap-4 lg:sticky lg:top-6">
-        <p className="m-0 text-xs font-semibold tracking-[0.18em] text-brand-sunset-gold uppercase">
-          Free trial to Trip Pass
-        </p>
         <h2
-          className="m-0 max-w-[12ch] font-heading text-[clamp(2.35rem,8vw,4.1rem)] leading-[0.98] font-semibold text-text-on-dark"
+          className="m-0 max-w-[12ch] text-balance font-heading text-[clamp(2.35rem,8vw,4.1rem)] leading-[0.98] font-semibold text-text-on-dark"
           id="trip-pass-title"
         >
           One clear Siargao travel pass
         </h2>
-        <p className="m-0 max-w-[39ch] text-base leading-[1.44] font-semibold text-text-on-dark-muted">
+        <p className="m-0 max-w-[39ch] text-base leading-normal font-semibold text-text-on-dark-muted">
           Start with 10 free on-demand travel answers. Upgrade when you want more reality checks
           throughout your trip.
         </p>
         <div className="flex flex-wrap gap-3">
-          <Button
-            asChild
-            className="min-h-11 rounded-lg bg-[image:var(--gradient-cta)] px-4 text-sm font-semibold text-text-on-dark shadow-cta landing-focus-ring landing-focus-ring-strong focus-visible:outline-offset-3"
-          >
+          <Button asChild className={landingPrimaryActionClass}>
             <Link href={tripPassPublicOffer.links.chat}>
               <MessageCircle aria-hidden="true" size={18} />
-              Start free
+              Start {tripPassPublicOffer.freeAnswerLimit} free answers
             </Link>
           </Button>
           <Button
@@ -453,6 +471,10 @@ function TripPassPricingSection() {
             title="Try the decision desk"
           />
           <OfferCard
+            action={{
+              href: tripPassPublicOffer.links.settings,
+              label: "Get Trip Pass in settings",
+            }}
             body={`${tripPassPublicOffer.paidAnswerLimit} Siargao travel answers for ${tripPassPublicOffer.durationDays} days.`}
             icon={CreditCard}
             label={tripPassPublicOffer.priceLabel}
@@ -465,35 +487,71 @@ function TripPassPricingSection() {
           className="grid min-w-0 gap-3 rounded-2xl border border-border-on-dark bg-surface-night-card p-5 shadow-none backdrop-blur-md md:p-6"
         >
           <h3
-            className="m-0 font-heading text-[1.55rem] leading-tight font-semibold text-text-on-dark"
+            className="m-0 text-balance font-heading text-2xl leading-tight font-semibold text-text-on-dark"
             id="trip-pass-why-title"
           >
-            Built for Siargao decisions, not generic destination prose
+            From a real plan to one workable next move
           </h3>
-          <ul className="m-0 grid list-none gap-3 p-0 md:grid-cols-2">
-            {tripPassDifferentiators.map((item) => (
-              <li className="grid grid-cols-[auto_minmax(0,1fr)] gap-3" key={item}>
-                <span className="mt-1 size-2 rounded-full bg-brand-sunset-gold" />
-                <span className="text-sm leading-[1.45] font-semibold text-text-on-dark-muted">
-                  {item}
+          <p className="m-0 text-sm leading-normal font-semibold text-text-on-dark-muted">
+            The Cloud 9 example shows the four parts of every Reality Check.
+          </p>
+          <ol
+            aria-label="Four-step decision flow"
+            className="m-0 grid list-none border-border-on-dark border-y p-0 md:grid-cols-2"
+          >
+            {realityCheckExampleSteps.map(({ body, title }, index) => (
+              <li
+                className={cn(
+                  "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-3 border-border-on-dark border-t py-3 first:border-t-0",
+                  index === 1 && "md:border-t-0",
+                  index % 2 === 0 ? "md:pr-4" : "md:border-l md:pl-4",
+                )}
+                key={title}
+              >
+                <span className="inline-flex size-8 items-center justify-center rounded-full bg-brand-sunset-gold/15 text-sm font-extrabold text-brand-sunset-gold">
+                  {index + 1}
+                </span>
+                <span className="grid min-w-0 gap-0.5">
+                  <strong className="text-sm text-text-on-dark">{title}</strong>
+                  <span className="text-sm leading-normal font-semibold text-text-on-dark-muted">
+                    {body}
+                  </span>
                 </span>
               </li>
             ))}
-          </ul>
-          <p className="m-0 text-xs leading-[1.45] font-bold text-text-on-dark-muted">
-            Checkout is available from signed-in settings only when launch configuration and
-            approvals are complete. Stripe remains authoritative for the final charge.
+          </ol>
+          <details className="group border-border-on-dark border-b">
+            <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 py-2 text-sm font-extrabold text-brand-lagoon-300 landing-focus-ring focus-visible:outline-offset-3">
+              What may inform this check
+              <ChevronDown
+                aria-hidden="true"
+                className="transition-transform group-open:rotate-180"
+                size={18}
+              />
+            </summary>
+            <div className="grid gap-2 border-border-on-dark border-t py-3 text-sm leading-normal font-semibold text-text-on-dark-muted">
+              <p className="m-0">
+                When relevant, Ask Siargao can use your trip context, governed local knowledge, and
+                request-time weather, surf, Places, event, or public-web evidence.
+              </p>
+              <p className="m-0">
+                It labels unavailable or stale evidence and does not guarantee exact surf-break
+                safety, live availability, or future conditions.
+              </p>
+            </div>
+          </details>
+          <p className="m-0 max-w-[70ch] text-sm leading-normal font-semibold text-text-on-dark-muted">
+            {`Checkout opens in signed-in settings when available. Your ${tripPassPublicOffer.durationDays}-day pass starts after payment is confirmed.`}
           </p>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap items-center gap-3 border-border-on-dark border-t pt-4">
+            <Button asChild className={landingPrimaryActionClass}>
+              <Link href={tripPassPublicOffer.links.settings}>
+                Get Trip Pass in settings
+                <ArrowRight aria-hidden="true" size={18} />
+              </Link>
+            </Button>
             <Link
-              className="inline-flex min-h-10 items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-300 no-underline landing-focus-ring focus-visible:outline-offset-3"
-              href={tripPassPublicOffer.links.settings}
-            >
-              Manage pass in settings
-              <ArrowRight aria-hidden="true" size={18} />
-            </Link>
-            <Link
-              className="inline-flex min-h-10 items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-300 no-underline landing-focus-ring focus-visible:outline-offset-3"
+              className="inline-flex min-h-11 items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-300 no-underline landing-focus-ring focus-visible:outline-offset-3"
               href={tripPassPublicOffer.links.legal}
             >
               Terms, privacy, and refunds
@@ -507,11 +565,16 @@ function TripPassPricingSection() {
 }
 
 function OfferCard({
+  action,
   body,
   icon: Icon,
   label,
   title,
 }: {
+  action?: {
+    href: string;
+    label: string;
+  };
   body: string;
   icon: LucideIcon;
   label: string;
@@ -528,11 +591,19 @@ function OfferCard({
         </span>
       </div>
       <div className="grid min-w-0 gap-2">
-        <h3 className="m-0 font-heading text-[1.7rem] leading-tight font-semibold text-text-on-dark">
+        <h3 className="m-0 text-balance font-heading text-2xl leading-tight font-semibold text-text-on-dark">
           {title}
         </h3>
-        <p className="m-0 text-sm leading-[1.45] font-semibold text-text-on-dark-muted">{body}</p>
+        <p className="m-0 text-sm leading-normal font-semibold text-text-on-dark-muted">{body}</p>
       </div>
+      {action ? (
+        <Button asChild className={cn(landingPrimaryActionClass, "mt-auto w-full")}>
+          <Link href={action.href}>
+            {action.label}
+            <ArrowRight aria-hidden="true" size={18} />
+          </Link>
+        </Button>
+      ) : null}
     </article>
   );
 }
