@@ -7,6 +7,7 @@ import {
   attachIntegrationSignalHandlers,
   createIntegrationLifecycleOwner,
   parseIntegrationEntrypointOptions,
+  runWithIntegrationLifecycle,
 } from "@/server/integration/entrypoint-shared";
 import { parsePostgresHarnessOptions } from "@/server/integration/postgres-harness";
 import { parseRedisHarnessOptions } from "@/server/integration/redis-harness";
@@ -135,6 +136,8 @@ describe("integration entry-point contracts", () => {
     expect(redisHarness).not.toContain("flushAll");
     expect(redisEntrypoint).toContain("openChatUsageSession");
     expect(redisEntrypoint).toContain("stripeWebhookResponse");
+    expect(redisEntrypoint).toContain('import { POST } from "@/app/api/stripe/webhook/route"');
+    expect(redisEntrypoint).toContain("withStripeWebhookRouteDependenciesForTest");
     expect(redisEntrypoint).toContain("checkout.session.completed");
   });
 
@@ -164,6 +167,92 @@ describe("integration entry-point contracts", () => {
     expect(events).toEqual(["cleanup", "exit:143"]);
     await owner.cleanup();
     expect(events).toEqual(["cleanup", "exit:143"]);
+  });
+
+  test("integration lifecycle signal handler waits for every concurrent owner before exit", async () => {
+    const firstOwner = createIntegrationLifecycleOwner();
+    const secondOwner = createIntegrationLifecycleOwner();
+    const firstCleanup = deferred<void>();
+    const secondCleanup = deferred<void>();
+    const processLike = new EventEmitter() as EventEmitter & {
+      exitCode?: number;
+      exit(code?: number): void;
+    };
+    const events: string[] = [];
+    const exited = new Promise<void>((resolve) => {
+      processLike.exit = (code?: number) => {
+        processLike.exitCode = code;
+        events.push(`exit:${code}`);
+        resolve();
+      };
+    });
+
+    firstOwner.deferCleanup(async () => {
+      events.push("first:start");
+      await firstCleanup.promise;
+      events.push("first:end");
+    });
+    secondOwner.deferCleanup(async () => {
+      events.push("second:start");
+      await secondCleanup.promise;
+      events.push("second:end");
+    });
+
+    const detachFirst = attachIntegrationSignalHandlers(firstOwner, processLike);
+    const detachSecond = attachIntegrationSignalHandlers(secondOwner, processLike);
+    expect(processLike.listenerCount("SIGTERM")).toBe(1);
+
+    processLike.emit("SIGTERM", "SIGTERM");
+    await Promise.resolve();
+    expect(events).toEqual(["first:start", "second:start"]);
+
+    firstCleanup.resolve();
+    await Promise.resolve();
+    expect(events).toEqual(["first:start", "second:start", "first:end"]);
+
+    secondCleanup.resolve();
+    await exited;
+    detachFirst();
+    detachSecond();
+
+    expect(events).toEqual(["first:start", "second:start", "first:end", "second:end", "exit:143"]);
+    expect(processLike.listenerCount("SIGTERM")).toBe(0);
+    await firstOwner.cleanup();
+    await secondOwner.cleanup();
+  });
+
+  test("integration lifecycle normal cleanup detaches signal handlers after async cleanup", async () => {
+    const cleanup = deferred<void>();
+    const cleanupStarted = deferred<void>();
+    const processLike = new EventEmitter() as EventEmitter & {
+      exit(code?: number): void;
+    };
+    const events: string[] = [];
+    processLike.exit = (code?: number) => {
+      events.push(`exit:${code}`);
+    };
+
+    const lifecycle = runWithIntegrationLifecycle(
+      async (owner) => {
+        owner.deferCleanup(async () => {
+          events.push("cleanup:start");
+          cleanupStarted.resolve();
+          await cleanup.promise;
+          events.push("cleanup:end");
+        });
+      },
+      { process: processLike },
+    );
+
+    await cleanupStarted.promise;
+    expect(processLike.listenerCount("SIGTERM")).toBe(1);
+    expect(events).toEqual(["cleanup:start"]);
+
+    cleanup.resolve();
+    await lifecycle;
+
+    expect(events).toEqual(["cleanup:start", "cleanup:end"]);
+    expect(processLike.listenerCount("SIGTERM")).toBe(0);
   });
 
   test("CI defines separate secret-free pinned service job boundaries", async () => {
@@ -271,4 +360,14 @@ function extractWorkflowJob(workflow: string, jobName: string) {
     start,
     nextJobMatch ? start + marker.length + nextJobMatch.index : undefined,
   );
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, reject, resolve };
 }

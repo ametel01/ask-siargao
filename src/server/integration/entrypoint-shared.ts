@@ -94,8 +94,8 @@ export async function runWithIntegrationLifecycle<T>(
   try {
     return await work(owner);
   } finally {
-    detachSignals();
     await owner.cleanup();
+    detachSignals();
   }
 }
 
@@ -136,22 +136,7 @@ export function attachIntegrationSignalHandlers(
   owner: IntegrationLifecycleOwner,
   processLike: IntegrationProcess = process,
 ) {
-  const handlers = new Map<IntegrationSignal, (signal: IntegrationSignal) => void>();
-  for (const signal of integrationSignals) {
-    const handler = (receivedSignal: IntegrationSignal) => {
-      void owner.cleanup().finally(() => {
-        processLike.exit(exitCodeForSignal(receivedSignal));
-      });
-    };
-    handlers.set(signal, handler);
-    processLike.once(signal, handler);
-  }
-
-  return () => {
-    for (const [signal, handler] of handlers) {
-      processLike.off(signal, handler);
-    }
-  };
+  return integrationSignalRegistryFor(processLike).register(owner);
 }
 
 export function requireServiceUrl(
@@ -233,4 +218,95 @@ function parsePositiveIntegerOption(option: string, value: string) {
 
 function exitCodeForSignal(signal: IntegrationSignal) {
   return signal === "SIGINT" ? 130 : 143;
+}
+
+type IntegrationSignalRegistry = {
+  register(owner: IntegrationLifecycleOwner): () => void;
+};
+
+const signalRegistries = new WeakMap<IntegrationProcess, IntegrationSignalRegistry>();
+
+function integrationSignalRegistryFor(processLike: IntegrationProcess): IntegrationSignalRegistry {
+  let registry = signalRegistries.get(processLike);
+  if (!registry) {
+    registry = createIntegrationSignalRegistry(processLike);
+    signalRegistries.set(processLike, registry);
+  }
+  return registry;
+}
+
+function createIntegrationSignalRegistry(
+  processLike: IntegrationProcess,
+): IntegrationSignalRegistry {
+  const owners = new Set<IntegrationLifecycleOwner>();
+  const handlers = new Map<IntegrationSignal, (signal: IntegrationSignal) => void>();
+  let signalCleanupPromise: Promise<void> | null = null;
+
+  const detachHandlers = () => {
+    for (const [signal, handler] of handlers) {
+      processLike.off(signal, handler);
+    }
+    handlers.clear();
+  };
+
+  const attachHandlers = () => {
+    if (handlers.size > 0) {
+      return;
+    }
+    for (const signal of integrationSignals) {
+      const handler = (receivedSignal: IntegrationSignal) => {
+        signalCleanupPromise ??= cleanupAllActiveOwners(owners)
+          .catch((error) => {
+            console.error(error);
+          })
+          .finally(() => {
+            detachHandlers();
+            owners.clear();
+            signalCleanupPromise = null;
+            processLike.exit(exitCodeForSignal(receivedSignal));
+          });
+      };
+      handlers.set(signal, handler);
+      processLike.once(signal, handler);
+    }
+  };
+
+  return {
+    register(owner) {
+      owners.add(owner);
+      attachHandlers();
+
+      let released = false;
+      return () => {
+        if (released) {
+          return;
+        }
+        released = true;
+        owners.delete(owner);
+        if (owners.size === 0 && !signalCleanupPromise) {
+          detachHandlers();
+        }
+      };
+    },
+  };
+}
+
+async function cleanupAllActiveOwners(owners: Set<IntegrationLifecycleOwner>) {
+  const errors: unknown[] = [];
+  await Promise.all(
+    [...owners].map(async (owner) => {
+      try {
+        await owner.cleanup();
+      } catch (error) {
+        errors.push(error);
+      }
+    }),
+  );
+
+  if (errors.length === 1) {
+    throw errors[0];
+  }
+  if (errors.length > 1) {
+    throw new AggregateError(errors, "Integration cleanup failed.");
+  }
 }

@@ -1,6 +1,10 @@
 import Stripe from "stripe";
 
-import { stripeWebhookResponse } from "@/app/api/stripe/webhook/webhook-route";
+import { POST } from "@/app/api/stripe/webhook/route";
+import {
+  type stripeWebhookResponse,
+  withStripeWebhookRouteDependenciesForTest,
+} from "@/app/api/stripe/webhook/webhook-route";
 import { withRealRedisHarness } from "@/server/integration/redis-harness";
 import { verifyStripeWebhookPayload } from "@/server/payments/stripe";
 import { createRedisQuotaStore, type QuotaStore } from "@/server/security/rate-limit";
@@ -388,9 +392,10 @@ async function runVerifiedStripeWebhookRedisIndependenceRegression() {
     process.env.REDIS_URL = "redis://127.0.0.1:1/0";
     Object.assign(process.env, { NODE_ENV: "production" });
 
-    const response = await stripeWebhookResponse(
-      await signedStripeRequest(checkoutSessionEvent("evt_issue150_redis_independent")),
+    const response = await withStripeWebhookRouteDependenciesForTest(
       redisOutageWebhookDependencies("applied"),
+      async () =>
+        POST(await signedStripeRequest(checkoutSessionEvent("evt_issue150_redis_independent"))),
     );
     const body = await response.json();
 
@@ -416,13 +421,16 @@ async function runVerifiedStripeWebhookRedisIndependenceRegression() {
       "verified Stripe webhook response must not carry Redis/IP throttle headers",
     );
 
-    const invalidSignatureResponse = await stripeWebhookResponse(
-      new Request("https://siargao.test/api/stripe/webhook", {
-        method: "POST",
-        headers: { "stripe-signature": "t=1,v1=not-real" },
-        body: JSON.stringify(checkoutSessionEvent("evt_issue150_invalid_signature")),
-      }),
+    const invalidSignatureResponse = await withStripeWebhookRouteDependenciesForTest(
       redisOutageWebhookDependencies("applied"),
+      async () =>
+        POST(
+          new Request("https://siargao.test/api/stripe/webhook", {
+            method: "POST",
+            headers: { "stripe-signature": "t=1,v1=not-real" },
+            body: JSON.stringify(checkoutSessionEvent("evt_issue150_invalid_signature")),
+          }),
+        ),
     );
     assertEqual(
       invalidSignatureResponse.status,
@@ -430,9 +438,10 @@ async function runVerifiedStripeWebhookRedisIndependenceRegression() {
       "Stripe webhook signature failures must still fail while Redis is unavailable",
     );
 
-    const persistenceFailureResponse = await stripeWebhookResponse(
-      await signedStripeRequest(checkoutSessionEvent("evt_issue150_persistence_failure")),
+    const persistenceFailureResponse = await withStripeWebhookRouteDependenciesForTest(
       redisOutageWebhookDependencies("persistence_failure"),
+      async () =>
+        POST(await signedStripeRequest(checkoutSessionEvent("evt_issue150_persistence_failure"))),
     );
     assertEqual(
       persistenceFailureResponse.status,
