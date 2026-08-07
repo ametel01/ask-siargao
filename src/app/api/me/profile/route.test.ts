@@ -32,6 +32,13 @@ describe("profile API route", () => {
       lastName: "Traveler",
       imageUrl: "https://img.clerk.test/profile",
     });
+    await seedVerifiedIdentity(db, {
+      userId: "user_profile",
+      email: "profile@example.com",
+      firstName: "Alex",
+      lastName: "Traveler",
+      imageUrl: "https://img.clerk.test/profile",
+    });
 
     const patchResponse = await patchProfileResponse(
       profileRequest({
@@ -138,6 +145,18 @@ describe("profile API route", () => {
       lastName: "A",
     });
     const secondUser = profileDependencies(db, {
+      userId: "user_owner_b",
+      email: "owner-b@example.com",
+      firstName: "Owner",
+      lastName: "B",
+    });
+    await seedVerifiedIdentity(db, {
+      userId: "user_owner_a",
+      email: "owner-a@example.com",
+      firstName: "Owner",
+      lastName: "A",
+    });
+    await seedVerifiedIdentity(db, {
       userId: "user_owner_b",
       email: "owner-b@example.com",
       firstName: "Owner",
@@ -562,6 +581,11 @@ describe("profile API route", () => {
       email: "original@example.com",
       firstName: "Original",
     });
+    await seedVerifiedIdentity(db, {
+      userId: "user_identity",
+      email: "original@example.com",
+      firstName: "Original",
+    });
 
     const response = await patchProfileResponse(
       profileRequest({
@@ -648,12 +672,54 @@ function profileRequest(body: unknown) {
 }
 
 async function loadUser(db: PGlite, userId: string) {
-  const result = await db.query<{ email: string; first_name: string | null }>(
+  const result = await db.query<{ email: string | null; first_name: string | null }>(
     "select email, first_name from users where id = $1",
     [userId],
   );
 
   return result.rows[0] ?? null;
+}
+
+async function seedVerifiedIdentity(
+  db: PGlite,
+  input: {
+    userId: string;
+    email: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+    imageUrl?: string | null;
+  },
+) {
+  await db.query(
+    `
+      insert into users (
+        id,
+        email,
+        first_name,
+        last_name,
+        image_url,
+        clerk_updated_at,
+        created_at,
+        updated_at
+      )
+      values ($1, $2, $3, $4, $5, $6, $6, $6)
+      on conflict (id) do update set
+        email = excluded.email,
+        first_name = excluded.first_name,
+        last_name = excluded.last_name,
+        image_url = excluded.image_url,
+        clerk_updated_at = excluded.clerk_updated_at,
+        updated_at = excluded.updated_at
+    `,
+    [
+      input.userId,
+      input.email,
+      input.firstName ?? null,
+      input.lastName ?? null,
+      input.imageUrl ?? null,
+      "2026-06-29T03:00:00.000Z",
+    ],
+  );
 }
 
 async function seedLegacyProfile(

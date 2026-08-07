@@ -15,7 +15,7 @@
     "stack:down:volumes": "bun run src/server/container/stack.ts down-volumes",
     "stack:logs": "bun run src/server/container/stack.ts logs",
     "stack:ps": "bun run src/server/container/stack.ts ps",
-    "build": "rm -rf .next && NEXT_PRIVATE_BUILD_WORKER=0 ./node_modules/.bin/next build",
+    "build": "bun run validate:clerk-deployment && rm -rf .next && NEXT_PRIVATE_BUILD_WORKER=0 ./node_modules/.bin/next build",
     "db:migrate": "bun run src/server/db/migrate.ts",
     "db:seed": "bun run src/server/db/seed.ts",
     "db:discover:google-places": "bun run src/server/providers/discover-google-places.ts",
@@ -33,6 +33,7 @@
     "db:seed:test": "bun run src/server/db/seed-test.ts",
     "test:integration:postgres": "bun run src/server/integration/postgres-entrypoint.ts",
     "test:integration:redis": "bun run src/server/integration/redis-entrypoint.ts",
+    "validate:clerk-deployment": "bun run src/server/auth/validate-clerk-deployment.ts",
     "format": "biome format --write .",
     "lint": "biome check .",
     "typecheck": "tsc --noEmit",
@@ -41,6 +42,7 @@
     "test": "bun test",
     "test:e2e": "playwright test",
     "test:e2e:production-perf": "PLAYWRIGHT_PRODUCTION_PERF=1 playwright test",
+    "start": "bun run validate:clerk-deployment && ./node_modules/.bin/next start",
     "doctor": "npx react-doctor@latest"
   },
   "dependencies": {

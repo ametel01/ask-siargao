@@ -18,7 +18,7 @@ export const users = pgTable(
   "users",
   {
     id: text("id").primaryKey(),
-    email: text("email").notNull().unique(),
+    email: text("email"),
     firstName: text("first_name"),
     lastName: text("last_name"),
     imageUrl: text("image_url"),
@@ -31,6 +31,116 @@ export const users = pgTable(
   (table) => [
     index("users_deleted_at_idx").on(table.deletedAt),
     index("users_last_seen_at_idx").on(table.lastSeenAt),
+  ],
+);
+
+export const accountClosureTombstones = pgTable(
+  "account_closure_tombstones",
+  {
+    id: text("id").primaryKey(),
+    subjectHash: text("subject_hash").notNull().unique(),
+    subjectHashVersion: integer("subject_hash_version").notNull(),
+    subjectType: text("subject_type").notNull(),
+    closurePolicyVersion: text("closure_policy_version").notNull(),
+    closedAt: timestamp("closed_at", { withTimezone: true }).notNull().defaultNow(),
+    purgeAfter: timestamp("purge_after", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("account_closure_tombstones_subject_idx").on(
+      table.subjectType,
+      table.subjectHashVersion,
+      table.subjectHash,
+    ),
+    index("account_closure_tombstones_purge_after_idx").on(table.purgeAfter),
+    check(
+      "account_closure_tombstones_subject_hash_version_check",
+      sql`${table.subjectHashVersion} > 0`,
+    ),
+    check(
+      "account_closure_tombstones_subject_type_check",
+      sql`${table.subjectType} in ('clerk_user_id')`,
+    ),
+    check(
+      "account_closure_tombstones_purge_after_check",
+      sql`${table.purgeAfter} is null or ${table.purgeAfter} >= ${table.closedAt}`,
+    ),
+  ],
+);
+
+export const accountClosureOperations = pgTable(
+  "account_closure_operations",
+  {
+    id: text("id").primaryKey(),
+    tombstoneId: text("tombstone_id")
+      .notNull()
+      .references(() => accountClosureTombstones.id),
+    operationType: text("operation_type").notNull(),
+    status: text("status").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    lastErrorCode: text("last_error_code"),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("account_closure_operations_tombstone_id_idx").on(table.tombstoneId),
+    index("account_closure_operations_status_next_attempt_idx").on(
+      table.status,
+      table.nextAttemptAt,
+    ),
+    check(
+      "account_closure_operations_operation_type_check",
+      sql`${table.operationType} in ('traveler_requested_closure', 'clerk_deletion_identity_sync')`,
+    ),
+    check(
+      "account_closure_operations_status_check",
+      sql`${table.status} in ('pending', 'running', 'succeeded', 'failed')`,
+    ),
+    check("account_closure_operations_attempts_check", sql`${table.attempts} >= 0`),
+    check(
+      "account_closure_operations_completed_at_check",
+      sql`${table.completedAt} is null or ${table.completedAt} >= ${table.createdAt}`,
+    ),
+  ],
+);
+
+export const accountClosureWriteBarriers = pgTable(
+  "account_closure_write_barriers",
+  {
+    id: text("id").primaryKey(),
+    tombstoneId: text("tombstone_id")
+      .notNull()
+      .references(() => accountClosureTombstones.id),
+    subjectHash: text("subject_hash").notNull().unique(),
+    subjectHashVersion: integer("subject_hash_version").notNull(),
+    subjectType: text("subject_type").notNull(),
+    status: text("status").notNull(),
+    openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("account_closure_write_barriers_tombstone_id_idx").on(table.tombstoneId),
+    index("account_closure_write_barriers_subject_idx").on(
+      table.subjectType,
+      table.subjectHashVersion,
+      table.subjectHash,
+    ),
+    check(
+      "account_closure_write_barriers_subject_hash_version_check",
+      sql`${table.subjectHashVersion} > 0`,
+    ),
+    check(
+      "account_closure_write_barriers_subject_type_check",
+      sql`${table.subjectType} in ('clerk_user_id')`,
+    ),
+    check(
+      "account_closure_write_barriers_status_check",
+      sql`${table.status} in ('active', 'released')`,
+    ),
   ],
 );
 

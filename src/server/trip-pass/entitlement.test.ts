@@ -40,7 +40,7 @@ describe("Trip Pass entitlement grants", () => {
       expect(result.status).toBe("granted");
       expect(result.pass).toMatchObject({
         userId: "user_grant",
-        email: "grant@example.com",
+        email: null,
         status: "active",
         stripeCheckoutSessionId: "cs_order_grant",
         stripePaymentIntentId: "pi_order_grant",
@@ -98,6 +98,53 @@ describe("Trip Pass entitlement grants", () => {
       expect(duplicate.status).toBe("duplicate");
       expect(duplicate.pass.id).toBe(first.pass.id);
       await expectCounts(db, { passes: "1", grants: "1", meters: "1" });
+    });
+  });
+
+  test("does not persist supplied input email into a new pass", async () => {
+    await withTestDb(async (db) => {
+      await insertUser(db, "user_input_email");
+
+      const result = await grantTripPass(
+        {
+          userId: "user_input_email",
+          email: "supplied-input@example.com",
+          sourceType: "manual_operator",
+          sourceEventId: "manual_input_email",
+          now,
+        },
+        db,
+      );
+
+      expect(result.status).toBe("granted");
+      expect(result.pass.email).toBeNull();
+      await expectPassEmail(db, result.pass.id, null);
+    });
+  });
+
+  test("does not persist a legacy paid order email into a new pass", async () => {
+    await withTestDb(async (db) => {
+      await insertUser(db, "user_legacy_email");
+      await insertTripPassOrder(db, {
+        id: "order_legacy_email",
+        userId: "user_legacy_email",
+        email: "legacy-order@example.com",
+      });
+
+      const result = await grantTripPass(
+        {
+          userId: "user_legacy_email",
+          orderId: "order_legacy_email",
+          sourceType: "stripe_checkout",
+          sourceEventId: "evt_legacy_email",
+          now,
+        },
+        db,
+      );
+
+      expect(result.status).toBe("granted");
+      expect(result.pass.email).toBeNull();
+      await expectPassEmail(db, result.pass.id, null);
     });
   });
 
@@ -419,4 +466,17 @@ async function expectCounts(
   expect(passes.rows[0]?.count).toBe(expected.passes);
   expect(grants.rows[0]?.count).toBe(expected.grants);
   expect(meters.rows[0]?.count).toBe(expected.meters);
+}
+
+async function expectPassEmail(
+  db: DatabaseQueryClient,
+  passId: string,
+  expectedEmail: string | null,
+) {
+  const result = await db.query<{ email: string | null }>(
+    "select email from trip_passes where id = $1",
+    [passId],
+  );
+
+  expect(result.rows[0]?.email).toBe(expectedEmail);
 }

@@ -74,7 +74,7 @@ describe("trip pass usage meter store", () => {
       expect(created.pass).toMatchObject({
         id: "trip_pass_123",
         userId: "user_123",
-        email: "traveler@example.com",
+        email: null,
         status: "active",
         stripeCheckoutSessionId: "cs_trip_pass_123",
         stripePaymentIntentId: "pi_trip_pass_123",
@@ -83,6 +83,7 @@ describe("trip pass usage meter store", () => {
       expect(created.usage.map((meter) => [meter.meterType, meter.used, meter.limit])).toEqual([
         ["chat_message", 0, 150],
       ]);
+      await expectPassEmail(db, "trip_pass_123", null);
     });
   });
 
@@ -320,4 +321,17 @@ async function expectMeterUsed(
   );
 
   expect(result.rows[0]?.used).toBe(used);
+}
+
+async function expectPassEmail(
+  db: DatabaseQueryClient,
+  tripPassId: string,
+  expectedEmail: string | null,
+) {
+  const result = await db.query<{ email: string | null }>(
+    "select email from trip_passes where id = $1",
+    [tripPassId],
+  );
+
+  expect(result.rows[0]?.email).toBe(expectedEmail);
 }
