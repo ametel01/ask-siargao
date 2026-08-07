@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { withTimeout } from "@/server/integration/entrypoint-shared";
 import { withRealPostgresHarness } from "@/server/integration/postgres-harness";
+import { runTripPassPaymentLifecyclePostgresRegression } from "@/server/integration/trip-pass-payment-lifecycle-postgres";
 import {
   applyStripeInboxEvent,
   claimPendingStripeInboxEvents,
@@ -11,10 +12,6 @@ import {
 } from "@/server/payments/stripe-event-inbox";
 import { runAccountClosurePostgresIntegration } from "@/server/privacy/account-closure.postgres-integration";
 import { startTripPassCheckout, type TripPassCheckoutResult } from "@/server/trip-pass/commerce";
-import {
-  applyAuthoritativeDisputeFact,
-  applyAuthoritativeRefundFact,
-} from "@/server/trip-pass/payment-lifecycle";
 import type {
   TripPassCheckoutClient,
   TripPassCheckoutSessionSummary,
@@ -645,119 +642,6 @@ async function runStripeInboxRealPostgresRegression(harness: PostgresHarness) {
   await runStripeInboxRollbackAndReplayRegression(harness);
   await runStripeInboxTripPassCrashBoundaryRegression(harness);
   await runStripeInboxClaimLeaseRegression(harness);
-}
-
-async function runTripPassPaymentLifecyclePostgresRegression(harness: PostgresHarness) {
-  const client = harness.createQueryClient();
-  const concurrent = harness.createQueryClient();
-  try {
-    const activationUserId = "user_lifecycle_database_time";
-    const activationOrderId = "order_lifecycle_database_time";
-    await insertStripeInboxCheckoutOrder(client, {
-      eventId: "evt_lifecycle_database_time",
-      orderId: activationOrderId,
-      userId: activationUserId,
-    });
-    const before = await client.query<{ now: Date | string }>("select clock_timestamp() as now");
-    const activation = await applyTripPassStripeEvent(
-      stripeInboxCheckoutSessionEvent("evt_lifecycle_database_time", activationOrderId),
-      { db: client, now: new Date("2099-01-01T00:00:00.000Z") },
-    );
-    assertEqual(
-      activation.status,
-      "applied",
-      "authoritative paid fact must activate on PostgreSQL",
-    );
-    const after = await client.query<{ now: Date | string }>("select clock_timestamp() as now");
-    const pass = await client.query<{ starts_at: Date | string; expires_at: Date | string }>(
-      "select starts_at, expires_at from trip_passes where stripe_payment_intent_id = $1",
-      [`pi_${activationOrderId}`],
-    );
-    const startsAt = dateFromDatabaseValue(pass.rows[0]?.starts_at ?? "");
-    const expiresAt = dateFromDatabaseValue(pass.rows[0]?.expires_at ?? "");
-    assertEqual(
-      startsAt.getTime() >= dateFromDatabaseValue(before.rows[0]?.now ?? "").getTime() &&
-        startsAt.getTime() <= dateFromDatabaseValue(after.rows[0]?.now ?? "").getTime(),
-      true,
-      "Trip Pass Activation must start at PostgreSQL transaction time, not skewed app time",
-    );
-    assertEqual(
-      expiresAt.getTime() - startsAt.getTime(),
-      336 * 60 * 60_000,
-      "Trip Pass expiry must be exactly 336 elapsed hours after activation",
-    );
-
-    await client.query(`
-      create table if not exists paid_answer_reservations (
-        id text primary key,
-        trip_pass_id text not null references trip_passes(id),
-        status text not null,
-        invalidation_reason text,
-        invalidated_at timestamptz,
-        updated_at timestamptz not null
-      )
-    `);
-    await client.query(
-      `insert into paid_answer_reservations (id, trip_pass_id, status, updated_at)
-       select 'reservation_lifecycle_terminal', id, 'open', clock_timestamp()
-       from trip_passes where stripe_payment_intent_id = $1`,
-      [`pi_${activationOrderId}`],
-    );
-    await Promise.all([
-      applyAuthoritativeRefundFact(
-        {
-          stripeRefundId: "re_lifecycle_terminal",
-          stripeChargeId: "ch_lifecycle_terminal",
-          stripeEventId: "evt_lifecycle_refund",
-          paymentIntentId: `pi_${activationOrderId}`,
-          providerStatus: "succeeded",
-          amountMinor: tripPassCheckoutProductSnapshot.amountTotalMinor,
-          successfulAmountMinor: tripPassCheckoutProductSnapshot.amountTotalMinor,
-          providerCreatedAt: new Date(),
-        },
-        client,
-      ),
-      applyAuthoritativeDisputeFact(
-        {
-          stripeDisputeId: "du_lifecycle_won",
-          stripeChargeId: "ch_lifecycle_terminal",
-          stripeEventId: "evt_lifecycle_dispute_won",
-          paymentIntentId: `pi_${activationOrderId}`,
-          providerStatus: "won",
-          applicationStatus: "won",
-          amountMinor: tripPassCheckoutProductSnapshot.amountTotalMinor,
-          providerCreatedAt: new Date(),
-        },
-        concurrent,
-      ),
-    ]);
-    const final = await client.query<{
-      order_status: string;
-      pass_status: string;
-      reservation_status: string;
-      invalidation_reason: string | null;
-    }>(
-      `select o.status as order_status, p.status as pass_status,
-         r.status as reservation_status, r.invalidation_reason
-       from trip_pass_orders o
-       join trip_passes p on p.stripe_payment_intent_id = o.stripe_payment_intent_id
-       join paid_answer_reservations r on r.trip_pass_id = p.id
-       where o.id = $1`,
-      [activationOrderId],
-    );
-    assertDeepEqual(
-      final.rows[0],
-      {
-        order_status: "refunded",
-        pass_status: "refunded",
-        reservation_status: "invalidated",
-        invalidation_reason: "full_refund",
-      },
-      "concurrent full-refund and dispute-win order must converge terminally",
-    );
-  } finally {
-    await Promise.allSettled([client.end(), concurrent.end()]);
-  }
 }
 
 async function runStripeInboxReceiptConflictRegression(harness: PostgresHarness) {

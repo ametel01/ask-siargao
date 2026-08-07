@@ -16,6 +16,7 @@ import {
   applyAuthoritativeDisputeFact,
   applyAuthoritativeRefundFact,
   lockTripPassAccountFamily,
+  lockTripPassAccountWrites,
   type RefundProviderStatus,
 } from "@/server/trip-pass/payment-lifecycle";
 
@@ -153,6 +154,7 @@ async function applyCheckoutSessionEvent(
   const candidate = await loadOrderOwnerCandidate(orderId, db);
   if (candidate?.user_id) {
     await lockTripPassAccountFamily(candidate.user_id, candidate.product_family, db);
+    await lockTripPassAccountWrites(candidate.user_id, db);
   }
   const order = await loadOrderById(orderId, db);
   const orderValidation = validateCheckoutSessionOrder({ event, session, order, env });
@@ -244,7 +246,6 @@ async function applyCheckoutSessionEvent(
       orderId: order.id,
       sessionId: session.id,
       paymentIntentId,
-      now: activationTime,
       capturedAmountMinor: session.amount_total ?? 0,
     },
     db,
@@ -592,7 +593,6 @@ async function markOrderPaid(
     sessionId: string;
     paymentIntentId: string;
     capturedAmountMinor: number;
-    now: Date;
   },
   db: DatabaseQueryClient,
 ) {
@@ -603,11 +603,11 @@ async function markOrderPaid(
           stripe_checkout_session_id = $2,
           stripe_payment_intent_id = $3,
           captured_amount_minor = $4,
-          completed_at = $5,
-          updated_at = $5
+          completed_at = transaction_timestamp(),
+          updated_at = transaction_timestamp()
       where id = $1
     `,
-    [input.orderId, input.sessionId, input.paymentIntentId, input.capturedAmountMinor, input.now],
+    [input.orderId, input.sessionId, input.paymentIntentId, input.capturedAmountMinor],
   );
 }
 

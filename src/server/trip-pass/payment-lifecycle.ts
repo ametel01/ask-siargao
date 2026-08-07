@@ -216,6 +216,13 @@ export async function lockTripPassAccountFamily(
   }
 }
 
+export async function lockTripPassAccountWrites(accountId: string, db: DatabaseQueryClient) {
+  await db.query(
+    "select pg_advisory_xact_lock(hashtext('ask-siargao-account-write'), hashtext($1))",
+    [accountId],
+  );
+}
+
 export async function invalidateOpenPaidAnswerReservations(
   input: { tripPassId: string; reason: "full_refund" | "dispute_lost" },
   db: DatabaseQueryClient,
@@ -237,6 +244,7 @@ async function lockLifecycleTarget(paymentIntentId: string, db: DatabaseQueryCli
   if (!owner?.user_id) return null;
 
   await lockTripPassAccountFamily(owner.user_id, owner.product_family, db);
+  await lockTripPassAccountWrites(owner.user_id, db);
 
   const orderResult = await db.query<LifecycleOrderRow>(
     `
