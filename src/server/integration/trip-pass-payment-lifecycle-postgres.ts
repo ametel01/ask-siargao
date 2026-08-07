@@ -33,7 +33,6 @@ type ActivatedPass = {
 export async function runTripPassPaymentLifecyclePostgresRegression(harness: RealPostgresHarness) {
   const client = harness.createQueryClient();
   try {
-    await installPaidAnswerReservationContract(client);
     await proveDatabaseTimeActivation(client);
     await proveDurableRefundResolutionOutsideTransaction(harness);
     await proveAuthoritativeRefundMatrix(client);
@@ -1094,70 +1093,6 @@ function checkoutEvent(orderId: string) {
     },
     type: "checkout.session.completed",
   } as unknown as Stripe.Event;
-}
-
-async function installPaidAnswerReservationContract(db: DatabaseQueryClient) {
-  await db.query(`
-    create table if not exists paid_answer_reservations (
-      id text primary key,
-      trip_pass_id text not null references trip_passes(id),
-      usage_meter_id text not null references trip_usage_meters(id),
-      account_id text not null references users(id) on delete cascade,
-      idempotency_key_hash text not null,
-      request_body_hash text not null,
-      request_id text not null,
-      lease_token text not null,
-      status text not null default 'open',
-      release_reason text,
-      invalidation_reason text,
-      answer_message_id text references chat_messages(id) on delete set null,
-      result_json jsonb,
-      provider_request_ids_json jsonb not null default '[]'::jsonb,
-      lease_expires_at timestamptz not null,
-      details_purge_at timestamptz not null,
-      details_purged_at timestamptz,
-      reserved_at timestamptz not null default clock_timestamp(),
-      finalized_at timestamptz,
-      released_at timestamptz,
-      invalidated_at timestamptz,
-      updated_at timestamptz not null default clock_timestamp(),
-      constraint paid_answer_reservations_status_check check (
-        status in ('open', 'settled', 'released', 'invalidated')
-      ),
-      constraint paid_answer_reservations_release_reason_check check (
-        release_reason is null or release_reason in (
-          'provider_failure', 'internal_failure', 'empty_output', 'safety_refusal',
-          'stale_lease', 'redis_unavailable', 'operational_limit',
-          'database_unavailable', 'pass_expired'
-        )
-      ),
-      constraint paid_answer_reservations_invalidation_reason_check check (
-        invalidation_reason is null or invalidation_reason in (
-          'account_closed', 'full_refund', 'dispute_lost'
-        )
-      ),
-      constraint paid_answer_reservations_lease_order_check check (reserved_at < lease_expires_at),
-      constraint paid_answer_reservations_purge_order_check check (reserved_at < details_purge_at)
-    );
-    create unique index if not exists paid_answer_reservations_account_idempotency_idx
-      on paid_answer_reservations(account_id, idempotency_key_hash);
-    create index if not exists paid_answer_reservations_trip_pass_id_idx
-      on paid_answer_reservations(trip_pass_id);
-    create index if not exists paid_answer_reservations_usage_meter_id_idx
-      on paid_answer_reservations(usage_meter_id);
-    create index if not exists paid_answer_reservations_answer_message_id_idx
-      on paid_answer_reservations(answer_message_id) where answer_message_id is not null;
-    create index if not exists paid_answer_reservations_open_pass_idx
-      on paid_answer_reservations(trip_pass_id, usage_meter_id, lease_expires_at)
-      where status = 'open';
-    create index if not exists paid_answer_reservations_details_purge_idx
-      on paid_answer_reservations(details_purge_at, id) where details_purged_at is null;
-    drop trigger if exists paid_answer_reservations_open_account_write
-      on paid_answer_reservations;
-    create trigger paid_answer_reservations_open_account_write
-      before insert or update on paid_answer_reservations
-      for each row execute function enforce_open_account_trip_pass_child_write()
-  `);
 }
 
 async function expectRejects(promise: Promise<unknown>, expectedMessage: string) {
