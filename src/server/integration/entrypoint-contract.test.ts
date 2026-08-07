@@ -99,7 +99,7 @@ describe("integration entry-point contracts", () => {
       readFile("tests/e2e/chat.e2e.ts", "utf8"),
     ]);
 
-    expect(playwrightConfig).toContain("PLAYWRIGHT_PRODUCTION_PERF === \"1\"");
+    expect(playwrightConfig).toContain('PLAYWRIGHT_PRODUCTION_PERF === "1"');
     expect(playwrightConfig).toContain("grep: isProductionPerformanceRun ? /@production-perf/");
     expect(playwrightConfig).toContain(
       "grepInvert: process.env.CI && !isProductionPerformanceRun ? /@production-perf/",
