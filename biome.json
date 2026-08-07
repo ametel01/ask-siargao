@@ -4,9 +4,10 @@
     "includes": [
       "**",
       "!**/.agents",
-      "!**/.github",
+      "!**/.github/skills",
       "!**/.impeccable",
       "!**/.next",
+      "!**/.tmp",
       "!**/node_modules",
       "!**/playwright-report",
       "!**/test-results"

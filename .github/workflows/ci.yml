@@ -50,6 +50,19 @@ jobs:
       - name: End-to-end tests
         run: bun run test:e2e
 
+      - name: Generate Trip Pass launch manifest
+        env:
+          TRIP_PASS_CHECKOUT_MODE: off
+        run: bun run qa:trip-pass-launch -- --write --foundation-ci-gates-passed
+
+      - name: Upload Trip Pass launch manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: trip-pass-launch-manifest-${{ github.sha }}
+          path: .tmp/trip-pass-launch/trip-pass-launch-manifest-${{ github.sha }}.json
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload mobile trip context screenshots
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -69,3 +82,65 @@ jobs:
           path: test-results/issue-110-landing-*.png
           if-no-files-found: error
           retention-days: 14
+
+  integration-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17.6-alpine3.22
+        env:
+          POSTGRES_DB: ask_siargao_issue145
+          POSTGRES_USER: ask_siargao_issue145
+          POSTGRES_PASSWORD: ask_siargao_issue145_password
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U ask_siargao_issue145 -d ask_siargao_issue145"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgres://ask_siargao_issue145:ask_siargao_issue145_password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/ask_siargao_issue145
+      INTEGRATION_TEST_NAMESPACE: ask_siargao_issue145_${{ github.run_id }}_${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Dry-run PostgreSQL integration entry point
+        run: bun run test:integration:postgres
+
+  integration-redis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      redis:
+        image: redis:8.2.1-alpine3.22
+        ports:
+          - 6379/tcp
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      REDIS_URL: redis://127.0.0.1:${{ job.services.redis.ports[6379] }}/0
+      INTEGRATION_TEST_NAMESPACE: ask_siargao_issue145_${{ github.run_id }}_${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Dry-run Redis integration entry point
+        run: bun run test:integration:redis

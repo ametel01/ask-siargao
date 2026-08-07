@@ -209,6 +209,11 @@ Review the redacted manifest. It must show engineering readiness for this SHA an
 that human launch authorization depends on this checklist. Confirm these lifecycle cases have exact
 evidence:
 
+The migration sequence for the readiness milestone is reserved in
+[`trip-pass-migration-coordination.md`](../reference/trip-pass-migration-coordination.md). Do not
+change the manifest migration set or add a new Trip Pass migration outside that allocation during
+launch.
+
 - return before webhook never activates;
 - duplicate and reversed events converge;
 - missing prerequisites remain retryable;

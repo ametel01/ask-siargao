@@ -23,8 +23,11 @@ Scripts are defined in `package.json`.
 | `bun run db:ingest:open-meteo-marine` | `bun run src/server/providers/ingest-open-meteo-marine.ts` | Fetch the Siargao Open-Meteo Marine forecast and persist modelled sea-level, wave, swell, and current facts into Postgres at `DATABASE_URL`. This is tide-proxy model data, not official tide-gauge or safety authority data. |
 | `bun run agent-memory:sync` | `bun run src/server/chat/sync-agent-memory-vector-store.ts` | Sync reference-role `docs/agent-memory/` files to an OpenAI vector store for chat-agent file search. Use `bun run agent-memory:sync -- --dry-run` for local/CI verification without network access. Non-dry-run sync requires `OPENAI_API_KEY`; pass `-- --vector-store-id <id>` or set `OPENAI_AGENT_MEMORY_VECTOR_STORE_ID` to reuse an existing store. The command prints the vector store ID to configure and never prints raw memory file bodies. |
 | `bun run eval:reality-check` | `bun run src/server/evaluations/run-reality-check-matrix.ts` | Print the deterministic on-demand Reality Check scenario and fail-closed contract matrix. Add `-- --write` to refresh the checked-in JSON artifact. |
+| `bun run qa:trip-pass-launch` | `bun run src/server/qa/run-trip-pass-launch-proof.ts` | Emit the redacted Trip Pass launch manifest for the checked-out commit SHA. Add `-- --write` to write the SHA-qualified JSON artifact under `.tmp/trip-pass-launch/`; the command never writes `docs/evaluations/**` or authorizes checkout. |
 | `bun run db:migrate:test` | `bun run src/server/db/migrate-test.ts` | Apply unapplied SQL migrations to a PGlite test database through the same ledger runner. |
 | `bun run db:seed:test` | `bun run src/server/db/seed-test.ts` | Seed Siargao taxonomy and source profiles into a PGlite test database. |
+| `bun run test:integration:postgres` | `bun run src/server/integration/postgres-entrypoint.ts --dry-run` | Validate the repository-native PostgreSQL integration lane against a real local test service. The dry run requires `DATABASE_URL`, creates and drops an isolated schema namespace, and fails instead of falling back to PGlite when the service is absent. Deep PostgreSQL locking and concurrency assertions remain issue #150. |
+| `bun run test:integration:redis` | `bun run src/server/integration/redis-entrypoint.ts --dry-run` | Validate the repository-native Redis integration lane against a real local test service. The dry run requires `REDIS_URL`, writes and deletes an isolated key namespace, and fails instead of falling back to process-local behavior when the service is absent. Redis atomic and shared-instance semantic assertions remain issue #150. |
 | `bun run format` | `biome format --write .` | Write Biome formatting fixes. |
 | `bun run lint` | `biome check .` | Run the non-mutating Biome check used by CI. |
 | `bun run typecheck` | `tsc --noEmit` | Run TypeScript type checking. |
@@ -40,7 +43,8 @@ The release-candidate gate is:
 bun run verify:ci
 ```
 
-`bun run format` is a fix command, not a verification gate. `bun run verify` and `bun run verify:ci` are non-mutating verification commands.
+`bun run format` is a fix command, not a verification gate. `bun run verify` and `bun run
+verify:ci` are non-mutating verification commands.
 
 ## Migration Ledger Behavior
 
