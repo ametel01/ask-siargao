@@ -1,4 +1,4 @@
-export const responseWaitStatusText = "Ask Siargao is preparing your answer.";
+export const responseWaitStatusText = "Understanding your question and choosing the right checks.";
 export const responseStoppedStatusText = "Stopped waiting here. You can retry that question.";
 
 export type ResponseWaitRequest = {

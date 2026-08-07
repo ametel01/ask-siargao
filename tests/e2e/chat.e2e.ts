@@ -196,8 +196,10 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await page.goto("/chat");
 
   await expect(page.getByLabel("Ask Siargao chat workspace")).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Ask a real question/i })).toBeVisible();
-  await expect(page.getByText("Ask about food, weather, transfers")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /Reality-check your Siargao plan/i }),
+  ).toBeVisible();
+  await expect(page.getByText("separate checked facts, practical judgment")).toBeVisible();
   await expect(page.getByRole("link", { name: "Start a new chat" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Trip context" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Siargao Island Weather" })).toBeVisible();
@@ -261,14 +263,16 @@ test("sends a desktop composer message to the chat API and renders the assistant
   await expect(userMessageBubble).toBeVisible();
   await expect(userMessageBubble).toHaveCSS("color", "rgb(255, 255, 255)");
   await expect(page.getByText("Where should we eat near Cloud 9 tonight?")).toBeVisible();
-  await expect(page.getByText("Ask Siargao is preparing your answer.")).toBeVisible();
+  await expect(
+    page.getByText("Understanding your question and choosing the right checks."),
+  ).toBeVisible();
   await expect(page.getByTestId("decision-strip")).toHaveCount(0);
   await expect(page.getByText("At a Glance")).toHaveCount(0);
   await expect(composerInput).toBeDisabled();
   await expect(sendButton).toBeDisabled();
   await expect(
     page.getByRole("button", { name: "Reality-check a hotel before I book." }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
   await expect.poll(() => mockChat.requests.length).toBe(1);
   expect(lastSubmittedContent(mockChat.requests[0])).toBe(
     "Where should we eat near Cloud 9 tonight?",
@@ -592,8 +596,20 @@ test("renders the field desk workspace across desktop visual fixtures", async ({
 
   const workspace = page.getByRole("main", { name: "Ask Siargao chat workspace" });
   await expect(workspace).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Ask a real question/i })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /Reality-check your Siargao plan/i }),
+  ).toBeVisible();
   await expect(page.getByTestId("context-rail")).toContainText("Pilar field stay");
+  await expect(page.getByRole("button", { name: "Open chat actions" })).toBeVisible();
+  await expect
+    .poll(() =>
+      page
+        .getByTestId("conversation-region")
+        .locator("header")
+        .first()
+        .evaluate((header) => header.getBoundingClientRect().height),
+    )
+    .toBeLessThanOrEqual(84);
   await expect
     .poll(() => fieldDeskGeometry(page))
     .toMatchObject({
@@ -2665,7 +2681,9 @@ test("sends a mobile suggested prompt through the same chat API path", async ({ 
   await page.goto("/chat");
 
   await expect(page.getByLabel("Ask Siargao chat workspace")).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Ask a real question/i })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /Reality-check your Siargao plan/i }),
+  ).toBeVisible();
   await expect(page.getByText("Cloud 9 area")).toHaveCount(0);
   await expect(page.getByText("24 live refreshes left")).toHaveCount(0);
   await expect(page.getByText(/Will my place be quiet/i)).toHaveCount(0);
@@ -2695,8 +2713,8 @@ test("sends a mobile suggested prompt through the same chat API path", async ({ 
 
 test("personalizes suggested prompts and submits the exact visible prompt with context", async ({
   page,
-}) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
+}, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(
     ({ key, value }) => {
       localStorage.setItem(key, JSON.stringify(value));
@@ -2726,6 +2744,21 @@ test("personalizes suggested prompts and submits the exact visible prompt with c
   await page.goto("/chat");
 
   const suggestedPromptBar = page.getByLabel("Suggested prompts");
+  const signInControl = page
+    .getByRole("button", { name: "Sign in" })
+    .or(page.getByRole("link", { name: "Sign in" }));
+  await expect(signInControl).toBeVisible();
+  const signInLayout = await signInControl.evaluate((control) => {
+    const bounds = control.getBoundingClientRect();
+    return {
+      height: bounds.height,
+      scrollWidth: control.scrollWidth,
+      width: bounds.width,
+    };
+  });
+  expect(signInLayout.height).toBeGreaterThanOrEqual(44);
+  expect(signInLayout.width).toBeGreaterThanOrEqual(72);
+  expect(signInLayout.scrollWidth).toBeLessThanOrEqual(Math.ceil(signInLayout.width));
   await expect(suggestedPromptBar.getByRole("button")).toHaveCount(4);
   await expect(
     suggestedPromptBar.getByRole("button", {
@@ -2750,6 +2783,40 @@ test("personalizes suggested prompts and submits the exact visible prompt with c
   await expect(
     suggestedPromptBar.getByRole("button", { name: "Reality-check a hotel before I book." }),
   ).toHaveCount(0);
+  const promptLayout = await suggestedPromptBar.getByRole("button").evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const bounds = button.getBoundingClientRect();
+      const styles = window.getComputedStyle(button);
+      return {
+        height: bounds.height,
+        left: bounds.left,
+        right: bounds.right,
+        scrollWidth: button.scrollWidth,
+        width: bounds.width,
+        whiteSpace: styles.whiteSpace,
+      };
+    }),
+  );
+  expect(promptLayout).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        whiteSpace: "normal",
+      }),
+    ]),
+  );
+  expect(
+    promptLayout.every(
+      ({ height, left, right, scrollWidth, width }) =>
+        height >= 44 && left >= 0 && right <= 390 && scrollWidth <= Math.ceil(width),
+    ),
+  ).toBe(true);
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+    .toBe(true);
+  await page.screenshot({
+    fullPage: true,
+    path: testInfo.outputPath("personalized-prompts-mobile.png"),
+  });
   expect(mockChat.requests).toHaveLength(0);
 
   await page.getByLabel("Ask anything about Siargao").fill("Start with my arrival plan.");
@@ -2758,6 +2825,7 @@ test("personalizes suggested prompts and submits the exact visible prompt with c
   await expect.poll(() => mockChat.requests.length).toBe(1);
 
   const visiblePrompt = "Given today's weather, should we keep our plan around Dapa?";
+  await page.getByText("Try another Reality Check").click();
   await suggestedPromptBar.getByRole("button", { name: visiblePrompt }).click();
 
   await expect(page.getByLabel("Conversation messages").getByText(visiblePrompt)).toBeVisible();
@@ -4285,13 +4353,19 @@ test("shows safe error copy and lets the user keep asking after a failed request
 
   await expect(page.getByText("Will the power be reliable?")).toBeVisible();
   await expect(
-    page.getByText("Ask Siargao could not answer right now. Please try again."),
+    page.getByText("Ask Siargao could not finish this Reality Check. Your question is still here."),
   ).toBeVisible();
   await expect(page.getByTestId("decision-strip")).toHaveCount(0);
   await expect(page.getByText("At a Glance")).toHaveCount(0);
   await expect(page.getByText("OPENAI_API_KEY")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Retry last question" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Use available evidence" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit question" })).toBeVisible();
   await expect(composerInput).toBeEnabled();
+
+  await page.getByRole("button", { name: "Edit question" }).click();
+  await expect(composerInput).toBeFocused();
+  await expect(composerInput).toHaveValue("Will the power be reliable?");
 
   await composerInput.fill("Can I ask a follow-up?");
   await composerInput.press("Enter");
@@ -4322,7 +4396,7 @@ test("keeps the delayed assistant wait state stable, accessible, and indetermina
   const waitStatus = page.getByTestId("assistant-wait-status");
   await expect(waitState).toBeVisible();
   await expect(waitState).toHaveAttribute("aria-busy", "true");
-  await expect(waitStatus).toHaveText("Ask Siargao is preparing your answer.");
+  await expect(waitStatus).toHaveText("Understanding your question and choosing the right checks.");
   await expect(page.getByRole("status")).toHaveCount(1);
   await expect(page.getByRole("progressbar")).toHaveCount(0);
   await expect(waitState).not.toContainText(/\b\d{1,3}%\b|countdown|elapsed|stage|tool|provider/i);
@@ -4345,7 +4419,7 @@ test("keeps the delayed assistant wait state stable, accessible, and indetermina
 
   await page.waitForTimeout(1_450);
 
-  await expect(waitStatus).toHaveText("Ask Siargao is preparing your answer.");
+  await expect(waitStatus).toHaveText("Understanding your question and choosing the right checks.");
   await expect(page.getByRole("status")).toHaveCount(1);
   expect(
     await page.evaluate(
@@ -4651,7 +4725,7 @@ test("ignores late thread detail success and failure after a newer selection", a
   await expect(page.getByText("Dapa remained selected after the fallback race.")).toBeVisible();
 });
 
-test("renders one failure retry path without stop controls or leaked server details", async ({
+test("renders bounded failure recovery paths without stop controls or leaked details", async ({
   page,
 }) => {
   const chat = await mockDeferredChatApi(page);
@@ -4669,10 +4743,12 @@ test("renders one failure retry path without stop controls or leaked server deta
   });
 
   await expect(
-    page.getByText("Ask Siargao could not answer right now. Please try again."),
+    page.getByText("Ask Siargao could not finish this Reality Check. Your question is still here."),
   ).toBeVisible();
   await expect(page.getByText("Internal provider timeout")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Retry last question" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Use available evidence" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit question" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Stop waiting" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Retry question" })).toHaveCount(0);
   await expect(composerInput).toBeEnabled();
@@ -4687,8 +4763,44 @@ test("renders one failure retry path without stop controls or leaked server deta
     page.getByText("Ferry retry answer: check the port notice before leaving."),
   ).toBeVisible();
   await expect(
-    page.getByText("Ask Siargao could not answer right now. Please try again."),
+    page.getByText("Ask Siargao could not finish this Reality Check. Your question is still here."),
   ).toHaveCount(1);
+});
+
+test("offers checked planning cues and a bounded available-evidence fallback", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mockFieldDeskExternalState(page);
+  const chat = await mockDeferredChatApi(page);
+
+  await page.goto("/chat");
+  await expect(page.getByTestId("weather-condition-state")).toHaveText("Checked");
+
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  await composerInput.fill("Can we scooter to Pacifico in this weather?");
+  await composerInput.press("Enter");
+  await expect.poll(() => chat.requests.length).toBe(1);
+
+  chat.release(0, {
+    body: { error: "upstream_timeout", message: "Private provider detail" },
+    status: 503,
+  });
+
+  const cues = page.getByRole("region", { name: "Available planning cues" });
+  await expect(cues).toContainText("Weather");
+  await expect(cues).toContainText("Surf");
+  await expect(cues).toContainText("These do not complete the Reality Check");
+
+  await page.getByRole("button", { name: "Use available evidence" }).click();
+  await expect.poll(() => chat.requests.length).toBe(2);
+  expect(lastSubmittedContent(chat.requests[1])).toContain(
+    "Can we scooter to Pacifico in this weather?",
+  );
+  expect(lastSubmittedContent(chat.requests[1])).toContain(
+    "bounded needs-confirmation answer and the safest practical fallback",
+  );
+
+  chat.release(1, { message: "Use a covered transfer and recheck before leaving." });
+  await expect(page.getByText("Use a covered transfer and recheck before leaving.")).toBeVisible();
 });
 
 test("invalidates pending wait state on new chat and page navigation", async ({ page }) => {

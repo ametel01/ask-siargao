@@ -16,6 +16,7 @@ import {
   Clock,
   CloudSun,
   Copy,
+  Ellipsis,
   ExternalLink,
   Info,
   LoaderCircle,
@@ -208,29 +209,8 @@ type ChatResponseErrorBody = {
   message?: string;
 };
 
-const chatSignedOutActions = (
-  <>
-    <SignInButton mode="modal">
-      <Button
-        className="hidden h-10 rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50 sm:inline-flex"
-        type="button"
-        variant="outline"
-      >
-        Sign in
-      </Button>
-    </SignInButton>
-    <SignUpButton mode="modal">
-      <Button
-        className="h-10 rounded-md border-brand-violet-650 bg-brand-violet-650 px-3 text-xs font-extrabold text-white hover:bg-brand-violet-600"
-        type="button"
-      >
-        Sign up
-      </Button>
-    </SignUpButton>
-  </>
-);
-
-const chatErrorMessage = "Ask Siargao could not answer right now. Please try again.";
+const chatErrorMessage =
+  "Ask Siargao could not finish this Reality Check. Your question is still here.";
 const shareErrorMessage = "Share link could not be created. Your saved items are still here.";
 const maxChatRequestMessageLength = 2_000;
 const maxPriorChatRequestMessages = 6;
@@ -1786,6 +1766,7 @@ function ChatWorkspaceView({
   updateTripContext,
 }: ChatWorkspaceController) {
   const hasMessages = messages.length > 0;
+  const useCompactHeader = useCompactChatHeaderViewport();
   const showMobileTripContext = useMobileTripContextViewport();
   const liveConditions = useLiveConditions(locationState, tripContext);
   const suggestedPrompts = useMemo(
@@ -1825,12 +1806,22 @@ function ChatWorkspaceView({
     };
   }, [scrollAnchorVersion]);
 
+  const editQuestion = useCallback(
+    (prompt: string) => {
+      setInputValue(prompt);
+      window.requestAnimationFrame(() => {
+        document.querySelector<HTMLTextAreaElement>("[data-testid='chat-composer-input']")?.focus();
+      });
+    },
+    [setInputValue],
+  );
+
   return (
     <main
       aria-label="Ask Siargao chat workspace"
       className="fixed inset-0 isolate h-dvh overflow-hidden bg-brand-paper-100 text-text-strong before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:-z-10 before:w-[42vw] before:bg-[radial-gradient(circle_at_18%_16%,rgba(20,184,166,0.18),transparent_34%),linear-gradient(150deg,rgba(6,47,53,0.18),transparent_58%)] after:pointer-events-none after:absolute after:right-0 after:bottom-0 after:-z-10 after:h-44 after:w-[48vw] after:bg-[radial-gradient(circle_at_bottom_right,rgba(255,155,131,0.16),transparent_58%)]"
     >
-      <section className="grid h-full min-h-0 w-full grid-cols-1 min-[1180px]:grid-cols-[12.25rem_minmax(0,1fr)_21rem] xl:grid-cols-[14rem_minmax(0,1fr)_22rem] 2xl:grid-cols-[16rem_minmax(0,1fr)_23.5rem]">
+      <section className="grid h-full min-h-0 w-full grid-cols-1 min-[1180px]:grid-cols-[12.25rem_minmax(0,1fr)_23rem] xl:grid-cols-[14rem_minmax(0,1fr)_24rem] 2xl:grid-cols-[16rem_minmax(0,1fr)_25rem]">
         <ChatTravelRail
           historyStatus={historyStatus}
           onOpenThread={(threadId) => {
@@ -1880,6 +1871,7 @@ function ChatWorkspaceView({
             selectedThreadId={selectedThreadId}
             selectedThreadTitle={selectedThreadTitle}
             threadActionState={threadActionState}
+            useCompactHeader={useCompactHeader}
           />
 
           <section
@@ -1947,6 +1939,7 @@ function ChatWorkspaceView({
                         disabled={isSending}
                         key={message.id}
                         message={message}
+                        onEditPrompt={editQuestion}
                         onRateAssistantMessage={(messageId, rating) => {
                           void rateAssistantMessage(messageId, rating);
                         }}
@@ -1956,15 +1949,17 @@ function ChatWorkspaceView({
                         onRemoveSavedItem={removeSavedItem}
                         onStopWaiting={stopWaitingForAssistant}
                         onSubmitPrompt={handlePromptSubmit}
+                        recoveryConditions={liveConditions}
                         savedItemIds={savedItemIds}
                       />
                     ))}
                   </div>
-                  <SuggestedPromptBar
-                    disabled={isSending}
-                    onSubmitPrompt={handlePromptSubmit}
-                    prompts={suggestedPrompts}
-                  />
+                  {!isSending && lastMessage?.status === "complete" ? (
+                    <FollowUpPromptDisclosure
+                      onSubmitPrompt={handlePromptSubmit}
+                      prompts={suggestedPrompts}
+                    />
+                  ) : null}
                 </>
               ) : (
                 <ChatEmptyState
@@ -2025,7 +2020,7 @@ function ChatTravelRail({
   return (
     <aside className="hidden min-h-0 bg-[linear-gradient(180deg,var(--brand-reef-900),var(--brand-navy-980)_72%)] px-4 py-5 text-text-on-dark min-[1180px]:grid min-[1180px]:grid-rows-[auto_auto_minmax(0,1fr)_auto] min-[1180px]:gap-5 xl:px-5">
       <Link aria-label="Ask Siargao home" className="min-w-0 no-underline" href="/">
-        <BrandLockup className="[&_span:last-child]:text-[1.55rem]" />
+        <BrandLockup className="[&_span:last-child]:text-2xl" />
       </Link>
 
       <Button
@@ -2169,6 +2164,7 @@ function ChatTopBar({
   selectedThreadId,
   selectedThreadTitle,
   threadActionState,
+  useCompactHeader,
 }: {
   archiveSelectedThread: () => Promise<void>;
   canSharePlan: boolean;
@@ -2182,8 +2178,10 @@ function ChatTopBar({
   selectedThreadId: string | null;
   selectedThreadTitle: string | null;
   threadActionState: ThreadActionState;
+  useCompactHeader: boolean;
 }) {
   const hasSelectedThread = Boolean(selectedThreadId);
+  const hasMobileIdentity = Boolean(mobileTripContext);
   const isMutatingThread = threadActionState.pendingAction !== null;
   const closeArchiveDialog = () => {
     closeThreadActionDialog();
@@ -2195,53 +2193,77 @@ function ChatTopBar({
   };
 
   return (
-    <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-3 border-border-default/80 border-b bg-brand-paper-50/95 px-4 py-3 backdrop-blur-md sm:px-6 lg:px-8">
-      <div className="grid min-w-0 gap-1">
-        <h1 className="m-0 min-w-0 truncate text-xl font-semibold text-text-strong sm:text-2xl">
-          Ask Siargao
-        </h1>
-        <p className="m-0 inline-flex min-w-0 items-center gap-2 text-sm font-extrabold text-text-muted">
-          <WavesHorizontal
-            aria-hidden="true"
-            className="shrink-0 text-brand-lagoon-700"
-            size={16}
-          />
-          Local travel assistant
-        </p>
+    <header className="flex min-h-16 flex-wrap items-center justify-between gap-2 border-border-default/80 border-b bg-brand-paper-50/95 px-3 py-2 backdrop-blur-md sm:px-6 lg:min-h-[76px] lg:px-8 lg:py-3">
+      <div className="flex min-w-0 items-center gap-2.5">
+        {hasMobileIdentity ? <PalmMark className="size-8" /> : null}
+        <div className="grid min-w-0 gap-1">
+          <h1
+            className={cn(
+              "m-0 min-w-0 truncate font-semibold text-text-strong",
+              hasMobileIdentity ? "font-heading text-2xl leading-none" : "text-xl sm:text-2xl",
+            )}
+          >
+            Ask Siargao
+          </h1>
+          <p className="m-0 hidden min-w-0 items-center gap-2 text-sm font-extrabold text-text-muted sm:inline-flex">
+            <WavesHorizontal
+              aria-hidden="true"
+              className="shrink-0 text-brand-lagoon-700"
+              size={16}
+            />
+            Reality-check your Siargao plan
+          </p>
+        </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {hasSelectedThread ? (
-          <ThreadActionControls
+      {useCompactHeader ? (
+        <div className="flex shrink-0 items-center gap-2">
+          <ChatAuthActions compact />
+          <CompactChatActionsMenu
+            canSharePlan={canSharePlan}
             disabled={isMutatingThread}
+            hasSelectedThread={hasSelectedThread}
             onArchive={() => openThreadActionDialog("archive")}
             onDelete={() => openThreadActionDialog("delete")}
             onRename={() => openThreadActionDialog("rename")}
+            onSharePlan={onSharePlan}
+            onStartNewChat={onStartNewChat}
           />
-        ) : null}
-        <Button
-          aria-label="Reset chat"
-          className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
-          onClick={onStartNewChat}
-          size="icon"
-          type="button"
-          variant="outline"
-        >
-          <RefreshCw aria-hidden="true" size={17} />
-        </Button>
-        <Button
-          aria-label="Share saved plan"
-          className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100 disabled:opacity-45"
-          disabled={!canSharePlan}
-          onClick={onSharePlan}
-          size="icon"
-          type="button"
-          variant="outline"
-        >
-          <Share2 aria-hidden="true" size={17} />
-        </Button>
-        <ChatSettingsLink />
-        <ChatAuthActions />
-      </div>
+        </div>
+      ) : (
+        <div className="flex shrink-0 items-center gap-2">
+          {hasSelectedThread ? (
+            <ThreadActionControls
+              disabled={isMutatingThread}
+              onArchive={() => openThreadActionDialog("archive")}
+              onDelete={() => openThreadActionDialog("delete")}
+              onRename={() => openThreadActionDialog("rename")}
+            />
+          ) : null}
+          <Button
+            aria-label="Reset chat"
+            className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+            onClick={onStartNewChat}
+            size="icon"
+            type="button"
+            variant="outline"
+          >
+            <RefreshCw aria-hidden="true" size={17} />
+          </Button>
+          <Button
+            aria-label="Share saved plan"
+            className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100 disabled:opacity-45"
+            disabled={!canSharePlan}
+            onClick={onSharePlan}
+            size="icon"
+            type="button"
+            variant="outline"
+          >
+            <Share2 aria-hidden="true" size={17} />
+          </Button>
+          <ChatSettingsLink />
+          <ChatAuthActions />
+        </div>
+      )}
       {threadActionState.error ? (
         <p className="basis-full m-0 text-sm font-bold text-text-alert" role="status">
           {threadActionState.error}
@@ -2276,6 +2298,131 @@ function ChatTopBar({
         />
       ) : null}
     </header>
+  );
+}
+
+function CompactChatActionsMenu({
+  canSharePlan,
+  disabled,
+  hasSelectedThread,
+  onArchive,
+  onDelete,
+  onRename,
+  onSharePlan,
+  onStartNewChat,
+}: {
+  canSharePlan: boolean;
+  disabled: boolean;
+  hasSelectedThread: boolean;
+  onArchive: () => void;
+  onDelete: () => void;
+  onRename: () => void;
+  onSharePlan: () => void;
+  onStartNewChat: () => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const runAction = (action: () => void) => {
+    setIsOpen(false);
+    window.setTimeout(action, 0);
+  };
+
+  return (
+    <Dialog.Root onOpenChange={setIsOpen} open={isOpen}>
+      <Dialog.Trigger asChild>
+        <Button
+          aria-label="Open chat actions"
+          className="size-11 rounded-md border-border-default bg-white text-text-strong hover:bg-brand-lavender-50"
+          size="icon"
+          type="button"
+          variant="outline"
+        >
+          <Ellipsis aria-hidden="true" size={19} />
+        </Button>
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-brand-navy-980/45" />
+        <Dialog.Content
+          className={cn(
+            appSurfaceOverlayClass,
+            "fixed right-3 bottom-3 left-3 z-50 grid gap-3 p-4 text-text-strong focus:outline-none sm:right-4 sm:bottom-auto sm:left-auto sm:top-20 sm:w-80",
+          )}
+          data-testid="compact-chat-actions"
+        >
+          <div className="grid gap-1">
+            <Dialog.Title className="m-0 text-base font-semibold">Chat actions</Dialog.Title>
+            <Dialog.Description className="m-0 text-sm font-bold text-text-muted">
+              Manage this question or open account settings.
+            </Dialog.Description>
+          </div>
+          <div className="grid gap-2">
+            <Button
+              className="min-h-11 justify-start rounded-md border-border-default bg-white px-3 text-sm font-extrabold text-text-strong hover:bg-brand-lavender-50"
+              onClick={() => runAction(onStartNewChat)}
+              type="button"
+              variant="outline"
+            >
+              <RefreshCw aria-hidden="true" size={16} />
+              New question
+            </Button>
+            <Button
+              className="min-h-11 justify-start rounded-md border-border-default bg-white px-3 text-sm font-extrabold text-text-strong hover:bg-brand-lavender-50 disabled:opacity-45"
+              disabled={!canSharePlan}
+              onClick={() => runAction(onSharePlan)}
+              type="button"
+              variant="outline"
+            >
+              <Share2 aria-hidden="true" size={16} />
+              Share saved plan
+            </Button>
+            <Button asChild className="min-h-11 justify-start" variant="outline">
+              <Link href="/settings">
+                <SettingsIcon aria-hidden="true" size={16} />
+                Settings
+              </Link>
+            </Button>
+            {hasSelectedThread ? (
+              <>
+                <Button
+                  className="min-h-11 justify-start"
+                  disabled={disabled}
+                  onClick={() => runAction(onRename)}
+                  type="button"
+                  variant="outline"
+                >
+                  <Pencil aria-hidden="true" size={16} />
+                  Rename chat
+                </Button>
+                <Button
+                  className="min-h-11 justify-start"
+                  disabled={disabled}
+                  onClick={() => runAction(onArchive)}
+                  type="button"
+                  variant="outline"
+                >
+                  <Archive aria-hidden="true" size={16} />
+                  Archive chat
+                </Button>
+                <Button
+                  className="min-h-11 justify-start border-red-200 text-red-700 hover:bg-red-50"
+                  disabled={disabled}
+                  onClick={() => runAction(onDelete)}
+                  type="button"
+                  variant="outline"
+                >
+                  <Trash2 aria-hidden="true" size={16} />
+                  Delete chat
+                </Button>
+              </>
+            ) : null}
+          </div>
+          <Dialog.Close asChild>
+            <Button className="min-h-11" type="button" variant="ghost">
+              Close
+            </Button>
+          </Dialog.Close>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
@@ -2768,7 +2915,7 @@ function MobileTripContextDisclosure({
           <MapPin aria-hidden="true" className="shrink-0 text-brand-violet-650" size={17} />
           <span className="grid min-w-0 flex-1 gap-0.5">
             <span className="text-xs leading-tight font-extrabold">{summary.actionLabel}</span>
-            <span className="break-words text-[0.7rem] leading-tight font-bold text-text-muted">
+            <span className="break-words text-xs leading-tight font-bold text-text-muted">
               {summary.facts.length
                 ? summary.facts.map((fact) => fact.value).join(" · ")
                 : summary.state === "loading"
@@ -2988,7 +3135,7 @@ function MobileTripContextSheet({
                 Cancel edits
               </Button>
               <Button
-                className="h-11 rounded-md bg-brand-violet-650 px-4 text-sm font-extrabold text-white hover:bg-brand-violet-600 focus-visible:ring-2 focus-visible:ring-brand-violet-650 disabled:opacity-55"
+                className="h-11 rounded-md bg-brand-lagoon-700 px-4 text-sm font-extrabold text-white hover:bg-brand-lagoon-600 focus-visible:ring-2 focus-visible:ring-brand-lagoon-700 disabled:opacity-55"
                 disabled={saveState === "saving" || !isDirty}
                 onClick={() => {
                   void onSave();
@@ -3001,7 +3148,7 @@ function MobileTripContextSheet({
           ) : (
             <Dialog.Close asChild>
               <Button
-                className="h-11 rounded-md bg-brand-violet-650 px-4 text-sm font-extrabold text-white"
+                className="h-11 rounded-md bg-brand-lagoon-700 px-4 text-sm font-extrabold text-white"
                 type="button"
               >
                 Done
@@ -3156,6 +3303,20 @@ function useMobileTripContextViewport() {
   );
 }
 
+function useCompactChatHeaderViewport() {
+  return useSyncExternalStore(
+    (notify) => {
+      const mediaQuery = window.matchMedia("(max-width: 1279px)");
+      mediaQuery.addEventListener("change", notify);
+      return () => {
+        mediaQuery.removeEventListener("change", notify);
+      };
+    },
+    () => window.matchMedia("(max-width: 1279px)").matches,
+    () => false,
+  );
+}
+
 function ChatSettingsLink() {
   return (
     <>
@@ -3229,7 +3390,7 @@ function ChatContextRail({
   return (
     <aside
       aria-label="Trip context and live conditions"
-      className="hidden min-h-0 content-start gap-1 overflow-hidden border-border-default/80 border-l bg-brand-paper-100/88 p-1.5 min-[1180px]:grid"
+      className="hidden min-h-0 content-start gap-1.5 overflow-hidden border-border-default/80 border-l bg-brand-paper-100/88 p-1.5 min-[1180px]:grid"
       data-testid="context-rail"
     >
       <ContextCard
@@ -3237,7 +3398,7 @@ function ChatContextRail({
           isEditing ? (
             <div className="flex items-center gap-2">
               <Button
-                className="h-7 rounded-md border-border-default bg-white px-2.5 text-xs font-extrabold text-text-muted hover:bg-brand-lavender-50"
+                className="min-h-9 rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-muted hover:bg-brand-lavender-50"
                 onClick={() => {
                   setDraft(tripContext);
                   setIsEditing(false);
@@ -3251,7 +3412,7 @@ function ChatContextRail({
                 Cancel
               </Button>
               <Button
-                className="h-7 rounded-md bg-brand-violet-650 px-2.5 text-xs font-extrabold text-white hover:bg-brand-violet-600"
+                className="min-h-9 rounded-md bg-brand-lagoon-700 px-3 text-xs font-extrabold text-white hover:bg-brand-lagoon-600"
                 disabled={saveState === "saving"}
                 onClick={() => {
                   void saveDraft();
@@ -3264,7 +3425,7 @@ function ChatContextRail({
             </div>
           ) : (
             <Button
-              className="h-7 rounded-md border-brand-lagoon-700/20 bg-brand-lagoon-100 px-2.5 text-xs font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
+              className="min-h-9 rounded-md border-brand-lagoon-700/20 bg-brand-lagoon-100 px-3 text-xs font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
               onClick={() => {
                 setDraft(tripContext);
                 setIsEditing(true);
@@ -3329,7 +3490,7 @@ function ChatContextRail({
         action={
           <Button
             aria-label="Refresh weather"
-            className="size-7 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+            className="size-9 rounded-md border-border-default bg-white text-brand-lagoon-700 hover:bg-brand-lagoon-50"
             onClick={() => {
               refreshWeather();
             }}
@@ -3352,15 +3513,9 @@ function ChatContextRail({
               >
                 {weatherDecision.action}
               </p>
-              <p
-                className="m-0 text-xs font-bold text-text-muted"
-                data-testid="weather-condition-basis"
-              >
-                {weatherDecision.basis}
-              </p>
             </div>
           </div>
-          <ConditionDecisionDetails decision={weatherDecision} />
+          <ConditionDecisionDetails decision={weatherDecision} includeBasis />
         </div>
       </ContextCard>
 
@@ -3368,7 +3523,7 @@ function ChatContextRail({
         action={
           <Button
             aria-label="Refresh surf conditions"
-            className="size-7 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+            className="size-9 rounded-md border-border-default bg-white text-brand-lagoon-700 hover:bg-brand-lagoon-50"
             onClick={() => {
               refreshSurf();
             }}
@@ -3394,10 +3549,7 @@ function ChatContextRail({
           >
             {surfDecision.action}
           </p>
-          <p className="m-0 text-xs font-bold text-text-muted" data-testid="surf-condition-basis">
-            {surfDecision.basis}
-          </p>
-          <ConditionDecisionDetails decision={surfDecision} />
+          <ConditionDecisionDetails decision={surfDecision} includeBasis />
         </div>
       </ContextCard>
     </aside>
@@ -3414,7 +3566,7 @@ function ContextCard({
   title: string;
 }) {
   return (
-    <section className="grid gap-1 rounded-md border border-border-default/80 bg-white/78 p-1.5 shadow-none">
+    <section className="grid gap-1.5 rounded-md border border-border-default/80 bg-white/78 p-2 shadow-none">
       <div className="flex items-center justify-between gap-3">
         <h2 className="m-0 min-w-0 text-sm font-semibold leading-tight text-text-strong">
           {title}
@@ -3439,7 +3591,7 @@ function ContextFact({
     <div className="grid min-w-0 grid-cols-[18px_minmax(0,1fr)] gap-1.5">
       <Icon aria-hidden="true" className="mt-0.5 text-brand-lagoon-700" size={16} />
       <div className="min-w-0">
-        <p className="m-0 text-[0.68rem] font-bold leading-tight text-text-muted">{label}</p>
+        <p className="m-0 text-xs font-bold leading-tight text-text-muted">{label}</p>
         <p className="m-0 min-w-0 break-words text-xs font-semibold leading-tight text-text-strong">
           {value}
         </p>
@@ -3526,8 +3678,8 @@ function TripContextField({
 
 function MetricTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid min-h-10 content-center gap-0.5 rounded-md bg-brand-paper-150 px-1.5 py-1">
-      <p className="m-0 text-[0.68rem] font-bold leading-tight text-text-muted">{label}</p>
+    <div className="grid min-h-10 content-center gap-0.5 rounded-md bg-brand-paper-150 px-2 py-1.5">
+      <p className="m-0 text-xs font-bold leading-tight text-text-muted">{label}</p>
       <p className="m-0 text-xs font-semibold leading-tight text-text-strong">{value}</p>
     </div>
   );
@@ -3563,25 +3715,32 @@ function iconForTripContextLabel(label: string): ChatContextIcon {
   }
 }
 
-function ConditionDecisionDetails({ decision }: { decision: LiveConditionDecision }) {
+function ConditionDecisionDetails({
+  decision,
+  includeBasis = false,
+}: {
+  decision: LiveConditionDecision;
+  includeBasis?: boolean;
+}) {
   const presentation = projectConditionEvidencePresentation(decision);
+  const [primaryBoundary, ...additionalBoundaries] = decision.notChecked;
   return (
-    <div className="grid gap-0.5">
+    <div className="grid gap-2">
       {decision.timing ? (
         <p
-          className="m-0 text-xs font-semibold text-brand-violet-650"
+          className="m-0 text-xs font-semibold text-brand-lagoon-700"
           data-testid={`${decision.kind}-condition-timing`}
         >
           Planning cue: {decision.timing}
         </p>
       ) : null}
-      <div className="grid grid-cols-3 gap-1">
+      <div className="grid grid-cols-3 gap-2">
         {decision.supportingMetrics.map((item) => (
           <MetricTile key={item.label} label={item.label} value={item.value} />
         ))}
       </div>
       <p
-        className="m-0 text-[0.7rem] leading-snug font-extrabold text-text-default"
+        className="m-0 text-sm leading-snug font-bold text-text-default"
         data-testid={`${decision.kind}-condition-fallback`}
       >
         <span className="font-semibold text-text-strong">Fallback: </span>
@@ -3589,7 +3748,7 @@ function ConditionDecisionDetails({ decision }: { decision: LiveConditionDecisio
       </p>
       <p
         className={cn(
-          "m-0 inline-flex items-center gap-2 text-[0.7rem] font-extrabold",
+          "m-0 inline-flex items-center gap-2 text-xs font-extrabold",
           presentation.state === "checked" ? "text-confidence-high" : "text-text-muted",
         )}
         data-testid={`${decision.kind}-condition-state`}
@@ -3602,28 +3761,56 @@ function ConditionDecisionDetails({ decision }: { decision: LiveConditionDecisio
         />
         {presentation.label}
       </p>
-      {decision.evidenceStatus ? (
-        <p
-          className="m-0 text-[0.7rem] leading-snug font-bold text-text-muted"
-          data-testid={`${decision.kind}-condition-evidence`}
-        >
-          {presentation.summary}
-          {decision.sourceTime ? (
-            <>
-              {" · Forecast time: "}
-              <time dateTime={decision.sourceTime}>
-                {formatConditionSourceTime(decision.sourceTime)}
-              </time>
-            </>
-          ) : null}
+      {primaryBoundary ? (
+        <p className="m-0 text-sm leading-snug font-bold text-text-caveat">
+          <span className="font-extrabold">Limit: </span>
+          {primaryBoundary}
         </p>
       ) : null}
-      {decision.notChecked.length > 0 ? (
-        <ul className="m-0 grid list-disc gap-0.5 pl-4 text-[0.7rem] leading-snug font-bold text-text-muted">
-          {decision.notChecked.map((boundary) => (
-            <li key={boundary}>{boundary}</li>
-          ))}
-        </ul>
+      {includeBasis || decision.evidenceStatus || additionalBoundaries.length > 0 ? (
+        <details className="group rounded-md border border-border-default bg-brand-paper-100 px-3">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-xs font-extrabold text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-violet-650 min-[1180px]:min-h-10">
+            Evidence and limits
+            <ChevronDown
+              aria-hidden="true"
+              className="transition-transform group-open:rotate-180"
+              size={15}
+            />
+          </summary>
+          <div className="grid gap-2 border-border-default border-t py-3">
+            {includeBasis ? (
+              <p
+                className="m-0 text-sm leading-snug font-bold text-text-muted"
+                data-testid={`${decision.kind}-condition-basis`}
+              >
+                {decision.basis}
+              </p>
+            ) : null}
+            {decision.evidenceStatus ? (
+              <p
+                className="m-0 text-xs leading-snug font-bold text-text-muted"
+                data-testid={`${decision.kind}-condition-evidence`}
+              >
+                {presentation.summary}
+                {decision.sourceTime ? (
+                  <>
+                    {" · Forecast time: "}
+                    <time dateTime={decision.sourceTime}>
+                      {formatConditionSourceTime(decision.sourceTime)}
+                    </time>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
+            {additionalBoundaries.length > 0 ? (
+              <ul className="m-0 grid list-disc gap-1 pl-4 text-xs leading-snug font-bold text-text-muted">
+                {additionalBoundaries.map((boundary) => (
+                  <li key={boundary}>{boundary}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </details>
       ) : null}
     </div>
   );
@@ -3794,29 +3981,63 @@ function savedItemKindLabel(kind: SavedTripItem["kind"]) {
   return "Place";
 }
 
-function ChatAuthActions() {
+function ChatAuthActions({ compact = false }: { compact?: boolean }) {
+  const signedOutActions = (
+    <>
+      <SignInButton mode="modal">
+        <Button
+          className={cn(
+            "rounded-md border-border-default bg-white text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50",
+            compact ? "h-11 min-w-[4.5rem] px-3 text-sm" : "h-10 px-3",
+          )}
+          type="button"
+          variant="outline"
+        >
+          Sign in
+        </Button>
+      </SignInButton>
+      {!compact ? (
+        <SignUpButton mode="modal">
+          <Button
+            className="h-10 rounded-md border-brand-lagoon-700/25 bg-brand-lagoon-50 px-3 text-xs font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
+            type="button"
+            variant="outline"
+          >
+            Sign up
+          </Button>
+        </SignUpButton>
+      ) : null}
+    </>
+  );
+
   if (!isClerkConfigured) {
     return (
       <>
         <Button
           asChild
-          className="hidden h-10 rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50 sm:inline-flex"
+          className={cn(
+            "rounded-md border-border-default bg-white text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50",
+            compact ? "h-11 min-w-[4.5rem] px-3 text-sm" : "h-10 px-3",
+          )}
           variant="outline"
         >
           <Link href="/sign-in">Sign in</Link>
         </Button>
-        <Button
-          asChild
-          className="h-10 rounded-md border-brand-violet-650 bg-brand-violet-650 px-3 text-xs font-extrabold text-white hover:bg-brand-violet-600"
-        >
-          <Link href="/sign-up">Sign up</Link>
-        </Button>
+        {!compact ? (
+          <Button
+            asChild
+            className="h-10 rounded-md border-brand-lagoon-700/25 bg-brand-lagoon-50 px-3 text-xs font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
+            variant="outline"
+          >
+            <Link href="/sign-up">Sign up</Link>
+          </Button>
+        ) : null}
       </>
     );
   }
 
   return (
-    <Show fallback={chatSignedOutActions} when="signed-in">
+    <Show fallback={signedOutActions} when="signed-in">
       <UserButton
         appearance={clerkAppearance}
         fallback={
@@ -3830,6 +4051,7 @@ function ChatAuthActions() {
 function ChatMessage({
   disabled,
   message,
+  onEditPrompt,
   onRetryPrompt,
   onRateAssistantMessage,
   onRemoveSavedItem,
@@ -3837,10 +4059,12 @@ function ChatMessage({
   onSaveRecommendationCard,
   onStopWaiting,
   onSubmitPrompt,
+  recoveryConditions,
   savedItemIds,
 }: {
   disabled: boolean;
   message: InteractiveChatMessage;
+  onEditPrompt: (prompt: string) => void;
   onRateAssistantMessage: (messageId: string, rating: ChatResponseRatingValue) => void;
   onRetryPrompt: (prompt: string) => void;
   onRemoveSavedItem: (itemId: string) => void;
@@ -3848,6 +4072,7 @@ function ChatMessage({
   onSaveRecommendationCard: (card: RecommendationCardArtifact) => void;
   onStopWaiting: (assistantMessageId: string) => void;
   onSubmitPrompt: (prompt: string) => void;
+  recoveryConditions: LiveConditionsController;
   savedItemIds: ReadonlySet<string>;
 }) {
   const isUser = message.role === "user";
@@ -3858,7 +4083,7 @@ function ChatMessage({
   if (isUser) {
     return (
       <article
-        className="min-w-0 max-w-[min(88%,42rem)] justify-self-end overflow-hidden rounded-lg border border-brand-violet-400/25 bg-brand-violet-650 px-5 py-4 text-white shadow-none"
+        className="min-w-0 max-w-[min(88%,42rem)] justify-self-end overflow-hidden rounded-lg border border-brand-lagoon-300/25 bg-brand-lagoon-700 px-5 py-4 text-white shadow-none"
         data-testid="user-message-bubble"
       >
         <p className="m-0 whitespace-pre-wrap break-words text-sm leading-[1.55] font-extrabold [overflow-wrap:anywhere] sm:text-base">
@@ -3879,8 +4104,8 @@ function ChatMessage({
         className={
           isError
             ? cn(
-                appSurfaceOverlayClass,
-                "min-w-0 overflow-hidden rounded-lg border-border-alert bg-surface-alert px-5 py-4 text-text-alert",
+                appSurfacePanelClass,
+                "min-w-0 overflow-hidden rounded-lg border-brand-sunset-coral/55 bg-brand-paper-50 px-5 py-4 text-text-strong",
               )
             : isStopped
               ? cn(
@@ -3907,10 +4132,12 @@ function ChatMessage({
               <PendingAssistantWaitState
                 disabled={false}
                 onStopWaiting={() => onStopWaiting(message.id)}
+                statusText={message.text}
               />
             ) : (
-              <AssistantMarkdownText text={message.text} tone={isError ? "error" : "default"} />
+              <AssistantMarkdownText text={message.text} tone="default" />
             )}
+            {isError ? <FailureEvidenceFallback liveConditions={recoveryConditions} /> : null}
             {!isError && !isPending && !isStopped && message.itineraries?.length ? (
               <ItineraryPlans
                 onRemoveSavedItem={onRemoveSavedItem}
@@ -3941,9 +4168,7 @@ function ChatMessage({
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-extrabold">
-          <time className={isError ? "text-text-alert" : "text-text-muted"}>
-            {message.timestamp}
-          </time>
+          <time className="text-text-muted">{message.timestamp}</time>
           {!isError && !isPending && !isStopped && message.messageId ? (
             <AssistantRatingControls
               disabled={disabled || message.ratingStatus === "saving"}
@@ -3954,24 +4179,113 @@ function ChatMessage({
             />
           ) : null}
         </div>
-        {(isError || isStopped) && message.retryPrompt ? (
+        {isError && message.retryPrompt ? (
+          <FailureRecoveryActions
+            disabled={disabled}
+            onEditPrompt={onEditPrompt}
+            onRetryPrompt={onRetryPrompt}
+            onSubmitPrompt={onSubmitPrompt}
+            prompt={message.retryPrompt}
+          />
+        ) : null}
+        {isStopped && message.retryPrompt ? (
           <Button
-            className={
-              isError
-                ? "mt-4 h-9 rounded-md border-border-alert bg-surface-alert px-3 text-xs font-extrabold text-text-alert hover:bg-surface-alert"
-                : "mt-4 h-9 rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50"
-            }
+            className="mt-4 min-h-11 rounded-md border-border-default bg-white px-3 text-sm font-extrabold text-text-strong hover:bg-brand-lavender-50"
             disabled={disabled}
             onClick={() => onRetryPrompt(message.retryPrompt ?? "")}
             type="button"
             variant="outline"
           >
             <RefreshCw aria-hidden="true" size={13} />
-            {isError ? "Retry last question" : "Retry question"}
+            Retry question
           </Button>
         ) : null}
       </div>
     </article>
+  );
+}
+
+function FailureEvidenceFallback({ liveConditions }: { liveConditions: LiveConditionsController }) {
+  const availableDecisions = [liveConditions.weatherDecision, liveConditions.surfDecision].filter(
+    (decision) => decision.state !== "loading" && decision.state !== "unavailable",
+  );
+
+  if (availableDecisions.length === 0) {
+    return null;
+  }
+
+  return (
+    <section
+      aria-label="Available planning cues"
+      className="grid gap-2 rounded-md border border-brand-lagoon-700/15 bg-brand-lagoon-50 p-3"
+    >
+      <div className="grid gap-0.5">
+        <h3 className="m-0 text-sm font-semibold text-text-strong">Available planning cues</h3>
+        <p className="m-0 text-xs font-bold text-text-muted">
+          These do not complete the Reality Check, but they can support a safer fallback.
+        </p>
+      </div>
+      <ul className="m-0 grid list-none gap-2 p-0">
+        {availableDecisions.map((decision) => (
+          <li className="grid gap-0.5" key={decision.kind}>
+            <span className="text-xs font-extrabold text-brand-lagoon-700">
+              {decision.kind === "weather" ? "Weather" : "Surf"}
+            </span>
+            <span className="text-sm font-semibold text-text-strong">{decision.action}</span>
+            <span className="text-xs font-bold text-text-muted">Fallback: {decision.fallback}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function FailureRecoveryActions({
+  disabled,
+  onEditPrompt,
+  onRetryPrompt,
+  onSubmitPrompt,
+  prompt,
+}: {
+  disabled: boolean;
+  onEditPrompt: (prompt: string) => void;
+  onRetryPrompt: (prompt: string) => void;
+  onSubmitPrompt: (prompt: string) => void;
+  prompt: string;
+}) {
+  const boundedFallbackPrompt = `${prompt}\n\nIf current evidence is unavailable, give me a bounded needs-confirmation answer and the safest practical fallback using only evidence you can verify now.`;
+
+  return (
+    <div className="mt-4 flex flex-wrap gap-2" data-testid="failure-recovery-actions">
+      <Button
+        className="min-h-11 rounded-md bg-brand-lagoon-700 px-3 text-sm font-extrabold text-white hover:bg-brand-lagoon-600"
+        disabled={disabled}
+        onClick={() => onRetryPrompt(prompt)}
+        type="button"
+      >
+        <RefreshCw aria-hidden="true" size={15} />
+        Retry last question
+      </Button>
+      <Button
+        className="min-h-11 rounded-md border-brand-lagoon-700/25 bg-brand-lagoon-50 px-3 text-sm font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
+        disabled={disabled}
+        onClick={() => onSubmitPrompt(boundedFallbackPrompt)}
+        type="button"
+        variant="outline"
+      >
+        Use available evidence
+      </Button>
+      <Button
+        className="min-h-11 rounded-md border-border-default bg-white px-3 text-sm font-extrabold text-text-strong hover:bg-brand-lavender-50"
+        disabled={disabled}
+        onClick={() => onEditPrompt(prompt)}
+        type="button"
+        variant="outline"
+      >
+        <Pencil aria-hidden="true" size={15} />
+        Edit question
+      </Button>
+    </div>
   );
 }
 
@@ -3998,7 +4312,7 @@ function AssistantRatingControls({
       <Button
         aria-label="Rate assistant response helpful"
         aria-pressed={rating === "up"}
-        className={`size-8 rounded-md border-border-default hover:bg-brand-lavender-50 ${
+        className={`size-11 rounded-md border-border-default hover:bg-brand-lavender-50 sm:size-9 ${
           rating === "up" ? "bg-brand-lagoon-100 text-brand-lagoon-700" : "bg-white text-text-muted"
         }`}
         disabled={disabled}
@@ -4012,7 +4326,7 @@ function AssistantRatingControls({
       <Button
         aria-label="Rate assistant response not helpful"
         aria-pressed={rating === "down"}
-        className={`size-8 rounded-md border-border-default hover:bg-brand-lavender-50 ${
+        className={`size-11 rounded-md border-border-default hover:bg-brand-lavender-50 sm:size-9 ${
           rating === "down" ? "bg-surface-caveat text-text-caveat" : "bg-white text-text-muted"
         }`}
         disabled={disabled}
@@ -4154,7 +4468,7 @@ function SavedPlanTray({
           </div>
         </div>
         <Button
-          className="shrink-0 rounded-md border-brand-violet-650 bg-brand-violet-650 px-3 text-xs font-extrabold text-white hover:bg-brand-violet-600 disabled:opacity-55"
+          className="min-h-10 shrink-0 rounded-md border-brand-lagoon-700 bg-brand-lagoon-700 px-3 text-xs font-extrabold text-white hover:bg-brand-lagoon-600 disabled:opacity-55"
           disabled={!hasSelectedItems || isSharing}
           onClick={onCreateShareLink}
           size="sm"
@@ -4217,7 +4531,7 @@ function SavedPlanTray({
               </label>
               <Button
                 aria-label={`Remove ${item.title} from saved plan`}
-                className="size-8 shrink-0 rounded-md border-border-default bg-white text-text-muted hover:bg-brand-lavender-50"
+                className="size-11 shrink-0 rounded-md border-border-default bg-white text-text-muted hover:bg-brand-lavender-50 sm:size-9"
                 onClick={() => onRemoveItem(item.id)}
                 size="icon"
                 type="button"
@@ -4249,7 +4563,7 @@ function SavedPlanTray({
         >
           <input
             aria-label="Share link"
-            className="min-h-9 min-w-0 rounded-md border border-border-default bg-white px-3 text-xs font-bold text-text-strong outline-none"
+            className="min-h-11 min-w-0 rounded-md border border-border-default bg-white px-3 text-sm font-bold text-text-strong outline-none sm:min-h-9 sm:text-xs"
             readOnly
             value={shareUrl}
           />
@@ -4347,7 +4661,7 @@ function AssistantGlance({ message }: { message: InteractiveChatMessage }) {
                 <Icon aria-hidden="true" size={15} />
               </span>
               <span className="min-w-0">
-                <span className="block text-[0.68rem] leading-tight font-semibold text-text-muted">
+                <span className="block text-xs leading-tight font-semibold text-text-muted">
                   {item.label}
                 </span>
                 <span className="block truncate text-xs font-semibold text-text-strong">
@@ -4403,14 +4717,14 @@ function DecisionStrip({
       <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
         <div className="grid min-w-0 gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.68rem] leading-tight font-semibold text-brand-lagoon-700 uppercase">
+            <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-xs leading-tight font-semibold text-brand-lagoon-700 uppercase">
               <Navigation aria-hidden="true" className="shrink-0" size={13} />
               {presentation.verdict ? "Reality check" : "Best move"}
             </span>
             {presentation.verdict ? (
               <span
                 className={cn(
-                  "inline-flex min-h-6 items-center rounded-full border px-2.5 py-1 text-[0.68rem] leading-none font-extrabold tracking-[0.04em] uppercase",
+                  "inline-flex min-h-6 items-center rounded-full border px-2.5 py-1 text-xs leading-none font-extrabold tracking-[0.04em] uppercase",
                   decisionVerdictToneClass(presentation.verdict.tone),
                 )}
                 data-testid="decision-strip-verdict"
@@ -4447,7 +4761,7 @@ function DecisionStrip({
                 className="grid min-w-0 gap-0.5 rounded-md border border-brand-lagoon-700/15 bg-white px-2.5 py-2"
                 key={item.label}
               >
-                <dt className="text-[0.68rem] leading-tight font-semibold text-text-muted uppercase">
+                <dt className="text-xs leading-tight font-semibold text-text-muted uppercase">
                   {item.label}
                 </dt>
                 <dd className="m-0 text-xs leading-[1.35] font-extrabold break-words text-text-strong">
@@ -4518,7 +4832,7 @@ function ArtifactDecision({ decision }: { decision?: ArtifactDecisionMetadata })
       className="mt-1 grid min-w-0 gap-1 rounded-md border border-brand-lagoon-700/12 bg-brand-lagoon-100 px-2.5 py-2"
       data-testid="artifact-decision"
     >
-      <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-[0.7rem] leading-tight font-semibold text-brand-lagoon-700 uppercase">
+      <span className="inline-flex w-fit max-w-full items-center gap-1.5 text-xs leading-tight font-semibold text-brand-lagoon-700 uppercase">
         <Sparkles aria-hidden="true" className="shrink-0" size={12} />
         <span className="min-w-0 break-words">{artifactDecisionLabel(decision.label)}</span>
       </span>
@@ -4576,7 +4890,7 @@ function ItineraryPlans({
                 <h3 className="m-0 text-sm leading-[1.25] font-semibold break-words text-text-strong sm:text-base">
                   {plan.title}
                 </h3>
-                <span className="inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border border-border-default bg-white px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold text-text-muted">
+                <span className="inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border border-border-default bg-white px-2.5 py-1 text-xs leading-tight font-extrabold text-text-muted">
                   <Clock aria-hidden="true" className="shrink-0" size={13} />
                   <span className="min-w-0 break-words">{plan.durationLabel}</span>
                 </span>
@@ -4629,7 +4943,7 @@ function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
             {stop.title}
           </h4>
           {stop.area ? (
-            <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-border-default bg-white px-2 py-1 text-[0.7rem] leading-tight font-extrabold text-text-muted">
+            <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-border-default bg-white px-2 py-1 text-xs leading-tight font-extrabold text-text-muted">
               <MapPin aria-hidden="true" className="shrink-0" size={12} />
               <span className="min-w-0 break-words">{stop.area}</span>
             </span>
@@ -4662,7 +4976,7 @@ function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
         {stop.mapsUrl ? (
           <a
             aria-label={`Open ${stop.title} in Google Maps`}
-            className="inline-flex min-h-9 w-fit max-w-full items-center gap-2 rounded-md border border-brand-lagoon-700/25 bg-white px-3 py-2 text-xs font-extrabold text-brand-lagoon-700 no-underline hover:bg-brand-lagoon-100"
+            className="inline-flex min-h-11 w-fit max-w-full items-center gap-2 rounded-md border border-brand-lagoon-700/25 bg-white px-3 py-2 text-sm font-extrabold text-brand-lagoon-700 no-underline hover:bg-brand-lagoon-100 sm:min-h-9 sm:text-xs"
             href={stop.mapsUrl}
             rel="noreferrer"
             target="_blank"
@@ -4729,7 +5043,7 @@ function ItinerarySourceBadge({ source }: { source: ChatSourceArtifact }) {
 
   return (
     <span
-      className={`inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold ${badge.className}`}
+      className={`inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs leading-tight font-extrabold ${badge.className}`}
       data-testid="source-icon-badge"
     >
       <Icon aria-hidden="true" className="shrink-0" size={13} />
@@ -4802,7 +5116,7 @@ function SourceIconBadge({ source }: { source: ChatSourceArtifact }) {
 
   return (
     <span
-      className={`inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold ${badge.className}`}
+      className={`inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs leading-tight font-extrabold ${badge.className}`}
       data-testid="source-icon-badge"
     >
       <Icon aria-hidden="true" className="shrink-0" size={13} />
@@ -4908,7 +5222,7 @@ function RecommendationSourceBadge({ cards }: { cards: readonly RecommendationCa
 
   return (
     <span
-      className="inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border border-brand-sunset-gold/30 bg-surface-caveat px-2.5 py-1 text-[0.72rem] leading-tight font-extrabold text-text-caveat"
+      className="inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border border-brand-sunset-gold/30 bg-surface-caveat px-2.5 py-1 text-xs leading-tight font-extrabold text-text-caveat"
       data-testid="recommendation-source-badge"
     >
       <ShieldCheck aria-hidden="true" className="shrink-0" size={13} />
@@ -5133,7 +5447,7 @@ function RecommendationCards({
               {card.mapsUrl ? (
                 <a
                   aria-label={`Open ${card.title} in Google Maps`}
-                  className="inline-flex min-h-9 w-fit max-w-full items-center gap-2 rounded-md border border-brand-lagoon-700/15 bg-brand-lagoon-100 px-3 py-2 text-xs font-extrabold text-brand-lagoon-700 no-underline hover:bg-brand-lagoon-100"
+                  className="inline-flex min-h-11 w-fit max-w-full items-center gap-2 rounded-md border border-brand-lagoon-700/15 bg-brand-lagoon-100 px-3 py-2 text-sm font-extrabold text-brand-lagoon-700 no-underline hover:bg-brand-lagoon-100 sm:min-h-9 sm:text-xs"
                   href={card.mapsUrl}
                   rel="noreferrer"
                   target="_blank"
@@ -5160,8 +5474,8 @@ function RecommendationRoleBadge({
     <span
       className={
         presentation.isPrimary
-          ? "inline-flex w-fit max-w-full items-center gap-1.5 rounded-md bg-brand-lagoon-100 px-2.5 py-1 text-[0.7rem] leading-tight font-semibold text-brand-lagoon-700"
-          : "inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border border-border-default bg-brand-lavender-50 px-2.5 py-1 text-[0.7rem] leading-tight font-extrabold text-text-muted"
+          ? "inline-flex w-fit max-w-full items-center gap-1.5 rounded-md bg-brand-lagoon-100 px-2.5 py-1 text-xs leading-tight font-semibold text-brand-lagoon-700"
+          : "inline-flex w-fit max-w-full items-center gap-1.5 rounded-md border border-border-default bg-brand-lavender-50 px-2.5 py-1 text-xs leading-tight font-extrabold text-text-muted"
       }
       data-testid="recommendation-role"
     >
@@ -5188,8 +5502,8 @@ function SaveToggleButton({
       aria-label={isSaved ? `Remove ${title} from saved plan` : `Save ${title}`}
       className={
         isSaved
-          ? "size-9 shrink-0 rounded-md border-brand-lagoon-300/35 bg-brand-lagoon-500 text-brand-navy-980 hover:bg-brand-lagoon-300"
-          : "size-9 shrink-0 rounded-md border-border-default bg-white text-text-muted hover:bg-brand-lavender-50"
+          ? "size-11 shrink-0 rounded-md border-brand-lagoon-300/35 bg-brand-lagoon-500 text-brand-navy-980 hover:bg-brand-lagoon-300 sm:size-9"
+          : "size-11 shrink-0 rounded-md border-border-default bg-white text-text-muted hover:bg-brand-lavender-50 sm:size-9"
       }
       onClick={() => {
         if (isSaved) {
@@ -5213,7 +5527,7 @@ function SaveToggleButton({
 
 function CardSignal({ icon, label }: { icon?: "distance" | "time"; label: string }) {
   return (
-    <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border-default bg-brand-lavender-50 px-2.5 py-1.5 text-[0.72rem] leading-tight font-extrabold text-text-muted">
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border-default bg-brand-lavender-50 px-2.5 py-1.5 text-xs leading-tight font-extrabold text-text-muted">
       {icon === "distance" ? <MapPin aria-hidden="true" className="shrink-0" size={13} /> : null}
       {icon === "time" ? <Clock aria-hidden="true" className="shrink-0" size={13} /> : null}
       <span className="min-w-0 break-words">{label}</span>
@@ -5236,7 +5550,7 @@ function ChatActionButtons({
         action.href ? (
           <Button
             asChild
-            className="h-auto min-h-9 rounded-md border-border-default bg-white px-3 py-2 text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50"
+            className="h-auto min-h-11 rounded-md border-border-default bg-white px-3 py-2 text-sm font-extrabold text-text-strong hover:bg-brand-lavender-50 sm:min-h-9 sm:text-xs"
             key={action.id}
             size="sm"
             variant="outline"
@@ -5247,7 +5561,7 @@ function ChatActionButtons({
           </Button>
         ) : (
           <Button
-            className="h-auto min-h-9 rounded-md border-brand-violet-650/20 bg-brand-lavender-100 px-3 py-2 text-xs font-extrabold text-brand-violet-650 hover:bg-brand-lavender-150"
+            className="h-auto min-h-11 rounded-md border-brand-lagoon-700/20 bg-brand-lagoon-50 px-3 py-2 text-sm font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100 sm:min-h-9 sm:text-xs"
             disabled={disabled || !action.prompt}
             key={action.id}
             onClick={() => {
@@ -5312,7 +5626,7 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
                 {sourceEvidenceDisplayName(source)}
               </span>
               {source.confidence ? (
-                <span className="text-[0.7rem] font-bold text-text-muted">
+                <span className="text-xs font-bold text-text-muted">
                   {source.confidence} confidence
                 </span>
               ) : null}
@@ -5330,7 +5644,7 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
               </p>
             ) : null}
             {fetchedAtValues.length ? (
-              <p className="m-0 text-[0.7rem] font-bold text-text-muted">
+              <p className="m-0 text-xs font-bold text-text-muted">
                 Checked{" "}
                 {fetchedAtValues
                   .flatMap((value) => {
@@ -5516,7 +5830,7 @@ function AssistantMarkdownTable({
             {card.cells.map((cell) => (
               <div className="grid min-w-0 gap-0.5" key={cell.key}>
                 <dt
-                  className={`text-[0.68rem] leading-tight font-semibold text-text-muted uppercase ${tableTextAlignmentClass(cell.alignment)}`}
+                  className={`text-xs leading-tight font-semibold text-text-muted uppercase ${tableTextAlignmentClass(cell.alignment)}`}
                 >
                   <InlineMarkdown
                     linkClass={linkClass}
@@ -5624,17 +5938,18 @@ function ChatComposer({
   }
 
   return (
-    <footer className="border-border-default border-t bg-white px-4 py-3 sm:px-6 lg:px-8">
+    <footer className="border-border-default border-t bg-white px-4 py-2 sm:px-6 lg:px-8">
       <form
         aria-label="Ask Siargao composer"
         className="mx-auto w-full max-w-5xl min-w-0"
         onSubmit={handleSubmit}
       >
-        <InputGroup className="min-h-[58px] items-start rounded-lg border-border-default bg-white p-2 text-text-strong shadow-none ring-1 ring-border-default">
+        <InputGroup className="min-h-14 items-start rounded-lg border-border-default bg-white p-1.5 text-text-strong shadow-none ring-1 ring-border-default">
           <textarea
             data-slot="input-group-control"
             aria-label="Ask anything about Siargao"
-            className="min-w-0 max-h-32 min-h-11 flex-1 resize-none overflow-hidden rounded-none border-0 bg-transparent px-3 py-2.5 text-base leading-6 whitespace-pre-wrap text-text-strong caret-brand-violet-650 shadow-none outline-none [field-sizing:content] [overflow-wrap:anywhere] placeholder:text-text-soft focus-visible:ring-0 disabled:bg-transparent disabled:text-text-muted"
+            className="min-w-0 max-h-32 min-h-11 flex-1 resize-none overflow-hidden rounded-none border-0 bg-transparent px-3 py-2.5 text-base leading-6 whitespace-pre-wrap text-text-strong caret-brand-lagoon-700 shadow-none outline-none [field-sizing:content] [overflow-wrap:anywhere] placeholder:text-text-soft focus-visible:ring-0 disabled:bg-transparent disabled:text-text-muted"
+            data-testid="chat-composer-input"
             disabled={isSending}
             onChange={(event) => {
               resizeComposerTextarea(event.currentTarget);
@@ -5645,15 +5960,21 @@ function ChatComposer({
               onInputValueChange(event.currentTarget.value);
             }}
             onKeyDown={handleComposerKeyDown}
-            placeholder="Ask anything about Siargao..."
+            placeholder="Reality-check a Siargao plan…"
             ref={textareaRef}
             rows={1}
             value={inputValue}
           />
-          <InputGroupAddon align="inline-end" className="shrink-0 pt-1.5">
+          <InputGroupAddon align="inline-end" className="shrink-0 gap-1 pt-0">
+            <LocationSharingControl
+              disabled={isSending}
+              locationState={locationState}
+              onRequestLocation={onRequestLocation}
+              onTurnOffLocation={onTurnOffLocation}
+            />
             <InputGroupButton
               aria-label="Send question"
-              className="size-11 rounded-md bg-brand-violet-650 text-white hover:bg-brand-violet-600 disabled:opacity-50"
+              className="size-11 rounded-md bg-brand-lagoon-700 text-white hover:bg-brand-lagoon-600 disabled:opacity-50"
               disabled={
                 isSending || locationState.status === "requesting" || inputValue.trim().length === 0
               }
@@ -5668,12 +5989,6 @@ function ChatComposer({
             </InputGroupButton>
           </InputGroupAddon>
         </InputGroup>
-        <LocationSharingControl
-          disabled={isSending}
-          locationState={locationState}
-          onRequestLocation={onRequestLocation}
-          onTurnOffLocation={onTurnOffLocation}
-        />
       </form>
     </footer>
   );
@@ -5703,12 +6018,13 @@ function LocationSharingControl({
 
   return (
     <Dialog.Root onOpenChange={setIsOpen} open={isOpen}>
-      <div className="mt-2 min-w-0 px-1">
+      <div className="min-w-0">
         <Dialog.Trigger asChild>
           <Button
             aria-label={`Location sharing: ${label}. ${summary}`}
-            className="h-auto min-h-11 max-w-full justify-start gap-2 rounded-md border-border-default bg-brand-lavender-50 px-3 py-2 text-left text-xs font-extrabold text-text-strong hover:bg-brand-lavender-100 focus-visible:ring-2 focus-visible:ring-brand-violet-650"
+            className="relative size-11 rounded-md border-border-default bg-brand-lavender-50 p-0 text-text-strong hover:bg-brand-lavender-100 focus-visible:ring-2 focus-visible:ring-brand-violet-650"
             data-testid="location-sharing-trigger"
+            size="icon"
             type="button"
             variant="outline"
           >
@@ -5717,12 +6033,15 @@ function LocationSharingControl({
             ) : (
               <MapPin aria-hidden="true" className="shrink-0 text-brand-violet-650" size={16} />
             )}
-            <span className="grid min-w-0 gap-0.5">
-              <span className="min-w-0 break-words">Location: {label}</span>
-              <span className="min-w-0 break-words text-[0.7rem] leading-tight text-text-muted">
-                {summary}
-              </span>
+            <span className="sr-only">
+              Location: {label}. {summary}
             </span>
+            {locationState.status === "ready" || locationState.status === "requesting" ? (
+              <span
+                aria-hidden="true"
+                className="absolute right-1 top-1 size-2 rounded-full bg-brand-lagoon-500 ring-2 ring-white"
+              />
+            ) : null}
           </Button>
         </Dialog.Trigger>
       </div>
@@ -5761,7 +6080,7 @@ function LocationSharingControl({
           ) : null}
           <div className="grid gap-2">
             <Button
-              className="h-auto min-h-11 justify-start rounded-md bg-brand-violet-650 px-3 py-2 text-sm font-extrabold text-white hover:bg-brand-violet-600 disabled:opacity-55"
+              className="h-auto min-h-11 justify-start rounded-md bg-brand-lagoon-700 px-3 py-2 text-sm font-extrabold text-white hover:bg-brand-lagoon-600 disabled:opacity-55"
               disabled={disabled || isRequesting}
               onClick={() => requestScope("single_request")}
               type="button"
@@ -5787,7 +6106,7 @@ function LocationSharingControl({
           <div className="flex flex-wrap justify-end gap-2 border-border-default border-t pt-3">
             {canTurnOff ? (
               <Button
-                className="h-10 rounded-md border-border-default bg-white px-3 text-sm font-extrabold text-text-strong hover:bg-brand-lavender-50"
+                className="min-h-11 rounded-md border-border-default bg-white px-3 text-sm font-extrabold text-text-strong hover:bg-brand-lavender-50"
                 onClick={() => {
                   onTurnOffLocation();
                   setIsOpen(false);
@@ -5800,7 +6119,7 @@ function LocationSharingControl({
             ) : null}
             <Dialog.Close asChild>
               <Button
-                className="h-10 rounded-md border-border-default bg-white px-3 text-sm font-extrabold text-text-muted hover:bg-brand-lavender-50"
+                className="min-h-11 rounded-md border-border-default bg-white px-3 text-sm font-extrabold text-text-muted hover:bg-brand-lavender-50"
                 type="button"
                 variant="outline"
               >
@@ -5854,21 +6173,47 @@ function SuggestedPromptBar({
   return (
     <fieldset
       aria-label="Suggested prompts"
-      className="m-0 flex min-w-0 flex-wrap gap-2 overflow-visible border-0 p-0"
+      className="m-0 grid w-full min-w-0 gap-2 overflow-hidden border-0 p-0 sm:flex sm:flex-wrap sm:overflow-visible"
     >
       {prompts.map((prompt) => (
         <Button
-          className="h-auto min-h-9 max-w-full min-w-0 overflow-hidden rounded-full border-border-default bg-white px-4 py-2 text-left text-xs font-extrabold text-ellipsis whitespace-nowrap text-brand-violet-650 hover:bg-brand-lavender-50"
+          className="h-auto min-h-11 w-full min-w-0 max-w-full shrink items-start justify-start overflow-hidden rounded-lg border-border-default bg-white px-4 py-2.5 text-left text-sm leading-snug font-extrabold whitespace-normal text-brand-lagoon-700 hover:bg-brand-lagoon-50 sm:w-auto sm:items-center sm:rounded-full sm:py-2 sm:whitespace-nowrap"
           disabled={disabled}
           key={prompt}
           onClick={() => onSubmitPrompt(prompt)}
           type="button"
           variant="outline"
         >
-          {prompt}
+          <span className="min-w-0 max-w-full break-words [overflow-wrap:anywhere] sm:truncate">
+            {prompt}
+          </span>
         </Button>
       ))}
     </fieldset>
+  );
+}
+
+function FollowUpPromptDisclosure({
+  onSubmitPrompt,
+  prompts,
+}: {
+  onSubmitPrompt: (prompt: string) => void;
+  prompts: readonly string[];
+}) {
+  return (
+    <details className="group grid gap-3 rounded-lg border border-border-default bg-brand-paper-100 px-3">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm font-extrabold text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-violet-650">
+        Try another Reality Check
+        <ChevronDown
+          aria-hidden="true"
+          className="transition-transform group-open:rotate-180"
+          size={16}
+        />
+      </summary>
+      <div className="border-border-default border-t py-3">
+        <SuggestedPromptBar disabled={false} onSubmitPrompt={onSubmitPrompt} prompts={prompts} />
+      </div>
+    </details>
   );
 }
 
@@ -5888,12 +6233,12 @@ function ChatEmptyState({
           <Sparkles aria-hidden="true" size={24} />
         </div>
         <div className="grid gap-3">
-          <h1 className="m-0 max-w-full text-3xl leading-[1.05] font-semibold break-words text-text-strong [overflow-wrap:anywhere] sm:text-5xl">
-            Ask a real question about your Siargao trip.
-          </h1>
+          <h2 className="m-0 max-w-full text-3xl leading-[1.05] font-semibold break-words text-text-strong [overflow-wrap:anywhere] sm:text-5xl">
+            Reality-check your Siargao plan.
+          </h2>
           <p className="m-0 max-w-xl text-base leading-[1.7] break-words text-text-muted">
-            Ask about food, weather, transfers, surf areas, quiet stays, and practical trip planning
-            around Siargao.
+            Tell us what you are considering. Ask Siargao will separate checked facts, practical
+            judgment, and what still needs local confirmation.
           </p>
         </div>
       </div>

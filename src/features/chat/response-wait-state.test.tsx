@@ -124,4 +124,18 @@ describe("response wait state presentation", () => {
     expect(html).not.toMatch(/\b(width|transform):/i);
     expect(html).not.toContain(responseStoppedStatusText);
   });
+
+  test("renders a real streamed progress update when one is available", () => {
+    const statusText = "Checking two relevant sources.";
+    const html = renderToStaticMarkup(
+      <PendingAssistantWaitState
+        disabled={false}
+        onStopWaiting={() => {}}
+        statusText={statusText}
+      />,
+    );
+
+    expect(html).toContain(statusText);
+    expect(html).not.toContain(responseWaitStatusText);
+  });
 });

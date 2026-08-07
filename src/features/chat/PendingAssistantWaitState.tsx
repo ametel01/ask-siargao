@@ -6,9 +6,11 @@ import { responseWaitStatusText } from "@/features/chat/response-wait-state";
 export function PendingAssistantWaitState({
   disabled,
   onStopWaiting,
+  statusText = responseWaitStatusText,
 }: {
   disabled: boolean;
   onStopWaiting: () => void;
+  statusText?: string;
 }) {
   return (
     <div aria-busy="true" className="grid min-w-0 gap-3" data-testid="assistant-wait-state">
@@ -26,11 +28,11 @@ export function PendingAssistantWaitState({
           data-testid="assistant-wait-status"
           role="status"
         >
-          {responseWaitStatusText}
+          {statusText}
         </p>
       </div>
       <Button
-        className="h-9 w-fit rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50"
+        className="min-h-11 w-fit rounded-md border-border-default bg-white px-3 text-sm font-extrabold text-text-strong hover:bg-brand-lavender-50"
         disabled={disabled}
         onClick={onStopWaiting}
         type="button"
