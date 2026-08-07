@@ -5,6 +5,7 @@ import { readTripPassEnvironment, tripPassProductFamily } from "@/server/trip-pa
 import {
   buildTripPassCheckoutSessionParams,
   createTripPassCheckoutClient,
+  isDefinitiveTripPassCheckoutSessionCreationError,
   type TripPassCheckoutClient,
   type TripPassCheckoutOrderSnapshot,
   type TripPassCheckoutSessionSummary,
@@ -116,10 +117,18 @@ export async function startTripPassCheckout(
   }
 
   const checkoutClient = options.checkoutClient ?? createTripPassCheckoutClient();
-  const session = await checkoutClient.createCheckoutSession(
-    buildTripPassCheckoutSessionParams({ order, appUrl: input.appUrl }),
-    { idempotencyKey: order.checkoutIdempotencyKey },
-  );
+  let session: TripPassCheckoutSessionSummary;
+  try {
+    session = await checkoutClient.createCheckoutSession(
+      buildTripPassCheckoutSessionParams({ order, appUrl: input.appUrl }),
+      { idempotencyKey: order.checkoutIdempotencyKey },
+    );
+  } catch (error) {
+    if (isDefinitiveTripPassCheckoutSessionCreationError(error)) {
+      await markOrderCheckoutCreationFailed({ orderId: order.id, now: options.now }, db);
+    }
+    throw error;
+  }
 
   validateTripPassCheckoutSession({ session, order });
   await markOrderCheckoutCreated({ orderId: order.id, session, now: options.now }, db);
@@ -189,11 +198,11 @@ async function ensurePendingCheckoutOrder(
   | { status: "blocked"; reason: string }
 > {
   return withDatabaseTransaction(db, async (transaction) => {
-    const databaseNow = await readDatabaseNow(transaction);
     await acquireFamilyReservationLock(
       { productFamily: tripPassProductFamily, userId: input.userId },
       transaction,
     );
+    const databaseNow = await readDatabaseNow(transaction);
 
     if (await hasBlockingTripPass({ userId: input.userId, now: databaseNow }, transaction)) {
       return { status: "blocked", reason: "trip_pass_family_active" };
@@ -349,14 +358,14 @@ async function hasBlockingTripPass(input: { userId: string; now: Date }, db: Dat
     `
       select p.id
       from trip_passes p
-      join trip_usage_meters m
+      left join trip_usage_meters m
         on m.trip_pass_id = p.id
        and m.meter_type = 'chat_message'
       where p.user_id = $1
         and p.status = 'active'
         and p.starts_at <= $2
         and p.expires_at > $2
-        and m.used < m."limit"
+        and (m.id is null or m.used < m."limit")
       order by p.expires_at desc, p.created_at desc, p.id desc
       limit 1
     `,
@@ -376,23 +385,39 @@ async function markOrderCheckoutCreated(
       update trip_pass_orders
       set status = 'checkout_created',
           stripe_checkout_session_id = $2,
-          checkout_session_expires_at = $3,
-          checkout_session_status = $4,
-          amount_total_minor = $5,
-          currency = $6,
-          updated_at = $7
+          checkout_session_status = $3,
+          amount_total_minor = $4,
+          currency = $5,
+          updated_at = $6
       where id = $1
         and status in ('pending', 'checkout_created')
     `,
     [
       input.orderId,
       input.session.id,
-      input.session.expiresAt,
       input.session.status,
       input.session.amountTotalMinor,
       input.session.currency,
       now,
     ],
+  );
+}
+
+async function markOrderCheckoutCreationFailed(
+  input: { orderId: string; now?: Date },
+  db: DatabaseQueryClient,
+) {
+  const now = input.now ?? (await readDatabaseNow(db));
+  await db.query(
+    `
+      update trip_pass_orders
+      set status = 'failed',
+          updated_at = $2
+      where id = $1
+        and status = 'pending'
+        and stripe_checkout_session_id is null
+    `,
+    [input.orderId, now],
   );
 }
 

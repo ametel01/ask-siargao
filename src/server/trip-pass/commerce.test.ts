@@ -14,7 +14,10 @@ import type {
   TripPassCheckoutClient,
   TripPassCheckoutSessionSummary,
 } from "@/server/trip-pass/stripe-adapter";
-import { buildTripPassCheckoutSessionParams } from "@/server/trip-pass/stripe-adapter";
+import {
+  buildTripPassCheckoutSessionParams,
+  TripPassCheckoutSessionCreationError,
+} from "@/server/trip-pass/stripe-adapter";
 
 const now = new Date("2026-07-03T08:00:00.000Z");
 const enabledEnv = {
@@ -291,7 +294,7 @@ describe("Trip Pass checkout commerce", () => {
     });
   });
 
-  test("keeps Stripe failures before activation as a retryable pending order", async () => {
+  test("keeps ambiguous Stripe creation failures as a retryable pending order", async () => {
     await withTestDb(async (db) => {
       await insertUser(db, "user_stripe_failure");
 
@@ -305,19 +308,92 @@ describe("Trip Pass checkout commerce", () => {
           {
             db,
             checkoutClient: createFakeCheckoutClient({
-              failWith: new Error("stripe fixture failure"),
+              failWith: new TripPassCheckoutSessionCreationError({
+                kind: "ambiguous",
+                message: "stripe fixture timeout",
+              }),
             }),
             createId: () => "order_stripe_failure",
             env: enabledEnv,
             now,
           },
         ),
-      ).rejects.toThrow("stripe fixture failure");
+      ).rejects.toThrow("stripe fixture timeout");
 
       await expectOrder(db, "order_stripe_failure", {
         status: "pending",
         stripeCheckoutSessionId: null,
       });
+
+      const retry = await startTripPassCheckout(
+        {
+          userId: "user_stripe_failure",
+          email: "failure@example.com",
+          appUrl: "https://siargao.test",
+        },
+        {
+          db,
+          checkoutClient: createFakeCheckoutClient(),
+          createId: () => "order_should_not_replace_ambiguous_failure",
+          env: enabledEnv,
+          now,
+        },
+      );
+
+      expect(retry).toMatchObject({ status: "reused", orderId: "order_stripe_failure" });
+      await expectOrderCount(db, "1");
+      await expectNoAccessGrant(db);
+    });
+  });
+
+  test("releases pending checkout reservations after definitive Stripe creation rejection", async () => {
+    await withTestDb(async (db) => {
+      await insertUser(db, "user_stripe_definitive_failure");
+
+      await expect(
+        startTripPassCheckout(
+          {
+            userId: "user_stripe_definitive_failure",
+            email: "definitive@example.com",
+            appUrl: "https://siargao.test",
+          },
+          {
+            db,
+            checkoutClient: createFakeCheckoutClient({
+              failWith: new TripPassCheckoutSessionCreationError({
+                kind: "definitive",
+                message: "stripe fixture invalid price",
+              }),
+            }),
+            createId: () => "order_stripe_definitive_failure",
+            env: enabledEnv,
+            now,
+          },
+        ),
+      ).rejects.toThrow("stripe fixture invalid price");
+
+      await expectOrder(db, "order_stripe_definitive_failure", {
+        status: "failed",
+        stripeCheckoutSessionId: null,
+      });
+
+      const retry = await startTripPassCheckout(
+        {
+          userId: "user_stripe_definitive_failure",
+          email: "definitive@example.com",
+          appUrl: "https://siargao.test",
+        },
+        {
+          db,
+          checkoutClient: createFakeCheckoutClient(),
+          createId: () => "order_after_definitive_failure",
+          env: enabledEnv,
+          now,
+        },
+      );
+
+      expect(retry).toMatchObject({ status: "started", orderId: "order_after_definitive_failure" });
+      await expectOrderCount(db, "2");
       await expectNoAccessGrant(db);
     });
   });
@@ -449,6 +525,93 @@ describe("Trip Pass checkout commerce", () => {
     });
   });
 
+  test("rejects Stripe sessions that do not match Checkout mode or payment state", async () => {
+    await withTestDb(async (db) => {
+      await insertUser(db, "user_bad_mode_session");
+
+      await expect(
+        startTripPassCheckout(
+          {
+            userId: "user_bad_mode_session",
+            email: "bad-mode-session@example.com",
+            appUrl: "https://siargao.test",
+          },
+          {
+            db,
+            checkoutClient: createFakeCheckoutClient({ mode: "subscription" }),
+            createId: () => "order_bad_mode_session",
+            env: enabledEnv,
+            now,
+          },
+        ),
+      ).rejects.toThrow("mode does not match");
+
+      await expectOrder(db, "order_bad_mode_session", {
+        status: "pending",
+        stripeCheckoutSessionId: null,
+      });
+
+      await insertUser(db, "user_bad_payment_session");
+      await expect(
+        startTripPassCheckout(
+          {
+            userId: "user_bad_payment_session",
+            email: "bad-payment-session@example.com",
+            appUrl: "https://siargao.test",
+          },
+          {
+            db,
+            checkoutClient: createFakeCheckoutClient({ paymentStatus: "paid" }),
+            createId: () => "order_bad_payment_session",
+            env: enabledEnv,
+            now,
+          },
+        ),
+      ).rejects.toThrow("payment status does not match");
+
+      await expectOrder(db, "order_bad_payment_session", {
+        status: "pending",
+        stripeCheckoutSessionId: null,
+      });
+      await expectNoAccessGrant(db);
+    });
+  });
+
+  test("rejects provider expiry mismatches without overwriting the reservation expiry", async () => {
+    await withTestDb(async (db) => {
+      await insertUser(db, "user_bad_expiry_session");
+      const checkoutClient = createFakeCheckoutClient({
+        expiresAtOverride: (params) => new Date((Number(params.expires_at) + 60) * 1_000),
+      });
+
+      await expect(
+        startTripPassCheckout(
+          {
+            userId: "user_bad_expiry_session",
+            email: "bad-expiry-session@example.com",
+            appUrl: "https://siargao.test",
+          },
+          {
+            db,
+            checkoutClient,
+            createId: () => "order_bad_expiry_session",
+            env: enabledEnv,
+            now,
+          },
+        ),
+      ).rejects.toThrow("expiry does not match");
+
+      await expectOrder(db, "order_bad_expiry_session", {
+        status: "pending",
+        stripeCheckoutSessionId: null,
+        checkoutSessionExpiresAt: new Date(
+          Number(checkoutClient.calls[0]?.params.expires_at) * 1_000,
+        ),
+      });
+      await expectNoAccessGrant(db);
+    });
+  });
+
   test("blocks family-wide checkout while an active non-exhausted pass exists", async () => {
     await withTestDb(async (db) => {
       await insertUser(db, "user_active_pass");
@@ -474,6 +637,50 @@ describe("Trip Pass checkout commerce", () => {
           db,
           checkoutClient,
           createId: () => "order_should_not_start",
+          env: enabledEnv,
+          now,
+        },
+      );
+
+      expect(result).toEqual({ status: "blocked", reason: "trip_pass_family_active" });
+      expect(checkoutClient.calls).toHaveLength(0);
+      await expectOrderCount(db, "0");
+    });
+  });
+
+  test("blocks checkout for an active pass when the primary meter is missing", async () => {
+    await withTestDb(async (db) => {
+      await insertUser(db, "user_missing_primary_meter");
+      await createActiveTripPassWithMeters(
+        {
+          id: "pass_missing_primary_meter",
+          userId: "user_missing_primary_meter",
+          startsAt: new Date("2026-08-07T07:00:00.000Z"),
+          expiresAt: new Date("2026-08-21T07:00:00.000Z"),
+          now,
+        },
+        db,
+      );
+      await db.query(
+        `
+          delete from trip_usage_meters
+          where trip_pass_id = $1
+            and meter_type = 'chat_message'
+        `,
+        ["pass_missing_primary_meter"],
+      );
+      const checkoutClient = createFakeCheckoutClient();
+
+      const result = await startTripPassCheckout(
+        {
+          userId: "user_missing_primary_meter",
+          email: "missing-primary-meter@example.com",
+          appUrl: "https://siargao.test",
+        },
+        {
+          db,
+          checkoutClient,
+          createId: () => "order_should_not_start_missing_primary_meter",
           env: enabledEnv,
           now,
         },
@@ -593,8 +800,11 @@ function createFakeCheckoutClient(
   options: {
     beforeCreate?: (params: Stripe.Checkout.SessionCreateParams) => Promise<void>;
     expireStatus?: TripPassCheckoutSessionSummary["status"];
+    expiresAtOverride?: (params: Stripe.Checkout.SessionCreateParams) => Date | null;
     failWith?: Error;
     metadataOverrides?: Record<string, string>;
+    mode?: TripPassCheckoutSessionSummary["mode"];
+    paymentStatus?: TripPassCheckoutSessionSummary["paymentStatus"];
     priceId?: string;
   } = {},
 ): FakeCheckoutClient {
@@ -625,7 +835,13 @@ function createFakeCheckoutClient(
         metadata: { ...stringMetadata(params.metadata), ...(options.metadataOverrides ?? {}) },
         amountTotalMinor: 999,
         currency: "usd",
-        expiresAt: params.expires_at ? new Date(Number(params.expires_at) * 1000) : null,
+        expiresAt: options.expiresAtOverride
+          ? options.expiresAtOverride(params)
+          : params.expires_at
+            ? new Date(Number(params.expires_at) * 1000)
+            : null,
+        mode: options.mode ?? "payment",
+        paymentStatus: options.paymentStatus ?? "unpaid",
         priceId:
           options.priceId ??
           String((params.line_items?.[0] as Stripe.Checkout.SessionCreateParams.LineItem)?.price),
@@ -645,6 +861,8 @@ function createFakeCheckoutClient(
         amountTotalMinor: 999,
         currency: "usd",
         expiresAt: now,
+        mode: "payment",
+        paymentStatus: "unpaid",
         priceId: "price_trip_pass",
         status: options.expireStatus ?? "expired",
         termsConsentCollected: false,
@@ -761,6 +979,7 @@ async function expectOrder(
     email: string | null;
     stripeCheckoutSessionId: string | null;
     amountTotalMinor: number | null;
+    checkoutSessionExpiresAt: Date | null;
     checkoutSessionStatus: string | null;
     currency: string | null;
   }>,
@@ -770,11 +989,13 @@ async function expectOrder(
     email: string | null;
     stripe_checkout_session_id: string | null;
     amount_total_minor: number | null;
+    checkout_session_expires_at: Date | string | null;
     checkout_session_status: string | null;
     currency: string | null;
   }>(
     `
-      select status, email, stripe_checkout_session_id, amount_total_minor, checkout_session_status, currency
+      select status, email, stripe_checkout_session_id, amount_total_minor,
+             checkout_session_expires_at, checkout_session_status, currency
       from trip_pass_orders
       where id = $1
     `,
@@ -797,6 +1018,20 @@ async function expectOrder(
   }
   if (expected.amountTotalMinor !== undefined) {
     expect(row.amount_total_minor).toBe(expected.amountTotalMinor);
+  }
+  if (expected.checkoutSessionExpiresAt !== undefined) {
+    if (expected.checkoutSessionExpiresAt === null) {
+      expect(row.checkout_session_expires_at).toBeNull();
+    } else {
+      const actualCheckoutSessionExpiresAt = row.checkout_session_expires_at;
+      expect(actualCheckoutSessionExpiresAt).not.toBeNull();
+      if (!actualCheckoutSessionExpiresAt) {
+        return;
+      }
+      expect(dateFromDatabaseValue(actualCheckoutSessionExpiresAt).getTime()).toBe(
+        expected.checkoutSessionExpiresAt.getTime(),
+      );
+    }
   }
   if (expected.checkoutSessionStatus !== undefined) {
     expect(row.checkout_session_status).toBe(expected.checkoutSessionStatus);

@@ -258,7 +258,7 @@ function parseCheckoutMode(value: string | undefined) {
   if (normalized === "off" || normalized === "canary" || normalized === "on") {
     return normalized;
   }
-  return "off" as const;
+  throw new Error("TRIP_PASS_CHECKOUT_MODE must be one of: off, canary, on.");
 }
 
 function parseCanaryAccountIds(value: string | undefined) {

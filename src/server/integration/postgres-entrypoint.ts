@@ -298,15 +298,20 @@ async function runTripPassCheckoutWinnerRegression(
   const secondLocked = deferred<number>();
   const firstLockStarted = deferred<number>();
   const secondLockStarted = deferred<number>();
+  const reservationEvents: string[] = [];
   const observer = harness.createClient();
   const visibilityClient = harness.createQueryClient();
   const checkoutClient = createRaceCheckoutClient(visibilityClient);
   const firstClient = createControlledCheckoutQueryClient(harness.createQueryClient(), {
     afterFamilyLock: async (pid) => {
+      reservationEvents.push("first:lock");
       firstLocked.resolve(pid);
       if (winner === "first") {
         await winnerRelease.promise;
       }
+    },
+    afterDatabaseNow: async () => {
+      reservationEvents.push("first:now");
     },
     beforeFamilyLock: async (pid) => {
       firstLockStarted.resolve(pid);
@@ -317,10 +322,14 @@ async function runTripPassCheckoutWinnerRegression(
   });
   const secondClient = createControlledCheckoutQueryClient(harness.createQueryClient(), {
     afterFamilyLock: async (pid) => {
+      reservationEvents.push("second:lock");
       secondLocked.resolve(pid);
       if (winner === "second") {
         await winnerRelease.promise;
       }
+    },
+    afterDatabaseNow: async () => {
+      reservationEvents.push("second:now");
     },
     beforeFamilyLock: async (pid) => {
       secondLockStarted.resolve(pid);
@@ -349,10 +358,20 @@ async function runTripPassCheckoutWinnerRegression(
         firstLocked.promise,
         "Trip Pass checkout first request did not acquire the family reservation lock",
       );
+      assertDeepEqual(
+        reservationEvents,
+        ["first:lock"],
+        "first-winner checkout must read DB time only after entering the lock-held section",
+      );
     } else {
       await waitForBarrier(
         firstLockStarted.promise,
         "Trip Pass checkout first request did not reach its pre-lock barrier",
+      );
+      assertDeepEqual(
+        reservationEvents,
+        [],
+        "second-winner checkout must not let the paused first request read DB time before the lock",
       );
     }
 
@@ -380,10 +399,20 @@ async function runTripPassCheckoutWinnerRegression(
         secondPid,
         "Trip Pass checkout second request did not wait on the first request family reservation lock",
       );
+      assertDeepEqual(
+        reservationEvents,
+        ["first:lock"],
+        "contended follower must not shorten the winner reservation before the lock is released",
+      );
     } else {
       await waitForBarrier(
         secondLocked.promise,
         "Trip Pass checkout second request did not acquire the family reservation lock",
+      );
+      assertDeepEqual(
+        reservationEvents,
+        ["second:lock"],
+        "second-winner checkout must read DB time only after entering the lock-held section",
       );
       firstMayAttemptLock.resolve();
       const firstPid = await waitForBarrier(
@@ -394,6 +423,11 @@ async function runTripPassCheckoutWinnerRegression(
         observer,
         firstPid,
         "Trip Pass checkout first request did not wait on the second request family reservation lock",
+      );
+      assertDeepEqual(
+        reservationEvents,
+        ["second:lock"],
+        "contended first request must not read DB time while waiting for the winner lock",
       );
     }
 
@@ -592,6 +626,7 @@ async function runTripPassCheckoutRollbackRaceRegression(harness: PostgresHarnes
 function createControlledCheckoutQueryClient(
   client: ReturnType<PostgresHarness["createQueryClient"]>,
   hooks: {
+    afterDatabaseNow?: (pid: number) => Promise<void>;
     afterFamilyLock?: (pid: number) => Promise<void>;
     afterTripPassOrderInsert?: () => Promise<void>;
     beforeFamilyLock?: (pid: number) => Promise<void>;
@@ -603,6 +638,18 @@ function createControlledCheckoutQueryClient(
       return client.transaction(async (transaction) => {
         const controlledTransaction: DatabaseQueryClient = {
           async query<T>(query: string, params: unknown[] = []) {
+            if (/\bselect\s+now\(\)\s+as\s+database_now\b/i.test(query)) {
+              const pidRows = await transaction.query<{ pid: number }>(
+                "select pg_backend_pid() as pid",
+              );
+              const pid = Number(pidRows.rows[0]?.pid);
+              if (!Number.isInteger(pid)) {
+                throw new Error("Trip Pass checkout DB-time backend pid was not available.");
+              }
+              const result = await transaction.query<T>(query, params);
+              await hooks.afterDatabaseNow?.(pid);
+              return result;
+            }
             if (!query.includes("pg_advisory_xact_lock")) {
               const result = await transaction.query<T>(query, params);
               if (/\binsert\s+into\s+trip_pass_orders\b/i.test(query)) {
@@ -689,6 +736,8 @@ function createRaceCheckoutClient(
         amountTotalMinor: tripPassCheckoutProductSnapshot.amountTotalMinor,
         currency: tripPassCheckoutProductSnapshot.currency,
         expiresAt: params.expires_at ? new Date(Number(params.expires_at) * 1000) : null,
+        mode: "payment",
+        paymentStatus: "unpaid",
         priceId: priceIdFromCheckoutParams(params),
         status: "open",
         termsConsentCollected: false,
@@ -705,6 +754,8 @@ function createRaceCheckoutClient(
         amountTotalMinor: tripPassCheckoutProductSnapshot.amountTotalMinor,
         currency: tripPassCheckoutProductSnapshot.currency,
         expiresAt: null,
+        mode: "payment",
+        paymentStatus: "unpaid",
         priceId: "price_trip_pass",
         status: "expired",
         termsConsentCollected: false,

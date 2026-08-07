@@ -191,14 +191,9 @@ describe("Trip Pass catalog", () => {
   });
 
   test("rejects malformed flag and budget configuration", () => {
-    expect(readTripPassEnvironment({ TRIP_PASS_CHECKOUT_MODE: "maybe" }).checkout).toEqual({
-      enabled: false,
-      mode: "off",
-      priceId: undefined,
-      canaryAccountIds: [],
-      status: "disabled",
-      unavailableReason: null,
-    });
+    expect(() => readTripPassEnvironment({ TRIP_PASS_CHECKOUT_MODE: "maybe" })).toThrow(
+      "TRIP_PASS_CHECKOUT_MODE must be one of",
+    );
     expect(() => readTripPassEnvironment({ TRIP_PASS_EXTENSION_ENABLED: "maybe" })).toThrow(
       "Invalid boolean feature flag",
     );

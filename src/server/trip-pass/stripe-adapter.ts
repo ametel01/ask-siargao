@@ -25,10 +25,24 @@ export type TripPassCheckoutSessionSummary = {
   amountTotalMinor: number | null;
   currency: string | null;
   expiresAt: Date | null;
+  mode: "payment" | "setup" | "subscription" | null;
+  paymentStatus: "no_payment_required" | "paid" | "unpaid" | null;
   priceId: string | null;
   status: "open" | "complete" | "expired" | null;
   termsConsentCollected: boolean | null;
 };
+
+export class TripPassCheckoutSessionCreationError extends Error {
+  readonly kind: "ambiguous" | "definitive";
+  readonly cause?: unknown;
+
+  constructor(input: { kind: "ambiguous" | "definitive"; message: string; cause?: unknown }) {
+    super(input.message);
+    this.name = "TripPassCheckoutSessionCreationError";
+    this.kind = input.kind;
+    this.cause = input.cause;
+  }
+}
 
 export type TripPassCheckoutClient = {
   createCheckoutSession: (
@@ -43,9 +57,18 @@ export function createTripPassCheckoutClient(
 ): TripPassCheckoutClient {
   return {
     async createCheckoutSession(params, options) {
-      const session = await stripe.checkout.sessions.create(params, {
-        idempotencyKey: options.idempotencyKey,
-      });
+      let session: Stripe.Checkout.Session;
+      try {
+        session = await stripe.checkout.sessions.create(params, {
+          idempotencyKey: options.idempotencyKey,
+        });
+      } catch (error) {
+        throw new TripPassCheckoutSessionCreationError({
+          kind: classifyStripeCheckoutSessionCreationFailure(error),
+          message: "Stripe Trip Pass Checkout Session creation did not complete.",
+          cause: error,
+        });
+      }
 
       return summarizeTripPassCheckoutSession(session);
     },
@@ -149,6 +172,20 @@ export function validateTripPassCheckoutSession(input: {
   ) {
     throw new Error("Stripe Trip Pass Checkout Session amount or currency does not match product.");
   }
+  if (input.session.mode !== "payment") {
+    throw new Error("Stripe Trip Pass Checkout Session mode does not match payment checkout.");
+  }
+  if (input.session.paymentStatus !== "unpaid") {
+    throw new Error(
+      "Stripe Trip Pass Checkout Session payment status does not match a new checkout.",
+    );
+  }
+  if (
+    !input.session.expiresAt ||
+    input.session.expiresAt.getTime() !== input.order.checkoutSessionExpiresAt.getTime()
+  ) {
+    throw new Error("Stripe Trip Pass Checkout Session expiry does not match reservation.");
+  }
   if (input.session.priceId !== input.order.stripePriceId) {
     throw new Error("Stripe Trip Pass Checkout Session price does not match configuration.");
   }
@@ -168,6 +205,8 @@ export function summarizeTripPassCheckoutSession(
     amountTotalMinor: session.amount_total,
     currency: session.currency,
     expiresAt: session.expires_at ? new Date(session.expires_at * 1000) : null,
+    mode: normalizeCheckoutSessionMode(session.mode),
+    paymentStatus: normalizeCheckoutPaymentStatus(session.payment_status),
     priceId: checkoutSessionPriceId(session),
     status: normalizeCheckoutSessionStatus(session.status),
     termsConsentCollected: session.consent?.terms_of_service === "accepted",
@@ -215,4 +254,64 @@ function normalizeCheckoutSessionStatus(status: Stripe.Checkout.Session.Status |
     return status;
   }
   return null;
+}
+
+function normalizeCheckoutSessionMode(
+  mode: Stripe.Checkout.Session.Mode | null,
+): TripPassCheckoutSessionSummary["mode"] {
+  switch (mode) {
+    case "payment":
+      return "payment";
+    case "setup":
+      return "setup";
+    case "subscription":
+      return "subscription";
+    default:
+      return null;
+  }
+}
+
+function normalizeCheckoutPaymentStatus(
+  status: Stripe.Checkout.Session.PaymentStatus | null,
+): TripPassCheckoutSessionSummary["paymentStatus"] {
+  switch (status) {
+    case "no_payment_required":
+      return "no_payment_required";
+    case "paid":
+      return "paid";
+    case "unpaid":
+      return "unpaid";
+    default:
+      return null;
+  }
+}
+
+function classifyStripeCheckoutSessionCreationFailure(error: unknown) {
+  const stripeError = error as {
+    code?: string;
+    statusCode?: number;
+    type?: string;
+  };
+  if (
+    stripeError.type === "StripeInvalidRequestError" ||
+    stripeError.type === "StripeAuthenticationError" ||
+    stripeError.type === "StripePermissionError"
+  ) {
+    return "definitive";
+  }
+  if (
+    stripeError.statusCode !== undefined &&
+    stripeError.statusCode >= 400 &&
+    stripeError.statusCode < 500 &&
+    stripeError.statusCode !== 408 &&
+    stripeError.statusCode !== 409 &&
+    stripeError.statusCode !== 429
+  ) {
+    return "definitive";
+  }
+  return "ambiguous";
+}
+
+export function isDefinitiveTripPassCheckoutSessionCreationError(error: unknown) {
+  return error instanceof TripPassCheckoutSessionCreationError && error.kind === "definitive";
 }
