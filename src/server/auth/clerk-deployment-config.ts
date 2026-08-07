@@ -251,7 +251,7 @@ function validatePlatformContext(
     });
   }
 
-  if (context === "production" && hasEnvValue(env.VERCEL_ENV) && env.VERCEL_ENV !== "production") {
+  if (context === "production" && env.VERCEL_ENV !== "production") {
     errors.push({
       code: "production_platform_context_mismatch",
       field: "VERCEL_ENV",

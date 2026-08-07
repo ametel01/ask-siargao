@@ -161,6 +161,17 @@ describe("Clerk deployment configuration", () => {
     expect(errorCodes(result)).toContain("vercel_production_context_mismatch");
   });
 
+  test("rejects production deployments without the platform production environment", () => {
+    const result = readClerkDeploymentConfig({
+      ...completeProductionEnv,
+      VERCEL_ENV: undefined,
+      VERCEL_URL: productionVercelUrl,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(errorCodes(result)).toContain("production_platform_context_mismatch");
+  });
+
   test("rejects ordinary previews that claim protected staging with live secrets", () => {
     const result = readClerkDeploymentConfig({
       ...completeProductionEnv,

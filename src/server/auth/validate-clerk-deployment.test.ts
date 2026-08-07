@@ -67,6 +67,17 @@ describe("Clerk deployment validation command", () => {
     expect(result.stderr).toContain("vercel_production_context_mismatch");
   });
 
+  test("fails complete production config when VERCEL_ENV is absent", async () => {
+    const result = await runValidationCommand({
+      ...completeProductionEnv,
+      VERCEL_ENV: undefined,
+      VERCEL_URL: productionVercelUrl,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("production_platform_context_mismatch");
+  });
+
   test("fails ordinary previews pretending to be protected staging with live secrets", async () => {
     const result = await runValidationCommand({
       ...completeProductionEnv,
