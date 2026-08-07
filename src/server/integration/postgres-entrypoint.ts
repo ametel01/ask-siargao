@@ -688,8 +688,13 @@ async function runStripeInboxRollbackAndReplayRegression(harness: PostgresHarnes
       stripeInboxCheckoutSessionEvent("evt_inbox_rollback_replay", "order_inbox_replay"),
       {
         db: client,
-        now: new Date("2026-08-07T01:01:00.000Z"),
+        now: new Date("2099-01-01T00:00:00.000Z"),
         applyEvent: async (event, options) => {
+          assertEqual(
+            options.now.getUTCFullYear() < 2099,
+            true,
+            "application callback time must come from the database, not a skewed process clock",
+          );
           const visibleReceipt = await options.db.query<{ status: string }>(
             "select status from trip_pass_stripe_events where stripe_event_id = $1",
             [event.id],
@@ -726,11 +731,18 @@ async function runStripeInboxRollbackAndReplayRegression(harness: PostgresHarnes
     );
     const pendingRow = await client.query<{
       attempt_count: number;
+      retry_uses_database_time: boolean;
       sanitized_error_class: string | null;
       status: string;
     }>(
       `
-        select status, attempt_count, sanitized_error_class
+        select status,
+               attempt_count,
+               sanitized_error_class,
+               next_attempt_at > now()
+                 and next_attempt_at <= now() + interval '3 seconds'
+                 and next_attempt_at < '2099-01-01T00:00:00.000Z'::timestamptz
+                 as retry_uses_database_time
         from trip_pass_stripe_events
         where stripe_event_id = $1
       `,
@@ -751,11 +763,21 @@ async function runStripeInboxRollbackAndReplayRegression(harness: PostgresHarnes
       "Error",
       "failed application must store only a sanitized retry error class",
     );
+    assertEqual(
+      pendingRow.rows[0]?.retry_uses_database_time,
+      true,
+      "retry backoff must be anchored to database time rather than skewed caller time",
+    );
 
     const replay = await applyStripeInboxEvent("stripe_event_evt_inbox_rollback_replay", {
       db: client,
-      now: new Date("2026-08-07T01:02:00.000Z"),
+      now: new Date("2099-01-01T00:00:00.000Z"),
       applyEvent: async (event, options) => {
+        assertEqual(
+          options.now.getUTCFullYear() < 2099,
+          true,
+          "replay application callback time must come from the database",
+        );
         await options.db.query(
           `
             insert into integration_stripe_inbox_application_probe (stripe_event_id, note)
@@ -802,28 +824,94 @@ async function runStripeInboxRollbackAndReplayRegression(harness: PostgresHarnes
 }
 
 async function runStripeInboxClaimLeaseRegression(harness: PostgresHarness) {
+  const holder = harness.createClient();
   const setup = harness.createQueryClient();
   const claimant = harness.createQueryClient();
   const competingClaimant = harness.createQueryClient();
   const leaseMs = 60_000;
   const now = new Date("2026-08-07T01:03:00.000Z");
+  let releaseHolder!: () => void;
+  const holderRelease = new Promise<void>((resolve) => {
+    releaseHolder = resolve;
+  });
   try {
     await receiveStripeWebhookEvent(
       stripeInboxCheckoutSessionEvent("evt_inbox_claim_locked", "order_inbox_claim_locked"),
       { db: setup, now },
     );
+    await receiveStripeWebhookEvent(
+      stripeInboxCheckoutSessionEvent("evt_inbox_claim_skip", "order_inbox_claim_skip"),
+      { db: setup, now },
+    );
+
+    const holderReady = deferred<void>();
+    const holderTransaction = holder.begin(async (transaction) => {
+      await transaction`
+        select id
+        from trip_pass_stripe_events
+        where stripe_event_id = 'evt_inbox_claim_locked'
+        for update
+      `;
+      holderReady.resolve();
+      await holderRelease;
+    });
+    await waitForBarrier(holderReady.promise, "Stripe inbox claim holder did not lock the due row");
+
+    const skipLockedClaim = await claimPendingStripeInboxEvents({
+      claimToken: "claim_skip_locked",
+      db: claimant,
+      leaseMs,
+      limit: 1,
+      now: new Date("2099-01-01T00:00:00.000Z"),
+    });
+    assertDeepEqual(
+      skipLockedClaim,
+      ["stripe_event_evt_inbox_claim_skip"],
+      "claim workers must skip a locked due row and claim another due row",
+    );
+    const skippedClaimTime = await setup.query<{
+      locked_claim_token: string | null;
+      skip_claim_uses_database_time: boolean;
+    }>(
+      `
+        select
+          max(case when stripe_event_id = 'evt_inbox_claim_locked' then claim_token end)
+            as locked_claim_token,
+          bool_or(
+            stripe_event_id = 'evt_inbox_claim_skip'
+            and claim_expires_at > now()
+            and claim_expires_at <= now() + interval '61 seconds'
+            and claim_expires_at < '2099-01-01T00:00:00.000Z'::timestamptz
+          ) as skip_claim_uses_database_time
+        from trip_pass_stripe_events
+        where stripe_event_id in ('evt_inbox_claim_locked', 'evt_inbox_claim_skip')
+      `,
+    );
+    assertEqual(
+      skippedClaimTime.rows[0]?.locked_claim_token,
+      null,
+      "SKIP LOCKED claim must not mutate the row held by another transaction",
+    );
+    assertEqual(
+      skippedClaimTime.rows[0]?.skip_claim_uses_database_time,
+      true,
+      "claim lease expiry must be anchored to database time rather than skewed caller time",
+    );
+
+    releaseHolder();
+    await holderTransaction;
 
     const firstClaim = await claimPendingStripeInboxEvents({
       claimToken: "claim_first",
       db: claimant,
       leaseMs,
       limit: 1,
-      now,
+      now: new Date("2099-01-01T00:00:00.000Z"),
     });
     assertDeepEqual(
       firstClaim,
       ["stripe_event_evt_inbox_claim_locked"],
-      "first due claim must acquire the pending inbox row",
+      "released locked row must be claimable after the holder transaction commits",
     );
 
     const immediateReclaim = await claimPendingStripeInboxEvents({
@@ -831,7 +919,7 @@ async function runStripeInboxClaimLeaseRegression(harness: PostgresHarness) {
       db: competingClaimant,
       leaseMs,
       limit: 1,
-      now,
+      now: new Date("2099-01-01T00:00:00.000Z"),
     });
     assertDeepEqual(
       immediateReclaim,
@@ -844,12 +932,65 @@ async function runStripeInboxClaimLeaseRegression(harness: PostgresHarness) {
       db: competingClaimant,
       leaseMs,
       limit: 1,
-      now: new Date(now.getTime() + leaseMs + 1),
     });
     assertDeepEqual(
       afterCrashLease,
+      [],
+      "skewed caller time must not make a database-time crash lease expire early",
+    );
+    await setup.query(
+      `
+        update trip_pass_stripe_events
+        set claim_expires_at = now() - interval '1 millisecond'
+        where stripe_event_id = 'evt_inbox_claim_locked'
+      `,
+    );
+    const afterDatabaseLeaseExpiry = await claimPendingStripeInboxEvents({
+      claimToken: "claim_locked_after_database_lease",
+      db: competingClaimant,
+      leaseMs,
+      limit: 1,
+      now: new Date("2099-01-01T00:00:00.000Z"),
+    });
+    assertDeepEqual(
+      afterDatabaseLeaseExpiry,
       ["stripe_event_evt_inbox_claim_locked"],
-      "expired crash leases must make pending inbox rows reclaimable",
+      "database-expired crash leases must make pending inbox rows reclaimable",
+    );
+
+    await receiveStripeWebhookEvent(
+      stripeInboxCheckoutSessionEvent("evt_inbox_claim_rollback", "order_inbox_claim_rollback"),
+      { db: setup, now },
+    );
+    await expectRejects(
+      claimant.transaction(async (transaction) => {
+        const rolledBackClaim = await claimPendingStripeInboxEvents({
+          claimToken: "claim_rollback",
+          db: transaction,
+          leaseMs,
+          limit: 1,
+          now: new Date("2099-01-01T00:00:00.000Z"),
+        });
+        assertDeepEqual(
+          rolledBackClaim,
+          ["stripe_event_evt_inbox_claim_rollback"],
+          "claim rollback fixture must acquire its row before rollback",
+        );
+        throw new Error("force inbox claim rollback");
+      }),
+      "force inbox claim rollback",
+    );
+    const afterClaimRollback = await claimPendingStripeInboxEvents({
+      claimToken: "claim_after_rollback",
+      db: competingClaimant,
+      leaseMs,
+      limit: 1,
+      now: new Date("2099-01-01T00:00:00.000Z"),
+    });
+    assertDeepEqual(
+      afterClaimRollback,
+      ["stripe_event_evt_inbox_claim_rollback"],
+      "rolled-back claims must not leave a durable lease",
     );
 
     await receiveStripeWebhookEvent(
@@ -862,14 +1003,14 @@ async function runStripeInboxClaimLeaseRegression(harness: PostgresHarness) {
         db: claimant,
         leaseMs,
         limit: 1,
-        now,
+        now: new Date("2099-01-01T00:00:00.000Z"),
       }),
       claimPendingStripeInboxEvents({
         claimToken: "claim_race_second",
         db: competingClaimant,
         leaseMs,
         limit: 1,
-        now,
+        now: new Date("2099-01-01T00:00:00.000Z"),
       }),
     ]);
     assertEqual(
@@ -880,7 +1021,8 @@ async function runStripeInboxClaimLeaseRegression(harness: PostgresHarness) {
       "parallel claimers must not both claim the same pending inbox row",
     );
   } finally {
-    await Promise.allSettled([setup.end(), claimant.end(), competingClaimant.end()]);
+    releaseHolder();
+    await Promise.allSettled([holder.end(), setup.end(), claimant.end(), competingClaimant.end()]);
   }
 }
 

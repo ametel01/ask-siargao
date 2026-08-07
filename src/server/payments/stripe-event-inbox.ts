@@ -118,14 +118,13 @@ export async function receiveStripeWebhookEvent(
   } = {},
 ): Promise<StripeInboxReceiveResult> {
   const db = options.db ?? getDefaultDatabaseQueryClient();
-  const now = options.now ?? new Date();
-  const receipt = await commitStripeEventReceipt(normalizeStripeEvent(event), db, now);
+  const receipt = await commitStripeEventReceipt(normalizeStripeEvent(event), db);
 
   if (receipt.status === "duplicate" || receipt.status === "blocked" || !options.applyEvent) {
     return receipt;
   }
 
-  return applyStripeInboxEvent(receipt.inboxId, { applyEvent: options.applyEvent, db, now });
+  return applyStripeInboxEvent(receipt.inboxId, { applyEvent: options.applyEvent, db });
 }
 
 export async function applyStripeInboxEvent(
@@ -137,10 +136,10 @@ export async function applyStripeInboxEvent(
   },
 ): Promise<StripeInboxApplicationResult> {
   const db = options.db ?? getDefaultDatabaseQueryClient();
-  const now = options.now ?? new Date();
   const applyWithinTransaction = async (
     transaction: DatabaseQueryClient,
   ): Promise<StripeInboxApplicationResult> => {
+    const now = await readStripeInboxDatabaseNow(transaction);
     const inboxRow = await loadInboxRow(inboxId, transaction);
 
     if (!inboxRow) {
@@ -174,7 +173,7 @@ export async function applyStripeInboxEvent(
     });
     const classification = classifyApplicationResult(applicationResult);
     if (classification.status === "applied") {
-      await markInboxApplied(inboxId, transaction, now);
+      await markInboxApplied(inboxId, transaction);
       return {
         status: "applied",
         inboxId,
@@ -185,7 +184,6 @@ export async function applyStripeInboxEvent(
     await scheduleInboxRetry({
       inboxId,
       db: transaction,
-      now,
       reason: classification.reason,
       status: classification.status,
     });
@@ -208,7 +206,6 @@ export async function applyStripeInboxEvent(
     await scheduleInboxRetry({
       inboxId,
       db,
-      now,
       reason: sanitizedErrorClass(error),
       status: "pending",
     });
@@ -229,30 +226,28 @@ export async function claimPendingStripeInboxEvents(input: {
   now?: Date;
 }) {
   const db = input.db ?? getDefaultDatabaseQueryClient();
-  const now = input.now ?? new Date();
   const leaseMs = input.leaseMs ?? 60_000;
-  const claimExpiresAt = new Date(now.getTime() + leaseMs);
   const result = await db.query<{ id: string }>(
     `
-      update trip_pass_stripe_events
-      set claim_token = $1,
-          claim_expires_at = $2,
-          updated_at = $3
-      where status = 'pending'
-        and (next_attempt_at is null or next_attempt_at <= $3)
-        and (claim_expires_at is null or claim_expires_at <= $3)
-        and id in (
-        select id
+      with due as (
+        select id, now() as database_now
         from trip_pass_stripe_events
         where status = 'pending'
-          and (next_attempt_at is null or next_attempt_at <= $3)
-          and (claim_expires_at is null or claim_expires_at <= $3)
+          and (next_attempt_at is null or next_attempt_at <= now())
+          and (claim_expires_at is null or claim_expires_at <= now())
         order by received_at, id
-        limit $4
+        limit $2
+        for update skip locked
       )
-      returning id
+      update trip_pass_stripe_events
+      set claim_token = $1,
+          claim_expires_at = due.database_now + ($3::double precision * interval '1 millisecond'),
+          updated_at = due.database_now
+      from due
+      where trip_pass_stripe_events.id = due.id
+      returning trip_pass_stripe_events.id
     `,
-    [input.claimToken, claimExpiresAt, now, input.limit],
+    [input.claimToken, input.limit, leaseMs],
   );
 
   return result.rows.map((row) => row.id);
@@ -291,12 +286,14 @@ export function normalizeStripeEvent(event: Stripe.Event): NormalizedStripeEvent
 async function commitStripeEventReceipt(
   normalized: NormalizedStripeEvent,
   db: DatabaseQueryClient,
-  now: Date,
 ): Promise<StripeInboxReceiptResult> {
   const inboxId = inboxIdForStripeEvent(normalized.stripeEventId);
   try {
     await db.query(
       `
+        with database_time as (
+          select now() as database_now
+        )
         insert into trip_pass_stripe_events (
           id,
           stripe_event_id,
@@ -321,10 +318,11 @@ async function commitStripeEventReceipt(
           created_at,
           updated_at
         )
-        values (
+        select
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-          $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20, $20, $20
-        )
+          $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb,
+          database_time.database_now, database_time.database_now, database_time.database_now
+        from database_time
       `,
       [
         inboxId,
@@ -346,7 +344,6 @@ async function commitStripeEventReceipt(
         normalized.status,
         normalized.sanitizedErrorClass,
         JSON.stringify(normalized.normalizedFacts),
-        now,
       ],
     );
   } catch (error) {
@@ -358,7 +355,7 @@ async function commitStripeEventReceipt(
       throw error;
     }
     if (hasImmutableFactMismatch(existing, normalized)) {
-      await markInboxBlocked(existing.id, db, now, "stripe_event_fact_mismatch");
+      await markInboxBlocked(existing.id, db, "stripe_event_fact_mismatch");
       return {
         status: "blocked",
         inboxId: existing.id,
@@ -512,30 +509,35 @@ function classifyApplicationResult(applicationResult: unknown): {
 async function scheduleInboxRetry(input: {
   inboxId: string;
   db: DatabaseQueryClient;
-  now: Date;
   reason: string;
   status: "pending" | "blocked";
 }) {
   const current = await loadInboxRow(input.inboxId, input.db);
   const attemptCount = (current?.attempt_count ?? 0) + 1;
-  const nextAttemptAt =
-    input.status === "pending" ? new Date(input.now.getTime() + backoffMs(attemptCount)) : null;
+  const backoffDelayMs = input.status === "pending" ? backoffMs(attemptCount) : null;
   const alertState = attemptCount >= 10 ? "page" : attemptCount >= 5 ? "watch" : "none";
 
   await input.db.query(
     `
+      with database_time as (
+        select now() as database_now
+      )
       update trip_pass_stripe_events
       set status = $2,
           attempt_count = $3,
-          next_attempt_at = $4,
+          next_attempt_at = case
+            when $4::double precision is null then null
+            else database_time.database_now + ($4::double precision * interval '1 millisecond')
+          end,
           claim_token = null,
           claim_expires_at = null,
           alert_state = $5,
           sanitized_error_class = $6,
-          updated_at = $7
+          updated_at = database_time.database_now
+      from database_time
       where id = $1
     `,
-    [input.inboxId, input.status, attemptCount, nextAttemptAt, alertState, input.reason, input.now],
+    [input.inboxId, input.status, attemptCount, backoffDelayMs, alertState, input.reason],
   );
 }
 
@@ -543,41 +545,44 @@ function backoffMs(attemptCount: number) {
   return Math.min(60 * 60 * 1000, 2 ** Math.min(attemptCount, 8) * 1_000);
 }
 
-async function markInboxApplied(inboxId: string, db: DatabaseQueryClient, now: Date) {
+async function markInboxApplied(inboxId: string, db: DatabaseQueryClient) {
   await db.query(
     `
+      with database_time as (
+        select now() as database_now
+      )
       update trip_pass_stripe_events
       set status = 'applied',
-          applied_at = $2,
+          applied_at = database_time.database_now,
           next_attempt_at = null,
           claim_token = null,
           claim_expires_at = null,
           sanitized_error_class = null,
-          updated_at = $2
+          updated_at = database_time.database_now
+      from database_time
       where id = $1
     `,
-    [inboxId, now],
+    [inboxId],
   );
 }
 
-async function markInboxBlocked(
-  inboxId: string,
-  db: DatabaseQueryClient,
-  now: Date,
-  reason: string,
-) {
+async function markInboxBlocked(inboxId: string, db: DatabaseQueryClient, reason: string) {
   await db.query(
     `
+      with database_time as (
+        select now() as database_now
+      )
       update trip_pass_stripe_events
       set status = 'blocked',
           sanitized_error_class = $2,
           next_attempt_at = null,
           claim_token = null,
           claim_expires_at = null,
-          updated_at = $3
+          updated_at = database_time.database_now
+      from database_time
       where id = $1
     `,
-    [inboxId, reason, now],
+    [inboxId, reason],
   );
 }
 
@@ -595,6 +600,15 @@ async function loadInboxRow(inboxId: string, db: DatabaseQueryClient) {
     [inboxId],
   );
   return result.rows[0] ?? null;
+}
+
+async function readStripeInboxDatabaseNow(db: DatabaseQueryClient) {
+  const result = await db.query<{ database_now: Date | string }>("select now() as database_now");
+  const value = result.rows[0]?.database_now;
+  if (!value) {
+    throw new Error("Stripe inbox database time was not available.");
+  }
+  return value instanceof Date ? value : new Date(String(value));
 }
 
 function unsupportedEventReason(event: Stripe.Event, stripeApiVersion: string) {
