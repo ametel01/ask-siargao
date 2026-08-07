@@ -8,14 +8,18 @@ import {
   createAuditLifecycleRecord,
   startCheckoutLifecycle,
 } from "@/server/audit/lifecycle";
+import type { DatabaseQueryClient } from "@/server/db/query-client";
+import {
+  openTestDatabase,
+  resetTestDatabase,
+  runInitialMigration,
+} from "@/server/db/test-database";
 import type { QueuedAuditJob } from "@/server/jobs/audit-jobs";
 import { verifyStripeWebhookPayload } from "@/server/payments/stripe";
-import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 import {
-  applyVerifiedCheckoutPayment,
-  type PaymentApplicationStore,
-  type VerifiedPaymentEventRecord,
-} from "@/server/payments/webhook-application";
+  receiveStripeWebhookEvent,
+  STRIPE_API_VERSION,
+} from "@/server/payments/stripe-event-inbox";
 
 const now = new Date("2026-06-23T08:00:00.000Z");
 const webhookSecret = "whsec_test_fixture_secret";
@@ -82,7 +86,11 @@ describe("Stripe webhook route", () => {
     }
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ received: true, ignored: true });
+    expect(await response.json()).toMatchObject({
+      received: true,
+      ignored: true,
+      applicationStatus: "noop",
+    });
   });
 
   test("does not require Redis-backed throttling after webhook verification", async () => {
@@ -97,9 +105,10 @@ describe("Stripe webhook route", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.applicationStatus).toBe("applied");
+    expect(body.applicationStatus).toBe("noop");
+    expect(body.ignored).toBe(true);
     expect(body.stripeEventId).toBe("evt_checkout_redis_down");
-    expect(store.paymentEvents).toHaveLength(1);
+    expect(store.paymentEvents).toHaveLength(0);
     expect(response.headers.get("x-ratelimit-limit")).toBeNull();
   });
 
@@ -215,9 +224,6 @@ describe("Stripe webhook route", () => {
           orderId: "order_trip_pass_dispatch",
           stripeEventId: "evt_trip_pass_dispatch",
         }),
-        applyVerifiedCheckoutPayment: async () => {
-          throw new Error("audit path should not handle applied Trip Pass events");
-        },
         trackServerEvent: (event) => {
           events.push(event.name);
           return {
@@ -238,6 +244,7 @@ describe("Stripe webhook route", () => {
     expect(body).toEqual({
       received: true,
       product: "trip_pass",
+      status: "applied",
       applicationStatus: "applied",
       action: "activated",
       orderId: "order_trip_pass_dispatch",
@@ -248,6 +255,39 @@ describe("Stripe webhook route", () => {
       "trip_pass_activated",
       "trip_pass_checkout_completed",
     ]);
+  });
+
+  test("actual route inbox marks applied Trip Pass responses applied", async () => {
+    await withRouteTestDb(async (db) => {
+      const response = await stripeWebhookResponse(
+        await signedRequest(
+          tripPassCheckoutSessionPayload({
+            eventId: "evt_route_inbox_applied",
+            orderId: "order_route_inbox_applied",
+          }),
+        ),
+        {
+          ...routeDependencies(),
+          applyTripPassStripeEvent: async () => ({
+            status: "applied",
+            action: "activated",
+            orderId: "order_route_inbox_applied",
+            stripeEventId: "evt_route_inbox_applied",
+          }),
+          receiveStripeWebhookEvent: (event, options) =>
+            receiveStripeWebhookEvent(event, { ...options, db }),
+        },
+      );
+      const body = await response.json();
+      const inbox = await db.query<{ status: string }>(
+        "select status from trip_pass_stripe_events where stripe_event_id = $1",
+        ["evt_route_inbox_applied"],
+      );
+
+      expect(response.status).toBe(200);
+      expect(body.applicationStatus).toBe("applied");
+      expect(inbox.rows[0]?.status).toBe("applied");
+    });
   });
 
   test("does not inflate Trip Pass activation telemetry for duplicate webhook delivery", async () => {
@@ -280,7 +320,7 @@ describe("Stripe webhook route", () => {
     expect(events).toEqual(["trip_pass_stripe_event_applied"]);
   });
 
-  test("applies valid paid checkout events and enqueues generation", async () => {
+  test("does not write new legacy payment event raw payloads for audit checkout events", async () => {
     const store = createMemoryPaymentStore(pendingPaymentAudit());
     const response = await stripeWebhookResponse(await signedRequest(checkoutSessionPayload()), {
       ...routeDependencies(store.store),
@@ -288,19 +328,17 @@ describe("Stripe webhook route", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.applicationStatus).toBe("applied");
-    expect(store.audit.state).toBe("generating");
-    expect(store.jobs).toHaveLength(1);
-    expect(store.jobs[0]?.kind).toBe("generate_audit");
-    expect(store.paymentEvents).toHaveLength(1);
-    expect(store.paymentEvents[0]?.rawEvent).toEqual({
+    expect(body).toEqual({
+      received: true,
+      ignored: true,
+      status: "noop",
+      applicationStatus: "noop",
+      reason: "legacy_audit_checkout_closed",
       stripeEventId: "evt_test_checkout_completed",
-      eventType: "checkout.session.completed",
-      stripeApiVersion: STRIPE_API_VERSION,
-      objectType: "checkout.session",
     });
-    expect(JSON.stringify(store.paymentEvents[0]?.rawEvent)).not.toContain("data");
-    expect(JSON.stringify(store.paymentEvents[0]?.rawEvent)).not.toContain("metadata");
+    expect(store.audit.state).toBe("awaiting_payment");
+    expect(store.jobs).toHaveLength(0);
+    expect(store.paymentEvents).toHaveLength(0);
   });
 
   test("treats duplicate Stripe events as idempotent", async () => {
@@ -315,9 +353,10 @@ describe("Stripe webhook route", () => {
     const duplicateBody = await duplicateResponse.json();
 
     expect(duplicateResponse.status).toBe(200);
-    expect(duplicateBody.applicationStatus).toBe("duplicate");
-    expect(store.jobs).toHaveLength(1);
-    expect(store.paymentEvents).toHaveLength(1);
+    expect(duplicateBody.applicationStatus).toBe("noop");
+    expect(duplicateBody.ignored).toBe(true);
+    expect(store.jobs).toHaveLength(0);
+    expect(store.paymentEvents).toHaveLength(0);
   });
 
   test("treats duplicate event persistence races as idempotent", async () => {
@@ -332,7 +371,7 @@ describe("Stripe webhook route", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.applicationStatus).toBe("duplicate");
+    expect(body.applicationStatus).toBe("noop");
     expect(body.generationJobId).toBeUndefined();
   });
 
@@ -344,8 +383,8 @@ describe("Stripe webhook route", () => {
     );
     const body = await response.json();
 
-    expect(response.status).toBe(400);
-    expect(body.error).toBe("invalid_stripe_webhook");
+    expect(response.status).toBe(200);
+    expect(body.applicationStatus).toBe("noop");
     expect(store.jobs).toHaveLength(0);
     expect(store.paymentEvents).toHaveLength(0);
   });
@@ -361,8 +400,8 @@ describe("Stripe webhook route", () => {
     );
     const body = await response.json();
 
-    expect(response.status).toBe(400);
-    expect(body.error).toBe("invalid_stripe_webhook");
+    expect(response.status).toBe(200);
+    expect(body.applicationStatus).toBe("noop");
     expect(store.jobs).toHaveLength(0);
     expect(store.paymentEvents).toHaveLength(0);
   });
@@ -380,8 +419,8 @@ describe("Stripe webhook route", () => {
     );
     const body = await response.json();
 
-    expect(response.status).toBe(400);
-    expect(body.error).toBe("invalid_stripe_webhook");
+    expect(response.status).toBe(200);
+    expect(body.applicationStatus).toBe("noop");
   });
 
   test("ignores non-paid checkout sessions", async () => {
@@ -393,7 +432,11 @@ describe("Stripe webhook route", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ received: true, ignored: true });
+    expect(body).toMatchObject({
+      received: true,
+      ignored: true,
+      applicationStatus: "noop",
+    });
     expect(store.jobs).toHaveLength(0);
   });
 
@@ -441,21 +484,20 @@ describe("Stripe webhook route", () => {
     const internalPhrase = "fixture_should_not_render_stripe_application";
     const response = await stripeWebhookResponse(
       await signedRequest(checkoutSessionPayload({ eventId: "evt_application_error" })),
-      routeDependencies({
-        hasProcessedStripeEvent: async () => false,
-        loadCheckoutAudit: async () => pendingPaymentAudit(),
-        saveAppliedPayment: async () => {
-          throw new Error(`payment persistence failed ${internalPhrase}`);
-        },
-      }),
+      {
+        ...routeDependencies(createMemoryPaymentStore(pendingPaymentAudit()).store),
+        receiveStripeWebhookEvent: async (event) => ({
+          status: "pending",
+          inboxId: `stripe_event_${event.id}`,
+          stripeEventId: event.id,
+          reason: "Error",
+        }),
+      },
     );
     const body = await response.json();
 
-    expect(response.status).toBe(400);
-    expect(body).toEqual({
-      error: "invalid_stripe_webhook",
-      message: "Webhook verification failed.",
-    });
+    expect(response.status).toBe(200);
+    expect(body.inboxStatus).toBe("pending");
     expect(JSON.stringify(body)).not.toContain(internalPhrase);
   });
 
@@ -483,11 +525,9 @@ function restoreEnvValue(name: string, value: string | undefined) {
   process.env[name] = value;
 }
 
-function routeDependencies(store: PaymentApplicationStore) {
+function routeDependencies(_store?: unknown) {
   return {
     applyTripPassStripeEvent: async () => ({ status: "ignored", reason: "not_trip_pass_event" }),
-    applyVerifiedCheckoutPayment: (payment, rawEvent) =>
-      applyVerifiedCheckoutPayment(payment, rawEvent, { store, now }),
     stripeWebhookSecretFromEnv: () => webhookSecret,
     trackServerEvent: (event) => ({
       name: event.name,
@@ -515,15 +555,53 @@ function routeDependencies(store: PaymentApplicationStore) {
   } satisfies Parameters<typeof stripeWebhookResponse>[1];
 }
 
+async function withRouteTestDb(work: (db: DatabaseQueryClient) => Promise<void>) {
+  await resetTestDatabase();
+  const db = await openTestDatabase();
+  try {
+    await runInitialMigration(db);
+    await work(createPgliteQueryClient(db));
+  } finally {
+    await db.close();
+  }
+}
+
+function createPgliteQueryClient(db: Awaited<ReturnType<typeof openTestDatabase>>) {
+  const client: DatabaseQueryClient = {
+    async query<T>(query: string, params: unknown[] = []) {
+      return db.query<T>(query, params);
+    },
+    async transaction<T>(callback: (transactionClient: DatabaseQueryClient) => Promise<T>) {
+      await db.exec("begin");
+      try {
+        const result = await callback({ ...client, inTransaction: true });
+        await db.exec("commit");
+        return result;
+      } catch (error) {
+        await db.exec("rollback");
+        throw error;
+      }
+    },
+  };
+
+  return client;
+}
+
 function createMemoryPaymentStore(initialAudit: AuditLifecycleRecord) {
   const processedStripeEventIds = new Set<string>();
-  const paymentEvents: VerifiedPaymentEventRecord[] = [];
+  const paymentEvents: Array<{ rawEvent?: unknown }> = [];
   const jobs: QueuedAuditJob[] = [];
   let audit = initialAudit;
-  const store: PaymentApplicationStore = {
-    hasProcessedStripeEvent: async (stripeEventId) => processedStripeEventIds.has(stripeEventId),
+  const store = {
+    hasProcessedStripeEvent: async (stripeEventId: string) =>
+      processedStripeEventIds.has(stripeEventId),
     loadCheckoutAudit: async () => audit,
-    saveAppliedPayment: async (input) => {
+    saveAppliedPayment: async (input: {
+      audit: AuditLifecycleRecord;
+      job: QueuedAuditJob;
+      payment: { stripeEventId: string };
+      paymentEvent: { rawEvent?: unknown };
+    }) => {
       processedStripeEventIds.add(input.payment.stripeEventId);
       audit = input.audit;
       jobs.push(input.job);
@@ -592,6 +670,34 @@ function checkoutSessionPayload(
         mode: "payment",
         payment_intent: "pi_test_123",
         payment_status: input.paymentStatus ?? "paid",
+      },
+    },
+    livemode: false,
+    pending_webhooks: 1,
+    request: null,
+    type: "checkout.session.completed",
+  });
+}
+
+function tripPassCheckoutSessionPayload(input: { eventId: string; orderId: string }) {
+  return JSON.stringify({
+    id: input.eventId,
+    object: "event",
+    api_version: STRIPE_API_VERSION,
+    created: 1_782_194_400,
+    data: {
+      object: {
+        id: `cs_${input.orderId}`,
+        object: "checkout.session",
+        client_reference_id: input.orderId,
+        metadata: {
+          tripPassOrderId: input.orderId,
+          productCode: "siargao_trip_pass_14d_v2",
+          productVersion: "2",
+        },
+        mode: "payment",
+        payment_intent: `pi_${input.orderId}`,
+        payment_status: "paid",
       },
     },
     livemode: false,

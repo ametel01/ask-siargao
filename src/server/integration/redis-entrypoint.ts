@@ -409,10 +409,12 @@ async function runVerifiedStripeWebhookRedisIndependenceRegression() {
       body,
       {
         received: true,
+        product: "trip_pass",
+        status: "applied",
         applicationStatus: "applied",
-        auditRequestId: "audit_issue150_redis_independent",
+        action: "activated",
+        orderId: "order_issue150_redis_independent",
         stripeEventId: "evt_issue150_redis_independent",
-        generationJobId: "job_audit_issue150_redis_independent_generate",
       },
       "handled verified event must reach durable payment application with Redis unavailable",
     );
@@ -460,24 +462,11 @@ async function runVerifiedStripeWebhookRedisIndependenceRegression() {
 function redisOutageWebhookDependencies(mode: "applied" | "persistence_failure") {
   return {
     applyTripPassStripeEvent: async () => ({
-      status: "ignored" as const,
-      reason: "not_trip_pass_event" as const,
+      status: "applied" as const,
+      action: "activated" as const,
+      orderId: "order_issue150_redis_independent",
+      stripeEventId: "evt_issue150_redis_independent",
     }),
-    applyVerifiedCheckoutPayment: async (payment) => {
-      if (mode === "persistence_failure") {
-        throw new Error("issue150 simulated durable persistence failure");
-      }
-      return {
-        status: "applied" as const,
-        audit: { id: payment.auditRequestId } as never,
-        job: {
-          id: `job_${payment.auditRequestId}_generate`,
-          auditRequestId: payment.auditRequestId,
-          kind: "generate_audit" as const,
-        } as never,
-        paymentEvent: {} as never,
-      };
-    },
     stripeWebhookSecretFromEnv: () => "whsec_issue150_fixture",
     trackServerEvent: (event) => ({
       name: event.name,

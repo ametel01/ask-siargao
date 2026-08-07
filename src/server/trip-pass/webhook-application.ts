@@ -2,6 +2,10 @@ import type Stripe from "stripe";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import {
+  createStripeLifecycleObjectRetriever,
+  type StripeLifecycleObjectRetriever,
+} from "@/server/payments/stripe";
+import {
   getTripPassProductContract,
   readTripPassEnvironment,
   tripPassProductCode,
@@ -39,6 +43,7 @@ export async function applyTripPassStripeEvent(
     db?: DatabaseQueryClient;
     env?: Record<string, string | undefined>;
     now?: Date;
+    stripeObjects?: StripeLifecycleObjectRetriever;
   } = {},
 ): Promise<TripPassStripeApplicationResult> {
   const now = options.now ?? new Date();
@@ -50,31 +55,43 @@ export async function applyTripPassStripeEvent(
     }
 
     const db = options.db ?? getDefaultDatabaseQueryClient();
-    return applyCheckoutSessionEvent(event, db, options.env, now);
+    return withApplicationTransaction(db, (transaction) =>
+      applyCheckoutSessionEvent(event, transaction, options.env, now),
+    );
   }
   if (isRefundEvent(event)) {
     const db = options.db ?? getDefaultDatabaseQueryClient();
-    return applyPaymentIntentLifecycleEvent({
-      event,
-      paymentIntentId: paymentIntentIdFromRefund(event.data.object as Stripe.Refund),
-      action: "refunded",
-      orderStatus: "refunded",
-      passStatus: "refunded",
-      db,
-      now,
-    });
+    return withApplicationTransaction(db, async (transaction) =>
+      applyPaymentIntentLifecycleEvent({
+        event,
+        paymentIntentId: await paymentIntentIdFromRefundEvent(
+          event,
+          options.stripeObjects ?? createStripeLifecycleObjectRetriever(),
+        ),
+        action: "refunded",
+        orderStatus: "refunded",
+        passStatus: "refunded",
+        db: transaction,
+        now,
+      }),
+    );
   }
   if (isDisputeEvent(event)) {
     const db = options.db ?? getDefaultDatabaseQueryClient();
-    return applyPaymentIntentLifecycleEvent({
-      event,
-      paymentIntentId: paymentIntentIdFromDispute(event.data.object as Stripe.Dispute),
-      action: "disputed",
-      orderStatus: "disputed",
-      passStatus: "cancelled",
-      db,
-      now,
-    });
+    return withApplicationTransaction(db, async (transaction) =>
+      applyPaymentIntentLifecycleEvent({
+        event,
+        paymentIntentId: await paymentIntentIdFromDisputeEvent(
+          event,
+          options.stripeObjects ?? createStripeLifecycleObjectRetriever(),
+        ),
+        action: "disputed",
+        orderStatus: "disputed",
+        passStatus: "cancelled",
+        db: transaction,
+        now,
+      }),
+    );
   }
 
   return { status: "ignored", reason: "not_relevant_event" };
@@ -203,14 +220,19 @@ async function applyPaymentIntentLifecycleEvent(input: {
 }): Promise<TripPassStripeApplicationResult> {
   if (!input.paymentIntentId) {
     return {
-      status: "ignored",
-      reason: "not_trip_pass_event",
+      status: "rejected",
+      reason: "trip_pass_payment_intent_not_found",
+      stripeEventId: input.event.id,
     };
   }
 
   const order = await loadOrderByPaymentIntent(input.paymentIntentId, input.db);
   if (!order) {
-    return { status: "ignored", reason: "not_trip_pass_event" };
+    return {
+      status: "rejected",
+      reason: "trip_pass_payment_intent_not_found",
+      stripeEventId: input.event.id,
+    };
   }
   if (order.status === input.orderStatus) {
     return { status: "duplicate", orderId: order.id, stripeEventId: input.event.id };
@@ -241,6 +263,28 @@ async function applyPaymentIntentLifecycleEvent(input: {
     orderId: order.id,
     stripeEventId: input.event.id,
   };
+}
+
+async function withApplicationTransaction<T>(
+  db: DatabaseQueryClient,
+  callback: (transaction: DatabaseQueryClient) => Promise<T>,
+) {
+  if (db.inTransaction) {
+    return callback(db);
+  }
+  if (db.transaction) {
+    return db.transaction(callback);
+  }
+
+  await db.query("begin");
+  try {
+    const result = await callback({ ...db, inTransaction: true });
+    await db.query("commit");
+    return result;
+  } catch (error) {
+    await db.query("rollback").catch(() => undefined);
+    throw error;
+  }
 }
 
 async function rememberOrderPaymentIntent(
@@ -451,4 +495,28 @@ function paymentIntentIdFromDispute(dispute: Stripe.Dispute) {
   return typeof dispute.payment_intent === "string"
     ? dispute.payment_intent
     : (dispute.payment_intent?.id ?? null);
+}
+
+async function paymentIntentIdFromRefundEvent(
+  event: Stripe.Event,
+  retriever: StripeLifecycleObjectRetriever,
+) {
+  const object = event.data.object as Stripe.Charge | Stripe.Refund;
+  if (event.type === "refund.created") {
+    const refund = await retriever.retrieveRefund(object.id);
+    return paymentIntentIdFromRefund(refund);
+  }
+
+  const charge = await retriever.retrieveCharge(object.id);
+  return typeof charge.payment_intent === "string"
+    ? charge.payment_intent
+    : (charge.payment_intent?.id ?? null);
+}
+
+async function paymentIntentIdFromDisputeEvent(
+  event: Stripe.Event,
+  retriever: StripeLifecycleObjectRetriever,
+) {
+  const dispute = await retriever.retrieveDispute((event.data.object as Stripe.Dispute).id);
+  return paymentIntentIdFromDispute(dispute);
 }

@@ -1,10 +1,6 @@
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { trackServerEvent } from "@/server/observability/events";
-import { applyVerifiedCheckoutPayment } from "@/server/payments/audit-payment-lifecycle";
-import {
-  extractVerifiedCheckoutPayment,
-  verifyStripeWebhookPayload,
-} from "@/server/payments/stripe";
+import { verifyStripeWebhookPayload } from "@/server/payments/stripe";
 import {
   readBoundedStripeWebhookBody,
   receiveStripeWebhookEvent,
@@ -14,7 +10,6 @@ import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/
 import { applyTripPassStripeEvent } from "@/server/trip-pass/webhook-application";
 
 export type StripeWebhookRouteDependencies = {
-  applyVerifiedCheckoutPayment: typeof applyVerifiedCheckoutPayment;
   applyTripPassStripeEvent: typeof applyTripPassStripeEvent;
   stripeWebhookSecretFromEnv: typeof stripeWebhookSecretFromEnv;
   trackServerEvent: typeof trackServerEvent;
@@ -23,7 +18,6 @@ export type StripeWebhookRouteDependencies = {
 };
 
 const defaultDependencies: StripeWebhookRouteDependencies = {
-  applyVerifiedCheckoutPayment,
   applyTripPassStripeEvent,
   stripeWebhookSecretFromEnv,
   trackServerEvent,
@@ -102,6 +96,7 @@ export async function stripeWebhookResponseFromEvent(
       {
         received: true,
         product: "trip_pass",
+        status: tripPassResult.status,
         applicationStatus: tripPassResult.status,
         action: "action" in tripPassResult ? tripPassResult.action : undefined,
         orderId: "orderId" in tripPassResult ? tripPassResult.orderId : undefined,
@@ -112,30 +107,13 @@ export async function stripeWebhookResponseFromEvent(
     );
   }
 
-  const payment = extractVerifiedCheckoutPayment(event);
-
-  if (!payment) {
-    return Response.json({ received: true, ignored: true });
-  }
-
-  const result = await dependencies.applyVerifiedCheckoutPayment(payment, event);
-
-  dependencies.trackServerEvent({
-    name: "payment_succeeded",
-    payload: {
-      auditRequestId: payment.auditRequestId,
-      stripeEventId: payment.stripeEventId,
-      eventType: payment.eventType,
-      applicationStatus: result.status,
-    },
-  });
-
   return Response.json({
     received: true,
-    applicationStatus: result.status,
-    auditRequestId: payment.auditRequestId,
-    stripeEventId: payment.stripeEventId,
-    generationJobId: result.status === "applied" ? result.job.id : undefined,
+    ignored: true,
+    status: "noop",
+    applicationStatus: "noop",
+    reason: "legacy_audit_checkout_closed",
+    stripeEventId: event.id,
   });
 }
 

@@ -101,12 +101,36 @@ export async function readBoundedStripeWebhookBody(
     }
   }
 
-  const body = await request.text();
-  if (Buffer.byteLength(body, "utf8") > maxBytes) {
-    throw new StripeWebhookBodyTooLargeError();
+  if (!request.body) {
+    return "";
   }
 
-  return body;
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let byteLength = 0;
+  let body = "";
+
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+
+      byteLength += chunk.value.byteLength;
+      if (byteLength > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new StripeWebhookBodyTooLargeError();
+      }
+
+      body += decoder.decode(chunk.value, { stream: true });
+    }
+
+    body += decoder.decode();
+    return body;
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 export async function receiveStripeWebhookEvent(
@@ -131,6 +155,7 @@ export async function applyStripeInboxEvent(
   inboxId: string,
   options: {
     applyEvent: StripeEventApplication;
+    claimToken?: string;
     db?: DatabaseQueryClient;
     now?: Date;
   },
@@ -139,8 +164,7 @@ export async function applyStripeInboxEvent(
   const applyWithinTransaction = async (
     transaction: DatabaseQueryClient,
   ): Promise<StripeInboxApplicationResult> => {
-    const now = await readStripeInboxDatabaseNow(transaction);
-    const inboxRow = await loadInboxRow(inboxId, transaction);
+    const inboxRow = await lockInboxRowForApplication(inboxId, transaction);
 
     if (!inboxRow) {
       return {
@@ -150,6 +174,7 @@ export async function applyStripeInboxEvent(
         reason: "inbox_row_not_found",
       };
     }
+    const now = dateFromDatabaseValue(inboxRow.database_now);
     if (inboxRow.status === "applied") {
       return {
         status: "applied",
@@ -164,6 +189,39 @@ export async function applyStripeInboxEvent(
         inboxId,
         stripeEventId: inboxRow.stripe_event_id,
         reason: inboxRow.sanitized_error_class ?? "blocked_stripe_event",
+      };
+    }
+    if (inboxRow.status !== "pending") {
+      return {
+        status: "pending",
+        inboxId,
+        stripeEventId: inboxRow.stripe_event_id,
+        reason: "stripe_inbox_not_pending",
+      };
+    }
+    if (options.claimToken) {
+      if (
+        inboxRow.claim_token !== options.claimToken ||
+        !inboxRow.claim_expires_at ||
+        dateFromDatabaseValue(inboxRow.claim_expires_at).getTime() <= now.getTime()
+      ) {
+        return {
+          status: "pending",
+          inboxId,
+          stripeEventId: inboxRow.stripe_event_id,
+          reason: "stripe_inbox_claim_not_owned",
+        };
+      }
+    } else if (
+      inboxRow.claim_token &&
+      inboxRow.claim_expires_at &&
+      dateFromDatabaseValue(inboxRow.claim_expires_at).getTime() > now.getTime()
+    ) {
+      return {
+        status: "pending",
+        inboxId,
+        stripeEventId: inboxRow.stripe_event_id,
+        reason: "stripe_inbox_claimed",
       };
     }
 
@@ -184,6 +242,7 @@ export async function applyStripeInboxEvent(
     await scheduleInboxRetry({
       inboxId,
       db: transaction,
+      claimToken: options.claimToken,
       reason: classification.reason,
       status: classification.status,
     });
@@ -206,6 +265,7 @@ export async function applyStripeInboxEvent(
     await scheduleInboxRetry({
       inboxId,
       db,
+      claimToken: options.claimToken,
       reason: sanitizedErrorClass(error),
       status: "pending",
     });
@@ -489,17 +549,23 @@ function classifyApplicationResult(applicationResult: unknown): {
   const result = recordValue(applicationResult);
   const resultStatus = stringValue(result?.status);
   const reason = stringValue(result?.reason) ?? resultStatus ?? "unknown_application_result";
+  const applicationStatus = stringValue(result?.applicationStatus);
+  const status = resultStatus ?? applicationStatus;
 
-  if (resultStatus === "applied" || resultStatus === "duplicate" || resultStatus === "noop") {
+  if (status === "applied" || status === "duplicate" || status === "noop") {
     return { status: "applied", reason };
   }
-  if (reason === "trip_pass_order_not_found" || reason === "missing_trip_pass_order_id") {
+  if (
+    reason === "trip_pass_order_not_found" ||
+    reason === "missing_trip_pass_order_id" ||
+    reason === "trip_pass_payment_intent_not_found"
+  ) {
     return { status: "pending", reason };
   }
-  if (resultStatus === "ignored") {
+  if (status === "ignored") {
     return { status: "blocked", reason };
   }
-  if (resultStatus === "rejected") {
+  if (status === "rejected") {
     return { status: "blocked", reason };
   }
 
@@ -508,6 +574,7 @@ function classifyApplicationResult(applicationResult: unknown): {
 
 async function scheduleInboxRetry(input: {
   inboxId: string;
+  claimToken?: string;
   db: DatabaseQueryClient;
   reason: string;
   status: "pending" | "blocked";
@@ -536,8 +603,17 @@ async function scheduleInboxRetry(input: {
           updated_at = database_time.database_now
       from database_time
       where id = $1
+        and ($7::text is null or claim_token = $7)
     `,
-    [input.inboxId, input.status, attemptCount, backoffDelayMs, alertState, input.reason],
+    [
+      input.inboxId,
+      input.status,
+      attemptCount,
+      backoffDelayMs,
+      alertState,
+      input.reason,
+      input.claimToken ?? null,
+    ],
   );
 }
 
@@ -602,13 +678,17 @@ async function loadInboxRow(inboxId: string, db: DatabaseQueryClient) {
   return result.rows[0] ?? null;
 }
 
-async function readStripeInboxDatabaseNow(db: DatabaseQueryClient) {
-  const result = await db.query<{ database_now: Date | string }>("select now() as database_now");
-  const value = result.rows[0]?.database_now;
-  if (!value) {
-    throw new Error("Stripe inbox database time was not available.");
-  }
-  return value instanceof Date ? value : new Date(String(value));
+async function lockInboxRowForApplication(inboxId: string, db: DatabaseQueryClient) {
+  const result = await db.query<StripeInboxRow & { database_now: Date | string }>(
+    `
+      select *, now() as database_now
+      from trip_pass_stripe_events
+      where id = $1
+      for update
+    `,
+    [inboxId],
+  );
+  return result.rows[0] ?? null;
 }
 
 function unsupportedEventReason(event: Stripe.Event, stripeApiVersion: string) {
@@ -633,8 +713,34 @@ function hasImmutableFactMismatch(row: StripeInboxRow, normalized: NormalizedStr
     row.object_id !== normalized.objectId ||
     row.checkout_session_id !== normalized.checkoutSessionId ||
     row.payment_intent_id !== normalized.paymentIntentId ||
-    row.order_id !== normalized.orderId
+    row.order_id !== normalized.orderId ||
+    row.product_code !== normalized.productCode ||
+    row.product_version !== normalized.productVersion ||
+    row.stripe_price_id !== normalized.stripePriceId ||
+    row.amount_total_minor !== normalized.amountTotalMinor ||
+    row.currency !== normalized.currency ||
+    row.payment_status !== normalized.paymentStatus ||
+    canonicalJson(row.normalized_facts_json) !== canonicalJson(normalized.normalizedFacts)
   );
+}
+
+function canonicalJson(value: unknown): string {
+  const parsed = typeof value === "string" ? JSON.parse(value) : value;
+  return JSON.stringify(sortJsonValue(parsed));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortJsonValue);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .toSorted(([left], [right]) => left.localeCompare(right))
+        .map(([key, nested]) => [key, sortJsonValue(nested)]),
+    );
+  }
+  return value;
 }
 
 function inboxIdForStripeEvent(stripeEventId: string) {
@@ -705,7 +811,13 @@ type StripeInboxRow = {
   payment_status: string | null;
   status: string;
   attempt_count: number;
+  claim_token: string | null;
+  claim_expires_at: Date | string | null;
   sanitized_error_class: string | null;
   normalized_facts_json: Record<string, unknown> | string;
   received_at: Date | string;
 };
+
+function dateFromDatabaseValue(value: Date | string) {
+  return value instanceof Date ? value : new Date(String(value));
+}

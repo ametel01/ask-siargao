@@ -15,6 +15,12 @@ export type StripeCheckoutClient = {
   ) => Promise<{ id: string; url: string | null }>;
 };
 
+export type StripeLifecycleObjectRetriever = {
+  retrieveCharge: (chargeId: string) => Promise<Stripe.Charge>;
+  retrieveDispute: (disputeId: string) => Promise<Stripe.Dispute>;
+  retrieveRefund: (refundId: string) => Promise<Stripe.Refund>;
+};
+
 function createStripeClient(apiKey = stripeApiKeyFromEnv()) {
   return new Stripe(apiKey, { apiVersion: STRIPE_API_VERSION });
 }
@@ -22,6 +28,16 @@ function createStripeClient(apiKey = stripeApiKeyFromEnv()) {
 function createStripeCheckoutClient(stripe = createStripeClient()): StripeCheckoutClient {
   return {
     createCheckoutSession: (params) => stripe.checkout.sessions.create(params),
+  };
+}
+
+export function createStripeLifecycleObjectRetriever(
+  stripe = createStripeClient(),
+): StripeLifecycleObjectRetriever {
+  return {
+    retrieveCharge: (chargeId) => stripe.charges.retrieve(chargeId),
+    retrieveDispute: (disputeId) => stripe.disputes.retrieve(disputeId),
+    retrieveRefund: (refundId) => stripe.refunds.retrieve(refundId),
   };
 }
 

@@ -17,8 +17,10 @@ import {
   STRIPE_NORMALIZED_EVENT_SCHEMA_VERSION,
   StripeWebhookBodyTooLargeError,
 } from "@/server/payments/stripe-event-inbox";
+import { applyTripPassStripeEvent } from "@/server/trip-pass/webhook-application";
 
 const now = new Date("2026-08-07T08:00:00.000Z");
+const env = { TRIP_PASS_CHECKOUT_MODE: "on", STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass" };
 
 describe("Stripe event inbox", () => {
   test("normalizes supported events without raw payload or identity fields", () => {
@@ -186,13 +188,29 @@ describe("Stripe event inbox", () => {
         checkoutSessionEvent("evt_duplicate", "order_changed"),
         { db, now },
       );
+      await receiveStripeWebhookEvent(
+        checkoutSessionEvent("evt_duplicate_amount", "order_amount"),
+        { db, now },
+      );
+      const amountConflict = await receiveStripeWebhookEvent(
+        checkoutSessionEvent("evt_duplicate_amount", "order_amount", { amountTotal: 123 }),
+        { db, now },
+      );
 
       expect(duplicate).toMatchObject({ status: "duplicate" });
       expect(conflicting).toMatchObject({
         status: "blocked",
         reason: "stripe_event_fact_mismatch",
       });
+      expect(amountConflict).toMatchObject({
+        status: "blocked",
+        reason: "stripe_event_fact_mismatch",
+      });
       await expectInboxRow(db, "evt_duplicate", {
+        status: "blocked",
+        sanitized_error_class: "stripe_event_fact_mismatch",
+      });
+      await expectInboxRow(db, "evt_duplicate_amount", {
         status: "blocked",
         sanitized_error_class: "stripe_event_fact_mismatch",
       });
@@ -229,6 +247,44 @@ describe("Stripe event inbox", () => {
     });
   });
 
+  test("rolls back actual Trip Pass target writes and inbox applied state at crash boundaries", async () => {
+    const crashBoundaries: Array<{ name: string; pattern: RegExp }> = [
+      {
+        name: "order-provider-link",
+        pattern: /set\s+stripe_checkout_session_id\s*=\s*\$2,\s*stripe_payment_intent_id/i,
+      },
+      { name: "pass", pattern: /insert\s+into\s+trip_passes\b/i },
+      { name: "grant", pattern: /insert\s+into\s+trip_pass_grants\b/i },
+      { name: "meter", pattern: /insert\s+into\s+trip_usage_meters\b/i },
+      { name: "order-paid", pattern: /set\s+status\s*=\s*'paid'/i },
+      { name: "inbox-applied", pattern: /set\s+status\s*=\s*'applied'/i },
+    ];
+
+    for (const boundary of crashBoundaries) {
+      await withTestDb(async (db) => {
+        const orderId = `order_crash_${boundary.name.replaceAll("-", "_")}`;
+        const eventId = `evt_crash_${boundary.name.replaceAll("-", "_")}`;
+        await insertCheckoutCreatedOrder(db, orderId, `user_${boundary.name.replaceAll("-", "_")}`);
+
+        const result = await receiveStripeWebhookEvent(checkoutSessionEvent(eventId, orderId), {
+          db: failAfterQuery(db, boundary.pattern),
+          now,
+          applyEvent: (event, options) =>
+            applyTripPassStripeEvent(event, { db: options.db, env, now: options.now }),
+        });
+
+        expect(result).toMatchObject({ status: "pending", reason: "Error" });
+        await expectInboxRow(db, eventId, {
+          status: "pending",
+          attempt_count: 1,
+          sanitized_error_class: "Error",
+        });
+        await expectOrderUnpaid(db, orderId);
+        await expectTargetCounts(db, { passes: "0", grants: "0", meters: "0" });
+      });
+    }
+  }, 15_000);
+
   test("rejects declared and actual oversized bodies", async () => {
     await expect(
       readBoundedStripeWebhookBody(
@@ -250,6 +306,18 @@ describe("Stripe event inbox", () => {
         4,
       ),
     ).rejects.toBeInstanceOf(StripeWebhookBodyTooLargeError);
+
+    await expect(
+      readBoundedStripeWebhookBody(
+        new Request("https://siargao.test/api/stripe/webhook", {
+          method: "POST",
+          headers: { "content-length": "false" },
+          body: chunkedBody(["ab", "cd", "é"]),
+          duplex: "half",
+        } as RequestInit),
+        5,
+      ),
+    ).rejects.toBeInstanceOf(StripeWebhookBodyTooLargeError);
   });
 });
 
@@ -264,6 +332,28 @@ async function withTestDb(work: (db: DatabaseQueryClient) => Promise<void>) {
   }
 }
 
+function failAfterQuery(db: DatabaseQueryClient, pattern: RegExp): DatabaseQueryClient {
+  let failed = false;
+  return {
+    async query<T>(query: string, params: unknown[] = []) {
+      const result = await db.query<T>(query, params);
+      if (!failed && pattern.test(query)) {
+        failed = true;
+        throw new Error("forced actual Trip Pass target rollback");
+      }
+      return result;
+    },
+    async transaction<T>(callback: (transactionClient: DatabaseQueryClient) => Promise<T>) {
+      if (!db.transaction) {
+        throw new Error("Test database transaction support is required.");
+      }
+      return db.transaction((transaction) =>
+        callback({ ...failAfterQuery(transaction, pattern), inTransaction: true }),
+      );
+    },
+  };
+}
+
 function createPgliteQueryClient(db: PGlite): DatabaseQueryClient {
   const client: DatabaseQueryClient = {
     async query<T>(query: string, params: unknown[] = []) {
@@ -272,7 +362,7 @@ function createPgliteQueryClient(db: PGlite): DatabaseQueryClient {
     async transaction<T>(callback: (transactionClient: DatabaseQueryClient) => Promise<T>) {
       await db.exec("begin");
       try {
-        const result = await callback(client);
+        const result = await callback({ ...client, inTransaction: true });
         await db.exec("commit");
         return result;
       } catch (error) {
@@ -323,10 +413,87 @@ async function expectInboxRow(
   return row;
 }
 
+async function insertCheckoutCreatedOrder(
+  db: DatabaseQueryClient,
+  orderId: string,
+  userId: string,
+) {
+  await db.query("insert into users (id, email) values ($1, $2)", [
+    userId,
+    `${userId}@example.com`,
+  ]);
+  await db.query(
+    `
+      insert into trip_pass_orders (
+        id,
+        user_id,
+        email,
+        status,
+        product_code,
+        product_version,
+        stripe_price_id,
+        amount_total_minor,
+        currency,
+        checkout_idempotency_key,
+        stripe_checkout_session_id,
+        metadata_json,
+        created_at,
+        updated_at
+      )
+      values ($1, $2, $3, 'checkout_created', 'siargao_trip_pass_14d_v2', 2, 'price_trip_pass', 49900, 'php', $4, $5, '{}'::jsonb, $6, $6)
+    `,
+    [
+      orderId,
+      userId,
+      `${userId}@example.com`,
+      `trip_pass_checkout:${orderId}`,
+      `cs_${orderId}`,
+      now,
+    ],
+  );
+}
+
+async function expectOrderUnpaid(db: DatabaseQueryClient, orderId: string) {
+  const result = await db.query<{
+    status: string;
+    stripe_payment_intent_id: string | null;
+  }>(
+    `
+      select status, stripe_payment_intent_id
+      from trip_pass_orders
+      where id = $1
+    `,
+    [orderId],
+  );
+  expect(result.rows[0]).toEqual({
+    status: "checkout_created",
+    stripe_payment_intent_id: null,
+  });
+}
+
+async function expectTargetCounts(
+  db: DatabaseQueryClient,
+  expected: { passes: string; grants: string; meters: string },
+) {
+  const passes = await db.query<{ count: string }>(
+    "select count(*)::text as count from trip_passes",
+  );
+  const grants = await db.query<{ count: string }>(
+    "select count(*)::text as count from trip_pass_grants",
+  );
+  const meters = await db.query<{ count: string }>(
+    "select count(*)::text as count from trip_usage_meters",
+  );
+
+  expect(passes.rows[0]?.count).toBe(expected.passes);
+  expect(grants.rows[0]?.count).toBe(expected.grants);
+  expect(meters.rows[0]?.count).toBe(expected.meters);
+}
+
 function checkoutSessionEvent(
   eventId: string,
   orderId: string,
-  options: { apiVersion?: string } = {},
+  options: { amountTotal?: number; apiVersion?: string; currency?: string } = {},
 ) {
   return {
     id: eventId,
@@ -346,6 +513,8 @@ function checkoutSessionEvent(
         },
         payment_intent: `pi_${orderId}`,
         payment_status: "paid",
+        amount_total: options.amountTotal ?? 49900,
+        currency: options.currency ?? "php",
         customer_email: "traveler@example.com",
       },
     },
@@ -354,6 +523,18 @@ function checkoutSessionEvent(
     request: null,
     type: "checkout.session.completed",
   } as unknown as Stripe.Event;
+}
+
+function chunkedBody(chunks: string[]) {
+  const encoder = new TextEncoder();
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk));
+      }
+      controller.close();
+    },
+  });
 }
 
 function customerEvent(eventId: string) {

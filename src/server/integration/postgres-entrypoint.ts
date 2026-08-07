@@ -993,6 +993,99 @@ async function runStripeInboxClaimLeaseRegression(harness: PostgresHarness) {
       "rolled-back claims must not leave a durable lease",
     );
 
+    await setup.query(`
+      create table if not exists integration_stripe_inbox_claim_fence_probe (
+        stripe_event_id text primary key,
+        claim_token text not null
+      )
+    `);
+    await receiveStripeWebhookEvent(
+      stripeInboxCheckoutSessionEvent("evt_inbox_claim_takeover", "order_inbox_claim_takeover"),
+      { db: setup, now },
+    );
+    const oldClaim = await claimPendingStripeInboxEvents({
+      claimToken: "claim_takeover_old",
+      db: claimant,
+      leaseMs,
+      limit: 1,
+      now: new Date("2099-01-01T00:00:00.000Z"),
+    });
+    assertDeepEqual(
+      oldClaim,
+      ["stripe_event_evt_inbox_claim_takeover"],
+      "lease takeover fixture must start with an old claim",
+    );
+    await setup.query(
+      `
+        update trip_pass_stripe_events
+        set claim_expires_at = now() - interval '1 millisecond'
+        where stripe_event_id = 'evt_inbox_claim_takeover'
+      `,
+    );
+    const newClaim = await claimPendingStripeInboxEvents({
+      claimToken: "claim_takeover_new",
+      db: competingClaimant,
+      leaseMs,
+      limit: 1,
+      now: new Date("2099-01-01T00:00:00.000Z"),
+    });
+    assertDeepEqual(
+      newClaim,
+      ["stripe_event_evt_inbox_claim_takeover"],
+      "new claimant must take over only after database-time lease expiry",
+    );
+    const staleWorker = await applyStripeInboxEvent("stripe_event_evt_inbox_claim_takeover", {
+      claimToken: "claim_takeover_old",
+      db: claimant,
+      applyEvent: async () => {
+        throw new Error("stale claim token must not reach application");
+      },
+    });
+    assertEqual(
+      staleWorker.status,
+      "pending",
+      "expired old worker must not apply after another worker takes over its lease",
+    );
+    const newWorker = await applyStripeInboxEvent("stripe_event_evt_inbox_claim_takeover", {
+      claimToken: "claim_takeover_new",
+      db: competingClaimant,
+      applyEvent: async (event, options) => {
+        await options.db.query(
+          `
+            insert into integration_stripe_inbox_claim_fence_probe (stripe_event_id, claim_token)
+            values ($1, 'claim_takeover_new')
+          `,
+          [event.id],
+        );
+        return { status: "applied", action: "activated" };
+      },
+    });
+    assertEqual(
+      newWorker.status,
+      "applied",
+      "current claimant must be able to apply the takeover row",
+    );
+    const takeoverProbe = await setup.query<{ count: string; status: string }>(
+      `
+        select e.status, count(p.stripe_event_id)::text as count
+        from trip_pass_stripe_events e
+        left join integration_stripe_inbox_claim_fence_probe p
+          on p.stripe_event_id = e.stripe_event_id
+        where e.stripe_event_id = 'evt_inbox_claim_takeover'
+        group by e.status
+      `,
+    );
+    assertEqual(
+      takeoverProbe.rows[0]?.status,
+      "applied",
+      "takeover application must mark the inbox row applied",
+    );
+    assertEqual(
+      takeoverProbe.rows[0]?.count,
+      "1",
+      "only the current claim token may commit application side effects",
+    );
+
     await receiveStripeWebhookEvent(
       stripeInboxCheckoutSessionEvent("evt_inbox_claim_race", "order_inbox_claim_race"),
       { db: setup, now },
