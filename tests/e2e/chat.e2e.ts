@@ -2988,9 +2988,11 @@ test("personalizes suggested prompts and submits the exact visible prompt with c
   await page.goto("/chat");
 
   const suggestedPromptBar = page.getByLabel("Suggested prompts");
-  const signInControl = page
+  await page.getByRole("button", { name: "Open chat actions" }).click();
+  const compactChatActions = page.getByTestId("compact-chat-actions");
+  const signInControl = compactChatActions
     .getByRole("button", { name: "Sign in" })
-    .or(page.getByRole("link", { name: "Sign in" }));
+    .or(compactChatActions.getByRole("link", { name: "Sign in" }));
   await expect(signInControl).toBeVisible();
   const signInLayout = await signInControl.evaluate((control) => {
     const bounds = control.getBoundingClientRect();
@@ -3003,6 +3005,8 @@ test("personalizes suggested prompts and submits the exact visible prompt with c
   expect(signInLayout.height).toBeGreaterThanOrEqual(44);
   expect(signInLayout.width).toBeGreaterThanOrEqual(72);
   expect(signInLayout.scrollWidth).toBeLessThanOrEqual(Math.ceil(signInLayout.width));
+  await page.keyboard.press("Escape");
+  await expect(compactChatActions).toHaveCount(0);
   await expect(suggestedPromptBar.getByRole("button")).toHaveCount(4);
   await expect(
     suggestedPromptBar.getByRole("button", {
@@ -3063,14 +3067,16 @@ test("personalizes suggested prompts and submits the exact visible prompt with c
   });
   expect(mockChat.requests).toHaveLength(0);
 
-  await page.getByLabel("Ask anything about Siargao").fill("Start with my arrival plan.");
-  await page.getByRole("button", { name: "Send question" }).click();
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  const sendButton = page.getByRole("button", { name: "Send question" });
+  await composerInput.fill("Start with my arrival plan.");
+  await sendButton.click();
   await expect(page.getByText("Context answer.")).toBeVisible();
   await expect.poll(() => mockChat.requests.length).toBe(1);
 
   const visiblePrompt = "Given today's weather, should we keep our plan around Dapa?";
-  await page.getByText("Try another Reality Check").click();
-  await suggestedPromptBar.getByRole("button", { name: visiblePrompt }).click();
+  await composerInput.fill(visiblePrompt);
+  await sendButton.click();
 
   await expect(page.getByLabel("Conversation messages").getByText(visiblePrompt)).toBeVisible();
   await expect.poll(() => mockChat.requests.length).toBe(2);
@@ -3472,9 +3478,7 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     await expect(answer).toBeVisible();
     const strip = answer.getByTestId("decision-strip");
     const sourceSummary = answer.getByTestId("assistant-sources-panel").locator("summary");
-    const helpfulButton = answer.getByRole("button", {
-      name: "Rate assistant response helpful",
-    });
+    const copyButton = answer.getByRole("button", { name: "Copy response" });
     await expect(strip).toHaveAttribute("data-answer-arrival-motion", "decision-strip-sequence");
     await expect(strip).toContainText("Best move");
     await expect(strip).toContainText("Where");
@@ -3483,7 +3487,7 @@ test("runs the decision strip arrival sequence once without shifting layout", as
       "Checked: Weather forecast: forecast for Cloud 9",
     );
     await expect(sourceSummary).toBeVisible();
-    await expect(helpfulButton).toBeVisible();
+    await expect(copyButton).toBeVisible();
     await sourceSummary.click();
     await expect(answer.getByText("Checked fields: forecast for Cloud 9")).toBeVisible();
 
@@ -3514,16 +3518,16 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     const startBoxes = {
       strip: await boundingBoxSnapshot(strip),
       source: await boundingBoxSnapshot(sourceSummary),
-      rating: await boundingBoxSnapshot(helpfulButton),
+      copy: await boundingBoxSnapshot(copyButton),
     };
     await page.waitForTimeout(260);
     expectBoxStable(await boundingBoxSnapshot(strip), startBoxes.strip);
     expectBoxStable(await boundingBoxSnapshot(sourceSummary), startBoxes.source);
-    expectBoxStable(await boundingBoxSnapshot(helpfulButton), startBoxes.rating);
+    expectBoxStable(await boundingBoxSnapshot(copyButton), startBoxes.copy);
     await page.waitForTimeout(420);
     expectBoxStable(await boundingBoxSnapshot(strip), startBoxes.strip);
     expectBoxStable(await boundingBoxSnapshot(sourceSummary), startBoxes.source);
-    expectBoxStable(await boundingBoxSnapshot(helpfulButton), startBoxes.rating);
+    expectBoxStable(await boundingBoxSnapshot(copyButton), startBoxes.copy);
     await expect(strip).not.toHaveAttribute("data-answer-arrival-motion", /decision-strip/);
 
     const scrollArea = page.getByTestId("chat-message-scroll-area");
@@ -3534,8 +3538,9 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     await expect(sourceSummary).toBeFocused();
     await page.keyboard.press("Tab");
     await page.keyboard.press("Shift+Tab");
-    await helpfulButton.click();
-    await expect(helpfulButton).toHaveAttribute("aria-pressed", "true");
+    await copyButton.focus();
+    await expect(copyButton).toBeFocused();
+    await copyButton.click();
     await page.waitForTimeout(120);
   });
 
