@@ -1,5 +1,22 @@
 # Routes And Surfaces Reference
 
+## Clerk Perimeter Inventory
+
+`src/server/auth/clerk-route-policy.ts` is the executable source of truth for the Clerk proxy
+perimeter. Its inventory is source-derived and currently covers all 52 live
+`src/app/**/page.tsx` and `src/app/**/route.ts` runtime surfaces. Every entry has exactly one base
+classification:
+
+| Classification | Routes |
+| --- | --- |
+| `protected` | `/settings`, `/profile`, `/admin/diagnostics`, `/audits/[auditRequestId]/status`, `/api/me/**`, `/api/chat/threads/**`, and `/api/chat/ratings` |
+| `externally_verified` | `/api/clerk/webhooks` and `/api/stripe/webhook` |
+| `public` | `/`, `/chat`, sign-in/sign-up, public knowledge pages, LLM/robots/sitemap routes, signed report/share delivery, audit intake/checkout, anonymous chat/save/share APIs, public JSON APIs, and `/audits/demo/report` in its non-production QA context |
+
+Unknown application paths matched by `src/proxy.ts` are denied. Supplemental policies such as rate
+limits, signed report/share tokens, admin token checks, non-production QA availability, and
+resource ownership remain handler-level authorities; they do not replace the base classification.
+
 ## Product Pages
 
 | Route | Purpose | Indexing |

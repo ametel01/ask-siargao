@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { clerkAppearance } from "@/features/auth/clerk-appearance";
-import { isClerkConfigured } from "@/features/auth/clerk-config";
+import { isClerkServerConfigured } from "@/server/auth/clerk-deployment-config";
 import "@/theme/global.css";
 
 const bodyFont = Nunito_Sans({
@@ -41,7 +41,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   return (
     <html className={`${bodyFont.variable} ${displayFont.variable}`} lang="en">
       <body>
-        {isClerkConfigured ? (
+        {isClerkServerConfigured ? (
           <ClerkProvider appearance={clerkAppearance}>{appContent}</ClerkProvider>
         ) : (
           appContent

@@ -1,7 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
-
-import { isClerkServerConfigured } from "@/features/auth/clerk-config";
 import { SettingsDashboardPage } from "@/features/settings/SettingsDashboardPage";
+import { isClerkServerConfigured } from "@/server/auth/clerk-deployment-config";
 
 export default async function SettingsPage() {
   if (isClerkServerConfigured) {
