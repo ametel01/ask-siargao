@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type Stripe from "stripe";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
@@ -13,6 +15,8 @@ const supportedEventTypes = new Set([
   "checkout.session.expired",
   "charge.refunded",
   "refund.created",
+  "refund.updated",
+  "refund.failed",
   "charge.dispute.created",
   "charge.dispute.closed",
 ]);
@@ -77,10 +81,12 @@ export type StripeInboxApplicationResult =
 
 export type StripeInboxReceiveResult = StripeInboxApplicationResult | StripeInboxReceiptResult;
 
-export type StripeEventApplication = (
-  event: Stripe.Event,
+export type StripeEventApplication<TEvent = Stripe.Event> = (
+  event: TEvent,
   options: { db: DatabaseQueryClient; now: Date },
 ) => Promise<unknown>;
+
+export type StripeEventPreparation<TEvent> = (event: Stripe.Event) => Promise<TEvent>;
 
 export class StripeWebhookBodyTooLargeError extends Error {
   constructor(message = "Stripe webhook body exceeds the configured size limit.") {
@@ -133,11 +139,12 @@ export async function readBoundedStripeWebhookBody(
   }
 }
 
-export async function receiveStripeWebhookEvent(
+export async function receiveStripeWebhookEvent<TEvent = Stripe.Event>(
   event: Stripe.Event,
   options: {
-    applyEvent?: StripeEventApplication;
+    applyEvent?: StripeEventApplication<TEvent>;
     db?: DatabaseQueryClient;
+    prepareEvent?: StripeEventPreparation<TEvent>;
     now?: Date;
   } = {},
 ): Promise<StripeInboxReceiveResult> {
@@ -148,19 +155,54 @@ export async function receiveStripeWebhookEvent(
     return receipt;
   }
 
-  return applyStripeInboxEvent(receipt.inboxId, { applyEvent: options.applyEvent, db });
+  return applyStripeInboxEvent(receipt.inboxId, {
+    applyEvent: options.applyEvent,
+    db,
+    prepareEvent: options.prepareEvent,
+  });
 }
 
-export async function applyStripeInboxEvent(
+export async function applyStripeInboxEvent<TEvent = Stripe.Event>(
   inboxId: string,
   options: {
-    applyEvent: StripeEventApplication;
+    applyEvent: StripeEventApplication<TEvent>;
     claimToken?: string;
     db?: DatabaseQueryClient;
+    leaseMs?: number;
     now?: Date;
+    prepareEvent?: StripeEventPreparation<TEvent>;
   },
 ): Promise<StripeInboxApplicationResult> {
   const db = options.db ?? getDefaultDatabaseQueryClient();
+  const claimToken = options.claimToken ?? randomUUID();
+  const preflight = options.claimToken
+    ? await loadInboxRow(inboxId, db)
+    : await claimStripeInboxEvent(inboxId, claimToken, options.leaseMs ?? 60_000, db);
+  const preflightResult = classifyInboxPreflight(inboxId, preflight, claimToken);
+  if (preflightResult) return preflightResult;
+
+  let preparedEvent: TEvent;
+  try {
+    const event = eventFromInboxRow(preflight as StripeInboxRow);
+    preparedEvent = options.prepareEvent
+      ? await options.prepareEvent(event)
+      : (event as unknown as TEvent);
+  } catch (error) {
+    await scheduleInboxRetry({
+      inboxId,
+      db,
+      claimToken,
+      reason: sanitizedErrorClass(error),
+      status: "pending",
+    });
+    return {
+      status: "pending",
+      inboxId,
+      stripeEventId: preflight?.stripe_event_id ?? inboxId,
+      reason: sanitizedErrorClass(error),
+    };
+  }
+
   const applyWithinTransaction = async (
     transaction: DatabaseQueryClient,
   ): Promise<StripeInboxApplicationResult> => {
@@ -199,39 +241,26 @@ export async function applyStripeInboxEvent(
         reason: "stripe_inbox_not_pending",
       };
     }
-    if (options.claimToken) {
-      if (
-        inboxRow.claim_token !== options.claimToken ||
-        !inboxRow.claim_expires_at ||
-        dateFromDatabaseValue(inboxRow.claim_expires_at).getTime() <= now.getTime()
-      ) {
-        return {
-          status: "pending",
-          inboxId,
-          stripeEventId: inboxRow.stripe_event_id,
-          reason: "stripe_inbox_claim_not_owned",
-        };
-      }
-    } else if (
-      inboxRow.claim_token &&
-      inboxRow.claim_expires_at &&
-      dateFromDatabaseValue(inboxRow.claim_expires_at).getTime() > now.getTime()
+    if (
+      inboxRow.claim_token !== claimToken ||
+      !inboxRow.claim_expires_at ||
+      dateFromDatabaseValue(inboxRow.claim_expires_at).getTime() <= now.getTime()
     ) {
       return {
         status: "pending",
         inboxId,
         stripeEventId: inboxRow.stripe_event_id,
-        reason: "stripe_inbox_claimed",
+        reason: "stripe_inbox_claim_not_owned",
       };
     }
 
-    const applicationResult = await options.applyEvent(eventFromInboxRow(inboxRow), {
+    const applicationResult = await options.applyEvent(preparedEvent, {
       db: transaction,
       now,
     });
     const classification = classifyApplicationResult(applicationResult);
     if (classification.status === "applied") {
-      await markInboxApplied(inboxId, transaction);
+      await markInboxApplied(inboxId, claimToken, transaction);
       return {
         status: "applied",
         inboxId,
@@ -242,7 +271,7 @@ export async function applyStripeInboxEvent(
     await scheduleInboxRetry({
       inboxId,
       db: transaction,
-      claimToken: options.claimToken,
+      claimToken,
       reason: classification.reason,
       status: classification.status,
     });
@@ -265,7 +294,7 @@ export async function applyStripeInboxEvent(
     await scheduleInboxRetry({
       inboxId,
       db,
-      claimToken: options.claimToken,
+      claimToken,
       reason: sanitizedErrorClass(error),
       status: "pending",
     });
@@ -311,6 +340,81 @@ export async function claimPendingStripeInboxEvents(input: {
   );
 
   return result.rows.map((row) => row.id);
+}
+
+async function claimStripeInboxEvent(
+  inboxId: string,
+  claimToken: string,
+  leaseMs: number,
+  db: DatabaseQueryClient,
+) {
+  const result = await db.query<StripeInboxRow>(
+    `
+      with database_time as (
+        select now() as database_now
+      )
+      update trip_pass_stripe_events
+      set claim_token = $2,
+          claim_expires_at = database_time.database_now
+            + ($3::double precision * interval '1 millisecond'),
+          updated_at = database_time.database_now
+      from database_time
+      where id = $1
+        and status = 'pending'
+        and (claim_expires_at is null or claim_expires_at <= database_time.database_now)
+      returning trip_pass_stripe_events.*
+    `,
+    [inboxId, claimToken, leaseMs],
+  );
+  return result.rows[0] ?? loadInboxRow(inboxId, db);
+}
+
+function classifyInboxPreflight(
+  inboxId: string,
+  row: StripeInboxRow | null,
+  claimToken: string,
+): StripeInboxApplicationResult | null {
+  if (!row) {
+    return {
+      status: "pending",
+      inboxId,
+      stripeEventId: inboxId,
+      reason: "inbox_row_not_found",
+    };
+  }
+  if (row.status === "applied") {
+    return {
+      status: "applied",
+      inboxId,
+      stripeEventId: row.stripe_event_id,
+      applicationResult: { status: "duplicate" },
+    };
+  }
+  if (row.status === "blocked") {
+    return {
+      status: "blocked",
+      inboxId,
+      stripeEventId: row.stripe_event_id,
+      reason: row.sanitized_error_class ?? "blocked_stripe_event",
+    };
+  }
+  if (row.status !== "pending") {
+    return {
+      status: "pending",
+      inboxId,
+      stripeEventId: row.stripe_event_id,
+      reason: "stripe_inbox_not_pending",
+    };
+  }
+  if (row.claim_token !== claimToken) {
+    return {
+      status: "pending",
+      inboxId,
+      stripeEventId: row.stripe_event_id,
+      reason: "stripe_inbox_claimed",
+    };
+  }
+  return null;
 }
 
 export function normalizeStripeEvent(event: Stripe.Event): NormalizedStripeEvent {
@@ -467,7 +571,12 @@ function factsFromEvent(event: Stripe.Event, object: Record<string, unknown> | u
       },
     };
   }
-  if (event.type === "charge.refunded" || event.type === "refund.created") {
+  if (
+    event.type === "charge.refunded" ||
+    event.type === "refund.created" ||
+    event.type === "refund.updated" ||
+    event.type === "refund.failed"
+  ) {
     return {
       checkoutSessionId: null,
       paymentIntentId: stripeIdValue(object?.payment_intent),
@@ -626,7 +735,7 @@ function backoffMs(attemptCount: number) {
   return Math.min(60 * 60 * 1000, 2 ** Math.min(attemptCount, 8) * 1_000);
 }
 
-async function markInboxApplied(inboxId: string, db: DatabaseQueryClient) {
+async function markInboxApplied(inboxId: string, claimToken: string, db: DatabaseQueryClient) {
   await db.query(
     `
       with database_time as (
@@ -641,9 +750,9 @@ async function markInboxApplied(inboxId: string, db: DatabaseQueryClient) {
           sanitized_error_class = null,
           updated_at = database_time.database_now
       from database_time
-      where id = $1
+      where id = $1 and claim_token = $2
     `,
-    [inboxId],
+    [inboxId, claimToken],
   );
 }
 

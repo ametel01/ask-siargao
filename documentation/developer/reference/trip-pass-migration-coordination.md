@@ -1,7 +1,8 @@
 # Trip Pass Migration Coordination
 
 Issue #145 reserves the migration sequence for the Auth and Trip Pass Production Readiness
-milestone. Migrations through `0012_terminal_account_closure.sql` are applied and immutable.
+milestone. The latest applied migration is `0013_trip_pass_payment_lifecycle.sql`; do not edit
+`drizzle/0000_initial_schema.sql` through `drizzle/0013_trip_pass_payment_lifecycle.sql`.
 
 ## Reserved Sequence
 
@@ -10,7 +11,7 @@ milestone. Migrations through `0012_terminal_account_closure.sql` are applied an
 | `0009` | #147 | Identity caches plus expand-first closure tombstone, operation, and write-barrier state. |
 | `0010` | #148 | Product Family checkout reservation/invariant and consent state. |
 | `0011` | #149 | Normalized Stripe inbox and expanded Order lifecycle. |
-| `0012` | #151 | Terminal Account Closure barriers, cleanup, and retained evidence. |
+| `0012` | #151 | Terminal Account Closure orchestration, Retained Commerce Evidence, and cleanup state. |
 | `0013` | #152 | Refund, dispute, Paid After Closure, and retry state. |
 | `0014` | #153 | Paid Answer Reservation and retention-expiry state. |
 

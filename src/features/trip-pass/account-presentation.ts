@@ -99,7 +99,7 @@ export function projectTripPassAccountView(
     supportGuidance: supportGuidanceFor(presentation.status, checkoutDisabledReason),
     validityLabel,
     resetLabel:
-      presentation.status === "active"
+      presentation.status === "active" || presentation.status === "refund_review"
         ? "Travel answers are available until the pass expires."
         : "Free travel answers reset every seven days.",
     announcement: [statusCopy.headline, validityLabel, warnings[0]].filter(Boolean).join(" "),
@@ -136,6 +136,30 @@ export function projectMobileTripPass(
       status: "visible",
       tone: "critical",
       text: "Trip Pass expired. Free travel answers apply until checkout is available again.",
+    };
+  }
+
+  if (presentation.status === "revoked") {
+    return {
+      status: "visible",
+      tone: "critical",
+      text: "Trip Pass access was terminally revoked. Free travel answers apply.",
+    };
+  }
+
+  if (presentation.status === "dispute_suspended") {
+    return {
+      status: "visible",
+      tone: "critical",
+      text: "Trip Pass access is suspended while the payment dispute is open.",
+    };
+  }
+
+  if (presentation.status === "refund_review") {
+    return {
+      status: "visible",
+      tone: "warning",
+      text: "A refund is under review. Current Trip Pass access and answers are unchanged.",
     };
   }
 
@@ -228,6 +252,30 @@ function statusCopyFor(status: TripPassAccountState) {
         headline: "Trip Pass is active",
         detail: "Your paid travel answers are available for this account.",
       };
+    case "exhausted":
+      return {
+        badge: "Exhausted",
+        headline: "Trip Pass answers are used",
+        detail: "Free travel answers apply until another eligible Trip Pass is activated.",
+      };
+    case "refund_review":
+      return {
+        badge: "Refund review",
+        headline: "Refund is under review",
+        detail: "Current Trip Pass access and answer meters remain unchanged during review.",
+      };
+    case "dispute_suspended":
+      return {
+        badge: "Suspended",
+        headline: "Trip Pass is suspended",
+        detail: "Paid access is unavailable while the payment dispute remains open.",
+      };
+    case "revoked":
+      return {
+        badge: "Revoked",
+        headline: "Trip Pass was revoked",
+        detail: "This Trip Pass cannot be restored by a later refund or dispute event.",
+      };
     case "pending":
       return {
         badge: "Pending",
@@ -266,14 +314,19 @@ function checkoutDisabledCopy(presentation: TripPassAccountPresentation) {
   if (presentation.checkout.reason === "checkout_unavailable") {
     return "Checkout cannot start right now.";
   }
-  if (presentation.status === "active") {
+  if (presentation.status === "active" || presentation.status === "refund_review") {
     return "Checkout is not needed while this pass is active.";
   }
   return "Checkout is not available.";
 }
 
 function validityCopy(presentation: TripPassAccountPresentation) {
-  if (presentation.status === "active" && presentation.validity.expiresAt) {
+  if (
+    (presentation.status === "active" ||
+      presentation.status === "refund_review" ||
+      presentation.status === "dispute_suspended") &&
+    presentation.validity.expiresAt
+  ) {
     return `Expires ${formatTripPassDate(presentation.validity.expiresAt)}`;
   }
   if (presentation.status === "expired" && presentation.validity.expiresAt) {
@@ -288,6 +341,12 @@ function validityCopy(presentation: TripPassAccountPresentation) {
 function supportGuidanceFor(status: TripPassAccountState, checkoutDisabledReason: string | null) {
   if (status === "pending") {
     return "If payment succeeded but this still says pending after a few minutes, contact support.";
+  }
+  if (status === "refund_review") {
+    return "Support can review the refund separately; access and meters have not changed.";
+  }
+  if (status === "dispute_suspended") {
+    return "Access can return only if the dispute is won before the original pass expiry.";
   }
   if (checkoutDisabledReason && status !== "active") {
     return "Try again later or contact support if checkout should be available.";

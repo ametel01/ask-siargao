@@ -60,7 +60,7 @@ describe("Stripe webhook route", () => {
         status: "applied",
         inboxId: `stripe_event_${event.id}`,
         stripeEventId: event.id,
-        applicationResult: await options?.applyEvent?.(event, {
+        applicationResult: await options?.applyEvent?.(event as never, {
           db: undefined as never,
           now,
         }),
@@ -76,7 +76,7 @@ describe("Stripe webhook route", () => {
             status: "applied",
             inboxId: `stripe_event_${event.id}`,
             stripeEventId: event.id,
-            applicationResult: await options?.applyEvent?.(event, {
+            applicationResult: await options?.applyEvent?.(event as never, {
               db: undefined as never,
               now,
             }),
@@ -547,7 +547,7 @@ function routeDependencies(_store?: unknown) {
       status: "applied",
       inboxId: `stripe_event_${event.id}`,
       stripeEventId: event.id,
-      applicationResult: await options?.applyEvent?.(event, {
+      applicationResult: await options?.applyEvent?.(event as never, {
         db: undefined as never,
         now,
       }),

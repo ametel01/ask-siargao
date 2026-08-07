@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { withTimeout } from "@/server/integration/entrypoint-shared";
 import { withRealPostgresHarness } from "@/server/integration/postgres-harness";
+import { runTripPassPaymentLifecyclePostgresRegression } from "@/server/integration/trip-pass-payment-lifecycle-postgres";
 import {
   applyStripeInboxEvent,
   claimPendingStripeInboxEvents,
@@ -39,6 +40,7 @@ await withRealPostgresHarness(async (harness) => {
   await runAdvisoryLockRegression(harness);
   await runTripPassCheckoutRaceRegression(harness);
   await runStripeInboxRealPostgresRegression(harness);
+  await runTripPassPaymentLifecyclePostgresRegression(harness);
   await runAccountClosurePostgresIntegration(harness);
   await runPaidAnswerReservationPostgresIntegration(harness);
 
@@ -1570,6 +1572,8 @@ function stripeInboxCheckoutSessionEvent(eventId: string, orderId: string) {
         },
         payment_intent: `pi_${orderId}`,
         payment_status: "paid",
+        amount_total: tripPassCheckoutProductSnapshot.amountTotalMinor,
+        currency: tripPassCheckoutProductSnapshot.currency,
         customer_email: "integration-traveler@example.com",
       },
     },

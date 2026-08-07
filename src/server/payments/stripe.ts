@@ -21,6 +21,15 @@ export type StripeLifecycleObjectRetriever = {
   retrieveRefund: (refundId: string) => Promise<Stripe.Refund>;
 };
 
+export type StripeRefundClient = {
+  createFullRefund: (input: {
+    paymentIntentId: string;
+    amountMinor: number;
+    idempotencyKey: string;
+  }) => Promise<Pick<Stripe.Refund, "id" | "status">>;
+  retrieveRefund: (refundId: string) => Promise<Pick<Stripe.Refund, "id" | "status">>;
+};
+
 function createStripeClient(apiKey = stripeApiKeyFromEnv()) {
   return new Stripe(apiKey, { apiVersion: STRIPE_API_VERSION });
 }
@@ -37,6 +46,17 @@ export function createStripeLifecycleObjectRetriever(
   return {
     retrieveCharge: (chargeId) => stripe.charges.retrieve(chargeId),
     retrieveDispute: (disputeId) => stripe.disputes.retrieve(disputeId),
+    retrieveRefund: (refundId) => stripe.refunds.retrieve(refundId),
+  };
+}
+
+export function createStripeRefundClient(stripe = createStripeClient()): StripeRefundClient {
+  return {
+    createFullRefund: (input) =>
+      stripe.refunds.create(
+        { payment_intent: input.paymentIntentId, amount: input.amountMinor },
+        { idempotencyKey: input.idempotencyKey },
+      ),
     retrieveRefund: (refundId) => stripe.refunds.retrieve(refundId),
   };
 }

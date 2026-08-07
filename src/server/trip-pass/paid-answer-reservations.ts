@@ -2,6 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { tripPassProductFamily } from "@/server/trip-pass/catalog";
+import {
+  lockTripPassAccountFamily,
+  lockTripPassAccountWrites,
+} from "@/server/trip-pass/payment-lifecycle";
 
 export type PaidAnswerAllowance = {
   chatMessages: {
@@ -433,29 +437,8 @@ async function countOpenReservations(passId: string, db: DatabaseQueryClient) {
 }
 
 async function acquireAccountProductFamilyLocks(accountId: string, db: DatabaseQueryClient) {
-  await advisoryLock(db, "select pg_advisory_xact_lock(hashtext($1), hashtext($2))", [
-    accountId,
-    tripPassProductFamily,
-  ]);
-  await advisoryLock(
-    db,
-    "select pg_advisory_xact_lock(hashtext('ask-siargao-account-write'), hashtext($1))",
-    [accountId],
-  );
-}
-
-async function advisoryLock(db: DatabaseQueryClient, sql: string, params: unknown[]) {
-  try {
-    await db.query(sql, params);
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      /pg_advisory|hashtext|function|syntax|unsupported/i.test(error.message)
-    ) {
-      return;
-    }
-    throw error;
-  }
+  await lockTripPassAccountFamily(accountId, tripPassProductFamily, db);
+  await lockTripPassAccountWrites(accountId, db);
 }
 
 async function readDatabaseClock(db: DatabaseQueryClient) {

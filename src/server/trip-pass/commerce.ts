@@ -368,10 +368,10 @@ async function hasBlockingTripPass(input: { userId: string; now: Date }, db: Dat
         on m.trip_pass_id = p.id
        and m.meter_type = 'chat_message'
       where p.user_id = $1
-        and p.status = 'active'
+        and p.status in ('active', 'suspended')
         and p.starts_at <= $2
         and p.expires_at > $2
-        and (m.id is null or m.used < m."limit")
+        and (p.status = 'suspended' or m.id is null or m.used < m."limit")
       order by p.expires_at desc, p.created_at desc, p.id desc
       limit 1
     `,

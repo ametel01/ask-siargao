@@ -29,6 +29,8 @@ export const applicationTables = [
   "trip_usage_meters",
   "trip_pass_orders",
   "trip_pass_grants",
+  "trip_pass_refund_facts",
+  "trip_pass_dispute_facts",
   "trip_usage_events",
   "paid_answer_reservations",
   "areas",
@@ -91,6 +93,8 @@ export const userOwnedTables = [
   "trip_usage_meters",
   "trip_pass_orders",
   "trip_pass_grants",
+  "trip_pass_refund_facts",
+  "trip_pass_dispute_facts",
   "trip_usage_events",
   "paid_answer_reservations",
 ] as const;

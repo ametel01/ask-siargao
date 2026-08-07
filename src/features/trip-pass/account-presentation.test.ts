@@ -9,9 +9,13 @@ import type { TripPassAccountPresentation } from "@/server/trip-pass/presentatio
 describe("Trip Pass account presentation UI projection", () => {
   test.each([
     ["free", "Free travel answers", "Start checkout"],
-    ["pending", "Checkout is waiting for confirmation", "Start checkout"],
+    ["pending", "Checkout is waiting for confirmation", null],
     ["active", "Trip Pass is active", null],
+    ["exhausted", "Trip Pass answers are used", "Start checkout"],
+    ["refund_review", "Refund is under review", null],
+    ["dispute_suspended", "Trip Pass is suspended", null],
     ["expired", "Trip Pass has expired", "Start checkout"],
+    ["revoked", "Trip Pass was revoked", "Start checkout"],
     ["unavailable", "Trip Pass checkout is unavailable", null],
   ] as const)("projects %s account state", (status, headline, actionLabel) => {
     const view = projectTripPassAccountView(account({ status }), "ready");
@@ -120,8 +124,8 @@ function account(
     allowance(
       "chat_message",
       0,
-      overrides.status === "active" ? 150 : 10,
-      overrides.status === "active" ? 150 : 10,
+      ["active", "refund_review", "dispute_suspended"].includes(overrides.status) ? 150 : 10,
+      ["active", "refund_review", "dispute_suspended"].includes(overrides.status) ? 150 : 10,
       false,
     ),
   ];
@@ -144,14 +148,21 @@ function account(
       expiresSoon: false,
     },
     checkout: overrides.checkout ?? {
-      status:
-        overrides.status === "active" || overrides.status === "unavailable"
-          ? "unavailable"
-          : "available",
+      status: ["active", "refund_review", "dispute_suspended", "unavailable"].includes(
+        overrides.status,
+      )
+        ? "unavailable"
+        : "available",
       reason: overrides.status === "unavailable" ? "checkout_unavailable" : null,
     },
     actions: overrides.actions ?? {
-      startCheckout: overrides.status !== "active" && overrides.status !== "unavailable",
+      startCheckout: ![
+        "active",
+        "refund_review",
+        "dispute_suspended",
+        "pending",
+        "unavailable",
+      ].includes(overrides.status),
     },
   };
 }

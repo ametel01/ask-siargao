@@ -823,6 +823,46 @@ describe("Trip Pass checkout commerce", () => {
     });
   });
 
+  test("blocks checkout for an unexpired dispute-suspended pass even when exhausted", async () => {
+    await withTestDb(async (db) => {
+      await insertUser(db, "user_suspended_pass");
+      await createActiveTripPassWithMeters(
+        {
+          id: "pass_suspended",
+          userId: "user_suspended_pass",
+          startsAt: new Date("2026-08-07T07:00:00.000Z"),
+          expiresAt: new Date("2026-08-21T07:00:00.000Z"),
+          now,
+        },
+        db,
+      );
+      await db.query("update trip_passes set status = 'suspended' where id = 'pass_suspended'");
+      await db.query(
+        `update trip_usage_meters set used = "limit" where trip_pass_id = 'pass_suspended'`,
+      );
+      const checkoutClient = createFakeCheckoutClient();
+
+      const result = await startTripPassCheckout(
+        {
+          userId: "user_suspended_pass",
+          email: "suspended-pass@example.com",
+          appUrl: "https://siargao.test",
+        },
+        {
+          db,
+          checkoutClient,
+          createId: () => "order_should_not_start_suspended",
+          env: enabledEnv,
+          now,
+        },
+      );
+
+      expect(result).toEqual({ status: "blocked", reason: "trip_pass_family_active" });
+      expect(checkoutClient.calls).toHaveLength(0);
+      await expectOrderCount(db, "0");
+    });
+  });
+
   test("permits family-wide checkout when the active pass is exhausted", async () => {
     await withTestDb(async (db) => {
       await insertUser(db, "user_exhausted_pass");

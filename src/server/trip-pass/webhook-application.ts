@@ -12,6 +12,20 @@ import {
   tripPassProductVersion,
 } from "@/server/trip-pass/catalog";
 import { grantTripPass } from "@/server/trip-pass/entitlement";
+import {
+  type AuthoritativeDisputeFact,
+  type AuthoritativeRefundFact,
+  applyAuthoritativeDisputeFact,
+  applyAuthoritativeRefundFact,
+  lockTripPassAccountFamily,
+  lockTripPassAccountWrites,
+  type RefundProviderStatus,
+} from "@/server/trip-pass/payment-lifecycle";
+
+export type PreparedTripPassStripeEvent =
+  | { event: Stripe.Event; kind: "direct" }
+  | { event: Stripe.Event; fact: AuthoritativeRefundFact | null; kind: "refund" }
+  | { event: Stripe.Event; fact: AuthoritativeDisputeFact | null; kind: "dispute" };
 
 export type TripPassStripeApplicationResult =
   | { status: "ignored"; reason: "not_trip_pass_event" | "not_relevant_event" }
@@ -19,7 +33,16 @@ export type TripPassStripeApplicationResult =
   | { status: "duplicate"; orderId: string; stripeEventId: string }
   | {
       status: "applied";
-      action: "activated" | "failed" | "expired" | "refunded" | "disputed" | "paid_after_closure";
+      action:
+        | "activated"
+        | "failed"
+        | "expired"
+        | "refund_review"
+        | "refunded"
+        | "dispute_suspended"
+        | "dispute_won"
+        | "disputed"
+        | "paid_after_closure";
       orderId: string;
       stripeEventId: string;
     }
@@ -31,8 +54,11 @@ type TripPassOrderRow = {
   email: string | null;
   status: string;
   product_code: string;
+  product_family: string;
   product_version: number;
   stripe_price_id: string;
+  amount_total_minor: number | null;
+  currency: string | null;
   stripe_checkout_session_id: string | null;
   stripe_payment_intent_id: string | null;
   closure_tombstone_id: string | null;
@@ -45,9 +71,51 @@ export async function applyTripPassStripeEvent(
     db?: DatabaseQueryClient;
     env?: Record<string, string | undefined>;
     now?: Date;
+    preparedEvent?: PreparedTripPassStripeEvent;
     stripeObjects?: StripeLifecycleObjectRetriever;
   } = {},
 ): Promise<TripPassStripeApplicationResult> {
+  const prepared =
+    options.preparedEvent ?? (await prepareTripPassStripeEvent(event, options.stripeObjects));
+  return applyPreparedTripPassStripeEvent(prepared, options);
+}
+
+export async function prepareTripPassStripeEvent(
+  event: Stripe.Event,
+  retriever?: StripeLifecycleObjectRetriever,
+): Promise<PreparedTripPassStripeEvent> {
+  if (isRefundEvent(event)) {
+    return {
+      event,
+      fact: await retrieveAuthoritativeRefundFact(
+        event,
+        retriever ?? createStripeLifecycleObjectRetriever(),
+      ),
+      kind: "refund",
+    };
+  }
+  if (isDisputeEvent(event)) {
+    return {
+      event,
+      fact: await retrieveAuthoritativeDisputeFact(
+        event,
+        retriever ?? createStripeLifecycleObjectRetriever(),
+      ),
+      kind: "dispute",
+    };
+  }
+  return { event, kind: "direct" };
+}
+
+async function applyPreparedTripPassStripeEvent(
+  prepared: PreparedTripPassStripeEvent,
+  options: {
+    db?: DatabaseQueryClient;
+    env?: Record<string, string | undefined>;
+    now?: Date;
+  },
+): Promise<TripPassStripeApplicationResult> {
+  const { event } = prepared;
   const now = options.now ?? new Date();
 
   if (isCheckoutSessionEvent(event)) {
@@ -62,38 +130,48 @@ export async function applyTripPassStripeEvent(
     );
   }
   if (isRefundEvent(event)) {
-    const db = options.db ?? getDefaultDatabaseQueryClient();
-    return withApplicationTransaction(db, async (transaction) =>
-      applyPaymentIntentLifecycleEvent({
-        event,
-        paymentIntentId: await paymentIntentIdFromRefundEvent(
-          event,
-          options.stripeObjects ?? createStripeLifecycleObjectRetriever(),
-        ),
-        action: "refunded",
-        orderStatus: "refunded",
-        passStatus: "refunded",
-        db: transaction,
-        now,
-      }),
+    const fact = prepared.kind === "refund" ? prepared.fact : null;
+    if (!fact) {
+      return {
+        status: "rejected",
+        reason: "trip_pass_payment_intent_not_found",
+        stripeEventId: event.id,
+      };
+    }
+    const result = await applyAuthoritativeRefundFact(
+      fact,
+      options.db ?? getDefaultDatabaseQueryClient(),
     );
+    return result.status === "applied"
+      ? {
+          status: result.status,
+          action: result.action,
+          orderId: result.orderId,
+          stripeEventId: event.id,
+        }
+      : { ...result, stripeEventId: event.id };
   }
   if (isDisputeEvent(event)) {
-    const db = options.db ?? getDefaultDatabaseQueryClient();
-    return withApplicationTransaction(db, async (transaction) =>
-      applyPaymentIntentLifecycleEvent({
-        event,
-        paymentIntentId: await paymentIntentIdFromDisputeEvent(
-          event,
-          options.stripeObjects ?? createStripeLifecycleObjectRetriever(),
-        ),
-        action: "disputed",
-        orderStatus: "disputed",
-        passStatus: "cancelled",
-        db: transaction,
-        now,
-      }),
+    const fact = prepared.kind === "dispute" ? prepared.fact : null;
+    if (!fact) {
+      return {
+        status: "rejected",
+        reason: "trip_pass_payment_intent_not_found",
+        stripeEventId: event.id,
+      };
+    }
+    const result = await applyAuthoritativeDisputeFact(
+      fact,
+      options.db ?? getDefaultDatabaseQueryClient(),
     );
+    return result.status === "applied"
+      ? {
+          status: result.status,
+          action: result.action,
+          orderId: result.orderId,
+          stripeEventId: event.id,
+        }
+      : { ...result, stripeEventId: event.id };
   }
 
   return { status: "ignored", reason: "not_relevant_event" };
@@ -116,6 +194,11 @@ async function applyCheckoutSessionEvent(
     return { status: "rejected", reason: "missing_trip_pass_order_id", stripeEventId: event.id };
   }
 
+  const candidate = await loadOrderOwnerCandidate(orderId, db);
+  if (candidate?.user_id) {
+    await lockTripPassAccountFamily(candidate.user_id, candidate.product_family, db);
+    await lockTripPassAccountWrites(candidate.user_id, db);
+  }
   const order = await loadOrderById(orderId, db);
   const orderValidation = validateCheckoutSessionOrder({ event, session, order, env });
   if (orderValidation) {
@@ -178,8 +261,17 @@ async function applyCheckoutSessionEvent(
   }
 
   const paymentIntentId = paymentIntentIdFromCheckoutSession(session);
+  if (!paymentIntentId) {
+    return {
+      status: "rejected",
+      reason: "trip_pass_payment_intent_not_found",
+      orderId: order.id,
+      stripeEventId: event.id,
+    };
+  }
+  const activationTime = await readTransactionTime(db);
   await rememberOrderPaymentIntent(
-    { orderId: order.id, sessionId: session.id, paymentIntentId, now },
+    { orderId: order.id, sessionId: session.id, paymentIntentId, now: activationTime },
     db,
   );
   const grant = await grantTripPass(
@@ -188,7 +280,7 @@ async function applyCheckoutSessionEvent(
       orderId: order.id,
       sourceType: "stripe_checkout",
       sourceEventId: event.id,
-      now,
+      now: activationTime,
     },
     db,
   );
@@ -197,7 +289,7 @@ async function applyCheckoutSessionEvent(
       orderId: order.id,
       sessionId: session.id,
       paymentIntentId,
-      now,
+      capturedAmountMinor: session.amount_total ?? 0,
     },
     db,
   );
@@ -268,6 +360,14 @@ async function applyClosedAccountPayment(input: {
   const closureSecond = Math.floor(closedAt.getTime() / 1_000) * 1_000;
   const isPaidAfterClosure = completedAt.getTime() >= closureSecond;
   const paymentIntentId = paymentIntentIdFromCheckoutSession(input.session);
+  if (!paymentIntentId || !input.session.amount_total) {
+    return {
+      status: "rejected",
+      reason: "trip_pass_payment_intent_not_found",
+      orderId: input.order.id,
+      stripeEventId: input.event.id,
+    };
+  }
   if (!isPaidAfterClosure) {
     await input.db.query(
       `update trip_pass_orders set status = 'paid', user_id = null, email = null,
@@ -291,11 +391,18 @@ async function applyClosedAccountPayment(input: {
       `
         insert into account_closure_refund_obligations (
           id, tombstone_id, order_id, stripe_event_id, reason, status,
-          attempts, policy_version, created_at, updated_at
-        ) values ($1, $2, $3, $4, 'paid_after_closure', 'pending', 0, $5, $6, $6)
+          attempts, policy_version, stripe_payment_intent_id, expected_amount_minor,
+          created_at, updated_at
+        ) values ($1, $2, $3, $4, 'paid_after_closure', 'pending', 0, $5, $6, $7, $8, $8)
         on conflict (order_id) do update set
           stripe_event_id = coalesce(account_closure_refund_obligations.stripe_event_id,
             excluded.stripe_event_id),
+          stripe_payment_intent_id = coalesce(
+            account_closure_refund_obligations.stripe_payment_intent_id,
+            excluded.stripe_payment_intent_id),
+          expected_amount_minor = coalesce(
+            account_closure_refund_obligations.expected_amount_minor,
+            excluded.expected_amount_minor),
           updated_at = excluded.updated_at
       `,
       [
@@ -304,6 +411,8 @@ async function applyClosedAccountPayment(input: {
         input.order.id,
         input.event.id,
         closure.commerce_policy_version ?? "closure-commerce-policy-unset",
+        paymentIntentId,
+        input.session.amount_total,
         input.now,
       ],
     );
@@ -344,62 +453,6 @@ async function applyClosedAccountPayment(input: {
     status: "applied",
     action: "paid_after_closure",
     orderId: input.order.id,
-    stripeEventId: input.event.id,
-  };
-}
-
-async function applyPaymentIntentLifecycleEvent(input: {
-  event: Stripe.Event;
-  paymentIntentId: string | null;
-  action: "refunded" | "disputed";
-  orderStatus: "refunded" | "disputed";
-  passStatus: "refunded" | "cancelled";
-  db: DatabaseQueryClient;
-  now: Date;
-}): Promise<TripPassStripeApplicationResult> {
-  if (!input.paymentIntentId) {
-    return {
-      status: "rejected",
-      reason: "trip_pass_payment_intent_not_found",
-      stripeEventId: input.event.id,
-    };
-  }
-
-  const order = await loadOrderByPaymentIntent(input.paymentIntentId, input.db);
-  if (!order) {
-    return {
-      status: "rejected",
-      reason: "trip_pass_payment_intent_not_found",
-      stripeEventId: input.event.id,
-    };
-  }
-  if (order.status === input.orderStatus) {
-    return { status: "duplicate", orderId: order.id, stripeEventId: input.event.id };
-  }
-
-  await input.db.query(
-    `
-      update trip_pass_orders
-      set status = $2,
-          updated_at = $3
-      where id = $1
-    `,
-    [order.id, input.orderStatus, input.now],
-  );
-  await input.db.query(
-    `
-      update trip_passes
-      set status = $2,
-          updated_at = $3
-      where stripe_payment_intent_id = $1
-    `,
-    [input.paymentIntentId, input.passStatus, input.now],
-  );
-
-  return {
-    status: "applied",
-    action: input.action,
-    orderId: order.id,
     stripeEventId: input.event.id,
   };
 }
@@ -494,6 +547,18 @@ function validateCheckoutSessionOrder(input: {
       stripeEventId: input.event.id,
     };
   }
+  if (
+    isPaidCheckoutSession(input.session) &&
+    (input.session.amount_total !== input.order.amount_total_minor ||
+      input.session.currency !== input.order.currency)
+  ) {
+    return {
+      status: "rejected",
+      reason: "trip_pass_payment_fact_mismatch",
+      orderId: input.order.id,
+      stripeEventId: input.event.id,
+    };
+  }
 
   const environment = readTripPassEnvironment(input.env);
   if (
@@ -522,8 +587,11 @@ async function loadOrderById(orderId: string, db: DatabaseQueryClient) {
         email,
         status,
         product_code,
+        product_family,
         product_version,
         stripe_price_id,
+        amount_total_minor,
+        currency,
         stripe_checkout_session_id,
         stripe_payment_intent_id,
         closure_tombstone_id,
@@ -539,29 +607,11 @@ async function loadOrderById(orderId: string, db: DatabaseQueryClient) {
   return result.rows[0] ?? null;
 }
 
-async function loadOrderByPaymentIntent(paymentIntentId: string, db: DatabaseQueryClient) {
-  const result = await db.query<TripPassOrderRow>(
-    `
-      select
-        id,
-        user_id,
-        email,
-        status,
-        product_code,
-        product_version,
-        stripe_price_id,
-        stripe_checkout_session_id,
-        stripe_payment_intent_id,
-        closure_tombstone_id,
-        closure_outcome
-      from trip_pass_orders
-      where stripe_payment_intent_id = $1
-      limit 1
-      for update
-    `,
-    [paymentIntentId],
+async function loadOrderOwnerCandidate(orderId: string, db: DatabaseQueryClient) {
+  const result = await db.query<{ user_id: string | null; product_family: string }>(
+    "select user_id, product_family from trip_pass_orders where id = $1 limit 1",
+    [orderId],
   );
-
   return result.rows[0] ?? null;
 }
 
@@ -581,7 +631,12 @@ async function updateOrderStatus(
 }
 
 async function markOrderPaid(
-  input: { orderId: string; sessionId: string; paymentIntentId: string | null; now: Date },
+  input: {
+    orderId: string;
+    sessionId: string;
+    paymentIntentId: string;
+    capturedAmountMinor: number;
+  },
   db: DatabaseQueryClient,
 ) {
   await db.query(
@@ -590,11 +645,12 @@ async function markOrderPaid(
       set status = 'paid',
           stripe_checkout_session_id = $2,
           stripe_payment_intent_id = $3,
-          completed_at = $4,
-          updated_at = $4
+          captured_amount_minor = $4,
+          completed_at = transaction_timestamp(),
+          updated_at = transaction_timestamp()
       where id = $1
     `,
-    [input.orderId, input.sessionId, input.paymentIntentId, input.now],
+    [input.orderId, input.sessionId, input.paymentIntentId, input.capturedAmountMinor],
   );
 }
 
@@ -630,7 +686,12 @@ function isTripPassCheckoutSession(session: Stripe.Checkout.Session) {
 }
 
 function isRefundEvent(event: Stripe.Event) {
-  return event.type === "charge.refunded" || event.type === "refund.created";
+  return (
+    event.type === "charge.refunded" ||
+    event.type === "refund.created" ||
+    event.type === "refund.updated" ||
+    event.type === "refund.failed"
+  );
 }
 
 function isDisputeEvent(event: Stripe.Event) {
@@ -647,38 +708,110 @@ function paymentIntentIdFromCheckoutSession(session: Stripe.Checkout.Session) {
     : (session.payment_intent?.id ?? null);
 }
 
-function paymentIntentIdFromRefund(refund: Stripe.Refund) {
-  return typeof refund.payment_intent === "string"
-    ? refund.payment_intent
-    : (refund.payment_intent?.id ?? null);
-}
-
 function paymentIntentIdFromDispute(dispute: Stripe.Dispute) {
   return typeof dispute.payment_intent === "string"
     ? dispute.payment_intent
     : (dispute.payment_intent?.id ?? null);
 }
 
-async function paymentIntentIdFromRefundEvent(
+async function retrieveAuthoritativeRefundFact(
   event: Stripe.Event,
   retriever: StripeLifecycleObjectRetriever,
 ) {
   const object = event.data.object as Stripe.Charge | Stripe.Refund;
-  if (event.type === "refund.created") {
+  if (
+    event.type === "refund.created" ||
+    event.type === "refund.updated" ||
+    event.type === "refund.failed"
+  ) {
     const refund = await retriever.retrieveRefund(object.id);
-    return paymentIntentIdFromRefund(refund);
+    const chargeId = stripeObjectId(refund.charge);
+    if (!chargeId) return null;
+    const charge = await retriever.retrieveCharge(chargeId);
+    const paymentIntentId = paymentIntentIdFromCharge(charge);
+    if (!paymentIntentId) return null;
+    return {
+      stripeRefundId: refund.id,
+      stripeChargeId: charge.id,
+      stripeEventId: event.id,
+      paymentIntentId,
+      providerStatus: normalizeRefundStatus(refund.status),
+      amountMinor: refund.amount,
+      successfulAmountMinor: charge.amount_refunded,
+      providerCreatedAt: stripeCreatedAt(refund.created),
+    };
   }
 
   const charge = await retriever.retrieveCharge(object.id);
+  const paymentIntentId = paymentIntentIdFromCharge(charge);
+  if (!paymentIntentId) return null;
+  return {
+    stripeRefundId: `charge_aggregate_${charge.id}`,
+    stripeChargeId: charge.id,
+    stripeEventId: event.id,
+    paymentIntentId,
+    providerStatus: "succeeded" as const,
+    amountMinor: charge.amount_refunded,
+    successfulAmountMinor: charge.amount_refunded,
+    providerCreatedAt: stripeCreatedAt(charge.created),
+  };
+}
+
+async function retrieveAuthoritativeDisputeFact(
+  event: Stripe.Event,
+  retriever: StripeLifecycleObjectRetriever,
+) {
+  const dispute = await retriever.retrieveDispute((event.data.object as Stripe.Dispute).id);
+  const paymentIntentId = paymentIntentIdFromDispute(dispute);
+  if (!paymentIntentId) return null;
+  return {
+    stripeDisputeId: dispute.id,
+    stripeChargeId: stripeObjectId(dispute.charge),
+    stripeEventId: event.id,
+    paymentIntentId,
+    providerStatus: dispute.status,
+    applicationStatus: normalizeDisputeStatus(dispute.status),
+    amountMinor: Number.isInteger(dispute.amount) ? dispute.amount : null,
+    providerCreatedAt: stripeCreatedAt(dispute.created),
+  };
+}
+
+function paymentIntentIdFromCharge(charge: Stripe.Charge) {
   return typeof charge.payment_intent === "string"
     ? charge.payment_intent
     : (charge.payment_intent?.id ?? null);
 }
 
-async function paymentIntentIdFromDisputeEvent(
-  event: Stripe.Event,
-  retriever: StripeLifecycleObjectRetriever,
-) {
-  const dispute = await retriever.retrieveDispute((event.data.object as Stripe.Dispute).id);
-  return paymentIntentIdFromDispute(dispute);
+function stripeObjectId(value: string | { id: string } | null | undefined) {
+  return typeof value === "string" ? value : (value?.id ?? null);
+}
+
+function normalizeRefundStatus(status: Stripe.Refund["status"]): RefundProviderStatus {
+  if (
+    status === "pending" ||
+    status === "requires_action" ||
+    status === "succeeded" ||
+    status === "failed" ||
+    status === "canceled"
+  ) {
+    return status;
+  }
+  throw new Error("Stripe refund has an unsupported authoritative status.");
+}
+
+function normalizeDisputeStatus(status: Stripe.Dispute.Status): "open" | "won" | "lost" {
+  if (status === "won" || status === "warning_closed") return "won";
+  if (status === "lost") return "lost";
+  return "open";
+}
+
+function stripeCreatedAt(created: number | undefined) {
+  return Number.isFinite(created) ? new Date((created ?? 0) * 1_000) : null;
+}
+
+async function readTransactionTime(db: DatabaseQueryClient) {
+  const result = await db.query<{ now: Date | string }>("select transaction_timestamp() as now");
+  const value = result.rows[0]?.now;
+  if (!value) throw new Error("PostgreSQL transaction time was unavailable.");
+  return new Date(value);
 }

@@ -576,6 +576,26 @@ export async function purgeEligibleClosureTombstones(
     );
     for (const tombstone of eligible.rows) {
       await transaction.query(
+        `delete from trip_pass_refund_facts where order_id in (
+           select id from trip_pass_orders
+           where closure_tombstone_id = $1
+              or closure_refund_obligation_id in (
+                select id from account_closure_refund_obligations where tombstone_id = $1
+              )
+         )`,
+        [tombstone.id],
+      );
+      await transaction.query(
+        `delete from trip_pass_dispute_facts where order_id in (
+           select id from trip_pass_orders
+           where closure_tombstone_id = $1
+              or closure_refund_obligation_id in (
+                select id from account_closure_refund_obligations where tombstone_id = $1
+              )
+         )`,
+        [tombstone.id],
+      );
+      await transaction.query(
         `delete from trip_pass_orders
          where closure_tombstone_id = $1
             or closure_refund_obligation_id in (
@@ -855,6 +875,12 @@ async function minimizeCommerceData(
             'createdAt', o.created_at,
             'updatedAt', o.updated_at,
             'completedAt', o.completed_at,
+            'lifecycleUpdatedAt', o.lifecycle_updated_at,
+            'capturedAmountMinor', o.captured_amount_minor,
+            'successfulRefundAmountMinor', o.successful_refund_amount_minor,
+            'refundState', o.refund_state,
+            'disputeState', o.dispute_state,
+            'terminalRevocationReason', o.terminal_revocation_reason,
             'checkoutSessionExpiresAt', o.checkout_session_expires_at,
             'checkoutCancellationConfirmedAt', o.checkout_cancellation_confirmed_at
           )),
@@ -1009,6 +1035,8 @@ async function minimizeCommerceData(
        where o.closure_tombstone_id = $1
          and o.closure_refund_obligation_id is null
          and o.stripe_checkout_session_id is null
+         and not exists (select 1 from trip_pass_refund_facts r where r.order_id = o.id)
+         and not exists (select 1 from trip_pass_dispute_facts d where d.order_id = o.id)
          and not (
            o.status in ('pending', 'checkout_created')
            and o.stripe_checkout_session_id is null

@@ -56,7 +56,7 @@ export type EffectiveTripPassDecision =
       meters: TripPassUsageMeter[];
     }
   | {
-      status: "expired" | "revoked";
+      status: "expired" | "revoked" | "suspended";
       pass: TripPassRecord;
       meters: TripPassUsageMeter[];
     }
@@ -232,7 +232,12 @@ export async function getEffectiveTripPass(
   }
 
   return {
-    status: latest.status === "cancelled" || latest.status === "refunded" ? "revoked" : "expired",
+    status:
+      latest.status === "suspended"
+        ? "suspended"
+        : latest.status === "cancelled" || latest.status === "refunded"
+          ? "revoked"
+          : "expired",
     pass: latest,
     meters: await loadTripPassMeters(latest.id, db),
   };
@@ -657,7 +662,7 @@ function parseTripPassMeterType(value: string): TripPassMeterType {
 }
 
 function parseTripPassStatus(value: string): TripPassRecord["status"] {
-  if (["active", "expired", "cancelled", "refunded"].includes(value)) {
+  if (["active", "suspended", "expired", "cancelled", "refunded"].includes(value)) {
     return value as TripPassRecord["status"];
   }
 
