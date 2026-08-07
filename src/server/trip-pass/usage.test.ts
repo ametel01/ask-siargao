@@ -628,6 +628,82 @@ describe("paid Trip Pass chat usage", () => {
     });
   });
 
+  test("continues past corrupt purge candidates without falsely certifying deletion", async () => {
+    await withTestDb(async (db) => {
+      const mismatch = await createSettledPurgeFixture(db, "0_mismatch", []);
+      const missing = await createSettledPurgeFixture(db, "1_missing", []);
+      const conflicted = await createSettledPurgeFixture(db, "2_conflict", [], true);
+      const released = await createReleasedPurgeFixture(db, "8_released");
+      const valid = await createSettledPurgeFixture(db, "9_valid", ["provider_valid"]);
+      await db.query(`update trip_usage_events set idempotency_key = $2 where id = $1`, [
+        `trip_usage_event_${mismatch.reservationId}`,
+        "paid-answer:wrong-reservation",
+      ]);
+      await db.query(`delete from trip_usage_events where id = $1`, [
+        `trip_usage_event_${missing.reservationId}`,
+      ]);
+
+      const firstFailure = await capturePurgeFailure(db);
+      expect(firstFailure).toMatchObject({
+        purgedCount: 2,
+        failures: [
+          { reservationId: mismatch.reservationId },
+          { reservationId: missing.reservationId },
+          { reservationId: conflicted.reservationId },
+        ],
+      });
+      const firstState = await loadPurgeMarkers(db, [
+        mismatch.reservationId,
+        missing.reservationId,
+        conflicted.reservationId,
+        released.reservationId,
+        valid.reservationId,
+      ]);
+      expect(firstState).toEqual([
+        { id: mismatch.reservationId, purged: false },
+        { id: missing.reservationId, purged: false },
+        { id: conflicted.reservationId, purged: false },
+        { id: released.reservationId, purged: true },
+        { id: valid.reservationId, purged: true },
+      ]);
+      const eventDetails = await db.query<{ id: string; request_id: string | null }>(
+        `select id, request_id from trip_usage_events
+         where id in ($1, $2, $3) order by id`,
+        [
+          `trip_usage_event_${mismatch.reservationId}`,
+          `trip_usage_event_${valid.reservationId}`,
+          "unrelated_usage_event_2_conflict",
+        ],
+      );
+      expect(Object.fromEntries(eventDetails.rows.map((row) => [row.id, row.request_id]))).toEqual({
+        [`trip_usage_event_${mismatch.reservationId}`]: "request_paid_purge_0_mismatch",
+        [`trip_usage_event_${valid.reservationId}`]: null,
+        unrelated_usage_event_2_conflict: "unrelated_request_2_conflict",
+      });
+      const missingExactEvents = await db.query<{ count: number }>(
+        `select count(*)::int as count from trip_usage_events where id in ($1, $2)`,
+        [
+          `trip_usage_event_${missing.reservationId}`,
+          `trip_usage_event_${conflicted.reservationId}`,
+        ],
+      );
+      expect(missingExactEvents.rows[0]?.count).toBe(0);
+
+      const retryFailure = await capturePurgeFailure(db);
+      expect(retryFailure).toMatchObject({
+        purgedCount: 0,
+        failures: [
+          { reservationId: mismatch.reservationId },
+          { reservationId: missing.reservationId },
+          { reservationId: conflicted.reservationId },
+        ],
+      });
+      expect(await loadPurgeMarkers(db, [mismatch.reservationId])).toEqual([
+        { id: mismatch.reservationId, purged: false },
+      ]);
+    });
+  });
+
   test("treats expired and other-owner passes as not paid-applicable", async () => {
     await withTestDb(async (db) => {
       await seedActivePass(db, "user_paid_expired", "trip_pass_paid_expired", {
@@ -689,6 +765,122 @@ async function seedActivePass(
     },
     db,
   );
+}
+
+async function createSettledPurgeFixture(
+  db: DatabaseQueryClient,
+  suffix: string,
+  providerRequestIds: string[],
+  blockUsageEventInsert = false,
+) {
+  const accountId = `user_paid_purge_${suffix}`;
+  const passId = `trip_pass_paid_purge_${suffix}`;
+  await seedActivePass(db, accountId, passId);
+  const reservation = await reservePaidAnswer({
+    accountId,
+    bodyHash: `body_hash_purge_${suffix}`,
+    db,
+    idempotencyKeyHash: `token_hash_purge_${suffix}`,
+    requestId: `request_paid_purge_${suffix}`,
+  });
+  expect(reservation.status).toBe("reserved");
+  if (reservation.status !== "reserved") {
+    throw new Error(`purge fixture reservation unavailable: ${suffix}`);
+  }
+  if (blockUsageEventInsert) {
+    const meter = await db.query<{ id: string }>(
+      `select id from trip_usage_meters
+       where trip_pass_id = $1 and meter_type = 'chat_message'`,
+      [passId],
+    );
+    await db.query(
+      `insert into trip_usage_events (
+         id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+         idempotency_key, request_id, request_hash, provider_request_ids_json,
+         occurred_at, created_at
+       ) values ($1, $2, $3, $4, 'settled', 'chat_message', 1, $5, $6, $7,
+         '[]'::jsonb, clock_timestamp(), clock_timestamp())`,
+      [
+        `unrelated_usage_event_${suffix}`,
+        passId,
+        meter.rows[0]?.id,
+        accountId,
+        `paid-answer:${reservation.reservationId}`,
+        `unrelated_request_${suffix}`,
+        `unrelated_hash_${suffix}`,
+      ],
+    );
+  }
+  const finalized = await finalizePaidAnswer({
+    accountId,
+    answerMessageId: `answer_purge_${suffix}`,
+    db,
+    leaseToken: reservation.leaseToken,
+    persistAnswer: paidAnswerPersistence(db, accountId, `answer_purge_${suffix}`),
+    providerRequestIds,
+    reservationId: reservation.reservationId,
+  });
+  expect(finalized.status).toBe("settled");
+  await db.query(
+    `update paid_answer_reservations
+     set reserved_at = clock_timestamp() - interval '40 days',
+       details_purge_at = clock_timestamp() - interval '1 second'
+     where id = $1`,
+    [reservation.reservationId],
+  );
+  return { accountId, passId, reservationId: reservation.reservationId };
+}
+
+async function createReleasedPurgeFixture(db: DatabaseQueryClient, suffix: string) {
+  const accountId = `user_paid_purge_${suffix}`;
+  const passId = `trip_pass_paid_purge_${suffix}`;
+  await seedActivePass(db, accountId, passId);
+  const reservation = await reservePaidAnswer({
+    accountId,
+    bodyHash: `body_hash_purge_${suffix}`,
+    db,
+    idempotencyKeyHash: `token_hash_purge_${suffix}`,
+    requestId: `request_paid_purge_${suffix}`,
+  });
+  expect(reservation.status).toBe("reserved");
+  if (reservation.status !== "reserved") {
+    throw new Error(`released purge fixture reservation unavailable: ${suffix}`);
+  }
+  await expect(
+    releasePaidAnswer({
+      accountId,
+      db,
+      leaseToken: reservation.leaseToken,
+      reason: "provider_failure",
+      reservationId: reservation.reservationId,
+    }),
+  ).resolves.toBe("released");
+  await db.query(
+    `update paid_answer_reservations
+     set reserved_at = clock_timestamp() - interval '40 days',
+       details_purge_at = clock_timestamp() - interval '1 second'
+     where id = $1`,
+    [reservation.reservationId],
+  );
+  return { reservationId: reservation.reservationId };
+}
+
+async function capturePurgeFailure(db: DatabaseQueryClient) {
+  try {
+    await purgeExpiredPaidAnswerDetails(db);
+  } catch (error) {
+    return error;
+  }
+  throw new Error("expected paid answer purge to surface corrupt candidates");
+}
+
+async function loadPurgeMarkers(db: DatabaseQueryClient, reservationIds: string[]) {
+  const result = await db.query<{ details_purged_at: Date | null; id: string }>(
+    `select id, details_purged_at
+     from paid_answer_reservations where id = any($1::text[]) order by account_id`,
+    [reservationIds],
+  );
+  return result.rows.map((row) => ({ id: row.id, purged: row.details_purged_at !== null }));
 }
 
 async function setMeterUsed(

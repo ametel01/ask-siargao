@@ -47,6 +47,27 @@ export type PaidAnswerFinalizationResult =
     }
   | { status: "released" | "invalidated" | "lease_lost"; allowance: PaidAnswerAllowance | null };
 
+export type PaidAnswerPurgeFailure = {
+  cause: unknown;
+  reservationId: string;
+};
+
+export class PaidAnswerPurgeBatchError extends Error {
+  readonly failures: PaidAnswerPurgeFailure[];
+  readonly purgedCount: number;
+
+  constructor(purgedCount: number, failures: PaidAnswerPurgeFailure[]) {
+    const firstCause = failures[0]?.cause;
+    const firstMessage = firstCause instanceof Error ? `: ${firstCause.message}` : "";
+    super(
+      `paid answer purge failed for ${failures.length} candidate(s) after purging ${purgedCount}${firstMessage}`,
+    );
+    this.name = "PaidAnswerPurgeBatchError";
+    this.purgedCount = purgedCount;
+    this.failures = failures;
+  }
+}
+
 type ReservationRow = {
   id: string;
   trip_pass_id: string;
@@ -82,6 +103,7 @@ type PaidAnswerPurgeCandidateRow = {
 
 type PaidAnswerPurgeRow = PaidAnswerPurgeCandidateRow & {
   trip_pass_id: string;
+  status: "invalidated" | "released" | "settled";
   usage_meter_id: string;
 };
 
@@ -377,8 +399,16 @@ export async function purgeExpiredPaidAnswerDetails(
     [limit],
   );
   let purged = 0;
+  const failures: PaidAnswerPurgeFailure[] = [];
   for (const candidate of candidates.rows) {
-    purged += await purgePaidAnswerCandidate(candidate, db);
+    try {
+      purged += await purgePaidAnswerCandidate(candidate, db);
+    } catch (cause) {
+      failures.push({ cause, reservationId: candidate.id });
+    }
+  }
+  if (failures.length > 0) {
+    throw new PaidAnswerPurgeBatchError(purged, failures);
   }
   return purged;
 }
@@ -390,7 +420,7 @@ async function purgePaidAnswerCandidate(
   return withTransaction(db, async (transaction) => {
     await acquireAccountProductFamilyLocks(candidate.account_id, transaction);
     const locked = await transaction.query<PaidAnswerPurgeRow>(
-      `select id, trip_pass_id, usage_meter_id, account_id
+      `select id, trip_pass_id, usage_meter_id, account_id, status
        from paid_answer_reservations
        where id = $1 and account_id = $2 and details_purged_at is null
          and details_purge_at <= clock_timestamp() and status <> 'open'
@@ -400,21 +430,43 @@ async function purgePaidAnswerCandidate(
     const reservation = locked.rows[0];
     if (!reservation) return 0;
 
-    await transaction.query(
-      `update trip_usage_events
-       set request_id = null, request_hash = null, provider_request_ids_json = '[]'::jsonb
-       where id = 'trip_usage_event_' || $1
-         and trip_pass_id = $2
-         and usage_meter_id = $3
-         and user_id = $4
-         and idempotency_key = 'paid-answer:' || $1`,
-      [
-        reservation.id,
-        reservation.trip_pass_id,
-        reservation.usage_meter_id,
-        reservation.account_id,
-      ],
-    );
+    if (reservation.status === "settled") {
+      const scrubbedEvents = await transaction.query<{ id: string }>(
+        `update trip_usage_events
+         set request_id = null, request_hash = null, provider_request_ids_json = '[]'::jsonb
+         where id = 'trip_usage_event_' || $1
+           and trip_pass_id = $2
+           and usage_meter_id = $3
+           and user_id = $4
+           and idempotency_key = 'paid-answer:' || $1
+           and event_type = 'settled'
+           and meter_type = 'chat_message'
+         returning id`,
+        [
+          reservation.id,
+          reservation.trip_pass_id,
+          reservation.usage_meter_id,
+          reservation.account_id,
+        ],
+      );
+      if (scrubbedEvents.rows.length !== 1) {
+        throw new Error(
+          `paid answer usage event scrub expected 1 row, received ${scrubbedEvents.rows.length}`,
+        );
+      }
+    } else {
+      const unexpectedEvents = await transaction.query<{ id: string }>(
+        `select id from trip_usage_events
+         where id = 'trip_usage_event_' || $1 or idempotency_key = 'paid-answer:' || $1
+         for update`,
+        [reservation.id],
+      );
+      if (unexpectedEvents.rows.length !== 0) {
+        throw new Error(
+          `non-settled paid answer expected 0 usage events, received ${unexpectedEvents.rows.length}`,
+        );
+      }
+    }
     const result = await transaction.query<{ id: string }>(
       `update paid_answer_reservations
        set request_body_hash = 'purged:' || id, request_id = 'purged:' || id,

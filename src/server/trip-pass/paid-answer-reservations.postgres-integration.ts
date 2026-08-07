@@ -2,6 +2,7 @@ import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { type AccountClosurePolicy, beginAccountClosure } from "@/server/privacy/account-closure";
 import {
   finalizePaidAnswer,
+  PaidAnswerPurgeBatchError,
   purgeExpiredPaidAnswerDetails,
   reservePaidAnswer,
 } from "@/server/trip-pass/paid-answer-reservations";
@@ -17,6 +18,7 @@ type PostgresHarness = {
 
 export async function runPaidAnswerReservationPostgresIntegration(harness: PostgresHarness) {
   await runFinalUnitRegression(harness);
+  await runCorruptPurgeCandidateProgress(harness);
   await runPurgeReplayAndFinalizeRaces(harness);
   await runConcurrentPurgeWorkers(harness);
   await runTerminalLifecycleRaces(harness);
@@ -28,6 +30,7 @@ export async function runPaidAnswerReservationPostgresIntegration(harness: Postg
         "final-unit-capacity",
         "durable-result-replay",
         "purged-aggregate-reconciliation",
+        "corrupt-purge-candidate-forward-progress",
         "purge-before-replay-and-finalize",
         "replay-and-finalize-before-purge",
         "concurrent-multi-account-purge-workers",
@@ -40,6 +43,165 @@ export async function runPaidAnswerReservationPostgresIntegration(harness: Postg
       ],
     }),
   );
+}
+
+async function runCorruptPurgeCandidateProgress(harness: PostgresHarness) {
+  const db = harness.createQueryClient();
+  const mismatchTarget = raceTarget("purge_corrupt_0_mismatch");
+  const missingTarget = raceTarget("purge_corrupt_1_missing");
+  const conflictTarget = raceTarget("purge_corrupt_2_conflict");
+  const validTarget = raceTarget("purge_corrupt_9_valid");
+  try {
+    for (const target of [mismatchTarget, missingTarget, conflictTarget, validTarget]) {
+      await seedRaceTarget(db, target);
+    }
+    const mismatch = await createExpiredSettledAnswer(db, mismatchTarget, "only", {
+      providerRequestIds: [],
+    });
+    const missing = await createExpiredSettledAnswer(db, missingTarget, "only", {
+      providerRequestIds: [],
+    });
+    const conflicted = await createExpiredSettledAnswer(db, conflictTarget, "only", {
+      blockUsageEventInsert: true,
+      providerRequestIds: [],
+    });
+    const valid = await createExpiredSettledAnswer(db, validTarget, "only");
+    await db.query(`update trip_usage_events set idempotency_key = $2 where id = $1`, [
+      `trip_usage_event_${mismatch.reservationId}`,
+      "paid-answer:wrong-native-reservation",
+    ]);
+    await db.query(`delete from trip_usage_events where id = $1`, [
+      `trip_usage_event_${missing.reservationId}`,
+    ]);
+
+    const firstFailure = await captureNativePurgeFailure(db);
+    assertEqual(firstFailure.purgedCount, 1, "valid later candidate must purge after corrupt rows");
+    assertJsonEqual(
+      firstFailure.failures.map((failure) => failure.reservationId),
+      [mismatch.reservationId, missing.reservationId, conflicted.reservationId],
+      "native purge must surface every corrupt candidate in deterministic order",
+    );
+    const markers = await db.query<{ details_purged_at: Date | null; id: string }>(
+      `select id, details_purged_at from paid_answer_reservations
+       where id in ($1, $2, $3, $4) order by account_id`,
+      [
+        mismatch.reservationId,
+        missing.reservationId,
+        conflicted.reservationId,
+        valid.reservationId,
+      ],
+    );
+    assertJsonEqual(
+      markers.rows.map((row) => ({ id: row.id, purged: row.details_purged_at !== null })),
+      [
+        { id: mismatch.reservationId, purged: false },
+        { id: missing.reservationId, purged: false },
+        { id: conflicted.reservationId, purged: false },
+        { id: valid.reservationId, purged: true },
+      ],
+      "corrupt candidates must roll back while a later valid candidate commits",
+    );
+    const retainedEvents = await db.query<{ id: string; request_id: string | null }>(
+      `select id, request_id from trip_usage_events where id in ($1, $2, $3) order by id`,
+      [
+        `trip_usage_event_${mismatch.reservationId}`,
+        `trip_usage_event_${valid.reservationId}`,
+        `unrelated_usage_event_${conflictTarget.suffix}_only`,
+      ],
+    );
+    const retainedEventMap = new Map(retainedEvents.rows.map((row) => [row.id, row.request_id]));
+    assertEqual(
+      retainedEventMap.get(`trip_usage_event_${mismatch.reservationId}`),
+      `request_${mismatchTarget.suffix}_only`,
+      "linkage-mismatched event details must remain when its candidate rolls back",
+    );
+    assertEqual(
+      retainedEventMap.get(`trip_usage_event_${valid.reservationId}`),
+      null,
+      "valid later event details must scrub despite earlier corrupt candidates",
+    );
+    assertEqual(
+      retainedEventMap.get(`unrelated_usage_event_${conflictTarget.suffix}_only`),
+      `unrelated_request_${conflictTarget.suffix}_only`,
+      "finalize-conflict event details must remain when its candidate rolls back",
+    );
+    const snapshot = await reconcileTripPassState({
+      db,
+      mode: "dry_run",
+      scope: { passId: mismatchTarget.passId },
+    });
+    assertEqual(
+      snapshot.issues.some(
+        (issue) =>
+          issue.code === "provider_usage_missing_request_id" &&
+          issue.localRef === `trip_usage_event_${mismatch.reservationId}`,
+      ),
+      true,
+      "unpurged linkage corruption must remain a reconciliation warning",
+    );
+    const retryFailure = await captureNativePurgeFailure(db);
+    assertEqual(retryFailure.purgedCount, 0, "retry must not recount the already purged answer");
+    assertJsonEqual(
+      retryFailure.failures.map((failure) => failure.reservationId),
+      [mismatch.reservationId, missing.reservationId, conflicted.reservationId],
+      "corrupt candidates must remain eligible and retryable",
+    );
+    await db.query(`update trip_usage_events set idempotency_key = $2 where id = $1`, [
+      `trip_usage_event_${mismatch.reservationId}`,
+      `paid-answer:${mismatch.reservationId}`,
+    ]);
+    await db.query(`delete from trip_usage_events where id = $1`, [
+      `unrelated_usage_event_${conflictTarget.suffix}_only`,
+    ]);
+    await insertExactSettledUsageEvent(db, missingTarget, missing, "only");
+    await insertExactSettledUsageEvent(db, conflictTarget, conflicted, "only");
+    assertEqual(
+      await purgeExpiredPaidAnswerDetails(db),
+      3,
+      "repaired corrupt candidates must remain retryable and purge exactly once",
+    );
+    await assertPurgedSettledAnswer(db, mismatchTarget, mismatch, 1);
+    await assertPurgedSettledAnswer(db, missingTarget, missing, 1);
+    await assertPurgedSettledAnswer(db, conflictTarget, conflicted, 1);
+    await assertPurgedSettledAnswer(db, validTarget, valid, 1);
+  } finally {
+    await db.end();
+  }
+}
+
+async function insertExactSettledUsageEvent(
+  db: DatabaseQueryClient,
+  target: RaceTarget,
+  settled: SettledRaceAnswer,
+  variant: string,
+) {
+  await db.query(
+    `insert into trip_usage_events (
+       id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+       idempotency_key, request_id, request_hash, provider_request_ids_json,
+       occurred_at, created_at
+     ) values ($1, $2, $3, $4, 'settled', 'chat_message', 1, $5, $6, $7,
+       '[]'::jsonb, clock_timestamp(), clock_timestamp())`,
+    [
+      `trip_usage_event_${settled.reservationId}`,
+      target.passId,
+      target.meterId,
+      target.accountId,
+      `paid-answer:${settled.reservationId}`,
+      `request_${target.suffix}_${variant}`,
+      settled.bodyHash,
+    ],
+  );
+}
+
+async function captureNativePurgeFailure(db: DatabaseQueryClient) {
+  try {
+    await purgeExpiredPaidAnswerDetails(db);
+  } catch (error) {
+    if (error instanceof PaidAnswerPurgeBatchError) return error;
+    throw error;
+  }
+  throw new Error("expected native paid answer purge candidate failures");
 }
 
 async function runPurgeReplayAndFinalizeRaces(harness: PostgresHarness) {
@@ -707,6 +869,7 @@ async function createExpiredSettledAnswer(
   db: DatabaseQueryClient,
   target: RaceTarget,
   variant: string,
+  options: { blockUsageEventInsert?: boolean; providerRequestIds?: string[] } = {},
 ): Promise<SettledRaceAnswer> {
   const bodyHash = `body_${target.suffix}_${variant}`;
   const idempotencyKeyHash = `idempotency_${target.suffix}_${variant}`;
@@ -723,12 +886,31 @@ async function createExpiredSettledAnswer(
       `settled purge race reservation unavailable: ${target.suffix}/${variant}/${reservation.status}`,
     );
   }
+  if (options.blockUsageEventInsert) {
+    await db.query(
+      `insert into trip_usage_events (
+         id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+         idempotency_key, request_id, request_hash, provider_request_ids_json,
+         occurred_at, created_at
+       ) values ($1, $2, $3, $4, 'settled', 'chat_message', 1, $5, $6, $7,
+         '[]'::jsonb, clock_timestamp(), clock_timestamp())`,
+      [
+        `unrelated_usage_event_${target.suffix}_${variant}`,
+        target.passId,
+        target.meterId,
+        target.accountId,
+        `paid-answer:${reservation.reservationId}`,
+        `unrelated_request_${target.suffix}_${variant}`,
+        `unrelated_hash_${target.suffix}_${variant}`,
+      ],
+    );
+  }
   const finalized = await finalizePaidAnswer({
     accountId: target.accountId,
     answerMessageId,
     db,
     leaseToken: reservation.leaseToken,
-    providerRequestIds: [`provider_${target.suffix}_${variant}`],
+    providerRequestIds: options.providerRequestIds ?? [`provider_${target.suffix}_${variant}`],
     reservationId: reservation.reservationId,
     persistAnswer: async (transaction, allowance) => {
       await transaction.query(
@@ -1023,4 +1205,8 @@ function assertEqual(actual: unknown, expected: unknown, message: string) {
   if (actual !== expected) {
     throw new Error(`${message}. Expected ${String(expected)}, received ${String(actual)}.`);
   }
+}
+
+function assertJsonEqual(actual: unknown, expected: unknown, message: string) {
+  assertEqual(JSON.stringify(actual), JSON.stringify(expected), message);
 }
