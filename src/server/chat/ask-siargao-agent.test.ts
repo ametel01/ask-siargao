@@ -394,21 +394,23 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
   });
 
   test("paid tools do not reserve legacy commercial decision meters", async () => {
-    const settlements: Array<{ meterType: PaidDecisionMeterType; success: boolean }> = [];
+    const executed: string[] = [];
     const session = fakePaidUsageSession({
-      reserveDecisionMeter: async (meterType) =>
-        reservedDecisionMeter(meterType, {
-          onSettle: (success) => settlements.push({ meterType, success }),
-        }),
+      reserveDecisionMeter: async (meterType) => {
+        throw new Error(`paid tools must not reserve ${meterType}`);
+      },
     });
     const meteredExecuteTool = createMeteredToolExecutor({
-      executeTool: async (request) => ({
-        name: request.name,
-        toolCallId: request.toolCallId,
-        status: "success",
-        text: "Itinerary planning returned a route.",
-        sources: [localGuideSourceSummary],
-      }),
+      executeTool: async (request) => {
+        executed.push(request.name);
+        return {
+          name: request.name,
+          toolCallId: request.toolCallId,
+          status: "success",
+          text: "Paid tool evidence returned.",
+          sources: [localGuideSourceSummary],
+        };
+      },
       plan: "paid",
       usageSession: session,
     });
@@ -419,8 +421,20 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       requestId: "request_paid_route",
       toolCallId: "call_paid_route",
     });
+    await meteredExecuteTool({
+      arguments: { location: "Cloud 9" },
+      name: "get_weather_forecast",
+      requestId: "request_paid_weather",
+      toolCallId: "call_paid_weather",
+    });
+    await meteredExecuteTool({
+      arguments: { query: "dinner" },
+      name: "search_places",
+      requestId: "request_paid_heavy",
+      toolCallId: "call_paid_heavy",
+    });
 
-    expect(settlements).toEqual([]);
+    expect(executed).toEqual(["plan_local_itinerary", "get_weather_forecast", "search_places"]);
   });
 
   test("repairs leaked DSML tool-call markup before returning a default chat answer", async () => {
