@@ -3488,8 +3488,6 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     );
     await expect(sourceSummary).toBeVisible();
     await expect(copyButton).toBeVisible();
-    await sourceSummary.click();
-    await expect(answer.getByText("Checked fields: forecast for Cloud 9")).toBeVisible();
 
     const animatedProperties = await strip.evaluate((element) => {
       const cue = element.querySelector("[data-decision-sequence-cue='true']");
@@ -3529,6 +3527,9 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     expectBoxStable(await boundingBoxSnapshot(sourceSummary), startBoxes.source);
     expectBoxStable(await boundingBoxSnapshot(copyButton), startBoxes.copy);
     await expect(strip).not.toHaveAttribute("data-answer-arrival-motion", /decision-strip/);
+
+    await sourceSummary.click();
+    await expect(answer.getByText("Checked fields: forecast for Cloud 9")).toBeVisible();
 
     const scrollArea = page.getByTestId("chat-message-scroll-area");
     await scrollArea.evaluate((element) => {
