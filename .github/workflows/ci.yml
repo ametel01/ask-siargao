@@ -83,16 +83,16 @@ jobs:
           POSTGRES_DB: ask_siargao_issue145
           POSTGRES_USER: ask_siargao_issue145
           POSTGRES_PASSWORD: ask_siargao_issue145_password
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U ask_siargao_issue145 -d ask_siargao_issue145"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
           --tmpfs /var/lib/postgresql/data:rw,noexec,nosuid,size=512m
-        ports:
-          - 5432/tcp
     env:
-      DATABASE_URL: postgres://ask_siargao_issue145:ask_siargao_issue145_password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/ask_siargao_issue145
+      DATABASE_URL: postgres://ask_siargao_issue145:ask_siargao_issue145_password@127.0.0.1:5432/ask_siargao_issue145
       INTEGRATION_TEST_NAMESPACE: ask_siargao_issue150_${{ github.run_id }}_${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v5
@@ -113,15 +113,15 @@ jobs:
     services:
       redis:
         image: redis:8.2.1-alpine3.22
+        ports:
+          - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
-        ports:
-          - 6379/tcp
     env:
-      REDIS_URL: redis://127.0.0.1:${{ job.services.redis.ports[6379] }}/0
+      REDIS_URL: redis://127.0.0.1:6379/0
       INTEGRATION_TEST_NAMESPACE: ask_siargao_issue150_${{ github.run_id }}_${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v5

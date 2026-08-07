@@ -127,23 +127,19 @@ describe("integration entry-point contracts", () => {
     expect(workflow).toContain("image: postgres:17.6-alpine3.22");
     expect(workflow).toContain("image: redis:8.2.1-alpine3.22");
     expect(workflow).toContain("POSTGRES_PASSWORD: ask_siargao_issue145_password");
-    expect(workflow).toContain("- 5432/tcp");
-    expect(workflow).toContain("- 6379/tcp");
+    expect(workflow).toContain("- 5432:5432");
+    expect(workflow).toContain("- 6379:6379");
     expect(workflow).toContain(
-      "DATABASE_URL: postgres://ask_siargao_issue145:ask_siargao_issue145_password@127.0.0.1:$" +
-        "{{ job.services.postgres.ports[5432] }}/ask_siargao_issue145",
+      "DATABASE_URL: postgres://ask_siargao_issue145:ask_siargao_issue145_password@127.0.0.1:5432/ask_siargao_issue145",
     );
-    expect(workflow).toContain(
-      "REDIS_URL: redis://127.0.0.1:$" + "{{ job.services.redis.ports[6379] }}/0",
-    );
+    expect(workflow).toContain("REDIS_URL: redis://127.0.0.1:6379/0");
     expect(workflow).toContain('--health-cmd "pg_isready');
     expect(workflow).toContain('--health-cmd "redis-cli ping"');
     expect(workflow).toContain("timeout-minutes: 15");
     expect(workflow).toContain("INTEGRATION_TEST_NAMESPACE:");
-    expect(workflow).toContain("job.services.postgres.ports[5432]");
-    expect(workflow).toContain("job.services.redis.ports[6379]");
-    expect(workflow).not.toContain("- 5432:5432");
-    expect(workflow).not.toContain("- 6379:6379");
+    expect(workflow).not.toContain("job.services.");
+    expect(workflow).not.toContain("5432/tcp");
+    expect(workflow).not.toContain("6379/tcp");
     expect(workflow).not.toContain("secrets.");
     expect(workflow).not.toContain("PGLITE");
     expect(workflow).not.toContain("pglite");
