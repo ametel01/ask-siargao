@@ -75,7 +75,7 @@ jobs:
 
   integration-postgres:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:17.6-alpine3.22
@@ -90,9 +90,10 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
+          --tmpfs /var/lib/postgresql/data:rw,noexec,nosuid,size=512m
     env:
       DATABASE_URL: postgres://ask_siargao_issue145:ask_siargao_issue145_password@127.0.0.1:5432/ask_siargao_issue145
-      INTEGRATION_TEST_NAMESPACE: ask_siargao_issue145_${{ github.run_id }}_${{ github.run_attempt }}
+      INTEGRATION_TEST_NAMESPACE: ask_siargao_issue150_${{ github.run_id }}_${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v5
 
@@ -103,12 +104,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Dry-run PostgreSQL integration entry point
+      - name: Real PostgreSQL semantic integration suite
         run: bun run test:integration:postgres
 
   integration-redis:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     services:
       redis:
         image: redis:8.2.1-alpine3.22
@@ -121,7 +122,7 @@ jobs:
           --health-retries 12
     env:
       REDIS_URL: redis://127.0.0.1:6379/0
-      INTEGRATION_TEST_NAMESPACE: ask_siargao_issue145_${{ github.run_id }}_${{ github.run_attempt }}
+      INTEGRATION_TEST_NAMESPACE: ask_siargao_issue150_${{ github.run_id }}_${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v5
 
@@ -132,7 +133,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Dry-run Redis integration entry point
+      - name: Real Redis semantic integration suite
         run: bun run test:integration:redis
 
   trip-pass-launch-manifest:

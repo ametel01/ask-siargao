@@ -33,6 +33,8 @@ describe("Node Redis quota command adapter", () => {
       ["sendCommand", ["EVAL", "return ARGV[1]", "0", "ready"]],
     ]);
     expect(fake.errorListenerRegistered).toBe(true);
+    await client.close();
+    expect(fake.quitCalls).toBe(1);
   });
 
   test("retries a later command after an initial connection failure", async () => {
@@ -45,6 +47,7 @@ describe("Node Redis quota command adapter", () => {
     await expect(client.incr("quota:first-attempt")).rejects.toThrow("Redis unavailable");
     expect(await client.incr("quota:retry")).toBe(1);
     expect(fake.connectCalls).toBe(2);
+    await client.close();
   });
 });
 
@@ -54,6 +57,7 @@ function createFakeNodeRedisClient(input: { failedConnects?: number } = {}) {
     connectCalls: 0,
     errorListenerRegistered: false,
     isOpen: false,
+    quitCalls: 0,
   };
 
   const client = {
@@ -101,6 +105,11 @@ function createFakeNodeRedisClient(input: { failedConnects?: number } = {}) {
       state.commands.push(["set", key, value, ...(options ? [options] : [])]);
       return "OK";
     },
+    async quit() {
+      state.quitCalls += 1;
+      state.isOpen = false;
+      return "OK";
+    },
   };
 
   return {
@@ -113,6 +122,9 @@ function createFakeNodeRedisClient(input: { failedConnects?: number } = {}) {
     },
     get errorListenerRegistered() {
       return state.errorListenerRegistered;
+    },
+    get quitCalls() {
+      return state.quitCalls;
     },
   };
 }
