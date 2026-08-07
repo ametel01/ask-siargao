@@ -44,6 +44,24 @@ describe("Stripe event inbox", () => {
     expect(JSON.stringify(normalized)).not.toContain("raw");
   });
 
+  test("accepts Stripe refund update and failure event types as durable receipts", async () => {
+    await withTestDb(async (db) => {
+      const updated = await receiveStripeWebhookEvent(
+        refundLifecycleEvent("evt_refund_updated", "refund.updated"),
+        { db },
+      );
+      const failed = await receiveStripeWebhookEvent(
+        refundLifecycleEvent("evt_refund_failed", "refund.failed"),
+        { db },
+      );
+
+      expect(updated).toMatchObject({ status: "received" });
+      expect(failed).toMatchObject({ status: "received" });
+      await expectInboxRow(db, "evt_refund_updated", { status: "pending" });
+      await expectInboxRow(db, "evt_refund_failed", { status: "pending" });
+    });
+  });
+
   test("commits a receipt before application and records applied state", async () => {
     await withTestDb(async (db) => {
       const appliedAfterReceipt: string[] = [];
@@ -571,5 +589,26 @@ function customerEvent(eventId: string) {
     pending_webhooks: 1,
     request: null,
     type: "customer.created",
+  } as Stripe.Event;
+}
+
+function refundLifecycleEvent(eventId: string, type: "refund.updated" | "refund.failed") {
+  return {
+    id: eventId,
+    object: "event",
+    api_version: STRIPE_API_VERSION,
+    created: 1_786_080_000,
+    data: {
+      object: {
+        id: "re_lifecycle_update",
+        object: "refund",
+        amount: 100,
+        currency: "php",
+      },
+    },
+    livemode: false,
+    pending_webhooks: 1,
+    request: null,
+    type,
   } as Stripe.Event;
 }

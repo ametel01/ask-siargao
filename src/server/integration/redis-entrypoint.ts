@@ -494,7 +494,7 @@ function redisOutageWebhookDependencies(mode: "applied" | "persistence_failure")
         status: "applied" as const,
         inboxId: `stripe_event_${event.id}`,
         stripeEventId: event.id,
-        applicationResult: await options?.applyEvent?.(event, {
+        applicationResult: await options?.applyEvent?.(event as never, {
           db: redisOutageDurableBoundaryDb(),
           now: new Date("2026-08-07T00:06:00.000Z"),
         }),

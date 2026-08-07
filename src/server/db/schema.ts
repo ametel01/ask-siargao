@@ -242,6 +242,12 @@ export const accountClosureRefundObligations = pgTable(
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     lastErrorCategory: text("last_error_category"),
     policyVersion: text("policy_version").notNull(),
+    stripePaymentIntentId: text("stripe_payment_intent_id"),
+    stripeRefundId: text("stripe_refund_id"),
+    expectedAmountMinor: integer("expected_amount_minor"),
+    providerStatus: text("provider_status"),
+    alertedAt: timestamp("alerted_at", { withTimezone: true }),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -534,6 +540,8 @@ export const tripPasses = pgTable(
     stripeEventId: text("stripe_event_id").unique(),
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    terminalRevocationReason: text("terminal_revocation_reason"),
+    suspendedAt: timestamp("suspended_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -542,7 +550,7 @@ export const tripPasses = pgTable(
     index("trip_passes_status_expires_at_idx").on(table.status, table.expiresAt),
     check(
       "trip_passes_status_check",
-      sql`${table.status} in ('active', 'expired', 'cancelled', 'refunded')`,
+      sql`${table.status} in ('active', 'suspended', 'expired', 'cancelled', 'refunded')`,
     ),
     check("trip_passes_timestamp_order_check", sql`${table.startsAt} < ${table.expiresAt}`),
   ],
@@ -590,6 +598,12 @@ export const tripPassOrders = pgTable(
     productVersion: integer("product_version").notNull(),
     stripePriceId: text("stripe_price_id").notNull(),
     amountTotalMinor: integer("amount_total_minor"),
+    capturedAmountMinor: integer("captured_amount_minor"),
+    successfulRefundAmountMinor: integer("successful_refund_amount_minor").notNull().default(0),
+    refundState: text("refund_state").notNull().default("none"),
+    disputeState: text("dispute_state").notNull().default("none"),
+    terminalRevocationReason: text("terminal_revocation_reason"),
+    lifecycleUpdatedAt: timestamp("lifecycle_updated_at", { withTimezone: true }),
     currency: text("currency"),
     checkoutIdempotencyKey: text("checkout_idempotency_key").notNull().unique(),
     stripeCheckoutSessionId: text("stripe_checkout_session_id").unique(),
@@ -654,6 +668,57 @@ export const tripPassOrders = pgTable(
     check(
       "trip_pass_orders_closure_outcome_check",
       sql`${table.closureOutcome} is null or ${table.closureOutcome} in ('blocked_at_closure', 'paid_after_closure')`,
+    ),
+  ],
+);
+
+export const tripPassRefundFacts = pgTable(
+  "trip_pass_refund_facts",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => tripPassOrders.id),
+    stripeRefundId: text("stripe_refund_id").notNull().unique(),
+    stripeChargeId: text("stripe_charge_id").notNull(),
+    stripeEventId: text("stripe_event_id").notNull(),
+    providerStatus: text("provider_status").notNull(),
+    amountMinor: integer("amount_minor").notNull(),
+    providerCreatedAt: timestamp("provider_created_at", { withTimezone: true }),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("trip_pass_refund_facts_order_status_idx").on(
+      table.orderId,
+      table.providerStatus,
+      table.updatedAt,
+    ),
+  ],
+);
+
+export const tripPassDisputeFacts = pgTable(
+  "trip_pass_dispute_facts",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => tripPassOrders.id),
+    stripeDisputeId: text("stripe_dispute_id").notNull().unique(),
+    stripeChargeId: text("stripe_charge_id"),
+    stripeEventId: text("stripe_event_id").notNull(),
+    providerStatus: text("provider_status").notNull(),
+    applicationStatus: text("application_status").notNull(),
+    amountMinor: integer("amount_minor"),
+    providerCreatedAt: timestamp("provider_created_at", { withTimezone: true }),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("trip_pass_dispute_facts_order_status_idx").on(
+      table.orderId,
+      table.applicationStatus,
+      table.updatedAt,
     ),
   ],
 );

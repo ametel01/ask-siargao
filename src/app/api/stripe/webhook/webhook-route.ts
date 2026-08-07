@@ -7,10 +7,15 @@ import {
   StripeWebhookBodyTooLargeError,
 } from "@/server/payments/stripe-event-inbox";
 import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/catalog";
-import { applyTripPassStripeEvent } from "@/server/trip-pass/webhook-application";
+import {
+  applyTripPassStripeEvent,
+  type PreparedTripPassStripeEvent,
+  prepareTripPassStripeEvent,
+} from "@/server/trip-pass/webhook-application";
 
 export type StripeWebhookRouteDependencies = {
   applyTripPassStripeEvent: typeof applyTripPassStripeEvent;
+  prepareTripPassStripeEvent?: typeof prepareTripPassStripeEvent;
   stripeWebhookSecretFromEnv: typeof stripeWebhookSecretFromEnv;
   trackServerEvent: typeof trackServerEvent;
   verifyStripeWebhookPayload: typeof verifyStripeWebhookPayload;
@@ -19,6 +24,7 @@ export type StripeWebhookRouteDependencies = {
 
 const defaultDependencies: StripeWebhookRouteDependencies = {
   applyTripPassStripeEvent,
+  prepareTripPassStripeEvent,
   stripeWebhookSecretFromEnv,
   trackServerEvent,
   verifyStripeWebhookPayload,
@@ -50,9 +56,12 @@ export async function withStripeWebhookRouteDependenciesForTest<T>(
 export async function stripeWebhookResponseFromEvent(
   event: VerifiedWebhookEvent,
   dependencies: StripeWebhookRouteDependencies = defaultDependencies,
-  options: { db?: DatabaseQueryClient } = {},
+  options: { db?: DatabaseQueryClient; preparedEvent?: PreparedTripPassStripeEvent } = {},
 ) {
-  const tripPassResult = await dependencies.applyTripPassStripeEvent(event, { db: options.db });
+  const tripPassResult = await dependencies.applyTripPassStripeEvent(event, {
+    db: options.db,
+    preparedEvent: options.preparedEvent,
+  });
   if (tripPassResult.status !== "ignored") {
     dependencies.trackServerEvent({
       name: "trip_pass_stripe_event_applied",
@@ -155,14 +164,21 @@ export async function stripeWebhookResponse(
       signature,
       webhookSecret: dependencies.stripeWebhookSecretFromEnv(),
     });
-    const inboxResult = await dependencies.receiveStripeWebhookEvent(event, {
-      applyEvent: async (receivedEvent, applicationOptions) => {
-        const response = await stripeWebhookResponseFromEvent(receivedEvent, dependencies, {
-          db: applicationOptions.db,
-        });
-        return response.json();
+    const prepareEvent = dependencies.prepareTripPassStripeEvent;
+    const inboxResult = await dependencies.receiveStripeWebhookEvent<PreparedTripPassStripeEvent>(
+      event,
+      {
+        prepareEvent,
+        applyEvent: async (preparedEvent, applicationOptions) => {
+          const receivedEvent = prepareEvent ? preparedEvent.event : (preparedEvent as never);
+          const response = await stripeWebhookResponseFromEvent(receivedEvent, dependencies, {
+            db: applicationOptions.db,
+            preparedEvent: prepareEvent ? preparedEvent : undefined,
+          });
+          return response.json();
+        },
       },
-    });
+    );
 
     if (
       inboxResult.status === "applied" &&

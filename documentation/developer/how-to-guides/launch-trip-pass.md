@@ -154,7 +154,7 @@ profile convergence, account management, closure, webhook retry, and deletion in
 Use an activated Stripe live account with approved restricted permissions.
 
 - The integration pins Stripe API version `2026-07-29.dahlia` and local normalized event schema
-  version `1`; unsupported versions are blocked visibly after durable receipt.
+  version `2`; unsupported versions are blocked visibly after durable receipt.
 - The live Price ID, amount, currency, and Product version match the launch manifest.
 - Checkout accepts only immediate card-based payments, including supported card wallets.
 - Checkout Session expiry is explicitly 30 minutes.
@@ -162,12 +162,15 @@ Use an activated Stripe live account with approved restricted permissions.
 - Success/cancel URLs use the canonical production origin.
 - Terms consent and policy links are visible.
 - The webhook endpoint and signing secret are production-specific.
-- Subscriptions include the implemented Checkout Session, payment, refund, dispute, and expiry event
-  types.
+- Subscriptions include the implemented Checkout Session and expiry events, `charge.refunded`,
+  `refund.created`, `refund.updated`, `refund.failed`, `charge.dispute.created`, and
+  `charge.dispute.closed`.
 - Signature failures and persistence failures return non-success; durable Pending Stripe Events are
   acknowledged and retried internally.
 - Verified webhook receipt and replay do not depend on Redis or provider-call rate limits; body
   bounds and Stripe signatures are the abuse boundary.
+- Authoritative refund and dispute retrieval occurs outside database transactions under a durable
+  inbox claim; application revalidates that claim before atomically writing facts and projections.
 - Test-mode fixtures and IDs cannot enter production configuration.
 
 Do not enable delayed-payment methods, subscriptions, extension, stacking, or Clerk Billing during
