@@ -8,7 +8,8 @@ import {
   resetTestDatabase,
   runInitialMigration,
 } from "@/server/db/test-database";
-import { startTripPassCheckout } from "@/server/trip-pass/commerce";
+import { createActiveTripPassWithMeters } from "@/server/payments/trip-pass";
+import { cancelTripPassCheckout, startTripPassCheckout } from "@/server/trip-pass/commerce";
 import type {
   TripPassCheckoutClient,
   TripPassCheckoutSessionSummary,
@@ -16,7 +17,7 @@ import type {
 
 const now = new Date("2026-07-03T08:00:00.000Z");
 const enabledEnv = {
-  TRIP_PASS_CHECKOUT_ENABLED: "true",
+  TRIP_PASS_CHECKOUT_MODE: "on",
   STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass",
 } as const;
 
@@ -43,7 +44,7 @@ describe("Trip Pass checkout commerce", () => {
             email: "disabled@example.com",
             appUrl: "https://siargao.test",
           },
-          { db, checkoutClient, env: { TRIP_PASS_CHECKOUT_ENABLED: "true" }, now },
+          { db, checkoutClient, env: { TRIP_PASS_CHECKOUT_MODE: "on" }, now },
         ),
       ).resolves.toEqual({
         status: "unavailable",
@@ -98,16 +99,28 @@ describe("Trip Pass checkout commerce", () => {
         mode: "payment",
         client_reference_id: "order_checkout",
         customer_email: "checkout@example.com",
+        payment_method_types: ["card"],
+        consent_collection: {
+          terms_of_service: "required",
+        },
         success_url: "https://siargao.test/settings?trip_pass_checkout=return&order=order_checkout",
         cancel_url:
           "https://siargao.test/settings?trip_pass_checkout=cancelled&order=order_checkout",
         metadata: {
           tripPassOrderId: "order_checkout",
           productCode: "siargao_trip_pass_14d_v2",
+          productFamily: "siargao_trip_pass",
           productVersion: "2",
+          durationHours: "336",
+          chatMessageLimit: "150",
+          termsPolicyVersion: "trip-pass-terms-2026-08-07",
+          refundPolicyVersion: "trip-pass-refund-2026-08-07",
+          privacyPolicyVersion: "privacy-2026-08-07",
+          retentionPolicyVersion: "commerce-retention-2026-08-07",
         },
         line_items: [{ price: "price_trip_pass", quantity: 1 }],
       });
+      expect(typeof checkoutClient.calls[0]?.params.expires_at).toBe("number");
       expect(checkoutClient.calls[0]?.options.idempotencyKey).toBe(
         "trip_pass_checkout:order_checkout",
       );
@@ -116,6 +129,7 @@ describe("Trip Pass checkout commerce", () => {
         stripeCheckoutSessionId: "cs_order_checkout",
         amountTotalMinor: 999,
         currency: "usd",
+        checkoutSessionStatus: "open",
       });
       await expectNoAccessGrant(db);
     });
@@ -174,7 +188,7 @@ describe("Trip Pass checkout commerce", () => {
     });
   });
 
-  test("expires a stale pending order and creates a deterministic replacement", async () => {
+  test("keeps an old effective pending order until provider terminal confirmation", async () => {
     await withTestDb(async (db) => {
       await insertUser(db, "user_stale");
       await insertPendingOrder(db, {
@@ -198,10 +212,9 @@ describe("Trip Pass checkout commerce", () => {
         },
       );
 
-      expect(result).toMatchObject({ status: "started", orderId: "order_replacement" });
-      await expectOrder(db, "order_stale", { status: "expired" });
-      await expectOrder(db, "order_replacement", { status: "checkout_created" });
-      await expectOrderCount(db, "2");
+      expect(result).toMatchObject({ status: "reused", orderId: "order_stale" });
+      await expectOrder(db, "order_stale", { status: "checkout_created" });
+      await expectOrderCount(db, "1");
     });
   });
 
@@ -300,6 +313,199 @@ describe("Trip Pass checkout commerce", () => {
       await expectNoAccessGrant(db);
     });
   });
+
+  test("rejects Stripe sessions that do not match the presented policy versions", async () => {
+    await withTestDb(async (db) => {
+      await insertUser(db, "user_bad_policy_session");
+
+      await expect(
+        startTripPassCheckout(
+          {
+            userId: "user_bad_policy_session",
+            email: "bad-policy-session@example.com",
+            appUrl: "https://siargao.test",
+          },
+          {
+            db,
+            checkoutClient: createFakeCheckoutClient({
+              metadataOverrides: { termsPolicyVersion: "old-terms" },
+            }),
+            createId: () => "order_bad_policy_session",
+            env: enabledEnv,
+            now,
+          },
+        ),
+      ).rejects.toThrow("policy versions");
+
+      await expectOrder(db, "order_bad_policy_session", {
+        status: "pending",
+        stripeCheckoutSessionId: null,
+      });
+      await expectNoAccessGrant(db);
+    });
+  });
+
+  test("rejects Stripe sessions that do not match the duration or meter contract", async () => {
+    await withTestDb(async (db) => {
+      await insertUser(db, "user_bad_terms_session");
+
+      await expect(
+        startTripPassCheckout(
+          {
+            userId: "user_bad_terms_session",
+            email: "bad-terms-session@example.com",
+            appUrl: "https://siargao.test",
+          },
+          {
+            db,
+            checkoutClient: createFakeCheckoutClient({
+              metadataOverrides: { chatMessageLimit: "149" },
+            }),
+            createId: () => "order_bad_terms_session",
+            env: enabledEnv,
+            now,
+          },
+        ),
+      ).rejects.toThrow("product terms");
+
+      await expectOrder(db, "order_bad_terms_session", {
+        status: "pending",
+        stripeCheckoutSessionId: null,
+      });
+      await expectNoAccessGrant(db);
+    });
+  });
+
+  test("blocks family-wide checkout while an active non-exhausted pass exists", async () => {
+    await withTestDb(async (db) => {
+      await insertUser(db, "user_active_pass");
+      await createActiveTripPassWithMeters(
+        {
+          id: "pass_active",
+          userId: "user_active_pass",
+          startsAt: new Date("2026-08-07T07:00:00.000Z"),
+          expiresAt: new Date("2026-08-21T07:00:00.000Z"),
+          now,
+        },
+        db,
+      );
+      const checkoutClient = createFakeCheckoutClient();
+
+      const result = await startTripPassCheckout(
+        {
+          userId: "user_active_pass",
+          email: "active-pass@example.com",
+          appUrl: "https://siargao.test",
+        },
+        {
+          db,
+          checkoutClient,
+          createId: () => "order_should_not_start",
+          env: enabledEnv,
+          now,
+        },
+      );
+
+      expect(result).toEqual({ status: "blocked", reason: "trip_pass_family_active" });
+      expect(checkoutClient.calls).toHaveLength(0);
+      await expectOrderCount(db, "0");
+    });
+  });
+
+  test("permits family-wide checkout when the active pass is exhausted", async () => {
+    await withTestDb(async (db) => {
+      await insertUser(db, "user_exhausted_pass");
+      await createActiveTripPassWithMeters(
+        {
+          id: "pass_exhausted",
+          userId: "user_exhausted_pass",
+          startsAt: new Date("2026-08-07T07:00:00.000Z"),
+          expiresAt: new Date("2026-08-21T07:00:00.000Z"),
+          now,
+        },
+        db,
+      );
+      await db.query(
+        `
+          update trip_usage_meters
+          set used = "limit"
+          where trip_pass_id = $1
+            and meter_type = 'chat_message'
+        `,
+        ["pass_exhausted"],
+      );
+
+      const result = await startTripPassCheckout(
+        {
+          userId: "user_exhausted_pass",
+          email: "exhausted-pass@example.com",
+          appUrl: "https://siargao.test",
+        },
+        {
+          db,
+          checkoutClient: createFakeCheckoutClient(),
+          createId: () => "order_after_exhaustion",
+          env: enabledEnv,
+          now,
+        },
+      );
+
+      expect(result).toMatchObject({ status: "started", orderId: "order_after_exhaustion" });
+      await expectOrder(db, "order_after_exhaustion", { status: "checkout_created" });
+    });
+  });
+
+  test("expires an owner-scoped pending checkout only after Stripe confirms expiry", async () => {
+    await withTestDb(async (db) => {
+      await insertUser(db, "user_cancel");
+      await insertPendingOrder(db, {
+        id: "order_cancel",
+        userId: "user_cancel",
+        createdAt: "2026-07-03T07:59:00.000Z",
+        stripeCheckoutSessionId: "cs_order_cancel",
+      });
+      const checkoutClient = createFakeCheckoutClient();
+
+      const result = await cancelTripPassCheckout(
+        { userId: "user_cancel" },
+        { db, checkoutClient, now },
+      );
+
+      expect(result).toEqual({ status: "cancelled", orderId: "order_cancel" });
+      expect(checkoutClient.expireCalls).toEqual(["cs_order_cancel"]);
+      await expectOrder(db, "order_cancel", {
+        status: "expired",
+        checkoutSessionStatus: "expired",
+      });
+    });
+  });
+
+  test("does not release an effective pending order when Stripe cancellation is ambiguous", async () => {
+    await withTestDb(async (db) => {
+      await insertUser(db, "user_cancel_ambiguous");
+      await insertPendingOrder(db, {
+        id: "order_cancel_ambiguous",
+        userId: "user_cancel_ambiguous",
+        createdAt: "2026-07-03T07:59:00.000Z",
+        stripeCheckoutSessionId: "cs_order_cancel_ambiguous",
+      });
+
+      const result = await cancelTripPassCheckout(
+        { userId: "user_cancel_ambiguous" },
+        {
+          db,
+          checkoutClient: createFakeCheckoutClient({ expireStatus: "open" }),
+          now,
+        },
+      );
+
+      expect(result).toEqual({
+        status: "unavailable",
+        reason: "checkout_cancellation_unavailable",
+      });
+      await expectOrder(db, "order_cancel_ambiguous", { status: "pending" });
+    });
+  });
 });
 
 type FakeCheckoutClient = TripPassCheckoutClient & {
@@ -307,20 +513,25 @@ type FakeCheckoutClient = TripPassCheckoutClient & {
     params: Stripe.Checkout.SessionCreateParams;
     options: { idempotencyKey: string };
   }>;
+  expireCalls: string[];
 };
 
 function createFakeCheckoutClient(
   options: {
     beforeCreate?: (params: Stripe.Checkout.SessionCreateParams) => Promise<void>;
+    expireStatus?: TripPassCheckoutSessionSummary["status"];
     failWith?: Error;
+    metadataOverrides?: Record<string, string>;
     priceId?: string;
   } = {},
 ): FakeCheckoutClient {
   const sessionsByIdempotencyKey = new Map<string, TripPassCheckoutSessionSummary>();
   const calls: FakeCheckoutClient["calls"] = [];
+  const expireCalls: string[] = [];
 
   return {
     calls,
+    expireCalls,
     async createCheckoutSession(params, createOptions) {
       calls.push({ params, options: createOptions });
       await options.beforeCreate?.(params);
@@ -338,15 +549,33 @@ function createFakeCheckoutClient(
         id: `cs_${orderId}`,
         url: `https://checkout.stripe.test/${orderId}`,
         clientReferenceId: orderId,
-        metadata: stringMetadata(params.metadata),
+        metadata: { ...stringMetadata(params.metadata), ...(options.metadataOverrides ?? {}) },
         amountTotalMinor: 999,
         currency: "usd",
+        expiresAt: params.expires_at ? new Date(Number(params.expires_at) * 1000) : null,
         priceId:
           options.priceId ??
           String((params.line_items?.[0] as Stripe.Checkout.SessionCreateParams.LineItem)?.price),
+        status: "open" as const,
+        termsConsentCollected: false,
       };
       sessionsByIdempotencyKey.set(createOptions.idempotencyKey, session);
       return session;
+    },
+    async expireCheckoutSession(sessionId) {
+      expireCalls.push(sessionId);
+      return {
+        id: sessionId,
+        url: "",
+        clientReferenceId: null,
+        metadata: null,
+        amountTotalMinor: 999,
+        currency: "usd",
+        expiresAt: now,
+        priceId: "price_trip_pass",
+        status: options.expireStatus ?? "expired",
+        termsConsentCollected: false,
+      };
     },
   };
 }
@@ -402,7 +631,7 @@ async function insertUser(db: DatabaseQueryClient, userId: string) {
 
 async function insertPendingOrder(
   db: DatabaseQueryClient,
-  input: { id: string; userId: string; createdAt: string },
+  input: { id: string; userId: string; createdAt: string; stripeCheckoutSessionId?: string },
 ) {
   await db.query(
     `
@@ -412,19 +641,39 @@ async function insertPendingOrder(
         email,
         status,
         product_code,
+        product_family,
         product_version,
         stripe_price_id,
+        stripe_checkout_session_id,
+        checkout_session_status,
         checkout_idempotency_key,
         metadata_json,
         created_at,
         updated_at
       )
-      values ($1, $2, $3, 'pending', 'siargao_trip_pass_14d_v2', 2, 'price_trip_pass', $4, '{}'::jsonb, $5, $5)
+      values (
+        $1,
+        $2,
+        $3,
+        'pending',
+        'siargao_trip_pass_14d_v2',
+        'siargao_trip_pass',
+        2,
+        'price_trip_pass',
+        $4,
+        $5,
+        $6,
+        '{}'::jsonb,
+        $7,
+        $7
+      )
     `,
     [
       input.id,
       input.userId,
       `${input.userId}@example.com`,
+      input.stripeCheckoutSessionId ?? null,
+      input.stripeCheckoutSessionId ? "open" : null,
       `trip_pass_checkout:${input.id}`,
       input.createdAt,
     ],
@@ -438,6 +687,7 @@ async function expectOrder(
     status: string;
     stripeCheckoutSessionId: string | null;
     amountTotalMinor: number | null;
+    checkoutSessionStatus: string | null;
     currency: string | null;
   }>,
 ) {
@@ -445,10 +695,11 @@ async function expectOrder(
     status: string;
     stripe_checkout_session_id: string | null;
     amount_total_minor: number | null;
+    checkout_session_status: string | null;
     currency: string | null;
   }>(
     `
-      select status, stripe_checkout_session_id, amount_total_minor, currency
+      select status, stripe_checkout_session_id, amount_total_minor, checkout_session_status, currency
       from trip_pass_orders
       where id = $1
     `,
@@ -468,6 +719,9 @@ async function expectOrder(
   }
   if (expected.amountTotalMinor !== undefined) {
     expect(row.amount_total_minor).toBe(expected.amountTotalMinor);
+  }
+  if (expected.checkoutSessionStatus !== undefined) {
+    expect(row.checkout_session_status).toBe(expected.checkoutSessionStatus);
   }
   if (expected.currency !== undefined) {
     expect(row.currency).toBe(expected.currency);

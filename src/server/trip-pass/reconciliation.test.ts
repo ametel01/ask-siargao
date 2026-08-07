@@ -23,7 +23,7 @@ const env = {
   NEXT_PUBLIC_POSTHOG_KEY: "ph_project",
   REDIS_URL: "redis://localhost:6379",
   STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass",
-  TRIP_PASS_CHECKOUT_ENABLED: "true",
+  TRIP_PASS_CHECKOUT_MODE: "on",
 };
 
 describe("Trip Pass reconciliation", () => {

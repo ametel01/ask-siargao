@@ -790,6 +790,15 @@ describe("Step 3 database migration", () => {
       ["created_at", "timestamp with time zone", "NO", "now()"],
       ["updated_at", "timestamp with time zone", "NO", "now()"],
       ["completed_at", "timestamp with time zone", "YES", null],
+      ["product_family", "text", "NO", "'siargao_trip_pass'::text"],
+      ["checkout_session_expires_at", "timestamp with time zone", "YES", null],
+      ["checkout_session_status", "text", "YES", null],
+      ["checkout_cancellation_confirmed_at", "timestamp with time zone", "YES", null],
+      ["terms_policy_version", "text", "YES", null],
+      ["refund_policy_version", "text", "YES", null],
+      ["privacy_policy_version", "text", "YES", null],
+      ["retention_policy_version", "text", "YES", null],
+      ["terms_consent_presented_at", "timestamp with time zone", "YES", null],
     ]);
     expect(
       columnsByTable.trip_pass_grants?.map((column) => [
@@ -1973,6 +1982,8 @@ const hardeningSupportingIndexNames = [
   "trip_pass_grants_order_id_idx",
   "trip_pass_grants_trip_pass_id_idx",
   "trip_pass_grants_user_expires_at_idx",
+  "trip_pass_orders_product_family_idx",
+  "trip_pass_orders_user_family_effective_pending_idx",
   "trip_pass_orders_user_status_created_at_idx",
   "trip_usage_events_trip_pass_meter_created_at_idx",
   "trip_usage_events_usage_meter_id_idx",
@@ -2086,6 +2097,8 @@ const hardeningCheckConstraintNames = [
   "trip_pass_orders_amount_total_minor_check",
   "trip_pass_orders_completed_at_check",
   "trip_pass_orders_currency_check",
+  "trip_pass_orders_checkout_session_status_check",
+  "trip_pass_orders_product_family_check",
   "trip_pass_orders_product_version_check",
   "trip_pass_orders_status_check",
   "trip_usage_events_event_type_check",
