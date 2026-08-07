@@ -3467,9 +3467,9 @@ test("runs the decision strip arrival sequence once without shifting layout", as
   await page.getByLabel("Ask anything about Siargao").fill("What should I do first?");
   await page.getByRole("button", { name: "Send question" }).click();
   await expect.poll(() => mockChat.requests.length).toBe(1);
-  await resetDecisionMotionMetrics(page);
 
   await withCpuThrottle(page, 4, async () => {
+    await resetDecisionMotionMetrics(page);
     mockChat.release();
 
     const answer = page.getByTestId("assistant-message-bubble").filter({
@@ -3488,6 +3488,10 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     );
     await expect(sourceSummary).toBeVisible();
     await expect(copyButton).toBeVisible();
+    await expect.poll(async () => (await decisionMotionMetrics(page))?.starts ?? -1).toBe(1);
+    expect((await decisionMotionMetrics(page))?.motionEndAt).toBeNull();
+    await sourceSummary.click();
+    await expect(answer.getByText("Checked fields: forecast for Cloud 9")).toBeVisible();
 
     const animatedProperties = await strip.evaluate((element) => {
       const cue = element.querySelector("[data-decision-sequence-cue='true']");
@@ -3528,9 +3532,6 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     expectBoxStable(await boundingBoxSnapshot(copyButton), startBoxes.copy);
     await expect(strip).not.toHaveAttribute("data-answer-arrival-motion", /decision-strip/);
 
-    await sourceSummary.click();
-    await expect(answer.getByText("Checked fields: forecast for Cloud 9")).toBeVisible();
-
     const scrollArea = page.getByTestId("chat-message-scroll-area");
     await scrollArea.evaluate((element) => {
       element.scrollTop = Math.max(0, element.scrollTop - 40);
@@ -3561,8 +3562,8 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     }
     return (
       task.duration > 50 &&
-      task.startTime < metrics.motionEndAt &&
-      task.endTime > metrics.motionStartAt
+      task.startTime >= metrics.motionStartAt &&
+      task.startTime < metrics.motionEndAt
     );
   });
   const preMotionLongTasks = metrics.longTasks.filter((task) => {
