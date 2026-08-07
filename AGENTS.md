@@ -48,6 +48,20 @@ If semantic ordering or artifact-selection checks are skipped, record them in `S
 
 Keep secrets in `.env.local` and follow `documentation/developer/reference/environment.md`. Server-only keys must not use the `NEXT_PUBLIC_` prefix. Preserve Google Places field-mask, retention, and source-governance constraints when changing provider ingestion.
 
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues using the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five default canonical triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repository uses a single-context domain-doc layout. See `docs/agents/domain.md`.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know
