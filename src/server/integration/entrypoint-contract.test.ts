@@ -1,19 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 
-import { parseIntegrationEntrypointOptions } from "@/server/integration/entrypoint-shared";
+import {
+  assertSafeIntegrationServiceUrl,
+  parseIntegrationEntrypointOptions,
+} from "@/server/integration/entrypoint-shared";
+import { parsePostgresHarnessOptions } from "@/server/integration/postgres-harness";
+import { parseRedisHarnessOptions } from "@/server/integration/redis-harness";
 
 describe("integration entry-point contracts", () => {
-  test("package scripts expose dry-run PostgreSQL and Redis lanes", async () => {
+  test("package scripts expose semantic PostgreSQL and Redis lanes", async () => {
     const packageJson = JSON.parse(await readFile("package.json", "utf8")) as {
       scripts: Record<string, string>;
     };
 
     expect(packageJson.scripts["test:integration:postgres"]).toBe(
-      "bun run src/server/integration/postgres-entrypoint.ts --dry-run",
+      "bun run src/server/integration/postgres-entrypoint.ts",
     );
     expect(packageJson.scripts["test:integration:redis"]).toBe(
-      "bun run src/server/integration/redis-entrypoint.ts --dry-run",
+      "bun run src/server/integration/redis-entrypoint.ts",
     );
   });
 
@@ -31,8 +36,12 @@ describe("integration entry-point contracts", () => {
     );
   });
 
-  test("entry-point argument parsing fails closed instead of silently skipping", () => {
-    expect(() => parseIntegrationEntrypointOptions([])).toThrow("--dry-run only");
+  test("entry-point argument parsing fails closed on unsafe options", () => {
+    expect(parseIntegrationEntrypointOptions([])).toEqual({
+      dryRun: false,
+      namespace: "ask_siargao_issue150_local",
+      timeoutMs: 5_000,
+    });
     expect(() =>
       parseIntegrationEntrypointOptions(["--dry-run"], {
         INTEGRATION_TEST_NAMESPACE: "Bad-Namespace",
@@ -53,6 +62,63 @@ describe("integration entry-point contracts", () => {
     });
   });
 
+  test("real service harnesses refuse production-looking targets", () => {
+    expect(() =>
+      assertSafeIntegrationServiceUrl({
+        name: "DATABASE_URL",
+        requiredText: ["test", "integration", "issue", "local", "ci"],
+        url: "postgres://app:secret@db.internal.example.com/production",
+      }),
+    ).toThrow("localhost");
+    expect(() =>
+      assertSafeIntegrationServiceUrl({
+        allowRemote: true,
+        name: "REDIS_URL",
+        requiredText: ["test", "integration", "issue", "local", "ci"],
+        url: "rediss://redis.internal.example.com/0",
+      }),
+    ).toThrow("production-looking");
+
+    expect(() =>
+      parsePostgresHarnessOptions([], {
+        DATABASE_URL: "postgres://issue150:pw@127.0.0.1:5432/issue150_test",
+        INTEGRATION_TEST_NAMESPACE: "issue150",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      parseRedisHarnessOptions([], {
+        INTEGRATION_TEST_NAMESPACE: "issue150",
+        REDIS_URL: "redis://127.0.0.1:6379/0",
+      }),
+    ).not.toThrow();
+  });
+
+  test("real service suites expose reusable helpers and scoped cleanup", async () => {
+    const [postgresHarness, redisHarness, postgresEntrypoint, redisEntrypoint] = await Promise.all([
+      readFile("src/server/integration/postgres-harness.ts", "utf8"),
+      readFile("src/server/integration/redis-harness.ts", "utf8"),
+      readFile("src/server/integration/postgres-entrypoint.ts", "utf8"),
+      readFile("src/server/integration/redis-entrypoint.ts", "utf8"),
+    ]);
+
+    expect(postgresHarness).toContain("export async function withRealPostgresHarness");
+    expect(postgresHarness).toContain("create database");
+    expect(postgresHarness).toContain("drop database if exists");
+    expect(postgresHarness).toContain("runLedgerBackedMigrations");
+    expect(postgresHarness).toContain("pg_terminate_backend");
+    expect(postgresEntrypoint).toContain("pg_advisory_xact_lock");
+    expect(postgresEntrypoint).toContain("pg_stat_activity");
+
+    expect(redisHarness).toContain("export async function withRealRedisHarness");
+    expect(redisHarness).toContain("scanIterator");
+    expect(redisHarness).toContain("MATCH:");
+    expect(redisHarness).toContain("keyPrefix");
+    expect(redisHarness).not.toContain("FLUSHALL");
+    expect(redisHarness).not.toContain("flushAll");
+    expect(redisEntrypoint).toContain("openChatUsageSession");
+    expect(redisEntrypoint).toContain("stripeWebhookPost");
+  });
+
   test("CI defines separate secret-free pinned service job boundaries", async () => {
     const workflow = await readFile(".github/workflows/ci.yml", "utf8");
 
@@ -61,22 +127,28 @@ describe("integration entry-point contracts", () => {
     expect(workflow).toContain("image: postgres:17.6-alpine3.22");
     expect(workflow).toContain("image: redis:8.2.1-alpine3.22");
     expect(workflow).toContain("POSTGRES_PASSWORD: ask_siargao_issue145_password");
-    expect(workflow).toContain("- 5432:5432");
-    expect(workflow).toContain("- 6379:6379");
+    expect(workflow).toContain("- 5432/tcp");
+    expect(workflow).toContain("- 6379/tcp");
     expect(workflow).toContain(
-      "DATABASE_URL: postgres://ask_siargao_issue145:ask_siargao_issue145_password@127.0.0.1:5432/ask_siargao_issue145",
+      "DATABASE_URL: postgres://ask_siargao_issue145:ask_siargao_issue145_password@127.0.0.1:$" +
+        "{{ job.services.postgres.ports[5432] }}/ask_siargao_issue145",
     );
-    expect(workflow).toContain("REDIS_URL: redis://127.0.0.1:6379/0");
+    expect(workflow).toContain(
+      "REDIS_URL: redis://127.0.0.1:$" + "{{ job.services.redis.ports[6379] }}/0",
+    );
     expect(workflow).toContain('--health-cmd "pg_isready');
     expect(workflow).toContain('--health-cmd "redis-cli ping"');
-    expect(workflow).toContain("timeout-minutes: 10");
+    expect(workflow).toContain("timeout-minutes: 15");
     expect(workflow).toContain("INTEGRATION_TEST_NAMESPACE:");
-    expect(workflow).not.toContain("job.services.");
-    expect(workflow).not.toContain("5432/tcp");
-    expect(workflow).not.toContain("6379/tcp");
+    expect(workflow).toContain("job.services.postgres.ports[5432]");
+    expect(workflow).toContain("job.services.redis.ports[6379]");
+    expect(workflow).not.toContain("- 5432:5432");
+    expect(workflow).not.toContain("- 6379:6379");
     expect(workflow).not.toContain("secrets.");
     expect(workflow).not.toContain("PGLITE");
     expect(workflow).not.toContain("pglite");
+    expect(workflow).toContain("Real PostgreSQL semantic integration suite");
+    expect(workflow).toContain("Real Redis semantic integration suite");
   });
 
   test("CI preserves production performance before isolated release artifacts", async () => {

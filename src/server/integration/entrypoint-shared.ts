@@ -1,4 +1,5 @@
 const namespacePattern = /^[a-z][a-z0-9_]{0,62}$/;
+const localTestHosts = new Set(["127.0.0.1", "localhost", "::1"]);
 
 export type IntegrationEntrypointOptions = {
   dryRun: boolean;
@@ -11,7 +12,7 @@ export function parseIntegrationEntrypointOptions(
   env: Record<string, string | undefined> = process.env,
 ): IntegrationEntrypointOptions {
   let dryRun = false;
-  let namespace = env.INTEGRATION_TEST_NAMESPACE ?? "ask_siargao_issue145_local";
+  let namespace = env.INTEGRATION_TEST_NAMESPACE ?? "ask_siargao_issue150_local";
   let timeoutMs = 5_000;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -34,12 +35,6 @@ export function parseIntegrationEntrypointOptions(
           `Unsupported integration entry-point argument: ${arg}. Supported arguments: --dry-run, --namespace <name>, --timeout-ms <milliseconds>.`,
         );
     }
-  }
-
-  if (!dryRun) {
-    throw new Error(
-      "This integration entry point currently supports --dry-run only; production-semantic fixtures are owned by issue #150.",
-    );
   }
 
   if (!namespacePattern.test(namespace)) {
@@ -87,6 +82,45 @@ export function requireServiceUrl(
     );
   }
   return value;
+}
+
+export function assertSafeIntegrationServiceUrl(input: {
+  allowRemote?: boolean;
+  name: "DATABASE_URL" | "REDIS_URL";
+  requiredText: readonly string[];
+  url: string;
+}) {
+  let parsed: URL;
+  try {
+    parsed = new URL(input.url);
+  } catch {
+    throw new Error(`${input.name} must be a valid URL for the integration test service.`);
+  }
+
+  const protocolAllowed =
+    input.name === "DATABASE_URL"
+      ? parsed.protocol === "postgres:" || parsed.protocol === "postgresql:"
+      : parsed.protocol === "redis:" || parsed.protocol === "rediss:";
+  if (!protocolAllowed) {
+    throw new Error(
+      `${input.name} must use a ${input.name === "DATABASE_URL" ? "PostgreSQL" : "Redis"} URL.`,
+    );
+  }
+
+  if (!input.allowRemote && !localTestHosts.has(parsed.hostname)) {
+    throw new Error(
+      `${input.name} must point at localhost unless INTEGRATION_TEST_ALLOW_REMOTE=1 is set.`,
+    );
+  }
+
+  const searchable = decodeURIComponent(
+    [parsed.hostname, parsed.username, parsed.pathname, parsed.search].join(" "),
+  ).toLowerCase();
+  if (!input.requiredText.some((marker) => searchable.includes(marker))) {
+    throw new Error(
+      `${input.name} must visibly target a disposable test service or namespace; refusing production-looking target.`,
+    );
+  }
 }
 
 export function redactUrl(input: string) {

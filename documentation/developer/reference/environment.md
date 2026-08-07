@@ -51,6 +51,8 @@ The app reads these environment variables.
 | `INNGEST_EVENT_KEY` | Server only | Future job worker integration | Placeholder until the production worker backend is wired. |
 | `INNGEST_SIGNING_KEY` | Server only | Future job worker integration | Placeholder until the production worker backend is wired. |
 | `REDIS_URL` | Server only | Shared quota infrastructure | Enables the bundled Redis quota store for production rate limits, anonymous free allowance, request idempotency, and model cost circuits. Production traffic fails closed for quota-backed controls when a shared store is required but unavailable. |
+| `INTEGRATION_TEST_NAMESPACE` | Local/CI test only | Real PostgreSQL and Redis integration lanes | Optional lowercase namespace for `bun run test:integration:postgres` and `bun run test:integration:redis`. Defaults to `ask_siargao_issue150_local`; CI sets a run-specific value. |
+| `INTEGRATION_TEST_ALLOW_REMOTE` | Local/CI test only | Real PostgreSQL and Redis integration lanes | Optional escape hatch. Set to `1` only for an explicitly disposable remote test service; otherwise integration harnesses require localhost service URLs and refuse production-looking targets. |
 | `TRUST_PROXY_HEADERS` | Server only | Rate-limit request identity | Defaults to `false`. Set to `true` only when a trusted edge/proxy owns `x-forwarded-for` or `x-real-ip`; otherwise requests share the local fallback identity. |
 | `TRIP_PASS_IDEMPOTENCY_HMAC_KEY` | Server only | Request idempotency token hashing | Required in production for privacy-safe request idempotency tokens. Local development uses a fallback key. |
 | `ADMIN_ACCESS_TOKEN` | Server only | Production admin diagnostics access | Send the same value in the `x-admin-token` request header. |

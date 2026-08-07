@@ -3,7 +3,6 @@ import {
   stripeWebhookSecretFromEnv,
 } from "@/app/api/stripe/webhook/webhook-route";
 import { verifyStripeWebhookPayload } from "@/server/payments/stripe";
-import { rateLimitedJson, rateLimitRequest } from "@/server/security/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -31,11 +30,6 @@ export async function POST(request: Request) {
       },
       { status: 400 },
     );
-  }
-
-  const rateLimit = await rateLimitRequest(request, "provider_call");
-  if (!rateLimit.allowed) {
-    return rateLimitedJson(rateLimit);
   }
 
   return await stripeWebhookResponseFromEvent(event);
