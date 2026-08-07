@@ -1,18 +1,17 @@
 import { randomUUID } from "node:crypto";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
-import { readTripPassEnvironment } from "@/server/trip-pass/catalog";
+import { readTripPassEnvironment, tripPassProductFamily } from "@/server/trip-pass/catalog";
 import {
   buildTripPassCheckoutSessionParams,
   createTripPassCheckoutClient,
+  isDefinitiveTripPassCheckoutSessionCreationError,
   type TripPassCheckoutClient,
   type TripPassCheckoutOrderSnapshot,
   type TripPassCheckoutSessionSummary,
   tripPassCheckoutProductSnapshot,
   validateTripPassCheckoutSession,
 } from "@/server/trip-pass/stripe-adapter";
-
-const pendingOrderReuseMs = 30 * 60 * 1000;
 
 export type TripPassCheckoutResult =
   | {
@@ -21,14 +20,23 @@ export type TripPassCheckoutResult =
       checkoutUrl: string;
     }
   | {
-      status: "disabled" | "unavailable";
+      status: "blocked" | "disabled" | "unavailable";
       reason: string;
     };
+
+export type CancelTripPassCheckoutResult =
+  | { status: "cancelled" | "already_terminal"; orderId: string }
+  | { status: "not_found"; reason: "no_effective_pending_order" }
+  | { status: "unavailable"; reason: "checkout_cancellation_unavailable" };
 
 export type StartTripPassCheckoutInput = {
   userId: string;
   email?: string | null;
   appUrl: string;
+};
+
+export type CancelTripPassCheckoutInput = {
+  userId: string;
 };
 
 export type StartTripPassCheckoutOptions = {
@@ -39,24 +47,47 @@ export type StartTripPassCheckoutOptions = {
   now?: Date;
 };
 
+export type CancelTripPassCheckoutOptions = {
+  checkoutClient?: TripPassCheckoutClient;
+  db?: DatabaseQueryClient;
+  now?: Date;
+};
+
 type TripPassOrderRow = {
   id: string;
   user_id: string | null;
   email: string | null;
   status: string;
   product_code: string;
+  product_family: string;
   product_version: number;
   stripe_price_id: string;
   amount_total_minor: number | null;
   currency: string | null;
   checkout_idempotency_key: string;
   stripe_checkout_session_id: string | null;
+  checkout_session_expires_at: Date | string | null;
+  checkout_session_status: string | null;
+  checkout_cancellation_confirmed_at: Date | string | null;
   stripe_payment_intent_id: string | null;
   stripe_customer_id: string | null;
+  terms_policy_version: string | null;
+  refund_policy_version: string | null;
+  privacy_policy_version: string | null;
+  retention_policy_version: string | null;
+  terms_consent_presented_at: Date | string | null;
   metadata_json: Record<string, unknown> | string;
   created_at: Date | string;
   updated_at: Date | string;
   completed_at: Date | string | null;
+};
+
+type DatabaseNowRow = {
+  database_now: Date | string;
+};
+
+type BlockingPassRow = {
+  id: string;
 };
 
 export async function startTripPassCheckout(
@@ -64,35 +95,43 @@ export async function startTripPassCheckout(
   options: StartTripPassCheckoutOptions = {},
 ): Promise<TripPassCheckoutResult> {
   const environment = readTripPassEnvironment(options.env);
-  if (!environment.checkout.enabled) {
-    return { status: "disabled", reason: "trip_pass_checkout_disabled" };
+  const checkoutAvailability = checkoutAvailabilityForAccount(input.userId, environment.checkout);
+  if (checkoutAvailability) {
+    return checkoutAvailability;
   }
-  if (environment.checkout.status !== "available" || !environment.checkout.priceId) {
-    return {
-      status: "unavailable",
-      reason: environment.checkout.unavailableReason ?? "trip_pass_checkout_unavailable",
-    };
+  if (!environment.checkout.priceId) {
+    return { status: "unavailable", reason: "trip_pass_checkout_unavailable" };
   }
 
   const db = options.db ?? getDefaultDatabaseQueryClient();
-  const now = options.now ?? new Date();
   const order = await ensurePendingCheckoutOrder(
     {
       userId: input.userId,
       stripePriceId: environment.checkout.priceId,
-      now,
       createId: options.createId ?? defaultCreateId,
     },
     db,
   );
+  if ("reason" in order) {
+    return { status: "blocked", reason: order.reason };
+  }
+
   const checkoutClient = options.checkoutClient ?? createTripPassCheckoutClient();
-  const session = await checkoutClient.createCheckoutSession(
-    buildTripPassCheckoutSessionParams({ order, appUrl: input.appUrl }),
-    { idempotencyKey: order.checkoutIdempotencyKey },
-  );
+  let session: TripPassCheckoutSessionSummary;
+  try {
+    session = await checkoutClient.createCheckoutSession(
+      buildTripPassCheckoutSessionParams({ order, appUrl: input.appUrl }),
+      { idempotencyKey: order.checkoutIdempotencyKey },
+    );
+  } catch (error) {
+    if (isDefinitiveTripPassCheckoutSessionCreationError(error)) {
+      await markOrderCheckoutCreationFailed({ orderId: order.id, now: options.now }, db);
+    }
+    throw error;
+  }
 
   validateTripPassCheckoutSession({ session, order });
-  await markOrderCheckoutCreated({ orderId: order.id, session, now }, db);
+  await markOrderCheckoutCreated({ orderId: order.id, session, now: options.now }, db);
 
   return {
     status: order.createdForRequest ? "started" : "reused",
@@ -101,37 +140,88 @@ export async function startTripPassCheckout(
   };
 }
 
+export async function cancelTripPassCheckout(
+  input: CancelTripPassCheckoutInput,
+  options: CancelTripPassCheckoutOptions = {},
+): Promise<CancelTripPassCheckoutResult> {
+  const db = options.db ?? getDefaultDatabaseQueryClient();
+  const checkoutClient = options.checkoutClient ?? createTripPassCheckoutClient();
+  const order = await loadLatestEffectivePendingOrder(
+    { userId: input.userId, productFamily: tripPassProductFamily },
+    db,
+  );
+
+  if (!order) {
+    return { status: "not_found", reason: "no_effective_pending_order" };
+  }
+  if (!order.stripe_checkout_session_id) {
+    return { status: "unavailable", reason: "checkout_cancellation_unavailable" };
+  }
+
+  const session = await checkoutClient.expireCheckoutSession(order.stripe_checkout_session_id);
+  if (session.status !== "expired") {
+    return { status: "unavailable", reason: "checkout_cancellation_unavailable" };
+  }
+
+  const now = options.now ?? (await readDatabaseNow(db));
+  const result = await db.query<{ id: string }>(
+    `
+      update trip_pass_orders
+      set status = 'expired',
+          checkout_session_status = 'expired',
+          checkout_cancellation_confirmed_at = $3,
+          updated_at = $3
+      where id = $1
+        and user_id = $2
+        and status in ('pending', 'checkout_created')
+      returning id
+    `,
+    [order.id, input.userId, now],
+  );
+
+  if (!result.rows[0]) {
+    return { status: "already_terminal", orderId: order.id };
+  }
+
+  return { status: "cancelled", orderId: order.id };
+}
+
 async function ensurePendingCheckoutOrder(
   input: {
     userId: string;
     stripePriceId: string;
-    now: Date;
     createId: (prefix: string) => string;
   },
   db: DatabaseQueryClient,
-): Promise<TripPassCheckoutOrderSnapshot & { createdForRequest: boolean }> {
+): Promise<
+  | (TripPassCheckoutOrderSnapshot & { createdForRequest: boolean })
+  | { status: "blocked"; reason: string }
+> {
   return withDatabaseTransaction(db, async (transaction) => {
-    const reusableOrder = await loadReusableOrder(
-      { userId: input.userId, stripePriceId: input.stripePriceId },
+    await acquireFamilyReservationLock(
+      { productFamily: tripPassProductFamily, userId: input.userId },
       transaction,
     );
-    if (reusableOrder && !isStalePendingOrder(reusableOrder, input.now)) {
-      return {
-        id: reusableOrder.id,
-        userId: input.userId,
-        customerEmail: null,
-        checkoutIdempotencyKey: reusableOrder.checkout_idempotency_key,
-        stripePriceId: reusableOrder.stripe_price_id,
-        createdForRequest: false,
-      };
+    const databaseNow = await readDatabaseNow(transaction);
+
+    if (await hasBlockingTripPass({ userId: input.userId, now: databaseNow }, transaction)) {
+      return { status: "blocked", reason: "trip_pass_family_active" };
     }
 
+    const reusableOrder = await loadLatestEffectivePendingOrder(
+      { userId: input.userId, productFamily: tripPassProductFamily },
+      transaction,
+    );
     if (reusableOrder) {
-      await expireOrder(reusableOrder.id, input.now, transaction);
+      return orderSnapshotFromRow(reusableOrder, {
+        customerEmail: null,
+        createdForRequest: false,
+      });
     }
 
     const orderId = input.createId("trip_pass_order");
     const checkoutIdempotencyKey = `trip_pass_checkout:${orderId}`;
+    const checkoutSessionExpiresAt = checkoutExpiryFromReservationTime(databaseNow);
     await transaction.query(
       `
         insert into trip_pass_orders (
@@ -140,46 +230,85 @@ async function ensurePendingCheckoutOrder(
           email,
           status,
           product_code,
+          product_family,
           product_version,
           stripe_price_id,
           amount_total_minor,
           currency,
           checkout_idempotency_key,
+          checkout_session_expires_at,
+          terms_policy_version,
+          refund_policy_version,
+          privacy_policy_version,
+          retention_policy_version,
+          terms_consent_presented_at,
           metadata_json,
           created_at,
           updated_at
         )
-        values ($1, $2, $3, 'pending', $4, $5, $6, null, null, $7, $8::jsonb, $9, $9)
+        values (
+          $1,
+          $2,
+          $3,
+          'pending',
+          $4,
+          $5,
+          $6,
+          $7,
+          $8,
+          $9,
+          $10,
+          $11,
+          $12,
+          $13,
+          $14,
+          $15,
+          $16,
+          $17::jsonb,
+          $16,
+          $16
+        )
       `,
       [
         orderId,
         input.userId,
         null,
         tripPassCheckoutProductSnapshot.productCode,
+        tripPassCheckoutProductSnapshot.productFamily,
         tripPassCheckoutProductSnapshot.productVersion,
         input.stripePriceId,
+        tripPassCheckoutProductSnapshot.amountTotalMinor,
+        tripPassCheckoutProductSnapshot.currency,
         checkoutIdempotencyKey,
+        checkoutSessionExpiresAt,
+        tripPassCheckoutProductSnapshot.policyVersions.terms,
+        tripPassCheckoutProductSnapshot.policyVersions.refund,
+        tripPassCheckoutProductSnapshot.policyVersions.privacy,
+        tripPassCheckoutProductSnapshot.policyVersions.retention,
+        databaseNow,
         JSON.stringify({
-          durationDays: tripPassCheckoutProductSnapshot.durationDays,
+          durationHours: tripPassCheckoutProductSnapshot.durationHours,
           meterLimits: tripPassCheckoutProductSnapshot.meterLimits,
+          policyVersions: tripPassCheckoutProductSnapshot.policyVersions,
         }),
-        input.now,
       ],
     );
 
     return {
       id: orderId,
       userId: input.userId,
+      productFamily: tripPassCheckoutProductSnapshot.productFamily,
       customerEmail: null,
       checkoutIdempotencyKey,
+      checkoutSessionExpiresAt,
       stripePriceId: input.stripePriceId,
       createdForRequest: true,
     };
   });
 }
 
-async function loadReusableOrder(
-  input: { userId: string; stripePriceId: string },
+async function loadLatestEffectivePendingOrder(
+  input: { userId: string; productFamily: string },
   db: DatabaseQueryClient,
 ) {
   const result = await db.query<TripPassOrderRow>(
@@ -190,74 +319,132 @@ async function loadReusableOrder(
         email,
         status,
         product_code,
+        product_family,
         product_version,
         stripe_price_id,
         amount_total_minor,
         currency,
         checkout_idempotency_key,
         stripe_checkout_session_id,
+        checkout_session_expires_at,
+        checkout_session_status,
+        checkout_cancellation_confirmed_at,
         stripe_payment_intent_id,
         stripe_customer_id,
+        terms_policy_version,
+        refund_policy_version,
+        privacy_policy_version,
+        retention_policy_version,
+        terms_consent_presented_at,
         metadata_json,
         created_at,
         updated_at,
         completed_at
       from trip_pass_orders
       where user_id = $1
-        and product_code = $2
-        and product_version = $3
-        and stripe_price_id = $4
+        and product_family = $2
         and status in ('pending', 'checkout_created')
       order by created_at desc, id desc
       limit 1
     `,
-    [
-      input.userId,
-      tripPassCheckoutProductSnapshot.productCode,
-      tripPassCheckoutProductSnapshot.productVersion,
-      input.stripePriceId,
-    ],
+    [input.userId, input.productFamily],
   );
 
   return result.rows[0] ?? null;
 }
 
-async function expireOrder(orderId: string, now: Date, db: DatabaseQueryClient) {
-  await db.query(
+async function hasBlockingTripPass(input: { userId: string; now: Date }, db: DatabaseQueryClient) {
+  const result = await db.query<BlockingPassRow>(
     `
-      update trip_pass_orders
-      set status = 'expired',
-          updated_at = $2
-      where id = $1
-        and status in ('pending', 'checkout_created')
+      select p.id
+      from trip_passes p
+      left join trip_usage_meters m
+        on m.trip_pass_id = p.id
+       and m.meter_type = 'chat_message'
+      where p.user_id = $1
+        and p.status = 'active'
+        and p.starts_at <= $2
+        and p.expires_at > $2
+        and (m.id is null or m.used < m."limit")
+      order by p.expires_at desc, p.created_at desc, p.id desc
+      limit 1
     `,
-    [orderId, now],
+    [input.userId, input.now],
   );
+
+  return Boolean(result.rows[0]);
 }
 
 async function markOrderCheckoutCreated(
-  input: { orderId: string; session: TripPassCheckoutSessionSummary; now: Date },
+  input: { orderId: string; session: TripPassCheckoutSessionSummary; now?: Date },
   db: DatabaseQueryClient,
 ) {
+  const now = input.now ?? (await readDatabaseNow(db));
   await db.query(
     `
       update trip_pass_orders
       set status = 'checkout_created',
           stripe_checkout_session_id = $2,
-          amount_total_minor = $3,
-          currency = $4,
-          updated_at = $5
+          checkout_session_status = $3,
+          amount_total_minor = $4,
+          currency = $5,
+          updated_at = $6
       where id = $1
         and status in ('pending', 'checkout_created')
     `,
     [
       input.orderId,
       input.session.id,
+      input.session.status,
       input.session.amountTotalMinor,
       input.session.currency,
-      input.now,
+      now,
     ],
   );
+}
+
+async function markOrderCheckoutCreationFailed(
+  input: { orderId: string; now?: Date },
+  db: DatabaseQueryClient,
+) {
+  const now = input.now ?? (await readDatabaseNow(db));
+  await db.query(
+    `
+      update trip_pass_orders
+      set status = 'failed',
+          updated_at = $2
+      where id = $1
+        and status = 'pending'
+        and stripe_checkout_session_id is null
+    `,
+    [input.orderId, now],
+  );
+}
+
+async function acquireFamilyReservationLock(
+  input: { userId: string; productFamily: string },
+  db: DatabaseQueryClient,
+) {
+  try {
+    await db.query("select pg_advisory_xact_lock(hashtext($1), hashtext($2))", [
+      input.userId,
+      input.productFamily,
+    ]);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      /pg_advisory|hashtext|function|syntax|unsupported/i.test(error.message)
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
+async function readDatabaseNow(db: DatabaseQueryClient) {
+  const result = await db.query<DatabaseNowRow>("select now() as database_now");
+  const value = result.rows[0]?.database_now;
+  return value instanceof Date ? value : new Date(String(value));
 }
 
 async function withDatabaseTransaction<T>(
@@ -279,14 +466,52 @@ async function withDatabaseTransaction<T>(
   }
 }
 
-function isStalePendingOrder(order: TripPassOrderRow, now: Date) {
-  return toDate(order.created_at).getTime() + pendingOrderReuseMs <= now.getTime();
+function orderSnapshotFromRow(
+  order: TripPassOrderRow,
+  input: { customerEmail: string | null; createdForRequest: boolean },
+) {
+  return {
+    id: order.id,
+    userId: order.user_id ?? "",
+    productFamily: order.product_family,
+    customerEmail: input.customerEmail,
+    checkoutIdempotencyKey: order.checkout_idempotency_key,
+    checkoutSessionExpiresAt: order.checkout_session_expires_at
+      ? dateFromDatabaseValue(order.checkout_session_expires_at)
+      : checkoutExpiryFromReservationTime(dateFromDatabaseValue(order.created_at)),
+    stripePriceId: order.stripe_price_id,
+    createdForRequest: input.createdForRequest,
+  };
+}
+
+function checkoutAvailabilityForAccount(
+  userId: string,
+  checkout: ReturnType<typeof readTripPassEnvironment>["checkout"],
+): Extract<TripPassCheckoutResult, { reason: string }> | null {
+  if (checkout.mode === "off") {
+    return { status: "disabled", reason: "trip_pass_checkout_disabled" };
+  }
+  if (checkout.status !== "available") {
+    return {
+      status: "unavailable",
+      reason: checkout.unavailableReason ?? "trip_pass_checkout_unavailable",
+    };
+  }
+  if (checkout.mode === "canary" && !checkout.canaryAccountIds.includes(userId)) {
+    return { status: "disabled", reason: "trip_pass_checkout_canary_only" };
+  }
+  return null;
 }
 
 function defaultCreateId(prefix: string) {
   return `${prefix}_${randomUUID()}`;
 }
 
-function toDate(value: Date | string) {
-  return value instanceof Date ? value : new Date(value);
+function checkoutExpiryFromReservationTime(reservationTime: Date) {
+  const reservationEpochSeconds = Math.floor(reservationTime.getTime() / 1_000);
+  return new Date((reservationEpochSeconds + 30 * 60) * 1_000);
+}
+
+function dateFromDatabaseValue(value: Date | string) {
+  return value instanceof Date ? value : new Date(String(value));
 }

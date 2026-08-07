@@ -11,7 +11,7 @@ import {
 import { applyTripPassStripeEvent } from "@/server/trip-pass/webhook-application";
 
 const now = new Date("2026-07-03T08:00:00.000Z");
-const env = { TRIP_PASS_CHECKOUT_ENABLED: "true", STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass" };
+const env = { TRIP_PASS_CHECKOUT_MODE: "on", STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass" };
 
 describe("Trip Pass Stripe webhook application", () => {
   test("activates a matched paid checkout session through one grant and meter allocation", async () => {
