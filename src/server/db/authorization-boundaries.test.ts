@@ -15,7 +15,9 @@ describe("database authorization boundaries", () => {
     expect(sql).toContain('CREATE ROLE "ask_siargao_runtime" NOLOGIN;');
     expect(sql).toContain('CREATE ROLE "ask_siargao_reporting" NOLOGIN;');
     expect(sql).toContain('GRANT CREATE ON SCHEMA "public" TO "ask_siargao_migration";');
-    expect(sql).toContain('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "users", "user_profiles"');
+    expect(sql).toContain(
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "users", "account_closure_tombstones"',
+    );
     expect(sql).toContain('TO "ask_siargao_runtime";');
     expect(sql).toContain('GRANT SELECT ON TABLE "areas", "routes"');
     expect(sql).toContain('TO "ask_siargao_reporting";');
@@ -51,6 +53,14 @@ describe("database authorization boundaries", () => {
 
     expect(userOwnedTables).toEqual([
       "users",
+      "account_closure_tombstones",
+      "account_closure_operations",
+      "account_closure_steps",
+      "account_closure_provider_subjects",
+      "account_closure_checkout_sessions",
+      "account_closure_refund_obligations",
+      "account_closure_write_barriers",
+      "retained_commerce_evidence",
       "user_profiles",
       "chat_threads",
       "chat_messages",

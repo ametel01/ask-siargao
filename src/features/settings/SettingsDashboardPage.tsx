@@ -1399,7 +1399,7 @@ function PrivacyControlsPanel({
         </div>
       </div>
 
-      <AccountClosureControl />
+      {isClerkConfigured ? <AccountClosureControl /> : null}
 
       {actionStatus ? (
         <p
@@ -1483,12 +1483,14 @@ function AccountClosureControl() {
         Close Account
       </Button>
       {isOpen ? (
-        <div
+        <section
+          aria-labelledby="account-closure-confirmation-title"
           className="grid gap-3 rounded-md border border-red-300 bg-white p-4"
-          role="dialog"
-          aria-modal="true"
         >
-          <h4 className="m-0 text-base font-semibold text-red-950">
+          <h4
+            className="m-0 text-base font-semibold text-red-950"
+            id="account-closure-confirmation-title"
+          >
             Confirm terminal Account Closure
           </h4>
           <p className="m-0 text-sm leading-6 text-red-950">
@@ -1520,7 +1522,7 @@ function AccountClosureControl() {
               Cancel
             </Button>
           </div>
-        </div>
+        </section>
       ) : null}
     </div>
   );

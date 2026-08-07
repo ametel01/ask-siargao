@@ -3,7 +3,7 @@
 ## Clerk Perimeter Inventory
 
 `src/server/auth/clerk-route-policy.ts` is the executable source of truth for the Clerk proxy
-perimeter. Its inventory is source-derived and currently covers all 52 live
+perimeter. Its inventory is source-derived and currently covers all 53 live
 `src/app/**/page.tsx` and `src/app/**/route.ts` runtime surfaces. Every entry has exactly one base
 classification:
 
@@ -24,7 +24,7 @@ resource ownership remain handler-level authorities; they do not replace the bas
 | `/` | Ask Siargao chat-first landing page | Public |
 | `/chat` | Ask Siargao assistant workspace with anonymous chat, signed-in chat history, and on-demand accommodation, itinerary, immediate-plan, surf-session, and disruption Reality Checks | Public |
 | `/trips/shared/[token]` | Public shared saved-trip plan with selected cards/itineraries only | `noindex, nofollow` metadata |
-| `/settings` | Signed-in traveler trip brief with structured current-trip and durable-preference controls, including removable interests/areas and bounded travel, food, surf, quiet-sleep, and weather choices; it also includes private chat and saved-planning summaries plus privacy controls for marketing consent, stored location context, chat-history deletion, and saved-planning deletion | Private authenticated surface |
+| `/settings` | Signed-in traveler trip brief with structured current-trip and durable-preference controls, private chat and saved-planning summaries, granular privacy actions, and terminal Account Closure with signed recent-factor reverification | Private authenticated surface |
 | `/profile` | Compatibility alias that renders the signed-in traveler trip brief | Private authenticated surface |
 | `/audits/[auditRequestId]/status` | Post-checkout processing/status page | Private audit surface |
 | `/audits/[auditRequestId]/report?token=...` | Signed-token paid report delivery for published, paid, reviewer-approved audits | `x-robots-tag: noindex, nofollow` |
@@ -46,6 +46,7 @@ resource ownership remain handler-level authorities; they do not replace the bas
 | `/api/clerk/webhooks` | `POST` | Verify Clerk webhook signatures and sync local user identity cache rows for user create, update, and delete events | Public at the Clerk proxy layer; Clerk webhook signature required |
 | `/api/me/profile` | `GET`, `PATCH` | Return a browser-safe traveler identity/profile DTO and read or partially update owner-scoped profile details; structured preference writes use stable bounded values and preserve legacy values until deliberately changed | Clerk-authenticated user only |
 | `/api/me/privacy` | `POST` | Execute strict confirmed privacy actions for the current user: delete all owned chat history from active product tables, delete all owned saved planning data while invalidating affected public share snapshots, or clear stored area/accommodation context | Clerk-authenticated user only; ownership is derived from Clerk auth only |
+| `/api/me/account-closure` | `POST` | Commit terminal Account Closure, revoke active sharing/access/Trip Pass use, and enqueue independently retryable provider deletion, local erasure, and commerce minimization | Clerk-authenticated user only; exact `CLOSE MY ACCOUNT` confirmation, same-origin request, and Clerk-signed second-factor age of at most five minutes |
 
 ## Chat APIs
 
@@ -129,9 +130,10 @@ issued affected share URLs resolve through the existing generic unavailable/not-
   geolocation, and stored coarse area/accommodation context. Clearing stored location context removes
   only profile `currentArea` and `accommodation` plus the current browser's matching local trip
   context after server success; unrelated profile fields and marketing consent are preserved.
-- These controls delete active product records only. This repository has not defined a backup,
-  legal-retention, or audit-retention purge period, so UI and docs must not promise immediate global
-  erasure or a duration for retained operational records.
+- Granular privacy controls delete active product records only. Terminal Account Closure additionally
+  creates an opaque tombstone, removes readable product data asynchronously, and retains only
+  policy-versioned minimal commerce evidence until its configured expiry. Backup restore traffic is
+  fail-closed until the privacy reapplication snapshot and closure watermark pass the restore guard.
 
 ## Public Knowledge Surfaces
 

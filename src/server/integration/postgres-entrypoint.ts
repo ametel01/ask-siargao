@@ -1,4 +1,5 @@
 import { withRealPostgresHarness } from "@/server/integration/postgres-harness";
+import { runAccountClosurePostgresIntegration } from "@/server/privacy/account-closure.postgres-integration";
 
 await runConcurrentHarnessIsolationRegression();
 
@@ -9,6 +10,7 @@ await withRealPostgresHarness(async (harness) => {
   await runUniqueConflictRegression(harness);
   await runFailedTransactionRecoveryRegression(harness);
   await runAdvisoryLockRegression(harness);
+  await runAccountClosurePostgresIntegration(harness);
 
   console.log(
     JSON.stringify(

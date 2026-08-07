@@ -110,6 +110,12 @@ export const clerkRoutePolicyEntries = [
     "authenticated privacy controls API",
   ),
   api(
+    "src/app/api/me/account-closure/route.ts",
+    "/api/me/account-closure",
+    "protected",
+    "recently reverified terminal Account Closure API",
+  ),
+  api(
     "src/app/api/me/profile/route.ts",
     "/api/me/profile",
     "protected",

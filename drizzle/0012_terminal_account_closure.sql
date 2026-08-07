@@ -53,6 +53,17 @@ CREATE TABLE IF NOT EXISTS account_closure_steps (
 CREATE INDEX IF NOT EXISTS account_closure_steps_due_idx
   ON account_closure_steps(status, next_attempt_at, lease_expires_at, id);
 
+-- Do not manufacture runnable steps for 0009 operations here: the old schema
+-- deliberately retained no reversible Clerk subject. A repeated signed request
+-- or Clerk deletion webhook supplies that subject and atomically upgrades the
+-- operation before workers can claim it.
+UPDATE account_closure_operations
+SET
+  phase_one_committed_at = COALESCE(phase_one_committed_at, created_at),
+  alert_after_attempts = GREATEST(alert_after_attempts, 1),
+  status = CASE WHEN status = 'failed' THEN 'pending' ELSE status END
+WHERE phase_one_committed_at IS NULL OR status = 'failed';
+
 -- This is transient, retry-owned encrypted provider state. It is removed as
 -- soon as Clerk deletion and final identity erasure succeed. Key material is
 -- server-only and is never stored beside the ciphertext.
@@ -162,6 +173,11 @@ ALTER TABLE trip_pass_orders
   ADD COLUMN IF NOT EXISTS closure_refund_obligation_id text
     REFERENCES account_closure_refund_obligations(id);
 
+CREATE INDEX IF NOT EXISTS trip_pass_orders_closure_tombstone_id_idx
+  ON trip_pass_orders(closure_tombstone_id);
+CREATE INDEX IF NOT EXISTS trip_pass_orders_closure_refund_obligation_id_idx
+  ON trip_pass_orders(closure_refund_obligation_id);
+
 ALTER TABLE trip_pass_orders
   ADD CONSTRAINT trip_pass_orders_closure_outcome_check CHECK (
     closure_outcome IS NULL OR closure_outcome IN ('blocked_at_closure', 'paid_after_closure')
@@ -217,6 +233,85 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION enforce_open_account_chat_child_write()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  owner_id text;
+  owner_deleted_at timestamptz;
+BEGIN
+  owner_id := to_jsonb(NEW)->>'user_id';
+  IF owner_id IS NULL THEN
+    SELECT user_id INTO owner_id FROM chat_threads WHERE id = NEW.thread_id;
+  END IF;
+  IF owner_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('ask-siargao-account-write'), hashtext(owner_id));
+  SELECT deleted_at INTO owner_deleted_at FROM users WHERE id = owner_id;
+  IF owner_deleted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'account is terminally closed' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION enforce_open_account_audit_child_write()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  owner_id text;
+  owner_deleted_at timestamptz;
+BEGIN
+  SELECT user_id INTO owner_id FROM audit_requests WHERE id = NEW.audit_request_id;
+  IF owner_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('ask-siargao-account-write'), hashtext(owner_id));
+  SELECT deleted_at INTO owner_deleted_at FROM users WHERE id = owner_id;
+  IF owner_deleted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'account is terminally closed' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION enforce_open_account_audit_run_descendant_write()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  owner_id text;
+  requested_audit_run_id text;
+  requested_llm_run_id text;
+  owner_deleted_at timestamptz;
+BEGIN
+  requested_audit_run_id := to_jsonb(NEW)->>'audit_run_id';
+  requested_llm_run_id := to_jsonb(NEW)->>'llm_run_id';
+  IF requested_audit_run_id IS NOT NULL THEN
+    SELECT a.user_id INTO owner_id FROM audit_runs r
+      JOIN audit_requests a ON a.id = r.audit_request_id
+      WHERE r.id = requested_audit_run_id;
+  ELSIF requested_llm_run_id IS NOT NULL THEN
+    SELECT a.user_id INTO owner_id FROM llm_runs l
+      JOIN audit_runs r ON r.id = l.audit_run_id
+      JOIN audit_requests a ON a.id = r.audit_request_id
+      WHERE l.id = requested_llm_run_id;
+  END IF;
+  IF owner_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('ask-siargao-account-write'), hashtext(owner_id));
+  SELECT deleted_at INTO owner_deleted_at FROM users WHERE id = owner_id;
+  IF owner_deleted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'account is terminally closed' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION enforce_open_account_trip_pass_child_write()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -244,8 +339,7 @@ DECLARE
   table_name text;
 BEGIN
   FOREACH table_name IN ARRAY ARRAY[
-    'user_profiles', 'saved_trips', 'chat_threads', 'chat_messages',
-    'chat_response_ratings', 'audit_requests', 'trip_passes', 'trip_pass_orders',
+    'user_profiles', 'saved_trips', 'chat_threads', 'audit_requests', 'trip_passes', 'trip_pass_orders',
     'trip_pass_grants', 'trip_usage_events'
   ]
   LOOP
@@ -254,6 +348,54 @@ BEGIN
       'CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION enforce_open_account_direct_write()',
       table_name || '_open_account_write',
       table_name
+    );
+  END LOOP;
+END;
+$$;
+
+DO $$
+DECLARE
+  table_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY['chat_messages', 'chat_response_ratings']
+  LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', table_name || '_open_account_write', table_name);
+    EXECUTE format(
+      'CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION enforce_open_account_chat_child_write()',
+      table_name || '_open_account_write', table_name
+    );
+  END LOOP;
+END;
+$$;
+
+DO $$
+DECLARE
+  table_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'audit_inputs', 'audit_runs', 'audit_completeness_checks',
+    'payments', 'payment_events', 'audit_reports'
+  ]
+  LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', table_name || '_open_account_write', table_name);
+    EXECUTE format(
+      'CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION enforce_open_account_audit_child_write()',
+      table_name || '_open_account_write', table_name
+    );
+  END LOOP;
+END;
+$$;
+
+DO $$
+DECLARE
+  table_name text;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY['llm_runs', 'llm_tool_calls', 'reviewer_results']
+  LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', table_name || '_open_account_write', table_name);
+    EXECUTE format(
+      'CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION enforce_open_account_audit_run_descendant_write()',
+      table_name || '_open_account_write', table_name
     );
   END LOOP;
 END;

@@ -608,6 +608,8 @@ export const tripPassOrders = pgTable(
     ),
     index("trip_pass_orders_status_created_at_idx").on(table.status, table.createdAt),
     index("trip_pass_orders_product_code_idx").on(table.productCode),
+    index("trip_pass_orders_closure_tombstone_id_idx").on(table.closureTombstoneId),
+    index("trip_pass_orders_closure_refund_obligation_id_idx").on(table.closureRefundObligationId),
     check(
       "trip_pass_orders_status_check",
       sql`${table.status} in ('pending', 'checkout_created', 'paid', 'cancelled', 'expired', 'refunded', 'disputed', 'failed')`,

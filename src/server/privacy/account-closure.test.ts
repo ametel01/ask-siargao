@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createHmac } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 
 import type { DatabaseQueryClient } from "@/server/db/query-client";
@@ -165,6 +166,83 @@ describe("terminal Account Closure", () => {
     await db.close();
   });
 
+  test("atomically upgrades a pre-0012 closure when a signed request is repeated", async () => {
+    const { db, client, query } = await openClosureDatabase();
+    await seedOwnedData(db, "user_rolling");
+    const subjectHash = createHashForTest("user_rolling");
+    await db.query(
+      `insert into account_closure_tombstones
+       (id, subject_hash, subject_hash_version, subject_type, closure_policy_version,
+        closed_at, purge_after, created_at, updated_at)
+       values ('legacy_tombstone', $1, 1, 'clerk_user_id', 'legacy-v1', $2, $3, $2, $2)`,
+      [subjectHash, now, new Date(now.getTime() + policy.closureRetentionMs)],
+    );
+    await db.query(
+      `insert into account_closure_operations
+       (id, tombstone_id, operation_type, status, created_at, updated_at)
+       values ('legacy_operation', 'legacy_tombstone', 'traveler_requested_closure',
+         'pending', $1, $1)`,
+      [now],
+    );
+
+    const result = await beginAccountClosure(
+      { now, userId: "user_rolling" },
+      { createId: (prefix) => `${prefix}_unused`, db: client, policy },
+    );
+
+    expect(result).toEqual({
+      status: "already_closed",
+      operationRef: "legacy_operation",
+      tombstoneRef: "legacy_tombstone",
+    });
+    expect(
+      await query<{ count: string }>(
+        "select count(*)::text as count from account_closure_steps where operation_id = 'legacy_operation'",
+      ),
+    ).toEqual([{ count: "5" }]);
+    expect(
+      await query(
+        "select operation_id from account_closure_provider_subjects where operation_id = 'legacy_operation'",
+      ),
+    ).toEqual([{ operation_id: "legacy_operation" }]);
+    expect(await query("select id from shared_trip_plans where trip_id = 'trip_close'")).toEqual(
+      [],
+    );
+    const rollingUser = await query<{ deleted_at: Date | null }>(
+      "select deleted_at from users where id = 'user_rolling'",
+    );
+    expect(new Date(rollingUser[0]?.deleted_at ?? 0).toISOString()).toBe(now.toISOString());
+    await db.close();
+  });
+
+  test("matches an existing terminal tombstone during an explicit HMAC rotation grace period", async () => {
+    const { db, client } = await openClosureDatabase();
+    await seedUser(db, "user_rotation");
+    const first = await beginAccountClosure(
+      { now, userId: "user_rotation" },
+      { createId: (prefix) => `${prefix}_rotation`, db: client, policy },
+    );
+    const rotatedPolicy = {
+      ...policy,
+      tombstoneHashKey: "new-closure-hmac-key",
+      tombstoneHashVersion: 2,
+      tombstonePreviousHashKeys: [{ key: policy.tombstoneHashKey, version: 1 }],
+    };
+    const repeated = await beginAccountClosure(
+      { now: new Date(now.getTime() + 1_000), userId: "user_rotation" },
+      { db: client, policy: rotatedPolicy },
+    );
+    expect(repeated).toEqual({ ...first, status: "already_closed" });
+    expect(
+      (
+        await db.query<{ count: string }>(
+          "select count(*)::text as count from account_closure_tombstones",
+        )
+      ).rows,
+    ).toEqual([{ count: "1" }]);
+    await db.close();
+  });
+
   test("retries provider failure without blocking local erasure or commerce minimization", async () => {
     const { db, client, query } = await openClosureDatabase();
     await seedOwnedData(db, "user_retry");
@@ -227,6 +305,87 @@ describe("terminal Account Closure", () => {
     ).toEqual([{ status: "succeeded" }]);
     expect(await query("select id from users where id = 'user_retry'")).toEqual([]);
     await db.close();
+  });
+
+  test("recovers expired leases and alerts without dead-lettering local cleanup", async () => {
+    const { db, client, query } = await openClosureDatabase();
+    await seedUser(db, "user_lease");
+    const closure = await beginAccountClosure(
+      { now, userId: "user_lease" },
+      { createId: (prefix) => `${prefix}_lease`, db: client, policy },
+    );
+    await db.query(
+      `update account_closure_steps set status = 'succeeded', completed_at = $2
+       where operation_id = $1 and step_type <> 'clerk_deletion'`,
+      [closure.operationRef, now],
+    );
+    await db.query(
+      `update account_closure_steps set status = 'running', attempts = 1,
+         lease_token = 'crashed-worker', lease_expires_at = $2
+       where operation_id = $1 and step_type = 'clerk_deletion'`,
+      [closure.operationRef, new Date(now.getTime() - 1)],
+    );
+    let clerkCalls = 0;
+    await runClosureCleanupBatch({
+      db: client,
+      now,
+      policy,
+      providers: {
+        deleteClerkUser: async () => {
+          clerkCalls += 1;
+        },
+        expireCheckoutSession: async () => undefined,
+      },
+    });
+    expect(clerkCalls).toBe(1);
+    expect(
+      await query<{ attempts: number; status: string }>(
+        `select attempts, status from account_closure_steps
+         where operation_id = $1 and step_type = 'clerk_deletion'`,
+        [closure.operationRef],
+      ),
+    ).toEqual([{ attempts: 2, status: "succeeded" }]);
+    await db.close();
+
+    const failing = await openClosureDatabase();
+    await seedUser(failing.db, "user_alert");
+    const alertClosure = await beginAccountClosure(
+      { now, userId: "user_alert" },
+      { createId: (prefix) => `${prefix}_alert`, db: failing.client, policy },
+    );
+    await failing.db.query("drop table user_profiles");
+    for (const attemptNow of [now, new Date(now.getTime() + 60_000)]) {
+      await runClosureCleanupBatch({
+        db: failing.client,
+        now: attemptNow,
+        policy,
+        providers: {
+          deleteClerkUser: async () => undefined,
+          expireCheckoutSession: async () => undefined,
+        },
+      });
+    }
+    expect(
+      await failing.query<{
+        alerted_at: Date | null;
+        attempts: number;
+        last_error_category: string;
+        status: string;
+      }>(
+        `select alerted_at, attempts, last_error_category, status
+         from account_closure_steps
+         where operation_id = $1 and step_type = 'local_erasure'`,
+        [alertClosure.operationRef],
+      ),
+    ).toEqual([
+      {
+        alerted_at: new Date(now.getTime() + 60_000),
+        attempts: 2,
+        last_error_category: "local_cleanup_failed",
+        status: "pending",
+      },
+    ]);
+    await failing.db.close();
   });
 
   test("purges only expired completed tombstones and remains idempotent", async () => {
@@ -320,4 +479,10 @@ async function seedOwnedData(db: PGlite, userId: string) {
        $2, $3, $4, $4)`,
     [userId, `idem_${userId}`, `request_${userId}`, now],
   );
+}
+
+function createHashForTest(userId: string) {
+  return createHmac("sha256", policy.tombstoneHashKey)
+    .update(`clerk_user_id:${policy.tombstoneHashVersion}:${userId}`)
+    .digest("base64url");
 }

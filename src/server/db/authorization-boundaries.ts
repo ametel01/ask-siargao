@@ -9,6 +9,15 @@ export type DatabaseAuthorizationTemplateOptions = {
 
 export const applicationTables = [
   "users",
+  "account_closure_tombstones",
+  "account_closure_operations",
+  "account_closure_steps",
+  "account_closure_provider_subjects",
+  "account_closure_checkout_sessions",
+  "account_closure_refund_obligations",
+  "account_closure_write_barriers",
+  "retained_commerce_evidence",
+  "privacy_restore_guard_state",
   "user_profiles",
   "chat_threads",
   "chat_messages",
@@ -62,6 +71,14 @@ export const applicationTables = [
 
 export const userOwnedTables = [
   "users",
+  "account_closure_tombstones",
+  "account_closure_operations",
+  "account_closure_steps",
+  "account_closure_provider_subjects",
+  "account_closure_checkout_sessions",
+  "account_closure_refund_obligations",
+  "account_closure_write_barriers",
+  "retained_commerce_evidence",
   "user_profiles",
   "chat_threads",
   "chat_messages",

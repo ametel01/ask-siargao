@@ -29,6 +29,7 @@ export type AccountClosurePolicy = {
   providerSubjectEncryptionKeyVersion: number;
   tombstoneHashKey: string;
   tombstoneHashVersion: number;
+  tombstonePreviousHashKeys?: ReadonlyArray<{ key: string; version: number }>;
 };
 
 export type AccountClosureProviders = {
@@ -73,39 +74,25 @@ export async function beginAccountClosure(
     await lockTripPassFamily(input.userId, transaction);
 
     const subjectHash = closureSubjectHash(input.userId, dependencies.policy);
-    const existing = await transaction.query<{
-      tombstone_id: string;
-      operation_id: string;
-    }>(
-      `
-        select t.id as tombstone_id, o.id as operation_id
-        from account_closure_tombstones t
-        join account_closure_operations o on o.tombstone_id = t.id
-        where t.subject_type = 'clerk_user_id'
-          and t.subject_hash_version = $1
-          and t.subject_hash = $2
-        order by o.created_at asc
-        limit 1
-      `,
-      [dependencies.policy.tombstoneHashVersion, subjectHash],
-    );
-    const existingClosure = existing.rows[0];
+    let existingClosure: { tombstone_id: string; operation_id: string } | undefined;
+    for (const candidate of closureSubjectCandidates(input.userId, dependencies.policy)) {
+      const existing = await transaction.query<{
+        tombstone_id: string;
+        operation_id: string;
+      }>(
+        `select t.id as tombstone_id, o.id as operation_id
+         from account_closure_tombstones t
+         join account_closure_operations o on o.tombstone_id = t.id
+         where t.subject_type = 'clerk_user_id'
+           and t.subject_hash_version = $1 and t.subject_hash = $2
+         order by o.created_at asc limit 1`,
+        [candidate.version, candidate.hash],
+      );
+      existingClosure = existing.rows[0];
+      if (existingClosure) break;
+    }
     if (existingClosure) {
-      if (input.clerkDeletionConfirmed) {
-        await transaction.query(
-          `update account_closure_steps set status = 'succeeded', completed_at = coalesce(completed_at, $2),
-            next_attempt_at = null, lease_token = null, lease_expires_at = null,
-            last_error_category = null, updated_at = $2
-           where operation_id = $1 and step_type = 'clerk_deletion'`,
-          [existingClosure.operation_id, input.now],
-        );
-        await transaction.query(
-          `update users set email = null, first_name = null, last_name = null, image_url = null,
-            clerk_updated_at = null, last_seen_at = null, deleted_at = coalesce(deleted_at, $2),
-            updated_at = $2 where id = $1`,
-          [input.userId, input.now],
-        );
-      }
+      await convergeExistingClosure(input, dependencies, existingClosure, transaction);
       return {
         status: "already_closed" as const,
         operationRef: existingClosure.operation_id,
@@ -290,6 +277,131 @@ export async function beginAccountClosure(
   return result;
 }
 
+async function convergeExistingClosure(
+  input: Parameters<typeof beginAccountClosure>[0],
+  dependencies: BeginAccountClosureDependencies,
+  existingClosure: { operation_id: string; tombstone_id: string },
+  transaction: DatabaseQueryClient,
+) {
+  const encryptedSubject = encryptProviderSubject(
+    input.userId,
+    dependencies.policy.providerSubjectEncryptionKey,
+  );
+  await transaction.query(
+    `update account_closure_operations set
+       phase_one_committed_at = coalesce(phase_one_committed_at, $2),
+       closure_policy_version = coalesce(closure_policy_version, $3),
+       commerce_policy_version = coalesce(commerce_policy_version, $4),
+       alert_after_attempts = $5,
+       status = case when status = 'failed' then 'pending' else status end,
+       updated_at = $2
+     where id = $1`,
+    [
+      existingClosure.operation_id,
+      input.now,
+      dependencies.policy.closurePolicyVersion,
+      dependencies.policy.commercePolicyVersion,
+      dependencies.policy.alertAfterAttempts,
+    ],
+  );
+  await transaction.query(
+    `insert into account_closure_provider_subjects
+       (operation_id, ciphertext, iv, auth_tag, key_version, created_at)
+     values ($1, $2, $3, $4, $5, $6)
+     on conflict (operation_id) do nothing`,
+    [
+      existingClosure.operation_id,
+      encryptedSubject.ciphertext,
+      encryptedSubject.iv,
+      encryptedSubject.authTag,
+      dependencies.policy.providerSubjectEncryptionKeyVersion,
+      input.now,
+    ],
+  );
+  for (const stepType of closureStepTypes) {
+    const clerkConfirmed = input.clerkDeletionConfirmed && stepType === "clerk_deletion";
+    await transaction.query(
+      `insert into account_closure_steps
+         (id, operation_id, step_type, status, attempts, next_attempt_at,
+          created_at, updated_at, completed_at)
+       values ($1, $2, $3, $5, 0, $4, $4, $4, $6)
+       on conflict (operation_id, step_type) do update set
+         status = case when $5 = 'succeeded' then 'succeeded' else account_closure_steps.status end,
+         completed_at = case when $5 = 'succeeded'
+           then coalesce(account_closure_steps.completed_at, $6)
+           else account_closure_steps.completed_at end,
+         next_attempt_at = case when $5 = 'succeeded' then null
+           else account_closure_steps.next_attempt_at end,
+         lease_token = case when $5 = 'succeeded' then null
+           else account_closure_steps.lease_token end,
+         lease_expires_at = case when $5 = 'succeeded' then null
+           else account_closure_steps.lease_expires_at end,
+         last_error_category = case when $5 = 'succeeded' then null
+           else account_closure_steps.last_error_category end,
+         updated_at = $4`,
+      [
+        `${existingClosure.operation_id}:${stepType}`,
+        existingClosure.operation_id,
+        stepType,
+        input.now,
+        clerkConfirmed ? "succeeded" : "pending",
+        clerkConfirmed ? input.now : null,
+      ],
+    );
+  }
+  await transaction.query(
+    `insert into account_closure_checkout_sessions
+       (operation_id, stripe_checkout_session_id, status, created_at, updated_at)
+     select $1, stripe_checkout_session_id, 'pending', $2, $2
+     from trip_pass_orders
+     where user_id = $3 and status in ('pending', 'checkout_created')
+       and stripe_checkout_session_id is not null
+     on conflict (operation_id, stripe_checkout_session_id) do nothing`,
+    [existingClosure.operation_id, input.now, input.userId],
+  );
+  await transaction.query(
+    `delete from shared_trip_plans
+     where trip_id in (select id from saved_trips where user_id = $1)`,
+    [input.userId],
+  );
+  await transaction.query(
+    `update trip_usage_events set event_type = 'released', occurred_at = $2,
+       created_at = least(created_at, $2)
+     where user_id = $1 and event_type = 'reserved'`,
+    [input.userId, input.now],
+  );
+  await transaction.query(
+    `update trip_passes set status = 'cancelled', updated_at = $2
+     where user_id = $1 and status = 'active'`,
+    [input.userId, input.now],
+  );
+  await transaction.query(
+    `update trip_pass_orders set closure_tombstone_id = $2,
+       closure_outcome = case when status in ('pending', 'checkout_created')
+         then 'blocked_at_closure' else closure_outcome end,
+       updated_at = $3 where user_id = $1`,
+    [input.userId, existingClosure.tombstone_id, input.now],
+  );
+  await transaction.query(
+    `update users set email = case when $3 then null else email end,
+       first_name = case when $3 then null else first_name end,
+       last_name = case when $3 then null else last_name end,
+       image_url = case when $3 then null else image_url end,
+       clerk_updated_at = case when $3 then null else clerk_updated_at end,
+       last_seen_at = case when $3 then null else last_seen_at end,
+       deleted_at = $2, updated_at = $2 where id = $1 and deleted_at is null`,
+    [input.userId, input.now, input.clerkDeletionConfirmed ?? false],
+  );
+  if (input.clerkDeletionConfirmed) {
+    await transaction.query(
+      `update users set email = null, first_name = null, last_name = null, image_url = null,
+         clerk_updated_at = null, last_seen_at = null, updated_at = $2
+       where id = $1 and deleted_at is not null`,
+      [input.userId, input.now],
+    );
+  }
+}
+
 export async function runClosureCleanupBatch(input: {
   db: DatabaseQueryClient;
   now: Date;
@@ -327,11 +439,19 @@ export function closureRetryDelayMs(attempt: number, jitterUnit = 0.5) {
   return Math.round(base * (0.75 + unit * 0.5));
 }
 
-export async function purgeEligibleClosureTombstones(db: DatabaseQueryClient, now: Date) {
+export async function purgeEligibleClosureTombstones(
+  db: DatabaseQueryClient,
+  now: Date,
+  limit = 100,
+) {
+  if (!Number.isInteger(limit) || limit <= 0) throw new Error("purge_limit_invalid");
   return withDatabaseTransaction(db, async (transaction) => {
     await transaction.query(
-      `delete from retained_commerce_evidence where retention_expires_at < $1`,
-      [now],
+      `delete from retained_commerce_evidence where id in (
+         select id from retained_commerce_evidence
+         where retention_expires_at < $1 order by retention_expires_at, id limit $2
+       )`,
+      [now, limit],
     );
     const eligible = await transaction.query<{ id: string }>(
       `
@@ -349,9 +469,11 @@ export async function purgeEligibleClosureTombstones(db: DatabaseQueryClient, no
           and not exists (
             select 1 from retained_commerce_evidence e where e.tombstone_id = t.id
           )
-        for update
+        order by t.purge_after, t.id
+        for update skip locked
+        limit $2
       `,
-      [now],
+      [now, limit],
     );
     for (const tombstone of eligible.rows) {
       await transaction.query(
@@ -706,7 +828,7 @@ async function markClosureStepRetryable(
     [
       step.id,
       nextAttemptAt,
-      deferred ? "prerequisite_pending" : sanitizedErrorCategory(error),
+      deferred ? "prerequisite_pending" : sanitizedErrorCategory(error, step.step_type),
       now,
     ],
   );
@@ -791,6 +913,26 @@ function closureSubjectHash(userId: string, policy: AccountClosurePolicy) {
     .digest("base64url");
 }
 
+function closureSubjectCandidates(userId: string, policy: AccountClosurePolicy) {
+  const keys = [
+    { key: policy.tombstoneHashKey, version: policy.tombstoneHashVersion },
+    ...(policy.tombstonePreviousHashKeys ?? []),
+  ];
+  const seen = new Set<number>();
+  return keys.flatMap((candidate) => {
+    if (seen.has(candidate.version)) return [];
+    seen.add(candidate.version);
+    return [
+      {
+        hash: createHmac("sha256", candidate.key)
+          .update(`clerk_user_id:${candidate.version}:${userId}`)
+          .digest("base64url"),
+        version: candidate.version,
+      },
+    ];
+  });
+}
+
 async function lockAccountWrites(userId: string, db: DatabaseQueryClient) {
   await db.query(
     "select pg_advisory_xact_lock(hashtext('ask-siargao-account-write'), hashtext($1))",
@@ -804,13 +946,20 @@ async function lockTripPassFamily(userId: string, db: DatabaseQueryClient) {
   ]);
 }
 
-function sanitizedErrorCategory(error: unknown) {
+function sanitizedErrorCategory(error: unknown, stepType?: ClosureStepType) {
   if (error instanceof ClosureStepDeferredError) {
     return "prerequisite_pending";
   }
-  return error instanceof Error && /key|decrypt/i.test(error.message)
-    ? "configuration_unavailable"
-    : "provider_unavailable";
+  if (error instanceof Error && /key|decrypt/i.test(error.message)) {
+    return "configuration_unavailable";
+  }
+  if (stepType === "local_erasure" || stepType === "identity_erasure") {
+    return "local_cleanup_failed";
+  }
+  if (stepType === "commerce_minimization") {
+    return "commerce_cleanup_failed";
+  }
+  return "provider_unavailable";
 }
 
 class ClosureStepDeferredError extends Error {}
@@ -867,6 +1016,36 @@ export function readAccountClosurePolicy(
       "ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY",
       "local-account-closure-tombstone-key",
     ),
+    tombstonePreviousHashKeys: readPreviousTombstoneKeys(
+      env.ACCOUNT_CLOSURE_TOMBSTONE_HMAC_PREVIOUS_KEYS_JSON,
+    ),
     tombstoneHashVersion: positiveNumber("ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY_VERSION", 1),
   };
+}
+
+function readPreviousTombstoneKeys(raw: string | undefined) {
+  if (!raw?.trim()) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("ACCOUNT_CLOSURE_TOMBSTONE_HMAC_PREVIOUS_KEYS_JSON must be valid JSON.");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("ACCOUNT_CLOSURE_TOMBSTONE_HMAC_PREVIOUS_KEYS_JSON must be a JSON object.");
+  }
+  return Object.entries(parsed).map(([version, key]) => {
+    const numericVersion = Number(version);
+    if (
+      !Number.isInteger(numericVersion) ||
+      numericVersion <= 0 ||
+      typeof key !== "string" ||
+      !key
+    ) {
+      throw new Error(
+        "ACCOUNT_CLOSURE_TOMBSTONE_HMAC_PREVIOUS_KEYS_JSON requires positive version keys and non-empty secret values.",
+      );
+    }
+    return { key, version: numericVersion };
+  });
 }

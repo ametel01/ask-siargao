@@ -21,6 +21,7 @@
     "db:discover:google-places": "bun run src/server/providers/discover-google-places.ts",
     "db:enrich:google-places": "bun run src/server/providers/enrich-google-places.ts",
     "db:prune:google-places": "bun run src/server/jobs/prune-google-places.ts",
+    "privacy:closure-worker": "bun run src/server/privacy/run-account-closure-worker.ts",
     "privacy:restore-guard": "bun run src/server/privacy/run-restore-guard.ts",
     "db:ingest:open-meteo": "bun run src/server/providers/ingest-open-meteo.ts",
     "db:ingest:open-meteo-marine": "bun run src/server/providers/ingest-open-meteo-marine.ts",
