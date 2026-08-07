@@ -344,18 +344,46 @@ export async function releasePaidAnswer(input: {
   });
 }
 
-export async function purgeExpiredPaidAnswerDetails(db: DatabaseQueryClient): Promise<number> {
-  const result = await db.query<{ id: string }>(
-    `update paid_answer_reservations
-     set request_body_hash = 'purged:' || id, request_id = 'purged:' || id,
-       idempotency_key_hash = 'purged:' || id, answer_message_id = null, result_json = null,
+export async function purgeExpiredPaidAnswerDetails(
+  db: DatabaseQueryClient,
+  limit = 100,
+): Promise<number> {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1_000) {
+    throw new Error("paid answer purge limit must be between 1 and 1000");
+  }
+  return withTransaction(db, async (transaction) => {
+    const result = await transaction.query<{ id: string }>(
+      `with candidates as materialized (
+       select id, trip_pass_id, usage_meter_id, account_id
+       from paid_answer_reservations
+       where details_purged_at is null and details_purge_at <= clock_timestamp()
+         and status <> 'open'
+       order by details_purge_at, id
+       limit $1
+       for update skip locked
+     ), scrubbed_events as (
+       update trip_usage_events e
+       set request_id = null, request_hash = null, provider_request_ids_json = '[]'::jsonb
+       from candidates c
+       where e.id = 'trip_usage_event_' || c.id
+         and e.trip_pass_id = c.trip_pass_id
+         and e.usage_meter_id = c.usage_meter_id
+         and e.user_id = c.account_id
+         and e.idempotency_key = 'paid-answer:' || c.id
+       returning e.id
+     )
+     update paid_answer_reservations r
+     set request_body_hash = 'purged:' || r.id, request_id = 'purged:' || r.id,
+       idempotency_key_hash = 'purged:' || r.id, answer_message_id = null, result_json = null,
        provider_request_ids_json = '[]'::jsonb, details_purged_at = clock_timestamp(),
        updated_at = clock_timestamp()
-     where details_purged_at is null and details_purge_at <= clock_timestamp()
-       and status <> 'open'
-     returning id`,
-  );
-  return result.rows.length;
+     from candidates c
+     where r.id = c.id and (select count(*) from scrubbed_events) >= 0
+     returning r.id`,
+      [limit],
+    );
+    return result.rows.length;
+  });
 }
 
 async function loadEffectiveMeterForUpdate(accountId: string, db: DatabaseQueryClient) {

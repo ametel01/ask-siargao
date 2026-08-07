@@ -1,6 +1,10 @@
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { type AccountClosurePolicy, beginAccountClosure } from "@/server/privacy/account-closure";
-import { finalizePaidAnswer, reservePaidAnswer } from "@/server/trip-pass/paid-answer-reservations";
+import {
+  finalizePaidAnswer,
+  purgeExpiredPaidAnswerDetails,
+  reservePaidAnswer,
+} from "@/server/trip-pass/paid-answer-reservations";
 import {
   applyAuthoritativeDisputeFact,
   applyAuthoritativeRefundFact,
@@ -188,6 +192,52 @@ async function runFinalUnitRegression(harness: PostgresHarness) {
         "replay must return the durable result",
       );
     }
+    assertEqual(
+      await purgeExpiredPaidAnswerDetails(setup),
+      0,
+      "retention purge must not run before the database-time deadline",
+    );
+    await setup.query(
+      `update paid_answer_reservations
+       set reserved_at = clock_timestamp() - interval '40 days',
+         details_purge_at = clock_timestamp() - interval '1 second'
+       where id = $1`,
+      [winner.reservationId],
+    );
+    assertEqual(
+      await purgeExpiredPaidAnswerDetails(setup),
+      1,
+      "retention purge must run at expiry",
+    );
+    const purged = await setup.query<{
+      event_provider_ids: unknown;
+      event_request_hash: string | null;
+      event_request_id: string | null;
+      quantity: number;
+      reservation_purged_at: Date | null;
+      used: number;
+    }>(
+      `select
+         (select details_purged_at from paid_answer_reservations where id = $1)
+           as reservation_purged_at,
+         (select request_id from trip_usage_events where id = $2) as event_request_id,
+         (select request_hash from trip_usage_events where id = $2) as event_request_hash,
+         (select provider_request_ids_json from trip_usage_events where id = $2)
+           as event_provider_ids,
+         (select quantity from trip_usage_events where id = $2) as quantity,
+         (select used from trip_usage_meters where id = 'paid_answer_pg_meter') as used`,
+      [winner.reservationId, `trip_usage_event_${winner.reservationId}`],
+    );
+    assertEqual(purged.rows[0]?.event_request_id, null, "usage event request ID must purge");
+    assertEqual(purged.rows[0]?.event_request_hash, null, "usage event request hash must purge");
+    assertEqual(
+      JSON.stringify(purged.rows[0]?.event_provider_ids),
+      "[]",
+      "provider IDs must purge",
+    );
+    assertEqual(purged.rows[0]?.quantity, 1, "usage event aggregate quantity must remain");
+    assertEqual(purged.rows[0]?.used, 150, "aggregate meter usage must remain");
+    if (!purged.rows[0]?.reservation_purged_at) throw new Error("reservation purge marker missing");
   } finally {
     await Promise.all([setup.end(), first.end(), second.end()]);
   }

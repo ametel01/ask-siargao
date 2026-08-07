@@ -550,20 +550,41 @@ describe("paid Trip Pass chat usage", () => {
       });
       expect(session.status).toBe("allowed");
       if (session.status !== "allowed") return;
-      await session.settle({ success: false, releaseReason: "safety_refusal" });
-      const refusal = await db.query<{ release_reason: string | null; status: string }>(
-        `select status, release_reason from paid_answer_reservations
-         where request_body_hash = 'body_hash_purge'`,
-      );
-      expect(refusal.rows[0]).toEqual({
-        status: "released",
-        release_reason: "safety_refusal",
+      await session.settle({
+        answerMessageId: "answer_purge",
+        persistAnswer: paidAnswerPersistence(db, "user_paid_purge", "answer_purge"),
+        providerRequestIds: ["provider_purge"],
+        success: true,
       });
+      await expect(purgeExpiredPaidAnswerDetails(db)).resolves.toBe(0);
       await db.query(
         `update paid_answer_reservations
          set reserved_at = clock_timestamp() - interval '40 days',
            details_purge_at = clock_timestamp() - interval '1 second'`,
       );
+
+      await db.query(`
+        create function fail_paid_answer_event_purge() returns trigger language plpgsql as $$
+        begin raise exception 'forced event purge failure'; end $$
+      `);
+      await db.query(`
+        create trigger fail_paid_answer_event_purge
+          before update of request_id on trip_usage_events
+          for each row execute function fail_paid_answer_event_purge()
+      `);
+      await expect(purgeExpiredPaidAnswerDetails(db)).rejects.toThrow("forced event purge failure");
+      const rolledBack = await db.query<{
+        details_purged_at: Date | null;
+        request_hash: string | null;
+      }>(
+        `select r.details_purged_at, e.request_hash
+         from paid_answer_reservations r
+         join trip_usage_events e on e.id = 'trip_usage_event_' || r.id`,
+      );
+      expect(rolledBack.rows[0]?.details_purged_at).toBeNull();
+      expect(rolledBack.rows[0]?.request_hash).toBe("body_hash_purge");
+      await db.query("drop trigger fail_paid_answer_event_purge on trip_usage_events");
+      await db.query("drop function fail_paid_answer_event_purge()");
 
       await expect(purgeExpiredPaidAnswerDetails(db)).resolves.toBe(1);
       const details = await db.query<{
@@ -577,7 +598,24 @@ describe("paid Trip Pass chat usage", () => {
       expect(details.rows[0]?.details_purged_at).not.toBeNull();
       expect(details.rows[0]?.provider_request_ids_json).toEqual([]);
       expect(details.rows[0]?.result_json).toBeNull();
-      await expectMeterUsed(db, "trip_pass_paid_purge", 0);
+      const event = await db.query<{
+        meter_type: string;
+        provider_request_ids_json: unknown;
+        quantity: number;
+        request_hash: string | null;
+        request_id: string | null;
+      }>(
+        `select meter_type, quantity, request_id, request_hash, provider_request_ids_json
+         from trip_usage_events where idempotency_key like 'paid-answer:%'`,
+      );
+      expect(event.rows[0]).toEqual({
+        meter_type: "chat_message",
+        provider_request_ids_json: [],
+        quantity: 1,
+        request_hash: null,
+        request_id: null,
+      });
+      await expectMeterUsed(db, "trip_pass_paid_purge", 1);
     });
   });
 
