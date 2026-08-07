@@ -58,7 +58,10 @@ export async function applyEnabledClerkRoutePolicy(
 export function applyDisabledClerkRoutePolicy(requestOrPathname: NextRequest | string) {
   const decision = getClerkPerimeterDecision(requestOrPathname);
 
-  if (decision.action === "allow") {
+  if (
+    decision.action === "allow" ||
+    (decision.action === "protect" && isProtectedUiHarnessRequest(requestOrPathname))
+  ) {
     return NextResponse.next();
   }
 
@@ -106,6 +109,23 @@ function clerkConfigurationFailure(errors: Parameters<typeof formatClerkConfigEr
       },
       status: 500,
     },
+  );
+}
+
+function isProtectedUiHarnessRequest(requestOrPathname: NextRequest | string) {
+  if (
+    typeof requestOrPathname === "string" ||
+    process.env.PLAYWRIGHT_PROTECTED_UI_HARNESS !== "1" ||
+    requestOrPathname.headers.get("x-ask-siargao-protected-ui-harness") !== "1"
+  ) {
+    return false;
+  }
+
+  const result = readClerkDeploymentConfig();
+  return (
+    result.ok &&
+    result.config.mode === "disabled" &&
+    (result.config.context === "local" || result.config.context === "test")
   );
 }
 

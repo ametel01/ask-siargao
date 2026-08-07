@@ -126,6 +126,11 @@ Use the Clerk production instance and dashboard. Do not copy secrets into the la
 - `CLERK_AUTHORIZED_PARTIES` contains only `CLERK_PRODUCTION_ORIGIN` and
   `CLERK_PROTECTED_STAGING_ORIGIN`. Localhost is absent from production; wildcard `*.vercel.app`,
   URL paths, credentials, query strings, and fragments are absent everywhere.
+- `CLERK_PRODUCTION_VERCEL_URL` exactly matches the platform-provided `VERCEL_URL` for production.
+- `CLERK_PROTECTED_STAGING_VERCEL_URL` exactly matches the platform-provided `VERCEL_URL` for the
+  stable protected staging deployment; ordinary preview URLs must not validate as protected staging.
+- Vercel production cannot claim `local`, `build`, `test`, `preview`, or `protected-staging`
+  context, and Vercel preview cannot claim production context.
 - Ephemeral and untrusted preview deployments have authentication disabled and no Clerk secrets.
 - Clerk dashboard settings match `src/server/auth/clerk-instance-policy.ts`: email one-time code
   and Google OAuth are enabled, password and untested methods are disabled, verified email is

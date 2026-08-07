@@ -1,4 +1,10 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
+
+const protectedUiHarnessHeader = { "x-ask-siargao-protected-ui-harness": "1" };
+
+async function enableProtectedUiHarness(page: Page, headers: Record<string, string> = {}) {
+  await page.setExtraHTTPHeaders({ ...protectedUiHarnessHeader, ...headers });
+}
 
 test("renders the Ask Siargao landing shell", async ({ page }) => {
   await page.goto("/");
@@ -425,7 +431,8 @@ test("denies protected surfaces when Clerk is disabled", async ({ page }) => {
   }
 });
 
-test.skip("shows processing state after checkout return", async ({ page }) => {
+test("shows processing state after checkout return", async ({ page }) => {
+  await enableProtectedUiHarness(page);
   await page.goto("/audits/audit_123/status?state=awaiting_payment");
 
   await expect(
@@ -445,8 +452,8 @@ test("renders final report with evidence and limitations", async ({ page }) => {
   await expect(page.getByText(/Exact room noise level is not verified/i)).toBeVisible();
 });
 
-test.skip("renders local admin diagnostics without leaking sample secrets", async ({ page }) => {
-  await page.setExtraHTTPHeaders({
+test("renders local admin diagnostics without leaking sample secrets", async ({ page }) => {
+  await enableProtectedUiHarness(page, {
     "x-admin-token": process.env.ADMIN_ACCESS_TOKEN ?? "replace-me",
   });
   await page.goto("/admin/diagnostics");
@@ -459,7 +466,8 @@ test.skip("renders local admin diagnostics without leaking sample secrets", asyn
   await expect(page.getByText(/sk_test_should_not_render/i)).toHaveCount(0);
 });
 
-test.skip("edits profile details and reloads the persisted values", async ({ page }) => {
+test("edits profile details and reloads the persisted values", async ({ page }) => {
+  await enableProtectedUiHarness(page);
   let patchPayload: Record<string, unknown> | null = null;
   const patchPayloads: Record<string, unknown>[] = [];
   let profileSaveMode:
@@ -886,9 +894,10 @@ test.skip("edits profile details and reloads the persisted values", async ({ pag
   });
 });
 
-test.skip("manages privacy controls with deliberate confirmation and local cleanup after success", async ({
+test("manages privacy controls with deliberate confirmation and local cleanup after success", async ({
   page,
 }) => {
+  await enableProtectedUiHarness(page);
   const savedTripStorageKey = "ask-siargao:saved-trip:v1";
   const tripContextStorageKey = "ask-siargao:trip-context:v1";
   let privacyMode: "success" | "server" | "auth" = "success";
@@ -1151,9 +1160,10 @@ test.skip("manages privacy controls with deliberate confirmation and local clean
   );
 });
 
-test.skip("keeps privacy confirmations modal and preserves deterministic failure states", async ({
+test("keeps privacy confirmations modal and preserves deterministic failure states", async ({
   page,
 }) => {
+  await enableProtectedUiHarness(page);
   let privacyMode: "auth" | "validation" | "network" | "pending" | "success" = "auth";
   let releasePending = () => {};
   const profile = {
@@ -1324,9 +1334,10 @@ test.skip("keeps privacy confirmations modal and preserves deterministic failure
   }
 });
 
-test.skip("preserves untouched legacy multi-value tokens byte-for-byte on an unrelated save", async ({
+test("preserves untouched legacy multi-value tokens byte-for-byte on an unrelated save", async ({
   page,
 }) => {
+  await enableProtectedUiHarness(page);
   let patchPayload: Record<string, unknown> | null = null;
   let profile = {
     identity: {
@@ -1392,9 +1403,10 @@ test.skip("preserves untouched legacy multi-value tokens byte-for-byte on an unr
   ]);
 });
 
-test.skip("renders safe account identity across settings states and narrow layouts", async ({
+test("renders safe account identity across settings states and narrow layouts", async ({
   page,
 }) => {
+  await enableProtectedUiHarness(page);
   const longName = "María-Luisa Ngọc Nguyễn surf planning ".repeat(5).trim();
   let profileMode: "long" | "partial" | "server" | "anonymous" = "long";
 
@@ -1505,7 +1517,8 @@ test.skip("renders safe account identity across settings states and narrow layou
   await expect(page.getByText("Taylor")).toHaveCount(0);
 });
 
-test.skip("renders Trip Pass account states and checkout return handling", async ({ page }) => {
+test("renders Trip Pass account states and checkout return handling", async ({ page }) => {
+  await enableProtectedUiHarness(page);
   let passMode: "free" | "pending" | "active" | "expired" | "unavailable" | "fetch_error" = "free";
   let checkoutCalls = 0;
   let releaseCheckout: (() => void) | undefined;

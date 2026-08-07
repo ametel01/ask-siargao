@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { NextRequest } from "next/server";
+
 import { clerkWebhookResponse } from "@/app/api/clerk/webhooks/clerk-webhook-route";
 import { stripeWebhookResponse } from "@/app/api/stripe/webhook/webhook-route";
 import {
@@ -53,6 +55,30 @@ describe("Clerk proxy perimeter", () => {
 
     expect(response.status).toBe(404);
     expect(await response.json()).toMatchObject({ reason: "clerk_disabled_protected_route" });
+  });
+
+  test("allows protected UI harness only with the local test flag and request header", async () => {
+    const originalHarness = process.env.PLAYWRIGHT_PROTECTED_UI_HARNESS;
+    const originalMode = process.env.CLERK_AUTH_MODE;
+    const originalContext = process.env.CLERK_DEPLOYMENT_CONTEXT;
+    try {
+      process.env.CLERK_AUTH_MODE = "disabled";
+      process.env.CLERK_DEPLOYMENT_CONTEXT = "local";
+      process.env.PLAYWRIGHT_PROTECTED_UI_HARNESS = "1";
+
+      const response = applyDisabledClerkRoutePolicy(
+        new NextRequest("https://asksiargao.test/settings", {
+          headers: { "x-ask-siargao-protected-ui-harness": "1" },
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(applyDisabledClerkRoutePolicy("/settings").status).toBe(404);
+    } finally {
+      restoreEnvValue("PLAYWRIGHT_PROTECTED_UI_HARNESS", originalHarness);
+      restoreEnvValue("CLERK_AUTH_MODE", originalMode);
+      restoreEnvValue("CLERK_DEPLOYMENT_CONTEXT", originalContext);
+    }
   });
 
   test("keeps Clerk frontend proxy traffic outside the application-route inventory", () => {
@@ -115,4 +141,13 @@ function protectRecorder() {
       this.protectCalls += 1;
     },
   };
+}
+
+function restoreEnvValue(name: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+
+  process.env[name] = value;
 }

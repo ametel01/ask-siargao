@@ -12,8 +12,20 @@ export type ClerkRoutePolicyEntry = {
 export const clerkRoutePolicyEntries = [
   page("src/app/page.tsx", "/", "public", "public chat-first landing page"),
   page("src/app/chat/page.tsx", "/chat", "public", "anonymous chat workspace"),
-  page("src/app/sign-in/[[...sign-in]]/page.tsx", "/sign-in", "public", "Clerk sign-in page"),
-  page("src/app/sign-up/[[...sign-up]]/page.tsx", "/sign-up", "public", "Clerk sign-up page"),
+  page(
+    "src/app/sign-in/[[...sign-in]]/page.tsx",
+    "/sign-in/[[...sign-in]]",
+    "public",
+    "Clerk sign-in page",
+    "Next optional catch-all segments remain public for Clerk callbacks and factors",
+  ),
+  page(
+    "src/app/sign-up/[[...sign-up]]/page.tsx",
+    "/sign-up/[[...sign-up]]",
+    "public",
+    "Clerk sign-up page",
+    "Next optional catch-all segments remain public for Clerk callbacks and verification",
+  ),
   page("src/app/settings/page.tsx", "/settings", "protected", "authenticated traveler settings"),
   page("src/app/profile/page.tsx", "/profile", "protected", "authenticated profile alias"),
   page(
@@ -219,9 +231,7 @@ function page(
     intent,
     pathPattern,
     routeFile,
-    samplePath: pathPattern.includes("[")
-      ? pathPattern.replace(/\[[^\]]+\]/g, "sample")
-      : pathPattern,
+    samplePath: samplePathForPattern(pathPattern),
     supplementalPolicy,
   };
 }
@@ -281,6 +291,18 @@ function publicApi(
   } satisfies ClerkRoutePolicyEntry;
 }
 
+function samplePathForPattern(pathPattern: string) {
+  if (pathPattern.includes("[[...")) {
+    return pathPattern.replace(/\/\[\[\.\.\.[^\]]+\]\]$/, "") || "/";
+  }
+
+  if (pathPattern.includes("[...")) {
+    return pathPattern.replace(/\[\.\.\.[^\]]+\]/g, "sample");
+  }
+
+  return pathPattern.includes("[") ? pathPattern.replace(/\[[^\]]+\]/g, "sample") : pathPattern;
+}
+
 function pathMatchesPattern(pathname: string, pattern: string) {
   const pathnameSegments = pathname.split("/").filter(Boolean);
   const patternSegments = pattern.split("/").filter(Boolean);
@@ -291,6 +313,10 @@ function pathMatchesPattern(pathname: string, pattern: string) {
 
     if (patternSegment?.startsWith("[...") && patternSegment.endsWith("]")) {
       return pathnameSegments.length >= index + 1;
+    }
+
+    if (patternSegment?.startsWith("[[...") && patternSegment.endsWith("]]")) {
+      return true;
     }
 
     if (!pathnameSegment) {

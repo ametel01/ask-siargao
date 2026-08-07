@@ -1,10 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const serverEnv =
-  "CLERK_AUTH_MODE=disabled NEXT_PUBLIC_CLERK_AUTH_MODE=disabled CLERK_DEPLOYMENT_CONTEXT=local NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY=";
+  "CLERK_AUTH_MODE=disabled NEXT_PUBLIC_CLERK_AUTH_MODE=disabled CLERK_DEPLOYMENT_CONTEXT=local PLAYWRIGHT_PROTECTED_UI_HARNESS=1 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY=";
 const isProductionPerformanceRun = process.env.PLAYWRIGHT_PRODUCTION_PERF === "1";
 const serverCommand = isProductionPerformanceRun
-  ? `${serverEnv} ./node_modules/.bin/next start --hostname 127.0.0.1 --port 3100`
+  ? `${serverEnv} bun run start -- --hostname 127.0.0.1 --port 3100`
   : `${serverEnv} bun run dev -- --hostname 127.0.0.1 --port 3100`;
 
 export default defineConfig({

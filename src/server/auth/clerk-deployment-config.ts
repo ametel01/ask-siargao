@@ -14,7 +14,9 @@ export type ClerkDeploymentEnv = Partial<
     | "CLERK_AUTHORIZED_PARTIES"
     | "CLERK_DEPLOYMENT_CONTEXT"
     | "CLERK_PRODUCTION_ORIGIN"
+    | "CLERK_PRODUCTION_VERCEL_URL"
     | "CLERK_PROTECTED_STAGING_ORIGIN"
+    | "CLERK_PROTECTED_STAGING_VERCEL_URL"
     | "CLERK_SECRET_KEY"
     | "CLERK_WEBHOOK_SIGNING_SECRET"
     | "NEXT_PUBLIC_APP_URL"
@@ -39,7 +41,9 @@ export type EnabledClerkDeploymentConfig = {
   context: ClerkDeploymentContext;
   mode: "enabled";
   productionOrigin?: string;
+  productionVercelUrl?: string;
   protectedStagingOrigin?: string;
+  protectedStagingVercelUrl?: string;
 };
 
 export type DisabledClerkDeploymentConfig = {
@@ -81,6 +85,7 @@ export function readClerkDeploymentConfig(
   const errors: ClerkConfigError[] = [];
   const context = resolveClerkDeploymentContext(env);
   validateExplicitDeploymentContext(env, errors);
+  validatePlatformContext(env, context, errors);
   const mode = readClerkMode(env, context, errors);
 
   if (!mode) {
@@ -97,10 +102,16 @@ export function readClerkDeploymentConfig(
   const canonicalOrigin = readRequiredOrigin(env, "NEXT_PUBLIC_APP_URL", context, errors);
   const authorizedParties = readAuthorizedParties(env, context, errors);
   const productionOrigin = readOptionalOrigin(env, "CLERK_PRODUCTION_ORIGIN", context, errors);
+  const productionVercelUrl = readOptionalVercelUrl(env, "CLERK_PRODUCTION_VERCEL_URL", errors);
   const protectedStagingOrigin = readOptionalOrigin(
     env,
     "CLERK_PROTECTED_STAGING_ORIGIN",
     context,
+    errors,
+  );
+  const protectedStagingVercelUrl = readOptionalVercelUrl(
+    env,
+    "CLERK_PROTECTED_STAGING_VERCEL_URL",
     errors,
   );
 
@@ -129,7 +140,10 @@ export function readClerkDeploymentConfig(
       context,
       errors,
       productionOrigin,
+      productionVercelUrl,
       protectedStagingOrigin,
+      protectedStagingVercelUrl,
+      vercelUrl: env.VERCEL_URL,
     });
   }
 
@@ -145,7 +159,9 @@ export function readClerkDeploymentConfig(
       context,
       mode,
       productionOrigin,
+      productionVercelUrl,
       protectedStagingOrigin,
+      protectedStagingVercelUrl,
     },
   };
 }
@@ -209,6 +225,45 @@ function validateExplicitDeploymentContext(env: ClerkDeploymentEnv, errors: Cler
       field: "CLERK_DEPLOYMENT_CONTEXT",
       message:
         "CLERK_DEPLOYMENT_CONTEXT must be local, test, build, preview, production, or protected-staging.",
+    });
+  }
+}
+
+function validatePlatformContext(
+  env: ClerkDeploymentEnv,
+  context: ClerkDeploymentContext,
+  errors: ClerkConfigError[],
+) {
+  if (env.VERCEL_ENV === "production" && context !== "production") {
+    errors.push({
+      code: "vercel_production_context_mismatch",
+      field: "CLERK_DEPLOYMENT_CONTEXT",
+      message: "Vercel production deployments must use CLERK_DEPLOYMENT_CONTEXT=production.",
+    });
+  }
+
+  if (env.VERCEL_ENV === "preview" && context !== "preview" && context !== "protected-staging") {
+    errors.push({
+      code: "vercel_preview_context_mismatch",
+      field: "CLERK_DEPLOYMENT_CONTEXT",
+      message:
+        "Vercel preview deployments may only use CLERK_DEPLOYMENT_CONTEXT=preview or protected-staging.",
+    });
+  }
+
+  if (context === "production" && hasEnvValue(env.VERCEL_ENV) && env.VERCEL_ENV !== "production") {
+    errors.push({
+      code: "production_platform_context_mismatch",
+      field: "VERCEL_ENV",
+      message: "Production Clerk deployments require VERCEL_ENV=production.",
+    });
+  }
+
+  if (context === "protected-staging" && env.VERCEL_ENV !== "preview") {
+    errors.push({
+      code: "protected_staging_platform_context_mismatch",
+      field: "VERCEL_ENV",
+      message: "Protected staging Clerk deployments require VERCEL_ENV=preview.",
     });
   }
 }
@@ -350,6 +405,18 @@ function readOptionalOrigin(
   return parseExactOrigin(env[field], field, context, errors) ?? undefined;
 }
 
+function readOptionalVercelUrl(
+  env: ClerkDeploymentEnv,
+  field: "CLERK_PRODUCTION_VERCEL_URL" | "CLERK_PROTECTED_STAGING_VERCEL_URL",
+  errors: ClerkConfigError[],
+) {
+  if (!hasEnvValue(env[field])) {
+    return undefined;
+  }
+
+  return parseExactVercelUrl(env[field], field, errors) ?? undefined;
+}
+
 function parseExactOrigin(
   value: string | undefined,
   field: string,
@@ -406,13 +473,62 @@ function parseExactOrigin(
   return url.origin;
 }
 
+function parseExactVercelUrl(value: string | undefined, field: string, errors: ClerkConfigError[]) {
+  const rawValue = value?.trim() ?? "";
+  if (!rawValue) {
+    return null;
+  }
+
+  if (rawValue.includes("*")) {
+    errors.push({
+      code: "wildcard_vercel_url_rejected",
+      field,
+      message: `${field} must be an exact Vercel deployment host; wildcards are not allowed.`,
+    });
+    return null;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(rawValue.includes("://") ? rawValue : `https://${rawValue}`);
+  } catch {
+    errors.push({
+      code: "invalid_vercel_url",
+      field,
+      message: `${field} must be an exact Vercel deployment host.`,
+    });
+    return null;
+  }
+
+  if (
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash ||
+    rawValue.endsWith("/")
+  ) {
+    errors.push({
+      code: "non_host_vercel_url_rejected",
+      field,
+      message: `${field} must not include credentials, paths, query strings, fragments, or a trailing slash.`,
+    });
+    return null;
+  }
+
+  return url.host;
+}
+
 function validateProtectedDeploymentOrigins(input: {
   authorizedParties: string[];
   canonicalOrigin: string | null;
   context: ClerkDeploymentContext;
   errors: ClerkConfigError[];
   productionOrigin: string | undefined;
+  productionVercelUrl: string | undefined;
   protectedStagingOrigin: string | undefined;
+  protectedStagingVercelUrl: string | undefined;
+  vercelUrl: string | undefined;
 }) {
   if (!input.productionOrigin) {
     input.errors.push({
@@ -427,6 +543,22 @@ function validateProtectedDeploymentOrigins(input: {
       code: "missing_protected_staging_origin",
       field: "CLERK_PROTECTED_STAGING_ORIGIN",
       message: "CLERK_PROTECTED_STAGING_ORIGIN is required for production and protected staging.",
+    });
+  }
+
+  if (input.context === "production" && !input.productionVercelUrl) {
+    input.errors.push({
+      code: "missing_production_vercel_url",
+      field: "CLERK_PRODUCTION_VERCEL_URL",
+      message: "CLERK_PRODUCTION_VERCEL_URL is required for production deployments.",
+    });
+  }
+
+  if (input.context === "protected-staging" && !input.protectedStagingVercelUrl) {
+    input.errors.push({
+      code: "missing_protected_staging_vercel_url",
+      field: "CLERK_PROTECTED_STAGING_VERCEL_URL",
+      message: "CLERK_PROTECTED_STAGING_VERCEL_URL is required for protected staging deployments.",
     });
   }
 
@@ -459,6 +591,39 @@ function validateProtectedDeploymentOrigins(input: {
       field: "CLERK_AUTHORIZED_PARTIES",
       message:
         "CLERK_AUTHORIZED_PARTIES must exactly match CLERK_PRODUCTION_ORIGIN and CLERK_PROTECTED_STAGING_ORIGIN.",
+    });
+  }
+
+  validateVercelDeploymentUrl(input);
+}
+
+function validateVercelDeploymentUrl(input: {
+  context: ClerkDeploymentContext;
+  errors: ClerkConfigError[];
+  productionVercelUrl: string | undefined;
+  protectedStagingVercelUrl: string | undefined;
+  vercelUrl: string | undefined;
+}) {
+  const vercelUrl = parseExactVercelUrl(input.vercelUrl, "VERCEL_URL", input.errors);
+  if (!vercelUrl) {
+    if (!hasEnvValue(input.vercelUrl)) {
+      input.errors.push({
+        code: "missing_vercel_deployment_url",
+        field: "VERCEL_URL",
+        message: `${input.context} deployments require the platform-provided VERCEL_URL.`,
+      });
+    }
+    return;
+  }
+
+  const expected =
+    input.context === "production" ? input.productionVercelUrl : input.protectedStagingVercelUrl;
+
+  if (expected && vercelUrl !== expected) {
+    input.errors.push({
+      code: "vercel_deployment_url_mismatch",
+      field: "VERCEL_URL",
+      message: "VERCEL_URL must match the exact configured protected deployment host.",
     });
   }
 }

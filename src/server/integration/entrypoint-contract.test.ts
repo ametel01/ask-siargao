@@ -124,7 +124,7 @@ describe("integration entry-point contracts", () => {
     expect(playwrightConfig).toContain(
       'outputDir: isProductionPerformanceRun ? "test-results/production-perf" : "test-results"',
     );
-    expect(playwrightConfig).toContain("next start --hostname 127.0.0.1 --port 3100");
+    expect(playwrightConfig).toContain("bun run start -- --hostname 127.0.0.1 --port 3100");
     expect(playwrightConfig).toContain("bun run dev -- --hostname 127.0.0.1 --port 3100");
     expect(chatE2E.match(/@production-perf/g)?.length).toBe(1);
   });
