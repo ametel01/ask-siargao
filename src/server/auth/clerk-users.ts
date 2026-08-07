@@ -4,6 +4,7 @@ import type { UserJSON, UserWebhookEvent } from "@clerk/backend";
 import { auth } from "@clerk/nextjs/server";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
+import { beginAccountClosure, readAccountClosurePolicy } from "@/server/privacy/account-closure";
 
 const accountClosureSubjectHashVersion = 1;
 const accountClosurePolicyVersion = "account-closure-v1";
@@ -214,61 +215,16 @@ export async function upsertClerkUser(user: ClerkUserInput, db: DatabaseQueryCli
 }
 
 export async function anonymizeDeletedClerkUser(userId: string, db: DatabaseQueryClient) {
-  const now = new Date();
-  await withDatabaseTransaction(db, async (transaction) => {
-    const tombstone = await recordClosureTombstoneForClerkUserInTransaction(
-      {
-        userId,
-        now,
-      },
-      transaction,
-    );
-    await transaction.query(
-      `
-        insert into account_closure_operations (
-          id,
-          tombstone_id,
-          operation_type,
-          status,
-          attempts,
-          created_at,
-          updated_at
-        )
-        values ($1, $2, 'clerk_deletion_identity_sync', 'pending', 0, $3, $3)
-        on conflict (id) do update set
-          tombstone_id = excluded.tombstone_id,
-          updated_at = excluded.updated_at
-      `,
-      [`closure_operation_${tombstone.subjectHash.slice(0, 32)}`, tombstone.id, now],
-    );
-    await transaction.query(
-      `
-        insert into users (
-          id,
-          email,
-          first_name,
-          last_name,
-          image_url,
-          clerk_updated_at,
-          last_seen_at,
-          deleted_at,
-          created_at,
-          updated_at
-        )
-        values ($1, null, null, null, null, null, null, $2, $2, $2)
-        on conflict (id) do update set
-          email = null,
-          first_name = null,
-          last_name = null,
-          image_url = null,
-          clerk_updated_at = null,
-          last_seen_at = null,
-          deleted_at = coalesce(users.deleted_at, excluded.deleted_at),
-          updated_at = excluded.updated_at
-      `,
-      [userId, now],
-    );
-  });
+  await beginAccountClosure(
+    {
+      allowMissingUser: true,
+      clerkDeletionConfirmed: true,
+      now: new Date(),
+      operationType: "clerk_deletion_identity_sync",
+      userId,
+    },
+    { db, policy: readAccountClosurePolicy() },
+  );
 }
 
 export async function touchClerkUserSessionPresence(

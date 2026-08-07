@@ -8,6 +8,7 @@ import {
   resetTestDatabase,
   runInitialMigration,
 } from "@/server/db/test-database";
+import { beginAccountClosure } from "@/server/privacy/account-closure";
 import { applyTripPassStripeEvent } from "@/server/trip-pass/webhook-application";
 
 const now = new Date("2026-07-03T08:00:00.000Z");
@@ -119,6 +120,39 @@ describe("Trip Pass Stripe webhook application", () => {
       await expectOrderStatus(db, "order_failed", "failed");
       await expectOrderStatus(db, "order_expired", "expired");
       await expectCounts(db, { passes: "0", grants: "0", meters: "0" });
+    });
+  });
+
+  test("classifies authoritative payment after closure and creates one refund without access", async () => {
+    await withTestDb(async (db) => {
+      await insertCheckoutCreatedOrder(db, "order_closed", "user_closed");
+      await beginAccountClosure(
+        { userId: "user_closed", now },
+        {
+          db,
+          policy: closurePolicy,
+          createId: (prefix) => `${prefix}_webhook`,
+        },
+      );
+      const event = checkoutSessionEvent("evt_closed_paid", "order_closed", {
+        created: Math.floor(now.getTime() / 1_000) + 60,
+      });
+
+      await expect(applyTripPassStripeEvent(event, { db, env, now })).resolves.toMatchObject({
+        status: "applied",
+        action: "paid_after_closure",
+      });
+      await expect(applyTripPassStripeEvent(event, { db, env, now })).resolves.toMatchObject({
+        status: "duplicate",
+      });
+      await expectCounts(db, { passes: "0", grants: "0", meters: "0" });
+      expect(
+        (
+          await db.query<{ count: string }>(
+            "select count(*)::text as count from account_closure_refund_obligations where order_id = 'order_closed'",
+          )
+        ).rows[0]?.count,
+      ).toBe("1");
     });
   });
 
@@ -275,6 +309,7 @@ function checkoutSessionEvent(
     paymentStatus?: Stripe.Checkout.Session.PaymentStatus;
     sessionId?: string;
     type?: string;
+    created?: number;
   } = {},
 ) {
   const metadata = {
@@ -286,6 +321,7 @@ function checkoutSessionEvent(
 
   return {
     id: eventId,
+    created: options.created,
     object: "event",
     type: options.type ?? "checkout.session.completed",
     data: {
@@ -301,6 +337,18 @@ function checkoutSessionEvent(
     },
   } as unknown as Stripe.Event;
 }
+
+const closurePolicy = {
+  alertAfterAttempts: 2,
+  closurePolicyVersion: "closure-test-v1",
+  closureRetentionMs: 86_400_000,
+  commercePolicyVersion: "commerce-test-v1",
+  commerceRetentionMs: 86_400_000,
+  providerSubjectEncryptionKey: Buffer.alloc(32, 9).toString("base64"),
+  providerSubjectEncryptionKeyVersion: 1,
+  tombstoneHashKey: "closure-test-key",
+  tombstoneHashVersion: 1,
+};
 
 function refundEvent(eventId: string, paymentIntentId: string) {
   return {

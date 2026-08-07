@@ -15,7 +15,7 @@ export type TripPassStripeApplicationResult =
   | { status: "duplicate"; orderId: string; stripeEventId: string }
   | {
       status: "applied";
-      action: "activated" | "failed" | "expired" | "refunded" | "disputed";
+      action: "activated" | "failed" | "expired" | "refunded" | "disputed" | "paid_after_closure";
       orderId: string;
       stripeEventId: string;
     }
@@ -31,6 +31,8 @@ type TripPassOrderRow = {
   stripe_price_id: string;
   stripe_checkout_session_id: string | null;
   stripe_payment_intent_id: string | null;
+  closure_tombstone_id: string | null;
+  closure_outcome: string | null;
 };
 
 export async function applyTripPassStripeEvent(
@@ -135,6 +137,9 @@ async function applyCheckoutSessionEvent(
       stripeEventId: event.id,
     };
   }
+  if (order.closure_tombstone_id) {
+    return applyClosedAccountPayment({ db, event, now, order, session });
+  }
   if (order.status === "paid") {
     return { status: "duplicate", orderId: order.id, stripeEventId: event.id };
   }
@@ -189,6 +194,114 @@ async function applyCheckoutSessionEvent(
     action: "activated",
     orderId: order.id,
     stripeEventId: event.id,
+  };
+}
+
+async function applyClosedAccountPayment(input: {
+  db: DatabaseQueryClient;
+  event: Stripe.Event;
+  now: Date;
+  order: TripPassOrderRow;
+  session: Stripe.Checkout.Session;
+}): Promise<TripPassStripeApplicationResult> {
+  if (input.order.closure_outcome === "paid_after_closure") {
+    return {
+      status: "duplicate",
+      orderId: input.order.id,
+      stripeEventId: input.event.id,
+    };
+  }
+  if (!Number.isFinite(input.event.created)) {
+    return {
+      status: "rejected",
+      reason: "missing_authoritative_completion_time",
+      orderId: input.order.id,
+      stripeEventId: input.event.id,
+    };
+  }
+  const tombstone = await input.db.query<{
+    closed_at: Date | string;
+    commerce_policy_version: string | null;
+  }>(
+    `
+      select t.closed_at, o.commerce_policy_version
+      from account_closure_tombstones t
+      join account_closure_operations o on o.tombstone_id = t.id
+      where t.id = $1
+      order by o.created_at asc
+      limit 1
+    `,
+    [input.order.closure_tombstone_id],
+  );
+  const closure = tombstone.rows[0];
+  if (!closure) {
+    return {
+      status: "rejected",
+      reason: "closure_state_missing",
+      orderId: input.order.id,
+      stripeEventId: input.event.id,
+    };
+  }
+  const completedAt = new Date(input.event.created * 1_000);
+  const closedAt = new Date(closure.closed_at);
+  const isPaidAfterClosure = completedAt.getTime() > closedAt.getTime();
+  const paymentIntentId = paymentIntentIdFromCheckoutSession(input.session);
+  if (!isPaidAfterClosure) {
+    await input.db.query(
+      `update trip_pass_orders set status = 'paid', user_id = null, email = null,
+        stripe_customer_id = null, metadata_json = '{}'::jsonb,
+        stripe_checkout_session_id = $2, stripe_payment_intent_id = $3,
+        completed_at = $4, updated_at = $5
+       where id = $1`,
+      [input.order.id, input.session.id, paymentIntentId, completedAt, input.now],
+    );
+    return {
+      status: "noop",
+      reason: "activation_blocked_by_account_closure",
+      orderId: input.order.id,
+      stripeEventId: input.event.id,
+    };
+  }
+
+  const obligationId = `closure_refund_${input.order.id}`;
+  await withDatabaseTransaction(input.db, async (transaction) => {
+    await transaction.query(
+      `
+        insert into account_closure_refund_obligations (
+          id, tombstone_id, order_id, stripe_event_id, reason, status,
+          attempts, policy_version, created_at, updated_at
+        ) values ($1, $2, $3, $4, 'paid_after_closure', 'pending', 0, $5, $6, $6)
+        on conflict (order_id) do update set
+          stripe_event_id = coalesce(account_closure_refund_obligations.stripe_event_id,
+            excluded.stripe_event_id),
+          updated_at = excluded.updated_at
+      `,
+      [
+        obligationId,
+        input.order.closure_tombstone_id,
+        input.order.id,
+        input.event.id,
+        closure.commerce_policy_version ?? "closure-commerce-policy-unset",
+        input.now,
+      ],
+    );
+    await transaction.query(
+      `
+        update trip_pass_orders
+        set status = 'paid', user_id = null, email = null, stripe_customer_id = null,
+          metadata_json = '{}'::jsonb, stripe_checkout_session_id = $2,
+          stripe_payment_intent_id = $3, closure_outcome = 'paid_after_closure',
+          closure_refund_obligation_id = $4, completed_at = $5, updated_at = $6
+        where id = $1
+      `,
+      [input.order.id, input.session.id, paymentIntentId, obligationId, completedAt, input.now],
+    );
+  });
+  return {
+    status: "applied",
+    action: "paid_after_closure",
+    orderId: input.order.id,
+    stripeEventId: input.event.id,
   };
 }
 
@@ -342,7 +455,9 @@ async function loadOrderById(orderId: string, db: DatabaseQueryClient) {
         product_version,
         stripe_price_id,
         stripe_checkout_session_id,
-        stripe_payment_intent_id
+        stripe_payment_intent_id,
+        closure_tombstone_id,
+        closure_outcome
       from trip_pass_orders
       where id = $1
       limit 1
@@ -365,7 +480,9 @@ async function loadOrderByPaymentIntent(paymentIntentId: string, db: DatabaseQue
         product_version,
         stripe_price_id,
         stripe_checkout_session_id,
-        stripe_payment_intent_id
+        stripe_payment_intent_id,
+        closure_tombstone_id,
+        closure_outcome
       from trip_pass_orders
       where stripe_payment_intent_id = $1
       limit 1
@@ -407,6 +524,22 @@ async function markOrderPaid(
     `,
     [input.orderId, input.sessionId, input.paymentIntentId, input.now],
   );
+}
+
+async function withDatabaseTransaction<T>(
+  db: DatabaseQueryClient,
+  callback: (transaction: DatabaseQueryClient) => Promise<T>,
+) {
+  if (db.transaction) return db.transaction(callback);
+  await db.query("begin");
+  try {
+    const result = await callback(db);
+    await db.query("commit");
+    return result;
+  } catch (error) {
+    await db.query("rollback").catch(() => undefined);
+    throw error;
+  }
 }
 
 function isCheckoutSessionEvent(event: Stripe.Event) {

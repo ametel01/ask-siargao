@@ -81,6 +81,10 @@ export const accountClosureOperations = pgTable(
     attempts: integer("attempts").notNull().default(0),
     lastErrorCode: text("last_error_code"),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    phaseOneCommittedAt: timestamp("phase_one_committed_at", { withTimezone: true }),
+    closurePolicyVersion: text("closure_policy_version"),
+    commercePolicyVersion: text("commerce_policy_version"),
+    alertAfterAttempts: integer("alert_after_attempts").notNull().default(3),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -101,11 +105,160 @@ export const accountClosureOperations = pgTable(
     ),
     check("account_closure_operations_attempts_check", sql`${table.attempts} >= 0`),
     check(
+      "account_closure_operations_alert_after_attempts_check",
+      sql`${table.alertAfterAttempts} > 0`,
+    ),
+    check(
       "account_closure_operations_completed_at_check",
       sql`${table.completedAt} is null or ${table.completedAt} >= ${table.createdAt}`,
     ),
   ],
 );
+
+export const accountClosureSteps = pgTable(
+  "account_closure_steps",
+  {
+    id: text("id").primaryKey(),
+    operationId: text("operation_id")
+      .notNull()
+      .references(() => accountClosureOperations.id, { onDelete: "cascade" }),
+    stepType: text("step_type").notNull(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    leaseToken: text("lease_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    lastErrorCategory: text("last_error_category"),
+    alertedAt: timestamp("alerted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("account_closure_steps_operation_step_key").on(table.operationId, table.stepType),
+    index("account_closure_steps_due_idx").on(
+      table.status,
+      table.nextAttemptAt,
+      table.leaseExpiresAt,
+      table.id,
+    ),
+    check(
+      "account_closure_steps_type_check",
+      sql`${table.stepType} in ('clerk_deletion', 'checkout_expiry', 'local_erasure', 'commerce_minimization', 'identity_erasure')`,
+    ),
+    check(
+      "account_closure_steps_status_check",
+      sql`${table.status} in ('pending', 'running', 'succeeded')`,
+    ),
+    check("account_closure_steps_attempts_check", sql`${table.attempts} >= 0`),
+  ],
+);
+
+export const accountClosureProviderSubjects = pgTable("account_closure_provider_subjects", {
+  operationId: text("operation_id")
+    .primaryKey()
+    .references(() => accountClosureOperations.id, { onDelete: "cascade" }),
+  ciphertext: text("ciphertext").notNull(),
+  iv: text("iv").notNull(),
+  authTag: text("auth_tag").notNull(),
+  keyVersion: integer("key_version").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const accountClosureCheckoutSessions = pgTable(
+  "account_closure_checkout_sessions",
+  {
+    operationId: text("operation_id")
+      .notNull()
+      .references(() => accountClosureOperations.id, { onDelete: "cascade" }),
+    stripeCheckoutSessionId: text("stripe_checkout_session_id").notNull(),
+    status: text("status").notNull().default("pending"),
+    lastErrorCategory: text("last_error_category"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.operationId, table.stripeCheckoutSessionId] })],
+);
+
+export const retainedCommerceEvidence = pgTable(
+  "retained_commerce_evidence",
+  {
+    id: text("id").primaryKey(),
+    tombstoneId: text("tombstone_id")
+      .notNull()
+      .references(() => accountClosureTombstones.id),
+    sourceType: text("source_type").notNull(),
+    sourceRef: text("source_ref").notNull(),
+    amountMinor: integer("amount_minor"),
+    currency: text("currency"),
+    productCode: text("product_code"),
+    productVersion: integer("product_version"),
+    productFamily: text("product_family"),
+    lifecycleStatus: text("lifecycle_status").notNull(),
+    stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+    stripePaymentIntentId: text("stripe_payment_intent_id"),
+    stripeEventId: text("stripe_event_id"),
+    policyVersion: text("policy_version").notNull(),
+    consentPolicyVersions: jsonb("consent_policy_versions")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    aggregateServiceFacts: jsonb("aggregate_service_facts")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }),
+    retentionExpiresAt: timestamp("retention_expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("retained_commerce_evidence_source_key").on(table.sourceType, table.sourceRef),
+    index("retained_commerce_evidence_tombstone_idx").on(
+      table.tombstoneId,
+      table.retentionExpiresAt,
+    ),
+  ],
+);
+
+export const accountClosureRefundObligations = pgTable(
+  "account_closure_refund_obligations",
+  {
+    id: text("id").primaryKey(),
+    tombstoneId: text("tombstone_id")
+      .notNull()
+      .references(() => accountClosureTombstones.id),
+    orderId: text("order_id").notNull().unique(),
+    stripeEventId: text("stripe_event_id"),
+    reason: text("reason").notNull(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    leaseToken: text("lease_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    lastErrorCategory: text("last_error_category"),
+    policyVersion: text("policy_version").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("account_closure_refund_obligations_due_idx").on(
+      table.status,
+      table.nextAttemptAt,
+      table.leaseExpiresAt,
+      table.id,
+    ),
+  ],
+);
+
+export const privacyRestoreGuardState = pgTable("privacy_restore_guard_state", {
+  id: text("id").primaryKey(),
+  privacySnapshotVersion: text("privacy_snapshot_version").notNull(),
+  sourceMaxClosedAt: timestamp("source_max_closed_at", { withTimezone: true }).notNull(),
+  appliedAt: timestamp("applied_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const accountClosureWriteBarriers = pgTable(
   "account_closure_write_barriers",
@@ -441,6 +594,11 @@ export const tripPassOrders = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    closureTombstoneId: text("closure_tombstone_id").references(() => accountClosureTombstones.id),
+    closureOutcome: text("closure_outcome"),
+    closureRefundObligationId: text("closure_refund_obligation_id").references(
+      () => accountClosureRefundObligations.id,
+    ),
   },
   (table) => [
     index("trip_pass_orders_user_status_created_at_idx").on(
@@ -466,6 +624,10 @@ export const tripPassOrders = pgTable(
     check(
       "trip_pass_orders_completed_at_check",
       sql`${table.completedAt} is null or ${table.completedAt} >= ${table.createdAt}`,
+    ),
+    check(
+      "trip_pass_orders_closure_outcome_check",
+      sql`${table.closureOutcome} is null or ${table.closureOutcome} in ('blocked_at_closure', 'paid_after_closure')`,
     ),
   ],
 );
@@ -521,8 +683,8 @@ export const tripUsageEvents = pgTable(
     eventType: text("event_type").notNull(),
     meterType: text("meter_type").notNull(),
     quantity: integer("quantity").notNull(),
-    idempotencyKey: text("idempotency_key").notNull().unique(),
-    requestId: text("request_id").notNull(),
+    idempotencyKey: text("idempotency_key").unique(),
+    requestId: text("request_id"),
     requestHash: text("request_hash"),
     providerRequestIdsJson: jsonb("provider_request_ids_json")
       .$type<string[]>()
