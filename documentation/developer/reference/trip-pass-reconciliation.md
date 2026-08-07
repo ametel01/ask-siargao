@@ -31,6 +31,12 @@ Paid Answer Reservations use their own durable database-time lease and are recov
 chat reservation boundary. The `trip_usage_events` stale-reservation repair above remains for
 legacy and secondary-meter events; it is not the commercial `chat_message` reservation ledger.
 
+Retention purge failures are isolated per reservation. After the failed purge transaction rolls
+back, a separate Family → Account → reservation transaction records a database-time retry deadline,
+bounded failure count, and redacted failure category. Due retries remain eligible, while the
+backoff ordering lets later unattempted rows progress through bounded batches. The reservation is
+marked purged only when its one exact settled usage event is scrubbed in the same transaction.
+
 The service does not transfer ownership, create grants for ownerless paid
 orders, merge duplicate grants, change refunded or disputed state, reprice
 historic orders, or reconstruct prompts/provider payloads.
@@ -62,6 +68,12 @@ event insert. A correctly linked event whose per-request fields were policy-purg
 because its quantity and ledger identity survive. This issue is audit-only in both dry-run and
 repair modes: reconciliation does not fabricate a usage event, and the warning remains until the
 exact durable event is restored through an audited ledger correction.
+
+Reservation-originated integrity and Usage-event diagnostics are read in deterministic ID-keyset
+pages until exhaustion. The 500-row page size bounds each query; it is not a result cap, so older
+settled answers remain visible and rows at page boundaries are neither skipped nor duplicated.
+Other issue collectors are also exhaustive; only support-summary lookups retain their intentional
+ten-reference presentation cap.
 
 Operational concurrency leases and budget reservation state are held in the shared quota store.
 The quota store expires stale entries internally but does not expose a read API for operator

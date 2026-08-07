@@ -836,6 +836,10 @@ export const paidAnswerReservations = pgTable(
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }).notNull(),
     detailsPurgeAt: timestamp("details_purge_at", { withTimezone: true }).notNull(),
     detailsPurgedAt: timestamp("details_purged_at", { withTimezone: true }),
+    purgeAttemptedAt: timestamp("purge_attempted_at", { withTimezone: true }),
+    purgeRetryAt: timestamp("purge_retry_at", { withTimezone: true }),
+    purgeFailureCount: integer("purge_failure_count").notNull().default(0),
+    purgeLastError: text("purge_last_error"),
     reservedAt: timestamp("reserved_at", { withTimezone: true }).notNull().defaultNow(),
     finalizedAt: timestamp("finalized_at", { withTimezone: true }),
     releasedAt: timestamp("released_at", { withTimezone: true }),
@@ -856,7 +860,13 @@ export const paidAnswerReservations = pgTable(
       .on(table.tripPassId, table.usageMeterId, table.leaseExpiresAt)
       .where(sql`${table.status} = 'open'`),
     index("paid_answer_reservations_details_purge_idx")
-      .on(table.detailsPurgeAt, table.id)
+      .using(
+        "btree",
+        sql`(coalesce(${table.purgeRetryAt}, ${table.detailsPurgeAt}))`,
+        table.accountId,
+        table.detailsPurgeAt,
+        table.id,
+      )
       .where(sql`${table.detailsPurgedAt} is null`),
     check(
       "paid_answer_reservations_status_check",
@@ -877,6 +887,14 @@ export const paidAnswerReservations = pgTable(
     check(
       "paid_answer_reservations_purge_order_check",
       sql`${table.reservedAt} < ${table.detailsPurgeAt}`,
+    ),
+    check(
+      "paid_answer_reservations_purge_failure_count_check",
+      sql`${table.purgeFailureCount} >= 0`,
+    ),
+    check(
+      "paid_answer_reservations_purge_last_error_check",
+      sql`${table.purgeLastError} is null or ${table.purgeLastError} in ('usage_event_integrity', 'purge_failed')`,
     ),
   ],
 );

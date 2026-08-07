@@ -50,6 +50,7 @@ export type PaidAnswerFinalizationResult =
 export type PaidAnswerPurgeFailure = {
   cause: unknown;
   reservationId: string;
+  retryScheduled: boolean;
 };
 
 export class PaidAnswerPurgeBatchError extends Error {
@@ -394,7 +395,8 @@ export async function purgeExpiredPaidAnswerDetails(
      from paid_answer_reservations
      where details_purged_at is null and details_purge_at <= clock_timestamp()
        and status <> 'open'
-     order by account_id, details_purge_at, id
+       and (purge_retry_at is null or purge_retry_at <= clock_timestamp())
+     order by coalesce(purge_retry_at, details_purge_at), account_id, details_purge_at, id
      limit $1`,
     [limit],
   );
@@ -404,7 +406,21 @@ export async function purgeExpiredPaidAnswerDetails(
     try {
       purged += await purgePaidAnswerCandidate(candidate, db);
     } catch (cause) {
-      failures.push({ cause, reservationId: candidate.id });
+      let reportedCause = cause;
+      let retryScheduled = false;
+      try {
+        retryScheduled = await schedulePaidAnswerPurgeRetry(candidate, cause, db);
+      } catch (scheduleCause) {
+        reportedCause = new AggregateError(
+          [cause, scheduleCause],
+          "paid answer purge failed and retry scheduling also failed",
+        );
+      }
+      failures.push({
+        cause: reportedCause,
+        reservationId: candidate.id,
+        retryScheduled,
+      });
     }
   }
   if (failures.length > 0) {
@@ -424,6 +440,7 @@ async function purgePaidAnswerCandidate(
        from paid_answer_reservations
        where id = $1 and account_id = $2 and details_purged_at is null
          and details_purge_at <= clock_timestamp() and status <> 'open'
+         and (purge_retry_at is null or purge_retry_at <= clock_timestamp())
        for update`,
       [candidate.id, candidate.account_id],
     );
@@ -472,6 +489,7 @@ async function purgePaidAnswerCandidate(
        set request_body_hash = 'purged:' || id, request_id = 'purged:' || id,
          idempotency_key_hash = 'purged:' || id, answer_message_id = null, result_json = null,
          provider_request_ids_json = '[]'::jsonb, details_purged_at = clock_timestamp(),
+         purge_retry_at = null, purge_last_error = null,
          updated_at = clock_timestamp()
        where id = $1 and account_id = $2 and details_purged_at is null
        returning id`,
@@ -479,6 +497,41 @@ async function purgePaidAnswerCandidate(
     );
     return result.rows.length;
   });
+}
+
+async function schedulePaidAnswerPurgeRetry(
+  candidate: PaidAnswerPurgeCandidateRow,
+  cause: unknown,
+  db: DatabaseQueryClient,
+) {
+  return withTransaction(db, async (transaction) => {
+    await acquireAccountProductFamilyLocks(candidate.account_id, transaction);
+    const result = await transaction.query<{ id: string }>(
+      `update paid_answer_reservations
+       set purge_attempted_at = clock_timestamp(),
+         purge_retry_at = clock_timestamp() + case
+           when purge_failure_count >= 8 then interval '4 hours'
+           else interval '1 minute' * power(2, purge_failure_count)
+         end,
+         purge_failure_count = purge_failure_count + 1,
+         purge_last_error = $3,
+         updated_at = clock_timestamp()
+       where id = $1 and account_id = $2 and details_purged_at is null
+         and details_purge_at <= clock_timestamp() and status <> 'open'
+         and (purge_retry_at is null or purge_retry_at <= clock_timestamp())
+       returning id`,
+      [candidate.id, candidate.account_id, classifyPurgeFailure(cause)],
+    );
+    return result.rows.length === 1;
+  });
+}
+
+function classifyPurgeFailure(cause: unknown) {
+  return cause instanceof Error &&
+    (cause.message.startsWith("paid answer usage event scrub expected") ||
+      cause.message.startsWith("non-settled paid answer expected"))
+    ? "usage_event_integrity"
+    : "purge_failed";
 }
 
 async function loadEffectiveMeterForUpdate(accountId: string, db: DatabaseQueryClient) {

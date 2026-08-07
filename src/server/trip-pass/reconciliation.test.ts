@@ -349,6 +349,9 @@ describe("Trip Pass reconciliation", () => {
 
       await db.query("drop trigger fail_reconciliation_event_purge on trip_usage_events");
       await db.query("drop function fail_reconciliation_event_purge()");
+      await db.query(
+        `update paid_answer_reservations set purge_retry_at = clock_timestamp() - interval '1 second'`,
+      );
       await expect(purgeExpiredPaidAnswerDetails(db)).resolves.toBe(1);
       await db.query(`update trip_usage_events set idempotency_key = $2 where id = $1`, [
         "trip_usage_event_reservation_purged_adversarial",
@@ -470,6 +473,72 @@ describe("Trip Pass reconciliation", () => {
         "reservation_integrity_conflict",
         "reservation_integrity_mismatch",
       ]);
+    });
+  });
+
+  test("keyset-pages every settled paid answer and usage event without an audit blind spot", async () => {
+    await withTestDb(async (db) => {
+      await insertSettledPaidAnswerWithoutProviderIds(db, "pagination_seed");
+      await db.query(
+        `update trip_usage_events
+         set provider_request_ids_json = '["provider-pagination"]'::jsonb
+         where id = 'trip_usage_event_reservation_pagination_seed'`,
+      );
+      await db.query(
+        `insert into paid_answer_reservations (
+           id, trip_pass_id, usage_meter_id, account_id, idempotency_key_hash,
+           request_body_hash, request_id, lease_token, status, provider_request_ids_json,
+           lease_expires_at, details_purge_at, reserved_at, finalized_at, updated_at
+         )
+         select 'reservation_page_' || lpad(page::text, 4, '0'), trip_pass_id,
+           usage_meter_id, account_id, 'key_page_' || page, 'body_page_' || page,
+           'request_page_' || page, 'lease_page_' || page, 'settled',
+           '["provider-pagination"]'::jsonb, lease_expires_at, details_purge_at,
+           reserved_at, finalized_at, updated_at
+         from paid_answer_reservations cross join generate_series(0, 501) page
+         where id = 'reservation_pagination_seed'`,
+      );
+      await db.query(
+        `insert into trip_usage_events (
+           id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+           idempotency_key, request_id, request_hash, provider_request_ids_json,
+           occurred_at, created_at
+         )
+         select 'trip_usage_event_' || id, trip_pass_id, usage_meter_id, account_id,
+           'settled', 'chat_message', 1, 'paid-answer:' || id, request_id,
+           request_body_hash, '["provider-pagination"]'::jsonb, finalized_at, finalized_at
+         from paid_answer_reservations
+         where id like 'reservation_page_%'
+           and id not in ('reservation_page_0000', 'reservation_page_0499')`,
+      );
+      await db.query(
+        `update paid_answer_reservations
+         set request_body_hash = 'purged:' || id, request_id = 'purged:' || id,
+           idempotency_key_hash = 'purged:' || id, provider_request_ids_json = '[]'::jsonb,
+           details_purged_at = clock_timestamp()
+         where id = 'reservation_page_0501'`,
+      );
+      await db.query(
+        `update trip_usage_events
+         set request_id = null, request_hash = null, provider_request_ids_json = '[]'::jsonb
+         where id = 'trip_usage_event_reservation_page_0501'`,
+      );
+
+      for (const mode of ["dry_run", "repair"] as const) {
+        const snapshot = await reconcileTripPassState({
+          confirmMutation: mode === "repair",
+          db,
+          env,
+          mode,
+          now,
+          scope: { passId: "trip_pass_pagination_seed" },
+        });
+        expect(paidAnswerIntegrityIssues(snapshot)).toEqual([
+          "reservation_page_0000",
+          "reservation_page_0499",
+        ]);
+        expect(missingProviderIssues(snapshot)).toEqual([]);
+      }
     });
   });
 });

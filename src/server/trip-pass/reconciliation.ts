@@ -16,6 +16,7 @@ import { grantTripPass } from "@/server/trip-pass/entitlement";
 
 const defaultStaleOrderMs = 30 * 60 * 1000;
 const defaultStaleReservationMs = 10 * 60 * 1000;
+const reconciliationPageSize = 500;
 const tripPassLedgerMeterTypeSet = new Set<string>(tripPassLedgerMeterTypes);
 
 export type TripPassReconciliationMode = "dry_run" | "repair";
@@ -785,7 +786,6 @@ async function loadStuckPendingOrders(
         and created_at < $1
         ${clause}
       order by created_at asc
-      limit 50
     `,
     [staleCutoff, ...params],
   );
@@ -813,7 +813,6 @@ async function loadPaidOrdersWithoutPass(
         o.stripe_price_id, o.created_at, o.updated_at, o.completed_at
       having count(g.id) = 0 or count(p.id) = 0
       order by o.completed_at desc nulls last, o.created_at desc
-      limit 50
     `,
     params,
   );
@@ -838,7 +837,6 @@ async function loadDuplicateOrderGrants(
       group by o.id
       having count(g.id) > 1
       order by o.id
-      limit 50
     `,
     params,
   );
@@ -858,7 +856,6 @@ async function loadRevokedPasses(
       where (status in ('cancelled', 'refunded') or expires_at < $1)
         ${clause}
       order by updated_at desc
-      limit 50
     `,
     [now, ...params],
   );
@@ -909,7 +906,6 @@ async function loadPassesMissingMeters(
       from pass_meter_counts
       where meter_count <> expected_meter_count
       order by created_at desc
-      limit 50
     `,
     [...params, tripPassMeterTypes.length],
   );
@@ -975,7 +971,6 @@ async function loadMeterAggregateMismatches(
       group by m.trip_pass_id, m.meter_type, m.used
       having m.used <> coalesce(sum(case when e.event_type = 'settled' then e.quantity else 0 end), 0)
       order by m.trip_pass_id, m.meter_type
-      limit 50
     `,
     params,
   );
@@ -983,9 +978,19 @@ async function loadMeterAggregateMismatches(
 }
 
 async function loadUsageEvents(db: DatabaseQueryClient, scope: TripPassReconciliationScope) {
-  const { clause, params } = scopeWhere(scope, "p", 1);
-  const result = await db.query<UsageEventRow>(
-    `
+  const rows: UsageEventRow[] = [];
+  let cursor: string | null = null;
+  do {
+    const { clause, params } = scopeWhere(scope, "p", 1);
+    const queryParams = [...params];
+    let cursorClause = "";
+    if (cursor !== null) {
+      queryParams.push(cursor);
+      cursorClause = `and e.id > $${queryParams.length}`;
+    }
+    queryParams.push(reconciliationPageSize);
+    const result = await db.query<UsageEventRow>(
+      `
       select
         e.id, e.trip_pass_id, e.usage_meter_id, e.user_id, e.event_type, e.meter_type,
         e.quantity, e.idempotency_key, e.request_id, e.request_hash,
@@ -1005,21 +1010,36 @@ async function loadUsageEvents(db: DatabaseQueryClient, scope: TripPassReconcili
         and e.meter_type = 'chat_message'
       where true
         ${clause}
-      order by e.created_at desc
-      limit 500
+        ${cursorClause}
+      order by e.id
+      limit $${queryParams.length}
     `,
-    params,
-  );
-  return result.rows;
+      queryParams,
+    );
+    rows.push(...result.rows);
+    cursor = result.rows.at(-1)?.id ?? null;
+    if (result.rows.length < reconciliationPageSize) break;
+  } while (cursor !== null);
+  return rows;
 }
 
 async function loadSettledPaidAnswerIntegrity(
   db: DatabaseQueryClient,
   scope: TripPassReconciliationScope,
 ) {
-  const { clause, params } = scopeWhere(scope, "p", 1);
-  const result = await db.query<SettledPaidAnswerIntegrityRow>(
-    `
+  const rows: SettledPaidAnswerIntegrityRow[] = [];
+  let cursor: string | null = null;
+  do {
+    const { clause, params } = scopeWhere(scope, "p", 1);
+    const queryParams = [...params];
+    let cursorClause = "";
+    if (cursor !== null) {
+      queryParams.push(cursor);
+      cursorClause = `and r.id > $${queryParams.length}`;
+    }
+    queryParams.push(reconciliationPageSize);
+    const result = await db.query<SettledPaidAnswerIntegrityRow>(
+      `
       select
         r.id,
         r.trip_pass_id,
@@ -1043,12 +1063,17 @@ async function loadSettledPaidAnswerIntegrity(
         and e.meter_type = 'chat_message'
       where r.status = 'settled'
         ${clause}
-      order by r.finalized_at desc, r.id
-      limit 500
+        ${cursorClause}
+      order by r.id
+      limit $${queryParams.length}
     `,
-    params,
-  );
-  return result.rows;
+      queryParams,
+    );
+    rows.push(...result.rows);
+    cursor = result.rows.at(-1)?.id ?? null;
+    if (result.rows.length < reconciliationPageSize) break;
+  } while (cursor !== null);
+  return rows;
 }
 
 async function loadPriceCatalogMismatches(
@@ -1080,7 +1105,6 @@ async function loadPriceCatalogMismatches(
         )
         ${clause}
       order by created_at desc
-      limit 50
     `,
     queryParams,
   );

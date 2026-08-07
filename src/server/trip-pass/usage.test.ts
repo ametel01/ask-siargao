@@ -585,6 +585,9 @@ describe("paid Trip Pass chat usage", () => {
       expect(rolledBack.rows[0]?.request_hash).toBe("body_hash_purge");
       await db.query("drop trigger fail_paid_answer_event_purge on trip_usage_events");
       await db.query("drop function fail_paid_answer_event_purge()");
+      await db.query(
+        `update paid_answer_reservations set purge_retry_at = clock_timestamp() - interval '1 second'`,
+      );
 
       await expect(purgeExpiredPaidAnswerDetails(db)).resolves.toBe(1);
       const details = await db.query<{
@@ -643,15 +646,16 @@ describe("paid Trip Pass chat usage", () => {
         `trip_usage_event_${missing.reservationId}`,
       ]);
 
-      const firstFailure = await capturePurgeFailure(db);
+      const firstFailure = await capturePurgeFailure(db, 3);
       expect(firstFailure).toMatchObject({
-        purgedCount: 2,
+        purgedCount: 0,
         failures: [
-          { reservationId: mismatch.reservationId },
-          { reservationId: missing.reservationId },
-          { reservationId: conflicted.reservationId },
+          { reservationId: mismatch.reservationId, retryScheduled: true },
+          { reservationId: missing.reservationId, retryScheduled: true },
+          { reservationId: conflicted.reservationId, retryScheduled: true },
         ],
       });
+      await expect(purgeExpiredPaidAnswerDetails(db, 3)).resolves.toBe(2);
       const firstState = await loadPurgeMarkers(db, [
         mismatch.reservationId,
         missing.reservationId,
@@ -689,18 +693,65 @@ describe("paid Trip Pass chat usage", () => {
       );
       expect(missingExactEvents.rows[0]?.count).toBe(0);
 
-      const retryFailure = await capturePurgeFailure(db);
-      expect(retryFailure).toMatchObject({
-        purgedCount: 0,
-        failures: [
-          { reservationId: mismatch.reservationId },
-          { reservationId: missing.reservationId },
-          { reservationId: conflicted.reservationId },
-        ],
-      });
+      await expect(purgeExpiredPaidAnswerDetails(db, 3)).resolves.toBe(0);
+      const schedules = await db.query<{
+        purge_failure_count: number;
+        purge_last_error: string | null;
+        retry_scheduled: boolean;
+      }>(
+        `select purge_failure_count, purge_last_error,
+           purge_retry_at > purge_attempted_at as retry_scheduled
+         from paid_answer_reservations where id = any($1::text[]) order by account_id`,
+        [[mismatch.reservationId, missing.reservationId, conflicted.reservationId]],
+      );
+      expect(schedules.rows).toEqual([
+        {
+          purge_failure_count: 1,
+          purge_last_error: "usage_event_integrity",
+          retry_scheduled: true,
+        },
+        {
+          purge_failure_count: 1,
+          purge_last_error: "usage_event_integrity",
+          retry_scheduled: true,
+        },
+        {
+          purge_failure_count: 1,
+          purge_last_error: "usage_event_integrity",
+          retry_scheduled: true,
+        },
+      ]);
       expect(await loadPurgeMarkers(db, [mismatch.reservationId])).toEqual([
         { id: mismatch.reservationId, purged: false },
       ]);
+
+      await db.query(`update trip_usage_events set idempotency_key = $2 where id = $1`, [
+        `trip_usage_event_${mismatch.reservationId}`,
+        `paid-answer:${mismatch.reservationId}`,
+      ]);
+      await db.query(`delete from trip_usage_events where id = $1`, [
+        "unrelated_usage_event_2_conflict",
+      ]);
+      for (const fixture of [missing, conflicted]) {
+        await db.query(
+          `insert into trip_usage_events (
+             id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+             idempotency_key, request_id, request_hash, provider_request_ids_json,
+             occurred_at, created_at
+           ) select 'trip_usage_event_' || id, trip_pass_id, usage_meter_id, account_id,
+             'settled', 'chat_message', 1, 'paid-answer:' || id, request_id,
+             request_body_hash, '[]'::jsonb, clock_timestamp(), clock_timestamp()
+           from paid_answer_reservations where id = $1`,
+          [fixture.reservationId],
+        );
+      }
+      await db.query(
+        `update paid_answer_reservations
+         set purge_retry_at = clock_timestamp() - interval '1 second'
+         where id = any($1::text[])`,
+        [[mismatch.reservationId, missing.reservationId, conflicted.reservationId]],
+      );
+      await expect(purgeExpiredPaidAnswerDetails(db, 3)).resolves.toBe(3);
     });
   });
 
@@ -865,9 +916,9 @@ async function createReleasedPurgeFixture(db: DatabaseQueryClient, suffix: strin
   return { reservationId: reservation.reservationId };
 }
 
-async function capturePurgeFailure(db: DatabaseQueryClient) {
+async function capturePurgeFailure(db: DatabaseQueryClient, limit?: number) {
   try {
-    await purgeExpiredPaidAnswerDetails(db);
+    await purgeExpiredPaidAnswerDetails(db, limit);
   } catch (error) {
     return error;
   }

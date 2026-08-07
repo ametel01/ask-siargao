@@ -18,7 +18,9 @@ type PostgresHarness = {
 
 export async function runPaidAnswerReservationPostgresIntegration(harness: PostgresHarness) {
   await runFinalUnitRegression(harness);
+  await runReconciliationPagination(harness);
   await runCorruptPurgeCandidateProgress(harness);
+  await runConcurrentCorruptPurgeRetryScheduling(harness);
   await runPurgeReplayAndFinalizeRaces(harness);
   await runConcurrentPurgeWorkers(harness);
   await runTerminalLifecycleRaces(harness);
@@ -30,7 +32,9 @@ export async function runPaidAnswerReservationPostgresIntegration(harness: Postg
         "final-unit-capacity",
         "durable-result-replay",
         "purged-aggregate-reconciliation",
+        "exhaustive-paid-answer-reconciliation-pagination",
         "corrupt-purge-candidate-forward-progress",
+        "concurrent-corrupt-purge-retry-scheduling",
         "purge-before-replay-and-finalize",
         "replay-and-finalize-before-purge",
         "concurrent-multi-account-purge-workers",
@@ -43,6 +47,77 @@ export async function runPaidAnswerReservationPostgresIntegration(harness: Postg
       ],
     }),
   );
+}
+
+async function runReconciliationPagination(harness: PostgresHarness) {
+  const db = harness.createQueryClient();
+  const target = raceTarget("reconciliation_pagination");
+  try {
+    await seedRaceTarget(db, target);
+    const seed = await createExpiredSettledAnswer(db, target, "seed");
+    await db.query(
+      `update paid_answer_reservations
+       set request_body_hash = 'purged:' || id, request_id = 'purged:' || id,
+         idempotency_key_hash = 'purged:' || id, provider_request_ids_json = '[]'::jsonb,
+         details_purged_at = clock_timestamp()
+       where id = $1`,
+      [seed.reservationId],
+    );
+    await db.query(
+      `update trip_usage_events
+       set request_id = null, request_hash = null, provider_request_ids_json = '[]'::jsonb
+       where id = $1`,
+      [`trip_usage_event_${seed.reservationId}`],
+    );
+    await db.query(
+      `insert into paid_answer_reservations (
+         id, trip_pass_id, usage_meter_id, account_id, idempotency_key_hash,
+         request_body_hash, request_id, lease_token, status, provider_request_ids_json,
+         lease_expires_at, details_purge_at, details_purged_at, reserved_at,
+         finalized_at, updated_at
+       )
+       select 'native_page_reservation_' || lpad(page::text, 4, '0'), trip_pass_id,
+         usage_meter_id, account_id, 'purged:native_page_' || page,
+         'purged:native_page_' || page, 'purged:native_page_' || page,
+         'lease_native_page_' || page, 'settled', '[]'::jsonb, lease_expires_at,
+         details_purge_at, clock_timestamp(), reserved_at, finalized_at, updated_at
+       from paid_answer_reservations cross join generate_series(0, 501) page
+       where id = $1`,
+      [seed.reservationId],
+    );
+    await db.query(
+      `insert into trip_usage_events (
+         id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+         idempotency_key, request_id, request_hash, provider_request_ids_json,
+         occurred_at, created_at
+       )
+       select 'trip_usage_event_' || id, trip_pass_id, usage_meter_id, account_id,
+         'settled', 'chat_message', 1, 'paid-answer:' || id, null, null, '[]'::jsonb,
+         finalized_at, finalized_at
+       from paid_answer_reservations
+       where id like 'native_page_reservation_%'
+         and id not in ('native_page_reservation_0000', 'native_page_reservation_0499')`,
+    );
+
+    for (const mode of ["dry_run", "repair"] as const) {
+      const snapshot = await reconcileTripPassState({
+        confirmMutation: mode === "repair",
+        db,
+        mode,
+        scope: { passId: target.passId },
+      });
+      assertJsonEqual(
+        snapshot.issues
+          .filter((issue) => issue.code === "paid_answer_usage_event_missing")
+          .map((issue) => issue.localRef)
+          .sort(),
+        ["native_page_reservation_0000", "native_page_reservation_0499"],
+        `${mode} reconciliation must keyset-page every paid-answer reservation exactly once`,
+      );
+    }
+  } finally {
+    await db.end();
+  }
 }
 
 async function runCorruptPurgeCandidateProgress(harness: PostgresHarness) {
@@ -81,12 +156,22 @@ async function runCorruptPurgeCandidateProgress(harness: PostgresHarness) {
       { reservationId: valid.reservationId, target: validTarget, warning: false },
     ]);
 
-    const firstFailure = await captureNativePurgeFailure(db);
-    assertEqual(firstFailure.purgedCount, 1, "valid later candidate must purge after corrupt rows");
+    const firstFailure = await captureNativePurgeFailure(db, 3);
+    assertEqual(firstFailure.purgedCount, 0, "a full corrupt page must not claim a purge");
     assertJsonEqual(
       firstFailure.failures.map((failure) => failure.reservationId),
       [mismatch.reservationId, missing.reservationId, conflicted.reservationId],
       "native purge must surface every corrupt candidate in deterministic order",
+    );
+    assertEqual(
+      firstFailure.failures.every((failure) => failure.retryScheduled),
+      true,
+      "every corrupt candidate must durably schedule a database-time retry",
+    );
+    assertEqual(
+      await purgeExpiredPaidAnswerDetails(db, 3),
+      1,
+      "the next bounded call must reach the valid row after a full corrupt page",
     );
     const markers = await db.query<{ details_purged_at: Date | null; id: string }>(
       `select id, details_purged_at from paid_answer_reservations
@@ -138,12 +223,10 @@ async function runCorruptPurgeCandidateProgress(harness: PostgresHarness) {
       { reservationId: conflicted.reservationId, target: conflictTarget, warning: true },
       { reservationId: valid.reservationId, target: validTarget, warning: false },
     ]);
-    const retryFailure = await captureNativePurgeFailure(db);
-    assertEqual(retryFailure.purgedCount, 0, "retry must not recount the already purged answer");
-    assertJsonEqual(
-      retryFailure.failures.map((failure) => failure.reservationId),
-      [mismatch.reservationId, missing.reservationId, conflicted.reservationId],
-      "corrupt candidates must remain eligible and retryable",
+    assertEqual(
+      await purgeExpiredPaidAnswerDetails(db, 3),
+      0,
+      "retry backoff must keep corrupt rows from monopolizing the next page",
     );
     await db.query(`update trip_usage_events set idempotency_key = $2 where id = $1`, [
       `trip_usage_event_${mismatch.reservationId}`,
@@ -154,6 +237,12 @@ async function runCorruptPurgeCandidateProgress(harness: PostgresHarness) {
     ]);
     await insertExactSettledUsageEvent(db, missingTarget, missing, "only");
     await insertExactSettledUsageEvent(db, conflictTarget, conflicted, "only");
+    await db.query(
+      `update paid_answer_reservations
+       set purge_retry_at = clock_timestamp() - interval '1 second'
+       where id in ($1, $2, $3)`,
+      [mismatch.reservationId, missing.reservationId, conflicted.reservationId],
+    );
     assertEqual(
       await purgeExpiredPaidAnswerDetails(db),
       3,
@@ -211,6 +300,108 @@ async function assertPaidAnswerIntegrityMatrix(
   }
 }
 
+async function runConcurrentCorruptPurgeRetryScheduling(harness: PostgresHarness) {
+  const setup = harness.createQueryClient();
+  const first = harness.createQueryClient();
+  const second = harness.createQueryClient();
+  const firstRead = deferred<void>();
+  const secondRead = deferred<void>();
+  const releaseReads = deferred<void>();
+  const target = raceTarget("purge_corrupt_concurrent");
+  try {
+    await seedRaceTarget(setup, target);
+    const corrupt = await Promise.all(
+      ["0", "1", "2"].map((variant) =>
+        createExpiredSettledAnswer(setup, target, variant, { providerRequestIds: [] }),
+      ),
+    );
+    const valid = await createExpiredSettledAnswer(setup, target, "9");
+    for (const settled of corrupt) {
+      await setup.query(`delete from trip_usage_events where id = $1`, [
+        `trip_usage_event_${settled.reservationId}`,
+      ]);
+    }
+
+    const workers = [
+      purgeExpiredPaidAnswerDetails(gateAfterCandidateRead(first, firstRead, releaseReads), 3),
+      purgeExpiredPaidAnswerDetails(gateAfterCandidateRead(second, secondRead, releaseReads), 3),
+    ];
+    await Promise.all([firstRead.promise, secondRead.promise]);
+    releaseReads.resolve();
+    const results = await Promise.allSettled(workers);
+    const failures = results.flatMap((result) => {
+      if (result.status === "fulfilled") {
+        assertEqual(result.value, 0, "a corrupt retry worker must not claim a purge");
+        return [];
+      }
+      if (!(result.reason instanceof PaidAnswerPurgeBatchError)) throw result.reason;
+      assertEqual(result.reason.purgedCount, 0, "corrupt worker counts must remain exact");
+      return result.reason.failures;
+    });
+    assertEqual(failures.length >= 3, true, "concurrent corrupt workers must surface failures");
+    assertJsonEqual(
+      [...new Set(failures.map((failure) => failure.reservationId))].sort(),
+      corrupt.map((settled) => settled.reservationId).sort(),
+      "concurrent corrupt workers must surface every selected reservation",
+    );
+    const retryState = await setup.query<{
+      details_purged_at: Date | null;
+      id: string;
+      purge_failure_count: number;
+      retry_is_future: boolean;
+    }>(
+      `select id, details_purged_at, purge_failure_count,
+         purge_retry_at > clock_timestamp() as retry_is_future
+       from paid_answer_reservations where id = any($1::text[]) order by id`,
+      [corrupt.map((settled) => settled.reservationId)],
+    );
+    assertJsonEqual(
+      retryState.rows.map((row) => ({
+        failureCount: row.purge_failure_count,
+        id: row.id,
+        purged: row.details_purged_at !== null,
+        retryIsFuture: row.retry_is_future,
+      })),
+      corrupt
+        .map((settled) => ({
+          failureCount: 1,
+          id: settled.reservationId,
+          purged: false,
+          retryIsFuture: true,
+        }))
+        .sort((left, right) => left.id.localeCompare(right.id)),
+      "concurrent schedulers must record one durable retry per corrupt row",
+    );
+    assertEqual(
+      await purgeExpiredPaidAnswerDetails(setup, 3),
+      1,
+      "a later valid row must progress after concurrent corrupt scheduling",
+    );
+    await assertPurgedSettledAnswer(setup, target, valid, 4);
+
+    for (const [index, settled] of corrupt.entries()) {
+      await insertExactSettledUsageEvent(setup, target, settled, String(index));
+    }
+    await setup.query(
+      `update paid_answer_reservations
+       set purge_retry_at = clock_timestamp() - interval '1 second'
+       where id = any($1::text[])`,
+      [corrupt.map((settled) => settled.reservationId)],
+    );
+    assertEqual(
+      await purgeExpiredPaidAnswerDetails(setup, 3),
+      3,
+      "repaired concurrently scheduled rows must remain retryable",
+    );
+    for (const settled of corrupt) {
+      await assertPurgedSettledAnswer(setup, target, settled, 4);
+    }
+  } finally {
+    releaseReads.resolve();
+    await Promise.all([setup.end(), first.end(), second.end()]);
+  }
+}
+
 async function insertExactSettledUsageEvent(
   db: DatabaseQueryClient,
   target: RaceTarget,
@@ -236,9 +427,9 @@ async function insertExactSettledUsageEvent(
   );
 }
 
-async function captureNativePurgeFailure(db: DatabaseQueryClient) {
+async function captureNativePurgeFailure(db: DatabaseQueryClient, limit?: number) {
   try {
-    await purgeExpiredPaidAnswerDetails(db);
+    await purgeExpiredPaidAnswerDetails(db, limit);
   } catch (error) {
     if (error instanceof PaidAnswerPurgeBatchError) return error;
     throw error;
