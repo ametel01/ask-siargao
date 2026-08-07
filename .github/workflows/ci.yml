@@ -50,6 +50,9 @@ jobs:
       - name: End-to-end tests
         run: bun run test:e2e
 
+      - name: Production performance tests
+        run: bun run test:e2e:production-perf
+
       - name: Generate Trip Pass launch manifest
         env:
           TRIP_PASS_CHECKOUT_MODE: off

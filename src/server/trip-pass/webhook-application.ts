@@ -41,13 +41,19 @@ export async function applyTripPassStripeEvent(
     now?: Date;
   } = {},
 ): Promise<TripPassStripeApplicationResult> {
-  const db = options.db ?? getDefaultDatabaseQueryClient();
   const now = options.now ?? new Date();
 
   if (isCheckoutSessionEvent(event)) {
+    const session = event.data.object as Stripe.Checkout.Session;
+    if (!isTripPassCheckoutSession(session)) {
+      return { status: "ignored", reason: "not_trip_pass_event" };
+    }
+
+    const db = options.db ?? getDefaultDatabaseQueryClient();
     return applyCheckoutSessionEvent(event, db, options.env, now);
   }
   if (isRefundEvent(event)) {
+    const db = options.db ?? getDefaultDatabaseQueryClient();
     return applyPaymentIntentLifecycleEvent({
       event,
       paymentIntentId: paymentIntentIdFromRefund(event.data.object as Stripe.Refund),
@@ -59,6 +65,7 @@ export async function applyTripPassStripeEvent(
     });
   }
   if (isDisputeEvent(event)) {
+    const db = options.db ?? getDefaultDatabaseQueryClient();
     return applyPaymentIntentLifecycleEvent({
       event,
       paymentIntentId: paymentIntentIdFromDispute(event.data.object as Stripe.Dispute),
@@ -410,6 +417,11 @@ function isCheckoutSessionEvent(event: Stripe.Event) {
     event.type === "checkout.session.async_payment_failed" ||
     event.type === "checkout.session.expired"
   );
+}
+
+function isTripPassCheckoutSession(session: Stripe.Checkout.Session) {
+  const metadataVersion = Number(session.metadata?.productVersion);
+  return Boolean(getTripPassProductContract(session.metadata?.productCode ?? "", metadataVersion));
 }
 
 function isRefundEvent(event: Stripe.Event) {

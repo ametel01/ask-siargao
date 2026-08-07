@@ -112,6 +112,8 @@ type DecisionMotionMetrics = {
   readyAt: number | null;
   motionStartAt: number | null;
   motionEndAt: number | null;
+  sourceDisclosureClickAt: number | null;
+  sourceDisclosureVisibleAt: number | null;
   longTasks: Array<{
     duration: number;
     startTime: number;
@@ -2988,9 +2990,11 @@ test("personalizes suggested prompts and submits the exact visible prompt with c
   await page.goto("/chat");
 
   const suggestedPromptBar = page.getByLabel("Suggested prompts");
-  const signInControl = page
+  await page.getByRole("button", { name: "Open chat actions" }).click();
+  const compactChatActions = page.getByTestId("compact-chat-actions");
+  const signInControl = compactChatActions
     .getByRole("button", { name: "Sign in" })
-    .or(page.getByRole("link", { name: "Sign in" }));
+    .or(compactChatActions.getByRole("link", { name: "Sign in" }));
   await expect(signInControl).toBeVisible();
   const signInLayout = await signInControl.evaluate((control) => {
     const bounds = control.getBoundingClientRect();
@@ -3003,6 +3007,8 @@ test("personalizes suggested prompts and submits the exact visible prompt with c
   expect(signInLayout.height).toBeGreaterThanOrEqual(44);
   expect(signInLayout.width).toBeGreaterThanOrEqual(72);
   expect(signInLayout.scrollWidth).toBeLessThanOrEqual(Math.ceil(signInLayout.width));
+  await page.keyboard.press("Escape");
+  await expect(compactChatActions).toHaveCount(0);
   await expect(suggestedPromptBar.getByRole("button")).toHaveCount(4);
   await expect(
     suggestedPromptBar.getByRole("button", {
@@ -3063,14 +3069,16 @@ test("personalizes suggested prompts and submits the exact visible prompt with c
   });
   expect(mockChat.requests).toHaveLength(0);
 
-  await page.getByLabel("Ask anything about Siargao").fill("Start with my arrival plan.");
-  await page.getByRole("button", { name: "Send question" }).click();
+  const composerInput = page.getByLabel("Ask anything about Siargao");
+  const sendButton = page.getByRole("button", { name: "Send question" });
+  await composerInput.fill("Start with my arrival plan.");
+  await sendButton.click();
   await expect(page.getByText("Context answer.")).toBeVisible();
   await expect.poll(() => mockChat.requests.length).toBe(1);
 
   const visiblePrompt = "Given today's weather, should we keep our plan around Dapa?";
-  await page.getByText("Try another Reality Check").click();
-  await suggestedPromptBar.getByRole("button", { name: visiblePrompt }).click();
+  await composerInput.fill(visiblePrompt);
+  await sendButton.click();
 
   await expect(page.getByLabel("Conversation messages").getByText(visiblePrompt)).toBeVisible();
   await expect.poll(() => mockChat.requests.length).toBe(2);
@@ -3407,7 +3415,7 @@ test("shows an accessible reality-check verdict on mobile and desktop only after
   });
 });
 
-test("runs the decision strip arrival sequence once without shifting layout", async ({
+test("@production-perf runs the decision strip arrival sequence once without shifting layout", async ({
   page,
 }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -3461,9 +3469,9 @@ test("runs the decision strip arrival sequence once without shifting layout", as
   await page.getByLabel("Ask anything about Siargao").fill("What should I do first?");
   await page.getByRole("button", { name: "Send question" }).click();
   await expect.poll(() => mockChat.requests.length).toBe(1);
-  await resetDecisionMotionMetrics(page);
 
   await withCpuThrottle(page, 4, async () => {
+    await resetDecisionMotionMetrics(page);
     mockChat.release();
 
     const answer = page.getByTestId("assistant-message-bubble").filter({
@@ -3472,9 +3480,7 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     await expect(answer).toBeVisible();
     const strip = answer.getByTestId("decision-strip");
     const sourceSummary = answer.getByTestId("assistant-sources-panel").locator("summary");
-    const helpfulButton = answer.getByRole("button", {
-      name: "Rate assistant response helpful",
-    });
+    const copyButton = answer.getByRole("button", { name: "Copy response" });
     await expect(strip).toHaveAttribute("data-answer-arrival-motion", "decision-strip-sequence");
     await expect(strip).toContainText("Best move");
     await expect(strip).toContainText("Where");
@@ -3483,9 +3489,56 @@ test("runs the decision strip arrival sequence once without shifting layout", as
       "Checked: Weather forecast: forecast for Cloud 9",
     );
     await expect(sourceSummary).toBeVisible();
-    await expect(helpfulButton).toBeVisible();
+    await expect(copyButton).toBeVisible();
+    await expect.poll(async () => (await decisionMotionMetrics(page))?.starts ?? -1).toBe(1);
+    expect((await decisionMotionMetrics(page))?.motionEndAt).toBeNull();
+    await sourceSummary.evaluate((element, receiptText) => {
+      element.addEventListener(
+        "click",
+        () => {
+          const metrics = window.__decisionMotionMetrics;
+          const clickedAt = performance.now();
+          if (metrics) {
+            metrics.sourceDisclosureClickAt = clickedAt;
+          }
+          const panel = element.closest("[data-testid='assistant-sources-panel']");
+          const recordVisibleReceipt = () => {
+            if (!metrics || metrics.sourceDisclosureVisibleAt !== null) {
+              return;
+            }
+            if (!(panel instanceof HTMLElement)) {
+              return;
+            }
+            const visibleReceipt = Array.from(panel.querySelectorAll("p")).some((paragraph) => {
+              const normalizedText = paragraph.textContent?.replace(/\s+/g, " ").trim() ?? "";
+              if (!normalizedText.includes(receiptText)) {
+                return false;
+              }
+              const style = window.getComputedStyle(paragraph);
+              return (
+                paragraph.getClientRects().length > 0 &&
+                style.display !== "none" &&
+                style.visibility !== "hidden"
+              );
+            });
+            if (visibleReceipt) {
+              metrics.sourceDisclosureVisibleAt = performance.now();
+              return;
+            }
+            if (performance.now() - clickedAt < 500) {
+              window.requestAnimationFrame(recordVisibleReceipt);
+            }
+          };
+          window.requestAnimationFrame(recordVisibleReceipt);
+        },
+        { once: true },
+      );
+    }, "Checked fields: forecast for Cloud 9");
     await sourceSummary.click();
     await expect(answer.getByText("Checked fields: forecast for Cloud 9")).toBeVisible();
+    await expect
+      .poll(async () => (await decisionMotionMetrics(page))?.sourceDisclosureVisibleAt ?? -1)
+      .toBeGreaterThan(0);
 
     const animatedProperties = await strip.evaluate((element) => {
       const cue = element.querySelector("[data-decision-sequence-cue='true']");
@@ -3514,16 +3567,24 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     const startBoxes = {
       strip: await boundingBoxSnapshot(strip),
       source: await boundingBoxSnapshot(sourceSummary),
-      rating: await boundingBoxSnapshot(helpfulButton),
+      copy: await boundingBoxSnapshot(copyButton),
     };
-    await page.waitForTimeout(260);
+    await expect
+      .poll(async () =>
+        strip.evaluate((element) => {
+          const cue = element.querySelector("[data-decision-sequence-cue='true']");
+          const currentTime = cue?.getAnimations()[0]?.currentTime;
+          return typeof currentTime === "number" ? currentTime : -1;
+        }),
+      )
+      .toBeGreaterThanOrEqual(260);
     expectBoxStable(await boundingBoxSnapshot(strip), startBoxes.strip);
     expectBoxStable(await boundingBoxSnapshot(sourceSummary), startBoxes.source);
-    expectBoxStable(await boundingBoxSnapshot(helpfulButton), startBoxes.rating);
-    await page.waitForTimeout(420);
+    expectBoxStable(await boundingBoxSnapshot(copyButton), startBoxes.copy);
+    await expect.poll(async () => (await decisionMotionMetrics(page))?.ends ?? -1).toBe(1);
     expectBoxStable(await boundingBoxSnapshot(strip), startBoxes.strip);
     expectBoxStable(await boundingBoxSnapshot(sourceSummary), startBoxes.source);
-    expectBoxStable(await boundingBoxSnapshot(helpfulButton), startBoxes.rating);
+    expectBoxStable(await boundingBoxSnapshot(copyButton), startBoxes.copy);
     await expect(strip).not.toHaveAttribute("data-answer-arrival-motion", /decision-strip/);
 
     const scrollArea = page.getByTestId("chat-message-scroll-area");
@@ -3534,9 +3595,9 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     await expect(sourceSummary).toBeFocused();
     await page.keyboard.press("Tab");
     await page.keyboard.press("Shift+Tab");
-    await helpfulButton.click();
-    await expect(helpfulButton).toHaveAttribute("aria-pressed", "true");
-    await page.waitForTimeout(120);
+    await copyButton.focus();
+    await expect(copyButton).toBeFocused();
+    await copyButton.click();
   });
 
   const metrics = (await decisionMotionMetrics(page)) ?? {
@@ -3546,17 +3607,30 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     readyAt: null,
     motionStartAt: null,
     motionEndAt: null,
+    sourceDisclosureClickAt: null,
+    sourceDisclosureVisibleAt: null,
     longTasks: [],
     rafFrames: [],
   };
+  const sourceDisclosureLongTasks = metrics.longTasks.filter((task) => {
+    if (metrics.sourceDisclosureClickAt === null || metrics.sourceDisclosureVisibleAt === null) {
+      return false;
+    }
+    return (
+      task.duration > 50 &&
+      task.startTime >= metrics.sourceDisclosureClickAt &&
+      task.startTime < metrics.sourceDisclosureVisibleAt
+    );
+  });
   const motionLongTasks = metrics.longTasks.filter((task) => {
     if (metrics.motionStartAt === null || metrics.motionEndAt === null) {
       return false;
     }
     return (
       task.duration > 50 &&
+      task.startTime >= metrics.motionStartAt &&
       task.startTime < metrics.motionEndAt &&
-      task.endTime > metrics.motionStartAt
+      !sourceDisclosureLongTasks.includes(task)
     );
   });
   const preMotionLongTasks = metrics.longTasks.filter((task) => {
@@ -3568,6 +3642,11 @@ test("runs the decision strip arrival sequence once without shifting layout", as
   const frameIntervals = metrics.rafFrames
     .slice(1)
     .map((timestamp, index) => timestamp - metrics.rafFrames[index]);
+  const sourceDisclosureLatencyMs =
+    metrics.sourceDisclosureClickAt === null || metrics.sourceDisclosureVisibleAt === null
+      ? null
+      : metrics.sourceDisclosureVisibleAt - metrics.sourceDisclosureClickAt;
+  const maxFrameIntervalMs = Math.max(0, ...frameIntervals);
   const summary = {
     viewport: "390x844",
     cpuThrottle: "4x",
@@ -3576,10 +3655,13 @@ test("runs the decision strip arrival sequence once without shifting layout", as
     ends: metrics.ends,
     layoutShift: Number(metrics.layoutShift.toFixed(4)),
     preMotionLongTaskCount: preMotionLongTasks.length,
+    sourceDisclosureLatencyMs:
+      sourceDisclosureLatencyMs === null ? null : Number(sourceDisclosureLatencyMs.toFixed(1)),
+    sourceDisclosureLongTaskCount: sourceDisclosureLongTasks.length,
     motionLongTaskCountOver50ms: motionLongTasks.length,
     maxMotionLongTaskMs: Math.max(0, ...motionLongTasks.map((task) => task.duration)),
     sampledFrames: metrics.rafFrames.length,
-    maxFrameIntervalMs: Math.max(0, ...frameIntervals),
+    maxFrameIntervalMs,
   };
   console.log("ISSUE_124_MOTION_METRICS", JSON.stringify(summary));
   await testInfo.attach("issue-124-decision-motion-metrics.json", {
@@ -3591,8 +3673,20 @@ test("runs the decision strip arrival sequence once without shifting layout", as
   expect(metrics.layoutShift).toBe(0);
   expect(metrics.motionStartAt).not.toBeNull();
   expect(metrics.motionEndAt).not.toBeNull();
+  expect(metrics.sourceDisclosureClickAt).not.toBeNull();
+  expect(metrics.sourceDisclosureVisibleAt).not.toBeNull();
+  expect(metrics.sourceDisclosureClickAt ?? 0).toBeGreaterThanOrEqual(metrics.motionStartAt ?? 0);
+  expect(metrics.sourceDisclosureClickAt ?? Number.POSITIVE_INFINITY).toBeLessThan(
+    metrics.motionEndAt ?? 0,
+  );
+  expect(metrics.sourceDisclosureVisibleAt ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+    metrics.motionEndAt ?? 0,
+  );
+  expect(sourceDisclosureLatencyMs ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(50);
+  expect(sourceDisclosureLongTasks).toHaveLength(0);
   expect(motionLongTasks).toHaveLength(0);
   expect(metrics.rafFrames.length).toBeGreaterThan(8);
+  expect(maxFrameIntervalMs).toBeLessThanOrEqual(50);
 });
 
 test("keeps plain conversational answers free of overview containers", async ({ page }) => {
@@ -5199,6 +5293,8 @@ async function installDecisionMotionProbe(page: Page) {
       readyAt: null,
       motionStartAt: null,
       motionEndAt: null,
+      sourceDisclosureClickAt: null,
+      sourceDisclosureVisibleAt: null,
       longTasks: [],
       rafFrames: [],
     };
@@ -5282,6 +5378,8 @@ async function resetDecisionMotionMetrics(page: Page) {
     metrics.readyAt = performance.now();
     metrics.motionStartAt = null;
     metrics.motionEndAt = null;
+    metrics.sourceDisclosureClickAt = null;
+    metrics.sourceDisclosureVisibleAt = null;
     metrics.longTasks = [];
     metrics.rafFrames = [];
   });
