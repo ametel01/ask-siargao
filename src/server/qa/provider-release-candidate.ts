@@ -301,6 +301,19 @@ export function assertProviderReleaseCandidateBoundaryStable(input: {
   }
 }
 
+export function providerReleaseCandidateCheckoutExpiryMatches(input: {
+  createdEpochSeconds: number;
+  expiryEpochSeconds: number;
+  providerExpiryEpochSeconds: number;
+}) {
+  const expectedExpiryEpochSeconds = Math.floor(input.createdEpochSeconds) + 30 * 60;
+  return (
+    Number.isInteger(input.expiryEpochSeconds) &&
+    input.expiryEpochSeconds === expectedExpiryEpochSeconds &&
+    input.providerExpiryEpochSeconds === input.expiryEpochSeconds
+  );
+}
+
 function validateProtectedDatabaseConfiguration(
   env: ProviderReleaseCandidateEnv,
   errors: string[],

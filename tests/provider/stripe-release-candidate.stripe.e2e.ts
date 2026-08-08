@@ -4,7 +4,10 @@ import postgres from "postgres";
 import Stripe from "stripe";
 
 import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
-import { buildProviderReleaseCandidateStripeEvent } from "@/server/qa/provider-release-candidate";
+import {
+  buildProviderReleaseCandidateStripeEvent,
+  providerReleaseCandidateCheckoutExpiryMatches,
+} from "@/server/qa/provider-release-candidate";
 import { verifyLiveProviderDatabase } from "@/server/qa/provider-release-candidate-live-boundary";
 import {
   recordExecutedProviderScenario,
@@ -312,13 +315,13 @@ async function assertThirtyMinuteExpiryBoundary(page: Page) {
   const boundaryMatches = await withDatabase(async (sql) => {
     const rows = await sql<
       {
-        boundary_seconds: number;
-        checkout_session_expires_at: Date;
+        created_epoch_seconds: number;
+        expiry_epoch_seconds: number;
       }[]
     >`
       select
-        extract(epoch from (checkout_session_expires_at - created_at))::integer as boundary_seconds,
-        checkout_session_expires_at
+        extract(epoch from created_at)::double precision as created_epoch_seconds,
+        extract(epoch from checkout_session_expires_at)::double precision as expiry_epoch_seconds
       from trip_pass_orders
       where user_id = ${userId}
       order by created_at desc
@@ -327,9 +330,11 @@ async function assertThirtyMinuteExpiryBoundary(page: Page) {
     const row = rows[0];
     return Boolean(
       row &&
-        row.boundary_seconds === 30 * 60 &&
-        session.expires_at ===
-          Math.floor(new Date(row.checkout_session_expires_at).getTime() / 1_000) &&
+        providerReleaseCandidateCheckoutExpiryMatches({
+          createdEpochSeconds: row.created_epoch_seconds,
+          expiryEpochSeconds: row.expiry_epoch_seconds,
+          providerExpiryEpochSeconds: session.expires_at,
+        }) &&
         session.expires_at > session.created,
     );
   });

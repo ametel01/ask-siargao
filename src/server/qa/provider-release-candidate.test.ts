@@ -6,6 +6,7 @@ import {
   assertProviderReleaseCandidateBoundaryStable,
   buildProviderReleaseCandidateEvidence,
   buildProviderReleaseCandidateStripeEvent,
+  providerReleaseCandidateCheckoutExpiryMatches,
   providerReleaseCandidateScenarios,
   validateProviderReleaseCandidateContext,
   verifyProviderReleaseCandidateDatabase,
@@ -240,6 +241,35 @@ describe("protected provider release-candidate policy", () => {
         currentDatabaseFingerprint: "ledger-b",
       }),
     ).toThrow("drifted mid-run");
+  });
+
+  test("proves exact Checkout expiry from floored fractional database creation time", () => {
+    for (const createdEpochSeconds of [1_800_000_000.001, 1_800_000_000.999]) {
+      const expiryEpochSeconds = Math.floor(createdEpochSeconds) + 30 * 60;
+      expect(
+        providerReleaseCandidateCheckoutExpiryMatches({
+          createdEpochSeconds,
+          expiryEpochSeconds,
+          providerExpiryEpochSeconds: expiryEpochSeconds,
+        }),
+      ).toBe(true);
+      for (const incorrectExpiryEpochSeconds of [expiryEpochSeconds - 1, expiryEpochSeconds + 1]) {
+        expect(
+          providerReleaseCandidateCheckoutExpiryMatches({
+            createdEpochSeconds,
+            expiryEpochSeconds: incorrectExpiryEpochSeconds,
+            providerExpiryEpochSeconds: incorrectExpiryEpochSeconds,
+          }),
+        ).toBe(false);
+      }
+      expect(
+        providerReleaseCandidateCheckoutExpiryMatches({
+          createdEpochSeconds,
+          expiryEpochSeconds,
+          providerExpiryEpochSeconds: expiryEpochSeconds + 1,
+        }),
+      ).toBe(false);
+    }
   });
 
   test("enumerates every Clerk and Stripe acceptance flow", () => {

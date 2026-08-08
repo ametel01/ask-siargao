@@ -192,6 +192,9 @@ test("expiry, cancellation, session policy, profile, and account receipts are as
     readFile("tests/provider/stripe-release-candidate.stripe.e2e.ts", "utf8"),
   ]);
   expect(stripeTest).toContain("assertThirtyMinuteExpiryBoundary(page)");
+  expect(stripeTest).toContain("extract(epoch from created_at)::double precision");
+  expect(stripeTest).toContain("providerReleaseCandidateCheckoutExpiryMatches");
+  expect(stripeTest).not.toContain("checkout_session_expires_at - created_at");
   expect(stripeTest).toContain('recordScenarios(["thirty_minute_expiry_boundary"])');
   expect(stripeTest).toContain('recordScenarios(["authenticated_cancellation"])');
   expect(clerkTest).toContain("clerkInstancePolicy.maxSessionAgeDays");
