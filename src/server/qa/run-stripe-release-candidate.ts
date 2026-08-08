@@ -3,7 +3,12 @@ import { assertProviderReleaseCandidateContext } from "@/server/qa/provider-rele
 const checkedOutCommitSha = await readHeadSha();
 assertProviderReleaseCandidateContext({ checkedOutCommitSha, lane: "stripe" });
 
-await run("bunx", ["playwright", "test", "--config=playwright.stripe.config.ts"]);
+await run("bunx", [
+  "playwright",
+  "test",
+  "--config=playwright.stripe.config.ts",
+  "--grep-invert=final live boundary",
+]);
 await run("bun", [
   "test",
   "src/server/trip-pass/commerce.test.ts",

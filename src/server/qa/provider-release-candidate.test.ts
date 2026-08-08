@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 import {
   assertProviderBeforeApplication,
+  assertProviderReleaseCandidateBoundaryStable,
   buildProviderReleaseCandidateEvidence,
   buildProviderReleaseCandidateStripeEvent,
   providerReleaseCandidateScenarios,
@@ -16,6 +17,7 @@ const baseEnv = {
   GITHUB_EVENT_NAME: "workflow_dispatch",
   GITHUB_REPOSITORY: "ametel01/ask-siargao",
   PROVIDER_RC_APP_ORIGIN: "https://provider-rc.asksiargao.test",
+  PROVIDER_RC_BOUNDARY_USER: "boundary+clerk_test@example.test",
   PROVIDER_RC_DATABASE_ENVIRONMENT: "protected-test",
   PROVIDER_RC_DATABASE_EXPECTED_HOST: "provider-rc-db.test",
   PROVIDER_RC_DATABASE_EXPECTED_NAME: "ask_siargao_provider_rc_test",
@@ -218,10 +220,34 @@ describe("protected provider release-candidate policy", () => {
     ).toThrow("sentinel mismatch");
   });
 
+  test("rejects mid-run deployed-SHA and database-ledger drift", () => {
+    const stable = {
+      currentDatabaseFingerprint: "ledger-a",
+      deployedCommitSha: sha,
+      expectedCommitSha: sha,
+      initialDatabaseFingerprint: "ledger-a",
+    };
+    expect(() => assertProviderReleaseCandidateBoundaryStable(stable)).not.toThrow();
+    expect(() =>
+      assertProviderReleaseCandidateBoundaryStable({
+        ...stable,
+        deployedCommitSha: "b".repeat(40),
+      }),
+    ).toThrow("drifted mid-run");
+    expect(() =>
+      assertProviderReleaseCandidateBoundaryStable({
+        ...stable,
+        currentDatabaseFingerprint: "ledger-b",
+      }),
+    ).toThrow("drifted mid-run");
+  });
+
   test("enumerates every Clerk and Stripe acceptance flow", () => {
-    expect(providerReleaseCandidateScenarios.clerk).toHaveLength(11);
+    expect(providerReleaseCandidateScenarios.clerk).toHaveLength(13);
     expect(providerReleaseCandidateScenarios.stripe).toHaveLength(13);
     expect(providerReleaseCandidateScenarios.stripe).toContain("paid_after_closure");
+    expect(providerReleaseCandidateScenarios.stripe).toContain("thirty_minute_expiry_boundary");
     expect(providerReleaseCandidateScenarios.clerk).toContain("step_up_account_closure");
+    expect(providerReleaseCandidateScenarios.clerk).toContain("account_management");
   });
 });

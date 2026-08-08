@@ -107,7 +107,7 @@ test("Google OAuth proof cannot fall back to a Clerk email sign-in helper", asyn
   expect(googleCase).not.toContain("clerk.signIn");
   expect(protectedTest).toContain('required("PROVIDER_RC_CLERK_GOOGLE_EMAIL")');
   expect(protectedTest).toContain('required("PROVIDER_RC_CLERK_GOOGLE_PASSWORD")');
-  expect(protectedTest).toContain("accounts\\.google\\.com");
+  expect(protectedTest).toContain("accounts.google.com");
 });
 
 test("both lanes prove the checked-out SHA is exact and already trusted by main", async () => {
@@ -133,6 +133,9 @@ test("protected evidence is emitted only after its semantic provider lane", asyn
     workflow.indexOf("bun run test:e2e:clerk:verify-deletion"),
   );
   expect(workflow.indexOf("bun run test:e2e:clerk:verify-deletion")).toBeLessThan(
+    workflow.indexOf("bun run test:e2e:clerk:final-boundary"),
+  );
+  expect(workflow.indexOf("bun run test:e2e:clerk:final-boundary")).toBeLessThan(
     workflow.indexOf("bun run qa:provider-rc-evidence -- --lane clerk"),
   );
   expect(workflow.indexOf("bun run test:smoke:trip-pass-stripe")).toBeLessThan(
@@ -145,6 +148,9 @@ test("protected evidence is emitted only after its semantic provider lane", asyn
     workflow.indexOf("bun run payments:closure-refund-worker"),
   );
   expect(workflow.indexOf("bun run payments:closure-refund-worker")).toBeLessThan(
+    workflow.indexOf("bun run test:e2e:stripe:final-boundary"),
+  );
+  expect(workflow.indexOf("bun run test:e2e:stripe:final-boundary")).toBeLessThan(
     workflow.indexOf("bun run qa:provider-rc-evidence -- --lane stripe"),
   );
 });
@@ -160,4 +166,35 @@ test("protected evidence consumes deployed-ledger and executed-scenario receipts
   expect(stripeTest).toContain("maxNetworkRetries: 0");
   expect(stripeTest).toContain("idempotencyKey");
   expect(stripeTest).toContain('"ambiguous_retry"');
+});
+
+test("every mutating group revalidates live state and provider failures stay redacted", async () => {
+  const [clerkTest, stripeTest, evidenceRunner] = await Promise.all([
+    readFile("tests/provider/clerk-release-candidate.clerk.e2e.ts", "utf8"),
+    readFile("tests/provider/stripe-release-candidate.stripe.e2e.ts", "utf8"),
+    readFile("src/server/qa/run-provider-release-candidate-evidence.ts", "utf8"),
+  ]);
+  expect(clerkTest.match(/assertLiveBoundary\(/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
+  expect(stripeTest.match(/assertLiveBoundary\(/g)?.length ?? 0).toBeGreaterThanOrEqual(8);
+  expect(clerkTest).toContain("safeProviderStep");
+  expect(stripeTest).toContain("safeProviderCall");
+  expect(stripeTest).not.toContain("expect(retry.checkoutUrl)");
+  expect(stripeTest).not.toContain("expect(matching)");
+  expect(stripeTest).not.toMatch(/\.id\)\.toBe\(/);
+  expect(clerkTest).not.toContain("toHaveURL(/accounts");
+  expect(evidenceRunner).toContain("verifyLiveProviderDatabase");
+  expect(evidenceRunner).toContain("readProviderFinalBoundaryReceipt");
+});
+
+test("expiry, cancellation, session policy, profile, and account receipts are assertion-backed", async () => {
+  const [clerkTest, stripeTest] = await Promise.all([
+    readFile("tests/provider/clerk-release-candidate.clerk.e2e.ts", "utf8"),
+    readFile("tests/provider/stripe-release-candidate.stripe.e2e.ts", "utf8"),
+  ]);
+  expect(stripeTest).toContain("assertThirtyMinuteExpiryBoundary(page)");
+  expect(stripeTest).toContain('recordScenarios(["thirty_minute_expiry_boundary"])');
+  expect(stripeTest).toContain('recordScenarios(["authenticated_cancellation"])');
+  expect(clerkTest).toContain("clerkInstancePolicy.maxSessionAgeDays");
+  expect(clerkTest).toContain('"profile_convergence"');
+  expect(clerkTest).toContain('"account_management"');
 });

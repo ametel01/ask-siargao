@@ -46,9 +46,11 @@
     "verify:ci": "bun run verify && bun run db:migrate:test && bun run db:seed:test && bun run build && bun run test:e2e && bun run test:e2e:production-perf",
     "test": "bun test",
     "test:e2e": "playwright test",
-    "test:e2e:clerk": "playwright test --config=playwright.clerk.config.ts",
+    "test:e2e:clerk": "playwright test --config=playwright.clerk.config.ts --grep-invert='final live boundary'",
+    "test:e2e:clerk:final-boundary": "playwright test --config=playwright.clerk.config.ts --grep='final live boundary'",
     "test:e2e:clerk:verify-deletion": "bun run src/server/qa/verify-clerk-release-candidate-deletion.ts",
     "test:smoke:trip-pass-stripe": "bun run src/server/qa/run-stripe-release-candidate.ts",
+    "test:e2e:stripe:final-boundary": "playwright test --config=playwright.stripe.config.ts --grep='final live boundary'",
     "test:e2e:production-perf": "PLAYWRIGHT_PRODUCTION_PERF=1 playwright test",
     "start": "bun run validate:clerk-deployment && ./node_modules/.bin/next start",
     "doctor": "npx react-doctor@latest"

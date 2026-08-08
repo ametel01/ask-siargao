@@ -67,6 +67,7 @@ jobs:
           PROVIDER_RC_CLERK_GOOGLE_EMAIL: ${{ secrets.PROVIDER_RC_CLERK_GOOGLE_EMAIL }}
           PROVIDER_RC_CLERK_GOOGLE_PASSWORD: ${{ secrets.PROVIDER_RC_CLERK_GOOGLE_PASSWORD }}
           PROVIDER_RC_CLERK_CLOSURE_USER: ${{ secrets.PROVIDER_RC_CLERK_CLOSURE_USER }}
+          PROVIDER_RC_BOUNDARY_USER: ${{ secrets.PROVIDER_RC_BOUNDARY_USER }}
           PROVIDER_RC_FOREIGN_SAVED_ITEM_ID: ${{ secrets.PROVIDER_RC_FOREIGN_SAVED_ITEM_ID }}
           DATABASE_URL: ${{ secrets.PROVIDER_RC_DATABASE_URL }}
           PROVIDER_RC_DATABASE_ENVIRONMENT: ${{ vars.PROVIDER_RC_DATABASE_ENVIRONMENT }}
@@ -87,6 +88,7 @@ jobs:
           bun run test:e2e:clerk
           bun run privacy:closure-worker
           bun run test:e2e:clerk:verify-deletion
+          bun run test:e2e:clerk:final-boundary
           bun run qa:provider-rc-evidence -- --lane clerk
 
       - name: Upload exact Clerk evidence
@@ -148,6 +150,7 @@ jobs:
           PROVIDER_RC_STRIPE_ACTIVE_USER: ${{ secrets.PROVIDER_RC_STRIPE_ACTIVE_USER }}
           PROVIDER_RC_STRIPE_REVERSED_USER: ${{ secrets.PROVIDER_RC_STRIPE_REVERSED_USER }}
           PROVIDER_RC_STRIPE_CLOSURE_USER: ${{ secrets.PROVIDER_RC_STRIPE_CLOSURE_USER }}
+          PROVIDER_RC_BOUNDARY_USER: ${{ secrets.PROVIDER_RC_BOUNDARY_USER }}
           DATABASE_URL: ${{ secrets.PROVIDER_RC_DATABASE_URL }}
           PROVIDER_RC_DATABASE_ENVIRONMENT: ${{ vars.PROVIDER_RC_DATABASE_ENVIRONMENT }}
           PROVIDER_RC_DATABASE_EXPECTED_HOST: ${{ vars.PROVIDER_RC_DATABASE_EXPECTED_HOST }}
@@ -169,6 +172,7 @@ jobs:
           bun run test:smoke:trip-pass-stripe
           bun run privacy:closure-worker
           bun run payments:closure-refund-worker
+          bun run test:e2e:stripe:final-boundary
           bun run qa:provider-rc-evidence -- --lane stripe
 
       - name: Upload exact Stripe evidence

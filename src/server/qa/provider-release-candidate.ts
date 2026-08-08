@@ -32,13 +32,15 @@ export const providerReleaseCandidateScenarios = {
     "single_session",
     "route_and_api_denial",
     "ownership_denial",
+    "profile_convergence",
+    "account_management",
     "step_up_account_closure",
     "webhook_convergence",
     "provider_user_deletion",
   ],
   stripe: [
     "card_checkout",
-    "explicit_expiry",
+    "thirty_minute_expiry_boundary",
     "return_before_event",
     "verified_activation",
     "duplicate_delivery",
@@ -63,6 +65,7 @@ export type ProviderReleaseCandidateEnv = Partial<
     | "GITHUB_EVENT_NAME"
     | "GITHUB_REPOSITORY"
     | "PROVIDER_RC_APP_ORIGIN"
+    | "PROVIDER_RC_BOUNDARY_USER"
     | "PROVIDER_RC_CLERK_GOOGLE_EMAIL"
     | "PROVIDER_RC_CLERK_GOOGLE_PASSWORD"
     | "PROVIDER_RC_EXPECTED_SHA"
@@ -144,6 +147,9 @@ export function validateProviderReleaseCandidateContext(input: {
   }
   if (!env.CLERK_SECRET_KEY?.startsWith("sk_test_")) {
     errors.push("clerk_test_secret_key_required");
+  }
+  if (!env.PROVIDER_RC_BOUNDARY_USER?.includes("+clerk_test@")) {
+    errors.push("dedicated_boundary_test_user_required");
   }
 
   if (input.lane === "clerk") {
@@ -279,6 +285,20 @@ export function verifyProviderReleaseCandidateDatabase(input: {
     }
   }
   return createHash("sha256").update(JSON.stringify(input.ledgerRows)).digest("hex");
+}
+
+export function assertProviderReleaseCandidateBoundaryStable(input: {
+  currentDatabaseFingerprint: string;
+  deployedCommitSha: string;
+  expectedCommitSha: string;
+  initialDatabaseFingerprint: string;
+}) {
+  if (
+    input.deployedCommitSha !== input.expectedCommitSha ||
+    input.currentDatabaseFingerprint !== input.initialDatabaseFingerprint
+  ) {
+    throw new Error("Protected release-candidate deployment or database drifted mid-run.");
+  }
 }
 
 function validateProtectedDatabaseConfiguration(

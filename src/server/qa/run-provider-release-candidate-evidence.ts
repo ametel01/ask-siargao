@@ -6,9 +6,11 @@ import {
   buildProviderReleaseCandidateEvidence,
   type ProviderReleaseCandidateLane,
 } from "@/server/qa/provider-release-candidate";
+import { verifyLiveProviderDatabase } from "@/server/qa/provider-release-candidate-live-boundary";
 import {
   readExecutedProviderScenarios,
   readProviderDatabaseReceipt,
+  readProviderFinalBoundaryReceipt,
 } from "@/server/qa/provider-release-candidate-receipts";
 
 const lane = readLane();
@@ -16,6 +18,12 @@ const checkedOutCommitSha = await readHeadSha();
 assertProviderReleaseCandidateContext({ checkedOutCommitSha, lane });
 const migrations = await loadMigrationFiles();
 const databaseReceipt = await readProviderDatabaseReceipt(lane, checkedOutCommitSha);
+const finalBoundaryReceipt = await readProviderFinalBoundaryReceipt(lane, checkedOutCommitSha);
+const finalDatabase = await verifyLiveProviderDatabase({
+  checkedOutCommitSha,
+  compareInitialReceipt: true,
+  lane,
+});
 if (
   databaseReceipt.checkedOutCommitSha !== checkedOutCommitSha ||
   databaseReceipt.lane !== lane ||
@@ -24,6 +32,21 @@ if (
   !/^[0-9a-f]{64}$/.test(databaseReceipt.deployedMigrationLedgerFingerprint)
 ) {
   throw new Error("Protected database receipt does not match this exact lane and SHA.");
+}
+if (
+  finalBoundaryReceipt.checkedOutCommitSha !== checkedOutCommitSha ||
+  finalBoundaryReceipt.lane !== lane ||
+  !finalBoundaryReceipt.deployedCommitMatched ||
+  finalBoundaryReceipt.databaseFingerprint !== finalDatabase.deployedMigrationLedgerFingerprint
+) {
+  throw new Error("Final live deployment boundary receipt does not match evidence state.");
+}
+if (
+  finalDatabase.deployedMigrationLedgerFingerprint !==
+    databaseReceipt.deployedMigrationLedgerFingerprint ||
+  finalDatabase.migrationCount !== migrations.length
+) {
+  throw new Error("Final protected database state drifted before evidence.");
 }
 
 const evidence = buildProviderReleaseCandidateEvidence({

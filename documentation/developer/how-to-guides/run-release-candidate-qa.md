@@ -193,12 +193,21 @@ rules, sentinel fingerprint, and the complete ordered migration filename/checksu
 the checked-out files. Missing, extra, reordered, or changed ledger rows stop the lane before any
 fixture or provider mutation.
 
+Provision `PROVIDER_RC_BOUNDARY_USER` as a persistent, dedicated `+clerk_test` identity that is not
+used by closure or commerce scenarios. Each independently mutating scenario group re-probes the
+origin for the exact deployed SHA and re-reads the database sentinel and complete ordered migration
+ledger. After the lane workers finish, the boundary identity authenticates a separate final browser
+probe. Evidence generation then independently re-reads the live sentinel and ledger and compares
+them with the initial and final receipts. A redeploy, alias move, sentinel change, missing/extra
+migration, checksum change, or reordering at any boundary fails closed without emitting evidence.
+
 The Clerk lane uses Clerk's project-based Playwright setup (`clerkSetup`) and injects a testing token
 per browser flow (`setupClerkTestingToken`). It covers email-code and a real configured Google OAuth
 redirect, provider login, consent/callback, and verified external account; a ticket/email helper is
 forbidden in the Google case. Provision a dedicated challenge-free Google test account because
 CAPTCHA, interactive challenge, or 2FA fails the proof closed. It also covers session persistence
-and single-session policy, sign-out, protected route/API denial,
+and the actual protected session's maximum seven-day expiry, single-session policy, sign-out,
+verified profile convergence, protected account management, protected route/API denial,
 cross-account ownership denial, step-up Account Closure, and local webhook convergence. The job
 delivers Standard Webhooks/Svix-compatible signed lifecycle events through
 `/api/clerk/webhooks`, checks dedicated-database convergence and deletion, drains the Closure
@@ -215,7 +224,9 @@ full commit SHA, and the workflow token has read-only repository contents permis
 
 The Stripe lane signs into disposable Clerk test users at the protected app origin, verifies the
 origin's exact deployed SHA, and starts Checkout through the authenticated app endpoint. It covers
-an ambiguous retry, return-before-event, authenticated expiry, hosted test-card payment, signed
+an ambiguous retry, return-before-event, a distinct provider-and-database-authoritative 30-minute
+Checkout expiry boundary, a later authenticated cancellation/explicit expiry, hosted test-card
+payment, signed
 delivery through `/api/stripe/webhook`, activation and duplicate delivery, paid-answer meter
 settlement, cumulative refunds, reversed dispute delivery and retry, and Paid After Closure with a
 durable refund obligation. Refund and dispute responses carry the in-process ordering probe proving
@@ -224,16 +235,19 @@ reconciliation, closure-refund, and usage contract tests remain supplemental; th
 the protected app/provider flow. Signed event envelopes and the Stripe client both import the same
 `STRIPE_API_VERSION` used by the production inbox; no harness API-version literal is allowed. The
 worker then cleans up the disposable users, test-mode commerce
-resources, and closure refund work. Raw webhook bodies and provider identifiers are never written to
-evidence or logs.
+resources, and closure refund work. Provider calls are wrapped in fixed-message failures and
+assertions compare only safe booleans, counts, and status enums. Raw URLs, webhook bodies, provider
+objects, and provider identifiers are never written to evidence, assertion output, or logs.
 
 The ambiguous retry proof uses a controlled HTTP client that lets Stripe accept a one-unit test-mode
 refund and then drops the first response. The retry uses the identical idempotency key and asserts
 one matching provider refund plus one app-visible cumulative refund effect before proceeding.
 
-Each scenario appends its receipt only after its protected assertion completes. Evidence generation
-requires the exact complete scenario set, so an omitted or failed scenario cannot be represented by
-an unconditional list. Each passing lane writes a redacted artifact named for the exact SHA. The
+Each scenario appends its receipt only after its protected assertion completes. The 30-minute expiry
+and authenticated cancellation have separate assertions and receipts; neither can stand in for the
+other. Evidence generation requires the exact complete scenario set, so an omitted or failed
+scenario cannot be represented by an unconditional list. Each passing lane writes a redacted
+artifact named for the exact SHA. The
 artifact contains the migration filenames and checksums, the verified deployed-ledger fingerprint,
 and a SHA/lane/migration fingerprint. Any code commit or
 migration-content change therefore requires a new protected run; copying evidence from another SHA

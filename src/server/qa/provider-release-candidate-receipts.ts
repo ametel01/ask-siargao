@@ -12,6 +12,13 @@ export type ProviderReleaseCandidateDatabaseReceipt = {
   protectedDatabaseEnvironment: "protected-test";
 };
 
+export type ProviderReleaseCandidateFinalBoundaryReceipt = {
+  checkedOutCommitSha: string;
+  databaseFingerprint: string;
+  deployedCommitMatched: true;
+  lane: ProviderReleaseCandidateLane;
+};
+
 export async function recordExecutedProviderScenario(input: {
   checkedOutCommitSha: string;
   lane: ProviderReleaseCandidateLane;
@@ -55,10 +62,37 @@ export async function readProviderDatabaseReceipt(
   ) as ProviderReleaseCandidateDatabaseReceipt;
 }
 
+export async function writeProviderFinalBoundaryReceipt(
+  receipt: ProviderReleaseCandidateFinalBoundaryReceipt,
+) {
+  await mkdir(directory, { recursive: true });
+  await writeFile(
+    finalBoundaryPath(receipt.lane, receipt.checkedOutCommitSha),
+    JSON.stringify(receipt),
+    {
+      encoding: "utf8",
+      flag: "wx",
+    },
+  );
+}
+
+export async function readProviderFinalBoundaryReceipt(
+  lane: ProviderReleaseCandidateLane,
+  checkedOutCommitSha: string,
+) {
+  return JSON.parse(
+    await readFile(finalBoundaryPath(lane, checkedOutCommitSha), "utf8"),
+  ) as ProviderReleaseCandidateFinalBoundaryReceipt;
+}
+
 function scenarioPath(lane: ProviderReleaseCandidateLane, sha: string) {
   return `${directory}/${lane}-${sha}.scenarios`;
 }
 
 function databasePath(lane: ProviderReleaseCandidateLane, sha: string) {
   return `${directory}/${lane}-${sha}.database.json`;
+}
+
+function finalBoundaryPath(lane: ProviderReleaseCandidateLane, sha: string) {
+  return `${directory}/${lane}-${sha}.final-boundary.json`;
 }
