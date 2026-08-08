@@ -509,12 +509,20 @@ export async function runClosureCleanupBatch(input: {
   leaseMs?: number;
   jitterUnit?: number;
   limit?: number;
+  operationId?: string;
 }) {
   const limit = input.limit ?? 100;
   let attempted = 0;
+  let retrying = 0;
   for (const stepType of closureStepTypes) {
     while (attempted < limit) {
-      const step = await claimClosureStep(input.db, stepType, input.now, input.leaseMs ?? 60_000);
+      const step = await claimClosureStep(
+        input.db,
+        stepType,
+        input.now,
+        input.leaseMs ?? 60_000,
+        input.operationId,
+      );
       if (!step) {
         break;
       }
@@ -524,11 +532,12 @@ export async function runClosureCleanupBatch(input: {
         await markClosureStepSucceeded(input.db, step, input.now);
       } catch (error) {
         await markClosureStepRetryable(input.db, step, input.now, input.jitterUnit ?? 0.5, error);
+        retrying += 1;
       }
     }
   }
   await completeFinishedClosureOperations(input.db, input.now);
-  return { attempted };
+  return { attempted, retrying, succeeded: attempted - retrying };
 }
 
 export function closureRetryDelayMs(attempt: number, jitterUnit = 0.5) {
@@ -627,6 +636,7 @@ async function claimClosureStep(
   stepType: ClosureStepType,
   now: Date,
   leaseMs: number,
+  operationId?: string,
 ) {
   return withDatabaseTransaction(db, async (transaction) => {
     const candidate = await transaction.query<ClosureStepRow>(
@@ -634,6 +644,7 @@ async function claimClosureStep(
         select id, operation_id, step_type, attempts, lease_token, lease_expires_at
         from account_closure_steps
         where step_type = $1
+          and ($3::text is null or operation_id = $3)
           and status <> 'succeeded'
           and (next_attempt_at is null or next_attempt_at <= $2)
           and (status = 'pending' or lease_expires_at <= clock_timestamp())
@@ -641,7 +652,7 @@ async function claimClosureStep(
         for update skip locked
         limit 1
       `,
-      [stepType, now],
+      [stepType, now, operationId ?? null],
     );
     const row = candidate.rows[0];
     if (!row) {

@@ -5,6 +5,7 @@ import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { withTimeout } from "@/server/integration/entrypoint-shared";
 import { withRealPostgresHarness } from "@/server/integration/postgres-harness";
 import { runTripPassPaymentLifecyclePostgresRegression } from "@/server/integration/trip-pass-payment-lifecycle-postgres";
+import { runOperationsPostgresIntegration } from "@/server/operations/operations.postgres-integration";
 import {
   applyStripeInboxEvent,
   claimPendingStripeInboxEvents,
@@ -36,6 +37,7 @@ const tripPassCheckoutRaceEnv = {
 
 await runConcurrentHarnessIsolationRegression();
 await runHistoricalPaidAnswerMigrationUpgrade();
+await runHistoricalOperationsMigrationUpgrade();
 
 await withRealPostgresHarness(async (harness) => {
   const migration = await harness.migrate();
@@ -49,6 +51,14 @@ await withRealPostgresHarness(async (harness) => {
   await runTripPassPaymentLifecyclePostgresRegression(harness);
   await runAccountClosurePostgresIntegration(harness);
   await runPaidAnswerReservationPostgresIntegration(harness);
+  const operationsClient = harness.createQueryClient();
+  try {
+    await runOperationsPostgresIntegration(operationsClient, () =>
+      harness.createQueryClient({ max: 1 }),
+    );
+  } finally {
+    await operationsClient.end();
+  }
 
   console.log(
     JSON.stringify(
@@ -117,8 +127,15 @@ async function runHistoricalPaidAnswerMigrationUpgrade() {
       const upgrade = await harness.migrate();
       assertDeepEqual(
         upgrade.applied,
-        ["0015_paid_answer_retention_retry.sql"],
-        "historical native ledger must advance only through 0015",
+        [
+          "0015_paid_answer_retention_retry.sql",
+          "0016_operational_findings_and_repair.sql",
+          "0016_preflight_operational_incident_dedup.sql",
+          "0017_operational_incident_leases.sql",
+          "0018_operational_command_and_observation_fencing.sql",
+          "0019_operational_page_intent_fencing.sql",
+        ],
+        "historical native ledger must advance through the additive operations migration",
       );
       const upgraded = await client.query<{
         purge_failure_count: number;
@@ -163,6 +180,123 @@ async function runHistoricalPaidAnswerMigrationUpgrade() {
     } finally {
       await client.end();
     }
+  });
+}
+
+async function runHistoricalOperationsMigrationUpgrade() {
+  await withRealPostgresHarness(async (harness) => {
+    const migrationFiles = await loadMigrationFiles();
+    const through0016 = migrationFiles.filter(
+      (migration) => migration.name <= "0016_operational_findings_and_repair.sql",
+    );
+    assertEqual(
+      through0016.at(-1)?.checksum,
+      "50344fcd9373e140eb9a92953a83e61f3f8e12c521cb0abff7994da6b7b15ec5",
+      "historical 0016 checksum must remain immutable",
+    );
+    await harness.migrate(through0016);
+    const client = harness.createQueryClient();
+    try {
+      for (const runId of ["native_duplicate_run_open", "native_duplicate_run_resolved"]) {
+        await client.query(
+          `insert into operational_reconciliation_runs (
+             id, source, status, checked_count, finding_count, started_at, completed_at
+           ) values ($1, 'worker', 'succeeded', 1, 1, clock_timestamp(), clock_timestamp())`,
+          [runId],
+        );
+      }
+      await client.query(
+        `insert into operational_findings (
+           id, run_id, kind, impact, status, local_entity_type, local_entity_ref,
+           summary_code, detected_at, resolved_at
+         ) values
+         ('native_duplicate_open', 'native_duplicate_run_open', 'paid_without_pass', 'high',
+          'open', 'trip_pass_order', 'native_duplicate_order',
+          'authoritative_payment_has_no_local_access', clock_timestamp() - interval '2 hours', null),
+         ('native_duplicate_resolved', 'native_duplicate_run_resolved', 'paid_without_pass',
+          'high', 'resolved', 'trip_pass_order', 'native_duplicate_order',
+          'authoritative_payment_has_no_local_access', clock_timestamp() - interval '1 hour',
+          clock_timestamp() - interval '30 minutes')`,
+      );
+      await client.query(
+        `insert into operator_repair_actions (
+           id, finding_id, operator_account_id, idempotency_key_hash, action_type, reason_code,
+           before_state, after_state
+         ) values (
+           'native_duplicate_repair', 'native_duplicate_resolved', 'native_operator',
+           'native_duplicate_key', 'manual_commerce_transition', 'verified_duplicate',
+           '{}'::jsonb, '{}'::jsonb
+         )`,
+      );
+      await client.query(
+        `insert into operational_alert_deliveries (
+           id, alert_key, finding_id, impact, destination, status, delivery_token,
+           attempted_at, delivered_at
+         ) values (
+           'native_duplicate_alert', 'native_duplicate_alert_key',
+           'native_duplicate_resolved', 'high', 'sentry', 'sent', 'native_duplicate_token',
+           clock_timestamp(), clock_timestamp()
+         )`,
+      );
+      const upgrade = await harness.migrate();
+      assertDeepEqual(
+        upgrade.applied,
+        [
+          "0016_preflight_operational_incident_dedup.sql",
+          "0017_operational_incident_leases.sql",
+          "0018_operational_command_and_observation_fencing.sql",
+          "0019_operational_page_intent_fencing.sql",
+        ],
+        "historical 0016 ledger did not apply preflight before immutable 0017",
+      );
+      const converged = await client.query<{
+        alerts: string;
+        count: string;
+        repairs: string;
+        status: string;
+      }>(
+        `select count(*)::text as count, min(status) as status,
+           (select finding_id from operator_repair_actions
+            where id = 'native_duplicate_repair') as repairs,
+           (select finding_id from operational_alert_deliveries
+            where id = 'native_duplicate_alert') as alerts
+         from operational_findings where local_entity_ref = 'native_duplicate_order'`,
+      );
+      assertDeepEqual(
+        converged.rows,
+        [
+          {
+            count: "1",
+            status: "open",
+            repairs: "native_duplicate_open",
+            alerts: "native_duplicate_open",
+          },
+        ],
+        "native duplicate incident evidence did not converge",
+      );
+    } finally {
+      await client.end();
+    }
+  });
+
+  await withRealPostgresHarness(async (harness) => {
+    const migrationFiles = await loadMigrationFiles();
+    const historicalThrough0017 = migrationFiles.filter(
+      (migration) =>
+        migration.name !== "0016_preflight_operational_incident_dedup.sql" &&
+        migration.name <= "0017_operational_incident_leases.sql",
+    );
+    await harness.migrate(historicalThrough0017);
+    const upgrade = await harness.migrate();
+    assertDeepEqual(
+      upgrade.applied,
+      [
+        "0016_preflight_operational_incident_dedup.sql",
+        "0018_operational_command_and_observation_fencing.sql",
+        "0019_operational_page_intent_fencing.sql",
+      ],
+      "already-applied 0017 ledger did not accept safe late preflight",
+    );
   });
 }
 

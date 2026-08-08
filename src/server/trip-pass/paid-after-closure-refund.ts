@@ -28,6 +28,7 @@ export async function runPaidAfterClosureRefundBatch(
     alertAfterAttempts?: number;
     jitterUnit?: number;
     createLeaseToken?: () => string;
+    obligationId?: string;
   } = {},
 ): Promise<PaidAfterClosureRefundBatchResult> {
   const db = input.db ?? getDefaultDatabaseQueryClient();
@@ -43,7 +44,7 @@ export async function runPaidAfterClosureRefundBatch(
   const leaseMs = input.leaseMs ?? 60_000;
   const createLeaseToken = input.createLeaseToken ?? randomUUID;
   for (let index = 0; index < limit; index += 1) {
-    const claim = await claimRefundObligation(db, leaseMs, createLeaseToken());
+    const claim = await claimRefundObligation(db, leaseMs, createLeaseToken(), input.obligationId);
     if (!claim) break;
     result.claimed += 1;
     try {
@@ -81,13 +82,19 @@ export async function runPaidAfterClosureRefundBatch(
   return result;
 }
 
-async function claimRefundObligation(db: DatabaseQueryClient, leaseMs: number, leaseToken: string) {
+async function claimRefundObligation(
+  db: DatabaseQueryClient,
+  leaseMs: number,
+  leaseToken: string,
+  obligationId?: string,
+) {
   const result = await withTransaction(db, (transaction) =>
     transaction.query<RefundObligationClaim>(
       `
           with candidate as (
             select id from account_closure_refund_obligations
             where stripe_payment_intent_id is not null
+              and ($3::text is null or id = $3)
               and expected_amount_minor is not null
               and (
                 (status = 'pending'
@@ -107,7 +114,7 @@ async function claimRefundObligation(db: DatabaseQueryClient, leaseMs: number, l
           returning r.id, r.stripe_payment_intent_id, r.stripe_refund_id,
             r.expected_amount_minor, r.attempts, r.lease_token
       `,
-      [leaseToken, leaseMs],
+      [leaseToken, leaseMs, obligationId ?? null],
     ),
   );
   return result.rows[0] ?? null;

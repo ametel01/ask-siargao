@@ -30,7 +30,13 @@ describe("Clerk proxy perimeter", () => {
   });
 
   test("protects representative authenticated pages and APIs before handlers", async () => {
-    for (const pathname of ["/settings", "/profile", "/admin/diagnostics", "/api/me/profile"]) {
+    for (const pathname of [
+      "/settings",
+      "/profile",
+      "/admin/diagnostics",
+      "/api/admin/repairs",
+      "/api/me/profile",
+    ]) {
       const auth = protectRecorder();
       const response = await applyEnabledClerkRoutePolicy(auth, pathname);
 

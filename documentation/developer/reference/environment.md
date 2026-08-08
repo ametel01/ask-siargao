@@ -99,8 +99,9 @@ The app reads these environment variables.
 | `INTEGRATION_TEST_ALLOW_REMOTE` | Local/CI test only | Real PostgreSQL and Redis integration lanes | Optional escape hatch. Set to `1` only for an explicitly disposable remote test service whose URL visibly contains a test marker such as `test`, `integration`, `issue`, `local`, or `ci`; Redis `/0` alone is not sufficient. Otherwise integration harnesses require localhost service URLs and refuse production-looking targets. |
 | `TRUST_PROXY_HEADERS` | Server only | Rate-limit request identity | Defaults to `false`. Set to `true` only when a trusted edge/proxy owns `x-forwarded-for` or `x-real-ip`; otherwise requests share the local fallback identity. |
 | `TRIP_PASS_IDEMPOTENCY_HMAC_KEY` | Server only | Request idempotency token hashing | Required in production for privacy-safe request idempotency tokens. Local development uses a fallback key. |
-| `ADMIN_ACCESS_TOKEN` | Server only | Production admin diagnostics access | Send the same value in the `x-admin-token` request header. |
-| `SENTRY_DSN` | Server only | Observability sink configuration | Current event helper records whether it is configured. |
+| `OPERATOR_ACCOUNT_IDS` | Server only | Operator authorization | Required comma-separated immutable Clerk Account IDs. Production diagnostics require membership. Every Repair Action additionally requires Clerk second-factor verification no older than five minutes. Never use email addresses or a public-prefixed variable. |
+| `ADMIN_ACCESS_TOKEN` | Server only | Local read-only diagnostics compatibility | Accepted only outside production. It cannot authorize a Repair Action, goodwill grant, manual commerce transition, or account recovery. |
+| `SENTRY_DSN` | Server only | Operational delivery and paging | Enables deny-by-default scrubbed Sentry warnings/pages. High-impact alert keys are durably delivered once; the DSN is never rendered or logged. |
 | `NEXT_PUBLIC_POSTHOG_KEY` | Public/client-safe | PostHog sink configuration | Enables the timeout-bounded PostHog-compatible analytics sink for allowlisted server events. |
 | `NEXT_PUBLIC_POSTHOG_HOST` | Public/client-safe | PostHog host | Defaults in `.env.example` to the US PostHog ingest host. |
 
@@ -190,8 +191,10 @@ Operators should alert on:
 - DeepSeek, OpenAI fallback, or global model-cost budget exhaustion.
 - Analytics sink delivery failures or unexpected absence of `trip_pass_checkout_started`,
   `trip_pass_activated`, and `llm_cost_recorded` events.
-- Reconciliation findings for missing grants, missing meters, duplicate grants, stale reservations,
-  price-catalog mismatch, or sink/store/circuit misconfiguration.
+- Confirmed paid-without-pass, money/access mismatch, immediate closure-phase failure, Paid After
+  Closure refund failure, verified Stripe persistence/repeated-application failure, and Redis
+  outage while checkout is `canary`/`on` page once through Sentry. Lower-impact findings remain
+  warnings or tickets. PostHog is analytics-only and never owns operational delivery.
 
 Support escalation starts with `/admin/diagnostics` and the dry-run reconciliation snapshot. Do not
 ask support staff to inspect raw prompts, email addresses, Stripe payloads, precise locations,
@@ -206,8 +209,9 @@ Rollback is flag-based and forward-repair only:
 3. Set `OPENAI_FALLBACK_ENABLED=false` if fallback cost or quality behavior is suspect.
 4. Set `TRIP_PASS_WAF_MODE=log` or disable promoted WAF rules if legitimate shared-network traffic
    is challenged incorrectly.
-5. Run dry-run reconciliation and repair only idempotent local omissions with explicit operator
-   confirmation.
+5. Run read-only reconciliation, then use a separate Repair Action only with an opaque Finding ID,
+   an allowlisted named Operator, fresh Clerk MFA, a before/after preview, explicit confirmation,
+   a reason code, and an idempotency key.
 6. Preserve order, pass, grant, meter, usage-event, Stripe inbox, analytics, and cost records. Do
    not drop launch data to roll back.
 

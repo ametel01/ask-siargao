@@ -1,5 +1,6 @@
-import { sql } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   check,
   date,
@@ -2066,3 +2067,268 @@ export const publicPageGenerationJobs = pgTable(
     ),
   ],
 );
+
+export const operationalReconciliationRuns = pgTable(
+  "operational_reconciliation_runs",
+  {
+    id: text("id").primaryKey(),
+    source: text("source").notNull(),
+    status: text("status").notNull().default("running"),
+    checkedCount: integer("checked_count").notNull().default(0),
+    findingCount: integer("finding_count").notNull().default(0),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    check(
+      "operational_reconciliation_runs_source_check",
+      sql`${table.source} in ('cli', 'authenticated_adapter', 'worker')`,
+    ),
+    check(
+      "operational_reconciliation_runs_status_check",
+      sql`${table.status} in ('running', 'succeeded', 'failed')`,
+    ),
+    check(
+      "operational_reconciliation_runs_counts_check",
+      sql`${table.checkedCount} >= 0 and ${table.findingCount} >= 0`,
+    ),
+    check(
+      "operational_reconciliation_runs_completed_check",
+      sql`(${table.status} = 'running' and ${table.completedAt} is null) or (${table.status} <> 'running' and ${table.completedAt} is not null)`,
+    ),
+  ],
+);
+
+export const operationalReconciliationObservations = pgTable(
+  "operational_reconciliation_observations",
+  {
+    localEntityType: text("local_entity_type").notNull(),
+    localEntityRef: text("local_entity_ref").notNull(),
+    lastAppliedSequence: bigint("last_applied_sequence", { mode: "bigint" }).notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.localEntityType, table.localEntityRef] }),
+    check(
+      "operational_reconciliation_observations_entity_type_check",
+      sql`${table.localEntityType} = 'trip_pass_order'`,
+    ),
+    check(
+      "operational_reconciliation_observations_sequence_check",
+      sql`${table.lastAppliedSequence} > 0`,
+    ),
+  ],
+);
+
+export const operationalFindings = pgTable(
+  "operational_findings",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => operationalReconciliationRuns.id),
+    kind: text("kind").notNull(),
+    impact: text("impact").notNull(),
+    status: text("status").notNull().default("open"),
+    localEntityType: text("local_entity_type").notNull(),
+    localEntityRef: text("local_entity_ref").notNull(),
+    summaryCode: text("summary_code").notNull(),
+    incidentKey: text("incident_key").notNull(),
+    lifecycle: integer("lifecycle").notNull().default(1),
+    lastObservationSequence: bigint("last_observation_sequence", { mode: "bigint" }),
+    detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
+    lastDetectedAt: timestamp("last_detected_at", { withTimezone: true }).notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("operational_findings_open_idx").on(
+      table.status,
+      table.impact,
+      table.detectedAt,
+      table.id,
+    ),
+    index("operational_findings_run_id_idx").on(table.runId),
+    uniqueIndex("operational_findings_incident_key_key").on(table.incidentKey),
+    uniqueIndex("operational_findings_run_entity_key").on(
+      table.runId,
+      table.kind,
+      table.localEntityType,
+      table.localEntityRef,
+    ),
+    check(
+      "operational_findings_kind_check",
+      sql`${table.kind} in ('paid_without_pass', 'access_without_payment', 'payment_state_mismatch', 'pending_payment_stale', 'missing_usage_meters', 'stale_usage_reservation', 'redis_unavailable', 'privacy_cleanup_failed', 'provider_application_failed')`,
+    ),
+    check("operational_findings_impact_check", sql`${table.impact} in ('warning', 'high')`),
+    check("operational_findings_status_check", sql`${table.status} in ('open', 'resolved')`),
+    check("operational_findings_lifecycle_check", sql`${table.lifecycle} >= 1`),
+    check(
+      "operational_findings_observation_sequence_check",
+      sql`${table.lastObservationSequence} is null or ${table.lastObservationSequence} > 0`,
+    ),
+    check(
+      "operational_findings_entity_type_check",
+      sql`${table.localEntityType} in ('trip_pass_order', 'trip_pass', 'closure_operation', 'service')`,
+    ),
+    check(
+      "operational_findings_resolution_check",
+      sql`(${table.status} = 'open' and ${table.resolvedAt} is null) or (${table.status} = 'resolved' and ${table.resolvedAt} is not null)`,
+    ),
+  ],
+);
+
+export const operatorRepairActions = pgTable(
+  "operator_repair_actions",
+  {
+    id: text("id").primaryKey(),
+    findingId: text("finding_id")
+      .notNull()
+      .references(() => operationalFindings.id),
+    operatorAccountId: text("operator_account_id").notNull(),
+    idempotencyKeyHash: text("idempotency_key_hash").notNull(),
+    commandHash: text("command_hash").notNull(),
+    actionType: text("action_type").notNull(),
+    reasonCode: text("reason_code").notNull(),
+    beforeState: jsonb("before_state").$type<Record<string, unknown>>().notNull(),
+    afterState: jsonb("after_state").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("operator_repair_actions_idempotency_key").on(
+      table.operatorAccountId,
+      table.idempotencyKeyHash,
+    ),
+    index("operator_repair_actions_finding_id_idx").on(table.findingId),
+    check(
+      "operator_repair_actions_action_check",
+      sql`${table.actionType} in ('grant_missing_trip_pass', 'initialize_missing_meters', 'release_stale_reservation', 'manual_commerce_transition', 'goodwill_grant', 'account_recovery')`,
+    ),
+  ],
+);
+
+export const operationalAlertDeliveries = pgTable(
+  "operational_alert_deliveries",
+  {
+    id: text("id").primaryKey(),
+    alertKey: text("alert_key").notNull().unique(),
+    findingId: text("finding_id").references(() => operationalFindings.id),
+    impact: text("impact").notNull(),
+    destination: text("destination").notNull(),
+    status: text("status").notNull(),
+    deliveryToken: text("delivery_token").notNull(),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    attemptedAt: timestamp("attempted_at", { withTimezone: true }).notNull().defaultNow(),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("operational_alert_deliveries_finding_id_idx").on(table.findingId),
+    index("operational_alert_deliveries_lease_idx").on(
+      table.status,
+      table.leaseExpiresAt,
+      table.alertKey,
+    ),
+    check("operational_alert_deliveries_impact_check", sql`${table.impact} in ('warning', 'high')`),
+    check(
+      "operational_alert_deliveries_destination_check",
+      sql`${table.destination} in ('sentry')`,
+    ),
+    check(
+      "operational_alert_deliveries_status_check",
+      sql`${table.status} in ('sending', 'sent', 'failed')`,
+    ),
+    check(
+      "operational_alert_deliveries_lease_check",
+      sql`(${table.status} = 'sending' and ${table.leaseExpiresAt} is not null) or (${table.status} <> 'sending' and ${table.leaseExpiresAt} is null)`,
+    ),
+  ],
+);
+
+export const operationalWorkerTasks = pgTable(
+  "operational_worker_tasks",
+  {
+    id: text("id").primaryKey(),
+    taskType: text("task_type").notNull(),
+    resourceRef: text("resource_ref").notNull(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    leaseToken: text("lease_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    lastErrorCode: text("last_error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("operational_worker_tasks_resource_key").on(table.taskType, table.resourceRef),
+    index("operational_worker_tasks_due_idx").on(
+      table.status,
+      table.nextAttemptAt,
+      table.leaseExpiresAt,
+      table.id,
+    ),
+    check(
+      "operational_worker_tasks_type_check",
+      sql`${table.taskType} in ('account_closure', 'pending_stripe_event', 'paid_after_closure_refund', 'retention_purge', 'commerce_reconciliation')`,
+    ),
+    check(
+      "operational_worker_tasks_status_check",
+      sql`${table.status} in ('pending', 'running', 'succeeded')`,
+    ),
+    check("operational_worker_tasks_attempts_check", sql`${table.attempts} >= 0`),
+    check(
+      "operational_worker_tasks_lease_check",
+      sql`(${table.status} = 'running' and ${table.leaseToken} is not null and ${table.leaseExpiresAt} is not null) or (${table.status} <> 'running' and ${table.leaseToken} is null and ${table.leaseExpiresAt} is null)`,
+    ),
+    check(
+      "operational_worker_tasks_completed_check",
+      sql`(${table.status} = 'succeeded' and ${table.completedAt} is not null) or (${table.status} <> 'succeeded' and ${table.completedAt} is null)`,
+    ),
+  ],
+);
+
+export const operationalReconciliationRunsRelations = relations(
+  operationalReconciliationRuns,
+  ({ many }) => ({ findings: many(operationalFindings) }),
+);
+
+export const operationalFindingsRelations = relations(operationalFindings, ({ many, one }) => ({
+  alerts: many(operationalAlertDeliveries),
+  repairActions: many(operatorRepairActions),
+  run: one(operationalReconciliationRuns, {
+    fields: [operationalFindings.runId],
+    references: [operationalReconciliationRuns.id],
+  }),
+}));
+
+export const operatorRepairActionsRelations = relations(operatorRepairActions, ({ one }) => ({
+  finding: one(operationalFindings, {
+    fields: [operatorRepairActions.findingId],
+    references: [operationalFindings.id],
+  }),
+}));
+
+export const operationalAlertDeliveriesRelations = relations(
+  operationalAlertDeliveries,
+  ({ one }) => ({
+    finding: one(operationalFindings, {
+      fields: [operationalAlertDeliveries.findingId],
+      references: [operationalFindings.id],
+    }),
+  }),
+);
+
+export type OperationalReconciliationRun = typeof operationalReconciliationRuns.$inferSelect;
+export type NewOperationalReconciliationRun = typeof operationalReconciliationRuns.$inferInsert;
+export type OperationalReconciliationObservation =
+  typeof operationalReconciliationObservations.$inferSelect;
+export type NewOperationalReconciliationObservation =
+  typeof operationalReconciliationObservations.$inferInsert;
+export type OperationalFinding = typeof operationalFindings.$inferSelect;
+export type NewOperationalFinding = typeof operationalFindings.$inferInsert;
+export type OperatorRepairAction = typeof operatorRepairActions.$inferSelect;
+export type NewOperatorRepairAction = typeof operatorRepairActions.$inferInsert;
+export type OperationalAlertDelivery = typeof operationalAlertDeliveries.$inferSelect;
+export type NewOperationalAlertDelivery = typeof operationalAlertDeliveries.$inferInsert;
+export type OperationalWorkerTask = typeof operationalWorkerTasks.$inferSelect;
+export type NewOperationalWorkerTask = typeof operationalWorkerTasks.$inferInsert;

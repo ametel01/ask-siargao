@@ -41,6 +41,12 @@ import {
   googlePlaces,
   llmRuns,
   llmToolCalls,
+  operationalAlertDeliveries,
+  operationalFindings,
+  operationalReconciliationObservations,
+  operationalReconciliationRuns,
+  operationalWorkerTasks,
+  operatorRepairActions,
   paidAnswerReservations,
   paymentEvents,
   payments,
@@ -107,6 +113,11 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toContain("0013_trip_pass_payment_lifecycle.sql");
     expect(migrationNames).toContain("0014_durable_paid_answer_reservations.sql");
     expect(migrationNames).toContain("0015_paid_answer_retention_retry.sql");
+    expect(migrationNames).toContain("0016_operational_findings_and_repair.sql");
+    expect(migrationNames).toContain("0016_preflight_operational_incident_dedup.sql");
+    expect(migrationNames).toContain("0017_operational_incident_leases.sql");
+    expect(migrationNames).toContain("0018_operational_command_and_observation_fencing.sql");
+    expect(migrationNames).toContain("0019_operational_page_intent_fencing.sql");
   });
 
   test("creates required core tables and accepts taxonomy seed rows", async () => {
@@ -288,7 +299,14 @@ describe("Step 3 database migration", () => {
     );
 
     const upgrade = await runLedgerBackedMigrations(database, migrationFiles);
-    expect(upgrade.applied).toEqual(["0015_paid_answer_retention_retry.sql"]);
+    expect(upgrade.applied).toEqual([
+      "0015_paid_answer_retention_retry.sql",
+      "0016_operational_findings_and_repair.sql",
+      "0016_preflight_operational_incident_dedup.sql",
+      "0017_operational_incident_leases.sql",
+      "0018_operational_command_and_observation_fencing.sql",
+      "0019_operational_page_intent_fencing.sql",
+    ]);
     expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
     const upgraded = await db.query<{
       purge_attempted_at: Date | null;
@@ -345,6 +363,336 @@ describe("Step 3 database migration", () => {
     );
     expect(scheduled.rows[0]).toEqual({ purge_failure_count: 1, retry_scheduled: true });
 
+    await db.close();
+  });
+
+  test("upgrades an immutable 0015 ledger through additive operations migrations", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const migrationFiles = await loadMigrationFiles();
+    const through0015 = migrationFiles.filter(
+      (migration) => migration.name <= "0015_paid_answer_retention_retry.sql",
+    );
+    expect(through0015.at(-1)).toMatchObject({
+      checksum: "41b4aca3e7d211ec29a5a091ec7706a1d2af6c36fe5c3ef33be251f72a8ce222",
+      name: "0015_paid_answer_retention_retry.sql",
+    });
+    await runLedgerBackedMigrations(createPgliteMigrationDatabase(db), through0015);
+    const upgrade = await runLedgerBackedMigrations(
+      createPgliteMigrationDatabase(db),
+      migrationFiles,
+    );
+    expect(upgrade.applied).toEqual([
+      "0016_operational_findings_and_repair.sql",
+      "0016_preflight_operational_incident_dedup.sql",
+      "0017_operational_incident_leases.sql",
+      "0018_operational_command_and_observation_fencing.sql",
+      "0019_operational_page_intent_fencing.sql",
+    ]);
+    const tables = await db.query<{ table_name: string }>(
+      `select table_name from information_schema.tables
+       where table_schema = 'public' and table_name like 'operational_%'
+          or table_schema = 'public' and table_name = 'operator_repair_actions'
+       order by table_name`,
+    );
+    expect(tables.rows.map((row) => row.table_name)).toEqual([
+      "operational_alert_deliveries",
+      "operational_findings",
+      "operational_reconciliation_observations",
+      "operational_reconciliation_runs",
+      "operational_worker_tasks",
+      "operator_repair_actions",
+    ]);
+    await db.close();
+  });
+
+  test("keeps 0016 and 0017 immutable while additive migrations backfill later state", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const migrationFiles = await loadMigrationFiles();
+    const through0016 = migrationFiles.filter(
+      (migration) => migration.name <= "0016_operational_findings_and_repair.sql",
+    );
+    expect(through0016.at(-1)).toMatchObject({
+      checksum: "50344fcd9373e140eb9a92953a83e61f3f8e12c521cb0abff7994da6b7b15ec5",
+      name: "0016_operational_findings_and_repair.sql",
+    });
+    expect(
+      migrationFiles.find((migration) => migration.name === "0017_operational_incident_leases.sql"),
+    ).toMatchObject({
+      checksum: "46505b51aad885a4f310721fe16a4e01b853380c4182c26bc36f6a7e8cf014fc",
+      name: "0017_operational_incident_leases.sql",
+    });
+    await runLedgerBackedMigrations(createPgliteMigrationDatabase(db), through0016);
+    await db.query(
+      `insert into operational_reconciliation_runs (
+         id, source, status, checked_count, finding_count, started_at, completed_at
+       ) values ('run_0016_upgrade', 'worker', 'succeeded', 1, 1,
+         clock_timestamp(), clock_timestamp())`,
+    );
+    await db.query(
+      `insert into operational_findings (
+         id, run_id, kind, impact, local_entity_type, local_entity_ref, summary_code
+       ) values (
+         'finding_0016_upgrade', 'run_0016_upgrade', 'paid_without_pass', 'high',
+         'trip_pass_order', 'order_0016_upgrade', 'authoritative_payment_has_no_local_access'
+       )`,
+    );
+    await db.query(
+      `insert into operational_alert_deliveries (
+         id, alert_key, finding_id, impact, destination, status, delivery_token, attempted_at
+       ) values (
+         'alert_0016_upgrade', 'alert_key_0016_upgrade', 'finding_0016_upgrade', 'high',
+         'sentry', 'sending', 'lease_0016_upgrade', clock_timestamp()
+       )`,
+    );
+    const upgrade = await runLedgerBackedMigrations(
+      createPgliteMigrationDatabase(db),
+      migrationFiles,
+    );
+    expect(upgrade.applied).toEqual([
+      "0016_preflight_operational_incident_dedup.sql",
+      "0017_operational_incident_leases.sql",
+      "0018_operational_command_and_observation_fencing.sql",
+      "0019_operational_page_intent_fencing.sql",
+    ]);
+    const backfilled = await db.query<{
+      incident_key: string;
+      last_detected_matches: boolean;
+      lease_backfilled: boolean;
+      lifecycle: number;
+    }>(
+      `select f.incident_key, f.lifecycle,
+         f.last_detected_at = f.detected_at as last_detected_matches,
+         a.lease_expires_at > a.attempted_at as lease_backfilled
+       from operational_findings f
+       join operational_alert_deliveries a on a.finding_id = f.id
+       where f.id = 'finding_0016_upgrade'`,
+    );
+    expect(backfilled.rows).toEqual([
+      {
+        incident_key: expect.stringMatching(/^incident_[a-f0-9]{32}$/),
+        last_detected_matches: true,
+        lease_backfilled: true,
+        lifecycle: 1,
+      },
+    ]);
+    await db.close();
+  });
+
+  test("deduplicates legacy incidents before immutable 0017 and reattaches evidence", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const migrationFiles = await loadMigrationFiles();
+    const through0016 = migrationFiles.filter(
+      (migration) => migration.name <= "0016_operational_findings_and_repair.sql",
+    );
+    await runLedgerBackedMigrations(createPgliteMigrationDatabase(db), through0016);
+    for (const runId of ["run_duplicate_open", "run_duplicate_resolved"]) {
+      await db.query(
+        `insert into operational_reconciliation_runs (
+           id, source, status, checked_count, finding_count, started_at, completed_at
+         ) values ($1, 'worker', 'succeeded', 1, 1, clock_timestamp(), clock_timestamp())`,
+        [runId],
+      );
+    }
+    await db.query(
+      `insert into operational_findings (
+         id, run_id, kind, impact, status, local_entity_type, local_entity_ref,
+         summary_code, detected_at, resolved_at
+       ) values
+       ('finding_duplicate_open', 'run_duplicate_open', 'paid_without_pass', 'high', 'open',
+        'trip_pass_order', 'order_duplicate', 'authoritative_payment_has_no_local_access',
+        clock_timestamp() - interval '2 hours', null),
+       ('finding_duplicate_resolved', 'run_duplicate_resolved', 'paid_without_pass', 'high',
+        'resolved', 'trip_pass_order', 'order_duplicate',
+        'authoritative_payment_has_no_local_access', clock_timestamp() - interval '1 hour',
+        clock_timestamp() - interval '30 minutes')`,
+    );
+    await db.query(
+      `insert into operator_repair_actions (
+         id, finding_id, operator_account_id, idempotency_key_hash, action_type, reason_code,
+         before_state, after_state
+       ) values (
+         'repair_duplicate_evidence', 'finding_duplicate_resolved', 'operator_opaque',
+         'idempotency_opaque', 'manual_commerce_transition', 'verified_duplicate',
+         '{}'::jsonb, '{}'::jsonb
+       )`,
+    );
+    await db.query(
+      `insert into operational_alert_deliveries (
+         id, alert_key, finding_id, impact, destination, status, delivery_token, attempted_at,
+         delivered_at
+       ) values (
+         'alert_duplicate_evidence', 'duplicate_alert_key', 'finding_duplicate_resolved', 'high',
+         'sentry', 'sent', 'duplicate_delivery_token', clock_timestamp(), clock_timestamp()
+       )`,
+    );
+
+    await runLedgerBackedMigrations(createPgliteMigrationDatabase(db), migrationFiles);
+    const converged = await db.query<{
+      alert_finding_id: string;
+      count: string;
+      lifecycle: number;
+      repair_finding_id: string;
+      status: string;
+    }>(
+      `select count(*)::text as count, min(status) as status, min(lifecycle) as lifecycle,
+         (select finding_id from operator_repair_actions
+          where id = 'repair_duplicate_evidence') as repair_finding_id,
+         (select finding_id from operational_alert_deliveries
+          where id = 'alert_duplicate_evidence') as alert_finding_id
+       from operational_findings where local_entity_ref = 'order_duplicate'`,
+    );
+    expect(converged.rows).toEqual([
+      {
+        alert_finding_id: "finding_duplicate_open",
+        count: "1",
+        lifecycle: 1,
+        repair_finding_id: "finding_duplicate_open",
+        status: "open",
+      },
+    ]);
+    await db.close();
+  });
+
+  test("accepts a historical ledger already through immutable 0017", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const migrationFiles = await loadMigrationFiles();
+    const historicalThrough0017 = migrationFiles.filter(
+      (migration) =>
+        migration.name !== "0016_preflight_operational_incident_dedup.sql" &&
+        migration.name <= "0017_operational_incident_leases.sql",
+    );
+    await runLedgerBackedMigrations(createPgliteMigrationDatabase(db), historicalThrough0017);
+    const upgrade = await runLedgerBackedMigrations(
+      createPgliteMigrationDatabase(db),
+      migrationFiles,
+    );
+    expect(upgrade.applied).toEqual([
+      "0016_preflight_operational_incident_dedup.sql",
+      "0018_operational_command_and_observation_fencing.sql",
+      "0019_operational_page_intent_fencing.sql",
+    ]);
+    const idempotent = await runLedgerBackedMigrations(
+      createPgliteMigrationDatabase(db),
+      migrationFiles,
+    );
+    expect(idempotent.applied).toEqual([]);
+    await db.close();
+  });
+
+  test("keeps operations migration columns and indexes in exact parity", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    await runInitialMigration(db);
+    const expectedColumns: Record<string, string[]> = {
+      operational_alert_deliveries: [
+        "alert_key",
+        "attempted_at",
+        "delivered_at",
+        "delivery_token",
+        "destination",
+        "finding_id",
+        "id",
+        "impact",
+        "lease_expires_at",
+        "status",
+      ],
+      operational_findings: [
+        "detected_at",
+        "id",
+        "impact",
+        "incident_key",
+        "kind",
+        "last_detected_at",
+        "last_observation_sequence",
+        "lifecycle",
+        "local_entity_ref",
+        "local_entity_type",
+        "resolved_at",
+        "run_id",
+        "status",
+        "summary_code",
+      ],
+      operational_reconciliation_runs: [
+        "checked_count",
+        "completed_at",
+        "finding_count",
+        "id",
+        "source",
+        "started_at",
+        "status",
+      ],
+      operational_reconciliation_observations: [
+        "last_applied_sequence",
+        "local_entity_ref",
+        "local_entity_type",
+        "observed_at",
+      ],
+      operational_worker_tasks: [
+        "attempts",
+        "completed_at",
+        "created_at",
+        "id",
+        "last_error_code",
+        "lease_expires_at",
+        "lease_token",
+        "next_attempt_at",
+        "resource_ref",
+        "status",
+        "task_type",
+        "updated_at",
+      ],
+      operator_repair_actions: [
+        "action_type",
+        "after_state",
+        "before_state",
+        "command_hash",
+        "created_at",
+        "finding_id",
+        "id",
+        "idempotency_key_hash",
+        "operator_account_id",
+        "reason_code",
+      ],
+    };
+    for (const [tableName, columns] of Object.entries(expectedColumns)) {
+      const migrated = await db.query<{ column_name: string }>(
+        `select column_name from information_schema.columns
+         where table_schema = 'public' and table_name = $1 order by column_name`,
+        [tableName],
+      );
+      expect(migrated.rows.map((row) => row.column_name)).toEqual(columns);
+    }
+    const indexes = await db.query<{ indexname: string }>(
+      `select indexname from pg_indexes where schemaname = 'public'
+       and tablename in (
+         'operational_reconciliation_runs', 'operational_findings',
+         'operational_reconciliation_observations', 'operator_repair_actions',
+         'operational_alert_deliveries', 'operational_worker_tasks'
+       ) order by indexname`,
+    );
+    expect(indexes.rows.map((row) => row.indexname)).toEqual([
+      "operational_alert_deliveries_alert_key_key",
+      "operational_alert_deliveries_finding_id_idx",
+      "operational_alert_deliveries_lease_idx",
+      "operational_alert_deliveries_pkey",
+      "operational_findings_incident_key_key",
+      "operational_findings_open_idx",
+      "operational_findings_pkey",
+      "operational_findings_run_entity_key",
+      "operational_findings_run_id_idx",
+      "operational_reconciliation_observations_pkey",
+      "operational_reconciliation_runs_pkey",
+      "operational_worker_tasks_due_idx",
+      "operational_worker_tasks_pkey",
+      "operational_worker_tasks_resource_key",
+      "operator_repair_actions_finding_id_idx",
+      "operator_repair_actions_idempotency_key",
+      "operator_repair_actions_pkey",
+    ]);
     await db.close();
   });
 
@@ -430,18 +778,48 @@ describe("Step 3 database migration", () => {
     await db.close();
   });
 
-  test("fails clearly when the ledger has out-of-order migration drift", async () => {
+  test("applies a newly discovered additive preflight around an already-applied ledger", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const database = createPgliteMigrationDatabase(db);
+    const originalMigrations = [
+      createMigrationFile("0000_create_probe.sql", "create table migration_probe (id text);"),
+      createMigrationFile(
+        "0002_later_probe.sql",
+        "alter table migration_probe add column later text;",
+      ),
+    ];
+    await runLedgerBackedMigrations(database, originalMigrations);
+    const migrations = [
+      originalMigrations[0],
+      createMigrationFile(
+        "0001_preflight_additive.sql",
+        "alter table migration_probe add column preflight text;",
+      ),
+      originalMigrations[1],
+    ];
+    const inserted = await runLedgerBackedMigrations(database, migrations);
+    const idempotent = await runLedgerBackedMigrations(database, migrations);
+    expect(inserted).toEqual({
+      applied: ["0001_preflight_additive.sql"],
+      skipped: ["0000_create_probe.sql", "0002_later_probe.sql"],
+    });
+    expect(idempotent.applied).toEqual([]);
+    expect(new Set(idempotent.skipped)).toEqual(
+      new Set(["0000_create_probe.sql", "0001_preflight_additive.sql", "0002_later_probe.sql"]),
+    );
+
+    await db.close();
+  });
+
+  test("still rejects an ordinary missing migration before an applied ledger row", async () => {
     await resetTestDatabase();
     const db = await openTestDatabase();
     const database = createPgliteMigrationDatabase(db);
     const migrations = [
       createMigrationFile("0000_create_probe.sql", "create table migration_probe (id text);"),
-      createMigrationFile(
-        "0001_insert_probe.sql",
-        "insert into migration_probe (id) values ('1');",
-      ),
+      createMigrationFile("0001_required_probe.sql", "alter table migration_probe add note text;"),
     ];
-
     await db.exec(`
       create table schema_migrations (
         name text primary key,
@@ -453,11 +831,9 @@ describe("Step 3 database migration", () => {
       migrations[1].name,
       migrations[1].checksum,
     ]);
-
     await expect(runLedgerBackedMigrations(database, migrations)).rejects.toThrow(
-      /Migration ledger drift: expected applied migration 0000_create_probe\.sql at position 1, found 0001_insert_probe\.sql/,
+      "Migration ledger drift: applied migrations skip required migration 0000_create_probe.sql.",
     );
-
     await db.close();
   });
 
@@ -495,7 +871,7 @@ describe("Step 3 database migration", () => {
       )
     ).join("\n");
     const migratedTables = [
-      ...migrationSql.matchAll(/CREATE TABLE IF NOT EXISTS\s+([a-z_]+)/g),
+      ...migrationSql.matchAll(/CREATE TABLE(?: IF NOT EXISTS)?\s+([a-z_]+)/gi),
     ].map((match) => match[1]);
 
     const schemaTables = [
@@ -525,6 +901,12 @@ describe("Step 3 database migration", () => {
       tripPassStripeEvents,
       tripUsageEvents,
       paidAnswerReservations,
+      operationalReconciliationRuns,
+      operationalReconciliationObservations,
+      operationalFindings,
+      operatorRepairActions,
+      operationalAlertDeliveries,
+      operationalWorkerTasks,
       areas,
       routes,
       providers,

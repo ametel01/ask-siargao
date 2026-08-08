@@ -78,6 +78,12 @@ export const clerkRoutePolicyEntries = [
   route("src/app/sitemap.xml/route.ts", "/sitemap.xml", "public", "public sitemap route"),
   api("src/app/api/audit/checkout/route.ts", "/api/audit/checkout", "public", "audit checkout"),
   api("src/app/api/audit/intake/route.ts", "/api/audit/intake", "public", "audit intake"),
+  api(
+    "src/app/api/admin/repairs/route.ts",
+    "/api/admin/repairs",
+    "protected",
+    "MFA-gated Operator Repair Actions",
+  ),
   api("src/app/api/chat/route.ts", "/api/chat", "public", "anonymous chat API"),
   api(
     "src/app/api/chat/ratings/route.ts",
