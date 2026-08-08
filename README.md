@@ -46,7 +46,10 @@ Quality gates:
 
 ```sh
 bun run verify
-bun run verify:ci
+bun run verify:foundation:local
 ```
 
-`bun run verify` is the fast non-mutating local check. `bun run verify:ci` mirrors the full CI release gate, including test database validation, build, and Playwright. Run `bun run format` only when you want Biome to write formatting fixes.
+`bun run verify` is the fast non-mutating local check. `bun run verify:foundation:local` runs the
+eight local Foundation Gates through production-performance Playwright, but does not run the real
+PostgreSQL or Redis lanes. `bun run verify:ci` remains as a temporary compatibility alias for the
+same local aggregate. Run `bun run format` only when you want Biome to write formatting fixes.

@@ -37,7 +37,8 @@ Scripts are defined in `package.json`.
 | `bun run lint` | `biome check .` | Run the non-mutating Biome check used by CI. |
 | `bun run typecheck` | `tsc --noEmit` | Run TypeScript type checking. |
 | `bun run verify` | `bun run lint && bun run typecheck --incremental false && bun test` | Run the fast non-mutating local verification gate. |
-| `bun run verify:ci` | `bun run verify && bun run db:migrate:test && bun run db:seed:test && bun run build && bun run test:e2e && bun run test:e2e:production-perf` | Run the local aggregate through functional Playwright and the production-performance lane. Despite its current name, it omits the real PostgreSQL and Redis lanes and is not a complete CI-equivalent Foundation Gate. |
+| `bun run verify:foundation:local` | `bun run src/server/qa/run-foundation-local.ts` | Run the eight local Foundation Gates sequentially: lint, clean typecheck, Bun tests, PGlite migration and seed validation, production build, functional Playwright, and production-performance Playwright. It stops on the first failure and does not run the real PostgreSQL or Redis lanes. |
+| `bun run verify:ci` | `bun run verify:foundation:local` | Temporary compatibility alias for `verify:foundation:local`. It does not maintain a separate command graph and is not a complete CI-equivalent Foundation Gate. |
 | `bun test` | `bun test` | Run Bun unit and integration tests. |
 | `bun run test:e2e` | `playwright test` | Run Playwright browser tests. |
 | `bun run test:e2e:production-perf` | `PLAYWRIGHT_PRODUCTION_PERF=1 playwright test` | Run the tagged production-performance Playwright lane against a built `next start` server. |
@@ -52,13 +53,14 @@ Scripts are defined in `package.json`.
 There is currently no single complete Foundation Gate script. For a Prospective Candidate, run:
 
 ```sh
-bun run verify:ci
+bun run verify:foundation:local
 bun run test:integration:postgres
 bun run test:integration:redis
 ```
 
 `bun run format` is a fix command, not a verification gate. `bun run verify` and `bun run
-verify:ci` are non-mutating verification commands. The real-service lanes require the disposable
+verify:foundation:local` are non-mutating verification commands. `bun run verify:ci` remains an alias
+for the local aggregate during the command migration. The real-service lanes require the disposable
 services and scoped environment configuration documented below.
 
 The provider commands are not normal local or pull-request gates. Dispatch the protected workflow

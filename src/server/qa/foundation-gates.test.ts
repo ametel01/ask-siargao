@@ -10,26 +10,50 @@ import { runLocalFoundationGates } from "@/server/qa/run-foundation-local";
 describe("Foundation Gate contract", () => {
   test("keeps the ten manifest gates in command execution order", () => {
     expect(foundationGateContract).toEqual([
-      { command: ["bun", "run", "lint"], id: "bun_run_lint" },
+      {
+        command: ["bun", "run", "lint"],
+        execution: "local",
+        id: "bun_run_lint",
+      },
       {
         command: ["bun", "run", "typecheck", "--incremental", "false"],
+        execution: "local",
         id: "bun_run_typecheck_incremental_false",
       },
-      { command: ["bun", "test"], id: "bun_test" },
-      { command: ["bun", "run", "db:migrate:test"], id: "bun_run_db_migrate_test" },
-      { command: ["bun", "run", "db:seed:test"], id: "bun_run_db_seed_test" },
-      { command: ["bun", "run", "build"], id: "bun_run_build" },
-      { command: ["bun", "run", "test:e2e"], id: "bun_run_test_e2e" },
+      { command: ["bun", "test"], execution: "local", id: "bun_test" },
+      {
+        command: ["bun", "run", "db:migrate:test"],
+        execution: "local",
+        id: "bun_run_db_migrate_test",
+      },
+      {
+        command: ["bun", "run", "db:seed:test"],
+        execution: "local",
+        id: "bun_run_db_seed_test",
+      },
+      {
+        command: ["bun", "run", "build"],
+        execution: "local",
+        id: "bun_run_build",
+      },
+      {
+        command: ["bun", "run", "test:e2e"],
+        execution: "local",
+        id: "bun_run_test_e2e",
+      },
       {
         command: ["bun", "run", "test:e2e:production-perf"],
+        execution: "local",
         id: "bun_run_test_e2e_production_perf",
       },
       {
         command: ["bun", "run", "test:integration:postgres"],
+        execution: "real-service",
         id: "bun_run_test_integration_postgres",
       },
       {
         command: ["bun", "run", "test:integration:redis"],
+        execution: "real-service",
         id: "bun_run_test_integration_redis",
       },
     ]);
