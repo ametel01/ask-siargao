@@ -22,6 +22,9 @@ test("provider credentials are reachable only from manually approved protected j
   expect(workflow).not.toContain("rk_live_");
   expect(workflow).not.toContain("TRIP_PASS_CHECKOUT_MODE: on");
   expect(workflow).not.toContain("TRIP_PASS_CHECKOUT_MODE: canary");
+  expect(workflow).not.toContain("PROVIDER_RC_CLERK_GOOGLE_USER");
+  expect(workflow.match(/secrets\.PROVIDER_RC_CLERK_GOOGLE_EMAIL/g)).toHaveLength(1);
+  expect(workflow.match(/secrets\.PROVIDER_RC_CLERK_GOOGLE_PASSWORD/g)).toHaveLength(1);
 });
 
 test("secrets are step-scoped and unreachable until repository trust is proved", async () => {
@@ -54,6 +57,38 @@ test("forks and non-manual events cannot select a secret-bearing job", async () 
   expect(workflow.match(/EXPECTED_EVENT: workflow_dispatch/g)).toHaveLength(2);
   expect(workflow.match(/test "\$GITHUB_EVENT_NAME" = "\$EXPECTED_EVENT"/g)).toHaveLength(2);
   expect(workflow.match(/test "\$GITHUB_REPOSITORY" = "\$EXPECTED_REPOSITORY"/g)).toHaveLength(2);
+});
+
+test("protected Stripe envelopes stay coupled to the production inbox API version", async () => {
+  const [builder, protectedTest] = await Promise.all([
+    readFile("src/server/qa/provider-release-candidate.ts", "utf8"),
+    readFile("tests/provider/stripe-release-candidate.stripe.e2e.ts", "utf8"),
+  ]);
+  expect(builder).toContain(
+    'import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox"',
+  );
+  expect(builder).toContain("api_version: STRIPE_API_VERSION");
+  expect(protectedTest).toContain("apiVersion: STRIPE_API_VERSION");
+  expect(protectedTest).toContain("buildProviderReleaseCandidateStripeEvent");
+  expect(protectedTest).not.toContain("api_version:");
+});
+
+test("Google OAuth proof cannot fall back to a Clerk email sign-in helper", async () => {
+  const protectedTest = await readFile(
+    "tests/provider/clerk-release-candidate.clerk.e2e.ts",
+    "utf8",
+  );
+  const googleStart = protectedTest.indexOf('test("Google OAuth');
+  const googleEnd = protectedTest.indexOf('test("single-session', googleStart);
+  const googleCase = protectedTest.slice(googleStart, googleEnd);
+
+  expect(googleStart).toBeGreaterThan(-1);
+  expect(googleEnd).toBeGreaterThan(googleStart);
+  expect(googleCase).toContain("completeGoogleOAuth(page)");
+  expect(googleCase).not.toContain("clerk.signIn");
+  expect(protectedTest).toContain('required("PROVIDER_RC_CLERK_GOOGLE_EMAIL")');
+  expect(protectedTest).toContain('required("PROVIDER_RC_CLERK_GOOGLE_PASSWORD")');
+  expect(protectedTest).toContain("accounts\\.google\\.com");
 });
 
 test("both lanes prove the checked-out SHA is exact and already trusted by main", async () => {

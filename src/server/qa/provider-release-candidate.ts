@@ -1,11 +1,26 @@
 import { createHash } from "node:crypto";
+import type Stripe from "stripe";
 
 import type { MigrationFile } from "@/server/db/migration-files";
+import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 
 export const providerReleaseCandidateSchemaVersion = "provider-release-candidate/v1";
 export const providerReleaseCandidateEnvironment = "provider-release-candidate";
 
 export type ProviderReleaseCandidateLane = "clerk" | "stripe";
+
+export const providerReleaseCandidateStripeEventTypes = [
+  "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.async_payment_failed",
+  "checkout.session.expired",
+  "charge.refunded",
+  "refund.created",
+  "refund.updated",
+  "refund.failed",
+  "charge.dispute.created",
+  "charge.dispute.closed",
+] as const satisfies readonly Stripe.Event.Type[];
 
 export const providerReleaseCandidateScenarios = {
   clerk: [
@@ -48,6 +63,8 @@ export type ProviderReleaseCandidateEnv = Partial<
     | "GITHUB_EVENT_NAME"
     | "GITHUB_REPOSITORY"
     | "PROVIDER_RC_APP_ORIGIN"
+    | "PROVIDER_RC_CLERK_GOOGLE_EMAIL"
+    | "PROVIDER_RC_CLERK_GOOGLE_PASSWORD"
     | "PROVIDER_RC_EXPECTED_SHA"
     | "PROVIDER_RC_PRODUCTION_ORIGIN"
     | "PROVIDER_RC_STRIPE_ACTIVE_USER"
@@ -119,6 +136,9 @@ export function validateProviderReleaseCandidateContext(input: {
     if (!env.CLERK_WEBHOOK_SIGNING_SECRET?.startsWith("whsec_")) {
       errors.push("clerk_test_webhook_secret_required");
     }
+    if (!env.PROVIDER_RC_CLERK_GOOGLE_EMAIL || !env.PROVIDER_RC_CLERK_GOOGLE_PASSWORD) {
+      errors.push("clerk_google_oauth_credentials_required");
+    }
   } else {
     const stripeKey = env.STRIPE_RESTRICTED_KEY ?? env.STRIPE_SECRET_KEY;
     if (!stripeKey || (!stripeKey.startsWith("rk_test_") && !stripeKey.startsWith("sk_test_"))) {
@@ -146,6 +166,24 @@ export function validateProviderReleaseCandidateContext(input: {
   }
 
   return { errors, valid: errors.length === 0 };
+}
+
+export function buildProviderReleaseCandidateStripeEvent(input: {
+  eventId: string;
+  object: object;
+  type: (typeof providerReleaseCandidateStripeEventTypes)[number];
+}): Stripe.Event {
+  return {
+    api_version: STRIPE_API_VERSION,
+    created: Math.floor(Date.now() / 1_000),
+    data: { object: input.object } as Stripe.Event.Data,
+    id: input.eventId,
+    livemode: false,
+    object: "event",
+    pending_webhooks: 1,
+    request: null,
+    type: input.type,
+  } as Stripe.Event;
 }
 
 export function assertProviderReleaseCandidateContext(

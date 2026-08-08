@@ -1,5 +1,5 @@
 import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
-import type { APIRequestContext } from "@playwright/test";
+import type { APIRequestContext, Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 import postgres from "postgres";
 import { Webhook } from "standardwebhooks";
@@ -80,17 +80,44 @@ test("Google OAuth is offered by the dedicated Clerk test instance", async ({ pa
   const google = page.getByRole("button", { name: /continue with google/i });
   await expect(google).toBeVisible();
   await google.click();
-  await expect(page).toHaveURL(/accounts\.google\.com|clerk\.accounts\.dev/);
-
-  await page.goto("/");
-  await clerk.signIn({ page, emailAddress: required("PROVIDER_RC_CLERK_GOOGLE_USER") });
+  await expect(page).toHaveURL(/accounts\.google\.com/);
+  await completeGoogleOAuth(page);
+  await expect(page).toHaveURL(new RegExp(`^${escapeRegExp(required("PROVIDER_RC_APP_ORIGIN"))}`));
+  expect((await page.request.get("/api/me/profile")).status()).toBe(200);
   const verifiedGoogleAccount = await page.evaluate(() =>
     window.Clerk.user?.externalAccounts.some(
       (account) => account.provider === "google" && account.verification?.status === "verified",
     ),
   );
   expect(verifiedGoogleAccount).toBe(true);
+  await clerk.signOut({ page });
+  expect((await page.request.get("/api/me/profile")).status()).toBe(401);
 });
+
+async function completeGoogleOAuth(page: Page) {
+  const email = page.locator('input[type="email"]');
+  await expect(email).toBeVisible();
+  await email.fill(required("PROVIDER_RC_CLERK_GOOGLE_EMAIL"));
+  await page.getByRole("button", { name: /^next$/i }).click();
+
+  const password = page.locator('input[type="password"]');
+  await expect(password).toBeVisible();
+  await password.fill(required("PROVIDER_RC_CLERK_GOOGLE_PASSWORD"));
+  await page.getByRole("button", { name: /^next$/i }).click();
+
+  if (/challenge|captcha/i.test(page.url())) {
+    throw new Error("Google OAuth proof requires a challenge-free dedicated test account.");
+  }
+  const consent = page.getByRole("button", { name: /^(continue|allow)$/i });
+  if (await consent.isVisible({ timeout: 5_000 }).catch(() => false)) await consent.click();
+  await page.waitForURL(
+    (url) => url.origin === new URL(required("PROVIDER_RC_APP_ORIGIN")).origin,
+    { timeout: 90_000 },
+  );
+  if (/challenge|captcha/i.test(page.url())) {
+    throw new Error("Google OAuth provider callback did not complete.");
+  }
+}
 
 test("single-session policy invalidates the older browser session", async ({ browser }) => {
   const firstContext = await browser.newContext();
@@ -204,4 +231,8 @@ function requiredTestEmail(name: string) {
     throw new Error(`${name} must identify a dedicated +clerk_test user.`);
   }
   return value;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

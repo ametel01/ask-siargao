@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
+import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 import {
   assertProviderBeforeApplication,
   buildProviderReleaseCandidateEvidence,
+  buildProviderReleaseCandidateStripeEvent,
   providerReleaseCandidateScenarios,
   validateProviderReleaseCandidateContext,
 } from "@/server/qa/provider-release-candidate";
@@ -28,6 +30,8 @@ describe("protected provider release-candidate policy", () => {
           CLERK_SECRET_KEY: "sk_test_redacted",
           CLERK_WEBHOOK_SIGNING_SECRET: "whsec_redacted",
           DATABASE_URL: "postgres://provider-rc.test/db",
+          PROVIDER_RC_CLERK_GOOGLE_EMAIL: "oauth@example.test",
+          PROVIDER_RC_CLERK_GOOGLE_PASSWORD: "redacted-password",
         },
         lane: "clerk",
       }),
@@ -45,6 +49,8 @@ describe("protected provider release-candidate policy", () => {
         PROVIDER_RC_APP_ORIGIN: "https://asksiargao.com",
         CLERK_PUBLISHABLE_KEY: "pk_test_redacted",
         CLERK_SECRET_KEY: "sk_test_redacted",
+        PROVIDER_RC_CLERK_GOOGLE_EMAIL: "oauth@example.test",
+        PROVIDER_RC_CLERK_GOOGLE_PASSWORD: "redacted-password",
         DATABASE_URL: "postgres://provider-rc.test/db",
         PROVIDER_RC_STRIPE_ACTIVE_USER: "active+clerk_test@example.test",
         PROVIDER_RC_STRIPE_CLOSURE_USER: "closure+clerk_test@example.test",
@@ -78,6 +84,7 @@ describe("protected provider release-candidate policy", () => {
     });
     expect(clerk.errors).toContain("dedicated_database_required");
     expect(clerk.errors).toContain("clerk_test_webhook_secret_required");
+    expect(clerk.errors).toContain("clerk_google_oauth_credentials_required");
 
     const stripe = validateProviderReleaseCandidateContext({
       checkedOutCommitSha: sha,
@@ -112,6 +119,16 @@ describe("protected provider release-candidate policy", () => {
         "provider_lookup_completed",
       ]),
     ).toThrow("Provider lookup must complete");
+  });
+
+  test("builds protected Stripe envelopes from the production inbox API version", () => {
+    const event = buildProviderReleaseCandidateStripeEvent({
+      eventId: "evt_provider_rc_version",
+      object: { id: "cs_provider_rc_version", object: "checkout.session" },
+      type: "checkout.session.completed",
+    });
+
+    expect(event.api_version).toBe(STRIPE_API_VERSION);
   });
 
   test("binds evidence to the exact SHA, lane, and migration checksums", () => {

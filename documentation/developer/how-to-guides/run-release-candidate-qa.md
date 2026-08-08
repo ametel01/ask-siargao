@@ -181,8 +181,11 @@ checks pass. No secret is available to checkout or trust-proof steps. Do not cop
 repository variables, pull-request secrets, artifacts, or operator notes.
 
 The Clerk lane uses Clerk's project-based Playwright setup (`clerkSetup`) and injects a testing token
-per browser flow (`setupClerkTestingToken`). It covers email-code and verified Google-linked test
-identities, session persistence and single-session policy, sign-out, protected route/API denial,
+per browser flow (`setupClerkTestingToken`). It covers email-code and a real configured Google OAuth
+redirect, provider login, consent/callback, and verified external account; a ticket/email helper is
+forbidden in the Google case. Provision a dedicated challenge-free Google test account because
+CAPTCHA, interactive challenge, or 2FA fails the proof closed. It also covers session persistence
+and single-session policy, sign-out, protected route/API denial,
 cross-account ownership denial, step-up Account Closure, and local webhook convergence. The job
 delivers Standard Webhooks/Svix-compatible signed lifecycle events through
 `/api/clerk/webhooks`, checks dedicated-database convergence and deletion, drains the Closure
@@ -200,7 +203,9 @@ settlement, cumulative refunds, reversed dispute delivery and retry, and Paid Af
 durable refund obligation. Refund and dispute responses carry the in-process ordering probe proving
 that authoritative Stripe retrieval completed before application began. Local lifecycle,
 reconciliation, closure-refund, and usage contract tests remain supplemental; they do not replace
-the protected app/provider flow. The worker then cleans up the disposable users, test-mode commerce
+the protected app/provider flow. Signed event envelopes and the Stripe client both import the same
+`STRIPE_API_VERSION` used by the production inbox; no harness API-version literal is allowed. The
+worker then cleans up the disposable users, test-mode commerce
 resources, and closure refund work. Raw webhook bodies and provider identifiers are never written to
 evidence or logs.
 

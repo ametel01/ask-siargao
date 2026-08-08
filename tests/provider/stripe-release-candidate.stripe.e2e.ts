@@ -3,9 +3,14 @@ import { expect, type Page, test } from "@playwright/test";
 import postgres from "postgres";
 import Stripe from "stripe";
 
+import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
+import { buildProviderReleaseCandidateStripeEvent } from "@/server/qa/provider-release-candidate";
+
 test.describe.configure({ mode: "serial" });
 
-const stripe = new Stripe(required("STRIPE_RESTRICTED_KEY"));
+const stripe = new Stripe(required("STRIPE_RESTRICTED_KEY"), {
+  apiVersion: STRIPE_API_VERSION,
+});
 const origin = new URL(required("PROVIDER_RC_APP_ORIGIN")).origin;
 
 test("app checkout, cancellation, return-before-event, activation, duplicate, settlement, and refunds", async ({
@@ -248,18 +253,15 @@ async function deliverSignedStripeEvent(page: Page, event: Stripe.Event, success
   };
 }
 
-function stripeEvent(type: Stripe.Event.Type, object: object): Stripe.Event {
-  return {
-    api_version: "2025-08-27.basil",
-    created: Math.floor(Date.now() / 1_000),
-    data: { object } as Stripe.Event.Data,
-    id: `evt_${crypto.randomUUID().replaceAll("-", "")}`,
-    livemode: false,
-    object: "event",
-    pending_webhooks: 1,
-    request: null,
+function stripeEvent(
+  type: Parameters<typeof buildProviderReleaseCandidateStripeEvent>[0]["type"],
+  object: object,
+): Stripe.Event {
+  return buildProviderReleaseCandidateStripeEvent({
+    eventId: `evt_${crypto.randomUUID().replaceAll("-", "")}`,
+    object,
     type,
-  } as Stripe.Event;
+  });
 }
 
 async function expectTripPassStatus(page: Page, status: string) {

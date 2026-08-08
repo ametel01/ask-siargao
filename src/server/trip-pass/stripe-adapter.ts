@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 
+import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 import {
   tripPassProductCatalog,
   tripPassProductCode,
@@ -223,7 +224,7 @@ function checkoutSessionPriceId(session: Stripe.Checkout.Session) {
 }
 
 function createStripeClient(apiKey = stripeApiKeyFromEnv()) {
-  return new Stripe(apiKey);
+  return new Stripe(apiKey, { apiVersion: STRIPE_API_VERSION });
 }
 
 function stripeApiKeyFromEnv() {
