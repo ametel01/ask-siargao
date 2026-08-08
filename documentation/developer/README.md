@@ -20,3 +20,4 @@ Use these pages when working on the Ask Siargao codebase.
 - [On-demand Reality Check lifecycle](explanation/on-demand-reality-check-lifecycle.md): how explicit requests, evidence ordering, validation, public projection, persistence, and provider failure form one synchronous chat turn.
 - [Siargao chatbot data pipeline](explanation/siargao-chatbot-data-pipeline.md): product direction and lazy fact acquisition model for the chat-first tour-operator assistant.
 - [Web research layer](explanation/web-research-layer.md): background on public-web evidence, source scoring, provider failure, and how `research_web` complements Places, weather, and memory.
+- [Whole-application production-readiness assessment](explanation/whole-application-production-readiness-assessment-2026-08-09.md): point-in-time readiness of the free product, Trip Pass, security, monitoring, features, and release evidence.

@@ -52,6 +52,78 @@ A named person explicitly authorized to inspect diagnostics or perform audited r
 Possession of a shared access token does not establish Operator identity.
 _Avoid_: Admin token, support user
 
+**Production Readiness**:
+A release-lane state reached only when its capabilities are implemented, deployed and configured,
+monitored, recoverable, and verified for the exact release candidate.
+_Avoid_: Code complete, launch approved
+
+**Implementation Status**:
+The code-completeness classification of a capability: Not Implemented, Partial, or Implemented. It
+does not establish Production Readiness or Launch Authorization.
+_Avoid_: Readiness, launch status
+
+**Foundation Gate Status**:
+The result of the repository lint, type, test, migration, build, browser, performance, PostgreSQL,
+and Redis gates for one exact candidate. Passing does not establish Production Readiness.
+_Avoid_: Engineering readiness, production-ready
+
+**Prospective Candidate**:
+A clean immutable pre-merge commit that has passed its required local and continuous-integration
+checks but is not yet the trusted-main Release Candidate.
+_Avoid_: Release Candidate, branch
+
+**Release Candidate**:
+The immutable trusted-main commit deployed to the protected environment and used for all Release
+Evidence. A changed commit or relevant configuration creates a different candidate.
+_Avoid_: Prospective Candidate, latest main
+
+**Launch Authorization**:
+The decision by an eligible non-author human approver to expose one release lane after reviewing its
+current evidence and residual risks. It is distinct from Production Readiness.
+_Avoid_: Engineering readiness, merge approval
+
+**Evidence Owner**:
+The named person who assembles and attests the Release Evidence for one release lane. This person
+does not grant Launch Authorization.
+_Avoid_: Launch Approver, Operator
+
+**Launch Approver**:
+The named person who independently reviews Release Evidence and grants or denies Launch
+Authorization. This person is neither the candidate author nor the Operator changing exposure.
+_Avoid_: Evidence Owner, PR reviewer
+
+**Residual Risk Acceptance**:
+A documented, time-bounded Launch Authorization exception approved by an eligible non-author human.
+It cannot waive privacy deletion, authentication bypass, money/access divergence, or unrecoverable
+data-loss risk.
+_Avoid_: Informal waiver, acknowledged finding
+
+**Free Controlled Beta**:
+The independently authorized release lane that exposes public knowledge and authenticated free chat
+under bounded usage, traffic, cost, monitoring, and rollback controls while Trip Pass checkout
+remains globally disabled.
+_Avoid_: Production launch, paid beta
+
+**Recovery Evidence**:
+Observed proof that a release lane can be restored or rolled back within its approved objectives. A
+runbook without a successful exercise is not Recovery Evidence.
+_Avoid_: Recovery plan, untested runbook
+
+**Release Evidence**:
+Immutable, time-bounded proof tied to the exact release candidate and relevant deployment or
+provider configuration. Expired evidence revokes Production Readiness.
+_Avoid_: Latest green run, historical proof
+
+**Shared Trip Link**:
+A revocable public capability for one selected trip plan. It expires after 30 days by default and
+does not grant access to its owner's Ask Siargao Account.
+_Avoid_: Public account, permanent share
+
+**General Paid Availability**:
+The independently authorized release lane that exposes Trip Pass checkout beyond the Checkout
+Canary allowlist after successful canary evidence.
+_Avoid_: Checkout Canary, code complete
+
 **Reconciliation Finding**:
 A recorded mismatch between Ask Siargao's commerce state and authoritative payment facts. Detecting
 a finding does not mutate commerce or access state.
@@ -83,8 +155,15 @@ _Avoid_: Recent order, locally pending order
 
 **Checkout Canary**:
 A live production checkout available only to explicitly allowlisted internal accounts while global
-checkout remains disabled. It uses the normal commerce and access path without bypasses.
+checkout remains disabled. It uses the normal commerce and access path without bypasses and is
+required before General Paid Availability.
 _Avoid_: Test-mode checkout, manual activation
+
+**Checkout Mode**:
+The `off`, `canary`, or `on` production exposure state for new Trip Pass Orders. An invalid value is
+not a mode: deployment is rejected, while runtime behavior preserves the free product and forces
+checkout off.
+_Avoid_: Feature flag, payment state
 
 **Pending Stripe Event**:
 A verified, normalized Stripe event that has been durably received but cannot yet be applied because
