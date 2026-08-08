@@ -160,4 +160,45 @@ Rollback does not require destructive data changes:
 - Public pages currently use synthetic or explicitly permitted fixture data for release-candidate QA.
 - Trip Pass production checkout remains approval-dependent even when the local deterministic proof
   passes. Missing sandbox/live evidence must be recorded as a release blocker, not as launch
-  readiness.
+readiness.
+
+## Protected Provider Lanes
+
+Provider evidence is a manual post-merge release-candidate gate, never a pull-request or fork job.
+In GitHub Actions, dispatch `Protected provider release candidate` from the default branch and enter
+the exact 40-character commit SHA. Both jobs use the `provider-release-candidate` environment, so
+the eligible non-author human approver must confirm that the SHA is the intended candidate and that
+the dedicated Clerk test instance, protected-staging deployment, and Stripe test-mode account are
+selected. The workflow rejects a SHA not already contained in `main`.
+
+The protected environment owns the stable app and production origins, dedicated account fixture
+identifiers, policy versions, and retention durations. Its secret inventory contains only the test
+Clerk keys/identities, a least-privilege Stripe test restricted key and Price, the dedicated staging
+database credential, and the same Closure Tombstone/provider-subject keys used by that staging
+deployment. Do not copy these values into repository variables, pull-request secrets, artifacts, or
+operator notes.
+
+The Clerk lane uses Clerk's project-based Playwright setup (`clerkSetup`) and injects a testing token
+per browser flow (`setupClerkTestingToken`). It covers email-code and verified Google-linked test
+identities, session persistence and single-session policy, sign-out, protected route/API denial,
+cross-account ownership denial, step-up Account Closure, and local webhook convergence. The job
+then drains the dedicated Closure Operation through the normal worker and confirms by an
+authoritative Clerk lookup that provider deletion converged. The closure identity is disposable and
+must be recreated by the eligible human before a subsequent run. Traces, screenshots, videos,
+cookies, and provider payloads are not uploaded.
+
+The Stripe lane first retrieves the configured Trip Pass Price and refuses to continue if it is
+live-mode. It then creates and idempotently retries a real test-mode Checkout Session, retrieves and
+explicitly expires it, confirms a test-card PaymentIntent, confirms two
+cumulative refunds reach the paid amount, and creates a test dispute. Only after those authoritative
+provider operations complete does it start the application contract suite. That suite covers
+browser return before event application, activation, duplicate and reversed delivery, ambiguous
+retries, authenticated cancellation, closure races, Paid After Closure, reconciliation, and durable
+paid-answer settlement.
+
+Each passing lane writes a redacted artifact named for the exact SHA. The artifact contains the
+migration filenames and checksums plus a SHA/lane/migration fingerprint. Any code commit or
+migration-content change therefore requires a new protected run; copying evidence from another SHA
+does not satisfy the release gate. Protected credentials unavailable to an agent are an expected
+administrative boundary: record the pending human environment approval/run instead of substituting
+mock evidence or adding secrets to a normal CI job.

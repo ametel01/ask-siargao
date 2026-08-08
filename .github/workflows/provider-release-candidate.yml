@@ -1,0 +1,137 @@
+name: Protected provider release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_candidate_sha:
+        description: Full trusted commit SHA already contained in main
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provider-release-candidate-${{ inputs.release_candidate_sha }}
+  cancel-in-progress: false
+
+jobs:
+  clerk-test-instance:
+    environment: provider-release-candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GITHUB_ENVIRONMENT: provider-release-candidate
+      PROVIDER_RC_EXPECTED_SHA: ${{ inputs.release_candidate_sha }}
+      PROVIDER_RC_APP_ORIGIN: ${{ vars.PROVIDER_RC_APP_ORIGIN }}
+      PROVIDER_RC_PRODUCTION_ORIGIN: ${{ vars.PROVIDER_RC_PRODUCTION_ORIGIN }}
+      CLERK_PUBLISHABLE_KEY: ${{ secrets.PROVIDER_RC_CLERK_PUBLISHABLE_KEY }}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.PROVIDER_RC_CLERK_PUBLISHABLE_KEY }}
+      CLERK_SECRET_KEY: ${{ secrets.PROVIDER_RC_CLERK_SECRET_KEY }}
+      PROVIDER_RC_CLERK_EMAIL_CODE_USER: ${{ secrets.PROVIDER_RC_CLERK_EMAIL_CODE_USER }}
+      PROVIDER_RC_CLERK_GOOGLE_USER: ${{ secrets.PROVIDER_RC_CLERK_GOOGLE_USER }}
+      PROVIDER_RC_CLERK_CLOSURE_USER: ${{ secrets.PROVIDER_RC_CLERK_CLOSURE_USER }}
+      PROVIDER_RC_FOREIGN_SAVED_ITEM_ID: ${{ secrets.PROVIDER_RC_FOREIGN_SAVED_ITEM_ID }}
+      DATABASE_URL: ${{ secrets.PROVIDER_RC_DATABASE_URL }}
+      ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY: ${{ secrets.PROVIDER_RC_ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY }}
+      ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY_VERSION: ${{ vars.PROVIDER_RC_ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY_VERSION }}
+      ACCOUNT_CLOSURE_PROVIDER_SUBJECT_KEY: ${{ secrets.PROVIDER_RC_ACCOUNT_CLOSURE_PROVIDER_SUBJECT_KEY }}
+      ACCOUNT_CLOSURE_PROVIDER_SUBJECT_KEY_VERSION: ${{ vars.PROVIDER_RC_ACCOUNT_CLOSURE_PROVIDER_SUBJECT_KEY_VERSION }}
+      ACCOUNT_CLOSURE_POLICY_VERSION: ${{ vars.PROVIDER_RC_ACCOUNT_CLOSURE_POLICY_VERSION }}
+      ACCOUNT_CLOSURE_RETENTION_DAYS: ${{ vars.PROVIDER_RC_ACCOUNT_CLOSURE_RETENTION_DAYS }}
+      COMMERCE_RETENTION_POLICY_VERSION: ${{ vars.PROVIDER_RC_COMMERCE_RETENTION_POLICY_VERSION }}
+      COMMERCE_RETENTION_DAYS: ${{ vars.PROVIDER_RC_COMMERCE_RETENTION_DAYS }}
+      STRIPE_RESTRICTED_KEY: ${{ secrets.PROVIDER_RC_STRIPE_RESTRICTED_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.release_candidate_sha }}
+
+      - name: Verify exact trusted main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${#PROVIDER_RC_EXPECTED_SHA}" -eq 40
+          test "$(git rev-parse HEAD)" = "$PROVIDER_RC_EXPECTED_SHA"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$PROVIDER_RC_EXPECTED_SHA" origin/main
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install exact dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run protected Clerk acceptance lane
+        run: bun run test:e2e:clerk
+
+      - name: Drain the dedicated Account Closure operation
+        run: bun run privacy:closure-worker
+
+      - name: Verify Clerk provider deletion convergence
+        run: bun run test:e2e:clerk:verify-deletion
+
+      - name: Write exact Clerk evidence
+        run: bun run qa:provider-rc-evidence -- --lane clerk
+
+      - name: Upload exact Clerk evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: provider-rc-clerk-${{ inputs.release_candidate_sha }}
+          path: |
+            .tmp/provider-release-candidate/clerk-${{ inputs.release_candidate_sha }}.json
+          if-no-files-found: error
+          retention-days: 14
+
+  stripe-test-mode:
+    environment: provider-release-candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GITHUB_ENVIRONMENT: provider-release-candidate
+      PROVIDER_RC_EXPECTED_SHA: ${{ inputs.release_candidate_sha }}
+      PROVIDER_RC_APP_ORIGIN: ${{ vars.PROVIDER_RC_APP_ORIGIN }}
+      PROVIDER_RC_PRODUCTION_ORIGIN: ${{ vars.PROVIDER_RC_PRODUCTION_ORIGIN }}
+      STRIPE_RESTRICTED_KEY: ${{ secrets.PROVIDER_RC_STRIPE_RESTRICTED_KEY }}
+      STRIPE_TRIP_PASS_PRICE_ID: ${{ secrets.PROVIDER_RC_STRIPE_TRIP_PASS_PRICE_ID }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.release_candidate_sha }}
+
+      - name: Verify exact trusted main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${#PROVIDER_RC_EXPECTED_SHA}" -eq 40
+          test "$(git rev-parse HEAD)" = "$PROVIDER_RC_EXPECTED_SHA"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$PROVIDER_RC_EXPECTED_SHA" origin/main
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install exact dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run protected Stripe test-mode acceptance lane
+        run: bun run test:smoke:trip-pass-stripe
+
+      - name: Write exact Stripe evidence
+        run: bun run qa:provider-rc-evidence -- --lane stripe
+
+      - name: Upload exact Stripe evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: provider-rc-stripe-${{ inputs.release_candidate_sha }}
+          path: .tmp/provider-release-candidate/stripe-${{ inputs.release_candidate_sha }}.json
+          if-no-files-found: error
+          retention-days: 14

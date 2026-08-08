@@ -91,7 +91,6 @@ export function buildTripPassCheckoutSessionParams(input: {
     mode: "payment",
     client_reference_id: input.order.id,
     customer_email: input.order.customerEmail ?? undefined,
-    payment_method_types: ["card"],
     expires_at: Math.floor(input.order.checkoutSessionExpiresAt.getTime() / 1000),
     consent_collection: {
       terms_of_service: "required",

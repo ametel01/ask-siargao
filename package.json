@@ -32,6 +32,7 @@
     "eval:trip-pass-quality-bypass": "bun run src/server/evaluations/run-trip-pass-quality-bypass.ts",
     "eval:reality-check": "bun run src/server/evaluations/run-reality-check-matrix.ts",
     "qa:trip-pass-launch": "bun run src/server/qa/run-trip-pass-launch-proof.ts",
+    "qa:provider-rc-evidence": "bun run src/server/qa/run-provider-release-candidate-evidence.ts",
     "db:migrate:test": "bun run src/server/db/migrate-test.ts",
     "db:seed:test": "bun run src/server/db/seed-test.ts",
     "test:integration:postgres": "bun run src/server/integration/postgres-entrypoint.ts",
@@ -44,6 +45,9 @@
     "verify:ci": "bun run verify && bun run db:migrate:test && bun run db:seed:test && bun run build && bun run test:e2e && bun run test:e2e:production-perf",
     "test": "bun test",
     "test:e2e": "playwright test",
+    "test:e2e:clerk": "playwright test --config=playwright.clerk.config.ts",
+    "test:e2e:clerk:verify-deletion": "bun run src/server/qa/verify-clerk-release-candidate-deletion.ts",
+    "test:smoke:trip-pass-stripe": "bun run src/server/qa/run-stripe-release-candidate.ts",
     "test:e2e:production-perf": "PLAYWRIGHT_PRODUCTION_PERF=1 playwright test",
     "start": "bun run validate:clerk-deployment && ./node_modules/.bin/next start",
     "doctor": "npx react-doctor@latest"
@@ -75,6 +79,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.7",
+    "@clerk/testing": "^2.2.19",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/bun": "^1.3.14",
