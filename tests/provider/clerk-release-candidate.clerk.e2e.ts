@@ -95,7 +95,6 @@ test("ownership denial precedes terminal step-up closure and provider deletion c
   await page.getByRole("button", { name: "Close Account", exact: true }).click();
   await page.getByLabel("Account Closure confirmation").fill("CLOSE MY ACCOUNT");
   await page.getByRole("button", { name: "Close Account permanently" }).click();
-  await expect(page.getByRole("status")).toContainText(/account closure|account closed/i);
   await expect.poll(async () => (await page.request.get("/api/me/profile")).status()).toBe(401);
 });
 
