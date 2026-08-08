@@ -16,6 +16,7 @@ import { grantTripPass } from "@/server/trip-pass/entitlement";
 
 const defaultStaleOrderMs = 30 * 60 * 1000;
 const defaultStaleReservationMs = 10 * 60 * 1000;
+const reconciliationPageSize = 500;
 const tripPassLedgerMeterTypeSet = new Set<string>(tripPassLedgerMeterTypes);
 
 export type TripPassReconciliationMode = "dry_run" | "repair";
@@ -37,6 +38,7 @@ export type TripPassDiagnosticIssue = {
     | "missing_usage_meters"
     | "usage_meter_aggregate_mismatch"
     | "stale_usage_reservation"
+    | "paid_answer_usage_event_missing"
     | "provider_usage_missing_request_id"
     | "provider_usage_duplicate_request_id"
     | "price_catalog_mismatch"
@@ -177,9 +179,21 @@ type UsageEventRow = {
   meter_type: string;
   quantity: number;
   idempotency_key: string;
-  request_id: string;
+  request_id: string | null;
+  request_hash: string | null;
   provider_request_ids_json: string[] | string;
   occurred_at: Date | string;
+  paid_answer_reservation_id: string | null;
+  paid_answer_reservation_status: string | null;
+  paid_answer_details_purged_at: Date | string | null;
+};
+
+type SettledPaidAnswerIntegrityRow = {
+  id: string;
+  trip_pass_id: string;
+  usage_meter_id: string;
+  exact_event_id: string | null;
+  candidate_event_ids_json: string[] | string;
 };
 
 type MeterSummaryRow = {
@@ -320,6 +334,7 @@ async function collectTripPassIssues(input: {
     missingMeters,
     aggregateMismatches,
     usageEvents,
+    settledPaidAnswers,
     priceMismatches,
   ] = await Promise.all([
     loadStuckPendingOrders(input.db, input.scope, staleOrderCutoff),
@@ -329,6 +344,7 @@ async function collectTripPassIssues(input: {
     loadPassesMissingMeters(input.db, input.scope),
     loadMeterAggregateMismatches(input.db, input.scope),
     loadUsageEvents(input.db, input.scope),
+    loadSettledPaidAnswerIntegrity(input.db, input.scope),
     loadPriceCatalogMismatches(input.db, input.scope, input.env),
   ]);
 
@@ -415,7 +431,11 @@ async function collectTripPassIssues(input: {
     });
   }
 
-  issues.push(...usageEventIssues(usageEvents, staleReservationCutoff));
+  const paidAnswerIntegrity = paidAnswerUsageEventIssues(settledPaidAnswers);
+  issues.push(...paidAnswerIntegrity.issues);
+  issues.push(
+    ...usageEventIssues(usageEvents, staleReservationCutoff, paidAnswerIntegrity.coveredEventRefs),
+  );
   issues.push(...priceMismatches);
   issues.push(...infrastructureIssues(input.env));
 
@@ -605,6 +625,7 @@ function createSnapshot(input: {
 function usageEventIssues(
   events: UsageEventRow[],
   staleReservationCutoff: Date,
+  paidAnswerIntegrityCoveredEventRefs: ReadonlySet<string> = new Set(),
 ): TripPassDiagnosticIssue[] {
   const issues: TripPassDiagnosticIssue[] = [];
   const providerEventRefs = new Map<string, string[]>();
@@ -627,7 +648,12 @@ function usageEventIssues(
         },
       });
     }
-    if (event.event_type === "settled" && providerRequestIds.length === 0) {
+    if (
+      event.event_type === "settled" &&
+      providerRequestIds.length === 0 &&
+      !paidAnswerIntegrityCoveredEventRefs.has(event.id) &&
+      !isPurgedPaidAnswerAggregate(event)
+    ) {
       issues.push({
         code: "provider_usage_missing_request_id",
         severity: "warning",
@@ -664,6 +690,46 @@ function usageEventIssues(
   }
 
   return issues;
+}
+
+function paidAnswerUsageEventIssues(reservations: SettledPaidAnswerIntegrityRow[]): {
+  issues: TripPassDiagnosticIssue[];
+  coveredEventRefs: Set<string>;
+} {
+  const issues: TripPassDiagnosticIssue[] = [];
+  const coveredEventRefs = new Set<string>();
+
+  for (const reservation of reservations) {
+    if (reservation.exact_event_id !== null) continue;
+
+    for (const eventId of parseProviderRequestIds(reservation.candidate_event_ids_json)) {
+      coveredEventRefs.add(eventId);
+    }
+    issues.push({
+      code: "paid_answer_usage_event_missing",
+      severity: "warning",
+      localRef: reservation.id,
+      reason: "settled paid answer has no exactly linked settled chat-message usage event",
+      repairable: false,
+      details: {
+        passRef: reservation.trip_pass_id,
+        meterRef: reservation.usage_meter_id,
+      },
+    });
+  }
+
+  return { coveredEventRefs, issues };
+}
+
+function isPurgedPaidAnswerAggregate(event: UsageEventRow) {
+  return (
+    event.meter_type === "chat_message" &&
+    event.request_id === null &&
+    event.request_hash === null &&
+    event.paid_answer_reservation_id !== null &&
+    event.paid_answer_reservation_status === "settled" &&
+    event.paid_answer_details_purged_at !== null
+  );
 }
 
 function infrastructureIssues(
@@ -720,7 +786,6 @@ async function loadStuckPendingOrders(
         and created_at < $1
         ${clause}
       order by created_at asc
-      limit 50
     `,
     [staleCutoff, ...params],
   );
@@ -748,7 +813,6 @@ async function loadPaidOrdersWithoutPass(
         o.stripe_price_id, o.created_at, o.updated_at, o.completed_at
       having count(g.id) = 0 or count(p.id) = 0
       order by o.completed_at desc nulls last, o.created_at desc
-      limit 50
     `,
     params,
   );
@@ -773,7 +837,6 @@ async function loadDuplicateOrderGrants(
       group by o.id
       having count(g.id) > 1
       order by o.id
-      limit 50
     `,
     params,
   );
@@ -793,7 +856,6 @@ async function loadRevokedPasses(
       where (status in ('cancelled', 'refunded') or expires_at < $1)
         ${clause}
       order by updated_at desc
-      limit 50
     `,
     [now, ...params],
   );
@@ -844,7 +906,6 @@ async function loadPassesMissingMeters(
       from pass_meter_counts
       where meter_count <> expected_meter_count
       order by created_at desc
-      limit 50
     `,
     [...params, tripPassMeterTypes.length],
   );
@@ -910,7 +971,6 @@ async function loadMeterAggregateMismatches(
       group by m.trip_pass_id, m.meter_type, m.used
       having m.used <> coalesce(sum(case when e.event_type = 'settled' then e.quantity else 0 end), 0)
       order by m.trip_pass_id, m.meter_type
-      limit 50
     `,
     params,
   );
@@ -918,22 +978,102 @@ async function loadMeterAggregateMismatches(
 }
 
 async function loadUsageEvents(db: DatabaseQueryClient, scope: TripPassReconciliationScope) {
-  const { clause, params } = scopeWhere(scope, "p", 1);
-  const result = await db.query<UsageEventRow>(
-    `
+  const rows: UsageEventRow[] = [];
+  let cursor: string | null = null;
+  do {
+    const { clause, params } = scopeWhere(scope, "p", 1);
+    const queryParams = [...params];
+    let cursorClause = "";
+    if (cursor !== null) {
+      queryParams.push(cursor);
+      cursorClause = `and e.id > $${queryParams.length}`;
+    }
+    queryParams.push(reconciliationPageSize);
+    const result = await db.query<UsageEventRow>(
+      `
       select
         e.id, e.trip_pass_id, e.usage_meter_id, e.user_id, e.event_type, e.meter_type,
-        e.quantity, e.idempotency_key, e.request_id, e.provider_request_ids_json, e.occurred_at
+        e.quantity, e.idempotency_key, e.request_id, e.request_hash,
+        e.provider_request_ids_json, e.occurred_at,
+        r.id as paid_answer_reservation_id,
+        r.status as paid_answer_reservation_status,
+        r.details_purged_at as paid_answer_details_purged_at
       from trip_usage_events e
       join trip_passes p on p.id = e.trip_pass_id
+      left join paid_answer_reservations r
+        on e.id = 'trip_usage_event_' || r.id
+        and e.idempotency_key = 'paid-answer:' || r.id
+        and e.trip_pass_id = r.trip_pass_id
+        and e.usage_meter_id = r.usage_meter_id
+        and e.user_id = r.account_id
+        and e.event_type = 'settled'
+        and e.meter_type = 'chat_message'
       where true
         ${clause}
-      order by e.created_at desc
-      limit 500
+        ${cursorClause}
+      order by e.id
+      limit $${queryParams.length}
     `,
-    params,
-  );
-  return result.rows;
+      queryParams,
+    );
+    rows.push(...result.rows);
+    cursor = result.rows.at(-1)?.id ?? null;
+    if (result.rows.length < reconciliationPageSize) break;
+  } while (cursor !== null);
+  return rows;
+}
+
+async function loadSettledPaidAnswerIntegrity(
+  db: DatabaseQueryClient,
+  scope: TripPassReconciliationScope,
+) {
+  const rows: SettledPaidAnswerIntegrityRow[] = [];
+  let cursor: string | null = null;
+  do {
+    const { clause, params } = scopeWhere(scope, "p", 1);
+    const queryParams = [...params];
+    let cursorClause = "";
+    if (cursor !== null) {
+      queryParams.push(cursor);
+      cursorClause = `and r.id > $${queryParams.length}`;
+    }
+    queryParams.push(reconciliationPageSize);
+    const result = await db.query<SettledPaidAnswerIntegrityRow>(
+      `
+      select
+        r.id,
+        r.trip_pass_id,
+        r.usage_meter_id,
+        e.id as exact_event_id,
+        coalesce((
+          select jsonb_agg(candidate.id order by candidate.id)
+          from trip_usage_events candidate
+          where candidate.id = 'trip_usage_event_' || r.id
+            or candidate.idempotency_key = 'paid-answer:' || r.id
+        ), '[]'::jsonb) as candidate_event_ids_json
+      from paid_answer_reservations r
+      join trip_passes p on p.id = r.trip_pass_id
+      left join trip_usage_events e
+        on e.id = 'trip_usage_event_' || r.id
+        and e.idempotency_key = 'paid-answer:' || r.id
+        and e.trip_pass_id = r.trip_pass_id
+        and e.usage_meter_id = r.usage_meter_id
+        and e.user_id = r.account_id
+        and e.event_type = 'settled'
+        and e.meter_type = 'chat_message'
+      where r.status = 'settled'
+        ${clause}
+        ${cursorClause}
+      order by r.id
+      limit $${queryParams.length}
+    `,
+      queryParams,
+    );
+    rows.push(...result.rows);
+    cursor = result.rows.at(-1)?.id ?? null;
+    if (result.rows.length < reconciliationPageSize) break;
+  } while (cursor !== null);
+  return rows;
 }
 
 async function loadPriceCatalogMismatches(
@@ -965,7 +1105,6 @@ async function loadPriceCatalogMismatches(
         )
         ${clause}
       order by created_at desc
-      limit 50
     `,
     queryParams,
   );

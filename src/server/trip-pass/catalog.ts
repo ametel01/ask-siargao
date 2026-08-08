@@ -63,7 +63,6 @@ export const tripPassRateLimits = {
   },
   paid: {
     chatStartsPerMinute: 10,
-    successfulChatsPerDay: 30,
     concurrentChatRequests: 2,
   },
 } as const;

@@ -1,5 +1,6 @@
 import type Stripe from "stripe";
 
+import { loadMigrationFiles } from "@/server/db/migration-files";
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { withTimeout } from "@/server/integration/entrypoint-shared";
 import { withRealPostgresHarness } from "@/server/integration/postgres-harness";
@@ -12,6 +13,11 @@ import {
 } from "@/server/payments/stripe-event-inbox";
 import { runAccountClosurePostgresIntegration } from "@/server/privacy/account-closure.postgres-integration";
 import { startTripPassCheckout, type TripPassCheckoutResult } from "@/server/trip-pass/commerce";
+import {
+  PaidAnswerPurgeBatchError,
+  purgeExpiredPaidAnswerDetails,
+} from "@/server/trip-pass/paid-answer-reservations";
+import { runPaidAnswerReservationPostgresIntegration } from "@/server/trip-pass/paid-answer-reservations.postgres-integration";
 import type {
   TripPassCheckoutClient,
   TripPassCheckoutSessionSummary,
@@ -29,6 +35,7 @@ const tripPassCheckoutRaceEnv = {
 } as const;
 
 await runConcurrentHarnessIsolationRegression();
+await runHistoricalPaidAnswerMigrationUpgrade();
 
 await withRealPostgresHarness(async (harness) => {
   const migration = await harness.migrate();
@@ -41,6 +48,7 @@ await withRealPostgresHarness(async (harness) => {
   await runStripeInboxRealPostgresRegression(harness);
   await runTripPassPaymentLifecyclePostgresRegression(harness);
   await runAccountClosurePostgresIntegration(harness);
+  await runPaidAnswerReservationPostgresIntegration(harness);
 
   console.log(
     JSON.stringify(
@@ -55,6 +63,108 @@ await withRealPostgresHarness(async (harness) => {
     ),
   );
 });
+
+async function runHistoricalPaidAnswerMigrationUpgrade() {
+  await withRealPostgresHarness(async (harness) => {
+    const migrationFiles = await loadMigrationFiles();
+    const throughHistoricalPaidAnswer = migrationFiles.filter(
+      (migration) => migration.name <= "0014_durable_paid_answer_reservations.sql",
+    );
+    const historicalPaidAnswer = throughHistoricalPaidAnswer.at(-1);
+    assertEqual(
+      historicalPaidAnswer?.checksum,
+      "3382b687fb8812b75446de022ce3c89e4efb68bd77a50025034997da942d974d",
+      "historical 0014 checksum must remain immutable",
+    );
+    await harness.migrate(throughHistoricalPaidAnswer);
+    const client = harness.createQueryClient();
+    try {
+      await client.query(
+        `insert into users (id, email)
+         values ('native_migration_retry_user', 'native-migration-retry@example.com')`,
+      );
+      await client.query(
+        `insert into trip_passes (
+           id, user_id, status, starts_at, expires_at, created_at, updated_at
+         ) values (
+           'native_migration_retry_pass', 'native_migration_retry_user', 'active',
+           clock_timestamp() - interval '1 hour', clock_timestamp() + interval '14 days',
+           clock_timestamp(), clock_timestamp()
+         )`,
+      );
+      await client.query(
+        `insert into trip_usage_meters (id, trip_pass_id, meter_type, used, "limit")
+         values (
+           'native_migration_retry_meter', 'native_migration_retry_pass',
+           'chat_message', 1, 150
+         )`,
+      );
+      await client.query(
+        `insert into paid_answer_reservations (
+           id, trip_pass_id, usage_meter_id, account_id, idempotency_key_hash,
+           request_body_hash, request_id, lease_token, status, lease_expires_at,
+           details_purge_at, reserved_at, finalized_at, updated_at
+         ) values (
+           'native_migration_retry_reservation', 'native_migration_retry_pass',
+           'native_migration_retry_meter', 'native_migration_retry_user',
+           'native_migration_retry_key', 'native_migration_retry_body',
+           'native_migration_retry_request', 'native_migration_retry_lease', 'settled',
+           clock_timestamp() - interval '39 days', clock_timestamp() - interval '1 day',
+           clock_timestamp() - interval '40 days', clock_timestamp() - interval '39 days',
+           clock_timestamp() - interval '39 days'
+         )`,
+      );
+      const upgrade = await harness.migrate();
+      assertDeepEqual(
+        upgrade.applied,
+        ["0015_paid_answer_retention_retry.sql"],
+        "historical native ledger must advance only through 0015",
+      );
+      const upgraded = await client.query<{
+        purge_failure_count: number;
+        purge_retry_at: Date | null;
+      }>(
+        `select purge_failure_count, purge_retry_at
+         from paid_answer_reservations where id = 'native_migration_retry_reservation'`,
+      );
+      assertEqual(upgraded.rows[0]?.purge_failure_count, 0, "0015 must backfill retry count");
+      assertEqual(upgraded.rows[0]?.purge_retry_at, null, "0015 must leave retry deadline unset");
+      let purgeFailure: unknown;
+      try {
+        await purgeExpiredPaidAnswerDetails(client);
+      } catch (error) {
+        purgeFailure = error;
+      }
+      if (!(purgeFailure instanceof PaidAnswerPurgeBatchError)) {
+        throw purgeFailure ?? new Error("native upgraded retry scheduling did not fail visibly");
+      }
+      assertEqual(purgeFailure.purgedCount, 0, "upgraded corrupt row must not claim deletion");
+      assertEqual(
+        purgeFailure.failures[0]?.retryScheduled,
+        true,
+        "upgraded corrupt row must schedule a retry",
+      );
+      const scheduled = await client.query<{
+        purge_failure_count: number;
+        retry_scheduled: boolean;
+      }>(
+        `select purge_failure_count, purge_retry_at > purge_attempted_at as retry_scheduled
+         from paid_answer_reservations where id = 'native_migration_retry_reservation'`,
+      );
+      assertEqual(scheduled.rows[0]?.purge_failure_count, 1, "upgraded retry must increment once");
+      assertEqual(scheduled.rows[0]?.retry_scheduled, true, "upgraded retry must be future-dated");
+      console.log(
+        JSON.stringify({
+          checked: "historical-paid-answer-migration-upgrade",
+          fromChecksum: historicalPaidAnswer?.checksum,
+          applied: upgrade.applied,
+        }),
+      );
+    } finally {
+      await client.end();
+    }
+  });
+}
 
 async function runConcurrentHarnessIsolationRegression() {
   const firstReady = deferred<string>();

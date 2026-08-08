@@ -280,20 +280,25 @@ async function insertActiveLifecycle(db: DatabaseQueryClient, suffix: string) {
 }
 
 async function installReservationFixture(db: DatabaseQueryClient, suffix: string) {
-  await db.query(`
-    create table if not exists paid_answer_reservations (
-      id text primary key,
-      trip_pass_id text not null references trip_passes(id),
-      status text not null,
-      invalidation_reason text,
-      invalidated_at timestamptz,
-      updated_at timestamptz not null
-    )
-  `);
   await db.query(
-    `insert into paid_answer_reservations (id, trip_pass_id, status, updated_at)
-     values ($1, $2, 'open', $3)`,
-    [`reservation_${suffix}`, `pass_${suffix}`, activationTime],
+    `insert into paid_answer_reservations (
+       id, trip_pass_id, usage_meter_id, account_id, idempotency_key_hash,
+       request_body_hash, request_id, lease_token, status, lease_expires_at,
+       details_purge_at, reserved_at, updated_at
+     ) values ($1, $2, $3, $4, $5, $6, $7, $8, 'open', $9, $10, $11, $11)`,
+    [
+      `reservation_${suffix}`,
+      `pass_${suffix}`,
+      `meter_${suffix}`,
+      `user_${suffix}`,
+      `idempotency_${suffix}`,
+      `body_${suffix}`,
+      `request_${suffix}`,
+      `lease_${suffix}`,
+      new Date(activationTime.getTime() + 10 * 60_000),
+      new Date(activationTime.getTime() + 30 * 24 * 60 * 60_000),
+      activationTime,
+    ],
   );
 }
 

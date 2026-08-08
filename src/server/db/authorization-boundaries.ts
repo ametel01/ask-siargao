@@ -32,6 +32,7 @@ export const applicationTables = [
   "trip_pass_refund_facts",
   "trip_pass_dispute_facts",
   "trip_usage_events",
+  "paid_answer_reservations",
   "areas",
   "routes",
   "providers",
@@ -95,6 +96,7 @@ export const userOwnedTables = [
   "trip_pass_refund_facts",
   "trip_pass_dispute_facts",
   "trip_usage_events",
+  "paid_answer_reservations",
 ] as const;
 
 export const defaultReportingTables = [

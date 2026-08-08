@@ -805,6 +805,100 @@ export const tripUsageEvents = pgTable(
   ],
 );
 
+export const paidAnswerReservations = pgTable(
+  "paid_answer_reservations",
+  {
+    id: text("id").primaryKey(),
+    tripPassId: text("trip_pass_id")
+      .notNull()
+      .references(() => tripPasses.id),
+    usageMeterId: text("usage_meter_id")
+      .notNull()
+      .references(() => tripUsageMeters.id),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    idempotencyKeyHash: text("idempotency_key_hash").notNull(),
+    requestBodyHash: text("request_body_hash").notNull(),
+    requestId: text("request_id").notNull(),
+    leaseToken: text("lease_token").notNull(),
+    status: text("status").notNull().default("open"),
+    releaseReason: text("release_reason"),
+    invalidationReason: text("invalidation_reason"),
+    answerMessageId: text("answer_message_id").references(() => chatMessages.id, {
+      onDelete: "set null",
+    }),
+    resultJson: jsonb("result_json").$type<Record<string, unknown>>(),
+    providerRequestIdsJson: jsonb("provider_request_ids_json")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }).notNull(),
+    detailsPurgeAt: timestamp("details_purge_at", { withTimezone: true }).notNull(),
+    detailsPurgedAt: timestamp("details_purged_at", { withTimezone: true }),
+    purgeAttemptedAt: timestamp("purge_attempted_at", { withTimezone: true }),
+    purgeRetryAt: timestamp("purge_retry_at", { withTimezone: true }),
+    purgeFailureCount: integer("purge_failure_count").notNull().default(0),
+    purgeLastError: text("purge_last_error"),
+    reservedAt: timestamp("reserved_at", { withTimezone: true }).notNull().defaultNow(),
+    finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("paid_answer_reservations_account_idempotency_idx").on(
+      table.accountId,
+      table.idempotencyKeyHash,
+    ),
+    index("paid_answer_reservations_trip_pass_id_idx").on(table.tripPassId),
+    index("paid_answer_reservations_usage_meter_id_idx").on(table.usageMeterId),
+    index("paid_answer_reservations_answer_message_id_idx")
+      .on(table.answerMessageId)
+      .where(sql`${table.answerMessageId} is not null`),
+    index("paid_answer_reservations_open_pass_idx")
+      .on(table.tripPassId, table.usageMeterId, table.leaseExpiresAt)
+      .where(sql`${table.status} = 'open'`),
+    index("paid_answer_reservations_details_purge_idx")
+      .using(
+        "btree",
+        sql`(coalesce(${table.purgeRetryAt}, ${table.detailsPurgeAt}))`,
+        table.accountId,
+        table.detailsPurgeAt,
+        table.id,
+      )
+      .where(sql`${table.detailsPurgedAt} is null`),
+    check(
+      "paid_answer_reservations_status_check",
+      sql`${table.status} in ('open', 'settled', 'released', 'invalidated')`,
+    ),
+    check(
+      "paid_answer_reservations_release_reason_check",
+      sql`${table.releaseReason} is null or ${table.releaseReason} in ('provider_failure', 'internal_failure', 'empty_output', 'safety_refusal', 'stale_lease', 'redis_unavailable', 'operational_limit', 'database_unavailable', 'pass_expired')`,
+    ),
+    check(
+      "paid_answer_reservations_invalidation_reason_check",
+      sql`${table.invalidationReason} is null or ${table.invalidationReason} in ('account_closed', 'full_refund', 'dispute_lost')`,
+    ),
+    check(
+      "paid_answer_reservations_lease_order_check",
+      sql`${table.reservedAt} < ${table.leaseExpiresAt}`,
+    ),
+    check(
+      "paid_answer_reservations_purge_order_check",
+      sql`${table.reservedAt} < ${table.detailsPurgeAt}`,
+    ),
+    check(
+      "paid_answer_reservations_purge_failure_count_check",
+      sql`${table.purgeFailureCount} between 0 and 31`,
+    ),
+    check(
+      "paid_answer_reservations_purge_last_error_check",
+      sql`${table.purgeLastError} is null or ${table.purgeLastError} in ('usage_event_integrity', 'purge_failed')`,
+    ),
+  ],
+);
+
 export const tripPassStripeEvents = pgTable(
   "trip_pass_stripe_events",
   {

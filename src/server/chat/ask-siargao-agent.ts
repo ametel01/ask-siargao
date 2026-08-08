@@ -775,37 +775,19 @@ export function createMeteredToolExecutor({
 }
 
 function meterTypesForTool(toolName: string, plan: MeteredToolPlan): PaidDecisionMeterType[] {
-  if (plan === "free") {
-    switch (toolName) {
-      case "get_weather_forecast":
-      case "get_marine_conditions":
-      case "get_tide_forecast":
-      case "get_condition_judgment":
-      case "plan_local_itinerary":
-        return ["live_refresh"];
-      case "research_web":
-      case "search_nightlife_events":
-      case "search_places":
-      case "get_place_details":
-        return ["live_refresh", "heavy_recommendation"];
-      default:
-        return [];
-    }
-  }
-
+  if (plan === "paid") return [];
   switch (toolName) {
     case "get_weather_forecast":
     case "get_marine_conditions":
     case "get_tide_forecast":
     case "get_condition_judgment":
-      return ["live_refresh", "weather_refresh"];
+    case "plan_local_itinerary":
+      return ["live_refresh"];
     case "research_web":
     case "search_nightlife_events":
     case "search_places":
     case "get_place_details":
       return ["live_refresh", "heavy_recommendation"];
-    case "plan_local_itinerary":
-      return ["live_refresh", "route_lookup"];
     default:
       return [];
   }

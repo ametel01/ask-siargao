@@ -12,10 +12,16 @@ import {
   type QuotaStore,
   type RollingWindowReservationResult,
 } from "@/server/security/rate-limit";
+import {
+  finalizePaidAnswer,
+  purgeExpiredPaidAnswerDetails,
+  releasePaidAnswer,
+  reservePaidAnswer,
+} from "@/server/trip-pass/paid-answer-reservations";
 import { openChatUsageSession } from "@/server/trip-pass/usage";
 
-const startsAt = new Date("2026-07-01T00:00:00.000Z");
-const expiresAt = new Date("2026-07-15T00:00:00.000Z");
+const startsAt = new Date("2020-07-01T00:00:00.000Z");
+const expiresAt = new Date("2099-07-15T00:00:00.000Z");
 const now = new Date("2026-07-14T04:00:00.000Z");
 
 describe("paid Trip Pass chat usage", () => {
@@ -37,10 +43,14 @@ describe("paid Trip Pass chat usage", () => {
       }
 
       const first = await session.settle({
+        answerMessageId: "answer_once",
+        persistAnswer: paidAnswerPersistence(db, "user_paid_once", "answer_once"),
         success: true,
         providerRequestIds: ["deepseek_request_once"],
       });
       const duplicate = await session.settle({
+        answerMessageId: "answer_once",
+        persistAnswer: paidAnswerPersistence(db, "user_paid_once", "answer_once"),
         success: true,
         providerRequestIds: ["deepseek_request_once_duplicate"],
       });
@@ -59,6 +69,84 @@ describe("paid Trip Pass chat usage", () => {
         providerRequestIds: ["deepseek_request_once"],
         requestHash: "body_hash_once",
       });
+    });
+  });
+
+  test("scopes durable idempotency reservations to the owning account", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_scope_a", "trip_pass_paid_scope_a");
+      await seedActivePass(db, "user_paid_scope_b", "trip_pass_paid_scope_b");
+      const store = createMemoryQuotaStore();
+
+      const [first, second] = await Promise.all([
+        openChatUsageSession({
+          bodyHash: "body_hash_scope_a",
+          db,
+          idempotencyKey: "shared_token_hash_after_redis_expiry",
+          now,
+          requestId: "request_paid_scope_a",
+          store,
+          userId: "user_paid_scope_a",
+        }),
+        openChatUsageSession({
+          bodyHash: "body_hash_scope_b",
+          db,
+          idempotencyKey: "shared_token_hash_after_redis_expiry",
+          now,
+          requestId: "request_paid_scope_b",
+          store,
+          userId: "user_paid_scope_b",
+        }),
+      ]);
+
+      expect(first.status).toBe("allowed");
+      expect(second.status).toBe("allowed");
+      const reservations = await db.query<{ count: string }>(
+        `select count(*)::text as count from paid_answer_reservations
+         where idempotency_key_hash = 'shared_token_hash_after_redis_expiry'`,
+      );
+      expect(reservations.rows[0]?.count).toBe("2");
+    });
+  });
+
+  test("does not let another account finalize an owned reservation", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_owner", "trip_pass_paid_owner");
+      await seedActivePass(db, "user_paid_intruder", "trip_pass_paid_intruder");
+      const reservation = await reservePaidAnswer({
+        accountId: "user_paid_owner",
+        bodyHash: "body_hash_owner",
+        db,
+        idempotencyKeyHash: "token_hash_owner",
+        requestId: "request_paid_owner",
+      });
+      expect(reservation.status).toBe("reserved");
+      if (reservation.status !== "reserved") return;
+
+      const result = await finalizePaidAnswer({
+        accountId: "user_paid_intruder",
+        answerMessageId: "answer_paid_intruder",
+        db,
+        leaseToken: reservation.leaseToken,
+        providerRequestIds: [],
+        reservationId: reservation.reservationId,
+        persistAnswer: async () => {
+          throw new Error("an unowned reservation must not reach answer persistence");
+        },
+      });
+
+      expect(result).toEqual({ status: "lease_lost", allowance: null });
+      await expect(
+        releasePaidAnswer({
+          accountId: "user_paid_intruder",
+          db,
+          leaseToken: reservation.leaseToken,
+          reason: "internal_failure",
+          reservationId: reservation.reservationId,
+        }),
+      ).resolves.toBe("unchanged");
+      await expectMeterUsed(db, "trip_pass_paid_owner", 0);
+      await expectReservationStatus(db, "body_hash_owner", "open");
     });
   });
 
@@ -84,7 +172,7 @@ describe("paid Trip Pass chat usage", () => {
         status: "released",
       });
       await expectMeterUsed(db, "trip_pass_paid_release", 0);
-      await expectUsageEvents(db, { eventType: "released", requestHash: "body_hash_release" });
+      await expectReservationStatus(db, "body_hash_release", "released");
 
       const retry = await openChatUsageSession({
         bodyHash: "body_hash_retry",
@@ -132,7 +220,12 @@ describe("paid Trip Pass chat usage", () => {
       ]);
       const allowed = results.find((result) => result.status === "allowed");
       if (allowed?.status === "allowed") {
-        await allowed.settle({ success: true, providerRequestIds: ["deepseek_final"] });
+        await allowed.settle({
+          answerMessageId: "answer_final",
+          persistAnswer: paidAnswerPersistence(db, "user_paid_final", "answer_final"),
+          success: true,
+          providerRequestIds: ["deepseek_final"],
+        });
       }
       await expectMeterUsed(db, "trip_pass_paid_final", 150);
     });
@@ -178,6 +271,7 @@ describe("paid Trip Pass chat usage", () => {
         db,
         env: {
           NODE_ENV: "production",
+          PAID_ANSWER_DETAIL_RETENTION_DAYS: "30",
           REDIS_URL: "redis://redis.test.local:6379/0",
         },
         idempotencyKey: "token_hash_store_down",
@@ -199,7 +293,65 @@ describe("paid Trip Pass chat usage", () => {
     });
   });
 
-  test("enforces the paid successful-chat daily burst without changing entitlement limit", async () => {
+  test("fails paid use closed before operational controls when PostgreSQL is unavailable", async () => {
+    const db: DatabaseQueryClient = {
+      async query() {
+        throw new Error("postgres unavailable");
+      },
+    };
+    const store = createCountingQuotaStore();
+
+    await expect(
+      openChatUsageSession({
+        bodyHash: "body_hash_database_down",
+        db,
+        idempotencyKey: "token_hash_database_down",
+        now,
+        requestId: "request_paid_database_down",
+        store,
+        userId: "user_paid_database_down",
+      }),
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "paid_usage_database_unavailable",
+    });
+    expect(store.calls).toBe(0);
+  });
+
+  test("keeps a durable settlement when Redis lease cleanup fails after generation", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_cleanup_down", "trip_pass_paid_cleanup_down");
+      const delegate = createMemoryQuotaStore();
+      const store: QuotaStore = {
+        ...delegate,
+        async releaseConcurrency() {
+          throw new Error("Redis failed after durable answer completion");
+        },
+      };
+      const session = await openChatUsageSession({
+        bodyHash: "body_hash_cleanup_down",
+        db,
+        idempotencyKey: "token_hash_cleanup_down",
+        now,
+        requestId: "request_paid_cleanup_down",
+        store,
+        userId: "user_paid_cleanup_down",
+      });
+      expect(session.status).toBe("allowed");
+      if (session.status !== "allowed") return;
+
+      await expect(
+        session.settle({
+          answerMessageId: "answer_cleanup_down",
+          persistAnswer: paidAnswerPersistence(db, "user_paid_cleanup_down", "answer_cleanup_down"),
+          success: true,
+        }),
+      ).resolves.toMatchObject({ status: "settled" });
+      await expectMeterUsed(db, "trip_pass_paid_cleanup_down", 1);
+    });
+  });
+
+  test("does not impose the removed paid successful-chat daily cap", async () => {
     await withTestDb(async (db) => {
       await seedActivePass(db, "user_paid_daily", "trip_pass_paid_daily");
       const store = createMemoryQuotaStore();
@@ -217,35 +369,462 @@ describe("paid Trip Pass chat usage", () => {
         });
         expect(session.status).toBe("allowed");
         if (session.status === "allowed") {
-          await expect(session.settle({ success: true })).resolves.toMatchObject({
+          await expect(
+            session.settle({
+              answerMessageId: `answer_daily_${index}`,
+              persistAnswer: paidAnswerPersistence(db, "user_paid_daily", `answer_daily_${index}`),
+              success: true,
+            }),
+          ).resolves.toMatchObject({
             status: "settled",
           });
         }
       }
 
-      const blocked = await openChatUsageSession({
-        bodyHash: "body_hash_daily_blocked",
+      const thirtyFirst = await openChatUsageSession({
+        bodyHash: "body_hash_daily_31",
         db,
-        idempotencyKey: "token_hash_daily_blocked",
+        idempotencyKey: "token_hash_daily_31",
         now: new Date(now.getTime() + 31 * 60_000),
-        requestId: "request_paid_daily_blocked",
+        requestId: "request_paid_daily_31",
         store,
         userId: "user_paid_daily",
       });
 
-      expect(blocked).toMatchObject({
-        status: "usage_limit_reached",
-        reason: "paid_chat_daily_limit_exceeded",
-        allowance: { chatMessages: { used: 30, remaining: 120, limit: 150 } },
-      });
+      expect(thirtyFirst).toMatchObject({ status: "allowed" });
       await expectMeterUsed(db, "trip_pass_paid_daily", 30);
+    });
+  });
+
+  test("fences a stale worker when database time recovers an expired reservation lease", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_stale", "trip_pass_paid_stale");
+      const store = createMemoryQuotaStore();
+      const first = await openChatUsageSession({
+        bodyHash: "body_hash_stale",
+        db,
+        idempotencyKey: "token_hash_stale",
+        now,
+        requestId: "request_paid_stale_first",
+        store,
+        userId: "user_paid_stale",
+      });
+      expect(first.status).toBe("allowed");
+      await db.query(
+        `update paid_answer_reservations
+         set reserved_at = clock_timestamp() - interval '20 minutes',
+           lease_expires_at = clock_timestamp() - interval '10 minutes'`,
+      );
+
+      const recovered = await openChatUsageSession({
+        bodyHash: "body_hash_stale",
+        db,
+        idempotencyKey: "token_hash_stale",
+        now: new Date(now.getTime() + 1_000),
+        requestId: "request_paid_stale_recovered",
+        store,
+        userId: "user_paid_stale",
+      });
+      expect(recovered.status).toBe("allowed");
+      if (first.status !== "allowed" || recovered.status !== "allowed") return;
+
+      await expect(
+        first.settle({
+          answerMessageId: "answer_stale_old",
+          persistAnswer: paidAnswerPersistence(db, "user_paid_stale", "answer_stale_old"),
+          success: true,
+        }),
+      ).resolves.toMatchObject({ status: "lease_lost" });
+      await expect(
+        recovered.settle({
+          answerMessageId: "answer_stale_current",
+          persistAnswer: paidAnswerPersistence(db, "user_paid_stale", "answer_stale_current"),
+          success: true,
+        }),
+      ).resolves.toMatchObject({ status: "settled" });
+      await expectMeterUsed(db, "trip_pass_paid_stale", 1);
+    });
+  });
+
+  test("recovers expired capacity when a different idempotency key reserves the final unit", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_stale_capacity", "trip_pass_paid_stale_capacity");
+      await setMeterUsed(db, "trip_pass_paid_stale_capacity", "chat_message", 149);
+      const store = createMemoryQuotaStore();
+      const stale = await openChatUsageSession({
+        bodyHash: "body_hash_stale_capacity_old",
+        db,
+        idempotencyKey: "token_hash_stale_capacity_old",
+        now,
+        requestId: "request_paid_stale_capacity_old",
+        store,
+        userId: "user_paid_stale_capacity",
+      });
+      expect(stale.status).toBe("allowed");
+      await db.query(
+        `update paid_answer_reservations
+         set reserved_at = clock_timestamp() - interval '20 minutes',
+           lease_expires_at = clock_timestamp() - interval '10 minutes'
+         where idempotency_key_hash = 'token_hash_stale_capacity_old'`,
+      );
+
+      const fresh = await openChatUsageSession({
+        bodyHash: "body_hash_stale_capacity_new",
+        db,
+        idempotencyKey: "token_hash_stale_capacity_new",
+        now,
+        requestId: "request_paid_stale_capacity_new",
+        store,
+        userId: "user_paid_stale_capacity",
+      });
+
+      expect(fresh.status).toBe("allowed");
+      await expectReservationStatus(db, "body_hash_stale_capacity_old", "released");
+      await expectReservationStatus(db, "body_hash_stale_capacity_new", "open");
+      if (stale.status === "allowed") {
+        await expect(
+          stale.settle({
+            answerMessageId: "answer_stale_capacity_old",
+            persistAnswer: paidAnswerPersistence(
+              db,
+              "user_paid_stale_capacity",
+              "answer_stale_capacity_old",
+            ),
+            success: true,
+          }),
+        ).resolves.toMatchObject({ status: "released" });
+      }
+      await expectMeterUsed(db, "trip_pass_paid_stale_capacity", 149);
+    });
+  });
+
+  test("rolls answer persistence and meter settlement back together, then retries", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_atomic", "trip_pass_paid_atomic");
+      const session = await openChatUsageSession({
+        bodyHash: "body_hash_atomic",
+        db,
+        idempotencyKey: "token_hash_atomic",
+        now,
+        requestId: "request_paid_atomic",
+        store: createMemoryQuotaStore(),
+        userId: "user_paid_atomic",
+      });
+      expect(session.status).toBe("allowed");
+      if (session.status !== "allowed") return;
+
+      await expect(
+        session.settle({
+          answerMessageId: "answer_atomic",
+          persistAnswer: async () => {
+            throw new Error("injected persistence failure");
+          },
+          success: true,
+        }),
+      ).rejects.toThrow("injected persistence failure");
+      await expectMeterUsed(db, "trip_pass_paid_atomic", 0);
+      await expectReservationStatus(db, "body_hash_atomic", "open");
+
+      await expect(
+        session.settle({
+          answerMessageId: "answer_atomic",
+          persistAnswer: paidAnswerPersistence(db, "user_paid_atomic", "answer_atomic"),
+          success: true,
+        }),
+      ).resolves.toMatchObject({ status: "settled" });
+      await expectMeterUsed(db, "trip_pass_paid_atomic", 1);
+    });
+  });
+
+  test("purges per-request reservation details after the database-time policy deadline", async () => {
+    await withTestDb(async (db) => {
+      await seedActivePass(db, "user_paid_purge", "trip_pass_paid_purge");
+      const session = await openChatUsageSession({
+        bodyHash: "body_hash_purge",
+        db,
+        idempotencyKey: "token_hash_purge",
+        now,
+        requestId: "request_paid_purge",
+        store: createMemoryQuotaStore(),
+        userId: "user_paid_purge",
+      });
+      expect(session.status).toBe("allowed");
+      if (session.status !== "allowed") return;
+      await session.settle({
+        answerMessageId: "answer_purge",
+        persistAnswer: paidAnswerPersistence(db, "user_paid_purge", "answer_purge"),
+        providerRequestIds: ["provider_purge"],
+        success: true,
+      });
+      await expect(purgeExpiredPaidAnswerDetails(db)).resolves.toBe(0);
+      await db.query(
+        `update paid_answer_reservations
+         set reserved_at = clock_timestamp() - interval '40 days',
+           details_purge_at = clock_timestamp() - interval '1 second'`,
+      );
+
+      await db.query(`
+        create function fail_paid_answer_event_purge() returns trigger language plpgsql as $$
+        begin raise exception 'forced event purge failure'; end $$
+      `);
+      await db.query(`
+        create trigger fail_paid_answer_event_purge
+          before update of request_id on trip_usage_events
+          for each row execute function fail_paid_answer_event_purge()
+      `);
+      await expect(purgeExpiredPaidAnswerDetails(db)).rejects.toThrow("forced event purge failure");
+      const rolledBack = await db.query<{
+        details_purged_at: Date | null;
+        request_hash: string | null;
+      }>(
+        `select r.details_purged_at, e.request_hash
+         from paid_answer_reservations r
+         join trip_usage_events e on e.id = 'trip_usage_event_' || r.id`,
+      );
+      expect(rolledBack.rows[0]?.details_purged_at).toBeNull();
+      expect(rolledBack.rows[0]?.request_hash).toBe("body_hash_purge");
+      await db.query("drop trigger fail_paid_answer_event_purge on trip_usage_events");
+      await db.query("drop function fail_paid_answer_event_purge()");
+      await db.query(
+        `update paid_answer_reservations set purge_retry_at = clock_timestamp() - interval '1 second'`,
+      );
+
+      await expect(purgeExpiredPaidAnswerDetails(db)).resolves.toBe(1);
+      const details = await db.query<{
+        details_purged_at: Date | null;
+        provider_request_ids_json: unknown;
+        result_json: unknown;
+      }>(
+        `select details_purged_at, provider_request_ids_json, result_json
+         from paid_answer_reservations`,
+      );
+      expect(details.rows[0]?.details_purged_at).not.toBeNull();
+      expect(details.rows[0]?.provider_request_ids_json).toEqual([]);
+      expect(details.rows[0]?.result_json).toBeNull();
+      const event = await db.query<{
+        meter_type: string;
+        provider_request_ids_json: unknown;
+        quantity: number;
+        request_hash: string | null;
+        request_id: string | null;
+      }>(
+        `select meter_type, quantity, request_id, request_hash, provider_request_ids_json
+         from trip_usage_events where idempotency_key like 'paid-answer:%'`,
+      );
+      expect(event.rows[0]).toEqual({
+        meter_type: "chat_message",
+        provider_request_ids_json: [],
+        quantity: 1,
+        request_hash: null,
+        request_id: null,
+      });
+      await expectMeterUsed(db, "trip_pass_paid_purge", 1);
+      await expect(
+        reservePaidAnswer({
+          accountId: "user_paid_purge",
+          bodyHash: "body_hash_purge",
+          db,
+          idempotencyKeyHash: "token_hash_purge",
+          requestId: "request_paid_purge_retry",
+        }),
+      ).resolves.toEqual({ status: "in_progress" });
+    });
+  });
+
+  test("continues past corrupt purge candidates without falsely certifying deletion", async () => {
+    await withTestDb(async (db) => {
+      const mismatch = await createSettledPurgeFixture(db, "0_mismatch", []);
+      const missing = await createSettledPurgeFixture(db, "1_missing", []);
+      const conflicted = await createSettledPurgeFixture(db, "2_conflict", [], true);
+      const released = await createReleasedPurgeFixture(db, "8_released");
+      const valid = await createSettledPurgeFixture(db, "9_valid", ["provider_valid"]);
+      await db.query(`update trip_usage_events set idempotency_key = $2 where id = $1`, [
+        `trip_usage_event_${mismatch.reservationId}`,
+        "paid-answer:wrong-reservation",
+      ]);
+      await db.query(`delete from trip_usage_events where id = $1`, [
+        `trip_usage_event_${missing.reservationId}`,
+      ]);
+
+      const firstFailure = await capturePurgeFailure(db, 3);
+      expect(firstFailure).toMatchObject({
+        purgedCount: 0,
+        failures: [
+          { reservationId: mismatch.reservationId, retryScheduled: true },
+          { reservationId: missing.reservationId, retryScheduled: true },
+          { reservationId: conflicted.reservationId, retryScheduled: true },
+        ],
+      });
+      await expect(purgeExpiredPaidAnswerDetails(db, 3)).resolves.toBe(2);
+      const firstState = await loadPurgeMarkers(db, [
+        mismatch.reservationId,
+        missing.reservationId,
+        conflicted.reservationId,
+        released.reservationId,
+        valid.reservationId,
+      ]);
+      expect(firstState).toEqual([
+        { id: mismatch.reservationId, purged: false },
+        { id: missing.reservationId, purged: false },
+        { id: conflicted.reservationId, purged: false },
+        { id: released.reservationId, purged: true },
+        { id: valid.reservationId, purged: true },
+      ]);
+      const eventDetails = await db.query<{ id: string; request_id: string | null }>(
+        `select id, request_id from trip_usage_events
+         where id in ($1, $2, $3) order by id`,
+        [
+          `trip_usage_event_${mismatch.reservationId}`,
+          `trip_usage_event_${valid.reservationId}`,
+          "unrelated_usage_event_2_conflict",
+        ],
+      );
+      expect(Object.fromEntries(eventDetails.rows.map((row) => [row.id, row.request_id]))).toEqual({
+        [`trip_usage_event_${mismatch.reservationId}`]: "request_paid_purge_0_mismatch",
+        [`trip_usage_event_${valid.reservationId}`]: null,
+        unrelated_usage_event_2_conflict: "unrelated_request_2_conflict",
+      });
+      const missingExactEvents = await db.query<{ count: number }>(
+        `select count(*)::int as count from trip_usage_events where id in ($1, $2)`,
+        [
+          `trip_usage_event_${missing.reservationId}`,
+          `trip_usage_event_${conflicted.reservationId}`,
+        ],
+      );
+      expect(missingExactEvents.rows[0]?.count).toBe(0);
+
+      await expect(purgeExpiredPaidAnswerDetails(db, 3)).resolves.toBe(0);
+      const schedules = await db.query<{
+        purge_failure_count: number;
+        purge_last_error: string | null;
+        retry_scheduled: boolean;
+      }>(
+        `select purge_failure_count, purge_last_error,
+           purge_retry_at > purge_attempted_at as retry_scheduled
+         from paid_answer_reservations where id = any($1::text[]) order by account_id`,
+        [[mismatch.reservationId, missing.reservationId, conflicted.reservationId]],
+      );
+      expect(schedules.rows).toEqual([
+        {
+          purge_failure_count: 1,
+          purge_last_error: "usage_event_integrity",
+          retry_scheduled: true,
+        },
+        {
+          purge_failure_count: 1,
+          purge_last_error: "usage_event_integrity",
+          retry_scheduled: true,
+        },
+        {
+          purge_failure_count: 1,
+          purge_last_error: "usage_event_integrity",
+          retry_scheduled: true,
+        },
+      ]);
+      expect(await loadPurgeMarkers(db, [mismatch.reservationId])).toEqual([
+        { id: mismatch.reservationId, purged: false },
+      ]);
+
+      await db.query(`update trip_usage_events set idempotency_key = $2 where id = $1`, [
+        `trip_usage_event_${mismatch.reservationId}`,
+        `paid-answer:${mismatch.reservationId}`,
+      ]);
+      await db.query(`delete from trip_usage_events where id = $1`, [
+        "unrelated_usage_event_2_conflict",
+      ]);
+      for (const fixture of [missing, conflicted]) {
+        await db.query(
+          `insert into trip_usage_events (
+             id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+             idempotency_key, request_id, request_hash, provider_request_ids_json,
+             occurred_at, created_at
+           ) select 'trip_usage_event_' || id, trip_pass_id, usage_meter_id, account_id,
+             'settled', 'chat_message', 1, 'paid-answer:' || id, request_id,
+             request_body_hash, '[]'::jsonb, clock_timestamp(), clock_timestamp()
+           from paid_answer_reservations where id = $1`,
+          [fixture.reservationId],
+        );
+      }
+      await db.query(
+        `update paid_answer_reservations
+         set purge_retry_at = clock_timestamp() - interval '1 second'
+         where id = any($1::text[])`,
+        [[mismatch.reservationId, missing.reservationId, conflicted.reservationId]],
+      );
+      await expect(purgeExpiredPaidAnswerDetails(db, 3)).resolves.toBe(3);
+    });
+  });
+
+  test("saturates purge retry failures without starving later retained details", async () => {
+    await withTestDb(async (db) => {
+      const nearMaximum = await createSettledPurgeFixture(db, "0_near_maximum", []);
+      const maximum = await createSettledPurgeFixture(db, "1_maximum", []);
+      const valid = await createSettledPurgeFixture(db, "9_after_maximum", ["provider_valid"]);
+      for (const fixture of [nearMaximum, maximum]) {
+        await db.query(`delete from trip_usage_events where id = $1`, [
+          `trip_usage_event_${fixture.reservationId}`,
+        ]);
+      }
+      await db.query(
+        `update paid_answer_reservations
+         set purge_failure_count = case id when $1 then 30 else 31 end
+         where id in ($1, $2)`,
+        [nearMaximum.reservationId, maximum.reservationId],
+      );
+
+      const failure = await capturePurgeFailure(db, 2);
+      expect(failure).toMatchObject({
+        purgedCount: 0,
+        failures: [
+          { reservationId: nearMaximum.reservationId, retryScheduled: true },
+          { reservationId: maximum.reservationId, retryScheduled: true },
+        ],
+      });
+      const scheduled = await db.query<{
+        id: string;
+        purge_failure_count: number;
+        retry_scheduled: boolean;
+      }>(
+        `select id, purge_failure_count, purge_retry_at > purge_attempted_at as retry_scheduled
+         from paid_answer_reservations where id = any($1::text[]) order by account_id`,
+        [[nearMaximum.reservationId, maximum.reservationId]],
+      );
+      expect(scheduled.rows).toEqual([
+        { id: nearMaximum.reservationId, purge_failure_count: 31, retry_scheduled: true },
+        { id: maximum.reservationId, purge_failure_count: 31, retry_scheduled: true },
+      ]);
+      await expect(purgeExpiredPaidAnswerDetails(db, 2)).resolves.toBe(1);
+      expect(await loadPurgeMarkers(db, [valid.reservationId])).toEqual([
+        { id: valid.reservationId, purged: true },
+      ]);
+
+      for (const fixture of [nearMaximum, maximum]) {
+        await db.query(
+          `insert into trip_usage_events (
+             id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+             idempotency_key, request_id, request_hash, provider_request_ids_json,
+             occurred_at, created_at
+           ) select 'trip_usage_event_' || id, trip_pass_id, usage_meter_id, account_id,
+             'settled', 'chat_message', 1, 'paid-answer:' || id, request_id,
+             request_body_hash, '[]'::jsonb, clock_timestamp(), clock_timestamp()
+           from paid_answer_reservations where id = $1`,
+          [fixture.reservationId],
+        );
+      }
+      await db.query(
+        `update paid_answer_reservations
+         set purge_retry_at = clock_timestamp() - interval '1 second'
+         where id = any($1::text[])`,
+        [[nearMaximum.reservationId, maximum.reservationId]],
+      );
+      await expect(purgeExpiredPaidAnswerDetails(db, 2)).resolves.toBe(2);
     });
   });
 
   test("treats expired and other-owner passes as not paid-applicable", async () => {
     await withTestDb(async (db) => {
       await seedActivePass(db, "user_paid_expired", "trip_pass_paid_expired", {
-        expiresAt: new Date("2026-07-10T00:00:00.000Z"),
+        expiresAt: new Date("2021-07-10T00:00:00.000Z"),
       });
       await seedActivePass(db, "user_paid_owner", "trip_pass_paid_owner");
 
@@ -305,6 +884,122 @@ async function seedActivePass(
   );
 }
 
+async function createSettledPurgeFixture(
+  db: DatabaseQueryClient,
+  suffix: string,
+  providerRequestIds: string[],
+  blockUsageEventInsert = false,
+) {
+  const accountId = `user_paid_purge_${suffix}`;
+  const passId = `trip_pass_paid_purge_${suffix}`;
+  await seedActivePass(db, accountId, passId);
+  const reservation = await reservePaidAnswer({
+    accountId,
+    bodyHash: `body_hash_purge_${suffix}`,
+    db,
+    idempotencyKeyHash: `token_hash_purge_${suffix}`,
+    requestId: `request_paid_purge_${suffix}`,
+  });
+  expect(reservation.status).toBe("reserved");
+  if (reservation.status !== "reserved") {
+    throw new Error(`purge fixture reservation unavailable: ${suffix}`);
+  }
+  if (blockUsageEventInsert) {
+    const meter = await db.query<{ id: string }>(
+      `select id from trip_usage_meters
+       where trip_pass_id = $1 and meter_type = 'chat_message'`,
+      [passId],
+    );
+    await db.query(
+      `insert into trip_usage_events (
+         id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+         idempotency_key, request_id, request_hash, provider_request_ids_json,
+         occurred_at, created_at
+       ) values ($1, $2, $3, $4, 'settled', 'chat_message', 1, $5, $6, $7,
+         '[]'::jsonb, clock_timestamp(), clock_timestamp())`,
+      [
+        `unrelated_usage_event_${suffix}`,
+        passId,
+        meter.rows[0]?.id,
+        accountId,
+        `paid-answer:${reservation.reservationId}`,
+        `unrelated_request_${suffix}`,
+        `unrelated_hash_${suffix}`,
+      ],
+    );
+  }
+  const finalized = await finalizePaidAnswer({
+    accountId,
+    answerMessageId: `answer_purge_${suffix}`,
+    db,
+    leaseToken: reservation.leaseToken,
+    persistAnswer: paidAnswerPersistence(db, accountId, `answer_purge_${suffix}`),
+    providerRequestIds,
+    reservationId: reservation.reservationId,
+  });
+  expect(finalized.status).toBe("settled");
+  await db.query(
+    `update paid_answer_reservations
+     set reserved_at = clock_timestamp() - interval '40 days',
+       details_purge_at = clock_timestamp() - interval '1 second'
+     where id = $1`,
+    [reservation.reservationId],
+  );
+  return { accountId, passId, reservationId: reservation.reservationId };
+}
+
+async function createReleasedPurgeFixture(db: DatabaseQueryClient, suffix: string) {
+  const accountId = `user_paid_purge_${suffix}`;
+  const passId = `trip_pass_paid_purge_${suffix}`;
+  await seedActivePass(db, accountId, passId);
+  const reservation = await reservePaidAnswer({
+    accountId,
+    bodyHash: `body_hash_purge_${suffix}`,
+    db,
+    idempotencyKeyHash: `token_hash_purge_${suffix}`,
+    requestId: `request_paid_purge_${suffix}`,
+  });
+  expect(reservation.status).toBe("reserved");
+  if (reservation.status !== "reserved") {
+    throw new Error(`released purge fixture reservation unavailable: ${suffix}`);
+  }
+  await expect(
+    releasePaidAnswer({
+      accountId,
+      db,
+      leaseToken: reservation.leaseToken,
+      reason: "provider_failure",
+      reservationId: reservation.reservationId,
+    }),
+  ).resolves.toBe("released");
+  await db.query(
+    `update paid_answer_reservations
+     set reserved_at = clock_timestamp() - interval '40 days',
+       details_purge_at = clock_timestamp() - interval '1 second'
+     where id = $1`,
+    [reservation.reservationId],
+  );
+  return { reservationId: reservation.reservationId };
+}
+
+async function capturePurgeFailure(db: DatabaseQueryClient, limit?: number) {
+  try {
+    await purgeExpiredPaidAnswerDetails(db, limit);
+  } catch (error) {
+    return error;
+  }
+  throw new Error("expected paid answer purge to surface corrupt candidates");
+}
+
+async function loadPurgeMarkers(db: DatabaseQueryClient, reservationIds: string[]) {
+  const result = await db.query<{ details_purged_at: Date | null; id: string }>(
+    `select id, details_purged_at
+     from paid_answer_reservations where id = any($1::text[]) order by account_id`,
+    [reservationIds],
+  );
+  return result.rows.map((row) => ({ id: row.id, purged: row.details_purged_at !== null }));
+}
+
 async function setMeterUsed(
   db: DatabaseQueryClient,
   tripPassId: string,
@@ -320,6 +1015,36 @@ async function setMeterUsed(
     `,
     [tripPassId, used, meterType],
   );
+}
+
+function paidAnswerPersistence(_db: DatabaseQueryClient, userId: string, answerMessageId: string) {
+  return async (transaction: DatabaseQueryClient) => {
+    const threadId = `thread_${userId}`;
+    await transaction.query(
+      `insert into chat_threads (id, user_id, title)
+       values ($1, $2, 'Paid answer test')
+       on conflict (id) do nothing`,
+      [threadId, userId],
+    );
+    await transaction.query(
+      `insert into chat_messages (id, thread_id, user_id, role, content)
+       values ($1, $2, $3, 'assistant', 'Durable paid answer')`,
+      [answerMessageId, threadId, userId],
+    );
+    return { message: "Durable paid answer", answerMessageId };
+  };
+}
+
+async function expectReservationStatus(
+  db: DatabaseQueryClient,
+  requestBodyHash: string,
+  status: string,
+) {
+  const result = await db.query<{ status: string }>(
+    `select status from paid_answer_reservations where request_body_hash = $1`,
+    [requestBodyHash],
+  );
+  expect(result.rows[0]?.status).toBe(status);
 }
 
 async function expectMeterUsed(
@@ -429,4 +1154,23 @@ function createFailingSharedQuotaStore() {
     },
   };
   return store;
+}
+
+function createCountingQuotaStore() {
+  const delegate = createMemoryQuotaStore();
+  let calls = 0;
+  return {
+    ...delegate,
+    get calls() {
+      return calls;
+    },
+    async reserveConcurrency(input: Parameters<QuotaStore["reserveConcurrency"]>[0]) {
+      calls += 1;
+      return delegate.reserveConcurrency(input);
+    },
+    async reserveRollingWindow(input: Parameters<QuotaStore["reserveRollingWindow"]>[0]) {
+      calls += 1;
+      return delegate.reserveRollingWindow(input);
+    },
+  };
 }

@@ -87,14 +87,16 @@ addresses, emails, precise coordinates, or provider responses.
    separate customer allowances.
 7. Failure release: force a provider failure before billable success; verify reservations release
    and the response labels unavailable or cached evidence truthfully.
-8. Expiry boundary: move the fixture clock or use an expired fixture; verify the effective pass is
+8. Durable retry: disconnect after the answer is stored, then retry with the same idempotency key;
+   verify the same stored response returns without another model call or Usage unit.
+9. Expiry boundary: move the database fixture clock or use an expired fixture; verify the effective pass is
    no longer selected and UI/API warnings are coherent.
-9. Refund or dispute: replay the verified test-mode refund or dispute fixture; verify access is
+10. Refund or dispute: replay the verified test-mode refund or dispute fixture; verify access is
    revoked or suspended according to the launch policy without deleting ledger records.
-10. Analytics delivery: confirm `trip_pass_checkout_started`, `trip_pass_activated`,
+11. Analytics delivery: confirm `trip_pass_checkout_started`, `trip_pass_activated`,
     `trip_pass_meter_warning` or `trip_pass_meter_exhausted`, and `llm_cost_recorded` reach the
     approved sink with sanitized fields only.
-11. Reconciliation: run dry-run diagnostics and confirm paid order, pass, grant, usage meter,
+12. Reconciliation: run dry-run diagnostics and confirm paid order, pass, grant, usage meter,
     provider request, price catalog, sink, store, and cost-circuit checks are visible and redacted.
 
 Then run the adversarial controls:

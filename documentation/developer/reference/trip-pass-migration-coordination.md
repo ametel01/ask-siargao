@@ -1,8 +1,9 @@
 # Trip Pass Migration Coordination
 
 Issue #145 reserves the migration sequence for the Auth and Trip Pass Production Readiness
-milestone. The latest applied migration is `0012_terminal_account_closure.sql`; do not edit
-`drizzle/0000_initial_schema.sql` through `drizzle/0012_terminal_account_closure.sql`.
+milestone. The latest published immutable migration is
+`0014_durable_paid_answer_reservations.sql`; do not edit `drizzle/0000_initial_schema.sql` through
+that file. Retry scheduling added after 0014 was published belongs to the additive 0015 migration.
 
 ## Reserved Sequence
 
@@ -14,11 +15,11 @@ milestone. The latest applied migration is `0012_terminal_account_closure.sql`; 
 | `0012` | #151 | Terminal Account Closure orchestration, Retained Commerce Evidence, and cleanup state. |
 | `0013` | #152 | Refund, dispute, Paid After Closure, and retry state. |
 | `0014` | #153 | Paid Answer Reservation and retention-expiry state. |
+| `0015` | #153 | Paid Answer retention retry scheduling metadata, constraints, and due-work index. |
 
-Issues #146, #150, #151, and #154-#156 must not independently guess, reserve, or reuse a migration
-number. Issue #151 consumes the expand-first state introduced by #147. Any newly discovered schema
-need is coordinator-assigned after this reserved sequence instead of being folded into an applied or
-already-reserved file.
+Issues #154-#156 must not independently guess, reserve, or reuse a migration number. Any newly
+discovered schema need is coordinator-assigned after this reserved sequence instead of being folded
+into an applied or already-reserved file. The next available coordinator-assigned number is `0016`.
 
 ## Expand-First Rules
 

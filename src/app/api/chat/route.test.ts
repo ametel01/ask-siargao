@@ -343,15 +343,61 @@ describe("chat route", () => {
     const replayBody = await replay.json();
 
     expect(first.status).toBe(200);
-    expect(replay.status).toBe(409);
-    expect(replayBody.error).toBe("idempotent_request_replay");
+    expect(replay.status).toBe(200);
+    expect(replayBody.message).toBe("Paid replay answer.");
     expect(dependencies.requests).toHaveLength(1);
     await expectChatMeterUsed(db, "trip_pass_paid_replay", 1);
 
     await db.close();
   });
 
-  test("stops exhausted paid Trip Pass chat before model execution", async () => {
+  test("durably settles and replays a paid answer after the client disconnects", async () => {
+    const db = await openChatRouteTestDatabase();
+    await seedActiveTripPass(db, "user_paid_disconnect", "trip_pass_paid_disconnect");
+    const controller = new AbortController();
+    const dependencies = chatDependencies({
+      message: "Paid answer completed after disconnect.",
+      sources: [genericSourceSummary],
+    });
+    const runAgent = dependencies.runAskSiargaoAgentTurn;
+    if (!runAgent) throw new Error("chat test agent dependency is required");
+    dependencies.db = db;
+    dependencies.now = tripPassTestNow;
+    dependencies.auth = async () => ({
+      userId: "user_paid_disconnect",
+      sessionClaims: { email: "paid-disconnect@example.com" },
+    });
+    dependencies.runAskSiargaoAgentTurn = async (...args) => {
+      const result = await runAgent(...args);
+      controller.abort();
+      return result;
+    };
+    const requestBody = { messages: [{ role: "user", content: "Where should I eat?" }] };
+    const init = {
+      headers: { "idempotency-key": "paid-disconnect-token" },
+      signal: controller.signal,
+    };
+
+    const disconnected = await chatResponse(jsonRequest(requestBody, init), dependencies);
+    const retry = await chatResponse(
+      jsonRequest(requestBody, {
+        headers: { "idempotency-key": "paid-disconnect-token" },
+      }),
+      dependencies,
+    );
+    const retryBody = await retry.json();
+
+    expect(disconnected.status).toBe(200);
+    expect(retry.status).toBe(200);
+    expect(retryBody.message).toBe("Paid answer completed after disconnect.");
+    expect(dependencies.requests).toHaveLength(1);
+    await expectChatMeterUsed(db, "trip_pass_paid_disconnect", 1);
+    await expectPaidAnswerReservation(db, "user_paid_disconnect", "settled");
+
+    await db.close();
+  });
+
+  test("falls back to authenticated free allowance when a Trip Pass is exhausted", async () => {
     const db = await openChatRouteTestDatabase();
     await seedActiveTripPass(db, "user_paid_exhausted", "trip_pass_paid_exhausted");
     await setChatMeterUsed(db, "trip_pass_paid_exhausted", 150);
@@ -372,13 +418,10 @@ describe("chat route", () => {
     );
     const body = await response.json();
 
-    expect(response.status).toBe(402);
-    expect(body).toMatchObject({
-      error: "usage_limit_reached",
-      reason: "paid_chat_meter_exhausted",
-      allowance: { chatMessages: { used: 150, remaining: 0, limit: 150 } },
-    });
-    expect(dependencies.requests).toHaveLength(0);
+    expect(response.status).toBe(200);
+    expect(body.message).toBe("Should not be used.");
+    expect(body.tripPassUsage).toBeUndefined();
+    expect(dependencies.requests).toHaveLength(1);
     await expectChatMeterUsed(db, "trip_pass_paid_exhausted", 150);
 
     await db.close();
@@ -406,11 +449,7 @@ describe("chat route", () => {
     expect(response.status).toBe(502);
     expect(dependencies.requests).toHaveLength(0);
     await expectChatMeterUsed(db, "trip_pass_paid_failure", 0);
-    await expectUsageEvent(db, {
-      eventType: "released",
-      providerRequestIds: [],
-      userId: "user_paid_failure",
-    });
+    await expectPaidAnswerReservation(db, "user_paid_failure", "released");
 
     await db.close();
   });
@@ -3054,8 +3093,8 @@ async function seedActiveTripPass(db: PGlite, userId: string, tripPassId: string
       id: tripPassId,
       userId,
       email: `${userId}@example.com`,
-      startsAt: new Date("2026-07-01T00:00:00.000Z"),
-      expiresAt: new Date("2026-07-20T00:00:00.000Z"),
+      startsAt: new Date("2020-07-01T00:00:00.000Z"),
+      expiresAt: new Date("2099-07-20T00:00:00.000Z"),
       now: new Date("2026-07-14T00:00:00.000Z"),
     },
     db,
@@ -3121,6 +3160,14 @@ async function expectUsageEvent(
       ? JSON.parse(row.provider_request_ids_json)
       : row?.provider_request_ids_json;
   expect(providerRequestIds).toEqual([...expected.providerRequestIds]);
+}
+
+async function expectPaidAnswerReservation(db: PGlite, userId: string, status: string) {
+  const result = await db.query<{ status: string }>(
+    `select status from paid_answer_reservations where account_id = $1 order by reserved_at desc limit 1`,
+    [userId],
+  );
+  expect(result.rows[0]?.status).toBe(status);
 }
 
 function deterministicIds() {

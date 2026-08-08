@@ -615,14 +615,15 @@ async function runClosureWinsRace(harness: RealPostgresHarness) {
     );
     await closureReachedCommit.promise;
     const writerPid = await backendPid(writer);
-    const lateWrite = writer.query(
-      "insert into user_profiles (user_id, display_name) values ($1, 'late writer')",
-      ["closure_race_first"],
+    const lateWriteRejection = expectRejects(
+      writer.query("insert into user_profiles (user_id, display_name) values ($1, 'late writer')", [
+        "closure_race_first",
+      ]),
+      "account is terminally closed",
     );
     await observeBlockedBackend(observer, writerPid);
     releaseClosure.resolve();
-    await closure;
-    await expectRejects(lateWrite, "account is terminally closed");
+    await Promise.all([closure, lateWriteRejection]);
     assertEqual(dispatches, 1, "external dispatch must start only after closure commits");
   } finally {
     releaseClosure.resolve();

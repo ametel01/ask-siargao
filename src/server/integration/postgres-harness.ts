@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import postgres, { type Sql } from "postgres";
 
 import { createPostgresConnectionOptions } from "@/server/db/connection-options";
-import { loadMigrationFiles } from "@/server/db/migration-files";
+import { loadMigrationFiles, type MigrationFile } from "@/server/db/migration-files";
 import type { MigrationDatabase, MigrationQueryValue } from "@/server/db/migration-runner";
 import { runLedgerBackedMigrations } from "@/server/db/migration-runner";
 import {
@@ -28,7 +28,9 @@ export type RealPostgresHarness = {
       }) => Promise<T>,
     ): Promise<T>;
   };
-  migrate(): Promise<{ applied: string[]; skipped: string[] }>;
+  migrate(
+    migrationFiles?: readonly MigrationFile[],
+  ): Promise<{ applied: string[]; skipped: string[] }>;
 };
 
 type HarnessOptions = {
@@ -132,12 +134,12 @@ function createRealPostgresHarness(input: {
         },
       };
     },
-    async migrate() {
+    async migrate(migrationFiles) {
       const sql = this.createClient();
       try {
         return await runLedgerBackedMigrations(
           createPostgresMigrationDatabase(sql),
-          await loadMigrationFiles(),
+          migrationFiles ?? (await loadMigrationFiles()),
         );
       } finally {
         await sql.end();

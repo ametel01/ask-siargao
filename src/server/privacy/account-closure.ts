@@ -246,6 +246,13 @@ export async function beginAccountClosure(
       [input.userId, phaseOneAt],
     );
     await transaction.query(
+      `update paid_answer_reservations
+       set status = 'invalidated', invalidation_reason = 'account_closed',
+         invalidated_at = $2, updated_at = $2
+       where account_id = $1 and status = 'open'`,
+      [input.userId, phaseOneAt],
+    );
+    await transaction.query(
       `update trip_passes set status = 'cancelled', updated_at = $2
        where user_id = $1 and status = 'active'`,
       [input.userId, phaseOneAt],
@@ -316,6 +323,13 @@ async function linearizeNewClosurePhaseOne(input: {
        set occurred_at = boundary.phase_one_at,
          created_at = least(created_at, boundary.phase_one_at)
        from boundary where user_id = $3 and event_type = 'released' returning id
+     ), paid_answer_update as (
+       update paid_answer_reservations
+       set invalidated_at = boundary.phase_one_at, updated_at = boundary.phase_one_at
+       from boundary
+       where account_id = $3 and status = 'invalidated'
+         and invalidation_reason = 'account_closed'
+       returning id
      ), pass_update as (
        update trip_passes
        set updated_at = boundary.phase_one_at
@@ -336,6 +350,7 @@ async function linearizeNewClosurePhaseOne(input: {
        from boundary
        where id = $3
          and (select count(*) from usage_update) >= 0
+         and (select count(*) from paid_answer_update) >= 0
          and (select count(*) from pass_update) >= 0
          and (select count(*) from order_update) >= 0
        returning id
@@ -444,6 +459,13 @@ async function convergeExistingClosure(
     `update trip_usage_events set event_type = 'released', occurred_at = $2,
        created_at = least(created_at, $2)
      where user_id = $1 and event_type = 'reserved'`,
+    [input.userId, phaseOneAt],
+  );
+  await transaction.query(
+    `update paid_answer_reservations
+     set status = 'invalidated', invalidation_reason = 'account_closed',
+       invalidated_at = $2, updated_at = $2
+     where account_id = $1 and status = 'open'`,
     [input.userId, phaseOneAt],
   );
   await transaction.query(
@@ -986,6 +1008,12 @@ async function minimizeCommerceData(
     await transaction.query(
       `delete from trip_usage_events
        where user_id = $1
+          or trip_pass_id in (select id from trip_passes where user_id = $1)`,
+      [userId],
+    );
+    await transaction.query(
+      `delete from paid_answer_reservations
+       where account_id = $1
           or trip_pass_id in (select id from trip_passes where user_id = $1)`,
       [userId],
     );

@@ -5,6 +5,7 @@ import {
   type stripeWebhookResponse,
   withStripeWebhookRouteDependenciesForTest,
 } from "@/app/api/stripe/webhook/webhook-route";
+import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { withRealRedisHarness } from "@/server/integration/redis-harness";
 import { verifyStripeWebhookPayload } from "@/server/payments/stripe";
 import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
@@ -368,6 +369,7 @@ async function runProductionPaidFailClosedRegression() {
     db: createActivePaidEntitlementDb(),
     env: {
       NODE_ENV: "production",
+      PAID_ANSWER_DETAIL_RETENTION_DAYS: "30",
       REDIS_URL: "redis://127.0.0.1:1/0",
     },
     now: new Date("2026-08-07T00:05:00.000Z"),
@@ -561,45 +563,38 @@ function restoreEnv(name: string, value: string | undefined) {
 }
 
 function createActivePaidEntitlementDb() {
-  return {
+  const db: DatabaseQueryClient = {
+    inTransaction: false,
     async query<T>(query: string) {
-      if (query.includes("from trip_passes") && query.includes("status = 'active'")) {
-        return {
-          rows: [
-            {
-              id: "trip_pass_paid_redis_unreachable",
-              user_id: "user_paid_redis_unreachable",
-              email: "paid-redis-unreachable@example.com",
-              status: "active",
-              stripe_checkout_session_id: "cs_paid_redis_unreachable",
-              stripe_payment_intent_id: "pi_paid_redis_unreachable",
-              stripe_event_id: "evt_paid_redis_unreachable",
-              starts_at: new Date("2026-08-01T00:00:00.000Z"),
-              expires_at: new Date("2026-08-30T00:00:00.000Z"),
-              created_at: new Date("2026-08-01T00:00:00.000Z"),
-              updated_at: new Date("2026-08-01T00:00:00.000Z"),
-            },
-          ] as T[],
-        };
+      if (query.includes("clock_timestamp() as now")) {
+        return { rows: [{ now: new Date("2026-08-07T00:05:00.000Z") }] as T[] };
       }
-      if (query.includes("from trip_usage_meters")) {
+      if (query.includes("count(*)::text") && query.includes("paid_answer_reservations")) {
+        return { rows: [{ count: "0" }] as T[] };
+      }
+      if (query.includes("from paid_answer_reservations")) return { rows: [] as T[] };
+      if (query.includes("from trip_passes p") && query.includes("trip_usage_meters")) {
         return {
           rows: [
             {
               id: "meter_paid_redis_unreachable_chat",
               trip_pass_id: "trip_pass_paid_redis_unreachable",
-              meter_type: "chat_message",
               used: 0,
               limit: 150,
-              reset_at: new Date("2026-08-30T00:00:00.000Z"),
-              updated_at: new Date("2026-08-01T00:00:00.000Z"),
+              pass_status: "active",
+              starts_at: new Date("2026-08-01T00:00:00.000Z"),
+              expires_at: new Date("2026-08-30T00:00:00.000Z"),
             },
           ] as T[],
         };
       }
       return { rows: [] as T[] };
     },
+    async transaction<T>(callback: (transaction: DatabaseQueryClient) => Promise<T>) {
+      return callback({ ...db, inTransaction: true });
+    },
   };
+  return db;
 }
 
 function assertEqual<T>(actual: T, expected: T, message: string) {

@@ -10,6 +10,7 @@ import {
 } from "@/server/db/test-database";
 import { createActiveTripPassWithMeters } from "@/server/payments/trip-pass";
 import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/catalog";
+import { purgeExpiredPaidAnswerDetails } from "@/server/trip-pass/paid-answer-reservations";
 import {
   buildTripPassReconciliationSnapshot,
   lookupTripPassSupportReference,
@@ -282,7 +283,278 @@ describe("Trip Pass reconciliation", () => {
     expect(serialized).not.toContain("pi_test");
     expect(serialized).toContain("[redacted");
   });
+
+  test("accepts only an exactly linked, policy-purged paid-answer aggregate", async () => {
+    await withTestDb(async (db) => {
+      await insertSettledPaidAnswerWithoutProviderIds(db, "purged_clean");
+
+      const before = await buildTripPassReconciliationSnapshot({
+        db,
+        env,
+        now,
+        scope: { passId: "trip_pass_purged_clean" },
+      });
+      expect(missingProviderIssues(before)).toEqual(["trip_usage_event_reservation_purged_clean"]);
+
+      await expirePaidAnswerDetails(db, "reservation_purged_clean");
+      await expect(purgeExpiredPaidAnswerDetails(db)).resolves.toBe(1);
+
+      const dryRun = await buildTripPassReconciliationSnapshot({
+        db,
+        env,
+        now,
+        scope: { passId: "trip_pass_purged_clean" },
+      });
+      const repair = await reconcileTripPassState({
+        confirmMutation: true,
+        db,
+        env,
+        mode: "repair",
+        now,
+        scope: { passId: "trip_pass_purged_clean" },
+      });
+      expect(missingProviderIssues(dryRun)).toEqual([]);
+      expect(missingProviderIssues(repair)).toEqual([]);
+      expect(repair.actions).toEqual([]);
+      await expectMeterAggregate(db, "trip_pass_purged_clean", 1, 1);
+    });
+  });
+
+  test("keeps warning after purge rollback and for mismatched paid-answer identity", async () => {
+    await withTestDb(async (db) => {
+      await insertSettledPaidAnswerWithoutProviderIds(db, "purged_adversarial");
+      await expirePaidAnswerDetails(db, "reservation_purged_adversarial");
+      await db.query(`
+        create function fail_reconciliation_event_purge() returns trigger language plpgsql as $$
+        begin raise exception 'forced reconciliation purge failure'; end $$
+      `);
+      await db.query(`
+        create trigger fail_reconciliation_event_purge
+          before update of request_id on trip_usage_events
+          for each row execute function fail_reconciliation_event_purge()
+      `);
+
+      await expect(purgeExpiredPaidAnswerDetails(db)).rejects.toThrow(
+        "forced reconciliation purge failure",
+      );
+      const rolledBack = await buildTripPassReconciliationSnapshot({
+        db,
+        env,
+        now,
+        scope: { passId: "trip_pass_purged_adversarial" },
+      });
+      expect(missingProviderIssues(rolledBack)).toEqual([
+        "trip_usage_event_reservation_purged_adversarial",
+      ]);
+
+      await db.query("drop trigger fail_reconciliation_event_purge on trip_usage_events");
+      await db.query("drop function fail_reconciliation_event_purge()");
+      await db.query(
+        `update paid_answer_reservations set purge_retry_at = clock_timestamp() - interval '1 second'`,
+      );
+      await expect(purgeExpiredPaidAnswerDetails(db)).resolves.toBe(1);
+      await db.query(`update trip_usage_events set idempotency_key = $2 where id = $1`, [
+        "trip_usage_event_reservation_purged_adversarial",
+        "paid-answer:unrelated_reservation",
+      ]);
+
+      const mismatchedDryRun = await buildTripPassReconciliationSnapshot({
+        db,
+        env,
+        now,
+        scope: { passId: "trip_pass_purged_adversarial" },
+      });
+      const mismatchedRepair = await reconcileTripPassState({
+        confirmMutation: true,
+        db,
+        env,
+        mode: "repair",
+        now,
+        scope: { passId: "trip_pass_purged_adversarial" },
+      });
+      expect(missingProviderIssues(mismatchedDryRun)).toEqual([]);
+      expect(paidAnswerIntegrityIssues(mismatchedDryRun)).toEqual([
+        "reservation_purged_adversarial",
+      ]);
+      expect(missingProviderIssues(mismatchedRepair)).toEqual([]);
+      expect(paidAnswerIntegrityIssues(mismatchedRepair)).toEqual([
+        "reservation_purged_adversarial",
+      ]);
+      await expectMeterAggregate(db, "trip_pass_purged_adversarial", 1, 1);
+    });
+  });
+
+  test("audits every settled paid answer without an exact usage event in dry-run and repair", async () => {
+    await withTestDb(async (db) => {
+      for (const suffix of [
+        "integrity_valid",
+        "integrity_purged",
+        "integrity_missing",
+        "integrity_mismatch",
+        "integrity_conflict",
+      ]) {
+        await insertSettledPaidAnswerWithoutProviderIds(db, suffix);
+      }
+      await db.query(
+        `update trip_usage_events set provider_request_ids_json = '["provider-valid"]'::jsonb
+         where id = $1`,
+        ["trip_usage_event_reservation_integrity_valid"],
+      );
+      await expirePaidAnswerDetails(db, "reservation_integrity_purged");
+      await expect(purgeExpiredPaidAnswerDetails(db)).resolves.toBe(1);
+      await db.query(`delete from trip_usage_events where id = $1`, [
+        "trip_usage_event_reservation_integrity_missing",
+      ]);
+      await db.query(`update trip_usage_events set idempotency_key = $2 where id = $1`, [
+        "trip_usage_event_reservation_integrity_mismatch",
+        "paid-answer:unrelated_integrity_reservation",
+      ]);
+      await db.query(`delete from trip_usage_events where id = $1`, [
+        "trip_usage_event_reservation_integrity_conflict",
+      ]);
+      await db.query(
+        `insert into trip_usage_events (
+           id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+           idempotency_key, request_id, request_hash, provider_request_ids_json,
+           occurred_at, created_at
+         ) select $1, trip_pass_id, usage_meter_id, account_id, 'settled', 'chat_message', 1,
+           $2, request_id, request_body_hash, '[]'::jsonb, finalized_at, finalized_at
+         from paid_answer_reservations where id = $3`,
+        [
+          "unrelated_usage_event_integrity_conflict",
+          "paid-answer:reservation_integrity_conflict",
+          "reservation_integrity_conflict",
+        ],
+      );
+
+      for (const mode of ["dry_run", "repair"] as const) {
+        const snapshot = await reconcileTripPassState({
+          confirmMutation: mode === "repair",
+          db,
+          env,
+          mode,
+          now,
+        });
+        expect(paidAnswerIntegrityIssues(snapshot)).toEqual([
+          "reservation_integrity_conflict",
+          "reservation_integrity_mismatch",
+          "reservation_integrity_missing",
+        ]);
+        expect(missingProviderIssues(snapshot)).not.toContain(
+          "trip_usage_event_reservation_integrity_mismatch",
+        );
+        expect(missingProviderIssues(snapshot)).not.toContain(
+          "unrelated_usage_event_integrity_conflict",
+        );
+        expect(snapshot.actions).not.toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ localRef: "reservation_integrity_missing" }),
+          ]),
+        );
+      }
+
+      await db.query(
+        `insert into trip_usage_events (
+           id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+           idempotency_key, request_id, request_hash, provider_request_ids_json,
+           occurred_at, created_at
+         ) select $1, trip_pass_id, usage_meter_id, account_id, 'settled', 'chat_message', 1,
+           $2, request_id, request_body_hash, '["provider-repaired"]'::jsonb,
+           finalized_at, finalized_at
+         from paid_answer_reservations where id = $3`,
+        [
+          "trip_usage_event_reservation_integrity_missing",
+          "paid-answer:reservation_integrity_missing",
+          "reservation_integrity_missing",
+        ],
+      );
+      const afterAuditedRepair = await buildTripPassReconciliationSnapshot({ db, env, now });
+      expect(paidAnswerIntegrityIssues(afterAuditedRepair)).toEqual([
+        "reservation_integrity_conflict",
+        "reservation_integrity_mismatch",
+      ]);
+    });
+  });
+
+  test("keyset-pages every settled paid answer and usage event without an audit blind spot", async () => {
+    await withTestDb(async (db) => {
+      await insertSettledPaidAnswerWithoutProviderIds(db, "pagination_seed");
+      await db.query(
+        `update trip_usage_events
+         set provider_request_ids_json = '["provider-pagination"]'::jsonb
+         where id = 'trip_usage_event_reservation_pagination_seed'`,
+      );
+      await db.query(
+        `insert into paid_answer_reservations (
+           id, trip_pass_id, usage_meter_id, account_id, idempotency_key_hash,
+           request_body_hash, request_id, lease_token, status, provider_request_ids_json,
+           lease_expires_at, details_purge_at, reserved_at, finalized_at, updated_at
+         )
+         select 'reservation_page_' || lpad(page::text, 4, '0'), trip_pass_id,
+           usage_meter_id, account_id, 'key_page_' || page, 'body_page_' || page,
+           'request_page_' || page, 'lease_page_' || page, 'settled',
+           '["provider-pagination"]'::jsonb, lease_expires_at, details_purge_at,
+           reserved_at, finalized_at, updated_at
+         from paid_answer_reservations cross join generate_series(0, 501) page
+         where id = 'reservation_pagination_seed'`,
+      );
+      await db.query(
+        `insert into trip_usage_events (
+           id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+           idempotency_key, request_id, request_hash, provider_request_ids_json,
+           occurred_at, created_at
+         )
+         select 'trip_usage_event_' || id, trip_pass_id, usage_meter_id, account_id,
+           'settled', 'chat_message', 1, 'paid-answer:' || id, request_id,
+           request_body_hash, '["provider-pagination"]'::jsonb, finalized_at, finalized_at
+         from paid_answer_reservations
+         where id like 'reservation_page_%'
+           and id not in ('reservation_page_0000', 'reservation_page_0499')`,
+      );
+      await db.query(
+        `update paid_answer_reservations
+         set request_body_hash = 'purged:' || id, request_id = 'purged:' || id,
+           idempotency_key_hash = 'purged:' || id, provider_request_ids_json = '[]'::jsonb,
+           details_purged_at = clock_timestamp()
+         where id = 'reservation_page_0501'`,
+      );
+      await db.query(
+        `update trip_usage_events
+         set request_id = null, request_hash = null, provider_request_ids_json = '[]'::jsonb
+         where id = 'trip_usage_event_reservation_page_0501'`,
+      );
+
+      for (const mode of ["dry_run", "repair"] as const) {
+        const snapshot = await reconcileTripPassState({
+          confirmMutation: mode === "repair",
+          db,
+          env,
+          mode,
+          now,
+          scope: { passId: "trip_pass_pagination_seed" },
+        });
+        expect(paidAnswerIntegrityIssues(snapshot)).toEqual([
+          "reservation_page_0000",
+          "reservation_page_0499",
+        ]);
+        expect(missingProviderIssues(snapshot)).toEqual([]);
+      }
+    });
+  });
 });
+
+function missingProviderIssues(snapshot: Awaited<ReturnType<typeof reconcileTripPassState>>) {
+  return snapshot.issues
+    .filter((issue) => issue.code === "provider_usage_missing_request_id")
+    .map((issue) => issue.localRef);
+}
+
+function paidAnswerIntegrityIssues(snapshot: Awaited<ReturnType<typeof reconcileTripPassState>>) {
+  return snapshot.issues
+    .filter((issue) => issue.code === "paid_answer_usage_event_missing")
+    .map((issue) => issue.localRef)
+    .sort();
+}
 
 async function withTestDb(work: (db: DatabaseQueryClient) => Promise<void>) {
   await resetTestDatabase();
@@ -425,6 +697,105 @@ async function insertPassWithStaleReservation(
       new Date(now.getTime() - 60 * 60 * 1000),
     ],
   );
+}
+
+async function insertSettledPaidAnswerWithoutProviderIds(db: DatabaseQueryClient, suffix: string) {
+  const userId = `user_${suffix}`;
+  const tripPassId = `trip_pass_${suffix}`;
+  const meterId = `meter_${suffix}`;
+  const reservationId = `reservation_${suffix}`;
+  await insertUser(db, userId);
+  await createActiveTripPassWithMeters(
+    {
+      expiresAt: new Date("2026-08-28T08:00:00.000Z"),
+      id: tripPassId,
+      startsAt: new Date("2026-07-01T08:00:00.000Z"),
+      userId,
+    },
+    db,
+  );
+  const meter = await db.query<{ id: string }>(
+    `select id from trip_usage_meters where trip_pass_id = $1 and meter_type = 'chat_message'`,
+    [tripPassId],
+  );
+  const actualMeterId = meter.rows[0]?.id;
+  expect(actualMeterId).toBeDefined();
+  await db.query(`update trip_usage_meters set id = $2, used = 1 where id = $1`, [
+    actualMeterId,
+    meterId,
+  ]);
+  await db.query(
+    `insert into paid_answer_reservations (
+       id, trip_pass_id, usage_meter_id, account_id, idempotency_key_hash,
+       request_body_hash, request_id, lease_token, status, provider_request_ids_json,
+       lease_expires_at, details_purge_at, reserved_at, finalized_at, updated_at
+     ) values ($1, $2, $3, $4, $5, $6, $7, $8, 'settled', '[]'::jsonb,
+       $9, $10, $11, $12, $12)`,
+    [
+      reservationId,
+      tripPassId,
+      meterId,
+      userId,
+      `key_${suffix}`,
+      `body_${suffix}`,
+      `request_${suffix}`,
+      `lease_${suffix}`,
+      new Date("2026-07-14T07:10:00.000Z"),
+      new Date("2026-09-14T08:00:00.000Z"),
+      new Date("2026-07-14T07:00:00.000Z"),
+      new Date("2026-07-14T07:30:00.000Z"),
+    ],
+  );
+  await db.query(
+    `insert into trip_usage_events (
+       id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+       idempotency_key, request_id, request_hash, provider_request_ids_json,
+       occurred_at, created_at
+     ) values ($1, $2, $3, $4, 'settled', 'chat_message', 1, $5, $6, $7, '[]'::jsonb,
+       $8, $8)`,
+    [
+      `trip_usage_event_${reservationId}`,
+      tripPassId,
+      meterId,
+      userId,
+      `paid-answer:${reservationId}`,
+      `request_${suffix}`,
+      `body_${suffix}`,
+      new Date("2026-07-14T07:30:00.000Z"),
+    ],
+  );
+}
+
+async function expirePaidAnswerDetails(db: DatabaseQueryClient, reservationId: string) {
+  await db.query(
+    `update paid_answer_reservations
+     set reserved_at = clock_timestamp() - interval '40 days',
+       details_purge_at = clock_timestamp() - interval '1 second'
+     where id = $1`,
+    [reservationId],
+  );
+}
+
+async function expectMeterAggregate(
+  db: DatabaseQueryClient,
+  tripPassId: string,
+  expectedUsed: number,
+  expectedSettledQuantity: number,
+) {
+  const result = await db.query<{ settled_quantity: string; used: number }>(
+    `select m.used,
+       coalesce(sum(e.quantity) filter (where e.event_type = 'settled'), 0)::text
+         as settled_quantity
+     from trip_usage_meters m
+     left join trip_usage_events e on e.usage_meter_id = m.id
+     where m.trip_pass_id = $1 and m.meter_type = 'chat_message'
+     group by m.used`,
+    [tripPassId],
+  );
+  expect(result.rows[0]).toEqual({
+    settled_quantity: String(expectedSettledQuantity),
+    used: expectedUsed,
+  });
 }
 
 async function expectCounts(db: DatabaseQueryClient, expected: { grants: string; passes: string }) {
