@@ -7,6 +7,7 @@ import {
   resetTestDatabase,
   runInitialMigration,
 } from "@/server/db/test-database";
+import { operationalTaskTypes } from "@/server/operations/contracts";
 import {
   reconcileLiveCommerce,
   reconciliationAlertKey,
@@ -729,6 +730,74 @@ describe("durable provider-neutral workers", () => {
           },
         ),
       ).resolves.toEqual({ claimed: 1, failed: 0, stale: 0, succeeded: 1 });
+    });
+  });
+
+  test("producer keys remain terminal-idempotent after every task kind succeeds", async () => {
+    await withTestDb(async (db) => {
+      const cycleKey = "cycle-terminal-idempotency";
+      const inputs = operationalTaskTypes.map((taskType) => {
+        const resourceRef =
+          taskType === "commerce_reconciliation" ? `all:${cycleKey}` : `opaque:${taskType}`;
+        return {
+          id: stableOperationalTaskId(taskType, resourceRef),
+          resourceRef,
+          taskType,
+        };
+      });
+      const concurrentCreates = await Promise.all(
+        inputs.flatMap((input) => [
+          enqueueOperationalTask(input, db),
+          enqueueOperationalTask(input, db),
+        ]),
+      );
+      expect(concurrentCreates.filter(Boolean)).toHaveLength(operationalTaskTypes.length);
+
+      const handlers = Object.fromEntries(
+        operationalTaskTypes.map((taskType) => [taskType, async () => undefined]),
+      );
+      await expect(
+        runOperationalWorker(
+          { batchSize: operationalTaskTypes.length, leaseSeconds: 60 },
+          { db, handlers },
+        ),
+      ).resolves.toEqual({
+        claimed: operationalTaskTypes.length,
+        failed: 0,
+        stale: 0,
+        succeeded: operationalTaskTypes.length,
+      });
+
+      const replayed = await Promise.all(inputs.map((input) => enqueueOperationalTask(input, db)));
+      expect(replayed).toEqual(inputs.map(() => false));
+      const terminal = await db.query<{
+        attempts: number;
+        completed_at: Date | string | null;
+        resource_ref: string;
+        status: string;
+      }>(
+        `select attempts, completed_at, resource_ref, status
+         from operational_worker_tasks order by task_type`,
+      );
+      expect(terminal.rows).toHaveLength(operationalTaskTypes.length);
+      for (const row of terminal.rows) {
+        expect(row.status).toBe("succeeded");
+        expect(row.attempts).toBe(1);
+        expect(row.completed_at).not.toBeNull();
+        expect(row.resource_ref).toMatch(/^(?:all:cycle-|opaque:)[a-z_:-]+$/);
+      }
+
+      const nextCycle = await Promise.all([
+        enqueueDueOperationalTasks(
+          { cycleKey: "cycle-terminal-idempotency-next", taskTypes: ["commerce_reconciliation"] },
+          db,
+        ),
+        enqueueDueOperationalTasks(
+          { cycleKey: "cycle-terminal-idempotency-next", taskTypes: ["commerce_reconciliation"] },
+          db,
+        ),
+      ]);
+      expect(nextCycle.reduce((sum, result) => sum + result.commerce_reconciliation, 0)).toBe(1);
     });
   });
 

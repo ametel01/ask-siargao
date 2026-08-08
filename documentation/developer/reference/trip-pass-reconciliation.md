@@ -84,8 +84,10 @@ reconciliation. `bun run operations:enqueue -- --task=<kind-or-all>` discovers d
 enqueues stable task/target identities. `bun run operations:worker -- --task=<kind-or-all>` drains
 already-queued work. An external scheduler can perform both phases in one bounded invocation with
 `bun run operations:run -- --task=<kind-or-all> --cycle-key=<opaque-cycle>`; repeating the same
-cycle key cannot duplicate work. `--batch`, `--enqueue-limit`, and `--lease-seconds` bound one
-invocation. No scheduler vendor or cadence is selected by engineering.
+cycle key cannot duplicate work. The producer never resets an existing pending, running, or
+succeeded task; retry scheduling belongs to the fenced worker, and a new reconciliation cycle uses a
+new resource identity. `--batch`, `--enqueue-limit`, and `--lease-seconds` bound one invocation. No
+scheduler vendor or cadence is selected by engineering.
 
 Both success and retry transitions require the matching token and an unexpired database-time lease;
 an expired worker can neither complete nor reschedule work after takeover becomes eligible. Repeated

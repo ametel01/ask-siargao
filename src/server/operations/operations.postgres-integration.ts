@@ -383,13 +383,15 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
   );
 
   const cycleKey = "native-cycle-20260808T12";
-  const first = await enqueueDueOperationalTasks({ cycleKey }, db);
-  const duplicate = await enqueueDueOperationalTasks({ cycleKey }, db);
-  for (const count of Object.values(first)) {
-    assert(count >= 1, "native producer did not enqueue every due obligation kind");
-  }
-  for (const count of Object.values(duplicate)) {
-    assert(count === 0, "native duplicate producer invocation enqueued a second task");
+  const concurrent = await Promise.all([
+    enqueueDueOperationalTasks({ cycleKey }, db),
+    enqueueDueOperationalTasks({ cycleKey }, db),
+  ]);
+  for (const taskType of Object.keys(concurrent[0]) as (keyof (typeof concurrent)[0])[]) {
+    assert(
+      concurrent[0][taskType] + concurrent[1][taskType] >= 1,
+      `native concurrent producer did not create the due ${taskType} task`,
+    );
   }
   const expected = [
     ["account_closure", "native_producer_closure"],
@@ -451,6 +453,77 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
     },
   );
   assert(recovered.succeeded === 1, "native producer task did not recover after worker crash");
+
+  const terminalBeforeReplay = await db.query<{
+    attempts: number;
+    completed_at: Date | string | null;
+    id: string;
+    resource_ref: string;
+    status: string;
+  }>(
+    `select id, resource_ref, status, attempts, completed_at
+     from operational_worker_tasks
+     where resource_ref like 'native_producer_%' or resource_ref = $1
+     order by task_type`,
+    [`all:${cycleKey}`],
+  );
+  assert(
+    terminalBeforeReplay.rows.length === 5 &&
+      terminalBeforeReplay.rows.every((row) => row.status === "succeeded"),
+    "native producer tasks did not reach terminal success",
+  );
+  const terminalReplay = await Promise.all(
+    expected.flatMap(([taskType, resourceRef]) => {
+      const input = {
+        id: stableOperationalTaskId(taskType, resourceRef),
+        resourceRef,
+        taskType,
+      };
+      return [enqueueOperationalTask(input, db), enqueueOperationalTask(input, db)];
+    }),
+  );
+  assert(
+    terminalReplay.every((inserted) => !inserted),
+    "native terminal producer replay reported reopened work",
+  );
+  const terminalAfterReplay = await db.query<{
+    attempts: number;
+    completed_at: Date | string | null;
+    id: string;
+    resource_ref: string;
+    status: string;
+  }>(
+    `select id, resource_ref, status, attempts, completed_at
+     from operational_worker_tasks
+     where resource_ref like 'native_producer_%' or resource_ref = $1
+     order by task_type`,
+    [`all:${cycleKey}`],
+  );
+  assert(
+    JSON.stringify(terminalAfterReplay.rows) === JSON.stringify(terminalBeforeReplay.rows),
+    "native terminal producer replay changed success or attempt evidence",
+  );
+
+  const nextCycleKey = "native-cycle-20260808T13";
+  const nextCycle = await Promise.all([
+    enqueueDueOperationalTasks(
+      { cycleKey: nextCycleKey, taskTypes: ["commerce_reconciliation"] },
+      db,
+    ),
+    enqueueDueOperationalTasks(
+      { cycleKey: nextCycleKey, taskTypes: ["commerce_reconciliation"] },
+      db,
+    ),
+  ]);
+  assert(
+    nextCycle.reduce((sum, result) => sum + result.commerce_reconciliation, 0) === 1,
+    "native producer did not create exactly one task for a new reconciliation cycle",
+  );
+  await db.query(
+    `delete from operational_worker_tasks
+     where task_type = 'commerce_reconciliation' and resource_ref = $1`,
+    [`all:${nextCycleKey}`],
+  );
 }
 
 async function runObservationOrderingRegressions(db: DatabaseQueryClient) {
