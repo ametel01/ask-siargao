@@ -128,6 +128,13 @@ export const clerkRoutePolicyEntries = [
     "authenticated profile API",
   ),
   api(
+    "src/app/api/me/provider-release-candidate/route.ts",
+    "/api/me/provider-release-candidate",
+    "protected",
+    "authenticated protected-staging deployment identity probe",
+    "handler returns 404 outside protected staging",
+  ),
+  api(
     "src/app/api/me/trip-pass/checkout/route.ts",
     "/api/me/trip-pass/checkout",
     "protected",

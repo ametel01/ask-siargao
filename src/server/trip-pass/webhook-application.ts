@@ -24,8 +24,18 @@ import {
 
 export type PreparedTripPassStripeEvent =
   | { event: Stripe.Event; kind: "direct" }
-  | { event: Stripe.Event; fact: AuthoritativeRefundFact | null; kind: "refund" }
-  | { event: Stripe.Event; fact: AuthoritativeDisputeFact | null; kind: "dispute" };
+  | {
+      event: Stripe.Event;
+      fact: AuthoritativeRefundFact | null;
+      kind: "refund";
+      semanticOrdering: "provider_lookup_completed_before_application_started";
+    }
+  | {
+      event: Stripe.Event;
+      fact: AuthoritativeDisputeFact | null;
+      kind: "dispute";
+      semanticOrdering: "provider_lookup_completed_before_application_started";
+    };
 
 export type TripPassStripeApplicationResult =
   | { status: "ignored"; reason: "not_trip_pass_event" | "not_relevant_event" }
@@ -92,6 +102,7 @@ export async function prepareTripPassStripeEvent(
         retriever ?? createStripeLifecycleObjectRetriever(),
       ),
       kind: "refund",
+      semanticOrdering: "provider_lookup_completed_before_application_started",
     };
   }
   if (isDisputeEvent(event)) {
@@ -102,6 +113,7 @@ export async function prepareTripPassStripeEvent(
         retriever ?? createStripeLifecycleObjectRetriever(),
       ),
       kind: "dispute",
+      semanticOrdering: "provider_lookup_completed_before_application_started",
     };
   }
   return { event, kind: "direct" };

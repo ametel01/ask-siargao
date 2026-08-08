@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 
+import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 import {
   tripPassProductCatalog,
   tripPassProductCode,
@@ -91,7 +92,6 @@ export function buildTripPassCheckoutSessionParams(input: {
     mode: "payment",
     client_reference_id: input.order.id,
     customer_email: input.order.customerEmail ?? undefined,
-    payment_method_types: ["card"],
     expires_at: Math.floor(input.order.checkoutSessionExpiresAt.getTime() / 1000),
     consent_collection: {
       terms_of_service: "required",
@@ -224,7 +224,7 @@ function checkoutSessionPriceId(session: Stripe.Checkout.Session) {
 }
 
 function createStripeClient(apiKey = stripeApiKeyFromEnv()) {
-  return new Stripe(apiKey);
+  return new Stripe(apiKey, { apiVersion: STRIPE_API_VERSION });
 }
 
 function stripeApiKeyFromEnv() {

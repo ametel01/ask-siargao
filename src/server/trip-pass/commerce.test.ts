@@ -136,7 +136,6 @@ describe("Trip Pass checkout commerce", () => {
         mode: "payment",
         client_reference_id: "order_checkout",
         customer_email: undefined,
-        payment_method_types: ["card"],
         consent_collection: {
           terms_of_service: "required",
         },
