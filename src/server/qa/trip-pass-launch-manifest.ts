@@ -1,8 +1,17 @@
 import { createHash } from "node:crypto";
 
 import type { MigrationFile } from "@/server/db/migration-files";
+import {
+  STRIPE_API_VERSION,
+  STRIPE_NORMALIZED_EVENT_SCHEMA_VERSION,
+} from "@/server/payments/stripe-event-inbox";
+import {
+  tripPassProductCatalog,
+  tripPassProductFamily,
+  tripPassProductVersion,
+} from "@/server/trip-pass/catalog";
 
-export const tripPassLaunchManifestSchemaVersion = "trip-pass-launch-manifest/v1";
+export const tripPassLaunchManifestSchemaVersion = "trip-pass-launch-manifest/v2";
 export const tripPassLaunchManifestDirectory = ".tmp/trip-pass-launch";
 
 type GateStatus = "pass" | "fail" | "blocked" | "skipped";
@@ -17,13 +26,19 @@ type BlockerOwner =
   | "security";
 
 type ConfigurationKey =
+  | "ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY"
+  | "ACCOUNT_CLOSURE_TOMBSTONE_HMAC_PREVIOUS_KEYS_JSON"
   | "CLERK_AUTH_MODE"
   | "CLERK_SECRET_KEY"
+  | "COMMERCE_RETENTION_POLICY_VERSION"
   | "DATABASE_URL"
+  | "OPERATOR_ACCOUNT_IDS"
   | "REDIS_URL"
+  | "SENTRY_DSN"
   | "STRIPE_SECRET_KEY"
   | "STRIPE_TRIP_PASS_PRICE_ID"
   | "STRIPE_WEBHOOK_SECRET"
+  | "TRIP_PASS_IDEMPOTENCY_HMAC_KEY"
   | "TRIP_PASS_CHECKOUT_MODE";
 
 export type TripPassLaunchManifestMigration = {
@@ -49,6 +64,9 @@ export type TripPassLaunchManifest = {
     shaQualified: true;
   };
   blockers: TripPassLaunchManifestBlocker[];
+  checkout: {
+    mode: "off";
+  };
   configurationPresence: Record<ConfigurationKey, boolean> & {
     TRIP_PASS_CHECKOUT_MODE_OFF: boolean;
   };
@@ -56,18 +74,28 @@ export type TripPassLaunchManifest = {
     engineeringReady: boolean;
     gateResults: TripPassLaunchManifestGateResult[];
   };
-  generatedAt: string;
+  sourceCommitCommittedAt: string;
   humanLaunchAuthorization: {
     authorizedAt: null;
     authorizedBy: null;
     checkoutModeMayBeEnabled: false;
+    requiredEvidence: Array<{
+      id: "dedicated_github_launch_issue" | "protected_provider_release_candidate";
+      status: "pending_human_action";
+    }>;
     launchAuthorized: false;
   };
   migrations: TripPassLaunchManifestMigration[];
   productAndPolicyVersions: {
+    commercialMeter: "chat_message:150";
     commerceRetentionPolicyVersion: string;
+    durationHours: "336";
+    launchPrice: "usd:999";
     manifestSchemaVersion: typeof tripPassLaunchManifestSchemaVersion;
     privacyPolicyVersion: string;
+    productCode: string;
+    refundPolicyVersion: string;
+    stripeApiVersion: string;
     stripeEventSchemaVersion: string;
     termsVersion: string;
     tripPassProductFamilyVersion: string;
@@ -85,18 +113,25 @@ export type BuildTripPassLaunchManifestInput = {
   checkedOutCommitSha: string;
   env?: Record<string, string | undefined>;
   gateResults: TripPassLaunchManifestGateResult[];
-  generatedAt: string;
+  sourceCommitCommittedAt: string;
   migrations: readonly Pick<MigrationFile, "checksum" | "name">[];
 };
 
 const productAndPolicyVersions: TripPassLaunchManifest["productAndPolicyVersions"] = {
-  commerceRetentionPolicyVersion: "commerce-retention-policy-pending-human-approval",
+  commercialMeter: `chat_message:${tripPassProductCatalog.paidMeterLimits.chat_message}`,
+  commerceRetentionPolicyVersion: tripPassProductCatalog.policyVersions.retention,
+  durationHours: String(tripPassProductCatalog.durationHours) as "336",
+  launchPrice:
+    `${tripPassProductCatalog.currency}:${tripPassProductCatalog.amountTotalMinor}` as "usd:999",
   manifestSchemaVersion: tripPassLaunchManifestSchemaVersion,
-  privacyPolicyVersion: "privacy-policy-pending-human-approval",
-  stripeEventSchemaVersion: "stripe-event-schema-v1",
-  termsVersion: "trip-pass-terms-pending-human-approval",
-  tripPassProductFamilyVersion: "trip-pass-direct-stripe-family-v1",
-  tripPassProductVersion: "trip-pass-direct-stripe-14d-150answers-v1",
+  privacyPolicyVersion: tripPassProductCatalog.policyVersions.privacy,
+  productCode: tripPassProductCatalog.code,
+  refundPolicyVersion: tripPassProductCatalog.policyVersions.refund,
+  stripeApiVersion: STRIPE_API_VERSION,
+  stripeEventSchemaVersion: String(STRIPE_NORMALIZED_EVENT_SCHEMA_VERSION),
+  termsVersion: tripPassProductCatalog.policyVersions.terms,
+  tripPassProductFamilyVersion: tripPassProductFamily,
+  tripPassProductVersion: String(tripPassProductVersion),
 };
 
 const foundationGateIds = [
@@ -123,21 +158,25 @@ export function buildTripPassLaunchManifest(
       shaQualified: true,
     },
     blockers: input.blockers.map((blocker) => ({ ...blocker })),
+    checkout: { mode: "off" },
     configurationPresence: buildConfigurationPresence(input.env ?? {}),
     engineeringReadiness: {
-      engineeringReady:
-        input.blockers.length === 0 && input.gateResults.every((gate) => gate.status === "pass"),
+      engineeringReady: input.gateResults.every((gate) => gate.status === "pass"),
       gateResults: input.gateResults.map((gate) => ({
         evidenceLinks: [...gate.evidenceLinks],
         id: gate.id,
         status: gate.status,
       })),
     },
-    generatedAt: input.generatedAt,
+    sourceCommitCommittedAt: input.sourceCommitCommittedAt,
     humanLaunchAuthorization: {
       authorizedAt: null,
       authorizedBy: null,
       checkoutModeMayBeEnabled: false,
+      requiredEvidence: [
+        { id: "dedicated_github_launch_issue", status: "pending_human_action" },
+        { id: "protected_provider_release_candidate", status: "pending_human_action" },
+      ],
       launchAuthorized: false,
     },
     migrations: input.migrations.map((migration) => ({
@@ -190,14 +229,17 @@ export function validateTripPassLaunchManifest(manifest: unknown) {
   if (source.repository !== "ametel01/ask-siargao") {
     errors.push("invalid_source_repository");
   }
-  if (!isIsoUtcTimestamp(manifest.generatedAt)) {
-    errors.push("generated_at_invalid");
+  if (!isIsoUtcTimestamp(manifest.sourceCommitCommittedAt)) {
+    errors.push("source_commit_committed_at_invalid");
   }
   if (artifact.path !== tripPassLaunchManifestArtifactPath(String(checkedOutCommitSha))) {
     errors.push("artifact_path_not_sha_qualified_generated_output");
   }
   if (artifact.shaQualified !== true) {
     errors.push("artifact_not_sha_qualified");
+  }
+  if (asRecord(manifest.checkout).mode !== "off") {
+    errors.push("checkout_mode_must_be_off");
   }
 
   validateConfigurationPresence(manifest.configurationPresence, errors);
@@ -207,7 +249,6 @@ export function validateTripPassLaunchManifest(manifest: unknown) {
   validateBlockers(manifest.blockers, errors);
   validateEngineeringReadinessConsistency(
     engineeringReadiness,
-    manifest.blockers,
     engineeringReadiness.gateResults,
     errors,
   );
@@ -224,6 +265,7 @@ export function validateTripPassLaunchManifest(manifest: unknown) {
   if (humanLaunchAuthorization.authorizedAt !== null) {
     errors.push("human_authorization_time_must_be_null");
   }
+  validateRequiredHumanEvidence(humanLaunchAuthorization.requiredEvidence, errors);
   if (containsUnredactedSecretShape(safeSerialize(manifest))) {
     errors.push("manifest_contains_unredacted_secret_shape");
   }
@@ -247,16 +289,28 @@ export function createFoundationGateResults(
 export function createFoundationBlockers(): TripPassLaunchManifestBlocker[] {
   return [
     {
-      id: "issue-146-154-engineering-readiness-pending",
-      owner: "coordinator",
+      id: "dedicated-github-launch-issue-pending",
+      owner: "operator",
       reason:
-        "Auth, identity, checkout, payment lifecycle, account closure, metering, diagnostics, and protected provider lanes remain assigned to downstream issues #146-#154.",
+        "An eligible human must create and complete the dedicated GitHub launch issue after merge.",
     },
     {
-      id: "issue-155-156-human-launch-evidence-pending",
+      id: "protected-provider-release-candidate-pending",
+      owner: "operator",
+      reason:
+        "An eligible human must run the protected Clerk and Stripe release-candidate workflow after merge.",
+    },
+    {
+      id: "production-configuration-and-change-review-pending",
+      owner: "security",
+      reason:
+        "An eligible human must verify production configuration presence, ownership, rotation, and the reviewed checkout rollout change.",
+    },
+    {
+      id: "launch-signoffs-and-rollback-ownership-pending",
       owner: "coordinator",
       reason:
-        "Protected provider lanes, final as-built evidence, and human launch approvals remain assigned to downstream issues #155-#156.",
+        "The dedicated launch issue must record legal, privacy, finance, monitoring, backup, rollback, and non-author approval evidence.",
     },
   ];
 }
@@ -265,15 +319,40 @@ export function checksumManifestJson(json: string) {
   return createHash("sha256").update(json, "utf8").digest("hex");
 }
 
+export function attestFoundationCiGates(input: {
+  checkedOutCommitSha: string;
+  env: Record<string, string | undefined>;
+  requested: boolean;
+}): GateStatus {
+  if (!input.requested) return "blocked";
+  if (
+    input.env.GITHUB_ACTIONS !== "true" ||
+    input.env.GITHUB_REPOSITORY !== "ametel01/ask-siargao" ||
+    input.env.GITHUB_SHA !== input.checkedOutCommitSha ||
+    !["push", "pull_request"].includes(input.env.GITHUB_EVENT_NAME ?? "")
+  ) {
+    throw new Error("foundation_ci_gate_attestation_untrusted");
+  }
+  return "pass";
+}
+
 function buildConfigurationPresence(env: Record<string, string | undefined>) {
   return {
+    ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY: hasEnvValue(env.ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY),
+    ACCOUNT_CLOSURE_TOMBSTONE_HMAC_PREVIOUS_KEYS_JSON: hasEnvValue(
+      env.ACCOUNT_CLOSURE_TOMBSTONE_HMAC_PREVIOUS_KEYS_JSON,
+    ),
     CLERK_AUTH_MODE: hasEnvValue(env.CLERK_AUTH_MODE),
     CLERK_SECRET_KEY: hasEnvValue(env.CLERK_SECRET_KEY),
+    COMMERCE_RETENTION_POLICY_VERSION: hasEnvValue(env.COMMERCE_RETENTION_POLICY_VERSION),
     DATABASE_URL: hasEnvValue(env.DATABASE_URL),
+    OPERATOR_ACCOUNT_IDS: hasEnvValue(env.OPERATOR_ACCOUNT_IDS),
     REDIS_URL: hasEnvValue(env.REDIS_URL),
+    SENTRY_DSN: hasEnvValue(env.SENTRY_DSN),
     STRIPE_SECRET_KEY: hasEnvValue(env.STRIPE_SECRET_KEY),
     STRIPE_TRIP_PASS_PRICE_ID: hasEnvValue(env.STRIPE_TRIP_PASS_PRICE_ID),
     STRIPE_WEBHOOK_SECRET: hasEnvValue(env.STRIPE_WEBHOOK_SECRET),
+    TRIP_PASS_IDEMPOTENCY_HMAC_KEY: hasEnvValue(env.TRIP_PASS_IDEMPOTENCY_HMAC_KEY),
     TRIP_PASS_CHECKOUT_MODE: hasEnvValue(env.TRIP_PASS_CHECKOUT_MODE),
     TRIP_PASS_CHECKOUT_MODE_OFF:
       !hasEnvValue(env.TRIP_PASS_CHECKOUT_MODE) || env.TRIP_PASS_CHECKOUT_MODE === "off",
@@ -282,13 +361,19 @@ function buildConfigurationPresence(env: Record<string, string | undefined>) {
 
 function validateConfigurationPresence(configurationPresence: unknown, errors: string[]) {
   const expectedKeys = [
+    "ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY",
+    "ACCOUNT_CLOSURE_TOMBSTONE_HMAC_PREVIOUS_KEYS_JSON",
     "CLERK_AUTH_MODE",
     "CLERK_SECRET_KEY",
+    "COMMERCE_RETENTION_POLICY_VERSION",
     "DATABASE_URL",
+    "OPERATOR_ACCOUNT_IDS",
     "REDIS_URL",
+    "SENTRY_DSN",
     "STRIPE_SECRET_KEY",
     "STRIPE_TRIP_PASS_PRICE_ID",
     "STRIPE_WEBHOOK_SECRET",
+    "TRIP_PASS_IDEMPOTENCY_HMAC_KEY",
     "TRIP_PASS_CHECKOUT_MODE",
     "TRIP_PASS_CHECKOUT_MODE_OFF",
   ];
@@ -412,7 +497,6 @@ function validateGateResults(gateResults: unknown, errors: string[]) {
 
 function validateEngineeringReadinessConsistency(
   engineeringReadiness: Record<string, unknown>,
-  blockers: unknown,
   gateResults: unknown,
   errors: string[],
 ) {
@@ -425,11 +509,26 @@ function validateEngineeringReadinessConsistency(
     Array.isArray(gateResults) &&
     gateResults.length > 0 &&
     gateResults.every((gate) => isRecord(gate) && gate.status === "pass");
-  const noBlockers = Array.isArray(blockers) && blockers.length === 0;
-  const expectedEngineeringReady = noBlockers && allGatesPassed;
+  const expectedEngineeringReady = allGatesPassed;
 
   if (engineeringReadiness.engineeringReady !== expectedEngineeringReady) {
     errors.push("engineering_readiness_inconsistent");
+  }
+}
+
+function validateRequiredHumanEvidence(value: unknown, errors: string[]) {
+  const expected = ["dedicated_github_launch_issue", "protected_provider_release_candidate"];
+  if (!Array.isArray(value)) {
+    errors.push("human_required_evidence_missing");
+    return;
+  }
+  for (const id of expected) {
+    const receipt = value.find((item) => isRecord(item) && item.id === id);
+    if (!receipt) {
+      errors.push(`human_required_evidence_missing:${id}`);
+    } else if (receipt.status !== "pending_human_action") {
+      errors.push(`human_required_evidence_not_pending:${id}`);
+    }
   }
 }
 

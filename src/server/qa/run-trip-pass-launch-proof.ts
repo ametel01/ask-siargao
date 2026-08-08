@@ -3,7 +3,9 @@ import { dirname } from "node:path";
 
 import { loadMigrationFiles } from "@/server/db/migration-files";
 import {
+  attestFoundationCiGates,
   buildTripPassLaunchManifest,
+  checksumManifestJson,
   createFoundationBlockers,
   createFoundationGateResults,
   serializeTripPassLaunchManifest,
@@ -17,11 +19,18 @@ const manifest = buildTripPassLaunchManifest({
   blockers: createFoundationBlockers(),
   checkedOutCommitSha,
   env: process.env,
-  gateResults: createFoundationGateResults(foundationCiGatesPassed ? "pass" : "blocked"),
-  generatedAt: process.env.GITHUB_RUN_STARTED_AT ?? "2026-08-07T00:00:00.000Z",
+  gateResults: createFoundationGateResults(
+    attestFoundationCiGates({
+      checkedOutCommitSha,
+      env: process.env,
+      requested: foundationCiGatesPassed,
+    }),
+  ),
+  sourceCommitCommittedAt: await readSourceCommitCommittedAt(),
   migrations: await loadMigrationFiles(),
 });
 const validation = validateTripPassLaunchManifest(manifest);
+const manifestJson = serializeTripPassLaunchManifest(manifest);
 
 if (!validation.valid) {
   throw new Error(`Trip Pass launch manifest is invalid: ${validation.errors.join(", ")}`);
@@ -29,13 +38,14 @@ if (!validation.valid) {
 
 if (writeArtifact) {
   await mkdir(dirname(manifest.artifact.path), { recursive: true });
-  await writeFile(manifest.artifact.path, serializeTripPassLaunchManifest(manifest));
+  await writeFile(manifest.artifact.path, manifestJson);
 }
 
 console.log(
   JSON.stringify(
     {
       artifactPath: manifest.artifact.path,
+      artifactSha256: checksumManifestJson(manifestJson),
       checkedOutCommitSha: manifest.source.checkedOutCommitSha,
       engineeringReady: manifest.engineeringReadiness.engineeringReady,
       gateCount: manifest.engineeringReadiness.gateResults.length,
@@ -64,4 +74,20 @@ async function readCheckedOutCommitSha() {
   }
 
   return stdout.trim();
+}
+
+async function readSourceCommitCommittedAt() {
+  const proc = Bun.spawn(["git", "show", "-s", "--format=%cI", "HEAD"], {
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (exitCode !== 0) {
+    throw new Error(`Unable to read source commit time: ${stderr.trim()}`);
+  }
+  return new Date(stdout.trim()).toISOString();
 }

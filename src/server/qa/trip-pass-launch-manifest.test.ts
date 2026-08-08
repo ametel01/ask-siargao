@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  attestFoundationCiGates,
   buildTripPassLaunchManifest,
   checksumManifestJson,
   createFoundationBlockers,
@@ -23,6 +24,28 @@ const migrations = [
 ];
 
 describe("Trip Pass launch manifest", () => {
+  test("accepts foundation readiness only from exact trusted CI context", () => {
+    const trusted = {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "pull_request",
+      GITHUB_REPOSITORY: "ametel01/ask-siargao",
+      GITHUB_SHA: sha,
+    };
+    expect(
+      attestFoundationCiGates({ checkedOutCommitSha: sha, env: trusted, requested: true }),
+    ).toBe("pass");
+    expect(attestFoundationCiGates({ checkedOutCommitSha: sha, env: {}, requested: false })).toBe(
+      "blocked",
+    );
+    expect(() =>
+      attestFoundationCiGates({
+        checkedOutCommitSha: sha,
+        env: { ...trusted, GITHUB_SHA: "f".repeat(40) },
+        requested: true,
+      }),
+    ).toThrow("foundation_ci_gate_attestation_untrusted");
+  });
+
   test("builds deterministic redacted engineering evidence for explicit inputs", () => {
     const input = {
       blockers: createFoundationBlockers(),
@@ -33,7 +56,7 @@ describe("Trip Pass launch manifest", () => {
         TRIP_PASS_CHECKOUT_MODE: "off",
       },
       gateResults: createFoundationGateResults("pass"),
-      generatedAt: "2026-08-07T00:00:00.000Z",
+      sourceCommitCommittedAt: "2026-08-07T00:00:00.000Z",
       migrations,
     };
 
@@ -52,6 +75,20 @@ describe("Trip Pass launch manifest", () => {
     expect(manifest.configurationPresence.TRIP_PASS_CHECKOUT_MODE_OFF).toBe(true);
     expect(manifest.humanLaunchAuthorization.launchAuthorized).toBe(false);
     expect(manifest.humanLaunchAuthorization.checkoutModeMayBeEnabled).toBe(false);
+    expect((manifest as unknown as { checkout: { mode: string } }).checkout.mode).toBe("off");
+    expect(manifest.engineeringReadiness.engineeringReady).toBe(true);
+    expect(manifest.productAndPolicyVersions).toMatchObject({
+      commercialMeter: "chat_message:150",
+      durationHours: "336",
+      launchPrice: "usd:999",
+      privacyPolicyVersion: "privacy-2026-08-07",
+      productCode: "siargao_trip_pass_14d_v2",
+      refundPolicyVersion: "trip-pass-refund-2026-08-07",
+      stripeApiVersion: "2026-07-29.dahlia",
+      stripeEventSchemaVersion: "2",
+      termsVersion: "trip-pass-terms-2026-08-07",
+      tripPassProductVersion: "2",
+    });
     expect(manifest.engineeringReadiness.gateResults.map((gate) => gate.id)).toEqual([
       "bun_run_lint",
       "bun_run_typecheck_incremental_false",
@@ -66,13 +103,37 @@ describe("Trip Pass launch manifest", () => {
     ]);
   });
 
+  test("is stable for one exact SHA and migration set regardless of wall-clock invocation", () => {
+    const input = {
+      blockers: createFoundationBlockers(),
+      checkedOutCommitSha: sha,
+      env: { TRIP_PASS_CHECKOUT_MODE: "off" },
+      gateResults: createFoundationGateResults("pass"),
+      sourceCommitCommittedAt: "2026-08-07T00:00:00.000Z",
+      migrations,
+    };
+    const first = serializeTripPassLaunchManifest(buildTripPassLaunchManifest(input));
+    const second = serializeTripPassLaunchManifest(
+      buildTripPassLaunchManifest({
+        ...input,
+        sourceCommitCommittedAt: "2026-08-07T00:00:00.000Z",
+      }),
+    );
+
+    expect(first).toBe(second);
+    expect(first).not.toContain("issue-146-154-engineering-readiness-pending");
+    expect(first).not.toContain("issue-155-156-human-launch-evidence-pending");
+    expect(first).toContain("dedicated_github_launch_issue");
+    expect(first).toContain("protected_provider_release_candidate");
+  });
+
   test("rejects invalid source, migration, gate, blocker, and authorization shapes", () => {
     const manifest = buildTripPassLaunchManifest({
       blockers: createFoundationBlockers(),
       checkedOutCommitSha: sha,
       env: { TRIP_PASS_CHECKOUT_MODE: "off" },
       gateResults: createFoundationGateResults("pass"),
-      generatedAt: "2026-08-07T00:00:00.000Z",
+      sourceCommitCommittedAt: "2026-08-07T00:00:00.000Z",
       migrations,
     });
 
@@ -137,7 +198,7 @@ describe("Trip Pass launch manifest", () => {
       checkedOutCommitSha: sha,
       env: { TRIP_PASS_CHECKOUT_MODE: "off" },
       gateResults: createFoundationGateResults("pass"),
-      generatedAt: "2026-08-07T00:00:00.000Z",
+      sourceCommitCommittedAt: "2026-08-07T00:00:00.000Z",
       migrations,
     });
 
@@ -161,7 +222,7 @@ describe("Trip Pass launch manifest", () => {
         checkedOutCommitSha: sha,
         env: { TRIP_PASS_CHECKOUT_MODE: "on" },
         gateResults: createFoundationGateResults("pass"),
-        generatedAt: "2026-08-07T00:00:00.000Z",
+        sourceCommitCommittedAt: "2026-08-07T00:00:00.000Z",
         migrations,
       }),
     ).toThrow("trip_pass_checkout_mode_not_off");
@@ -172,8 +233,8 @@ describe("Trip Pass launch manifest", () => {
       blockers: createFoundationBlockers(),
       checkedOutCommitSha: sha,
       env: { TRIP_PASS_CHECKOUT_MODE: "off" },
-      gateResults: createFoundationGateResults("pass"),
-      generatedAt: "2026-08-07T00:00:00.000Z",
+      gateResults: createFoundationGateResults("blocked"),
+      sourceCommitCommittedAt: "2026-08-07T00:00:00.000Z",
       migrations,
     });
     const readyManifest = buildTripPassLaunchManifest({
@@ -181,7 +242,7 @@ describe("Trip Pass launch manifest", () => {
       checkedOutCommitSha: sha,
       env: { TRIP_PASS_CHECKOUT_MODE: "off" },
       gateResults: createFoundationGateResults("pass"),
-      generatedAt: "2026-08-07T00:00:00.000Z",
+      sourceCommitCommittedAt: "2026-08-07T00:00:00.000Z",
       migrations,
     });
 
@@ -200,9 +261,9 @@ describe("Trip Pass launch manifest", () => {
     expect(
       validateTripPassLaunchManifest({
         ...blockedManifest,
-        generatedAt: "2026-08-07",
+        sourceCommitCommittedAt: "2026-08-07",
       }).errors,
-    ).toContain("generated_at_invalid");
+    ).toContain("source_commit_committed_at_invalid");
     expect(
       validateTripPassLaunchManifest({
         ...blockedManifest,
@@ -243,7 +304,7 @@ describe("Trip Pass launch manifest", () => {
       checkedOutCommitSha: sha,
       env: { TRIP_PASS_CHECKOUT_MODE: "off" },
       gateResults: createFoundationGateResults("pass"),
-      generatedAt: "2026-08-07T00:00:00.000Z",
+      sourceCommitCommittedAt: "2026-08-07T00:00:00.000Z",
       migrations,
     });
 
@@ -282,7 +343,7 @@ describe("Trip Pass launch manifest", () => {
       checkedOutCommitSha: sha,
       env: { TRIP_PASS_CHECKOUT_MODE: "off" },
       gateResults: createFoundationGateResults("pass"),
-      generatedAt: "2026-08-07T00:00:00.000Z",
+      sourceCommitCommittedAt: "2026-08-07T00:00:00.000Z",
       migrations,
     });
 

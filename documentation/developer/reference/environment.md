@@ -70,7 +70,6 @@ The app reads these environment variables.
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Public/client-safe | Client-side Stripe surfaces | Present in `.env.example`; current Checkout flow is server initiated. |
 | `TRIP_PASS_CHECKOUT_MODE` | Server only | Trip Pass rollout | Optional enum: `off`, `canary`, or `on`. Defaults safely to `off`, including malformed values. `canary` and `on` require `STRIPE_TRIP_PASS_PRICE_ID`; otherwise the catalog reports checkout as unavailable. |
 | `TRIP_PASS_CHECKOUT_CANARY_ACCOUNT_IDS` | Server only | Trip Pass rollout | Optional comma-separated immutable account/user IDs allowed to use checkout when `TRIP_PASS_CHECKOUT_MODE=canary`. Empty canary allowlists keep checkout unavailable. |
-| `TRIP_PASS_EXTENSION_ENABLED` | Server only | Future Trip Pass extensions | Optional boolean. Defaults to `false`; extensions remain unavailable until launch approval. |
 | `TRIP_PASS_ANON_HMAC_KEY` | Server only | Anonymous Trip Pass identity signing and HMAC cohorts | Required in production for anonymous reset resistance. Local development uses a fallback key for cookie behavior but does not enforce cohort reset-resistance unless this key is set. |
 | `TRIP_PASS_ANON_HMAC_KEY_VERSION` | Server only | Anonymous Trip Pass identity key version | Optional positive integer. Defaults to `1`; increment during HMAC key rotation. |
 | `TRIP_PASS_IPV6_COHORT_BITS` | Server only | Anonymous network cohorting | Optional positive integer. Defaults to `64`; controls IPv6 prefix grouping before HMAC. |
@@ -205,14 +204,13 @@ cookies, provider payloads, or upstream request IDs.
 Rollback is flag-based and forward-repair only:
 
 1. Set `TRIP_PASS_CHECKOUT_MODE=off` and redeploy.
-2. Keep `TRIP_PASS_EXTENSION_ENABLED=false`.
-3. Set `OPENAI_FALLBACK_ENABLED=false` if fallback cost or quality behavior is suspect.
-4. Set `TRIP_PASS_WAF_MODE=log` or disable promoted WAF rules if legitimate shared-network traffic
+2. Set `OPENAI_FALLBACK_ENABLED=false` if fallback cost or quality behavior is suspect.
+3. Set `TRIP_PASS_WAF_MODE=log` or disable promoted WAF rules if legitimate shared-network traffic
    is challenged incorrectly.
-5. Run read-only reconciliation, then use a separate Repair Action only with an opaque Finding ID,
+4. Run read-only reconciliation, then use a separate Repair Action only with an opaque Finding ID,
    an allowlisted named Operator, fresh Clerk MFA, a before/after preview, explicit confirmation,
    a reason code, and an idempotency key.
-6. Preserve order, pass, grant, meter, usage-event, Stripe inbox, analytics, and cost records. Do
+5. Preserve order, pass, grant, meter, usage-event, Stripe inbox, analytics, and cost records. Do
    not drop launch data to roll back.
 
 Database rollback uses backups and forward repair. Before enabling checkout, confirm production
