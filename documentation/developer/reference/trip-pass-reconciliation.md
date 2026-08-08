@@ -1,120 +1,63 @@
-# Trip Pass Reconciliation and Repair
+# Trip Pass Reconciliation and Repair Reference
 
-Reconciliation and repair are separate authority boundaries.
+Live reconciliation observes authoritative Stripe payment facts and records opaque Findings. It
+does not mutate Trip Pass orders, access, grants, meters, or provider state. Repair is a separate
+same-origin Operator API action.
 
-`reconcileLiveCommerce()` in `src/server/operations/live-reconciliation.ts` loads local Order and
-access state, completes authoritative provider lookup without a database transaction, compares the
-facts, and then records only opaque `finding_*` records. It never transitions an Order, creates a
-Trip Pass, changes a Usage Meter, or calls a provider mutation. Historical `mode: "repair"` and
-`confirmMutation` inputs to `reconcileTripPassState()` remain accepted for rolling-deployment
-compatibility but are ignored; every flag combination is detect-only.
+## Authority and ordering
 
-After each provider response, reconciliation allocates a database-authored monotonic observation
-sequence without holding a transaction or lock across the provider call. The apply transaction then
-uses the same production lock order as Repair—Family → Account → Order → Finding—and advances its
-observation row only when the token is newer than the stored token. It reloads local commerce after
-those locks before comparing it with the captured provider fact. Older healthy or mismatch responses
-cannot resolve, reopen, or page after a newer observation, and reconciliation cannot deadlock Repair
-by acquiring Finding before the commerce aggregate.
+Stripe is the authority for payment state, amount, and currency. The Ask Siargao ledger is the
+authority for access. For every order, the authoritative Stripe lookup completes before the
+finding transaction begins. Tests assert this semantic order; a broadly green suite is not a
+substitute.
 
-Each mismatch has a canonical opaque incident key derived from constrained mismatch fields and its
-local record identity, never from the reconciliation run. An unchanged mismatch updates the same
-Finding and lifecycle. A clean comparison resolves it; recurrence reopens the same opaque Finding
-with the next lifecycle number. Sentry delivery keys include that opaque incident plus lifecycle, so
-retries do not repage while a genuine recurrence can page again.
+Run an explicitly scoped scan:
 
-## Provider-neutral adapter contract
+```sh
+bun run operations:reconcile -- --order=<opaque-local-order-id>
+```
 
-Protected provider lanes inject `AuthoritativeCommerceReader`. The reader receives transient
-Checkout Session or Payment Intent lookup inputs; provider IDs do not appear in returned traces,
-Finding views, diagnostics, logs, or alert payloads. `OperationEventRecorder` records only ordered
-operation name/result pairs. This lets tests prove `authoritative_payment_lookup` completes before
-`record_reconciliation_findings` begins without retaining provider payloads.
+Run the same commerce reconciliation through the durable scheduler-neutral queue:
 
-## Diagnostics
+The read-only `operations:worker -- --task=commerce_reconciliation` selection records Findings;
+it does not select a repair executor.
 
-`/admin/diagnostics` reads live `operational_findings` and incomplete
-`operational_worker_tasks`. It shows only opaque Finding/Task IDs, constrained kind/status/impact
-codes, attempt counts, and sanitized error codes. It never renders local entity references, Clerk
-IDs, emails, prompts, IPs, precise locations, raw webhooks, cookies, payment object IDs, or provider
-payloads.
+```sh
+bun run operations:worker -- --task=commerce_reconciliation --batch=25 --lease-seconds=60
+```
 
-Production read access requires a signed-in Clerk Account whose immutable Account ID is in the
-server-only `OPERATOR_ACCOUNT_IDS` allowlist. `ADMIN_ACCESS_TOKEN` is local read-only compatibility
-and is rejected in production.
+Both paths are read-only with respect to commerce. The worker may claim a task and the reconciler
+may insert/update reconciliation runs, observations, Findings, and scrubbed alerts; neither path
+applies a repair. Output is limited to redacted counts and opaque Finding references, never full
+Checkout URLs, provider payloads, emails, or provider object IDs.
 
-## Repair Actions
+## Exact finding scope
 
-Use `previewRepairAction()` before `executeRepairAction()`. Execution requires all of:
+The current comparison emits only these four Finding kinds:
 
-- the same opaque Finding ID and action type as the preview;
-- the preview digest, so changed state forces another human review;
-- literal confirmation `APPLY REPAIR`;
-- a constrained reason code and an idempotency key;
-- a named allowlisted Operator Account;
-- Clerk `second_factor` reverification age 0–5 minutes.
+- `paid_without_pass`: Stripe reports `paid` and the local order has no pass.
+- `access_without_payment`: Stripe reports `unpaid` or `pending` while local access exists.
+- `payment_state_mismatch`: the authoritative amount or currency differs from the local order.
+- `pending_payment_stale`: Stripe still reports `pending` at least 30 minutes after local creation.
 
-The transaction locks the Finding, rechecks the preview, applies one provider-neutral local repair,
-stores the Operator Account ID, hashed idempotency key, reason, sanitized before/after states and
-database time, and resolves the Finding. Repeating the key returns the original audited result.
-The audit also stores a canonical command hash over Finding, action, reason, and preview digest.
-An exact replay returns the original result; reuse of the same Operator/key for a different command
-fails with `repair_idempotency_mismatch` before target mutation. Provider calls are not permitted
-inside a Repair Action transaction.
+Refund and dispute lifecycle application, webhook retry, Account Closure ordering, and paid-answer
+usage have their own handlers and diagnostics. They are not findings produced by this comparison.
+If Stripe lookup is ambiguous or unavailable, reconciliation fails and retries instead of
+inventing a Finding from incomplete provider truth.
 
-Payment/access repairs add a prepare phase immediately before the transaction. It retrieves the
-current authoritative Payment Intent fact outside database locks, including refund/dispute state,
-then carries a bounded proof into the transaction. After locking, execution recomputes the local
-preview and verifies the provider/local identity, amount, currency, and allowed payment state still
-match. Refunded, disputed, reversed, mismatched, or stale proof aborts without target mutation or an
-applied audit row.
+## Repair API
 
-Sensitive action classes are closed allowlists, not patch requests. A manual commerce transition
-can only fail an ungranted pending Order whose finding proves authoritative payment terms mismatch.
-A goodwill recovery can only restore the missing grant for a paid, owned, ungranted Order with a
-provider-application-failure Finding and still obeys Family → Account locking/no stacking. Account
-recovery only requeues a failed Account Closure cleanup operation; it never clears a tombstone or
-resurrects identity.
+Mutation is available only through `POST /api/admin/repairs`, not through either reconciliation
+command. The route requires same-origin execution, an authenticated Clerk Account in
+`OPERATOR_ACCOUNT_IDS`, and fresh Clerk MFA for execution.
 
-## Durable workers
+1. Send `mode: "preview"`, the opaque Finding ID, and an allowed action type. Review the returned
+   before/after preview and preview digest.
+2. Send `mode: "execute"` with the same Finding/action, the preview digest, confirmation exactly
+   `APPLY REPAIR`, a bounded reason code, and a new idempotency key.
+3. The server reauthorizes the Operator, rejects a changed preview or reused key with different
+   input, applies the supported transition transactionally, and records the audit receipt.
 
-`runOperationalWorker()` claims `operational_worker_tasks` with database-time leases and
-`FOR UPDATE SKIP LOCKED`, invokes an injected task handler outside the claim transaction, and fences
-success/retry updates by lease token. Crashes leave work reclaimable after lease expiry. Repeated
-failures remain visible and can invoke a scrubbed Sentry warning/page callback. Supported task kinds
-are Account Closure, Pending Stripe Event, Paid After Closure refund, retention purge, and commerce
-reconciliation. `bun run operations:enqueue -- --task=<kind-or-all>` discovers due obligations and
-enqueues stable task/target identities. `bun run operations:worker -- --task=<kind-or-all>` drains
-already-queued work. An external scheduler can perform both phases in one bounded invocation with
-`bun run operations:run -- --task=<kind-or-all> --cycle-key=<opaque-cycle>`; repeating the same
-cycle key cannot duplicate work. The producer never resets an existing pending, running, or
-succeeded task; retry scheduling belongs to the fenced worker, and a new reconciliation cycle uses a
-new resource identity. `--batch`, `--enqueue-limit`, and `--lease-seconds` bound one invocation. No
-scheduler vendor or cadence is selected by engineering.
-
-Both success and retry transitions require the matching token and an unexpired database-time lease;
-an expired worker can neither complete nor reschedule work after takeover becomes eligible. Account
-Closure handlers reread the durable operation after each bounded cleanup step and request a worker
-retry until the operation itself is terminal `succeeded`; the worker task cannot strand a pending
-multi-step closure as succeeded. Repeated-failure alerts use a one-way opaque task key, stable across
-attempts but distinct across tasks. Warning and high-impact escalation tiers use separate lifecycle
-keys, so warning retries deduplicate without suppressing the later page.
-
-## Alert ownership
-
-Sentry owns operational delivery. `deliverOperationalAlertOnce()` uses a durable unique alert key,
-database-time delivery lease, expired-claim recovery, and a strictly allowlisted payload of Finding
-ID, impact, operation, and error code. Provider delivery happens outside database transactions;
-success and failure updates are fenced by the delivery token and unexpired lease. Confirmed
-high-impact payment/access/privacy/Redis mismatches page once. Lower-impact conditions warn or
-create tickets. PostHog remains timeout-bounded analytics only; its success or failure cannot change
-commerce, access, closure, reconciliation, repair, or worker state.
-
-For finding alerts, the delivery claim also verifies and locks the exact latest open Finding and its
-database-authored observation sequence. Committing that claim is the page intent: a newer healthy
-observation that resolves first prevents the stale claim, while a claim that commits first remains a
-legitimate page even if resolution follows. Provider delivery still begins only after that commit.
-
-The Sentry `event_id` is the valid 32-hex-character digest of the opaque alert lifecycle key. Crash
-reclaim and ambiguous transport retry therefore reuse one provider idempotency identity, while a new
-incident lifecycle or escalation tier receives a different identity.
+Use `/admin/diagnostics` for scrubbed status. If provider truth is unavailable or the preview has
+changed, leave the Finding open and reconcile again. Never edit commerce rows directly or use a
+shared bearer credential to authorize repair.

@@ -14,6 +14,7 @@ allowance around the same request-driven chat product.
 ## Documentation
 
 - [Developer documentation](documentation/developer/README.md)
+- [Trip Pass user reference](documentation/user/reference/trip-pass.md)
 - [Release-candidate QA checklist](documentation/developer/how-to-guides/run-release-candidate-qa.md)
 - [Environment reference](documentation/developer/reference/environment.md)
 - [Routes and surfaces reference](documentation/developer/reference/routes-and-surfaces.md)
@@ -24,7 +25,7 @@ allowance around the same request-driven chat product.
 
 Use the developer docs for the full local run path. The short version is:
 
-Use Bun `1.3.14`, matching `package.json` and CI.
+Use Bun `1.3.13`, matching `package.json` and CI.
 
 ```sh
 bun install

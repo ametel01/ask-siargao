@@ -70,7 +70,6 @@ The app reads these environment variables.
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Public/client-safe | Client-side Stripe surfaces | Present in `.env.example`; current Checkout flow is server initiated. |
 | `TRIP_PASS_CHECKOUT_MODE` | Server only | Trip Pass rollout | Optional enum: `off`, `canary`, or `on`. Defaults safely to `off`, including malformed values. `canary` and `on` require `STRIPE_TRIP_PASS_PRICE_ID`; otherwise the catalog reports checkout as unavailable. |
 | `TRIP_PASS_CHECKOUT_CANARY_ACCOUNT_IDS` | Server only | Trip Pass rollout | Optional comma-separated immutable account/user IDs allowed to use checkout when `TRIP_PASS_CHECKOUT_MODE=canary`. Empty canary allowlists keep checkout unavailable. |
-| `TRIP_PASS_EXTENSION_ENABLED` | Server only | Future Trip Pass extensions | Optional boolean. Defaults to `false`; extensions remain unavailable until launch approval. |
 | `TRIP_PASS_ANON_HMAC_KEY` | Server only | Anonymous Trip Pass identity signing and HMAC cohorts | Required in production for anonymous reset resistance. Local development uses a fallback key for cookie behavior but does not enforce cohort reset-resistance unless this key is set. |
 | `TRIP_PASS_ANON_HMAC_KEY_VERSION` | Server only | Anonymous Trip Pass identity key version | Optional positive integer. Defaults to `1`; increment during HMAC key rotation. |
 | `TRIP_PASS_IPV6_COHORT_BITS` | Server only | Anonymous network cohorting | Optional positive integer. Defaults to `64`; controls IPv6 prefix grouping before HMAC. |
@@ -92,8 +91,6 @@ The app reads these environment variables.
 | `WEB_RESEARCH_PROVIDER` | Server only | Public web research for current chat prompts | Optional. Set to `openai` to enable the `research_web` tool's OpenAI hosted web-search adapter. When unset, `research_web` returns explicit `provider_unavailable` evidence instead of using memory, weather, or Places as a fallback. |
 | `OPENAI_WEB_SEARCH_MODEL` | Server only | OpenAI hosted web-search extraction model | Optional model override for the web research adapter. Defaults to `gpt-5.4-mini`. Requires `WEB_RESEARCH_PROVIDER=openai` and `OPENAI_API_KEY`. |
 | `GOOGLE_API_KEY` | Server only | Google Places adapters, discovery, and enrichment | Required for live Google Places provider calls and by `bun run db:discover:google-places` and `bun run db:enrich:google-places`. Keep field masks narrow; chat lookup uses Google Places Text Search Enterprise fields for rating signals, opening hours, price, website, phone, and map links, but still excludes review text, bookings, and availability; discovery uses ID-only fields, enrichment uses Place Details Pro fields. Google retention pruning uses `DATABASE_URL` and does not require this key. |
-| `INNGEST_EVENT_KEY` | Server only | Future job worker integration | Placeholder until the production worker backend is wired. |
-| `INNGEST_SIGNING_KEY` | Server only | Future job worker integration | Placeholder until the production worker backend is wired. |
 | `REDIS_URL` | Server only | Shared quota infrastructure | Enables the bundled Redis quota store for production rate limits, anonymous free allowance, request idempotency, and model cost circuits. Production traffic fails closed for quota-backed controls when a shared store is required but unavailable. |
 | `INTEGRATION_TEST_NAMESPACE` | Local/CI test only | Real PostgreSQL and Redis integration lanes | Optional lowercase namespace for `bun run test:integration:postgres` and `bun run test:integration:redis`. Defaults to `ask_siargao_issue150_local`; CI sets a run-specific value. Harnesses add UUID-suffixed database names and Redis prefixes under this namespace. |
 | `INTEGRATION_TEST_ALLOW_REMOTE` | Local/CI test only | Real PostgreSQL and Redis integration lanes | Optional escape hatch. Set to `1` only for an explicitly disposable remote test service whose URL visibly contains a test marker such as `test`, `integration`, `issue`, `local`, or `ci`; Redis `/0` alone is not sufficient. Otherwise integration harnesses require localhost service URLs and refuse production-looking targets. |
@@ -101,6 +98,7 @@ The app reads these environment variables.
 | `TRIP_PASS_IDEMPOTENCY_HMAC_KEY` | Server only | Request idempotency token hashing | Required in production for privacy-safe request idempotency tokens. Local development uses a fallback key. |
 | `OPERATOR_ACCOUNT_IDS` | Server only | Operator authorization | Required comma-separated immutable Clerk Account IDs. Production diagnostics require membership. Every Repair Action additionally requires Clerk second-factor verification no older than five minutes. Never use email addresses or a public-prefixed variable. |
 | `ADMIN_ACCESS_TOKEN` | Server only | Local read-only diagnostics compatibility | Accepted only outside production. It cannot authorize a Repair Action, goodwill grant, manual commerce transition, or account recovery. |
+| `REPORT_ACCESS_TOKEN_SECRET` | Server only | Paid audit report access links | Optional signing secret used by the as-built audit report-access adapter to create and verify expiring HMAC access tokens. Keep the placeholder empty until that legacy paid-report surface is explicitly configured; never expose the value through `NEXT_PUBLIC_*`, logs, URLs, or evidence artifacts. It does not authorize Trip Pass access or Operator repair. |
 | `SENTRY_DSN` | Server only | Operational delivery and paging | Enables deny-by-default scrubbed Sentry warnings/pages. High-impact alert keys are durably delivered once; the DSN is never rendered or logged. |
 | `NEXT_PUBLIC_POSTHOG_KEY` | Public/client-safe | PostHog sink configuration | Enables the timeout-bounded PostHog-compatible analytics sink for allowlisted server events. |
 | `NEXT_PUBLIC_POSTHOG_HOST` | Public/client-safe | PostHog host | Defaults in `.env.example` to the US PostHog ingest host. |
@@ -205,14 +203,13 @@ cookies, provider payloads, or upstream request IDs.
 Rollback is flag-based and forward-repair only:
 
 1. Set `TRIP_PASS_CHECKOUT_MODE=off` and redeploy.
-2. Keep `TRIP_PASS_EXTENSION_ENABLED=false`.
-3. Set `OPENAI_FALLBACK_ENABLED=false` if fallback cost or quality behavior is suspect.
-4. Set `TRIP_PASS_WAF_MODE=log` or disable promoted WAF rules if legitimate shared-network traffic
+2. Set `OPENAI_FALLBACK_ENABLED=false` if fallback cost or quality behavior is suspect.
+3. Set `TRIP_PASS_WAF_MODE=log` or disable promoted WAF rules if legitimate shared-network traffic
    is challenged incorrectly.
-5. Run read-only reconciliation, then use a separate Repair Action only with an opaque Finding ID,
+4. Run read-only reconciliation, then use a separate Repair Action only with an opaque Finding ID,
    an allowlisted named Operator, fresh Clerk MFA, a before/after preview, explicit confirmation,
    a reason code, and an idempotency key.
-6. Preserve order, pass, grant, meter, usage-event, Stripe inbox, analytics, and cost records. Do
+5. Preserve order, pass, grant, meter, usage-event, Stripe inbox, analytics, and cost records. Do
    not drop launch data to roll back.
 
 Database rollback uses backups and forward repair. Before enabling checkout, confirm production

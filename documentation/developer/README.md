@@ -13,7 +13,7 @@ Use these pages when working on the Ask Siargao codebase.
 - [Reality Check contract reference](reference/reality-check-contract.md): kinds, verdicts, proposal fields, validation reasons, source states, and public summary compatibility.
 - [Database authorization reference](reference/database-authorization.md): production database roles, grants, and runtime/migration credential boundaries.
 - [Demo data reference](reference/demo-data.md): synthetic and permitted local QA fixtures.
-- [Clerk auth, session, chat history, profile, and rating requirements](reference/clerk-auth-session-chat-history-requirements.md): technical requirements for authenticated user state and persisted chat features.
+- [Clerk auth and account lifecycle](reference/clerk-auth-session-chat-history-requirements.md): as-built sign-in, session, profile, webhook, closure, monitoring, and rollback behavior.
 - [Audit lifecycle and boundaries](explanation/audit-lifecycle-and-boundaries.md): how intake, payment, generation, public data, and privacy boundaries fit together.
 - [Database row-level security decision](explanation/database-row-level-security-decision.md): why table RLS is deferred and what must be tested before activation.
 - [Chat agent routing and source governance](explanation/chat-agent-routing-and-source-governance.md): how model-owned tool choice, provider failures, artifacts, and source-label validation fit together.
