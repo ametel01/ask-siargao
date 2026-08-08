@@ -42,15 +42,21 @@ export type ProviderReleaseCandidateEnv = Partial<
   Record<
     | "CLERK_PUBLISHABLE_KEY"
     | "CLERK_SECRET_KEY"
+    | "CLERK_WEBHOOK_SIGNING_SECRET"
+    | "DATABASE_URL"
     | "GITHUB_ENVIRONMENT"
     | "GITHUB_EVENT_NAME"
     | "GITHUB_REPOSITORY"
     | "PROVIDER_RC_APP_ORIGIN"
     | "PROVIDER_RC_EXPECTED_SHA"
     | "PROVIDER_RC_PRODUCTION_ORIGIN"
+    | "PROVIDER_RC_STRIPE_ACTIVE_USER"
+    | "PROVIDER_RC_STRIPE_CLOSURE_USER"
+    | "PROVIDER_RC_STRIPE_REVERSED_USER"
     | "STRIPE_RESTRICTED_KEY"
     | "STRIPE_SECRET_KEY"
-    | "STRIPE_TRIP_PASS_PRICE_ID",
+    | "STRIPE_TRIP_PASS_PRICE_ID"
+    | "STRIPE_WEBHOOK_SECRET",
     string | undefined
   >
 >;
@@ -101,6 +107,7 @@ export function validateProviderReleaseCandidateContext(input: {
   if (appOrigin && productionOrigin && appOrigin === productionOrigin) {
     errors.push("production_origin_forbidden");
   }
+  if (!env.DATABASE_URL) errors.push("dedicated_database_required");
 
   if (input.lane === "clerk") {
     if (!env.CLERK_PUBLISHABLE_KEY?.startsWith("pk_test_")) {
@@ -109,6 +116,9 @@ export function validateProviderReleaseCandidateContext(input: {
     if (!env.CLERK_SECRET_KEY?.startsWith("sk_test_")) {
       errors.push("clerk_test_secret_key_required");
     }
+    if (!env.CLERK_WEBHOOK_SIGNING_SECRET?.startsWith("whsec_")) {
+      errors.push("clerk_test_webhook_secret_required");
+    }
   } else {
     const stripeKey = env.STRIPE_RESTRICTED_KEY ?? env.STRIPE_SECRET_KEY;
     if (!stripeKey || (!stripeKey.startsWith("rk_test_") && !stripeKey.startsWith("sk_test_"))) {
@@ -116,6 +126,22 @@ export function validateProviderReleaseCandidateContext(input: {
     }
     if (!env.STRIPE_TRIP_PASS_PRICE_ID?.startsWith("price_")) {
       errors.push("stripe_test_price_required");
+    }
+    if (!env.STRIPE_WEBHOOK_SECRET?.startsWith("whsec_")) {
+      errors.push("stripe_test_webhook_secret_required");
+    }
+    if (!env.CLERK_PUBLISHABLE_KEY?.startsWith("pk_test_")) {
+      errors.push("clerk_test_publishable_key_required");
+    }
+    if (!env.CLERK_SECRET_KEY?.startsWith("sk_test_")) {
+      errors.push("clerk_test_secret_key_required");
+    }
+    for (const name of [
+      "PROVIDER_RC_STRIPE_ACTIVE_USER",
+      "PROVIDER_RC_STRIPE_REVERSED_USER",
+      "PROVIDER_RC_STRIPE_CLOSURE_USER",
+    ] as const) {
+      if (!env[name]?.includes("+clerk_test@")) errors.push("dedicated_stripe_test_users_required");
     }
   }
 

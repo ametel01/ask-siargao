@@ -26,6 +26,8 @@ describe("protected provider release-candidate policy", () => {
           ...baseEnv,
           CLERK_PUBLISHABLE_KEY: "pk_test_redacted",
           CLERK_SECRET_KEY: "sk_test_redacted",
+          CLERK_WEBHOOK_SIGNING_SECRET: "whsec_redacted",
+          DATABASE_URL: "postgres://provider-rc.test/db",
         },
         lane: "clerk",
       }),
@@ -41,8 +43,15 @@ describe("protected provider release-candidate policy", () => {
         GITHUB_EVENT_NAME: "pull_request",
         GITHUB_REPOSITORY: "fork/ask-siargao",
         PROVIDER_RC_APP_ORIGIN: "https://asksiargao.com",
+        CLERK_PUBLISHABLE_KEY: "pk_test_redacted",
+        CLERK_SECRET_KEY: "sk_test_redacted",
+        DATABASE_URL: "postgres://provider-rc.test/db",
+        PROVIDER_RC_STRIPE_ACTIVE_USER: "active+clerk_test@example.test",
+        PROVIDER_RC_STRIPE_CLOSURE_USER: "closure+clerk_test@example.test",
+        PROVIDER_RC_STRIPE_REVERSED_USER: "reversed+clerk_test@example.test",
         STRIPE_SECRET_KEY: "sk_live_redacted",
         STRIPE_TRIP_PASS_PRICE_ID: "price_test",
+        STRIPE_WEBHOOK_SECRET: "whsec_redacted",
       },
       lane: "stripe",
     });
@@ -55,6 +64,37 @@ describe("protected provider release-candidate policy", () => {
       "production_origin_forbidden",
       "stripe_test_mode_key_required",
     ]);
+  });
+
+  test("denies either lane when protected app webhook or database configuration is absent", () => {
+    const clerk = validateProviderReleaseCandidateContext({
+      checkedOutCommitSha: sha,
+      env: {
+        ...baseEnv,
+        CLERK_PUBLISHABLE_KEY: "pk_test_redacted",
+        CLERK_SECRET_KEY: "sk_test_redacted",
+      },
+      lane: "clerk",
+    });
+    expect(clerk.errors).toContain("dedicated_database_required");
+    expect(clerk.errors).toContain("clerk_test_webhook_secret_required");
+
+    const stripe = validateProviderReleaseCandidateContext({
+      checkedOutCommitSha: sha,
+      env: {
+        ...baseEnv,
+        CLERK_PUBLISHABLE_KEY: "pk_test_redacted",
+        CLERK_SECRET_KEY: "sk_test_redacted",
+        STRIPE_RESTRICTED_KEY: "rk_test_redacted",
+        STRIPE_TRIP_PASS_PRICE_ID: "price_test",
+      },
+      lane: "stripe",
+    });
+    expect(stripe.errors).toContain("dedicated_database_required");
+    expect(stripe.errors).toContain("stripe_test_webhook_secret_required");
+    expect(
+      stripe.errors.filter((error) => error === "dedicated_stripe_test_users_required"),
+    ).toHaveLength(3);
   });
 
   test("requires lookup completion before application rather than a broad green result", () => {

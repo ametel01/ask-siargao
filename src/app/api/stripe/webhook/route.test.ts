@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import Stripe from "stripe";
 
 import { POST } from "@/app/api/stripe/webhook/route";
-import { stripeWebhookResponse } from "@/app/api/stripe/webhook/webhook-route";
+import {
+  stripeWebhookResponse,
+  stripeWebhookResponseFromEvent,
+} from "@/app/api/stripe/webhook/webhook-route";
 import {
   type AuditLifecycleRecord,
   createAuditLifecycleRecord,
@@ -41,6 +44,39 @@ describe("Stripe webhook route", () => {
     restoreEnvValue("REDIS_URL", originalRedisUrl);
     restoreEnvValue("STRIPE_RESTRICTED_KEY", originalStripeRestrictedKey);
     restoreEnvValue("STRIPE_WEBHOOK_SECRET", originalStripeWebhookSecret);
+  });
+
+  test("reports semantic provider-before-application evidence only from a prepared provider fact", async () => {
+    const event = {
+      id: "evt_ordering_evidence",
+      object: "event",
+      type: "charge.refunded",
+      data: { object: { id: "ch_ordering_evidence", object: "charge" } },
+    } as Stripe.Event;
+    const response = await stripeWebhookResponseFromEvent(
+      event,
+      {
+        ...routeDependencies(),
+        applyTripPassStripeEvent: async () => ({
+          status: "rejected",
+          reason: "trip_pass_payment_intent_not_found",
+          stripeEventId: event.id,
+        }),
+      },
+      {
+        preparedEvent: {
+          event,
+          fact: null,
+          kind: "refund",
+          semanticOrdering: "provider_lookup_completed_before_application_started",
+        },
+      },
+    );
+
+    expect(await response.json()).toMatchObject({
+      applicationStatus: "rejected",
+      semanticOrdering: "provider_lookup_completed_before_application_started",
+    });
   });
 
   test("rejects unsigned requests before durable receipt", async () => {

@@ -173,28 +173,36 @@ selected. The workflow rejects a SHA not already contained in `main`.
 
 The protected environment owns the stable app and production origins, dedicated account fixture
 identifiers, policy versions, and retention durations. Its secret inventory contains only the test
-Clerk keys/identities, a least-privilege Stripe test restricted key and Price, the dedicated staging
-database credential, and the same Closure Tombstone/provider-subject keys used by that staging
-deployment. Do not copy these values into repository variables, pull-request secrets, artifacts, or
-operator notes.
+Clerk keys/identities and webhook signing secret, a least-privilege Stripe test restricted key,
+Price, and webhook secret, the dedicated staging database credential, and the same Closure
+Tombstone/provider-subject keys used by that staging deployment. Every secret is scoped to the one
+provider-lane step after checkout, repository/event/environment, exact-HEAD, and `main` ancestry
+checks pass. No secret is available to checkout or trust-proof steps. Do not copy these values into
+repository variables, pull-request secrets, artifacts, or operator notes.
 
 The Clerk lane uses Clerk's project-based Playwright setup (`clerkSetup`) and injects a testing token
 per browser flow (`setupClerkTestingToken`). It covers email-code and verified Google-linked test
 identities, session persistence and single-session policy, sign-out, protected route/API denial,
 cross-account ownership denial, step-up Account Closure, and local webhook convergence. The job
-then drains the dedicated Closure Operation through the normal worker and confirms by an
-authoritative Clerk lookup that provider deletion converged. The closure identity is disposable and
-must be recreated by the eligible human before a subsequent run. Traces, screenshots, videos,
-cookies, and provider payloads are not uploaded.
+delivers Standard Webhooks/Svix-compatible signed lifecycle events through
+`/api/clerk/webhooks`, checks dedicated-database convergence and deletion, drains the Closure
+Operation through the normal worker, and confirms by an authoritative Clerk lookup that provider
+deletion converged. Before provider acceptance, an authenticated protected-only probe verifies that
+the staging origin is serving the requested Vercel commit SHA. The closure identity is disposable
+and must be recreated by the eligible human before a subsequent run. Traces, screenshots, videos,
+cookies, raw webhook bodies, identities, and provider payloads are not uploaded.
 
-The Stripe lane first retrieves the configured Trip Pass Price and refuses to continue if it is
-live-mode. It then creates and idempotently retries a real test-mode Checkout Session, retrieves and
-explicitly expires it, confirms a test-card PaymentIntent, confirms two
-cumulative refunds reach the paid amount, and creates a test dispute. Only after those authoritative
-provider operations complete does it start the application contract suite. That suite covers
-browser return before event application, activation, duplicate and reversed delivery, ambiguous
-retries, authenticated cancellation, closure races, Paid After Closure, reconciliation, and durable
-paid-answer settlement.
+The Stripe lane signs into disposable Clerk test users at the protected app origin, verifies the
+origin's exact deployed SHA, and starts Checkout through the authenticated app endpoint. It covers
+an ambiguous retry, return-before-event, authenticated expiry, hosted test-card payment, signed
+delivery through `/api/stripe/webhook`, activation and duplicate delivery, paid-answer meter
+settlement, cumulative refunds, reversed dispute delivery and retry, and Paid After Closure with a
+durable refund obligation. Refund and dispute responses carry the in-process ordering probe proving
+that authoritative Stripe retrieval completed before application began. Local lifecycle,
+reconciliation, closure-refund, and usage contract tests remain supplemental; they do not replace
+the protected app/provider flow. The worker then cleans up the disposable users, test-mode commerce
+resources, and closure refund work. Raw webhook bodies and provider identifiers are never written to
+evidence or logs.
 
 Each passing lane writes a redacted artifact named for the exact SHA. The artifact contains the
 migration filenames and checksums plus a SHA/lane/migration fingerprint. Any code commit or
