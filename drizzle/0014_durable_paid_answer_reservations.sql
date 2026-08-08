@@ -19,10 +19,6 @@ CREATE TABLE IF NOT EXISTS paid_answer_reservations (
   lease_expires_at timestamptz NOT NULL,
   details_purge_at timestamptz NOT NULL,
   details_purged_at timestamptz,
-  purge_attempted_at timestamptz,
-  purge_retry_at timestamptz,
-  purge_failure_count integer NOT NULL DEFAULT 0,
-  purge_last_error text,
   reserved_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   finalized_at timestamptz,
   released_at timestamptz,
@@ -56,12 +52,6 @@ CREATE TABLE IF NOT EXISTS paid_answer_reservations (
   ),
   CONSTRAINT paid_answer_reservations_purge_order_check CHECK (
     reserved_at < details_purge_at
-  ),
-  CONSTRAINT paid_answer_reservations_purge_failure_count_check CHECK (
-    purge_failure_count BETWEEN 0 AND 31
-  ),
-  CONSTRAINT paid_answer_reservations_purge_last_error_check CHECK (
-    purge_last_error IS NULL OR purge_last_error IN ('usage_event_integrity', 'purge_failed')
   )
 );
 
@@ -83,9 +73,7 @@ CREATE INDEX IF NOT EXISTS paid_answer_reservations_open_pass_idx
   WHERE status = 'open';
 
 CREATE INDEX IF NOT EXISTS paid_answer_reservations_details_purge_idx
-  ON paid_answer_reservations(
-    (coalesce(purge_retry_at, details_purge_at)), account_id, details_purge_at, id
-  )
+  ON paid_answer_reservations(details_purge_at, id)
   WHERE details_purged_at IS NULL;
 
 DROP TRIGGER IF EXISTS paid_answer_reservations_open_account_write

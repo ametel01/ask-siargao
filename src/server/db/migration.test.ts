@@ -83,6 +83,10 @@ import {
   resetTestDatabase,
   runInitialMigration,
 } from "@/server/db/test-database";
+import {
+  PaidAnswerPurgeBatchError,
+  purgeExpiredPaidAnswerDetails,
+} from "@/server/trip-pass/paid-answer-reservations";
 
 describe("Step 3 database migration", () => {
   test("discovers ordered schema migrations", async () => {
@@ -102,6 +106,7 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toContain("0012_terminal_account_closure.sql");
     expect(migrationNames).toContain("0013_trip_pass_payment_lifecycle.sql");
     expect(migrationNames).toContain("0014_durable_paid_answer_reservations.sql");
+    expect(migrationNames).toContain("0015_paid_answer_retention_retry.sql");
   });
 
   test("creates required core tables and accepts taxonomy seed rows", async () => {
@@ -226,6 +231,119 @@ describe("Step 3 database migration", () => {
       "select count(*)::text as count from schema_migrations",
     );
     expect(ledgerRows.rows[0]?.count).toBe(String(firstRun.applied.length));
+
+    await db.close();
+  });
+
+  test("upgrades the immutable historical paid-answer migration through retention retry", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const database = createPgliteMigrationDatabase(db);
+    const migrationFiles = await loadMigrationFiles();
+    const throughHistoricalPaidAnswer = migrationFiles.filter(
+      (migration) => migration.name <= "0014_durable_paid_answer_reservations.sql",
+    );
+    const historicalPaidAnswer = throughHistoricalPaidAnswer.at(-1);
+
+    expect(historicalPaidAnswer?.name).toBe("0014_durable_paid_answer_reservations.sql");
+    expect(historicalPaidAnswer?.checksum).toBe(
+      "3382b687fb8812b75446de022ce3c89e4efb68bd77a50025034997da942d974d",
+    );
+    await runLedgerBackedMigrations(database, throughHistoricalPaidAnswer);
+    const historicalColumns = await db.query<{ column_name: string }>(
+      `select column_name from information_schema.columns
+       where table_name = 'paid_answer_reservations' and column_name like 'purge_%'`,
+    );
+    expect(historicalColumns.rows).toEqual([]);
+
+    await db.query(
+      `insert into users (id, email) values ('migration_retry_user', 'migration-retry@example.com')`,
+    );
+    await db.query(
+      `insert into trip_passes (
+         id, user_id, status, starts_at, expires_at, created_at, updated_at
+       ) values (
+         'migration_retry_pass', 'migration_retry_user', 'active',
+         clock_timestamp() - interval '1 hour', clock_timestamp() + interval '14 days',
+         clock_timestamp(), clock_timestamp()
+       )`,
+    );
+    await db.query(
+      `insert into trip_usage_meters (id, trip_pass_id, meter_type, used, "limit")
+       values ('migration_retry_meter', 'migration_retry_pass', 'chat_message', 1, 150)`,
+    );
+    await db.query(
+      `insert into paid_answer_reservations (
+         id, trip_pass_id, usage_meter_id, account_id, idempotency_key_hash,
+         request_body_hash, request_id, lease_token, status, lease_expires_at,
+         details_purge_at, reserved_at, finalized_at, updated_at
+       ) values (
+         'migration_retry_reservation', 'migration_retry_pass', 'migration_retry_meter',
+         'migration_retry_user', 'migration_retry_key', 'migration_retry_body',
+         'migration_retry_request', 'migration_retry_lease', 'settled',
+         clock_timestamp() - interval '39 days', clock_timestamp() - interval '1 day',
+         clock_timestamp() - interval '40 days', clock_timestamp() - interval '39 days',
+         clock_timestamp() - interval '39 days'
+       )`,
+    );
+
+    const upgrade = await runLedgerBackedMigrations(database, migrationFiles);
+    expect(upgrade.applied).toEqual(["0015_paid_answer_retention_retry.sql"]);
+    expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
+    const upgraded = await db.query<{
+      purge_attempted_at: Date | null;
+      purge_failure_count: number;
+      purge_last_error: string | null;
+      purge_retry_at: Date | null;
+    }>(
+      `select purge_attempted_at, purge_retry_at, purge_failure_count, purge_last_error
+       from paid_answer_reservations where id = 'migration_retry_reservation'`,
+    );
+    expect(upgraded.rows[0]).toEqual({
+      purge_attempted_at: null,
+      purge_failure_count: 0,
+      purge_last_error: null,
+      purge_retry_at: null,
+    });
+    const constraints = await db.query<{ conname: string; convalidated: boolean }>(
+      `select conname, convalidated from pg_constraint
+       where conname in (
+         'paid_answer_reservations_purge_failure_count_check',
+         'paid_answer_reservations_purge_last_error_check'
+       ) order by conname`,
+    );
+    expect(constraints.rows).toEqual([
+      {
+        conname: "paid_answer_reservations_purge_failure_count_check",
+        convalidated: true,
+      },
+      { conname: "paid_answer_reservations_purge_last_error_check", convalidated: true },
+    ]);
+    const indexes = await db.query<{ indexdef: string }>(
+      `select indexdef from pg_indexes
+       where indexname = 'paid_answer_reservations_details_purge_idx'`,
+    );
+    expect(indexes.rows[0]?.indexdef).toContain("COALESCE(purge_retry_at, details_purge_at)");
+
+    let purgeError: unknown;
+    try {
+      await purgeExpiredPaidAnswerDetails(db);
+    } catch (error) {
+      purgeError = error;
+    }
+    expect(purgeError).toBeInstanceOf(PaidAnswerPurgeBatchError);
+    expect(purgeError).toMatchObject({
+      purgedCount: 0,
+      failures: [{ reservationId: "migration_retry_reservation", retryScheduled: true }],
+    });
+    const scheduled = await db.query<{
+      purge_failure_count: number;
+      retry_scheduled: boolean;
+    }>(
+      `select purge_failure_count, purge_retry_at > purge_attempted_at as retry_scheduled
+       from paid_answer_reservations where id = 'migration_retry_reservation'`,
+    );
+    expect(scheduled.rows[0]).toEqual({ purge_failure_count: 1, retry_scheduled: true });
 
     await db.close();
   });
