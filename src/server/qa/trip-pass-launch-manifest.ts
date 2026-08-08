@@ -5,6 +5,7 @@ import {
   STRIPE_API_VERSION,
   STRIPE_NORMALIZED_EVENT_SCHEMA_VERSION,
 } from "@/server/payments/stripe-event-inbox";
+import { foundationGateIds } from "@/server/qa/foundation-gates";
 import {
   tripPassProductCatalog,
   tripPassProductFamily,
@@ -133,19 +134,6 @@ const productAndPolicyVersions: TripPassLaunchManifest["productAndPolicyVersions
   tripPassProductFamilyVersion: tripPassProductFamily,
   tripPassProductVersion: String(tripPassProductVersion),
 };
-
-const foundationGateIds = [
-  "bun_run_lint",
-  "bun_run_typecheck_incremental_false",
-  "bun_test",
-  "bun_run_db_migrate_test",
-  "bun_run_db_seed_test",
-  "bun_run_build",
-  "bun_run_test_e2e",
-  "bun_run_test_e2e_production_perf",
-  "bun_run_test_integration_postgres",
-  "bun_run_test_integration_redis",
-] as const;
 
 const foundationGateIdSet = new Set<string>(foundationGateIds);
 

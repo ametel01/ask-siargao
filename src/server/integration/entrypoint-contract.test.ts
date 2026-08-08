@@ -26,7 +26,7 @@ describe("integration entry-point contracts", () => {
     );
   });
 
-  test("package scripts preserve functional and production-performance E2E lanes", async () => {
+  test("package scripts expose one local Foundation Gate aggregate and a compatibility alias", async () => {
     const packageJson = JSON.parse(await readFile("package.json", "utf8")) as {
       scripts: Record<string, string>;
     };
@@ -35,9 +35,10 @@ describe("integration entry-point contracts", () => {
     expect(packageJson.scripts["test:e2e:production-perf"]).toBe(
       "PLAYWRIGHT_PRODUCTION_PERF=1 playwright test",
     );
-    expect(packageJson.scripts["verify:ci"]).toContain(
-      "bun run build && bun run test:e2e && bun run test:e2e:production-perf",
+    expect(packageJson.scripts["verify:foundation:local"]).toBe(
+      "bun run src/server/qa/run-foundation-local.ts",
     );
+    expect(packageJson.scripts["verify:ci"]).toBe("bun run verify:foundation:local");
   });
 
   test("entry-point argument parsing fails closed on unsafe options", () => {
