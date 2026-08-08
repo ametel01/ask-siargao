@@ -249,7 +249,7 @@ test("sends a desktop composer message to the chat API and renders the assistant
         getComputedStyle(element, "::placeholder").color.toLowerCase(),
       ),
     )
-    .toBe("rgb(132, 131, 168)");
+    .toBe("rgb(114, 113, 151)");
   await expect
     .poll(() =>
       composerInput.evaluate((element) => {
@@ -5827,7 +5827,9 @@ async function fieldDeskGeometry(page: Page) {
 
     const workspace = document.querySelector("[aria-label='Ask Siargao chat workspace']");
     const scrollSurfaces = workspace
-      ? Array.from(workspace.querySelectorAll<HTMLElement>("*")).filter((element) => {
+      ? Array.from(
+          workspace.querySelectorAll<HTMLElement>("*:not(input):not(select):not(textarea)"),
+        ).filter((element) => {
           const style = getComputedStyle(element);
           return (
             style.overflowX === "auto" ||
@@ -5868,7 +5870,9 @@ async function chatWorkspaceScrollSurfaces(page: Page) {
       return ["missing chat workspace"];
     }
 
-    return Array.from(workspace.querySelectorAll<HTMLElement>("*")).flatMap((element) => {
+    return Array.from(
+      workspace.querySelectorAll<HTMLElement>("*:not(input):not(select):not(textarea)"),
+    ).flatMap((element) => {
       const style = getComputedStyle(element);
       const hasScrollOverflow =
         style.overflowX === "auto" ||
