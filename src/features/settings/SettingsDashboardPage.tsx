@@ -69,6 +69,7 @@ import {
   projectTripPassAccountView,
   type TripPassAccountFetchState,
 } from "@/features/trip-pass/account-presentation";
+import { motionAwareScrollBehavior } from "@/lib/motion";
 import type { ChatHistoryThread } from "@/server/chat/chat-history-store";
 import type { UserProfileResponse } from "@/server/profile/user-profile-store";
 import type { TripPassAccountPresentation } from "@/server/trip-pass/presentation";
@@ -455,7 +456,7 @@ function SettingsDashboardContent({
     setActiveSection(() => section);
     window.history.pushState(null, "", `#${section}`);
     const target = document.getElementById(section);
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    target?.scrollIntoView({ behavior: motionAwareScrollBehavior(), block: "start" });
     target?.focus({ preventScroll: true });
   }
 
@@ -645,7 +646,7 @@ function ChatHistorySummaryPanel({
       </SummaryPanelBody>
       <Button
         asChild
-        className="h-auto w-fit rounded-md border-border-default bg-surface-default px-3 py-2 text-text-default whitespace-nowrap hover:bg-brand-lagoon-100"
+        className="h-auto min-h-11 w-fit rounded-md border-border-default bg-surface-default px-3 py-2 text-text-default whitespace-nowrap hover:bg-brand-lagoon-100"
         variant="outline"
       >
         <Link href="/chat">Open chat</Link>
@@ -700,7 +701,7 @@ function SavedPlanSummaryPanel({
       </SummaryPanelBody>
       <Button
         asChild
-        className="h-auto w-fit rounded-md border-border-default bg-surface-default px-3 py-2 text-text-default whitespace-nowrap hover:bg-brand-lagoon-100"
+        className="h-auto min-h-11 w-fit rounded-md border-border-default bg-surface-default px-3 py-2 text-text-default whitespace-nowrap hover:bg-brand-lagoon-100"
         variant="outline"
       >
         <Link href="/chat">Open saved plan</Link>
@@ -766,7 +767,7 @@ function SettingsHeader() {
         action={
           <Button
             asChild
-            className="rounded-md border-white/20 bg-white/10 text-text-on-dark whitespace-nowrap hover:bg-white/15"
+            className="min-h-11 rounded-md border-white/20 bg-white/10 text-text-on-dark whitespace-nowrap hover:bg-white/15"
             variant="outline"
           >
             <Link href="/chat">Back to chat</Link>
@@ -924,7 +925,7 @@ function AccountPanel({
       </dl>
 
       <Button
-        className="h-auto w-fit rounded-md border-border-default bg-surface-default px-3 py-2 text-text-default whitespace-nowrap hover:bg-brand-lagoon-100 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+        className="h-auto min-h-11 w-fit rounded-md border-border-default bg-surface-default px-3 py-2 text-text-default whitespace-nowrap hover:bg-brand-lagoon-100 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
         ref={manageAccountButtonRef}
         type="button"
         variant="outline"
@@ -942,7 +943,7 @@ function ShortcutPanel() {
       <h2 className="m-0 text-base font-semibold">Shortcuts</h2>
       <Button
         asChild
-        className="h-auto justify-between rounded-md border-border-default bg-surface-default px-3 py-3 text-left text-text-default whitespace-nowrap hover:bg-brand-lagoon-100"
+        className="h-auto min-h-11 justify-between rounded-md border-border-default bg-surface-default px-3 py-3 text-left text-text-default whitespace-nowrap hover:bg-brand-lagoon-100"
         variant="outline"
       >
         <Link href="/chat">
@@ -1063,7 +1064,10 @@ function PassPanel() {
       {checkoutStatusMessage ? (
         <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 rounded-md border border-brand-sunset-gold/50 bg-brand-sunset-gold/10 p-3 text-sm font-bold text-text-strong">
           {checkoutState === "starting" || checkoutState === "redirecting" ? (
-            <LoaderCircle aria-hidden="true" className="mt-0.5 size-4 animate-spin" />
+            <LoaderCircle
+              aria-hidden="true"
+              className="mt-0.5 size-4 animate-spin motion-reduce:animate-none"
+            />
           ) : (
             <CircleAlert aria-hidden="true" className="mt-0.5 size-4" />
           )}
@@ -1127,7 +1131,7 @@ function PassPanel() {
       <div className="flex flex-wrap items-center gap-2">
         {view.actionLabel ? (
           <Button
-            className="h-auto min-h-11 w-full rounded-md bg-brand-lagoon-600 px-3 py-2 text-sm font-extrabold text-white hover:bg-brand-lagoon-700 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20 disabled:opacity-60 sm:w-auto"
+            className="h-auto min-h-11 w-full rounded-md bg-brand-lagoon-600 px-3 py-2 text-sm font-extrabold text-trip-pass-cta-foreground hover:bg-brand-lagoon-700 hover:text-trip-pass-cta-hover-foreground focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20 disabled:opacity-60 sm:w-auto"
             disabled={!canStartCheckout}
             onClick={() => {
               void startCheckout();
@@ -1139,7 +1143,7 @@ function PassPanel() {
           </Button>
         ) : null}
         <Button
-          className="h-auto rounded-md border-border-default bg-surface-default px-3 py-2 text-sm font-extrabold text-text-default hover:bg-brand-lagoon-100 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+          className="h-auto min-h-11 rounded-md border-border-default bg-surface-default px-3 py-2 text-sm font-extrabold text-text-default hover:bg-brand-lagoon-100 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
           onClick={() => {
             void refreshTripPass();
           }}
@@ -1361,7 +1365,7 @@ function PrivacyControlsPanel({
           accommodation text in your profile or this browser's trip context.
         </p>
         <Button
-          className="h-auto w-fit rounded-md border-border-default bg-surface-default px-3 py-2 text-text-default whitespace-normal text-left hover:bg-brand-lagoon-100"
+          className="h-auto min-h-11 w-fit rounded-md border-border-default bg-surface-default px-3 py-2 text-text-default whitespace-normal text-left hover:bg-brand-lagoon-100"
           ref={locationTriggerRef}
           type="button"
           variant="outline"
@@ -1380,7 +1384,7 @@ function PrivacyControlsPanel({
         </p>
         <div className="grid min-w-0 gap-2">
           <Button
-            className="h-auto w-fit rounded-md border-red-300 bg-white px-3 py-2 text-left text-red-950 whitespace-normal hover:bg-red-100 focus-visible:ring-3 focus-visible:ring-red-500/20"
+            className="h-auto min-h-11 w-fit rounded-md border-red-300 bg-white px-3 py-2 text-left text-red-950 whitespace-normal hover:bg-red-100 focus-visible:ring-3 focus-visible:ring-red-500/20"
             ref={chatTriggerRef}
             type="button"
             variant="outline"
@@ -1390,7 +1394,7 @@ function PrivacyControlsPanel({
             Delete all chat history
           </Button>
           <Button
-            className="h-auto w-fit rounded-md border-red-300 bg-white px-3 py-2 text-left text-red-950 whitespace-normal hover:bg-red-100 focus-visible:ring-3 focus-visible:ring-red-500/20"
+            className="h-auto min-h-11 w-fit rounded-md border-red-300 bg-white px-3 py-2 text-left text-red-950 whitespace-normal hover:bg-red-100 focus-visible:ring-3 focus-visible:ring-red-500/20"
             ref={savedTriggerRef}
             type="button"
             variant="outline"
@@ -1487,7 +1491,7 @@ function AccountClosureControl() {
         ))}
       </ul>
       <Button
-        className="h-auto w-fit rounded-md border-red-400 bg-white px-3 py-2 text-red-950 hover:bg-red-100"
+        className="h-auto min-h-11 w-fit rounded-md border-red-400 bg-white px-3 py-2 text-red-950 hover:bg-red-100"
         type="button"
         variant="outline"
         onClick={() => {
@@ -1532,7 +1536,7 @@ function AccountClosureControl() {
           ) : null}
           <div className="flex flex-wrap gap-2">
             <Button
-              className="bg-red-700 text-white hover:bg-red-800"
+              className="min-h-11 bg-red-700 text-white hover:bg-red-800"
               disabled={
                 confirmation !== accountClosureConfirmation ||
                 status === "submitting" ||
@@ -1618,7 +1622,7 @@ function MarketingConsentControl({
       </label>
       <div className="flex flex-wrap items-center gap-3">
         <Button
-          className="h-auto rounded-md px-3 py-2 whitespace-nowrap"
+          className="h-auto min-h-11 rounded-md px-3 py-2 whitespace-nowrap"
           disabled={
             marketingStatus === "saving" || marketingValue === profile.profile.marketingConsent
           }
@@ -1769,7 +1773,7 @@ function PrivacyConfirmationDialog({
         </label>
         <div className="flex flex-wrap justify-end gap-3">
           <Button
-            className="rounded-md"
+            className="min-h-11 rounded-md"
             disabled={isPending}
             type="button"
             variant="outline"
@@ -1778,7 +1782,7 @@ function PrivacyConfirmationDialog({
             Cancel
           </Button>
           <Button
-            className="rounded-md bg-red-700 text-white hover:bg-red-800"
+            className="min-h-11 rounded-md bg-red-700 text-white hover:bg-red-800"
             disabled={isPending || confirmationValue !== action.confirmation}
             type="button"
             onClick={onConfirm}
@@ -2106,7 +2110,7 @@ function TravelProfileSection({
 
         <div className="flex flex-wrap items-center gap-3">
           <Button
-            className="rounded-md whitespace-nowrap"
+            className="min-h-11 rounded-md whitespace-nowrap"
             disabled={saveState === "saving"}
             type="submit"
           >
@@ -2165,13 +2169,13 @@ function SignedOutPanel() {
         {isClerkConfigured ? (
           <>
             <SignInButton mode="modal">
-              <Button className="rounded-md whitespace-nowrap" type="button">
+              <Button className="min-h-11 rounded-md whitespace-nowrap" type="button">
                 Sign in
               </Button>
             </SignInButton>
             <SignUpButton mode="modal">
               <Button
-                className="rounded-md border-border-default bg-surface-default text-text-default whitespace-nowrap hover:bg-brand-lagoon-100"
+                className="min-h-11 rounded-md border-border-default bg-surface-default text-text-default whitespace-nowrap hover:bg-brand-lagoon-100"
                 type="button"
                 variant="outline"
               >
@@ -2181,12 +2185,12 @@ function SignedOutPanel() {
           </>
         ) : (
           <>
-            <Button asChild className="rounded-md whitespace-nowrap">
+            <Button asChild className="min-h-11 rounded-md whitespace-nowrap">
               <Link href="/sign-in">Sign in</Link>
             </Button>
             <Button
               asChild
-              className="rounded-md border-border-default bg-surface-default text-text-default whitespace-nowrap hover:bg-brand-lagoon-100"
+              className="min-h-11 rounded-md border-border-default bg-surface-default text-text-default whitespace-nowrap hover:bg-brand-lagoon-100"
               variant="outline"
             >
               <Link href="/sign-up">Sign up</Link>

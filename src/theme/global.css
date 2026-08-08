@@ -42,9 +42,15 @@
   --brand-sunset-peach: #ffc69a;
   --brand-sunset-gold: #ffd65a;
   --confidence-high: #1e9f63;
+  --confidence-high-foreground: #155f3f;
   --confidence-high-soft: #e6f8ee;
   --confidence-medium: #d99b23;
+  --confidence-medium-foreground: #6b4c00;
   --confidence-medium-soft: #fff4cf;
+  --risk-high-foreground: #8b2635;
+  --risk-high-soft: #fff0ed;
+  --trip-pass-cta-foreground: var(--brand-navy-980);
+  --trip-pass-cta-hover-foreground: var(--text-on-dark);
   --surface-default: var(--brand-paper-50);
   --surface-soft: var(--brand-paper-100);
   --surface-tint: var(--brand-paper-150);
@@ -220,13 +226,19 @@ summary::-webkit-details-marker {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms;
-    animation-iteration-count: 1;
+  html {
     scroll-behavior: auto;
-    transition-duration: 0.001ms;
+  }
+
+  [data-slot="button"]:active {
+    transform: none;
+  }
+
+  [data-sonner-toaster][data-sonner-toaster],
+  [data-sonner-toast][data-sonner-toast],
+  [data-sonner-toast][data-sonner-toast] * {
+    animation: none;
+    transition-duration: 0ms;
   }
 }
 
@@ -266,8 +278,10 @@ summary::-webkit-details-marker {
   --color-brand-sunset-peach: var(--brand-sunset-peach);
   --color-brand-sunset-gold: var(--brand-sunset-gold);
   --color-confidence-high: var(--confidence-high);
+  --color-confidence-high-foreground: var(--confidence-high-foreground);
   --color-confidence-high-soft: var(--confidence-high-soft);
   --color-confidence-medium: var(--confidence-medium);
+  --color-confidence-medium-foreground: var(--confidence-medium-foreground);
   --color-confidence-medium-soft: var(--confidence-medium-soft);
   --color-surface-default: var(--surface-default);
   --color-surface-soft: var(--surface-soft);
@@ -291,6 +305,10 @@ summary::-webkit-details-marker {
   --color-risk-low-dark: var(--risk-low-dark);
   --color-risk-medium: var(--risk-medium);
   --color-risk-high: var(--risk-high);
+  --color-risk-high-foreground: var(--risk-high-foreground);
+  --color-risk-high-soft: var(--risk-high-soft);
+  --color-trip-pass-cta-foreground: var(--trip-pass-cta-foreground);
+  --color-trip-pass-cta-hover-foreground: var(--trip-pass-cta-hover-foreground);
   --color-border-default: var(--border-default);
   --color-border-strong: var(--border-strong);
   --color-border-on-dark: var(--border-on-dark);

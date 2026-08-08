@@ -97,4 +97,4 @@ function Info({ title, value }: { title: string; value: string }) {
 }
 
 const pillLinkClass =
-  "inline-flex min-h-[34px] items-center gap-2 rounded-full border border-white/20 bg-white/12 px-3 text-xs font-extrabold text-text-on-dark no-underline shadow-[0_8px_28px_rgba(0,0,0,0.12)] transition hover:bg-white/18";
+  "inline-flex min-h-11 items-center gap-2 rounded-full border border-white/20 bg-white/12 px-3 text-xs font-extrabold text-text-on-dark no-underline shadow-[0_8px_28px_rgba(0,0,0,0.12)] transition hover:bg-white/18";

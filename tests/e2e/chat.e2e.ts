@@ -682,6 +682,14 @@ test("renders bounded condition decisions before their raw metrics", async ({ pa
   );
   await expect(rail).toContainText("Exact-break conditions");
   await expect(rail).toContainText("Road access, official marine warnings, and safety status");
+  for (const refreshButton of [
+    rail.getByRole("button", { name: "Refresh weather" }),
+    rail.getByRole("button", { name: "Refresh surf conditions" }),
+  ]) {
+    const refreshButtonBox = await refreshButton.boundingBox();
+    expect(refreshButtonBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect(refreshButtonBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+  }
   await expect
     .poll(() =>
       rail.evaluate((element) => {

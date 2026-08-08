@@ -125,8 +125,9 @@ export function LandingPage() {
             alt=""
             aria-hidden="true"
             className="object-cover object-[72%_34%]"
+            data-testid="mobile-hero-image"
             fill
-            priority
+            loading="eager"
             sizes="(min-width: 1024px) 0px, 100vw"
             src="/images/ask-siargao-mobile-hero-bg.png"
           />
@@ -345,8 +346,9 @@ function CoastalFrame() {
         alt=""
         aria-hidden="true"
         className="object-cover object-[58%_42%]"
+        data-testid="desktop-hero-image"
         fill
-        priority
+        fetchPriority="high"
         sizes="(min-width: 1536px) 42vw, (min-width: 1024px) 38vw, 0px"
         src="/images/ask-siargao-mobile-hero-bg.png"
       />
@@ -401,7 +403,7 @@ function PlanningPanel() {
             <span
               className={cn(
                 "inline-flex size-12 items-center justify-center rounded-full bg-surface-default",
-                tone === "gold" ? "text-confidence-medium" : "text-brand-lagoon-700",
+                tone === "gold" ? "text-confidence-medium-foreground" : "text-brand-lagoon-700",
               )}
             >
               <Icon aria-hidden="true" size={27} strokeWidth={2} />
@@ -525,7 +527,7 @@ function TripPassPricingSection() {
               What may inform this check
               <ChevronDown
                 aria-hidden="true"
-                className="transition-transform group-open:rotate-180"
+                className="transition-transform group-open:rotate-180 motion-reduce:transition-none motion-reduce:group-open:rotate-0"
                 size={18}
               />
             </summary>

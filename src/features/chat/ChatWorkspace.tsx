@@ -183,6 +183,7 @@ import {
   projectMobileTripPass,
   type TripPassAccountFetchState,
 } from "@/features/trip-pass/account-presentation";
+import { motionAwareScrollBehavior, prefersReducedMotion } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import type { TripPassAccountPresentation } from "@/server/trip-pass/presentation";
 import {
@@ -1829,7 +1830,10 @@ function ChatWorkspaceView({
     if (!chatScrollArea) {
       return;
     }
-    chatScrollArea.scrollTo({ behavior: "smooth", top: chatScrollArea.scrollHeight });
+    chatScrollArea.scrollTo({
+      behavior: motionAwareScrollBehavior(),
+      top: chatScrollArea.scrollHeight,
+    });
     setShowScrollToLatest(false);
   }, []);
 
@@ -2330,7 +2334,7 @@ function ChatTopBar({
           ) : null}
           <Button
             aria-label="Reset chat"
-            className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+            className="size-11 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
             onClick={onStartNewChat}
             size="icon"
             type="button"
@@ -2340,7 +2344,7 @@ function ChatTopBar({
           </Button>
           <Button
             aria-label="Share saved plan"
-            className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100 disabled:opacity-45"
+            className="size-11 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100 disabled:opacity-45"
             disabled={!canSharePlan}
             onClick={onSharePlan}
             size="icon"
@@ -3612,7 +3616,7 @@ function ChatSettingsLink() {
     <>
       <Button
         asChild
-        className="hidden h-10 rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50 sm:inline-flex"
+        className="hidden h-11 rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50 sm:inline-flex"
         variant="outline"
       >
         <Link href="/settings">
@@ -3622,7 +3626,7 @@ function ChatSettingsLink() {
       </Button>
       <Button
         asChild
-        className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100 sm:hidden"
+        className="size-11 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100 sm:hidden"
         size="icon"
         variant="outline"
       >
@@ -3680,7 +3684,7 @@ function ChatContextRail({
   return (
     <aside
       aria-label="Trip context and live conditions"
-      className="hidden min-h-0 content-start gap-1.5 overflow-hidden border-border-default/80 border-l bg-brand-paper-100/88 p-1.5 min-[1180px]:grid"
+      className="hidden min-h-0 content-start gap-1 overflow-hidden border-border-default/80 border-l bg-brand-paper-100/88 p-1 min-[1180px]:grid"
       data-testid="context-rail"
     >
       <ContextCard
@@ -3688,7 +3692,7 @@ function ChatContextRail({
           isEditing ? (
             <div className="flex items-center gap-2">
               <Button
-                className="min-h-9 rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-muted hover:bg-brand-lavender-50"
+                className="min-h-11 rounded-md border-border-default bg-white px-3 text-xs font-extrabold text-text-muted hover:bg-brand-lavender-50"
                 onClick={() => {
                   setDraft(tripContext);
                   setIsEditing(false);
@@ -3702,7 +3706,7 @@ function ChatContextRail({
                 Cancel
               </Button>
               <Button
-                className="min-h-9 rounded-md bg-brand-lagoon-700 px-3 text-xs font-extrabold text-white hover:bg-brand-lagoon-600"
+                className="min-h-11 rounded-md bg-brand-lagoon-700 px-3 text-xs font-extrabold text-white hover:bg-brand-lagoon-600"
                 disabled={saveState === "saving"}
                 onClick={() => {
                   void saveDraft();
@@ -3715,7 +3719,7 @@ function ChatContextRail({
             </div>
           ) : (
             <Button
-              className="min-h-9 rounded-md border-brand-lagoon-700/20 bg-brand-lagoon-100 px-3 text-xs font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
+              className="min-h-11 rounded-md border-brand-lagoon-700/20 bg-brand-lagoon-100 px-3 text-xs font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
               onClick={() => {
                 setDraft(tripContext);
                 setIsEditing(true);
@@ -3780,7 +3784,7 @@ function ChatContextRail({
         action={
           <Button
             aria-label="Refresh weather"
-            className="size-9 rounded-md border-border-default bg-white text-brand-lagoon-700 hover:bg-brand-lagoon-50"
+            className="size-11 rounded-md border-border-default bg-white text-brand-lagoon-700 hover:bg-brand-lagoon-50"
             onClick={() => {
               refreshWeather();
             }}
@@ -3813,7 +3817,7 @@ function ChatContextRail({
         action={
           <Button
             aria-label="Refresh surf conditions"
-            className="size-9 rounded-md border-border-default bg-white text-brand-lagoon-700 hover:bg-brand-lagoon-50"
+            className="size-11 rounded-md border-border-default bg-white text-brand-lagoon-700 hover:bg-brand-lagoon-50"
             onClick={() => {
               refreshSurf();
             }}
@@ -3856,7 +3860,7 @@ function ContextCard({
   title: string;
 }) {
   return (
-    <section className="grid gap-1.5 rounded-md border border-border-default/80 bg-white/78 p-2 shadow-none">
+    <section className="grid gap-1.5 rounded-md border border-border-default/80 bg-white/78 p-1.5 shadow-none">
       <div className="flex items-center justify-between gap-3">
         <h2 className="m-0 min-w-0 text-sm font-semibold leading-tight text-text-strong">
           {title}
@@ -4015,7 +4019,7 @@ function ConditionDecisionDetails({
   const presentation = projectConditionEvidencePresentation(decision);
   const [primaryBoundary, ...additionalBoundaries] = decision.notChecked;
   return (
-    <div className="grid gap-2">
+    <div className="grid gap-2 min-[1180px]:gap-1.5">
       {decision.timing ? (
         <p
           className="m-0 text-xs font-semibold text-brand-lagoon-700"
@@ -4039,7 +4043,7 @@ function ConditionDecisionDetails({
       <p
         className={cn(
           "m-0 inline-flex items-center gap-2 text-xs font-extrabold",
-          presentation.state === "checked" ? "text-confidence-high" : "text-text-muted",
+          presentation.state === "checked" ? "text-confidence-high-foreground" : "text-text-muted",
         )}
         data-testid={`${decision.kind}-condition-state`}
       >
@@ -4059,11 +4063,11 @@ function ConditionDecisionDetails({
       ) : null}
       {includeBasis || decision.evidenceStatus || additionalBoundaries.length > 0 ? (
         <details className="group rounded-md border border-border-default bg-brand-paper-100 px-3">
-          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-xs font-extrabold text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-violet-650 min-[1180px]:min-h-10">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-xs font-extrabold text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-violet-650">
             Evidence and limits
             <ChevronDown
               aria-hidden="true"
-              className="transition-transform group-open:rotate-180"
+              className="transition-transform group-open:rotate-180 motion-reduce:transition-none motion-reduce:group-open:rotate-0"
               size={15}
             />
           </summary>
@@ -4278,7 +4282,7 @@ function ChatAuthActions({ compact = false }: { compact?: boolean }) {
         <Button
           className={cn(
             "rounded-md border-border-default bg-white text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50",
-            compact ? "h-11 min-w-[4.5rem] px-3 text-sm" : "h-10 px-3",
+            compact ? "h-11 min-w-[4.5rem] px-3 text-sm" : "h-11 px-3",
           )}
           type="button"
           variant="outline"
@@ -4289,7 +4293,7 @@ function ChatAuthActions({ compact = false }: { compact?: boolean }) {
       {!compact ? (
         <SignUpButton mode="modal">
           <Button
-            className="h-10 rounded-md border-brand-lagoon-700/25 bg-brand-lagoon-50 px-3 text-xs font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
+            className="h-11 rounded-md border-brand-lagoon-700/25 bg-brand-lagoon-50 px-3 text-xs font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
             type="button"
             variant="outline"
           >
@@ -4307,7 +4311,7 @@ function ChatAuthActions({ compact = false }: { compact?: boolean }) {
           asChild
           className={cn(
             "rounded-md border-border-default bg-white text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50",
-            compact ? "h-11 min-w-[4.5rem] px-3 text-sm" : "h-10 px-3",
+            compact ? "h-11 min-w-[4.5rem] px-3 text-sm" : "h-11 px-3",
           )}
           variant="outline"
         >
@@ -4316,7 +4320,7 @@ function ChatAuthActions({ compact = false }: { compact?: boolean }) {
         {!compact ? (
           <Button
             asChild
-            className="h-10 rounded-md border-brand-lagoon-700/25 bg-brand-lagoon-50 px-3 text-xs font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
+            className="h-11 rounded-md border-brand-lagoon-700/25 bg-brand-lagoon-50 px-3 text-xs font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100"
             variant="outline"
           >
             <Link href="/sign-up">Sign up</Link>
@@ -4331,7 +4335,7 @@ function ChatAuthActions({ compact = false }: { compact?: boolean }) {
       <UserButton
         appearance={clerkAppearance}
         fallback={
-          <span className="inline-flex size-10 animate-pulse rounded-full border border-border-default bg-brand-lavender-100" />
+          <span className="inline-flex size-10 animate-pulse rounded-full border border-border-default bg-brand-lavender-100 motion-reduce:animate-none" />
         }
       />
     </Show>
@@ -4800,7 +4804,7 @@ function SavedPlanTray({
       return;
     }
     selectedItemRef.current.scrollIntoView({
-      behavior: "smooth",
+      behavior: motionAwareScrollBehavior(),
       block: "nearest",
       inline: "center",
     });
@@ -4834,7 +4838,7 @@ function SavedPlanTray({
           </div>
         </div>
         <Button
-          className="min-h-10 shrink-0 rounded-md border-brand-lagoon-700 bg-brand-lagoon-700 px-3 text-xs font-extrabold text-white hover:bg-brand-lagoon-600 disabled:opacity-55"
+          className="min-h-11 shrink-0 rounded-md border-brand-lagoon-700 bg-brand-lagoon-700 px-3 text-xs font-extrabold text-white hover:bg-brand-lagoon-600 disabled:opacity-55"
           disabled={!hasSelectedItems || isSharing}
           onClick={onCreateShareLink}
           size="sm"
@@ -4842,7 +4846,11 @@ function SavedPlanTray({
           variant="outline"
         >
           {isSharing ? (
-            <LoaderCircle aria-hidden="true" className="animate-spin" size={14} />
+            <LoaderCircle
+              aria-hidden="true"
+              className="animate-spin motion-reduce:animate-none"
+              size={14}
+            />
           ) : (
             <ExternalLink aria-hidden="true" size={14} />
           )}
@@ -4897,7 +4905,7 @@ function SavedPlanTray({
               </label>
               <Button
                 aria-label={`Remove ${item.title} from saved plan`}
-                className="size-11 shrink-0 rounded-md border-border-default bg-white text-text-muted hover:bg-brand-lavender-50 sm:size-9"
+                className="size-11 shrink-0 rounded-md border-border-default bg-white text-text-muted hover:bg-brand-lavender-50"
                 onClick={() => onRemoveItem(item.id)}
                 size="icon"
                 type="button"
@@ -4929,12 +4937,12 @@ function SavedPlanTray({
         >
           <input
             aria-label="Share link"
-            className="min-h-11 min-w-0 rounded-md border border-border-default bg-white px-3 text-sm font-bold text-text-strong outline-none sm:min-h-9 sm:text-xs"
+            className="min-h-11 min-w-0 rounded-md border border-border-default bg-white px-3 text-sm font-bold text-text-strong outline-none sm:text-xs"
             readOnly
             value={shareUrl}
           />
           <Button
-            className="rounded-md border-border-default bg-white text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50"
+            className="min-h-11 rounded-md border-border-default bg-white text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50"
             onClick={onCopyShareLink}
             size="sm"
             type="button"
@@ -4949,7 +4957,7 @@ function SavedPlanTray({
           </Button>
           <Button
             asChild
-            className="rounded-md border-border-default bg-white text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50"
+            className="min-h-11 rounded-md border-border-default bg-white text-xs font-extrabold text-text-strong hover:bg-brand-lavender-50"
             size="sm"
             variant="outline"
           >
@@ -5172,20 +5180,14 @@ function DecisionStrip({
 function decisionVerdictToneClass(tone: NonNullable<DecisionStripPresentation["verdict"]>["tone"]) {
   switch (tone) {
     case "positive":
-      return "border-confidence-high/35 bg-confidence-high-soft text-confidence-high";
+      return "border-confidence-high/35 bg-confidence-high-soft text-confidence-high-foreground";
     case "caution":
-      return "border-confidence-medium/35 bg-confidence-medium-soft text-confidence-medium";
+      return "border-confidence-medium/35 bg-confidence-medium-soft text-confidence-medium-foreground";
     case "negative":
-      return "border-brand-sunset-coral/40 bg-brand-sunset-coral/10 text-brand-sunset-coral";
+      return "border-risk-high/35 bg-risk-high-soft text-risk-high-foreground";
     case "uncertain":
       return "border-text-muted/25 bg-surface-default text-text-muted";
   }
-}
-
-function prefersReducedMotion() {
-  return (
-    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
 }
 
 function ArtifactDecision({ decision }: { decision?: ArtifactDecisionMetadata }) {
@@ -5342,7 +5344,7 @@ function ItineraryStopRow({ stop }: { stop: ItineraryStopArtifact }) {
         {stop.mapsUrl ? (
           <a
             aria-label={`Open ${stop.title} in Google Maps`}
-            className="inline-flex min-h-11 w-fit max-w-full items-center gap-2 rounded-md border border-brand-lagoon-700/25 bg-white px-3 py-2 text-sm font-extrabold text-brand-lagoon-700 no-underline hover:bg-brand-lagoon-100 sm:min-h-9 sm:text-xs"
+            className="inline-flex min-h-11 w-fit max-w-full items-center gap-2 rounded-md border border-brand-lagoon-700/25 bg-white px-3 py-2 text-sm font-extrabold text-brand-lagoon-700 no-underline hover:bg-brand-lagoon-100 sm:text-xs"
             href={stop.mapsUrl}
             rel="noreferrer"
             target="_blank"
@@ -5813,7 +5815,7 @@ function RecommendationCards({
               {card.mapsUrl ? (
                 <a
                   aria-label={`Open ${card.title} in Google Maps`}
-                  className="inline-flex min-h-11 w-fit max-w-full items-center gap-2 rounded-md border border-brand-lagoon-700/15 bg-brand-lagoon-100 px-3 py-2 text-sm font-extrabold text-brand-lagoon-700 no-underline hover:bg-brand-lagoon-100 sm:min-h-9 sm:text-xs"
+                  className="inline-flex min-h-11 w-fit max-w-full items-center gap-2 rounded-md border border-brand-lagoon-700/15 bg-brand-lagoon-100 px-3 py-2 text-sm font-extrabold text-brand-lagoon-700 no-underline hover:bg-brand-lagoon-100 sm:text-xs"
                   href={card.mapsUrl}
                   rel="noreferrer"
                   target="_blank"
@@ -5868,8 +5870,8 @@ function SaveToggleButton({
       aria-label={isSaved ? `Remove ${title} from saved plan` : `Save ${title}`}
       className={
         isSaved
-          ? "size-11 shrink-0 rounded-md border-brand-lagoon-300/35 bg-brand-lagoon-500 text-brand-navy-980 hover:bg-brand-lagoon-300 sm:size-9"
-          : "size-11 shrink-0 rounded-md border-border-default bg-white text-text-muted hover:bg-brand-lavender-50 sm:size-9"
+          ? "size-11 shrink-0 rounded-md border-brand-lagoon-300/35 bg-brand-lagoon-500 text-brand-navy-980 hover:bg-brand-lagoon-300"
+          : "size-11 shrink-0 rounded-md border-border-default bg-white text-text-muted hover:bg-brand-lavender-50"
       }
       onClick={() => {
         if (isSaved) {
@@ -5916,7 +5918,7 @@ function ChatActionButtons({
         action.href ? (
           <Button
             asChild
-            className="h-auto min-h-11 rounded-md border-border-default bg-white px-3 py-2 text-sm font-extrabold text-text-strong hover:bg-brand-lavender-50 sm:min-h-9 sm:text-xs"
+            className="h-auto min-h-11 rounded-md border-border-default bg-white px-3 py-2 text-sm font-extrabold text-text-strong hover:bg-brand-lavender-50 sm:text-xs"
             key={action.id}
             size="sm"
             variant="outline"
@@ -5927,7 +5929,7 @@ function ChatActionButtons({
           </Button>
         ) : (
           <Button
-            className="h-auto min-h-11 rounded-md border-brand-lagoon-700/20 bg-brand-lagoon-50 px-3 py-2 text-sm font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100 sm:min-h-9 sm:text-xs"
+            className="h-auto min-h-11 rounded-md border-brand-lagoon-700/20 bg-brand-lagoon-50 px-3 py-2 text-sm font-extrabold text-brand-lagoon-700 hover:bg-brand-lagoon-100 sm:text-xs"
             disabled={disabled || !action.prompt}
             key={action.id}
             onClick={() => {
@@ -5975,7 +5977,7 @@ function AssistantSourcesPanel({ sources }: { sources: readonly ChatSourceArtifa
           View receipt
           <ChevronDown
             aria-hidden="true"
-            className="transition-transform group-open:rotate-180"
+            className="transition-transform group-open:rotate-180 motion-reduce:transition-none motion-reduce:group-open:rotate-0"
             size={14}
           />
         </span>
@@ -6314,7 +6316,7 @@ function ChatComposer({
           <textarea
             data-slot="input-group-control"
             aria-label="Ask anything about Siargao"
-            className="min-w-0 max-h-32 min-h-10 basis-full resize-none overflow-hidden rounded-none border-0 bg-transparent px-3 py-2 text-base leading-6 whitespace-pre-wrap text-text-strong caret-brand-lagoon-700 shadow-none outline-none [field-sizing:content] [overflow-wrap:anywhere] placeholder:text-text-muted focus-visible:ring-0 disabled:bg-transparent disabled:text-text-muted md:min-h-11 md:flex-1 md:basis-auto md:py-2.5 md:placeholder:text-text-soft"
+            className="min-w-0 max-h-32 min-h-11 basis-full resize-none overflow-hidden rounded-none border-0 bg-transparent px-3 py-2 text-base leading-6 whitespace-pre-wrap text-text-strong caret-brand-lagoon-700 shadow-none outline-none [field-sizing:content] [overflow-wrap:anywhere] placeholder:text-text-muted focus-visible:ring-0 disabled:bg-transparent disabled:text-text-muted md:flex-1 md:basis-auto md:py-2.5 md:placeholder:text-text-soft"
             data-testid="chat-composer-input"
             disabled={isSending}
             onChange={(event) => {
@@ -6351,7 +6353,11 @@ function ChatComposer({
               type="submit"
             >
               {isSending ? (
-                <LoaderCircle aria-hidden="true" className="animate-spin" size={18} />
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="animate-spin motion-reduce:animate-none"
+                  size={18}
+                />
               ) : (
                 <Send aria-hidden="true" size={18} />
               )}
@@ -6398,7 +6404,11 @@ function LocationSharingControl({
             variant="outline"
           >
             {isRequesting ? (
-              <LoaderCircle aria-hidden="true" className="shrink-0 animate-spin" size={16} />
+              <LoaderCircle
+                aria-hidden="true"
+                className="shrink-0 animate-spin motion-reduce:animate-none"
+                size={16}
+              />
             ) : (
               <MapPin aria-hidden="true" className="shrink-0 text-brand-violet-650" size={16} />
             )}
@@ -6575,7 +6585,7 @@ function FollowUpPromptDisclosure({
         Try another Reality Check
         <ChevronDown
           aria-hidden="true"
-          className="transition-transform group-open:rotate-180"
+          className="transition-transform group-open:rotate-180 motion-reduce:transition-none motion-reduce:group-open:rotate-0"
           size={16}
         />
       </summary>

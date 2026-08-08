@@ -52,6 +52,19 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
   );
 });
 
+test("does not preload the CSS-hidden desktop hero on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+
+  const heroPreloads = page.locator('head link[rel="preload"][as="image"]');
+  await expect(heroPreloads).toHaveCount(1);
+  await expect(heroPreloads).toHaveAttribute("imagesizes", "(min-width: 1024px) 0px, 100vw");
+  await expect(page.getByTestId("mobile-hero-image")).toHaveAttribute("loading", "eager");
+  await expect(page.getByTestId("mobile-hero-image")).toBeVisible();
+  await expect(page.getByTestId("desktop-hero-image")).toBeHidden();
+  await expect(page.getByTestId("desktop-hero-image")).toHaveAttribute("loading", "lazy");
+});
+
 test("keeps every primary landing action on one contrast-stable color role", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
@@ -246,7 +259,10 @@ for (const viewport of [
     ).toBeVisible();
     await page.evaluate(async () => {
       await document.fonts.ready;
-      await Promise.all(Array.from(document.images).map((image) => image.decode().catch(() => {})));
+      const visibleImages = Array.from(document.images).filter(
+        (image) => image.getClientRects().length > 0,
+      );
+      await Promise.all(visibleImages.map((image) => image.decode().catch(() => {})));
     });
 
     expect(
@@ -385,6 +401,9 @@ test("renders Trip Pass pricing and legal copy without unsupported promises", as
 
   await page.goto("/legal/trip-pass");
   await expect(page.getByRole("heading", { name: "Siargao Trip Pass" })).toBeVisible();
+  const legalBackLink = page.getByRole("link", { name: "Back to Ask Siargao" });
+  const legalBackLinkBox = await legalBackLink.boundingBox();
+  expect(legalBackLinkBox?.height ?? 0).toBeGreaterThanOrEqual(44);
   await expect(page.getByText("verified Stripe payment event")).toBeVisible();
   await expect(page.getByText("Full refunds revoke remaining pass access.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Provider availability" })).toBeVisible();
@@ -403,6 +422,21 @@ test("landing remains usable at a 200 percent zoom equivalent with reduced motio
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 720, height: 900 });
   await page.goto("/");
+
+  const askInChat = page.getByRole("link", { name: "Ask in chat" });
+  expect(
+    await askInChat.evaluate((element) => getComputedStyle(element).transitionDuration),
+  ).not.toBe("0.001s");
+
+  const reducedMotionDisclosure = page
+    .locator("details")
+    .filter({ hasText: "What may inform this check" });
+  await reducedMotionDisclosure.getByText("What may inform this check", { exact: true }).click();
+  expect(
+    await reducedMotionDisclosure
+      .locator("summary svg")
+      .evaluate((element) => getComputedStyle(element).transform),
+  ).toBe("none");
 
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),

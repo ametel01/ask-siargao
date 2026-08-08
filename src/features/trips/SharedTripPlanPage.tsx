@@ -458,7 +458,7 @@ function MapLink({ href, title }: { href: string; title: string }) {
   return (
     <a
       aria-label={`Open ${title} in Google Maps`}
-      className="inline-flex min-h-9 w-fit max-w-full items-center gap-2 rounded-md border border-brand-lagoon-700/25 bg-white px-3 py-2 text-xs font-extrabold text-brand-lagoon-700 no-underline transition hover:bg-brand-lagoon-100"
+      className="inline-flex min-h-11 w-fit max-w-full items-center gap-2 rounded-md border border-brand-lagoon-700/25 bg-white px-3 py-2 text-xs font-extrabold text-brand-lagoon-700 no-underline transition hover:bg-brand-lagoon-100"
       href={href}
       rel="noreferrer"
       target="_blank"
