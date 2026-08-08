@@ -55,6 +55,12 @@ type FindingCandidate = Omit<
   localRef: string;
 };
 
+type CommerceObservation = {
+  candidates: FindingCandidate[];
+  local: LocalCommerceSnapshot;
+  sequence: string;
+};
+
 export async function reconcileLiveCommerce(
   input: {
     source: "cli" | "authenticated_adapter" | "worker";
@@ -78,7 +84,7 @@ export async function reconcileLiveCommerce(
   const localRows = await loadLocalCommerce(db, input.orderId);
   await trace.record({ index: 0, operation: "load_local_commerce", result: "succeeded" });
 
-  const candidates: FindingCandidate[] = [];
+  const observations: CommerceObservation[] = [];
   for (const local of localRows) {
     await trace.record({ index: 0, operation: "authoritative_payment_lookup", result: "started" });
     const provider = await dependencies.commerceReader.readPaymentFact({
@@ -90,7 +96,18 @@ export async function reconcileLiveCommerce(
       operation: "authoritative_payment_lookup",
       result: "succeeded",
     });
-    candidates.push(...compareCommerce(local, provider, now()));
+    await trace.record({
+      index: 0,
+      operation: "allocate_reconciliation_observation",
+      result: "started",
+    });
+    const sequence = await allocateObservationSequence(db);
+    await trace.record({
+      index: 0,
+      operation: "allocate_reconciliation_observation",
+      result: "succeeded",
+    });
+    observations.push({ candidates: compareCommerce(local, provider, now()), local, sequence });
   }
 
   await trace.record({ index: 0, operation: "record_reconciliation_findings", result: "started" });
@@ -99,74 +116,92 @@ export async function reconcileLiveCommerce(
     await transaction.query(
       `insert into operational_reconciliation_runs (
          id, source, status, checked_count, finding_count, started_at, completed_at
-       ) values ($1, $2, 'succeeded', $3, $4, $5, $5)`,
-      [runId, input.source, localRows.length, candidates.length, at],
+       ) values ($1, $2, 'succeeded', $3, 0, $4, $4)`,
+      [runId, input.source, localRows.length, at],
     );
     const recorded: OperationalFindingView[] = [];
-    for (const candidate of candidates) {
-      const findingId = createId("finding");
-      const incidentKey = createIncidentKey(candidate);
-      const result = await transaction.query<{
-        id: string;
-        incident_key: string;
-        lifecycle: number;
-      }>(
-        `insert into operational_findings (
-           id, run_id, kind, impact, status, local_entity_type, local_entity_ref,
-           summary_code, incident_key, lifecycle, detected_at, last_detected_at
-         ) values (
-           $1, $2, $3, $4, 'open', 'trip_pass_order', $5, $6, $7, 1, $8, $8
-         )
-         on conflict (incident_key) do update set
-           run_id = excluded.run_id,
-           impact = excluded.impact,
-           status = 'open',
-           lifecycle = case
-             when operational_findings.status = 'resolved'
-             then operational_findings.lifecycle + 1
-             else operational_findings.lifecycle
-           end,
-           detected_at = case
-             when operational_findings.status = 'resolved' then excluded.detected_at
-             else operational_findings.detected_at
-           end,
-           last_detected_at = excluded.last_detected_at,
-           resolved_at = null
-         returning id, incident_key, lifecycle`,
-        [
-          findingId,
-          runId,
-          candidate.kind,
-          candidate.impact,
-          candidate.localRef,
-          candidate.summaryCode,
-          incidentKey,
-          at,
-        ],
+    for (const observation of observations) {
+      await transaction.query("select id from trip_pass_orders where id = $1 for update", [
+        observation.local.id,
+      ]);
+      const freshness = await transaction.query<{ last_applied_sequence: string }>(
+        `insert into operational_reconciliation_observations (
+           local_entity_type, local_entity_ref, last_applied_sequence, observed_at
+         ) values ('trip_pass_order', $1, $2, $3)
+         on conflict (local_entity_type, local_entity_ref) do update set
+           last_applied_sequence = excluded.last_applied_sequence,
+           observed_at = excluded.observed_at
+         where operational_reconciliation_observations.last_applied_sequence
+           < excluded.last_applied_sequence
+         returning last_applied_sequence::text`,
+        [observation.local.id, observation.sequence, at],
       );
-      const current = result.rows[0];
-      if (!current) throw new Error("reconciliation_finding_upsert_failed");
-      recorded.push({
-        findingId: current.id,
-        impact: candidate.impact,
-        incidentKey: current.incident_key,
-        kind: candidate.kind,
-        lifecycle: current.lifecycle,
-        status: "open",
-        summaryCode: candidate.summaryCode,
-      });
-    }
-    const localRefs = localRows.map((row) => row.id);
-    if (localRefs.length > 0) {
+      if (!freshness.rows[0]) continue;
+
+      const observationFindings: OperationalFindingView[] = [];
+      for (const candidate of observation.candidates) {
+        const findingId = createId("finding");
+        const incidentKey = createIncidentKey(candidate);
+        const result = await transaction.query<{
+          id: string;
+          incident_key: string;
+          lifecycle: number;
+        }>(
+          `insert into operational_findings (
+             id, run_id, kind, impact, status, local_entity_type, local_entity_ref,
+             summary_code, incident_key, lifecycle, detected_at, last_detected_at
+           ) values (
+             $1, $2, $3, $4, 'open', 'trip_pass_order', $5, $6, $7, 1, $8, $8
+           )
+           on conflict (incident_key) do update set
+             run_id = excluded.run_id,
+             impact = excluded.impact,
+             status = 'open',
+             lifecycle = case
+               when operational_findings.status = 'resolved'
+               then operational_findings.lifecycle + 1
+               else operational_findings.lifecycle
+             end,
+             detected_at = case
+               when operational_findings.status = 'resolved' then excluded.detected_at
+               else operational_findings.detected_at
+             end,
+             last_detected_at = excluded.last_detected_at,
+             resolved_at = null
+           returning id, incident_key, lifecycle`,
+          [
+            findingId,
+            runId,
+            candidate.kind,
+            candidate.impact,
+            candidate.localRef,
+            candidate.summaryCode,
+            incidentKey,
+            at,
+          ],
+        );
+        const current = result.rows[0];
+        if (!current) throw new Error("reconciliation_finding_upsert_failed");
+        observationFindings.push({
+          findingId: current.id,
+          impact: candidate.impact,
+          incidentKey: current.incident_key,
+          kind: candidate.kind,
+          lifecycle: current.lifecycle,
+          status: "open",
+          summaryCode: candidate.summaryCode,
+        });
+      }
+      recorded.push(...observationFindings);
       await transaction.query(
         `update operational_findings set status = 'resolved', resolved_at = $3
          where status = 'open'
            and local_entity_type = 'trip_pass_order'
-           and local_entity_ref = any($1::text[])
+           and local_entity_ref = $1
            and kind = any($2::text[])
            and not (incident_key = any($4::text[]))`,
         [
-          localRefs,
+          observation.local.id,
           [
             "paid_without_pass",
             "access_without_payment",
@@ -174,10 +209,14 @@ export async function reconcileLiveCommerce(
             "pending_payment_stale",
           ],
           at,
-          recorded.map((finding) => finding.incidentKey),
+          observationFindings.map((finding) => finding.incidentKey),
         ],
       );
     }
+    await transaction.query(
+      "update operational_reconciliation_runs set finding_count = $2 where id = $1",
+      [runId, recorded.length],
+    );
     return recorded;
   });
   await trace.record({
@@ -187,6 +226,15 @@ export async function reconcileLiveCommerce(
   });
   for (const finding of findings) await dependencies.alertFinding?.(finding);
   return { checkedCount: localRows.length, findings, runId, trace: trace.events };
+}
+
+async function allocateObservationSequence(db: DatabaseQueryClient) {
+  const allocated = await db.query<{ sequence: string }>(
+    "select nextval('operational_reconciliation_observation_sequence')::text as sequence",
+  );
+  const sequence = allocated.rows[0]?.sequence;
+  if (!sequence) throw new Error("reconciliation_observation_allocation_failed");
+  return sequence;
 }
 
 export function reconciliationAlertKey(finding: OperationalFindingView) {

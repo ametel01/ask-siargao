@@ -9,6 +9,11 @@ Trip Pass, changes a Usage Meter, or calls a provider mutation. Historical `mode
 `confirmMutation` inputs to `reconcileTripPassState()` remain accepted for rolling-deployment
 compatibility but are ignored; every flag combination is detect-only.
 
+After each provider response, reconciliation allocates a database-authored monotonic observation
+sequence without holding a transaction or lock across the provider call. The apply transaction then
+locks the Order and advances its observation row only when the token is newer than the stored token.
+Older healthy or mismatch responses cannot resolve, reopen, or page after a newer observation.
+
 Each mismatch has a canonical opaque incident key derived from constrained mismatch fields and its
 local record identity, never from the reconciliation run. An unchanged mismatch updates the same
 Finding and lifecycle. A clean comparison resolves it; recurrence reopens the same opaque Finding
@@ -75,9 +80,12 @@ resurrects identity.
 success/retry updates by lease token. Crashes leave work reclaimable after lease expiry. Repeated
 failures remain visible and can invoke a scrubbed Sentry warning/page callback. Supported task kinds
 are Account Closure, Pending Stripe Event, Paid After Closure refund, retention purge, and commerce
-reconciliation. `bun run operations:worker -- --task=<kind-or-all>` wires every kind to its concrete
-production path while retaining provider-client injection for protected tests. `--batch` and
-`--lease-seconds` bound one invocation. No scheduler vendor or cadence is selected by engineering.
+reconciliation. `bun run operations:enqueue -- --task=<kind-or-all>` discovers due obligations and
+enqueues stable task/target identities. `bun run operations:worker -- --task=<kind-or-all>` drains
+already-queued work. An external scheduler can perform both phases in one bounded invocation with
+`bun run operations:run -- --task=<kind-or-all> --cycle-key=<opaque-cycle>`; repeating the same
+cycle key cannot duplicate work. `--batch`, `--enqueue-limit`, and `--lease-seconds` bound one
+invocation. No scheduler vendor or cadence is selected by engineering.
 
 Both success and retry transitions require the matching token and an unexpired database-time lease;
 an expired worker can neither complete nor reschedule work after takeover becomes eligible. Repeated
@@ -92,3 +100,7 @@ success and failure updates are fenced by the delivery token and unexpired lease
 high-impact payment/access/privacy/Redis mismatches page once. Lower-impact conditions warn or
 create tickets. PostHog remains timeout-bounded analytics only; its success or failure cannot change
 commerce, access, closure, reconciliation, repair, or worker state.
+
+The Sentry `event_id` is the valid 32-hex-character digest of the opaque alert lifecycle key. Crash
+reclaim and ambiguous transport retry therefore reuse one provider idempotency identity, while a new
+incident lifecycle receives a different identity.

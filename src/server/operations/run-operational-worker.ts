@@ -1,6 +1,7 @@
 import { getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { type OperationalTaskType, operationalTaskTypes } from "@/server/operations/contracts";
 import { reconciliationAlertKey } from "@/server/operations/live-reconciliation";
+import { enqueueDueOperationalTasks } from "@/server/operations/operational-task-producer";
 import { createProductionOperationalTaskHandlers } from "@/server/operations/production-handlers";
 import {
   createSentryHttpSink,
@@ -16,6 +17,16 @@ async function main() {
   const sentry = process.env.SENTRY_DSN
     ? createSentryHttpSink({ dsn: process.env.SENTRY_DSN })
     : null;
+  const enqueued = options.enqueue
+    ? await enqueueDueOperationalTasks(
+        {
+          cycleKey: options.cycleKey,
+          limitPerType: options.enqueueLimit,
+          taskTypes: options.taskTypes,
+        },
+        db,
+      )
+    : undefined;
   const result = await runOperationalWorker(
     {
       batchSize: options.batchSize,
@@ -60,16 +71,23 @@ async function main() {
     },
   );
 
-  console.info(JSON.stringify({ checked: "operational-worker", ...result }));
+  console.info(JSON.stringify({ checked: "operational-worker", enqueued, ...result }));
 }
 
 export function parseOperationalWorkerArguments(arguments_: string[]) {
   let batchSize = 100;
+  let cycleKey: string | undefined;
+  let enqueue = false;
+  let enqueueLimit = 100;
   let leaseSeconds = 60;
   let taskTypes: OperationalTaskType[] | undefined;
   for (const argument of arguments_) {
-    if (argument.startsWith("--batch=")) batchSize = positiveInteger(argument.slice(8));
-    else if (argument.startsWith("--lease-seconds=")) {
+    if (argument === "--enqueue") enqueue = true;
+    else if (argument.startsWith("--batch=")) batchSize = positiveInteger(argument.slice(8));
+    else if (argument.startsWith("--cycle-key=")) cycleKey = argument.slice(12);
+    else if (argument.startsWith("--enqueue-limit=")) {
+      enqueueLimit = positiveInteger(argument.slice(16));
+    } else if (argument.startsWith("--lease-seconds=")) {
       leaseSeconds = positiveInteger(argument.slice(16));
     } else if (argument.startsWith("--task=")) {
       const task = argument.slice(7);
@@ -79,7 +97,8 @@ export function parseOperationalWorkerArguments(arguments_: string[]) {
       } else throw new Error("invalid_operational_task_type");
     } else throw new Error("invalid_operational_worker_argument");
   }
-  return { batchSize, leaseSeconds, taskTypes };
+  if (cycleKey && !enqueue) throw new Error("operational_cycle_key_requires_enqueue");
+  return { batchSize, cycleKey, enqueue, enqueueLimit, leaseSeconds, taskTypes };
 }
 
 function positiveInteger(raw: string) {

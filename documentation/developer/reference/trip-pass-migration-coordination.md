@@ -18,11 +18,18 @@ file. Operations findings, repair audit, paging delivery, and generic worker lea
 | `0014` | #153 | Paid Answer Reservation and retention-expiry state. |
 | `0015` | #153 | Paid Answer retention retry scheduling metadata, constraints, and due-work index. |
 | `0016` | #154 | Opaque operations findings, Repair Action audit, Sentry delivery, and durable provider-neutral worker leases. |
+| `0016_preflight` | #154 | Late-discovered duplicate-Finding convergence that sorts before immutable `0017`; safe as a no-op on ledgers already through `0017`. |
 | `0017` | #154 | Stable incident lifecycles and database-time Sentry delivery leases, added without rewriting `0016`. |
+| `0018` | #154 | Repair command identity/indexes and monotonic reconciliation observation fencing, added without rewriting `0016` or `0017`. |
 
-Issues #155-#156 must not reuse migration `0016`. Any newly discovered schema need is
+Issues #155-#156 must not reuse migrations owned by #154. Any newly discovered schema need is
 coordinator-assigned after this reserved sequence instead of being folded into an applied or
-already-reserved file. The next available coordinator-assigned number is `0018`.
+already-reserved file. The next available coordinator-assigned number is `0019`.
+
+The migration ledger validates every known filename/checksum independently so an additive preflight
+can be discovered after a database recorded `0017`. On a database stopped at `0016`, lexical order
+runs the preflight before `0017`; on a database already through `0017`, the same preflight detects
+the incident columns and no-ops before `0018`. Unknown files and checksum drift still fail closed.
 
 ## Expand-First Rules
 

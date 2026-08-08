@@ -20,12 +20,17 @@ export async function enqueueOperationalTask(
   input: { id: string; resourceRef: string; taskType: OperationalTaskType },
   db: DatabaseQueryClient,
 ) {
-  await db.query(
+  const inserted = await db.query<{ id: string }>(
     `insert into operational_worker_tasks (id, task_type, resource_ref)
      values ($1, $2, $3)
-     on conflict (task_type, resource_ref) do nothing`,
+     on conflict (task_type, resource_ref) do update set
+       status = 'pending', attempts = 0, next_attempt_at = clock_timestamp(),
+       completed_at = null, last_error_code = null, updated_at = clock_timestamp()
+     where operational_worker_tasks.status = 'succeeded'
+     returning id`,
     [input.id, input.taskType, input.resourceRef],
   );
+  return Boolean(inserted.rows[0]);
 }
 
 export async function runOperationalWorker(

@@ -70,15 +70,11 @@ CREATE TABLE operational_findings (
 CREATE INDEX operational_findings_open_idx
   ON operational_findings(status, impact, detected_at, id);
 
-CREATE INDEX operational_findings_run_id_idx
-  ON operational_findings(run_id);
-
 CREATE TABLE operator_repair_actions (
   id text PRIMARY KEY,
   finding_id text NOT NULL REFERENCES operational_findings(id),
   operator_account_id text NOT NULL,
   idempotency_key_hash text NOT NULL,
-  command_hash text NOT NULL,
   action_type text NOT NULL,
   reason_code text NOT NULL,
   before_state jsonb NOT NULL,
@@ -98,9 +94,6 @@ CREATE TABLE operator_repair_actions (
     operator_account_id, idempotency_key_hash
   )
 );
-
-CREATE INDEX operator_repair_actions_finding_id_idx
-  ON operator_repair_actions(finding_id);
 
 CREATE TABLE operational_alert_deliveries (
   id text PRIMARY KEY,
@@ -122,9 +115,6 @@ CREATE TABLE operational_alert_deliveries (
     status IN ('sending', 'sent', 'failed')
   )
 );
-
-CREATE INDEX operational_alert_deliveries_finding_id_idx
-  ON operational_alert_deliveries(finding_id);
 
 CREATE TABLE operational_worker_tasks (
   id text PRIMARY KEY,

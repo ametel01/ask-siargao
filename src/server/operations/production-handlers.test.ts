@@ -55,6 +55,9 @@ function recordingDatabase(queries: string[]): DatabaseQueryClient {
       if (query.includes("clock_timestamp() as now")) {
         return { rows: [{ now: new Date("2026-08-08T00:00:00.000Z") }] as T[] };
       }
+      if (query.includes("nextval('operational_reconciliation_observation_sequence')")) {
+        return { rows: [{ sequence: "1" }] as T[] };
+      }
       return { rows: [] as T[] };
     },
     async transaction<T>(callback: (transaction: DatabaseQueryClient) => Promise<T>) {

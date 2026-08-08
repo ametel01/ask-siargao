@@ -12,6 +12,10 @@ import {
   reconciliationAlertKey,
 } from "@/server/operations/live-reconciliation";
 import {
+  enqueueDueOperationalTasks,
+  stableOperationalTaskId,
+} from "@/server/operations/operational-task-producer";
+import {
   authorizeOperator,
   operatorMutationVerificationConfig,
   readOperatorAccountAllowlist,
@@ -21,6 +25,7 @@ import {
   type LocalRepairExecutor,
   previewRepairAction,
 } from "@/server/operations/repair-actions";
+import { parseOperationalTaskProducerArguments } from "@/server/operations/run-operational-task-producer";
 import { parseOperationalWorkerArguments } from "@/server/operations/run-operational-worker";
 import {
   classifyOperationalCondition,
@@ -109,6 +114,8 @@ describe("live Stripe reconciliation", () => {
         "load_local_commerce",
         "authoritative_payment_lookup",
         "authoritative_payment_lookup",
+        "allocate_reconciliation_observation",
+        "allocate_reconciliation_observation",
         "record_reconciliation_findings",
         "record_reconciliation_findings",
       ]);
@@ -438,17 +445,41 @@ describe("operational worker CLI", () => {
   test("selects one or every production task type with bounded controls", () => {
     expect(parseOperationalWorkerArguments(["--task=pending_stripe_event", "--batch=3"])).toEqual({
       batchSize: 3,
+      cycleKey: undefined,
+      enqueue: false,
+      enqueueLimit: 100,
       leaseSeconds: 60,
       taskTypes: ["pending_stripe_event"],
     });
     expect(parseOperationalWorkerArguments(["--task=all", "--lease-seconds=30"])).toEqual({
       batchSize: 100,
+      cycleKey: undefined,
+      enqueue: false,
+      enqueueLimit: 100,
       leaseSeconds: 30,
       taskTypes: undefined,
     });
     expect(() => parseOperationalWorkerArguments(["--task=unknown"])).toThrow(
       "invalid_operational_task_type",
     );
+    expect(
+      parseOperationalWorkerArguments([
+        "--enqueue",
+        "--cycle-key=cycle-20260808T12",
+        "--enqueue-limit=5",
+      ]),
+    ).toMatchObject({ cycleKey: "cycle-20260808T12", enqueue: true, enqueueLimit: 5 });
+    expect(
+      parseOperationalTaskProducerArguments([
+        "--task=retention_purge",
+        "--cycle-key=cycle-1",
+        "--limit=4",
+      ]),
+    ).toEqual({
+      cycleKey: "cycle-1",
+      limitPerType: 4,
+      taskTypes: ["retention_purge"],
+    });
   });
 });
 
@@ -605,9 +636,102 @@ describe("Sentry operational paging", () => {
       expect(sends).toBe(3);
     });
   });
+
+  test("reuses one Sentry event identity across transport retry and rotates by lifecycle", async () => {
+    await withTestDb(async (db) => {
+      const eventIds: string[] = [];
+      const logicalPages = new Set<string>();
+      const alert = {
+        alertKey: "reconciliation:incident_opaque:lifecycle:7",
+        errorCode: "paid_without_pass",
+        impact: "high" as const,
+        operation: "paid_without_pass" as const,
+      };
+      await expect(
+        deliverOperationalAlertOnce(alert, {
+          createId: () => "delivery_event_retry",
+          createToken: () => "event_retry_token_1",
+          db,
+          sink: {
+            async send({ eventId }) {
+              eventIds.push(eventId);
+              logicalPages.add(eventId);
+              throw new Error("transport_response_lost");
+            },
+          },
+        }),
+      ).resolves.toEqual({ status: "failed" });
+      await expect(
+        deliverOperationalAlertOnce(alert, {
+          createId: () => "delivery_event_retry_again",
+          createToken: () => "event_retry_token_2",
+          db,
+          sink: {
+            async send({ eventId }) {
+              eventIds.push(eventId);
+              logicalPages.add(eventId);
+            },
+          },
+        }),
+      ).resolves.toEqual({ status: "sent" });
+      await deliverOperationalAlertOnce(
+        { ...alert, alertKey: "reconciliation:incident_opaque:lifecycle:8" },
+        {
+          createId: () => "delivery_new_lifecycle",
+          createToken: () => "new_lifecycle_token",
+          db,
+          sink: {
+            async send({ eventId }) {
+              eventIds.push(eventId);
+              logicalPages.add(eventId);
+            },
+          },
+        },
+      );
+      expect(eventIds[0]).toMatch(/^[a-f0-9]{32}$/);
+      expect(eventIds[1]).toBe(eventIds[0]);
+      expect(eventIds[2]).not.toBe(eventIds[0]);
+      expect(logicalPages.size).toBe(2);
+    });
+  });
 });
 
 describe("durable provider-neutral workers", () => {
+  test("producer enqueues one stable reconciliation cycle and worker drains it", async () => {
+    await withTestDb(async (db) => {
+      const input = {
+        cycleKey: "cycle-20260808T12",
+        taskTypes: ["commerce_reconciliation"] as const,
+      };
+      expect(await enqueueDueOperationalTasks(input, db)).toMatchObject({
+        commerce_reconciliation: 1,
+      });
+      expect(await enqueueDueOperationalTasks(input, db)).toMatchObject({
+        commerce_reconciliation: 0,
+      });
+      const resourceRef = "all:cycle-20260808T12";
+      const queued = await db.query<{ id: string; resource_ref: string; task_type: string }>(
+        "select id, resource_ref, task_type from operational_worker_tasks",
+      );
+      expect(queued.rows).toEqual([
+        {
+          id: stableOperationalTaskId("commerce_reconciliation", resourceRef),
+          resource_ref: resourceRef,
+          task_type: "commerce_reconciliation",
+        },
+      ]);
+      await expect(
+        runOperationalWorker(
+          { batchSize: 1, leaseSeconds: 60 },
+          {
+            db,
+            handlers: { commerce_reconciliation: async () => undefined },
+          },
+        ),
+      ).resolves.toEqual({ claimed: 1, failed: 0, stale: 0, succeeded: 1 });
+    });
+  });
+
   test("claims only the task kinds selected by the thin CLI adapter", async () => {
     await withTestDb(async (db) => {
       await enqueueOperationalTask(

@@ -104,7 +104,8 @@ export function createProductionOperationalTaskHandlers(dependencies: {
       await trace.record({ index: 0, operation: "commerce_reconciliation", result: "started" });
       await reconcileLiveCommerce(
         {
-          orderId: resourceRef === "all" ? undefined : resourceRef,
+          orderId:
+            resourceRef === "all" || resourceRef.startsWith("all:") ? undefined : resourceRef,
           source: "worker",
         },
         {

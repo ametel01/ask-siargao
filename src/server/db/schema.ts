@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   check,
   date,
@@ -2098,6 +2099,27 @@ export const operationalReconciliationRuns = pgTable(
   ],
 );
 
+export const operationalReconciliationObservations = pgTable(
+  "operational_reconciliation_observations",
+  {
+    localEntityType: text("local_entity_type").notNull(),
+    localEntityRef: text("local_entity_ref").notNull(),
+    lastAppliedSequence: bigint("last_applied_sequence", { mode: "bigint" }).notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.localEntityType, table.localEntityRef] }),
+    check(
+      "operational_reconciliation_observations_entity_type_check",
+      sql`${table.localEntityType} = 'trip_pass_order'`,
+    ),
+    check(
+      "operational_reconciliation_observations_sequence_check",
+      sql`${table.lastAppliedSequence} > 0`,
+    ),
+  ],
+);
+
 export const operationalFindings = pgTable(
   "operational_findings",
   {
@@ -2293,6 +2315,10 @@ export const operationalAlertDeliveriesRelations = relations(
 
 export type OperationalReconciliationRun = typeof operationalReconciliationRuns.$inferSelect;
 export type NewOperationalReconciliationRun = typeof operationalReconciliationRuns.$inferInsert;
+export type OperationalReconciliationObservation =
+  typeof operationalReconciliationObservations.$inferSelect;
+export type NewOperationalReconciliationObservation =
+  typeof operationalReconciliationObservations.$inferInsert;
 export type OperationalFinding = typeof operationalFindings.$inferSelect;
 export type NewOperationalFinding = typeof operationalFindings.$inferInsert;
 export type OperatorRepairAction = typeof operatorRepairActions.$inferSelect;

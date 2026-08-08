@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 
@@ -54,6 +54,7 @@ export function classifyOperationalCondition(input: {
 export type SentryOperationalSink = {
   send(event: {
     errorCode: string;
+    eventId: string;
     findingId?: string;
     impact: "warning" | "high";
     operation: OperationalAlert["operation"];
@@ -73,6 +74,7 @@ export async function deliverOperationalAlertOnce(
   const createId = dependencies.createId ?? ((prefix: string) => `${prefix}_${randomUUID()}`);
   const token = dependencies.createToken?.() ?? randomUUID();
   const leaseSeconds = dependencies.leaseSeconds ?? 60;
+  const eventId = sentryEventIdForAlertKey(alert.alertKey);
   if (!Number.isInteger(leaseSeconds) || leaseSeconds < 1 || leaseSeconds > 300) {
     throw new Error("invalid_alert_lease_seconds");
   }
@@ -107,6 +109,7 @@ export async function deliverOperationalAlertOnce(
   try {
     await dependencies.sink.send({
       errorCode: normalizeCode(alert.errorCode),
+      eventId,
       findingId: alert.findingId,
       impact: alert.impact,
       operation: alert.operation,
@@ -142,7 +145,7 @@ export function createSentryHttpSink(input: {
     async send(event) {
       const response = await fetchImpl(endpoint.url, {
         body: JSON.stringify({
-          event_id: randomUUID().replaceAll("-", ""),
+          event_id: event.eventId,
           level: event.impact === "high" ? "fatal" : "warning",
           logger: "ask-siargao.operations",
           message: `${event.operation}:${event.errorCode}`,
@@ -163,6 +166,10 @@ export function createSentryHttpSink(input: {
       if (!response.ok) throw new Error("sentry_delivery_failed");
     },
   };
+}
+
+export function sentryEventIdForAlertKey(alertKey: string) {
+  return createHash("sha256").update(alertKey).digest("hex").slice(0, 32);
 }
 
 function parseSentryDsn(value: string) {

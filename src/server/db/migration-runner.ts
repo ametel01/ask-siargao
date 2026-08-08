@@ -84,36 +84,47 @@ function validateMigrationLedger(
   migrationFiles: readonly MigrationFile[],
   ledgerRows: readonly LedgerRow[],
 ) {
-  const migrationNames = new Set(migrationFiles.map((migrationFile) => migrationFile.name));
+  const migrationsByName = new Map(
+    migrationFiles.map((migrationFile) => [migrationFile.name, migrationFile]),
+  );
+  const ledgerNames = new Set<string>();
 
   for (const ledgerRow of ledgerRows) {
-    if (!migrationNames.has(ledgerRow.name)) {
+    const migrationFile = migrationsByName.get(ledgerRow.name);
+    if (!migrationFile) {
       throw new Error(
         `Migration ledger drift: schema_migrations contains unknown migration ${ledgerRow.name}.`,
       );
     }
-  }
-
-  for (const [ledgerIndex, ledgerRow] of ledgerRows.entries()) {
-    const expectedMigration = migrationFiles[ledgerIndex];
-    if (!expectedMigration) {
+    if (ledgerNames.has(ledgerRow.name)) {
       throw new Error(
-        `Migration ledger drift: schema_migrations has more rows than migration files; unexpected ${ledgerRow.name}.`,
+        `Migration ledger drift: schema_migrations contains duplicate migration ${ledgerRow.name}.`,
       );
     }
-
-    if (ledgerRow.name !== expectedMigration.name) {
+    ledgerNames.add(ledgerRow.name);
+    if (ledgerRow.checksum !== migrationFile.checksum) {
       throw new Error(
-        `Migration ledger drift: expected applied migration ${expectedMigration.name} at position ${ledgerIndex + 1}, found ${ledgerRow.name}.`,
-      );
-    }
-
-    if (ledgerRow.checksum !== expectedMigration.checksum) {
-      throw new Error(
-        `Migration checksum mismatch for ${ledgerRow.name}: ledger has ${ledgerRow.checksum}, file has ${expectedMigration.checksum}.`,
+        `Migration checksum mismatch for ${ledgerRow.name}: ledger has ${ledgerRow.checksum}, file has ${migrationFile.checksum}.`,
       );
     }
   }
+
+  const latestAppliedIndex = migrationFiles.reduce(
+    (latest, migrationFile, index) => (ledgerNames.has(migrationFile.name) ? index : latest),
+    -1,
+  );
+  for (const [index, migrationFile] of migrationFiles.entries()) {
+    if (index > latestAppliedIndex) break;
+    if (!ledgerNames.has(migrationFile.name) && !isLateAdditivePreflight(migrationFile.name)) {
+      throw new Error(
+        `Migration ledger drift: applied migrations skip required migration ${migrationFile.name}.`,
+      );
+    }
+  }
+}
+
+function isLateAdditivePreflight(name: string) {
+  return /^\d+_preflight_.+\.sql$/.test(name);
 }
 
 async function runMigration(database: MigrationDatabase, migrationFile: MigrationFile) {

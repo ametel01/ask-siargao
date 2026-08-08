@@ -24,6 +24,8 @@
     "privacy:closure-worker": "bun run src/server/privacy/run-account-closure-worker.ts",
     "payments:closure-refund-worker": "bun run src/server/trip-pass/run-paid-after-closure-refund-worker.ts",
     "operations:reconcile": "bun run src/server/operations/run-commerce-reconciliation.ts",
+    "operations:enqueue": "bun run src/server/operations/run-operational-task-producer.ts",
+    "operations:run": "bun run src/server/operations/run-operational-worker.ts --enqueue",
     "operations:worker": "bun run src/server/operations/run-operational-worker.ts",
     "privacy:restore-guard": "bun run src/server/privacy/run-restore-guard.ts",
     "db:ingest:open-meteo": "bun run src/server/providers/ingest-open-meteo.ts",

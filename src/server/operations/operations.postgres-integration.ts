@@ -4,6 +4,10 @@ import {
   reconciliationAlertKey,
 } from "@/server/operations/live-reconciliation";
 import {
+  enqueueDueOperationalTasks,
+  stableOperationalTaskId,
+} from "@/server/operations/operational-task-producer";
+import {
   executeRepairAction,
   type LocalRepairExecutor,
   previewRepairAction,
@@ -88,7 +92,10 @@ export async function runOperationsPostgresIntegration(db: DatabaseQueryClient) 
   );
   assert(unchanged.rows[0]?.status === "pending", "reconciliation mutated Order state");
 
+  await runObservationOrderingRegressions(db);
+
   await runRepairActionRegressions(db);
+  await runOperationalProducerRegressions(db);
 
   await enqueueOperationalTask(
     {
@@ -266,6 +273,292 @@ export async function runOperationsPostgresIntegration(db: DatabaseQueryClient) 
     },
   );
   assert(staleDelivery.status === "stale_delivery", "native stale alert completion was accepted");
+
+  const nativeEventIds: string[] = [];
+  const retriedAlert = { ...alert, alertKey: "native_alert_stable_event_identity" };
+  const failedTransport = await deliverOperationalAlertOnce(retriedAlert, {
+    createId: () => "native_alert_event_identity_one",
+    createToken: () => "native_alert_event_identity_token_one",
+    db,
+    sink: {
+      async send({ eventId }) {
+        nativeEventIds.push(eventId);
+        throw new Error("native_transport_response_lost");
+      },
+    },
+  });
+  assert(failedTransport.status === "failed", "native alert transport failure was not retryable");
+  await deliverOperationalAlertOnce(retriedAlert, {
+    createId: () => "native_alert_event_identity_two",
+    createToken: () => "native_alert_event_identity_token_two",
+    db,
+    sink: {
+      async send({ eventId }) {
+        nativeEventIds.push(eventId);
+      },
+    },
+  });
+  await deliverOperationalAlertOnce(
+    { ...retriedAlert, alertKey: "native_alert_stable_event_identity_lifecycle_two" },
+    {
+      createId: () => "native_alert_event_identity_three",
+      createToken: () => "native_alert_event_identity_token_three",
+      db,
+      sink: {
+        async send({ eventId }) {
+          nativeEventIds.push(eventId);
+        },
+      },
+    },
+  );
+  assert(
+    nativeEventIds[0] === nativeEventIds[1] && nativeEventIds[2] !== nativeEventIds[0],
+    "native alert retries did not reuse one event identity per lifecycle",
+  );
+}
+
+async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
+  await db.query(
+    `insert into account_closure_tombstones (
+       id, subject_hash, subject_hash_version, subject_type, closure_policy_version
+     ) values (
+       'native_producer_tombstone', 'native_producer_subject', 1, 'clerk_user_id',
+       'closure-v1'
+     )`,
+  );
+  await db.query(
+    `insert into account_closure_operations (
+       id, tombstone_id, operation_type, status, phase_one_committed_at
+     ) values (
+       'native_producer_closure', 'native_producer_tombstone', 'traveler_requested_closure',
+       'pending', clock_timestamp()
+     )`,
+  );
+  await db.query(
+    `insert into account_closure_steps (id, operation_id, step_type)
+     values ('native_producer_closure_step', 'native_producer_closure', 'clerk_deletion')`,
+  );
+  await db.query(
+    `insert into trip_pass_stripe_events (
+       id, stripe_event_id, stripe_api_version, normalized_schema_version, event_type,
+       object_type, object_id
+     ) values (
+       'native_producer_stripe_event', 'evt_native_producer', '2026-06-30.basil', 1,
+       'checkout.session.completed', 'checkout.session', 'cs_native_producer'
+     )`,
+  );
+  await db.query(
+    `insert into account_closure_refund_obligations (
+       id, tombstone_id, order_id, reason, policy_version, stripe_payment_intent_id,
+       expected_amount_minor
+     ) values (
+       'native_producer_refund', 'native_producer_tombstone', 'native_producer_refund_order',
+       'paid_after_closure', 'refund-v1', 'pi_native_producer_refund', 999
+     )`,
+  );
+  await db.query(
+    `insert into trip_passes (
+       id, user_id, status, starts_at, expires_at
+     ) values (
+       'native_producer_pass', 'native_operations_account', 'active',
+       clock_timestamp() - interval '2 days', clock_timestamp() + interval '12 days'
+     )`,
+  );
+  await db.query(
+    `insert into trip_usage_meters (id, trip_pass_id, meter_type, used, "limit")
+     values ('native_producer_meter', 'native_producer_pass', 'chat_message', 1, 150)`,
+  );
+  await db.query(
+    `insert into paid_answer_reservations (
+       id, trip_pass_id, usage_meter_id, account_id, idempotency_key_hash,
+       request_body_hash, request_id, lease_token, status, lease_expires_at,
+       details_purge_at, reserved_at, finalized_at
+     ) values (
+       'native_producer_reservation', 'native_producer_pass', 'native_producer_meter',
+       'native_operations_account', 'native_producer_idempotency', 'native_producer_body',
+       'native_producer_request', 'native_producer_lease', 'settled',
+       clock_timestamp() - interval '1 day', clock_timestamp() - interval '1 hour',
+       clock_timestamp() - interval '2 days', clock_timestamp() - interval '1 day'
+     )`,
+  );
+
+  const cycleKey = "native-cycle-20260808T12";
+  const first = await enqueueDueOperationalTasks({ cycleKey }, db);
+  const duplicate = await enqueueDueOperationalTasks({ cycleKey }, db);
+  for (const count of Object.values(first)) {
+    assert(count >= 1, "native producer did not enqueue every due obligation kind");
+  }
+  for (const count of Object.values(duplicate)) {
+    assert(count === 0, "native duplicate producer invocation enqueued a second task");
+  }
+  const expected = [
+    ["account_closure", "native_producer_closure"],
+    ["pending_stripe_event", "native_producer_stripe_event"],
+    ["paid_after_closure_refund", "native_producer_refund"],
+    ["retention_purge", "native_producer_reservation"],
+    ["commerce_reconciliation", `all:${cycleKey}`],
+  ] as const;
+  const queued = await db.query<{ id: string; resource_ref: string; task_type: string }>(
+    `select id, resource_ref, task_type from operational_worker_tasks
+     where resource_ref like 'native_producer_%' or resource_ref = $1
+     order by task_type`,
+    [`all:${cycleKey}`],
+  );
+  assert(queued.rows.length === 5, "native producer did not create exactly five tasks");
+  for (const [taskType, resourceRef] of expected) {
+    assert(
+      queued.rows.some(
+        (row) =>
+          row.id === stableOperationalTaskId(taskType, resourceRef) &&
+          row.resource_ref === resourceRef &&
+          row.task_type === taskType,
+      ),
+      `native producer task mismatch for ${taskType}`,
+    );
+  }
+  await db.query(
+    `delete from operational_worker_tasks
+     where resource_ref not like 'native_producer_%' and resource_ref <> $1`,
+    [`all:${cycleKey}`],
+  );
+
+  const drained = await runOperationalWorker(
+    { batchSize: 5, leaseSeconds: 60 },
+    {
+      db,
+      handlers: {
+        account_closure: async () => undefined,
+        commerce_reconciliation: async () => undefined,
+        paid_after_closure_refund: async () => undefined,
+        pending_stripe_event: async () => undefined,
+        retention_purge: async () => Promise.reject(new Error("native_producer_crash")),
+      },
+    },
+  );
+  assert(
+    drained.succeeded === 4 && drained.failed === 1,
+    "native producer worker did not drain four tasks and retain one retry",
+  );
+  await db.query(
+    `update operational_worker_tasks set next_attempt_at = clock_timestamp()
+     where resource_ref = 'native_producer_reservation'`,
+  );
+  const recovered = await runOperationalWorker(
+    { batchSize: 1, leaseSeconds: 60, taskTypes: ["retention_purge"] },
+    {
+      db,
+      handlers: { retention_purge: async () => undefined },
+    },
+  );
+  assert(recovered.succeeded === 1, "native producer task did not recover after worker crash");
+}
+
+async function runObservationOrderingRegressions(db: DatabaseQueryClient) {
+  for (const orderId of ["native_observation_old_mismatch", "native_observation_old_healthy"]) {
+    await db.query(
+      `insert into trip_pass_orders (
+         id, user_id, status, product_code, product_version, stripe_price_id,
+         amount_total_minor, currency, checkout_idempotency_key,
+         stripe_checkout_session_id, stripe_payment_intent_id
+       ) values (
+         $1, 'native_operations_account', 'pending', 'siargao_trip_pass_14d_v2', 2,
+         'price_native_observation', 999, 'usd', $2, $3, $4
+       )`,
+      [orderId, `checkout_key_${orderId}`, `cs_${orderId}`, `pi_${orderId}`],
+    );
+  }
+
+  const olderMismatchAllocated = deferred<void>();
+  const releaseOlderMismatch = deferred<void>();
+  let olderMismatchPages = 0;
+  const olderMismatch = reconcileLiveCommerce(
+    { orderId: "native_observation_old_mismatch", source: "worker" },
+    {
+      commerceReader: {
+        async readPaymentFact() {
+          return { amountMinor: 999, currency: "usd", paymentState: "paid" };
+        },
+      },
+      db,
+      recordEvent: async (event) => {
+        if (
+          event.operation === "allocate_reconciliation_observation" &&
+          event.result === "succeeded"
+        ) {
+          olderMismatchAllocated.resolve();
+          await releaseOlderMismatch.promise;
+        }
+      },
+      alertFinding: async () => {
+        olderMismatchPages += 1;
+      },
+    },
+  );
+  await olderMismatchAllocated.promise;
+  const newerHealthy = await reconcileLiveCommerce(
+    { orderId: "native_observation_old_mismatch", source: "worker" },
+    {
+      commerceReader: {
+        async readPaymentFact() {
+          return { amountMinor: 999, currency: "usd", paymentState: "unpaid" };
+        },
+      },
+      db,
+    },
+  );
+  releaseOlderMismatch.resolve();
+  const staleMismatch = await olderMismatch;
+  assert(newerHealthy.findings.length === 0, "newer healthy observation created a finding");
+  assert(staleMismatch.findings.length === 0, "older mismatch applied after newer healthy state");
+  assert(olderMismatchPages === 0, "older mismatch paged after newer healthy state");
+
+  const olderHealthyAllocated = deferred<void>();
+  const releaseOlderHealthy = deferred<void>();
+  const olderHealthy = reconcileLiveCommerce(
+    { orderId: "native_observation_old_healthy", source: "worker" },
+    {
+      commerceReader: {
+        async readPaymentFact() {
+          return { amountMinor: 999, currency: "usd", paymentState: "unpaid" };
+        },
+      },
+      db,
+      recordEvent: async (event) => {
+        if (
+          event.operation === "allocate_reconciliation_observation" &&
+          event.result === "succeeded"
+        ) {
+          olderHealthyAllocated.resolve();
+          await releaseOlderHealthy.promise;
+        }
+      },
+    },
+  );
+  await olderHealthyAllocated.promise;
+  let newerMismatchPages = 0;
+  const newerMismatch = await reconcileLiveCommerce(
+    { orderId: "native_observation_old_healthy", source: "worker" },
+    {
+      commerceReader: {
+        async readPaymentFact() {
+          return { amountMinor: 999, currency: "usd", paymentState: "paid" };
+        },
+      },
+      db,
+      alertFinding: async () => {
+        newerMismatchPages += 1;
+      },
+    },
+  );
+  releaseOlderHealthy.resolve();
+  await olderHealthy;
+  assert(newerMismatch.findings.length === 1, "newer mismatch did not open an incident");
+  assert(newerMismatchPages === 1, "newer mismatch did not page exactly once");
+  const finalFinding = await db.query<{ status: string }>(
+    `select status from operational_findings
+     where local_entity_ref = 'native_observation_old_healthy'`,
+  );
+  assert(finalFinding.rows[0]?.status === "open", "older healthy state resolved newer mismatch");
 }
 
 async function runRepairActionRegressions(db: DatabaseQueryClient) {
