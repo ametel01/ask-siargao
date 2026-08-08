@@ -40,6 +40,23 @@ test("as-built environment example covers the production-readiness interfaces", 
   expect(example).not.toContain("INNGEST_SIGNING_KEY");
 });
 
+test("environment template, reference, and code stay aligned for release-owned variables", async () => {
+  const [example, reference, reportAccess, repositoryEnvUse] = await Promise.all([
+    readFile(".env.example", "utf8"),
+    readFile("documentation/developer/reference/environment.md", "utf8"),
+    readFile("src/server/audit/report-access.ts", "utf8"),
+    readFile("src/server/operations/run-operational-worker.ts", "utf8"),
+  ]);
+  const exampleNames = [...example.matchAll(/^([A-Z][A-Z0-9_]*)=/gm)].map((match) => match[1]);
+  for (const name of exampleNames) expect(reference).toContain(`\`${name}\``);
+  expect(reportAccess).toContain("process.env.REPORT_ACCESS_TOKEN_SECRET");
+  expect(example).toContain("REPORT_ACCESS_TOKEN_SECRET=");
+  expect(reference).toContain("`REPORT_ACCESS_TOKEN_SECRET`");
+  for (const unusedSchedulerKey of ["INNGEST_EVENT_KEY", "INNGEST_SIGNING_KEY"]) {
+    expect(`${example}\n${reference}\n${repositoryEnvUse}`).not.toContain(unusedSchedulerKey);
+  }
+});
+
 test("current auth, commerce, operator, and release docs reject stale launch claims", async () => {
   const corpus = (
     await Promise.all(currentDocs.map(async (path) => `${path}\n${await readFile(path, "utf8")}`))
@@ -118,4 +135,44 @@ test("documented operational worker task and lease arguments are executable", ()
       "--lease-seconds=60",
     ]),
   ).toMatchObject({ batchSize: 25, leaseSeconds: 60, taskTypes: ["commerce_reconciliation"] });
+});
+
+test("reconciliation docs match the exact finding scope and keep mutation at the repair API", async () => {
+  const [reference, implementation] = await Promise.all([
+    readFile("documentation/developer/reference/trip-pass-reconciliation.md", "utf8"),
+    readFile("src/server/operations/live-reconciliation.ts", "utf8"),
+  ]);
+  for (const finding of [
+    "paid_without_pass",
+    "access_without_payment",
+    "payment_state_mismatch",
+    "pending_payment_stale",
+  ]) {
+    expect(implementation).toContain(`kind: "${finding}"`);
+    expect(reference).toContain(`\`${finding}\``);
+  }
+  for (const overclaim of [
+    "cumulative refunds",
+    "disputes",
+    "closure/payment race",
+    "Paid After Closure",
+    "paid-answer settlement",
+  ]) {
+    expect(reference).not.toContain(overclaim);
+  }
+  expect(reference).toContain("read-only `operations:worker -- --task=commerce_reconciliation`");
+  expect(reference).toContain("`POST /api/admin/repairs`");
+  for (const repairBoundary of [
+    "`OPERATOR_ACCOUNT_IDS`",
+    "fresh Clerk MFA",
+    "preview digest",
+    "`APPLY REPAIR`",
+    "idempotency key",
+    "audit",
+  ]) {
+    expect(reference).toContain(repairBoundary);
+  }
+  expect(reference).not.toContain(
+    "The worker uses database-time leases, retry fencing, and idempotency",
+  );
 });

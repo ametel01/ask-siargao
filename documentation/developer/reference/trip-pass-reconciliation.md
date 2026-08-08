@@ -1,47 +1,63 @@
 # Trip Pass Reconciliation and Repair Reference
 
-Reconciliation and repair are separate operations. Reconciliation is read-only and creates or
-updates opaque Findings. Repair requires a named Operator, allowlist membership, fresh Clerk MFA,
-a reason code, a preview, and an idempotency key.
+Live reconciliation observes authoritative Stripe payment facts and records opaque Findings. It
+does not mutate Trip Pass orders, access, grants, meters, or provider state. Repair is a separate
+same-origin Operator API action.
 
 ## Authority and ordering
 
-Stripe is the authority for money facts. The Ask Siargao ledger is the authority for access,
-grants, and the single commercial `chat_message` meter. For every live reconciliation, the
-authoritative Stripe lookup completes before the finding transaction begins. Tests assert this
-semantic order; a broadly green test suite is not a substitute.
+Stripe is the authority for payment state, amount, and currency. The Ask Siargao ledger is the
+authority for access. For every order, the authoritative Stripe lookup completes before the
+finding transaction begins. Tests assert this semantic order; a broadly green suite is not a
+substitute.
 
-Run a read-only scan:
+Run an explicitly scoped scan:
 
 ```sh
 bun run operations:reconcile -- --order=<opaque-local-order-id>
 ```
 
-No mutation switch exists on that command. It returns redacted counts and Finding IDs, never full
-Checkout URLs, provider payloads, emails, or provider object IDs.
+Run the same commerce reconciliation through the durable scheduler-neutral queue:
 
-## Findings
-
-The reconciler covers paid-without-pass, active-without-paid, cumulative refunds, disputes,
-unsupported or ambiguous Stripe state, duplicate fact mismatches, a closure/payment race, **Paid
-After Closure**, and paid-answer settlement. Uncertain access enters **Refund Review** rather than
-guessing a proportional entitlement result.
-
-Stripe webhook delivery is inbox-first and idempotent. Browser return and cancel endpoints may
-refresh display state, but only signed/authoritatively retrieved provider facts can change payment
-truth. Repeated and reversed delivery is applied once in the correct semantic order.
-
-## Repair
-
-Production repair is served through the Operator surface and durable provider-neutral operation
-worker. A mutation is bound to an opaque Finding ID and the previewed before/after transition. The
-worker uses database-time leases, retry fencing, and idempotency; scheduler choice and cadence live
-outside application code.
+The read-only `operations:worker -- --task=commerce_reconciliation` selection records Findings;
+it does not select a repair executor.
 
 ```sh
 bun run operations:worker -- --task=commerce_reconciliation --batch=25 --lease-seconds=60
 ```
 
-Use `/admin/diagnostics` to inspect scrubbed status. If provider state is ambiguous, leave the
-Finding open, preserve access fail-closed where required, and retry the provider lookup. Never edit
-commerce rows directly or use a shared bearer credential to authorize repair.
+Both paths are read-only with respect to commerce. The worker may claim a task and the reconciler
+may insert/update reconciliation runs, observations, Findings, and scrubbed alerts; neither path
+applies a repair. Output is limited to redacted counts and opaque Finding references, never full
+Checkout URLs, provider payloads, emails, or provider object IDs.
+
+## Exact finding scope
+
+The current comparison emits only these four Finding kinds:
+
+- `paid_without_pass`: Stripe reports `paid` and the local order has no pass.
+- `access_without_payment`: Stripe reports `unpaid` or `pending` while local access exists.
+- `payment_state_mismatch`: the authoritative amount or currency differs from the local order.
+- `pending_payment_stale`: Stripe still reports `pending` at least 30 minutes after local creation.
+
+Refund and dispute lifecycle application, webhook retry, Account Closure ordering, and paid-answer
+usage have their own handlers and diagnostics. They are not findings produced by this comparison.
+If Stripe lookup is ambiguous or unavailable, reconciliation fails and retries instead of
+inventing a Finding from incomplete provider truth.
+
+## Repair API
+
+Mutation is available only through `POST /api/admin/repairs`, not through either reconciliation
+command. The route requires same-origin execution, an authenticated Clerk Account in
+`OPERATOR_ACCOUNT_IDS`, and fresh Clerk MFA for execution.
+
+1. Send `mode: "preview"`, the opaque Finding ID, and an allowed action type. Review the returned
+   before/after preview and preview digest.
+2. Send `mode: "execute"` with the same Finding/action, the preview digest, confirmation exactly
+   `APPLY REPAIR`, a bounded reason code, and a new idempotency key.
+3. The server reauthorizes the Operator, rejects a changed preview or reused key with different
+   input, applies the supported transition transactionally, and records the audit receipt.
+
+Use `/admin/diagnostics` for scrubbed status. If provider truth is unavailable or the preview has
+changed, leave the Finding open and reconcile again. Never edit commerce rows directly or use a
+shared bearer credential to authorize repair.
